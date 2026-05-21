@@ -3,18 +3,20 @@
 
 package dev.vortex.spark;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.ArrowType;
+import dev.vortex.spark.write.SparkToArrowSchema;
+import dev.vortex.spark.write.VortexWriterCommitMessage;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/**
- * Unit tests for VortexDataSourceV2 basic functionality.
- */
+/** Unit tests for VortexDataSourceV2 basic functionality. */
 public final class VortexDataSourceBasicTest {
 
     @Test
@@ -36,7 +38,7 @@ public final class VortexDataSourceBasicTest {
         });
 
         // Convert to Arrow schema
-        var arrowSchema = dev.vortex.spark.write.SparkToArrowSchema.convert(sparkSchema);
+        var arrowSchema = SparkToArrowSchema.convert(sparkSchema);
 
         // Verify conversion
         assertNotNull(arrowSchema, "Arrow schema should not be null");
@@ -66,7 +68,7 @@ public final class VortexDataSourceBasicTest {
         });
 
         // Convert to Arrow schema
-        var arrowSchema = dev.vortex.spark.write.SparkToArrowSchema.convert(sparkSchema);
+        var arrowSchema = SparkToArrowSchema.convert(sparkSchema);
 
         // Verify conversion
         assertNotNull(arrowSchema, "Arrow schema should not be null");
@@ -98,7 +100,7 @@ public final class VortexDataSourceBasicTest {
         long recordCount = 1000;
         long bytesWritten = 50000;
 
-        var message = new dev.vortex.spark.write.VortexWriterCommitMessage(testPath, recordCount, bytesWritten);
+        var message = new VortexWriterCommitMessage(testPath, recordCount, bytesWritten);
 
         assertEquals(testPath, message.filePath());
         assertEquals(recordCount, message.recordCount());

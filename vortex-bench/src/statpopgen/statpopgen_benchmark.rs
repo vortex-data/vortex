@@ -129,7 +129,7 @@ impl Benchmark for StatPopGenBenchmark {
         Ok(())
     }
 
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     fn expected_row_counts(&self) -> Option<Vec<usize>> {
         let n_rows = self.n_rows as usize;
         match self.scale_factor {
@@ -168,7 +168,7 @@ impl Benchmark for StatPopGenBenchmark {
         vec![TableSpec::new("statpopgen", None)]
     }
 
-    #[expect(clippy::expect_used, clippy::unwrap_in_result)]
+    #[expect(clippy::expect_used)]
     fn pattern(&self, _table_name: &str, format: Format) -> Option<glob::Pattern> {
         Some(
             format!("{}.{}", Self::FILE_NAME, format.ext())

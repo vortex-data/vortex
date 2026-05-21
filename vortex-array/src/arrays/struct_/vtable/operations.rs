@@ -14,11 +14,11 @@ impl OperationsVTable<Struct> for Struct {
     fn scalar_at(
         array: ArrayView<'_, Struct>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let field_scalars: VortexResult<Vec<Scalar>> = array
             .iter_unmasked_fields()
-            .map(|field| field.scalar_at(index))
+            .map(|field| field.execute_scalar(index, ctx))
             .collect();
         // SAFETY: The vtable guarantees index is in-bounds and non-null before this is called.
         // Each field's scalar_at returns a scalar with the field's own dtype.

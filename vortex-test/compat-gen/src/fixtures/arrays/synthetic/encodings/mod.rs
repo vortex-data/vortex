@@ -43,7 +43,8 @@ pub fn fixtures() -> Vec<Box<dyn FlatLayoutFixture>> {
         Box::new(dict::DictFixture),
         Box::new(fsst::FsstFixture),
         Box::new(for_::FoRFixture),
-        Box::new(patched::PatchedFixture),
+        // TODO(aduffy): add back once we stabilized Patched array
+        // Box::new(patched::PatchedFixture),
         Box::new(pco::PcoFixture),
         Box::new(rle::RleFixture),
         Box::new(runend::RunEndFixture),

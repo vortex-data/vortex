@@ -12,7 +12,6 @@ use num_enum::TryFromPrimitive;
 
 use crate::dtype::DType;
 use crate::dtype::Nullability::NonNullable;
-use crate::dtype::PType;
 
 mod bound;
 mod precision;
@@ -25,7 +24,9 @@ pub use provider::*;
 pub use stat_bound::*;
 
 use crate::aggregate_fn;
+use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::EmptyOptions;
 
 #[derive(
@@ -172,8 +173,14 @@ impl Stat {
             Self::Max => data_type.clone(),
             Self::Min if matches!(data_type, DType::Null) => return None,
             Self::Min => data_type.clone(),
-            Self::NullCount => DType::Primitive(PType::U64, NonNullable),
-            Self::UncompressedSizeInBytes => DType::Primitive(PType::U64, NonNullable),
+            Self::NullCount => {
+                return aggregate_fn::fns::null_count::NullCount
+                    .return_dtype(&EmptyOptions, data_type);
+            }
+            Self::UncompressedSizeInBytes => {
+                return aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
+                    .return_dtype(&EmptyOptions, data_type);
+            }
             Self::NaNCount => {
                 return aggregate_fn::fns::nan_count::NanCount
                     .return_dtype(&EmptyOptions, data_type);
@@ -182,6 +189,41 @@ impl Stat {
                 return aggregate_fn::fns::sum::Sum.return_dtype(&EmptyOptions, data_type);
             }
         })
+    }
+
+    /// Return the built-in aggregate function corresponding to this statistic, if one exists.
+    pub fn aggregate_fn(&self) -> Option<AggregateFnRef> {
+        Some(match self {
+            Self::Sum => aggregate_fn::fns::sum::Sum.bind(EmptyOptions),
+            Self::NullCount => aggregate_fn::fns::null_count::NullCount.bind(EmptyOptions),
+            Self::NaNCount => aggregate_fn::fns::nan_count::NanCount.bind(EmptyOptions),
+            Self::UncompressedSizeInBytes => {
+                aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
+                    .bind(EmptyOptions)
+            }
+            Self::IsConstant | Self::IsSorted | Self::IsStrictSorted | Self::Max | Self::Min => {
+                return None;
+            }
+        })
+    }
+
+    /// Return the statistic represented by `aggregate_fn`, if it has a legacy stat slot.
+    pub fn from_aggregate_fn(aggregate_fn: &AggregateFnRef) -> Option<Self> {
+        if aggregate_fn.is::<aggregate_fn::fns::sum::Sum>() {
+            return Some(Self::Sum);
+        }
+        if aggregate_fn.is::<aggregate_fn::fns::nan_count::NanCount>() {
+            return Some(Self::NaNCount);
+        }
+        if aggregate_fn.is::<aggregate_fn::fns::null_count::NullCount>() {
+            return Some(Self::NullCount);
+        }
+        if aggregate_fn
+            .is::<aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes>()
+        {
+            return Some(Self::UncompressedSizeInBytes);
+        }
+        None
     }
 
     pub fn name(&self) -> &str {
@@ -213,6 +255,8 @@ impl Display for Stat {
 mod test {
     use enum_iterator::all;
 
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::expr::stats::Stat;
 
@@ -220,7 +264,7 @@ mod test {
     fn min_of_nulls_is_not_panic() {
         let min = PrimitiveArray::from_option_iter::<i32, _>([None, None, None, None])
             .statistics()
-            .compute_as::<i64>(Stat::Min);
+            .compute_as::<i64>(Stat::Min, &mut LEGACY_SESSION.create_execution_ctx());
 
         assert_eq!(min, None);
     }

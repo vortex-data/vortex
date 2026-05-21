@@ -14,6 +14,8 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::ListArray;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::builders::ArrayBuilder;
@@ -21,7 +23,8 @@ use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::builders::PrimitiveBuilder;
 use crate::builders::builder_with_capacity;
-use crate::canonical::ToCanonical;
+#[expect(deprecated)]
+use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
@@ -215,6 +218,7 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
+        #[expect(deprecated)]
         let list = array.to_listview();
         if list.is_empty() {
             return;
@@ -223,13 +227,17 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
         // Append validity information.
         self.nulls.append_validity_mask(
             array
-                .validity_mask()
-                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+                .validity()
+                .vortex_expect("validity_mask in extend_from_array_unchecked")
+                .execute_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("Failed to compute validity mask"),
         );
 
         // Note that `ListViewArray` has `n` offsets and sizes, not `n+1` offsets like `ListArray`.
         let elements = list.elements();
+        #[expect(deprecated)]
         let offsets = list.offsets().to_primitive();
+        #[expect(deprecated)]
         let sizes = list.sizes().to_primitive();
 
         fn extend_inner<O, OffsetType, SizeType>(
@@ -301,7 +309,9 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
     }
 
     fn finish_into_canonical(&mut self) -> Canonical {
-        Canonical::List(self.finish_into_list().into_array().to_listview())
+        #[expect(deprecated)]
+        let listview = self.finish_into_list().into_array().to_listview();
+        Canonical::List(listview)
     }
 }
 
@@ -316,7 +326,8 @@ mod tests {
 
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
-    use crate::ToCanonical;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::list::ListArrayExt;
@@ -372,6 +383,7 @@ mod tests {
         let list = builder.finish();
         assert_eq!(list.len(), 2);
 
+        #[expect(deprecated)]
         let list_array = list.to_listview();
 
         assert_eq!(list_array.list_elements_at(0).unwrap().len(), 3);
@@ -424,6 +436,7 @@ mod tests {
         let list = builder.finish();
         assert_eq!(list.len(), 3);
 
+        #[expect(deprecated)]
         let list_array = list.to_listview();
 
         assert_eq!(list_array.list_elements_at(0).unwrap().len(), 3);
@@ -447,6 +460,7 @@ mod tests {
         builder.extend_from_array(&list.slice(0..0).unwrap());
         builder.extend_from_array(&list.slice(1..3).unwrap());
 
+        #[expect(deprecated)]
         let expected = ListArray::from_iter_opt_slow::<O, _, _>(
             [
                 Some(vec![0, 1, 2]),
@@ -520,15 +534,24 @@ mod tests {
             DType::List(Arc::new(DType::Primitive(I32, NonNullable)), NonNullable),
         );
 
+        #[expect(deprecated)]
         let canon_values = chunked_list.unwrap().as_array().to_listview();
 
         assert_eq!(
-            one_trailing_unused_element.scalar_at(0).unwrap(),
-            canon_values.scalar_at(0).unwrap()
+            one_trailing_unused_element
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            canon_values
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
         );
         assert_eq!(
-            second_array.scalar_at(0).unwrap(),
-            canon_values.scalar_at(1).unwrap()
+            second_array
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            canon_values
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
         );
     }
 
@@ -559,7 +582,9 @@ mod tests {
 
         // Check actual values using scalar_at.
 
-        let scalar0 = array.scalar_at(0).unwrap();
+        let scalar0 = array
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         let list0 = scalar0.as_list();
         assert_eq!(list0.len(), 2);
         if let Some(list0_items) = list0.elements() {
@@ -567,7 +592,9 @@ mod tests {
             assert_eq!(list0_items[1].as_primitive().typed_value::<i32>(), Some(2));
         }
 
-        let scalar1 = array.scalar_at(1).unwrap();
+        let scalar1 = array
+            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         let list1 = scalar1.as_list();
         assert_eq!(list1.len(), 3);
         if let Some(list1_items) = list1.elements() {
@@ -576,7 +603,9 @@ mod tests {
             assert_eq!(list1_items[2].as_primitive().typed_value::<i32>(), Some(5));
         }
 
-        let scalar2 = array.scalar_at(2).unwrap();
+        let scalar2 = array
+            .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         let list2 = scalar2.as_list();
         assert!(list2.is_null()); // This should be null.
 

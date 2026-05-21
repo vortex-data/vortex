@@ -35,6 +35,6 @@ impl DynAggregateKernel for RunEndIsConstantKernel {
         };
 
         let result = is_constant(array.values(), ctx)?;
-        Ok(Some(IsConstant::make_partial(batch, result)?))
+        Ok(Some(IsConstant::make_partial(batch, result, ctx)?))
     }
 }

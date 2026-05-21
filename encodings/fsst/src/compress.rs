@@ -5,6 +5,7 @@
 
 use fsst::Compressor;
 use fsst::Symbol;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::varbin::builder::VarBinBuilder;
@@ -21,8 +22,9 @@ pub fn fsst_compress<A: ArrayAccessor<[u8]>>(
     len: usize,
     dtype: &DType,
     compressor: &Compressor,
+    ctx: &mut ExecutionCtx,
 ) -> FSSTArray {
-    strings.with_iterator(|iter| fsst_compress_iter(iter, len, dtype.clone(), compressor))
+    strings.with_iterator(|iter| fsst_compress_iter(iter, len, dtype.clone(), compressor, ctx))
 }
 
 /// Train a compressor from an array.
@@ -61,13 +63,18 @@ pub fn fsst_compress_iter<'a, I>(
     len: usize,
     dtype: DType,
     compressor: &Compressor,
+    ctx: &mut ExecutionCtx,
 ) -> FSSTArray
 where
     I: Iterator<Item = Option<&'a [u8]>>,
 {
     let mut buffer = Vec::with_capacity(DEFAULT_BUFFER_LEN);
-    let mut builder = VarBinBuilder::<i32>::with_capacity(len);
+
+    // Offsets are widened to i64 because the cumulative compressed bytes can exceed i32::MAX for
+    // large inputs (see issue #7833). Per-string sizes still fit in i32.
+    let mut builder = VarBinBuilder::<i64>::with_capacity(len);
     let mut uncompressed_lengths: BufferMut<i32> = BufferMut::with_capacity(len);
+
     for string in iter {
         match string {
             None => {
@@ -102,13 +109,22 @@ where
 
     let uncompressed_lengths = uncompressed_lengths.into_array();
 
-    FSST::try_new(dtype, symbols, symbol_lengths, codes, uncompressed_lengths)
-        .vortex_expect("FSST parts must be valid")
+    FSST::try_new(
+        dtype,
+        symbols,
+        symbol_lengths,
+        codes,
+        uncompressed_lengths,
+        ctx,
+    )
+    .vortex_expect("FSST parts must be valid")
 }
 
 #[cfg(test)]
 mod tests {
     use fsst::CompressorBuilder;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
@@ -126,14 +142,16 @@ mod tests {
 
         let compressor = CompressorBuilder::default().build();
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let compressed = fsst_compress_iter(
             [Some(big_string.as_bytes())].into_iter(),
             1,
             DType::Utf8(Nullability::NonNullable),
             &compressor,
+            &mut ctx,
         );
 
-        let decoded = compressed.scalar_at(0).unwrap();
+        let decoded = compressed.execute_scalar(0, &mut ctx).unwrap();
 
         let expected = Scalar::utf8(big_string, Nullability::NonNullable);
 

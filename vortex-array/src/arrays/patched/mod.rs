@@ -108,5 +108,8 @@ const fn patch_lanes<V: Sized>() -> usize {
 /// array, and eliminate the interior patches.
 ///
 /// The builtin compressor will also generate Patched arrays.
-pub static USE_EXPERIMENTAL_PATCHES: LazyLock<bool> =
-    LazyLock::new(|| env::var("VORTEX_EXPERIMENTAL_PATCHED_ARRAY").is_ok());
+pub fn use_experimental_patches() -> bool {
+    static USE_EXPERIMENTAL_PATCHES: LazyLock<bool> =
+        LazyLock::new(|| env::var("VORTEX_EXPERIMENTAL_PATCHED_ARRAY").is_ok_and(|v| v == "1"));
+    *USE_EXPERIMENTAL_PATCHES
+}

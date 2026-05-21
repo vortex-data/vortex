@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! [`VortexTable`] implements DataFusion's [`TableProvider`] trait, providing a direct
-//! integration between a Vortex [`DataSource`] and DataFusion's query engine.
+//! [`VortexTable`] adapts a Vortex [`DataSourceRef`] into a DataFusion
+//! [`TableProvider`].
+//!
+//! [`DataSourceRef`]: vortex::scan::DataSourceRef
+//! [`TableProvider`]: datafusion_catalog::TableProvider
 
 use std::any::Any;
 use std::fmt;
@@ -21,12 +24,55 @@ use datafusion_datasource::source::DataSourceExec;
 use datafusion_expr::Expr;
 use datafusion_expr::TableType;
 use datafusion_physical_plan::ExecutionPlan;
+use vortex::expr::stats::Precision as VortexPrecision;
 use vortex::scan::DataSourceRef;
 use vortex::session::VortexSession;
 
 use crate::v2::source::VortexDataSource;
 
-/// A DataFusion [`TableProvider`] backed by a Vortex [`DataSourceRef`].
+/// DataFusion [`TableProvider`] backed by a Vortex
+/// [`DataSourceRef`].
+///
+/// `VortexTable` is the usual entry point into [`crate::v2`] when you want to
+/// register an existing Vortex source with DataFusion.
+///
+/// Use it when another part of the system has already built a Vortex source and
+/// you want to expose that source through a
+/// [`SessionContext`].
+///
+/// `VortexTable` handles the `TableProvider` side of the integration:
+///
+/// - it exposes the table schema and coarse statistics to DataFusion,
+/// - it seeds the initial top-level projection during `scan`,
+/// - it hands execution off to [`VortexDataSource`] for later pushdown and
+///   execution.
+///
+/// # Example
+///
+/// ```no_run
+/// use std::sync::Arc;
+///
+/// use arrow_schema::Schema;
+/// use datafusion::prelude::SessionContext;
+/// use vortex::VortexSessionDefault;
+/// use vortex::scan::DataSourceRef;
+/// use vortex::session::VortexSession;
+/// use vortex_datafusion::v2::VortexTable;
+///
+/// # let data_source: DataSourceRef = todo!();
+/// let table = Arc::new(VortexTable::new(
+///     data_source,
+///     VortexSession::default(),
+///     Arc::new(Schema::empty()),
+/// ));
+///
+/// let ctx = SessionContext::new();
+/// ctx.register_table("vortex_data", table)?;
+/// # Ok::<(), datafusion_common::DataFusionError>(())
+/// ```
+///
+/// [`DataSourceRef`]: vortex::scan::DataSourceRef
+/// [`SessionContext`]: https://docs.rs/datafusion/latest/datafusion/prelude/struct.SessionContext.html
 pub struct VortexTable {
     data_source: DataSourceRef,
     session: VortexSession,
@@ -44,8 +90,8 @@ impl fmt::Debug for VortexTable {
 impl VortexTable {
     /// Creates a new [`VortexTable`] from a Vortex data source and session.
     ///
-    /// The Arrow schema will be used to emit the correct column names and types to DataFusion.
-    /// The Vortex DType of the data source should be compatible with this Arrow schema.
+    /// The Arrow schema is the schema DataFusion will observe for this table.
+    /// It should be compatible with the Vortex dtype exposed by `data_source`.
     pub fn new(
         data_source: DataSourceRef,
         session: VortexSession,
@@ -111,14 +157,14 @@ impl TableProvider for VortexTable {
     //  planning over stats from the physical plan?
     fn statistics(&self) -> Option<Statistics> {
         let num_rows = match self.data_source.row_count() {
-            Some(vortex::expr::stats::Precision::Exact(v)) => {
+            Some(VortexPrecision::Exact(v)) => {
                 usize::try_from(v).map(Precision::Exact).unwrap_or_default()
             }
             _ => Precision::Absent,
         };
 
         let total_byte_size = match self.data_source.byte_size() {
-            Some(vortex::expr::stats::Precision::Exact(v)) => {
+            Some(VortexPrecision::Exact(v)) => {
                 usize::try_from(v).map(Precision::Exact).unwrap_or_default()
             }
             _ => Precision::Absent,

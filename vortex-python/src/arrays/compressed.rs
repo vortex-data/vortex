@@ -2,9 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use pyo3::prelude::*;
+use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
-use vortex::array::ToCanonical;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::Dict;
+use vortex::array::arrays::PrimitiveArray;
 use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPRD;
 use vortex::encodings::datetime_parts::DateTimeParts;
@@ -14,12 +16,13 @@ use vortex::encodings::sequence::Sequence;
 use vortex::encodings::sparse::Sparse;
 use vortex::encodings::zigzag::ZigZag;
 use vortex::encodings::zigzag::zigzag_encode;
+use vortex::error::VortexResult;
 
-use crate::PyVortex;
 use crate::arrays::PyArrayRef;
 use crate::arrays::native::EncodingSubclass;
 use crate::arrays::native::PyNativeArray;
 use crate::error::PyVortexResult;
+use crate::session::session;
 
 /// Concrete class for arrays with `vortex.alp` encoding.
 #[pyclass(name = "AlpArray", module = "vortex", extends=PyNativeArray, frozen)]
@@ -88,10 +91,14 @@ impl EncodingSubclass for PyZigZagArray {
 #[pymethods]
 impl PyZigZagArray {
     #[staticmethod]
-    pub fn encode(array: PyArrayRef) -> PyVortexResult<PyArrayRef> {
-        Ok(PyVortex(
-            zigzag_encode(array.inner().clone().to_primitive().as_view())?.into_array(),
-        ))
+    pub fn encode(py: Python, array: PyArrayRef) -> PyVortexResult<PyArrayRef> {
+        let session = session();
+        let array = array.into_inner();
+        let encoded = py.detach(move || -> VortexResult<ArrayRef> {
+            let primitive = array.execute::<PrimitiveArray>(&mut session.create_execution_ctx())?;
+            Ok(zigzag_encode(primitive.as_view())?.into_array())
+        })?;
+        Ok(PyArrayRef::from(encoded))
     }
 }
 

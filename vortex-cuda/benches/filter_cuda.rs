@@ -3,8 +3,10 @@
 
 //! CUDA benchmarks for GPU filtering using CUB DeviceSelect::Flagged.
 
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::cast_possible_truncation)]
+#![expect(clippy::unwrap_used)]
+#![expect(clippy::cast_possible_truncation)]
+
+mod bench_config;
 
 use std::ffi::c_void;
 use std::fmt::Debug;
@@ -18,6 +20,7 @@ use cudarc::driver::CudaSlice;
 use cudarc::driver::CudaView;
 use cudarc::driver::DevicePtr;
 use cudarc::driver::DevicePtrMut;
+use cudarc::driver::DeviceRepr;
 use cudarc::driver::sys::CUevent_flags;
 use futures::executor::block_on;
 use vortex::error::VortexExpect;
@@ -32,7 +35,7 @@ use vortex_cuda::CudaSession;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
-const BENCH_SIZES: &[(usize, &str)] = &[(1_000_000, "1M"), (10_000_000, "10M")];
+use crate::bench_config::BENCH_SIZES;
 const SELECTIVITIES: &[(f64, &str)] = &[(0.1, "10%"), (0.5, "50%"), (0.9, "90%")];
 
 /// Creates input data of the given length.
@@ -64,7 +67,7 @@ fn make_bitmask(len: usize, selectivity: f64) -> (Vec<u8>, usize) {
 
 /// Runs the CUB filter kernel and returns elapsed GPU time.
 #[expect(clippy::too_many_arguments)]
-async fn run_filter_timed<T: CubFilterable + cudarc::driver::DeviceRepr>(
+async fn run_filter_timed<T: CubFilterable + DeviceRepr>(
     d_input: CudaView<'_, T>,
     d_bitmask: CudaView<'_, u8>,
     d_output: &mut CudaSlice<T>,
@@ -132,17 +135,9 @@ async fn run_filter_timed<T: CubFilterable + cudarc::driver::DeviceRepr>(
 /// Benchmark filter for a specific type.
 fn benchmark_filter_type<T>(c: &mut Criterion, type_name: &str)
 where
-    T: CubFilterable
-        + cudarc::driver::DeviceRepr
-        + From<u8>
-        + Debug
-        + Clone
-        + Send
-        + Sync
-        + 'static,
+    T: CubFilterable + DeviceRepr + From<u8> + Debug + Clone + Send + Sync + 'static,
 {
-    let mut group = c.benchmark_group(format!("filter_cuda_{type_name}"));
-    group.sample_size(10);
+    let mut group = c.benchmark_group("cuda");
 
     for (len, len_label) in BENCH_SIZES {
         for (selectivity, sel_label) in SELECTIVITIES {
@@ -153,7 +148,10 @@ where
             group.throughput(Throughput::Bytes((len * size_of::<T>()) as u64));
 
             group.bench_with_input(
-                BenchmarkId::new(format!("{len_label}_{sel_label}"), true_count),
+                BenchmarkId::new(
+                    format!("cuda/filter_{type_name}/select/{sel_label}"),
+                    len_label,
+                ),
                 &(input_data, bitmask, true_count),
                 |b, (input_data, bitmask, true_count)| {
                     b.iter_custom(|iters| {
@@ -229,10 +227,13 @@ where
 fn benchmark_filter(c: &mut Criterion) {
     benchmark_filter_type::<i32>(c, "i32");
     benchmark_filter_type::<i64>(c, "i64");
-    benchmark_filter_type::<f64>(c, "f64");
 }
 
-criterion::criterion_group!(benches, benchmark_filter);
+criterion::criterion_group! {
+    name = benches;
+    config = bench_config::cuda_bench_config();
+    targets = benchmark_filter
+}
 
 #[cuda_available]
 criterion::criterion_main!(benches);

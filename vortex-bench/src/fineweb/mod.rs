@@ -3,15 +3,14 @@
 
 use std::path::PathBuf;
 
-use tokio::io::AsyncWriteExt;
 use tracing::info;
 use url::Url;
 
 use crate::Benchmark;
 use crate::BenchmarkDataset;
-use crate::IdempotentPath;
 use crate::TableSpec;
-use crate::idempotent_async;
+use crate::datasets::data_downloads::download_data;
+use crate::utils::file::resolve_data_url;
 
 /// URL to the sample file
 const SAMPLE_URL: &str = "https://huggingface.co/datasets/HuggingFaceFW/fineweb/resolve/v1.4.0/sample/10BT/001_00000.parquet";
@@ -51,35 +50,12 @@ impl FinewebBenchmark {
     }
 
     pub fn with_remote_data_dir(use_remote_data_dir: Option<String>) -> anyhow::Result<Self> {
-        let data_url = Self::create_data_url(&use_remote_data_dir)?;
+        let data_url = Self::create_data_url(use_remote_data_dir.as_deref())?;
         Ok(Self { data_url })
     }
 
-    fn create_data_url(remote_data_dir: &Option<String>) -> anyhow::Result<Url> {
-        match remote_data_dir {
-            None => {
-                let data_dir = "fineweb".to_data_path();
-                Url::from_directory_path(&data_dir).map_err(|_| {
-                    anyhow::anyhow!("Failed to create URL from directory path: {:?}", &data_dir)
-                })
-            }
-            Some(remote_data_dir) => {
-                if !remote_data_dir.ends_with("/") {
-                    tracing::warn!(
-                        "Supply a --use-remote-data-dir argument which ends in a slash e.g. s3://vortex-bench-dev-eu/develop/12345/fineweb/"
-                    );
-                }
-                tracing::info!(
-                    concat!(
-                        "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\n",
-                        "If it does not, you should kill this command, locally generate the files (by running without\n",
-                        "--use-remote-data-dir) and upload data/fineweb/ to some remote location.",
-                    ),
-                    remote_data_dir,
-                );
-                Ok(Url::parse(remote_data_dir)?)
-            }
-        }
+    fn create_data_url(remote_data_dir: Option<&str>) -> anyhow::Result<Url> {
+        resolve_data_url(remote_data_dir, "fineweb")
     }
 }
 
@@ -104,27 +80,7 @@ impl Benchmark for FinewebBenchmark {
             return Ok(());
         }
 
-        let parquet = idempotent_async(&self.parquet_path()?, |parquet_path| async move {
-            info!("Downloading FineWeb Parquet source from HuggingFace");
-
-            let response = reqwest::get(SAMPLE_URL)
-                .await?
-                .error_for_status()
-                .map_err(|err| {
-                    anyhow::anyhow!("error fetching fineweb sample from HuggingFace: {err}")
-                })?;
-
-            let bytes = response.bytes().await?;
-            let mut w = tokio::fs::File::create(parquet_path).await?;
-
-            w.write_all(&bytes).await?;
-
-            w.flush().await?;
-
-            Ok(())
-        })
-        .await?;
-
+        let parquet = download_data(self.parquet_path()?, SAMPLE_URL).await?;
         info!("fineweb base data generated in {}", parquet.display());
 
         Ok(())

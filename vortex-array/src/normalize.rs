@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use smallvec::SmallVec;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::registry::Id;
@@ -65,7 +66,7 @@ impl ArrayRef {
 
         // Now we've normalized the root, we need to ensure the children are normalized also.
         let slots = normalized.slots();
-        let mut normalized_slots = Vec::with_capacity(slots.len());
+        let mut normalized_slots = SmallVec::with_capacity(slots.len());
         let mut any_slot_changed = false;
 
         for slot in slots {
@@ -105,6 +106,7 @@ mod tests {
     use crate::ArrayRef;
     use crate::ExecutionCtx;
     use crate::IntoArray;
+    use crate::array::VTable;
     use crate::arrays::Dict;
     use crate::arrays::DictArray;
     use crate::arrays::Primitive;
@@ -203,27 +205,25 @@ mod tests {
 
         // Slice the dict array to get a SliceArray wrapping a DictArray.
         let sliced = SliceArray::new(dict, 1..4).into_array();
-        assert_eq!(sliced.encoding_id(), Slice::ID);
+        assert_eq!(sliced.encoding_id(), Slice.id());
 
-        let allowed = HashSet::from_iter([Dict::ID, Primitive::ID]);
+        let allowed = HashSet::from_iter([Dict.id(), Primitive.id()]);
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
-
-        println!("sliced {}", sliced.display_tree());
 
         let normalized = sliced.normalize(&mut NormalizeOptions {
             allowed: &allowed,
             operation: Operation::Execute(&mut ctx),
         })?;
 
-        println!("after {}", normalized.display_tree());
-
         // The normalized result should be a DictArray, not a SliceArray.
-        assert_eq!(normalized.encoding_id(), Dict::ID);
+        assert_eq!(normalized.encoding_id(), Dict.id());
         assert_eq!(normalized.len(), 3);
 
         // Verify the data: codes [1,0,1] -> values [20, 10, 20]
+        #[expect(deprecated)]
+        let normalized_canonical = normalized.to_canonical()?;
         assert_arrays_eq!(
-            normalized.to_canonical()?,
+            normalized_canonical,
             PrimitiveArray::from_iter(vec![20i32, 10, 20])
         );
 

@@ -3,7 +3,10 @@
 
 use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
+use vortex::array::ArrayVTable;
 use vortex::array::IntoArray;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinArray;
 use vortex::array::dtype::FieldNames;
@@ -28,7 +31,7 @@ impl FlatLayoutFixture for FsstFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![FSST::ID]
+        vec![FSST.id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {
@@ -108,6 +111,7 @@ impl FlatLayoutFixture for FsstFixture {
         let high_entropy_comp = fsst_train_compressor(&high_entropy_col);
         let all_null_clustered_comp = fsst_train_compressor(&all_null_clustered);
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = StructArray::try_new(
             FieldNames::from([
                 "urls",
@@ -120,22 +124,44 @@ impl FlatLayoutFixture for FsstFixture {
                 "all_null_clustered",
             ]),
             vec![
-                fsst_compress(&url_col, url_col.len(), url_col.dtype(), &url_comp).into_array(),
-                fsst_compress(&log_col, log_col.len(), log_col.dtype(), &log_comp).into_array(),
+                fsst_compress(
+                    &url_col,
+                    url_col.len(),
+                    url_col.dtype(),
+                    &url_comp,
+                    &mut ctx,
+                )
+                .into_array(),
+                fsst_compress(
+                    &log_col,
+                    log_col.len(),
+                    log_col.dtype(),
+                    &log_comp,
+                    &mut ctx,
+                )
+                .into_array(),
                 fsst_compress(
                     &nullable_col,
                     nullable_col.len(),
                     nullable_col.dtype(),
                     &nullable_comp,
+                    &mut ctx,
                 )
                 .into_array(),
-                fsst_compress(&short_col, short_col.len(), short_col.dtype(), &short_comp)
-                    .into_array(),
+                fsst_compress(
+                    &short_col,
+                    short_col.len(),
+                    short_col.dtype(),
+                    &short_comp,
+                    &mut ctx,
+                )
+                .into_array(),
                 fsst_compress(
                     &empty_and_unicode_col,
                     empty_and_unicode_col.len(),
                     empty_and_unicode_col.dtype(),
                     &empty_and_unicode_comp,
+                    &mut ctx,
                 )
                 .into_array(),
                 fsst_compress(
@@ -143,6 +169,7 @@ impl FlatLayoutFixture for FsstFixture {
                     suffix_shared_col.len(),
                     suffix_shared_col.dtype(),
                     &suffix_shared_comp,
+                    &mut ctx,
                 )
                 .into_array(),
                 fsst_compress(
@@ -150,6 +177,7 @@ impl FlatLayoutFixture for FsstFixture {
                     high_entropy_col.len(),
                     high_entropy_col.dtype(),
                     &high_entropy_comp,
+                    &mut ctx,
                 )
                 .into_array(),
                 fsst_compress(
@@ -157,6 +185,7 @@ impl FlatLayoutFixture for FsstFixture {
                     all_null_clustered.len(),
                     all_null_clustered.dtype(),
                     &all_null_clustered_comp,
+                    &mut ctx,
                 )
                 .into_array(),
             ],

@@ -63,7 +63,7 @@ pub fn min_max(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<
     }
 
     // Short-circuit for empty arrays or all-null arrays.
-    if array.is_empty() || array.valid_count()? == 0 {
+    if array.is_empty() || array.valid_count(ctx)? == 0 {
         return Ok(None);
     }
 
@@ -79,7 +79,7 @@ pub fn min_max(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<
     let result = MinMaxResult::from_scalar(result_scalar)?;
 
     // Cache the computed min/max as statistics.
-    if let Some(ref r) = result {
+    if let Some(r) = &result {
         if let Some(min_value) = r.min.value() {
             array
                 .statistics()
@@ -173,7 +173,7 @@ impl AggregateFnVTable for MinMax {
     type Partial = MinMaxPartial;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new_ref("vortex.min_max")
+        AggregateFnId::new("vortex.min_max")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -257,10 +257,10 @@ impl AggregateFnVTable for MinMax {
                 Ok(())
             }
             Columnar::Canonical(c) => match c {
-                Canonical::Primitive(p) => accumulate_primitive(partial, p),
-                Canonical::Bool(b) => accumulate_bool(partial, b),
+                Canonical::Primitive(p) => accumulate_primitive(partial, p, ctx),
+                Canonical::Bool(b) => accumulate_bool(partial, b, ctx),
                 Canonical::VarBinView(v) => accumulate_varbinview(partial, v),
-                Canonical::Decimal(d) => accumulate_decimal(partial, d),
+                Canonical::Decimal(d) => accumulate_decimal(partial, d, ctx),
                 Canonical::Extension(e) => accumulate_extension(partial, e, ctx),
                 Canonical::Null(_) => Ok(()),
                 Canonical::Struct(_)
@@ -298,6 +298,7 @@ mod tests {
     use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::fns::min_max::MinMax;
     use crate::aggregate_fn::fns::min_max::MinMaxResult;
+    use crate::aggregate_fn::fns::min_max::make_minmax_dtype;
     use crate::aggregate_fn::fns::min_max::min_max;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
@@ -451,7 +452,7 @@ mod tests {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let mut state = MinMax.empty_partial(&EmptyOptions, &dtype)?;
 
-        let struct_dtype = crate::aggregate_fn::fns::min_max::make_minmax_dtype(&dtype);
+        let struct_dtype = make_minmax_dtype(&dtype);
         let scalar1 = Scalar::struct_(
             struct_dtype.clone(),
             vec![Scalar::from(5i32), Scalar::from(15i32)],

@@ -7,8 +7,7 @@ import org.gradle.kotlin.dsl.support.serviceOf
 plugins {
     `java-library`
     `jvm-test-suite`
-    id("com.google.protobuf")
-    id("com.gradleup.shadow") version "9.4.0"
+    id("com.gradleup.shadow") version "9.4.1"
 }
 
 dependencies {
@@ -26,7 +25,6 @@ dependencies {
     errorprone(libs.nopen.checker)
 
     implementation(libs.guava)
-    implementation(libs.protobuf.java)
     compileOnly(libs.errorprone.annotations)
     compileOnly(libs.nopen.annotations)
 
@@ -91,15 +89,8 @@ tasks.withType<Test>().all {
     )
 }
 
-protobuf {
-    protoc {
-        artifact = "com.google.protobuf:protoc:${libs.versions.protobuf.get()}"
-    }
-}
-
-// shade guava and protobuf dependencies
+// shade guava and arrow dependencies
 tasks.withType<ShadowJar> {
-    relocate("com.google.protobuf", "dev.vortex.relocated.com.google.protobuf")
     relocate("com.google.common", "dev.vortex.relocated.com.google.common")
     relocate("org.apache.arrow", "dev.vortex.relocated.org.apache.arrow") {
         // exclude C Data Interface since JNI cannot be relocated
@@ -139,14 +130,13 @@ tasks.register("makeTestFiles") {
         }
 
         copy {
-            from("${rootProject.projectDir.absoluteFile.parentFile}/target/debug/libvortex_jni.dylib")
-            into("$projectDir/src/main/resources/native/darwin-aarch64")
+            from("${rootProject.projectDir.absoluteFile.parentFile}/target/debug/libvortex_jni.so")
+            into("$projectDir/src/main/resources/native/linux-aarch64")
         }
 
-        execOps.exec {
-            workingDir = rootProject.projectDir.absoluteFile.parentFile
-            executable = "cargo"
-            args("xtask", "java-test-files")
+        copy {
+            from("${rootProject.projectDir.absoluteFile.parentFile}/target/debug/libvortex_jni.dylib")
+            into("$projectDir/src/main/resources/native/darwin-aarch64")
         }
     }
 }

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ffi::CStr;
-
 use vortex::error::vortex_err;
 
 use crate::cpp;
@@ -59,23 +57,6 @@ impl BindInputRef {
         } else {
             Some(unsafe { Value::own(value_ptr) })
         }
-    }
-
-    /// Returns the named parameter with the given name, if it exists.
-    pub fn get_named_parameter(&self, name: &CStr) -> Option<Value> {
-        let value_ptr = unsafe {
-            cpp::duckdb_vx_tfunc_bind_input_get_named_parameter(self.as_ptr(), name.as_ptr())
-        };
-        if value_ptr.is_null() {
-            None
-        } else {
-            Some(unsafe { Value::own(value_ptr) })
-        }
-    }
-
-    /// Returns the number of parameters bound to this function.
-    pub fn parameter_count(&self) -> usize {
-        unsafe { cpp::duckdb_vx_tfunc_bind_input_get_parameter_count(self.as_ptr()) }
     }
 }
 

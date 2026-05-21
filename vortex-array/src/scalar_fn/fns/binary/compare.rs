@@ -19,12 +19,12 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ScalarFnVTable;
+use crate::arrays::ScalarFn;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
+use crate::arrow::ArrowSessionExt;
 use crate::arrow::Datum;
-use crate::arrow::IntoArrowArray;
 use crate::arrow::from_arrow_array_with_len;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -74,7 +74,7 @@ where
         };
 
         // Get the ScalarFnArray to access children
-        let Some(scalar_fn_array) = parent.as_opt::<ScalarFnVTable>() else {
+        let Some(scalar_fn_array) = parent.as_opt::<ScalarFn>() else {
             return Ok(None);
         };
         // Normalize so `array` is always LHS, swapping the operator if needed
@@ -114,6 +114,7 @@ pub(crate) fn execute_compare(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
     op: CompareOperator,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
 
@@ -136,7 +137,7 @@ pub(crate) fn execute_compare(
         return Ok(ConstantArray::new(result, lhs.len()).into_array());
     }
 
-    arrow_compare_arrays(lhs, rhs, op)
+    arrow_compare_arrays(lhs, rhs, op, ctx)
 }
 
 /// Fall back to Arrow for comparison.
@@ -144,6 +145,7 @@ fn arrow_compare_arrays(
     left: &ArrayRef,
     right: &ArrayRef,
     operator: CompareOperator,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     assert_eq!(left.len(), right.len());
 
@@ -152,8 +154,9 @@ fn arrow_compare_arrays(
     // Arrow's vectorized comparison kernels don't support nested types.
     // For nested types, fall back to `make_comparator` which does element-wise comparison.
     let arrow_array: BooleanArray = if left.dtype().is_nested() || right.dtype().is_nested() {
-        let rhs = right.clone().into_arrow_preferred()?;
-        let lhs = left.clone().into_arrow(rhs.data_type())?;
+        let session = ctx.session().clone();
+        let rhs = session.arrow().execute_arrow(right.clone(), None, ctx)?;
+        let lhs = session.arrow().execute_arrow(left.clone(), None, ctx)?;
 
         assert!(
             lhs.data_type().equals_datatype(rhs.data_type()),
@@ -165,8 +168,8 @@ fn arrow_compare_arrays(
         compare_nested_arrow_arrays(lhs.as_ref(), rhs.as_ref(), operator)?
     } else {
         // Fast path: use vectorized kernels for primitive types.
-        let lhs = Datum::try_new(left)?;
-        let rhs = Datum::try_new_with_target_datatype(right, lhs.data_type())?;
+        let lhs = Datum::try_new(left, ctx)?;
+        let rhs = Datum::try_new_with_target_datatype(right, lhs.data_type(), ctx)?;
 
         match operator {
             CompareOperator::Eq => cmp::eq(&lhs, &rhs)?,
@@ -249,7 +252,10 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::ToCanonical;
+    use crate::LEGACY_SESSION;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
+    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::ListArray;
     use crate::arrays::ListViewArray;
@@ -284,6 +290,7 @@ mod tests {
             Validity::from_iter([false, true, true, true, true]),
         );
 
+        #[expect(deprecated)]
         let matches = arr
             .clone()
             .into_array()
@@ -292,6 +299,7 @@ mod tests {
             .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [1u64, 2, 3, 4]);
 
+        #[expect(deprecated)]
         let matches = arr
             .clone()
             .into_array()
@@ -306,6 +314,7 @@ mod tests {
             Validity::from_iter([false, true, true, true, true]),
         );
 
+        #[expect(deprecated)]
         let matches = arr
             .clone()
             .into_array()
@@ -314,6 +323,7 @@ mod tests {
             .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [2u64, 3, 4]);
 
+        #[expect(deprecated)]
         let matches = arr
             .clone()
             .into_array()
@@ -322,6 +332,7 @@ mod tests {
             .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [4u64]);
 
+        #[expect(deprecated)]
         let matches = other
             .clone()
             .into_array()
@@ -330,6 +341,7 @@ mod tests {
             .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [2u64, 3, 4]);
 
+        #[expect(deprecated)]
         let matches = other
             .into_array()
             .binary(arr.into_array(), Operator::Gt)
@@ -348,7 +360,9 @@ mod tests {
             .binary(right.into_array(), Operator::Gt)
             .unwrap();
         assert_eq!(result.len(), 10);
-        let scalar = result.scalar_at(0).unwrap();
+        let scalar = result
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         assert_eq!(scalar.as_bool().value(), Some(false));
     }
 
@@ -363,7 +377,6 @@ mod tests {
         assert_arrays_eq!(res, expected);
     }
 
-    #[ignore = "Arrow's ListView cannot be compared"]
     #[test]
     fn test_list_array_comparison() {
         let values1 = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);
@@ -408,7 +421,6 @@ mod tests {
         assert_arrays_eq!(result, expected);
     }
 
-    #[ignore = "Arrow's ListView cannot be compared"]
     #[test]
     fn test_list_array_constant_comparison() {
         let values = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);
@@ -540,8 +552,23 @@ mod tests {
             .into_array()
             .binary(list.into_array(), Operator::Eq)
             .unwrap();
-        assert!(result.scalar_at(0).unwrap().is_valid());
-        assert!(result.scalar_at(1).unwrap().is_valid());
-        assert!(result.scalar_at(2).unwrap().is_valid());
+        assert!(
+            result
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .is_valid()
+        );
+        assert!(
+            result
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .is_valid()
+        );
+        assert!(
+            result
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .is_valid()
+        );
     }
 }

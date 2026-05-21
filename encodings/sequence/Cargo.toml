@@ -16,6 +16,7 @@ version = { workspace = true }
 [dependencies]
 num-traits = { workspace = true }
 prost = { workspace = true }
+smallvec = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }

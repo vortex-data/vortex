@@ -41,18 +41,34 @@ vx-bench run <benchmark> [options]
 
 **Arguments:**
 
-- `benchmark`: Benchmark suite to run (`tpch`, `tpcds`, `clickbench`, `fineweb`, `gh-archive`, `public-bi`, `statpopgen`)
+- `benchmark`: Benchmark suite to run (`tpch`, `tpcds`, `clickbench`, `fineweb`, `gh-archive`, `polarsignals`, `public-bi`, `statpopgen`)
 
 **Options:**
 
 - `--engine, -e`: Engines to benchmark, comma-separated (default: `datafusion,duckdb`)
 - `--format, -f`: Formats to benchmark, comma-separated (default: `parquet,vortex`)
+- `--targets-json`: Exact benchmark targets as JSON, e.g. `'[{"engine":"datafusion","format":"parquet"}]'`
 - `--queries, -q`: Specific queries to run (e.g., `1,2,5`)
 - `--exclude-queries`: Queries to skip
 - `--iterations, -i`: Iterations per query (default: 5)
 - `--label, -l`: Label for this run (useful for later reference)
 - `--track-memory`: Enable memory usage tracking
 - `--build/--no-build`: Build binaries before running (default: build)
+- `--output`: Optional compatibility output path for raw JSON lines
+
+### `prepare-data` - Generate Benchmark Data
+
+Generate only the data formats needed for a benchmark run.
+
+```bash
+vx-bench prepare-data <benchmark> [options]
+```
+
+**Options:**
+
+- `--format, -f`: Formats to generate, comma-separated
+- `--formats-json`: Exact data formats as JSON, e.g. `'["parquet","vortex"]'`
+- `--opt`: Benchmark-specific options such as `scale-factor=10.0`
 
 ### `compare` - Compare Results
 
@@ -204,10 +220,10 @@ Test performance at different data scales:
 
 ```bash
 # Run at SF1
-vx-bench run tpch -s 1 -l sf1
+vx-bench run tpch --opt scale-factor=1.0 -l sf1
 
 # Run at SF10
-vx-bench run tpch -s 10 -l sf10
+vx-bench run tpch --opt scale-factor=10.0 -l sf10
 
 # Compare scaling behavior
 vx-bench compare --runs sf1,sf10
@@ -253,9 +269,29 @@ vx-bench clean --older-than "30 days" --no-keep-labeled
 
 | Engine     | Supported Formats                          |
 |------------|-------------------------------------------|
-| datafusion | parquet, vortex, vortex-compact, lance    |
+| datafusion | arrow, parquet, vortex, vortex-compact, lance |
 | duckdb     | parquet, vortex, vortex-compact, duckdb   |
 | lance      | lance                                      |
+
+`datafusion:lance` is executed via the `lance-bench` backend while preserving `datafusion:lance`
+result labels.
+
+## CI Usage
+
+The SQL benchmark workflow uses explicit JSON target selection instead of parsing `engine:format`
+strings in shell:
+
+```bash
+uv run --project bench-orchestrator vx-bench prepare-data tpch \
+  --formats-json '["parquet","vortex","vortex-compact"]' \
+  --opt scale-factor=1.0
+
+uv run --project bench-orchestrator vx-bench run tpch \
+  --targets-json '[{"engine":"datafusion","format":"parquet"},{"engine":"duckdb","format":"vortex"}]' \
+  --opt scale-factor=1.0 \
+  --output results.json \
+  --no-build
+```
 
 ## Output Format
 
@@ -299,5 +335,6 @@ Benchmarks are built with:
 
 - Profile: `release_debug`
 - RUSTFLAGS: `-C target-cpu=native -C force-frame-pointers=yes`
+- Features: `unstable_encodings`
 
 This enables native CPU optimizations while preserving debug symbols for profiling.

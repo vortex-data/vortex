@@ -13,6 +13,7 @@ def read_url(
     projection: list[str] | list[int] | None = None,
     row_filter: Expr | None = None,
     indices: Array | None = None,
+    row_range: tuple[int, int] | None = None,
 ) -> Array: ...
 def write(
     iter: IntoArrayIterator,

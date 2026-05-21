@@ -18,8 +18,9 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use vortex::VortexSessionDefault;
-use vortex::array::ToCanonical;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::Dict;
+use vortex::array::arrays::StructArray;
 use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::buffer::ByteBufferMut;
 use vortex::compressor::BtrBlocksCompressorBuilder;
@@ -178,7 +179,7 @@ async fn cmd_scan(path: PathBuf, gpu_file: bool, json_output: bool) -> VortexRes
 
     let mut chunk = 0;
     while let Some(next) = batches.next().await.transpose()? {
-        let record = next.to_struct();
+        let record = next.execute::<StructArray>(cuda_ctx.execution_ctx())?;
 
         for (field, field_name) in record
             .iter_unmasked_fields()

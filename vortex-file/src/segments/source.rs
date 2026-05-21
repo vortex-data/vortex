@@ -16,6 +16,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_io::VortexReadAt;
@@ -115,6 +116,18 @@ impl FileSegmentSource {
                         let result = reader
                             .read_at(req.offset(), req.len(), req.alignment())
                             .await;
+                        let result = result.and_then(|buffer| {
+                            if req.len() != buffer.len() {
+                                vortex_bail!(
+                                    "FileSegmentSource: expected buffer of length {} but received {}. {:?}",
+                                    req.len(),
+                                    buffer.len(),
+                                    req
+                                )
+                            }
+                            Ok(buffer)
+                        });
+
                         req.resolve(result);
                     }
                 })

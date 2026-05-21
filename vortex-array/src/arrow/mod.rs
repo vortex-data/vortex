@@ -12,13 +12,15 @@ mod datum;
 mod executor;
 mod iter;
 mod null_buffer;
-mod record_batch;
+mod session;
 
+pub(crate) use convert::nulls;
 pub use datum::*;
 pub use executor::*;
 pub use iter::*;
 pub use null_buffer::to_arrow_null_buffer;
 pub use null_buffer::to_null_buffer;
+pub use session::*;
 
 use crate::ArrayRef;
 use crate::LEGACY_SESSION;
@@ -30,12 +32,16 @@ pub trait FromArrowArray<A> {
         Self: Sized;
 }
 
+#[deprecated(note = "Use `execute_arrow(None, ctx)` or `execute_arrow(Some(dt), ctx)` instead")]
 pub trait IntoArrowArray {
+    #[deprecated(note = "Use `execute_arrow(None, ctx)` instead")]
     fn into_arrow_preferred(self) -> VortexResult<ArrowArrayRef>;
 
+    #[deprecated(note = "Use `execute_arrow(Some(data_type), ctx)` instead")]
     fn into_arrow(self, data_type: &DataType) -> VortexResult<ArrowArrayRef>;
 }
 
+#[allow(deprecated)]
 impl IntoArrowArray for ArrayRef {
     /// Convert this [`crate::ArrayRef`] into an Arrow [`crate::ArrayRef`] by using the array's
     /// preferred (cheapest) Arrow [`DataType`].

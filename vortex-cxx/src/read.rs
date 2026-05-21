@@ -10,12 +10,14 @@ use arrow_array::cast::AsArray;
 use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_array::ffi_stream::FFI_ArrowArrayStream;
 use arrow_schema::ArrowError;
-use arrow_schema::DataType;
+use arrow_schema::Field;
 use arrow_schema::Schema;
 use arrow_schema::SchemaRef;
 use futures::stream::TryStreamExt;
 use vortex::array::ArrayRef;
-use vortex::array::arrow::IntoArrowArray;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
+use vortex::array::arrow::ArrowSessionExt;
 use vortex::buffer::Buffer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::runtime::BlockingRuntime;
@@ -158,12 +160,14 @@ pub(crate) fn scan_builder_into_threadsafe_cloneable_reader(
             Arc::new(arrow_schema)
         }
     };
-    let data_type = DataType::Struct(schema.fields().clone());
+    let target = Field::new_struct("", schema.fields.clone(), false);
 
     let stream = builder
         .inner
         .map(move |b| {
-            b.into_arrow(&data_type)
+            SESSION
+                .arrow()
+                .execute_arrow(b, Some(&target), &mut LEGACY_SESSION.create_execution_ctx())
                 .map(|struct_array| RecordBatch::from(struct_array.as_struct()))
         })
         .into_stream()?

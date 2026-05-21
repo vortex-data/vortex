@@ -47,6 +47,7 @@ vortex-flatbuffers = { workspace = true, features = ["layout"] }
 vortex-io = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
+vortex-runend = { workspace = true }
 vortex-scan = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-session = { workspace = true }
@@ -55,10 +56,10 @@ vortex-utils = { workspace = true, features = ["dashmap"] }
 [dev-dependencies]
 futures = { workspace = true, features = ["executor"] }
 rstest = { workspace = true }
+temp-env = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 vortex-array = { path = "../vortex-array", features = ["_test-harness"] }
 vortex-io = { path = "../vortex-io", features = ["tokio"] }
-vortex-utils = { workspace = true, features = ["_test-harness"] }
 
 [features]
 _test-harness = []

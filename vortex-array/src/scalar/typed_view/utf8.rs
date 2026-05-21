@@ -22,7 +22,7 @@ use crate::scalar::ScalarValue;
 ///
 /// This type provides a view into a UTF-8 string scalar value, which can be either
 /// a valid UTF-8 string or null.
-#[derive(Debug, Clone, Hash, Eq)]
+#[derive(Debug, Clone, Copy, Hash, Eq)]
 pub struct Utf8Scalar<'a> {
     /// The data type of this scalar.
     dtype: &'a DType,
@@ -159,7 +159,7 @@ mod private {
     impl Sealed for BufferString {}
 
     impl StringLike for BufferString {
-        #[allow(clippy::unwrap_in_result, clippy::expect_used)]
+        #[expect(clippy::expect_used)]
         fn increment(self) -> Result<BufferString, BufferString> {
             if self.is_empty() {
                 return Err(self);

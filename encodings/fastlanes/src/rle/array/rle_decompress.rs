@@ -5,12 +5,10 @@ use fastlanes::RLE;
 use num_traits::AsPrimitive;
 use num_traits::NumCast;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_native_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -56,7 +54,7 @@ where
 
     let indices = array.indices().clone().execute::<PrimitiveArray>(ctx)?;
     assert!(indices.len().is_multiple_of(FL_CHUNK_SIZE));
-    let has_invalid = !indices.all_valid()?;
+    let has_invalid = !indices.all_valid(ctx)?;
     let (indices_sl, _) = indices.as_slice::<I>().as_chunks::<FL_CHUNK_SIZE>();
 
     let chunk_start_idx = array.offset() / FL_CHUNK_SIZE;
@@ -124,6 +122,6 @@ where
         buffer
             .freeze()
             .slice(offset_within_chunk..(offset_within_chunk + array.len())),
-        Validity::copy_from_array(&array.clone().into_array())?,
+        array.validity()?,
     ))
 }

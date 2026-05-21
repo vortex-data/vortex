@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::expect_used)]
-#![allow(clippy::use_debug)]
+#![expect(clippy::unwrap_used)]
+#![expect(clippy::expect_used)]
+#![expect(clippy::use_debug)]
 
 use std::env;
 use std::fs::File;
@@ -14,7 +14,8 @@ use std::process::Command;
 
 use fastlanes::FastLanes;
 
-use crate::bit_unpack_gen::generate_cuda_unpack;
+use crate::bit_unpack_gen::generate_cuda_unpack_kernels;
+use crate::bit_unpack_gen::generate_cuda_unpack_lanes;
 
 #[path = "src/bit_unpack_gen.rs"]
 pub mod bit_unpack_gen;
@@ -72,7 +73,11 @@ fn main() {
 
             match path.extension().and_then(|e| e.to_str()) {
                 Some("cuh") | Some("h") => {
-                    println!("cargo:rerun-if-changed={}", path.display())
+                    // Only watch hand-written .cuh/.h files, not generated ones
+                    // (generated files are rebuilt when cuda_kernel_generator changes)
+                    if !is_generated {
+                        println!("cargo:rerun-if-changed={}", path.display());
+                    }
                 }
                 Some("cu") => {
                     // Only watch hand-written .cu files, not generated ones
@@ -94,10 +99,19 @@ fn main() {
 }
 
 fn generate_unpack<T: FastLanes>(output_dir: &Path, thread_count: usize) -> io::Result<PathBuf> {
-    let path = output_dir.join(format!("bit_unpack_{}.cu", T::T));
-    let mut cu_file = File::create(&path)?;
-    generate_cuda_unpack::<T>(&mut cu_file, thread_count)?;
-    Ok(path)
+    // Generate the lanes header (.cuh) — device functions only, no __global__ kernels.
+    // This is what dynamic_dispatch.cu includes (via bit_unpack.cuh).
+    let cuh_path = output_dir.join(format!("bit_unpack_{}_lanes.cuh", T::T));
+    let mut cuh_file = File::create(&cuh_path)?;
+    generate_cuda_unpack_lanes::<T>(&mut cuh_file)?;
+
+    // Generate the standalone kernels (.cu) — includes the lanes header,
+    // adds _device template + __global__ wrappers. Compiled to its own PTX.
+    let cu_path = output_dir.join(format!("bit_unpack_{}.cu", T::T));
+    let mut cu_file = File::create(&cu_path)?;
+    generate_cuda_unpack_kernels::<T>(&mut cu_file, thread_count)?;
+
+    Ok(cu_path)
 }
 
 fn nvcc_compile_ptx(

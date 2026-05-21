@@ -108,11 +108,7 @@
 //! [1] <https://chipsandcheese.com/2022/11/08/amds-zen-4-part-2-memory-subsystem-and-conclusion/>
 //! [2] <https://chipsandcheese.com/p/cortex-x2-arm-aims-high>
 
-#![allow(
-    clippy::unwrap_used,
-    clippy::uninit_vec,
-    clippy::cast_possible_truncation
-)]
+#![expect(clippy::unwrap_used, clippy::uninit_vec)]
 
 use divan::Bencher;
 use fastlanes::BitPacking;

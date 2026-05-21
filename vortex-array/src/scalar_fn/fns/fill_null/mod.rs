@@ -3,8 +3,6 @@
 
 mod kernel;
 
-use std::fmt::Formatter;
-
 pub use kernel::*;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -39,7 +37,7 @@ impl ScalarFnVTable for FillNull {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.fill_null")
+        ScalarFnId::new("vortex.fill_null")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -64,19 +62,6 @@ impl ScalarFnVTable for FillNull {
             1 => ChildName::from("fill_value"),
             _ => unreachable!("Invalid child index {} for FillNull expression", child_idx),
         }
-    }
-
-    fn fmt_sql(
-        &self,
-        _options: &Self::Options,
-        expr: &Expression,
-        f: &mut Formatter<'_>,
-    ) -> std::fmt::Result {
-        write!(f, "fill_null(")?;
-        expr.child(0).fmt_sql(f)?;
-        write!(f, ", ")?;
-        expr.child(1).fmt_sql(f)?;
-        write!(f, ")")
     }
 
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
@@ -265,6 +250,6 @@ mod tests {
     #[test]
     fn test_display() {
         let expr = fill_null(get_item("value", root()), lit(0i32));
-        assert_eq!(expr.to_string(), "fill_null($.value, 0i32)");
+        assert_eq!(expr.to_string(), "vortex.fill_null($.value, 0i32)");
     }
 }

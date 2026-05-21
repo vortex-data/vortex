@@ -46,8 +46,10 @@ impl Handle {
         #[cfg(feature = "tokio")]
         {
             use tokio::runtime::Handle as TokioHandle;
+
+            use crate::runtime::tokio::TokioRuntime;
             if TokioHandle::try_current().is_ok() {
-                return Some(crate::runtime::tokio::TokioRuntime::current());
+                return Some(TokioRuntime::current());
             }
         }
 
@@ -89,6 +91,32 @@ impl Handle {
         R: Send + 'static,
     {
         self.spawn(f(Handle::new(Weak::clone(&self.runtime))))
+    }
+
+    /// Spawn a new I/O future onto the runtime.
+    ///
+    /// See [`Executor::spawn_io`] for more details about how this future is expected to run.
+    ///
+    // See [`Task`] for details on cancelling or detaching the spawned task.
+    pub fn spawn_io<Fut, R>(&self, f: Fut) -> Task<R>
+    where
+        Fut: Future<Output = R> + Send + 'static,
+        R: Send + 'static,
+    {
+        let (send, recv) = oneshot::channel();
+        let span = tracing::Span::current();
+        let abort_handle = self.runtime().spawn_io(
+            async move {
+                // Task::detach allows the receiver to be dropped, so we ignore send errors.
+                drop(send.send(f.await));
+            }
+            .instrument(span)
+            .boxed(),
+        );
+        Task {
+            recv: recv.into_future(),
+            abort_handle: Some(abort_handle),
+        }
     }
 
     /// Spawn a CPU-bound task for execution on the runtime.
@@ -165,7 +193,7 @@ impl<T> Task<T> {
 impl<T> Future for Task<T> {
     type Output = T;
 
-    #[allow(clippy::panic)]
+    #[expect(clippy::panic)]
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match ready!(self.recv.poll_unpin(cx)) {
             Ok(result) => Poll::Ready(result),

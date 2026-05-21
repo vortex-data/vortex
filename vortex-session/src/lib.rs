@@ -15,6 +15,8 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use dashmap::Entry;
+use dashmap::mapref::one::MappedRef;
+use dashmap::mapref::one::MappedRefMut;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
@@ -72,13 +74,25 @@ impl VortexSession {
 
     /// Returns whether unknown plugins should deserialize as foreign placeholders.
     pub fn allows_unknown(&self) -> bool {
-        <Self as SessionExt>::get::<UnknownPluginPolicy>(self).allow_unknown
+        <Self as SessionExt>::get_opt::<UnknownPluginPolicy>(self)
+            .map(|p| p.allow_unknown)
+            .unwrap_or(false)
     }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
 struct UnknownPluginPolicy {
     allow_unknown: bool,
+}
+
+impl SessionVar for UnknownPluginPolicy {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 }
 
 /// Trait for accessing and modifying the state of a Vortex session.
@@ -206,24 +220,16 @@ impl Hasher for IdHasher {
 }
 
 /// This trait defines variables that can be stored against a Vortex session.
+///
+/// Users should implement this trait for anything that you want to store on a `VortexSession`.
 pub trait SessionVar: Any + Send + Sync + Debug + 'static {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 
-impl<T: Send + Sync + Debug + 'static> SessionVar for T {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-}
-
 // NOTE(ngates): we don't want to expose that the internals of a session is a DashMap, so we have
 // our own wrapped Ref type.
-pub struct Ref<'a, T>(dashmap::mapref::one::MappedRef<'a, TypeId, Box<dyn SessionVar>, T>);
+pub struct Ref<'a, T>(MappedRef<'a, TypeId, Box<dyn SessionVar>, T>);
 impl<'a, T> Deref for Ref<'a, T> {
     type Target = T;
 
@@ -241,7 +247,7 @@ impl<'a, T> Ref<'a, T> {
     }
 }
 
-pub struct RefMut<'a, T>(dashmap::mapref::one::MappedRefMut<'a, TypeId, Box<dyn SessionVar>, T>);
+pub struct RefMut<'a, T>(MappedRefMut<'a, TypeId, Box<dyn SessionVar>, T>);
 impl<'a, T> Deref for RefMut<'a, T> {
     type Target = T;
 

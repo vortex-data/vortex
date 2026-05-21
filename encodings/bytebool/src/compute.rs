@@ -8,11 +8,14 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::scalar_fn::fns::cast::CastKernel;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_array::scalar_fn::fns::mask::MaskReduce;
 use vortex_array::validity::Validity;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 
 use super::ByteBool;
@@ -22,20 +25,43 @@ impl CastReduce for ByteBool {
         // ByteBool is essentially a bool array stored as bytes
         // The main difference from BoolArray is the storage format
         // For casting, we can decode to canonical (BoolArray) and let it handle the cast
-
         // If just changing nullability, we can optimize
-        if array.dtype().eq_ignore_nullability(dtype) {
-            let new_validity = array
-                .validity()?
-                .cast_nullability(dtype.nullability(), array.len())?;
-
-            return Ok(Some(
-                ByteBool::new(array.buffer().clone(), new_validity).into_array(),
-            ));
+        if !dtype.is_boolean() {
+            return Ok(None);
         }
 
-        // For other casts, decode to canonical and let BoolArray handle it
-        Ok(None)
+        let Some(new_validity) = array
+            .validity()?
+            .trivially_cast_nullability(dtype.nullability(), array.len())?
+        else {
+            return Ok(None);
+        };
+
+        Ok(Some(
+            ByteBool::new(array.buffer().clone(), new_validity).into_array(),
+        ))
+    }
+}
+
+impl CastKernel for ByteBool {
+    fn cast(
+        array: ArrayView<'_, Self>,
+        dtype: &DType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        // Only handle nullability changes here; non-bool targets fall through to canonicalization.
+        if !dtype.is_boolean() {
+            return Ok(None);
+        }
+
+        let new_validity =
+            array
+                .validity()?
+                .cast_nullability(dtype.nullability(), array.len(), ctx)?;
+
+        Ok(Some(
+            ByteBool::new(array.buffer().clone(), new_validity).into_array(),
+        ))
     }
 }
 
@@ -58,23 +84,25 @@ impl TakeExecute for ByteBool {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
-        let bools = array.as_slice();
+        let values = array.truthy_bytes();
 
         // This handles combining validity from both source array and nullable indices
         let validity = array.validity()?.take(&indices.clone().into_array())?;
 
-        let taken_bools = match_each_integer_ptype!(indices.ptype(), |I| {
+        let taken = match_each_integer_ptype!(indices.ptype(), |I| {
             indices
                 .as_slice::<I>()
                 .iter()
                 .map(|&idx| {
                     let idx: usize = idx.as_();
-                    bools[idx]
+                    values[idx]
                 })
-                .collect::<Vec<bool>>()
+                .collect::<ByteBuffer>()
         });
 
-        Ok(Some(ByteBool::from_vec(taken_bools, validity).into_array()))
+        Ok(Some(
+            ByteBool::new(BufferHandle::new_host(taken), validity).into_array(),
+        ))
     }
 }
 

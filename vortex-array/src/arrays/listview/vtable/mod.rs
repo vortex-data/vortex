@@ -12,6 +12,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -25,15 +26,20 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewData;
+use crate::arrays::listview::array::ELEMENTS_SLOT;
 use crate::arrays::listview::array::NUM_SLOTS;
+use crate::arrays::listview::array::OFFSETS_SLOT;
+use crate::arrays::listview::array::SIZES_SLOT;
 use crate::arrays::listview::array::SLOT_NAMES;
 use crate::arrays::listview::compute::rules::PARENT_RULES;
+use crate::arrays::listview::vtable::kernel::PARENT_KERNELS;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
+mod kernel;
 mod operations;
 mod validity;
 /// A [`ListView`]-encoded Vortex array.
@@ -41,10 +47,6 @@ pub type ListViewArray = Array<ListView>;
 
 #[derive(Clone, Debug)]
 pub struct ListView;
-
-impl ListView {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.listview");
-}
 
 #[derive(Clone, prost::Message)]
 pub struct ListViewMetadata {
@@ -69,13 +71,13 @@ impl ArrayEq for ListViewData {
 }
 
 impl VTable for ListView {
-    type ArrayData = ListViewData;
+    type TypedArrayData = ListViewData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.listview");
+        *ID
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -116,13 +118,13 @@ impl VTable for ListView {
             "ListViewArray expected {NUM_SLOTS} slots, found {}",
             slots.len()
         );
-        let elements = slots[crate::arrays::listview::array::ELEMENTS_SLOT]
+        let elements = slots[ELEMENTS_SLOT]
             .as_ref()
             .vortex_expect("ListViewArray elements slot");
-        let offsets = slots[crate::arrays::listview::array::OFFSETS_SLOT]
+        let offsets = slots[OFFSETS_SLOT]
             .as_ref()
             .vortex_expect("ListViewArray offsets slot");
-        let sizes = slots[crate::arrays::listview::array::SIZES_SLOT]
+        let sizes = slots[SIZES_SLOT]
             .as_ref()
             .vortex_expect("ListViewArray sizes slot");
         vortex_ensure!(
@@ -216,5 +218,14 @@ impl VTable for ListView {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn execute_parent(
+        array: ArrayView<'_, Self>,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }

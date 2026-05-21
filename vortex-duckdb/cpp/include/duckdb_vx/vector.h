@@ -17,6 +17,9 @@ DUCKDB_INCLUDES_END
 extern "C" {
 #endif
 
+// Create a vector that slices another vector between a pair of offsets [offset, end)
+duckdb_vector duckdb_vx_vector_slice(duckdb_vector ffi_vector, idx_t offset, idx_t end);
+
 /// Slice the vector to a new dictionary vector, using the current vector's values and
 /// the provided selection vector.
 ///
@@ -47,8 +50,21 @@ void duckdb_vx_string_vector_add_vector_data_buffer(duckdb_vector ffi_vector, du
 // valid.
 void duckdb_vx_vector_set_vector_data_buffer(duckdb_vector ffi_vector, duckdb_vx_vector_buffer buffer);
 
+// Reset vector's validity mask to nullptr, making all vector's elements valid.
+// vector must not be a DictionaryVector or a SequenceVector
+void duckdb_vx_vector_set_all_valid(duckdb_vector ffi_vector);
+
 // Set the data pointer for the vector. This is the start of the values array in the vector.
 void duckdb_vx_vector_set_data_ptr(duckdb_vector ffi_vector, void *ptr);
+
+// Set the validity pointer for the vector to external data, and store the buffer in auxiliary
+// to keep it alive. The validity pointer is derived from data_ptr at the given u64 offset.
+// The buffer is attached purely as a keep-alive. This enables zero-copy export of validity masks.
+void duckdb_vx_vector_set_validity_data(duckdb_vector ffi_vector,
+                                        idx_t u64_offset,
+                                        idx_t capacity,
+                                        duckdb_vx_vector_buffer buffer,
+                                        void *data_ptr);
 
 // Converts a duckdb flat vector into a Sequence vector.
 void duckdb_vx_sequence_vector(duckdb_vector c_vector, int64_t start, int64_t step, idx_t capacity);

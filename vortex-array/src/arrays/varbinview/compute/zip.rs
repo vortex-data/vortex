@@ -54,8 +54,8 @@ impl ZipKernel for VarBinView {
         let mut views_builder = BufferMut::<BinaryView>::with_capacity(len);
         let mut validity_builder = LazyBitBufferBuilder::new(len);
 
-        let true_validity = if_true.varbinview_validity_mask();
-        let false_validity = if_false.varbinview_validity_mask();
+        let true_validity = if_true.varbinview_validity().execute_mask(len, ctx)?;
+        let false_validity = if_false.varbinview_validity().execute_mask(len, ctx)?;
 
         let mask = mask.try_to_mask_fill_null_false(ctx)?;
         let if_false_view = if_false;
@@ -214,7 +214,8 @@ mod tests {
     use crate::accessor::ArrayAccessor;
     use crate::arrays::VarBinViewArray;
     use crate::builtins::ArrayBuiltins;
-    use crate::canonical::ToCanonical;
+    #[expect(deprecated)]
+    use crate::canonical::ToCanonical as _;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
 
@@ -246,6 +247,7 @@ mod tests {
 
         let mask = Mask::from_iter([true, false, true, false, false, true]);
 
+        #[expect(deprecated)]
         let zipped = mask
             .clone()
             .into_array()

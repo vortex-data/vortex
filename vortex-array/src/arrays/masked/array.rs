@@ -4,25 +4,29 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 
-use vortex_error::VortexExpect;
+use smallvec::smallvec;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
+use crate::array_slots;
 use crate::arrays::Masked;
 use crate::validity::Validity;
 
-/// The underlying child array being masked.
-pub(super) const CHILD_SLOT: usize = 0;
-/// The validity bitmap defining which elements are non-null.
-pub(super) const VALIDITY_SLOT: usize = 1;
-pub(super) const NUM_SLOTS: usize = 2;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child", "validity"];
+#[array_slots(Masked)]
+pub struct MaskedSlots {
+    /// The underlying child array being masked.
+    pub child: ArrayRef,
+    /// The validity bitmap defining which elements are non-null.
+    pub validity: Option<ArrayRef>,
+}
 
 #[derive(Clone, Debug)]
 pub struct MaskedData;
@@ -33,26 +37,12 @@ impl Display for MaskedData {
     }
 }
 
-pub trait MaskedArrayExt: TypedArrayRef<Masked> {
-    fn child(&self) -> &ArrayRef {
-        self.as_ref().slots()[CHILD_SLOT]
-            .as_ref()
-            .vortex_expect("validated masked child slot")
-    }
-
-    fn validity_child(&self) -> Option<&ArrayRef> {
-        self.as_ref().slots()[VALIDITY_SLOT].as_ref()
-    }
-
+pub trait MaskedArrayExt: TypedArrayRef<Masked> + MaskedArraySlotsExt {
     fn masked_validity(&self) -> Validity {
         child_to_validity(
-            &self.as_ref().slots()[VALIDITY_SLOT],
+            self.as_ref().slots()[MaskedSlots::VALIDITY].as_ref(),
             self.as_ref().dtype().nullability(),
         )
-    }
-
-    fn masked_validity_mask(&self) -> vortex_mask::Mask {
-        self.masked_validity().to_mask(self.as_ref().len())
     }
 }
 impl<T: TypedArrayRef<Masked>> MaskedArrayExt for T {}
@@ -89,11 +79,15 @@ impl Array<Masked> {
         let dtype = child.dtype().as_nullable();
         let len = child.len();
         let validity_slot = validity_to_child(&validity, len);
-        let data = MaskedData::try_new(len, child.all_valid()?, validity)?;
+        let data = MaskedData::try_new(
+            len,
+            child.all_valid(&mut LEGACY_SESSION.create_execution_ctx())?,
+            validity,
+        )?;
         Ok(unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Masked, dtype, len, data)
-                    .with_slots(vec![Some(child), validity_slot]),
+                    .with_slots(smallvec![Some(child), validity_slot]),
             )
         })
     }

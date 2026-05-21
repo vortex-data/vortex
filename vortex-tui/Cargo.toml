@@ -30,6 +30,7 @@ native = [
     "vortex/tokio",
     "vortex/zstd",
 ]
+unstable_encodings = ["vortex/unstable_encodings"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -89,6 +90,14 @@ web-sys = { version = "0.3.81", features = [
     "HtmlInputElement",
     "Window",
 ] }
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/{ version }/vx-{ target }{ archive-suffix }"
+bin-dir = "{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.'cfg(target_os = "windows")']
+pkg-fmt = "zip"
 
 [lints]
 workspace = true

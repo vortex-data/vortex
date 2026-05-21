@@ -29,6 +29,7 @@ use vortex::encodings::zstd::Zstd;
 use vortex::encodings::zstd::ZstdArray;
 use vortex::encodings::zstd::ZstdDataParts;
 use vortex::encodings::zstd::ZstdMetadata;
+use vortex::encodings::zstd::reconstruct_views;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
@@ -208,7 +209,8 @@ impl CudaExecute for ZstdExecutor {
                     dtype = %_other,
                     "Only Binary/Utf8 ZSTD arrays supported on GPU, falling back to CPU"
                 );
-                Zstd::decompress(&zstd, ctx.execution_ctx())?.to_canonical()
+                Zstd::decompress(&zstd, ctx.execution_ctx())?
+                    .execute::<Canonical>(ctx.execution_ctx())
             }
         }
     }
@@ -216,7 +218,7 @@ impl CudaExecute for ZstdExecutor {
 
 async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
     let dtype = array.dtype().clone();
-    let validity = child_to_validity(&array.as_ref().slots()[0], dtype.nullability());
+    let validity = child_to_validity(array.as_ref().slots()[0].as_ref(), dtype.nullability());
     let ZstdDataParts {
         frames,
         metadata,
@@ -329,8 +331,7 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
         .indices()
     {
         AllOr::All => {
-            let (buffers, all_views) =
-                vortex::encodings::zstd::reconstruct_views(&host_buffer, MAX_BUFFER_LEN);
+            let (buffers, all_views) = reconstruct_views(&host_buffer, MAX_BUFFER_LEN);
             let sliced_views = all_views.slice(slice_value_idx_start..slice_value_idx_stop);
 
             Ok(Canonical::VarBinView(unsafe {
@@ -376,9 +377,10 @@ mod tests {
             "baz",
         ]);
 
-        let zstd_array = Zstd::from_var_bin_view(&strings, 3, 0)?;
+        let zstd_array = Zstd::from_var_bin_view(&strings, 3, 0, cuda_ctx.execution_ctx())?;
 
-        let cpu_result = Zstd::decompress(&zstd_array, cuda_ctx.execution_ctx())?.to_canonical()?;
+        let cpu_result = Zstd::decompress(&zstd_array, cuda_ctx.execution_ctx())?
+            .execute::<Canonical>(cuda_ctx.execution_ctx())?;
         let gpu_result = ZstdExecutor
             .execute(zstd_array.into_array(), &mut cuda_ctx)
             .await?;
@@ -411,9 +413,10 @@ mod tests {
 
         // Compress with ZSTD using values_per_frame=3 to create multiple frames.
         // 14 strings and 3 values per frame = ceil(14/3) = 5 frames.
-        let zstd_array = Zstd::from_var_bin_view(&strings, 3, 3)?;
+        let zstd_array = Zstd::from_var_bin_view(&strings, 3, 3, cuda_ctx.execution_ctx())?;
 
-        let cpu_result = Zstd::decompress(&zstd_array, cuda_ctx.execution_ctx())?.to_canonical()?;
+        let cpu_result = Zstd::decompress(&zstd_array, cuda_ctx.execution_ctx())?
+            .execute::<Canonical>(cuda_ctx.execution_ctx())?;
         let gpu_result = ZstdExecutor
             .execute(zstd_array.into_array(), &mut cuda_ctx)
             .await?;
@@ -440,12 +443,12 @@ mod tests {
             "final test string",
         ]);
 
-        let zstd_array = Zstd::from_var_bin_view(&strings, 3, 0)?;
+        let zstd_array = Zstd::from_var_bin_view(&strings, 3, 0, cuda_ctx.execution_ctx())?;
 
         // Slice the array to get a subset (indices 2..7)
         let sliced_zstd = zstd_array.slice(2..7)?;
 
-        let cpu_result = sliced_zstd.to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(sliced_zstd.clone())?;
         let gpu_result = ZstdExecutor
             .execute(sliced_zstd.clone(), &mut cuda_ctx)
             .await?;
@@ -471,9 +474,9 @@ mod tests {
             Some("another string"),
         ]);
 
-        let zstd_array = Zstd::from_var_bin_view(&strings, 3, 0)?;
+        let zstd_array = Zstd::from_var_bin_view(&strings, 3, 0, cuda_ctx.execution_ctx())?;
 
-        let cpu_result = zstd_array.to_canonical()?.into_array();
+        let cpu_result = crate::canonicalize_cpu(zstd_array.clone())?.into_array();
 
         // execute_cuda should fall back to CPU and still produce the correct result.
         let gpu_result = zstd_array

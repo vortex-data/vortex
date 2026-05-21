@@ -142,6 +142,7 @@ class ResultStore:
             dataset_config=config.options,
             engines=[e.value for e in config.engines],
             formats=[f.value for f in config.formats],
+            targets=[target.to_dict() for target in config.targets],
             queries=config.queries or [],
             iterations=config.iterations,
             git_commit=git_commit,

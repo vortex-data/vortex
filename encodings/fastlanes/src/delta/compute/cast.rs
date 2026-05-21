@@ -9,26 +9,29 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
-use vortex_error::vortex_panic;
 
 use crate::delta::Delta;
 use crate::delta::array::DeltaArrayExt;
+
 impl CastReduce for Delta {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        // Delta encoding stores differences between consecutive values, which requires
-        // unsigned integers to avoid overflow issues. Signed integers could produce
-        // negative deltas that wouldn't fit in the unsigned delta representation.
-        // This encoding is optimized for monotonically increasing sequences.
         let DType::Primitive(target_ptype, _) = dtype else {
             return Ok(None);
         };
 
-        let DType::Primitive(source_ptype, _) = array.dtype() else {
-            vortex_panic!("delta should be primitive typed");
-        };
-
+        let source_ptype = array.dtype().as_ptype();
         // TODO(DK): narrows can be safe but we must decompress to compute the maximum value.
         if target_ptype.is_signed_int() || source_ptype.bit_width() > target_ptype.bit_width() {
+            return Ok(None);
+        }
+        // Signed sources need a different cast policy than the lossless widening cast
+        // used here. The delta bytes are stored as the result of `wrapping_sub`, so e.g.
+        // a delta of -1i8 has the bit pattern 0xFF. Widening *as a value* (the cast op's
+        // semantics) sign-extends that to 0xFFFFFFFF, which means `wrapping_add(base, delta)`
+        // at the wider type produces a different result than at the source type — round-trip
+        // breaks. Cross-signedness widening has the same hazard for the same reason. Fall
+        // back to decompress-and-re-encode for both cases.
+        if source_ptype.is_signed_int() {
             return Ok(None);
         }
 

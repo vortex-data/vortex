@@ -3,11 +3,13 @@
 
 //! CUDA benchmarks for dictionary decoding.
 
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::cast_possible_truncation)]
+#![expect(clippy::unwrap_used)]
+#![expect(clippy::cast_possible_truncation)]
 
-mod common;
+mod bench_config;
+mod timed_launch_strategy;
 
+use std::fmt::Debug;
 use std::mem::size_of;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -26,14 +28,14 @@ use vortex::buffer::Buffer;
 use vortex::dtype::NativePType;
 use vortex::error::VortexExpect;
 use vortex::session::VortexSession;
+use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
-use crate::common::TimedLaunchStrategy;
-
-const BENCH_ARGS: &[(usize, &str)] = &[(10_000_000, "10M")];
+use crate::bench_config::BENCH_SIZES;
+use crate::timed_launch_strategy::TimedLaunchStrategy;
 
 /// Configuration for a dictionary benchmark specifying value and code types along with dictionary size.
 struct DictBenchConfig {
@@ -47,7 +49,7 @@ fn make_dict_array_typed<V, C>(len: usize, dict_size: usize) -> DictArray
 where
     V: NativePType + From<u32>,
     C: NativePType + TryFrom<usize>,
-    <C as TryFrom<usize>>::Error: std::fmt::Debug,
+    <C as TryFrom<usize>>::Error: Debug,
 {
     // Dictionary values
     let values: Vec<V> = (0..dict_size)
@@ -70,12 +72,11 @@ fn benchmark_dict_typed<V, C>(c: &mut Criterion, config: &DictBenchConfig)
 where
     V: NativePType + DeviceRepr + From<u32>,
     C: NativePType + DeviceRepr + TryFrom<usize>,
-    <C as TryFrom<usize>>::Error: std::fmt::Debug,
+    <C as TryFrom<usize>>::Error: Debug,
 {
-    let mut group = c.benchmark_group("dict_cuda");
-    group.sample_size(10);
+    let mut group = c.benchmark_group("cuda");
 
-    for (len, len_str) in BENCH_ARGS {
+    for (len, len_str) in BENCH_SIZES {
         // Throughput is based on output size (values read from dictionary)
         group.throughput(Throughput::Bytes((len * size_of::<V>()) as u64));
 
@@ -83,20 +84,21 @@ where
 
         group.bench_with_input(
             BenchmarkId::new(
-                "dict",
                 format!(
-                    "{len_str}_{}_values_{}_codes",
+                    "cuda/dict/{}_values_{}_codes",
                     config.value_type_name, config.code_type_name
                 ),
+                len_str,
             ),
             &dict_array,
             |b, dict_array| {
                 b.iter_custom(|iters| {
                     let timed = TimedLaunchStrategy::default();
-                    let timer = Arc::clone(&timed.total_time_ns);
+                    let timer = timed.timer();
 
                     let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
                         .vortex_expect("failed to create execution context")
+                        .with_dispatch_mode(CudaDispatchMode::StandaloneOnly)
                         .with_launch_strategy(Arc::new(timed));
 
                     for _ in 0..iters {
@@ -156,7 +158,11 @@ fn benchmark_dict(c: &mut Criterion) {
     );
 }
 
-criterion::criterion_group!(benches, benchmark_dict);
+criterion::criterion_group! {
+    name = benches;
+    config = bench_config::cuda_bench_config();
+    targets = benchmark_dict
+}
 
 #[cuda_available]
 criterion::criterion_main!(benches);

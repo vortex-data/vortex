@@ -67,6 +67,10 @@ table Variant {
     nullable: bool;
 }
 
+table Union {
+    nullable: bool;
+}
+
 union Type {
     Null = 1,
     Bool = 2,
@@ -79,6 +83,7 @@ union Type {
     Extension = 9,
     FixedSizeList = 10, // This is after `Extension` for backwards compatibility.
     Variant = 11,
+    Union = 12,
 }
 
 table DType {

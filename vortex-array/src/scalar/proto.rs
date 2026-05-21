@@ -101,7 +101,7 @@ impl From<&ScalarValue> for pb::ScalarValue {
             ScalarValue::Binary(v) => pb::ScalarValue {
                 kind: Some(Kind::BytesValue(v.to_vec())),
             },
-            ScalarValue::List(v) => {
+            ScalarValue::Tuple(v) => {
                 let mut values = Vec::with_capacity(v.len());
                 for elem in v.iter() {
                     values.push(ScalarValue::to_proto(elem.as_ref()));
@@ -435,7 +435,7 @@ fn bytes_from_proto(bytes: &[u8], dtype: &DType) -> VortexResult<ScalarValue> {
     }
 }
 
-/// Deserialize a [`ScalarValue::List`] from a protobuf `ListValue`.
+/// Deserialize a [`ScalarValue::Tuple`] from a protobuf `ListValue`.
 fn list_from_proto(
     v: &ListValue,
     dtype: &DType,
@@ -454,11 +454,13 @@ fn list_from_proto(
         )?);
     }
 
-    Ok(ScalarValue::List(values))
+    Ok(ScalarValue::Tuple(values))
 }
 
 #[cfg(test)]
 mod tests {
+    use std::f32;
+    use std::f64;
     use std::sync::Arc;
 
     use vortex_buffer::BufferString;
@@ -531,7 +533,7 @@ mod tests {
                 Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
                 Nullability::Nullable,
             ),
-            Some(ScalarValue::List(vec![
+            Some(ScalarValue::Tuple(vec![
                 Some(ScalarValue::Primitive(42i32.into())),
                 Some(ScalarValue::Primitive(43i32.into())),
             ])),
@@ -722,7 +724,7 @@ mod tests {
             f16::from_f32(-1.0),
             f16::from_f32(0.42),
             f16::from_f32(5.722046e-6),
-            f16::from_f32(std::f32::consts::PI),
+            f16::from_f32(f32::consts::PI),
             f16::INFINITY,
             f16::NEG_INFINITY,
             f16::NAN,
@@ -791,12 +793,12 @@ mod tests {
             ),
             (
                 "f32",
-                Some(ScalarValue::Primitive(PValue::F32(std::f32::consts::E))),
+                Some(ScalarValue::Primitive(PValue::F32(f32::consts::E))),
                 DType::Primitive(PType::F32, Nullability::Nullable),
             ),
             (
                 "f64",
-                Some(ScalarValue::Primitive(PValue::F64(std::f64::consts::PI))),
+                Some(ScalarValue::Primitive(PValue::F64(f64::consts::PI))),
                 DType::Primitive(PType::F64, Nullability::Nullable),
             ),
             (

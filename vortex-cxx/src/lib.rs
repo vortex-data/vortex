@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![allow(clippy::boxed_local)]
+
 mod dtype;
 mod expr;
 mod read;
@@ -33,6 +34,7 @@ pub(crate) static SESSION: LazyLock<VortexSession> =
 
 #[cxx::bridge(namespace = "vortex::ffi")]
 #[allow(let_underscore_drop)]
+#[allow(clippy::absolute_paths)]
 mod ffi {
     extern "Rust" {
         type DType;

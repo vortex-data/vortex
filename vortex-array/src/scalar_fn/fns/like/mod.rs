@@ -62,7 +62,7 @@ impl ScalarFnVTable for Like {
     type Options = LikeOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.like")
+        ScalarFnId::new("vortex.like")
     }
 
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -140,12 +140,12 @@ impl ScalarFnVTable for Like {
         &self,
         options: &Self::Options,
         args: &dyn ExecutionArgs,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let child = args.get(0)?;
         let pattern = args.get(1)?;
 
-        arrow_like(&child, &pattern, *options)
+        arrow_like(&child, &pattern, *options, ctx)
     }
 
     fn validity(
@@ -206,6 +206,7 @@ pub(crate) fn arrow_like(
     array: &ArrayRef,
     pattern: &ArrayRef,
     options: LikeOptions,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let nullable = array.dtype().is_nullable() | pattern.dtype().is_nullable();
     let len = array.len();
@@ -217,8 +218,8 @@ pub(crate) fn arrow_like(
     );
 
     // convert the pattern to the preferred array datatype
-    let lhs = Datum::try_new(array)?;
-    let rhs = Datum::try_new_with_target_datatype(pattern, lhs.data_type())?;
+    let lhs = Datum::try_new(array, ctx)?;
+    let rhs = Datum::try_new_with_target_datatype(pattern, lhs.data_type(), ctx)?;
 
     let result = match (options.negated, options.case_insensitive) {
         (false, false) => arrow_string::like::like(&lhs, &rhs)?,

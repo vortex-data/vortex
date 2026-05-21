@@ -168,7 +168,7 @@ Lance, DuckDB native).
 Before running SQL benchmarks, test data must be generated:
 
 ```bash
-cargo run --release --bin data-gen -- <benchmark> --formats parquet,vortex
+uv run --project bench-orchestrator vx-bench prepare-data <benchmark> --format parquet,vortex
 ```
 
 The data generator creates base Parquet data and converts it to each requested format. Scale
@@ -190,6 +190,19 @@ benchmarks across multiple engines, stores results, and provides comparison tool
 
 See [`bench-orchestrator/README.md`](https://github.com/vortex-data/vortex/blob/develop/bench-orchestrator/README.md) for installation,
 commands, and example workflows.
+
+For CI, the reusable SQL workflow now drives `vx-bench` directly:
+
+```bash
+uv run --project bench-orchestrator vx-bench prepare-data tpch \
+  --formats-json '["parquet","vortex","vortex-compact"]' \
+  --opt scale-factor=1.0
+
+uv run --project bench-orchestrator vx-bench run tpch \
+  --targets-json '[{"engine":"datafusion","format":"parquet"},{"engine":"duckdb","format":"vortex"}]' \
+  --output results.json \
+  --no-build
+```
 
 ## CI Benchmarks
 

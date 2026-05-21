@@ -11,7 +11,7 @@ use arrow_array::RecordBatchIterator;
 use arrow_array::RecordBatchReader;
 use arrow_array::cast::AsArray;
 use arrow_schema::ArrowError;
-use arrow_schema::DataType;
+use arrow_schema::Field;
 use parking_lot::Mutex;
 use pyo3::Bound;
 use pyo3::PyResult;
@@ -20,7 +20,9 @@ use pyo3::prelude::*;
 use pyo3::types::PyIterator;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
-use vortex::array::arrow::IntoArrowArray;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
+use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::iter::ArrayIterator;
 use vortex::array::iter::ArrayIteratorAdapter;
 use vortex::array::iter::ArrayIteratorExt;
@@ -32,6 +34,7 @@ use crate::dtype::PyDType;
 use crate::error::PyVortexResult;
 use crate::install_module;
 use crate::iter::python::PythonArrayIterator;
+use crate::session::session;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "iter")?;
@@ -113,7 +116,7 @@ impl PyArrayIterator {
     /// Note that this performs the conversion on the current thread.
     fn to_arrow(slf: Bound<Self>) -> PyVortexResult<Py<PyAny>> {
         let schema = Arc::new(slf.get().dtype().to_arrow_schema()?);
-        let data_type = DataType::Struct(schema.fields().clone());
+        let target = Field::new_struct("", schema.fields().clone(), false);
 
         let iter = slf.get().take().unwrap_or_else(|| {
             Box::new(ArrayIteratorAdapter::new(
@@ -125,8 +128,12 @@ impl PyArrayIterator {
         let record_batch_reader: Box<dyn RecordBatchReader + Send> =
             Box::new(RecordBatchIterator::new(
                 iter.map(move |chunk| {
-                    let data_type = data_type.clone();
-                    chunk?.into_arrow(&data_type)
+                    let target = target.clone();
+                    session().arrow().execute_arrow(
+                        chunk?,
+                        Some(&target),
+                        &mut LEGACY_SESSION.create_execution_ctx(),
+                    )
                 })
                 .map(|chunk| chunk.map_err(|e| ArrowError::ExternalError(Box::new(e))))
                 .map(|array| array.map(|a| RecordBatch::from(a.as_struct().clone()))),

@@ -79,7 +79,7 @@ impl ScalarFnVTable for CaseWhen {
     type Options = CaseWhenOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.case_when")
+        ScalarFnId::new("vortex.case_when")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -223,7 +223,7 @@ impl ScalarFnVTable for CaseWhen {
 
             let condition = args.get(i * 2)?;
             let cond_bool = condition.execute::<BoolArray>(ctx)?;
-            let cond_mask = cond_bool.to_mask_fill_null_false();
+            let cond_mask = cond_bool.to_mask_fill_null_false(ctx);
             let effective_mask = &remaining & &cond_mask;
 
             if effective_mask.all_false() {
@@ -246,7 +246,7 @@ impl ScalarFnVTable for CaseWhen {
             return Ok(else_value);
         }
 
-        merge_case_branches(branches, else_value)
+        merge_case_branches(branches, else_value, ctx)
     }
 
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {
@@ -258,7 +258,7 @@ impl ScalarFnVTable for CaseWhen {
     }
 }
 
-/// Average run length at which slicing + `extend_from_array` becomes cheaper than `scalar_at`.
+/// Average run length at which slicing + context-aware builder appends become cheaper than `scalar_at`.
 /// Measured empirically via benchmarks.
 const SLICE_CROSSOVER_RUN_LEN: usize = 4;
 
@@ -268,10 +268,11 @@ const SLICE_CROSSOVER_RUN_LEN: usize = 4;
 fn merge_case_branches(
     branches: Vec<(Mask, ArrayRef)>,
     else_value: ArrayRef,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     if branches.len() == 1 {
         let (mask, then_value) = &branches[0];
-        return zip_impl(then_value, &else_value, mask);
+        return zip_impl(then_value, &else_value, mask, ctx);
     }
 
     let output_nullability = branches
@@ -304,9 +305,23 @@ fn merge_case_branches(
 
     let fragmented = spans.len() > else_value.len() / SLICE_CROSSOVER_RUN_LEN;
     if fragmented {
-        merge_row_by_row(&branch_arrays, &else_value, &spans, &output_dtype, builder)
+        merge_row_by_row(
+            &branch_arrays,
+            &else_value,
+            &spans,
+            &output_dtype,
+            builder,
+            ctx,
+        )
     } else {
-        merge_run_by_run(&branch_arrays, &else_value, &spans, &output_dtype, builder)
+        merge_run_by_run(
+            &branch_arrays,
+            &else_value,
+            &spans,
+            &output_dtype,
+            builder,
+            ctx,
+        )
     }
 }
 
@@ -318,28 +333,29 @@ fn merge_row_by_row(
     spans: &[(usize, usize, usize)],
     output_dtype: &DType,
     mut builder: Box<dyn ArrayBuilder>,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let mut pos = 0;
     for &(start, end, branch_idx) in spans {
         for row in pos..start {
-            let scalar = else_value.scalar_at(row)?;
+            let scalar = else_value.execute_scalar(row, ctx)?;
             builder.append_scalar(&scalar.cast(output_dtype)?)?;
         }
         for row in start..end {
-            let scalar = branch_arrays[branch_idx].scalar_at(row)?;
+            let scalar = branch_arrays[branch_idx].execute_scalar(row, ctx)?;
             builder.append_scalar(&scalar.cast(output_dtype)?)?;
         }
         pos = end;
     }
     for row in pos..else_value.len() {
-        let scalar = else_value.scalar_at(row)?;
+        let scalar = else_value.execute_scalar(row, ctx)?;
         builder.append_scalar(&scalar.cast(output_dtype)?)?;
     }
 
     Ok(builder.finish())
 }
 
-/// Bulk-copies each span via `slice()` + `extend_from_array`.
+/// Bulk-copies each span via `slice()` and context-aware builder appends.
 /// Preferred when runs are long enough that memcpy dominates over per-slice allocation cost.
 /// Lazy cast via `arr.cast(output_dtype)` is executed once per span as a block.
 fn merge_run_by_run(
@@ -348,21 +364,25 @@ fn merge_run_by_run(
     spans: &[(usize, usize, usize)],
     output_dtype: &DType,
     mut builder: Box<dyn ArrayBuilder>,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let else_value = else_value.cast(output_dtype.clone())?;
     let len = else_value.len();
     for (start, end, branch_idx) in spans {
         if builder.len() < *start {
-            builder.extend_from_array(&else_value.slice(builder.len()..*start)?);
+            else_value
+                .slice(builder.len()..*start)?
+                .append_to_builder(builder.as_mut(), ctx)?;
         }
-        builder.extend_from_array(
-            &branch_arrays[*branch_idx]
-                .cast(output_dtype.clone())?
-                .slice(*start..*end)?,
-        );
+        branch_arrays[*branch_idx]
+            .cast(output_dtype.clone())?
+            .slice(*start..*end)?
+            .append_to_builder(builder.as_mut(), ctx)?;
     }
     if builder.len() < len {
-        builder.extend_from_array(&else_value.slice(builder.len()..len)?);
+        else_value
+            .slice(builder.len()..len)?
+            .append_to_builder(builder.as_mut(), ctx)?;
     }
 
     Ok(builder.finish())
@@ -379,7 +399,8 @@ mod tests {
     use super::*;
     use crate::Canonical;
     use crate::IntoArray;
-    use crate::VortexSessionExecute as _;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
@@ -848,9 +869,8 @@ mod tests {
         //      WHEN value = 1 THEN nullable(20) -- Nullable
         //      ELSE 0                           -- NonNullable
         // → result must be Nullable(i32)
-        let test_array = StructArray::from_fields(&[("value", buffer![0i32, 1, 2].into_array())])
-            .unwrap()
-            .into_array();
+        let test_array =
+            StructArray::from_fields(&[("value", buffer![0i32, 1, 2].into_array())])?.into_array();
 
         let nullable_20 =
             Scalar::from(20i32).cast(&DType::Primitive(PType::I32, Nullability::Nullable))?;
@@ -1107,8 +1127,7 @@ mod tests {
     fn test_evaluate_nary_string_output() -> VortexResult<()> {
         // Exercises merge_case_branches with a non-primitive (Utf8) builder.
         let test_array =
-            StructArray::from_fields(&[("value", buffer![1i32, 2, 3, 4].into_array())])
-                .unwrap()
+            StructArray::from_fields(&[("value", buffer![1i32, 2, 3, 4].into_array())])?
                 .into_array();
 
         // CASE WHEN value > 2 THEN 'high' WHEN value > 0 THEN 'low' ELSE 'none' END
@@ -1124,19 +1143,19 @@ mod tests {
 
         let result = evaluate_expr(&expr, &test_array);
         assert_eq!(
-            result.scalar_at(0)?,
+            result.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?,
             Scalar::utf8("low", Nullability::NonNullable)
         );
         assert_eq!(
-            result.scalar_at(1)?,
+            result.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?,
             Scalar::utf8("low", Nullability::NonNullable)
         );
         assert_eq!(
-            result.scalar_at(2)?,
+            result.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?,
             Scalar::utf8("high", Nullability::NonNullable)
         );
         assert_eq!(
-            result.scalar_at(3)?,
+            result.execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())?,
             Scalar::utf8("high", Nullability::NonNullable)
         );
         Ok(())
@@ -1179,8 +1198,8 @@ mod tests {
         let n = 100usize;
 
         // Branch 0: even rows → 0, Branch 1: odd rows → 1, Else: never reached.
-        let branch0_mask = Mask::from_indices(n, (0..n).step_by(2).collect());
-        let branch1_mask = Mask::from_indices(n, (1..n).step_by(2).collect());
+        let branch0_mask = Mask::from_indices(n, (0..n).step_by(2));
+        let branch1_mask = Mask::from_indices(n, (1..n).step_by(2));
 
         let result = merge_case_branches(
             vec![
@@ -1194,6 +1213,7 @@ mod tests {
                 ),
             ],
             PrimitiveArray::from_option_iter(vec![Some(99i32); n]).into_array(),
+            &mut SESSION.create_execution_ctx(),
         )?;
 
         // Even rows → 0, odd rows → 1.

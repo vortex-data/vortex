@@ -19,6 +19,8 @@ use jiff::tz::TimeZone;
 use num_traits::AsPrimitive;
 use tempfile::NamedTempFile;
 use vortex::array::IntoArray;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::DictArray;
@@ -348,6 +350,40 @@ fn test_vortex_scan_multiple_files() {
     let total_sum = vec.as_slice_with_len::<i64>(chunk.len().as_())[0];
 
     assert_eq!(total_sum, 21);
+}
+
+#[test]
+fn test_vortex_scan_multiple_globs() {
+    // Test scanning multiple directories using a list of glob patterns.
+    let (tempdir1, tempdir2, _file1, _file2, _file3) = RUNTIME.block_on(async {
+        let tempdir1 = tempfile::tempdir().unwrap();
+        let tempdir2 = tempfile::tempdir().unwrap();
+
+        let file1 = write_vortex_file_to_dir(tempdir1.path(), "numbers", buffer![1i32, 2, 3]).await;
+        let file2 = write_vortex_file_to_dir(tempdir1.path(), "numbers", buffer![4i32, 5, 6]).await;
+        let file3 =
+            write_vortex_file_to_dir(tempdir2.path(), "numbers", buffer![7i32, 8, 9, 10]).await;
+
+        (tempdir1, tempdir2, file1, file2, file3)
+    });
+
+    // Create glob patterns for each directory.
+    let glob_pattern1 = format!("{}/*.vortex", tempdir1.path().display());
+    let glob_pattern2 = format!("{}/*.vortex", tempdir2.path().display());
+
+    // Scan files from both directories using a list of globs.
+    let conn = database_connection();
+    let result = conn
+        .query(&format!(
+            "SELECT SUM(numbers) FROM read_vortex(['{glob_pattern1}', '{glob_pattern2}'])"
+        ))
+        .unwrap();
+    let chunk = result.into_iter().next().unwrap();
+    let vec = chunk.get_vector(0);
+    let total_sum = vec.as_slice_with_len::<i64>(chunk.len().as_())[0];
+
+    // 1+2+3 + 4+5+6 + 7+8+9+10 = 55
+    assert_eq!(total_sum, 55);
 }
 
 #[test]
@@ -789,7 +825,9 @@ async fn write_vortex_file_with_encodings() -> NamedTempFile {
     // 4. Run-End
     let run_ends = buffer![3u32, 5];
     let run_values = buffer![100i32, 200];
-    let rle_array = RunEnd::try_new(run_ends.into_array(), run_values.into_array()).unwrap();
+    let mut rle_ctx = LEGACY_SESSION.create_execution_ctx();
+    let rle_array =
+        RunEnd::try_new(run_ends.into_array(), run_values.into_array(), &mut rle_ctx).unwrap();
 
     // 5. Sequence array
     let sequence_array = Sequence::try_new(
@@ -944,8 +982,10 @@ fn test_vortex_encodings_roundtrip() {
     assert_eq!(list_entries[4].offset, 10);
 
     // Get child vector and verify actual values
+    let list_child_len = list_vec.list_vector_get_size();
+    assert_eq!(list_child_len, 10);
     let list_child = list_vec.list_vector_get_child();
-    let child_values = list_child.as_slice_with_len::<i32>(10); // 10 total child elements
+    let child_values = list_child.as_slice_with_len::<i32>(list_child_len.as_());
     assert_eq!(child_values, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 
     // Verify fixed-size list column (column 9)

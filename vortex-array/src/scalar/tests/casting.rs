@@ -5,6 +5,7 @@
 
 #[cfg(test)]
 mod tests {
+    use std::f32;
     use std::sync::Arc;
 
     use vortex_error::VortexExpect;
@@ -32,7 +33,7 @@ mod tests {
         type NativeValue<'a> = &'a str;
 
         fn id(&self) -> ExtId {
-            ExtId::new_ref("apples")
+            ExtId::new("apples")
         }
 
         fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
@@ -124,7 +125,7 @@ mod tests {
     #[test]
     fn test_struct_field_coercion() {
         let f16_value = f16::from_f32(0.42);
-        let f32_value = std::f32::consts::PI;
+        let f32_value = f32::consts::PI;
 
         let struct_dtype = DType::Struct(
             StructFields::from_iter([
@@ -152,7 +153,7 @@ mod tests {
             Some(ScalarValue::Primitive(PValue::F32(f32_value))),
         ];
 
-        let scalar = Scalar::new(struct_dtype, Some(ScalarValue::List(field_values)));
+        let scalar = Scalar::new(struct_dtype, Some(ScalarValue::Tuple(field_values)));
 
         let struct_scalar = scalar.as_struct();
         let fields: Vec<_> = (0..3)
@@ -209,7 +210,7 @@ mod tests {
             ))),
         ];
 
-        let scalar = Scalar::new(list_dtype, Some(ScalarValue::List(elements)));
+        let scalar = Scalar::new(list_dtype, Some(ScalarValue::Tuple(elements)));
 
         let list_scalar = scalar.as_list();
         let elements = list_scalar.elements().unwrap();
@@ -247,7 +248,7 @@ mod tests {
             type NativeValue<'a> = &'a str;
 
             fn id(&self) -> ExtId {
-                ExtId::new_ref("f16_ext")
+                ExtId::new("f16_ext")
             }
 
             fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
@@ -304,7 +305,7 @@ mod tests {
             type NativeValue<'a> = &'a str;
 
             fn id(&self) -> ExtId {
-                ExtId::new_ref("struct_ext")
+                ExtId::new("struct_ext")
             }
 
             fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
@@ -353,7 +354,7 @@ mod tests {
 
         let scalar = Scalar::new(
             DType::Extension(ext_dtype.erased()),
-            Some(ScalarValue::List(field_values)),
+            Some(ScalarValue::Tuple(field_values)),
         );
 
         // Verify the struct field was coerced

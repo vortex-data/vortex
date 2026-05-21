@@ -16,7 +16,6 @@ use futures::TryStreamExt;
 use indicatif::MultiProgress;
 use indicatif::ProgressBar;
 use indicatif::ProgressDrawTarget;
-use indicatif::ProgressStyle;
 use sqllogictest::Record;
 use sqllogictest::Runner;
 use sqllogictest::parse_file;
@@ -26,7 +25,9 @@ use vortex_datafusion::VortexFormatFactory;
 use vortex_sqllogictest::args::Args;
 use vortex_sqllogictest::duckdb::DuckDB;
 use vortex_sqllogictest::duckdb::DuckDBTestError;
+use vortex_sqllogictest::duckdb::duckdb_validator;
 use vortex_sqllogictest::utils::list_files;
+use vortex_sqllogictest::utils::pb_style;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -38,11 +39,7 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    if args.filter.is_some() {
-        eprintln!("Ignoring test filter for sqllogictest");
-    }
-
-    let mpb = MultiProgress::with_draw_target(ProgressDrawTarget::stderr_with_hz(1));
+    let mpb = MultiProgress::with_draw_target(ProgressDrawTarget::stderr_with_hz(10));
 
     let crate_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let path = crate_path.join("slt/");
@@ -58,6 +55,7 @@ async fn main() -> anyhow::Result<()> {
     )
     .map(|path| {
         let mpb = mpb.clone();
+        let filter = args.filter.clone();
 
         async move {
             let path = path.canonicalize()?;
@@ -79,12 +77,27 @@ async fn main() -> anyhow::Result<()> {
                 .file_name()
                 .vortex_expect("must be file")
                 .to_string_lossy();
+
+            if filter.is_some_and(|f| !filename.contains(f.as_str())) {
+                return anyhow::Ok(vec![]);
+            }
+
             let records = parse_file(path.as_path())?;
 
+            let exec_statements = records
+                .iter()
+                .filter(|r| {
+                    matches!(
+                        r,
+                        Record::Query { .. } | Record::Statement { .. } | Record::Let { .. }
+                    )
+                })
+                .count() as u64;
+
             if !path.components().any(|comp| comp.as_os_str() == "duckdb") {
-                let df_pb = mpb.add(ProgressBar::new(records.len() as u64));
-                df_pb.set_message(format!("DF {filename}"));
-                df_pb.set_style(ProgressStyle::default_spinner());
+                let df_pb = mpb.add(ProgressBar::new(exec_statements));
+                df_pb.set_message(format!("DataFusion {filename}"));
+                df_pb.set_style(pb_style());
 
                 let mut df_runner = Runner::new(|| async {
                     Ok(DataFusion::new(
@@ -109,15 +122,16 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
 
-                df_pb.finish_and_clear();
+                df_pb.finish();
             }
 
             if !path
                 .components()
                 .any(|comp| comp.as_os_str() == "datafusion")
             {
-                let duckdb_pb = mpb.add(ProgressBar::new(records.len() as u64));
+                let duckdb_pb = mpb.add(ProgressBar::new(exec_statements));
                 duckdb_pb.set_message(format!("DuckDB {filename}"));
+                duckdb_pb.set_style(pb_style());
 
                 let mut duckdb_runner = Runner::new(|| async {
                     DuckDB::try_new(duckdb_pb.clone())
@@ -127,6 +141,7 @@ async fn main() -> anyhow::Result<()> {
                 duckdb_runner.add_label("duckdb");
                 duckdb_runner.with_column_validator(strict_column_validator);
                 duckdb_runner.with_normalizer(value_normalizer);
+                duckdb_runner.with_validator(duckdb_validator);
 
                 for record in records.iter() {
                     if let Record::Halt { .. } = record {
@@ -138,7 +153,7 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
 
-                duckdb_pb.finish_and_clear();
+                duckdb_pb.finish();
             }
 
             anyhow::Ok(errors)

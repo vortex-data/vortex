@@ -481,7 +481,7 @@ async fn get_row_count(
     {
         use arrow_array::Int64Array;
         if let Some(arr) = batch.column(0).as_any().downcast_ref::<Int64Array>() {
-            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+            #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
             return Ok(arr.value(0) as usize);
         }
     }
@@ -562,9 +562,9 @@ fn render_results_table(app: &mut AppState, area: Rect, buf: &mut Buffer) {
     // Show status in title
     let title = if app.query_state.running {
         "Results (running...)".to_string()
-    } else if let Some(ref error) = app.query_state.error {
+    } else if let Some(error) = &app.query_state.error {
         format!("Results (error: {})", truncate_str(error, 50))
-    } else if let Some(ref _results) = app.query_state.results {
+    } else if let Some(_results) = &app.query_state.results {
         let total_rows = app.query_state.total_row_count.unwrap_or(0);
         let total_pages = app.query_state.total_pages();
         format!(
@@ -586,7 +586,7 @@ fn render_results_table(app: &mut AppState, area: Rect, buf: &mut Buffer) {
     let inner = block.inner(area);
     block.render(area, buf);
 
-    if let Some(ref error) = app.query_state.error {
+    if let Some(error) = &app.query_state.error {
         let error_text = Paragraph::new(error.as_str())
             .style(Style::default().fg(Color::Red))
             .wrap(ratatui::widgets::Wrap { trim: true });
@@ -594,7 +594,7 @@ fn render_results_table(app: &mut AppState, area: Rect, buf: &mut Buffer) {
         return;
     }
 
-    let Some(ref results) = app.query_state.results else {
+    let Some(results) = &app.query_state.results else {
         let help = Paragraph::new("Enter a SQL query above and press Enter to execute.\nThe table is available as 'data'.\n\nExample: SELECT * FROM data WHERE column > 10 LIMIT 100")
             .style(Style::default().fg(Color::Gray));
         help.render(inner, buf);
@@ -637,7 +637,7 @@ fn render_results_table(app: &mut AppState, area: Rect, buf: &mut Buffer) {
     let rows = get_all_rows(results, &app.query_state);
 
     // Calculate column widths
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     let widths: Vec<Constraint> = results
         .column_names
         .iter()

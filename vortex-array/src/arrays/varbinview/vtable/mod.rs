@@ -13,6 +13,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -42,10 +43,6 @@ pub type VarBinViewArray = Array<VarBinView>;
 #[derive(Clone, Debug)]
 pub struct VarBinView;
 
-impl VarBinView {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.varbinview");
-}
-
 impl ArrayHash for VarBinViewData {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
         for buffer in self.buffers.iter() {
@@ -68,13 +65,14 @@ impl ArrayEq for VarBinViewData {
 }
 
 impl VTable for VarBinView {
-    type ArrayData = VarBinViewData;
+    type TypedArrayData = VarBinViewData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.varbinview");
+        *ID
     }
 
     fn nbuffers(array: ArrayView<'_, Self>) -> usize {

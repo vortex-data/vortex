@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::cast_possible_truncation)]
+#![expect(clippy::cast_possible_truncation)]
 #![doc(html_logo_url = "/vortex/docs/_static/vortex_spiral_logo.svg")]
 //! Read and write Vortex layouts, a serialization of Vortex arrays.
 //!
@@ -110,6 +110,8 @@ pub use forever_constant::*;
 pub use open::*;
 pub use strategy::*;
 use vortex_array::arrays::Dict;
+use vortex_array::arrays::Patched;
+use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::session::ArraySessionExt;
 use vortex_bytebool::ByteBool;
 use vortex_fsst::FSST;
@@ -168,6 +170,9 @@ pub fn register_default_encodings(session: &VortexSession) {
         arrays.register(vortex_zstd::Zstd);
         #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
         arrays.register(vortex_zstd::ZstdBuffers);
+        if use_experimental_patches() {
+            arrays.register(Patched);
+        }
     }
 
     // Eventually all encodings crates should expose an initialize function. For now it's only

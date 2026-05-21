@@ -5,6 +5,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use itertools::Itertools;
+use smallvec::smallvec;
 use vortex_buffer::Alignment;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
@@ -16,6 +17,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::Array;
@@ -145,7 +147,10 @@ pub trait DecimalArrayExt: TypedArrayRef<Decimal> {
     }
 
     fn validity(&self) -> Validity {
-        child_to_validity(&self.as_ref().slots()[VALIDITY_SLOT], self.nullability())
+        child_to_validity(
+            self.as_ref().slots()[VALIDITY_SLOT].as_ref(),
+            self.nullability(),
+        )
     }
 
     fn values_type(&self) -> DecimalType {
@@ -172,8 +177,8 @@ impl<T: TypedArrayRef<Decimal>> DecimalArrayExt for T {}
 
 impl DecimalData {
     /// Build the slots vector for this array.
-    pub(super) fn make_slots(validity: &Validity, len: usize) -> Vec<Option<ArrayRef>> {
-        vec![validity_to_child(validity, len)]
+    pub(super) fn make_slots(validity: &Validity, len: usize) -> ArraySlots {
+        smallvec![validity_to_child(validity, len)]
     }
 
     /// Creates a new [`DecimalArray`] using a host-native buffer.
@@ -529,7 +534,7 @@ impl Array<Decimal> {
         }
     }
 
-    #[allow(
+    #[expect(
         clippy::cognitive_complexity,
         reason = "patching depends on both patch and value physical types"
     )]

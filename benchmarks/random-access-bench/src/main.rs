@@ -32,6 +32,7 @@ use vortex_bench::random_access::RandomAccessor;
 use vortex_bench::random_access::VortexRandomAccessor;
 use vortex_bench::setup_logging_and_tracing;
 use vortex_bench::utils::constants::STORAGE_NVME;
+use vortex_bench::v3;
 
 // ---------------------------------------------------------------------------
 // Access patterns
@@ -91,14 +92,14 @@ fn generate_indices(dataset: &dyn BenchDataset, pattern: AccessPattern) -> Vec<u
             // ~POISSON_EXPECTED_COUNT indices across the dataset.
             let rate = POISSON_EXPECTED_COUNT as f64 / row_count as f64;
             // SAFETY: rate is always positive (POISSON_EXPECTED_COUNT > 0, row_count > 0).
-            #[allow(clippy::unwrap_used)]
+            #[expect(clippy::unwrap_used)]
             let exp = Exp::new(rate).unwrap();
             let mut indices = Vec::with_capacity(POISSON_EXPECTED_COUNT);
             let mut pos = 0.0_f64;
             loop {
                 let gap: f64 = exp.sample(&mut rng);
                 pos += gap;
-                #[allow(clippy::cast_possible_truncation)]
+                #[expect(clippy::cast_possible_truncation)]
                 let idx = pos as u64;
                 if idx >= row_count {
                     break;
@@ -173,6 +174,10 @@ struct Args {
     display_format: DisplayFormat,
     #[arg(short)]
     output_path: Option<PathBuf>,
+    /// Additionally write v3 JSONL records to this path. See
+    /// `benchmarks-website/planning/02-contracts.md`.
+    #[arg(long)]
+    gh_json_v3: Option<PathBuf>,
     /// Which datasets to benchmark random access on.
     #[arg(
         long,
@@ -205,6 +210,7 @@ async fn main() -> Result<()> {
         args.open_mode,
         args.display_format,
         args.output_path,
+        args.gh_json_v3,
     )
     .await
 }
@@ -274,6 +280,28 @@ fn measurement_name(dataset: &str, pattern: Option<AccessPattern>, format: Forma
     }
 }
 
+fn v3_random_access_dataset_name(dataset: &str, pattern: Option<AccessPattern>) -> String {
+    match pattern {
+        Some(pattern) => format!("{dataset}/{}", pattern.name()),
+        None => dataset.to_string(),
+    }
+}
+
+fn push_v3_random_access_record(
+    records: &mut Vec<v3::V3Record>,
+    measurement: &TimingMeasurement,
+    dataset: &str,
+    pattern: Option<AccessPattern>,
+    reopen: bool,
+) {
+    if reopen {
+        return;
+    }
+
+    let dataset = v3_random_access_dataset_name(dataset, pattern);
+    records.push(v3::random_access_record(measurement, &dataset));
+}
+
 /// Map format to the appropriate engine for random access benchmarks.
 fn format_to_engine(format: Format) -> Engine {
     match format {
@@ -340,6 +368,7 @@ async fn run_random_access(
     open_mode: OpenMode,
     display_format: DisplayFormat,
     output_path: Option<PathBuf>,
+    gh_json_v3: Option<PathBuf>,
 ) -> Result<()> {
     let reopen_variants: &[bool] = match open_mode {
         OpenMode::Cached => &[false],
@@ -358,6 +387,7 @@ async fn run_random_access(
 
     let mut targets = Vec::new();
     let mut measurements = Vec::new();
+    let mut v3_records: Vec<v3::V3Record> = Vec::new();
 
     for dataset in datasets {
         for format in &formats {
@@ -380,6 +410,13 @@ async fn run_random_access(
                     )
                     .await?;
 
+                    push_v3_random_access_record(
+                        &mut v3_records,
+                        &measurement,
+                        dataset.name(),
+                        None,
+                        reopen,
+                    );
                     targets.push(measurement.target);
                     measurements.push(measurement);
                     progress.inc(1);
@@ -406,6 +443,13 @@ async fn run_random_access(
                     )
                     .await?;
 
+                    push_v3_random_access_record(
+                        &mut v3_records,
+                        &measurement,
+                        dataset.name(),
+                        Some(*pattern),
+                        reopen,
+                    );
                     targets.push(measurement.target);
                     measurements.push(measurement);
                     progress.inc(1);
@@ -415,6 +459,10 @@ async fn run_random_access(
     }
 
     progress.finish();
+
+    if let Some(path) = gh_json_v3 {
+        v3::write_jsonl_to_path(&path, &v3_records)?;
+    }
 
     let mut writer = create_output_writer(&display_format, output_path, BENCHMARK_ID)?;
 
@@ -428,4 +476,59 @@ async fn run_random_access(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn v3_random_access_dataset_names_match_schema_dims() {
+        assert_eq!(v3_random_access_dataset_name("taxi", None), "taxi");
+        assert_eq!(
+            v3_random_access_dataset_name("taxi", Some(AccessPattern::Correlated)),
+            "taxi/correlated"
+        );
+        assert_eq!(
+            v3_random_access_dataset_name("feature-vectors", Some(AccessPattern::Uniform)),
+            "feature-vectors/uniform"
+        );
+    }
+
+    #[test]
+    fn v3_random_access_records_skip_reopen_variants() {
+        let measurement = TimingMeasurement {
+            name: "random-access/taxi/uniform/parquet-tokio-local-disk".to_string(),
+            target: Target::new(Engine::Arrow, Format::Parquet),
+            storage: STORAGE_NVME.to_string(),
+            runs: vec![Duration::from_nanos(10)],
+        };
+        let mut records = Vec::new();
+
+        push_v3_random_access_record(&mut records, &measurement, "taxi", None, false);
+        push_v3_random_access_record(
+            &mut records,
+            &measurement,
+            "taxi",
+            Some(AccessPattern::Uniform),
+            false,
+        );
+        push_v3_random_access_record(
+            &mut records,
+            &measurement,
+            "taxi",
+            Some(AccessPattern::Correlated),
+            true,
+        );
+
+        assert_eq!(records.len(), 2);
+        match &records[0] {
+            v3::V3Record::RandomAccessTime(record) => assert_eq!(record.dataset, "taxi"),
+            other => panic!("expected random-access record, got {other:?}"),
+        }
+        match &records[1] {
+            v3::V3Record::RandomAccessTime(record) => assert_eq!(record.dataset, "taxi/uniform"),
+            other => panic!("expected random-access record, got {other:?}"),
+        }
+    }
 }

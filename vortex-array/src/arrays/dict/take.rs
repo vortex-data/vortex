@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use smallvec::SmallVec;
 use vortex_error::VortexResult;
 
 use super::Dict;
@@ -21,6 +22,7 @@ use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar::Scalar;
 use crate::stats::StatsSet;
+use crate::validity::Validity;
 
 pub trait TakeReduce: VTable {
     /// Take elements from an array at the given indices without reading buffers.
@@ -99,7 +101,7 @@ where
             return Ok(Some(result));
         }
         let result = <V as TakeReduce>::take(array, parent.codes())?;
-        if let Some(ref taken) = result {
+        if let Some(taken) = &result {
             propagate_take_stats(array.array(), taken, parent.codes())?;
         }
         Ok(result)
@@ -130,7 +132,7 @@ where
             return Ok(Some(result));
         }
         let result = <V as TakeExecute>::take(array, parent.codes(), ctx)?;
-        if let Some(ref taken) = result {
+        if let Some(taken) = &result {
             propagate_take_stats(array.array(), taken, parent.codes())?;
         }
         Ok(result)
@@ -142,8 +144,12 @@ pub(crate) fn propagate_take_stats(
     target: &ArrayRef,
     indices: &ArrayRef,
 ) -> VortexResult<()> {
+    let indices_all_valid = matches!(
+        indices.validity()?,
+        Validity::NonNullable | Validity::AllValid
+    );
     target.statistics().with_mut_typed_stats_set(|mut st| {
-        if indices.all_valid().unwrap_or(false) {
+        if indices_all_valid {
             let is_constant = source.statistics().get_as::<bool>(Stat::IsConstant);
             if is_constant == Some(Precision::Exact(true)) {
                 // Any combination of elements from a constant array is still const
@@ -159,7 +165,7 @@ pub(crate) fn propagate_take_stats(
                     .and_then(|v| v.map(|s| s.into_value()).into_inexact().transpose())
                     .map(|sv| (stat, sv))
             })
-            .collect::<Vec<_>>();
+            .collect::<SmallVec<_>>();
         st.combine_sets(
             &(unsafe { StatsSet::new_unchecked(inexact_min_max) }).as_typed_ref(source.dtype()),
         )

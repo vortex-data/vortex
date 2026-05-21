@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::cast_possible_truncation)]
+#![expect(clippy::cast_possible_truncation)]
 use std::iter;
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -12,7 +12,7 @@ use futures::TryStreamExt;
 use futures::pin_mut;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
@@ -262,6 +262,7 @@ async fn test_read_simple_with_spawn() {
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn test_read_projection() {
+    let mut ctx = SESSION.create_execution_ctx();
     let strings_expected = ["ab", "foo", "bar", "baz", "ab", "foo", "bar", "baz"];
     let strings = ChunkedArray::from_iter([
         VarBinArray::from(strings_expected[..4].to_vec()).into_array(),
@@ -306,7 +307,11 @@ async fn test_read_projection() {
         )
     );
 
-    let actual = array.to_struct().unmasked_field(0).clone();
+    let actual = array
+        .execute::<StructArray>(&mut ctx)
+        .unwrap()
+        .unmasked_field(0)
+        .clone();
     let expected = VarBinArray::from(strings_expected.to_vec()).into_array();
     assert_arrays_eq!(actual, expected);
 
@@ -328,7 +333,11 @@ async fn test_read_projection() {
         )
     );
 
-    let actual = array.to_struct().unmasked_field(0).clone();
+    let actual = array
+        .execute::<StructArray>(&mut ctx)
+        .unwrap()
+        .unmasked_field(0)
+        .clone();
     let expected = Buffer::copy_from(numbers_expected).into_array();
     assert_arrays_eq!(actual, expected);
 }
@@ -336,6 +345,7 @@ async fn test_read_projection() {
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn unequal_batches() {
+    let mut ctx = SESSION.create_execution_ctx();
     let strings = ChunkedArray::from_iter([
         VarBinArray::from(vec!["ab", "foo", "bar", "bob"]).into_array(),
         VarBinArray::from(vec!["baz", "ab", "foo", "bar", "baz", "alice"]).into_array(),
@@ -373,10 +383,13 @@ async fn unequal_batches() {
         item_count += array.len();
 
         let numbers = array
-            .to_struct()
+            .execute::<StructArray>(&mut ctx)
+            .unwrap()
             .unmasked_field_by_name("numbers")
             .unwrap()
-            .to_primitive();
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_eq!(numbers.ptype(), PType::U32);
     }
     assert_eq!(item_count, 10);
@@ -505,6 +518,7 @@ async fn issue_5385_filter_casted_column() {
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn filter_string() {
+    let mut ctx = SESSION.create_execution_ctx();
     let names_orig = VarBinArray::from_iter(
         vec![Some("Joseph"), None, Some("Angela"), Some("Mikhail"), None],
         DType::Utf8(Nullability::Nullable),
@@ -541,13 +555,23 @@ async fn filter_string() {
         .unwrap();
 
     assert_eq!(result.len(), 1);
-    let names_actual = result[0].to_struct().unmasked_field(0).clone();
+    let names_actual = result[0]
+        .clone()
+        .execute::<StructArray>(&mut ctx)
+        .unwrap()
+        .unmasked_field(0)
+        .clone();
     let names_expected =
         VarBinArray::from_iter(vec![Some("Joseph")], DType::Utf8(Nullability::Nullable))
             .into_array();
     assert_arrays_eq!(names_actual, names_expected);
 
-    let ages_actual = result[0].to_struct().unmasked_field(1).clone();
+    let ages_actual = result[0]
+        .clone()
+        .execute::<StructArray>(&mut ctx)
+        .unwrap()
+        .unmasked_field(1)
+        .clone();
     let ages_expected = PrimitiveArray::from_option_iter([Some(25i32)]).into_array();
     assert_arrays_eq!(ages_actual, ages_expected);
 }
@@ -555,6 +579,7 @@ async fn filter_string() {
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn filter_or() {
+    let mut ctx = SESSION.create_execution_ctx();
     let names = VarBinArray::from_iter(
         vec![Some("Joseph"), None, Some("Angela"), Some("Mikhail"), None],
         DType::Utf8(Nullability::Nullable),
@@ -596,7 +621,12 @@ async fn filter_or() {
         .unwrap();
 
     assert_eq!(result.len(), 1);
-    let names_actual = result[0].to_struct().unmasked_field(0).clone();
+    let names_actual = result[0]
+        .clone()
+        .execute::<StructArray>(&mut ctx)
+        .unwrap()
+        .unmasked_field(0)
+        .clone();
     let names_expected = VarBinArray::from_iter(
         vec![Some("Joseph"), Some("Angela")],
         DType::Utf8(Nullability::Nullable),
@@ -604,7 +634,12 @@ async fn filter_or() {
     .into_array();
     assert_arrays_eq!(names_actual, names_expected);
 
-    let ages_actual = result[0].to_struct().unmasked_field(1).clone();
+    let ages_actual = result[0]
+        .clone()
+        .execute::<StructArray>(&mut ctx)
+        .unwrap()
+        .unmasked_field(1)
+        .clone();
     let ages_expected = PrimitiveArray::from_option_iter([Some(25i32), None]).into_array();
     assert_arrays_eq!(ages_actual, ages_expected);
 }
@@ -612,6 +647,7 @@ async fn filter_or() {
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn filter_and() {
+    let mut ctx = SESSION.create_execution_ctx();
     let names = VarBinArray::from_iter(
         vec![Some("Joseph"), None, Some("Angela"), Some("Mikhail"), None],
         DType::Utf8(Nullability::Nullable),
@@ -650,7 +686,12 @@ async fn filter_and() {
         .unwrap();
 
     assert_eq!(result.len(), 1);
-    let names_actual = result[0].to_struct().unmasked_field(0).clone();
+    let names_actual = result[0]
+        .clone()
+        .execute::<StructArray>(&mut ctx)
+        .unwrap()
+        .unmasked_field(0)
+        .clone();
     let names_expected = VarBinArray::from_iter(
         vec![Some("Joseph"), None],
         DType::Utf8(Nullability::Nullable),
@@ -658,7 +699,12 @@ async fn filter_and() {
     .into_array();
     assert_arrays_eq!(names_actual, names_expected);
 
-    let ages_actual = result[0].to_struct().unmasked_field(1).clone();
+    let ages_actual = result[0]
+        .clone()
+        .execute::<StructArray>(&mut ctx)
+        .unwrap()
+        .unmasked_field(1)
+        .clone();
     let ages_expected = PrimitiveArray::from_option_iter([Some(25i32), Some(31i32)]).into_array();
     assert_arrays_eq!(ages_actual, ages_expected);
 }
@@ -666,6 +712,7 @@ async fn filter_and() {
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn test_with_indices_simple() {
+    let mut ctx = SESSION.create_execution_ctx();
     let expected_numbers_split: Vec<Buffer<i16>> = (0..5).map(|_| (0_i16..100).collect()).collect();
     let expected_array = StructArray::from_fields(&[(
         "numbers",
@@ -699,7 +746,8 @@ async fn test_with_indices_simple() {
         .read_all()
         .await
         .unwrap()
-        .to_struct();
+        .execute::<StructArray>(&mut ctx)
+        .unwrap();
 
     assert_eq!(actual_kept_array.len(), 0);
 
@@ -715,8 +763,13 @@ async fn test_with_indices_simple() {
         .read_all()
         .await
         .unwrap()
-        .to_struct();
-    let actual_kept_numbers_array = actual_kept_array.unmasked_field(0).to_primitive();
+        .execute::<StructArray>(&mut ctx)
+        .unwrap();
+    let actual_kept_numbers_array = actual_kept_array
+        .unmasked_field(0)
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)
+        .unwrap();
 
     let expected_kept_numbers: Vec<i16> = kept_indices
         .iter()
@@ -735,7 +788,8 @@ async fn test_with_indices_simple() {
         .read_all()
         .await
         .unwrap()
-        .to_struct();
+        .execute::<StructArray>(&mut ctx)
+        .unwrap();
     let actual_numbers_array = actual_array.unmasked_field(0).clone();
     let expected_array = Buffer::copy_from(&expected_numbers).into_array();
     assert_arrays_eq!(actual_numbers_array, expected_array);
@@ -744,6 +798,7 @@ async fn test_with_indices_simple() {
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn test_with_indices_on_two_columns() {
+    let mut ctx = SESSION.create_execution_ctx();
     let strings_expected = ["ab", "foo", "bar", "baz", "ab", "foo", "bar", "baz"];
     let strings = ChunkedArray::from_iter([
         VarBinArray::from(strings_expected[..4].to_vec()).into_array(),
@@ -778,7 +833,8 @@ async fn test_with_indices_on_two_columns() {
         .read_all()
         .await
         .unwrap()
-        .to_struct();
+        .execute::<StructArray>(&mut ctx)
+        .unwrap();
 
     let strings_actual = array.unmasked_field(0).clone();
     let strings_expected_vec: Vec<&str> = kept_indices
@@ -800,6 +856,7 @@ async fn test_with_indices_on_two_columns() {
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn test_with_indices_and_with_row_filter_simple() {
+    let mut ctx = SESSION.create_execution_ctx();
     let expected_numbers_split: Vec<Buffer<i16>> = (0..5).map(|_| (0_i16..100).collect()).collect();
     let expected_array = StructArray::from_fields(&[(
         "numbers",
@@ -833,7 +890,8 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .read_all()
         .await
         .unwrap()
-        .to_struct();
+        .execute::<StructArray>(&mut ctx)
+        .unwrap();
 
     assert_eq!(actual_kept_array.len(), 0);
 
@@ -850,9 +908,14 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .read_all()
         .await
         .unwrap()
-        .to_struct();
+        .execute::<StructArray>(&mut ctx)
+        .unwrap();
 
-    let actual_kept_numbers_array = actual_kept_array.unmasked_field(0).to_primitive();
+    let actual_kept_numbers_array = actual_kept_array
+        .unmasked_field(0)
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)
+        .unwrap();
 
     let expected_kept_numbers: Buffer<i16> = kept_indices
         .iter()
@@ -873,7 +936,8 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .read_all()
         .await
         .unwrap()
-        .to_struct();
+        .execute::<StructArray>(&mut ctx)
+        .unwrap();
 
     let actual_numbers_array = actual_array.unmasked_field(0).clone();
     let expected_filtered: Buffer<i16> = expected_numbers
@@ -888,6 +952,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn filter_string_chunked() {
+    let mut ctx = SESSION.create_execution_ctx();
     let name_chunk1 =
         VarBinViewArray::from_iter_nullable_str([Some("Joseph"), Some("James"), Some("Angela")])
             .into_array();
@@ -932,7 +997,8 @@ async fn filter_string_chunked() {
         .read_all()
         .await
         .unwrap()
-        .to_struct();
+        .execute::<StructArray>(&mut ctx)
+        .unwrap();
 
     assert_eq!(actual_array.len(), 1);
     let names_actual = actual_array.unmasked_field(0).clone();
@@ -949,6 +1015,7 @@ async fn filter_string_chunked() {
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn test_pruning_with_or() {
+    let mut ctx = SESSION.create_execution_ctx();
     let letter_chunk1 = VarBinViewArray::from_iter_nullable_str([
         Some("A".to_owned()),
         Some("B".to_owned()),
@@ -1023,7 +1090,8 @@ async fn test_pruning_with_or() {
         .read_all()
         .await
         .unwrap()
-        .to_struct();
+        .execute::<StructArray>(&mut ctx)
+        .unwrap();
 
     assert_eq!(actual_array.len(), 10);
     let letters_actual = actual_array.unmasked_field(0).clone();
@@ -1061,6 +1129,7 @@ async fn test_pruning_with_or() {
 
 #[tokio::test]
 async fn test_repeated_projection() {
+    let mut ctx = SESSION.create_execution_ctx();
     let strings = ChunkedArray::from_iter([
         VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
         VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
@@ -1093,7 +1162,8 @@ async fn test_repeated_projection() {
         .read_all()
         .await
         .unwrap()
-        .to_struct();
+        .execute::<StructArray>(&mut ctx)
+        .unwrap();
 
     assert_arrays_eq!(actual, expected);
 }
@@ -1240,16 +1310,22 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
     )?
     .into_array();
 
-    let result = round_trip(&array, Ok).await?.to_struct();
+    let mut ctx = SESSION.create_execution_ctx();
+    let result = round_trip(&array, Ok)
+        .await?
+        .execute::<StructArray>(&mut ctx)?;
 
     assert_eq!(result.len(), 3);
     assert_eq!(result.struct_fields().nfields(), 1);
-    assert!(result.all_valid()?);
+    assert!(result.all_valid(&mut ctx)?);
 
-    let nested_struct = result.unmasked_field_by_name("struct")?.to_struct();
+    let nested_struct = result
+        .unmasked_field_by_name("struct")?
+        .clone()
+        .execute::<StructArray>(&mut ctx)?;
     assert_eq!(nested_struct.dtype(), &nested_dtype);
     assert_eq!(nested_struct.len(), 3);
-    assert!(nested_struct.all_invalid()?);
+    assert!(nested_struct.all_invalid(&mut ctx)?);
 
     Ok(())
 }
@@ -1356,6 +1432,7 @@ async fn test_writer_basic_push() -> VortexResult<()> {
 
 #[tokio::test]
 async fn test_writer_multiple_pushes() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let chunk1 =
         StructArray::from_fields(&[("numbers", buffer![1u32, 2, 3].into_array())])?.into_array();
     let chunk2 =
@@ -1380,7 +1457,7 @@ async fn test_writer_multiple_pushes() -> VortexResult<()> {
 
     assert_eq!(result.len(), 9);
     let numbers = result
-        .to_struct()
+        .execute::<StructArray>(&mut ctx)?
         .unmasked_field_by_name("numbers")?
         .clone();
     let expected = buffer![1u32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
@@ -1391,6 +1468,7 @@ async fn test_writer_multiple_pushes() -> VortexResult<()> {
 
 #[tokio::test]
 async fn test_writer_push_stream() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let chunk1 =
         StructArray::from_fields(&[("numbers", buffer![1u32, 2, 3].into_array())])?.into_array();
     let chunk2 =
@@ -1414,7 +1492,7 @@ async fn test_writer_push_stream() -> VortexResult<()> {
 
     assert_eq!(result.len(), 6);
     let numbers = result
-        .to_struct()
+        .execute::<StructArray>(&mut ctx)?
         .unmasked_field_by_name("numbers")?
         .clone();
     let expected = buffer![1u32, 2, 3, 4, 5, 6].into_array();
@@ -1453,6 +1531,7 @@ async fn test_writer_bytes_written() -> VortexResult<()> {
 
 #[tokio::test]
 async fn test_writer_empty_chunks() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let empty = StructArray::from_fields(&[(
         "numbers",
         PrimitiveArray::new::<u32>(buffer![], Validity::NonNullable).into_array(),
@@ -1478,7 +1557,7 @@ async fn test_writer_empty_chunks() -> VortexResult<()> {
 
     assert_eq!(result.len(), 2);
     let numbers = result
-        .to_struct()
+        .execute::<StructArray>(&mut ctx)?
         .unmasked_field_by_name("numbers")?
         .clone();
     let expected = buffer![1u32, 2].into_array();
@@ -1489,6 +1568,7 @@ async fn test_writer_empty_chunks() -> VortexResult<()> {
 
 #[tokio::test]
 async fn test_writer_mixed_push_and_stream() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let chunk1 =
         StructArray::from_fields(&[("numbers", buffer![1u32, 2].into_array())])?.into_array();
     let chunk2 =
@@ -1516,7 +1596,7 @@ async fn test_writer_mixed_push_and_stream() -> VortexResult<()> {
 
     assert_eq!(result.len(), 6);
     let numbers = result
-        .to_struct()
+        .execute::<StructArray>(&mut ctx)?
         .unmasked_field_by_name("numbers")?
         .clone();
     let expected = buffer![1u32, 2, 3, 4, 5, 6].into_array();
@@ -1527,6 +1607,7 @@ async fn test_writer_mixed_push_and_stream() -> VortexResult<()> {
 
 #[tokio::test]
 async fn test_writer_with_complex_types() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let strings = VarBinArray::from(vec!["hello", "world", "test"]).into_array();
     let numbers = buffer![100i32, 200, 300].into_array();
     let lists = ListArray::from_iter_slow::<i16, _>(
@@ -1558,13 +1639,15 @@ async fn test_writer_with_complex_types() -> VortexResult<()> {
     assert_eq!(result.dtype(), &dtype);
 
     let strings_field = result
-        .to_struct()
+        .execute::<StructArray>(&mut ctx)?
         .unmasked_field_by_name("strings")
         .cloned()?;
-    let strings = strings_field.to_varbinview().with_iterator(|iter| {
-        iter.map(|s| s.map(|st| unsafe { String::from_utf8_unchecked(st.to_vec()) }))
-            .collect::<Vec<_>>()
-    });
+    let strings = strings_field
+        .execute::<VarBinViewArray>(&mut ctx)?
+        .with_iterator(|iter| {
+            iter.map(|s| s.map(|st| unsafe { String::from_utf8_unchecked(st.to_vec()) }))
+                .collect::<Vec<_>>()
+        });
     assert_eq!(
         strings,
         vec![

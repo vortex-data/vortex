@@ -15,23 +15,30 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
+use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
 use vortex_array::TypedArrayRef;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::patches::PatchSlotIndices;
 use vortex_array::patches::Patches;
+use vortex_array::patches::PatchesData;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::require_child;
 use vortex_array::require_patches;
 use vortex_array::serde::ArrayChildren;
+use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -44,6 +51,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::alp_rd::kernel::PARENT_KERNELS;
 use crate::alp_rd::rules::RULES;
@@ -70,8 +78,7 @@ impl ArrayHash for ALPRDData {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
         self.left_parts_dictionary.array_hash(state, precision);
         self.right_bit_width.hash(state);
-        self.patch_offset.hash(state);
-        self.patch_offset_within_chunk.hash(state);
+        self.patches_data.hash(state);
     }
 }
 
@@ -80,19 +87,19 @@ impl ArrayEq for ALPRDData {
         self.left_parts_dictionary
             .array_eq(&other.left_parts_dictionary, precision)
             && self.right_bit_width == other.right_bit_width
-            && self.patch_offset == other.patch_offset
-            && self.patch_offset_within_chunk == other.patch_offset_within_chunk
+            && self.patches_data == other.patches_data
     }
 }
 
 impl VTable for ALPRD {
-    type ArrayData = ALPRDData;
+    type TypedArrayData = ALPRDData;
 
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.alprd");
+        *ID
     }
 
     fn validate(
@@ -107,13 +114,7 @@ impl VTable for ALPRD {
             len,
             left_parts_from_slots(slots),
             right_parts_from_slots(slots),
-            patches_from_slots(
-                slots,
-                data.patch_offset,
-                data.patch_offset_within_chunk,
-                len,
-            )
-            .as_ref(),
+            patches_from_slots(slots, data.patches_data.as_ref(), len).as_ref(),
         )
     }
 
@@ -209,8 +210,14 @@ impl VTable for ALPRD {
                 )
             })
             .transpose()?;
-        let left_parts_patches = ALPRDData::canonicalize_patches(&left_parts, left_parts_patches)?;
-        let slots = ALPRDData::make_slots(&left_parts, &right_parts, &left_parts_patches);
+        // NOTE: `VTable::deserialize` has a fixed trait signature without `ExecutionCtx`, so we
+        // cannot plumb a ctx in here. We construct a legacy ctx locally at this trait boundary.
+        let left_parts_patches = ALPRDData::canonicalize_patches(
+            &left_parts,
+            left_parts_patches,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
+        let slots = ALPRDData::make_slots(&left_parts, &right_parts, left_parts_patches.as_ref());
         let data = ALPRDData::new(
             left_parts_dictionary,
             u8::try_from(metadata.right_bit_width).map_err(|_| {
@@ -259,7 +266,10 @@ impl VTable for ALPRD {
 
         // Decode the left_parts using our builtin dictionary.
         let left_parts_dict = left_parts_dictionary;
-        let validity = left_parts.validity_mask()?;
+        let validity = left_parts
+            .as_ref()
+            .validity()?
+            .execute_mask(left_parts.as_ref().len(), ctx)?;
 
         let decoded_array = if ptype == PType::F32 {
             PrimitiveArray::new(
@@ -313,6 +323,11 @@ pub(super) const LEFT_PARTS_SLOT: usize = 0;
 /// The right (least significant) parts of the real-double encoded values.
 pub(super) const RIGHT_PARTS_SLOT: usize = 1;
 /// The indices of left-parts exception values that could not be dictionary-encoded.
+pub(super) const LP_PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
+    indices: LP_PATCH_INDICES_SLOT,
+    values: LP_PATCH_VALUES_SLOT,
+    chunk_offsets: LP_PATCH_CHUNK_OFFSETS_SLOT,
+};
 pub(super) const LP_PATCH_INDICES_SLOT: usize = 2;
 /// The exception values for left-parts that could not be dictionary-encoded.
 pub(super) const LP_PATCH_VALUES_SLOT: usize = 3;
@@ -329,8 +344,7 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = [
 
 #[derive(Clone, Debug)]
 pub struct ALPRDData {
-    patch_offset: Option<usize>,
-    patch_offset_within_chunk: Option<usize>,
+    patches_data: Option<PatchesData>,
     left_parts_dictionary: Buffer<u16>,
     right_bit_width: u8,
 }
@@ -338,8 +352,8 @@ pub struct ALPRDData {
 impl Display for ALPRDData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "right_bit_width: {}", self.right_bit_width)?;
-        if let Some(offset) = self.patch_offset {
-            write!(f, ", patch_offset: {offset}")?;
+        if let Some(pd) = &self.patches_data {
+            write!(f, ", patch_offset: {}", pd.offset())?;
         }
         Ok(())
     }
@@ -357,8 +371,6 @@ pub struct ALPRDDataParts {
 pub struct ALPRD;
 
 impl ALPRD {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.alprd");
-
     pub fn try_new(
         dtype: DType,
         left_parts: ArrayRef,
@@ -366,10 +378,12 @@ impl ALPRD {
         right_parts: ArrayRef,
         right_bit_width: u8,
         left_parts_patches: Option<Patches>,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ALPRDArray> {
         let len = left_parts.len();
-        let left_parts_patches = ALPRDData::canonicalize_patches(&left_parts, left_parts_patches)?;
-        let slots = ALPRDData::make_slots(&left_parts, &right_parts, &left_parts_patches);
+        let left_parts_patches =
+            ALPRDData::canonicalize_patches(&left_parts, left_parts_patches, ctx)?;
+        let slots = ALPRDData::make_slots(&left_parts, &right_parts, left_parts_patches.as_ref());
         let data = ALPRDData::new(left_parts_dictionary, right_bit_width, left_parts_patches);
         Array::try_from_parts(ArrayParts::new(ALPRD, dtype, len, data).with_slots(slots))
     }
@@ -385,7 +399,7 @@ impl ALPRD {
         left_parts_patches: Option<Patches>,
     ) -> ALPRDArray {
         let len = left_parts.len();
-        let slots = ALPRDData::make_slots(&left_parts, &right_parts, &left_parts_patches);
+        let slots = ALPRDData::make_slots(&left_parts, &right_parts, left_parts_patches.as_ref());
         let data = unsafe {
             ALPRDData::new_unchecked(left_parts_dictionary, right_bit_width, left_parts_patches)
         };
@@ -399,10 +413,11 @@ impl ALPRDData {
     fn canonicalize_patches(
         left_parts: &ArrayRef,
         left_parts_patches: Option<Patches>,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Patches>> {
         left_parts_patches
             .map(|patches| {
-                if !patches.values().all_valid()? {
+                if !patches.values().all_valid(ctx)? {
                     vortex_bail!("patches must be all valid: {}", patches.values());
                 }
                 // TODO(ngates): assert the DType, don't cast it.
@@ -410,7 +425,8 @@ impl ALPRDData {
                 let mut patches = patches.cast_values(&left_parts.dtype().as_nonnullable())?;
                 // Force execution of the lazy cast so patch values are materialized
                 // before serialization.
-                *patches.values_mut() = patches.values().to_canonical()?.into_array();
+                let canonical = patches.values().clone().execute::<Canonical>(ctx)?;
+                *patches.values_mut() = canonical.into_array();
                 Ok(patches)
             })
             .transpose()
@@ -422,14 +438,8 @@ impl ALPRDData {
         right_bit_width: u8,
         left_parts_patches: Option<Patches>,
     ) -> Self {
-        let (patch_offset, patch_offset_within_chunk) = match &left_parts_patches {
-            Some(patches) => (Some(patches.offset()), patches.offset_within_chunk()),
-            None => (None, None),
-        };
-
         Self {
-            patch_offset,
-            patch_offset_within_chunk,
+            patches_data: left_parts_patches.as_ref().map(PatchesData::from_patches),
             left_parts_dictionary,
             right_bit_width,
         }
@@ -448,23 +458,11 @@ impl ALPRDData {
     fn make_slots(
         left_parts: &ArrayRef,
         right_parts: &ArrayRef,
-        patches: &Option<Patches>,
-    ) -> Vec<Option<ArrayRef>> {
-        let (pi, pv, pco) = match patches {
-            Some(p) => (
-                Some(p.indices().clone()),
-                Some(p.values().clone()),
-                p.chunk_offsets().clone(),
-            ),
-            None => (None, None, None),
-        };
-        vec![
-            Some(left_parts.clone()),
-            Some(right_parts.clone()),
-            pi,
-            pv,
-            pco,
-        ]
+        patches: Option<&Patches>,
+    ) -> ArraySlots {
+        let mut slots: ArraySlots = smallvec![Some(left_parts.clone()), Some(right_parts.clone())];
+        PatchesData::push_slots(&mut slots, patches);
+        slots
     }
 
     /// Return all the owned parts of the array
@@ -503,26 +501,10 @@ fn right_parts_from_slots(slots: &[Option<ArrayRef>]) -> &ArrayRef {
 
 fn patches_from_slots(
     slots: &[Option<ArrayRef>],
-    patch_offset: Option<usize>,
-    patch_offset_within_chunk: Option<usize>,
+    patches_data: Option<&PatchesData>,
     len: usize,
 ) -> Option<Patches> {
-    match (&slots[LP_PATCH_INDICES_SLOT], &slots[LP_PATCH_VALUES_SLOT]) {
-        (Some(indices), Some(values)) => {
-            let patch_offset = patch_offset.vortex_expect("ALPRDArray patch slots without offset");
-            Some(unsafe {
-                Patches::new_unchecked(
-                    len,
-                    patch_offset,
-                    indices.clone(),
-                    values.clone(),
-                    slots[LP_PATCH_CHUNK_OFFSETS_SLOT].clone(),
-                    patch_offset_within_chunk,
-                )
-            })
-        }
-        _ => None,
-    }
+    PatchesData::patches_from_slots(patches_data, len, slots, LP_PATCH_SLOTS)
 }
 
 fn validate_parts(
@@ -583,7 +565,9 @@ fn validate_parts(
             left_parts.dtype(),
         );
         vortex_ensure!(
-            patches.values().all_valid()?,
+            patches
+                .values()
+                .all_valid(&mut LEGACY_SESSION.create_execution_ctx())?,
             "patches must be all valid: {}",
             patches.values()
         );
@@ -608,8 +592,7 @@ pub trait ALPRDArrayExt: TypedArrayRef<ALPRD> {
     fn left_parts_patches(&self) -> Option<Patches> {
         patches_from_slots(
             self.as_ref().slots(),
-            self.patch_offset,
-            self.patch_offset_within_chunk,
+            self.patches_data.as_ref(),
             self.as_ref().len(),
         )
     }
@@ -650,7 +633,8 @@ impl ValidityChild<ALPRD> for ALPRD {
 mod test {
     use prost::Message;
     use rstest::rstest;
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::PType;
@@ -668,6 +652,7 @@ mod test {
         #[case] reals: Vec<T>,
         #[case] seed: T,
     ) {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         assert_eq!(reals.len(), 1024, "test expects 1024-length fixture");
         // Null out some of the values.
         let mut reals: Vec<Option<T>> = reals.into_iter().map(Some).collect();
@@ -681,9 +666,13 @@ mod test {
         // Pick a seed that we know will trigger lots of patches.
         let encoder: alp_rd::RDEncoder = alp_rd::RDEncoder::new(&[seed.powi(-2)]);
 
-        let rd_array = encoder.encode(real_array.as_view());
+        let rd_array = encoder.encode(real_array.as_view(), &mut ctx);
 
-        let decoded = rd_array.as_array().to_primitive();
+        let decoded = rd_array
+            .as_array()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
 
         assert_arrays_eq!(decoded, PrimitiveArray::from_option_iter(reals));
     }

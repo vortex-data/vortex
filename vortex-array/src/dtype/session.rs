@@ -3,10 +3,12 @@
 
 //! Module for managing extension dtypes in a Vortex session.
 
+use std::any::Any;
 use std::sync::Arc;
 
 use vortex_session::Ref;
 use vortex_session::SessionExt;
+use vortex_session::SessionVar;
 use vortex_session::registry::Registry;
 
 use crate::dtype::extension::ExtDTypePluginRef;
@@ -14,6 +16,7 @@ use crate::dtype::extension::ExtVTable;
 use crate::extension::datetime::Date;
 use crate::extension::datetime::Time;
 use crate::extension::datetime::Timestamp;
+use crate::extension::uuid::Uuid;
 
 /// Registry for extension dtypes.
 pub type ExtDTypeRegistry = Registry<ExtDTypePluginRef>;
@@ -34,8 +37,19 @@ impl Default for DTypeSession {
         this.register(Date);
         this.register(Time);
         this.register(Timestamp);
+        this.register(Uuid);
 
         this
+    }
+}
+
+impl SessionVar for DTypeSession {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
     }
 }
 

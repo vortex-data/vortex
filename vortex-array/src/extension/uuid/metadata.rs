@@ -21,6 +21,8 @@ pub(crate) fn u8_to_version(b: u8) -> VortexResult<Version> {
         6 => Ok(Version::SortMac),
         7 => Ok(Version::SortRand),
         8 => Ok(Version::Custom),
+        // UUID crate changed from 0xff to 0x0f for maximum uuid version in 1.23.0
+        0x0f => Ok(Version::Max),
         0xff => Ok(Version::Max),
         _ => vortex_bail!("unknown UUID version discriminant: {b}"),
     }

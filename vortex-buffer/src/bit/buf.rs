@@ -139,7 +139,7 @@ impl BitBuffer {
     }
 
     /// Create a bit buffer of `len` with `indices` set as true.
-    pub fn from_indices(len: usize, indices: &[usize]) -> BitBuffer {
+    pub fn from_indices(len: usize, indices: impl IntoIterator<Item = usize>) -> BitBuffer {
         BitBufferMut::from_indices(len, indices).freeze()
     }
 
@@ -648,6 +648,24 @@ mod tests {
         assert_eq!(sliced.len(), 6);
         // Ensure the offset is modulo 8
         assert_eq!(sliced.offset(), 2);
+    }
+
+    #[test]
+    fn test_from_indices_dense_crosses_words() {
+        let len = 130;
+        let indices = (0..len).filter(|idx| idx % 3 != 1);
+        let buf = BitBuffer::from_indices(len, indices);
+
+        assert_eq!(buf.len(), len);
+        for idx in 0..len {
+            assert_eq!(buf.value(idx), idx % 3 != 1, "mismatch at {idx}");
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "index 5 exceeds len 5")]
+    fn test_from_indices_out_of_bounds() {
+        BitBuffer::from_indices(5, [0, 5]);
     }
 
     #[rstest]

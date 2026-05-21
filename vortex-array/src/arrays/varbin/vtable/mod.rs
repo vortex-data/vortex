@@ -9,6 +9,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -21,6 +22,7 @@ use crate::array::VTable;
 use crate::arrays::varbin::VarBinArrayExt;
 use crate::arrays::varbin::VarBinData;
 use crate::arrays::varbin::array::NUM_SLOTS;
+use crate::arrays::varbin::array::OFFSETS_SLOT;
 use crate::arrays::varbin::array::SLOT_NAMES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -64,13 +66,13 @@ impl ArrayEq for VarBinData {
 }
 
 impl VTable for VarBin {
-    type ArrayData = VarBinData;
+    type TypedArrayData = VarBinData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.varbin");
+        *ID
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -89,7 +91,7 @@ impl VTable for VarBin {
             "VarBinArray expected {NUM_SLOTS} slots, found {}",
             slots.len()
         );
-        let offsets = slots[crate::arrays::varbin::array::OFFSETS_SLOT]
+        let offsets = slots[OFFSETS_SLOT]
             .as_ref()
             .vortex_expect("VarBinArray offsets slot");
         vortex_ensure!(
@@ -198,7 +200,3 @@ impl VTable for VarBin {
 
 #[derive(Clone, Debug)]
 pub struct VarBin;
-
-impl VarBin {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.varbin");
-}

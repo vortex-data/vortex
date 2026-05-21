@@ -1,14 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::borrow::Borrow;
 use std::iter::once;
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
@@ -16,6 +20,7 @@ use crate::array::EmptyArrayData;
 use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
+use crate::arrays::ChunkedArray;
 use crate::arrays::Struct;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
@@ -52,7 +57,7 @@ pub(super) const FIELDS_OFFSET: usize = 1;
 /// use vortex_array::arrays::{StructArray, BoolArray};
 /// use vortex_array::validity::Validity;
 /// use vortex_array::dtype::FieldNames;
-/// use vortex_array::IntoArray;
+/// use vortex_array::{IntoArray, LEGACY_SESSION, VortexSessionExecute};
 /// use vortex_buffer::buffer;
 ///
 /// // Create struct with all non-null fields but struct-level nulls
@@ -66,13 +71,14 @@ pub(super) const FIELDS_OFFSET: usize = 1;
 ///     2,
 ///     Validity::Array(BoolArray::from_iter([true, false]).into_array()), // row 1 is null
 /// ).unwrap();
+/// let mut ctx = LEGACY_SESSION.create_execution_ctx();
 ///
 /// // Row 0 is valid - returns a struct scalar with field values
-/// let row0 = struct_array.scalar_at(0).unwrap();
+/// let row0 = struct_array.execute_scalar(0, &mut ctx).unwrap();
 /// assert!(!row0.is_null());
 ///
 /// // Row 1 is null at struct level - returns null even though fields have values
-/// let row1 = struct_array.scalar_at(1).unwrap();
+/// let row1 = struct_array.execute_scalar(1, &mut ctx).unwrap();
 /// assert!(row1.is_null());
 /// ```
 ///
@@ -86,7 +92,7 @@ pub(super) const FIELDS_OFFSET: usize = 1;
 /// use vortex_array::arrays::struct_::StructArrayExt;
 /// use vortex_array::validity::Validity;
 /// use vortex_array::dtype::FieldNames;
-/// use vortex_array::IntoArray;
+/// use vortex_array::{IntoArray, LEGACY_SESSION, VortexSessionExecute};
 /// use vortex_buffer::buffer;
 ///
 /// // Create struct with duplicate "data" field names
@@ -102,7 +108,8 @@ pub(super) const FIELDS_OFFSET: usize = 1;
 ///
 /// // field_by_name returns the FIRST "data" field
 /// let first_data = struct_array.unmasked_field_by_name("data").unwrap();
-/// assert_eq!(first_data.scalar_at(0).unwrap(), 1i32.into());
+/// let mut ctx = LEGACY_SESSION.create_execution_ctx();
+/// assert_eq!(first_data.execute_scalar(0, &mut ctx).unwrap(), 1i32.into());
 /// ```
 ///
 /// ## Field Operations
@@ -159,7 +166,7 @@ pub(super) fn make_struct_slots(
     fields: &[ArrayRef],
     validity: &Validity,
     length: usize,
-) -> Vec<Option<ArrayRef>> {
+) -> ArraySlots {
     once(validity_to_child(validity, length))
         .chain(fields.iter().cloned().map(Some))
         .collect()
@@ -178,7 +185,10 @@ pub trait StructArrayExt: TypedArrayRef<Struct> {
     }
 
     fn struct_validity(&self) -> Validity {
-        child_to_validity(&self.as_ref().slots()[VALIDITY_SLOT], self.nullability())
+        child_to_validity(
+            self.as_ref().slots()[VALIDITY_SLOT].as_ref(),
+            self.nullability(),
+        )
     }
 
     fn iter_unmasked_fields(&self) -> impl Iterator<Item = &ArrayRef> + '_ {
@@ -406,7 +416,7 @@ impl Array<Struct> {
             .as_ref()
             .vortex_expect("StructArray field slot")
             .clone();
-        let new_slots: Vec<Option<ArrayRef>> = self
+        let new_slots: ArraySlots = self
             .slots()
             .iter()
             .enumerate()
@@ -428,9 +438,7 @@ impl Array<Struct> {
         };
         Some((new_array, field))
     }
-}
 
-impl Array<Struct> {
     pub fn with_column(&self, name: impl Into<FieldName>, array: ArrayRef) -> VortexResult<Self> {
         let name = name.into();
         let struct_dtype = self.struct_fields();
@@ -450,5 +458,71 @@ impl Array<Struct> {
 
     pub fn remove_column_owned(&self, name: impl Into<FieldName>) -> Option<(Self, ArrayRef)> {
         self.remove_column(name)
+    }
+
+    pub fn try_concat<T>(chunks: impl IntoIterator<Item = T>) -> VortexResult<Self>
+    where
+        T: Borrow<Array<Struct>>,
+    {
+        let mut it = chunks.into_iter();
+        let Some(first) = it.next() else {
+            vortex_bail!("cannot concat empty iterator of arrays");
+        };
+        let first_dtype = first.borrow().dtype().clone();
+        let struct_fields = first_dtype.as_struct_fields().clone();
+        let names = struct_fields.names();
+
+        let it = [first].into_iter().chain(it);
+        let (field_arrays_per_chunk, validities) = it
+            .map(|chunk| {
+                let chunk = chunk.borrow();
+                if &first_dtype != chunk.dtype() {
+                    vortex_bail!(
+                        "cannot concatenate struct arrays with differing dtypes: {}, {}",
+                        first_dtype,
+                        chunk.dtype(),
+                    );
+                }
+
+                let fields = names
+                    .iter()
+                    .map(|name| {
+                        chunk
+                            .unmasked_field_by_name(name)
+                            .vortex_expect("field exists because it is in dtype")
+                            .clone()
+                    })
+                    .collect::<Vec<_>>();
+                let validity = chunk.validity()?;
+
+                Ok((fields, (validity, chunk.len())))
+            })
+            .process_results(|iter| iter.unzip::<_, _, Vec<_>, Vec<_>>())?;
+
+        let field_arrays = struct_fields
+            .fields()
+            .enumerate()
+            .map(|(i, dtype)| {
+                // SAFETY: We establish above that every array has the same type.
+                let chunks = field_arrays_per_chunk
+                    .iter()
+                    .map(|x| x[i].clone())
+                    .collect();
+                unsafe { ChunkedArray::new_unchecked(chunks, dtype) }.into_array()
+            })
+            .collect::<Vec<_>>();
+        let len = validities.iter().map(|(_v, len)| len).sum();
+        let validity = Validity::concat(validities).vortex_expect("verified non-empty above");
+
+        // SAFETY:
+        //
+        // 1. The field arrays, by construction, have the type specified in fields.
+        //
+        // 2. Each Array<Struct> has a valid len, therefore the sum of those lens should be valid
+        // for the concatenation of each field.
+        //
+        // 3. Each Array<Struct> has a valid validity, so the concatenation of those validities has
+        // the correct length and dtype harmony.
+        Ok(unsafe { Array::<Struct>::new_unchecked(field_arrays, struct_fields, len, validity) })
     }
 }

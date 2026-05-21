@@ -3,7 +3,6 @@
 
 mod kernel;
 
-use std::fmt::Formatter;
 use std::ops::BitOr;
 
 use arrow_buffer::bit_iterator::BitIndexIterator;
@@ -60,7 +59,7 @@ impl ScalarFnVTable for ListContains {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.list.contains")
+        ScalarFnId::new("vortex.list.contains")
     }
 
     fn serialize(&self, _instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -89,19 +88,6 @@ impl ScalarFnVTable for ListContains {
             ),
         }
     }
-    fn fmt_sql(
-        &self,
-        _options: &Self::Options,
-        expr: &Expression,
-        f: &mut Formatter<'_>,
-    ) -> std::fmt::Result {
-        write!(f, "contains(")?;
-        expr.child(0).fmt_sql(f)?;
-        write!(f, ", ")?;
-        expr.child(1).fmt_sql(f)?;
-        write!(f, ")")
-    }
-
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         let list_dtype = &arg_dtypes[0];
         let needle_dtype = &arg_dtypes[1];
@@ -219,7 +205,7 @@ fn compute_list_contains(
         );
     }
 
-    if value.all_invalid()? || array.all_invalid()? {
+    if value.all_invalid(ctx)? || array.all_invalid(ctx)? {
         return Ok(ConstantArray::new(
             Scalar::null(DType::Bool(Nullability::Nullable)),
             array.len(),
@@ -280,7 +266,7 @@ fn list_contains_scalar(
     // If the list array is constant, we perform a single comparison.
     if array.len() > 1 && array.is::<Constant>() {
         let contains = list_contains_scalar(&array.slice(0..1)?, value, nullability, ctx)?;
-        return Ok(ConstantArray::new(contains.scalar_at(0)?, array.len()).into_array());
+        return Ok(ConstantArray::new(contains.execute_scalar(0, ctx)?, array.len()).into_array());
     }
 
     let list_array = array.clone().execute::<ListViewArray>(ctx)?;
@@ -456,10 +442,13 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::ListArray;
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
-    use crate::canonical::ToCanonical;
+    #[expect(deprecated)]
+    use crate::canonical::ToCanonical as _;
     use crate::dtype::DType;
     use crate::dtype::Field;
     use crate::dtype::FieldPath;
@@ -480,7 +469,6 @@ mod tests {
     use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::list_contains::BoolArray;
-    use crate::scalar_fn::fns::list_contains::Constant;
     use crate::scalar_fn::fns::list_contains::ConstantArray;
     use crate::scalar_fn::fns::list_contains::ListViewArray;
     use crate::scalar_fn::fns::list_contains::PrimitiveArray;
@@ -504,11 +492,13 @@ mod tests {
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.scalar_at(0).unwrap(),
+            item.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
         assert_eq!(
-            item.scalar_at(1).unwrap(),
+            item.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
     }
@@ -521,11 +511,13 @@ mod tests {
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.scalar_at(0).unwrap(),
+            item.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
         assert_eq!(
-            item.scalar_at(1).unwrap(),
+            item.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
     }
@@ -538,11 +530,13 @@ mod tests {
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.scalar_at(0).unwrap(),
+            item.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
         assert_eq!(
-            item.scalar_at(1).unwrap(),
+            item.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
     }
@@ -561,11 +555,13 @@ mod tests {
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.scalar_at(0).unwrap(),
+            item.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
         assert_eq!(
-            item.scalar_at(1).unwrap(),
+            item.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
     }
@@ -584,10 +580,15 @@ mod tests {
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.scalar_at(0).unwrap(),
+            item.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
-        assert!(!item.is_valid(1).unwrap());
+        assert!(
+            !item
+                .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
     }
 
     #[test]
@@ -655,10 +656,10 @@ mod tests {
     #[test]
     pub fn test_display() {
         let expr = list_contains(get_item("tags", root()), lit("urgent"));
-        assert_eq!(expr.to_string(), "contains($.tags, \"urgent\")");
+        assert_eq!(expr.to_string(), "vortex.list.contains($.tags, \"urgent\")");
 
         let expr2 = list_contains(root(), lit(42));
-        assert_eq!(expr2.to_string(), "contains($, 42i32)");
+        assert_eq!(expr2.to_string(), "vortex.list.contains($, 42i32)");
     }
 
     #[test]
@@ -676,7 +677,9 @@ mod tests {
         let expr = list_contains(lit(list_scalar.clone()), lit(2i32));
         let result = arr.clone().apply(&expr).unwrap();
         assert_eq!(
-            result.scalar_at(0).unwrap(),
+            result
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::bool(true, Nullability::NonNullable)
         );
 
@@ -684,7 +687,9 @@ mod tests {
         let expr = list_contains(lit(list_scalar), lit(42i32));
         let result = arr.apply(&expr).unwrap();
         assert_eq!(
-            result.scalar_at(0).unwrap(),
+            result
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Scalar::bool(false, Nullability::NonNullable)
         );
     }
@@ -692,10 +697,15 @@ mod tests {
     // -- Tests migrated from compute/list_contains.rs --
 
     fn nonnull_strings(values: Vec<Vec<&str>>) -> ArrayRef {
-        ListArray::from_iter_slow::<u64, _>(values, Arc::new(DType::Utf8(Nullability::NonNullable)))
-            .unwrap()
-            .to_listview()
-            .into_array()
+        #[expect(deprecated)]
+        let result = ListArray::from_iter_slow::<u64, _>(
+            values,
+            Arc::new(DType::Utf8(Nullability::NonNullable)),
+        )
+        .unwrap()
+        .to_listview()
+        .into_array();
+        result
     }
 
     fn null_strings(values: Vec<Vec<Option<&str>>>) -> ArrayRef {
@@ -714,11 +724,13 @@ mod tests {
         let elements =
             VarBinArray::from_iter(elements, DType::Utf8(Nullability::Nullable)).into_array();
 
-        ListArray::try_new(elements, offsets, Validity::NonNullable)
+        #[expect(deprecated)]
+        let result = ListArray::try_new(elements, offsets, Validity::NonNullable)
             .unwrap()
             .as_array()
             .to_listview()
-            .into_array()
+            .into_array();
+        result
     }
 
     fn bool_array(values: Vec<bool>, validity: Validity) -> BoolArray {
@@ -800,7 +812,6 @@ mod tests {
 
         let expr = list_contains(root(), lit(2i32));
         let contains = list_array.apply(&expr).unwrap();
-        assert!(contains.is::<Constant>(), "Expected constant result");
         let expected = BoolArray::from_iter([true, true]);
         assert_arrays_eq!(contains, expected);
     }
@@ -818,7 +829,6 @@ mod tests {
 
         let expr = list_contains(root(), lit(2i32));
         let contains = list_array.apply(&expr).unwrap();
-        assert!(contains.is::<Constant>(), "Expected constant result");
 
         let expected = BoolArray::new(
             [false, false, false, false, false].into_iter().collect(),

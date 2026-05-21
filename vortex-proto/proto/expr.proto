@@ -42,6 +42,19 @@ message GetItemOpts {
   string path = 1;
 }
 
+// Options for `vortex.variant_get`
+message VariantGetOpts {
+  repeated VariantPathElement path = 1;
+  optional vortex.dtype.DType dtype = 2;
+}
+
+message VariantPathElement {
+  oneof element {
+    string field = 1;
+    uint64 index = 2;
+  }
+}
+
 // Options for `vortex.binary`
 message BinaryOpts {
   BinaryOp op = 1;

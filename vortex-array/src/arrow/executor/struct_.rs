@@ -16,13 +16,14 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::Chunked;
-use crate::arrays::ScalarFnVTable;
+use crate::arrays::ScalarFn;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::struct_::StructDataParts;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
+use crate::arrow::session::ArrowSessionExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
@@ -69,7 +70,7 @@ pub(super) fn to_arrow_struct(
     };
 
     // We can also short-circuit if the array is a `pack` scalar function:
-    if let Some(array) = array.as_opt::<ScalarFnVTable>()
+    if let Some(array) = array.as_opt::<ScalarFn>()
         && let Some(_pack_options) = array.scalar_fn().as_opt::<Pack>()
     {
         let DType::Struct(struct_fields, _) = array.dtype() else {
@@ -132,9 +133,13 @@ fn create_from_fields(
 
             let mut arrow_arrays = Vec::with_capacity(vortex_fields.len());
             for (field, vx_field) in fields.iter().zip_eq(vortex_fields.iter()) {
-                let arrow_field = vx_field
-                    .clone()
-                    .execute_arrow(Some(field.data_type()), ctx)?;
+                // Route through the session with the full Field (not just data_type) so any
+                // ARROW:extension:name metadata reaches the export-plugin dispatcher.
+                let arrow_field = ctx.session().clone().arrow().execute_arrow(
+                    vx_field.clone(),
+                    Some(field.as_ref()),
+                    ctx,
+                )?;
                 vortex_ensure!(
                     field.is_nullable() || arrow_field.null_count() == 0,
                     "Cannot convert field '{}' to non-nullable Arrow field because it contains nulls",
@@ -190,6 +195,7 @@ fn create_from_fields(
 mod tests {
     use std::sync::Arc;
 
+    use arrays::varbinview::VarBinViewArray;
     use arrow_array::ArrayRef;
     use arrow_array::PrimitiveArray as ArrowPrimitiveArray;
     use arrow_array::StringViewArray;
@@ -210,12 +216,12 @@ mod tests {
     use crate::arrays::StructArray;
     use crate::arrow::ArrowArrayExecutor;
     use crate::arrow::FromArrowArray;
-    use crate::arrow::IntoArrowArray;
     use crate::dtype::FieldNames;
     use crate::validity::Validity;
 
     #[test]
     fn struct_nullable_non_null_to_arrow() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::AllValid);
 
         let struct_a = StructArray::try_new(
@@ -228,12 +234,15 @@ mod tests {
         let fields = vec![Field::new("xs", DataType::Int64, false)];
         let arrow_dt = DataType::Struct(fields.into());
 
-        struct_a.into_array().into_arrow(&arrow_dt)?;
+        struct_a
+            .into_array()
+            .execute_arrow(Some(&arrow_dt), &mut ctx)?;
         Ok(())
     }
 
     #[test]
     fn struct_nullable_with_nulls_to_arrow() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let xs =
             PrimitiveArray::from_option_iter(vec![Some(0_i64), Some(1), Some(2), None, Some(3)]);
 
@@ -247,12 +256,18 @@ mod tests {
         let fields = vec![Field::new("xs", DataType::Int64, false)];
         let arrow_dt = DataType::Struct(fields.into());
 
-        assert!(struct_a.into_array().into_arrow(&arrow_dt).is_err());
+        assert!(
+            struct_a
+                .into_array()
+                .execute_arrow(Some(&arrow_dt), &mut ctx)
+                .is_err()
+        );
         Ok(())
     }
 
     #[test]
     fn struct_to_arrow_with_schema_mismatch() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::AllValid);
 
         let struct_a = StructArray::try_new(
@@ -268,7 +283,11 @@ mod tests {
         ];
         let arrow_dt = DataType::Struct(fields.into());
 
-        let err = struct_a.into_array().into_arrow(&arrow_dt).err().unwrap();
+        let err = struct_a
+            .into_array()
+            .execute_arrow(Some(&arrow_dt), &mut ctx)
+            .err()
+            .unwrap();
         assert!(
             err.to_string()
                 .contains("StructArray has 1 fields, but target Arrow type has 2 fields")
@@ -278,6 +297,7 @@ mod tests {
 
     #[test]
     fn test_to_arrow() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = StructArray::from_fields(
             vec![
                 (
@@ -286,8 +306,7 @@ mod tests {
                 ),
                 (
                     "b",
-                    arrays::varbinview::VarBinViewArray::from_iter_str(vec!["a", "b", "c"])
-                        .into_array(),
+                    VarBinViewArray::from_iter_str(vec!["a", "b", "c"]).into_array(),
                 ),
             ]
             .as_slice(),
@@ -311,10 +330,9 @@ mod tests {
 
         let arrow_dtype = array.dtype().to_arrow_dtype()?;
         assert_eq!(
-            &array.into_array().execute_arrow(
-                Some(&arrow_dtype),
-                &mut LEGACY_SESSION.create_execution_ctx()
-            )?,
+            &array
+                .into_array()
+                .execute_arrow(Some(&arrow_dtype), &mut ctx)?,
             &arrow_array
         );
         Ok(())
@@ -322,6 +340,7 @@ mod tests {
 
     #[test]
     fn to_arrow_with_non_nullable_fields() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = StructArray::from_fields(
             vec![
                 (
@@ -330,14 +349,13 @@ mod tests {
                 ),
                 (
                     "b",
-                    arrays::varbinview::VarBinViewArray::from_iter_str(vec!["a", "b", "c"])
-                        .into_array(),
+                    VarBinViewArray::from_iter_str(vec!["a", "b", "c"]).into_array(),
                 ),
             ]
             .as_slice(),
         )?;
         let orig_dtype = array.dtype().clone();
-        let arrow_array = array.into_array().into_arrow_preferred()?;
+        let arrow_array = array.into_array().execute_arrow(None, &mut ctx)?;
         let from_arrow = array::ArrayRef::from_arrow(arrow_array.as_ref(), false)?;
         assert_eq!(&orig_dtype, from_arrow.dtype());
         Ok(())

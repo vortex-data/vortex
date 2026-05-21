@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::all, clippy::nursery)]
+#![allow(clippy::all, clippy::nursery, clippy::absolute_paths)]
 
 #[cfg(feature = "dtype")]
 #[rustfmt::skip]

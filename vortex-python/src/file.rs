@@ -9,7 +9,9 @@ use pyo3::prelude::*;
 use pyo3::types::PyList;
 use pyo3_object_store::PyObjectStore;
 use vortex::array::ArrayRef;
-use vortex::array::ToCanonical;
+use vortex::array::ExecutionCtx;
+use vortex::array::VortexSessionExecute;
+use vortex::array::arrays::PrimitiveArray;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::dtype::DType;
 use vortex::dtype::FieldNames;
@@ -21,13 +23,12 @@ use vortex::expr::root;
 use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
+use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::scan::split_by::SplitBy;
 use vortex::layout::segments::MokaSegmentCache;
 
 use crate::RUNTIME;
-use crate::SESSION;
-use crate::TOKIO_RUNTIME;
 use crate::arrays::PyArrayRef;
 use crate::arrow::IntoPyArrow;
 use crate::dataset::PyVortexDataset;
@@ -39,6 +40,7 @@ use crate::iter::PyArrayIterator;
 use crate::object_store::resolve::ResolvedStore;
 use crate::object_store::resolve::resolve_store;
 use crate::scan::PyRepeatedScan;
+use crate::session::session;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "file")?;
@@ -63,9 +65,9 @@ pub fn open(
     store: Option<PyObjectStore>,
     without_segment_cache: bool,
 ) -> PyVortexResult<PyVortexFile> {
-    let vxf = py.detach(|| {
-        TOKIO_RUNTIME.block_on(async move {
-            let mut options = SESSION.open_options();
+    let vxf = py.detach(move || {
+        RUNTIME.block_on(async move {
+            let mut options = session().open_options();
             if !without_segment_cache {
                 // TODO(ngates): use a globally shared segment cache for all files
                 options = options.with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)));
@@ -108,17 +110,20 @@ impl PyVortexFile {
         indices: Option<PyArrayRef>,
         batch_size: Option<usize>,
     ) -> PyVortexResult<PyArrayIterator> {
-        let builder = slf.get().scan_builder(
-            projection.map(|p| p.0),
-            expr.map(|e| e.into_inner()),
-            limit,
-            indices.map(|i| i.into_inner()),
-            batch_size,
-        )?;
+        let vxf = slf.get().vxf.clone();
+        let projection = projection.map(|p| p.0);
+        let expr = expr.map(|e| e.into_inner());
+        let indices = indices.map(|i| i.into_inner());
 
-        Ok(PyArrayIterator::new(Box::new(
-            builder.into_array_iter(&*RUNTIME)?,
-        )))
+        slf.py().detach(move || {
+            let session = session();
+            let mut ctx = session.create_execution_ctx();
+            let builder =
+                scan_builder(&vxf, projection, expr, limit, indices, batch_size, &mut ctx)?;
+            Ok(PyArrayIterator::new(Box::new(
+                builder.into_array_iter(&*RUNTIME)?,
+            )))
+        })
     }
 
     #[pyo3(signature = (projection = None, *, expr = None, limit = None, indices = None, batch_size = None))]
@@ -130,18 +135,19 @@ impl PyVortexFile {
         indices: Option<PyArrayRef>,
         batch_size: Option<usize>,
     ) -> PyVortexResult<PyRepeatedScan> {
-        let builder = slf.get().scan_builder(
-            projection.map(|p| p.0),
-            expr.map(|e| e.into_inner()),
-            limit,
-            indices.map(|i| i.into_inner()),
-            batch_size,
-        )?;
+        let vxf = slf.get().vxf.clone();
+        let projection = projection.map(|p| p.0);
+        let expr = expr.map(|e| e.into_inner());
+        let indices = indices.map(|i| i.into_inner());
 
-        let scan = builder.prepare()?;
+        let scan = slf.py().detach(move || {
+            let session = session();
+            let mut ctx = session.create_execution_ctx();
+            scan_builder(&vxf, projection, expr, limit, indices, batch_size, &mut ctx)?.prepare()
+        })?;
 
         Ok(PyRepeatedScan {
-            scan,
+            scan: Arc::new(scan),
             row_count: slf.get().vxf.row_count(),
         })
     }
@@ -193,39 +199,35 @@ impl PyVortexFile {
     }
 }
 
-impl PyVortexFile {
-    fn scan_builder(
-        &self,
-        projection: Option<Expression>,
-        expr: Option<Expression>,
-        limit: Option<u64>,
-        indices: Option<ArrayRef>,
-        batch_size: Option<usize>,
-    ) -> VortexResult<ScanBuilder<ArrayRef>> {
-        let mut builder = self
-            .vxf
-            .scan()?
-            .with_some_filter(expr)
-            .with_projection(projection.unwrap_or_else(root));
+fn scan_builder(
+    vxf: &VortexFile,
+    projection: Option<Expression>,
+    expr: Option<Expression>,
+    limit: Option<u64>,
+    indices: Option<ArrayRef>,
+    batch_size: Option<usize>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ScanBuilder<ArrayRef>> {
+    let mut builder = vxf
+        .scan()?
+        .with_some_filter(expr)
+        .with_projection(projection.unwrap_or_else(root));
 
-        if let Some(limit) = limit {
-            builder = builder.with_limit(limit);
-        }
-
-        if let Some(indices) = indices {
-            let indices = indices
-                .cast(DType::Primitive(PType::U64, NonNullable))?
-                .to_primitive()
-                .into_buffer::<u64>();
-            builder = builder.with_row_indices(indices);
-        }
-
-        if let Some(batch_size) = batch_size {
-            builder = builder.with_split_by(SplitBy::RowCount(batch_size));
-        }
-
-        Ok(builder)
+    if let Some(limit) = limit {
+        builder = builder.with_limit(limit);
     }
+
+    if let Some(indices) = indices {
+        let casted = indices.cast(DType::Primitive(PType::U64, NonNullable))?;
+        let indices = casted.execute::<PrimitiveArray>(ctx)?.into_buffer::<u64>();
+        builder = builder.with_row_indices(indices);
+    }
+
+    if let Some(batch_size) = batch_size {
+        builder = builder.with_split_by(SplitBy::RowCount(batch_size));
+    }
+
+    Ok(builder)
 }
 
 pub struct PyIntoProjection(Expression);

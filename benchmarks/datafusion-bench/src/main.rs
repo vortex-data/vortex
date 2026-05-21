@@ -9,6 +9,7 @@ use clap::Parser;
 use clap::value_parser;
 use custom_labels::asynchronous::Label;
 use datafusion::arrow::array::RecordBatch;
+use datafusion::arrow::util::pretty::pretty_format_batches;
 use datafusion::common::runtime::set_join_set_tracer;
 use datafusion::datasource::listing::ListingOptions;
 use datafusion::datasource::listing::ListingTable;
@@ -26,6 +27,7 @@ use datafusion_physical_plan::collect;
 use futures::StreamExt;
 use parking_lot::Mutex;
 use tokio::fs::File;
+use vortex::io::filesystem::FileSystemRef;
 use vortex::scan::DataSourceRef;
 use vortex_bench::Benchmark;
 use vortex_bench::BenchmarkArg;
@@ -44,6 +46,7 @@ use vortex_bench::runner::BenchmarkQueryResult;
 use vortex_bench::runner::SqlBenchmarkRunner;
 use vortex_bench::runner::filter_queries;
 use vortex_bench::setup_logging_and_tracing;
+use vortex_bench::v3;
 use vortex_datafusion::metrics::VortexMetricsFinder;
 
 /// Common arguments shared across benchmarks
@@ -82,6 +85,11 @@ struct Args {
     #[arg(short)]
     output_path: Option<PathBuf>,
 
+    /// Additionally write v3 JSONL records to this path. See
+    /// `benchmarks-website/planning/02-contracts.md`.
+    #[arg(long)]
+    gh_json_v3: Option<PathBuf>,
+
     #[arg(long, default_value_t = false)]
     show_metrics: bool,
 
@@ -93,6 +101,9 @@ struct Args {
 
     #[arg(long, default_value_t = false)]
     track_memory: bool,
+
+    #[arg(long, default_value = "unknown")]
+    runner: String,
 
     #[arg(long, default_value_t = false)]
     explain: bool,
@@ -149,6 +160,7 @@ async fn main() -> anyhow::Result<()> {
     let mut runner = SqlBenchmarkRunner::new(
         &*benchmark,
         Engine::DataFusion,
+        args.runner.clone(),
         args.formats.clone(),
         args.track_memory,
         args.hide_progress_bar,
@@ -156,7 +168,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Collect execution plans for metrics if show_metrics is enabled
     // Structure: (query_idx, format, execution_plan)
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity)]
     let collected_plans: Arc<Mutex<Vec<(usize, Format, Arc<dyn ExecutionPlan>)>>> =
         Arc::new(Mutex::new(Vec::new()));
     let show_metrics = args.show_metrics;
@@ -220,6 +232,10 @@ async fn main() -> anyhow::Result<()> {
         if show_metrics {
             let plans = collected_plans.lock();
             print_metrics(plans.as_ref());
+        }
+
+        if let Some(path) = args.gh_json_v3.as_ref() {
+            v3::write_jsonl_to_path(path, &runner.v3_records())?;
         }
 
         let benchmark_id = format!("datafusion-{}", benchmark.dataset_name());
@@ -304,7 +320,7 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
             .runtime_env()
             .object_store(table_url.object_store())?;
 
-        let fs: vortex::io::filesystem::FileSystemRef = Arc::new(ObjectStoreFileSystem::new(
+        let fs: FileSystemRef = Arc::new(ObjectStoreFileSystem::new(
             Arc::clone(&store),
             SESSION.handle(),
         ));
@@ -317,8 +333,7 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
         };
 
         let multi_ds = MultiFileDataSource::new(SESSION.clone())
-            .with_filesystem(fs)
-            .with_glob(glob_pattern)
+            .with_glob(glob_pattern, Some(fs))
             .build()
             .await?;
 
@@ -398,7 +413,7 @@ impl BenchmarkQueryResult for DataFusionQueryResult {
     }
 
     fn display(self) -> String {
-        datafusion::arrow::util::pretty::pretty_format_batches(&self.0)
+        pretty_format_batches(&self.0)
             .map(|d| d.to_string())
             .unwrap_or_else(|e| format!("<error: {e}>"))
     }

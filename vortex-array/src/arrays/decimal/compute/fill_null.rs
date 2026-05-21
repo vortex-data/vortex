@@ -89,10 +89,13 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::DecimalArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
-    use crate::canonical::ToCanonical;
+    #[expect(deprecated)]
+    use crate::canonical::ToCanonical as _;
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::scalar::DecimalValue;
@@ -106,6 +109,7 @@ mod tests {
             [None, Some(800i128), None, Some(1000i128), None],
             decimal_dtype,
         );
+        #[expect(deprecated)]
         let p = arr
             .into_array()
             .fill_null(Scalar::decimal(
@@ -123,7 +127,14 @@ mod tests {
             p.buffer::<i128>().as_slice(),
             vec![4200, 800, 4200, 1000, 4200]
         );
-        assert!(p.validity_mask().unwrap().all_true());
+        assert!(
+            p.as_ref()
+                .validity()
+                .unwrap()
+                .execute_mask(p.as_ref().len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .all_true()
+        );
     }
 
     #[test]
@@ -135,6 +146,7 @@ mod tests {
             decimal_dtype,
         );
 
+        #[expect(deprecated)]
         let p = arr
             .into_array()
             .fill_null(Scalar::decimal(
@@ -156,6 +168,7 @@ mod tests {
         let decimal_dtype = DecimalDType::new(3, 0);
         let arr = DecimalArray::from_option_iter([None, Some(10i8), None], decimal_dtype);
         // i8 max is 127, so 200 doesn't fit — the array should be widened to i16.
+        #[expect(deprecated)]
         let result = arr
             .into_array()
             .fill_null(Scalar::decimal(
@@ -180,6 +193,7 @@ mod tests {
             decimal_dtype,
             Validity::NonNullable,
         );
+        #[expect(deprecated)]
         let p = arr
             .into_array()
             .fill_null(Scalar::decimal(

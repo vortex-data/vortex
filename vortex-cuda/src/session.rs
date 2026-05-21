@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -10,6 +11,7 @@ use vortex::array::VortexSessionExecute;
 use vortex::error::VortexResult;
 use vortex::session::Ref;
 use vortex::session::SessionExt;
+use vortex::session::SessionVar;
 use vortex::utils::aliases::dash_map::DashMap;
 
 use crate::ExportDeviceArray;
@@ -85,8 +87,12 @@ impl CudaSession {
     ///
     /// * `array_id` - The encoding ID to register support for
     /// * `executor` - A static reference to the CUDA support implementation
-    pub fn register_kernel(&self, array_id: ArrayId, executor: &'static dyn CudaExecute) {
-        self.kernels.insert(array_id, executor);
+    pub fn register_kernel(
+        &self,
+        array_id: impl Into<ArrayId>,
+        executor: &'static dyn CudaExecute,
+    ) {
+        self.kernels.insert(array_id.into(), executor);
     }
 
     /// Retrieves the CUDA support implementation for an encoding, if registered.
@@ -140,6 +146,16 @@ impl Default for CudaSession {
         let this = Self::new(context);
         initialize_cuda(&this);
         this
+    }
+}
+
+impl SessionVar for CudaSession {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
     }
 }
 

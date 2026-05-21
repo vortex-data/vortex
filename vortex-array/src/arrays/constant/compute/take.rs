@@ -6,6 +6,8 @@ use vortex_mask::AllOr;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
@@ -18,7 +20,12 @@ use crate::validity::Validity;
 
 impl TakeReduce for Constant {
     fn take(array: ArrayView<'_, Constant>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        let result = match indices.validity_mask()?.bit_buffer() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let result = match indices
+            .validity()?
+            .execute_mask(indices.len(), &mut ctx)?
+            .bit_buffer()
+        {
             AllOr::All => {
                 let scalar = Scalar::try_new(
                     array
@@ -59,12 +66,17 @@ impl Constant {
 
 #[cfg(test)]
 mod tests {
+    use std::f64;
+
     use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_mask::AllOr;
 
     use crate::IntoArray;
-    use crate::ToCanonical;
+    use crate::LEGACY_SESSION;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
+    use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -91,6 +103,7 @@ mod tests {
             taken.dtype()
         );
         assert_arrays_eq!(
+            #[expect(deprecated)]
             taken.to_primitive(),
             PrimitiveArray::new(
                 buffer![42i32, 42, 42],
@@ -98,7 +111,12 @@ mod tests {
             )
         );
         assert_eq!(
-            taken.validity_mask().unwrap().indices(),
+            taken
+                .validity()
+                .unwrap()
+                .execute_mask(taken.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .indices(),
             AllOr::Some(valid_indices)
         );
     }
@@ -114,15 +132,24 @@ mod tests {
             taken.dtype()
         );
         assert_arrays_eq!(
+            #[expect(deprecated)]
             taken.to_primitive(),
             PrimitiveArray::new(buffer![42i32, 42, 42], Validity::AllValid)
         );
-        assert_eq!(taken.validity_mask().unwrap().indices(), AllOr::All);
+        assert_eq!(
+            taken
+                .validity()
+                .unwrap()
+                .execute_mask(taken.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .indices(),
+            AllOr::All
+        );
     }
 
     #[rstest]
     #[case(ConstantArray::new(42i32, 5))]
-    #[case(ConstantArray::new(std::f64::consts::PI, 10))]
+    #[case(ConstantArray::new(f64::consts::PI, 10))]
     #[case(ConstantArray::new(Scalar::from("hello"), 3))]
     #[case(ConstantArray::new(Scalar::null_native::<i64>(), 5))]
     #[case(ConstantArray::new(true, 1))]

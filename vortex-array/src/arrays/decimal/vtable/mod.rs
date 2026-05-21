@@ -32,6 +32,8 @@ mod validity;
 
 use std::hash::Hash;
 
+use vortex_session::registry::CachedId;
+
 use crate::Precision;
 use crate::array::ArrayId;
 use crate::arrays::decimal::array::SLOT_NAMES;
@@ -62,13 +64,14 @@ impl ArrayEq for DecimalData {
 }
 
 impl VTable for Decimal {
-    type ArrayData = DecimalData;
+    type TypedArrayData = DecimalData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.decimal");
+        *ID
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -118,7 +121,7 @@ impl VTable for Decimal {
             data.len(),
             len
         );
-        let validity = crate::array::child_to_validity(&slots[0], *nullability);
+        let validity = crate::array::child_to_validity(slots[0].as_ref(), *nullability);
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(
                 validity_len == len,
@@ -202,10 +205,6 @@ impl VTable for Decimal {
 
 #[derive(Clone, Debug)]
 pub struct Decimal;
-
-impl Decimal {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.decimal");
-}
 
 #[cfg(test)]
 mod tests {

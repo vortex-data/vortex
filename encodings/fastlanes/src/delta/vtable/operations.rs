@@ -4,7 +4,7 @@
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::ToCanonical;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
@@ -14,10 +14,13 @@ impl OperationsVTable<Delta> for Delta {
     fn scalar_at(
         array: ArrayView<'_, Delta>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let decompressed = array.array().slice(index..index + 1)?.to_primitive();
-        decompressed.into_array().scalar_at(0)
+        let decompressed = array
+            .array()
+            .slice(index..index + 1)?
+            .execute::<PrimitiveArray>(ctx)?;
+        decompressed.into_array().execute_scalar(0, ctx)
     }
 }
 
@@ -215,7 +218,9 @@ mod tests {
     #[should_panic]
     fn test_scalar_at_non_jagged_array_oob() {
         let delta = da(&(0u32..2048).collect()).into_array();
-        delta.scalar_at(2048).unwrap();
+        delta
+            .execute_scalar(2048, &mut SESSION.create_execution_ctx())
+            .unwrap();
     }
     #[test]
     fn test_scalar_at_jagged_array() {
@@ -229,7 +234,9 @@ mod tests {
     #[should_panic]
     fn test_scalar_at_jagged_array_oob() {
         let delta = da(&(0u32..2000).collect()).into_array();
-        delta.scalar_at(2000).unwrap();
+        delta
+            .execute_scalar(2000, &mut SESSION.create_execution_ctx())
+            .unwrap();
     }
 
     #[rstest]
@@ -241,6 +248,11 @@ mod tests {
     #[case::delta_large_u64((0u64..2048).collect())]
     // Single element
     #[case::delta_single(PrimitiveArray::new(buffer![42u32], Validity::NonNullable))]
+    // Signed inputs (added with signed-delta support).
+    #[case::delta_i32_crossing_zero((-100i32..100).collect())]
+    #[case::delta_i64_negative((0i64..100).map(|i| -i * 10).collect())]
+    #[case::delta_large_i32((-1024i32..1024).collect())]
+    #[case::delta_single_negative(PrimitiveArray::new(buffer![-42i32], Validity::NonNullable))]
     fn test_delta_consistency(#[case] array: PrimitiveArray) {
         test_array_consistency(&da(&array).into_array());
     }
@@ -251,6 +263,8 @@ mod tests {
     #[case::delta_u32_basic(PrimitiveArray::new(buffer![1u32, 1, 1, 1, 1], Validity::NonNullable))]
     #[case::delta_u64_basic(PrimitiveArray::new(buffer![1u64, 1, 1, 1, 1], Validity::NonNullable))]
     #[case::delta_u32_large(PrimitiveArray::new(buffer![1u32; 100], Validity::NonNullable))]
+    #[case::delta_i8_basic(PrimitiveArray::new(buffer![-1i8, -1, -1, -1, -1], Validity::NonNullable))]
+    #[case::delta_i32_basic(PrimitiveArray::new(buffer![-1i32, -1, -1, -1, -1], Validity::NonNullable))]
     fn test_delta_binary_numeric(#[case] array: PrimitiveArray) {
         test_binary_numeric_array(da(&array).into_array());
     }

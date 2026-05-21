@@ -10,8 +10,15 @@ use itertools::Itertools;
 use vortex_utils::aliases::StringEscape;
 
 /// A name for a field in a struct.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, Eq, PartialOrd, Ord, Hash)]
+#[allow(clippy::derived_hash_with_manual_eq)] // manual PartialEq adds Arc::ptr_eq fast path only
 pub struct FieldName(Arc<str>);
+
+impl PartialEq for FieldName {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0) || *self.0 == *other.0
+    }
+}
 
 impl FieldName {
     /// Returns a reference to the inner string
@@ -139,9 +146,16 @@ impl From<FieldName> for Arc<str> {
 }
 
 /// An ordered list of field names in a struct.
-#[derive(Clone, PartialEq, Eq, Debug, Default, Hash)]
+#[derive(Clone, Eq, Debug, Default, Hash)]
+#[allow(clippy::derived_hash_with_manual_eq)] // manual PartialEq adds Arc::ptr_eq fast path only
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FieldNames(Arc<[FieldName]>);
+
+impl PartialEq for FieldNames {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0) || *self.0 == *other.0
+    }
+}
 
 impl fmt::Display for FieldNames {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

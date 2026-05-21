@@ -7,11 +7,7 @@
 mod bitops;
 mod eq;
 mod intersect_by_rank;
-mod iter_bools;
-mod mask_mut;
 
-#[cfg(feature = "arrow")]
-mod arrow;
 #[cfg(test)]
 mod tests;
 
@@ -24,10 +20,8 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 
 use itertools::Itertools;
-pub use mask_mut::*;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
-use vortex_buffer::set_bit_unchecked;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
@@ -211,15 +205,17 @@ impl Mask {
         }))
     }
 
-    /// Create a new [`Mask`] from a [`Vec<usize>`].
-    // TODO(ngates): this should take an IntoIterator<usize>.
-    pub fn from_indices(len: usize, indices: Vec<usize>) -> Self {
-        let true_count = indices.len();
+    /// Create a new [`Mask`] from sorted, unique indices.
+    pub fn from_indices(len: usize, indices: impl IntoIterator<Item = usize>) -> Self {
+        let indices = indices.into_iter().collect::<Vec<_>>();
         assert!(indices.is_sorted(), "Mask indices must be sorted");
         assert!(
-            indices.last().is_none_or(|&idx| idx < len),
-            "Mask indices must be in bounds (len={len})"
+            indices.windows(2).all(|w| w[0] != w[1]),
+            "Mask indices must be unique"
         );
+        let buffer = BitBuffer::from_indices(len, indices.iter().copied());
+        debug_assert_eq!(buffer.len(), len);
+        let true_count = buffer.true_count();
 
         if true_count == 0 {
             return Self::AllFalse(len);
@@ -228,13 +224,8 @@ impl Mask {
             return Self::AllTrue(len);
         }
 
-        let mut buf = BitBufferMut::new_unset(len);
-        // TODO(ngates): for dense indices, we can do better by collecting into u64s.
-        indices.iter().for_each(|&idx| buf.set(idx));
-        debug_assert_eq!(buf.len(), len);
-
         Self::Values(Arc::new(MaskValues {
-            buffer: buf.freeze(),
+            buffer,
             indices: OnceLock::from(indices),
             slices: Default::default(),
             true_count,
@@ -290,10 +281,14 @@ impl Mask {
             return Self::AllTrue(len);
         }
 
-        let mut buf = BitBufferMut::new_unset(len);
+        let mut buf = BitBufferMut::with_capacity(len);
+        let mut cursor = 0;
         for (start, end) in slices.iter().copied() {
-            (start..end).for_each(|idx| buf.set(idx));
+            buf.append_n(false, start - cursor);
+            buf.append_n(true, end - start);
+            cursor = end;
         }
+        buf.append_n(false, len - cursor);
         debug_assert_eq!(buf.len(), len);
 
         Self::Values(Arc::new(MaskValues {
@@ -620,12 +615,12 @@ impl Mask {
             return self;
         }
 
-        match self {
+        match &self {
             Mask::AllTrue(len) => {
                 Self::from_iter([Self::new_true(limit), Self::new_false(len - limit)])
             }
             Mask::AllFalse(_) => self,
-            Mask::Values(ref mask_values) => {
+            Mask::Values(mask_values) => {
                 if limit >= mask_values.true_count() {
                     return self;
                 }
@@ -635,11 +630,10 @@ impl Mask {
                 let mut new_buffer_builder = BitBufferMut::new_unset(mask_values.len());
                 debug_assert!(limit < mask_values.len());
 
-                let ptr = new_buffer_builder.as_mut_ptr();
                 for index in existing_buffer.set_indices().take(limit) {
                     // SAFETY: We checked that `limit` was less than the mask values length,
                     // therefore `index` must be within the bounds of the bit buffer.
-                    unsafe { set_bit_unchecked(ptr, index) }
+                    unsafe { new_buffer_builder.set_unchecked(index) }
                 }
 
                 Self::from(new_buffer_builder.freeze())
@@ -764,11 +758,6 @@ impl MaskValues {
         } else {
             MaskIter::Indices(self.indices())
         }
-    }
-
-    /// Extracts the internal [`BitBuffer`].
-    pub(crate) fn into_buffer(self) -> BitBuffer {
-        self.buffer
     }
 }
 

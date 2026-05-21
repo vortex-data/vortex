@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Formatter;
-
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
@@ -60,17 +58,6 @@ impl ScalarFnVTable for IsNull {
         }
     }
 
-    fn fmt_sql(
-        &self,
-        _options: &Self::Options,
-        expr: &Expression,
-        f: &mut Formatter<'_>,
-    ) -> std::fmt::Result {
-        write!(f, "is_null(")?;
-        expr.child(0).fmt_sql(f)?;
-        write!(f, ")")
-    }
-
     fn return_dtype(&self, _options: &Self::Options, _arg_dtypes: &[DType]) -> VortexResult<DType> {
         Ok(DType::Bool(Nullability::NonNullable))
     }
@@ -122,6 +109,8 @@ mod tests {
     use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::dtype::DType;
@@ -170,7 +159,9 @@ mod tests {
 
         for (i, expected_value) in expected.iter().enumerate() {
             assert_eq!(
-                result.scalar_at(i).unwrap(),
+                result
+                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap(),
                 Scalar::bool(*expected_value, Nullability::NonNullable)
             );
         }
@@ -186,7 +177,9 @@ mod tests {
         // All values should be false (non-nullable input)
         for i in 0..result.len() {
             assert_eq!(
-                result.scalar_at(i).unwrap(),
+                result
+                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap(),
                 Scalar::bool(false, Nullability::NonNullable)
             );
         }
@@ -204,7 +197,9 @@ mod tests {
         // All values should be true (all nulls)
         for i in 0..result.len() {
             assert_eq!(
-                result.scalar_at(i).unwrap(),
+                result
+                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap(),
                 Scalar::bool(true, Nullability::NonNullable)
             );
         }
@@ -231,7 +226,9 @@ mod tests {
 
         for (i, expected_value) in expected.iter().enumerate() {
             assert_eq!(
-                result.scalar_at(i).unwrap(),
+                result
+                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap(),
                 Scalar::bool(*expected_value, Nullability::NonNullable)
             );
         }
@@ -240,10 +237,10 @@ mod tests {
     #[test]
     fn test_display() {
         let expr = is_null(get_item("name", root()));
-        assert_eq!(expr.to_string(), "is_null($.name)");
+        assert_eq!(expr.to_string(), "vortex.is_null($.name)");
 
         let expr2 = is_null(root());
-        assert_eq!(expr2.to_string(), "is_null($)");
+        assert_eq!(expr2.to_string(), "vortex.is_null($)");
     }
 
     #[test]

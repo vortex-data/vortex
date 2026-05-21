@@ -10,7 +10,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Masked;
 use crate::arrays::MaskedArray;
-use crate::arrays::masked::MaskedArrayExt;
+use crate::arrays::masked::MaskedArraySlotsExt;
 use crate::arrays::slice::SliceReduce;
 
 impl SliceReduce for Masked {

@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod kernel;
-use std::fmt::Formatter;
 
 pub use kernel::*;
 use vortex_error::VortexExpect;
@@ -14,12 +13,11 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::BoolArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::masked::mask_validity_canonical;
 use crate::builtins::ArrayBuiltins;
+use crate::child_to_validity;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::expr::Expression;
@@ -46,7 +44,7 @@ impl ScalarFnVTable for Mask {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.mask")
+        ScalarFnId::new("vortex.mask")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -71,19 +69,6 @@ impl ScalarFnVTable for Mask {
             1 => ChildName::from("mask"),
             _ => unreachable!("Invalid child index {} for Mask expression", child_idx),
         }
-    }
-
-    fn fmt_sql(
-        &self,
-        _options: &Self::Options,
-        expr: &Expression,
-        f: &mut Formatter<'_>,
-    ) -> std::fmt::Result {
-        write!(f, "mask(")?;
-        expr.child(0).fmt_sql(f)?;
-        write!(f, ", ")?;
-        expr.child(1).fmt_sql(f)?;
-        write!(f, ")")
     }
 
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
@@ -182,11 +167,9 @@ fn execute_canonical(
     mask_array: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let mask_bool = mask_array.execute::<BoolArray>(ctx)?;
-    let validity_mask = vortex_mask::Mask::from(mask_bool.to_bit_buffer());
-
+    let validity = child_to_validity(Some(&mask_array), Nullability::Nullable);
     let canonical = input.execute::<Canonical>(ctx)?;
-    Ok(mask_validity_canonical(canonical, &validity_mask, ctx)?.into_array())
+    Ok(mask_validity_canonical(canonical, validity, ctx)?.into_array())
 }
 
 #[cfg(test)]

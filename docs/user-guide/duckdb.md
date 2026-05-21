@@ -46,10 +46,10 @@ COPY (SELECT * FROM my_table) TO 'output.vortex' (FORMAT vortex);
 
 Controls which filesystem implementation is used for reading and writing Vortex files.
 
-| Value | Description |
-|-------|-------------|
-| `'vortex'` (default) | Uses Vortex's built-in object store filesystem. Supports `file://` and `s3://` schemes. |
-| `'duckdb'` | Uses DuckDB's built-in filesystem, including any filesystem extensions such as `httpfs`. |
+| Value                | Description                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------------- |
+| `'vortex'` (default) | Uses Vortex's built-in object store filesystem. Supports `file://` and `s3://` schemes.  |
+| `'duckdb'`           | Uses DuckDB's built-in filesystem, including any filesystem extensions such as `httpfs`. |
 
 ```sql
 SET vortex_filesystem = 'duckdb';

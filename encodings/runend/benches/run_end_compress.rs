@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::unwrap_used)]
+#![expect(clippy::unwrap_used)]
 
 use divan::Bencher;
 use itertools::repeat_n;
@@ -47,8 +47,8 @@ fn compress(bencher: Bencher, (length, run_step): (usize, usize)) {
     );
 
     bencher
-        .with_inputs(|| &values)
-        .bench_refs(|values| runend_encode(values.as_view()));
+        .with_inputs(|| (&values, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(values, ctx)| runend_encode(values.as_view(), ctx));
 }
 
 #[divan::bench(types = [u8, u16, u32, u64], args = BENCH_ARGS)]
@@ -64,7 +64,7 @@ fn decompress<T: IntegerPType>(bencher: Bencher, (length, run_step): (usize, usi
         .collect::<Buffer<_>>()
         .into_array();
 
-    let run_end_array = RunEnd::new(ends, values);
+    let run_end_array = RunEnd::new(ends, values, &mut LEGACY_SESSION.create_execution_ctx());
     let array = run_end_array.into_array();
 
     bencher
@@ -77,7 +77,7 @@ fn decompress<T: IntegerPType>(bencher: Bencher, (length, run_step): (usize, usi
 }
 
 #[divan::bench(args = BENCH_ARGS)]
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 fn take_indices(bencher: Bencher, (length, run_step): (usize, usize)) {
     let values = PrimitiveArray::new(
         (0..length)
@@ -88,8 +88,9 @@ fn take_indices(bencher: Bencher, (length, run_step): (usize, usize)) {
     );
 
     let source_array = PrimitiveArray::from_iter(0..(length as i32)).into_array();
-    let (ends, values) = runend_encode(values.as_view());
-    let runend_array = RunEnd::try_new(ends.into_array(), values)
+    let mut encode_ctx = LEGACY_SESSION.create_execution_ctx();
+    let (ends, values) = runend_encode(values.as_view(), &mut encode_ctx);
+    let runend_array = RunEnd::try_new(ends.into_array(), values, &mut encode_ctx)
         .unwrap()
         .into_array();
 
@@ -121,7 +122,7 @@ fn decompress_utf8(bencher: Bencher, (length, run_step): (usize, usize)) {
     let values = VarBinViewArray::from_iter_str((0..num_runs).map(|i| format!("run_value_{i}")))
         .into_array();
 
-    let run_end_array = RunEnd::new(ends, values);
+    let run_end_array = RunEnd::new(ends, values, &mut LEGACY_SESSION.create_execution_ctx());
     let array = run_end_array.into_array();
 
     bencher

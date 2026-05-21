@@ -3,8 +3,6 @@
 
 //! Tests for decimal scalar casting functionality.
 
-#![allow(clippy::disallowed_types, clippy::panic)]
-
 use rstest::rstest;
 use vortex_utils::aliases::hash_set::HashSet;
 

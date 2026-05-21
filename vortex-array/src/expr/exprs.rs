@@ -29,6 +29,7 @@ use crate::scalar_fn::fns::dynamic::DynamicComparisonExpr;
 use crate::scalar_fn::fns::dynamic::Rhs;
 use crate::scalar_fn::fns::fill_null::FillNull;
 use crate::scalar_fn::fns::get_item::GetItem;
+use crate::scalar_fn::fns::is_not_null::IsNotNull;
 use crate::scalar_fn::fns::is_null::IsNull;
 use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::like::LikeOptions;
@@ -45,6 +46,9 @@ use crate::scalar_fn::fns::pack::PackOptions;
 use crate::scalar_fn::fns::root::Root;
 use crate::scalar_fn::fns::select::FieldSelection;
 use crate::scalar_fn::fns::select::Select;
+use crate::scalar_fn::fns::variant_get::VariantGet;
+use crate::scalar_fn::fns::variant_get::VariantGetOptions;
+use crate::scalar_fn::fns::variant_get::VariantPath;
 use crate::scalar_fn::fns::zip::Zip;
 
 // ---- Root ----
@@ -110,6 +114,20 @@ pub fn col(field: impl Into<FieldName>) -> Expression {
 /// ```
 pub fn get_item(field: impl Into<FieldName>, child: Expression) -> Expression {
     GetItem.new_expr(field.into(), vec![child])
+}
+
+// ---- VariantGet ----
+
+/// Creates an expression that extracts a path from a Variant expression.
+///
+/// Missing paths, traversal mismatches, and failed casts return null. When `dtype` is `None`,
+/// results are nullable Variant values; otherwise results are nullable values of `dtype`.
+pub fn variant_get(
+    child: Expression,
+    path: impl Into<VariantPath>,
+    dtype: Option<DType>,
+) -> Expression {
+    VariantGet.new_expr(VariantGetOptions::new(path.into(), dtype), vec![child])
 }
 
 // ---- CaseWhen ----
@@ -396,17 +414,19 @@ where
 ///
 /// ```
 /// # use vortex_array::IntoArray;
-/// # use vortex_array::arrow::IntoArrowArray as _;
+/// # use vortex_array::arrow::ArrowArrayExecutor;
+/// # use vortex_array::{LEGACY_SESSION, VortexSessionExecute};
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{checked_add, lit, root};
 /// let xs = buffer![1, 2, 3].into_array();
 /// let result = xs.apply(&checked_add(root(), lit(5))).unwrap();
 ///
+/// let mut ctx = LEGACY_SESSION.create_execution_ctx();
 /// assert_eq!(
-///     &result.into_arrow_preferred().unwrap(),
+///     &result.execute_arrow(None, &mut ctx).unwrap(),
 ///     &buffer![6, 7, 8]
 ///         .into_array()
-///         .into_arrow_preferred()
+///         .execute_arrow(None, &mut ctx)
 ///         .unwrap()
 /// );
 /// ```
@@ -553,6 +573,20 @@ pub fn fill_null(child: Expression, fill_value: Expression) -> Expression {
 /// ```
 pub fn is_null(child: Expression) -> Expression {
     IsNull.new_expr(EmptyOptions, vec![child])
+}
+
+// ---- IsNotNull ----
+
+/// Creates an expression that checks for non-null values.
+///
+/// Returns a boolean array indicating which positions contain non-null values.
+///
+/// ```rust
+/// # use vortex_array::expr::{is_not_null, root};
+/// let expr = is_not_null(root());
+/// ```
+pub fn is_not_null(child: Expression) -> Expression {
+    IsNotNull.new_expr(EmptyOptions, vec![child])
 }
 
 // ---- Like ----

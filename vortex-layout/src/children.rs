@@ -16,6 +16,7 @@ use vortex_flatbuffers::layout as fbl;
 use vortex_session::registry::ReadContext;
 
 use crate::LayoutRef;
+use crate::layouts::foreign::new_foreign_layout;
 use crate::segments::SegmentId;
 use crate::session::LayoutRegistry;
 
@@ -155,7 +156,7 @@ impl ViewedLayoutChildren {
             .map(|child| self.foreign_layout_from_fb(child, dtype))
             .collect::<VortexResult<Vec<_>>>()?;
 
-        Ok(crate::layouts::foreign::new_foreign_layout(
+        Ok(new_foreign_layout(
             encoding_id,
             dtype.clone(),
             fb_layout.row_count(),

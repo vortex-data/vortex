@@ -25,6 +25,7 @@ use parquet::file::properties::WriterProperties;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
+use vortex::utils::parallelism::get_available_parallelism;
 
 use super::schema::Int64DictBuilder;
 use super::schema::LABELS;
@@ -85,7 +86,7 @@ fn generate_sorted_label_sets() -> LabelSets {
                 .iter()
                 .map(|&idx| {
                     let (_, fill, distinct) = LABELS[idx];
-                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                     let null_count = ((1.0 - fill) * NUM_LABEL_SETS as f64).round() as usize;
                     if s < null_count || distinct == 0 {
                         None
@@ -146,9 +147,7 @@ pub fn generate_polarsignals_parquet(n_rows: usize, output_path: &Path) -> Resul
     let mut writer = ArrowWriter::try_new(file, Arc::clone(&schema), Some(props))?;
 
     let batch_size = 10_000;
-    let num_threads = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(1);
+    let num_threads = get_available_parallelism().unwrap_or(1);
 
     let batch_ranges: Vec<(usize, usize)> = (0..n_rows)
         .step_by(batch_size)
@@ -191,7 +190,7 @@ pub fn generate_polarsignals_parquet(n_rows: usize, output_path: &Path) -> Resul
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn build_batch(
     schema: &Arc<Schema>,
     n: usize,
@@ -414,7 +413,7 @@ fn build_locations(
 }
 
 #[cfg(test)]
-#[allow(clippy::disallowed_types)]
+#[expect(clippy::disallowed_types)]
 mod tests {
     use std::collections::HashSet;
 

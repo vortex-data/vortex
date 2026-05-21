@@ -2,11 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
+use vortex_session::VortexSession;
 
+use crate::Canonical;
 use crate::IntoArray;
+use crate::VortexSessionExecute;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
@@ -15,14 +19,22 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::chunked::ChunkedArrayExt;
+use crate::arrays::dict_test::gen_dict_primitive_chunks;
 use crate::arrays::struct_::StructArrayExt;
 use crate::assert_arrays_eq;
-use crate::canonical::ToCanonical;
+use crate::builders::builder_with_capacity;
+#[expect(deprecated)]
+use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::PType::I32;
+use crate::executor::execute_into_builder;
+use crate::session::ArraySession;
 use crate::validity::Validity;
+
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 fn chunked_array() -> ChunkedArray {
     ChunkedArray::try_new(
@@ -34,6 +46,156 @@ fn chunked_array() -> ChunkedArray {
         DType::Primitive(PType::U64, Nullability::NonNullable),
     )
     .unwrap()
+}
+
+#[test]
+fn builder_kernel_path_canonicalizes_primitive_chunks() {
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let array = chunked_array().into_array();
+    let dtype = array.dtype().clone();
+    let len = array.len();
+
+    let builder = builder_with_capacity(&dtype, len);
+    // Clone the array into the builder path — the test also holds `array` so refcount > 1 on
+    // entry, which previously caused `take_slot_unchecked` to silently keep slots populated.
+    let mut builder = execute_into_builder(array.clone(), builder, &mut ctx).unwrap();
+    let output = builder.finish();
+    drop(array);
+
+    assert_arrays_eq!(
+        output,
+        PrimitiveArray::from_iter([1u64, 2, 3, 4, 5, 6, 7, 8, 9])
+    );
+}
+
+#[test]
+fn builder_kernel_nested_chunked_of_chunked() {
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let inner_1 = ChunkedArray::try_new(
+        vec![buffer![1u64, 2].into_array(), buffer![3u64].into_array()],
+        DType::Primitive(PType::U64, Nullability::NonNullable),
+    )
+    .unwrap()
+    .into_array();
+    let inner_2 = ChunkedArray::try_new(
+        vec![buffer![4u64, 5, 6].into_array()],
+        DType::Primitive(PType::U64, Nullability::NonNullable),
+    )
+    .unwrap()
+    .into_array();
+    let outer = ChunkedArray::try_new(
+        vec![inner_1, inner_2],
+        DType::Primitive(PType::U64, Nullability::NonNullable),
+    )
+    .unwrap()
+    .into_array();
+
+    let dtype = outer.dtype().clone();
+    let len = outer.len();
+    let builder = builder_with_capacity(&dtype, len);
+    let mut builder = execute_into_builder(outer, builder, &mut ctx).unwrap();
+    let output = builder.finish();
+
+    assert_arrays_eq!(output, PrimitiveArray::from_iter([1u64, 2, 3, 4, 5, 6]));
+}
+
+#[test]
+fn builder_kernel_path_repeated_shared_chunked_dict_execution() {
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let array = gen_dict_primitive_chunks::<u32, u16>(8, 3, 3);
+    let keep_alive = array.clone();
+    let dtype = array.dtype().clone();
+    let len = array.len();
+
+    let expected = array
+        .clone()
+        .execute::<Canonical>(&mut ctx)
+        .unwrap()
+        .into_array();
+
+    let first = {
+        let builder = builder_with_capacity(&dtype, len);
+        let mut builder = execute_into_builder(array.clone(), builder, &mut ctx).unwrap();
+        builder.finish()
+    };
+
+    let second = {
+        let builder = builder_with_capacity(&dtype, len);
+        let mut builder = execute_into_builder(array, builder, &mut ctx).unwrap();
+        builder.finish()
+    };
+
+    drop(keep_alive);
+
+    assert_arrays_eq!(first, expected);
+    assert_arrays_eq!(second, expected);
+}
+
+#[test]
+fn execute_path_repeated_shared_chunked_dict_execution() {
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = gen_dict_primitive_chunks::<u32, u16>(8, 3, 3);
+    let keep_alive = array.clone();
+
+    let expected_source = gen_dict_primitive_chunks::<u32, u16>(8, 3, 3);
+    let expected = expected_source
+        .execute::<Canonical>(&mut ctx)
+        .unwrap()
+        .into_array();
+
+    let first = array
+        .clone()
+        .execute::<Canonical>(&mut ctx)
+        .unwrap()
+        .into_array();
+
+    let second = array.execute::<Canonical>(&mut ctx).unwrap().into_array();
+
+    drop(keep_alive);
+
+    assert_arrays_eq!(first, expected);
+    assert_arrays_eq!(second, expected);
+}
+
+#[test]
+fn execute_path_nested_chunked_dict_of_dict_into_canonical() {
+    let mut ctx = SESSION.create_execution_ctx();
+    let inner_1 = gen_dict_primitive_chunks::<u32, u16>(8, 3, 2);
+    let inner_2 = gen_dict_primitive_chunks::<u32, u16>(8, 3, 3);
+    let outer = ChunkedArray::try_new(
+        vec![inner_1.clone(), inner_2.clone()],
+        inner_1.dtype().clone(),
+    )
+    .unwrap()
+    .into_array();
+    let keep_alive = outer.clone();
+
+    let expected = {
+        let mut builder = builder_with_capacity(outer.dtype(), outer.len());
+        inner_1
+            .append_to_builder(builder.as_mut(), &mut ctx)
+            .unwrap();
+        inner_2
+            .append_to_builder(builder.as_mut(), &mut ctx)
+            .unwrap();
+        builder.finish()
+    };
+
+    let first = outer
+        .clone()
+        .execute::<Canonical>(&mut ctx)
+        .unwrap()
+        .into_array();
+
+    let second = outer.execute::<Canonical>(&mut ctx).unwrap().into_array();
+
+    drop(keep_alive);
+
+    assert_arrays_eq!(first, expected);
+    assert_arrays_eq!(second, expected);
 }
 
 #[test]
@@ -188,8 +350,11 @@ pub fn pack_nested_structs() {
     )
     .unwrap()
     .into_array();
+    #[expect(deprecated)]
     let canonical_struct = chunked.to_struct();
+    #[expect(deprecated)]
     let canonical_varbin = canonical_struct.unmasked_fields()[0].to_varbinview();
+    #[expect(deprecated)]
     let original_varbin = struct_array.unmasked_fields()[0].to_varbinview();
     let orig_values =
         original_varbin.with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>());
@@ -200,6 +365,7 @@ pub fn pack_nested_structs() {
 
 #[test]
 pub fn pack_nested_lists() {
+    let mut ctx = SESSION.create_execution_ctx();
     let l1 = ListArray::try_new(
         buffer![1, 2, 3, 4].into_array(),
         buffer![0, 3].into_array(),
@@ -222,8 +388,15 @@ pub fn pack_nested_lists() {
         ),
     );
 
+    #[expect(deprecated)]
     let canon_values = chunked_list.unwrap().as_array().to_listview();
 
-    assert_eq!(l1.scalar_at(0).unwrap(), canon_values.scalar_at(0).unwrap());
-    assert_eq!(l2.scalar_at(0).unwrap(), canon_values.scalar_at(1).unwrap());
+    assert_eq!(
+        l1.execute_scalar(0, &mut ctx).unwrap(),
+        canon_values.execute_scalar(0, &mut ctx).unwrap()
+    );
+    assert_eq!(
+        l2.execute_scalar(0, &mut ctx).unwrap(),
+        canon_values.execute_scalar(1, &mut ctx).unwrap()
+    );
 }

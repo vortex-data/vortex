@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ffi::c_int;
 use std::ptr;
 use std::sync::Arc;
 
+use arrow_array::ffi::FFI_ArrowSchema;
+use arrow_schema::Schema;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
+use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexExpect;
+use vortex::error::vortex_ensure;
 use vortex::error::vortex_panic;
 use vortex::extension::datetime::AnyTemporal;
 use vortex::extension::datetime::Date;
@@ -14,6 +19,9 @@ use vortex::extension::datetime::Time;
 use vortex::extension::datetime::Timestamp;
 
 use crate::arc_wrapper;
+use crate::error::try_or;
+use crate::error::try_or_default;
+use crate::error::vx_error;
 use crate::ptype::vx_ptype;
 use crate::string::vx_string;
 use crate::struct_fields::vx_struct_fields;
@@ -28,7 +36,7 @@ arc_wrapper!(
 );
 
 /// The variant tag for a Vortex data type.
-#[allow(non_camel_case_types)]
+#[expect(non_camel_case_types)]
 #[non_exhaustive]
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,6 +63,7 @@ pub enum vx_dtype_variant {
     DTYPE_FIXED_SIZE_LIST = 9,
 }
 
+// TODO(connor)[Union]: Do we need to add union and variant here?
 impl From<&DType> for vx_dtype_variant {
     fn from(value: &DType) -> Self {
         match value {
@@ -64,11 +73,12 @@ impl From<&DType> for vx_dtype_variant {
             DType::Decimal(..) => vx_dtype_variant::DTYPE_DECIMAL,
             DType::Utf8(_) => vx_dtype_variant::DTYPE_UTF8,
             DType::Binary(_) => vx_dtype_variant::DTYPE_BINARY,
-            DType::Struct(..) => vx_dtype_variant::DTYPE_STRUCT,
             DType::List(..) => vx_dtype_variant::DTYPE_LIST,
             DType::FixedSizeList(..) => vx_dtype_variant::DTYPE_FIXED_SIZE_LIST,
-            DType::Extension(_) => vx_dtype_variant::DTYPE_EXTENSION,
+            DType::Struct(..) => vx_dtype_variant::DTYPE_STRUCT,
+            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
             DType::Variant(_) => vortex_panic!("Variant DType is not supported in FFI yet"),
+            DType::Extension(_) => vx_dtype_variant::DTYPE_EXTENSION,
         }
     }
 }
@@ -323,8 +333,48 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_zone(dtype: *const DType) -> *cons
     }
 }
 
+/// Convert a dtype to ArrowSchema.
+/// You can use the dtype after conversion
+/// On success, returns 0. On error, sets err and returns 1.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_dtype_to_arrow_schema(
+    dtype: *const vx_dtype,
+    schema: *mut FFI_ArrowSchema,
+    err: *mut *mut vx_error,
+) -> c_int {
+    try_or(err, 1, || {
+        let dtype = vx_dtype::as_ref(dtype);
+        let arrow_schema = dtype.to_arrow_schema()?;
+        let arrow_schema = FFI_ArrowSchema::try_from(&arrow_schema)?;
+        unsafe { ptr::write(schema, arrow_schema) };
+        Ok(0)
+    })
+}
+
+/// Create a Vortex dtype from an Arrow C Data Interface schema.
+///
+/// `schema` must point to a valid `ArrowSchema` describing a struct (record-batch) schema. It is
+/// *consumed*: its `release` callback is invoked by this function and the caller must not use or
+/// release it afterwards. The returned dtype is a non-nullable struct, mirroring how Arrow record
+/// batches map to Vortex arrays.
+///
+/// On error, returns NULL and sets `err`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_dtype_from_arrow_schema(
+    schema: *mut FFI_ArrowSchema,
+    err: *mut *mut vx_error,
+) -> *const vx_dtype {
+    try_or_default(err, || {
+        vortex_ensure!(!schema.is_null(), "null arrow schema");
+        let ffi_schema = unsafe { ptr::replace(schema, FFI_ArrowSchema::empty()) };
+        let arrow_schema = Schema::try_from(&ffi_schema)?;
+        drop(ffi_schema);
+        Ok(vx_dtype::new(Arc::new(DType::from_arrow(&arrow_schema))))
+    })
+}
+
 #[cfg(test)]
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 mod tests {
     use std::slice;
 
@@ -338,6 +388,7 @@ mod tests {
     use super::*;
     use crate::array::vx_array;
     use crate::array::vx_array_dtype;
+    use crate::array::vx_array_free;
     use crate::dtype::vx_dtype;
     use crate::dtype::vx_dtype_free;
     use crate::dtype::vx_dtype_get_variant;
@@ -640,6 +691,8 @@ mod tests {
             .into_array()
     }
 
+    // TODO: re-enable under miri once parking_lot_core fixes strict-provenance violations
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_struct_introspection_simple() {
         let array = create_test_struct_array();
@@ -652,10 +705,12 @@ mod tests {
 
         // Cleanup in reverse order - this is the safest order
         unsafe {
-            crate::array::vx_array_free(vx_arr);
+            vx_array_free(vx_arr);
         }
     }
 
+    // TODO: re-enable under miri once parking_lot_core fixes strict-provenance violations
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_field_name_access() {
         let array = create_test_struct_array();
@@ -677,10 +732,12 @@ mod tests {
         // Cleanup in careful order
         unsafe {
             // Field name is now a borrowed reference - do not free it
-            crate::array::vx_array_free(vx_arr);
+            vx_array_free(vx_arr);
         }
     }
 
+    // TODO: re-enable under miri once parking_lot_core fixes strict-provenance violations
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_comprehensive_struct_introspection() {
         let array = create_test_struct_array();
@@ -710,7 +767,41 @@ mod tests {
 
         // Cleanup
         unsafe {
-            crate::array::vx_array_free(vx_arr);
+            vx_array_free(vx_arr);
+        }
+    }
+
+    #[test]
+    fn test_dtype_from_arrow_schema() {
+        use arrow_schema::DataType;
+        use arrow_schema::Field;
+
+        let arrow_schema = Schema::new(vec![
+            Field::new("a", DataType::Int64, false),
+            Field::new("b", DataType::Utf8, true),
+        ]);
+        let mut ffi_schema = FFI_ArrowSchema::try_from(&arrow_schema).unwrap();
+
+        let mut error = ptr::null_mut();
+        let dtype = unsafe { vx_dtype_from_arrow_schema(&raw mut ffi_schema, &raw mut error) };
+        assert!(error.is_null());
+        assert!(!dtype.is_null());
+
+        unsafe {
+            assert_eq!(vx_dtype_get_variant(dtype), vx_dtype_variant::DTYPE_STRUCT);
+            assert!(!vx_dtype_is_nullable(dtype));
+            let fields = vx_dtype_struct_dtype(dtype);
+            assert_eq!(vx_struct_fields_nfields(fields), 2);
+            let f0 = vx_struct_fields_field_dtype(fields, 0);
+            assert_eq!(vx_dtype_get_variant(f0), vx_dtype_variant::DTYPE_PRIMITIVE);
+            assert_eq!(vx_dtype_primitive_ptype(f0), vx_ptype::PTYPE_I64);
+            assert!(!vx_dtype_is_nullable(f0));
+            vx_dtype_free(f0);
+            let f1 = vx_struct_fields_field_dtype(fields, 1);
+            assert_eq!(vx_dtype_get_variant(f1), vx_dtype_variant::DTYPE_UTF8);
+            assert!(vx_dtype_is_nullable(f1));
+            vx_dtype_free(f1);
+            vx_dtype_free(dtype);
         }
     }
 }

@@ -229,10 +229,8 @@ impl<T: VortexReadAt + Clone> InstrumentedReadAt<T> {
     }
 }
 
-// We implement drop for `InnerMetrics` so this will be logged only when we eventually drop the final instance of `InstrumentedRead`
-impl Drop for InnerMetrics {
-    #[allow(clippy::cognitive_complexity)]
-    fn drop(&mut self) {
+impl InnerMetrics {
+    fn log_sizes(&self) {
         tracing::debug!("Reads: {}", self.sizes.count());
         if !self.sizes.is_empty() {
             tracing::debug!(
@@ -245,10 +243,10 @@ impl Drop for InnerMetrics {
                     .vortex_expect("must not be empty"),
             );
         }
+        tracing::debug!("Total read size: {}", self.total_size.value());
+    }
 
-        let total_size = self.total_size.value();
-        tracing::debug!("Total read size: {total_size}");
-
+    fn log_durations(&self) {
         if !self.durations.is_empty() {
             tracing::debug!(
                 "Read duration: p50={}ms p95={}ms p99={}ms p999={}ms",
@@ -270,6 +268,14 @@ impl Drop for InnerMetrics {
                     .as_millis(),
             );
         }
+    }
+}
+
+// We implement drop for `InnerMetrics` so this will be logged only when we eventually drop the final instance of `InstrumentedRead`
+impl Drop for InnerMetrics {
+    fn drop(&mut self) {
+        self.log_sizes();
+        self.log_durations();
     }
 }
 

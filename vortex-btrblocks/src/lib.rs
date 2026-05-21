@@ -22,8 +22,8 @@
 //!
 //! # How It Works
 //!
-//! [`BtrBlocksCompressor::compress()`] takes an `&ArrayRef` and returns an `ArrayRef` that may
-//! use a different encoding. It first canonicalizes the input, then dispatches by type.
+//! [`BtrBlocksCompressor::compress()`] takes an `&ArrayRef` plus a mutable execution context and
+//! returns an `ArrayRef` that may use a different encoding. It first canonicalizes the input, then dispatches by type.
 //! Primitives and strings go through `choose_and_compress`, which evaluates every enabled
 //! [`Scheme`] and picks the one with the best compression ratio. Compound types like structs
 //! and lists recurse into their fields and elements.

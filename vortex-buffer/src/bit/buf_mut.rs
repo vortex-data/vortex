@@ -3,8 +3,6 @@
 
 use std::ops::Not;
 
-use arrow_buffer::bit_chunk_iterator::BitChunks;
-use arrow_buffer::bit_chunk_iterator::UnalignedBitChunk;
 use bitvec::view::BitView;
 
 use crate::BitBuffer;
@@ -90,7 +88,7 @@ fn fill_bits(slice: &mut [u8], start_bit: usize, end_bit: usize, value: bool) {
 /// ```
 ///
 /// See also: [`BitBuffer`].
-#[derive(Debug, Clone, Eq)]
+#[derive(Debug, Clone)]
 pub struct BitBufferMut {
     buffer: ByteBufferMut,
     /// Represents the offset of the bit buffer into the first byte.
@@ -98,19 +96,6 @@ pub struct BitBufferMut {
     /// This is always less than 8 (for when the bit buffer is not aligned to a byte).
     offset: usize,
     len: usize,
-}
-
-impl PartialEq for BitBufferMut {
-    fn eq(&self, other: &Self) -> bool {
-        if self.len != other.len {
-            return false;
-        }
-
-        self.chunks()
-            .iter_padded()
-            .zip(other.chunks().iter_padded())
-            .all(|(a, b)| a == b)
-    }
 }
 
 impl BitBufferMut {
@@ -180,11 +165,21 @@ impl BitBufferMut {
     }
 
     /// Create a bit buffer of `len` with `indices` set as true.
-    pub fn from_indices(len: usize, indices: &[usize]) -> BitBufferMut {
-        let mut buf = BitBufferMut::new_unset(len);
-        // TODO(ngates): for dense indices, we can do better by collecting into u64s.
-        indices.iter().for_each(|&idx| buf.set(idx));
-        buf
+    pub fn from_indices(len: usize, indices: impl IntoIterator<Item = usize>) -> BitBufferMut {
+        let mut buffer = BufferMut::<u64>::zeroed(len.div_ceil(64));
+        for idx in indices {
+            assert!(idx < len, "index {idx} exceeds len {len}");
+            buffer.as_mut_slice()[idx / 64] |= 1 << (idx % 64);
+        }
+
+        let mut buffer = buffer.into_byte_buffer();
+        buffer.truncate(len.div_ceil(8));
+
+        Self {
+            buffer,
+            offset: 0,
+            len,
+        }
     }
 
     /// Invokes `f` with indexes `0..len` collecting the boolean results into a new `BitBufferMut`
@@ -271,13 +266,6 @@ impl BitBufferMut {
         unsafe { get_bit_unchecked(self.buffer.as_ptr(), self.offset + index) }
     }
 
-    /// Access chunks of the underlying buffer as 8 byte chunks with a final trailer
-    ///
-    /// If you're performing operations on a single buffer, prefer [BitBuffer::unaligned_chunks]
-    pub fn chunks(&self) -> BitChunks<'_> {
-        BitChunks::new(self.buffer.as_slice(), self.offset, self.len)
-    }
-
     /// Get the bit capacity of the buffer.
     #[inline(always)]
     pub fn capacity(&self) -> usize {
@@ -354,7 +342,8 @@ impl BitBufferMut {
     /// # Safety
     ///
     /// The caller must ensure that `index` does not exceed the largest bit index in the backing buffer.
-    unsafe fn set_unchecked(&mut self, index: usize) {
+    #[inline]
+    pub unsafe fn set_unchecked(&mut self, index: usize) {
         // SAFETY: checked by caller
         unsafe { set_bit_unchecked(self.buffer.as_mut_ptr(), self.offset + index) }
     }
@@ -536,52 +525,6 @@ impl BitBufferMut {
         self.len += bit_len;
     }
 
-    /// Splits the bit buffer into two at the given index.
-    ///
-    /// Afterward, self contains elements `[0, at)`, and the returned buffer contains elements
-    /// `[at, capacity)`.
-    ///
-    /// Unlike bytes, if the split position is not on a byte-boundary this operation will copy
-    /// data into the result type, and mutate self.
-    #[must_use = "consider BitBufferMut::truncate if you don't need the other half"]
-    pub fn split_off(&mut self, at: usize) -> Self {
-        assert!(
-            at <= self.capacity(),
-            "index {at} exceeds capacity {}",
-            self.capacity()
-        );
-
-        // The length of the tail is any bits after `at`
-        let tail_len = self.len.saturating_sub(at);
-        let byte_pos = (self.offset + at).div_ceil(8);
-
-        // If we are splitting on a byte boundary, we can just slice the buffer
-        // Or if `at > self.len`, then the tail is empty anyway and we can just return as much
-        // of the existing capacity as possible.
-        if at > self.len() || (self.offset + at).is_multiple_of(8) {
-            let tail_buffer = self.buffer.split_off(byte_pos);
-            self.len = self.len.min(at);
-
-            // Return the tail buffer
-            return Self {
-                buffer: tail_buffer,
-                offset: 0,
-                len: tail_len,
-            };
-        }
-
-        // Otherwise, we truncate ourselves, and copy any bits into a new tail buffer.
-        // Note that in this case we do not preserve the capacity.
-        let u64_cap = tail_len.div_ceil(8);
-        let mut tail_buffer_u64 = BufferMut::<u64>::with_capacity(u64_cap);
-        tail_buffer_u64.extend(
-            BitChunks::new(self.buffer.as_slice(), self.offset + at, tail_len).iter_padded(),
-        );
-
-        self.truncate(at);
-        BitBufferMut::from_buffer(tail_buffer_u64.into_byte_buffer(), 0, tail_len)
-    }
-
     /// Absorbs a mutable buffer that was previously split off.
     ///
     /// If the two buffers were previously contiguous and not mutated in a way that causes
@@ -615,26 +558,6 @@ impl BitBufferMut {
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
         self.buffer.as_mut_slice()
     }
-
-    /// Returns a raw mutable pointer to the internal buffer.
-    pub fn as_mut_ptr(&mut self) -> *mut u8 {
-        self.buffer.as_mut_ptr()
-    }
-
-    /// Access chunks of the buffer aligned to 8 byte boundary as [prefix, \<full chunks\>, suffix]
-    pub fn unaligned_chunks(&self) -> UnalignedBitChunk<'_> {
-        UnalignedBitChunk::new(self.buffer.as_slice(), self.offset, self.len)
-    }
-
-    /// Get the number of set bits in the buffer.
-    pub fn true_count(&self) -> usize {
-        self.unaligned_chunks().count_ones()
-    }
-
-    /// Get the number of unset bits in the buffer.
-    pub fn false_count(&self) -> usize {
-        self.len - self.true_count()
-    }
 }
 
 impl Default for BitBufferMut {
@@ -657,6 +580,13 @@ impl Not for BitBufferMut {
 impl From<&[bool]> for BitBufferMut {
     fn from(value: &[bool]) -> Self {
         BitBufferMut::collect_bool(value.len(), |i| value[i])
+    }
+}
+
+// allow building a buffer from a set of truthy byte values.
+impl From<&[u8]> for BitBufferMut {
+    fn from(value: &[u8]) -> Self {
+        BitBufferMut::collect_bool(value.len(), |i| value[i] > 0)
     }
 }
 
@@ -1174,42 +1104,6 @@ mod tests {
         assert_eq!(bit_buf.len(), 10);
         for i in 0..10 {
             assert_eq!(bit_buf.value(i), i % 2 == 0);
-        }
-    }
-
-    #[test]
-    fn test_split_off() {
-        // Test splitting at various positions and across a byte boundary
-        for i in 0..10 {
-            let buf = bitbuffer![0 1 0 1 0 1 0 1 0 1];
-
-            let mut buf_mut = BitBufferMut::copy_from(&buf);
-            assert_eq!(buf_mut.len(), 10);
-
-            let tail = buf_mut.split_off(i);
-            assert_eq!(buf_mut.len(), i);
-            assert_eq!(buf_mut.freeze(), buf.slice(0..i));
-
-            assert_eq!(tail.len(), 10 - i);
-            assert_eq!(tail.freeze(), buf.slice(i..10));
-        }
-    }
-
-    #[test]
-    fn test_split_off_with_offset() {
-        // Test splitting at various positions and across a byte boundary
-        for i in 0..10 {
-            let buf = bitbuffer![0 1 0 1 0 1 0 1 0 1 0 1].slice(2..);
-
-            let mut buf_mut = BitBufferMut::copy_from(&buf);
-            assert_eq!(buf_mut.len(), 10);
-
-            let tail = buf_mut.split_off(i);
-            assert_eq!(buf_mut.len(), i);
-            assert_eq!(buf_mut.freeze(), buf.slice(0..i));
-
-            assert_eq!(tail.len(), 10 - i);
-            assert_eq!(tail.freeze(), buf.slice(i..10));
         }
     }
 }

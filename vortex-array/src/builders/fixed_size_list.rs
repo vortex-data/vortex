@@ -13,6 +13,8 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::builders::ArrayBuilder;
@@ -20,7 +22,8 @@ use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::builders::builder_with_capacity;
 use crate::canonical::Canonical;
-use crate::canonical::ToCanonical;
+#[expect(deprecated)]
+use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::scalar::ListScalar;
@@ -235,6 +238,7 @@ impl ArrayBuilder for FixedSizeListBuilder {
     /// This will increase the capacity if extending with this `array` would go past the original
     /// capacity.
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
+        #[expect(deprecated)]
         let fsl = array.to_fixed_size_list();
         if fsl.is_empty() {
             return;
@@ -243,8 +247,10 @@ impl ArrayBuilder for FixedSizeListBuilder {
         self.elements_builder.extend_from_array(fsl.elements());
         self.nulls.append_validity_mask(
             array
-                .validity_mask()
-                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+                .validity()
+                .vortex_expect("validity_mask in extend_from_array_unchecked")
+                .execute_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("Failed to compute validity mask"),
         );
     }
 
@@ -277,7 +283,10 @@ mod tests {
 
     use super::FixedSizeListBuilder;
     use crate::IntoArray as _;
-    use crate::ToCanonical;
+    use crate::LEGACY_SESSION;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
+    use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
     use crate::builders::ArrayBuilder;
@@ -329,6 +338,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 2);
 
+        #[expect(deprecated)]
         let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.elements().len(), 6);
         assert_eq!(fsl_array.list_size(), 3);
@@ -352,6 +362,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 100);
 
+        #[expect(deprecated)]
         let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 0);
         // The elements array should be empty since list_size is 0.
@@ -381,6 +392,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 100);
 
+        #[expect(deprecated)]
         let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 0);
         assert_eq!(fsl_array.elements().len(), 0);
@@ -410,6 +422,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 5);
 
+        #[expect(deprecated)]
         let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.elements().len(), 10);
     }
@@ -423,6 +436,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 0);
 
+        #[expect(deprecated)]
         let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 100000000);
         assert_eq!(fsl_array.elements().len(), 0);
@@ -455,6 +469,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 3);
 
+        #[expect(deprecated)]
         let fsl_array = fsl.to_fixed_size_list();
         assert!(
             fsl_array
@@ -518,6 +533,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 2);
 
+        #[expect(deprecated)]
         let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.elements().len(), 6);
     }
@@ -532,11 +548,13 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 5);
 
+        #[expect(deprecated)]
         let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 3);
         assert_eq!(fsl_array.elements().len(), 15);
 
         // Check that all elements are zeros.
+        #[expect(deprecated)]
         let elements_array = fsl_array.elements().to_primitive();
         let elements = elements_array.as_slice::<i32>();
         assert!(elements.iter().all(|&x| x == 0));
@@ -555,6 +573,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 3);
 
+        #[expect(deprecated)]
         let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 2);
 
@@ -585,6 +604,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 1);
 
+        #[expect(deprecated)]
         let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 2);
 
@@ -610,6 +630,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 1000);
 
+        #[expect(deprecated)]
         let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 0);
         assert_eq!(fsl_array.elements().len(), 0);
@@ -661,6 +682,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 6);
 
+        #[expect(deprecated)]
         let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.elements().len(), 12);
 
@@ -736,6 +758,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 5);
 
+        #[expect(deprecated)]
         let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.list_size(), 0);
         assert_eq!(fsl_array.elements().len(), 0);
@@ -848,6 +871,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 6);
 
+        #[expect(deprecated)]
         let fsl_array = fsl.to_fixed_size_list();
         assert_eq!(fsl_array.elements().len(), 12);
 
@@ -919,7 +943,9 @@ mod tests {
 
         // Check actual values using scalar_at.
 
-        let scalar0 = array.scalar_at(0).unwrap();
+        let scalar0 = array
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         let list0 = scalar0.as_list();
         assert_eq!(list0.len(), 2);
         if let Some(list0_items) = list0.elements() {
@@ -927,7 +953,9 @@ mod tests {
             assert_eq!(list0_items[1].as_primitive().typed_value::<i32>(), Some(2));
         }
 
-        let scalar1 = array.scalar_at(1).unwrap();
+        let scalar1 = array
+            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         let list1 = scalar1.as_list();
         assert_eq!(list1.len(), 2);
         if let Some(list1_items) = list1.elements() {
@@ -1007,6 +1035,7 @@ mod tests {
         assert_eq!(fsl.list_size(), 3);
 
         // Verify elements array: [1, 2, 3, 10, 11, 12, 4, 5, 6, 20, 21, 22].
+        #[expect(deprecated)]
         let elements = fsl.elements().to_primitive();
         assert_eq!(
             elements.as_slice::<i32>(),

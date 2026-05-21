@@ -31,7 +31,8 @@ mod test {
 
     use crate::IntoArray;
     use crate::arrays::filter::execute::bool::BoolArray;
-    use crate::canonical::ToCanonical;
+    #[expect(deprecated)]
+    use crate::canonical::ToCanonical as _;
     use crate::compute::conformance::filter::test_filter_conformance;
 
     #[test]
@@ -39,6 +40,7 @@ mod test {
         let arr = BoolArray::from_iter([true, true, false]);
         let mask = Mask::from_iter([true, false, true]);
 
+        #[expect(deprecated)]
         let filtered = arr.filter(mask).unwrap().to_bool();
         assert_eq!(2, filtered.len());
 

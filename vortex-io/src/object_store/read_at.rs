@@ -117,64 +117,145 @@ impl VortexReadAt for ObjectStoreReadAt {
         let allocator = Arc::clone(&self.allocator);
         let range = offset..(offset + length as u64);
 
-        async move {
-            let mut buffer = allocator.allocate(length, alignment)?;
+        // Requires to deal with borrowed lifetimes
+        let io_handle = handle.clone();
 
-            let response = store
-                .get_opts(
-                    &path,
-                    GetOptions {
-                        range: Some(GetRange::Bounded(range.clone())),
-                        ..Default::default()
-                    },
-                )
-                .await?;
+        handle
+                .spawn_io(async move {
+                    let mut buffer = allocator.allocate(length, alignment)?;
 
-            let buffer = match response.payload {
-                #[cfg(not(target_arch = "wasm32"))]
-                GetResultPayload::File(file, _) => {
-                    handle
-                        .spawn_blocking(move || {
-                            read_exact_at(&file, buffer.as_mut_slice(), range.start)?;
-                            Ok::<_, io::Error>(buffer)
-                        })
-                        .await
-                        .map_err(io::Error::other)?
-                }
-                #[cfg(target_arch = "wasm32")]
-                GetResultPayload::File(..) => {
-                    unreachable!("File payload not supported on wasm32")
-                }
-                GetResultPayload::Stream(mut byte_stream) => {
-                    let mut written = 0usize;
-                    while let Some(bytes) = byte_stream.next().await {
-                        let bytes = bytes?;
-                        let end = written + bytes.len();
-                        vortex_ensure!(
-                            end <= length,
-                            "Object store stream returned too many bytes: {} > expected {} (range: {:?})",
-                            end,
-                            length,
-                            range
-                        );
-                        buffer.as_mut_slice()[written..end].copy_from_slice(&bytes);
-                        written = end;
-                    }
+                    let response = store
+                        .get_opts(
+                            &path,
+                            GetOptions {
+                                range: Some(GetRange::Bounded(range.clone())),
+                                ..Default::default()
+                            },
+                        )
+                        .await?;
 
-                    vortex_ensure!(
-                        written == length,
-                        "Object store stream returned {} bytes but expected {} bytes (range: {:?})",
-                        written,
-                        length,
-                        range
-                    );
+                    let buffer = match response.payload {
+                        #[cfg(not(target_arch = "wasm32"))]
+                        GetResultPayload::File(file, _) => {
+                            io_handle
+                                .spawn_blocking(move || {
+                                    read_exact_at(&file, buffer.as_mut_slice(), range.start)?;
+                                    Ok::<_, io::Error>(buffer)
+                                })
+                                .await
+                                .map_err(io::Error::other)?
+                        }
+                        #[cfg(target_arch = "wasm32")]
+                        GetResultPayload::File(..) => {
+                            unreachable!("File payload not supported on wasm32")
+                        }
+                        GetResultPayload::Stream(mut byte_stream) => {
+                            let mut written = 0usize;
+                            while let Some(bytes) = byte_stream.next().await {
+                                let bytes = bytes?;
+                                let end = written + bytes.len();
+                                vortex_ensure!(
+                                    end <= length,
+                                    "Object store stream returned too many bytes: {} > expected {} (range: {:?})",
+                                    end,
+                                    length,
+                                    range
+                                );
+                                buffer.as_mut_slice()[written..end].copy_from_slice(&bytes);
+                                written = end;
+                            }
 
-                    buffer
-                }
-            };
+                            vortex_ensure!(
+                                written == length,
+                                "Object store stream returned {} bytes but expected {} bytes (range: {:?})",
+                                written,
+                                length,
+                                range
+                            );
 
-            Ok(BufferHandle::new_host(buffer.freeze()))
-        }
+                            buffer
+                        }
+                    };
+
+                    Ok(BufferHandle::new_host(buffer.freeze()))
+                })
         .boxed()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use object_store::PutPayload;
+    use object_store::memory::InMemory;
+
+    use super::*;
+    use crate::runtime::AbortHandle;
+    use crate::runtime::AbortHandleRef;
+    use crate::runtime::Executor;
+
+    const TEST_DATA: &[u8] = b"object store test data";
+
+    #[derive(Default)]
+    struct CountingExecutor {
+        spawn_count: AtomicUsize,
+        spawn_io_count: AtomicUsize,
+    }
+
+    impl Executor for CountingExecutor {
+        fn spawn(&self, fut: BoxFuture<'static, ()>) -> AbortHandleRef {
+            self.spawn_count.fetch_add(1, Ordering::SeqCst);
+            TokioAbortHandle::new_handle(tokio::spawn(fut).abort_handle())
+        }
+
+        fn spawn_io(&self, fut: BoxFuture<'static, ()>) -> AbortHandleRef {
+            self.spawn_io_count.fetch_add(1, Ordering::SeqCst);
+            TokioAbortHandle::new_handle(tokio::spawn(fut).abort_handle())
+        }
+
+        fn spawn_cpu(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
+            TokioAbortHandle::new_handle(tokio::spawn(async move { task() }).abort_handle())
+        }
+
+        fn spawn_blocking_io(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
+            TokioAbortHandle::new_handle(tokio::task::spawn_blocking(task).abort_handle())
+        }
+    }
+
+    struct TokioAbortHandle(tokio::task::AbortHandle);
+
+    impl TokioAbortHandle {
+        fn new_handle(handle: tokio::task::AbortHandle) -> AbortHandleRef {
+            Box::new(Self(handle))
+        }
+    }
+
+    impl AbortHandle for TokioAbortHandle {
+        fn abort(self: Box<Self>) {
+            self.0.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn read_at_uses_spawn_io() -> anyhow::Result<()> {
+        let executor = Arc::new(CountingExecutor::default());
+        let runtime = Arc::clone(&executor) as Arc<dyn Executor>;
+        let handle = Handle::new(Arc::downgrade(&runtime));
+
+        let store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let path = ObjectPath::from("test.bin");
+        store.put(&path, PutPayload::from_static(TEST_DATA)).await?;
+
+        let reader = ObjectStoreReadAt::new(store, path, handle);
+        let buffer = reader.read_at(7, 5, Alignment::new(1)).await?;
+
+        assert_eq!(buffer.to_host().await.as_slice(), b"store");
+        assert_eq!(executor.spawn_io_count.load(Ordering::SeqCst), 1);
+        assert_eq!(executor.spawn_count.load(Ordering::SeqCst), 0);
+
+        Ok(())
     }
 }

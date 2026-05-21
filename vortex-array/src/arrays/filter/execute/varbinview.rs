@@ -10,15 +10,16 @@ use vortex_mask::MaskValues;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::filter::execute::values_to_mask;
+use crate::arrow::ArrowSessionExt;
 use crate::arrow::FromArrowArray;
-use crate::arrow::IntoArrowArray;
 
 pub fn filter_varbinview(array: &VarBinViewArray, mask: &Arc<MaskValues>) -> VarBinViewArray {
     // Delegate to the Arrow implementation of filter over `VarBinView`.
-    arrow_filter_fn(&array.clone().into_array(), &values_to_mask(mask))
+    arrow_filter_fn(&array.clone().into_array(), &Mask::Values(Arc::clone(mask)))
         .vortex_expect("VarBinViewArray is Arrow-compatible and supports arrow_filter_fn")
         .as_::<VarBinView>()
         .into_owned()
@@ -30,7 +31,11 @@ fn arrow_filter_fn(array: &ArrayRef, mask: &Mask) -> vortex_error::VortexResult<
         Mask::AllTrue(_) | Mask::AllFalse(_) => unreachable!("check in filter invoke"),
     };
 
-    let array_ref = array.clone().into_arrow_preferred()?;
+    let array_ref = LEGACY_SESSION.arrow().execute_arrow(
+        array.clone(),
+        None,
+        &mut LEGACY_SESSION.create_execution_ctx(),
+    )?;
     let mask_array = BooleanArray::new(values.bit_buffer().clone().into(), None);
     let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
 

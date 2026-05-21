@@ -16,7 +16,7 @@ on:
         description: "Maximum fuzzing time in seconds"
         required: false
         type: number
-        default: 2700
+        default: 18000
       runner:
         description: "Runner name from .github-private runs-on.yml (e.g., arm64-medium, gpu)"
         required: false
@@ -61,7 +61,7 @@ jobs:
     name: "Run ${{ inputs.fuzz_name || inputs.fuzz_target }}"
     env:
       FUZZ_NAME: ${{ inputs.fuzz_name || inputs.fuzz_target }}
-    timeout-minutes: 230  # almost 4 hours
+    timeout-minutes: 370  # 6 hours 10 minutes
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner={1}/disk=large/tag={2}-fuzz', github.run_id, inputs.runner, inputs.fuzz_name || inputs.fuzz_target)
@@ -76,7 +76,7 @@ jobs:
         with:
           sccache: s3
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
 
       - uses: ./.github/actions/setup-rust
         with:
@@ -102,7 +102,7 @@ jobs:
           AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
         run: |
           CORPUS_KEY="${FUZZ_NAME}_corpus.tar.zst"
-          CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}-${{ inputs.extra_features }}"
+          CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}"
 
           # Try to download corpus
           if python3 scripts/s3-download.py "s3://vortex-fuzz-corpus/$CORPUS_KEY" "$CORPUS_KEY"; then
@@ -124,7 +124,7 @@ jobs:
           if [ "${{ inputs.jobs }}" -gt 1 ]; then
             FORK_FLAG="-fork=${{ inputs.jobs }}"
           fi
-          ${{ inputs.extra_env }} RUSTFLAGS="--cfg vortex_nightly" RUST_BACKTRACE=1 \
+          ${{ inputs.extra_env }} RUST_BACKTRACE=1 \
             cargo +$NIGHTLY_TOOLCHAIN fuzz run --release --debug-assertions \
             $FEATURES_FLAG \
             ${{ inputs.fuzz_target }} -- \
@@ -163,7 +163,7 @@ jobs:
           if [ -n "${{ inputs.extra_features }}" ]; then
             FEATURES_FLAG="--features ${{ inputs.extra_features }}"
           fi
-          RUSTFLAGS="--cfg vortex_nightly" RUST_BACKTRACE=1 \
+          RUST_BACKTRACE=1 \
             cargo +$NIGHTLY_TOOLCHAIN fuzz run --release --debug-assertions \
             $FEATURES_FLAG \
             ${{ inputs.fuzz_target }} \
@@ -173,7 +173,7 @@ jobs:
       - name: Archive crash artifacts
         id: upload_artifacts
         if: steps.check.outputs.crashes_found == 'true'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
         with:
           name: ${{ env.FUZZ_NAME }}-crash-artifacts
           path: fuzz/artifacts
@@ -181,7 +181,7 @@ jobs:
 
       - name: Archive fuzzer output log
         if: steps.check.outputs.crashes_found == 'true'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
         with:
           name: ${{ env.FUZZ_NAME }}-logs
           path: fuzz_output.log

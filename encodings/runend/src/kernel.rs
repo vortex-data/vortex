@@ -43,13 +43,17 @@ impl ExecuteParentKernel<RunEnd> for RunEndSliceKernel {
         array: ArrayView<'_, RunEnd>,
         parent: ArrayView<'_, Slice>,
         _child_idx: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        slice(array, parent.slice_range().clone()).map(Some)
+        slice(array, parent.slice_range().clone(), ctx).map(Some)
     }
 }
 
-fn slice(array: ArrayView<'_, RunEnd>, range: Range<usize>) -> VortexResult<ArrayRef> {
+fn slice(
+    array: ArrayView<'_, RunEnd>,
+    range: Range<usize>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
     let new_length = range.len();
 
     let slice_begin = array.find_physical_index(range.start)?;
@@ -57,7 +61,7 @@ fn slice(array: ArrayView<'_, RunEnd>, range: Range<usize>) -> VortexResult<Arra
 
     // If the sliced range contains only a single run, opt to return a ConstantArray.
     if slice_begin + 1 == slice_end {
-        let value = array.values().scalar_at(slice_begin)?;
+        let value = array.values().execute_scalar(slice_begin, ctx)?;
         return Ok(ConstantArray::new(value, new_length).into_array());
     }
 

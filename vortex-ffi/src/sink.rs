@@ -27,7 +27,7 @@ use crate::error::try_or_default;
 use crate::error::vx_error;
 use crate::session::vx_session;
 
-#[allow(non_camel_case_types)]
+#[expect(non_camel_case_types)]
 /// The `sink` interface is used to collect array chunks and place them into a resource
 /// (e.g. an array stream or file (`vx_array_sink_open_file`)).
 ///

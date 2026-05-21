@@ -176,10 +176,10 @@ macro_rules! box_dyn_wrapper {
     ($(#[$meta:meta])* $T:ty, $ffi_ident:ident) => {
         paste::paste! {
             $(#[$meta])*
-            #[allow(non_camel_case_types)]
+            #[expect(non_camel_case_types)]
             pub struct $ffi_ident(Box<$T>);
 
-            #[allow(dead_code)]
+            #[expect(dead_code)]
             impl $ffi_ident {
                 /// Wrap an owned object into a raw pointer.
                 pub(crate) fn new(obj: Box<$T>) -> *mut $ffi_ident {
@@ -239,10 +239,10 @@ macro_rules! box_wrapper {
     ($(#[$meta:meta])* $T:ty, $ffi_ident:ident) => {
         paste::paste! {
             $(#[$meta])*
-            #[allow(non_camel_case_types)]
+            #[expect(non_camel_case_types)]
             pub struct $ffi_ident($T);
 
-            #[allow(dead_code)]
+            #[expect(dead_code)]
             impl $ffi_ident {
                 /// Wrap an owned object into a raw pointer.
                 pub(crate) fn new_box(obj: Box<$T>) -> *mut $ffi_ident {

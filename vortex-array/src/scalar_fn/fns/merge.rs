@@ -84,22 +84,6 @@ impl ScalarFnVTable for Merge {
         ChildName::from(Arc::from(format!("{}", child_idx)))
     }
 
-    fn fmt_sql(
-        &self,
-        _options: &Self::Options,
-        expr: &Expression,
-        f: &mut Formatter<'_>,
-    ) -> std::fmt::Result {
-        write!(f, "merge(")?;
-        for (i, child) in expr.children().iter().enumerate() {
-            child.fmt_sql(f)?;
-            if i + 1 < expr.children().len() {
-                write!(f, ", ")?;
-            }
-        }
-        write!(f, ")")
-    }
-
     fn return_dtype(&self, options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         let mut field_names = Vec::new();
         let mut arrays = Vec::new();
@@ -291,7 +275,8 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::ToCanonical;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
@@ -317,11 +302,16 @@ mod tests {
             vortex_bail!("empty field path");
         };
 
+        #[expect(deprecated)]
         let mut array = array.to_struct().unmasked_field_by_name(field)?.clone();
         for field in field_path {
-            array = array.to_struct().unmasked_field_by_name(field)?.clone();
+            #[expect(deprecated)]
+            let next = array.to_struct().unmasked_field_by_name(field)?.clone();
+            array = next;
         }
-        Ok(array.to_primitive())
+        #[expect(deprecated)]
+        let result = array.to_primitive();
+        Ok(result)
     }
 
     #[test]
@@ -491,13 +481,16 @@ mod tests {
         ])
         .unwrap()
         .into_array();
+        #[expect(deprecated)]
         let actual_array = test_array.apply(&expr).unwrap().to_struct();
 
+        #[expect(deprecated)]
+        let inner_struct = actual_array
+            .unmasked_field_by_name("a")
+            .unwrap()
+            .to_struct();
         assert_eq!(
-            actual_array
-                .unmasked_field_by_name("a")
-                .unwrap()
-                .to_struct()
+            inner_struct
                 .names()
                 .iter()
                 .map(|name| name.as_ref())
@@ -532,6 +525,7 @@ mod tests {
         ])
         .unwrap()
         .into_array();
+        #[expect(deprecated)]
         let actual_array = test_array.apply(&expr).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["a", "c", "b", "d"]);
@@ -540,10 +534,13 @@ mod tests {
     #[test]
     pub fn test_display() {
         let expr = merge([get_item("struct1", root()), get_item("struct2", root())]);
-        assert_eq!(expr.to_string(), "merge($.struct1, $.struct2)");
+        assert_eq!(
+            expr.to_string(),
+            "vortex.merge($.struct1, $.struct2, opts=Error)"
+        );
 
         let expr2 = merge(vec![get_item("a", root())]);
-        assert_eq!(expr2.to_string(), "merge($.a)");
+        assert_eq!(expr2.to_string(), "vortex.merge($.a, opts=Error)");
     }
 
     #[test]

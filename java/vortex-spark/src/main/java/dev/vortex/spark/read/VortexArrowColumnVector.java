@@ -67,22 +67,12 @@ public class VortexArrowColumnVector extends ColumnVector {
     }
 
     /**
-     * Closes this column vector and releases any associated resources.
-     * <p>
-     * This method recursively closes any child columns (for complex types like structs)
-     * and then closes the underlying Arrow vector accessor.
+     * No-op: the underlying Arrow {@link ValueVector}s are owned by the
+     * {@link dev.vortex.relocated.org.apache.arrow.vector.ipc.ArrowReader} that produced
+     * this batch and are released when that reader is closed.
      */
     @Override
-    public void close() {
-        if (childColumns != null) {
-            for (int i = 0; i < childColumns.length; i++) {
-                childColumns[i].close();
-                childColumns[i] = null;
-            }
-            childColumns = null;
-        }
-        accessor.close();
-    }
+    public void close() {}
 
     /**
      * Returns whether the value at the specified row is null.
@@ -357,10 +347,6 @@ public class VortexArrowColumnVector extends ColumnVector {
 
         final int getNullCount() {
             return vector.getNullCount();
-        }
-
-        final void close() {
-            vector.close();
         }
 
         boolean getBoolean(int rowId) {

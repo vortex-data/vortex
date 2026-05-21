@@ -54,7 +54,9 @@ fn test_basic_listview_comprehensive() {
     );
 
     // Test scalar_at which returns entire lists as Scalar values.
-    let first_scalar = listview.scalar_at(0).unwrap();
+    let first_scalar = listview
+        .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+        .unwrap();
     assert_eq!(
         first_scalar,
         Scalar::list(
@@ -125,7 +127,7 @@ fn test_from_list_array() -> VortexResult<()> {
     let elements = buffer![1i32, 2, 3, 4, 5, 6, 7].into_array();
     let validity = Validity::from_iter([true, false, true]);
 
-    let list_array = ListArray::try_new(elements, offsets, validity).unwrap();
+    let list_array = ListArray::try_new(elements, offsets, validity)?;
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let list_view = list_view_from_list(list_array, &mut ctx)?;
 
@@ -133,14 +135,14 @@ fn test_from_list_array() -> VortexResult<()> {
 
     // Check first list.
     assert_arrays_eq!(
-        list_view.list_elements_at(0).unwrap(),
+        list_view.list_elements_at(0)?,
         PrimitiveArray::from_iter([1i32, 2])
     );
 
     // Check validity is preserved.
-    assert!(list_view.is_valid(0).unwrap());
-    assert!(list_view.is_invalid(1).unwrap());
-    assert!(list_view.is_valid(2).unwrap());
+    assert!(list_view.is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())?);
+    assert!(list_view.is_invalid(1, &mut LEGACY_SESSION.create_execution_ctx())?);
+    assert!(list_view.is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())?);
 
     // Check third list.
     assert_arrays_eq!(
@@ -198,15 +200,27 @@ fn test_listview_with_constant_arrays(#[case] const_sizes: bool, #[case] const_o
     } else if const_offsets {
         // All lists start at offset 0, different sizes (overlapping).
         assert_eq!(
-            listview.list_elements_at(0).unwrap().scalar_at(0).unwrap(),
+            listview
+                .list_elements_at(0)
+                .unwrap()
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             1i32.into()
         );
         assert_eq!(
-            listview.list_elements_at(1).unwrap().scalar_at(0).unwrap(),
+            listview
+                .list_elements_at(1)
+                .unwrap()
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             1i32.into()
         );
         assert_eq!(
-            listview.list_elements_at(2).unwrap().scalar_at(0).unwrap(),
+            listview
+                .list_elements_at(2)
+                .unwrap()
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             1i32.into()
         );
     }

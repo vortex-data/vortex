@@ -36,7 +36,7 @@ runs:
 
     - name: Install Mold
       if: runner.os == 'Linux'
-      uses: rui314/setup-mold@v1
+      uses: rui314/setup-mold@9c9c13bf4c3f1adef0cc596abc155580bcb04444  # v1
 
     - name: Check for rustup
       id: check-rustup
@@ -45,7 +45,7 @@ runs:
 
     - name: Rust Toolchain
       id: rust-toolchain
-      uses: dtolnay/rust-toolchain@stable
+      uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable
       if: steps.check-rustup.outputs.exists != 'true'
       with:
         toolchain: "${{ steps.toolchain-config.outputs.toolchain }}"
@@ -73,7 +73,7 @@ runs:
 
     - name: Rust Compile Cache
       if: inputs.enable-sccache == 'true'
-      uses: mozilla-actions/sccache-action@v0.0.9
+      uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696  # v0.0.10
 
     - name: Pre-start sccache server
       if: inputs.enable-sccache == 'true'
@@ -83,13 +83,3 @@ runs:
     - name: Install Protoc (for lance-encoding build step)
       if: runner.os != 'Windows'
       uses: ./.github/actions/setup-protoc
-
-    - name: Install Sweep
-      shell: bash
-      if: ${{ inputs.timestamp == 'true' && github.ref_name == 'develop' }}
-      run: cargo install cargo-sweep
-
-    - name: Timestamp Cache
-      shell: bash
-      if: ${{ inputs.timestamp == 'true' && github.ref_name == 'develop' }}
-      run: cargo sweep --stamp

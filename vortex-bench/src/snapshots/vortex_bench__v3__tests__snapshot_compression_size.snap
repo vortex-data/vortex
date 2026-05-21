@@ -1,0 +1,11 @@
+---
+source: vortex-bench/src/v3.rs
+expression: render(&record)
+---
+{
+  "kind": "compression_size",
+  "commit_sha": "<commit-sha>",
+  "dataset": "taxi",
+  "format": "lance",
+  "value_bytes": 12345678
+}

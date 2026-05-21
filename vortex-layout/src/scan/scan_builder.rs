@@ -38,6 +38,7 @@ use vortex_io::session::RuntimeSessionExt;
 use vortex_metrics::MetricsRegistry;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
@@ -367,9 +368,7 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                 LazyScanState::Builder(builder) => {
                     let builder = builder.take().vortex_expect("polled after completion");
                     let ordered = builder.ordered;
-                    let num_workers = std::thread::available_parallelism()
-                        .map(|n| n.get())
-                        .unwrap_or(1);
+                    let num_workers = get_available_parallelism().unwrap_or(1);
                     let concurrency = builder.concurrency * num_workers;
                     let handle = builder.session.handle();
                     let task = handle.spawn_blocking(move || {
@@ -457,6 +456,7 @@ mod test {
     use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
+    use std::sync::mpsc;
     use std::task::Context;
     use std::task::Poll;
     use std::time::Duration;
@@ -465,8 +465,9 @@ mod test {
     use futures::task::noop_waker_ref;
     use parking_lot::Mutex;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::MaskFuture;
-    use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldMask;
@@ -482,6 +483,9 @@ mod test {
     use super::ScanBuilder;
     use crate::ArrayFuture;
     use crate::LayoutReader;
+    use crate::SplitRange;
+    use crate::scan::test::SCAN_SESSION;
+    use crate::scan::test::session_with_handle;
 
     #[derive(Debug)]
     struct CountingLayoutReader {
@@ -518,11 +522,11 @@ mod test {
         fn register_splits(
             &self,
             _field_mask: &[FieldMask],
-            row_range: &Range<u64>,
+            split_range: &SplitRange,
             splits: &mut BTreeSet<u64>,
         ) -> VortexResult<()> {
             self.register_splits_calls.fetch_add(1, Ordering::Relaxed);
-            splits.insert(row_range.end);
+            splits.insert(split_range.root_row_range().end);
             Ok(())
         }
 
@@ -554,6 +558,10 @@ mod test {
                 unreachable!("scan should not be polled in this test")
             }))
         }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
     }
 
     #[test]
@@ -561,7 +569,7 @@ mod test {
         let calls = Arc::new(AtomicUsize::new(0));
         let reader = Arc::new(CountingLayoutReader::new(Arc::clone(&calls)));
 
-        let session = crate::scan::test::SCAN_SESSION.clone();
+        let session = SCAN_SESSION.clone();
 
         let _stream = ScanBuilder::new(session, reader).into_stream().unwrap();
 
@@ -603,12 +611,12 @@ mod test {
         fn register_splits(
             &self,
             _field_mask: &[FieldMask],
-            row_range: &Range<u64>,
+            split_range: &SplitRange,
             splits: &mut BTreeSet<u64>,
         ) -> VortexResult<()> {
             self.register_splits_calls.fetch_add(1, Ordering::Relaxed);
-            for split in (row_range.start + 1)..=row_range.end {
-                splits.insert(split);
+            for split in (split_range.row_range().start + 1)..=split_range.row_range().end {
+                splits.insert(split_range.row_offset() + split);
             }
             Ok(())
         }
@@ -649,22 +657,28 @@ mod test {
             let array = PrimitiveArray::from_iter(values?).into_array();
             Ok(Box::pin(async move { Ok(array) }))
         }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
     }
 
     #[test]
     fn into_stream_executes_after_prepare() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let calls = Arc::new(AtomicUsize::new(0));
         let reader = Arc::new(SplittingLayoutReader::new(Arc::clone(&calls)));
 
         let runtime = SingleThreadRuntime::default();
-        let session = crate::scan::test::session_with_handle(runtime.handle());
+        let session = session_with_handle(runtime.handle());
 
-        let stream = ScanBuilder::new(session, reader).into_stream().unwrap();
+        let stream = ScanBuilder::new(session, reader).into_stream()?;
         let mut iter = runtime.block_on_stream(stream);
 
         let mut values = Vec::new();
         for chunk in &mut iter {
-            values.push(chunk?.to_primitive().into_buffer::<i32>()[0]);
+            let prim = chunk?.execute::<PrimitiveArray>(&mut ctx)?;
+            values.push(prim.into_buffer::<i32>()[0]);
         }
 
         assert_eq!(calls.load(Ordering::Relaxed), 1);
@@ -710,12 +724,12 @@ mod test {
         fn register_splits(
             &self,
             _field_mask: &[FieldMask],
-            row_range: &Range<u64>,
+            split_range: &SplitRange,
             splits: &mut BTreeSet<u64>,
         ) -> VortexResult<()> {
             self.register_splits_calls.fetch_add(1, Ordering::Relaxed);
             let _guard = self.gate.lock();
-            splits.insert(row_range.end);
+            splits.insert(split_range.root_row_range().end);
             Ok(())
         }
 
@@ -747,6 +761,10 @@ mod test {
                 unreachable!("scan should not be polled in this test")
             }))
         }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
     }
 
     #[test]
@@ -761,11 +779,11 @@ mod test {
         ));
 
         let runtime = SingleThreadRuntime::default();
-        let session = crate::scan::test::session_with_handle(runtime.handle());
+        let session = session_with_handle(runtime.handle());
 
         let mut stream = ScanBuilder::new(session, reader).into_stream().unwrap();
 
-        let (send, recv) = std::sync::mpsc::channel::<bool>();
+        let (send, recv) = mpsc::channel::<bool>();
         let join = std::thread::spawn(move || {
             let waker = noop_waker_ref();
             let mut cx = Context::from_waker(waker);

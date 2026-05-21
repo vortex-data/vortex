@@ -88,7 +88,7 @@ impl Footer {
         let layout_ids: Arc<[_]> = layout_specs
             .iter()
             .flat_map(|e| e.iter())
-            .map(|encoding| LayoutEncodingId::new_arc(Arc::from(encoding.id())))
+            .map(|encoding| LayoutEncodingId::new(encoding.id()))
             .collect();
         let layout_read_ctx = ReadContext::new(layout_ids);
 
@@ -97,7 +97,7 @@ impl Footer {
         let array_ids: Arc<[_]> = array_specs
             .iter()
             .flat_map(|e| e.iter())
-            .map(|encoding| ArrayId::new_arc(Arc::from(encoding.id())))
+            .map(|encoding| ArrayId::new(encoding.id()))
             .collect();
         let array_read_ctx = ReadContext::new(array_ids);
 

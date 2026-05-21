@@ -20,6 +20,7 @@ use futures::stream::once;
 use futures::try_join;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Dict;
 use vortex_array::builders::dict::DictConstraints;
 use vortex_array::builders::dict::DictEncoder;
@@ -151,7 +152,8 @@ impl LayoutStrategy for DictStrategy {
         let should_fallback = match first_chunk {
             None => true, // empty stream
             Some(chunk) => {
-                let compressed = BtrBlocksCompressor::default().compress(&chunk)?;
+                let mut exec_ctx = session.create_execution_ctx();
+                let compressed = BtrBlocksCompressor::default().compress(&chunk, &mut exec_ctx)?;
                 !compressed.is::<Dict>()
             }
         };

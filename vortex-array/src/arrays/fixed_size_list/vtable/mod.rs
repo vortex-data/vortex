@@ -11,6 +11,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -23,6 +24,7 @@ use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::fixed_size_list::FixedSizeListData;
+use crate::arrays::fixed_size_list::array::ELEMENTS_SLOT;
 use crate::arrays::fixed_size_list::array::NUM_SLOTS;
 use crate::arrays::fixed_size_list::array::SLOT_NAMES;
 use crate::arrays::fixed_size_list::compute::rules::PARENT_RULES;
@@ -40,10 +42,6 @@ pub type FixedSizeListArray = Array<FixedSizeList>;
 #[derive(Clone, Debug)]
 pub struct FixedSizeList;
 
-impl FixedSizeList {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.fixed_size_list");
-}
-
 impl ArrayHash for FixedSizeListData {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
         let _precision = precision;
@@ -59,13 +57,13 @@ impl ArrayEq for FixedSizeListData {
 }
 
 impl VTable for FixedSizeList {
-    type ArrayData = FixedSizeListData;
+    type TypedArrayData = FixedSizeListData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.fixed_size_list");
+        *ID
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -119,7 +117,7 @@ impl VTable for FixedSizeList {
         let DType::FixedSizeList(_, list_size, nullability) = dtype else {
             vortex_bail!("Expected `DType::FixedSizeList`, got {dtype:?}");
         };
-        let elements = slots[crate::arrays::fixed_size_list::array::ELEMENTS_SLOT]
+        let elements = slots[ELEMENTS_SLOT]
             .as_ref()
             .vortex_expect("FixedSizeListArray elements slot");
         vortex_ensure!(

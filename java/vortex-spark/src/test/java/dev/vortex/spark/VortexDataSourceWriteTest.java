@@ -3,7 +3,10 @@
 
 package dev.vortex.spark;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -14,21 +17,27 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.apache.spark.sql.*;
+import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Row;
+import org.apache.spark.sql.RowFactory;
+import org.apache.spark.sql.SaveMode;
+import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
-import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Integration test for Vortex DataSource write and read functionality.
- * <p>
- * This test verifies that:
- * 1. Spark DataFrames can be written as Vortex files
- * 2. Multiple partitions create multiple files
- * 3. Data can be read back correctly
- * 4. Schema is preserved during write/read
+ *
+ * <p>This test verifies that: 1. Spark DataFrames can be written as Vortex files 2. Multiple partitions create multiple
+ * files 3. Data can be read back correctly 4. Schema is preserved during write/read
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public final class VortexDataSourceWriteTest {
@@ -44,6 +53,7 @@ public final class VortexDataSourceWriteTest {
         spark = SparkSession.builder()
                 .appName("VortexWriteTest")
                 .master("local[2]") // Use 2 threads
+                .config("spark.driver.host", "127.0.0.1")
                 .config("spark.sql.shuffle.partitions", "2")
                 .config("spark.sql.adaptive.enabled", "false") // Disable AQE for predictable partitioning
                 .config("spark.ui.enabled", "false") // Disable UI for tests
@@ -212,8 +222,8 @@ public final class VortexDataSourceWriteTest {
         // Verify vortex files inside partition directories
         List<Path> filesA = findVortexFiles(outputPath.resolve("group=A"));
         List<Path> filesB = findVortexFiles(outputPath.resolve("group=B"));
-        assertTrue(!filesA.isEmpty(), "Partition A should have vortex files");
-        assertTrue(!filesB.isEmpty(), "Partition B should have vortex files");
+        assertFalse(filesA.isEmpty(), "Partition A should have vortex files");
+        assertFalse(filesB.isEmpty(), "Partition B should have vortex files");
 
         // When: read back
         Dataset<Row> readDf = spark.read()
@@ -324,10 +334,74 @@ public final class VortexDataSourceWriteTest {
         assertEquals("special!@#$%^&*()", specialRows.first().getString(1));
     }
 
-    /**
-     * Creates a test DataFrame with monotonically increasing integers
-     * and their string representations.
-     */
+    @Test
+    @DisplayName("Write and read date, timestamp, and nested struct columns")
+    public void testWriteAndReadTemporalAndStructColumns() throws IOException {
+        Dataset<Row> originalDf = spark.range(0, 2)
+                .selectExpr(
+                        "cast(id as int) as id",
+                        "CASE WHEN id = 0 THEN CAST('2024-01-02' AS DATE) ELSE CAST('2024-02-03' AS DATE) END AS event_date",
+                        """
+                                CASE WHEN id = 0 THEN CAST('2024-01-02 03:04:05.123456' AS TIMESTAMP)
+                                ELSE CAST('2024-02-03 04:05:06.654321' AS TIMESTAMP) END AS event_ts""",
+                        """
+                                named_struct(
+                                    'event_date', CASE WHEN id = 0 THEN CAST('2024-01-02' AS DATE) ELSE CAST('2024-02-03' AS DATE) END,
+                                    'event_ts', CASE WHEN id = 0 THEN CAST('2024-01-02 03:04:05.123456' AS TIMESTAMP)
+                                        ELSE CAST('2024-02-03 04:05:06.654321' AS TIMESTAMP) END,
+                                    'label', CASE WHEN id = 0 THEN 'alpha' ELSE 'beta' END
+                                ) AS payload""");
+
+        Path outputPath = tempDir.resolve("temporal_struct_output");
+        originalDf
+                .write()
+                .format("vortex")
+                .option("path", outputPath.toUri().toString())
+                .mode(SaveMode.Overwrite)
+                .save();
+
+        Dataset<Row> readDf = spark.read()
+                .format("vortex")
+                .option("path", outputPath.toUri().toString())
+                .load();
+
+        List<String> expectedRows = List.of(
+                "{\"id\":0,\"event_date\":\"2024-01-02\",\"event_ts\":\"2024-01-02 03:04:05.123456\","
+                        + "\"payload_event_date\":\"2024-01-02\",\"payload_event_ts\":\"2024-01-02 03:04:05.123456\","
+                        + "\"payload_label\":\"alpha\"}",
+                "{\"id\":1,\"event_date\":\"2024-02-03\",\"event_ts\":\"2024-02-03 04:05:06.654321\","
+                        + "\"payload_event_date\":\"2024-02-03\",\"payload_event_ts\":\"2024-02-03 04:05:06.654321\","
+                        + "\"payload_label\":\"beta\"}");
+
+        assertEquals(DataTypes.DateType, readDf.schema().fields()[1].dataType());
+        assertEquals(DataTypes.TimestampType, readDf.schema().fields()[2].dataType());
+        assertInstanceOf(StructType.class, readDf.schema().fields()[3].dataType());
+        assertEquals(expectedRows, projectTemporalAndStructRows(readDf));
+    }
+
+    @Test
+    @DisplayName("Write TimestampNTZ columns and nested structs")
+    public void testWriteTimestampNtzColumns() throws IOException {
+        Dataset<Row> timestampNtzDf = spark.range(0, 2).selectExpr("cast(id as int) as id", """
+                CASE WHEN id = 0 THEN CAST('2024-01-02 03:04:05.123456' AS TIMESTAMP_NTZ)
+                ELSE CAST(NULL AS TIMESTAMP_NTZ) END AS event_ntz""", """
+                named_struct(
+                    'event_ntz', CASE WHEN id = 0 THEN CAST('2024-01-02 03:04:05.123456' AS TIMESTAMP_NTZ)
+                        ELSE CAST('2024-02-03 04:05:06.654321' AS TIMESTAMP_NTZ) END
+                ) AS payload""");
+
+        Path outputPath = tempDir.resolve("timestamp_ntz_output");
+        assertDoesNotThrow(() -> timestampNtzDf
+                .write()
+                .format("vortex")
+                .option("path", outputPath.toUri().toString())
+                .mode(SaveMode.Overwrite)
+                .save());
+
+        assertFalse(findVortexFiles(outputPath).isEmpty(), "TimestampNTZ write should create Vortex files");
+    }
+
+    /** Creates a test DataFrame with monotonically increasing integers and their string representations. */
     private Dataset<Row> createTestDataFrame(int numRows) {
         // Create DataFrame with monotonically increasing integers
         return spark.range(0, numRows)
@@ -337,12 +411,24 @@ public final class VortexDataSourceWriteTest {
                         "array('Alpha', 'Bravo', 'Charlie') AS elements");
     }
 
-    /**
-     * Finds all Vortex files in the given directory.
-     */
+    private List<String> projectTemporalAndStructRows(Dataset<Row> df) {
+        return df.orderBy("id").selectExpr("""
+                        to_json(named_struct(
+                            'id', id,
+                            'event_date', cast(event_date as string),
+                            'event_ts', date_format(event_ts, 'yyyy-MM-dd HH:mm:ss.SSSSSS'),
+                            'payload_event_date', cast(payload.event_date as string),
+                            'payload_event_ts', date_format(payload.event_ts, 'yyyy-MM-dd HH:mm:ss.SSSSSS'),
+                            'payload_label', payload.label
+                        )) as json""").collectAsList().stream()
+                .map(row -> row.getString(0))
+                .collect(Collectors.toList());
+    }
+
+    /** Finds all Vortex files in the given directory. */
     private List<Path> findVortexFiles(Path directory) throws IOException {
         if (!Files.exists(directory)) {
-            return Arrays.asList();
+            return List.of();
         }
 
         try (Stream<Path> paths = Files.walk(directory)) {
@@ -353,9 +439,7 @@ public final class VortexDataSourceWriteTest {
         }
     }
 
-    /**
-     * Verifies that two schemas are equal.
-     */
+    /** Verifies that two schemas are equal. */
     private void assertSchemaEquals(StructType expected, StructType actual) {
         assertEquals(expected.fields().length, actual.fields().length, "Schemas should have same number of fields");
 
@@ -375,9 +459,7 @@ public final class VortexDataSourceWriteTest {
         }
     }
 
-    /**
-     * Verifies that the data content of two DataFrames is identical.
-     */
+    /** Verifies that the data content of two DataFrames is identical. */
     private void verifyDataContent(Dataset<Row> expected, Dataset<Row> actual) {
         // Sort both DataFrames by id to ensure consistent ordering
         Dataset<Row> expectedSorted = expected.orderBy("id");

@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 
 use async_lock::Mutex as AsyncMutex;
+use smallvec::smallvec;
 use vortex_error::SharedVortexResult;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -41,7 +42,7 @@ impl Display for SharedData {
     }
 }
 
-#[allow(async_fn_in_trait)]
+#[expect(async_fn_in_trait)]
 pub trait SharedArrayExt: TypedArrayRef<Shared> {
     fn source(&self) -> &ArrayRef {
         self.as_ref().slots()[SOURCE_SLOT]
@@ -115,7 +116,7 @@ impl Array<Shared> {
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Shared, dtype, len, SharedData::new())
-                    .with_slots(vec![Some(source)]),
+                    .with_slots(smallvec![Some(source)]),
             )
         }
     }

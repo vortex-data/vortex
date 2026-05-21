@@ -8,7 +8,7 @@
 //!
 //! Run with: cargo run --example tracing_vortex --features tokio
 
-#![allow(
+#![expect(
     clippy::disallowed_types,
     clippy::unwrap_used,
     clippy::cast_possible_truncation
@@ -91,8 +91,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     Ok(())
 }
 
-/// Simulates application activity with various log levels and spans
-#[allow(clippy::cognitive_complexity)]
+/// Simulates application activity with various log levels and spans.
+#[allow(
+    clippy::cognitive_complexity,
+    reason = "tracing sometimes triggers this"
+)]
 async fn simulate_application_activity(user_id: u32) {
     // Simulate HTTP request handling
     let request_span = span!(

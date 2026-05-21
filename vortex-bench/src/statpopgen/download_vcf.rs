@@ -8,7 +8,9 @@ use anyhow::Result;
 use anyhow::bail;
 use indicatif::ProgressBar;
 use indicatif::ProgressStyle;
+use noodles_bgzf::r#async::io::Reader as BgzfAsyncReader;
 use noodles_vcf::Record;
+use noodles_vcf::r#async::io::Reader as VcfAsyncReader;
 use parquet::arrow::AsyncArrowWriter;
 use reqwest::Client;
 use tokio::fs::File;
@@ -60,10 +62,10 @@ impl StatPopGenBenchmark {
 
                 // Wrap in BGZF reader
                 let buf_reader = BufReader::new(stream_reader);
-                let mut bgzf_reader = noodles_bgzf::r#async::io::Reader::new(buf_reader);
+                let mut bgzf_reader = BgzfAsyncReader::new(buf_reader);
 
                 // Read and parse VCF header
-                let mut vcf_reader = noodles_vcf::r#async::io::Reader::new(&mut bgzf_reader);
+                let mut vcf_reader = VcfAsyncReader::new(&mut bgzf_reader);
 
                 // Read and print the first 100,000 records
                 let header = vcf_reader.read_header().await?;

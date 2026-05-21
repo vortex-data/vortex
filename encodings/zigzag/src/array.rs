@@ -23,6 +23,7 @@ use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
+use vortex_array::smallvec::smallvec;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -33,6 +34,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 use zigzag::ZigZag as ExternalZigZag;
 
 use crate::compute::ZigZagEncoded;
@@ -44,18 +46,19 @@ use crate::zigzag_decode;
 pub type ZigZagArray = Array<ZigZag>;
 
 impl VTable for ZigZag {
-    type ArrayData = ZigZagData;
+    type TypedArrayData = ZigZagData;
 
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.zigzag");
+        *ID
     }
 
     fn validate(
         &self,
-        _data: &Self::ArrayData,
+        _data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
@@ -118,7 +121,7 @@ impl VTable for ZigZag {
         let encoded_type = DType::Primitive(ptype.to_unsigned(), dtype.nullability());
 
         let encoded = children.get(0, &encoded_type, len)?;
-        let slots = vec![Some(encoded.clone())];
+        let slots = smallvec![Some(encoded.clone())];
         let data = ZigZagData::try_new(encoded.dtype())?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
@@ -195,13 +198,11 @@ impl<T: TypedArrayRef<ZigZag>> ZigZagArrayExt for T {}
 pub struct ZigZag;
 
 impl ZigZag {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.zigzag");
-
     /// Construct a new [`ZigZagArray`] from an encoded unsigned integer array.
     pub fn try_new(encoded: ArrayRef) -> VortexResult<ZigZagArray> {
         let dtype = ZigZagData::dtype_from_encoded_dtype(encoded.dtype())?;
         let len = encoded.len();
-        let slots = vec![Some(encoded.clone())];
+        let slots = smallvec![Some(encoded.clone())];
         let data = ZigZagData::try_new(encoded.dtype())?;
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(ZigZag, dtype, len, data).with_slots(slots))
@@ -240,9 +241,9 @@ impl OperationsVTable<ZigZag> for ZigZag {
     fn scalar_at(
         array: ArrayView<'_, ZigZag>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let scalar = array.encoded().scalar_at(index)?;
+        let scalar = array.encoded().execute_scalar(index, ctx)?;
         if scalar.is_null() {
             return scalar.primitive_reinterpret_cast(ZigZagArrayExt::ptype(&array));
         }
@@ -270,7 +271,9 @@ impl ValidityChild<ZigZag> for ZigZag {
 #[cfg(test)]
 mod test {
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
 
@@ -279,42 +282,43 @@ mod test {
 
     #[test]
     fn test_compute_statistics() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = buffer![1i32, -5i32, 2, 3, 4, 5, 6, 7, 8, 9, 10]
             .into_array()
-            .to_primitive();
+            .execute::<PrimitiveArray>(&mut ctx)?;
         let zigzag = zigzag_encode(array.as_view())?;
 
         assert_eq!(
-            zigzag.statistics().compute_max::<i32>(),
-            array.statistics().compute_max::<i32>()
+            zigzag.statistics().compute_max::<i32>(&mut ctx),
+            array.statistics().compute_max::<i32>(&mut ctx)
         );
         assert_eq!(
-            zigzag.statistics().compute_null_count(),
-            array.statistics().compute_null_count()
+            zigzag.statistics().compute_null_count(&mut ctx),
+            array.statistics().compute_null_count(&mut ctx)
         );
         assert_eq!(
-            zigzag.statistics().compute_is_constant(),
-            array.statistics().compute_is_constant()
+            zigzag.statistics().compute_is_constant(&mut ctx),
+            array.statistics().compute_is_constant(&mut ctx)
         );
 
-        let sliced = zigzag.slice(0..2).unwrap();
+        let sliced = zigzag.slice(0..2)?;
         let sliced = sliced.as_::<ZigZag>();
         assert_eq!(
-            sliced.array().scalar_at(sliced.len() - 1).unwrap(),
+            sliced.array().execute_scalar(sliced.len() - 1, &mut ctx,)?,
             Scalar::from(-5i32)
         );
 
         assert_eq!(
-            sliced.statistics().compute_min::<i32>(),
-            array.statistics().compute_min::<i32>()
+            sliced.statistics().compute_min::<i32>(&mut ctx),
+            array.statistics().compute_min::<i32>(&mut ctx)
         );
         assert_eq!(
-            sliced.statistics().compute_null_count(),
-            array.statistics().compute_null_count()
+            sliced.statistics().compute_null_count(&mut ctx),
+            array.statistics().compute_null_count(&mut ctx)
         );
         assert_eq!(
-            sliced.statistics().compute_is_constant(),
-            array.statistics().compute_is_constant()
+            sliced.statistics().compute_is_constant(&mut ctx),
+            array.statistics().compute_is_constant(&mut ctx)
         );
         Ok(())
     }

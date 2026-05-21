@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Hybrid dispatch: fuses dynamic-dispatch plans with single-kernel fallbacks.
+//! Hybrid dispatch: routes arrays to standalone kernels or fused dynamic-dispatch plans.
 //!
 //! When an array is executed on the GPU, we fuse as much of its encoding
 //! tree as possible into a single kernel launch via [`DispatchPlan`].
@@ -18,10 +18,15 @@
 //!
 //! Strategies tried in order:
 //!
-//! 1. Fully fused — no unfusable nodes, entire tree compiles into one
+//! 1. Standalone — a registered kernel covers the entire tree in a single
+//!    launch without recursing into child encodings. Preferred when applicable
+//!    because the kernel is hand-tuned for that exact scenario. Detected by
+//!    `has_standalone_kernel`.
+//!
+//! 2. Fully fused — no unfusable nodes, entire tree compiles into one
 //!    [`DispatchPlan`] → `MaterializedPlan` → kernel launch.
 //!
-//! 2. Partial fusion — `pending_subtrees` from the `PartiallyFused`
+//! 3. Partial fusion — `pending_subtrees` from the `PartiallyFused`
 //!    variant are executed first (sequentially, same stream), their device buffers
 //!    become `LOAD` ops in a fused plan via `FusedPlan::materialize_with_subtrees`.
 //!    Each subtree re-enters [`try_gpu_dispatch`] and may itself fuse.
@@ -30,10 +35,10 @@
 //!    happens in-kernel via `load_element<T>()` in the LOAD source op — no
 //!    separate widen pass is needed.
 //!
-//! 3. Fallback — root is not fusable. Delegate to its registered
+//! 4. Fallback — root is not fusable. Delegate to its registered
 //!    `CudaExecute` kernel; its children re-enter [`try_gpu_dispatch`].
 //!
-//! All three compose recursively to arbitrary depth.
+//! All four compose recursively.
 //!
 //! Zone-map pruning is handled by ZonedReader before chunks reach the plan
 //! builder. Filtering within a chunk is done after decompression, not as push-down.
@@ -55,12 +60,14 @@ use crate::dynamic_dispatch::plan_builder::DispatchPlan;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecutionCtx;
 
-/// Try to execute `array` on the GPU, attempting three strategies in order:
+/// Try to execute `array` on the GPU, attempting four strategies in order:
 ///
-/// 1. Fully fused — [`DispatchPlan::new`] + `FusedPlan::materialize`.
-/// 2. Partially fused — pending subtrees executed first, then
+/// 1. Standalone — a registered kernel covers the entire tree without
+///    recursing into child encodings (e.g. FFOR, ALP(Primitive)).
+/// 2. Fully fused — [`DispatchPlan::new`] + `FusedPlan::materialize`.
+/// 3. Partially fused — pending subtrees executed first, then
 ///    `FusedPlan::materialize_with_subtrees`.
-/// 3. Fallback — root encoding's `CudaExecute` kernel; children
+/// 4. Fallback — root encoding's `CudaExecute` kernel; children
 ///    re-enter this function recursively.
 ///
 /// Returns `Ok(Canonical)` on success. Returns `Err` when the array
@@ -70,11 +77,34 @@ pub async fn try_gpu_dispatch(
     array: &ArrayRef,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical> {
+    use crate::executor::CudaDispatchMode;
+
     trace!(encoding = %array.encoding_id(), dtype = ?array.dtype(), len = array.len(), "try GPU dispatch");
 
-    match DispatchPlan::new(array)? {
+    // Short-circuit: standalone-only skips the plan builder entirely.
+    if ctx.dispatch_mode() == CudaDispatchMode::StandaloneOnly {
+        trace!(encoding = %array.encoding_id(), "standalone-only dispatch");
+        return ctx
+            .cuda_session()
+            .kernel(&array.encoding_id())
+            .ok_or_else(|| vortex_err!("No CUDA kernel for encoding {:?}", array.encoding_id()))?
+            .execute(array.clone(), ctx)
+            .await;
+    }
+
+    match DispatchPlan::new(array, ctx.dispatch_mode())? {
+        DispatchPlan::Standalone => {
+            trace!(encoding = %array.encoding_id(), "standalone dispatch");
+            ctx.cuda_session()
+                .kernel(&array.encoding_id())
+                .ok_or_else(|| {
+                    vortex_err!("No CUDA kernel for encoding {:?}", array.encoding_id())
+                })?
+                .execute(array.clone(), ctx)
+                .await
+        }
         DispatchPlan::Fused(plan) => {
-            let materialized = plan.materialize(ctx)?;
+            let materialized = plan.materialize(ctx).await?;
             let num_stages = materialized.dispatch_plan.num_stages();
             trace!(encoding = %array.encoding_id(), num_stages, "fully-fused dispatch");
             materialized.execute(array.len(), ctx)
@@ -93,12 +123,20 @@ pub async fn try_gpu_dispatch(
             }
 
             let num_subtrees = subtree_buffers.len();
-            let materialized = plan.materialize_with_subtrees(subtree_buffers, ctx)?;
+            let materialized = plan.materialize_with_subtrees(subtree_buffers, ctx).await?;
             let num_stages = materialized.dispatch_plan.num_stages();
             trace!(encoding = %array.encoding_id(), num_stages, num_subtrees, "partially-fused dispatch");
             materialized.execute(array.len(), ctx)
         }
         DispatchPlan::Unfused => {
+            // In dyn-dispatch-only mode, don't fall back to standalone kernels.
+            if ctx.dispatch_mode() == CudaDispatchMode::DynDispatchOnly {
+                return Err(vortex_err!(
+                    "Array with encoding {:?} is not dyn-dispatch-compatible",
+                    array.encoding_id()
+                ));
+            }
+
             // Unfused kernel dispatch fallback.
             ctx.cuda_session()
                 .kernel(&array.encoding_id())
@@ -124,6 +162,8 @@ mod tests {
     use vortex::error::VortexResult;
     use vortex::mask::Mask;
     use vortex::session::VortexSession;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
 
     use crate::CanonicalCudaExt;
     use crate::executor::CudaArrayExt;
@@ -138,11 +178,12 @@ mod tests {
         let bp = BitPacked::encode(
             &PrimitiveArray::new(Buffer::from(values), NonNullable).into_array(),
             7,
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )
         .vortex_expect("bp");
         let arr = FoR::try_new(bp.into_array(), 1000u32.into()).vortex_expect("for");
 
-        let cpu = arr.to_canonical()?.into_array();
+        let cpu = crate::canonicalize_cpu(arr.clone())?.into_array();
         let gpu = arr
             .into_array()
             .execute_cuda(&mut ctx)
@@ -167,6 +208,7 @@ mod tests {
         let bp = BitPacked::encode(
             &PrimitiveArray::new(Buffer::from(encoded), NonNullable).into_array(),
             9,
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )
         .vortex_expect("bp");
         let alp = ALP::try_new(
@@ -177,7 +219,7 @@ mod tests {
             None,
         )?;
 
-        let cpu = alp.to_canonical()?.into_array();
+        let cpu = crate::canonicalize_cpu(alp.clone())?.into_array();
         let gpu = alp
             .into_array()
             .execute_cuda(&mut ctx)
@@ -215,7 +257,7 @@ mod tests {
         .unwrap();
         let arr = ALP::try_new(encoded, Exponents { e: 0, f: 2 }, Some(patches))?;
 
-        let cpu = arr.to_canonical()?.into_array();
+        let cpu = crate::canonicalize_cpu(arr.clone())?.into_array();
         let gpu = arr
             .into_array()
             .execute_cuda(&mut ctx)
@@ -253,12 +295,13 @@ mod tests {
         )
         .into_array();
         let vals = FoR::try_new(
-            BitPacked::encode(&vals, 6).vortex_expect("bp").into_array(),
+            BitPacked::encode(&vals, 6, &mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("bp")
+                .into_array(),
             0u32.into(),
         )
         .vortex_expect("for");
-        let vals = ZstdBuffers::compress(&vals.into_array(), 3, &VortexSession::empty())
-            .vortex_expect("zstd");
+        let vals = ZstdBuffers::compress(&vals.into_array(), 3, &session).vortex_expect("zstd");
 
         // codes = FoR(BitPacked)
         let codes = PrimitiveArray::new(
@@ -267,7 +310,7 @@ mod tests {
         )
         .into_array();
         let codes = FoR::try_new(
-            BitPacked::encode(&codes, 6)
+            BitPacked::encode(&codes, 6, &mut LEGACY_SESSION.create_execution_ctx())
                 .vortex_expect("bp")
                 .into_array(),
             0u32.into(),
@@ -303,6 +346,7 @@ mod tests {
         let bp = BitPacked::encode(
             &PrimitiveArray::new(Buffer::from(data.clone()), NonNullable).into_array(),
             7,
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )
         .vortex_expect("bp");
         let for_arr = FoR::try_new(bp.into_array(), 100u32.into()).vortex_expect("for");

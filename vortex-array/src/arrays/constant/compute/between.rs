@@ -45,7 +45,9 @@ impl BetweenReduce for Constant {
 
             let scalar = Scalar::bool(
                 result,
-                lower.dtype().nullability() | upper.dtype().nullability(),
+                array.dtype().nullability()
+                    | lower.dtype().nullability()
+                    | upper.dtype().nullability(),
             );
             return Ok(Some(ConstantArray::new(scalar, array.len()).into_array()));
         }

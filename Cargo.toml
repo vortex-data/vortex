@@ -13,6 +13,7 @@ members = [
     "vortex-proto",
     "vortex-array",
     "vortex-tensor",
+    "vortex-turboquant",
     "vortex-compressor",
     "vortex-btrblocks",
     "vortex-layout",
@@ -59,6 +60,10 @@ members = [
     "benchmarks/datafusion-bench",
     "benchmarks/duckdb-bench",
     "benchmarks/random-access-bench",
+    "benchmarks/vector-search-bench",
+    # Benchmarks website v3 (alpha) - leaf binary, not part of vortex-* API
+    "benchmarks-website/server",
+    "benchmarks-website/migrate",
 ]
 exclude = ["java/testfiles", "wasm-test"]
 resolver = "2"
@@ -81,14 +86,14 @@ keywords = ["vortex"]
 license = "Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/spiraldb/vortex"
-rust-version = "1.90"
+rust-version = "1.91.0"
 version = "0.1.0"
 
 [workspace.dependencies]
 aho-corasick = "1.1.3"
 anyhow = "1.0.97"
 arbitrary = "1.3.2"
-arc-swap = "1.8"
+arc-swap = "1.9"
 arcref = "0.2.0"
 arrow-arith = "58"
 arrow-array = "58"
@@ -104,6 +109,7 @@ async-fs = "2.2.0"
 async-lock = "3.4"
 async-stream = "0.3.6"
 async-trait = "0.1.89"
+base16ct = "1.0.0"
 bigdecimal = "0.4.8"
 bindgen = "0.72.0"
 bit-vec = "0.9.0"
@@ -118,14 +124,13 @@ chrono = "0.4.42"
 clap = "4.5"
 criterion = "0.8"
 crossterm = "0.29"
-cudarc = { version = "0.18.2", features = [
+cudarc = { version = "0.19.0", features = [
     # The NSight Compute version available on lambda.ai hosts does not inject a symbol for
     # several functions that cudarc expects to load when this is set to "cuda-12080". We
     # don't use any CUDA 12.8 specific features currently so this is fine.
     "cuda-12050",
 ] }
 custom-labels = "0.4.4"
-daachorse = "1.0.0"
 dashmap = "6.1.0"
 datafusion = { version = "53", default-features = false, features = ["sql"] }
 datafusion-catalog = { version = "53" }
@@ -154,7 +159,7 @@ get_dir = "0.5.0"
 glob = "0.3.2"
 goldenfile = "1"
 half = { version = "2.7.1", features = ["std", "num-traits"] }
-hashbrown = "0.16.1"
+hashbrown = "0.17.0"
 humansize = "2.1.3"
 indicatif = "0.18.0"
 insta = "1.43"
@@ -162,7 +167,9 @@ inventory = "0.3.20"
 itertools = "0.14.0"
 jetscii = "0.5.3"
 jiff = "0.2.0"
+jni = { version = "0.22.0" }
 kanal = "0.1.1"
+lasso = { version = "0.7", features = ["multi-threaded"] }
 lending-iterator = "0.1.7"
 libfuzzer-sys = "0.4"
 libloading = "0.8"
@@ -174,16 +181,16 @@ memmap2 = "0.9.5"
 mimalloc = "0.1.42"
 moka = { version = "0.12.10", default-features = false }
 multiversion = "0.8.0"
-noodles-bgzf = "0.46.0"
-noodles-vcf = { version = "0.86.0", features = ["async"] }
+noodles-bgzf = "0.47.0"
+noodles-vcf = { version = "0.88.0", features = ["async"] }
 num-traits = "0.2.19"
 num_enum = { version = "0.7.3", default-features = false }
 object_store = { version = "0.13.1", default-features = false }
 once_cell = "1.21"
 oneshot = { version = "0.2.0", features = ["async"] }
-opentelemetry = "0.31.0"
-opentelemetry-otlp = "0.31.0"
-opentelemetry_sdk = "0.31.0"
+opentelemetry = "0.32.0"
+opentelemetry-otlp = "0.32.0"
+opentelemetry_sdk = "0.32.0"
 parking_lot = { version = "0.12.3", features = ["nightly"] }
 parquet = "58"
 parquet-variant = "58"
@@ -196,23 +203,23 @@ proc-macro2 = "1.0.95"
 prost = "0.14"
 prost-build = "0.14"
 prost-types = "0.14"
-public-api = "0.51"
+public-api = { git = "https://github.com/vortex-data/cargo-public-api.git", branch = "main" }
 pyo3 = { version = "0.28.0" }
 pyo3-bytes = "0.6"
 pyo3-log = "0.13.0"
 pyo3-object_store = "0.9.0"
 quote = "1.0.44"
-rand = "0.10.0"
+rand = "0.10.1"
 rand_distr = "0.6"
 ratatui = { version = "0.30", default-features = false }
 regex = "1.11.0"
 regex-automata = "0.4"
-reqwest = { version = "0.12.4", features = [
+reqwest = { version = "0.13.0", features = [
+    "blocking",
     "charset",
     "http2",
-    "macos-system-configuration",
-    "blocking",
-    "rustls-tls",
+    "rustls",
+    "system-proxy",
 ], default-features = false }
 roaring = "0.11.0"
 rstest = "0.26.1"
@@ -221,23 +228,25 @@ rustc-hash = "2.1"
 serde = "1.0.220"
 serde_json = "1.0.138"
 serde_test = "1.0.176"
-sha2 = "0.10"
+sha2 = "0.11.0"
 simdutf8 = "0.1.5"
-similar = "2.7.0"
+similar = "3.0.0"
 sketches-ddsketch = "0.4.0"
+smallvec = "1.15.1"
 smol = "2.0.2"
 static_assertions = "1.1"
 strum = "0.28"
 syn = { version = "2.0.117", features = ["full"] }
 sysinfo = "0.38.0"
 tabled = { version = "0.20.0", default-features = false }
-taffy = "0.9.0"
+taffy = "0.10.0"
 take_mut = "0.2.2"
 tar = "0.4"
 target-lexicon = "0.13"
+temp-env = "0.3"
 tempfile = "3"
 termtree = { version = "1.0" }
-test-with = "0.15"
+test-with = "0.16"
 thiserror = "2.0.3"
 tokio = { version = "1.48" }
 tokio-stream = "0.1.17"
@@ -288,6 +297,7 @@ vortex-sequence = { version = "0.1.0", path = "encodings/sequence", default-feat
 vortex-session = { version = "0.1.0", path = "./vortex-session", default-features = false }
 vortex-sparse = { version = "0.1.0", path = "./encodings/sparse", default-features = false }
 vortex-tensor = { version = "0.1.0", path = "./vortex-tensor", default-features = false }
+vortex-turboquant = { version = "0.1.0", path = "./vortex-turboquant", default-features = false }
 vortex-utils = { version = "0.1.0", path = "./vortex-utils", default-features = false }
 vortex-zigzag = { version = "0.1.0", path = "./encodings/zigzag", default-features = false }
 vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features = false }
@@ -302,11 +312,6 @@ vortex-duckdb = { path = "./vortex-duckdb", default-features = false }
 vortex-test-e2e-cuda = { path = "./vortex-test/e2e-cuda", default-features = false }
 vortex-tui = { path = "./vortex-tui" }
 
-[workspace.dependencies.getrandom_v03]
-features = ["wasm_js"]
-package = "getrandom"
-version = "0.4.0"
-
 [workspace.lints.rust]
 let_underscore_drop = "deny"
 macro_use_extern_crate = "deny"
@@ -316,13 +321,12 @@ unused_lifetimes = "deny"
 unused_qualifications = "deny"
 unexpected_cfgs = { level = "deny", check-cfg = [
     "cfg(codspeed)",
-    "cfg(disable_loom)",
-    "cfg(vortex_nightly)",
     'cfg(target_os, values("unknown"))',
 ] }
 warnings = "warn"
 
 [workspace.lints.clippy]
+absolute_paths = "deny"
 all = { level = "deny", priority = -1 }
 as_ptr_cast_mut = "deny"
 borrow_as_ptr = "deny"
@@ -349,10 +353,17 @@ mem_forget = "deny"
 multiple_crate_versions = "allow"
 needless_range_loop = "allow"
 or_fun_call = "deny"
+ref_option = "deny"
+ref_option_ref = "deny"
 panic = "deny"
 # panic_in_result_fn = "deny" -- we cannot disable this for tests to use assertions
 clone_on_ref_ptr = "deny"
 redundant_clone = "deny"
+redundant_static_lifetimes = "deny"
+ref_binding_to_reference = "deny"
+ref_patterns = "deny"
+repeat_vec_with_capacity = "deny"
+reserve_after_initialization = "deny"
 same_name_method = "deny"
 tests_outside_test_module = "deny"
 # todo = "deny"
@@ -371,7 +382,7 @@ debug = "full"
 inherits = "release"
 
 [profile.bench]
-codegen-units = 16
+codegen-units = 1
 debug = "full"
 lto = false
 

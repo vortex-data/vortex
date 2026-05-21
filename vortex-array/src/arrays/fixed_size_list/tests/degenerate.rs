@@ -6,6 +6,8 @@ use std::sync::Arc;
 use vortex_buffer::buffer;
 
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
@@ -54,7 +56,9 @@ fn test_fsl_size_0_length_1_non_nullable() {
     assert_eq!(fsl.elements().len(), 0);
 
     // Get the single empty list.
-    let scalar = fsl.scalar_at(0).unwrap();
+    let scalar = fsl
+        .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+        .unwrap();
     assert!(!scalar.is_null());
     assert_eq!(
         scalar,
@@ -80,7 +84,9 @@ fn test_fsl_size_0_huge_length_non_nullable() {
     assert_eq!(fsl.elements().len(), 0);
 
     // Spot check a few lists.
-    let scalar_first = fsl.scalar_at(0).unwrap();
+    let scalar_first = fsl
+        .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+        .unwrap();
     assert!(!scalar_first.is_null());
     assert_eq!(
         scalar_first,
@@ -91,7 +97,9 @@ fn test_fsl_size_0_huge_length_non_nullable() {
         )
     );
 
-    let scalar_middle = fsl.scalar_at(500_000_000_000).unwrap();
+    let scalar_middle = fsl
+        .execute_scalar(500_000_000_000, &mut LEGACY_SESSION.create_execution_ctx())
+        .unwrap();
     assert!(!scalar_middle.is_null());
     assert_eq!(
         scalar_middle,
@@ -102,7 +110,9 @@ fn test_fsl_size_0_huge_length_non_nullable() {
         )
     );
 
-    let scalar_end = fsl.scalar_at(999_999_999_999).unwrap();
+    let scalar_end = fsl
+        .execute_scalar(999_999_999_999, &mut LEGACY_SESSION.create_execution_ctx())
+        .unwrap();
     assert!(!scalar_end.is_null());
     assert_eq!(
         scalar_end,
@@ -152,7 +162,9 @@ fn test_fsl_size_0_length_1_nullable_valid() {
     assert_eq!(fsl.elements().len(), 0);
 
     // Get the single empty list (should be valid).
-    let scalar = fsl.scalar_at(0).unwrap();
+    let scalar = fsl
+        .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+        .unwrap();
     assert!(!scalar.is_null());
     assert_eq!(
         scalar,
@@ -175,7 +187,9 @@ fn test_fsl_size_0_length_1_nullable_null() {
     assert_eq!(fsl.elements().len(), 0);
 
     // The single list should be null.
-    let scalar = fsl.scalar_at(0).unwrap();
+    let scalar = fsl
+        .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+        .unwrap();
     assert!(scalar.is_null());
 }
 
@@ -200,7 +214,9 @@ fn test_fsl_size_0_length_10_nullable_mixed() {
         true, false, true, true, false, false, true, false, true, true,
     ];
     for i in 0..len {
-        let scalar = fsl.scalar_at(i).unwrap();
+        let scalar = fsl
+            .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         if expected_valid[i] {
             assert!(!scalar.is_null());
             assert_eq!(
@@ -239,7 +255,9 @@ fn test_fsl_size_0_nullable_elements() {
 
     // All lists should be empty but valid.
     for i in 0..len {
-        let scalar = fsl.scalar_at(i).unwrap();
+        let scalar = fsl
+            .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         assert!(!scalar.is_null());
     }
 }

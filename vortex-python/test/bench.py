@@ -5,6 +5,8 @@
 Simple benchmarks
 """
 
+from __future__ import annotations
+
 import io
 from collections.abc import Callable
 
@@ -39,7 +41,10 @@ def arrow_array(request):  # pyright: ignore[reportUnknownParameterType, reportM
     return pa.Table.from_pylist(rows)
 
 
-def test_compress_vortex(benchmark: Callable[[Callable[[], None]], None], vortex_array: vx.Array):
+def test_compress_vortex(
+    benchmark: Callable[[Callable[[], None]], None],
+    vortex_array: vx.Array,
+):
     def compress():
         _ = vx.compress(vortex_array)
 

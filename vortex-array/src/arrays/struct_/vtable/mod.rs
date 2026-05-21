@@ -13,6 +13,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::array::Array;
+use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::EmptyArrayData;
 use crate::array::VTable;
@@ -29,19 +30,21 @@ mod kernel;
 mod operations;
 mod validity;
 
+use vortex_session::registry::CachedId;
+
 use crate::array::ArrayId;
 
 /// A [`Struct`]-encoded Vortex array.
 pub type StructArray = Array<Struct>;
 
 impl VTable for Struct {
-    type ArrayData = EmptyArrayData;
+    type TypedArrayData = EmptyArrayData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.struct");
+        *ID
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -68,7 +71,7 @@ impl VTable for Struct {
             );
         }
 
-        let validity = child_to_validity(&slots[VALIDITY_SLOT], *nullability);
+        let validity = child_to_validity(slots[VALIDITY_SLOT].as_ref(), *nullability);
         if let Some(validity_len) = validity.maybe_len()
             && validity_len != len
         {
@@ -132,7 +135,7 @@ impl VTable for Struct {
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<crate::array::ArrayParts<Self>> {
+    ) -> VortexResult<ArrayParts<Self>> {
         if !metadata.is_empty() {
             vortex_bail!(
                 "StructArray expects empty metadata, got {} bytes",
@@ -167,10 +170,7 @@ impl VTable for Struct {
             .try_collect()?;
 
         let slots = make_struct_slots(&field_children, &validity, len);
-        Ok(
-            crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData)
-                .with_slots(slots),
-        )
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData).with_slots(slots))
     }
 
     fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -205,7 +205,3 @@ impl VTable for Struct {
 
 #[derive(Clone, Debug)]
 pub struct Struct;
-
-impl Struct {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.struct");
-}

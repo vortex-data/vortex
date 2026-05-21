@@ -98,7 +98,7 @@ pub fn untranspose_bits(input: &[u8; 128], output: &mut [u8; 128]) {
 }
 
 #[cfg(test)]
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 fn generate_test_data(seed: u8) -> [u8; 128] {
     let mut data = [0u8; 128];
     for (i, byte) in data.iter_mut().enumerate() {

@@ -19,6 +19,8 @@ use itertools::Itertools as _;
 pub use tree_display::TreeDisplay;
 
 use crate::ArrayRef;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 
 /// Describe how to convert an array to a string.
 ///
@@ -534,7 +536,7 @@ impl ArrayRef {
                 let is_truncated = self.len() > limit;
 
                 let fmt_scalar = |i| {
-                    self.scalar_at(i)
+                    self.execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
                         .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string())
                 };
                 write!(
@@ -577,7 +579,9 @@ impl ArrayRef {
             }
             #[cfg(feature = "table-display")]
             DisplayOptions::TableDisplay => {
-                use crate::canonical::ToCanonical;
+                use crate::arrays::struct_::StructArrayExt;
+                #[expect(deprecated)]
+                use crate::canonical::ToCanonical as _;
                 use crate::dtype::DType;
 
                 let mut builder = tabled::builder::Builder::default();
@@ -587,7 +591,7 @@ impl ArrayRef {
                     // For non-struct arrays, simply display a single column table without header.
                     for row_idx in 0..self.len() {
                         let value = self
-                            .scalar_at(row_idx)
+                            .execute_scalar(row_idx, &mut LEGACY_SESSION.create_execution_ctx())
                             .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string());
                         builder.push_record([value]);
                     }
@@ -598,20 +602,22 @@ impl ArrayRef {
                     return write!(f, "{table}");
                 };
 
+                #[expect(deprecated)]
                 let struct_ = self.to_struct();
                 builder.push_record(sf.names().iter().map(|name| name.to_string()));
 
                 for row_idx in 0..self.len() {
-                    if !self.is_valid(row_idx).unwrap_or(false) {
+                    if !self
+                        .is_valid(row_idx, &mut LEGACY_SESSION.create_execution_ctx())
+                        .unwrap_or(false)
+                    {
                         let null_row = vec!["null".to_string(); sf.names().len()];
                         builder.push_record(null_row);
                     } else {
                         let mut row = Vec::new();
-                        for field_array in
-                            crate::arrays::struct_::StructArrayExt::iter_unmasked_fields(&struct_)
-                        {
+                        for field_array in StructArrayExt::iter_unmasked_fields(&struct_) {
                             let value = field_array
-                                .scalar_at(row_idx)
+                                .execute_scalar(row_idx, &mut LEGACY_SESSION.create_execution_ctx())
                                 .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string());
                             row.push(value);
                         }
@@ -628,7 +634,10 @@ impl ArrayRef {
                 }
 
                 for row_idx in 0..self.len() {
-                    if !self.is_valid(row_idx).unwrap_or(false) {
+                    if !self
+                        .is_valid(row_idx, &mut LEGACY_SESSION.create_execution_ctx())
+                        .unwrap_or(false)
+                    {
                         table.modify(
                             (1 + row_idx, 0),
                             tabled::settings::Span::column(sf.names().len() as isize),

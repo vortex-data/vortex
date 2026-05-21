@@ -95,6 +95,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -123,7 +125,12 @@ mod tests {
     fn comparison_range() {
         let value = 0.0605_f32;
         let array = PrimitiveArray::from_iter([value; 1]);
-        let encoded = alp_encode(array.as_view(), None).unwrap();
+        let encoded = alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         assert!(encoded.patches().is_none());
 
         assert_between(

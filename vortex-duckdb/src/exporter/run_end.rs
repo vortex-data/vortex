@@ -5,6 +5,7 @@ use std::marker::PhantomData;
 
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
+use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::match_each_integer_ptype;
 use vortex::array::search_sorted::SearchSorted;
@@ -20,6 +21,7 @@ use crate::duckdb::SelectionVector;
 use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 use crate::exporter::cache::ConversionCache;
+use crate::exporter::canonical;
 use crate::exporter::new_array_exporter;
 
 /// We export run-end arrays to a DuckDB dictionary vector, using a selection vector to
@@ -32,11 +34,18 @@ struct RunEndExporter<E: IntegerPType> {
     run_end_offset: usize,
 }
 
-pub(crate) fn new_exporter(
+pub(crate) fn new_exporter_with_flatten(
     array: RunEndArray,
     cache: &ConversionCache,
     ctx: &mut ExecutionCtx,
+    flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
+    // Our canonicalization is faster than creating a dictionary vector and
+    // letting duckdb flatten it for us.
+    if flatten {
+        return canonical::new_exporter(array.into_array(), cache, ctx);
+    }
+
     let offset = array.offset();
     let ends = array.ends().clone();
     let values = array.values().clone();
@@ -86,7 +95,7 @@ impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
         if start_run_idx == end_run_idx {
             // NOTE(ngates): would be great if we could just export and set type == CONSTANT
             // self.values_exporter.export(start_run_idx, 1, vector, cache);
-            let constant = self.values.scalar_at(start_run_idx)?;
+            let constant = self.values.execute_scalar(start_run_idx, ctx)?;
             let value = constant.try_to_duckdb_scalar()?;
             vector.reference_value(&value);
             return Ok(());

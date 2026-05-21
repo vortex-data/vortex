@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::panic)]
-#![allow(clippy::many_single_char_names)]
-
 use rstest::rstest;
 use vortex_buffer::BitBuffer;
 
@@ -444,6 +441,12 @@ fn test_mask_from_iter_with_empty_masks() {
 #[should_panic]
 fn test_mask_from_indices_unsorted() {
     Mask::from_indices(5, vec![2, 0, 3]); // Not sorted
+}
+
+#[test]
+#[should_panic]
+fn test_mask_from_indices_duplicate() {
+    Mask::from_indices(5, vec![0, 2, 2]); // Not unique
 }
 
 #[test]

@@ -9,9 +9,12 @@ mod not;
 pub(crate) mod rules;
 mod slice;
 mod take;
+pub(crate) mod uncompressed_size;
 
 #[cfg(test)]
 mod test {
+    use std::f64;
+
     use rstest::rstest;
 
     use crate::IntoArray;
@@ -54,7 +57,7 @@ mod test {
         5
     ))]
     // Additional test cases
-    #[case::constant_f64(ConstantArray::new(Scalar::from(std::f64::consts::PI), 10))]
+    #[case::constant_f64(ConstantArray::new(Scalar::from(f64::consts::PI), 10))]
     #[case::constant_bool(ConstantArray::new(Scalar::from(true), 7))]
     #[case::constant_single(ConstantArray::new(Scalar::from(99u64), 1))]
     #[case::constant_large(ConstantArray::new(Scalar::from("hello"), 1000))]

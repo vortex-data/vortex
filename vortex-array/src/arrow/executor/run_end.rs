@@ -24,6 +24,7 @@ use crate::IntoArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrow::ArrowArrayExecutor;
+use crate::session::ArraySessionExt;
 
 /// The encoding ID used by `vortex-runend`. We match on this string to avoid a crate dependency.
 const VORTEX_RUNEND_ID: &str = "vortex.runend";
@@ -79,8 +80,9 @@ fn run_end_to_arrow(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let length = array.len();
-    let metadata_bytes = array
-        .metadata(ctx.session())?
+    let metadata_bytes = ctx
+        .session()
+        .array_serialize(&array)?
         .ok_or_else(|| vortex_err!("RunEndArray missing metadata"))?;
     let metadata = RunEndMetadata::decode(&*metadata_bytes)
         .map_err(|e| vortex_err!("Failed to decode RunEndMetadata: {e}"))?;
@@ -203,6 +205,7 @@ mod tests {
     use arrow_schema::Field;
     use rstest::rstest;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
     use vortex_session::VortexSession;
 
     use crate::IntoArray;
@@ -230,22 +233,36 @@ mod tests {
         array.execute_arrow(Some(dt), &mut SESSION.create_execution_ctx())
     }
 
+    fn constant_i32_with_i16_ends() -> arrow_array::ArrayRef {
+        Arc::new(
+            RunArray::<Int16Type>::try_new(
+                &Int16Array::from(vec![5i16]),
+                &Int32Array::from(vec![42]),
+            )
+            .expect("valid run-end test array"),
+        ) as arrow_array::ArrayRef
+    }
+
+    fn constant_f64_with_i64_ends() -> arrow_array::ArrayRef {
+        Arc::new(
+            RunArray::<Int64Type>::try_new(
+                &Int64Array::from(vec![7i64]),
+                &arrow_array::Float64Array::from(vec![1.5]),
+            )
+            .expect("valid run-end test array"),
+        ) as arrow_array::ArrayRef
+    }
+
     #[rstest]
     #[case::i32_with_i16_ends(
         ConstantArray::new(Scalar::from(42i32), 5).into_array(),
         ree_type(DataType::Int16, DataType::Int32),
-        Arc::new(RunArray::<Int16Type>::try_new(
-            &Int16Array::from(vec![5i16]),
-            &Int32Array::from(vec![42]),
-        ).unwrap()) as arrow_array::ArrayRef,
+        constant_i32_with_i16_ends(),
     )]
     #[case::f64_with_i64_ends(
         ConstantArray::new(Scalar::from(1.5f64), 7).into_array(),
         ree_type(DataType::Int64, DataType::Float64),
-        Arc::new(RunArray::<Int64Type>::try_new(
-            &Int64Array::from(vec![7i64]),
-            &arrow_array::Float64Array::from(vec![1.5]),
-        ).unwrap()) as arrow_array::ArrayRef,
+        constant_f64_with_i64_ends(),
     )]
     #[case::null(
         ConstantArray::new(Scalar::null(DType::Primitive(PType::I32, Nullable)), 4).into_array(),
@@ -310,9 +327,13 @@ mod tests {
         let ree = result
             .as_any()
             .downcast_ref::<RunArray<Int32Type>>()
-            .unwrap();
+            .ok_or_else(|| vortex_err!("expected Int32 run-end array"))?;
         assert_eq!(ree.run_ends().values(), expected_ends);
-        let values = ree.values().as_any().downcast_ref::<Int64Array>().unwrap();
+        let values = ree
+            .values()
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .ok_or_else(|| vortex_err!("expected Int64 values"))?;
         assert_eq!(values.values(), expected_values);
         Ok(())
     }

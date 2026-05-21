@@ -6,8 +6,11 @@
 //!
 //! Cases: 100% input only, 100% output only, and 50/50 mixed.
 
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::cast_possible_truncation)]
+#![expect(clippy::unwrap_used)]
+
+mod bench_config;
+// Unused here but suppresses dead_code warning for the shared module.
+const _: &[(usize, &str)] = bench_config::BENCH_SIZES;
 
 use std::time::Duration;
 
@@ -29,9 +32,9 @@ const TOTAL_BYTES: usize = 100 * 1024 * 1024;
 
 /// Benchmark configurations: (input_bytes, output_bytes, label).
 const MIXES: &[(usize, usize, &str)] = &[
-    (TOTAL_BYTES, 0, "100%_in/0%_out"),
-    (TOTAL_BYTES / 2, TOTAL_BYTES / 2, "50%_in/50%_out"),
-    (0, TOTAL_BYTES, "0%_in/100%_out"),
+    (TOTAL_BYTES, 0, "100%_in_0%_out"),
+    (TOTAL_BYTES / 2, TOTAL_BYTES / 2, "50%_in_50%_out"),
+    (0, TOTAL_BYTES, "0%_in_100%_out"),
 ];
 
 fn transfer_mix_timed(
@@ -94,15 +97,13 @@ fn transfer_mix_timed(
 }
 
 fn benchmark_transfer_throughput(c: &mut Criterion) {
-    let mut group = c.benchmark_group("transfer_throughput_cuda");
-    group.sample_size(10);
-
+    let mut group = c.benchmark_group("cuda");
     for &(input_bytes, output_bytes, label) in MIXES {
         let total_mem_bytes = input_bytes * 2 + output_bytes;
         group.throughput(Throughput::Bytes(total_mem_bytes as u64));
 
         group.bench_with_input(
-            BenchmarkId::new("mix", label),
+            BenchmarkId::new(format!("cuda/throughput/transfer/{label}"), "100MiB"),
             &(input_bytes, output_bytes),
             |b, &(in_bytes, out_bytes)| {
                 b.iter_custom(|iters| {
@@ -123,7 +124,11 @@ fn benchmark_transfer_throughput(c: &mut Criterion) {
     group.finish();
 }
 
-criterion::criterion_group!(benches, benchmark_transfer_throughput);
+criterion::criterion_group! {
+    name = benches;
+    config = bench_config::cuda_bench_config();
+    targets = benchmark_transfer_throughput
+}
 
 #[cuda_available]
 criterion::criterion_main!(benches);

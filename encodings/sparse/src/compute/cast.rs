@@ -11,11 +11,12 @@ use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::Sparse;
+use crate::SparseExt as _;
+
 impl CastReduce for Sparse {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         let casted_patches = array
             .patches()
-            .clone()
             .map_values(|values| values.cast(dtype.clone()))?;
 
         let casted_fill = if array.patches().num_patches() == array.len() {
@@ -34,9 +35,11 @@ impl CastReduce for Sparse {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
@@ -45,13 +48,19 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::scalar::Scalar;
+    use vortex_array::session::ArraySession;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::Sparse;
     use crate::SparseArray;
 
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+
     #[test]
     fn test_cast_sparse_i32_to_i64() {
+        let mut ctx = SESSION.create_execution_ctx();
         let sparse = Sparse::try_new(
             buffer![2u64, 5, 8].into_array(),
             buffer![100i32, 200, 300].into_array(),
@@ -70,7 +79,8 @@ mod tests {
         );
 
         let expected = PrimitiveArray::from_iter([0i64, 0, 100, 0, 0, 200, 0, 0, 300, 0]);
-        assert_arrays_eq!(casted.to_primitive(), expected);
+        let casted_primitive = casted.execute::<PrimitiveArray>(&mut ctx).unwrap();
+        assert_arrays_eq!(casted_primitive, expected);
     }
 
     #[test]
@@ -124,6 +134,7 @@ mod tests {
 
     #[test]
     fn test_cast_sparse_null_fill_all_patched_to_non_nullable() -> vortex_error::VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         // Regression test for https://github.com/vortex-data/vortex/issues/6932
         //
         // When all positions are patched the null fill is unused, so a cast to
@@ -146,7 +157,8 @@ mod tests {
         );
 
         let expected = PrimitiveArray::from_iter([10u64, 20, 30, 40, 50]);
-        assert_arrays_eq!(casted.to_primitive(), expected);
+        let casted_primitive = casted.execute::<PrimitiveArray>(&mut ctx)?;
+        assert_arrays_eq!(casted_primitive, expected);
         Ok(())
     }
 

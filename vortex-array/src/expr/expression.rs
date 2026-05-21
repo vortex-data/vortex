@@ -12,6 +12,7 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_session::VortexSession;
 
 use crate::dtype::DType;
 use crate::expr::StatsCatalog;
@@ -133,6 +134,34 @@ impl Expression {
     /// such as `x < (y < z)` or `x LIKE "needle%"`.
     pub fn stat_falsification(&self, catalog: &dyn StatsCatalog) -> Option<Expression> {
         self.scalar_fn().stat_falsification(self, catalog)
+    }
+
+    /// Returns an expression that proves this predicate is definitely false from stats.
+    ///
+    /// `scope` is the dtype of the row this expression evaluates over.
+    ///
+    /// If the returned expression evaluates to `true` for a stats scope, this expression is
+    /// guaranteed to be false for every row in that scope. `false` and `null` are unknown.
+    pub fn falsify(
+        &self,
+        scope: &DType,
+        session: &VortexSession,
+    ) -> VortexResult<Option<Expression>> {
+        crate::stats::rewrite::StatsRewriteCtx::new(session, scope).falsify(self)
+    }
+
+    /// Returns an expression that proves this predicate is definitely true from stats.
+    ///
+    /// `scope` is the dtype of the row this expression evaluates over.
+    ///
+    /// If the returned expression evaluates to `true` for a stats scope, this expression is
+    /// guaranteed to be true for every row in that scope. `false` and `null` are unknown.
+    pub fn satisfy(
+        &self,
+        scope: &DType,
+        session: &VortexSession,
+    ) -> VortexResult<Option<Expression>> {
+        crate::stats::rewrite::StatsRewriteCtx::new(session, scope).satisfy(self)
     }
 
     /// Returns an expression representing the zoned statistic for the given stat, if available.

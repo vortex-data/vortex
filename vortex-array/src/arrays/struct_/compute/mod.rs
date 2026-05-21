@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod cast;
+pub(crate) mod cast;
 mod mask;
 pub(crate) mod rules;
 mod slice;
@@ -70,7 +70,12 @@ mod tests {
             .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
         assert_eq!(taken.len(), 1);
-        assert!(taken.into_array().all_invalid().unwrap());
+        assert!(
+            taken
+                .into_array()
+                .all_invalid(&mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
     }
 
     #[test]

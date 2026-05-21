@@ -168,7 +168,8 @@ mod tests {
     use super::PackOptions;
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::ToCanonical;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
@@ -195,11 +196,16 @@ mod tests {
             vortex_bail!("empty field path");
         };
 
+        #[expect(deprecated)]
         let mut array = array.to_struct().unmasked_field_by_name(field)?.clone();
         for field in field_path {
-            array = array.to_struct().unmasked_field_by_name(field)?.clone();
+            #[expect(deprecated)]
+            let next = array.to_struct().unmasked_field_by_name(field)?.clone();
+            array = next;
         }
-        Ok(array.to_primitive())
+        #[expect(deprecated)]
+        let result = array.to_primitive();
+        Ok(result)
     }
 
     #[test]
@@ -215,7 +221,9 @@ mod tests {
         let test_array = test_array();
         let actual_array = test_array.clone().apply(&expr).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
-        assert_eq!(actual_array.to_struct().struct_fields().nfields(), 0);
+        #[expect(deprecated)]
+        let nfields = actual_array.to_struct().struct_fields().nfields();
+        assert_eq!(nfields, 0);
     }
 
     #[test]
@@ -228,6 +236,7 @@ mod tests {
             [col("a"), col("b"), col("a")],
         );
 
+        #[expect(deprecated)]
         let actual_array = test_array().apply(&expr).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
@@ -267,6 +276,7 @@ mod tests {
             ],
         );
 
+        #[expect(deprecated)]
         let actual_array = test_array().apply(&expr).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
@@ -299,6 +309,7 @@ mod tests {
             [col("a"), col("b"), col("a")],
         );
 
+        #[expect(deprecated)]
         let actual_array = test_array().apply(&expr).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);

@@ -4,6 +4,7 @@
 use std::ffi::CStr;
 use std::ffi::CString;
 use std::ffi::c_void;
+use std::os::raw::c_char;
 use std::ptr;
 
 use vortex::error::VortexResult;
@@ -103,8 +104,8 @@ impl ConfigRef {
     /// Gets information about a configuration option by index.
     /// Returns (name, description) if the index is valid, None otherwise.
     pub fn get_config_flag(index: usize) -> VortexResult<Option<(String, String)>> {
-        let mut name_ptr: *const std::os::raw::c_char = ptr::null();
-        let mut desc_ptr: *const std::os::raw::c_char = ptr::null();
+        let mut name_ptr: *const c_char = ptr::null();
+        let mut desc_ptr: *const c_char = ptr::null();
 
         let result =
             unsafe { cpp::duckdb_get_config_flag(index, &raw mut name_ptr, &raw mut desc_ptr) };

@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import pickle
+from typing import cast
 
 import pytest
 from pytest_benchmark.fixture import BenchmarkFixture  # pyright: ignore[reportMissingTypeStubs]
@@ -24,6 +25,6 @@ def test_pickle(
         benchmark(lambda: pickle.dumps(array_fixture, protocol=protocol))
     elif operation == "loads":
         pickled_data = pickle.dumps(array_fixture, protocol=protocol)
-        benchmark(lambda: pickle.loads(pickled_data))  # pyright: ignore[reportAny]
+        benchmark(lambda: cast(object, pickle.loads(pickled_data)))
     elif operation == "roundtrip":
-        benchmark(lambda: pickle.loads(pickle.dumps(array_fixture, protocol=protocol)))  # pyright: ignore[reportAny]
+        benchmark(lambda: cast(object, pickle.loads(pickle.dumps(array_fixture, protocol=protocol))))

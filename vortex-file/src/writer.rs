@@ -5,6 +5,7 @@ use std::io;
 use std::io::Write;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use futures::FutureExt;
 use futures::StreamExt;
@@ -47,6 +48,7 @@ use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
+use crate::ALLOWED_ENCODINGS;
 use crate::Footer;
 use crate::MAGIC_BYTES;
 use crate::WriteStrategyBuilder;
@@ -147,7 +149,7 @@ impl VortexWriteOptions {
         // serialised array order is deterministic. The serialisation of arrays are done
         // parallel and with an empty context they can register their encodings to the context
         // in different order, changing the written bytes from run to run.
-        let ctx = ArrayContext::new(self.session.arrays().registry().ids().sorted().collect())
+        let ctx = ArrayContext::new(ALLOWED_ENCODINGS.iter().cloned().sorted().collect())
             // Configure a registry just to ensure only known encodings are interned.
             .with_registry(self.session.arrays().registry().clone());
         let dtype = stream.dtype().clone();
@@ -165,6 +167,7 @@ impl VortexWriteOptions {
             stream,
             self.file_statistics.clone().into(),
             self.max_variable_length_statistics_size,
+            &self.session,
         );
 
         // First, write the magic bytes.
@@ -353,8 +356,7 @@ impl Writer<'_> {
 
     /// Returns the number of bytes written to the file so far.
     pub fn bytes_written(&self) -> u64 {
-        self.bytes_written
-            .load(std::sync::atomic::Ordering::Relaxed)
+        self.bytes_written.load(Ordering::Relaxed)
     }
 
     /// Returns the number of bytes currently buffered by the layout writers.

@@ -1,0 +1,7 @@
+# vortex-array dependency tree pulls in rand 0.10 → getrandom 0.4, which requires an explicit
+# backend opt-in for wasm32-unknown-unknown. The "unsupported" backend compiles fine and
+# panics only if random values are actually requested at runtime — nothing in the explorer
+# codepath does that, so this matches the CI build exactly without taking on the heavier
+# `wasm_js` browser-RNG dep.
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="unsupported"']

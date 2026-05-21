@@ -8,6 +8,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -24,6 +25,8 @@ use crate::builtins::StringDictScheme;
 use crate::builtins::is_utf8_string;
 use crate::ctx::CompressorContext;
 use crate::estimate::CompressionEstimate;
+use crate::estimate::DeferredEstimate;
+use crate::estimate::EstimateVerdict;
 use crate::scheme::ChildSelection;
 use crate::scheme::DescendantExclusion;
 use crate::scheme::Scheme;
@@ -65,13 +68,14 @@ impl Scheme for StringDictScheme {
 
     fn expected_compression_ratio(
         &self,
-        data: &mut ArrayAndStats,
-        _ctx: CompressorContext,
+        data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        let stats = data.string_stats();
+        let stats = data.string_stats(exec_ctx);
 
         if stats.value_count() == 0 {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         let estimated_distinct_values_count = stats.estimated_distinct_count().vortex_expect(
@@ -80,32 +84,35 @@ impl Scheme for StringDictScheme {
 
         // If > 50% of the values are distinct, skip dictionary scheme.
         if estimated_distinct_values_count > stats.value_count() / 2 {
-            return CompressionEstimate::Skip;
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
         // Let sampling determine the expected ratio.
-        CompressionEstimate::Sample
+        CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
     fn compress(
         &self,
         compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
-        ctx: CompressorContext,
+        data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let dict = dict_encode(data.array())?;
 
         // Values = child 0.
-        let compressed_values = compressor.compress_child(dict.values(), &ctx, self.id(), 0)?;
+        let compressed_values =
+            compressor.compress_child(dict.values(), &compress_ctx, self.id(), 0, exec_ctx)?;
 
         // Codes = child 1.
         let narrowed_codes = dict
             .codes()
             .clone()
-            .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?
+            .execute::<PrimitiveArray>(exec_ctx)?
             .narrow()?
             .into_array();
-        let compressed_codes = compressor.compress_child(&narrowed_codes, &ctx, self.id(), 1)?;
+        let compressed_codes =
+            compressor.compress_child(&narrowed_codes, &compress_ctx, self.id(), 1, exec_ctx)?;
 
         // SAFETY: compressing codes or values does not alter the invariants.
         unsafe {

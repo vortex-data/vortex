@@ -7,9 +7,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
-import dev.vortex.api.File;
-import dev.vortex.api.Files;
-import dev.vortex.jni.NativeFileMethods;
+import dev.vortex.api.DataSource;
+import dev.vortex.jni.NativeFiles;
 import dev.vortex.spark.config.HadoopUtils;
 import dev.vortex.spark.read.PartitionPathUtils;
 import java.util.Map;
@@ -19,22 +18,23 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.spark.sql.SparkSession;
-import org.apache.spark.sql.connector.catalog.CatalogV2Util;
 import org.apache.spark.sql.connector.catalog.Table;
 import org.apache.spark.sql.connector.catalog.TableProvider;
 import org.apache.spark.sql.connector.expressions.Transform;
 import org.apache.spark.sql.sources.DataSourceRegister;
 import org.apache.spark.sql.types.DataType;
+import org.apache.spark.sql.types.Metadata;
+import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 import scala.Option;
 
 /**
  * Spark V2 data source for reading and writing Vortex files.
- * <p>
- * This class is automatically registered so it can be discovered by the Spark runtime.
- * For reading: {@link org.apache.spark.sql.SparkSession#read} and specify the format as "vortex".
- * For writing: {@link org.apache.spark.sql.Dataset#write} and specify the format as "vortex".
+ *
+ * <p>This class is automatically registered so it can be discovered by the Spark runtime. For reading:
+ * {@link org.apache.spark.sql.SparkSession#read} and specify the format as "vortex". For writing:
+ * {@link org.apache.spark.sql.Dataset#write} and specify the format as "vortex".
  */
 public final class VortexDataSourceV2 implements TableProvider, DataSourceRegister {
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -46,9 +46,8 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
 
     /**
      * Creates a new instance of the Vortex data source.
-     * <p>
-     * This no-argument constructor is required for Spark to instantiate the data source
-     * through reflection.
+     *
+     * <p>This no-argument constructor is required for Spark to instantiate the data source through reflection.
      */
     public VortexDataSourceV2() {
         this.sparkSession = SparkSession.getActiveSession();
@@ -56,9 +55,9 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
 
     /**
      * Infers the schema of the Vortex files specified in the options.
-     * <p>
-     * This method examines the last file in the provided paths to determine the schema.
-     * Currently, schema evolution and merging across multiple files is not supported.
+     *
+     * <p>This method examines the last file in the provided paths to determine the schema. Currently, schema evolution
+     * and merging across multiple files is not supported.
      *
      * @param options the data source options containing file paths
      * @return the inferred Spark SQL schema
@@ -82,20 +81,26 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
         var pathToInfer = Objects.requireNonNull(Iterables.getLast(paths));
         // If the path is a directory, scan the directory for a file and use that file
         if (!pathToInfer.endsWith(".vortex")) {
-            Optional<String> firstFile = NativeFileMethods.listVortexFiles(pathToInfer, formatOptions).stream()
-                    .findFirst();
+            Optional<String> firstFile =
+                    NativeFiles.listFiles(VortexSparkSession.get(formatOptions), pathToInfer, formatOptions).stream()
+                            .findFirst();
 
             if (firstFile.isEmpty()) {
-                return new StructType();
+                throw new RuntimeException(String.format("UNABLE_TO_INFER_SCHEMA format: %s", shortName()));
             } else {
                 pathToInfer = firstFile.get();
             }
         }
 
         StructType dataSchema;
-        try (File file = Files.open(pathToInfer, formatOptions)) {
-            var columns = SparkTypes.toColumns(file.getDType());
-            dataSchema = CatalogV2Util.v2ColumnsToStructType(columns);
+        {
+            DataSource ds = DataSource.open(VortexSparkSession.get(formatOptions), pathToInfer, formatOptions);
+            var arrowSchema = ds.arrowSchema(dev.vortex.arrow.ArrowAllocation.rootAllocator());
+            StructField[] fields = arrowSchema.getFields().stream()
+                    .map(f -> new StructField(
+                            f.getName(), ArrowUtils.fromArrowField(f), f.isNullable(), Metadata.empty()))
+                    .toArray(StructField[]::new);
+            dataSchema = new StructType(fields);
         }
 
         // Discover partition columns from Hive-style directory paths and append them.
@@ -115,13 +120,13 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
 
     /**
      * Creates a Vortex table instance with the given schema and properties.
-     * <p>
-     * This method creates a VortexWritableTable that can be used to both read from and write to
-     * Vortex files. The partitioning parameter is currently ignored.
      *
-     * @param schema        the table schema
+     * <p>This method creates a VortexWritableTable that can be used to both read from and write to Vortex files. The
+     * partitioning parameter is currently ignored.
+     *
+     * @param schema the table schema
      * @param partitioning table partitioning transforms
-     * @param properties    the table properties containing file paths and other options
+     * @param properties the table properties containing file paths and other options
      * @return a VortexTable instance for reading and writing data
      * @throws RuntimeException if required path properties are missing
      */
@@ -134,9 +139,9 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
 
     /**
      * Indicates whether this data source supports external metadata (schemas).
-     * <p>
-     * Returns true to indicate that this data source accepts external schemas,
-     * which is necessary for write operations where the DataFrame provides the schema.
+     *
+     * <p>Returns true to indicate that this data source accepts external schemas, which is necessary for write
+     * operations where the DataFrame provides the schema.
      *
      * @return true to accept external schemas
      */
@@ -147,9 +152,9 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
 
     /**
      * Returns the short name identifier for this data source.
-     * <p>
-     * This name is used by Spark when registering the data source and can be used
-     * in SQL queries and DataFrame read operations to specify this format.
+     *
+     * <p>This name is used by Spark when registering the data source and can be used in SQL queries and DataFrame read
+     * operations to specify this format.
      *
      * @return the short name "vortex"
      */

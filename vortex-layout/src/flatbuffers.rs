@@ -21,6 +21,7 @@ use crate::Layout;
 use crate::LayoutContext;
 use crate::LayoutRef;
 use crate::children::ViewedLayoutChildren;
+use crate::layouts::foreign::new_foreign_layout;
 use crate::segments::SegmentId;
 use crate::session::LayoutRegistry;
 
@@ -121,7 +122,7 @@ fn foreign_layout_from_fb(
         .map(|child| foreign_layout_from_fb(child, dtype, layout_ctx))
         .collect::<VortexResult<Vec<_>>>()?;
 
-    Ok(crate::layouts::foreign::new_foreign_layout(
+    Ok(new_foreign_layout(
         encoding_id,
         dtype.clone(),
         fb_layout.row_count(),
@@ -259,8 +260,8 @@ mod tests {
         );
 
         let layout_ctx = ReadContext::new([
-            LayoutEncodingId::new_ref("vortex.test.foreign_layout"),
-            LayoutEncodingId::new_ref("vortex.test.foreign_child_layout"),
+            LayoutEncodingId::new("vortex.test.foreign_layout"),
+            LayoutEncodingId::new("vortex.test.foreign_child_layout"),
         ]);
         let array_ctx = ReadContext::new([]);
         let layouts = LayoutSession::default().registry().clone();

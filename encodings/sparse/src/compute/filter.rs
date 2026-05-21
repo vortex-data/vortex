@@ -11,6 +11,7 @@ use vortex_mask::Mask;
 
 use crate::ConstantArray;
 use crate::Sparse;
+use crate::SparseExt as _;
 impl FilterKernel for Sparse {
     fn filter(
         array: ArrayView<'_, Self>,

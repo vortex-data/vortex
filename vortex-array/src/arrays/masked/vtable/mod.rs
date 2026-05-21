@@ -6,12 +6,14 @@ mod validity;
 
 use std::hash::Hasher;
 
+use smallvec::smallvec;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::AnyCanonical;
 use crate::ArrayEq;
@@ -19,7 +21,9 @@ use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
 use crate::Precision;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
@@ -27,10 +31,9 @@ use crate::array::VTable;
 use crate::array::validity_to_child;
 use crate::arrays::ConstantArray;
 use crate::arrays::masked::MaskedArrayExt;
+use crate::arrays::masked::MaskedArraySlotsExt;
 use crate::arrays::masked::MaskedData;
-use crate::arrays::masked::array::CHILD_SLOT;
-use crate::arrays::masked::array::SLOT_NAMES;
-use crate::arrays::masked::array::VALIDITY_SLOT;
+use crate::arrays::masked::array::MaskedSlots;
 use crate::arrays::masked::compute::rules::PARENT_RULES;
 use crate::arrays::masked::mask_validity_canonical;
 use crate::buffer::BufferHandle;
@@ -38,7 +41,6 @@ use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
 use crate::require_child;
-use crate::require_validity;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
@@ -47,10 +49,6 @@ pub type MaskedArray = Array<Masked>;
 
 #[derive(Clone, Debug)]
 pub struct Masked;
-
-impl Masked {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.masked");
-}
 
 impl ArrayHash for MaskedData {
     fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
@@ -63,13 +61,14 @@ impl ArrayEq for MaskedData {
 }
 
 impl VTable for Masked {
-    type ArrayData = MaskedData;
+    type TypedArrayData = MaskedData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.masked");
+        *ID
     }
 
     fn validate(
@@ -80,10 +79,10 @@ impl VTable for Masked {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         vortex_ensure!(
-            slots[CHILD_SLOT].is_some(),
+            slots[MaskedSlots::CHILD].is_some(),
             "MaskedArray child slot must be present"
         );
-        let child = slots[CHILD_SLOT]
+        let child = slots[MaskedSlots::CHILD]
             .as_ref()
             .vortex_expect("validated child slot");
         vortex_ensure!(child.len() == len, "MaskedArray child length mismatch");
@@ -149,18 +148,24 @@ impl VTable for Masked {
         };
 
         let validity_slot = validity_to_child(&validity, len);
-        let data = MaskedData::try_new(len, child.all_valid()?, validity)?;
+        let data = MaskedData::try_new(
+            len,
+            child.all_valid(&mut LEGACY_SESSION.create_execution_ctx())?,
+            validity,
+        )?;
         Ok(
             crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data)
-                .with_slots(vec![Some(child), validity_slot]),
+                .with_slots(smallvec![Some(child), validity_slot]),
         )
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let validity_mask = array.masked_validity_mask();
+        let array = require_child!(array, array.child(), MaskedSlots::CHILD => AnyCanonical);
+
+        let validity = array.masked_validity();
 
         // Fast path: all masked means result is all nulls.
-        if validity_mask.all_false() {
+        if matches!(validity, Validity::AllInvalid) {
             return Ok(ExecutionResult::done(
                 ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.len())
                     .into_array(),
@@ -173,12 +178,9 @@ impl VTable for Masked {
         // While we could manually convert the dtype, `mask_validity_canonical` is already O(1) for
         // `AllTrue` masks (no data copying), so there's no benefit.
 
-        let array = require_child!(array, array.child(), CHILD_SLOT => AnyCanonical);
-        require_validity!(array, VALIDITY_SLOT);
-
         let child = Canonical::from(array.child().as_::<AnyCanonical>());
         Ok(ExecutionResult::done(
-            mask_validity_canonical(child, &validity_mask, ctx)?.into_array(),
+            mask_validity_canonical(child, validity, ctx)?.into_array(),
         ))
     }
 
@@ -190,7 +192,7 @@ impl VTable for Masked {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        MaskedSlots::NAMES[idx].to_string()
     }
 }
 

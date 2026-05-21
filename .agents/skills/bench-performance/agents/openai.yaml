@@ -1,0 +1,6 @@
+interface:
+  display_name: "Bench Performance"
+  short_description: "Iterate on Vortex benchmark performance"
+  default_prompt: "Use $bench-performance to investigate a vx-bench query performance issue with comparisons, logs, metrics, and profiling."
+policy:
+  allow_implicit_invocation: true
