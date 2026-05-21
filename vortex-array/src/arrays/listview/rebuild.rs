@@ -15,7 +15,6 @@ use crate::aggregate_fn::fns::min_max::min_max;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::listview::ListViewArrayExt;
-use crate::arrays::listview::compute::REBUILD_DENSITY_THRESHOLD;
 use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -25,6 +24,18 @@ use crate::dtype::PType;
 use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::operators::Operator;
+
+/// The threshold below which we rebuild the elements of a listview.
+///
+/// We don't touch `elements` on the metadata-only path since reorganizing it can be expensive.
+/// However, we also don't want to drag around a large amount of garbage data when the selection
+/// is sparse. Below this fraction of list rows retained, the rebuild is worth it.
+/// Rebuilding is needed when exporting the ListView's elements.
+///
+// TODO(connor)[ListView]: Ideally, we would only rebuild after all `take`s and `filter`
+//  compute functions have run, at the "top" of the operator tree. However, we cannot do this
+//  right now, so we will just rebuild every time (similar to [`ListArray`]).
+const REBUILD_DENSITY_THRESHOLD: f32 = 0.1;
 
 /// Modes for rebuilding a [`ListViewArray`].
 pub enum ListViewRebuildMode {

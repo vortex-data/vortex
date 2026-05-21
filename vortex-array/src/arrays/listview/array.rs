@@ -483,7 +483,7 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
             sum(sizes, &mut LEGACY_SESSION.create_execution_ctx())?
                 .as_primitive()
                 .as_::<u64>()
-                .expect("sum should cast to u64")
+                .ok_or_else(|| vortex_err!("could not cast sum of sizes to u64"))?
         };
 
         let estimate = (sizes_sum as f32 / n_elts as f32).clamp(0.0, 1.0);
