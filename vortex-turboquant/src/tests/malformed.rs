@@ -25,9 +25,17 @@ use crate::TurboQuantMetadata;
 #[case::nullable_norms_under_nonnullable_struct(
     Nullability::NonNullable,
     Nullability::Nullable,
+    Nullability::NonNullable,
+    Nullability::NonNullable
+)]
+#[case::nullable_inv_direction_norms_under_nonnullable_struct(
+    Nullability::NonNullable,
+    Nullability::NonNullable,
+    Nullability::Nullable,
     Nullability::NonNullable
 )]
 #[case::nullable_codes_under_nonnullable_struct(
+    Nullability::NonNullable,
     Nullability::NonNullable,
     Nullability::NonNullable,
     Nullability::Nullable
@@ -35,9 +43,17 @@ use crate::TurboQuantMetadata;
 #[case::nonnullable_norms_under_nullable_struct(
     Nullability::Nullable,
     Nullability::NonNullable,
+    Nullability::Nullable,
+    Nullability::Nullable
+)]
+#[case::nonnullable_inv_direction_norms_under_nullable_struct(
+    Nullability::Nullable,
+    Nullability::Nullable,
+    Nullability::NonNullable,
     Nullability::Nullable
 )]
 #[case::nonnullable_codes_under_nullable_struct(
+    Nullability::Nullable,
     Nullability::Nullable,
     Nullability::Nullable,
     Nullability::NonNullable
@@ -45,6 +61,7 @@ use crate::TurboQuantMetadata;
 fn decode_accepts_child_nullability_that_covers_struct_validity(
     #[case] struct_nullability: Nullability,
     #[case] norms_nullability: Nullability,
+    #[case] inv_direction_norms_nullability: Nullability,
     #[case] codes_nullability: Nullability,
 ) -> VortexResult<()> {
     let session = test_session();
@@ -59,6 +76,11 @@ fn decode_accepts_child_nullability_that_covers_struct_validity(
     let norms =
         PrimitiveArray::new::<f32>(Buffer::copy_from([1.0]), Validity::from(norms_nullability))
             .into_array();
+    let inv_direction_norms = PrimitiveArray::new::<f32>(
+        Buffer::copy_from([1.0]),
+        Validity::from(inv_direction_norms_nullability),
+    )
+    .into_array();
     let codes = PrimitiveArray::new::<u8>(vec![0u8; 128], Validity::NonNullable);
     let codes = FixedSizeListArray::try_new(
         codes.into_array(),
@@ -69,8 +91,8 @@ fn decode_accepts_child_nullability_that_covers_struct_validity(
     .unwrap()
     .into_array();
     let storage = StructArray::try_new(
-        FieldNames::from(["norms", "codes"]),
-        vec![norms, codes],
+        FieldNames::from(["norms", "inv_direction_norms", "codes"]),
+        vec![norms, inv_direction_norms, codes],
         1,
         Validity::from(struct_nullability),
     )
@@ -97,12 +119,15 @@ fn decode_accepts_struct_mask_with_all_valid_children() -> VortexResult<()> {
     let norms =
         PrimitiveArray::new::<f32>(Buffer::copy_from([1.0, 1.0, 1.0]), Validity::NonNullable)
             .into_array();
+    let inv_direction_norms =
+        PrimitiveArray::new::<f32>(Buffer::copy_from([1.0, 1.0, 1.0]), Validity::NonNullable)
+            .into_array();
     let codes = PrimitiveArray::new::<u8>(vec![0u8; 3 * 128], Validity::NonNullable);
     let codes = FixedSizeListArray::try_new(codes.into_array(), 128, Validity::NonNullable, 3)?
         .into_array();
     let storage = StructArray::try_new(
-        FieldNames::from(["norms", "codes"]),
-        vec![norms, codes],
+        FieldNames::from(["norms", "inv_direction_norms", "codes"]),
+        vec![norms, inv_direction_norms, codes],
         3,
         Validity::from_iter([true, false, true]),
     )?;
@@ -133,6 +158,9 @@ fn decode_rejects_child_masks_that_disagree_with_struct_validity() -> VortexResu
         Validity::from_iter([true, true, false]),
     )
     .into_array();
+    let inv_direction_norms =
+        PrimitiveArray::new::<f32>(Buffer::copy_from([1.0, 1.0, 1.0]), Validity::NonNullable)
+            .into_array();
     let codes = PrimitiveArray::new::<u8>(vec![0u8; 3 * 128], Validity::NonNullable);
     let codes = FixedSizeListArray::try_new(
         codes.into_array(),
@@ -142,8 +170,44 @@ fn decode_rejects_child_masks_that_disagree_with_struct_validity() -> VortexResu
     )?
     .into_array();
     let storage = StructArray::try_new(
-        FieldNames::from(["norms", "codes"]),
-        vec![norms, codes],
+        FieldNames::from(["norms", "inv_direction_norms", "codes"]),
+        vec![norms, inv_direction_norms, codes],
+        3,
+        Validity::from_iter([true, false, true]),
+    )?;
+    let tq = ExtensionArray::try_new_from_vtable(TurboQuant, metadata, storage.into_array())?
+        .into_array();
+
+    assert!(execute_tq_decode_from_metadata(tq, &mut ctx).is_err());
+    Ok(())
+}
+
+#[test]
+fn decode_rejects_inv_direction_norm_masks_that_disagree_with_struct_validity() -> VortexResult<()>
+{
+    let session = test_session();
+    let mut ctx = session.create_execution_ctx();
+    let metadata = TurboQuantMetadata {
+        element_ptype: PType::F32,
+        dimensions: 128,
+        bit_width: 1,
+        seed: 42,
+        num_rounds: 3,
+    };
+    let norms =
+        PrimitiveArray::new::<f32>(Buffer::copy_from([1.0, 1.0, 1.0]), Validity::NonNullable)
+            .into_array();
+    let inv_direction_norms = PrimitiveArray::new::<f32>(
+        Buffer::copy_from([1.0, 1.0, 1.0]),
+        Validity::from_iter([true, true, false]),
+    )
+    .into_array();
+    let codes = PrimitiveArray::new::<u8>(vec![0u8; 3 * 128], Validity::NonNullable);
+    let codes = FixedSizeListArray::try_new(codes.into_array(), 128, Validity::NonNullable, 3)?
+        .into_array();
+    let storage = StructArray::try_new(
+        FieldNames::from(["norms", "inv_direction_norms", "codes"]),
+        vec![norms, inv_direction_norms, codes],
         3,
         Validity::from_iter([true, false, true]),
     )?;
@@ -168,6 +232,8 @@ fn decode_panics_on_codes_outside_centroid_table() {
     };
     let norms =
         PrimitiveArray::new::<f32>(Buffer::copy_from([1.0]), Validity::NonNullable).into_array();
+    let inv_direction_norms =
+        PrimitiveArray::new::<f32>(Buffer::copy_from([1.0]), Validity::NonNullable).into_array();
     let mut codes = vec![0u8; 128];
     codes[0] = 2;
     let codes = PrimitiveArray::new::<u8>(codes, Validity::NonNullable);
@@ -175,8 +241,8 @@ fn decode_panics_on_codes_outside_centroid_table() {
         .unwrap()
         .into_array();
     let storage = StructArray::try_new(
-        FieldNames::from(["norms", "codes"]),
-        vec![norms, codes],
+        FieldNames::from(["norms", "inv_direction_norms", "codes"]),
+        vec![norms, inv_direction_norms, codes],
         1,
         Validity::NonNullable,
     )

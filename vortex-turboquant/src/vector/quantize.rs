@@ -35,12 +35,14 @@ use crate::sorf::SorfMatrix;
 /// Shared intermediate results from the quantization loop.
 pub(crate) struct QuantizationResult {
     pub(crate) all_indices: Buffer<u8>,
+    pub(crate) inv_direction_norms: Buffer<f32>,
     pub(crate) padded_dim: usize,
 }
 
 pub(crate) fn empty_quantization(padded_dim: usize) -> QuantizationResult {
     QuantizationResult {
         all_indices: Buffer::empty(),
+        inv_direction_norms: Buffer::empty(),
         padded_dim,
     }
 }
@@ -79,29 +81,60 @@ pub(crate) unsafe fn turboquant_quantize_core(
         .checked_mul(padded_dim)
         .ok_or_else(|| vortex_err!("TurboQuant codes length overflow"))?;
     let mut all_indices = BufferMut::<u8>::with_capacity(codes_len);
+    let mut inv_direction_norms = BufferMut::<f32>::with_capacity(num_vectors);
 
     let mut padded = vec![0.0f32; padded_dim];
     let mut transformed = vec![0.0f32; padded_dim];
+    let mut dequantized = vec![0.0f32; padded_dim];
+    let mut inverse = vec![0.0f32; padded_dim];
 
     // Pad, SORF-transform, and quantize a single row, pushing `padded_dim` codes into
-    // `all_indices`. Captures the read-only inputs and the scratch buffers so each call site
-    // only needs to pass `all_indices` and the row index.
+    // `all_indices` and one inverse direction norm into `inv_direction_norms`. Captures the
+    // read-only inputs and scratch buffers so each call site only needs to pass the output buffers
+    // and the row index.
     //
     // NB: `all_indices` cannot be captured here: the `Values` arm interleaves the closure call
     // with direct `all_indices.push_n_unchecked` calls.
     let f32_slice = f32_elements.as_slice();
     let dimension = dimension as usize;
-    let mut quantize_row = |all_indices: &mut BufferMut<u8>, row: usize| {
-        // Reuse `padded` and `transformed` from the outer scope.
-        padded[..dimension].copy_from_slice(&f32_slice[row * dimension..][..dimension]);
-        padded[dimension..].fill(0.0);
-        sorf_transform.transform(&padded, &mut transformed);
+    let mut quantize_row =
+        |all_indices: &mut BufferMut<u8>, inv_direction_norms: &mut BufferMut<f32>, row: usize| {
+            // Reuse `padded` and `transformed` from the outer scope.
+            let row_values = &f32_slice[row * dimension..][..dimension];
+            padded[..dimension].copy_from_slice(row_values);
+            padded[dimension..].fill(0.0);
+            sorf_transform.transform(&padded, &mut transformed);
 
-        for &value in &transformed {
-            // SAFETY: total pushes across all match arms equal `codes_len`.
-            unsafe { all_indices.push_unchecked(find_nearest_centroid(value, &boundaries)) };
-        }
-    };
+            for (&value, dst) in transformed.iter().zip(dequantized.iter_mut()) {
+                // SAFETY: total pushes across all match arms equal `codes_len`.
+                let code = find_nearest_centroid(value, &boundaries);
+                unsafe { all_indices.push_unchecked(code) };
+                *dst = centroids[usize::from(code)];
+            }
+
+            // Quantization perturbs the unit direction. The exact norm that decode will return is
+            // the norm after dequantizing centroids, inverse-transforming, and truncating away any
+            // padded dimensions. Precomputing its reciprocal here lets `TQDecode` preserve the
+            // original row norm and lets future query kernels reuse the same per-row correction
+            // without repeating this inverse transform for every query.
+            let inv_direction_norm = if row_values.iter().all(|&value| value == 0.0) {
+                0.0
+            } else {
+                sorf_transform.inverse_transform(&dequantized, &mut inverse);
+                let norm_squared = inverse[..dimension]
+                    .iter()
+                    .map(|value| value * value)
+                    .sum::<f32>();
+                if norm_squared == 0.0 {
+                    0.0
+                } else {
+                    norm_squared.sqrt().recip()
+                }
+            };
+
+            // SAFETY: total pushes across all match arms equal `num_vectors`.
+            unsafe { inv_direction_norms.push_unchecked(inv_direction_norm) };
+        };
 
     // The total number of pushes is always exactly `num_vectors * padded_dim == codes_len`
     // across every arm below, which is the invariant the per-row `unsafe` blocks rely on.
@@ -112,10 +145,13 @@ pub(crate) unsafe fn turboquant_quantize_core(
             // SAFETY: `all_indices` was allocated with capacity `codes_len`, and this push
             // writes exactly `codes_len` zero codes.
             unsafe { all_indices.push_n_unchecked(0, codes_len) };
+            // SAFETY: `inv_direction_norms` was allocated with capacity `num_vectors`, and this
+            // writes exactly `num_vectors` zero placeholders.
+            unsafe { inv_direction_norms.push_n_unchecked(0.0, num_vectors) };
         }
         Mask::AllTrue(_) => {
             for row in 0..num_vectors {
-                quantize_row(&mut all_indices, row);
+                quantize_row(&mut all_indices, &mut inv_direction_norms, row);
             }
         }
         Mask::Values(values_mask) => {
@@ -125,10 +161,12 @@ pub(crate) unsafe fn turboquant_quantize_core(
                 if start > cursor {
                     // SAFETY: total pushes across all arms equal `codes_len`.
                     unsafe { all_indices.push_n_unchecked(0, (start - cursor) * padded_dim) };
+                    // SAFETY: total pushes across all arms equal `num_vectors`.
+                    unsafe { inv_direction_norms.push_n_unchecked(0.0, start - cursor) };
                 }
 
                 for row in start..end {
-                    quantize_row(&mut all_indices, row);
+                    quantize_row(&mut all_indices, &mut inv_direction_norms, row);
                 }
 
                 cursor = end;
@@ -137,12 +175,15 @@ pub(crate) unsafe fn turboquant_quantize_core(
             if cursor < num_vectors {
                 // SAFETY: total pushes across all arms equal `codes_len`.
                 unsafe { all_indices.push_n_unchecked(0, (num_vectors - cursor) * padded_dim) };
+                // SAFETY: total pushes across all arms equal `num_vectors`.
+                unsafe { inv_direction_norms.push_n_unchecked(0.0, num_vectors - cursor) };
             }
         }
     }
 
     Ok(QuantizationResult {
         all_indices: all_indices.freeze(),
+        inv_direction_norms: inv_direction_norms.freeze(),
         padded_dim,
     })
 }

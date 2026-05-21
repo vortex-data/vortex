@@ -16,10 +16,12 @@ use vortex_array::dtype::PType;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
+use vortex_tensor::scalar_fns::l2_norm::L2Norm;
 
 use super::execute_tq_decode;
 use super::execute_tq_encode;
 use super::f32_vector_array;
+use super::tensor_test_session;
 use super::test_session;
 use super::turboquant_storage;
 use super::vector_array;
@@ -29,6 +31,7 @@ use super::vector_values_f32;
 use crate::TurboQuantConfig;
 use crate::centroids::compute_or_get_centroids;
 use crate::vector::normalize::tq_normalize_as_l2_denorm;
+use crate::vector::storage::parse_storage;
 
 #[rstest]
 #[case::zero_bits(0, 42, 3)]
@@ -105,6 +108,10 @@ fn encode_stores_norms_and_struct_validity() -> VortexResult<()> {
         .unmasked_field_by_name("norms")?
         .clone()
         .execute(&mut ctx)?;
+    let inv_direction_norms: PrimitiveArray = storage
+        .unmasked_field_by_name("inv_direction_norms")?
+        .clone()
+        .execute(&mut ctx)?;
     let codes: FixedSizeListArray = storage
         .unmasked_field_by_name("codes")?
         .clone()
@@ -114,13 +121,21 @@ fn encode_stores_norms_and_struct_validity() -> VortexResult<()> {
     assert!(!mask.value(1));
     assert!(mask.value(2));
     assert_eq!(norms.validity()?.nullability(), Nullability::Nullable);
+    assert_eq!(
+        inv_direction_norms.validity()?.nullability(),
+        Nullability::Nullable
+    );
     assert_eq!(codes.validity()?.nullability(), Nullability::Nullable);
 
     let norms_validity = norms.validity()?.execute_mask(3, &mut ctx)?;
+    let inv_direction_norms_validity = inv_direction_norms.validity()?.execute_mask(3, &mut ctx)?;
     let codes_validity = codes.validity()?.execute_mask(3, &mut ctx)?;
     assert!(norms_validity.value(0));
     assert!(!norms_validity.value(1));
     assert!(norms_validity.value(2));
+    assert!(inv_direction_norms_validity.value(0));
+    assert!(!inv_direction_norms_validity.value(1));
+    assert!(inv_direction_norms_validity.value(2));
     assert!(codes_validity.value(0));
     assert!(!codes_validity.value(1));
     assert!(codes_validity.value(2));
@@ -131,6 +146,57 @@ fn encode_stores_norms_and_struct_validity() -> VortexResult<()> {
             .iter()
             .all(|&code| code == 0)
     );
+    Ok(())
+}
+
+#[test]
+fn encode_stores_zero_inv_direction_norm_for_zero_rows() -> VortexResult<()> {
+    let session = test_session();
+    let mut ctx = session.create_execution_ctx();
+    let mut values = vec![0.0f32; 3 * 128];
+    values[0] = 3.0;
+    values[1] = 4.0;
+    values[256] = 1.0;
+    let input = vector_array(128, &values, Validity::NonNullable)?;
+
+    let encoded = execute_tq_encode(input, &TurboQuantConfig::default(), &mut ctx)?;
+    let storage = turboquant_storage(encoded, &mut ctx)?;
+    let inv_direction_norms: PrimitiveArray = storage
+        .unmasked_field_by_name("inv_direction_norms")?
+        .clone()
+        .execute(&mut ctx)?;
+
+    let values = inv_direction_norms.as_slice::<f32>();
+    assert!(values[0].is_finite() && values[0] > 0.0);
+    assert_eq!(values[1], 0.0);
+    assert!(values[2].is_finite() && values[2] > 0.0);
+    Ok(())
+}
+
+#[test]
+fn decode_preserves_original_l2_norms_for_non_power_of_two_dimensions() -> VortexResult<()> {
+    let session = tensor_test_session();
+    let mut ctx = session.create_execution_ctx();
+    let input = f32_vector_array(129, 3, 0.25, Validity::NonNullable)?;
+    let config = TurboQuantConfig::try_new(3, 42, 3)?;
+
+    let encoded = execute_tq_encode(input, &config, &mut ctx)?;
+    let expected_norms = parse_storage(encoded.clone(), &mut ctx)?.norms;
+    let decoded = execute_tq_decode(encoded, &mut ctx)?;
+    let decoded_norms: PrimitiveArray = L2Norm::try_new_array(decoded, 3)?
+        .into_array()
+        .execute(&mut ctx)?;
+
+    for (actual, expected) in decoded_norms
+        .as_slice::<f32>()
+        .iter()
+        .zip(expected_norms.as_slice::<f32>())
+    {
+        assert!(
+            (*actual - *expected).abs() <= 1e-4 * expected.max(1.0),
+            "decoded norm {actual} did not match stored norm {expected}"
+        );
+    }
     Ok(())
 }
 

@@ -15,10 +15,11 @@ use super::vector_values_f32;
 use crate::TurboQuantConfig;
 
 #[test]
-fn encode_decode_matches_old_turboquant_decode() -> VortexResult<()> {
+fn encode_decode_applies_direction_norm_correction_after_old_turboquant_decode() -> VortexResult<()>
+{
     let session = test_session();
     let mut ctx = session.create_execution_ctx();
-    let input = f32_vector_array(128, 2, 0.125, Validity::NonNullable)?;
+    let input = f32_vector_array(129, 2, 0.125, Validity::NonNullable)?;
     let config = TurboQuantConfig::try_new(3, 42, 3)?;
 
     let new_encoded = execute_tq_encode(input.clone(), &config, &mut ctx)?;
@@ -33,6 +34,12 @@ fn encode_decode_matches_old_turboquant_decode() -> VortexResult<()> {
     let new_values = vector_values_f32(new_decoded, &mut ctx)?;
     let old_values = vector_values_f32(old_decoded, &mut ctx)?;
 
-    assert_eq!(new_values, old_values);
+    assert!(
+        new_values
+            .iter()
+            .zip(old_values.iter())
+            .any(|(new, old)| (*new - *old).abs() > 1e-6),
+        "direction-norm correction should intentionally change decoded values"
+    );
     Ok(())
 }

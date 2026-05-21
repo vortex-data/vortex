@@ -8,14 +8,23 @@
 //! ```text
 //! Struct {
 //!     norms: Primitive<element_ptype, vector_validity>,
+//!     inv_direction_norms: Primitive<f32, vector_validity>,
 //!     codes: FixedSizeList<Primitive<u8>, padded_dim, vector_validity>,
 //! }
 //! ```
 //!
-//! Row nullability is carried on the outer struct and on the `norms` and `codes` field arrays.
-//! This is deliberate duplication: null vectors remain null throughout encode/decode instead of being
-//! converted into zero vectors. The code bytes for invalid rows are physical placeholders only; the
-//! field-level validity records that those rows were not quantized.
+//! Row nullability is carried on the outer struct and on every row-aligned field array. This is
+//! deliberate duplication: null vectors remain null throughout encode/decode instead of being
+//! converted into zero vectors. The code bytes and inverse direction norms for invalid rows are
+//! physical placeholders only; the field-level validity records that those rows were not quantized.
+//!
+//! `inv_direction_norms` is stored instead of recomputed by decode or every future query kernel
+//! because it is a property of the quantized row, not of a particular operation. Computing it exactly
+//! requires dequantizing the row's centroids, applying the inverse SORF, truncating back to the
+//! original dimension, and taking the f32 L2 norm of that decoded direction. That is the same
+//! per-row work decode already needs, and it would be repeated for every scan/query if we did not
+//! persist the result. Storing one f32 per row makes the norm-preserving decode contract explicit
+//! and gives query kernels a reusable scale factor.
 //!
 //! Parsing treats the outer struct validity as authoritative. Child validity may be wider than
 //! the struct validity (for example after a generic mask only updates the struct validity), but
@@ -33,17 +42,20 @@ use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::FieldNames;
 use vortex_array::validity::Validity;
+use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
-use super::quantize::QuantizationResult;
 use crate::vtable::TurboQuantMetadata;
 use crate::vtable::tq_metadata;
 
 /// Name of the stored row-norm child.
 pub(crate) const NORMS_FIELD: &str = "norms";
+
+/// Name of the stored inverse quantized-direction norm child.
+pub(crate) const INV_DIRECTION_NORMS_FIELD: &str = "inv_direction_norms";
 
 /// Name of the stored quantized-code child.
 pub(crate) const CODES_FIELD: &str = "codes";
@@ -58,6 +70,7 @@ pub(crate) struct TurboQuantParsedStorage {
     pub(crate) vector_validity: Validity,
     /// Per-row stored L2 norm of the original input vector, in `metadata.element_ptype`.
     pub(crate) norms: PrimitiveArray,
+    pub(crate) inv_direction_norms: PrimitiveArray,
     /// Flat `u8` per-row centroid indices, `num_vectors * padded_dim` entries long.
     pub(crate) codes: PrimitiveArray,
     /// Row count.
@@ -70,11 +83,12 @@ pub(crate) struct TurboQuantParsedStorage {
 /// from `(padded_dim, bit_width)`. The centroid values are intentionally not stored in the array.
 pub(crate) fn build_codes_child(
     num_vectors: usize,
-    quantization: QuantizationResult,
+    all_indices: Buffer<u8>,
+    padded_dim: usize,
     vector_validity: Validity,
 ) -> VortexResult<ArrayRef> {
-    let codes = PrimitiveArray::new::<u8>(quantization.all_indices, Validity::NonNullable);
-    let padded_dim_u32 = u32::try_from(quantization.padded_dim)
+    let codes = PrimitiveArray::new::<u8>(all_indices, Validity::NonNullable);
+    let padded_dim_u32 = u32::try_from(padded_dim)
         .map_err(|_| vortex_err!("TurboQuant padded dimension does not fit u32"))?;
 
     Ok(FixedSizeListArray::try_new(
@@ -86,16 +100,17 @@ pub(crate) fn build_codes_child(
     .into_array())
 }
 
-/// Build the TurboQuant `Struct { norms, codes }` storage array.
+/// Build the TurboQuant `Struct { norms, inv_direction_norms, codes }` storage array.
 pub(crate) fn build_storage(
     norms: ArrayRef,
+    inv_direction_norms: ArrayRef,
     codes: ArrayRef,
     len: usize,
     vector_validity: Validity,
 ) -> VortexResult<ArrayRef> {
     Ok(StructArray::try_new(
-        FieldNames::from([NORMS_FIELD, CODES_FIELD]),
-        vec![norms, codes],
+        FieldNames::from([NORMS_FIELD, INV_DIRECTION_NORMS_FIELD, CODES_FIELD]),
+        vec![norms, inv_direction_norms, codes],
         len,
         vector_validity,
     )?
@@ -116,6 +131,11 @@ pub(crate) fn parse_storage(
         .clone()
         .execute(ctx)?;
 
+    let inv_direction_norms: PrimitiveArray = storage
+        .unmasked_field_by_name(INV_DIRECTION_NORMS_FIELD)?
+        .clone()
+        .execute(ctx)?;
+
     let codes_fsl: FixedSizeListArray = storage
         .unmasked_field_by_name(CODES_FIELD)?
         .clone()
@@ -125,17 +145,25 @@ pub(crate) fn parse_storage(
     let len = storage.len();
     let struct_validity = storage.struct_validity();
     let norms_validity = norms.validity()?;
+    let inv_direction_norms_validity = inv_direction_norms.validity()?;
     let codes_validity = codes_fsl.validity()?;
 
     let struct_mask = struct_validity.execute_mask(len, ctx)?;
     let norms_mask = norms_validity.execute_mask(len, ctx)?;
+    let inv_direction_norms_mask = inv_direction_norms_validity.execute_mask(len, ctx)?;
     let codes_mask = codes_validity.execute_mask(len, ctx)?;
-    validate_child_validity_covers_struct(&struct_mask, &norms_mask, &codes_mask)?;
+    validate_child_validity_covers_struct(
+        &struct_mask,
+        &norms_mask,
+        &inv_direction_norms_mask,
+        &codes_mask,
+    )?;
 
     Ok(TurboQuantParsedStorage {
         metadata,
         vector_validity: struct_validity,
         norms,
+        inv_direction_norms,
         codes,
         len,
     })
@@ -150,11 +178,19 @@ pub(crate) fn parse_storage(
 fn validate_child_validity_covers_struct(
     struct_mask: &Mask,
     norms_mask: &Mask,
+    inv_direction_norms_mask: &Mask,
     codes_mask: &Mask,
 ) -> VortexResult<()> {
     vortex_ensure!(
         struct_mask.clone().bitand_not(norms_mask).all_false(),
         "TurboQuant {NORMS_FIELD} row validity must cover storage validity"
+    );
+    vortex_ensure!(
+        struct_mask
+            .clone()
+            .bitand_not(inv_direction_norms_mask)
+            .all_false(),
+        "TurboQuant {INV_DIRECTION_NORMS_FIELD} row validity must cover storage validity"
     );
     vortex_ensure!(
         struct_mask.clone().bitand_not(codes_mask).all_false(),

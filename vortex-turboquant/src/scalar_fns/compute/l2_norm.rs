@@ -38,13 +38,9 @@ pub(super) fn register(session: &VortexSession) {
 /// matches `ExactScalarFn<TQDecode>`. Returns `Ok(None)` for any other shape so the canonical
 /// `L2Norm` path runs unchanged.
 //
-// TODO(vortex-data/vortex#TODO): The TurboQuant storage `norms` field is pre-quantization — it
-// is the L2 norm of each original vector before SORF transform and scalar quantization. The
-// lossy contract (see `vortex-turboquant/src/lib.rs`) means decoded vectors are not guaranteed
-// to be unit-norm, so strictly `l2_norm(tq_decode(x))` may differ slightly from the stored
-// norm. We treat the stored norms as authoritative here for parity with the `L2Denorm` fast
-// path in `vortex-tensor/src/scalar_fns/l2_norm.rs`. A future fix should recompute norms
-// post-quantization.
+// This is semantically correct because TurboQuant stores per-row inverse direction norms and
+// `TQDecode` applies that correction before re-applying the original row norm. In other words,
+// valid nonzero decoded rows preserve the stored L2 norm even though coordinates are lossy.
 fn l2_norm_tq_decode_execute_parent(
     child: &ArrayRef,
     parent: &ArrayRef,

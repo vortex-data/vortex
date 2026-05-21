@@ -18,6 +18,7 @@ use vortex_error::vortex_err;
 use crate::TurboQuant;
 use crate::TurboQuantMetadata;
 use crate::vector::storage::CODES_FIELD;
+use crate::vector::storage::INV_DIRECTION_NORMS_FIELD;
 use crate::vector::storage::NORMS_FIELD;
 use crate::vector::tq_padded_dim;
 
@@ -43,9 +44,10 @@ fn tq_storage_dtype(
         .map_err(|_| vortex_err!("TurboQuant padded dimension does not fit u32"))?;
     Ok(DType::Struct(
         StructFields::new(
-            FieldNames::from([NORMS_FIELD, CODES_FIELD]),
+            FieldNames::from([NORMS_FIELD, INV_DIRECTION_NORMS_FIELD, CODES_FIELD]),
             vec![
                 DType::Primitive(metadata.element_ptype, row_nullability),
+                DType::Primitive(PType::F32, row_nullability),
                 DType::FixedSizeList(
                     Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
                     padded_dim,
@@ -156,9 +158,10 @@ fn dtype_validation_rejects_malformed_storage() {
     };
     let storage = DType::Struct(
         StructFields::new(
-            FieldNames::from(["norms", "codes"]),
+            FieldNames::from(["norms", "inv_direction_norms", "codes"]),
             vec![
                 DType::Primitive(PType::F32, Nullability::Nullable),
+                DType::Primitive(PType::F64, Nullability::Nullable),
                 DType::FixedSizeList(
                     DType::Primitive(PType::U8, Nullability::Nullable).into(),
                     128,

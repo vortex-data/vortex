@@ -12,6 +12,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::Extension;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
@@ -209,7 +210,14 @@ pub(crate) fn encode_vector(
         // SAFETY: `tq_normalize_as_l2_denorm` returned this normalized Vector child.
         unsafe { turboquant_quantize_core(&normalized_fsl, config, ctx)? }
     };
-    let codes = build_codes_child(num_vectors, core, vector_validity.clone())?;
+    let inv_direction_norms =
+        PrimitiveArray::new::<f32>(core.inv_direction_norms, vector_validity.clone()).into_array();
+    let codes = build_codes_child(
+        num_vectors,
+        core.all_indices,
+        core.padded_dim,
+        vector_validity.clone(),
+    )?;
 
     let metadata = TurboQuantMetadata {
         element_ptype,
@@ -218,7 +226,13 @@ pub(crate) fn encode_vector(
         seed: config.seed(),
         num_rounds: config.num_rounds(),
     };
-    let storage = build_storage(norms, codes, num_vectors, vector_validity)?;
+    let storage = build_storage(
+        norms,
+        inv_direction_norms,
+        codes,
+        num_vectors,
+        vector_validity,
+    )?;
 
     Ok(ExtensionArray::try_new_from_vtable(TurboQuant, metadata, storage)?.into_array())
 }

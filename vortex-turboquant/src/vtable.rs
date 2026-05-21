@@ -23,6 +23,7 @@ use vortex_error::vortex_err;
 use crate::TurboQuantConfig;
 use crate::config::MIN_DIMENSION;
 use crate::vector::storage::CODES_FIELD;
+use crate::vector::storage::INV_DIRECTION_NORMS_FIELD;
 use crate::vector::storage::NORMS_FIELD;
 use crate::vector::tq_padded_dim;
 
@@ -148,9 +149,10 @@ pub(crate) fn tq_storage_dtype(
 
     Ok(DType::Struct(
         StructFields::new(
-            FieldNames::from([NORMS_FIELD, CODES_FIELD]),
+            FieldNames::from([NORMS_FIELD, INV_DIRECTION_NORMS_FIELD, CODES_FIELD]),
             vec![
                 DType::Primitive(metadata.element_ptype, row_nullability),
+                DType::Primitive(PType::F32, row_nullability),
                 DType::FixedSizeList(
                     Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
                     padded_dim,
@@ -187,7 +189,7 @@ fn validate_tq_storage_dtype(metadata: &TurboQuantMetadata, dtype: &DType) -> Vo
     let DType::Struct(fields, _) = dtype else {
         vortex_bail!("TurboQuant storage dtype must be a Struct, got {dtype}");
     };
-    let expected_names = FieldNames::from([NORMS_FIELD, CODES_FIELD]);
+    let expected_names = FieldNames::from([NORMS_FIELD, INV_DIRECTION_NORMS_FIELD, CODES_FIELD]);
     vortex_ensure_eq!(
         fields.names(),
         &expected_names,
@@ -206,6 +208,20 @@ fn validate_tq_storage_dtype(metadata: &TurboQuantMetadata, dtype: &DType) -> Vo
         metadata.element_ptype,
         "TurboQuant {NORMS_FIELD} ptype must be {}, got {norms_ptype}",
         metadata.element_ptype
+    );
+
+    let Some(inv_direction_norms_dtype) = fields.field(INV_DIRECTION_NORMS_FIELD) else {
+        vortex_bail!("TurboQuant storage missing {INV_DIRECTION_NORMS_FIELD} field");
+    };
+    let DType::Primitive(inv_direction_norms_ptype, _) = inv_direction_norms_dtype else {
+        vortex_bail!(
+            "TurboQuant {INV_DIRECTION_NORMS_FIELD} field must be primitive, got {inv_direction_norms_dtype}"
+        );
+    };
+    vortex_ensure_eq!(
+        inv_direction_norms_ptype,
+        PType::F32,
+        "TurboQuant {INV_DIRECTION_NORMS_FIELD} ptype must be f32, got {inv_direction_norms_ptype}"
     );
 
     let Some(codes_dtype) = fields.field(CODES_FIELD) else {

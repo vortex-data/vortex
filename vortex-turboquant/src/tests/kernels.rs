@@ -30,9 +30,9 @@ const DIM: u32 = 128;
 
 /// Fast path: `L2Norm(TQDecode(tq_arr))` returns the storage `norms` field bit-for-bit.
 ///
-/// The slow path would recompute norms from lossily decoded vectors, which only approximately
-/// match the stored norms. Bit-exact equality is the strongest invariant that confirms the
-/// session-registered kernel fired.
+/// `TQDecode` applies the stored inverse direction-norm correction, so decoded vectors preserve
+/// these norms. Bit-exact equality is the strongest invariant that confirms the session-registered
+/// kernel fired instead of recomputing.
 #[test]
 fn l2_norm_over_tq_decode_returns_stored_norms() -> VortexResult<()> {
     let session = tensor_test_session();

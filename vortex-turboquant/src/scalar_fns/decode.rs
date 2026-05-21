@@ -153,9 +153,10 @@ impl ScalarFnVTable for TQDecode {
 
 /// Decode a `TurboQuant` extension array back into a `Vector` extension array.
 ///
-/// The decoded directions are inverse-transformed, truncated to the original dimension, and
-/// multiplied by the stored row norms. The conversion is lossy and does not roundtrip with
-/// [`TQEncode`](crate::TQEncode).
+/// The decoded directions are inverse-transformed, truncated to the original dimension, normalized
+/// by the stored inverse direction norms, and multiplied by the stored row norms. The conversion is
+/// lossy and does not roundtrip with [`TQEncode`](crate::TQEncode), but valid nonzero decoded rows
+/// preserve the original stored L2 norm.
 pub(crate) fn decode_vector(input: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
     let parsed = parse_storage(input, ctx)?;
     let metadata = parsed.metadata;
@@ -177,6 +178,7 @@ pub(crate) fn decode_vector(input: ArrayRef, ctx: &mut ExecutionCtx) -> VortexRe
                 sorf_matrix: &transform,
                 centroids: &centroids,
                 norms: &parsed.norms,
+                inv_direction_norms: &parsed.inv_direction_norms,
                 codes: &parsed.codes,
             },
             parsed.vector_validity,
@@ -217,6 +219,7 @@ struct DecodeInputs<'a> {
     centroids: &'a [f32],
     /// Per-row stored L2 norm of the original input vector, in the element ptype.
     norms: &'a PrimitiveArray,
+    inv_direction_norms: &'a PrimitiveArray,
     /// Flat per-row centroid indices, `num_vectors * padded_dim` bytes.
     codes: &'a PrimitiveArray,
 }
@@ -236,6 +239,7 @@ where
     let padded_dim = decode.sorf_matrix.padded_dim();
     let centroids = decode.centroids;
     let norms = decode.norms.as_slice::<T>();
+    let inv_direction_norms = decode.inv_direction_norms.as_slice::<f32>();
     let codes = decode.codes.as_slice::<u8>();
     let mask = vector_validity.execute_mask(num_vectors, ctx)?;
 
@@ -259,11 +263,12 @@ where
         decode.sorf_matrix.inverse_transform(&decoded, &mut inverse);
 
         let norm = norms[i];
+        let inv_direction_norm = inv_direction_norms[i];
         for &value in inverse.iter().take(dimensions) {
             // `T::from_f32` is infallible for the supported float ptypes (`f16`, `f32`,
             // `f64`): values outside `f16` range saturate to `±inf` rather than returning
             // `None`.
-            let value = T::from_f32(value)
+            let value = T::from_f32(value * inv_direction_norm)
                 .vortex_expect("from_f32 is infallible for supported float types");
 
             // SAFETY: total pushes across all match arms equal `output_len`.

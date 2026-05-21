@@ -19,8 +19,8 @@
 //! The [`TQEncode`] scalar function first computes and stores the original L2 norm for each vector
 //! row, then normalizes each valid nonzero row internally before SORF transform and scalar
 //! quantization. The [`TQDecode`] scalar function dequantizes through deterministic centroids,
-//! applies the inverse SORF transform, truncates back to the original dimension, and re-applies the
-//! stored norm.
+//! applies the inverse SORF transform, truncates back to the original dimension, and applies a
+//! stored inverse direction-norm correction before re-applying the stored norm.
 //!
 //! The encoded storage is a row-aligned extension tree:
 //!
@@ -28,13 +28,24 @@
 //! Extension<TurboQuant>(
 //!     Struct {
 //!         norms: Primitive<element_ptype, vector_validity>,
+//!         inv_direction_norms: Primitive<f32, vector_validity>,
 //!         codes: FixedSizeList<Primitive<u8>, padded_dim, vector_validity>,
 //!     }
 //! )
 //! ```
 //!
-//! Stored norms are authoritative for future TurboQuant-aware scalar functions. Decoded quantized
-//! directions are not guaranteed to have unit norm after scalar quantization and inverse transform.
+//! Stored norms are authoritative for future TurboQuant-aware scalar functions. Scalar quantization
+//! perturbs the transformed unit vector, and inverse SORF plus truncation can leave the decoded
+//! quantized direction with norm different from `1.0`. If decode only multiplied that direction by
+//! the original row norm, `L2Norm(TQDecode(_))` would not equal the norm of the vector returned by
+//! `TQDecode`. TurboQuant therefore stores `inv_direction_norms = 1 / ||decoded_direction||` so
+//! decode can first renormalize the lossy quantized direction and then apply the original norm.
+//!
+//! Storing the correction also keeps future query kernels cheap. Inner product and cosine kernels can
+//! rotate a query once and gather against centroids directly; the per-row scale they need is already
+//! available as `norms * inv_direction_norms` for inner product and `inv_direction_norms` for cosine.
+//! Without this field, those kernels would have to recompute the inverse SORF/truncated norm per row
+//! or give up the `TQDecode` norm-preservation invariant.
 //!
 //! # Source map
 //!
