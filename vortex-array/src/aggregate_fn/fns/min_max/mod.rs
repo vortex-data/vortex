@@ -177,7 +177,7 @@ impl AggregateFnVTable for MinMax {
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        unimplemented!("MinMax is not yet serializable");
+        Ok(None)
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
