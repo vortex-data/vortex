@@ -408,6 +408,7 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
     /// and allocates a `BitBuffer` of length `elements.len()`, so it is extremely costly.
     ///
     /// Returns `Ok(None)` when `elements` is empty.
+    #[allow(clippy::cognitive_complexity, clippy::unnecessary_fallible_conversions)]
     fn compute_referenced_elements_mask(
         &self,
         ctx: &mut ExecutionCtx,
