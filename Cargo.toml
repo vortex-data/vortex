@@ -54,6 +54,8 @@ members = [
     "encodings/zstd",
     "encodings/bytebool",
     "encodings/parquet-variant",
+    # Experiments
+    "experiments/simd-stencil",
     # Benchmarks
     "benchmarks/lance-bench",
     "benchmarks/compress-bench",

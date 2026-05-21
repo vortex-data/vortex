@@ -7833,6 +7833,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "703d5c7ef118737c72f1af64ad2f6f8c5e1921f818cdcb97b8fe6fc69bf66214"
 
 [[package]]
+name = "simd-stencil"
+version = "0.0.0"
+dependencies = [
+ "codspeed-divan-compat",
+ "fastlanes",
+ "itertools 0.14.0",
+ "libc",
+ "num-traits",
+ "rand 0.10.1",
+ "seq-macro",
+ "vortex-alp",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-fastlanes",
+ "vortex-session",
+]
+
+[[package]]
 name = "simd_cesu8"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

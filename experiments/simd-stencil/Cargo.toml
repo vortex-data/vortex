@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+[package]
+name = "simd-stencil"
+version = "0.0.0"
+description = "Prototype: copy-and-patch SIMD stencils vs materialized / AOT decode pipelines"
+edition = { workspace = true }
+rust-version = { workspace = true }
+publish = false
+license = "Apache-2.0"
+
+[dependencies]
+vortex-alp = { workspace = true }
+fastlanes = { workspace = true }
+seq-macro = "0.3.6"
+num-traits = { workspace = true }
+itertools = { workspace = true }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-fastlanes = { workspace = true }
+vortex-session = { workspace = true }
+rand = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+divan = { workspace = true }
+
+[features]
+default = []
+
+[[bench]]
+name = "stacks"
+harness = false
+
+[[bench]]
+name = "dispatch"
+harness = false
+
+[lints]
+workspace = true
