@@ -9,8 +9,11 @@ use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn::AggregateFnId;
+use crate::aggregate_fn::AggregateFnRef;
+use crate::aggregate_fn::AggregateFnSatisfaction;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::fns::bounded_max::BoundedMax;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::dtype::DType;
@@ -56,6 +59,20 @@ impl AggregateFnVTable for Max {
         MinMax
             .return_dtype(&EmptyOptions, input_dtype)
             .map(|_| input_dtype.as_nullable())
+    }
+
+    fn can_satisfy(
+        &self,
+        _options: &Self::Options,
+        requested: &AggregateFnRef,
+    ) -> AggregateFnSatisfaction {
+        if requested.is::<Self>() {
+            AggregateFnSatisfaction::Exact
+        } else if requested.is::<BoundedMax>() {
+            AggregateFnSatisfaction::Approximate
+        } else {
+            AggregateFnSatisfaction::No
+        }
     }
 
     fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {

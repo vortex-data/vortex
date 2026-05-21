@@ -116,14 +116,17 @@ impl AggregateFnVTable for BoundedMin {
         options: &Self::Options,
         requested: &AggregateFnRef,
     ) -> AggregateFnSatisfaction {
-        if requested
-            .as_opt::<Self>()
-            .is_some_and(|other| other == options)
-        {
-            return AggregateFnSatisfaction::Exact;
+        if let Some(other) = requested.as_opt::<Self>() {
+            return if other == options {
+                AggregateFnSatisfaction::Exact
+            } else if options.max_bytes >= other.max_bytes {
+                AggregateFnSatisfaction::Approximate
+            } else {
+                AggregateFnSatisfaction::No
+            };
         }
 
-        if requested.is::<Self>() || requested.is::<Min>() {
+        if requested.is::<Min>() {
             AggregateFnSatisfaction::Approximate
         } else {
             AggregateFnSatisfaction::No
@@ -331,17 +334,28 @@ mod tests {
         let same = BoundedMin.bind(BoundedMinOptions {
             max_bytes: max_bytes(5),
         });
-        let other_bounded = BoundedMin.bind(BoundedMinOptions {
+        let looser_bounded = BoundedMin.bind(BoundedMinOptions {
+            max_bytes: max_bytes(4),
+        });
+        let tighter_bounded = BoundedMin.bind(BoundedMinOptions {
             max_bytes: max_bytes(6),
         });
 
         assert_eq!(stored.can_satisfy(&same), AggregateFnSatisfaction::Exact);
         assert_eq!(
-            stored.can_satisfy(&other_bounded),
+            stored.can_satisfy(&looser_bounded),
             AggregateFnSatisfaction::Approximate
         );
         assert_eq!(
+            stored.can_satisfy(&tighter_bounded),
+            AggregateFnSatisfaction::No
+        );
+        assert_eq!(
             stored.can_satisfy(&Min.bind(EmptyOptions)),
+            AggregateFnSatisfaction::Approximate
+        );
+        assert_eq!(
+            Min.bind(EmptyOptions).can_satisfy(&stored),
             AggregateFnSatisfaction::Approximate
         );
         assert_eq!(
