@@ -34,7 +34,8 @@ pub fn schema_from_vcf_header(header: &Header) -> SchemaRef {
         .into_iter()
         .chain(info_fields)
         .chain([
-            Arc::new(Field::new("GT", list(UInt64), true)),
+            // GT is NULL, 0, 1, or 2
+            Arc::new(Field::new("GT", list(UInt8), true)),
             Arc::new(Field::new("GQ", list(Int32), true)),
             Arc::new(Field::new("DP", list(Int32), true)),
             Arc::new(Field::new("AD", list(list(Int32)), true)),
