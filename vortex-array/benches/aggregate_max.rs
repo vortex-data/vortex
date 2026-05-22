@@ -14,50 +14,12 @@ fn main() {
 
 const N: usize = 1_000_000;
 
-fn gen_i32(null_density: f64, seed: u64) -> Vec<Option<i32>> {
-    let mut rng = StdRng::seed_from_u64(seed);
-    (0..N)
-        .map(|_| {
-            if rng.random_bool(null_density) {
-                None
-            } else {
-                Some(rng.random::<i32>())
-            }
-        })
-        .collect()
-}
-
-fn gen_i64(null_density: f64, seed: u64) -> Vec<Option<i64>> {
-    let mut rng = StdRng::seed_from_u64(seed);
-    (0..N)
-        .map(|_| {
-            if rng.random_bool(null_density) {
-                None
-            } else {
-                Some(rng.random::<i64>())
-            }
-        })
-        .collect()
-}
-
-fn gen_f64(null_density: f64, seed: u64) -> Vec<Option<f64>> {
-    let mut rng = StdRng::seed_from_u64(seed);
-    (0..N)
-        .map(|_| {
-            if rng.random_bool(null_density) {
-                None
-            } else {
-                Some(rng.random::<f64>())
-            }
-        })
-        .collect()
-}
-
 #[divan::bench]
-fn max_i32_all_valid(bencher: Bencher) {
-    let data = gen_i32(0.0, 1);
+fn max_i32(bencher: Bencher) {
+    let mut rng = StdRng::seed_from_u64(1);
+    let data: Vec<i32> = (0..N).map(|_| rng.random::<i32>()).collect();
     bencher
-        .with_inputs(|| PrimitiveArray::from_option_iter(data.iter().copied()).into_array())
+        .with_inputs(|| PrimitiveArray::from_iter(data.iter().copied()).into_array())
         .bench_refs(|a| {
             a.statistics()
                 .compute_max::<i32>(&mut LEGACY_SESSION.create_execution_ctx())
@@ -65,21 +27,11 @@ fn max_i32_all_valid(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn max_i32_half_null(bencher: Bencher) {
-    let data = gen_i32(0.5, 2);
+fn max_i64(bencher: Bencher) {
+    let mut rng = StdRng::seed_from_u64(2);
+    let data: Vec<i64> = (0..N).map(|_| rng.random::<i64>()).collect();
     bencher
-        .with_inputs(|| PrimitiveArray::from_option_iter(data.iter().copied()).into_array())
-        .bench_refs(|a| {
-            a.statistics()
-                .compute_max::<i32>(&mut LEGACY_SESSION.create_execution_ctx())
-        });
-}
-
-#[divan::bench]
-fn max_i64_all_valid(bencher: Bencher) {
-    let data = gen_i64(0.0, 3);
-    bencher
-        .with_inputs(|| PrimitiveArray::from_option_iter(data.iter().copied()).into_array())
+        .with_inputs(|| PrimitiveArray::from_iter(data.iter().copied()).into_array())
         .bench_refs(|a| {
             a.statistics()
                 .compute_max::<i64>(&mut LEGACY_SESSION.create_execution_ctx())
@@ -87,21 +39,11 @@ fn max_i64_all_valid(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn max_f64_all_valid(bencher: Bencher) {
-    let data = gen_f64(0.0, 4);
+fn max_f64(bencher: Bencher) {
+    let mut rng = StdRng::seed_from_u64(3);
+    let data: Vec<f64> = (0..N).map(|_| rng.random::<f64>()).collect();
     bencher
-        .with_inputs(|| PrimitiveArray::from_option_iter(data.iter().copied()).into_array())
-        .bench_refs(|a| {
-            a.statistics()
-                .compute_max::<f64>(&mut LEGACY_SESSION.create_execution_ctx())
-        });
-}
-
-#[divan::bench]
-fn max_f64_half_null(bencher: Bencher) {
-    let data = gen_f64(0.5, 5);
-    bencher
-        .with_inputs(|| PrimitiveArray::from_option_iter(data.iter().copied()).into_array())
+        .with_inputs(|| PrimitiveArray::from_iter(data.iter().copied()).into_array())
         .bench_refs(|a| {
             a.statistics()
                 .compute_max::<f64>(&mut LEGACY_SESSION.create_execution_ctx())
