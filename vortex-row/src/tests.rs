@@ -1,14 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(
-    clippy::approx_constant,
-    clippy::cloned_ref_to_slice_refs,
-    clippy::redundant_clone,
-    reason = "tests value clarity over micro-optimization"
-)]
-
 //! Tests for the row encoder.
+
+use std::f64::consts::PI;
 
 use rstest::rstest;
 use vortex_array::IntoArray;
@@ -21,8 +16,12 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::listview::ListViewArrayExt;
 use vortex_error::VortexResult;
 
-use crate::SortField;
+use crate::RowEncoder;
+use crate::RowEncodingOptions;
+use crate::RowSortField;
+use crate::compute_row_sizes_with_options;
 use crate::convert_columns;
+use crate::convert_columns_with_options;
 
 fn collect_row_bytes(array: &ListViewArray) -> Vec<Vec<u8>> {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
@@ -41,10 +40,7 @@ fn collect_row_bytes(array: &ListViewArray) -> Vec<Vec<u8>> {
 fn assert_sort_order_i64(values: Vec<i64>, descending: bool) -> VortexResult<()> {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let col = PrimitiveArray::from_iter(values.clone()).into_array();
-    let field = SortField {
-        descending,
-        nulls_first: true,
-    };
+    let field = RowSortField::new(descending, true);
     let encoded = convert_columns(&[col], &[field], &mut ctx)?;
     let rows = collect_row_bytes(&encoded);
 
@@ -57,7 +53,7 @@ fn assert_sort_order_i64(values: Vec<i64>, descending: bool) -> VortexResult<()>
     }
     let expected_order: Vec<Vec<u8>> = idx.iter().map(|&i| rows[i].clone()).collect();
 
-    let mut sorted = rows.clone();
+    let mut sorted = rows;
     sorted.sort();
     assert_eq!(
         sorted, expected_order,
@@ -79,7 +75,7 @@ fn primitive_u32_sort_order() -> VortexResult<()> {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let values: Vec<u32> = vec![0, 1, 100, u32::MAX, 42, 17];
     let col = PrimitiveArray::from_iter(values.clone()).into_array();
-    let encoded = convert_columns(&[col], &[SortField::default()], &mut ctx)?;
+    let encoded = convert_columns(&[col], &[RowSortField::default()], &mut ctx)?;
     let rows = collect_row_bytes(&encoded);
 
     let mut sorted_rows = rows.clone();
@@ -98,9 +94,9 @@ fn primitive_f64_sort_order() -> VortexResult<()> {
     // We use IEEE total-ordering semantics: -0.0 < +0.0 in the byte encoding (matches
     // `arrow-row`). Avoid -0.0 in the natural-order baseline since partial_cmp says
     // -0.0 == 0.0.
-    let values: Vec<f64> = vec![-1.5, 0.0, 1.5, f64::INFINITY, f64::NEG_INFINITY, 3.14];
+    let values: Vec<f64> = vec![-1.5, 0.0, 1.5, f64::INFINITY, f64::NEG_INFINITY, PI];
     let col = PrimitiveArray::from_iter(values.clone()).into_array();
-    let encoded = convert_columns(&[col], &[SortField::default()], &mut ctx)?;
+    let encoded = convert_columns(&[col], &[RowSortField::default()], &mut ctx)?;
     let rows = collect_row_bytes(&encoded);
 
     let mut sorted_rows = rows.clone();
@@ -117,7 +113,7 @@ fn primitive_f64_sort_order() -> VortexResult<()> {
 fn bool_sort_order() -> VortexResult<()> {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let col = BoolArray::from_iter([true, false, true, false]).into_array();
-    let encoded = convert_columns(&[col], &[SortField::default()], &mut ctx)?;
+    let encoded = convert_columns(&[col], &[RowSortField::default()], &mut ctx)?;
     let rows = collect_row_bytes(&encoded);
 
     let mut sorted = rows.clone();
@@ -142,7 +138,7 @@ fn utf8_sort_order() -> VortexResult<()> {
         "banana_loaf_for_test",
     ];
     let col = VarBinViewArray::from_iter_str(values.clone()).into_array();
-    let encoded = convert_columns(&[col], &[SortField::default()], &mut ctx)?;
+    let encoded = convert_columns(&[col], &[RowSortField::default()], &mut ctx)?;
     let rows = collect_row_bytes(&encoded);
 
     let mut sorted = rows.clone();
@@ -164,7 +160,7 @@ fn multi_column_sort() -> VortexResult<()> {
     let col1 = VarBinViewArray::from_iter_str(strs.clone()).into_array();
     let encoded = convert_columns(
         &[col0, col1],
-        &[SortField::default(), SortField::default()],
+        &[RowSortField::default(), RowSortField::default()],
         &mut ctx,
     )?;
     let rows = collect_row_bytes(&encoded);
@@ -186,15 +182,12 @@ fn nulls_first_and_last() -> VortexResult<()> {
 
     // nulls_first=true
     let encoded = convert_columns(
-        &[col.clone()],
-        &[SortField {
-            descending: false,
-            nulls_first: true,
-        }],
+        std::slice::from_ref(&col),
+        &[RowSortField::ascending()],
         &mut ctx,
     )?;
     let rows = collect_row_bytes(&encoded);
-    let mut sorted = rows.clone();
+    let mut sorted = rows;
     sorted.sort();
     // The first two sorted entries should be nulls
     let null_count = values.iter().filter(|v| v.is_none()).count();
@@ -203,22 +196,69 @@ fn nulls_first_and_last() -> VortexResult<()> {
         assert_eq!(sorted[i][0], 0x00);
     }
     // nulls_first=false
-    let encoded = convert_columns(
-        &[col],
-        &[SortField {
-            descending: false,
-            nulls_first: false,
-        }],
-        &mut ctx,
-    )?;
+    let encoded = convert_columns(&[col], &[RowSortField::ascending().nulls_last()], &mut ctx)?;
     let rows = collect_row_bytes(&encoded);
-    let mut sorted = rows.clone();
+    let mut sorted = rows;
     sorted.sort();
     // The last two sorted entries should be nulls
     for i in 0..null_count {
         let pos = sorted.len() - 1 - i;
         assert_eq!(sorted[pos][0], 0x02);
     }
+    Ok(())
+}
+
+#[test]
+fn reusable_options_helpers() -> VortexResult<()> {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let options = RowEncodingOptions::new([RowSortField::descending().nulls_last()]);
+    assert_eq!(options.len(), 1);
+    assert!(!options.is_empty());
+    assert_eq!(
+        options.fields(),
+        &[RowSortField {
+            descending: true,
+            nulls_first: false
+        }]
+    );
+
+    let col = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
+    let encoder = RowEncoder::with_options(options.clone());
+    assert_eq!(encoder.options(), Some(&options));
+
+    let encoded = encoder.encode(std::slice::from_ref(&col), &mut ctx)?;
+    assert_eq!(encoded.len(), 3);
+
+    let sizes = encoder.row_sizes(std::slice::from_ref(&col), &mut ctx)?;
+    assert_eq!(sizes.len(), 3);
+
+    let encoded = convert_columns_with_options(std::slice::from_ref(&col), &options, &mut ctx)?;
+    assert_eq!(encoded.len(), 3);
+
+    let sizes = compute_row_sizes_with_options(std::slice::from_ref(&col), &options, &mut ctx)?;
+    assert_eq!(sizes.len(), 3);
+    Ok(())
+}
+
+#[test]
+fn row_encoder_new_accepts_sort_fields() -> VortexResult<()> {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let encoder = RowEncoder::new([RowSortField::ascending()]);
+    let col = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
+
+    let encoded = encoder.encode(std::slice::from_ref(&col), &mut ctx)?;
+    assert_eq!(encoded.len(), 3);
+    Ok(())
+}
+
+#[test]
+fn default_row_encoder_uses_default_fields() -> VortexResult<()> {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let col0 = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
+    let col1 = PrimitiveArray::from_iter([4i32, 5, 6]).into_array();
+
+    let encoded = RowEncoder::default().encode(&[col0, col1], &mut ctx)?;
+    assert_eq!(encoded.len(), 3);
     Ok(())
 }
 
@@ -232,7 +272,7 @@ fn struct_sort_order() -> VortexResult<()> {
     let name_arr = VarBinViewArray::from_iter_str(names.clone()).into_array();
     let struct_arr = StructArray::from_fields(&[("id", id_arr), ("name", name_arr)])?.into_array();
 
-    let encoded = convert_columns(&[struct_arr], &[SortField::default()], &mut ctx)?;
+    let encoded = convert_columns(&[struct_arr], &[RowSortField::default()], &mut ctx)?;
     let rows = collect_row_bytes(&encoded);
 
     let mut sorted = rows.clone();
@@ -260,7 +300,7 @@ fn row_size_struct_shape() -> VortexResult<()> {
 
     let sizes = compute_row_sizes(
         &[col0, col1],
-        &[SortField::default(), SortField::default()],
+        &[RowSortField::default(), RowSortField::default()],
         &mut ctx,
     )?;
     // Shape must be Struct { fixed, var }
@@ -299,11 +339,11 @@ fn single_buffer_invariant() -> VortexResult<()> {
     let strings: Vec<String> = (0..nrows)
         .map(|i| format!("row_{}_with_padding", i))
         .collect();
-    let col0 = PrimitiveArray::from_iter(primitives.clone()).into_array();
+    let col0 = PrimitiveArray::from_iter(primitives).into_array();
     let col1 = VarBinViewArray::from_iter_str(strings.iter().map(String::as_str)).into_array();
     let encoded = convert_columns(
         &[col0, col1],
-        &[SortField::default(), SortField::default()],
+        &[RowSortField::default(), RowSortField::default()],
         &mut ctx,
     )?;
 

@@ -1,18 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(
-    clippy::cast_possible_truncation,
-    clippy::expect_used,
-    reason = "row encoding indexes into u32-sized buffers; lengths are validated to fit in u32 elsewhere"
-)]
-
 //! Pure byte-encoding kernels for row-oriented output, operating on `Canonical` variants.
 //!
 //! The encoded byte format produces a lexicographically byte-comparable representation:
 //! comparing the byte slices of two encoded rows yields the same ordering as the
 //! original logical (tuple) comparison of their values, modulo nulls placement and
-//! descending-ness as configured by [`SortField`].
+//! descending-ness as configured by [`RowSortField`].
 //!
 //! Conventions:
 //! - Every value is preceded by a 1-byte sentinel that orders nulls relative to non-nulls.
@@ -21,9 +15,6 @@
 //! - Fixed-width integers are big-endian, with the sign bit flipped for signed types.
 //! - Floats are bit-pattern big-endian with sign-aware mask: non-negative flips the top
 //!   bit; negative flips all bits.
-//!
-//! This commit covers only the fixed-width canonical variants (Null, Bool, Primitive,
-//! Decimal); variable-length and nested canonical variants land in later commits.
 
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -42,22 +33,22 @@ use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::NativePType;
-use vortex_array::dtype::PType;
 use vortex_array::dtype::half::f16;
 use vortex_array::match_each_native_ptype;
-use vortex_buffer::ByteBufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::options::SortField;
+use crate::options::RowSortField;
 
 /// Size in bytes of the encoded form of a single bool value (sentinel + 1 content byte).
-pub const BOOL_ENCODED_SIZE: u32 = 2;
+pub(crate) const BOOL_ENCODED_SIZE: u32 = 2;
 
 /// Block size used in the variable-length encoding.
-pub const VARLEN_BLOCK_SIZE: usize = 32;
+pub(crate) const VARLEN_BLOCK_SIZE: usize = 32;
 /// Total bytes per varlen block including the trailing continuation marker.
-pub const VARLEN_BLOCK_TOTAL: usize = VARLEN_BLOCK_SIZE + 1;
+pub(crate) const VARLEN_BLOCK_TOTAL: usize = VARLEN_BLOCK_SIZE + 1;
+const VARLEN_BLOCK_TOTAL_U32: u32 = 33;
 
 /// Returns the size in bytes of the encoded form of a variable-length value of the given length.
 #[inline]
@@ -66,8 +57,9 @@ fn encoded_size_for_varlen(len: usize) -> u32 {
     if len == 0 {
         1 + 1
     } else {
-        let blocks = len.div_ceil(VARLEN_BLOCK_SIZE);
-        1 + (blocks as u32) * (VARLEN_BLOCK_TOTAL as u32)
+        let blocks = u32::try_from(len.div_ceil(VARLEN_BLOCK_SIZE))
+            .vortex_expect("varlen block count must fit in u32");
+        1 + blocks * VARLEN_BLOCK_TOTAL_U32
     }
 }
 
@@ -77,13 +69,17 @@ const fn encoded_size_for_fixed(value_bytes: u32) -> u32 {
     1 + value_bytes
 }
 
+fn byte_width_u32(width: usize) -> u32 {
+    u32::try_from(width).vortex_expect("native byte width must fit in u32")
+}
+
 /// Per-row width classification for a column.
 ///
 /// `Fixed(w)` means every row encodes to exactly `w` bytes (sentinel + value), regardless
 /// of null-ness or value. `Variable` means per-row sizes depend on the data (Utf8/Binary,
 /// List, or any composite that recurses through a variable-width field).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RowWidth {
+pub(crate) enum RowWidth {
     /// Per-row width is the same constant for every row in the column.
     Fixed(u32),
     /// Per-row width is data-dependent.
@@ -96,26 +92,24 @@ pub enum RowWidth {
 /// regardless of null-ness or value. Returns `Variable` when per-row sizes depend on the
 /// data.
 ///
-/// Classification does not depend on the [`SortField`]: null-vs-non-null encoding width is
+/// Classification does not depend on the [`RowSortField`]: null-vs-non-null encoding width is
 /// the same for fixed-width types (the sentinel byte plus zero-fill for nulls).
 ///
 /// # Errors
 ///
-/// Returns an error for dtypes that the row encoder does not yet support. Variable-length
-/// dtypes (Utf8/Binary), nested dtypes (Struct/FixedSizeList/Extension), and
-/// Variant/Union/List arrive in later commits.
-pub fn row_width_for_dtype(dtype: &DType) -> VortexResult<RowWidth> {
+/// Returns an error for dtypes that the row encoder does not support.
+pub(crate) fn row_width_for_dtype(dtype: &DType) -> VortexResult<RowWidth> {
     match dtype {
         DType::Null => Ok(RowWidth::Fixed(1)),
         DType::Bool(_) => Ok(RowWidth::Fixed(BOOL_ENCODED_SIZE)),
-        DType::Primitive(ptype, _) => Ok(RowWidth::Fixed(encoded_size_for_fixed(
-            ptype.byte_width() as u32,
-        ))),
+        DType::Primitive(ptype, _) => Ok(RowWidth::Fixed(encoded_size_for_fixed(byte_width_u32(
+            ptype.byte_width(),
+        )))),
         DType::Decimal(dt, _) => {
             let vt = DecimalType::smallest_decimal_value_type(dt);
-            Ok(RowWidth::Fixed(encoded_size_for_fixed(
-                vt.byte_width() as u32
-            )))
+            Ok(RowWidth::Fixed(encoded_size_for_fixed(byte_width_u32(
+                vt.byte_width(),
+            ))))
         }
         DType::Utf8(_) | DType::Binary(_) => Ok(RowWidth::Variable),
         DType::FixedSizeList(elem, n, _) => match row_width_for_dtype(elem)? {
@@ -154,11 +148,10 @@ pub fn row_width_for_dtype(dtype: &DType) -> VortexResult<RowWidth> {
 ///
 /// # Errors
 ///
-/// Returns an error for unsupported canonical variants. Variable-length and nested
-/// variants land in later commits.
-pub fn field_size(
+/// Returns an error for unsupported canonical variants.
+pub(crate) fn field_size(
     canonical: &Canonical,
-    field: SortField,
+    field: RowSortField,
     sizes: &mut [u32],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
@@ -172,7 +165,7 @@ pub fn field_size(
         Canonical::FixedSizeList(arr) => add_size_fsl(arr, field, sizes, ctx)?,
         Canonical::Extension(arr) => add_size_extension(arr, field, sizes, ctx)?,
         Canonical::List(_) => vortex_bail!(
-            "row encoding does not yet support canonical type {:?}",
+            "row encoding does not support canonical List arrays: {:?}",
             canonical.dtype()
         ),
         Canonical::Variant(_) => {
@@ -188,9 +181,9 @@ pub fn field_size(
 ///
 /// After this call returns successfully, `cursors[i]` will have advanced by exactly the
 /// per-row contribution previously computed by [`field_size`] for the same column.
-pub fn field_encode(
+pub(crate) fn field_encode(
     canonical: &Canonical,
-    field: SortField,
+    field: RowSortField,
     offsets: &[u32],
     cursors: &mut [u32],
     out: &mut [u8],
@@ -206,7 +199,7 @@ pub fn field_encode(
         Canonical::FixedSizeList(arr) => encode_fsl(arr, field, offsets, cursors, out, ctx)?,
         Canonical::Extension(arr) => encode_extension(arr, field, offsets, cursors, out, ctx)?,
         Canonical::List(_) => vortex_bail!(
-            "row encoding does not yet support canonical type {:?}",
+            "row encoding does not support canonical List arrays: {:?}",
             canonical.dtype()
         ),
         Canonical::Variant(_) => {
@@ -231,12 +224,12 @@ fn add_size_null(arr: &NullArray, sizes: &mut [u32]) {
 }
 
 fn add_size_primitive(arr: &PrimitiveArray, sizes: &mut [u32]) {
-    let width = arr.ptype().byte_width() as u32;
+    let width = byte_width_u32(arr.ptype().byte_width());
     add_size_const(sizes, encoded_size_for_fixed(width));
 }
 
 fn add_size_decimal(arr: &DecimalArray, sizes: &mut [u32]) {
-    let width = arr.values_type().byte_width() as u32;
+    let width = byte_width_u32(arr.values_type().byte_width());
     add_size_const(sizes, encoded_size_for_fixed(width));
 }
 
@@ -261,7 +254,7 @@ fn add_size_varbinview(
 
 fn add_size_struct(
     arr: &StructArray,
-    field: SortField,
+    field: RowSortField,
     sizes: &mut [u32],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
@@ -279,7 +272,7 @@ fn add_size_struct(
 
 fn add_size_fsl(
     arr: &FixedSizeListArray,
-    field: SortField,
+    field: RowSortField,
     sizes: &mut [u32],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
@@ -305,7 +298,7 @@ fn add_size_fsl(
 
 fn add_size_extension(
     arr: &ExtensionArray,
-    field: SortField,
+    field: RowSortField,
     sizes: &mut [u32],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
@@ -315,7 +308,7 @@ fn add_size_extension(
 
 fn encode_null(
     arr: &NullArray,
-    field: SortField,
+    field: RowSortField,
     row_offsets: &[u32],
     col_offset: &mut [u32],
     out: &mut [u8],
@@ -330,7 +323,7 @@ fn encode_null(
 
 fn encode_bool(
     arr: &BoolArray,
-    field: SortField,
+    field: RowSortField,
     row_offsets: &[u32],
     col_offset: &mut [u32],
     out: &mut [u8],
@@ -359,7 +352,7 @@ fn encode_bool(
 
 fn encode_primitive(
     arr: &PrimitiveArray,
-    field: SortField,
+    field: RowSortField,
     row_offsets: &[u32],
     col_offset: &mut [u32],
     out: &mut [u8],
@@ -373,7 +366,7 @@ fn encode_primitive(
 
 fn encode_primitive_typed<T: NativePType + RowEncode>(
     arr: &PrimitiveArray,
-    field: SortField,
+    field: RowSortField,
     row_offsets: &[u32],
     col_offset: &mut [u32],
     out: &mut [u8],
@@ -396,14 +389,14 @@ fn encode_primitive_typed<T: NativePType + RowEncode>(
                 *b = 0;
             }
         }
-        col_offset[i] += encoded_size_for_fixed(value_bytes as u32);
+        col_offset[i] += encoded_size_for_fixed(byte_width_u32(value_bytes));
     }
     Ok(())
 }
 
 fn encode_decimal(
     arr: &DecimalArray,
-    field: SortField,
+    field: RowSortField,
     row_offsets: &[u32],
     col_offset: &mut [u32],
     out: &mut [u8],
@@ -436,7 +429,7 @@ fn encode_decimal(
 fn encode_decimal_typed<T>(
     arr: &DecimalArray,
     mask: &vortex_mask::Mask,
-    field: SortField,
+    field: RowSortField,
     row_offsets: &[u32],
     col_offset: &mut [u32],
     out: &mut [u8],
@@ -446,7 +439,7 @@ fn encode_decimal_typed<T>(
     let non_null = field.non_null_sentinel();
     let null = field.null_sentinel();
     let value_bytes = size_of::<T>();
-    let total = encoded_size_for_fixed(value_bytes as u32);
+    let total = encoded_size_for_fixed(byte_width_u32(value_bytes));
     let slice = arr.buffer::<T>();
     for i in 0..slice.len() {
         let pos = (row_offsets[i] + col_offset[i]) as usize;
@@ -465,7 +458,7 @@ fn encode_decimal_typed<T>(
 
 fn encode_varbinview(
     arr: &VarBinViewArray,
-    field: SortField,
+    field: RowSortField,
     row_offsets: &[u32],
     col_offset: &mut [u32],
     out: &mut [u8],
@@ -494,7 +487,7 @@ fn encode_varbinview(
 
 fn encode_struct(
     arr: &StructArray,
-    field: SortField,
+    field: RowSortField,
     row_offsets: &[u32],
     col_offset: &mut [u32],
     out: &mut [u8],
@@ -545,7 +538,7 @@ fn encode_struct(
 
 fn encode_fsl(
     arr: &FixedSizeListArray,
-    field: SortField,
+    field: RowSortField,
     row_offsets: &[u32],
     col_offset: &mut [u32],
     out: &mut [u8],
@@ -608,7 +601,7 @@ fn encode_fsl(
 
 fn encode_extension(
     arr: &ExtensionArray,
-    field: SortField,
+    field: RowSortField,
     row_offsets: &[u32],
     col_offset: &mut [u32],
     out: &mut [u8],
@@ -647,16 +640,17 @@ fn encode_varlen_value(bytes: &[u8], out: &mut [u8], descending: bool) -> u32 {
     for j in n..VARLEN_BLOCK_SIZE {
         out[written + j] = xor;
     }
-    out[written + VARLEN_BLOCK_SIZE] = (n as u8) ^ xor;
+    out[written + VARLEN_BLOCK_SIZE] =
+        u8::try_from(n).vortex_expect("final varlen block length must fit in u8") ^ xor;
     written += VARLEN_BLOCK_TOTAL;
-    written as u32
+    u32::try_from(written).vortex_expect("encoded varlen byte length must fit in u32")
 }
 
 /// Internal trait for encoding a fixed-width native value into byte slots.
 ///
 /// Implementations must produce a sequence of `size_of::<Self>()` bytes that is
 /// lexicographically byte-comparable according to the natural ordering of the type.
-pub trait RowEncode: Copy {
+pub(crate) trait RowEncode: Copy {
     /// Encode this value into `out`, inverting the bytes for descending order.
     fn encode_to(self, out: &mut [u8], descending: bool);
 }
@@ -757,239 +751,4 @@ impl RowEncode for f16 {
         }
         out.copy_from_slice(&bytes);
     }
-}
-
-/// Encode a single scalar primitive value of a known PType into a buffer slot.
-pub fn encode_scalar_primitive(
-    ptype: PType,
-    value: vortex_array::scalar::PValue,
-    field: SortField,
-    is_null: bool,
-    out: &mut ByteBufferMut,
-) -> VortexResult<()> {
-    if is_null {
-        out.push(field.null_sentinel());
-        return Ok(());
-    }
-    out.push(field.non_null_sentinel());
-    let width = ptype.byte_width();
-    let mut tmp = [0u8; 16];
-    let buf = &mut tmp[..width];
-    match_each_native_ptype!(
-        ptype,
-        integral: |T| {
-            let v: T = T::try_from(value)?;
-            v.encode_to(buf, field.descending);
-        },
-        floating: |T| {
-            let v: T = T::try_from(value)?;
-            v.encode_to(buf, field.descending);
-        }
-    );
-    out.extend_from_slice(buf);
-    Ok(())
-}
-
-/// Encode a single varlen value into a buffer.
-pub fn encode_scalar_varlen(value: Option<&[u8]>, field: SortField, out: &mut ByteBufferMut) {
-    match value {
-        None => out.push(field.null_sentinel()),
-        Some(bytes) => {
-            out.push(field.non_null_sentinel());
-            let needed = if bytes.is_empty() {
-                1
-            } else {
-                bytes.len().div_ceil(VARLEN_BLOCK_SIZE) * VARLEN_BLOCK_TOTAL
-            };
-            let start = out.len();
-            for _ in 0..needed {
-                out.push(0);
-            }
-            let written = encode_varlen_value(bytes, &mut out[start..], field.descending);
-            debug_assert_eq!(written as usize, needed);
-        }
-    }
-}
-
-/// Encode a single boolean value.
-pub fn encode_scalar_bool(value: Option<bool>, field: SortField, out: &mut ByteBufferMut) {
-    match value {
-        None => {
-            out.push(field.null_sentinel());
-            out.push(0);
-        }
-        Some(b) => {
-            out.push(field.non_null_sentinel());
-            let raw = if b { 0x02u8 } else { 0x01u8 };
-            let xor = if field.descending { 0xFFu8 } else { 0 };
-            out.push(raw ^ xor);
-        }
-    }
-}
-
-/// Encode a single null-type value (only the sentinel).
-pub fn encode_scalar_null(field: SortField, is_null: bool, out: &mut ByteBufferMut) {
-    if is_null {
-        out.push(field.null_sentinel());
-    } else {
-        out.push(field.non_null_sentinel());
-    }
-}
-
-/// Returns the per-row encoded size for a scalar value (used for the Constant fast path).
-pub fn encoded_size_for_scalar(
-    scalar: &vortex_array::scalar::Scalar,
-    _field: SortField,
-) -> VortexResult<u32> {
-    if scalar.is_null() {
-        match scalar.dtype() {
-            DType::Null => Ok(1),
-            DType::Bool(_) => Ok(BOOL_ENCODED_SIZE),
-            DType::Primitive(ptype, _) => Ok(encoded_size_for_fixed(ptype.byte_width() as u32)),
-            DType::Decimal(dt, _) => {
-                let vt = DecimalType::smallest_decimal_value_type(dt);
-                Ok(encoded_size_for_fixed(vt.byte_width() as u32))
-            }
-            DType::Utf8(_) | DType::Binary(_) => Ok(1),
-            _ => vortex_bail!(
-                "unsupported scalar dtype for row encoding: {}",
-                scalar.dtype()
-            ),
-        }
-    } else {
-        match scalar.dtype() {
-            DType::Null => Ok(1),
-            DType::Bool(_) => Ok(BOOL_ENCODED_SIZE),
-            DType::Primitive(ptype, _) => Ok(encoded_size_for_fixed(ptype.byte_width() as u32)),
-            DType::Decimal(..) => {
-                let dec = scalar.as_decimal();
-                let vt = dec
-                    .decimal_value()
-                    .map(|v| v.decimal_type())
-                    .unwrap_or(DecimalType::I128);
-                Ok(encoded_size_for_fixed(vt.byte_width() as u32))
-            }
-            DType::Utf8(_) => {
-                let bs = scalar
-                    .as_utf8()
-                    .value()
-                    .map(|s| s.as_str().len())
-                    .unwrap_or(0);
-                Ok(encoded_size_for_varlen(bs))
-            }
-            DType::Binary(_) => {
-                let bs = scalar.as_binary().value().map(|b| b.len()).unwrap_or(0);
-                Ok(encoded_size_for_varlen(bs))
-            }
-            _ => vortex_bail!(
-                "unsupported scalar dtype for row encoding: {}",
-                scalar.dtype()
-            ),
-        }
-    }
-}
-
-/// Encode a single scalar value into a fresh `Bytes` buffer.
-pub fn encode_scalar(
-    scalar: &vortex_array::scalar::Scalar,
-    field: SortField,
-) -> VortexResult<bytes::Bytes> {
-    use vortex_array::scalar::PValue;
-    let size = encoded_size_for_scalar(scalar, field)? as usize;
-    let mut out = ByteBufferMut::with_capacity(size);
-    if scalar.is_null() {
-        match scalar.dtype() {
-            DType::Null => out.push(field.null_sentinel()),
-            DType::Bool(_) => {
-                out.push(field.null_sentinel());
-                out.push(0);
-            }
-            DType::Primitive(ptype, _) => {
-                out.push(field.null_sentinel());
-                let width = ptype.byte_width();
-                for _ in 0..width {
-                    out.push(0);
-                }
-            }
-            DType::Decimal(dt, _) => {
-                out.push(field.null_sentinel());
-                let vt = DecimalType::smallest_decimal_value_type(dt);
-                for _ in 0..vt.byte_width() {
-                    out.push(0);
-                }
-            }
-            DType::Utf8(_) | DType::Binary(_) => out.push(field.null_sentinel()),
-            _ => vortex_bail!(
-                "unsupported scalar dtype for row encoding: {}",
-                scalar.dtype()
-            ),
-        }
-    } else {
-        match scalar.dtype() {
-            DType::Null => out.push(field.non_null_sentinel()),
-            DType::Bool(_) => {
-                let v = scalar.as_bool().value().unwrap_or(false);
-                encode_scalar_bool(Some(v), field, &mut out);
-            }
-            DType::Primitive(ptype, _) => {
-                let v: PValue = scalar
-                    .as_primitive()
-                    .pvalue()
-                    .ok_or_else(|| vortex_error::vortex_err!("missing primitive value"))?;
-                encode_scalar_primitive(*ptype, v, field, false, &mut out)?;
-            }
-            DType::Decimal(..) => {
-                let dec = scalar.as_decimal();
-                out.push(field.non_null_sentinel());
-                let value = dec
-                    .decimal_value()
-                    .ok_or_else(|| vortex_error::vortex_err!("missing decimal value"))?;
-                match value {
-                    vortex_array::scalar::DecimalValue::I8(v) => {
-                        let mut tmp = [0u8; 1];
-                        v.encode_to(&mut tmp, field.descending);
-                        out.extend_from_slice(&tmp);
-                    }
-                    vortex_array::scalar::DecimalValue::I16(v) => {
-                        let mut tmp = [0u8; 2];
-                        v.encode_to(&mut tmp, field.descending);
-                        out.extend_from_slice(&tmp);
-                    }
-                    vortex_array::scalar::DecimalValue::I32(v) => {
-                        let mut tmp = [0u8; 4];
-                        v.encode_to(&mut tmp, field.descending);
-                        out.extend_from_slice(&tmp);
-                    }
-                    vortex_array::scalar::DecimalValue::I64(v) => {
-                        let mut tmp = [0u8; 8];
-                        v.encode_to(&mut tmp, field.descending);
-                        out.extend_from_slice(&tmp);
-                    }
-                    vortex_array::scalar::DecimalValue::I128(v) => {
-                        let mut tmp = [0u8; 16];
-                        v.encode_to(&mut tmp, field.descending);
-                        out.extend_from_slice(&tmp);
-                    }
-                    vortex_array::scalar::DecimalValue::I256(_) => {
-                        vortex_bail!("row encoding for Decimal256 is not yet implemented")
-                    }
-                }
-            }
-            DType::Utf8(_) => {
-                let v = scalar.as_utf8();
-                let bytes = v.value().map(|s| s.as_str().as_bytes()).unwrap_or(&[]);
-                encode_scalar_varlen(Some(bytes), field, &mut out);
-            }
-            DType::Binary(_) => {
-                let v = scalar.as_binary();
-                let bytes = v.value().map(|b| b.as_slice()).unwrap_or(&[]);
-                encode_scalar_varlen(Some(bytes), field, &mut out);
-            }
-            _ => vortex_bail!(
-                "unsupported scalar dtype for row encoding: {}",
-                scalar.dtype()
-            ),
-        }
-    }
-    Ok(out.freeze().into_inner())
 }

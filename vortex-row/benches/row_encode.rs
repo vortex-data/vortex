@@ -5,15 +5,12 @@
     clippy::unwrap_used,
     clippy::clone_on_ref_ptr,
     clippy::cloned_ref_to_slice_refs,
-    clippy::cast_possible_truncation,
-    clippy::cast_possible_wrap,
     clippy::redundant_clone
 )]
 
-//! Row-encode throughput benchmarks comparing `arrow-row` against vortex's `convert_columns`
-//! for the canonical scenarios shipped in PR 1: a primitive i64 column, a Utf8 column,
-//! and a mixed-field struct. Per-encoding fast paths (Constant, Dict, Patched, BitPacked,
-//! FoR, Delta) gain their own triplets in PR 3.
+//! Row-encode throughput benchmarks comparing `arrow-row` against Vortex's [`RowEncoder`]
+//! for the core canonical scenarios: a primitive i64 column, a Utf8 column, and a
+//! mixed-field struct.
 
 use std::sync::Arc;
 
@@ -36,8 +33,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_row::SortField;
-use vortex_row::convert_columns;
+use vortex_row::RowEncoder;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -86,9 +82,10 @@ fn primitive_i64_vortex(bencher: divan::Bencher) {
     let v = gen_i64(N, 0);
     let col = PrimitiveArray::from_iter(v.clone()).into_array();
     let bytes = (N * (1 + 8)) as u64;
+    let encoder = RowEncoder::default();
     bencher.counter(BytesCount::new(bytes)).bench_local(|| {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        convert_columns(&[col.clone()], &[SortField::default()], &mut ctx).unwrap()
+        encoder.encode(&[col.clone()], &mut ctx).unwrap()
     })
 }
 
@@ -116,9 +113,10 @@ fn utf8_vortex(bencher: divan::Bencher) {
         .map(|w| 1 + (w.len().div_ceil(32) * 33) as u64)
         .sum();
     let col = VarBinViewArray::from_iter_str(words.iter().map(String::as_str)).into_array();
+    let encoder = RowEncoder::default();
     bencher.counter(BytesCount::new(total)).bench_local(|| {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        convert_columns(&[col.clone()], &[SortField::default()], &mut ctx).unwrap()
+        encoder.encode(&[col.clone()], &mut ctx).unwrap()
     })
 }
 
@@ -170,8 +168,9 @@ fn struct_mixed_vortex(bencher: divan::Bencher) {
     let struct_arr = StructArray::from_fields(&[("id", id_arr), ("name", name_arr)])
         .unwrap()
         .into_array();
+    let encoder = RowEncoder::default();
     bencher.counter(BytesCount::new(total)).bench_local(|| {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        convert_columns(&[struct_arr.clone()], &[SortField::default()], &mut ctx).unwrap()
+        encoder.encode(&[struct_arr.clone()], &mut ctx).unwrap()
     })
 }

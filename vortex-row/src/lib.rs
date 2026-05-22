@@ -1,55 +1,59 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Row-oriented byte encoder, analogous to Apache Arrow's `arrow-row` crate.
+//! Row-oriented byte encoding for Vortex arrays.
 //!
-//! The encoder converts N columnar arrays into a single `List<u8>` array where each row's
-//! bytes are lexicographically comparable in the same order as a tuple comparison of the
-//! original values. This is useful for sorting, hashing into row containers, and other
-//! operations that benefit from a sort-friendly opaque byte representation of a multi-column
-//! key.
+//! This crate converts one or more columnar arrays into a single `ListView<u8>` array whose
+//! row byte slices can be compared lexicographically. The byte ordering matches tuple
+//! ordering of the input values under the requested [`RowSortField`] settings, making the
+//! representation useful for sort keys and other row-key operations.
 //!
-//! Two variadic scalar functions drive the implementation:
-//! - [`RowSize`] computes per-row byte sizes across all N input columns.
-//! - [`RowEncode`] writes the row-encoded bytes into a single `ListView<u8>` accumulator
-//!   in one left-to-right pass.
+//! The public entry points are:
+//! - [`RowEncoder`], the primary API for encoding columns into row bytes.
+//! - [`RowEncoder::row_sizes`], which computes the fixed and variable byte contributions
+//!   without materializing the encoded rows.
+//! - [`convert_columns`] and [`compute_row_sizes`], compatibility helpers around
+//!   [`RowEncoder`].
+//! - [`initialize`], which registers the [`RowSize`] and [`RowEncode`] scalar functions on a
+//!   [`VortexSession`].
 //!
-//! Each scalar function exposes a per-encoding fast-path trait
-//! ([`RowSizeKernel`] / [`RowEncodeKernel`]) for downstream encodings to plug into; PR 3
-//! adds in-crate impls for `Constant`, `Dict`, and `Patched` and an inventory-based
-//! registry for external encodings.
+//! Internally, encoding is split into two scalar functions. [`RowSize`] performs the sizing
+//! pass and classifies fixed-width versus variable-width input columns. [`RowEncode`] uses
+//! those sizes to allocate one contiguous elements buffer, then writes each column's bytes
+//! into the per-row slots from left to right.
 //!
-//! The user-facing entry point is [`convert_columns`].
-//!
-//! Row-encoding scalar functions are not registered in the default
-//! [`VortexSession`]. Call [`initialize`] on a session to make `RowSize` and `RowEncode`
-//! available via the expression layer.
+//! Supported logical types are nulls, booleans, primitive integers and floats, decimals up to
+//! 128 bits, UTF-8 and binary values, structs, fixed-size lists, and extensions whose storage
+//! type is supported. Variant, union, and variable-size list arrays are rejected because this
+//! crate does not define an ordering for them.
 
-pub mod codec;
-pub mod convert;
-pub mod encode;
-pub mod options;
-pub mod size;
+mod codec;
+mod encode;
+mod encoder;
+mod options;
+mod size;
 
 #[cfg(test)]
 mod tests;
 
-pub use convert::compute_row_sizes;
-pub use convert::convert_columns;
 pub use encode::RowEncode;
-pub use encode::RowEncodeKernel;
-pub use options::RowEncodeOptions;
-pub use options::SortField;
+pub use encoder::RowEncoder;
+pub use encoder::compute_row_sizes;
+pub use encoder::compute_row_sizes_with_options;
+pub use encoder::convert_columns;
+pub use encoder::convert_columns_with_options;
+pub use options::RowEncodingOptions;
+pub use options::RowSortField;
 pub use size::RowSize;
-pub use size::RowSizeKernel;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_session::VortexSession;
 
 /// Register the row-encoding scalar functions ([`RowSize`] and [`RowEncode`]) on the given
 /// session.
 ///
-/// Call once on session construction if you want row encoding available via the expression
-/// layer or via [`convert_columns`].
+/// Call this during session construction when row encoding must be available through the
+/// expression layer. The direct [`RowEncoder`] API constructs the scalar-function calls
+/// itself and does not require global registration.
 pub fn initialize(session: &VortexSession) {
     session.scalar_fns().register(RowSize);
     session.scalar_fns().register(RowEncode);

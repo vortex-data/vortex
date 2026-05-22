@@ -6,11 +6,9 @@
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
-use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::VTable;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
@@ -35,53 +33,16 @@ use vortex_session::VortexSession;
 
 use crate::codec;
 use crate::codec::RowWidth;
-use crate::options::RowEncodeOptions;
-use crate::options::SortField;
-use crate::options::deserialize_row_encode_options;
-use crate::options::serialize_row_encode_options;
-
-/// Classification of a single input column for the size pass.
-///
-/// Tracks each column's within-row byte offset (the constant prefix from all preceding
-/// fixed-width columns) and, for fixed columns, whether any variable-length column has
-/// appeared yet — the encode pass uses this to choose between the arithmetic-write fast
-/// path (no varlen before this column, so the within-row position is constant) and the
-/// cursor-write path.
-#[derive(Clone, Copy, Debug)]
-#[allow(
-    dead_code,
-    reason = "fields read by the RowEncode pipeline in a later commit"
-)]
-pub(crate) enum ColKind {
-    /// Column has fixed width `width`. `prefix` is the within-row byte offset of this
-    /// column's first byte. If `before_varlen` is true, no variable-length column precedes
-    /// this one, so the within-row offset is constant for every row.
-    Fixed {
-        width: u32,
-        prefix: u32,
-        before_varlen: bool,
-    },
-    /// Column has variable per-row width. `fixed_prefix` is the sum of widths of all
-    /// preceding fixed columns; the varlen contribution from earlier varlen columns is
-    /// added per row.
-    Variable { fixed_prefix: u32 },
-}
+use crate::options::RowEncodingOptions;
+use crate::options::RowSortField;
+use crate::options::deserialize_row_encoding_options;
+use crate::options::serialize_row_encoding_options;
 
 /// Result of the size pass: enough information for both [`RowSize::execute`] and the
 /// downstream [`RowEncode`](super::encode::RowEncode) pipeline.
 pub(crate) struct SizePassResult {
     pub fixed_per_row: u32,
     pub var_lengths: Option<Vec<u32>>,
-    #[allow(
-        dead_code,
-        reason = "consumed by the arithmetic-write fast path added in PR 2"
-    )]
-    pub col_kinds: Vec<ColKind>,
-    #[allow(
-        dead_code,
-        reason = "consumed by the arithmetic-write fast path added in PR 2"
-    )]
-    pub first_varlen_idx: Option<usize>,
     pub columns: Vec<ArrayRef>,
 }
 
@@ -94,40 +55,34 @@ pub(crate) struct SizePassResult {
 ///
 /// This is shared by [`RowSize::execute`] (which wraps the result into a
 /// `Struct { fixed, var }`) and the [`RowEncode`](super::encode::RowEncode) pipeline
-/// (which uses the full result, including `col_kinds`, to drive the encode pass).
+/// (which reuses the canonicalized columns for the encode pass).
 pub(crate) fn compute_sizes(
-    options: &RowEncodeOptions,
+    options: &RowEncodingOptions,
     args: &dyn ExecutionArgs,
     ctx: &mut ExecutionCtx,
-    op_name: &'static str,
 ) -> VortexResult<SizePassResult> {
     let n_inputs = args.num_inputs();
     if n_inputs == 0 {
-        vortex_bail!("{} requires at least one input column", op_name);
+        vortex_bail!("at least one input column is required");
     }
-    if options.fields.len() != n_inputs {
+    if options.len() != n_inputs {
         vortex_bail!(
-            "{} options.fields.len()={} does not match num_inputs={}",
-            op_name,
-            options.fields.len(),
+            "options len ({}) does not match num_inputs ({})",
+            options.len(),
             n_inputs
         );
     }
     let nrows = args.row_count();
 
     let mut columns: Vec<ArrayRef> = Vec::with_capacity(n_inputs);
-    let mut col_kinds: Vec<ColKind> = Vec::with_capacity(n_inputs);
     let mut fixed_per_row: u32 = 0;
     let mut var_lengths: Option<Vec<u32>> = None;
-    let mut first_varlen_idx: Option<usize> = None;
-    let mut running_fixed_prefix: u32 = 0;
 
     for i in 0..n_inputs {
         let col = args.get(i)?;
         if col.len() != nrows {
             vortex_bail!(
-                "{}: column {} has length {} but expected {}",
-                op_name,
+                "column {} has length {} but expected {}",
                 i,
                 col.len(),
                 nrows
@@ -135,27 +90,13 @@ pub(crate) fn compute_sizes(
         }
         match codec::row_width_for_dtype(col.dtype())? {
             RowWidth::Fixed(w) => {
-                col_kinds.push(ColKind::Fixed {
-                    width: w,
-                    prefix: running_fixed_prefix,
-                    before_varlen: first_varlen_idx.is_none(),
-                });
                 fixed_per_row = fixed_per_row
-                    .checked_add(w)
-                    .vortex_expect("row width overflow");
-                running_fixed_prefix = running_fixed_prefix
                     .checked_add(w)
                     .vortex_expect("row width overflow");
             }
             RowWidth::Variable => {
-                if first_varlen_idx.is_none() {
-                    first_varlen_idx = Some(i);
-                }
                 let v = var_lengths.get_or_insert_with(|| vec![0u32; nrows]);
                 dispatch_size(&col, options.fields[i], v, ctx)?;
-                col_kinds.push(ColKind::Variable {
-                    fixed_prefix: running_fixed_prefix,
-                });
             }
         }
         columns.push(col);
@@ -164,13 +105,11 @@ pub(crate) fn compute_sizes(
     Ok(SizePassResult {
         fixed_per_row,
         var_lengths,
-        col_kinds,
-        first_varlen_idx,
         columns,
     })
 }
 
-/// Variadic scalar function that, given N input columns and per-column [`SortField`]s,
+/// Variadic scalar function that, given N input columns and per-column [`RowSortField`]s,
 /// returns a `Struct { fixed: U32, var: U32 }` array of per-row byte sizes for the
 /// row-oriented encoding produced by [`RowEncode`](super::encode::RowEncode).
 ///
@@ -180,6 +119,10 @@ pub(crate) fn compute_sizes(
 /// [`PrimitiveArray<u32>`] of per-row varlen-byte sums otherwise.
 ///
 /// The total per-row byte size is `fixed + var`.
+///
+/// This scalar function is public for session registration and encoding extension work.
+/// Most callers should use [`RowEncoder::row_sizes`](crate::RowEncoder::row_sizes) rather
+/// than invoking the scalar function directly.
 #[derive(Clone, Debug)]
 pub struct RowSize;
 
@@ -203,14 +146,14 @@ pub(crate) fn row_size_struct_dtype() -> DType {
 }
 
 impl ScalarFnVTable for RowSize {
-    type Options = RowEncodeOptions;
+    type Options = RowEncodingOptions;
 
     fn id(&self) -> ScalarFnId {
         ScalarFnId::from("vortex.row_size")
     }
 
     fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(serialize_row_encode_options(options)))
+        Ok(Some(serialize_row_encoding_options(options)))
     }
 
     fn deserialize(
@@ -218,7 +161,7 @@ impl ScalarFnVTable for RowSize {
         metadata: &[u8],
         _session: &VortexSession,
     ) -> VortexResult<Self::Options> {
-        deserialize_row_encode_options(metadata)
+        deserialize_row_encoding_options(metadata)
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {
@@ -240,7 +183,7 @@ impl ScalarFnVTable for RowSize {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let nrows = args.row_count();
-        let result = compute_sizes(options, args, ctx, "RowSize")?;
+        let result = compute_sizes(options, args, ctx)?;
         let fixed_array =
             ConstantArray::new(Scalar::from(result.fixed_per_row), nrows).into_array();
         let var_array = match result.var_lengths {
@@ -266,31 +209,16 @@ impl ScalarFnVTable for RowSize {
     }
 }
 
-/// Dispatch a single column's per-row size contribution.
+/// Dispatch a single column's per-row size contribution through the canonical path.
 ///
-/// For PR 1 this is just the canonicalize-then-`codec::field_size` fallback path. In-crate
-/// fast paths for `Constant`/`Dict`/`Patched` and the inventory-based registry for
-/// downstream encodings are added in PR 3.
-pub fn dispatch_size(
+/// TODO(row): add per-encoding fast paths here so Constant, Dictionary, and compressed arrays
+/// can contribute row sizes without canonicalizing.
+pub(crate) fn dispatch_size(
     col: &ArrayRef,
-    field: SortField,
+    field: RowSortField,
     sizes: &mut [u32],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
     let canonical = col.clone().execute::<Canonical>(ctx)?;
     codec::field_size(&canonical, field, sizes, ctx)
-}
-
-/// Mutate-buffer kernel: add this column's per-row byte contribution into the shared
-/// `sizes` slice. Return `Ok(None)` to decline and fall back to the canonical path.
-///
-/// Trait is defined now; per-encoding impls and dispatch wiring land in PR 3.
-pub trait RowSizeKernel: VTable {
-    /// Add this column's per-row byte contribution into `sizes`.
-    fn row_size_contribution(
-        column: ArrayView<'_, Self>,
-        field: SortField,
-        sizes: &mut [u32],
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<()>>;
 }

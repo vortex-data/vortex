@@ -1,11 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(
-    clippy::cast_possible_truncation,
-    reason = "row encoding indexes into u32-sized buffers; lengths are validated to fit in u32"
-)]
-
 //! `RowEncode` variadic scalar function: encode N input columns into a single `ListView<u8>`.
 //!
 //! The output's `(elements, offsets, sizes)` triple is built up in a single left-to-right
@@ -16,11 +11,9 @@
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
-use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::VTable;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
@@ -40,27 +33,31 @@ use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
 use crate::codec;
-use crate::options::RowEncodeOptions;
-use crate::options::SortField;
-use crate::options::deserialize_row_encode_options;
-use crate::options::serialize_row_encode_options;
+use crate::options::RowEncodingOptions;
+use crate::options::RowSortField;
+use crate::options::deserialize_row_encoding_options;
+use crate::options::serialize_row_encoding_options;
 use crate::size::compute_sizes;
 
 /// Variadic scalar function that encodes N input columns into a single `List<u8>`
 /// [`ListViewArray`] where row `i` contains the row-encoded bytes for column values
 /// `cols[0][i], cols[1][i], ...` concatenated left-to-right.
+///
+/// This scalar function is public for session registration and encoding extension work.
+/// Most callers should use [`RowEncoder`](crate::RowEncoder) rather than invoking the scalar
+/// function directly.
 #[derive(Clone, Debug)]
 pub struct RowEncode;
 
 impl ScalarFnVTable for RowEncode {
-    type Options = RowEncodeOptions;
+    type Options = RowEncodingOptions;
 
     fn id(&self) -> ScalarFnId {
         ScalarFnId::from("vortex.row_encode")
     }
 
     fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(serialize_row_encode_options(options)))
+        Ok(Some(serialize_row_encoding_options(options)))
     }
 
     fn deserialize(
@@ -68,7 +65,7 @@ impl ScalarFnVTable for RowEncode {
         metadata: &[u8],
         _session: &VortexSession,
     ) -> VortexResult<Self::Options> {
-        deserialize_row_encode_options(metadata)
+        deserialize_row_encoding_options(metadata)
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {
@@ -105,7 +102,7 @@ impl ScalarFnVTable for RowEncode {
 }
 
 fn execute_row_encode(
-    options: &RowEncodeOptions,
+    options: &RowEncodingOptions,
     args: &dyn ExecutionArgs,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
@@ -115,10 +112,8 @@ fn execute_row_encode(
     let crate::size::SizePassResult {
         fixed_per_row,
         var_lengths,
-        col_kinds: _,
-        first_varlen_idx: _,
         columns,
-    } = compute_sizes(options, args, ctx, "RowEncode")?;
+    } = compute_sizes(options, args, ctx)?;
 
     // ===== Phase 2: totals + buffer =====
     let var_total: u64 = var_lengths
@@ -131,12 +126,11 @@ fn execute_row_encode(
     if total > u32::MAX as u64 {
         vortex_bail!("row-encoded output size {} bytes exceeds u32::MAX", total);
     }
-    let total_len = total as usize;
+    let total_len =
+        usize::try_from(total).vortex_expect("validated row-encoded output size must fit usize");
 
     // Allocate the elements buffer (zero-initialized). The zero-init lets every encoder
-    // assume previously-untouched bytes are zero, simplifying the null-row fill paths.
-    // PR 2 skips this memset because every byte in the output range is written by some
-    // encoder.
+    // assume previously untouched bytes are zero, simplifying the null-row fill paths.
     let mut out_buf: BufferMut<u8> = BufferMut::with_capacity(total_len);
     out_buf.push_n(0u8, total_len);
 
@@ -148,8 +142,10 @@ fn execute_row_encode(
     match var_lengths.as_ref() {
         None => {
             for i in 0..nrows {
+                let row_idx =
+                    u32::try_from(i).vortex_expect("row index must fit in u32 after validation");
                 listview_offsets.push(
-                    (i as u32)
+                    row_idx
                         .checked_mul(fixed_per_row)
                         .vortex_expect("row offset overflow (already validated total fits in u32)"),
                 );
@@ -158,7 +154,9 @@ fn execute_row_encode(
         Some(v) => {
             let mut acc: u32 = 0;
             for (i, &l) in v.iter().enumerate() {
-                let off = (i as u32)
+                let row_idx =
+                    u32::try_from(i).vortex_expect("row index must fit in u32 after validation");
+                let off = row_idx
                     .checked_mul(fixed_per_row)
                     .and_then(|t| t.checked_add(acc))
                     .vortex_expect("row offset overflow");
@@ -201,14 +199,13 @@ fn execute_row_encode(
     )
 }
 
-/// Dispatch a single column's encoding into the shared `out` buffer.
+/// Dispatch a single column's encoding into the shared `out` buffer through the canonical path.
 ///
-/// For PR 1 this is just the canonicalize-then-`codec::field_encode` fallback path.
-/// In-crate fast paths for `Constant`/`Dict`/`Patched` and the inventory-based registry
-/// for downstream encodings are added in PR 3.
-pub fn dispatch_encode(
+/// TODO(row): add per-encoding fast paths here so Constant, Dictionary, and compressed arrays
+/// can write row bytes without canonicalizing.
+pub(crate) fn dispatch_encode(
     col: &ArrayRef,
-    field: SortField,
+    field: RowSortField,
     offsets: &[u32],
     cursors: &mut [u32],
     out: &mut [u8],
@@ -216,23 +213,4 @@ pub fn dispatch_encode(
 ) -> VortexResult<()> {
     let canonical = col.clone().execute::<Canonical>(ctx)?;
     codec::field_encode(&canonical, field, offsets, cursors, out, ctx)
-}
-
-/// Mutate-buffer kernel: write this column's per-row bytes into `out` at
-/// `offsets[i] + cursors[i]`, advancing `cursors[i]` by the bytes written.
-///
-/// Return `Ok(None)` to decline and fall back to the canonical path.
-///
-/// Trait is defined now; per-encoding impls and dispatch wiring land in PR 3.
-pub trait RowEncodeKernel: VTable {
-    /// Write this column's per-row bytes into `out` at `offsets[i] + cursors[i]`, advancing
-    /// `cursors[i]` by the bytes written.
-    fn row_encode_into(
-        column: ArrayView<'_, Self>,
-        field: SortField,
-        offsets: &[u32],
-        cursors: &mut [u32],
-        out: &mut [u8],
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<()>>;
 }
