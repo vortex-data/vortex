@@ -142,7 +142,7 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
         }
 
         let session = ctx.session().clone();
-        let kernels = &session.aggregate_fns().kernels;
+        let kernels = &session.aggregate_fns().kernels.load();
 
         // 1. Kernel registry first: a registered `(encoding, aggregate_fn)` kernel is strictly
         //    more specific than the vtable's `try_accumulate` short-circuit. Checking the
@@ -150,13 +150,11 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
         //    `Combined::try_accumulate` always returns true, so a later kernel check would be
         //    unreachable.
         {
-            let kernels_r = kernels.read();
             let batch_id = batch.encoding_id();
-            let kernel = kernels_r
+            let kernel = kernels
                 .get(&(batch_id, Some(self.aggregate_fn.id())))
-                .or_else(|| kernels_r.get(&(batch_id, None)))
+                .or_else(|| kernels.get(&(batch_id, None)))
                 .copied();
-            drop(kernels_r);
             if let Some(kernel) = kernel
                 && let Some(result) = kernel.aggregate(&self.aggregate_fn, batch, ctx)?
             {
@@ -187,13 +185,11 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
                 break;
             }
 
-            let kernels_r = kernels.read();
             let batch_id = batch.encoding_id();
-            let kernel = kernels_r
+            let kernel = kernels
                 .get(&(batch_id, Some(self.aggregate_fn.id())))
-                .or_else(|| kernels_r.get(&(batch_id, None)))
+                .or_else(|| kernels.get(&(batch_id, None)))
                 .copied();
-            drop(kernels_r);
             if let Some(kernel) = kernel
                 && let Some(result) = kernel.aggregate(&self.aggregate_fn, &batch, ctx)?
             {

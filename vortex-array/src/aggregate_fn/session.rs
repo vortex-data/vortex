@@ -4,7 +4,7 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use parking_lot::RwLock;
+use arc_swap::ArcSwap;
 use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::SessionVar;
@@ -49,10 +49,10 @@ pub type AggregateFnRegistry = Registry<AggregateFnPluginRef>;
 /// Session state for aggregate function vtables.
 #[derive(Debug)]
 pub struct AggregateFnSession {
-    registry: AggregateFnRegistry,
+    registry: ArcSwap<HashMap<AggregateFnId, AggregateFnPluginRef>>,
 
-    pub(super) kernels: RwLock<HashMap<KernelKey, &'static dyn DynAggregateKernel>>,
-    pub(super) grouped_kernels: RwLock<HashMap<KernelKey, &'static dyn DynGroupedAggregateKernel>>,
+    pub(super) kernels: ArcSwap<HashMap<KernelKey, &'static dyn DynAggregateKernel>>,
+    pub(super) grouped_kernels: ArcSwap<HashMap<KernelKey, &'static dyn DynGroupedAggregateKernel>>,
 }
 
 impl SessionVar for AggregateFnSession {
@@ -70,9 +70,9 @@ type KernelKey = (ArrayId, Option<AggregateFnId>);
 impl Default for AggregateFnSession {
     fn default() -> Self {
         let this = Self {
-            registry: AggregateFnRegistry::default(),
-            kernels: RwLock::new(HashMap::default()),
-            grouped_kernels: RwLock::new(HashMap::default()),
+            registry: ArcSwap::from_pointee(HashMap::default()),
+            kernels: ArcSwap::from_pointee(HashMap::default()),
+            grouped_kernels: ArcSwap::from_pointee(HashMap::default()),
         };
 
         // Register the built-in aggregate functions
@@ -107,15 +107,20 @@ impl Default for AggregateFnSession {
 
 impl AggregateFnSession {
     /// Returns the aggregate function registry.
-    pub fn registry(&self) -> &AggregateFnRegistry {
-        &self.registry
+    pub fn find_plugin(&self, id: &AggregateFnId) -> Option<AggregateFnPluginRef> {
+        self.registry.load().get(id).cloned()
     }
 
     /// Register an aggregate function vtable in the session, replacing any existing vtable with
     /// the same ID.
     pub fn register<V: AggregateFnVTable>(&self, vtable: V) {
-        self.registry
-            .register(vtable.id(), Arc::new(vtable) as AggregateFnPluginRef);
+        let id = vtable.id();
+        let pluginref = Arc::new(vtable) as AggregateFnPluginRef;
+        self.registry.rcu(move |registry| {
+            let mut existing = registry.as_ref().clone();
+            existing.insert(id, Arc::clone(&pluginref));
+            existing
+        });
     }
 
     /// Register an aggregate function kernel for a specific aggregate function and array type.
@@ -125,9 +130,12 @@ impl AggregateFnSession {
         agg_fn_id: Option<impl Into<AggregateFnId>>,
         kernel: &'static dyn DynAggregateKernel,
     ) {
-        self.kernels
-            .write()
-            .insert((array_id.into(), agg_fn_id.map(|id| id.into())), kernel);
+        let id = (array_id.into(), agg_fn_id.map(|id| id.into()));
+        self.kernels.rcu(move |registry| {
+            let mut existing = registry.as_ref().clone();
+            existing.insert(id, kernel);
+            existing
+        });
     }
 }
 
