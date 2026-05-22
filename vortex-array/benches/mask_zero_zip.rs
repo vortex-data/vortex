@@ -114,26 +114,48 @@ where
 }
 
 /// Expand a packed bitmap into a `Buffer<F>` of `F::one()` / `F::zero()`.
+///
+/// Writes into a pre-sized slice in 8-element chunks. The inner constant-trip
+/// loop unrolls and the per-byte expansion vectorizes, unlike the per-bit
+/// `BitBuffer::iter()` path.
 fn expand_factors<F: NativePType>(mask: &BitBuffer) -> Buffer<F> {
     let len = mask.len();
     let bytes = mask.inner().as_slice();
-    let mut out = BufferMut::<F>::with_capacity(len);
+    let mut out = BufferMut::<F>::zeroed(len);
+    let dst = out.as_mut_slice();
     let one = F::one();
     let zero = F::zero();
-    for i in 0..len {
-        let bit = (bytes[i >> 3] >> (i & 7)) & 1;
-        out.push(if bit == 1 { one } else { zero });
+    let full = len / 8;
+    for (chunk, &b) in dst.chunks_exact_mut(8).zip(&bytes[..full]) {
+        for (j, slot) in chunk.iter_mut().enumerate() {
+            *slot = if (b >> j) & 1 == 1 { one } else { zero };
+        }
+    }
+    for i in (full * 8)..len {
+        dst[i] = if (bytes[i >> 3] >> (i & 7)) & 1 == 1 {
+            one
+        } else {
+            zero
+        };
     }
     out.freeze()
 }
 
-/// Expand a packed bitmap into a `Buffer<u8>` of 0/1 keep flags.
+/// Expand a packed bitmap into a `Buffer<u8>` of 0/1 keep flags, 8 bytes at a
+/// time so the expansion auto-vectorizes.
 fn expand_keep(mask: &BitBuffer) -> Buffer<u8> {
     let len = mask.len();
     let bytes = mask.inner().as_slice();
-    let mut out = BufferMut::<u8>::with_capacity(len);
-    for i in 0..len {
-        out.push((bytes[i >> 3] >> (i & 7)) & 1);
+    let mut out = BufferMut::<u8>::zeroed(len);
+    let dst = out.as_mut_slice();
+    let full = len / 8;
+    for (chunk, &b) in dst.chunks_exact_mut(8).zip(&bytes[..full]) {
+        for (j, slot) in chunk.iter_mut().enumerate() {
+            *slot = (b >> j) & 1;
+        }
+    }
+    for i in (full * 8)..len {
+        dst[i] = (bytes[i >> 3] >> (i & 7)) & 1;
     }
     out.freeze()
 }
