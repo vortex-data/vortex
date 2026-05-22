@@ -92,8 +92,6 @@ fn single(chunks: &[BitPackedArray]) -> ArrayRef {
     }
 }
 
-/// The real public path: `array.cast(u32).execute()`.
-#[cfg(not(codspeed))]
 #[divan::bench(args = ARGS)]
 fn cast_execute(bencher: Bencher, (chunk_len, chunk_count, frac): (usize, usize, f64)) {
     let chunks = make_chunks(chunk_len, chunk_count, frac);
@@ -102,24 +100,6 @@ fn cast_execute(bencher: Bencher, (chunk_len, chunk_count, frac): (usize, usize,
         .bench_refs(|(array, ctx)| {
             array
                 .clone()
-                .cast(U32)
-                .unwrap()
-                .execute::<PrimitiveArray>(ctx)
-                .unwrap()
-        });
-}
-
-/// Baseline: canonicalize to a full-length `u16` array, then cast that primitive array to `u32`.
-#[cfg(not(codspeed))]
-#[divan::bench(args = ARGS)]
-fn canonicalize_then_cast(bencher: Bencher, (chunk_len, chunk_count, frac): (usize, usize, f64)) {
-    let chunks = make_chunks(chunk_len, chunk_count, frac);
-    bencher
-        .with_inputs(|| (single(&chunks), SESSION.create_execution_ctx()))
-        .bench_refs(|(array, ctx)| {
-            let canonical = array.clone().execute::<PrimitiveArray>(ctx).unwrap();
-            canonical
-                .into_array()
                 .cast(U32)
                 .unwrap()
                 .execute::<PrimitiveArray>(ctx)
