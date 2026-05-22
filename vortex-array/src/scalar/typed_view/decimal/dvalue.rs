@@ -120,10 +120,7 @@ impl DecimalValue {
     /// For precision P, the maximum absolute stored value is 10^P - 1.
     pub fn fits_in_precision(&self, decimal_type: DecimalDType) -> bool {
         // Convert to i256 for comparison
-        let value_i256 = match_each_decimal_value!(self, |v| {
-            v.to_i256()
-                .vortex_expect("upcast to i256 must always succeed")
-        });
+        let value_i256 = self.as_i256();
 
         // Calculate the maximum stored value that can be represented with this precision
         // For precision P, the max stored value is 10^P - 1
@@ -144,15 +141,8 @@ impl DecimalValue {
     where
         F: FnOnce(i256, i256) -> Option<i256>,
     {
-        let self_upcast = match_each_decimal_value!(self, |v| {
-            v.to_i256()
-                .vortex_expect("upcast to i256 must always succeed")
-        });
-        let other_upcast = match_each_decimal_value!(other, |v| {
-            v.to_i256()
-                .vortex_expect("upcast to i256 must always succeed")
-        });
-
+        let self_upcast = self.as_i256();
+        let other_upcast = other.as_i256();
         op(self_upcast, other_upcast).map(DecimalValue::I256)
     }
 
@@ -185,14 +175,8 @@ impl DecimalValue {
 // DecimalScalar handles ensuring that both values being compared have the same precision/scale.
 impl PartialEq for DecimalValue {
     fn eq(&self, other: &Self) -> bool {
-        let self_upcast = match_each_decimal_value!(self, |v| {
-            v.to_i256()
-                .vortex_expect("upcast to i256 must always succeed")
-        });
-        let other_upcast = match_each_decimal_value!(other, |v| {
-            v.to_i256()
-                .vortex_expect("upcast to i256 must always succeed")
-        });
+        let self_upcast = self.as_i256();
+        let other_upcast = other.as_i256();
 
         self_upcast == other_upcast
     }
@@ -202,14 +186,8 @@ impl Eq for DecimalValue {}
 
 impl PartialOrd for DecimalValue {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        let self_upcast = match_each_decimal_value!(self, |v| {
-            v.to_i256()
-                .vortex_expect("upcast to i256 must always succeed")
-        });
-        let other_upcast = match_each_decimal_value!(other, |v| {
-            v.to_i256()
-                .vortex_expect("upcast to i256 must always succeed")
-        });
+        let self_upcast = self.as_i256();
+        let other_upcast = other.as_i256();
 
         self_upcast.partial_cmp(&other_upcast)
     }
@@ -218,10 +196,7 @@ impl PartialOrd for DecimalValue {
 // Hashing works in the upcast space similar to the other comparison and equality operators.
 impl Hash for DecimalValue {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        let self_upcast = match_each_decimal_value!(self, |v| {
-            v.to_i256()
-                .vortex_expect("upcast to i256 must always succeed")
-        });
+        let self_upcast = self.as_i256();
         self_upcast.hash(state);
     }
 }
