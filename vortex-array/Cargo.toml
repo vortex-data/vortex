@@ -102,6 +102,10 @@ name = "cast_primitive"
 harness = false
 
 [[bench]]
+name = "mask_zero_zip"
+harness = false
+
+[[bench]]
 name = "search_sorted"
 harness = false
 
