@@ -7,6 +7,8 @@
 //! permutation table compacts the selected bytes in a single indexed copy,
 //! avoiding the overhead of materializing indices or slices.
 
+use std::mem::size_of;
+
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_mask::MaskValues;
@@ -56,13 +58,15 @@ pub(super) fn filter_buffer<T: Copy>(buffer: Buffer<T>, mask: &MaskValues) -> Bu
     let mask_bytes = mask.bit_buffer().inner().as_ref();
     let mask_offset = mask.bit_buffer().offset();
 
-    // Fast path: no bit offset in the mask buffer and enough selected values to benefit from
-    // scanning the bitmask directly.
-    if mask_offset == 0 && mask.density() >= BYTE_COMPRESS_DENSITY_THRESHOLD {
+    // Fast path: byte-wide values benefit from avoiding index materialization more often. Wider
+    // values need enough selected values to justify scanning every mask byte directly.
+    if mask_offset == 0
+        && (size_of::<T>() == 1 || mask.density() >= BYTE_COMPRESS_DENSITY_THRESHOLD)
+    {
         return filter_aligned(src, mask_bytes, true_count);
     }
 
-    // Slow path: lower-density or unaligned masks are better handled by the generic path.
+    // Slow path: lower-density wide values or unaligned masks are better handled by the generic path.
     super::slice::filter_slice_by_mask_values(src, mask)
 }
 
