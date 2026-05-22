@@ -156,11 +156,6 @@ fn arrow_compare_arrays(
     // For nested types, fall back to `make_comparator` which does element-wise comparison.
     let arrow_array: BooleanArray = if left.dtype().is_nested() || right.dtype().is_nested() {
         let session = ctx.session().clone();
-        // Convert lhs first to determine the target Arrow type, then convert rhs using that
-        // same type as the target. This mirrors the non-nested path and ensures both sides
-        // have identical Arrow types even when the two Vortex arrays use different underlying
-        // encodings for logically equivalent fields (e.g., VarBinArray → Binary vs
-        // VarBinViewArray → BinaryView for the same DType::Binary field inside a struct).
         let lhs = session.arrow().execute_arrow(left.clone(), None, ctx)?;
         let target_field = Field::new("", lhs.data_type().clone(), right.dtype().is_nullable());
         let rhs = session
