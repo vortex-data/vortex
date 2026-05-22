@@ -6,6 +6,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -19,9 +20,15 @@ use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::expr::stats::Precision;
+use crate::expr::stats::Stat;
+use crate::expr::stats::StatsProvider;
 use crate::match_each_native_ptype;
+use crate::scalar::PValue;
+use crate::scalar::ScalarValue;
 use crate::scalar_fn::fns::cast::CastKernel;
 use crate::scalar_fn::fns::cast::CastReduce;
+use crate::validity::Validity;
 
 impl CastReduce for Primitive {
     fn cast(array: ArrayView<'_, Primitive>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -63,62 +70,88 @@ impl CastKernel for Primitive {
             return Ok(None);
         };
         let (new_ptype, new_nullability) = (*new_ptype, *new_nullability);
+        let src_ptype = array.ptype();
 
-        // First, check that the cast is compatible with the source array's validity
         let new_validity = array
             .validity()?
             .cast_nullability(new_nullability, array.len(), ctx)?;
 
         // Same ptype: zero-copy, just update validity.
-        if array.ptype() == new_ptype {
-            // SAFETY: validity and data buffer still have same length
-            return Ok(Some(unsafe {
-                PrimitiveArray::new_unchecked_from_handle(
-                    array.buffer_handle().clone(),
-                    array.ptype(),
-                    new_validity,
-                )
-                .into_array()
-            }));
+        if src_ptype == new_ptype {
+            return Ok(Some(reinterpret(array, src_ptype, new_validity)));
         }
 
-        if !values_fit_in(array, new_ptype, ctx) {
-            vortex_bail!(
-                Compute: "Cannot cast {} to {} — values exceed target range",
-                array.ptype(),
-                new_ptype,
-            );
+        let same_width = src_ptype.byte_width() == new_ptype.byte_width();
+        let same_int_rep = same_width && src_ptype.is_int() && new_ptype.is_int();
+        let infallible = values_always_fit(src_ptype, new_ptype);
+
+        // Same-width int↔int: bit patterns are identical under 2's complement, so once we have
+        // verified the values fit we can just reinterpret the buffer with no per-element work.
+        if same_int_rep {
+            if !infallible && !values_fit_in(array, new_ptype, ctx) {
+                vortex_bail!(
+                    Compute: "Cannot cast {} to {} — values exceed target range",
+                    src_ptype, new_ptype,
+                );
+            }
+            return Ok(Some(reinterpret(array, new_ptype, new_validity)));
         }
 
-        // Same-width integers have identical bit representations due to 2's
-        // complement. If all values fit in the target range, reinterpret with
-        // no allocation.
-        if array.ptype().is_int()
-            && new_ptype.is_int()
-            && array.ptype().byte_width() == new_ptype.byte_width()
-        {
-            // SAFETY: both types are integers with the same size and alignment, and
-            // min/max confirm all valid values are representable in the target type.
-            return Ok(Some(unsafe {
-                PrimitiveArray::new_unchecked_from_handle(
-                    array.buffer_handle().clone(),
-                    new_ptype,
-                    new_validity,
-                )
-                .into_array()
-            }));
+        // Infallible casts (e.g. int → wider int, int → float): no min/max needed. Same-width
+        // casts try to reuse the source allocation when uniquely owned; otherwise allocate.
+        if infallible {
+            return Ok(Some(match_each_native_ptype!(new_ptype, |T| {
+                match_each_native_ptype!(src_ptype, |F| {
+                    PrimitiveArray::new(cast_or_reuse::<F, T>(array), new_validity).into_array()
+                })
+            })));
         }
 
-        // Otherwise, we need to cast the values one-by-one.
+        // Fallible cast (e.g. float → int, narrowing int, narrowing float): cast and min/max
+        // validation happen in a single pass over the source values.
         Ok(Some(match_each_native_ptype!(new_ptype, |T| {
-            match_each_native_ptype!(array.ptype(), |F| {
-                PrimitiveArray::new(cast::<F, T>(array.as_slice()), new_validity).into_array()
+            match_each_native_ptype!(src_ptype, |F| {
+                cast_with_check::<F, T>(array, new_validity, ctx)?
             })
         })))
     }
 }
 
-/// Returns `true` if all valid values in `array` are representable as `target_ptype`.
+fn reinterpret(
+    array: ArrayView<'_, Primitive>,
+    new_ptype: PType,
+    new_validity: Validity,
+) -> ArrayRef {
+    // SAFETY: caller has verified the bit representation is compatible and that validity length
+    // still matches the buffer length.
+    unsafe {
+        PrimitiveArray::new_unchecked_from_handle(
+            array.buffer_handle().clone(),
+            new_ptype,
+            new_validity,
+        )
+    }
+    .into_array()
+}
+
+/// Whether every valid value of `src` is guaranteed representable in `target` without inspecting
+/// the values themselves.
+fn values_always_fit(src: PType, target: PType) -> bool {
+    if src == target {
+        return true;
+    }
+    if src.is_int() && target.is_int() {
+        return target.byte_width() > src.byte_width()
+            && (src.is_unsigned_int() || target.is_signed_int());
+    }
+    if src.is_float() && target.is_float() {
+        return target.byte_width() > src.byte_width();
+    }
+    src.is_int() && matches!(target, PType::F32 | PType::F64)
+}
+
+/// Returns `true` if all valid values in `array` are representable as `target_ptype`. Uses cached
+/// min/max statistics when available and otherwise computes them with a single pass.
 fn values_fit_in(
     array: ArrayView<'_, Primitive>,
     target_ptype: PType,
@@ -131,9 +164,119 @@ fn values_fit_in(
         .is_none_or(|mm| mm.min.cast(&target_dtype).is_ok() && mm.max.cast(&target_dtype).is_ok())
 }
 
-/// Caller must ensure all valid values are representable via `values_fit_in`.
-/// Out-of-range values at invalid positions are truncated/wrapped by `as`,
-/// which is fine because they are masked out by validity.
+/// Cast values from `F` to `T`, reusing the source buffer in-place when the widths match and the
+/// underlying allocation is uniquely owned. Falls back to a fresh allocation otherwise.
+fn cast_or_reuse<F, T>(array: ArrayView<'_, Primitive>) -> Buffer<T>
+where
+    F: NativePType + AsPrimitive<T>,
+    T: NativePType,
+{
+    if size_of::<F>() == size_of::<T>() {
+        let source = Buffer::<F>::from_byte_buffer(array.buffer_handle().to_host_sync());
+        source
+            .map_each_in_place(<F as AsPrimitive<T>>::as_)
+            .freeze()
+    } else {
+        cast::<F, T>(array.as_slice())
+    }
+}
+
+/// Fallible cast: writes target values to a new buffer and tracks the source min/max in the same
+/// pass, then bails if the min/max indicate values overflow the target type.
+fn cast_with_check<F, T>(
+    array: ArrayView<'_, Primitive>,
+    new_validity: Validity,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef>
+where
+    F: NativePType + AsPrimitive<T>,
+    T: NativePType,
+    PValue: From<F>,
+{
+    let target_dtype = DType::Primitive(T::PTYPE, Nullability::NonNullable);
+
+    // If min/max stats are already cached we can decide the fit without revisiting the values.
+    if let Some(fits) = cached_min_max_fits(array, &target_dtype) {
+        if !fits {
+            vortex_bail!(
+                Compute: "Cannot cast {} to {} — values exceed target range",
+                F::PTYPE, T::PTYPE,
+            );
+        }
+        return Ok(PrimitiveArray::new(cast_or_reuse::<F, T>(array), new_validity).into_array());
+    }
+
+    let values = array.as_slice::<F>();
+    let mask = array.validity()?.execute_mask(array.len(), ctx)?;
+    let mut min_max: Option<(F, F)> = None;
+
+    let buffer: Buffer<T> = match &mask {
+        Mask::AllTrue(_) => BufferMut::from_trusted_len_iter(values.iter().map(|&v| {
+            track_min_max(&mut min_max, v);
+            v.as_()
+        }))
+        .freeze(),
+        Mask::AllFalse(_) => cast::<F, T>(values),
+        Mask::Values(m) => BufferMut::from_trusted_len_iter(
+            values.iter().zip(m.bit_buffer().iter()).map(|(&v, valid)| {
+                if valid {
+                    track_min_max(&mut min_max, v);
+                }
+                v.as_()
+            }),
+        )
+        .freeze(),
+    };
+
+    if let Some((min, max)) = min_max {
+        let stats = array.array().statistics();
+        stats.set(
+            Stat::Min,
+            Precision::Exact(ScalarValue::Primitive(PValue::from(min))),
+        );
+        stats.set(
+            Stat::Max,
+            Precision::Exact(ScalarValue::Primitive(PValue::from(max))),
+        );
+
+        if PValue::from(min).cast::<T>().is_err() || PValue::from(max).cast::<T>().is_err() {
+            vortex_bail!(
+                Compute: "Cannot cast {} to {} — values exceed target range",
+                F::PTYPE, T::PTYPE,
+            );
+        }
+    }
+
+    Ok(PrimitiveArray::new(buffer, new_validity).into_array())
+}
+
+fn track_min_max<F: NativePType>(min_max: &mut Option<(F, F)>, value: F) {
+    if value.is_nan() {
+        return;
+    }
+    match min_max {
+        None => *min_max = Some((value, value)),
+        Some((min, max)) => {
+            if value.total_compare(*min).is_lt() {
+                *min = value;
+            } else if value.total_compare(*max).is_gt() {
+                *max = value;
+            }
+        }
+    }
+}
+
+/// Returns `Some(true)` if cached min/max prove every valid value fits in `target_dtype`,
+/// `Some(false)` if cached min/max prove the cast must fail, and `None` if stats are unavailable.
+fn cached_min_max_fits(array: ArrayView<'_, Primitive>, target_dtype: &DType) -> Option<bool> {
+    let stats = array.array().statistics();
+    let min = stats.get(Stat::Min).and_then(Precision::as_exact)?;
+    let max = stats.get(Stat::Max).and_then(Precision::as_exact)?;
+    Some(min.cast(target_dtype).is_ok() && max.cast(target_dtype).is_ok())
+}
+
+/// Out-of-range values at invalid positions are truncated/wrapped by `as`, which is fine because
+/// they are masked out by validity.
 fn cast<F: NativePType + AsPrimitive<T>, T: NativePType>(array: &[F]) -> Buffer<T> {
     BufferMut::from_trusted_len_iter(array.iter().map(|&src| src.as_())).freeze()
 }
