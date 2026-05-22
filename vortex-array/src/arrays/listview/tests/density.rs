@@ -34,7 +34,7 @@ fn full_density_no_overlap() -> VortexResult<()> {
     let mut ctx = test_execution_ctx();
     let lv = create_basic_listview();
     let exact = lv.compute_density(&mut ctx)?;
-    let est = lv.estimate_density(&mut ctx)?;
+    let est = lv.upper_bound_density(&mut ctx)?;
 
     assert!((exact - 1.0).abs() < EPS);
     assert!((est - 1.0).abs() < EPS);
@@ -46,7 +46,7 @@ fn sparse_no_overlap_matches_exact() -> VortexResult<()> {
     let mut ctx = test_execution_ctx();
     let lv = create_large_listview();
     let exact = lv.compute_density(&mut ctx)?;
-    let est = lv.estimate_density(&mut ctx)?;
+    let est = lv.upper_bound_density(&mut ctx)?;
 
     assert!((exact - 0.5).abs() < EPS);
     assert!((est - 0.5).abs() < EPS);
@@ -58,7 +58,7 @@ fn all_empty_lists_is_zero_density() -> VortexResult<()> {
     let mut ctx = test_execution_ctx();
     let lv = create_empty_lists_listview();
     let exact = lv.compute_density(&mut ctx)?;
-    let est = lv.estimate_density(&mut ctx)?;
+    let est = lv.upper_bound_density(&mut ctx)?;
 
     assert_eq!(exact, 0.0);
     assert_eq!(est, 0.0);
@@ -70,7 +70,7 @@ fn overlap_full_coverage_clamps_estimate() -> VortexResult<()> {
     let mut ctx = test_execution_ctx();
     let lv = create_overlapping_listview();
     let exact = lv.compute_density(&mut ctx)?;
-    let est = lv.estimate_density(&mut ctx)?;
+    let est = lv.upper_bound_density(&mut ctx)?;
 
     assert!((exact - 1.0).abs() < EPS);
     assert!((est - 1.0).abs() < EPS);
@@ -83,7 +83,7 @@ fn overlap_differential_exact_lower_than_estimate() -> VortexResult<()> {
     let lv = create_sparse_overlapping_listview();
 
     let exact = lv.compute_density(&mut ctx)?;
-    let est = lv.estimate_density(&mut ctx)?;
+    let est = lv.upper_bound_density(&mut ctx)?;
 
     assert!((exact - 0.25).abs() < EPS);
     assert!((est - 0.40).abs() < EPS);
@@ -96,7 +96,7 @@ fn empty_elements_returns_one() -> VortexResult<()> {
     let lv = create_empty_elements_listview();
 
     let exact = lv.compute_density(&mut ctx)?;
-    let est = lv.estimate_density(&mut ctx)?;
+    let est = lv.upper_bound_density(&mut ctx)?;
 
     assert!((exact - 1.0).abs() < EPS);
     assert!((est - 1.0).abs() < EPS);
@@ -113,7 +113,7 @@ fn estimate_uses_cached_sum_stat() -> VortexResult<()> {
         .statistics()
         .set(Stat::Sum, Precision::Exact(ScalarValue::from(5u64)));
 
-    let est = lv.estimate_density(&mut ctx)?;
+    let est = lv.upper_bound_density(&mut ctx)?;
     assert!((est - 0.5).abs() < EPS);
     Ok(())
 }

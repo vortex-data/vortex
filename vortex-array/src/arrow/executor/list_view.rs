@@ -34,7 +34,7 @@ pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
     // If the array is sufficiently sparse, rebuild before handing it to Arrow. Otherwise downstream
     // consumers hold an elements buffer containing unreferenced data in memory indefinitely,
     // and any compute pass over that buffer wastes work on data nothing references.
-    let density = array.estimate_density(ctx)?;
+    let density = array.upper_bound_density(ctx)?;
     let array = if density < DEFAULT_REBUILD_DENSITY_THRESHOLD {
         array.rebuild(ListViewRebuildMode::MakeZeroCopyToList)?
     } else {

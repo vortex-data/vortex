@@ -315,6 +315,31 @@ impl Default for ListViewData {
     }
 }
 
+/// Walks parallel `(offset, size)` slices and marks every referenced position in `buf`.
+///
+/// **Precondition**
+///
+/// `offsets` and `sizes` must be the same length (which is always the case in valid `ListViewArray`s).
+fn fill_referenced_mask<O: IntegerPType, S: IntegerPType>(
+    buf: &mut BitBufferMut,
+    offsets: &[O],
+    sizes: &[S],
+) {
+    let len = offsets.len();
+
+    assert_eq!(
+        len,
+        sizes.len(),
+        "offsets and sizes must be the same length"
+    );
+
+    for i in 0..len {
+        let start: usize = offsets[i].as_();
+        let size: usize = sizes[i].as_();
+        buf.fill_range(start, start + size, true);
+    }
+}
+
 pub trait ListViewArrayExt: TypedArrayRef<ListView> {
     fn nullability(&self) -> crate::dtype::Nullability {
         match self.as_ref().dtype() {
@@ -402,35 +427,31 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
     }
 
     /// Returns a [`Mask`] of length `elements.len()` where each bit is set iff that
-    /// position in `elements` is referenced by at least one view.
+    /// position in `elements` is referenced by at least one view. Caller must ensure `elements`
+    /// is non-empty.
     ///
     /// Walks every `(offset, size)` pair, canonicalizes both `offsets` and `sizes`,
     /// and allocates a `BitBuffer` of length `elements.len()`, so it is extremely costly.
     ///
     /// **Preconditions**
     ///
-    /// Assumes that `self.elements()` is non-empty.
-    #[allow(clippy::cognitive_complexity)]
+    /// `self.elements()` must be non-empty.
     fn compute_referenced_elements_mask(&self, ctx: &mut ExecutionCtx) -> VortexResult<Mask> {
-        debug_assert!(!self.elements().is_empty());
+        assert!(!self.elements().is_empty());
         let len = self.elements().len();
 
         let offsets_primitive = self.offsets().clone().execute::<PrimitiveArray>(ctx)?;
         let sizes_primitive = self.sizes().clone().execute::<PrimitiveArray>(ctx)?;
 
         let mut buf = BitBufferMut::new_unset(len);
-        let offset_len = self.as_ref().len();
 
         match_each_integer_ptype!(offsets_primitive.ptype(), |O| {
             match_each_integer_ptype!(sizes_primitive.ptype(), |S| {
-                let offsets_slice = offsets_primitive.as_slice::<O>();
-                let sizes_slice = sizes_primitive.as_slice::<S>();
-
-                for i in 0..offset_len {
-                    let start: usize = offsets_slice[i].as_();
-                    let size: usize = sizes_slice[i].as_();
-                    buf.fill_range(start, start + size, true);
-                }
+                fill_referenced_mask::<O, S>(
+                    &mut buf,
+                    offsets_primitive.as_slice::<O>(),
+                    sizes_primitive.as_slice::<S>(),
+                );
             })
         });
 
@@ -464,7 +485,7 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
     /// Exact for non-overlapping views, but overcounts when multiple views share the same elements.
     ///
     /// Returns `Ok(1.0)` when `elements` is empty.
-    fn estimate_density(&self, ctx: &mut ExecutionCtx) -> VortexResult<f32> {
+    fn upper_bound_density(&self, ctx: &mut ExecutionCtx) -> VortexResult<f32> {
         let n_elts = self.elements().len();
         if n_elts == 0 {
             return Ok(1.0);
@@ -479,10 +500,10 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
         let sizes_sum = sizes
             .statistics()
             .compute_stat(Stat::Sum, ctx)?
-            .ok_or_else(|| vortex_err!("Sum stat unavailable for sizes"))?
+            .vortex_expect("sizes array has integer ptype elements")
             .as_primitive()
             .as_::<u64>()
-            .ok_or_else(|| vortex_err!("could not cast sum of sizes to u64"))?;
+            .vortex_expect("integer ptypes can be upcast to u64");
 
         // if the same elements are referenced more than once the estimate may be
         // greater than 1.0, so clamp
