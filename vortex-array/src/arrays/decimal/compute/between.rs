@@ -10,6 +10,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::Decimal;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
@@ -81,7 +82,9 @@ fn between_unpack<T: NativeDecimalType>(
         Some(v) => Some(v),
         None => {
             if lower_dv.as_i256() >= i256::ZERO {
-                return Ok(Some(all_false(arr, nullability)));
+                return Ok(Some(
+                    ConstantArray::new(Scalar::bool(false, nullability), arr.len()).into_array(),
+                ));
             }
             None
         }
@@ -91,7 +94,9 @@ fn between_unpack<T: NativeDecimalType>(
         Some(v) => Some(v),
         None => {
             if upper_dv.as_i256() < i256::ZERO {
-                return Ok(Some(all_false(arr, nullability)));
+                return Ok(Some(
+                    ConstantArray::new(Scalar::bool(false, nullability), arr.len()).into_array(),
+                ));
             }
             None
         }
@@ -117,17 +122,6 @@ fn between_unpack<T: NativeDecimalType>(
     )))
 }
 
-/// Returns an all-false [`BoolArray`] with the correct length and nullability.
-fn all_false(arr: ArrayView<'_, Decimal>, nullability: Nullability) -> ArrayRef {
-    BoolArray::new(
-        BitBuffer::new_unset(arr.len()),
-        arr.validity()
-            .vortex_expect("validity should be derivable")
-            .union_nullability(nullability),
-    )
-    .into_array()
-}
-
 fn between_impl<T: NativeDecimalType>(
     arr: ArrayView<'_, Decimal>,
     lower: Option<T>,
@@ -140,8 +134,7 @@ fn between_impl<T: NativeDecimalType>(
     BoolArray::new(
         BitBuffer::collect_bool(buffer.len(), |idx| {
             let value = buffer[idx];
-            lower.map_or(true, |l| lower_op(l, value))
-                & upper.map_or(true, |u| upper_op(value, u))
+            lower.map_or(true, |l| lower_op(l, value)) & upper.map_or(true, |u| upper_op(value, u))
         }),
         arr.validity()
             .vortex_expect("validity should be derivable")

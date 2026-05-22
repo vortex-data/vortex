@@ -94,7 +94,8 @@ impl DecimalValue {
     /// This conversion always succeeds since [`i256`] can represent every stored variant.
     pub fn as_i256(&self) -> i256 {
         match_each_decimal_value!(self, |v| {
-            v.to_i256().vortex_expect("upcast to i256 must always succeed")
+            v.to_i256()
+                .vortex_expect("upcast to i256 must always succeed")
         })
     }
 

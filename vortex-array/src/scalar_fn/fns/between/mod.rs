@@ -568,9 +568,12 @@ mod tests {
         // Array uses I16 storage with precision=5 (values fit in i16 even though precision=5
         // nominally maps to I32 as the smallest storage type).
         let decimal_type = DecimalDType::new(5, -67);
-        let array =
-            DecimalArray::new(buffer![1i16, 2i16, 3i16, 4i16], decimal_type, Validity::NonNullable)
-                .into_array();
+        let array = DecimalArray::new(
+            buffer![1i16, 2i16, 3i16, 4i16],
+            decimal_type,
+            Validity::NonNullable,
+        )
+        .into_array();
 
         let lower = ConstantArray::new(
             Scalar::decimal(lower_val, decimal_type, Nullability::NonNullable),
