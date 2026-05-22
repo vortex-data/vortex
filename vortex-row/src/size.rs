@@ -26,7 +26,6 @@ use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
@@ -34,16 +33,19 @@ use vortex_session::VortexSession;
 use crate::codec;
 use crate::codec::RowWidth;
 use crate::options::RowEncodingOptions;
-use crate::options::RowSortField;
 use crate::options::deserialize_row_encoding_options;
 use crate::options::serialize_row_encoding_options;
 
 /// Result of the size pass: enough information for both [`RowSize::execute`] and the
 /// downstream [`RowEncode`](super::encode::RowEncode) pipeline.
+///
+/// `columns` holds the canonicalized form of each input so the encode pass can write bytes
+/// without re-decoding — a single canonicalization per column is shared between size and
+/// encode.
 pub(crate) struct SizePassResult {
     pub fixed_per_row: u32,
     pub var_lengths: Option<Vec<u32>>,
-    pub columns: Vec<ArrayRef>,
+    pub columns: Vec<Canonical>,
 }
 
 /// Walk N input columns once, classifying each as fixed-width or variable-length and
@@ -74,7 +76,7 @@ pub(crate) fn compute_sizes(
     }
     let nrows = args.row_count();
 
-    let mut columns: Vec<ArrayRef> = Vec::with_capacity(n_inputs);
+    let mut columns: Vec<Canonical> = Vec::with_capacity(n_inputs);
     let mut fixed_per_row: u32 = 0;
     let mut var_lengths: Option<Vec<u32>> = None;
 
@@ -88,18 +90,21 @@ pub(crate) fn compute_sizes(
                 nrows
             );
         }
-        match codec::row_width_for_dtype(col.dtype())? {
+        let width = codec::row_width_for_dtype(col.dtype())?;
+        // Canonicalize once and reuse for both sizing (variable columns) and encoding.
+        let canonical = col.execute::<Canonical>(ctx)?;
+        match width {
             RowWidth::Fixed(w) => {
-                fixed_per_row = fixed_per_row
-                    .checked_add(w)
-                    .vortex_expect("row width overflow");
+                fixed_per_row = fixed_per_row.checked_add(w).ok_or_else(|| {
+                    vortex_error::vortex_err!("per-row fixed width overflows u32 at column {}", i)
+                })?;
             }
             RowWidth::Variable => {
                 let v = var_lengths.get_or_insert_with(|| vec![0u32; nrows]);
-                dispatch_size(&col, options.fields[i], v, ctx)?;
+                codec::field_size(&canonical, options.fields[i], v, ctx)?;
             }
         }
-        columns.push(col);
+        columns.push(canonical);
     }
 
     Ok(SizePassResult {
@@ -109,7 +114,8 @@ pub(crate) fn compute_sizes(
     })
 }
 
-/// Variadic scalar function that, given N input columns and per-column [`RowSortField`]s,
+/// Variadic scalar function that, given N input columns and per-column
+/// [`RowSortField`](crate::RowSortField)s,
 /// returns a `Struct { fixed: U32, var: U32 }` array of per-row byte sizes for the
 /// row-oriented encoding produced by [`RowEncode`](super::encode::RowEncode).
 ///
@@ -207,18 +213,4 @@ impl ScalarFnVTable for RowSize {
     fn is_fallible(&self, _options: &Self::Options) -> bool {
         false
     }
-}
-
-/// Dispatch a single column's per-row size contribution through the canonical path.
-///
-/// TODO(row): add per-encoding fast paths here so Constant, Dictionary, and compressed arrays
-/// can contribute row sizes without canonicalizing.
-pub(crate) fn dispatch_size(
-    col: &ArrayRef,
-    field: RowSortField,
-    sizes: &mut [u32],
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<()> {
-    let canonical = col.clone().execute::<Canonical>(ctx)?;
-    codec::field_size(&canonical, field, sizes, ctx)
 }

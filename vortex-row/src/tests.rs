@@ -323,8 +323,9 @@ fn row_size_struct_shape() -> VortexResult<()> {
     let var_prim = var.clone().execute::<PrimitiveArray>(&mut ctx)?;
     let v: &[u32] = var_prim.as_slice();
     assert_eq!(v.len(), 5);
-    // empty string: sentinel(1) + 1 byte; non-empty: sentinel(1) + 33 bytes (single block).
-    let expected: Vec<u32> = vec![34, 34, 34, 2, 34];
+    // empty string: just the empty sentinel (1 byte); null or non-empty:
+    // sentinel(1) + 33 bytes (single block).
+    let expected: Vec<u32> = vec![34, 34, 34, 1, 34];
     assert_eq!(v, expected.as_slice());
     Ok(())
 }
@@ -361,4 +362,214 @@ fn single_buffer_invariant() -> VortexResult<()> {
         "elements buffer size mismatch"
     );
     Ok(())
+}
+
+/// Regression: with the previous 2-sentinel varlen scheme, an empty col1 followed by a
+/// non-empty col1 that happened to start with `\0` would corrupt multi-column lex order
+/// because col2's first byte aligned against col1's pad in the longer row. With the
+/// 3-sentinel scheme byte position 0 alone distinguishes empty from non-empty, so column
+/// boundaries always align.
+#[test]
+fn multi_column_varlen_empty_vs_nul_byte_string() -> VortexResult<()> {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    // col1: empty vs single 0-byte. col2: same int for all rows.
+    let col1 = VarBinViewArray::from_iter_str(["", "\0", "a", "ab"]).into_array();
+    let col2 = PrimitiveArray::from_iter([1i32, 1, 1, 1]).into_array();
+    let encoded = convert_columns(
+        &[col1, col2],
+        &[RowSortField::default(), RowSortField::default()],
+        &mut ctx,
+    )?;
+    let rows = collect_row_bytes(&encoded);
+
+    // Logical natural order of col1: "" < "\0" < "a" < "ab".
+    // Byte sort of the encoded rows must put them in that same order.
+    let sorted_indices_by_bytes = {
+        let mut indices: Vec<usize> = (0..rows.len()).collect();
+        indices.sort_by(|a, b| rows[*a].cmp(&rows[*b]));
+        indices
+    };
+    assert_eq!(
+        sorted_indices_by_bytes,
+        vec![0, 1, 2, 3],
+        "byte sort must match natural col1 order; sorted indices were {:?}",
+        sorted_indices_by_bytes
+    );
+    Ok(())
+}
+
+/// Regression: null col1 must sort distinct from empty col1 even when col2 follows. With
+/// the 3-sentinel scheme null=0x00, empty=0x01 differ at byte 0.
+#[test]
+fn multi_column_varlen_null_vs_empty() -> VortexResult<()> {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let col1 = VarBinViewArray::from_iter_nullable_str([
+        None::<&str>,
+        Some(""),
+        Some("a"),
+        None,
+        Some(""),
+    ])
+    .into_array();
+    let col2 = PrimitiveArray::from_iter([1i32, 1, 1, 1, 1]).into_array();
+    let encoded = convert_columns(
+        &[col1, col2],
+        &[RowSortField::ascending(), RowSortField::ascending()],
+        &mut ctx,
+    )?;
+    let rows = collect_row_bytes(&encoded);
+
+    // Nulls first, then empties, then non-empties — and all the col2 values are identical
+    // so col1 fully determines the order.
+    // Categorise each row by the leading byte of col1's encoding.
+    let mut buckets: [Vec<usize>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    for (i, row) in rows.iter().enumerate() {
+        let bucket = match row[0] {
+            0x00 => 0, // null
+            0x01 => 1, // empty
+            0x02 => 2, // non-empty
+            other => panic!("unexpected varlen sentinel: {:#x}", other),
+        };
+        buckets[bucket].push(i);
+    }
+    assert_eq!(buckets[0].len(), 2, "two null col1 rows");
+    assert_eq!(buckets[1].len(), 2, "two empty col1 rows");
+    assert_eq!(buckets[2].len(), 1, "one non-empty col1 row");
+
+    // All null rows must be byte-equal (same col2 value, both col1 null, single sentinel).
+    let null_rows: Vec<&Vec<u8>> = buckets[0].iter().map(|&i| &rows[i]).collect();
+    assert_eq!(
+        null_rows[0], null_rows[1],
+        "null col1 rows must be byte-equal"
+    );
+    // Same for empty.
+    let empty_rows: Vec<&Vec<u8>> = buckets[1].iter().map(|&i| &rows[i]).collect();
+    assert_eq!(
+        empty_rows[0], empty_rows[1],
+        "empty col1 rows must be byte-equal"
+    );
+
+    // Byte sort must group: nulls, empties, non-empties (because leading byte differs).
+    let mut sorted = rows.clone();
+    sorted.sort();
+    assert_eq!(sorted[0][0], 0x00);
+    assert_eq!(sorted[1][0], 0x00);
+    assert_eq!(sorted[2][0], 0x01);
+    assert_eq!(sorted[3][0], 0x01);
+    assert_eq!(sorted[4][0], 0x02);
+    Ok(())
+}
+
+/// Regression: descending varlen must put non-empty before empty (natural "" < "a" inverts
+/// to "a" < "" under descending). The 3-sentinel scheme uses `!empty < !non_empty` so
+/// non-empty's first byte is smaller than empty's first byte.
+#[test]
+fn varlen_descending_empty_vs_non_empty() -> VortexResult<()> {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let col = VarBinViewArray::from_iter_str(["a", "", "abc"]).into_array();
+    let encoded = convert_columns(&[col], &[RowSortField::descending()], &mut ctx)?;
+    let rows = collect_row_bytes(&encoded);
+
+    // Natural order: "" < "a" < "abc"; descending byte sort: "abc" first, "" last.
+    let mut sorted = rows.clone();
+    sorted.sort();
+    // sorted[0] = encoded("abc"), sorted[1] = encoded("a"), sorted[2] = encoded("")
+    assert_eq!(sorted[0], rows[2], "abc first in descending");
+    assert_eq!(sorted[1], rows[0], "a second");
+    assert_eq!(sorted[2], rows[1], "empty last");
+    Ok(())
+}
+
+/// Regression: two null parent struct rows whose underlying child values differ in length
+/// must still produce byte-equal encodings, because the parent emits a canonical null
+/// body (one null sentinel per variable child) regardless of the underlying values.
+#[test]
+fn null_struct_rows_with_varying_child_lengths_are_byte_equal() -> VortexResult<()> {
+    use vortex_array::arrays::StructArray;
+    use vortex_array::dtype::FieldName;
+    use vortex_array::dtype::FieldNames;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::BitBuffer;
+
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    // Build a nullable struct{name: utf8} where rows 0 and 2 are null but the underlying
+    // child has different length data ("short" vs "much longer text data").
+    let names =
+        VarBinViewArray::from_iter_str(["short", "x", "much longer text data"]).into_array();
+    let field_names = FieldNames::from([FieldName::from("name")]);
+    let bits = BitBuffer::from_iter([false, true, false]);
+    let validity = Validity::from(bits);
+    let struct_arr = StructArray::try_new(field_names, vec![names], 3, validity)?.into_array();
+
+    let encoded = convert_columns(&[struct_arr], &[RowSortField::ascending()], &mut ctx)?;
+    let rows = collect_row_bytes(&encoded);
+    assert_eq!(rows.len(), 3);
+    // Both null parent rows must produce identical bytes despite the divergent children.
+    assert_eq!(
+        rows[0], rows[2],
+        "two null parent struct rows must encode to byte-equal slices"
+    );
+    // And the non-null row's leading sentinel must differ from the null sentinel.
+    assert_ne!(rows[0][0], rows[1][0], "null vs non-null sentinel differs");
+    Ok(())
+}
+
+#[test]
+fn primitive_f32_sort_order() -> VortexResult<()> {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let values: Vec<f32> = vec![-1.5, 0.0, 1.5, f32::INFINITY, f32::NEG_INFINITY];
+    let col = PrimitiveArray::from_iter(values.clone()).into_array();
+    let encoded = convert_columns(&[col], &[RowSortField::default()], &mut ctx)?;
+    let rows = collect_row_bytes(&encoded);
+    let mut sorted_rows = rows.clone();
+    sorted_rows.sort();
+    let mut sorted_idx: Vec<usize> = (0..values.len()).collect();
+    sorted_idx.sort_by(|a, b| values[*a].partial_cmp(&values[*b]).unwrap());
+    let expected: Vec<Vec<u8>> = sorted_idx.iter().map(|&i| rows[i].clone()).collect();
+    assert_eq!(sorted_rows, expected);
+    Ok(())
+}
+
+#[test]
+fn primitive_f16_sort_order() -> VortexResult<()> {
+    use vortex_array::dtype::half::f16;
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let values: Vec<f16> = vec![
+        f16::from_f32(-1.5),
+        f16::from_f32(0.0),
+        f16::from_f32(1.5),
+        f16::INFINITY,
+        f16::NEG_INFINITY,
+    ];
+    let col = PrimitiveArray::from_iter(values.clone()).into_array();
+    let encoded = convert_columns(&[col], &[RowSortField::default()], &mut ctx)?;
+    let rows = collect_row_bytes(&encoded);
+    let mut sorted_rows = rows.clone();
+    sorted_rows.sort();
+    let mut sorted_idx: Vec<usize> = (0..values.len()).collect();
+    sorted_idx.sort_by(|a, b| values[*a].partial_cmp(&values[*b]).unwrap());
+    let expected: Vec<Vec<u8>> = sorted_idx.iter().map(|&i| rows[i].clone()).collect();
+    assert_eq!(sorted_rows, expected);
+    Ok(())
+}
+
+#[test]
+fn reject_list_dtype_early() {
+    use vortex_array::ArrayRef;
+    use vortex_array::arrays::ListArray;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::buffer;
+
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let offsets = PrimitiveArray::new(buffer![0u32, 1, 2], Validity::NonNullable).into_array();
+    let elements = PrimitiveArray::from_iter([10i32, 20]).into_array();
+    let list: ArrayRef = ListArray::try_new(elements, offsets, Validity::NonNullable)
+        .unwrap()
+        .into_array();
+    let err = convert_columns(&[list], &[RowSortField::default()], &mut ctx)
+        .expect_err("List should not be accepted");
+    assert!(
+        err.to_string().contains("List"),
+        "expected error mentioning List, got: {err}"
+    );
 }

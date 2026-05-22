@@ -9,12 +9,20 @@
 //! descending-ness as configured by [`RowSortField`].
 //!
 //! Conventions:
-//! - Every value is preceded by a 1-byte sentinel that orders nulls relative to non-nulls.
-//! - For `descending`, only the **value** bytes are bit-inverted (XOR with 0xFF), not the
-//!   sentinel.
+//! - Every fixed-width value is preceded by a 1-byte sentinel that orders nulls relative to
+//!   non-nulls. For `descending`, only the **value** bytes are bit-inverted (XOR with 0xFF),
+//!   not the sentinel.
+//! - Variable-length (Utf8, Binary) values use **three** distinct leading sentinels — one each
+//!   for null, empty, and non-empty — so byte comparison at position 0 fully categorizes the
+//!   value and column-byte boundaries stay aligned across rows. See
+//!   [`varlen_null_sentinel`], [`varlen_empty_sentinel`], [`varlen_non_empty_sentinel`].
 //! - Fixed-width integers are big-endian, with the sign bit flipped for signed types.
 //! - Floats are bit-pattern big-endian with sign-aware mask: non-negative flips the top
 //!   bit; negative flips all bits.
+//! - Nullable structs and fixed-size lists encode null parent rows with a **canonical null
+//!   body** so two null parent rows produce byte-equal encodings: fixed-width children
+//!   contribute their fixed null encoding, and variable-width children collapse to a single
+//!   null sentinel byte.
 
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -50,17 +58,23 @@ pub(crate) const VARLEN_BLOCK_SIZE: usize = 32;
 pub(crate) const VARLEN_BLOCK_TOTAL: usize = VARLEN_BLOCK_SIZE + 1;
 const VARLEN_BLOCK_TOTAL_U32: u32 = 33;
 
-/// Returns the size in bytes of the encoded form of a variable-length value of the given length.
+/// Size in bytes of an encoded null varlen value (just the sentinel byte).
+pub(crate) const VARLEN_NULL_SIZE: u32 = 1;
+/// Size in bytes of an encoded empty varlen value (just the sentinel byte).
+pub(crate) const VARLEN_EMPTY_SIZE: u32 = 1;
+
+/// Returns the size in bytes of the encoded form of a non-empty variable-length value.
+///
+/// Includes the leading sentinel byte plus `ceil(len/32) * 33` block bytes (32 content + 1
+/// continuation/length byte). Callers must use [`VARLEN_NULL_SIZE`] for null values and
+/// [`VARLEN_EMPTY_SIZE`] for empty values. A `u32` always suffices because a `BinaryView`
+/// length is itself a `u32`, so `blocks <= ceil(u32::MAX / 32) < 2^27`.
 #[inline]
-fn encoded_size_for_varlen(len: usize) -> u32 {
-    // 1 sentinel + ceil(len/32)*33 content bytes (or 1 zero terminator if empty)
-    if len == 0 {
-        1 + 1
-    } else {
-        let blocks = u32::try_from(len.div_ceil(VARLEN_BLOCK_SIZE))
-            .vortex_expect("varlen block count must fit in u32");
-        1 + blocks * VARLEN_BLOCK_TOTAL_U32
-    }
+fn encoded_size_for_non_empty_varlen(len: usize) -> u32 {
+    debug_assert!(len > 0);
+    let blocks = u32::try_from(len.div_ceil(VARLEN_BLOCK_SIZE))
+        .vortex_expect("varlen block count must fit in u32");
+    1 + blocks * VARLEN_BLOCK_TOTAL_U32
 }
 
 /// Constant per-row size in bytes for fixed-width encodings (including 1-byte sentinel).
@@ -71,6 +85,43 @@ const fn encoded_size_for_fixed(value_bytes: u32) -> u32 {
 
 fn byte_width_u32(width: usize) -> u32 {
     u32::try_from(width).vortex_expect("native byte width must fit in u32")
+}
+
+/// Returns the sentinel byte for a null varlen value.
+///
+/// The choice is positional (0x00 when nulls sort first, 0xFF when nulls sort last) and
+/// independent of `descending`, matching the convention used by `arrow-row`.
+#[inline]
+fn varlen_null_sentinel(field: RowSortField) -> u8 {
+    if field.nulls_first { 0x00 } else { 0xFF }
+}
+
+/// Returns the sentinel byte for an empty varlen value.
+///
+/// Equal to `0x01` in ascending mode and `!0x01 = 0xFE` in descending mode.
+#[inline]
+fn varlen_empty_sentinel(field: RowSortField) -> u8 {
+    if field.descending { !0x01u8 } else { 0x01u8 }
+}
+
+/// Returns the sentinel byte for a non-empty varlen value.
+///
+/// Equal to `0x02` in ascending mode and `!0x02 = 0xFD` in descending mode.
+#[inline]
+fn varlen_non_empty_sentinel(field: RowSortField) -> u8 {
+    if field.descending { !0x02u8 } else { 0x02u8 }
+}
+
+/// Returns the single-byte null sentinel used when a child contributes its canonical null
+/// encoding inside a null parent struct/FSL row.
+///
+/// For varlen children that is the varlen null sentinel; for everything else (including
+/// nested struct/FSL when used as a variable-width child) it is the fixed-width null sentinel.
+fn child_canonical_null_byte(child_dtype: &DType, field: RowSortField) -> u8 {
+    match child_dtype {
+        DType::Utf8(_) | DType::Binary(_) => varlen_null_sentinel(field),
+        _ => field.null_sentinel(),
+    }
 }
 
 /// Per-row width classification for a column.
@@ -97,7 +148,8 @@ pub(crate) enum RowWidth {
 ///
 /// # Errors
 ///
-/// Returns an error for dtypes that the row encoder does not support.
+/// Returns an error for dtypes that the row encoder does not support. Width arithmetic that
+/// would overflow `u32` is also reported as an error rather than silently saturating.
 pub(crate) fn row_width_for_dtype(dtype: &DType) -> VortexResult<RowWidth> {
     match dtype {
         DType::Null => Ok(RowWidth::Fixed(1)),
@@ -107,6 +159,9 @@ pub(crate) fn row_width_for_dtype(dtype: &DType) -> VortexResult<RowWidth> {
         )))),
         DType::Decimal(dt, _) => {
             let vt = DecimalType::smallest_decimal_value_type(dt);
+            if matches!(vt, DecimalType::I256) {
+                vortex_bail!("row encoding for Decimal256 is not yet implemented");
+            }
             Ok(RowWidth::Fixed(encoded_size_for_fixed(byte_width_u32(
                 vt.byte_width(),
             ))))
@@ -116,8 +171,13 @@ pub(crate) fn row_width_for_dtype(dtype: &DType) -> VortexResult<RowWidth> {
             // FSL is fixed iff its element type is fixed. Add a sentinel byte for the FSL
             // itself, then `n` copies of the element width.
             RowWidth::Fixed(w) => {
-                let body = w.saturating_mul(*n);
-                Ok(RowWidth::Fixed(body.saturating_add(1)))
+                let body = w
+                    .checked_mul(*n)
+                    .ok_or_else(|| vortex_error::vortex_err!("FSL row width overflows u32"))?;
+                let total = body
+                    .checked_add(1)
+                    .ok_or_else(|| vortex_error::vortex_err!("FSL row width overflows u32"))?;
+                Ok(RowWidth::Fixed(total))
             }
             RowWidth::Variable => Ok(RowWidth::Variable),
         },
@@ -126,13 +186,21 @@ pub(crate) fn row_width_for_dtype(dtype: &DType) -> VortexResult<RowWidth> {
             let mut total: u32 = 1; // outer sentinel
             for field_dtype in fields.fields() {
                 match row_width_for_dtype(&field_dtype)? {
-                    RowWidth::Fixed(w) => total = total.saturating_add(w),
+                    RowWidth::Fixed(w) => {
+                        total = total.checked_add(w).ok_or_else(|| {
+                            vortex_error::vortex_err!("Struct row width overflows u32")
+                        })?;
+                    }
                     RowWidth::Variable => return Ok(RowWidth::Variable),
                 }
             }
             Ok(RowWidth::Fixed(total))
         }
-        DType::List(..) => Ok(RowWidth::Variable),
+        DType::List(..) => {
+            vortex_bail!(
+                "row encoding does not support variable-size List arrays (no well-defined ordering)"
+            )
+        }
         DType::Extension(ext) => row_width_for_dtype(ext.storage_dtype()),
         DType::Variant(_) => {
             vortex_bail!("row encoding does not support Variant arrays (no well-defined ordering)")
@@ -241,13 +309,16 @@ fn add_size_varbinview(
     let mask = arr.as_ref().validity()?.execute_mask(arr.len(), ctx)?;
     let views = arr.views();
     for (i, view) in views.iter().enumerate() {
-        let valid = mask.value(i);
-        if !valid {
-            sizes[i] += 1; // sentinel only
+        let contribution = if !mask.value(i) {
+            VARLEN_NULL_SIZE
+        } else if view.is_empty() {
+            VARLEN_EMPTY_SIZE
         } else {
-            let len = view.len() as usize;
-            sizes[i] += encoded_size_for_varlen(len);
-        }
+            encoded_size_for_non_empty_varlen(view.len() as usize)
+        };
+        sizes[i] = sizes[i]
+            .checked_add(contribution)
+            .vortex_expect("per-row size overflow");
     }
     Ok(())
 }
@@ -258,14 +329,31 @@ fn add_size_struct(
     sizes: &mut [u32],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    // null sentinel: 1 byte per row.
+    let n = arr.len();
+    let mask = arr.as_ref().validity()?.execute_mask(n, ctx)?;
+    // Outer sentinel: 1 byte per row.
     for s in sizes.iter_mut() {
-        *s += 1;
+        *s = s.checked_add(1).vortex_expect("per-row size overflow");
     }
-    // Each field adds its own per-row size.
+    // Each child contributes its per-row size when the parent is non-null, and a canonical
+    // null contribution when the parent is null. For fixed-width children both are equal,
+    // so we can simply add the fixed width to every row. For variable-width children the
+    // null contribution collapses to 1 byte, ensuring null parent rows have a constant body.
     for child in arr.iter_unmasked_fields() {
-        let canonical = child.clone().execute::<Canonical>(ctx)?;
-        field_size(&canonical, field, sizes, ctx)?;
+        match row_width_for_dtype(child.dtype())? {
+            RowWidth::Fixed(w) => add_size_const(sizes, w),
+            RowWidth::Variable => {
+                let canonical = child.clone().execute::<Canonical>(ctx)?;
+                let mut child_sizes = vec![0u32; n];
+                field_size(&canonical, field, &mut child_sizes, ctx)?;
+                for i in 0..n {
+                    let contribution = if mask.value(i) { child_sizes[i] } else { 1u32 };
+                    sizes[i] = sizes[i]
+                        .checked_add(contribution)
+                        .vortex_expect("per-row size overflow");
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -279,19 +367,45 @@ fn add_size_fsl(
     let n = arr.len();
     debug_assert_eq!(n, sizes.len());
     let list_size = arr.list_size() as usize;
-    let elements = arr.elements().clone().execute::<Canonical>(ctx)?;
-    debug_assert_eq!(elements.len(), n * list_size);
-    // Sizing: 1 sentinel + sum of element sizes (`list_size` per row).
-    // We compute element-wise sizes into a contiguous scratch buffer then reduce by row.
-    let mut elem_sizes = vec![0u32; n * list_size];
-    field_size(&elements, field, &mut elem_sizes, ctx)?;
-    for i in 0..n {
-        let mut sum: u32 = 1; // sentinel
-        let base = i * list_size;
-        for j in 0..list_size {
-            sum = sum.saturating_add(elem_sizes[base + j]);
+    let mask = arr.as_ref().validity()?.execute_mask(n, ctx)?;
+    let elem_dtype = arr.elements().dtype();
+    // Outer sentinel: 1 byte per row.
+    for s in sizes.iter_mut() {
+        *s = s.checked_add(1).vortex_expect("per-row size overflow");
+    }
+    match row_width_for_dtype(elem_dtype)? {
+        RowWidth::Fixed(w) => {
+            // Each row has `list_size` fixed-width elements regardless of null parent mask.
+            let body = w
+                .checked_mul(u32::try_from(list_size).vortex_expect("list_size fits u32"))
+                .vortex_expect("FSL body width overflow");
+            add_size_const(sizes, body);
         }
-        sizes[i] += sum;
+        RowWidth::Variable => {
+            let elements = arr.elements().clone().execute::<Canonical>(ctx)?;
+            debug_assert_eq!(elements.len(), n * list_size);
+            let mut elem_sizes = vec![0u32; n * list_size];
+            field_size(&elements, field, &mut elem_sizes, ctx)?;
+            for i in 0..n {
+                let body: u32 = if mask.value(i) {
+                    let base = i * list_size;
+                    let mut sum: u32 = 0;
+                    for j in 0..list_size {
+                        sum = sum
+                            .checked_add(elem_sizes[base + j])
+                            .vortex_expect("FSL row body overflow");
+                    }
+                    sum
+                } else {
+                    // Canonical null body for FSL with variable element: one null sentinel
+                    // per element. (Each element contributes `child_null_width = 1`.)
+                    u32::try_from(list_size).vortex_expect("list_size fits u32")
+                };
+                sizes[i] = sizes[i]
+                    .checked_add(body)
+                    .vortex_expect("FSL per-row size overflow");
+            }
+        }
     }
     Ok(())
 }
@@ -462,24 +576,33 @@ fn encode_varbinview(
     row_offsets: &[u32],
     col_offset: &mut [u32],
     out: &mut [u8],
-    ctx: &mut ExecutionCtx,
+    _ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    let mask = arr.as_ref().validity()?.execute_mask(arr.len(), ctx)?;
-    let non_null = field.non_null_sentinel();
-    let null = field.null_sentinel();
+    let null_byte = varlen_null_sentinel(field);
+    let empty_byte = varlen_empty_sentinel(field);
+    let non_empty_byte = varlen_non_empty_sentinel(field);
 
+    // `with_iterator` yields `Some(bytes)` for non-null rows and `None` for null rows,
+    // so the iterator alone fully describes validity — no separate mask lookup needed.
     arr.with_iterator(|iter| {
         for (i, maybe) in iter.enumerate() {
             let pos = (row_offsets[i] + col_offset[i]) as usize;
-            if !mask.value(i) {
-                out[pos] = null;
-                col_offset[i] += 1;
-                continue;
+            match maybe {
+                None => {
+                    out[pos] = null_byte;
+                    col_offset[i] += VARLEN_NULL_SIZE;
+                }
+                Some([]) => {
+                    out[pos] = empty_byte;
+                    col_offset[i] += VARLEN_EMPTY_SIZE;
+                }
+                Some(bytes) => {
+                    out[pos] = non_empty_byte;
+                    let written =
+                        encode_non_empty_varlen_body(bytes, &mut out[pos + 1..], field.descending);
+                    col_offset[i] += 1 + written;
+                }
             }
-            let bytes: &[u8] = maybe.unwrap_or(&[]);
-            out[pos] = non_null;
-            let written = encode_varlen_value(bytes, &mut out[pos + 1..], field.descending);
-            col_offset[i] += 1 + written;
         }
     });
     Ok(())
@@ -498,37 +621,37 @@ fn encode_struct(
     let non_null = field.non_null_sentinel();
     let null = field.null_sentinel();
 
-    // First, write the sentinel for each row. We track the post-sentinel cursor offsets
-    // for the body in `body_cursors` (which start exactly at +1 of the input cursor).
-    // For null rows we additionally need to zero-fill the (uniform-width) field bytes,
-    // but because struct widths are variable in general, we record null indexes first
-    // and zero-fill after we know each row's contribution.
-    //
-    // To keep the implementation simple we:
-    //   1) advance the cursor past the sentinel,
-    //   2) recursively encode each field's bytes (the field encoders ignore nullness of
-    //      the struct, but use their own per-field nullness),
-    //   3) for null struct rows, overwrite the body bytes with zeros so the encoded form
-    //      depends only on the sentinel.
-    let body_start: Vec<u32> = (0..n).map(|i| col_offset[i] + 1).collect();
+    // Write the outer sentinel for each row.
     for i in 0..n {
         let pos = (row_offsets[i] + col_offset[i]) as usize;
         out[pos] = if mask.value(i) { non_null } else { null };
         col_offset[i] += 1;
     }
 
+    // Encode each child. For non-null parent rows the child contributes its actual encoding;
+    // for null parent rows the child contributes its canonical null encoding so that two null
+    // parent rows produce byte-equal output regardless of underlying child values.
     for child in arr.iter_unmasked_fields() {
-        let canonical = child.clone().execute::<Canonical>(ctx)?;
-        field_encode(&canonical, field, row_offsets, col_offset, out, ctx)?;
-    }
-
-    // Zero-fill body bytes of null rows (the field encoders may have written values).
-    for i in 0..n {
-        if !mask.value(i) {
-            let start = (row_offsets[i] + body_start[i]) as usize;
-            let end = (row_offsets[i] + col_offset[i]) as usize;
-            for b in &mut out[start..end] {
-                *b = 0;
+        match row_width_for_dtype(child.dtype())? {
+            RowWidth::Fixed(w) => {
+                let canonical = child.clone().execute::<Canonical>(ctx)?;
+                field_encode(&canonical, field, row_offsets, col_offset, out, ctx)?;
+                // Replace null parent rows with the canonical null encoding (the same as a
+                // child-level null: null sentinel followed by zero-padded value bytes).
+                let null_byte = child_canonical_null_byte(child.dtype(), field);
+                for i in 0..n {
+                    if !mask.value(i) {
+                        let end = (row_offsets[i] + col_offset[i]) as usize;
+                        let start = end - w as usize;
+                        out[start] = null_byte;
+                        for b in &mut out[start + 1..end] {
+                            *b = 0;
+                        }
+                    }
+                }
+            }
+            RowWidth::Variable => {
+                encode_variable_child(child, field, &mask, row_offsets, col_offset, out, ctx)?;
             }
         }
     }
@@ -544,58 +667,181 @@ fn encode_fsl(
     out: &mut [u8],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    let n = arr.len();
+    let nrows = arr.len();
     let list_size = arr.list_size() as usize;
-    let mask = arr.as_ref().validity()?.execute_mask(n, ctx)?;
+    let mask = arr.as_ref().validity()?.execute_mask(nrows, ctx)?;
     let non_null = field.non_null_sentinel();
     let null = field.null_sentinel();
-    let elements = arr.elements().clone().execute::<Canonical>(ctx)?;
-    debug_assert_eq!(elements.len(), n * list_size);
+    let elem_dtype = arr.elements().dtype().clone();
 
-    // Write sentinels and remember body start for null zero-fill.
-    let body_start: Vec<u32> = (0..n).map(|i| col_offset[i] + 1).collect();
-    for i in 0..n {
+    // Outer sentinel.
+    for i in 0..nrows {
         let pos = (row_offsets[i] + col_offset[i]) as usize;
         out[pos] = if mask.value(i) { non_null } else { null };
         col_offset[i] += 1;
     }
 
-    // Encode all `n * list_size` elements into the body. Build a fresh
-    // (offsets, cursors) pair where each element gets one slot. Then sum bytes back
-    // into the parent col_offset.
-    let mut elem_sizes = vec![0u32; n * list_size];
-    field_size(&elements, field, &mut elem_sizes, ctx)?;
-    // Element offsets are sequential starting at each parent's current cursor position.
-    let mut elem_offsets = vec![0u32; n * list_size];
-    for i in 0..n {
-        let mut acc = row_offsets[i] + col_offset[i];
-        for j in 0..list_size {
-            elem_offsets[i * list_size + j] = acc;
-            acc = acc.saturating_add(elem_sizes[i * list_size + j]);
+    match row_width_for_dtype(&elem_dtype)? {
+        RowWidth::Fixed(w) => {
+            // Fixed-width elements: encode the elements array directly (its length is
+            // nrows * list_size) using a derived (offsets, cursors) pair. Then overwrite
+            // the body of null parent rows with the canonical null encoding per element.
+            let elements = arr.elements().clone().execute::<Canonical>(ctx)?;
+            debug_assert_eq!(elements.len(), nrows * list_size);
+            let list_size_u32 = arr.list_size();
+            let row_body_bytes = w
+                .checked_mul(list_size_u32)
+                .vortex_expect("FSL body width overflow");
+            let mut elem_offsets = vec![0u32; nrows * list_size];
+            for i in 0..nrows {
+                let base = row_offsets[i] + col_offset[i];
+                for j in 0u32..list_size_u32 {
+                    elem_offsets[i * list_size + j as usize] = base + j * w;
+                }
+            }
+            let mut elem_cursors = vec![0u32; nrows * list_size];
+            field_encode(&elements, field, &elem_offsets, &mut elem_cursors, out, ctx)?;
+            for i in 0..nrows {
+                col_offset[i] = col_offset[i]
+                    .checked_add(row_body_bytes)
+                    .vortex_expect("FSL row body overflow");
+            }
+            // Canonical null body for null parent rows: one null encoding per element.
+            let null_byte = child_canonical_null_byte(&elem_dtype, field);
+            let elem_width = w as usize;
+            for i in 0..nrows {
+                if !mask.value(i) {
+                    let end = (row_offsets[i] + col_offset[i]) as usize;
+                    let start = end - row_body_bytes as usize;
+                    let mut pos = start;
+                    for _ in 0..list_size {
+                        out[pos] = null_byte;
+                        for b in &mut out[pos + 1..pos + elem_width] {
+                            *b = 0;
+                        }
+                        pos += elem_width;
+                    }
+                }
+            }
         }
-    }
-    let mut elem_cursors = vec![0u32; n * list_size];
-    field_encode(&elements, field, &elem_offsets, &mut elem_cursors, out, ctx)?;
-    // Advance the parent cursors by the total per-row element bytes.
-    for i in 0..n {
-        let mut sum: u32 = 0;
-        for j in 0..list_size {
-            sum = sum.saturating_add(elem_sizes[i * list_size + j]);
-        }
-        col_offset[i] = col_offset[i].saturating_add(sum);
-    }
-
-    // Zero-fill null bodies.
-    for i in 0..n {
-        if !mask.value(i) {
-            let start = (row_offsets[i] + body_start[i]) as usize;
-            let end = (row_offsets[i] + col_offset[i]) as usize;
-            for b in &mut out[start..end] {
-                *b = 0;
+        RowWidth::Variable => {
+            // Variable-width elements: for null parent rows the canonical body is exactly
+            // `list_size` null sentinel bytes (one per element). For non-null parent rows,
+            // encode each element via a scratch buffer and copy into out.
+            let elements = arr.elements().clone().execute::<Canonical>(ctx)?;
+            debug_assert_eq!(elements.len(), nrows * list_size);
+            let mut elem_sizes = vec![0u32; nrows * list_size];
+            field_size(&elements, field, &mut elem_sizes, ctx)?;
+            let total: u64 = elem_sizes.iter().map(|&s| u64::from(s)).sum();
+            let total_usize =
+                usize::try_from(total).vortex_expect("FSL scratch buffer size fits usize");
+            let mut scratch = vec![0u8; total_usize];
+            let mut scratch_offsets = Vec::with_capacity(nrows * list_size);
+            let mut acc: u32 = 0;
+            for &s in &elem_sizes {
+                scratch_offsets.push(acc);
+                acc = acc
+                    .checked_add(s)
+                    .vortex_expect("FSL scratch offset overflow");
+            }
+            let mut scratch_cursors = vec![0u32; nrows * list_size];
+            field_encode(
+                &elements,
+                field,
+                &scratch_offsets,
+                &mut scratch_cursors,
+                &mut scratch,
+                ctx,
+            )?;
+            let null_byte = child_canonical_null_byte(&elem_dtype, field);
+            for i in 0..nrows {
+                let dst = (row_offsets[i] + col_offset[i]) as usize;
+                if mask.value(i) {
+                    let mut body_bytes: u32 = 0;
+                    for j in 0..list_size {
+                        let k = i * list_size + j;
+                        let src = scratch_offsets[k] as usize;
+                        let sz = elem_sizes[k] as usize;
+                        out[dst + body_bytes as usize..dst + body_bytes as usize + sz]
+                            .copy_from_slice(&scratch[src..src + sz]);
+                        body_bytes = body_bytes
+                            .checked_add(elem_sizes[k])
+                            .vortex_expect("FSL body bytes overflow");
+                    }
+                    col_offset[i] = col_offset[i]
+                        .checked_add(body_bytes)
+                        .vortex_expect("FSL row offset overflow");
+                } else {
+                    for offset in 0..list_size {
+                        out[dst + offset] = null_byte;
+                    }
+                    col_offset[i] = col_offset[i]
+                        .checked_add(u32::try_from(list_size).vortex_expect("list_size fits u32"))
+                        .vortex_expect("FSL row offset overflow");
+                }
             }
         }
     }
 
+    Ok(())
+}
+
+/// Encode one variable-width child of a struct: for non-null parent rows, copy the child's
+/// natural encoding from a scratch buffer; for null parent rows, write a single
+/// `child_canonical_null_byte`.
+fn encode_variable_child(
+    child: &vortex_array::ArrayRef,
+    field: RowSortField,
+    parent_mask: &vortex_mask::Mask,
+    row_offsets: &[u32],
+    col_offset: &mut [u32],
+    out: &mut [u8],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let n = child.len();
+    let canonical = child.clone().execute::<Canonical>(ctx)?;
+
+    // Size and encode the child into a sequential scratch buffer.
+    let mut child_sizes = vec![0u32; n];
+    field_size(&canonical, field, &mut child_sizes, ctx)?;
+    let total: u64 = child_sizes.iter().map(|&s| u64::from(s)).sum();
+    let total_usize = usize::try_from(total).vortex_expect("child scratch buffer size fits usize");
+    let mut scratch = vec![0u8; total_usize];
+    let mut scratch_offsets = Vec::with_capacity(n);
+    let mut acc: u32 = 0;
+    for &s in &child_sizes {
+        scratch_offsets.push(acc);
+        acc = acc
+            .checked_add(s)
+            .vortex_expect("child scratch offset overflow");
+    }
+    let mut scratch_cursors = vec![0u32; n];
+    field_encode(
+        &canonical,
+        field,
+        &scratch_offsets,
+        &mut scratch_cursors,
+        &mut scratch,
+        ctx,
+    )?;
+
+    let null_byte = child_canonical_null_byte(child.dtype(), field);
+    for i in 0..n {
+        let dst = (row_offsets[i] + col_offset[i]) as usize;
+        if parent_mask.value(i) {
+            let src = scratch_offsets[i] as usize;
+            let sz = child_sizes[i] as usize;
+            out[dst..dst + sz].copy_from_slice(&scratch[src..src + sz]);
+            col_offset[i] = col_offset[i]
+                .checked_add(child_sizes[i])
+                .vortex_expect("col_offset overflow");
+        } else {
+            out[dst] = null_byte;
+            col_offset[i] = col_offset[i]
+                .checked_add(1)
+                .vortex_expect("col_offset overflow");
+        }
+    }
     Ok(())
 }
 
@@ -611,15 +857,12 @@ fn encode_extension(
     field_encode(&storage, field, row_offsets, col_offset, out, ctx)
 }
 
-/// Encode a variable-length byte slice into `out` in 32-byte blocks with
-/// continuation markers. Returns the number of bytes written.
-fn encode_varlen_value(bytes: &[u8], out: &mut [u8], descending: bool) -> u32 {
+/// Encode a non-empty variable-length byte slice into `out` in 32-byte blocks with
+/// continuation/length markers. Returns the number of bytes written. Empty values are
+/// encoded by the caller as a single sentinel byte and never reach this function.
+fn encode_non_empty_varlen_body(bytes: &[u8], out: &mut [u8], descending: bool) -> u32 {
+    debug_assert!(!bytes.is_empty());
     let xor = if descending { 0xFFu8 } else { 0x00 };
-    if bytes.is_empty() {
-        // Single zero terminator.
-        out[0] = xor;
-        return 1;
-    }
     let mut written = 0usize;
     let mut remaining = bytes;
     while remaining.len() > VARLEN_BLOCK_SIZE {

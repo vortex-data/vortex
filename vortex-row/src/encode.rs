@@ -11,7 +11,6 @@
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ListViewArray;
@@ -25,7 +24,6 @@ use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::validity::Validity;
-use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -34,7 +32,6 @@ use vortex_session::VortexSession;
 
 use crate::codec;
 use crate::options::RowEncodingOptions;
-use crate::options::RowSortField;
 use crate::options::deserialize_row_encoding_options;
 use crate::options::serialize_row_encoding_options;
 use crate::size::compute_sizes;
@@ -107,6 +104,9 @@ fn execute_row_encode(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let nrows = args.row_count();
+    if u32::try_from(nrows).is_err() {
+        vortex_bail!("row-encoded input has {} rows, exceeds u32::MAX", nrows);
+    }
 
     // ===== Phase 1: classify + size pass =====
     let crate::size::SizePassResult {
@@ -122,7 +122,9 @@ fn execute_row_encode(
     let total: u64 = (nrows as u64)
         .checked_mul(u64::from(fixed_per_row))
         .and_then(|t| t.checked_add(var_total))
-        .vortex_expect("row-encoded total bytes overflow");
+        .ok_or_else(|| {
+            vortex_error::vortex_err!("row-encoded total bytes overflow u64 (nrows * fixed + var)")
+        })?;
     if total > u32::MAX as u64 {
         vortex_bail!("row-encoded output size {} bytes exceeds u32::MAX", total);
     }
@@ -138,44 +140,42 @@ fn execute_row_encode(
     // listview_offsets[i] is the absolute byte offset where row `i` begins.
     // For pure-fixed: i * fixed_per_row.
     // For mixed: i * fixed_per_row + exclusive prefix sum of var_lengths.
-    let mut listview_offsets: Vec<u32> = Vec::with_capacity(nrows);
+    // Build directly into a BufferMut to avoid a Vec→Buffer copy at the end.
+    let nrows_u32 =
+        u32::try_from(nrows).vortex_expect("nrows fits u32 (validated earlier in this function)");
+    let mut listview_offsets: BufferMut<u32> = BufferMut::with_capacity(nrows);
     match var_lengths.as_ref() {
         None => {
-            for i in 0..nrows {
-                let row_idx =
-                    u32::try_from(i).vortex_expect("row index must fit in u32 after validation");
-                listview_offsets.push(
-                    row_idx
-                        .checked_mul(fixed_per_row)
-                        .vortex_expect("row offset overflow (already validated total fits in u32)"),
-                );
+            for row_idx in 0..nrows_u32 {
+                // Total bytes already fit in u32, so row_idx * fixed_per_row also does.
+                listview_offsets.push(row_idx * fixed_per_row);
             }
         }
         Some(v) => {
             let mut acc: u32 = 0;
-            for (i, &l) in v.iter().enumerate() {
-                let row_idx =
-                    u32::try_from(i).vortex_expect("row index must fit in u32 after validation");
-                let off = row_idx
-                    .checked_mul(fixed_per_row)
-                    .and_then(|t| t.checked_add(acc))
-                    .vortex_expect("row offset overflow");
-                listview_offsets.push(off);
-                acc = acc.checked_add(l).vortex_expect("varlen prefix overflow");
+            for (row_idx, &l) in (0..nrows_u32).zip(v.iter()) {
+                // The arithmetic below cannot overflow because we already verified the
+                // total fits in u32.
+                listview_offsets.push(row_idx * fixed_per_row + acc);
+                acc += l;
             }
         }
     }
+    let listview_offsets_slice: &[u32] = listview_offsets.as_slice();
 
-    // Per-row write cursor (also doubles as the ListView `sizes` slot when done).
-    let mut row_cursors = vec![0u32; nrows];
+    // Per-row write cursor (also doubles as the ListView `sizes` slot when done). We build
+    // it as a BufferMut so we can hand it directly to the output PrimitiveArray.
+    let mut row_cursors: BufferMut<u32> = BufferMut::with_capacity(nrows);
+    row_cursors.push_n(0u32, nrows);
 
     // ===== Phase 4: encode columns via the cursor path =====
-    for (i, col) in columns.iter().enumerate() {
-        dispatch_encode(
-            col,
+    // Each column was canonicalized once during the size pass; reuse that canonical form.
+    for (i, canonical) in columns.iter().enumerate() {
+        codec::field_encode(
+            canonical,
             options.fields[i],
-            &listview_offsets,
-            &mut row_cursors,
+            listview_offsets_slice,
+            row_cursors.as_mut_slice(),
             &mut out_buf,
             ctx,
         )?;
@@ -183,34 +183,11 @@ fn execute_row_encode(
 
     // ===== Phase 5: build ListView output =====
     let elements = PrimitiveArray::new(out_buf.freeze(), Validity::NonNullable).into_array();
-    let offsets_arr = PrimitiveArray::new(
-        Buffer::<u32>::copy_from(&listview_offsets),
-        Validity::NonNullable,
-    )
-    .into_array();
-    let sizes_arr = PrimitiveArray::new(
-        Buffer::<u32>::copy_from(&row_cursors),
-        Validity::NonNullable,
-    )
-    .into_array();
+    let offsets_arr =
+        PrimitiveArray::new(listview_offsets.freeze(), Validity::NonNullable).into_array();
+    let sizes_arr = PrimitiveArray::new(row_cursors.freeze(), Validity::NonNullable).into_array();
     Ok(
         ListViewArray::try_new(elements, offsets_arr, sizes_arr, Validity::NonNullable)?
             .into_array(),
     )
-}
-
-/// Dispatch a single column's encoding into the shared `out` buffer through the canonical path.
-///
-/// TODO(row): add per-encoding fast paths here so Constant, Dictionary, and compressed arrays
-/// can write row bytes without canonicalizing.
-pub(crate) fn dispatch_encode(
-    col: &ArrayRef,
-    field: RowSortField,
-    offsets: &[u32],
-    cursors: &mut [u32],
-    out: &mut [u8],
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<()> {
-    let canonical = col.clone().execute::<Canonical>(ctx)?;
-    codec::field_encode(&canonical, field, offsets, cursors, out, ctx)
 }
