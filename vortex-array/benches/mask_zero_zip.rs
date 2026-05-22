@@ -87,7 +87,7 @@ const N: usize = 100_000;
 // Kernels
 // ---------------------------------------------------------------------------
 
-/// Baseline: pure cast, ignores validity. Lower bound on achievable time.
+/// Floor: pure cast, ignores validity. Lower bound on achievable time.
 /// This is the loop that today's `cast.rs` uses after an up-front
 /// `values_fit_in` range check.
 #[inline(never)]
@@ -97,6 +97,28 @@ where
     T: NativePType,
 {
     BufferMut::from_trusted_len_iter(values.iter().map(|&v| v.as_())).freeze()
+}
+
+/// Fused "check + cast" fast path: cast every element and, in the same pass,
+/// detect whether any conversion was lossy via a branchless round-trip compare
+/// `(v as T) as F == v`. No bitmask is consumed and no min/max pass is needed;
+/// the validity-aware path is only required when `lossy` is set *and* the
+/// offending element is at a valid position (the rare error case).
+#[inline(never)]
+fn k_check_cast_fused<F, T>(values: &[F]) -> (Buffer<T>, bool)
+where
+    F: NativePType + AsPrimitive<T>,
+    T: NativePType + AsPrimitive<F>,
+{
+    let mut lossy = false;
+    let out = BufferMut::from_trusted_len_iter(values.iter().map(|&v| {
+        let t: T = v.as_();
+        let back: F = t.as_();
+        lossy |= !back.is_eq(v);
+        t
+    }))
+    .freeze();
+    (out, lossy)
 }
 
 /// The snippet under discussion: zip values with `BitBuffer::iter()`, multiply
@@ -356,6 +378,12 @@ macro_rules! bench_pair {
             fn as_only(bencher: Bencher) {
                 let (values, _) = inputs();
                 bencher.bench(|| k_as_only::<$F, $T>(values.as_slice()));
+            }
+
+            #[divan::bench]
+            fn check_cast_fused(bencher: Bencher) {
+                let (values, _) = inputs();
+                bencher.bench(|| k_check_cast_fused::<$F, $T>(values.as_slice()));
             }
 
             #[divan::bench]
