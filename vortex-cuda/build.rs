@@ -6,7 +6,7 @@
 #![expect(clippy::use_debug)]
 
 use std::env;
-use std::fs;
+use std::fs::File;
 use std::io;
 use std::path::Path;
 use std::path::PathBuf;
@@ -27,13 +27,13 @@ fn main() {
 
     // Source directory for kernels (hand-written and generated .cu/.cuh files)
     let kernels_src = Path::new(&manifest_dir).join("kernels/src");
-    // Output directory for compiled CUDA module files - separate by profile.
+    // Output directory for compiled .ptx files - separate by profile.
     let kernels_gen = Path::new(&manifest_dir).join("kernels/gen").join(&profile);
 
-    fs::create_dir_all(&kernels_gen).expect("Failed to create kernels/gen directory");
+    std::fs::create_dir_all(&kernels_gen).expect("Failed to create kernels/gen directory");
 
     // Always emit the kernels output directory path as a compile-time env var so any binary
-    // linking against vortex-cuda can find the CUDA module files. This must be set regardless
+    // linking against vortex-cuda can find the PTX files. This must be set regardless
     // of CUDA availability since the code using env!() is always compiled.
     // At runtime, VORTEX_CUDA_KERNELS_DIR can be set to override this path.
     println!(
@@ -64,8 +64,8 @@ fn main() {
         return;
     }
 
-    // Watch and compile .cu and .cuh files from kernels/src to CUDA modules in kernels/gen
-    if let Ok(entries) = fs::read_dir(&kernels_src) {
+    // Watch and compile .cu and .cuh files from kernels/src to PTX in kernels/gen
+    if let Ok(entries) = std::fs::read_dir(&kernels_src) {
         for path in entries.flatten().map(|entry| entry.path()) {
             let is_generated = path
                 .file_name()
@@ -86,8 +86,8 @@ fn main() {
                     if !is_generated {
                         println!("cargo:rerun-if-changed={}", path.display());
                     }
-                    // Compile all .cu files to CUDA fatbins in gen directory
-                    nvcc_compile_fatbin(&kernels_src, &kernels_gen, &path, &profile)
+                    // Compile all .cu files to PTX in gen directory
+                    nvcc_compile_ptx(&kernels_src, &kernels_gen, &path, &profile)
                         .map_err(|e| {
                             format!("Failed to compile CUDA kernel {}: {}", path.display(), e)
                         })
@@ -103,19 +103,19 @@ fn generate_unpack<T: FastLanes>(output_dir: &Path, thread_count: usize) -> io::
     // Generate the lanes header (.cuh) — device functions only, no __global__ kernels.
     // This is what dynamic_dispatch.cu includes (via bit_unpack.cuh).
     let cuh_path = output_dir.join(format!("bit_unpack_{}_lanes.cuh", T::T));
-    let mut cuh_file = fs::File::create(&cuh_path)?;
+    let mut cuh_file = File::create(&cuh_path)?;
     generate_cuda_unpack_lanes::<T>(&mut cuh_file)?;
 
     // Generate the standalone kernels (.cu) — includes the lanes header,
-    // adds _device template + __global__ wrappers. Compiled to its own CUDA module.
+    // adds _device template + __global__ wrappers. Compiled to its own PTX.
     let cu_path = output_dir.join(format!("bit_unpack_{}.cu", T::T));
-    let mut cu_file = fs::File::create(&cu_path)?;
+    let mut cu_file = File::create(&cu_path)?;
     generate_cuda_unpack_kernels::<T>(&mut cu_file, thread_count)?;
 
     Ok(cu_path)
 }
 
-fn nvcc_compile_fatbin(
+fn nvcc_compile_ptx(
     include_dir: &Path,
     output_dir: &Path,
     cu_path: &Path,
@@ -148,24 +148,23 @@ fn nvcc_compile_fatbin(
         cmd.arg("-O3");
     }
 
-    // Output CUDA fatbin file goes to output_dir with same base name.
-    let fatbin_path = output_dir
+    // Output PTX file goes to output_dir with same base name
+    let ptx_path = output_dir
         .join(cu_path.file_name().unwrap())
-        .with_extension("fatbin");
+        .with_extension("ptx");
 
-    // Embed a single PTX image for Ampere and newer GPUs. The driver JIT-compiles
-    // PTX to the target GPU's SASS at runtime.
     cmd.arg("-std=c++20")
-        .arg("-gencode=arch=compute_80,code=compute_80")
+        .arg("-arch=native")
         // Flags forwarded to Clang.
         .arg("--compiler-options=-Wall -Wextra -Wpedantic -Werror")
         .arg("--restrict")
-        .arg("--fatbin")
+        .arg("--ptx")
         .arg("--include-path")
         .arg(include_dir)
+        .arg("-c")
         .arg(cu_path)
         .arg("-o")
-        .arg(&fatbin_path);
+        .arg(&ptx_path);
 
     let res = cmd.output()?;
 
