@@ -408,10 +408,53 @@ where
     (out.freeze(), err)
 }
 
+/// Fast, safe cast that errors only when a *valid* element fails to round-trip.
+///
+/// One vectorized pass casts the values and builds a packed 64-bit *lossy* word
+/// per 64 elements (a SIMD compare lands straight in a mask register, then
+/// `kmov` to the word). The "only if valid" condition is then a word-wise
+/// `lossy & validity` AND — no per-element bitmask consumption anywhere.
+#[inline(never)]
+fn k_cast_checked_bitmap<F, T>(values: &[F], validity: &BitBuffer) -> (Buffer<T>, bool)
+where
+    F: NativePType + AsPrimitive<T>,
+    T: NativePType + AsPrimitive<F>,
+{
+    let len = values.len();
+    let mut out = BufferMut::<T>::zeroed(len);
+    let dst = out.as_mut_slice();
+    let vbytes = validity.inner().as_slice();
+    let full = len / 64;
+    let mut bad = 0u64;
+    for (blk, (vchunk, ochunk)) in values[..full * 64]
+        .chunks_exact(64)
+        .zip(dst.chunks_exact_mut(64))
+        .enumerate()
+    {
+        let mut lossy = 0u64;
+        for (j, (o, &v)) in ochunk.iter_mut().zip(vchunk).enumerate() {
+            let t: T = v.as_();
+            *o = t;
+            let lost = !(<T as AsPrimitive<F>>::as_(t)).is_eq(v);
+            lossy |= (lost as u64) << j;
+        }
+        let vword = u64::from_le_bytes(vbytes[blk * 8..blk * 8 + 8].try_into().unwrap());
+        bad |= lossy & vword;
+    }
+    let mut err = bad != 0;
+    for i in (full * 64)..len {
+        let v = values[i];
+        let t: T = v.as_();
+        dst[i] = t;
+        let valid = (vbytes[i >> 3] >> (i & 7)) & 1 == 1;
+        err |= valid && !(<T as AsPrimitive<F>>::as_(t)).is_eq(v);
+    }
+    (out.freeze(), err)
+}
+
 // ---------------------------------------------------------------------------
 // Data + bench registration
 // ---------------------------------------------------------------------------
-
 fn gen_values<F>(rng: &mut StdRng) -> Buffer<F>
 where
     F: NativePType,
@@ -460,6 +503,12 @@ macro_rules! bench_pair {
             fn cast_fail_fused(bencher: Bencher) {
                 let (values, mask) = inputs();
                 bencher.bench(|| k_cast_fail_fused::<$F, $T>(values.as_slice(), &mask));
+            }
+
+            #[divan::bench]
+            fn cast_checked_bitmap(bencher: Bencher) {
+                let (values, mask) = inputs();
+                bencher.bench(|| k_cast_checked_bitmap::<$F, $T>(values.as_slice(), &mask));
             }
 
             #[divan::bench]
