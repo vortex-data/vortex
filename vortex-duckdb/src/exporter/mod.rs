@@ -38,15 +38,13 @@ use vortex::error::vortex_bail;
 
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::VectorRef;
-use crate::duckdb::duckdb_vector_size;
 
 pub struct ArrayExporter {
     ctx: ExecutionCtx,
     /// Columns DuckDB requested to read from file. If empty, it's a zero-column
     /// projection and should be handled accordingly, see ArrayExporter::export.
     fields: Vec<Box<dyn ColumnExporter>>,
-    array_len: usize,
-    remaining: usize,
+    len: usize,
 }
 
 impl ArrayExporter {
@@ -66,38 +64,22 @@ impl ArrayExporter {
         Ok(Self {
             ctx,
             fields,
-            array_len: array.len(),
-            remaining: array.len(),
+            len: array.len(),
         })
     }
 
-    /// Export the data into the next chunk.
+    /// Export all data from the array into the chunk.
     ///
-    /// Returns `true` if a chunk was exported, `false` if all rows have been exported.
+    /// The array must contain at most `duckdb_vector_size()` rows; producers
+    /// are responsible for pre-slicing larger arrays before constructing an
+    /// exporter.
     pub fn export(
         &mut self,
         chunk: &mut DataChunkRef,
         file_index_column_pos: Option<usize>,
         file_row_number_column_pos: Option<usize>,
-    ) -> VortexResult<bool> {
-        chunk.reset();
-        if self.remaining == 0 {
-            return Ok(false);
-        }
-
-        let zero_projection = self.fields.is_empty();
-
-        // file_row_number column is already populated in scan construction
-        let expected_cols = self.fields.len() + file_index_column_pos.is_some() as usize;
-        let chunk_cols = chunk.column_count();
-        if !zero_projection && chunk_cols != expected_cols {
-            vortex_bail!("Expected {expected_cols} columns in output chunk, got {chunk_cols}");
-        }
-
-        let chunk_len = duckdb_vector_size().min(self.remaining);
-        let position = self.array_len - self.remaining;
-        self.remaining -= chunk_len;
-        chunk.set_len(chunk_len);
+    ) -> VortexResult<()> {
+        chunk.set_len(self.len);
 
         // If DuckDB requests a zero-column projection from read_vortex like count(*),
         // its planner tries to get any column:
@@ -108,25 +90,26 @@ impl ArrayExporter {
         // it uninitialized in this case, we define COLUMN_IDENTIFIER_EMPTY as a
         // virtual column.
         // See virtual_columns in vortex-duckdb/cpp/table_function.cpp
-        if zero_projection {
-            return Ok(true);
+        if self.fields.is_empty() {
+            return Ok(());
+        }
+
+        // file_row_number column is already populated in scan construction
+        let expected_cols = self.fields.len() + file_index_column_pos.is_some() as usize;
+        let chunk_cols = chunk.column_count();
+        if chunk_cols != expected_cols {
+            vortex_bail!("Expected {expected_cols} columns in output chunk, got {chunk_cols}");
         }
 
         let mut fields = self.fields.iter();
         // file_row_number column is the first one if present.
         if let Some(pos) = file_row_number_column_pos {
             let field = fields.next().vortex_expect("field column mismatch");
-            field.export(
-                position,
-                chunk_len,
-                chunk.get_vector_mut(pos),
-                &mut self.ctx,
-            )?;
+            field.export(0, self.len, chunk.get_vector_mut(pos), &mut self.ctx)?;
         }
 
         for i in 0..chunk_cols {
-            // file_index column: skip index - it will be filled after
-            // chunk export.
+            // file_index column: skip index - it will be filled after chunk export.
             if let Some(pos) = file_index_column_pos
                 && i == pos
             {
@@ -141,10 +124,10 @@ impl ArrayExporter {
             }
 
             let field = fields.next().vortex_expect("field count mismatch");
-            field.export(position, chunk_len, chunk.get_vector_mut(i), &mut self.ctx)?;
+            field.export(0, self.len, chunk.get_vector_mut(i), &mut self.ctx)?;
         }
 
-        Ok(true)
+        Ok(())
     }
 }
 

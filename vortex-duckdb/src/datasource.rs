@@ -75,6 +75,7 @@ use crate::duckdb::ClientContextRef;
 use crate::duckdb::ColumnStatistics;
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::DuckdbStringMapRef;
+use crate::duckdb::duckdb_vector_size;
 use crate::duckdb::ExpressionRef;
 use crate::duckdb::LogicalType;
 use crate::duckdb::PartitionData;
@@ -173,7 +174,6 @@ pub struct DataSourceGlobal {
 /// Per-thread local scan state.
 pub struct DataSourceLocal {
     iterator: DataSourceIterator,
-    exporter: Option<ArrayExporter>,
     partition_index: u64,
     file_index: usize,
 }
@@ -405,15 +405,33 @@ impl<T: DataSourceTableFunction> TableFunction for T {
                             return;
                         }
                     };
+                    let vector_size = duckdb_vector_size();
                     while let Some(item) = stream.next().await {
-                        if tx
-                            .send(item.map(|a| (a, Arc::clone(&cache))))
-                            .await
-                            .is_err()
-                        {
-                            // Exit early if the receiver has been dropped, which happens when the
-                            // scan is complete or if an error has occurred in another partition.
-                            return;
+                        let array = match item {
+                            Ok(a) => a,
+                            Err(e) => {
+                                let _ = tx.send(Err(e)).await;
+                                return;
+                            }
+                        };
+                        let len = array.len();
+                        let mut offset = 0;
+                        while offset < len {
+                            let end = (offset + vector_size).min(len);
+                            let slice = match array.slice(offset..end) {
+                                Ok(s) => s,
+                                Err(e) => {
+                                    let _ = tx.send(Err(e)).await;
+                                    return;
+                                }
+                            };
+                            if tx.send(Ok((slice, Arc::clone(&cache)))).await.is_err() {
+                                // Exit early if the receiver has been dropped, which happens when
+                                // the scan is complete or if an error has occurred in another
+                                // partition.
+                                return;
+                            }
+                            offset = end;
                         }
                     }
                 })
@@ -453,7 +471,6 @@ impl<T: DataSourceTableFunction> TableFunction for T {
 
         DataSourceLocal {
             iterator: global.iterator.clone(),
-            exporter: None,
             partition_index: 0,
             file_index: 0,
         }
@@ -464,65 +481,44 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         global_state: &Self::GlobalState,
         chunk: &mut DataChunkRef,
     ) -> VortexResult<()> {
-        loop {
-            if local_state.exporter.is_none() {
-                let mut ctx = SESSION.create_execution_ctx();
-                let Some(result) = local_state.iterator.next() else {
-                    return Ok(());
-                };
-                let (array_result, conversion_cache) = result?;
-                let array_result = array_result.optimize_recursive(ctx.session())?;
-                local_state.file_index = conversion_cache.file_index;
+        let mut ctx = SESSION.create_execution_ctx();
+        let Some(result) = local_state.iterator.next() else {
+            return Ok(());
+        };
+        let (array_result, conversion_cache) = result?;
+        let array_result = array_result.optimize_recursive(ctx.session())?;
+        local_state.file_index = conversion_cache.file_index;
 
-                let array_result: StructArray = if let Some(array) = array_result.as_opt::<Struct>()
-                {
-                    array.into_owned()
-                } else if let Some(array) = array_result.as_opt::<ScalarFn>()
-                    && let Some(pack_options) = array.scalar_fn().as_opt::<Pack>()
-                {
-                    StructArray::new(
-                        pack_options.names.clone(),
-                        array.children(),
-                        array.len(),
-                        pack_options.nullability.into(),
-                    )
-                } else {
-                    array_result.execute::<Canonical>(&mut ctx)?.into_struct()
-                };
+        let array_result: StructArray = if let Some(array) = array_result.as_opt::<Struct>() {
+            array.into_owned()
+        } else if let Some(array) = array_result.as_opt::<ScalarFn>()
+            && let Some(pack_options) = array.scalar_fn().as_opt::<Pack>()
+        {
+            StructArray::new(
+                pack_options.names.clone(),
+                array.children(),
+                array.len(),
+                pack_options.nullability.into(),
+            )
+        } else {
+            array_result.execute::<Canonical>(&mut ctx)?.into_struct()
+        };
 
-                local_state.exporter = Some(ArrayExporter::try_new(
-                    &array_result,
-                    &conversion_cache,
-                    ctx,
-                )?);
-                // Relaxed since there is no intra-instruction ordering required.
-                local_state.partition_index = global_state.batch_id.fetch_add(1, Ordering::Relaxed);
-            }
+        // Relaxed since there is no intra-instruction ordering required.
+        local_state.partition_index = global_state.batch_id.fetch_add(1, Ordering::Relaxed);
 
-            let exporter = local_state
-                .exporter
-                .as_mut()
-                .vortex_expect("error: exporter missing");
-            let has_more_data = exporter.export(
-                chunk,
-                global_state.file_index_column_pos,
-                global_state.file_row_number_column_pos,
-            )?;
+        let mut exporter = ArrayExporter::try_new(&array_result, &conversion_cache, ctx)?;
+        exporter.export(
+            chunk,
+            global_state.file_index_column_pos,
+            global_state.file_row_number_column_pos,
+        )?;
 
-            global_state
-                .bytes_read
-                .fetch_add(chunk.len(), Ordering::Relaxed);
+        global_state
+            .bytes_read
+            .fetch_add(chunk.len(), Ordering::Relaxed);
 
-            if !has_more_data {
-                // This exporter is fully consumed.
-                local_state.exporter = None;
-                local_state.partition_index = 0;
-            } else {
-                break;
-            }
-        }
-
-        assert!(!chunk.is_empty());
+        debug_assert!(!chunk.is_empty());
 
         if let Some(pos) = global_state.file_index_column_pos {
             chunk
