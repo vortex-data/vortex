@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -17,7 +18,7 @@ use vortex_error::VortexResult;
 
 use crate::bitpacking::BitPacked;
 use crate::bitpacking::array::BitPackedArrayExt;
-use crate::bitpacking::array::bitpack_decompress::unpack_and_cast_into_builder;
+use crate::bitpacking::array::bitpack_decompress::unpack_map_into_builder;
 
 /// Returns `true` if casting `src` to `tgt` is a widening integer cast for which every value a
 /// bit-packed array can hold is guaranteed to be representable in `tgt` (so no per-value bounds
@@ -101,7 +102,7 @@ impl CastKernel for BitPacked {
         let result = match_each_integer_ptype!(tgt, |T| {
             let mut builder = PrimitiveBuilder::<T>::with_capacity(tgt_nullability, array.len());
             match_each_integer_ptype!(src, |F| {
-                unpack_and_cast_into_builder::<F, T>(array, &mut builder, ctx)?;
+                unpack_map_into_builder::<F, T, _>(array, &mut builder, ctx, |v: F| v.as_())?;
             });
             builder.finish_into_primitive().into_array()
         });

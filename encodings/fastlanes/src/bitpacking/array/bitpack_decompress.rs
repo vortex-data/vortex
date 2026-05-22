@@ -37,67 +37,31 @@ pub fn unpack_primitive_array<T: BitPackedUnpack>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
     let mut builder = PrimitiveBuilder::with_capacity(array.dtype().nullability(), array.len());
-    unpack_into_primitive_builder::<T>(array, &mut builder, ctx)?;
+    unpack_map_into_builder::<T, T, _>(array, &mut builder, ctx, |v| v)?;
     assert_eq!(builder.len(), array.len());
     Ok(builder.finish_into_primitive())
 }
 
-pub(crate) fn unpack_into_primitive_builder<T: BitPackedUnpack>(
-    array: ArrayView<'_, BitPacked>,
-    // TODO(ngates): do we want to use fastlanes alignment for this buffer?
-    builder: &mut PrimitiveBuilder<T>,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<()> {
-    // If the array is empty, then we don't need to add anything to the builder.
-    if array.is_empty() {
-        return Ok(());
-    }
-
-    let mut uninit_range = builder.uninit_range(array.len());
-
-    // SAFETY: We later initialize the the uninitialized range of values with `copy_from_slice`.
-    unsafe {
-        // Append a dense null Mask.
-        uninit_range.append_mask(array.validity()?.execute_mask(array.as_ref().len(), ctx)?);
-    }
-
-    // SAFETY: `decode_into` will initialize all values in this range.
-    let uninit_slice = unsafe { uninit_range.slice_uninit_mut(0, array.len()) };
-
-    let mut bit_packed_iter = array.unpacked_chunks()?;
-    bit_packed_iter.decode_into(uninit_slice);
-
-    if let Some(patches) = array.patches() {
-        apply_patches_to_uninit_range(&mut uninit_range, &patches, ctx)?;
-    };
-
-    // SAFETY: We have set a correct validity mask via `append_mask` with `array.len()` values and
-    // initialized the same number of values needed via `decode_into`.
-    unsafe {
-        uninit_range.finish();
-    }
-    Ok(())
-}
-
-/// Unpack a bit-packed array of physical type `F` directly into a wider primitive type `T`,
-/// casting each value during decompression.
+/// Unpack a bit-packed array of physical type `F` into a `PrimitiveBuilder<T>`, applying `map`
+/// to each value during decompression.
 ///
-/// This is the "cast pushdown" path: rather than canonicalizing to a full-length `F`-typed
-/// `PrimitiveArray` and then casting it to `T` (two full-length buffers, with the `F` intermediate
-/// written out to RAM), we unpack each 1024-element FastLanes chunk into a small cache-resident
-/// scratch buffer and cast-copy straight into the `T` output. Only the `T` output buffer is
-/// allocated and touched in RAM.
+/// Pass `|v| v` (with `F = T`) for plain decompression, `|v: F| v.as_()` for a widening cast,
+/// or any other element-wise transform. Each 1024-element FastLanes chunk is unpacked into a
+/// cache-resident scratch buffer and written through `map` directly into the `T` output, so when
+/// `F != T` no full-length `F`-typed intermediate is materialized.
 ///
-/// The caller must ensure all valid values are representable in `T` (it is intended for widening
-/// casts such as `u16 -> u32`); narrowing or sign-changing casts are not validated here.
-pub(crate) fn unpack_and_cast_into_builder<F, T>(
+/// The caller must ensure that every valid source value is representable in `T` under `map`; no
+/// per-value bounds check is performed.
+pub(crate) fn unpack_map_into_builder<F, T, M>(
     array: ArrayView<'_, BitPacked>,
     builder: &mut PrimitiveBuilder<T>,
     ctx: &mut ExecutionCtx,
+    map: M,
 ) -> VortexResult<()>
 where
-    F: BitPackedUnpack + AsPrimitive<T>,
+    F: BitPackedUnpack,
     T: NativePType,
+    M: Fn(F) -> T,
 {
     if array.is_empty() {
         return Ok(());
@@ -115,10 +79,10 @@ where
     let uninit_slice = unsafe { uninit_range.slice_uninit_mut(0, len) };
 
     let mut chunks = array.unpacked_chunks::<F>()?;
-    chunks.decode_map_into(uninit_slice, |v: F| v.as_());
+    chunks.decode_map_into(uninit_slice, &map);
 
     if let Some(patches) = array.patches() {
-        apply_patches_to_uninit_range_map(&mut uninit_range, &patches, ctx, |v: F| v.as_())?;
+        apply_patches_to_uninit_range(&mut uninit_range, &patches, ctx, &map)?;
     }
 
     // SAFETY: A correct validity mask of `len` values was set via `append_mask`, and the same
@@ -129,24 +93,7 @@ where
     Ok(())
 }
 
-pub fn apply_patches_to_uninit_range<T: NativePType>(
-    dst: &mut UninitRange<T>,
-    patches: &Patches,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<()> {
-    apply_patches_to_uninit_range_fn(dst, patches, ctx, |v: T| v)
-}
-
-pub fn apply_patches_to_uninit_range_fn<T: NativePType, F: Fn(T) -> T>(
-    dst: &mut UninitRange<T>,
-    patches: &Patches,
-    ctx: &mut ExecutionCtx,
-    f: F,
-) -> VortexResult<()> {
-    apply_patches_to_uninit_range_map(dst, patches, ctx, f)
-}
-
-pub(crate) fn apply_patches_to_uninit_range_map<S: NativePType, T: NativePType, F: Fn(S) -> T>(
+pub fn apply_patches_to_uninit_range<S: NativePType, T: NativePType, F: Fn(S) -> T>(
     dst: &mut UninitRange<T>,
     patches: &Patches,
     ctx: &mut ExecutionCtx,
@@ -394,10 +341,11 @@ mod tests {
         let bitpacked = encode(&empty, 0);
 
         let mut builder = PrimitiveBuilder::<u32>::new(Nullability::NonNullable);
-        unpack_into_primitive_builder(
+        unpack_map_into_builder::<_, _, _>(
             bitpacked.as_view(),
             &mut builder,
             &mut SESSION.create_execution_ctx(),
+            |v| v,
         )?;
 
         let result = builder.finish_into_primitive();
@@ -422,10 +370,11 @@ mod tests {
 
         // Unpack into a new builder.
         let mut builder = PrimitiveBuilder::<u32>::with_capacity(Nullability::Nullable, 5);
-        unpack_into_primitive_builder(
+        unpack_map_into_builder::<_, _, _>(
             bitpacked.as_view(),
             &mut builder,
             &mut SESSION.create_execution_ctx(),
+            |v| v,
         )?;
 
         let result = builder.finish_into_primitive();
@@ -459,10 +408,11 @@ mod tests {
 
         // Unpack into a new builder.
         let mut builder = PrimitiveBuilder::<u32>::with_capacity(Nullability::NonNullable, 100);
-        unpack_into_primitive_builder(
+        unpack_map_into_builder::<_, _, _>(
             bitpacked.as_view(),
             &mut builder,
             &mut SESSION.create_execution_ctx(),
+            |v| v,
         )?;
 
         let result = builder.finish_into_primitive();
