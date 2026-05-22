@@ -96,7 +96,7 @@ impl VTable for List {
         match (idx, layout.validity.is_some()) {
             (ELEMENTS_CHILD_INDEX, _) => LayoutChildType::Auxiliary("elements".into()),
             (OFFSETS_CHILD_INDEX, _) => LayoutChildType::Auxiliary("offsets".into()),
-            (VALIDITY_CHILD_INDEX, true) => LayoutChildType::Transparent("validity".into()),
+            (VALIDITY_CHILD_INDEX, true) => LayoutChildType::Auxiliary("validity".into()),
             _ => vortex_panic!("Invalid child index {idx} for ListLayout"),
         }
     }
