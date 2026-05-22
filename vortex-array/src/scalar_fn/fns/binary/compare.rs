@@ -163,7 +163,9 @@ fn arrow_compare_arrays(
         // VarBinViewArray → BinaryView for the same DType::Binary field inside a struct).
         let lhs = session.arrow().execute_arrow(left.clone(), None, ctx)?;
         let target_field = Field::new("", lhs.data_type().clone(), right.dtype().is_nullable());
-        let rhs = session.arrow().execute_arrow(right.clone(), Some(&target_field), ctx)?;
+        let rhs = session
+            .arrow()
+            .execute_arrow(right.clone(), Some(&target_field), ctx)?;
 
         compare_nested_arrow_arrays(lhs.as_ref(), rhs.as_ref(), operator)?
     } else {
@@ -517,8 +519,11 @@ mod tests {
     #[test]
     fn struct_compare_mixed_binary_encodings() {
         // LHS: struct with a VarBinArray (offset-based) binary field
-        let bin_field1 =
-            VarBinArray::from(vec!["apple".as_bytes(), "banana".as_bytes(), "cherry".as_bytes()]);
+        let bin_field1 = VarBinArray::from(vec![
+            "apple".as_bytes(),
+            "banana".as_bytes(),
+            "cherry".as_bytes(),
+        ]);
         let struct1 = StructArray::from_fields(&[("data", bin_field1.into_array())]).unwrap();
 
         // RHS: struct with a VarBinViewArray (view-based) binary field — same logical DType
