@@ -315,9 +315,9 @@ impl Default for ListViewData {
     }
 }
 
-/// Walks parallel `(offset, size)` slices and marks every referenced position in `buf`.
+/// Walks parallel `(offset, size)` slices and sets each range `[offset, offset + size]` in `buf`.
 ///
-/// **Precondition**
+/// **Preconditions**
 ///
 /// `offsets` and `sizes` must be the same length (which is always the case in valid `ListViewArray`s).
 fn fill_referenced_mask<O: IntegerPType, S: IntegerPType>(
@@ -460,7 +460,7 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
 
     /// Exact fraction of `elements` referenced by some view, in `[0.0, 1.0]`. Extremely costly.
     ///
-    /// Returns `Ok(1.0)` when `elements` is empty.
+    /// Returns `Ok(1.0)` when `elements` is empty instead of dividing by 0.
     fn compute_density(&self, ctx: &mut ExecutionCtx) -> VortexResult<f32> {
         if self.elements().is_empty() {
             return Ok(1.0);
@@ -484,7 +484,7 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
     ///
     /// Exact for non-overlapping views, but overcounts when multiple views share the same elements.
     ///
-    /// Returns `Ok(1.0)` when `elements` is empty.
+    /// Returns `Ok(1.0)` when `elements` is empty instead of dividing by 0.
     fn upper_bound_density(&self, ctx: &mut ExecutionCtx) -> VortexResult<f32> {
         let n_elts = self.elements().len();
         if n_elts == 0 {
