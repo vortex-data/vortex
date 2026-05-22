@@ -58,7 +58,7 @@ fn filter_slice_by_indices<T: Copy>(slice: &[T], indices: &[usize]) -> Buffer<T>
 
             type FilterFn = unsafe extern "C" fn(usize, usize, usize, usize);
 
-            let func: FilterFn = match std::mem::size_of::<T>() {
+            let func: FilterFn = match size_of::<T>() {
                 1 => vortex_filter_1byte,
                 2 => vortex_filter_2byte,
                 4 => vortex_filter_4byte,

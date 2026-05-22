@@ -50,12 +50,6 @@ unsafe extern "C" {
     fn vortex_take_8byte_u16idx(src: usize, idx: usize, dst: usize, n: usize);
     fn vortex_take_8byte_u32idx(src: usize, idx: usize, dst: usize, n: usize);
     fn vortex_take_8byte_u64idx(src: usize, idx: usize, dst: usize, n: usize);
-
-    // Filter (u64 indices)
-    fn vortex_filter_1byte(src: usize, idx: usize, dst: usize, n: usize);
-    fn vortex_filter_2byte(src: usize, idx: usize, dst: usize, n: usize);
-    fn vortex_filter_4byte(src: usize, idx: usize, dst: usize, n: usize);
-    fn vortex_filter_8byte(src: usize, idx: usize, dst: usize, n: usize);
 }
 
 // ---------------------------------------------------------------------------

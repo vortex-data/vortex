@@ -49,7 +49,7 @@ fn main() {
     let lib_path = out_dir.join("libvortex_mojo_take.a");
 
     // Compile Mojo source to object file
-    let status = Command::new(&mojo)
+    let Ok(status) = Command::new(&mojo)
         .arg("build")
         .arg("kernels/take.mojo")
         .arg("--emit")
@@ -63,23 +63,29 @@ fn main() {
         .arg("-o")
         .arg(&obj_path)
         .status()
-        .expect("failed to invoke mojo compiler");
+    else {
+        println!("cargo:warning=Mojo compiler failed to launch, falling back to Rust kernels");
+        return;
+    };
 
     if !status.success() {
-        eprintln!("Mojo compilation failed (status {status}), skipping Mojo kernels");
+        println!("cargo:warning=Mojo compilation failed ({status}), falling back to Rust kernels");
         return;
     }
 
     // Archive into a static library
-    let ar_status = Command::new("ar")
+    let Ok(ar_status) = Command::new("ar")
         .arg("rcs")
         .arg(&lib_path)
         .arg(&obj_path)
         .status()
-        .expect("failed to invoke ar");
+    else {
+        println!("cargo:warning=ar failed to launch, falling back to Rust kernels");
+        return;
+    };
 
     if !ar_status.success() {
-        eprintln!("ar archiving failed, skipping Mojo kernels");
+        println!("cargo:warning=ar archiving failed, falling back to Rust kernels");
         return;
     }
 

@@ -51,11 +51,11 @@ jobs:
         run: sudo bash scripts/setup-benchmark.sh
       - uses: ./.github/actions/setup-prebuild
       - uses: ./.github/actions/system-info
-      - name: Install Mojo
+      - name: Install Mojo SDK (optional, falls back to Rust kernels)
         if: contains(matrix.packages, 'vortex-array') || contains(matrix.packages, 'vortex-runend')
+        continue-on-error: true
         run: |
-          pip install --user mojo
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          pip install --user mojo && echo "$HOME/.local/bin" >> "$GITHUB_PATH" || echo "Mojo install failed, falling back to Rust SIMD kernels"
       - name: Install Codspeed
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:
