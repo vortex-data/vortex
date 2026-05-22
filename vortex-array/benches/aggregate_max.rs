@@ -12,7 +12,7 @@ fn main() {
     divan::main();
 }
 
-const N: usize = 1_000_000;
+const N: usize = 100_000;
 
 #[divan::bench]
 fn max_i32(bencher: Bencher) {
