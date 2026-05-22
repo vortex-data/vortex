@@ -254,6 +254,7 @@ impl std::fmt::Display for ValueDisplayAdapter {
             ExtractedValue::Decimal(_, scale, value) => {
                 write!(f, "{}", decimal_to_str(value, scale))
             }
+            ExtractedValue::Variant(v) => write!(f, "{v}"),
             // For types not specially handled by cell_to_string (dates, times, timestamps,
             // blobs, lists), delegate to DuckDB's native string representation.
             ExtractedValue::Blob(_)

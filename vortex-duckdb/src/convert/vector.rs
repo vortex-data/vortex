@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ptr;
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
@@ -30,6 +31,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::extension::datetime::TimeUnit;
 use vortex::mask::Mask;
+use vortex_parquet_variant::ParquetVariant;
 
 use crate::cpp::DUCKDB_TYPE;
 use crate::cpp::duckdb_date;
@@ -44,6 +46,7 @@ use crate::cpp::duckdb_timestamp_ms;
 use crate::cpp::duckdb_timestamp_ns;
 use crate::cpp::duckdb_timestamp_s;
 use crate::duckdb::DataChunkRef;
+use crate::duckdb::Vector;
 use crate::duckdb::VectorRef;
 use crate::exporter::precision_to_duckdb_storage_size;
 
@@ -108,6 +111,20 @@ fn vector_as_string_blob(vector: &VectorRef, len: usize, dtype: DType) -> ArrayR
     }
 
     builder.finish()
+}
+
+fn duckdb_variant_to_parquet(vector: &VectorRef, len: usize) -> VortexResult<Vector> {
+    let mut err = ptr::null_mut();
+    let parquet_vector = unsafe {
+        crate::cpp::duckdb_vx_variant_to_parquet(vector.as_ptr(), len as _, &raw mut err)
+    };
+    if !err.is_null() {
+        return Err(crate::duckdb::ffi_error(err));
+    }
+    if parquet_vector.is_null() {
+        vortex_bail!("DuckDB Variant conversion returned a null vector");
+    }
+    Ok(unsafe { Vector::own(parquet_vector) })
 }
 
 /// Converts a valid [`duckdb_list_entry`] to `(offset, size)`, updating tracking state.
@@ -255,6 +272,27 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
             len,
             DType::Binary(Nullability::Nullable),
         )),
+        DUCKDB_TYPE::DUCKDB_TYPE_VARIANT => {
+            let parquet_vector = duckdb_variant_to_parquet(vector, len)?;
+            let metadata = vector_as_string_blob(
+                parquet_vector.struct_vector_get_child(0),
+                len,
+                DType::Binary(Nullability::NonNullable),
+            );
+            let value = vector_as_string_blob(
+                parquet_vector.struct_vector_get_child(1),
+                len,
+                DType::Binary(Nullability::Nullable),
+            );
+
+            ParquetVariant::try_new(
+                vector.validity_ref(len).to_validity(),
+                metadata,
+                Some(value),
+                None,
+            )
+            .map(|array| array.into_array())
+        }
         DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN => {
             let data = vector.as_slice_with_len::<bool>(len);
 
@@ -374,6 +412,7 @@ pub fn data_chunk_to_vortex(
 #[cfg(test)]
 mod tests {
     use std::ffi::CString;
+    use std::ptr;
 
     use vortex::array::LEGACY_SESSION;
     use vortex::array::VortexSessionExecute;
@@ -383,10 +422,14 @@ mod tests {
     use vortex::array::arrays::struct_::StructArrayExt;
     use vortex::array::assert_arrays_eq;
     use vortex::error::VortexExpect;
+    use vortex::error::VortexResult;
     use vortex::mask::Mask;
+    use vortex_parquet_variant::ParquetVariant;
+    use vortex_parquet_variant::ParquetVariantArrayExt;
 
     use super::*;
     use crate::cpp::DUCKDB_TYPE;
+    use crate::duckdb::Database;
     use crate::duckdb::LogicalType;
     use crate::duckdb::Vector;
 
@@ -409,6 +452,79 @@ mod tests {
         let expected =
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4), Some(5)]);
         assert_arrays_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_variant_vector_bridge_round_trip() -> VortexResult<()> {
+        let db = Database::open_in_memory()?;
+        let conn = db.connect()?;
+        let result = conn.query(
+            "
+            SELECT v
+            FROM (
+                VALUES
+                    (1::VARIANT),
+                    ('duck'::VARIANT),
+                    ([1, 2]::VARIANT),
+                    ({'name': 'Ada', 'age': 37}::VARIANT),
+                    (NULL::VARIANT)
+            ) AS t(v)
+            ",
+        )?;
+        let chunk = result.into_iter().next().unwrap();
+        let len = chunk.len().as_();
+        let vector = chunk.get_vector(0);
+        vector.flatten(chunk.len());
+
+        let array = flat_vector_to_vortex(vector, len)?;
+        let parquet_variant = array.as_opt::<ParquetVariant>().unwrap();
+        assert_eq!(
+            parquet_variant.dtype(),
+            &DType::Variant(Nullability::Nullable)
+        );
+        assert!(parquet_variant.value_array().is_some());
+        assert!(parquet_variant.typed_value_array().is_none());
+        assert!(ParquetVariantArrayExt::validity(&parquet_variant).is_null(4)?);
+
+        let parquet_vector = duckdb_variant_to_parquet(vector, len)?;
+        let logical_type = LogicalType::variant();
+        let mut out = Vector::with_capacity(&logical_type, len);
+        let mut err = ptr::null_mut();
+        unsafe {
+            crate::cpp::duckdb_vx_variant_from_parquet(
+                parquet_vector.struct_vector_get_child(0).as_ptr(),
+                parquet_vector.struct_vector_get_child(1).as_ptr(),
+                ptr::null_mut(),
+                false,
+                out.as_ptr(),
+                len as _,
+                &raw mut err,
+            );
+        }
+        if !err.is_null() {
+            return Err(crate::duckdb::ffi_error(err));
+        }
+        unsafe {
+            out.set_validity(&vector.validity_ref(len).execute_mask(), 0, len);
+        }
+
+        assert!(out.row_is_null(4));
+        let roundtripped = duckdb_variant_to_parquet(&out, len)?;
+        assert_eq!(
+            roundtripped
+                .struct_vector_get_child(0)
+                .logical_type()
+                .as_type_id(),
+            DUCKDB_TYPE::DUCKDB_TYPE_BLOB
+        );
+        assert_eq!(
+            roundtripped
+                .struct_vector_get_child(1)
+                .logical_type()
+                .as_type_id(),
+            DUCKDB_TYPE::DUCKDB_TYPE_BLOB
+        );
+        Ok(())
     }
 
     #[test]

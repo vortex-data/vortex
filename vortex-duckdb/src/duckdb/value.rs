@@ -156,6 +156,9 @@ impl ValueRef {
                     })
                     .collect::<Vec<_>>(),
             ),
+            DUCKDB_TYPE::DUCKDB_TYPE_VARIANT => ExtractedValue::Variant(unsafe {
+                Value::own(cpp::duckdb_vx_value_clone(self.as_ptr()))
+            }),
             // ...other types remain unimplemented..
             other => vortex_panic!("Unsupported DuckDB value type {other:?}"),
         }
@@ -404,12 +407,40 @@ pub enum ExtractedValue {
     TimestampS(i64),
     Decimal(u8, i8, i128),
     List(Vec<Value>),
+    Variant(Value),
 }
 
 #[cfg(test)]
 mod tests {
+    use vortex::error::VortexResult;
+    use vortex::error::vortex_err;
+
+    use crate::duckdb::Database;
+    use crate::duckdb::ExtractedValue;
     use crate::duckdb::i128_from_parts;
     use crate::duckdb::u128_from_parts;
+
+    #[test]
+    fn extract_variant_value() -> VortexResult<()> {
+        let db = Database::open_in_memory()?;
+        let conn = db.connect()?;
+        let result = conn.query("SELECT 42::VARIANT")?;
+        let chunk = result
+            .into_iter()
+            .next()
+            .ok_or_else(|| vortex_err!("expected a result chunk"))?;
+        let value = chunk
+            .get_vector(0)
+            .get_value(0, chunk.len())
+            .ok_or_else(|| vortex_err!("expected a result value"))?;
+
+        let ExtractedValue::Variant(extracted) = value.extract() else {
+            return Err(vortex_err!("expected Variant extracted value"));
+        };
+
+        assert_eq!(extracted.to_string(), "42");
+        Ok(())
+    }
 
     #[test]
     fn test_huge_int_from_parts() {

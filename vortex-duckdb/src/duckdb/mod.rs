@@ -23,6 +23,7 @@ mod value;
 mod vector;
 mod vector_buffer;
 
+use std::ffi::CStr;
 use std::ffi::c_void;
 use std::ptr;
 
@@ -46,7 +47,9 @@ pub use table_function::*;
 pub use value::*;
 pub use vector::*;
 pub use vector_buffer::*;
+use vortex::error::VortexError;
 use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 
 use crate::cpp;
 
@@ -86,6 +89,17 @@ pub(crate) fn try_or<T: Default>(
             T::default()
         }
     }
+}
+
+pub(crate) fn ffi_error(err: cpp::duckdb_vx_error) -> VortexError {
+    if err.is_null() {
+        return vortex_err!("DuckDB error (unknown)");
+    }
+    let message = unsafe { CStr::from_ptr(cpp::duckdb_vx_error_value(err)) }
+        .to_string_lossy()
+        .to_string();
+    unsafe { cpp::duckdb_vx_error_free(err) };
+    vortex_err!("{message}")
 }
 
 /// Creates a function that drops a `Box<T>` when called.

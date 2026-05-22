@@ -23,7 +23,7 @@ const DEFAULT_DUCKDB_VERSION: &str = "1.5.3";
 
 const BUILD_ARTIFACTS: [&str; 3] = ["libduckdb.dylib", "libduckdb.so", "libduckdb_static.a"];
 
-const SOURCE_FILES: [&str; 17] = [
+const SOURCE_FILES: [&str; 18] = [
     "cpp/client_context.cpp",
     "cpp/config.cpp",
     "cpp/copy_function.cpp",
@@ -39,6 +39,7 @@ const SOURCE_FILES: [&str; 17] = [
     "cpp/table_filter.cpp",
     "cpp/table_function.cpp",
     "cpp/value.cpp",
+    "cpp/variant.cpp",
     "cpp/vector.cpp",
     "cpp/vector_buffer.cpp",
 ];
@@ -349,12 +350,22 @@ fn c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
     }
 }
 
-fn cpp(duckdb_include_dir: &Path) {
+fn cpp(
+    duckdb_include_dir: &Path,
+    duckdb_parquet_include_dir: &Path,
+    duckdb_parquet_third_party_dir: &Path,
+    duckdb_thrift_include_dir: &Path,
+    duckdb_yyjson_include_dir: &Path,
+) {
     cc::Build::new()
         .std("c++20")
         .flags(["-Wall", "-Wextra", "-Wpedantic"])
         .cpp(true)
         .include(duckdb_include_dir)
+        .include(duckdb_parquet_include_dir)
+        .include(duckdb_parquet_third_party_dir)
+        .include(duckdb_thrift_include_dir)
+        .include(duckdb_yyjson_include_dir)
         .include("cpp/include")
         .files(SOURCE_FILES)
         .compile("vortex-duckdb-extras");
@@ -470,6 +481,16 @@ fn main() {
     let duckdb_include_dir = inner_dir.join("src").join("include");
     println!("cargo:rerun-if-changed=cpp/include");
     c2rust(&crate_dir, &duckdb_include_dir);
-    cpp(&duckdb_include_dir);
+    let duckdb_parquet_include_dir = inner_dir.join("extension").join("parquet").join("include");
+    let duckdb_parquet_third_party_dir = inner_dir.join("third_party").join("parquet");
+    let duckdb_thrift_include_dir = inner_dir.join("third_party").join("thrift");
+    let duckdb_yyjson_include_dir = inner_dir.join("third_party").join("yyjson").join("include");
+    cpp(
+        &duckdb_include_dir,
+        &duckdb_parquet_include_dir,
+        &duckdb_parquet_third_party_dir,
+        &duckdb_thrift_include_dir,
+        &duckdb_yyjson_include_dir,
+    );
     rust2c(&crate_dir);
 }

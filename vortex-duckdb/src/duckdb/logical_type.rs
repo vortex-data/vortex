@@ -155,6 +155,10 @@ impl LogicalType {
         Self::new(DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN)
     }
 
+    pub fn variant() -> Self {
+        unsafe { Self::own(duckdb_vx_logical_type_variant()) }
+    }
+
     pub fn float32() -> Self {
         Self::new(DUCKDB_TYPE::DUCKDB_TYPE_FLOAT)
     }

@@ -18,6 +18,7 @@ mod struct_;
 mod temporal;
 mod validity;
 mod varbinview;
+mod variant;
 mod vector;
 
 pub use cache::ConversionCache;
@@ -35,6 +36,7 @@ use vortex::encodings::sequence::Sequence;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex_parquet_variant::ParquetVariant;
 
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::VectorRef;
@@ -203,6 +205,18 @@ fn new_array_exporter_with_flatten(
         Ok(array) => return list::new_exporter(array, cache, ctx),
         Err(array) => array,
     };
+
+    let array = match array.try_downcast::<ParquetVariant>() {
+        Ok(array) => return variant::new_exporter(array, cache, ctx),
+        Err(array) => array,
+    };
+
+    if array.dtype().is_variant()
+        && let Ok(executed) = array.clone().execute_until::<ParquetVariant>(ctx)
+        && let Ok(array) = executed.try_downcast::<ParquetVariant>()
+    {
+        return variant::new_exporter(array, cache, ctx);
+    }
 
     canonical::new_exporter(array, cache, ctx)
 }

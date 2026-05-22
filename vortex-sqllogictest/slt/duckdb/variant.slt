@@ -1,0 +1,151 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+CREATE TABLE variant_events AS
+SELECT * FROM (VALUES
+    (1, 42::VARIANT),
+    (2, 'hello world'::VARIANT),
+    (3, [1, 2, 3]::VARIANT),
+    (4, {'name': 'Alice', 'age': 30}::VARIANT),
+    (5, {'name': 'Bob', 'nested': {'score': 99}}::VARIANT),
+    (6, NULL::VARIANT)
+) AS t(id, data);
+
+query IT
+SELECT id, variant_typeof(data) FROM variant_events ORDER BY id;
+----
+1 INT32
+2 VARCHAR
+3 ARRAY(3)
+4 OBJECT(name, age)
+5 OBJECT(name, nested)
+6 VARIANT_NULL
+
+query I
+COPY variant_events TO '$__TEST_DIR__/variant_events.vortex';
+----
+6
+
+query IT
+SELECT id, variant_typeof(data)
+FROM '$__TEST_DIR__/variant_events.vortex'
+ORDER BY id;
+----
+1 INT32
+2 VARCHAR
+3 ARRAY(3)
+4 OBJECT(age, name)
+5 OBJECT(name, nested)
+6 VARIANT_NULL
+
+query ITII
+SELECT
+    id,
+    CAST(data.name AS VARCHAR),
+    CAST(variant_extract(data, 'age') AS INTEGER),
+    CAST(data.nested.score AS INTEGER)
+FROM '$__TEST_DIR__/variant_events.vortex'
+WHERE id IN (4, 5)
+ORDER BY id;
+----
+4 Alice 30 NULL
+5 Bob NULL 99
+
+query I?
+SELECT id, data
+FROM '$__TEST_DIR__/variant_events.vortex'
+WHERE id <= 4
+ORDER BY id;
+----
+1 42
+2 hello world
+3 [1, 2, 3]
+4 {'age': 30, 'name': Alice}
+
+query I
+COPY variant_events TO '$__TEST_DIR__/variant_events.parquet' (FORMAT parquet);
+----
+6
+
+query I
+COPY (SELECT * FROM read_parquet('$__TEST_DIR__/variant_events.parquet'))
+TO '$__TEST_DIR__/variant_events_from_parquet.vortex';
+----
+6
+
+query ITTI
+SELECT
+    id,
+    variant_typeof(data),
+    CAST(data.name AS VARCHAR),
+    CAST(data.nested.score AS INTEGER)
+FROM read_parquet('$__TEST_DIR__/variant_events.parquet')
+WHERE id IN (4, 5)
+ORDER BY id;
+----
+4 OBJECT(age, name) Alice NULL
+5 OBJECT(name, nested) Bob 99
+
+query ITTI
+SELECT
+    id,
+    variant_typeof(data),
+    CAST(data.name AS VARCHAR),
+    CAST(data.nested.score AS INTEGER)
+FROM '$__TEST_DIR__/variant_events_from_parquet.vortex'
+WHERE id IN (4, 5)
+ORDER BY id;
+----
+4 OBJECT(age, name) Alice NULL
+5 OBJECT(name, nested) Bob 99
+
+statement ok
+CREATE TABLE variant_people AS
+SELECT * FROM (VALUES
+    (1, {'name': 'Alice', 'age': 30}::VARIANT),
+    (2, {'name': 'Bob', 'age': 40}::VARIANT),
+    (3, NULL::VARIANT)
+) AS t(id, data);
+
+query I
+COPY variant_people TO '$__TEST_DIR__/variant_people_shredded.parquet' (
+    FORMAT parquet,
+    SHREDDING {'data': 'STRUCT(name VARCHAR, age INTEGER)'}
+);
+----
+3
+
+query I
+COPY (SELECT * FROM read_parquet('$__TEST_DIR__/variant_people_shredded.parquet'))
+TO '$__TEST_DIR__/variant_people_shredded.vortex';
+----
+3
+
+query ITTI
+SELECT
+    id,
+    variant_typeof(data),
+    CAST(data.name AS VARCHAR),
+    CAST(data.age AS INTEGER)
+FROM read_parquet('$__TEST_DIR__/variant_people_shredded.parquet')
+ORDER BY id;
+----
+1 OBJECT(age, name) Alice 30
+2 OBJECT(age, name) Bob 40
+3 VARIANT_NULL NULL NULL
+
+query ITTI
+SELECT
+    id,
+    variant_typeof(data),
+    CAST(data.name AS VARCHAR),
+    CAST(data.age AS INTEGER)
+FROM '$__TEST_DIR__/variant_people_shredded.vortex'
+ORDER BY id;
+----
+1 OBJECT(age, name) Alice 30
+2 OBJECT(age, name) Bob 40
+3 VARIANT_NULL NULL NULL

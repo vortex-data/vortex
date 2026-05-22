@@ -27,6 +27,7 @@
 //! | `Date` | `DATE` |
 //! | `Time` | `TIME` |
 //! | `Timestamp` | `TIMESTAMP` |
+//! | `Variant` | `VARIANT` |
 
 use std::ffi::CString;
 use std::sync::Arc;
@@ -239,9 +240,7 @@ impl TryFrom<&DType> for LogicalType {
                 return LogicalType::try_from(struct_type);
             }
             DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
-            DType::Variant(_) => {
-                vortex_bail!("Vortex Variant array aren't supported in DuckDB")
-            }
+            DType::Variant(_) => return Ok(LogicalType::variant()),
             DType::Extension(ext_dtype) => {
                 let Some(temporal) = ext_dtype.metadata_opt::<AnyTemporal>() else {
                     vortex_bail!("Unsupported extension type \"{}\"", ext_dtype.id());
@@ -419,6 +418,16 @@ mod tests {
         assert_eq!(
             logical_type.as_type_id(),
             cpp::DUCKDB_TYPE::DUCKDB_TYPE_BLOB
+        );
+    }
+
+    #[test]
+    fn test_variant_type() {
+        let dtype = DType::Variant(Nullability::Nullable);
+        let logical_type = LogicalType::try_from(&dtype).unwrap();
+        assert_eq!(
+            logical_type.as_type_id(),
+            cpp::DUCKDB_TYPE::DUCKDB_TYPE_VARIANT
         );
     }
 

@@ -8,8 +8,10 @@ use futures::SinkExt;
 use futures::TryStreamExt;
 use futures::channel::mpsc;
 use futures::channel::mpsc::Sender;
+use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex::array::ArrayRef;
+use vortex::array::session::ArraySessionExt;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability::NonNullable;
@@ -19,6 +21,7 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::file::WriteOptionsSessionExt;
+use vortex::file::WriteStrategyBuilder;
 use vortex::file::WriteSummary;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::Task;
@@ -135,8 +138,27 @@ impl CopyFunction for VortexCopyFunction {
         let writer = DuckDbFsWriter::new(ctx, &file_path)
             .map_err(|e| vortex_err!("Failed to create DuckDB FS writer for {file_path}: {e}"))?;
 
-        let write_task =
-            handle.spawn(async move { SESSION.write_options().write(writer, array_stream).await });
+        // let mut allowed_encodings = ALLOWED_ENCODINGS.clone();
+        // allowed_encodings.insert(ParquetVariant.id());
+        let strategy = WriteStrategyBuilder::default()
+            .with_allow_encodings(
+                SESSION
+                    .arrays()
+                    .registry()
+                    .ids()
+                    .unique()
+                    .sorted()
+                    .collect(),
+            )
+            .build();
+
+        let write_task = handle.spawn(async move {
+            SESSION
+                .write_options()
+                .with_strategy(strategy)
+                .write(writer, array_stream)
+                .await
+        });
 
         let worker_pool = RUNTIME.new_pool();
         worker_pool.set_workers_to_available_parallelism();

@@ -345,6 +345,9 @@ impl<'a> TryFrom<&'a ValueRef> for Scalar {
                     vortex_bail!("List value must be a list or struct dtype")
                 }
             },
+            ExtractedValue::Variant(_) => {
+                vortex_bail!("DuckDB Variant scalars aren't supported in Vortex")
+            }
         }
     }
 }
