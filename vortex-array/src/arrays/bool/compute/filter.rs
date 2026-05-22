@@ -221,9 +221,6 @@ fn filter_inner(
 /// lookup table per mask byte. Each byte PEXT is a single table lookup with no
 /// data dependencies between bytes, making this faster than the parallel-prefix
 /// approach (~12ns vs ~18ns per word).
-///
-/// This is the best software PEXT for platforms without BMI2 (ARM64) and for
-/// AMD Zen 1/2 where the hardware PEXT instruction is microcoded.
 #[inline(always)]
 pub fn pext_fallback(src: u64, mask: u64) -> u64 {
     pext_byte_lut(src, mask)

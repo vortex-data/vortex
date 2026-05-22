@@ -55,27 +55,51 @@ pub(super) fn filter_buffer<T: Copy>(buffer: Buffer<T>, mask: &MaskValues) -> Bu
         return Buffer::empty();
     }
 
-    let mask_bytes = mask.bit_buffer().inner().as_ref();
-    let mask_offset = mask.bit_buffer().offset();
+    let mask_buffer = mask.bit_buffer();
+    let mask_bytes = mask_buffer.inner().as_ref();
+    let mask_offset = mask_buffer.offset();
 
     // Fast path: byte-wide values benefit from avoiding index materialization more often. Wider
     // values need enough selected values to justify scanning every mask byte directly.
-    if mask_offset == 0
-        && (size_of::<T>() == 1 || mask.density() >= BYTE_COMPRESS_DENSITY_THRESHOLD)
-    {
-        return filter_aligned(src, mask_bytes, true_count);
+    if size_of::<T>() == 1 || mask.density() >= BYTE_COMPRESS_DENSITY_THRESHOLD {
+        return filter_bitpacked(src, mask_bytes, mask_offset, true_count);
     }
 
-    // Slow path: lower-density wide values or unaligned masks are better handled by the generic path.
+    // Slow path: lower-density wide values are better handled by the generic path.
     super::slice::filter_slice_by_mask_values(src, mask)
 }
 
-/// Aligned fast path: mask bits start at byte boundary.
-fn filter_aligned<T: Copy>(src: &[T], mask_bytes: &[u8], true_count: usize) -> Buffer<T> {
+fn filter_bitpacked<T: Copy>(
+    src: &[T],
+    mask_bytes: &[u8],
+    mask_offset: usize,
+    true_count: usize,
+) -> Buffer<T> {
     let mut out = BufferMut::<T>::with_capacity(true_count);
-    let out_ptr = out.spare_capacity_mut().as_mut_ptr();
     let mut write_pos: usize = 0;
 
+    if mask_offset == 0 {
+        filter_aligned_into(src, mask_bytes, &mut out, &mut write_pos);
+    } else {
+        let head_len = (8 - mask_offset).min(src.len());
+        let head_mask = (mask_bytes[0] >> mask_offset) & low_bits_mask(head_len);
+        filter_chunk_into(&src[..head_len], head_mask, &mut out, &mut write_pos);
+        filter_aligned_into(&src[head_len..], &mask_bytes[1..], &mut out, &mut write_pos);
+    }
+
+    debug_assert_eq!(write_pos, true_count);
+    // SAFETY: we wrote exactly true_count elements.
+    unsafe { out.set_len(true_count) };
+    out.freeze()
+}
+
+/// Aligned fast path: mask bits start at byte boundary.
+fn filter_aligned_into<T: Copy>(
+    src: &[T],
+    mask_bytes: &[u8],
+    out: &mut BufferMut<T>,
+    write_pos: &mut usize,
+) {
     let full_bytes = src.len() / 8;
     let remainder = src.len() % 8;
 
@@ -84,62 +108,69 @@ fn filter_aligned<T: Copy>(src: &[T], mask_bytes: &[u8], true_count: usize) -> B
         if m == 0 {
             continue;
         }
-        let chunk = &src[i * 8..];
-        if m == 0xFF {
-            // All 8 selected, so bulk copy.
-            // SAFETY: write_pos + 8 <= true_count <= capacity.
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    chunk.as_ptr(),
-                    out_ptr.add(write_pos).cast::<T>(),
-                    8,
-                );
-            }
-            write_pos += 8;
-        } else {
-            let (perm, count) = &BYTE_COMPRESS_LUT[m as usize];
-            let count = *count as usize;
-            // SAFETY: perm indices are all < 8, write_pos + count <= true_count.
-            unsafe {
-                for j in 0..count {
-                    out_ptr
-                        .add(write_pos + j)
-                        .cast::<T>()
-                        .write(*chunk.get_unchecked(*perm.get_unchecked(j) as usize));
-                }
-            }
-            write_pos += count;
-        }
+        let chunk = &src[i * 8..i * 8 + 8];
+        filter_chunk_into(chunk, m, out, write_pos);
     }
 
     // Handle the final partial chunk.
     if remainder > 0 {
-        let m = mask_bytes[full_bytes] & ((1u8 << remainder) - 1);
+        let m = mask_bytes[full_bytes] & low_bits_mask(remainder);
         if m != 0 {
             let chunk = &src[full_bytes * 8..];
-            let (perm, count) = &BYTE_COMPRESS_LUT[m as usize];
-            let count = *count as usize;
-            unsafe {
-                for j in 0..count {
-                    out_ptr
-                        .add(write_pos + j)
-                        .cast::<T>()
-                        .write(*chunk.get_unchecked(*perm.get_unchecked(j) as usize));
-                }
-            }
-            write_pos += count;
+            filter_chunk_into(chunk, m, out, write_pos);
         }
     }
+}
 
-    debug_assert_eq!(write_pos, true_count);
-    // SAFETY: we wrote exactly true_count bytes.
-    unsafe { out.set_len(true_count) };
-    out.freeze()
+fn filter_chunk_into<T: Copy>(
+    chunk: &[T],
+    mask_byte: u8,
+    out: &mut BufferMut<T>,
+    write_pos: &mut usize,
+) {
+    if mask_byte == 0 {
+        return;
+    }
+
+    let out_ptr = out.spare_capacity_mut().as_mut_ptr();
+    if chunk.len() == 8 && mask_byte == 0xFF {
+        // All 8 selected, so bulk copy.
+        // SAFETY: write_pos + 8 <= capacity.
+        unsafe {
+            std::ptr::copy_nonoverlapping(chunk.as_ptr(), out_ptr.add(*write_pos).cast::<T>(), 8);
+        }
+        *write_pos += 8;
+        return;
+    }
+
+    let (perm, count) = &BYTE_COMPRESS_LUT[mask_byte as usize];
+    let count = *count as usize;
+    debug_assert_eq!(mask_byte & !low_bits_mask(chunk.len()), 0);
+    // SAFETY: perm indices are all < chunk.len(), write_pos + count <= capacity.
+    unsafe {
+        for j in 0..count {
+            out_ptr
+                .add(*write_pos + j)
+                .cast::<T>()
+                .write(*chunk.get_unchecked(*perm.get_unchecked(j) as usize));
+        }
+    }
+    *write_pos += count;
+}
+
+fn low_bits_mask(bits: usize) -> u8 {
+    debug_assert!(bits <= 8);
+    if bits == 8 {
+        u8::MAX
+    } else {
+        (1u8 << bits) - 1
+    }
 }
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::cast_possible_truncation)]
 mod tests {
+    use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
@@ -150,6 +181,16 @@ mod tests {
             Mask::Values(v) => v.as_ref(),
             _ => panic!("expected Mask::Values"),
         }
+    }
+
+    fn offset_mask<const N: usize>(values: [bool; N], offset: usize) -> Mask {
+        let bit_buffer =
+            BitBuffer::from_iter(std::iter::repeat_n(false, offset).chain(values.iter().copied()));
+        Mask::from_buffer(BitBuffer::new_with_offset(
+            bit_buffer.inner().clone(),
+            values.len(),
+            offset,
+        ))
     }
 
     #[test]
@@ -218,5 +259,37 @@ mod tests {
             mask_values(&mask),
         );
         assert_eq!(i32_result, buffer![-100i32, 0, 50, 150, 250, 300]);
+    }
+
+    #[test]
+    fn test_filter_unaligned_byte_mask() {
+        let mask = offset_mask(
+            [
+                false, false, true, false, false, false, false, false, true, false, false,
+            ],
+            3,
+        );
+
+        let result = filter_buffer(
+            buffer![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+            mask_values(&mask),
+        );
+        assert_eq!(result, buffer![3u8, 9]);
+    }
+
+    #[test]
+    fn test_filter_unaligned_wide_mask() {
+        let mask = offset_mask(
+            [
+                true, false, true, true, false, true, false, true, true, false, false, true,
+            ],
+            5,
+        );
+
+        let result = filter_buffer(
+            buffer![10u16, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120],
+            mask_values(&mask),
+        );
+        assert_eq!(result, buffer![10u16, 30, 40, 60, 80, 90, 120]);
     }
 }
