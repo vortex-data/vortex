@@ -41,7 +41,16 @@ where
             .validity()?
             .execute_mask(array.as_ref().len(), ctx)?
         {
-            Mask::AllTrue(_) => compute_min_max(array.as_slice::<T>().iter()),
+            Mask::AllTrue(_) => {
+                let slice = array.as_slice::<T>();
+                // Integers have no NaNs, so a plain min/max reduction is correct and, unlike the
+                // `itertools::minmax_by` + NaN-filter path, autovectorizes to packed min/max.
+                if T::PTYPE.is_int() {
+                    integer_min_max(slice)
+                } else {
+                    compute_min_max(slice.iter())
+                }
+            }
             Mask::AllFalse(_) => None,
             Mask::Values(v) => compute_min_max(
                 array
@@ -52,6 +61,28 @@ where
             ),
         },
     )
+}
+
+fn integer_min_max<T>(slice: &[T]) -> Option<MinMaxResult>
+where
+    T: NativePType,
+    PValue: From<T>,
+{
+    let (&first, rest) = slice.split_first()?;
+    let mut min = first;
+    let mut max = first;
+    for &v in rest {
+        if v.is_lt(min) {
+            min = v;
+        }
+        if v.is_gt(max) {
+            max = v;
+        }
+    }
+    Some(MinMaxResult {
+        min: Scalar::primitive(min, NonNullable),
+        max: Scalar::primitive(max, NonNullable),
+    })
 }
 
 fn compute_min_max<'a, T>(iter: impl Iterator<Item = &'a T>) -> Option<MinMaxResult>
