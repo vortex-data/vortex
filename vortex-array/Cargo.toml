@@ -102,6 +102,10 @@ name = "aggregate_max"
 harness = false
 
 [[bench]]
+name = "aggregate_sum"
+harness = false
+
+[[bench]]
 name = "cast_primitive"
 harness = false
 

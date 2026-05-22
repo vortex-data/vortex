@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
+use num_traits::AsPrimitive;
 use num_traits::ToPrimitive;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -13,7 +14,13 @@ use super::checked_add_i64;
 use super::checked_add_u64;
 use crate::ExecutionCtx;
 use crate::arrays::PrimitiveArray;
+use crate::dtype::NativePType;
+use crate::dtype::PType;
 use crate::match_each_native_ptype;
+
+/// Number of elements summed without an overflow check. Chosen so that a chunk of values narrower
+/// than 64 bits cannot overflow the 64-bit accumulator: `2^16 * (2^32 - 1) < 2^64`.
+const SUM_CHUNK: usize = 1 << 16;
 
 pub(super) fn accumulate_primitive(
     inner: &mut SumState,
@@ -31,27 +38,13 @@ pub(super) fn accumulate_primitive(
 fn accumulate_primitive_all(inner: &mut SumState, p: &PrimitiveArray) -> VortexResult<bool> {
     match inner {
         SumState::Unsigned(acc) => match_each_native_ptype!(p.ptype(),
-            unsigned: |T| {
-                for &v in p.as_slice::<T>() {
-                    if checked_add_u64(acc, v.to_u64().vortex_expect("unsigned to u64")) {
-                        return Ok(true);
-                    }
-                }
-                Ok(false)
-            },
+            unsigned: |T| { Ok(sum_unsigned_all(acc, p.as_slice::<T>())) },
             signed: |_T| { vortex_panic!("unsigned sum state with signed input") },
             floating: |_T| { vortex_panic!("unsigned sum state with float input") }
         ),
         SumState::Signed(acc) => match_each_native_ptype!(p.ptype(),
             unsigned: |_T| { vortex_panic!("signed sum state with unsigned input") },
-            signed: |T| {
-                for &v in p.as_slice::<T>() {
-                    if checked_add_i64(acc, v.to_i64().vortex_expect("signed to i64")) {
-                        return Ok(true);
-                    }
-                }
-                Ok(false)
-            },
+            signed: |T| { Ok(sum_signed_all(acc, p.as_slice::<T>())) },
             floating: |_T| { vortex_panic!("signed sum state with float input") }
         ),
         SumState::Float(acc) => match_each_native_ptype!(p.ptype(),
@@ -68,6 +61,53 @@ fn accumulate_primitive_all(inner: &mut SumState, p: &PrimitiveArray) -> VortexR
         ),
         SumState::Decimal { .. } => vortex_panic!("decimal sum state with primitive input"),
     }
+}
+
+/// Sum all values into a `u64` accumulator. For types narrower than 64 bits, values are summed in
+/// chunks of [`SUM_CHUNK`] with a single checked add per chunk, which lets the inner loop vectorize
+/// to packed widening adds. `u64` input keeps a per-element checked add since a chunk of `u64`s
+/// could itself overflow. Returns `true` on overflow.
+fn sum_unsigned_all<T>(acc: &mut u64, slice: &[T]) -> bool
+where
+    T: NativePType + AsPrimitive<u64>,
+{
+    if T::PTYPE == PType::U64 {
+        for &v in slice {
+            if checked_add_u64(acc, v.as_()) {
+                return true;
+            }
+        }
+        return false;
+    }
+    for chunk in slice.chunks(SUM_CHUNK) {
+        let chunk_sum: u64 = chunk.iter().map(|&v| v.as_()).sum();
+        if checked_add_u64(acc, chunk_sum) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Signed counterpart of [`sum_unsigned_all`].
+fn sum_signed_all<T>(acc: &mut i64, slice: &[T]) -> bool
+where
+    T: NativePType + AsPrimitive<i64>,
+{
+    if T::PTYPE == PType::I64 {
+        for &v in slice {
+            if checked_add_i64(acc, v.as_()) {
+                return true;
+            }
+        }
+        return false;
+    }
+    for chunk in slice.chunks(SUM_CHUNK) {
+        let chunk_sum: i64 = chunk.iter().map(|&v| v.as_()).sum();
+        if checked_add_i64(acc, chunk_sum) {
+            return true;
+        }
+    }
+    false
 }
 
 fn accumulate_primitive_valid(
