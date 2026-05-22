@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Byte-level compress for u8 filtering using a `1 << 8 = 256`-entry lookup table.
+//! Byte-level compress for primitive filtering using a `1 << 8 = 256`-entry lookup table.
 //!
-//! For each byte of the mask (8 bits → 8 u8 source elements), a precomputed
+//! For each byte of the mask (8 bits -> 8 source elements), a precomputed
 //! permutation table compacts the selected bytes in a single indexed copy,
 //! avoiding the overhead of materializing indices or slices.
 
@@ -11,12 +11,14 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_mask::MaskValues;
 
-/// For each mask byte (0..256), stores the byte-indices to keep and the count.
+const BYTE_COMPRESS_DENSITY_THRESHOLD: f64 = 0.5;
+
+/// For each mask byte (0..256), stores the element indices to keep and the count.
 ///
 /// `BYTE_COMPRESS_LUT[mask_byte]` = `([i0, i1, ..., i7], popcount)` where
 /// `i0..i_{popcount-1}` are the positions of set bits in `mask_byte`.
 ///
-/// Total size: 256 * 9 = 2304 bytes — trivially fits in L1 cache.
+/// Total size: 256 * 9 = 2304 bytes, which trivially fits in L1 cache.
 static BYTE_COMPRESS_LUT: &[([u8; 8], u8); 256] = &{
     let mut lut = [([0u8; 8], 0u8); 256];
     let mut mask: usize = 0;
@@ -37,11 +39,11 @@ static BYTE_COMPRESS_LUT: &[([u8; 8], u8); 256] = &{
     lut
 };
 
-/// Filter a `Buffer<u8>` using the byte-compress LUT.
+/// Filter a `Buffer<T>` using the byte-compress LUT.
 ///
 /// Processes the mask one byte at a time (8 source elements per byte),
 /// using a precomputed permutation to compact selected elements.
-pub(super) fn filter_buffer_u8(buffer: Buffer<u8>, mask: &MaskValues) -> Buffer<u8> {
+pub(super) fn filter_buffer<T: Copy>(buffer: Buffer<T>, mask: &MaskValues) -> Buffer<T> {
     debug_assert_eq!(buffer.len(), mask.len());
 
     let src = buffer.as_slice();
@@ -54,18 +56,19 @@ pub(super) fn filter_buffer_u8(buffer: Buffer<u8>, mask: &MaskValues) -> Buffer<
     let mask_bytes = mask.bit_buffer().inner().as_ref();
     let mask_offset = mask.bit_buffer().offset();
 
-    // Fast path: no bit offset in the mask buffer — process byte-aligned.
-    if mask_offset == 0 {
+    // Fast path: no bit offset in the mask buffer and enough selected values to benefit from
+    // scanning the bitmask directly.
+    if mask_offset == 0 && mask.density() >= BYTE_COMPRESS_DENSITY_THRESHOLD {
         return filter_aligned(src, mask_bytes, true_count);
     }
 
-    // Slow path: mask has a bit offset — fall back to the generic slice path.
+    // Slow path: lower-density or unaligned masks are better handled by the generic path.
     super::slice::filter_slice_by_mask_values(src, mask)
 }
 
 /// Aligned fast path: mask bits start at byte boundary.
-fn filter_aligned(src: &[u8], mask_bytes: &[u8], true_count: usize) -> Buffer<u8> {
-    let mut out = BufferMut::<u8>::with_capacity(true_count);
+fn filter_aligned<T: Copy>(src: &[T], mask_bytes: &[u8], true_count: usize) -> Buffer<T> {
+    let mut out = BufferMut::<T>::with_capacity(true_count);
     let out_ptr = out.spare_capacity_mut().as_mut_ptr();
     let mut write_pos: usize = 0;
 
@@ -79,10 +82,14 @@ fn filter_aligned(src: &[u8], mask_bytes: &[u8], true_count: usize) -> Buffer<u8
         }
         let chunk = &src[i * 8..];
         if m == 0xFF {
-            // All 8 selected — bulk copy.
+            // All 8 selected, so bulk copy.
             // SAFETY: write_pos + 8 <= true_count <= capacity.
             unsafe {
-                std::ptr::copy_nonoverlapping(chunk.as_ptr(), out_ptr.add(write_pos).cast(), 8);
+                std::ptr::copy_nonoverlapping(
+                    chunk.as_ptr(),
+                    out_ptr.add(write_pos).cast::<T>(),
+                    8,
+                );
             }
             write_pos += 8;
         } else {
@@ -93,7 +100,7 @@ fn filter_aligned(src: &[u8], mask_bytes: &[u8], true_count: usize) -> Buffer<u8
                 for j in 0..count {
                     out_ptr
                         .add(write_pos + j)
-                        .cast::<u8>()
+                        .cast::<T>()
                         .write(*chunk.get_unchecked(*perm.get_unchecked(j) as usize));
                 }
             }
@@ -112,7 +119,7 @@ fn filter_aligned(src: &[u8], mask_bytes: &[u8], true_count: usize) -> Buffer<u8
                 for j in 0..count {
                     out_ptr
                         .add(write_pos + j)
-                        .cast::<u8>()
+                        .cast::<T>()
                         .write(*chunk.get_unchecked(*perm.get_unchecked(j) as usize));
                 }
             }
@@ -145,7 +152,7 @@ mod tests {
     fn test_filter_all_selected() {
         let buf = buffer![1u8, 2, 3, 4, 5, 6, 7, 8, 9];
         let mask = Mask::from_iter([true, true, true, true, true, true, true, true, false]);
-        let result = filter_buffer_u8(buf, mask_values(&mask));
+        let result = filter_buffer(buf, mask_values(&mask));
         assert_eq!(result, buffer![1u8, 2, 3, 4, 5, 6, 7, 8]);
     }
 
@@ -153,7 +160,7 @@ mod tests {
     fn test_filter_mostly_false() {
         let buf = buffer![1u8, 2, 3, 4, 5, 6, 7, 8, 9];
         let mask = Mask::from_iter([false, false, false, false, false, false, false, false, true]);
-        let result = filter_buffer_u8(buf, mask_values(&mask));
+        let result = filter_buffer(buf, mask_values(&mask));
         assert_eq!(result, buffer![9u8]);
     }
 
@@ -161,7 +168,7 @@ mod tests {
     fn test_filter_alternating() {
         let buf = buffer![10u8, 20, 30, 40, 50, 60, 70, 80];
         let mask = Mask::from_iter([true, false, true, false, true, false, true, false]);
-        let result = filter_buffer_u8(buf, mask_values(&mask));
+        let result = filter_buffer(buf, mask_values(&mask));
         assert_eq!(result, buffer![10u8, 30, 50, 70]);
     }
 
@@ -171,7 +178,7 @@ mod tests {
         let mask = Mask::from_iter([
             true, false, true, false, true, false, true, false, true, true,
         ]);
-        let result = filter_buffer_u8(buf, mask_values(&mask));
+        let result = filter_buffer(buf, mask_values(&mask));
         assert_eq!(result, buffer![1u8, 3, 5, 7, 9, 10]);
     }
 
@@ -180,9 +187,32 @@ mod tests {
         let data: Vec<u8> = (0..1000).map(|i| (i % 256) as u8).collect();
         let buf = Buffer::from(BufferMut::from_iter(data.iter().copied()));
         let mask = Mask::from_iter((0..1000).map(|i| i % 3 == 0));
-        let result = filter_buffer_u8(buf, mask_values(&mask));
+        let result = filter_buffer(buf, mask_values(&mask));
         let expected: Vec<u8> = data.iter().copied().step_by(3).collect();
         assert_eq!(result.as_slice(), &expected[..]);
         Ok(())
+    }
+
+    #[test]
+    fn test_filter_signed_and_wider_integers() {
+        let mask = Mask::from_iter([true, false, true, true, false, true, false, true, true]);
+
+        let i8_result = filter_buffer(
+            buffer![-5i8, -4, -3, -2, -1, 0, 1, 2, 3],
+            mask_values(&mask),
+        );
+        assert_eq!(i8_result, buffer![-5i8, -3, -2, 0, 2, 3]);
+
+        let u16_result = filter_buffer(
+            buffer![10u16, 20, 30, 40, 50, 60, 70, 80, 90],
+            mask_values(&mask),
+        );
+        assert_eq!(u16_result, buffer![10u16, 30, 40, 60, 80, 90]);
+
+        let i32_result = filter_buffer(
+            buffer![-100i32, -50, 0, 50, 100, 150, 200, 250, 300],
+            mask_values(&mask),
+        );
+        assert_eq!(i32_result, buffer![-100i32, 0, 50, 150, 250, 300]);
     }
 }
