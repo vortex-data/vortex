@@ -85,6 +85,18 @@ pub fn alp_scale_tile(digits: &[u64; TILE], scale: f64, out: &mut [f64; TILE]) {
     }
 }
 
+/// Monolithic tail stencil: untranspose **and** ALP-scale in a single
+/// fully-unrolled pass. `transposed[i]` (a transposed `u64` digit) is reinterpreted
+/// as `i64`, scaled, and scattered straight to its natural position
+/// `transpose(i)`. This fuses two stages — and the intermediate `digits` tile —
+/// into one, which is what lets the AOT kernel beat the staged `fused` path.
+#[inline(always)]
+pub fn untranspose_scale_tile(transposed: &[u64; TILE], scale: f64, out: &mut [f64; TILE]) {
+    seq_macro::seq!(I in 0..1024 {
+        out[fastlanes::transpose(I)] = (transposed[I] as i64) as f64 * scale;
+    });
+}
+
 /// Slice form of [`alp_scale_tile`] used by the materialized strategy.
 #[inline(always)]
 pub fn alp_scale_slice(digits: &[u64], scale: f64, out: &mut [f64]) {

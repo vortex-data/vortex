@@ -33,6 +33,22 @@ fn main() {
     divan::main();
 }
 
+// Floor baseline: the data is already fully decompressed; "decode" is just
+// allocating the output and copying the canonical values (memory-bandwidth bound).
+// No technique can beat this — it is the lower bound every decoder pays.
+
+#[divan::bench(name = "a_delta_bitpack/fully_decompressed")]
+fn a_floor(bencher: Bencher) {
+    let values = gen_u32(N, 1);
+    bencher.counter(ItemsCount::new(N)).bench(|| values.clone());
+}
+
+#[divan::bench(name = "b_alp_delta_for_bitpack/fully_decompressed")]
+fn b_floor(bencher: Bencher) {
+    let values = gen_f64(N, EXP, 2);
+    bencher.counter(ItemsCount::new(N)).bench(|| values.clone());
+}
+
 // ---------------------------------------------------------------- stack A: delta(bitpacking) u32
 
 #[divan::bench(name = "a_delta_bitpack/vortex_shallow")]
