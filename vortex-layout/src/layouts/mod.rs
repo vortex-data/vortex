@@ -8,6 +8,7 @@ use futures::future::Shared;
 use vortex_array::ArrayRef;
 use vortex_error::SharedVortexResult;
 
+pub mod array_tree;
 pub mod buffered;
 pub mod chunked;
 pub mod collect;

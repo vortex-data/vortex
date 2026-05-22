@@ -1990,3 +1990,233 @@ async fn test_can_prune_composite_predicates() -> VortexResult<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_segment_ordering_array_trees_consolidated_and_after_data() -> VortexResult<()> {
+    // Multi-column struct large enough to produce chunked data, so each column will have
+    // many ArrayTreeFlat leaves. The collector should consolidate their compact trees into a
+    // single segment per ArrayTreeLayout.
+    let n = 100_000;
+    let values: Vec<&str> = (0..n).map(|i| ["alpha", "beta", "gamma"][i % 3]).collect();
+    let strings = VarBinArray::from(values).into_array();
+    let numbers = PrimitiveArray::from_iter(0..n as i32).into_array();
+    let floats = PrimitiveArray::from_iter((0..n).map(|i| i as f64 * 0.1)).into_array();
+
+    let st = StructArray::from_fields(&[
+        ("strings", strings),
+        ("numbers", numbers),
+        ("floats", floats),
+    ])
+    .unwrap();
+
+    let mut buf = ByteBufferMut::empty();
+    let strategy = crate::WriteStrategyBuilder::default()
+        .with_array_tree(true)
+        .build();
+    let summary = SESSION
+        .write_options()
+        .with_strategy(strategy)
+        .write(&mut buf, st.into_array().to_array_stream())
+        .await?;
+
+    let footer = summary.footer();
+    let segment_specs = footer.segment_map();
+    let root = footer.layout();
+
+    // For each ArrayTreeLayout in the tree, assert:
+    //   1. **Consolidation:** the auxiliary `array_trees` child writes exactly one segment.
+    //   2. **Per-column ordering:** every data segment under child 0 appears before the
+    //      array_trees segment under child 1.
+    fn check_array_tree_layouts(
+        layout: &dyn Layout,
+        segment_specs: &[SegmentSpec],
+        found_any: &mut bool,
+    ) {
+        if layout.encoding_id().as_ref() == "vortex.array_tree" {
+            *found_any = true;
+
+            let data_child = layout.child(0).unwrap();
+            let array_trees_child = layout.child(1).unwrap();
+
+            let data_offsets = collect_segment_offsets(data_child.as_ref(), segment_specs);
+            let array_trees_offsets =
+                collect_segment_offsets(array_trees_child.as_ref(), segment_specs);
+
+            assert_eq!(
+                array_trees_offsets.len(),
+                1,
+                "array_tree: auxiliary child must consolidate to exactly 1 segment, got {} segments at offsets {:?}",
+                array_trees_offsets.len(),
+                array_trees_offsets,
+            );
+
+            assert!(
+                !data_offsets.is_empty(),
+                "array_tree: data child must have at least one segment"
+            );
+
+            assert_offsets_ordered(
+                &data_offsets,
+                &array_trees_offsets,
+                "array_tree: all data segments should come before the array_trees segment",
+            );
+        }
+
+        for child in layout.children().unwrap() {
+            check_array_tree_layouts(child.as_ref(), segment_specs, found_any);
+        }
+    }
+
+    let mut found_any = false;
+    check_array_tree_layouts(root.as_ref(), segment_specs, &mut found_any);
+    assert!(
+        found_any,
+        "test setup expected the default write strategy to produce at least one ArrayTreeLayout"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_segment_ordering_array_trees_before_zones() -> VortexResult<()> {
+    // The write strategy wraps every column in `ZonedStrategy { data: ArrayTree, zones }`.
+    // Assert per-Zoned-layout that the array_trees segment (inside the data child) appears
+    // before every zone-map segment in the same column.
+    let n = 100_000;
+    let values: Vec<&str> = (0..n).map(|i| ["alpha", "beta", "gamma"][i % 3]).collect();
+    let strings = VarBinArray::from(values).into_array();
+    let numbers = PrimitiveArray::from_iter(0..n as i32).into_array();
+    let floats = PrimitiveArray::from_iter((0..n).map(|i| i as f64 * 0.1)).into_array();
+
+    let st = StructArray::from_fields(&[
+        ("strings", strings),
+        ("numbers", numbers),
+        ("floats", floats),
+    ])
+    .unwrap();
+
+    let mut buf = ByteBufferMut::empty();
+    let strategy = crate::WriteStrategyBuilder::default()
+        .with_array_tree(true)
+        .build();
+    let summary = SESSION
+        .write_options()
+        .with_strategy(strategy)
+        .write(&mut buf, st.into_array().to_array_stream())
+        .await?;
+
+    let footer = summary.footer();
+    let segment_specs = footer.segment_map();
+    let root = footer.layout();
+
+    fn check_zoned_with_array_tree(
+        layout: &dyn Layout,
+        segment_specs: &[SegmentSpec],
+        found_any: &mut bool,
+    ) {
+        if layout.encoding_id().as_ref() == "vortex.stats" {
+            let data_child = layout.child(0).unwrap();
+            let zones_child = layout.child(1).unwrap();
+
+            if data_child.encoding_id().as_ref() == "vortex.array_tree" {
+                *found_any = true;
+                let array_trees_offsets =
+                    collect_segment_offsets(data_child.child(1).unwrap().as_ref(), segment_specs);
+                let zones_offsets = collect_segment_offsets(zones_child.as_ref(), segment_specs);
+
+                assert_offsets_ordered(
+                    &array_trees_offsets,
+                    &zones_offsets,
+                    "zoned wrapping array_tree: the array_trees segment should come before zone-map segments",
+                );
+            }
+        }
+
+        for child in layout.children().unwrap() {
+            check_zoned_with_array_tree(child.as_ref(), segment_specs, found_any);
+        }
+    }
+
+    let mut found_any = false;
+    check_zoned_with_array_tree(root.as_ref(), segment_specs, &mut found_any);
+    assert!(
+        found_any,
+        "test setup expected the default write strategy to produce at least one Zoned wrapping an ArrayTree"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_roundtrip_array_tree_layout() -> VortexResult<()> {
+    // End-to-end coverage: write with `with_array_tree(true)`, then read back through the
+    // source-publishing reader-ctx path and assert the data matches. Exercises:
+    //   - ArrayTreeCollectorStrategy collecting compact trees from leaf transient state
+    //   - ArrayTreeLayout::new_reader publishing the ArrayTreesSource into the reader ctx
+    //   - ArrayTreeFlatReader pulling the source and resolving its tree by segment_id
+    //   - ColumnarSerializedArray::from_segment_and_tree decoding the data segment
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let n = 10_000;
+    let strings_in: Vec<&str> = (0..n).map(|i| ["alpha", "beta", "gamma"][i % 3]).collect();
+    let strings = VarBinArray::from(strings_in.clone()).into_array();
+    let numbers_in: Vec<i32> = (0..n as i32).collect();
+    let numbers = PrimitiveArray::from_iter(numbers_in.iter().copied()).into_array();
+
+    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)])?.into_array();
+    let dtype = st.dtype().clone();
+
+    let mut buf = ByteBufferMut::empty();
+    let strategy = crate::WriteStrategyBuilder::default()
+        .with_array_tree(true)
+        .build();
+    SESSION
+        .write_options()
+        .with_strategy(strategy)
+        .write(&mut buf, st.to_array_stream())
+        .await?;
+
+    // Sanity-check we actually wrote ArrayTreeLayout nodes — otherwise the test would
+    // silently pass on the default code path.
+    let file = SESSION.open_options().open_buffer(buf)?;
+    fn has_array_tree(layout: &dyn Layout) -> bool {
+        if layout.encoding_id().as_ref() == "vortex.array_tree" {
+            return true;
+        }
+        layout
+            .children()
+            .map(|cs| cs.iter().any(|c| has_array_tree(c.as_ref())))
+            .unwrap_or(false)
+    }
+    assert!(
+        has_array_tree(file.footer().layout().as_ref()),
+        "test expected ArrayTreeLayout in the written file"
+    );
+
+    let result = file.scan()?.into_array_stream()?.read_all().await?;
+    assert_eq!(result.len(), n);
+    assert_eq!(result.dtype(), &dtype);
+
+    let struct_array = result.execute::<StructArray>(&mut ctx)?;
+
+    let read_numbers = struct_array.unmasked_field_by_name("numbers").cloned()?;
+    let expected_numbers = PrimitiveArray::from_iter(numbers_in.iter().copied()).into_array();
+    assert_arrays_eq!(read_numbers, expected_numbers);
+
+    let read_strings = struct_array
+        .unmasked_field_by_name("strings")
+        .cloned()?
+        .execute::<VarBinViewArray>(&mut ctx)?
+        .with_iterator(|iter| {
+            iter.map(|s| s.map(|st| unsafe { String::from_utf8_unchecked(st.to_vec()) }))
+                .collect::<Vec<_>>()
+        });
+    let expected_strings: Vec<Option<String>> =
+        strings_in.iter().map(|s| Some((*s).to_string())).collect();
+    assert_eq!(read_strings, expected_strings);
+
+    Ok(())
+}
