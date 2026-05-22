@@ -13,6 +13,8 @@
 //! contiguous factor slice first lets the subsequent multiply/cast loop turn
 //! into SIMD. The benches below measure that gap.
 
+use std::ops::BitAnd;
+
 use divan::Bencher;
 use num_traits::AsPrimitive;
 use num_traits::NumCast;
@@ -21,6 +23,59 @@ use vortex_array::dtype::NativePType;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+
+/// Types whose "zero out if invalid" is a bitwise AND with a per-element
+/// all-ones / all-zero mask word. Ints AND directly; floats go through their
+/// bit pattern. This is the `Bits` associated type that would have to be added
+/// to `NativePType` to write the masking generically; kept local to the
+/// benchmark to avoid growing public API for an experiment.
+trait Maskable: NativePType {
+    /// Unsigned integer with the same width as `Self`.
+    type Bits: Copy + BitAnd<Output = Self::Bits>;
+    fn to_bits(self) -> Self::Bits;
+    fn from_bits(bits: Self::Bits) -> Self;
+    /// All bits clear when `keep == 0`, all bits set when `keep == 1`.
+    fn mask_word(keep: u8) -> Self::Bits;
+}
+
+macro_rules! impl_maskable_int {
+    ($ty:ty, $bits:ty) => {
+        impl Maskable for $ty {
+            type Bits = $bits;
+            #[inline(always)]
+            fn to_bits(self) -> $bits {
+                self as $bits
+            }
+            #[inline(always)]
+            fn from_bits(bits: $bits) -> Self {
+                bits as $ty
+            }
+            #[inline(always)]
+            fn mask_word(keep: u8) -> $bits {
+                (keep as $bits).wrapping_neg()
+            }
+        }
+    };
+}
+
+impl_maskable_int!(i32, u32);
+impl_maskable_int!(i64, u64);
+
+impl Maskable for f32 {
+    type Bits = u32;
+    #[inline(always)]
+    fn to_bits(self) -> u32 {
+        f32::to_bits(self)
+    }
+    #[inline(always)]
+    fn from_bits(bits: u32) -> Self {
+        f32::from_bits(bits)
+    }
+    #[inline(always)]
+    fn mask_word(keep: u8) -> u32 {
+        (keep as u32).wrapping_neg()
+    }
+}
 
 fn main() {
     divan::main();
@@ -160,6 +215,52 @@ fn expand_keep(mask: &BitBuffer) -> Buffer<u8> {
     out.freeze()
 }
 
+/// Floor for the same-type masking kernels: copy values, apply no validity.
+#[inline(never)]
+fn k_copy<F: NativePType>(values: &[F]) -> Buffer<F> {
+    BufferMut::from_trusted_len_iter(values.iter().copied()).freeze()
+}
+
+/// Two-pass bitwise-AND masking: expand the bitmap into a `u8` keep-mask
+/// (vectorized), then `from_bits(to_bits(v) & mask_word(keep))`.
+#[inline(never)]
+fn k_bitand<F: Maskable>(values: &[F], mask: &BitBuffer) -> Buffer<F> {
+    let keep = expand_keep(mask);
+    BufferMut::from_trusted_len_iter(
+        values
+            .iter()
+            .zip(keep.iter())
+            .map(|(&v, &k)| F::from_bits(F::to_bits(v) & F::mask_word(k))),
+    )
+    .freeze()
+}
+
+/// Single-pass bitwise-AND masking: walk the packed bitmap a byte (8 elements)
+/// at a time, expanding each bit to a full-width mask word inline. No second
+/// buffer, one pass over the data.
+#[inline(never)]
+fn k_bitand_fused<F: Maskable>(values: &[F], mask: &BitBuffer) -> Buffer<F> {
+    let len = values.len();
+    let bytes = mask.inner().as_slice();
+    let full = len / 8;
+    let mut out = BufferMut::<F>::zeroed(len);
+    let dst = out.as_mut_slice();
+    for ((vb, ob), &mb) in values[..full * 8]
+        .chunks_exact(8)
+        .zip(dst.chunks_exact_mut(8))
+        .zip(&bytes[..full])
+    {
+        for (j, slot) in ob.iter_mut().enumerate() {
+            *slot = F::from_bits(F::to_bits(vb[j]) & F::mask_word((mb >> j) & 1));
+        }
+    }
+    for i in (full * 8)..len {
+        let k = (bytes[i >> 3] >> (i & 7)) & 1;
+        dst[i] = F::from_bits(F::to_bits(values[i]) & F::mask_word(k));
+    }
+    out.freeze()
+}
+
 // ---------------------------------------------------------------------------
 // Data + bench registration
 // ---------------------------------------------------------------------------
@@ -218,6 +319,25 @@ macro_rules! bench_pair {
             fn bulk_select(bencher: Bencher) {
                 let (values, mask) = inputs();
                 bencher.bench(|| k_bulk_select::<$F, $T>(values.as_slice(), &mask));
+            }
+
+            // Same-type masking only (`$F -> $F`, no cast). `copy` is the floor.
+            #[divan::bench]
+            fn copy(bencher: Bencher) {
+                let (values, _) = inputs();
+                bencher.bench(|| k_copy::<$F>(values.as_slice()));
+            }
+
+            #[divan::bench]
+            fn bitand(bencher: Bencher) {
+                let (values, mask) = inputs();
+                bencher.bench(|| k_bitand::<$F>(values.as_slice(), &mask));
+            }
+
+            #[divan::bench]
+            fn bitand_fused(bencher: Bencher) {
+                let (values, mask) = inputs();
+                bencher.bench(|| k_bitand_fused::<$F>(values.as_slice(), &mask));
             }
         }
     };
