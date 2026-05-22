@@ -344,6 +344,70 @@ fn k_bitand_blocked<F: Maskable>(values: &[F], mask: &BitBuffer) -> Buffer<F> {
     out.freeze()
 }
 
+/// Cast `F -> T` where a cast failure (lossy round-trip) is an error **only if
+/// the element is valid**. Invalid (undef) positions may hold out-of-range
+/// garbage and are ignored. The error is `OR_i (lossy_i AND valid_i)`.
+///
+/// Baseline: the literal per-element zip of the value stream with
+/// `BitBuffer::iter()`. The bit iterator is the vectorization blocker.
+#[inline(never)]
+fn k_cast_fail_scalar<F, T>(values: &[F], mask: &BitBuffer) -> (Buffer<T>, bool)
+where
+    F: NativePType + AsPrimitive<T>,
+    T: NativePType + AsPrimitive<F>,
+{
+    let mut err = false;
+    let out = BufferMut::from_trusted_len_iter(values.iter().zip(mask.iter()).map(|(&v, valid)| {
+        let t: T = v.as_();
+        err |= valid && !(<T as AsPrimitive<F>>::as_(t)).is_eq(v);
+        t
+    }))
+    .freeze();
+    (out, err)
+}
+
+/// Same semantics, fast: a single pass with no intermediate buffer. Cast 8
+/// elements per validity byte, pack their lossy flags into a byte, AND with the
+/// validity byte, and OR-reduce. The "bit and value zip" happens a byte at a
+/// time so the cast stays vectorized and validity is consumed a byte at a time
+/// instead of a bit at a time.
+#[inline(never)]
+fn k_cast_fail_fused<F, T>(values: &[F], mask: &BitBuffer) -> (Buffer<T>, bool)
+where
+    F: NativePType + AsPrimitive<T>,
+    T: NativePType + AsPrimitive<F>,
+{
+    let len = values.len();
+    let mut out = BufferMut::<T>::zeroed(len);
+    let dst = out.as_mut_slice();
+    let vbytes = mask.inner().as_slice();
+    let full = len / 8;
+    let mut bad_bits: u8 = 0;
+    for ((vchunk, ochunk), &valid) in values[..full * 8]
+        .chunks_exact(8)
+        .zip(dst.chunks_exact_mut(8))
+        .zip(&vbytes[..full])
+    {
+        let mut lossy: u8 = 0;
+        for (j, (o, &v)) in ochunk.iter_mut().zip(vchunk).enumerate() {
+            let t: T = v.as_();
+            *o = t;
+            let bad = !(<T as AsPrimitive<F>>::as_(t)).is_eq(v);
+            lossy |= (bad as u8) << j;
+        }
+        bad_bits |= lossy & valid;
+    }
+    let mut err = bad_bits != 0;
+    for i in (full * 8)..len {
+        let v = values[i];
+        let t: T = v.as_();
+        dst[i] = t;
+        let valid = (vbytes[i >> 3] >> (i & 7)) & 1 == 1;
+        err |= valid && !(<T as AsPrimitive<F>>::as_(t)).is_eq(v);
+    }
+    (out.freeze(), err)
+}
+
 // ---------------------------------------------------------------------------
 // Data + bench registration
 // ---------------------------------------------------------------------------
@@ -384,6 +448,18 @@ macro_rules! bench_pair {
             fn check_cast_fused(bencher: Bencher) {
                 let (values, _) = inputs();
                 bencher.bench(|| k_check_cast_fused::<$F, $T>(values.as_slice()));
+            }
+
+            #[divan::bench]
+            fn cast_fail_scalar(bencher: Bencher) {
+                let (values, mask) = inputs();
+                bencher.bench(|| k_cast_fail_scalar::<$F, $T>(values.as_slice(), &mask));
+            }
+
+            #[divan::bench]
+            fn cast_fail_fused(bencher: Bencher) {
+                let (values, mask) = inputs();
+                bencher.bench(|| k_cast_fail_fused::<$F, $T>(values.as_slice(), &mask));
             }
 
             #[divan::bench]
