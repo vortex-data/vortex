@@ -508,9 +508,6 @@ mod tests {
 
     /// Regression test: comparing struct arrays where the same logical field is backed by
     /// different Vortex encodings (VarBinArray vs VarBinViewArray) must not panic.
-    /// Previously `arrow_compare_arrays` would assert that both sides had identical Arrow
-    /// data types, which failed when independent conversions chose different physical types
-    /// (Binary vs BinaryView) for the same logical DType::Binary field.
     #[test]
     fn struct_compare_mixed_binary_encodings() {
         // LHS: struct with a VarBinArray (offset-based) binary field
