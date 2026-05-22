@@ -31,7 +31,7 @@ use vortex_buffer::BufferMut;
 /// benchmark to avoid growing public API for an experiment.
 trait Maskable: NativePType {
     /// Unsigned integer with the same width as `Self`.
-    type Bits: Copy + BitAnd<Output = Self::Bits>;
+    type Bits: NativePType + BitAnd<Output = Self::Bits>;
     fn to_bits(self) -> Self::Bits;
     fn from_bits(bits: Self::Bits) -> Self;
     /// All bits clear when `keep == 0`, all bits set when `keep == 1`.
@@ -261,6 +261,67 @@ fn k_bitand_fused<F: Maskable>(values: &[F], mask: &BitBuffer) -> Buffer<F> {
     out.freeze()
 }
 
+/// Expand the bitmap into full-width `0` / `!0` mask words, 8 at a time.
+fn expand_words<F: Maskable>(mask: &BitBuffer) -> Buffer<F::Bits> {
+    let len = mask.len();
+    let bytes = mask.inner().as_slice();
+    let mut out = BufferMut::<F::Bits>::zeroed(len);
+    let dst = out.as_mut_slice();
+    let full = len / 8;
+    for (chunk, &b) in dst.chunks_exact_mut(8).zip(&bytes[..full]) {
+        for (j, slot) in chunk.iter_mut().enumerate() {
+            *slot = F::mask_word((b >> j) & 1);
+        }
+    }
+    for i in (full * 8)..len {
+        dst[i] = F::mask_word((bytes[i >> 3] >> (i & 7)) & 1);
+    }
+    out.freeze()
+}
+
+/// Two-pass, but the apply loop is a *pure* `vpand` slice zip (no `vpsubd`):
+/// expand to `0` / `!0` mask words, then `from_bits(to_bits(v) & word)`.
+#[inline(never)]
+fn k_bitand_words<F: Maskable>(values: &[F], mask: &BitBuffer) -> Buffer<F> {
+    let words = expand_words::<F>(mask);
+    BufferMut::from_trusted_len_iter(
+        values
+            .iter()
+            .zip(words.iter())
+            .map(|(&v, &w)| F::from_bits(F::to_bits(v) & w)),
+    )
+    .freeze()
+}
+
+/// Single pass over main memory: process 64 elements per step with a small
+/// on-stack `keep` temp, so both the bit-expand and the AND vectorize while the
+/// large intermediate buffer disappears (2N memory traffic instead of 3N).
+#[inline(never)]
+fn k_bitand_blocked<F: Maskable>(values: &[F], mask: &BitBuffer) -> Buffer<F> {
+    let len = values.len();
+    let bytes = mask.inner().as_slice();
+    let blocks = len / 64;
+    let mut out = BufferMut::<F>::zeroed(len);
+    let dst = out.as_mut_slice();
+    for blk in 0..blocks {
+        let mb = &bytes[blk * 8..blk * 8 + 8];
+        let vb = &values[blk * 64..blk * 64 + 64];
+        let ob = &mut dst[blk * 64..blk * 64 + 64];
+        let mut keep = [F::Bits::default(); 64];
+        for (i, k) in keep.iter_mut().enumerate() {
+            *k = F::mask_word((mb[i >> 3] >> (i & 7)) & 1);
+        }
+        for ((o, &v), &k) in ob.iter_mut().zip(vb).zip(keep.iter()) {
+            *o = F::from_bits(F::to_bits(v) & k);
+        }
+    }
+    for i in (blocks * 64)..len {
+        let k = F::mask_word((bytes[i >> 3] >> (i & 7)) & 1);
+        dst[i] = F::from_bits(F::to_bits(values[i]) & k);
+    }
+    out.freeze()
+}
+
 // ---------------------------------------------------------------------------
 // Data + bench registration
 // ---------------------------------------------------------------------------
@@ -338,6 +399,18 @@ macro_rules! bench_pair {
             fn bitand_fused(bencher: Bencher) {
                 let (values, mask) = inputs();
                 bencher.bench(|| k_bitand_fused::<$F>(values.as_slice(), &mask));
+            }
+
+            #[divan::bench]
+            fn bitand_words(bencher: Bencher) {
+                let (values, mask) = inputs();
+                bencher.bench(|| k_bitand_words::<$F>(values.as_slice(), &mask));
+            }
+
+            #[divan::bench]
+            fn bitand_blocked(bencher: Bencher) {
+                let (values, mask) = inputs();
+                bencher.bench(|| k_bitand_blocked::<$F>(values.as_slice(), &mask));
             }
         }
     };
