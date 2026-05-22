@@ -22,7 +22,6 @@ use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
 use crate::match_each_native_ptype;
@@ -224,8 +223,8 @@ fn values_fit_in(
 /// stats cache, otherwise `None`.
 fn cached_values_fit_in(array: ArrayView<'_, Primitive>, target_dtype: &DType) -> Option<bool> {
     let stats = array.array().statistics();
-    let min = stats.get(Stat::Min).and_then(Precision::as_exact)?;
-    let max = stats.get(Stat::Max).and_then(Precision::as_exact)?;
+    let min = stats.get(Stat::Min).as_exact()?;
+    let max = stats.get(Stat::Max).as_exact()?;
     Some(min.cast(target_dtype).is_ok() && max.cast(target_dtype).is_ok())
 }
 

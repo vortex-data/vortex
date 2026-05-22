@@ -76,7 +76,7 @@ impl StatsAccumulator {
 
     pub fn push_chunk_without_compute(&mut self, array: &ArrayRef) -> VortexResult<()> {
         for builder in &mut self.builders {
-            if let Some(Precision::Exact(value)) = array.statistics().get(builder.stat()) {
+            if let Precision::Exact(value) = array.statistics().get(builder.stat()) {
                 builder.append_scalar(value.cast(&value.dtype().as_nullable())?)?;
             } else {
                 builder.append_null();

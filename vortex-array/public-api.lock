@@ -12964,7 +12964,7 @@ pub mod vortex_array::expr::stats
 
 pub enum vortex_array::expr::stats::IntersectionResult<T>
 
-pub vortex_array::expr::stats::IntersectionResult::None
+pub vortex_array::expr::stats::IntersectionResult::Empty
 
 pub vortex_array::expr::stats::IntersectionResult::Value(T)
 
@@ -12990,6 +12990,8 @@ impl<T> core::marker::StructuralPartialEq for vortex_array::expr::stats::Interse
 
 pub enum vortex_array::expr::stats::Precision<T>
 
+pub vortex_array::expr::stats::Precision::Absent
+
 pub vortex_array::expr::stats::Precision::Exact(T)
 
 pub vortex_array::expr::stats::Precision::Inexact(T)
@@ -13002,11 +13004,17 @@ impl vortex_array::expr::stats::Precision<vortex_array::scalar::ScalarValue>
 
 pub fn vortex_array::expr::stats::Precision<vortex_array::scalar::ScalarValue>::into_scalar(self, vortex_array::dtype::DType) -> vortex_array::expr::stats::Precision<vortex_array::scalar::Scalar>
 
+impl<T, E> vortex_array::expr::stats::Precision<core::result::Result<T, E>>
+
+pub fn vortex_array::expr::stats::Precision<core::result::Result<T, E>>::transpose(self) -> core::result::Result<vortex_array::expr::stats::Precision<T>, E>
+
 impl<T> vortex_array::expr::stats::Precision<T> where T: core::marker::Copy
 
 pub fn vortex_array::expr::stats::Precision<T>::to_inexact(&self) -> Self
 
 impl<T> vortex_array::expr::stats::Precision<T>
+
+pub fn vortex_array::expr::stats::Precision<T>::and_then<U, F: core::ops::function::FnOnce(T) -> core::option::Option<U>>(self, F) -> vortex_array::expr::stats::Precision<U>
 
 pub fn vortex_array::expr::stats::Precision<T>::as_exact(self) -> core::option::Option<T>
 
@@ -13020,23 +13028,19 @@ pub fn vortex_array::expr::stats::Precision<T>::inexact<S: core::convert::Into<T
 
 pub fn vortex_array::expr::stats::Precision<T>::into_inexact(self) -> Self
 
-pub fn vortex_array::expr::stats::Precision<T>::into_inner(self) -> T
+pub fn vortex_array::expr::stats::Precision<T>::into_inner(self) -> core::option::Option<T>
+
+pub fn vortex_array::expr::stats::Precision<T>::is_absent(&self) -> bool
 
 pub fn vortex_array::expr::stats::Precision<T>::is_exact(&self) -> bool
 
 pub fn vortex_array::expr::stats::Precision<T>::map<U, F: core::ops::function::FnOnce(T) -> U>(self, F) -> vortex_array::expr::stats::Precision<U>
 
-pub fn vortex_array::expr::stats::Precision<T>::try_map<U, F: core::ops::function::FnOnce(T) -> vortex_error::VortexResult<U>>(self, F) -> vortex_error::VortexResult<vortex_array::expr::stats::Precision<U>>
-
 pub fn vortex_array::expr::stats::Precision<T>::zip<U>(self, vortex_array::expr::stats::Precision<U>) -> vortex_array::expr::stats::Precision<(T, U)>
 
 impl<T> vortex_array::expr::stats::Precision<T>
 
-pub fn vortex_array::expr::stats::Precision<T>::bound<S: vortex_array::expr::stats::StatType<T>>(self) -> <S as vortex_array::expr::stats::StatType>::Bound
-
-impl<T> vortex_array::expr::stats::Precision<core::option::Option<T>>
-
-pub fn vortex_array::expr::stats::Precision<core::option::Option<T>>::transpose(self) -> core::option::Option<vortex_array::expr::stats::Precision<T>>
+pub fn vortex_array::expr::stats::Precision<T>::bound<S: vortex_array::expr::stats::StatType<T>>(self) -> core::option::Option<<S as vortex_array::expr::stats::StatType>::Bound>
 
 impl<T: core::clone::Clone> core::clone::Clone for vortex_array::expr::stats::Precision<T>
 
@@ -13073,6 +13077,10 @@ impl<T: core::fmt::Display> core::fmt::Display for vortex_array::expr::stats::Pr
 pub fn vortex_array::expr::stats::Precision<T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 impl<T: core::marker::Copy> core::marker::Copy for vortex_array::expr::stats::Precision<T>
+
+impl<T> core::default::Default for vortex_array::expr::stats::Precision<T>
+
+pub fn vortex_array::expr::stats::Precision<T>::default() -> vortex_array::expr::stats::Precision<T>
 
 impl<T> core::marker::StructuralPartialEq for vortex_array::expr::stats::Precision<T>
 
@@ -13440,7 +13448,7 @@ pub const vortex_array::expr::stats::UncompressedSizeInBytes::STAT: vortex_array
 
 pub trait vortex_array::expr::stats::StatsProvider
 
-pub fn vortex_array::expr::stats::StatsProvider::get(&self, vortex_array::expr::stats::Stat) -> core::option::Option<vortex_array::expr::stats::Precision<vortex_array::scalar::Scalar>>
+pub fn vortex_array::expr::stats::StatsProvider::get(&self, vortex_array::expr::stats::Stat) -> vortex_array::expr::stats::Precision<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::expr::stats::StatsProvider::is_empty(&self) -> bool
 
@@ -13448,7 +13456,7 @@ pub fn vortex_array::expr::stats::StatsProvider::len(&self) -> usize
 
 impl vortex_array::expr::stats::StatsProvider for vortex_array::stats::MutTypedStatsSetRef<'_, '_>
 
-pub fn vortex_array::stats::MutTypedStatsSetRef<'_, '_>::get(&self, vortex_array::expr::stats::Stat) -> core::option::Option<vortex_array::expr::stats::Precision<vortex_array::scalar::Scalar>>
+pub fn vortex_array::stats::MutTypedStatsSetRef<'_, '_>::get(&self, vortex_array::expr::stats::Stat) -> vortex_array::expr::stats::Precision<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::stats::MutTypedStatsSetRef<'_, '_>::is_empty(&self) -> bool
 
@@ -13456,7 +13464,7 @@ pub fn vortex_array::stats::MutTypedStatsSetRef<'_, '_>::len(&self) -> usize
 
 impl vortex_array::expr::stats::StatsProvider for vortex_array::stats::StatsSetRef<'_>
 
-pub fn vortex_array::stats::StatsSetRef<'_>::get(&self, vortex_array::expr::stats::Stat) -> core::option::Option<vortex_array::expr::stats::Precision<vortex_array::scalar::Scalar>>
+pub fn vortex_array::stats::StatsSetRef<'_>::get(&self, vortex_array::expr::stats::Stat) -> vortex_array::expr::stats::Precision<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::stats::StatsSetRef<'_>::is_empty(&self) -> bool
 
@@ -13464,7 +13472,7 @@ pub fn vortex_array::stats::StatsSetRef<'_>::len(&self) -> usize
 
 impl vortex_array::expr::stats::StatsProvider for vortex_array::stats::TypedStatsSetRef<'_, '_>
 
-pub fn vortex_array::stats::TypedStatsSetRef<'_, '_>::get(&self, vortex_array::expr::stats::Stat) -> core::option::Option<vortex_array::expr::stats::Precision<vortex_array::scalar::Scalar>>
+pub fn vortex_array::stats::TypedStatsSetRef<'_, '_>::get(&self, vortex_array::expr::stats::Stat) -> vortex_array::expr::stats::Precision<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::stats::TypedStatsSetRef<'_, '_>::is_empty(&self) -> bool
 
@@ -13472,7 +13480,7 @@ pub fn vortex_array::stats::TypedStatsSetRef<'_, '_>::len(&self) -> usize
 
 pub trait vortex_array::expr::stats::StatsProviderExt: vortex_array::expr::stats::StatsProvider
 
-pub fn vortex_array::expr::stats::StatsProviderExt::get_as<T: for<'a> core::convert::TryFrom<&'a vortex_array::scalar::Scalar, Error = vortex_error::VortexError>>(&self, vortex_array::expr::stats::Stat) -> core::option::Option<vortex_array::expr::stats::Precision<T>>
+pub fn vortex_array::expr::stats::StatsProviderExt::get_as<T: for<'a> core::convert::TryFrom<&'a vortex_array::scalar::Scalar, Error = vortex_error::VortexError>>(&self, vortex_array::expr::stats::Stat) -> vortex_array::expr::stats::Precision<T>
 
 pub fn vortex_array::expr::stats::StatsProviderExt::get_as_bound<S, U>(&self) -> core::option::Option<<S as vortex_array::expr::stats::StatType>::Bound> where S: vortex_array::expr::stats::StatType<U>, U: for<'a> core::convert::TryFrom<&'a vortex_array::scalar::Scalar, Error = vortex_error::VortexError>
 
@@ -13480,7 +13488,7 @@ pub fn vortex_array::expr::stats::StatsProviderExt::get_scalar_bound<S: vortex_a
 
 impl<S> vortex_array::expr::stats::StatsProviderExt for S where S: vortex_array::expr::stats::StatsProvider
 
-pub fn S::get_as<T: for<'a> core::convert::TryFrom<&'a vortex_array::scalar::Scalar, Error = vortex_error::VortexError>>(&self, vortex_array::expr::stats::Stat) -> core::option::Option<vortex_array::expr::stats::Precision<T>>
+pub fn S::get_as<T: for<'a> core::convert::TryFrom<&'a vortex_array::scalar::Scalar, Error = vortex_error::VortexError>>(&self, vortex_array::expr::stats::Stat) -> vortex_array::expr::stats::Precision<T>
 
 pub fn S::get_as_bound<S, U>(&self) -> core::option::Option<<S as vortex_array::expr::stats::StatType>::Bound> where S: vortex_array::expr::stats::StatType<U>, U: for<'a> core::convert::TryFrom<&'a vortex_array::scalar::Scalar, Error = vortex_error::VortexError>
 
@@ -21130,7 +21138,7 @@ pub fn vortex_array::stats::MutTypedStatsSetRef<'_, '_>::merge_unordered(self, &
 
 impl vortex_array::expr::stats::StatsProvider for vortex_array::stats::MutTypedStatsSetRef<'_, '_>
 
-pub fn vortex_array::stats::MutTypedStatsSetRef<'_, '_>::get(&self, vortex_array::expr::stats::Stat) -> core::option::Option<vortex_array::expr::stats::Precision<vortex_array::scalar::Scalar>>
+pub fn vortex_array::stats::MutTypedStatsSetRef<'_, '_>::get(&self, vortex_array::expr::stats::Stat) -> vortex_array::expr::stats::Precision<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::stats::MutTypedStatsSetRef<'_, '_>::is_empty(&self) -> bool
 
@@ -21168,9 +21176,9 @@ impl vortex_array::stats::StatsSet
 
 pub fn vortex_array::stats::StatsSet::clear(&mut self, vortex_array::expr::stats::Stat)
 
-pub fn vortex_array::stats::StatsSet::get(&self, vortex_array::expr::stats::Stat) -> core::option::Option<vortex_array::expr::stats::Precision<vortex_array::scalar::ScalarValue>>
+pub fn vortex_array::stats::StatsSet::get(&self, vortex_array::expr::stats::Stat) -> vortex_array::expr::stats::Precision<vortex_array::scalar::ScalarValue>
 
-pub fn vortex_array::stats::StatsSet::get_as<T: for<'a> core::convert::TryFrom<&'a vortex_array::scalar::Scalar, Error = vortex_error::VortexError>>(&self, vortex_array::expr::stats::Stat, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::expr::stats::Precision<T>>
+pub fn vortex_array::stats::StatsSet::get_as<T: for<'a> core::convert::TryFrom<&'a vortex_array::scalar::Scalar, Error = vortex_error::VortexError>>(&self, vortex_array::expr::stats::Stat, &vortex_array::dtype::DType) -> vortex_array::expr::stats::Precision<T>
 
 pub fn vortex_array::stats::StatsSet::is_empty(&self) -> bool
 
@@ -21292,7 +21300,7 @@ pub fn vortex_array::stats::StatsSetRef<'_>::with_typed_stats_set<U, F: core::op
 
 impl vortex_array::expr::stats::StatsProvider for vortex_array::stats::StatsSetRef<'_>
 
-pub fn vortex_array::stats::StatsSetRef<'_>::get(&self, vortex_array::expr::stats::Stat) -> core::option::Option<vortex_array::expr::stats::Precision<vortex_array::scalar::Scalar>>
+pub fn vortex_array::stats::StatsSetRef<'_>::get(&self, vortex_array::expr::stats::Stat) -> vortex_array::expr::stats::Precision<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::stats::StatsSetRef<'_>::is_empty(&self) -> bool
 
@@ -21312,7 +21320,7 @@ pub vortex_array::stats::TypedStatsSetRef::values: &'a vortex_array::stats::Stat
 
 impl vortex_array::expr::stats::StatsProvider for vortex_array::stats::TypedStatsSetRef<'_, '_>
 
-pub fn vortex_array::stats::TypedStatsSetRef<'_, '_>::get(&self, vortex_array::expr::stats::Stat) -> core::option::Option<vortex_array::expr::stats::Precision<vortex_array::scalar::Scalar>>
+pub fn vortex_array::stats::TypedStatsSetRef<'_, '_>::get(&self, vortex_array::expr::stats::Stat) -> vortex_array::expr::stats::Precision<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::stats::TypedStatsSetRef<'_, '_>::is_empty(&self) -> bool
 

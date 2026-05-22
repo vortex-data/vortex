@@ -327,8 +327,7 @@ impl ArrayRef {
     /// Returns the number of valid elements in the array.
     pub fn valid_count(&self, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
         let len = self.len();
-        if let Some(Precision::Exact(invalid_count)) =
-            self.statistics().get_as::<usize>(Stat::NullCount)
+        if let Precision::Exact(invalid_count) = self.statistics().get_as::<usize>(Stat::NullCount)
         {
             return Ok(len - invalid_count);
         }

@@ -104,7 +104,7 @@ impl StatsSetRef<'_> {
         let mut guard = self.array_stats.inner.write();
         for (stat, value) in iter {
             if !value.is_exact() {
-                if !guard.get(*stat).is_some_and(|v| v.is_exact()) {
+                if !guard.get(*stat).is_exact() {
                     guard.set(*stat, value.clone());
                 }
             } else {
@@ -155,7 +155,7 @@ impl StatsSetRef<'_> {
 
     pub fn compute_stat(&self, stat: Stat, ctx: &mut ExecutionCtx) -> VortexResult<Option<Scalar>> {
         // If it's already computed and exact, we can return it.
-        if let Some(Precision::Exact(s)) = self.get(stat) {
+        if let Precision::Exact(s) = self.get(stat) {
             return Ok(Some(s));
         }
 
@@ -281,7 +281,7 @@ impl StatsSetRef<'_> {
 }
 
 impl StatsProvider for StatsSetRef<'_> {
-    fn get(&self, stat: Stat) -> Option<Precision<Scalar>> {
+    fn get(&self, stat: Stat) -> Precision<Scalar> {
         self.array_stats
             .inner
             .read()
