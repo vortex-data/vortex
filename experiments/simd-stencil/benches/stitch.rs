@@ -16,7 +16,6 @@ use simd_stencil::stitched::affine_aot;
 use simd_stencil::stitched::affine_per_op;
 
 const N: usize = 1 << 20;
-const TILE: usize = 1024;
 
 fn main() {
     divan::main();
@@ -45,12 +44,12 @@ fn input() -> Vec<f64> {
 fn affine_aot_const(src: &[f64], dst: &mut [f64]) {
     for (s, d) in src.iter().zip(dst.iter_mut()) {
         let mut x = *s;
-        x = x.mul_add(1.5, -3.25);
-        x = x.mul_add(0.5, 100.0);
-        x = x.mul_add(2.0, 0.125);
-        x = x.mul_add(-1.0, 7.0);
-        x = x.mul_add(1.25, -0.5);
-        x = x.mul_add(0.875, 4.0);
+        x = x.mul_add(1.5, -3.25).abs();
+        x = x.mul_add(0.5, 100.0).abs();
+        x = x.mul_add(2.0, 0.125).abs();
+        x = x.mul_add(-1.0, 7.0).abs();
+        x = x.mul_add(1.25, -0.5).abs();
+        x = x.mul_add(0.875, 4.0).abs();
         *d = x;
     }
 }
@@ -97,15 +96,11 @@ fn stitched(bencher: Bencher) {
     let ops = ops();
     let src = input();
     bencher.counter(ItemsCount::new(N)).bench(|| {
-        // Build the stitched pipeline (the "JIT") then run it tile-by-tile.
+        // Build the stitched pipeline (the "JIT") then run it over the whole column.
         let pipe = StitchedAffine::build(&ops);
         let mut dst = vec![0f64; N];
-        for t in 0..(N / TILE) {
-            // SAFETY: each chunk is exactly one 1024-element tile.
-            unsafe {
-                pipe.run_tile(src[t * TILE..].as_ptr(), dst[t * TILE..].as_mut_ptr());
-            }
-        }
+        // SAFETY: N is a multiple of 32; both buffers hold N f64s.
+        unsafe { pipe.run(src.as_ptr(), dst.as_mut_ptr(), N) };
         dst
     });
 }

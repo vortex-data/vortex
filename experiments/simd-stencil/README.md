@@ -141,23 +141,36 @@ Read left → right as **floor → ceiling → baselines**:
 ### Body-stitching matches AOT (`--bench stitch`)
 
 The fix for (5): stitch op bodies into one loop. The `stitch` bench runs a 6-op
-affine tail (`x = x*a + b` chained — a stand-in for FoR-add → ALP-scale → …) four
-ways:
+tail `x = (x*a + b).abs()` (a stand-in for FoR-add → ALP-scale → …) four ways:
 
 | | items/s | vs stitched |
 |---|---|---|
-| `aot_const` (ops baked as constants, LLVM-vectorized) | 851 M | 1.08× |
-| **`stitched`** (bodies concatenated, constants hoisted into a patched pool) | **786 M** | 1.0× |
-| `per_op_materialized` (one pass per op) | 307 M | 0.39× |
-| `aot_dynamic` (ops in a runtime slice — can't vectorize) | 183 M | 0.23× |
+| `aot_const` (ops baked as constants, LLVM-vectorized) | 781 M | 0.96× |
+| **`stitched`** (bodies concatenated into one runtime-built AVX-512 loop) | **816 M** | 1.0× |
+| `per_op_materialized` (one pass per op) | 291 M | 0.36× |
+| `aot_dynamic` (ops in a runtime slice — can't vectorize) | ~195 M | 0.24× |
 
-**Body-stitching reaches 92% of AOT** while beating per-op materialization 2.6×
-and a naive plan interpreter 4.3×. The build assembles one AVX-512 loop at run
-time: copy prologue + N op bodies + epilogue, patch the constant pool, and
-relocate the loop's back-edge `rel32` (the branch distance depends on how many
-bodies were stitched). Getting constants *hoisted out of the loop* (into a patched
-pool addressed via `r8`) rather than re-broadcast per iteration is what closes the
-gap to AOT — re-broadcasting per iteration left it at ~74%.
+**Body-stitching matches AOT** (within run-to-run noise, occasionally ahead),
+while beating per-op materialization ~2.7× and a naive plan interpreter ~4×.
+
+Getting there took three fixes, each closing part of the gap to AOT:
+1. **Hoist constants out of the loop** — load each `a`/`b` once from a patched
+   constant pool (addressed via `r8`) instead of re-broadcasting per iteration
+   (~74% → ~88%).
+2. **8× unroll** (accumulators `zmm0..7`) so enough loads stay in flight to keep
+   the pipeline fed, and run over the whole column in one call (`len` in `rdx`)
+   so the prologue is amortized, not paid per tile.
+3. **Make the ops non-foldable.** The original pure-affine chain folds to a
+   *single* `fma` under constant propagation — which `aot_const` gets for free
+   but a runtime pipeline cannot (its constants are only known at JIT time, and
+   refolding would change FP rounding). That was the entire residual gap: it
+   wasn't the JIT being slow, it was AOT doing 1 op while the JIT did 6. With
+   `.abs()` between steps the chain can't fold, both execute all 6 ops, and the
+   JIT lands level with AOT.
+
+The build assembles one AVX-512 loop at run time — copy prologue + N op bodies +
+epilogue, patch the constant pool, relocate the loop back-edge `rel32` — in
+~`memcpy` time (≈4.6 µs, syscall-bound).
 
 ### Build ("compile") latency
 

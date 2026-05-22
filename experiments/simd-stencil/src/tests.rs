@@ -72,8 +72,8 @@ fn stitched_affine_matches_aot() {
 
     let pipe = StitchedAffine::build(&ops);
     let mut got = vec![0f64; 1024];
-    // SAFETY: both buffers are full 1024-element tiles.
-    unsafe { pipe.run_tile(src.as_ptr(), got.as_mut_ptr()) };
+    // SAFETY: both buffers hold 1024 (a multiple of 32) f64s.
+    unsafe { pipe.run(src.as_ptr(), got.as_mut_ptr(), 1024) };
 
     // The stitched FMA loop matches the inlined `mul_add` reference bit-for-bit.
     assert_eq!(got, expected);
