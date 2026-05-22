@@ -90,6 +90,8 @@ typedef struct {
 
 const idx_t INVALID_IDX = UINT64_MAX;
 
+extern void vortex_wait_and_fetch(void *task_ptr);
+
 typedef struct {
     idx_t partition_index;
     // Either INVALID_IDX or position of column in output for file_index column
@@ -116,7 +118,10 @@ typedef struct {
 
     duckdb_vx_data (*init_local)(void *init_global_data);
 
-    void (*function)(void *init_global_data,
+    // If chunk was exported, return nullptr.
+    // On error set error_out and return nullptr.
+    // If we're blocked on input, return task ptr.
+    void* (*function)(void *init_global_data,
                      void *init_local_data,
                      duckdb_data_chunk data_chunk_out,
                      duckdb_vx_error *error_out);

@@ -8,9 +8,11 @@
 //! pushdown, cardinality, and partitioning.
 
 use std::cmp::max;
+use std::ffi::c_void;
 use std::fmt::Debug;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
@@ -47,6 +49,7 @@ use vortex::file::v2::FileStatsLayoutReader;
 use vortex::io::kanal_ext::KanalExt;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::ThreadSafeIterator;
+use vortex::io::runtime::current::TryRecv;
 use vortex::layout::layouts::row_idx::row_idx;
 use vortex::layout::scan::multi::MultiLayoutChild;
 use vortex::layout::scan::multi::MultiLayoutDataSource;
@@ -78,6 +81,7 @@ use crate::duckdb::DuckdbStringMapRef;
 use crate::duckdb::ExpressionRef;
 use crate::duckdb::LogicalType;
 use crate::duckdb::PartitionData;
+use crate::duckdb::ScanResult;
 use crate::duckdb::TableFilterClass;
 use crate::duckdb::TableFilterSetRef;
 use crate::duckdb::TableFunction;
@@ -158,7 +162,8 @@ impl Debug for DataSourceBindData {
     }
 }
 
-type DataSourceIterator = ThreadSafeIterator<VortexResult<(ArrayRef, Arc<ConversionCache>)>>;
+type DataSourceItem = VortexResult<(ArrayRef, Arc<ConversionCache>)>;
+type DataSourceIterator = ThreadSafeIterator<DataSourceItem>;
 
 /// Global scan state for driving a `DataSource` scan through DuckDB.
 pub struct DataSourceGlobal {
@@ -170,12 +175,28 @@ pub struct DataSourceGlobal {
     file_row_number_column_pos: Option<usize>,
 }
 
+struct WaitCtx {
+    results_rx: kanal::AsyncReceiver<DataSourceItem>,
+    pending: Arc<Mutex<Option<DataSourceItem>>>,
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vortex_wait_and_fetch(self_ptr: *mut c_void) {
+    let ctx = unsafe { Box::from_raw(self_ptr.cast::<WaitCtx>()) };
+    RUNTIME.block_on(async {
+        if let Ok(item) = ctx.results_rx.recv().await {
+            *ctx.pending.lock().unwrap() = Some(item);
+        }
+    });
+}
+
 /// Per-thread local scan state.
 pub struct DataSourceLocal {
     iterator: DataSourceIterator,
     exporter: Option<ArrayExporter>,
     partition_index: u64,
     file_index: usize,
+    pending: Arc<Mutex<Option<DataSourceItem>>>,
 }
 
 /// Returns scan progress as a percentage (0.0–100.0).
@@ -456,6 +477,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
             exporter: None,
             partition_index: 0,
             file_index: 0,
+            pending: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -463,12 +485,24 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         local_state: &mut Self::LocalState,
         global_state: &Self::GlobalState,
         chunk: &mut DataChunkRef,
-    ) -> VortexResult<()> {
+    ) -> VortexResult<ScanResult> {
         loop {
             if local_state.exporter.is_none() {
                 let mut ctx = SESSION.create_execution_ctx();
-                let Some(result) = local_state.iterator.next() else {
-                    return Ok(());
+                let result = if let Some(item) = local_state.pending.lock().unwrap().take() {
+                    item
+                } else {
+                    match local_state.iterator.try_recv() {
+                        TryRecv::Item(item) => item,
+                        TryRecv::Empty => {
+                            let wait = Box::new(WaitCtx {
+                                results_rx: local_state.iterator.receiver(),
+                                pending: Arc::clone(&local_state.pending),
+                            });
+                            return Ok(ScanResult::Blocked(Box::into_raw(wait).cast()));
+                        }
+                        TryRecv::Closed => return Ok(ScanResult::Exported),
+                    }
                 };
                 let (array_result, conversion_cache) = result?;
                 let array_result = array_result.optimize_recursive(ctx.session())?;
@@ -530,7 +564,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
                 .reference_value(&Value::from(local_state.file_index as u64));
         }
 
-        Ok(())
+        Ok(ScanResult::Exported)
     }
 
     fn table_scan_progress(global_state: &Self::GlobalState) -> f64 {

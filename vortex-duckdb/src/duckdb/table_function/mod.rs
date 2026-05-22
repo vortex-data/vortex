@@ -35,6 +35,12 @@ pub struct PartitionData {
     pub file_index: usize,
 }
 
+pub enum ScanResult {
+    Exported,
+    Blocked(*mut c_void),
+}
+unsafe impl Send for ScanResult {}
+
 #[derive(Debug, Default)]
 pub struct ColumnStatistics {
     pub min: Option<Value>,
@@ -81,12 +87,12 @@ pub trait TableFunction: Sized + Debug {
     /// registered as a VIEW.
     fn statistics(bind_data: &Self::BindData, column_index: usize) -> Option<ColumnStatistics>;
 
-    /// The function is called during query execution and is responsible for producing the output
+    /// The function is called during query execution and is responsible for producing the output.
     fn scan(
         init_local: &mut Self::LocalState,
         init_global: &Self::GlobalState,
         chunk: &mut DataChunkRef,
-    ) -> VortexResult<()>;
+    ) -> VortexResult<ScanResult>;
 
     /// Initialize the global operator state of the function.
     ///
@@ -241,7 +247,7 @@ unsafe extern "C-unwind" fn function<T: TableFunction>(
     local_init_data: *mut c_void,
     output: cpp::duckdb_data_chunk,
     error_out: *mut cpp::duckdb_vx_error,
-) {
+) -> *mut c_void {
     let global_init_data = unsafe { global_init_data.cast::<T::GlobalState>().as_ref() }
         .vortex_expect("global_init_data null pointer");
     let local_init_data = unsafe { local_init_data.cast::<T::LocalState>().as_mut() }
@@ -249,15 +255,14 @@ unsafe extern "C-unwind" fn function<T: TableFunction>(
     let data_chunk = unsafe { DataChunk::borrow_mut(output) };
 
     match T::scan(local_init_data, global_init_data, data_chunk) {
-        Ok(()) => {
-            // The data chunk is already filled by the function.
-            // No need to do anything here.
+        Ok(ScanResult::Exported) => ptr::null_mut(),
+        Ok(ScanResult::Blocked(task_ptr)) => task_ptr,
+        Err(e) => {
+            let msg = e.to_string();
+            unsafe {
+                error_out.write(cpp::duckdb_vx_error_create(msg.as_ptr().cast(), msg.len()));
+            }
+            ptr::null_mut()
         }
-        Err(e) => unsafe {
-            error_out.write(cpp::duckdb_vx_error_create(
-                e.to_string().as_ptr().cast(),
-                e.to_string().len(),
-            ));
-        },
     }
 }

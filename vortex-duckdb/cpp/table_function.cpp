@@ -14,6 +14,7 @@ DUCKDB_INCLUDES_BEGIN
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/capi/capi_internal.hpp"
 #include "duckdb/main/connection.hpp"
+#include "duckdb/parallel/async_result.hpp"
 #include "duckdb/parser/parsed_data/create_table_function_info.hpp"
 DUCKDB_INCLUDES_END
 
@@ -249,6 +250,16 @@ init_local(ExecutionContext &, TableFunctionInitInput &input, GlobalTableFunctio
     return make_uniq<CTableLocalData>(std::move(cdata));
 }
 
+struct VortexWaitTask final : AsyncTask {
+    explicit VortexWaitTask(void *task_ptr) : task_ptr(task_ptr) {
+    }
+    void Execute() override {
+        vortex_wait_and_fetch(task_ptr);
+    }
+
+    void *task_ptr;
+};
+
 void function(ClientContext &, TableFunctionInput &input, DataChunk &output) {
     const auto &bind = input.bind_data->Cast<CTableBindData>();
 
@@ -257,10 +268,19 @@ void function(ClientContext &, TableFunctionInput &input, DataChunk &output) {
 
     duckdb_data_chunk chunk = reinterpret_cast<duckdb_data_chunk>(&output);
     duckdb_vx_error error_out = nullptr;
-    bind.info.vtab.function(ffi_global, ffi_local, chunk, &error_out);
+
+    void *const task_ptr = bind.info.vtab.function(ffi_global, ffi_local, chunk, &error_out);
     if (error_out) {
         throw InvalidInputException(IntoErrString(error_out));
     }
+    if (!task_ptr) { // Chunk was exported
+        return;
+    }
+
+    // We're blocked on IO
+    vector<unique_ptr<AsyncTask>> tasks(1);
+    tasks[0] = make_uniq<VortexWaitTask>(task_ptr);
+    input.async_result = AsyncResult(std::move(tasks));
 }
 
 void c_pushdown_complex_filter(ClientContext &,

@@ -134,6 +134,26 @@ pub struct ThreadSafeIterator<T> {
     results: kanal::AsyncReceiver<T>,
 }
 
+pub enum TryRecv<T> {
+    Item(T),
+    Empty,
+    Closed,
+}
+
+impl<T> ThreadSafeIterator<T> {
+    pub fn receiver(&self) -> kanal::AsyncReceiver<T> {
+        self.results.clone()
+    }
+
+    pub fn try_recv(&self) -> TryRecv<T> {
+        match self.results.try_recv() {
+            Ok(Some(v)) => TryRecv::Item(v),
+            Ok(None) => TryRecv::Empty,
+            Err(_) => TryRecv::Closed,
+        }
+    }
+}
+
 // Manual clone implementation since `T` does not need to be `Clone`.
 impl<T> Clone for ThreadSafeIterator<T> {
     fn clone(&self) -> Self {

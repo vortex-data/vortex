@@ -38,6 +38,8 @@ const char *vortex_version_rust(void);
  */
 const char *vortex_extension_version_rust(void);
 
+void vortex_wait_and_fetch(void *self_ptr);
+
 #ifdef __cplusplus
 }
 #endif
