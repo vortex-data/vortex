@@ -124,6 +124,9 @@ where
         return Ok(PrimitiveArray::new(cast::<F, T>(values), new_validity).into_array());
     }
 
+    // TODO(joe): if the values source and target have the same bit-width we can
+    // mutate in place.
+
     // Fallible: invalid lanes are pre-multiplied to zero so the checked cast always succeeds for
     // them; valid lanes go through `NumCast::from` and the whole cast bails on the first overflow.
     let mask = array.validity()?.execute_mask(array.len(), ctx)?;
