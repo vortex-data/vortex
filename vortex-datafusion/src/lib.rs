@@ -124,18 +124,6 @@ where
     }
 }
 
-impl<T> PrecisionExt<T> for Option<Precision<T>>
-where
-    T: Debug + Clone + PartialEq + Eq + PartialOrd,
-{
-    fn to_df(self) -> DFPrecision<T> {
-        match self {
-            Some(v) => v.to_df(),
-            None => DFPrecision::Absent,
-        }
-    }
-}
-
 #[cfg(test)]
 mod common_tests {
     use std::sync::Arc;

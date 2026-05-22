@@ -27,52 +27,43 @@ pub(crate) fn stats_set_to_df(
     // TODO(connor): There's a lot that can go wrong here, should probably handle this
     // more gracefully...
     // Find the min statistic.
-    let min = stats_set
-        .get(Stat::Min)
-        .map(|stat_val| {
-            Scalar::try_new(
-                Stat::Min
-                    .dtype(dtype)
-                    .vortex_expect("must have a valid dtype"),
-                Some(stat_val),
-            )
-            .vortex_expect("`Stat::Min` somehow had an incompatible `DType`")
-            .try_to_df()
-            .ok()
-        })
-        .transpose();
+    let min = stats_set.get(Stat::Min).and_then(|stat_val| {
+        Scalar::try_new(
+            Stat::Min
+                .dtype(dtype)
+                .vortex_expect("must have a valid dtype"),
+            Some(stat_val),
+        )
+        .vortex_expect("`Stat::Min` somehow had an incompatible `DType`")
+        .try_to_df()
+        .ok()
+    });
 
     // Find the max statistic.
-    let max = stats_set
-        .get(Stat::Max)
-        .map(|stat_val| {
-            Scalar::try_new(
-                Stat::Max
-                    .dtype(dtype)
-                    .vortex_expect("must have a valid dtype"),
-                Some(stat_val),
-            )
-            .vortex_expect("`Stat::Max` somehow had an incompatible `DType`")
-            .try_to_df()
-            .ok()
-        })
-        .transpose();
+    let max = stats_set.get(Stat::Max).and_then(|stat_val| {
+        Scalar::try_new(
+            Stat::Max
+                .dtype(dtype)
+                .vortex_expect("must have a valid dtype"),
+            Some(stat_val),
+        )
+        .vortex_expect("`Stat::Max` somehow had an incompatible `DType`")
+        .try_to_df()
+        .ok()
+    });
 
     // Find the sum statistic
-    let sum = stats_set
-        .get(Stat::Sum)
-        .map(|stat_val| {
-            Scalar::try_new(
-                Stat::Sum
-                    .dtype(dtype)
-                    .vortex_expect("must have a valid dtype"),
-                Some(stat_val),
-            )
-            .vortex_expect("`Stat::Sum` somehow had an incompatible `DType`")
-            .try_to_df()
-            .ok()
-        })
-        .transpose();
+    let sum = stats_set.get(Stat::Sum).and_then(|stat_val| {
+        Scalar::try_new(
+            Stat::Sum
+                .dtype(dtype)
+                .vortex_expect("must have a valid dtype"),
+            Some(stat_val),
+        )
+        .vortex_expect("`Stat::Sum` somehow had an incompatible `DType`")
+        .try_to_df()
+        .ok()
+    });
 
     let null_count = stats_set.get_as::<usize>(Stat::NullCount, &PType::U64.into());
 

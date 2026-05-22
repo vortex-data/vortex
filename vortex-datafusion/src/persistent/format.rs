@@ -21,7 +21,7 @@ use datafusion_common::config_namespace;
 use datafusion_common::internal_datafusion_err;
 use datafusion_common::not_impl_err;
 use datafusion_common::parsers::CompressionTypeVariant;
-use datafusion_common::stats::Precision;
+use datafusion_common::stats::Precision as DFPrecision;
 use datafusion_common_runtime::SpawnedTask;
 use datafusion_datasource::TableSchema;
 use datafusion_datasource::file::FileSource;
@@ -52,7 +52,7 @@ use vortex::dtype::PType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
-use vortex::expr::stats;
+use vortex::expr::stats::Precision;
 use vortex::expr::stats::Stat;
 use vortex::file::EOF_SIZE;
 use vortex::file::MAX_POSTSCRIPT_SIZE;
@@ -499,12 +499,12 @@ impl FileFormat for VortexFormat {
             let Some(file_stats) = file_stats else {
                 // If the file has no column stats, the best we can do is return a row count.
                 return Ok(Statistics {
-                    num_rows: Precision::Exact(
+                    num_rows: DFPrecision::Exact(
                         usize::try_from(row_count)
                             .map_err(|_| vortex_err!("Row count overflow"))
                             .vortex_expect("Row count overflow"),
                     ),
-                    total_byte_size: Precision::Absent,
+                    total_byte_size: DFPrecision::Absent,
                     column_statistics: vec![
                         ColumnStatistics::default();
                         table_schema.fields().len()
@@ -544,6 +544,7 @@ impl FileFormat for VortexFormat {
                     stats_dtype,
                     &target_dtype,
                 );
+
                 let max = scalar_stat_to_df(
                     Stat::Max,
                     stats_set.get(Stat::Max),
@@ -557,7 +558,7 @@ impl FileFormat for VortexFormat {
                     null_count: null_count.to_df(),
                     min_value: min.to_df(),
                     max_value: max.to_df(),
-                    sum_value: Precision::Absent,
+                    sum_value: DFPrecision::Absent,
                     distinct_count: is_constant_to_distinct_count(
                         stats_set.get_as::<bool>(
                             Stat::IsConstant,
@@ -570,10 +571,10 @@ impl FileFormat for VortexFormat {
 
             let total_byte_size = column_statistics
                 .iter()
-                .fold(Precision::Exact(0), |acc, cs| acc.add(&cs.byte_size));
+                .fold(DFPrecision::Exact(0), |acc, cs| acc.add(&cs.byte_size));
 
             Ok(Statistics {
-                num_rows: Precision::Exact(
+                num_rows: DFPrecision::Exact(
                     usize::try_from(row_count)
                         .map_err(|_| vortex_err!("Row count overflow"))
                         .vortex_expect("Row count overflow"),
@@ -639,11 +640,13 @@ impl FileFormat for VortexFormat {
 
 fn scalar_stat_to_df(
     stat: Stat,
-    value: stats::Precision<VortexScalarValue>,
+    value: Precision<VortexScalarValue>,
     stats_dtype: &DType,
     target_dtype: &DType,
-) -> Option<stats::Precision<DFScalarValue>> {
-    let stat_dtype = stat.dtype(stats_dtype)?;
+) -> Precision<DFScalarValue> {
+    let Some(stat_dtype) = stat.dtype(stats_dtype) else {
+        return Precision::Absent;
+    };
 
     value
         .map(|stat_value| {
@@ -652,7 +655,7 @@ fn scalar_stat_to_df(
                 .try_to_df()
         })
         .transpose()
-        .ok()
+        .unwrap_or(Precision::Absent)
 }
 
 #[cfg(test)]

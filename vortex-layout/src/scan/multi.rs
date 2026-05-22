@@ -159,7 +159,7 @@ impl DataSource for MultiLayoutDataSource {
         &self.dtype
     }
 
-    fn row_count(&self) -> Option<Precision<u64>> {
+    fn row_count(&self) -> Precision<u64> {
         let mut sum: u64 = 0;
         let mut opened_count: u64 = 0;
         let mut deferred_count: u64 = 0;
@@ -178,17 +178,17 @@ impl DataSource for MultiLayoutDataSource {
 
         let total_count = opened_count + deferred_count;
         if total_count == 0 {
-            return Some(Precision::exact(0u64));
+            return Precision::exact(0u64);
         }
 
         if deferred_count == 0 {
-            Some(Precision::exact(sum))
+            Precision::exact(sum)
         } else if opened_count > 0 {
             let avg = sum / opened_count;
             let extrapolated = avg.saturating_mul(total_count);
-            Some(Precision::inexact(extrapolated))
+            Precision::inexact(extrapolated)
         } else {
-            None
+            Precision::Absent
         }
     }
 
@@ -244,12 +244,12 @@ impl DataSourceScan for MultiLayoutScan {
         &self.dtype
     }
 
-    fn partition_count(&self) -> Option<Precision<usize>> {
+    fn partition_count(&self) -> Precision<usize> {
         let count = self.ready.len() + self.deferred.len();
         if self.deferred.is_empty() {
-            Some(Precision::exact(count))
+            Precision::exact(count)
         } else {
-            Some(Precision::inexact(count))
+            Precision::inexact(count)
         }
     }
 
@@ -400,8 +400,10 @@ impl Partition for MultiLayoutPartition {
         self.index
     }
 
-    fn row_count(&self) -> Option<Precision<u64>> {
-        let row_range = self.request.row_range.as_ref()?;
+    fn row_count(&self) -> Precision<u64> {
+        let Some(row_range) = self.request.row_range.as_ref() else {
+            return Precision::Absent;
+        };
         let row_count = row_range.end - row_range.start;
         let row_count = self.request.selection.row_count(row_count);
         let row_count = self
@@ -409,15 +411,15 @@ impl Partition for MultiLayoutPartition {
             .limit
             .map_or(row_count, |limit| row_count.min(limit));
 
-        Some(if self.request.filter.is_some() {
+        if self.request.filter.is_some() {
             Precision::inexact(row_count)
         } else {
             Precision::exact(row_count)
-        })
+        }
     }
 
-    fn byte_size(&self) -> Option<Precision<u64>> {
-        None
+    fn byte_size(&self) -> Precision<u64> {
+        Precision::Absent
     }
 
     fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {

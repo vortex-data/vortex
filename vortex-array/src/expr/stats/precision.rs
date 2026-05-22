@@ -30,20 +30,6 @@ pub enum Precision<T> {
     Absent,
 }
 
-impl<T> Precision<Option<T>> {
-    /// Transpose the `Precision<Option<T>>` into `Option<Precision<T>>`.
-    pub fn transpose(self) -> Option<Precision<T>> {
-        use Precision::*;
-
-        match self {
-            Exact(Some(x)) => Some(Exact(x)),
-            Inexact(Some(x)) => Some(Inexact(x)),
-            Absent => Some(Absent),
-            Exact(None) | Inexact(None) => None,
-        }
-    }
-}
-
 impl<T, E> Precision<Result<T, E>> {
     /// Transpose a `Precision<Result<T, E>>` into a `Result<Precision<T>, E>`.
     pub fn transpose(self) -> Result<Precision<T>, E> {
@@ -134,6 +120,22 @@ impl<T> Precision<T> {
         match self {
             Exact(value) => Exact(f(value)),
             Inexact(value) => Inexact(f(value)),
+            Absent => Absent,
+        }
+    }
+
+    pub fn and_then<U, F: FnOnce(T) -> Option<U>>(self, f: F) -> Precision<U> {
+        use Precision::*;
+
+        match self {
+            Exact(value) => match f(value) {
+                Some(v) => Exact(v),
+                None => Absent,
+            },
+            Inexact(value) => match f(value) {
+                Some(v) => Inexact(v),
+                None => Absent,
+            },
             Absent => Absent,
         }
     }
@@ -232,10 +234,15 @@ impl<T: PartialOrd + Clone> StatBound<T> for Precision<T> {
     }
 
     fn union(&self, other: &Self) -> Option<Self> {
-        self.clone()
+        match self
+            .clone()
             .zip(other.clone())
             .map(|(lhs, rhs)| partial_min(&lhs, &rhs).cloned())
-            .transpose()
+        {
+            Precision::Exact(v) => Some(Precision::Exact(v?)),
+            Precision::Inexact(v) => Some(Precision::Inexact(v?)),
+            Precision::Absent => None,
+        }
     }
 
     fn intersection(&self, other: &Self) -> Option<IntersectionResult<Self>> {
