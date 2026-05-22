@@ -198,44 +198,38 @@ where
 /// Fused cast + validity-aware min/max. Writes `values as T` into `dst` for every lane, but folds
 /// only lanes whose validity bit is set into the returned min/max (NaN excluded). Invalid lanes
 /// may hold out-of-range values; those are masked out and never affect the bounds.
+///
+/// The lane gating is branch-free (invalid lanes are folded against neutral bounds rather than
+/// skipped) so the loop vectorizes regardless of null density — a data-dependent branch on the
+/// validity word would otherwise serialize the reduction whenever nulls are present.
 #[multiversion::multiversion(targets("x86_64+avx512f", "x86_64+avx2", "aarch64+neon"))]
 fn cast_and_bounds_masked<F, T>(values: &[F], validity: &BitBuffer, dst: &mut [T]) -> Option<(F, F)>
 where
     F: NativePType + AsPrimitive<T> + PartialOrd + Bounded,
     T: NativePType,
 {
-    let mut vmin = F::max_value();
-    let mut vmax = F::min_value();
+    // Invalid lanes fold against these neutrals, which can never win the min/max. A valid NaN
+    // fails both comparisons and is skipped, matching `min_max`'s NaN filtering.
+    let hi_neutral = F::max_value();
+    let lo_neutral = F::min_value();
+    let mut vmin = hi_neutral;
+    let mut vmax = lo_neutral;
 
     let chunks = validity.chunks();
     let mut base = 0usize;
     for word in chunks.iter() {
         let vblk = &values[base..base + 64];
         let oblk = &mut dst[base..base + 64];
-        // Cast all 64 lanes unconditionally; this vectorizes regardless of validity.
-        for (out, &v) in oblk.iter_mut().zip(vblk) {
+        for (j, (out, &v)) in oblk.iter_mut().zip(vblk).enumerate() {
             *out = v.as_();
-        }
-        if word == u64::MAX {
-            // Whole chunk valid: a plain branch-free min/max that the compiler can vectorize.
-            for &v in vblk {
-                if v < vmin {
-                    vmin = v;
-                }
-                if v > vmax {
-                    vmax = v;
-                }
+            let valid = (word >> j) & 1 != 0;
+            let for_min = if valid { v } else { hi_neutral };
+            let for_max = if valid { v } else { lo_neutral };
+            if for_min < vmin {
+                vmin = for_min;
             }
-        } else if word != 0 {
-            for (j, &v) in vblk.iter().enumerate() {
-                if (word >> j) & 1 != 0 {
-                    if v < vmin {
-                        vmin = v;
-                    }
-                    if v > vmax {
-                        vmax = v;
-                    }
-                }
+            if for_max > vmax {
+                vmax = for_max;
             }
         }
         base += 64;
@@ -249,13 +243,14 @@ where
         .enumerate()
     {
         *out = v.as_();
-        if (remainder >> j) & 1 != 0 {
-            if v < vmin {
-                vmin = v;
-            }
-            if v > vmax {
-                vmax = v;
-            }
+        let valid = (remainder >> j) & 1 != 0;
+        let for_min = if valid { v } else { hi_neutral };
+        let for_max = if valid { v } else { lo_neutral };
+        if for_min < vmin {
+            vmin = for_min;
+        }
+        if for_max > vmax {
+            vmax = for_max;
         }
     }
 
