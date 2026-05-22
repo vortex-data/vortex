@@ -256,13 +256,13 @@ kernel-only GiB/s over decoded bytes.
 | Track | Status | Result |
 |---|---|---|
 | A: arch-aware selector | **Done** | B200 uses `split8read_b128o12` / `b128o12`; GH200 rule unchanged. |
-| B/B": granularity + occupancy sweep | **Done** | 128-thread block granularity is the lever; forced 75% occupancy is ~noise. |
+| B/B-second: granularity + occupancy sweep | **Done** | 128-thread block granularity is the lever; forced 75% occupancy is ~noise. |
 | B+: split8read + granularity | **Done / standout** | +23–26% on fineweb/wikipedia bits12 over `b128o12`; +5.5% on clickbench/URL bits12. |
-| B': register-lean 4tpt | **Subsumed** | `b128o12` reaches ~40 regs with no spill; no algorithm rewrite needed. |
+| B-prime: register-lean 4tpt | **Subsumed** | `b128o12` reaches ~40 regs with no spill; no algorithm rewrite needed. |
 | C: NCU + locked clocks | **Blocked** | Needs container/host permissions. |
 | D: freq-ordered codes | **Dropped** | Conflicts with other pipeline constraints. |
 | E: hot-dict shared cache | **Dead** | Requires freq-order; without it hit rate is poor and it regresses. |
-| B''': persistent grid | **Deprioritized** | Large columns already fill the device many waves; tail/launch quantization is amortized. |
+| B-third: persistent grid | **Deprioritized** | Large columns already fill the device many waves; tail/launch quantization is amortized. |
 
 ## Bottom Line
 

@@ -200,6 +200,23 @@ pub struct GpuCellResult {
     pub dict_entries_max: usize,
     /// Whether every chunk's dict has <= 4096 entries (the `small_dict` gate).
     pub small_dict: bool,
+    /// Max distinct dict entries actually referenced across chunks (the true
+    /// working set, which may be far below the provisioned dict size).
+    pub distinct_codes: u32,
+    /// Fraction of code accesses covered by the 4096 hottest entries, averaged
+    /// over chunks. High => access is concentrated (a bits12-sized hot set would
+    /// capture most reads); informs whether the large bits16 dict is needed.
+    pub access_top4096_frac: f32,
+    /// Whole-decompress accounting: the compressed payload that must be copied
+    /// host->device to decode (codes + packed dict + lens, summed over chunks).
+    pub compressed_bytes: u64,
+    /// Measured device host->device copy bandwidth (GiB/s, pageable host memory).
+    pub h2d_gib_s: f64,
+    /// End-to-end output rate of the auto kernel including the H2D copy of the
+    /// compressed payload: `decoded_bytes / (compressed_bytes/h2d + auto_decode)`.
+    /// Compare to `h2d_gib_s` (the raw-transfer output rate): when this is higher,
+    /// GPU decompress delivers output faster than transferring the raw bytes.
+    pub whole_decompress_gib_s: f64,
     /// Fastest measured kernel among all applicable variants.
     pub best_kernel: String,
     /// Auto-selected kernel average time across all chunks.
@@ -785,6 +802,22 @@ struct GpuOnPairChunk {
     /// Token-weighted fraction of decoded tokens whose length is <= 8 bytes.
     /// Gates `split8read` auto-selection on Hopper (sm_90) in `pick_auto_kernel`.
     frac_le8: f32,
+    /// Variable-width directory: one u32 per entry packing (offset:24 | len:8)
+    /// into the packed `dict_bytes`. Built decode-side from the native dict
+    /// offsets (no on-disk change). Empty if any offset exceeds 24 bits.
+    dict_off32: vortex::array::buffer::BufferHandle,
+    /// Quantized variable-width bytes: each entry padded to a multiple of 4 and
+    /// placed at a 4-byte-aligned offset (for legal aligned word loads).
+    dict_q4: vortex::array::buffer::BufferHandle,
+    /// Directory for `dict_q4`: one u32 per entry packing (offset << 5 | len).
+    /// Empty if a 4-aligned offset exceeds 27 bits.
+    dict_q4_dir: vortex::array::buffer::BufferHandle,
+    /// Number of distinct dict entries actually referenced by the code stream.
+    #[allow(dead_code)]
+    distinct_codes: u32,
+    /// Fraction of code accesses covered by the 4096 most-frequent entries.
+    #[allow(dead_code)]
+    access_top4096_frac: f32,
     codes: vortex::array::buffer::BufferHandle,
     codes_offsets: vortex::array::buffer::BufferHandle,
     dict_padded: vortex::array::buffer::BufferHandle,
@@ -845,7 +878,46 @@ enum KernelLayout {
     /// `len>4` high bytes from `dict_padded`. Wins when most tokens are <=4 B
     /// (bits12 text). Always applicable.
     SplitRead4,
+    /// Thread-block cluster with the padded dict sharded across the cluster's
+    /// distributed shared memory (DSMEM); per-token entries are read from the
+    /// owning block's shared memory via `map_shared_rank` instead of L2.
+    /// Targets the bits16 large-dict gather wall. Inapplicable when the
+    /// per-block slice + staging exceeds the dynamic-shared cap.
+    ClusterDsmem,
+    /// Variable-width dict: a compact `dict_off32` directory (offset:24|len:8 per
+    /// entry, ~256 KB) plus the packed (un-padded) `dict_bytes`. Shrinks the
+    /// per-token hot read to the L1-friendly directory and the bytes to half the
+    /// padded size. Inapplicable when a packed offset exceeds 24 bits (>16 MB dict).
+    VWidth,
+    /// Quantized variable-width dict: entries padded to a multiple of 4 at
+    /// 4-byte-aligned offsets (`dict_q4`) with a `dict_q4_dir` directory, so the
+    /// kernel uses legal aligned word loads instead of `vwidth`'s unaligned
+    /// `memcpy`. Inapplicable when a 4-aligned offset exceeds 27 bits.
+    VWidth4,
+    /// Persistent grid with the 8-byte-per-entry `dict_s8` staged in shared
+    /// memory (common-case 8 B reads bypass the L1 tag/sector pipeline; >8 B
+    /// tails read from global `dict_padded`). Inapplicable when `dict_s8` + lens
+    /// + staging exceeds the dynamic-shared cap (i.e. above ~bits14).
+    ShDict8,
 }
+
+/// Shared-memory bytes for `onpair_shmem_4tpt_shdict8`: [dict_s8 (8 B/entry) |
+/// lens (1 B/entry) | per-warp staging]. Mirrors the kernel's dynamic layout.
+#[cfg(feature = "cuda")]
+fn shdict8_shared_bytes(dict_entries: usize, block_warps: u32) -> usize {
+    let dict_and_lens = (dict_entries * 8 + dict_entries + 15) & !15;
+    dict_and_lens + block_warps as usize * 2080
+}
+
+/// Blocks per thread-block cluster for `ClusterDsmem`. Must match
+/// `ONPAIR_CLUSTER_N` in `onpair_shmem_4tpt_cluster_dsmem.cu`.
+#[cfg(feature = "cuda")]
+const ONPAIR_CLUSTER_N: u32 = 8;
+
+/// Dynamic-shared cap for `ClusterDsmem` (Blackwell allows ~227 KB/block; stay
+/// under it with margin). A cluster slice + warp staging above this is rejected.
+#[cfg(feature = "cuda")]
+const CLUSTER_DSMEM_SHARED_CAP: usize = 224 * 1024;
 
 #[cfg(feature = "cuda")]
 #[derive(Debug, Clone, Copy)]
@@ -1011,6 +1083,101 @@ const GPU_KERNELS: &[KernelVariant] = &[
         block_warps: 16,
     },
     KernelVariant {
+        name: "onpair_shmem_4tpt_split4read_b128o12",
+        layout: KernelLayout::SplitRead4,
+        chunk_size: 128,
+        block_warps: 4,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_cluster_dsmem",
+        layout: KernelLayout::ClusterDsmem,
+        chunk_size: 128,
+        block_warps: 8,
+    },
+    // 8tpt reuses the Stride16 launch path (identical kernel signature); only
+    // chunk_size differs (256 tokens/warp-chunk vs 128), which is parameterized.
+    KernelVariant {
+        name: "onpair_shmem_8tpt",
+        layout: KernelLayout::Stride16,
+        chunk_size: 256,
+        block_warps: 8,
+    },
+    KernelVariant {
+        name: "onpair_shmem_8tpt_b128",
+        layout: KernelLayout::Stride16,
+        chunk_size: 256,
+        block_warps: 4,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_vwidth",
+        layout: KernelLayout::VWidth,
+        chunk_size: 128,
+        block_warps: 16,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_vwidth_b128",
+        layout: KernelLayout::VWidth,
+        chunk_size: 128,
+        block_warps: 4,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_vwidth4",
+        layout: KernelLayout::VWidth4,
+        chunk_size: 128,
+        block_warps: 16,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_vwidth4_b128",
+        layout: KernelLayout::VWidth4,
+        chunk_size: 128,
+        block_warps: 4,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_shdict8",
+        layout: KernelLayout::ShDict8,
+        chunk_size: 128,
+        block_warps: 8,
+    },
+    // Ablation proxies (NCU substitute): full minus one stage. `_ablate` is the
+    // byte-exact full baseline; `_no*` are timing-only (not byte-exact). The
+    // removed stage's cost = baseline GiB/s gained by its `_no*` variant.
+    KernelVariant {
+        name: "onpair_shmem_4tpt_ablate",
+        layout: KernelLayout::Stride16,
+        chunk_size: 128,
+        block_warps: 4,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_ablate_nogather",
+        layout: KernelLayout::Stride16,
+        chunk_size: 128,
+        block_warps: 4,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_ablate_noemit",
+        layout: KernelLayout::Stride16,
+        chunk_size: 128,
+        block_warps: 4,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_ablate_nodrain",
+        layout: KernelLayout::Stride16,
+        chunk_size: 128,
+        block_warps: 4,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_ablate_noscan",
+        layout: KernelLayout::Stride16,
+        chunk_size: 128,
+        block_warps: 4,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_ablate_cfree",
+        layout: KernelLayout::Stride16,
+        chunk_size: 128,
+        block_warps: 4,
+    },
+    KernelVariant {
         name: "onpair_shmem_s8",
         layout: KernelLayout::Stride8,
         chunk_size: 32,
@@ -1112,6 +1279,24 @@ async fn run_gpu_kernel_bench(
     let dict_max_len = chunks.iter().map(|c| c.dict_max_len).max().unwrap_or(0);
     let dict_entries_max = chunks.iter().map(|c| c.lens.len()).max().unwrap_or(0);
     let small_dict = chunks.iter().all(|c| c.lens.len() <= 4096);
+    let distinct_codes = chunks.iter().map(|c| c.distinct_codes).max().unwrap_or(0);
+    let access_top4096_frac = if chunks.is_empty() {
+        0.0
+    } else {
+        chunks.iter().map(|c| c.access_top4096_frac).sum::<f32>() / chunks.len() as f32
+    };
+
+    // Whole-decompress accounting: the compressed payload that must be copied
+    // host->device to decode = codes + packed dict bytes + per-entry lens, summed
+    // over chunks. `BufferHandle::len()` already returns BYTES (codes is u16, so
+    // its len() is the byte size, not the element count). Padded/s8 dicts are GPU
+    // staging artifacts, not part of the stored/transferred compressed column.
+    let compressed_bytes: u64 = chunks
+        .iter()
+        .map(|c| (c.codes.len() + c.dict_bytes.len() + c.lens.len()) as u64)
+        .sum();
+    let h2d_gib_s = measure_h2d_gib_s(&mut setup_ctx).await.unwrap_or(0.0);
+
     let mut kernels = Vec::with_capacity(GPU_KERNELS.len());
 
     // Fast mode (`ONPAIR_FAST=1`): skip the slow reference `onpair` kernel and the
@@ -1163,6 +1348,15 @@ async fn run_gpu_kernel_bench(
         .filter(|r| r.applicable && (!config.validate || r.verified == Some(true)))
         .min_by(|a, b| a.decode_ms.total_cmp(&b.decode_ms))
         .context("no applicable verified CUDA OnPair kernels")?;
+
+    // Whole-decompress end-to-end: time to copy the compressed payload H2D plus
+    // the auto kernel's decode time, expressed as an output (decoded) GiB/s.
+    let h2d_ms = if h2d_gib_s > 0.0 {
+        (compressed_bytes as f64 / GIB) / h2d_gib_s * 1_000.0
+    } else {
+        0.0
+    };
+    let whole_decompress_gib_s = gib_s(decoded_bytes, h2d_ms + auto.decode_ms);
     let (nvcomp_zstd_hw, nvcomp_zstd) = if fast {
         (None, Vec::new())
     } else {
@@ -1228,6 +1422,11 @@ async fn run_gpu_kernel_bench(
         dict_max_len,
         dict_entries_max,
         small_dict,
+        distinct_codes,
+        access_top4096_frac,
+        compressed_bytes,
+        h2d_gib_s,
+        whole_decompress_gib_s,
         best_kernel: best.kernel.clone(),
         auto_decode_ms: auto.decode_ms,
         best_decode_ms: best.decode_ms,
@@ -1342,6 +1541,25 @@ async fn stage_gpu_chunk(op: &OnPairArray, ctx: &mut CudaExecutionCtx) -> Result
             .collect()
     });
 
+    // Access-distribution diagnostic: how concentrated are dict references? One
+    // frequency pass over the code stream gives the number of distinct entries
+    // actually used and the fraction of accesses covered by the 4096 hottest
+    // entries (a "bits12-sized" hot set). High concentration => the large bits16
+    // dict is over-provisioned for cache purposes; low => genuinely needs it.
+    let (distinct_codes, access_top4096_frac) = if codes_u16.is_empty() {
+        (0u32, 0.0f32)
+    } else {
+        let max_code = codes_u16.iter().copied().max().unwrap_or(0) as usize;
+        let mut freq = vec![0u32; max_code + 1];
+        for &c in &codes_u16 {
+            freq[c as usize] += 1;
+        }
+        let distinct = freq.iter().filter(|&&f| f > 0).count() as u32;
+        freq.sort_unstable_by(|a, b| b.cmp(a));
+        let top: u64 = freq.iter().take(4096).map(|&f| f as u64).sum();
+        (distinct, top as f32 / codes_u16.len() as f32)
+    };
+
     let dict_bytes_host = op.dict_bytes().as_slice();
     let (dict_padded, lens_table) = match_each_integer_ptype!(dict_offsets_arr.ptype(), |P| {
         let offsets = dict_offsets_arr.as_slice::<P>();
@@ -1404,6 +1622,52 @@ async fn stage_gpu_chunk(op: &OnPairArray, ctx: &mut CudaExecutionCtx) -> Result
     // in-stream frequency (hot codes first → hot dict region clusters in L1).
     let (codes_u16, dict_padded, lens_table, dict_table) =
         maybe_reorder_dict(codes_u16, dict_padded, lens_table, dict_table);
+
+    // Variable-width directory for the `vwidth` kernel: pack (offset:24 | len:8)
+    // per entry into a u32. Derived from the native dict offsets in `dict_table`
+    // (off<<16 | len) — a trivial repack, no on-disk change. Empty (=> kernel
+    // inapplicable) if any offset needs more than 24 bits (packed dict > 16 MB).
+    let dict_off32: Vec<u32> = {
+        let fits = dict_table.iter().all(|&e| (e >> 16) < (1u64 << 24));
+        if fits {
+            dict_table
+                .iter()
+                .map(|&e| ((e >> 16) as u32) << 8 | ((e & 0xff) as u32))
+                .collect()
+        } else {
+            Vec::new()
+        }
+    };
+
+    // Quantized variable-width dict: re-pack each entry padded to a multiple of 4
+    // at a 4-byte-aligned offset (so the `vwidth4` kernel can use legal aligned
+    // word loads), with a u32 directory of (offset << 5 | true_len). Built from
+    // the native bytes/offsets — no on-disk change. Empty if an offset > 27 bits.
+    let (dict_q4_host, dict_q4_dir): (Vec<u8>, Vec<u32>) = {
+        let mut bytes: Vec<u8> =
+            Vec::with_capacity(dict_bytes_host.len() + dict_table.len() * 4 + 16);
+        let mut dir: Vec<u32> = Vec::with_capacity(dict_table.len());
+        let mut fits = true;
+        for &e in &dict_table {
+            let off = (e >> 16) as usize;
+            let len = (e & 0xffff) as usize;
+            let qoff = bytes.len() as u64; // 4-aligned by construction
+            if qoff >= (1u64 << 27) {
+                fits = false;
+                break;
+            }
+            bytes.extend_from_slice(&dict_bytes_host[off..off + len]);
+            let qsize = (len + 3) & !3;
+            bytes.extend(std::iter::repeat_n(0u8, qsize - len));
+            dir.push(((qoff as u32) << 5) | (len as u32 & 0x1f));
+        }
+        if fits {
+            bytes.extend(std::iter::repeat_n(0u8, 16));
+            (bytes, dir)
+        } else {
+            (Vec::new(), Vec::new())
+        }
+    };
 
     // Token-weighted fraction of tokens with length <= 8 (drives split8read
     // auto-selection). One pass over the codes; cheap relative to decode.
@@ -1541,6 +1805,11 @@ async fn stage_gpu_chunk(op: &OnPairArray, ctx: &mut CudaExecutionCtx) -> Result
         dict_lenbucket: ctx.copy_to_device::<u8, _>(dict_lenbucket_host)?.await?,
         lb_meta,
         frac_le8,
+        dict_off32: ctx.copy_to_device::<u32, _>(dict_off32)?.await?,
+        dict_q4: ctx.copy_to_device::<u8, _>(dict_q4_host)?.await?,
+        dict_q4_dir: ctx.copy_to_device::<u32, _>(dict_q4_dir)?.await?,
+        distinct_codes,
+        access_top4096_frac,
     })
 }
 
@@ -1792,7 +2061,39 @@ fn inapplicable_reason(variant: KernelVariant, chunks: &[GpuOnPairChunk]) -> Opt
         KernelLayout::LenBucket => chunks.iter().any(|c| c.lb_meta == [0u32; 6]).then(|| {
             "length-bucket dict not built (set ONPAIR_DICT_REORDER=lenbucket)".to_string()
         }),
+        KernelLayout::ClusterDsmem => chunks.iter().find_map(|c| {
+            let shared = cluster_dsmem_shared_bytes(c.lens.len(), variant.block_warps);
+            (shared > CLUSTER_DSMEM_SHARED_CAP).then(|| {
+                format!(
+                    "cluster dict slice + staging needs {shared} B shared, \
+                     over {CLUSTER_DSMEM_SHARED_CAP} B cap"
+                )
+            })
+        }),
+        KernelLayout::VWidth => chunks
+            .iter()
+            .any(|c| c.dict_off32.len() == 0)
+            .then(|| "variable-width directory not built (packed dict > 16 MB)".to_string()),
+        KernelLayout::VWidth4 => chunks
+            .iter()
+            .any(|c| c.dict_q4_dir.len() == 0)
+            .then(|| "quantized variable-width dict not built (offset > 27 bits)".to_string()),
+        KernelLayout::ShDict8 => chunks.iter().find_map(|c| {
+            let shared = shdict8_shared_bytes(c.lens.len(), variant.block_warps);
+            (shared > CLUSTER_DSMEM_SHARED_CAP).then(|| {
+                format!("dict_s8 + staging needs {shared} B shared, over {CLUSTER_DSMEM_SHARED_CAP} B cap")
+            })
+        }),
     }
+}
+
+/// Shared-memory bytes required by `onpair_shmem_4tpt_cluster_dsmem`: this
+/// block's dict slice (`ceil(dict_entries / ONPAIR_CLUSTER_N) * 16`) plus the
+/// per-warp staging buffers. Mirrors the kernel's dynamic-shared layout.
+#[cfg(feature = "cuda")]
+fn cluster_dsmem_shared_bytes(dict_entries: usize, block_warps: u32) -> usize {
+    let entries_per_block = dict_entries.div_ceil(ONPAIR_CLUSTER_N as usize);
+    entries_per_block * 16 + block_warps as usize * 2080
 }
 
 /// Shared-memory bytes required by `onpair_shmem_4tpt_vdict`: [packed dict |
@@ -1852,8 +2153,11 @@ fn pick_auto_kernel(chunks: &[GpuOnPairChunk], cc_major: i32) -> &'static str {
         return "onpair_shmem_s8_4tpt";
     }
 
-    // General case (entries up to 16 bytes).
-    let small_dict = chunks.iter().all(|c| c.lens.len() <= 4096);
+    // General case (entries up to 16 bytes). The optimum diverges by
+    // architecture, so dispatch to a per-GPU selector. Each selector is
+    // self-contained: Blackwell tuning never changes the Hopper choice and
+    // vice versa.
+    let max_entries = chunks.iter().map(|c| c.lens.len()).max().unwrap_or(0);
     let frac_le8 = if chunks.is_empty() {
         0.0
     } else {
@@ -1861,38 +2165,57 @@ fn pick_auto_kernel(chunks: &[GpuOnPairChunk], cc_major: i32) -> &'static str {
     };
 
     if cc_major >= 10 {
-        // Blackwell (sm_100). A B200 granularity sweep (2026-05) found the decode
-        // limiter shifted off the Hopper L1/TEX-request saturation; 128-thread
-        // blocks are the lever (the forced 75% occupancy in `__launch_bounds__(128,
-        // 12)` buys ~nothing on its own). Both winning kernels use 128-thread blocks:
-        //   * `split8read_b128o12` — for small (bits12) dicts with mostly short
-        //     tokens it reads 8 B (uint2) from `dict_s8`, halving L1/TEX request
-        //     width; at 128-thread granularity this compounds to a large win
-        //     (fineweb/wikipedia +22–26%, clickbench/URL +5.5% over `b128o12`).
-        //   * `b128o12` — the robust default everywhere else (bits16, long-token
-        //     or low-`frac_le8` columns), where split8read's fallback path costs more
-        //     than it saves.
-        //
-        // The `frac_le8` gate is lower on Blackwell (0.70) than Hopper (0.90): a
-        // B200 sweep showed split8read wins down to clickbench/URL (frac_le8 0.81)
-        // while l_comment (0.58) and ps_comment (0.33) still regress, so 0.70 sits
-        // centered between the win and regression bands. Hopper is left at 0.90
-        // (not re-measured for this gate; no GH200 access this session).
-        const B200_SPLIT8READ_FRAC_LE8: f32 = 0.70;
-        if small_dict && frac_le8 >= B200_SPLIT8READ_FRAC_LE8 {
-            "onpair_shmem_4tpt_split8read_b128o12"
-        } else {
-            "onpair_shmem_4tpt_b128o12"
-        }
+        pick_general_blackwell(max_entries, frac_le8)
     } else {
-        // Hopper (sm_90) and earlier. Decode is L1/TEX-request bound; `split8read`
-        // (8 B reads from the 32 KB dict_s8) wins for small bits12 dicts with mostly
-        // short tokens, otherwise plain `4tpt` is the robust default.
-        if small_dict && frac_le8 >= 0.90 {
-            "onpair_shmem_4tpt_split8read"
-        } else {
-            "onpair_shmem_4tpt"
-        }
+        pick_general_hopper(max_entries, frac_le8)
+    }
+}
+
+/// Blackwell (sm_100 / B200) general-case selector. A B200 granularity sweep
+/// (2026-05) found the decode limiter shifted off the Hopper L1/TEX-request
+/// saturation; 128-thread blocks are the lever (the forced 75% occupancy in
+/// `__launch_bounds__(128, 12)` buys ~nothing on its own). Both winners use
+/// 128-thread blocks:
+///   * `split8read_b128o12` — for small (bits12) dicts with mostly short tokens
+///     it reads 8 B (uint2) from `dict_s8`, halving the request width; at
+///     128-thread granularity this compounds to a large win (fineweb/wikipedia
+///     +22–26%, clickbench/URL +5.5% over `b128o12`).
+///   * `b128o12` — the robust default everywhere else (bits16, long-token or
+///     low-`frac_le8` columns), where split8read's fallback path costs more than
+///     it saves.
+///
+/// The `frac_le8` gate is lower than Hopper's (0.70 vs 0.90): split8read wins
+/// down to clickbench/URL (0.81) while l_comment (0.58) and ps_comment (0.33)
+/// regress, so 0.70 sits centered between the win and regression bands.
+///
+/// The dict-size gate is `entries <= 16384` (bits14), wider than Hopper's 4096
+/// (bits12): split8read reads from `dict_s8` (entries × 8 B), which wins while it
+/// fits L1. 16384 entries = 128 KB `dict_s8`, fitting the ~256 KB L1 with room
+/// for the streaming codes/output — fineweb bits14 is +9% over `b128o12`. bits16
+/// (65536 = 512 KB `dict_s8`) does not fit and only ties `b128o12`, so it stays
+/// the default.
+#[cfg(feature = "cuda")]
+fn pick_general_blackwell(max_entries: usize, frac_le8: f32) -> &'static str {
+    const B200_SPLIT8READ_MAX_ENTRIES: usize = 16384;
+    const B200_SPLIT8READ_FRAC_LE8: f32 = 0.70;
+    if max_entries <= B200_SPLIT8READ_MAX_ENTRIES && frac_le8 >= B200_SPLIT8READ_FRAC_LE8 {
+        "onpair_shmem_4tpt_split8read_b128o12"
+    } else {
+        "onpair_shmem_4tpt_b128o12"
+    }
+}
+
+/// Hopper (sm_90 / GH200) general-case selector — the original pre-Blackwell
+/// behaviour, kept verbatim. Decode is L1/TEX-request bound; `split8read` (8 B
+/// reads from the 32 KB `dict_s8`) wins for small bits12 dicts with mostly short
+/// tokens, otherwise plain `4tpt` is the robust default. Not re-tuned for
+/// Blackwell; left exactly as measured on GH200.
+#[cfg(feature = "cuda")]
+fn pick_general_hopper(max_entries: usize, frac_le8: f32) -> &'static str {
+    if max_entries <= 4096 && frac_le8 >= 0.90 {
+        "onpair_shmem_4tpt_split8read"
+    } else {
+        "onpair_shmem_4tpt"
     }
 }
 
@@ -2297,6 +2620,137 @@ fn launch_variant(
                     .arg(&dict_bytes_len);
             })?;
         }
+        KernelLayout::ClusterDsmem => {
+            // The kernel carries compile-time `__cluster_dims__(ONPAIR_CLUSTER_N)`,
+            // so a normal launch forms clusters automatically — the only extra
+            // requirement is that `grid_dim.x` is a multiple of the cluster size.
+            // We launch a grid-stride grid of complete clusters sized to the
+            // device and let each cluster's blocks sweep the warp-chunks.
+            let dict_padded = chunk.dict_padded.cuda_view::<u8>()?;
+            let lens = chunk.lens.cuda_view::<u8>()?;
+            let chunk_offsets = chunk_offsets_for_variant(chunk, variant.chunk_size)?;
+            let dict_entries = u32::try_from(chunk.lens.len()).unwrap_or(u32::MAX);
+            let shared_bytes = u32::try_from(cluster_dsmem_shared_bytes(
+                chunk.lens.len(),
+                variant.block_warps,
+            ))
+            .unwrap_or(u32::MAX);
+
+            // Opt into the large dynamic-shared carveout (slice is well over 48 KB).
+            if shared_bytes > 48 * 1024 {
+                use cudarc::driver::sys::CUfunction_attribute_enum;
+                function
+                    .set_attribute(
+                        CUfunction_attribute_enum::CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
+                        shared_bytes as i32,
+                    )
+                    .map_err(|e| anyhow::anyhow!("set max dynamic shared mem: {e:?}"))?;
+            }
+
+            let sm_count = ctx
+                .stream()
+                .context()
+                .attribute(
+                    cudarc::driver::sys::CUdevice_attribute_enum::CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT,
+                )
+                .map_err(|e| anyhow::anyhow!("query SM count: {e:?}"))?
+                .max(1) as u32;
+            // Round the device-sized grid down to whole clusters (>= one cluster).
+            // The dict slice forces ~1 block/SM, so one block per SM is the target.
+            let grid = (sm_count / ONPAIR_CLUSTER_N).max(1) * ONPAIR_CLUSTER_N;
+            let cfg = LaunchConfig {
+                grid_dim: (grid, 1, 1),
+                block_dim: (variant.block_warps * 32, 1, 1),
+                shared_mem_bytes: shared_bytes,
+            };
+            ctx.launch_kernel_config(function, cfg, chunk.total_tokens, |args| {
+                args.arg(&codes)
+                    .arg(&chunk_offsets)
+                    .arg(&dict_padded)
+                    .arg(&lens)
+                    .arg(&output)
+                    .arg(&total_tokens)
+                    .arg(&dict_entries);
+            })?;
+        }
+        KernelLayout::VWidth => {
+            let dict_off32 = chunk.dict_off32.cuda_view::<u32>()?;
+            let dict_bytes = chunk.dict_bytes.cuda_view::<u8>()?;
+            let chunk_offsets = chunk_offsets_for_variant(chunk, variant.chunk_size)?;
+            let cfg = launch_config(chunk.total_tokens, variant.chunk_size, variant.block_warps);
+            ctx.launch_kernel_config(function, cfg, chunk.total_tokens, |args| {
+                args.arg(&codes)
+                    .arg(&chunk_offsets)
+                    .arg(&dict_off32)
+                    .arg(&dict_bytes)
+                    .arg(&output)
+                    .arg(&total_tokens);
+            })?;
+        }
+        KernelLayout::VWidth4 => {
+            let dict_q4_dir = chunk.dict_q4_dir.cuda_view::<u32>()?;
+            let dict_q4 = chunk.dict_q4.cuda_view::<u8>()?;
+            let chunk_offsets = chunk_offsets_for_variant(chunk, variant.chunk_size)?;
+            let cfg = launch_config(chunk.total_tokens, variant.chunk_size, variant.block_warps);
+            ctx.launch_kernel_config(function, cfg, chunk.total_tokens, |args| {
+                args.arg(&codes)
+                    .arg(&chunk_offsets)
+                    .arg(&dict_q4_dir)
+                    .arg(&dict_q4)
+                    .arg(&output)
+                    .arg(&total_tokens);
+            })?;
+        }
+        KernelLayout::ShDict8 => {
+            // Persistent grid (~2 blocks/SM): each block loads dict_s8 into shared
+            // once, then walks chunks via grid-stride.
+            let dict_s8 = chunk.dict_s8.cuda_view::<u8>()?;
+            let dict_padded = chunk.dict_padded.cuda_view::<u8>()?;
+            let lens = chunk.lens.cuda_view::<u8>()?;
+            let chunk_offsets = chunk_offsets_for_variant(chunk, variant.chunk_size)?;
+            let dict_entries = u32::try_from(chunk.lens.len()).unwrap_or(u32::MAX);
+            let shared_bytes =
+                u32::try_from(shdict8_shared_bytes(chunk.lens.len(), variant.block_warps))
+                    .unwrap_or(u32::MAX);
+            if shared_bytes > 48 * 1024 {
+                use cudarc::driver::sys::CUfunction_attribute_enum;
+                function
+                    .set_attribute(
+                        CUfunction_attribute_enum::CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
+                        shared_bytes as i32,
+                    )
+                    .map_err(|e| anyhow::anyhow!("set max dynamic shared mem: {e:?}"))?;
+            }
+            let sm_count = ctx
+                .stream()
+                .context()
+                .attribute(
+                    cudarc::driver::sys::CUdevice_attribute_enum::CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT,
+                )
+                .map_err(|e| anyhow::anyhow!("query SM count: {e:?}"))?
+                .max(1) as usize;
+            let blocks_needed = chunk
+                .total_tokens
+                .div_ceil(variant.chunk_size)
+                .div_ceil(variant.block_warps as usize)
+                .max(1);
+            let grid = blocks_needed.min(sm_count * 2);
+            let cfg = LaunchConfig {
+                grid_dim: (u32::try_from(grid).unwrap_or(u32::MAX), 1, 1),
+                block_dim: (variant.block_warps * 32, 1, 1),
+                shared_mem_bytes: shared_bytes,
+            };
+            ctx.launch_kernel_config(function, cfg, chunk.total_tokens, |args| {
+                args.arg(&codes)
+                    .arg(&chunk_offsets)
+                    .arg(&dict_s8)
+                    .arg(&dict_padded)
+                    .arg(&lens)
+                    .arg(&output)
+                    .arg(&total_tokens)
+                    .arg(&dict_entries);
+            })?;
+        }
     }
     Ok(())
 }
@@ -2338,6 +2792,31 @@ fn gib_s(bytes: u64, ms: f64) -> f64 {
     } else {
         (bytes as f64 / GIB) / (ms / 1_000.0)
     }
+}
+
+/// Measure host->device copy bandwidth (GiB/s) for the whole-decompress model.
+/// Copies a pageable buffer a few times (the same path `stage_gpu_chunk` uses)
+/// and times it wall-clock; `Arc<[u8]>` is cloned per rep (refcount only, no
+/// data copy) so the host side does not pollute the transfer timing.
+#[cfg(feature = "cuda")]
+async fn measure_h2d_gib_s(ctx: &mut CudaExecutionCtx) -> Result<f64> {
+    const N: usize = 128 * 1024 * 1024;
+    const REPS: usize = 4;
+    let host: Arc<[u8]> = Arc::from(vec![0u8; N]);
+    // Warm up (allocator + driver) before timing.
+    let _warmup = ctx.copy_to_device::<u8, _>(host.clone())?.await?;
+    ctx.synchronize_stream()?;
+    let t = Instant::now();
+    for _ in 0..REPS {
+        let _buf = ctx.copy_to_device::<u8, _>(host.clone())?.await?;
+    }
+    ctx.synchronize_stream()?;
+    let secs = t.elapsed().as_secs_f64();
+    Ok(if secs > 0.0 {
+        (N as f64 * REPS as f64 / GIB) / secs
+    } else {
+        0.0
+    })
 }
 
 /// Write one group of OnPair chunks (wrapped in single-field structs) to a
