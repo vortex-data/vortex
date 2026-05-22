@@ -79,9 +79,19 @@ fn a_aot(bencher: Bencher) {
 
 // ------------------------------------------------ stack B: alp(delta(ffor(bitpacking))) f64
 
-#[divan::bench(name = "b_alp_delta_for_bitpack/vortex")]
+#[divan::bench(name = "b_alp_delta_for_bitpack/vortex_regular")]
 fn b_vortex(bencher: Bencher) {
+    // Vortex's own ALP encoding (shallow: ALP over an uncompressed/bit-packed child).
     let arr = vortex_baseline::build_b(&gen_f64(N, EXP, 2));
+    bencher
+        .counter(ItemsCount::new(N))
+        .bench(|| vortex_baseline::decode(&arr));
+}
+
+#[divan::bench(name = "b_alp_delta_for_bitpack/vortex_same_stack")]
+fn b_vortex_same_stack(bencher: Bencher) {
+    // Genuine alp(delta(ffor(bitpacking))): the same full stack, decoded per-layer.
+    let arr = vortex_baseline::build_b_full_same_stack(&gen_f64(N, EXP, 2));
     bencher
         .counter(ItemsCount::new(N))
         .bench(|| vortex_baseline::decode(&arr));
@@ -146,6 +156,16 @@ fn b_core_aot(bencher: Bencher) {
         .bench(|| aot::decode_b_core(&enc));
 }
 
+#[divan::bench(name = "b_core_delta_for_bitpack/vortex_shallow")]
+fn b_core_vortex_shallow(bencher: Bencher) {
+    // Regular Vortex: its Delta encoder leaves the digit-deltas uncompressed.
+    let enc = encode_b(&gen_f64(N, EXP, 2), EXP);
+    let arr = vortex_baseline::build_b_core_shallow(&enc.digits);
+    bencher
+        .counter(ItemsCount::new(N))
+        .bench(|| vortex_baseline::decode(&arr));
+}
+
 // ------------------------------------------- stack C: rle(alp(delta(ffor(bitpacking)))) f64
 
 #[divan::bench(name = "c_rle_alp_delta_for_bitpack/materialized")]
@@ -178,4 +198,14 @@ fn c_aot(bencher: Bencher) {
     bencher
         .counter(ItemsCount::new(enc.n_logical))
         .bench(|| aot::decode_c(&enc));
+}
+
+#[divan::bench(name = "c_rle_alp_delta_for_bitpack/vortex_regular")]
+fn c_vortex_regular(bencher: Bencher) {
+    // Regular Vortex: RunEnd encoding of the logical column.
+    let enc = encode_c(N_RUNS, EXP, 11);
+    let arr = vortex_baseline::build_c_regular(&enc.values);
+    bencher
+        .counter(ItemsCount::new(enc.n_logical))
+        .bench(|| vortex_baseline::decode(&arr));
 }

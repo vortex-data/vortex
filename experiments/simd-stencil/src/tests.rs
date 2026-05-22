@@ -98,6 +98,23 @@ fn vortex_same_stack_roundtrips() {
         vortex_baseline::decode(&arr_b).as_slice::<i64>(),
         enc.digits
     );
+
+    // Stack B integer core, regular Vortex (shallow Delta).
+    let arr_b_shallow = vortex_baseline::build_b_core_shallow(&enc.digits);
+    assert_eq!(
+        vortex_baseline::decode(&arr_b_shallow).as_slice::<i64>(),
+        enc.digits
+    );
+
+    // Stack B full: genuine alp(delta(ffor(bitpacking))) decodes to the values.
+    let values_f64 = gen_f64(N, 2, 5);
+    let arr_b_full = vortex_baseline::build_b_full_same_stack(&values_f64);
+    assert_eq!(vortex_baseline::decode_b(&arr_b_full), values_f64);
+
+    // Stack C, regular Vortex (RunEnd of the logical column).
+    let enc_c = encode_c(4096, 2, 11);
+    let arr_c = vortex_baseline::build_c_regular(&enc_c.values);
+    assert_eq!(vortex_baseline::decode_b(&arr_c), enc_c.values);
 }
 
 #[test]

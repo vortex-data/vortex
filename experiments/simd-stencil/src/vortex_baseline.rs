@@ -9,10 +9,16 @@
 //! shipping engine (the in-crate "materialized" strategy is the controlled,
 //! same-kernel model of this same path).
 //!
-//! Note: Vortex's public constructors don't expose a hand-built
-//! `alp(delta(ffor(bitpacking)))` cascade, so stack A is decoded as Vortex's
-//! Delta encoding and stack B as Vortex's ALP encoding of the identical inputs.
+//! Two flavours of baseline per stack:
+//! - `*_same_stack` / `build_b_full_same_stack`: the *same* encoding the
+//!   prototype decodes, hand-built from Vortex's public constructors, so it is a
+//!   fair head-to-head against the fused/stitched pipeline.
+//! - `build_a` / `build_b` / `build_b_core_shallow` / `build_c_regular`: what
+//!   Vortex's own compressor / encoders pick ("regular" Vortex) — typically a
+//!   shallower encoding that decodes faster but compresses worse.
 
+use vortex_alp::ALP;
+use vortex_alp::ALPArrayExt;
 use vortex_alp::alp_encode;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -26,6 +32,7 @@ use vortex_buffer::Buffer;
 use vortex_fastlanes::Delta;
 use vortex_fastlanes::FoR;
 use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width;
+use vortex_runend::RunEnd;
 
 /// Build a real Vortex Delta array over the `u32` column, with its deltas left
 /// uncompressed (what Vortex's own compressor chose). This decodes in fewer
@@ -63,9 +70,9 @@ pub fn build_a_same_stack(values: &[u32]) -> ArrayRef {
 }
 
 /// Build a genuine Vortex `delta(ffor(bitpacking))` array over `i64` digits:
-/// `DeltaArray` -> `FoRArray` -> `BitPackedArray`. The integer core of stack B,
-/// decoded by Vortex's per-layer `execute`.
-pub fn build_b_core_same_stack(digits: &[i64]) -> ArrayRef {
+/// `DeltaArray` -> `FoRArray` -> `BitPackedArray`, decoded by Vortex's per-layer
+/// `execute`.
+fn deep_delta_for_bitpack(digits: &[i64]) -> ArrayRef {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let prim = PrimitiveArray::new(Buffer::copy_from(digits), Validity::NonNullable);
     let delta = Delta::try_from_primitive_array(&prim, &mut ctx)
@@ -94,12 +101,59 @@ pub fn build_b_core_same_stack(digits: &[i64]) -> ArrayRef {
         .into_array()
 }
 
-/// Build a real Vortex ALP array over the `f64` column.
+/// Same-stack integer core of stack B: `delta(ffor(bitpacking))` over `i64`.
+pub fn build_b_core_same_stack(digits: &[i64]) -> ArrayRef {
+    deep_delta_for_bitpack(digits)
+}
+
+/// Regular-Vortex equivalent of the stack-B integer core: Vortex's own Delta
+/// encoding of the digits (deltas left uncompressed, like `build_a`).
+pub fn build_b_core_shallow(digits: &[i64]) -> ArrayRef {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let prim = PrimitiveArray::new(Buffer::copy_from(digits), Validity::NonNullable);
+    Delta::try_from_primitive_array(&prim, &mut ctx)
+        .expect("delta encode")
+        .into_array()
+}
+
+/// Build a genuine full `alp(delta(ffor(bitpacking)))` Vortex array: take the
+/// exponents, patches and digits from Vortex's own `alp_encode`, then replace
+/// the (raw) encoded child with the deep `delta(ffor(bitpacking))` cascade over
+/// the same digits. Decodes identically to regular ALP, but over the deep stack.
+pub fn build_b_full_same_stack(values: &[f64]) -> ArrayRef {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let prim = PrimitiveArray::new(Buffer::copy_from(values), Validity::NonNullable);
+    let alp = alp_encode(prim.as_view(), None, &mut ctx).expect("alp encode");
+    let exponents = alp.exponents();
+    let patches = alp.patches();
+    let alp_arr = alp.into_array();
+    let digits = alp_arr.children()[0]
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)
+        .expect("alp digits to primitive");
+    let deep = deep_delta_for_bitpack(digits.as_slice::<i64>());
+    ALP::try_new(deep, exponents, patches)
+        .expect("alp(delta(ffor(bitpacking)))")
+        .into_array()
+}
+
+/// Build a real Vortex ALP array over the `f64` column ("regular" Vortex: ALP
+/// over an uncompressed/bit-packed encoded child, as the compressor picks).
 pub fn build_b(values: &[f64]) -> ArrayRef {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let prim = PrimitiveArray::new(Buffer::copy_from(values), Validity::NonNullable);
     alp_encode(prim.as_view(), None, &mut ctx)
         .expect("alp encode")
+        .into_array()
+}
+
+/// Regular-Vortex equivalent of stack C: Vortex's RunEnd encoding of the logical
+/// `f64` column, decoded via `execute`.
+pub fn build_c_regular(values: &[f64]) -> ArrayRef {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let prim = PrimitiveArray::new(Buffer::copy_from(values), Validity::NonNullable);
+    RunEnd::encode(prim.into_array(), &mut ctx)
+        .expect("runend encode")
         .into_array()
 }
 

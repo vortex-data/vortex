@@ -20,6 +20,7 @@ vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
+vortex-runend = { workspace = true }
 vortex-session = { workspace = true }
 rand = { workspace = true }
 

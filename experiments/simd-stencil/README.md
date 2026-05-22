@@ -77,41 +77,51 @@ and `delta(ffor(bitpacking))` (stack-B integer core) as real `DeltaArray` /
 
 Hardware: Intel Xeon (Skylake-class), AVX-512F/DQ/BW/VL/CD + BMI2, 4 shared vCPUs
 (a noisy cloud box — treat ratios, not absolutes, as the signal).
-`RUSTFLAGS="-C target-cpu=native"`, ~1M elements/column. Median items/s.
+`RUSTFLAGS="-C target-cpu=native"`, ~1M elements/column. Median **items/s**;
+median **wall time** per full-column decode in parentheses.
 
-| Stack | materialized | **fused** | **aot** | patched | vortex (same stack) | vortex (shallow) |
+| Stack | materialized | **fused** | **aot** | patched | vortex (same stack) | vortex (regular) |
 |---|---|---|---|---|---|---|
-| A `delta(bitpack)` u32 | 739 M | **1.16 G** | **1.22 G** | — | 1.01 G | 1.44 G¹ |
-| B core `delta(ffor(bitpack))`→i64 | — | **617 M** | **613 M** | — | 454 M | — |
-| B full `alp(delta(ffor(bitpack)))` f64 | 204 M | **534 M** | **541 M** | 433 M | — | 887 M¹ |
-| C `rle(alp(delta(ffor(bitpack))))` f64 | 352 M | **403 M** | **408 M** | ~367 M | — | — |
+| A `delta(bitpack)` u32 | 690 M (1.52 ms) | **1.14 G (918 µs)** | **1.24 G (848 µs)** | — | 1.06 G (989 µs) | 1.40 G (751 µs)¹ |
+| B core `delta(ffor(bitpack))`→i64 | — | **523 M (2.01 ms)** | **532 M (1.97 ms)** | — | 343 M (3.06 ms) | 651 M (1.61 ms)¹ |
+| B full `alp(delta(ffor(bitpack)))` f64 | 121 M (8.7 ms) | **477 M (2.20 ms)** | **508 M (2.07 ms)** | 377 M (2.78 ms) | 275 M (3.82 ms) | 804 M (1.30 ms)¹ |
+| C `rle(alp(delta(ffor(bitpack))))` f64 | 355 M (3.13 ms) | **368 M (3.02 ms)** | 366 M (3.04 ms) | 365 M (3.05 ms) | n/a² | 393 M (2.83 ms)¹ |
 
-¹ *shallow* = Vortex's own (uncompressed-child) encoding, i.e. **less work** — shown for context, not a same-stack comparison.
+¹ *regular* = what Vortex's own compressor/encoders pick: shallow Delta (A, B core), ALP over a bit-packed child (B full), or RunEnd over the canonical column (C). Faster because it decodes **less** (and compresses worse — see below), not a same-stack comparison.
+² Stack C's same-stack Vortex build (RunEnd over the deep ALP cascade) isn't constructed; `vortex (regular)` is the RunEnd-over-primitive baseline.
 
 ### What the numbers say
 
-1. **The prototype beats Vortex on the same stack.** `fused`/`aot` decode genuine
-   `delta(bitpacking)` 1.1–1.2× faster than Vortex's `execute` of the identical
-   array (A: 1.16–1.22 G vs 1.01 G), and the `delta(ffor(bitpacking))` integer
-   core 1.3–1.4× faster (B core: 617 M vs 454 M). The win is structural: Vortex
-   materialises a `PrimitiveArray` between every layer; the fused pipeline keeps
-   intermediates in L1. (Vortex's *shallow* encoding is still fastest where it
-   applies — but only because it decodes far less, and a planner could choose that
-   shallow encoding too.)
+1. **The prototype beats Vortex on the same stack** — and the deeper the stack,
+   the bigger the win. `fused`/`aot` decode the genuine, identically-encoded
+   Vortex array faster across the board:
+   - A `delta(bitpack)`: 1.14–1.24 G vs 1.06 G → **1.1–1.2×**
+   - B core `delta(ffor(bitpack))`: 523–532 M vs 343 M → **~1.5×**
+   - B full `alp(delta(ffor(bitpack)))`: 477–508 M vs 275 M → **~1.7–1.8×**
+
+   The win is structural: Vortex materialises a `PrimitiveArray` between every
+   layer (4 buffers for the full stack), while the fused pipeline keeps every
+   intermediate in L1. More layers ⇒ more materialization avoided ⇒ bigger gap.
+
+   Vortex's *regular* (shallow) encoding is still fastest where it applies, but
+   only because it decodes far less — and at a real space cost: it stores the
+   inner data **uncompressed** (~1.9× larger for A, ~3.8× for B). A planner could
+   pick the shallow encoding too; the point is that *at equal compression*, fused
+   decode wins.
 
 2. **Tiled fusion beats per-layer materialization with identical kernels** —
-   2.0–2.6× on the deep f64 stack B (534 M vs 204 M), 1.15× on the
+   ~3.9× on the deep f64 stack B (477 M vs 121 M), 1.04× on the
    memory-bound RLE stack C.
 
 3. **`fused` matches `aot`.** Runtime-width fused is within noise of the
-   const-generic-per-width AOT build (A: 1.16 vs 1.22 G; B: 534 vs 541 M; C: tie).
-   The combinatorial AOT compile buys almost nothing — selecting pre-built
-   stencils at runtime already reaches AOT-class throughput.
+   const-generic-per-width AOT build (A: 1.14 vs 1.24 G; B full: 477 vs 508 M;
+   C: tie). The combinatorial AOT compile buys almost nothing — selecting
+   pre-built stencils at runtime already reaches AOT-class throughput.
 
-4. **A single-op `patched` leaf still trails `fused`** (B: 433 vs 534 M): one
-   indirect call per tile plus a materialised `digits` buffer between untranspose
-   and scale costs more than baking the scale saves. This is the motivation for
-   body-stitching, below.
+4. **A single-op `patched` leaf still trails `fused`** (B full: 377 vs 477 M):
+   one indirect call per tile plus a materialised `digits` buffer between
+   untranspose and scale costs more than baking the scale saves. This is the
+   motivation for body-stitching, below.
 
 ### Body-stitching matches AOT (`--bench stitch`)
 
@@ -214,10 +224,11 @@ fall back to today's path, so it is incremental.
   back-edge `rel32` plus a constant pool by hand; a general stitcher would handle
   arbitrary register allocation and relocation types.
 - **ALP exceptions / nullability / non-tile-aligned tails** are out of scope.
-- The same-stack Vortex baselines cover the integer cascades (stack A fully;
-  stack B's integer core). Wrapping the deep stack back in Vortex's ALP needs its
-  exact exponents+patches, so stack B's ALP scale is compared as the equal
-  constant overhead it is.
+- The full-stack-B same-stack baseline reuses Vortex's own ALP exponents+patches
+  and swaps the encoded child for the deep `delta(ffor(bitpacking))` cascade, so
+  it decodes the genuine 4-layer stack. Stack C's same-stack Vortex build (RunEnd
+  over that cascade) is not constructed; its `vortex (regular)` column is RunEnd
+  over the canonical column.
 
 ## Running
 
