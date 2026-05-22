@@ -239,14 +239,14 @@ impl VTable for BitPacked {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         match_each_integer_ptype!(array.dtype().as_ptype(), |T| {
-            unpack_map_into_builder::<T, T, _>(
+            unpack_map_into_builder(
                 array,
                 builder
                     .as_any_mut()
                     .downcast_mut()
                     .vortex_expect("bit packed array must canonicalize into a primitive array"),
                 ctx,
-                |v| v,
+                |v: T| v,
             )
         })
     }

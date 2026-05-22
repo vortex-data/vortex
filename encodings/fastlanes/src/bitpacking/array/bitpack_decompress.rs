@@ -37,7 +37,7 @@ pub fn unpack_primitive_array<T: BitPackedUnpack>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
     let mut builder = PrimitiveBuilder::with_capacity(array.dtype().nullability(), array.len());
-    unpack_map_into_builder::<T, T, _>(array, &mut builder, ctx, |v| v)?;
+    unpack_map_into_builder(array, &mut builder, ctx, |v: T| v)?;
     assert_eq!(builder.len(), array.len());
     Ok(builder.finish_into_primitive())
 }
@@ -93,7 +93,7 @@ where
     Ok(())
 }
 
-pub fn apply_patches_to_uninit_range<S: NativePType, T: NativePType, F: Fn(S) -> T>(
+pub(crate) fn apply_patches_to_uninit_range<S: NativePType, T: NativePType, F: Fn(S) -> T>(
     dst: &mut UninitRange<T>,
     patches: &Patches,
     ctx: &mut ExecutionCtx,
@@ -341,11 +341,11 @@ mod tests {
         let bitpacked = encode(&empty, 0);
 
         let mut builder = PrimitiveBuilder::<u32>::new(Nullability::NonNullable);
-        unpack_map_into_builder::<_, _, _>(
+        unpack_map_into_builder(
             bitpacked.as_view(),
             &mut builder,
             &mut SESSION.create_execution_ctx(),
-            |v| v,
+            |v: u32| v,
         )?;
 
         let result = builder.finish_into_primitive();
@@ -370,11 +370,11 @@ mod tests {
 
         // Unpack into a new builder.
         let mut builder = PrimitiveBuilder::<u32>::with_capacity(Nullability::Nullable, 5);
-        unpack_map_into_builder::<_, _, _>(
+        unpack_map_into_builder(
             bitpacked.as_view(),
             &mut builder,
             &mut SESSION.create_execution_ctx(),
-            |v| v,
+            |v: u32| v,
         )?;
 
         let result = builder.finish_into_primitive();
@@ -408,11 +408,11 @@ mod tests {
 
         // Unpack into a new builder.
         let mut builder = PrimitiveBuilder::<u32>::with_capacity(Nullability::NonNullable, 100);
-        unpack_map_into_builder::<_, _, _>(
+        unpack_map_into_builder(
             bitpacked.as_view(),
             &mut builder,
             &mut SESSION.create_execution_ctx(),
-            |v| v,
+            |v: u32| v,
         )?;
 
         let result = builder.finish_into_primitive();
