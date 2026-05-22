@@ -48,10 +48,10 @@ const U32: DType = DType::Primitive(PType::U32, Nullability::NonNullable);
 const ARGS: &[(usize, usize, f64)] = &[
     (65_536, 1, 0.00),
     (65_536, 1, 0.01),
-    (65_536, 16, 0.00),
-    (65_536, 16, 0.01),
-    (1_048_576, 1, 0.00),
-    (1_048_576, 1, 0.01),
+    (65_536, 4, 0.00),
+    (65_536, 4, 0.01),
+    (262_144, 1, 0.00),
+    (262_144, 1, 0.01),
 ];
 
 /// Build a single bit-packed `u16` chunk. Most values fit in `bit_width` bits; `fraction_patched`
