@@ -5,12 +5,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::StreamExt;
-use futures::future::try_join_all;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::list::ListDataParts;
 use vortex_array::arrays::listview::list_from_list_view;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -34,7 +34,7 @@ use crate::sequence::SequentialStream;
 use crate::sequence::SequentialStreamAdapter;
 use crate::sequence::SequentialStreamExt;
 
-/// Strategy for writing list-typed arrays as an Apache Arrow-style [`ListLayout`].
+/// Strategy for writing list-typed arrays.
 ///
 /// For each input chunk, the strategy:
 ///  1. Canonicalizes the chunk into a [`ListViewArray`].
@@ -44,8 +44,18 @@ use crate::sequence::SequentialStreamExt;
 ///     separately configurable downstream strategies, producing a single [`ListLayout`] for
 ///     that chunk.
 ///
-/// When the input stream contains multiple chunks, each chunk becomes one `ListLayout` and the
-/// strategy wraps them in a [`ChunkedLayout`].
+/// # Multi-chunk handling
+///
+/// Each input chunk is a self-contained list array — its own elements buffer, its own
+/// `n_i + 1` offsets starting from 0, its own validity. When the stream contains multiple
+/// chunks, the strategy produces one `ListLayout` per chunk and wraps them in a
+/// [`ChunkedLayout`], rather than merging them into a single `ListLayout` by rebasing offsets
+/// across chunks.
+///
+/// This mirrors how `ChunkedReader` reads back the column: it returns a `ChunkedArray` of
+/// per-chunk `ListArray`s rather than concatenating into one big `ListArray`. The chunk
+/// boundary is preserved end-to-end, consistent with how every other dtype's chunked column
+/// is handled in Vortex.
 ///
 /// [`ListArray`]: vortex_array::arrays::ListArray
 pub struct ListLayoutStrategy {
@@ -87,7 +97,7 @@ impl LayoutStrategy for ListLayoutStrategy {
         let is_nullable = dtype.is_nullable();
 
         let mut stream = stream;
-        let mut chunk_layouts: Vec<LayoutRef> = Vec::new();
+        let mut chunk_layouts = Vec::<LayoutRef>::new();
 
         while let Some(item) = stream.next().await {
             let (sequence_id, array) = item?;
@@ -151,130 +161,55 @@ impl ListLayoutStrategy {
         array: ArrayRef,
     ) -> VortexResult<LayoutRef> {
         let mut exec_ctx = session.create_execution_ctx();
+        // Canonicalize to ListView, then rebuild into zero-copy-to-list form with `n+1`
+        // monotonic offsets.
+        let ListDataParts {
+            elements,
+            offsets,
+            validity,
+            ..
+        } = list_from_list_view(array.execute::<ListViewArray>(&mut exec_ctx)?)?
+            .into_data_parts();
+        // `offsets` is the Arrow-canonical `n+1` entries, so the list count is one less.
+        let validity_array = is_nullable
+            .then(|| {
+                validity
+                    .execute_mask(offsets.len().saturating_sub(1), &mut exec_ctx)
+                    .map(|m| m.into_array())
+            })
+            .transpose()?;
 
-        // Canonicalize then rebuild into ZCTL form.
-        let listview = array.execute::<ListViewArray>(&mut exec_ctx)?;
-        let list = list_from_list_view(listview)?;
-        let parts = list.into_data_parts();
-        let row_count = parts.offsets.len().saturating_sub(1);
-
-        let elements_dtype = parts.elements.dtype().clone();
-        let offsets_dtype = parts.offsets.dtype().clone();
-
-        // Build single-chunk streams for each child. Each child sees one array and EOF.
-        let mut sequence_pointer = sequence_id.descend();
-        let elements_seq = sequence_pointer.advance();
-        let offsets_seq = sequence_pointer.advance();
-        let validity_seq = if is_nullable {
-            Some(sequence_pointer.advance())
-        } else {
-            None
-        };
-        drop(sequence_pointer);
-
-        let elements_eof = chunk_eof.split_off();
-        let offsets_eof = chunk_eof.split_off();
-        let validity_eof = if is_nullable {
-            Some(chunk_eof.split_off())
-        } else {
-            None
-        };
-        drop(chunk_eof);
-
-        let elements_stream = SequentialStreamAdapter::new(
-            elements_dtype,
-            futures::stream::once(async move { Ok((elements_seq, parts.elements)) }).boxed(),
-        )
-        .sendable();
-        let offsets_stream = SequentialStreamAdapter::new(
-            offsets_dtype,
-            futures::stream::once(async move { Ok((offsets_seq, parts.offsets)) }).boxed(),
-        )
-        .sendable();
-
-        let validity_array = if is_nullable {
-            Some(
-                parts
-                    .validity
-                    .execute_mask(row_count, &mut exec_ctx)?
-                    .into_array(),
-            )
-        } else {
-            None
-        };
-        let validity_stream = validity_array.map(|arr| {
-            let seq = validity_seq.expect("validity sequence id");
-            SequentialStreamAdapter::new(
-                DType::Bool(Nullability::NonNullable),
-                futures::stream::once(async move { Ok((seq, arr)) }).boxed(),
-            )
-            .sendable()
-        });
-
+        // Closure to spawn one child writer with its own sequence id and EOF pointer, advanced
+        // in invocation order: elements, offsets, validity (when nullable).
+        let mut sp = sequence_id.descend();
         let handle = session.handle();
-
-        let elements_strategy = Arc::clone(&self.elements);
-        let elements_ctx = ctx.clone();
-        let elements_sink = Arc::clone(&segment_sink);
-        let elements_session = session.clone();
-        let elements_task = handle.spawn_nested(move |h| async move {
-            let session = elements_session.with_handle(h);
-            elements_strategy
-                .write_stream(
-                    elements_ctx,
-                    elements_sink,
-                    elements_stream,
-                    elements_eof,
-                    &session,
-                )
-                .await
-        });
-
-        let offsets_strategy = Arc::clone(&self.offsets);
-        let offsets_ctx = ctx.clone();
-        let offsets_sink = Arc::clone(&segment_sink);
-        let offsets_session = session.clone();
-        let offsets_task = handle.spawn_nested(move |h| async move {
-            let session = offsets_session.with_handle(h);
-            offsets_strategy
-                .write_stream(
-                    offsets_ctx,
-                    offsets_sink,
-                    offsets_stream,
-                    offsets_eof,
-                    &session,
-                )
-                .await
-        });
-
-        let mut tasks = vec![elements_task, offsets_task];
-        if let (Some(validity_stream), Some(validity_eof)) = (validity_stream, validity_eof) {
-            let validity_strategy = Arc::clone(&self.validity);
-            let validity_ctx = ctx;
-            let validity_sink = segment_sink;
-            let validity_session = session.clone();
-            tasks.push(handle.spawn_nested(move |h| async move {
-                let session = validity_session.with_handle(h);
-                validity_strategy
-                    .write_stream(
-                        validity_ctx,
-                        validity_sink,
-                        validity_stream,
-                        validity_eof,
-                        &session,
-                    )
-                    .await
-            }));
-        }
-
-        let mut child_layouts = try_join_all(tasks).await?;
-        let elements_layout = child_layouts.remove(0);
-        let offsets_layout = child_layouts.remove(0);
-        let validity_layout = if is_nullable {
-            Some(child_layouts.remove(0))
-        } else {
-            None
+        let mut spawn = |strategy: &Arc<dyn LayoutStrategy>, array: ArrayRef| {
+            spawn_layout_write(
+                &handle,
+                Arc::clone(strategy),
+                ctx.clone(),
+                Arc::clone(&segment_sink),
+                session,
+                single_chunk_stream(array.dtype().clone(), sp.advance(), array),
+                chunk_eof.split_off(),
+            )
         };
+
+        let elements_task = spawn(&self.elements, elements);
+        let offsets_task = spawn(&self.offsets, offsets);
+        let validity_task = validity_array.map(|arr| spawn(&self.validity, arr));
+        drop(spawn);
+
+        let (elements_layout, offsets_layout, validity_layout) = futures::try_join!(
+            elements_task,
+            offsets_task,
+            async {
+                match validity_task {
+                    Some(task) => task.await.map(Some),
+                    None => Ok(None),
+                }
+            }
+        )?;
 
         Ok(ListLayout::try_new(
             dtype.clone(),
@@ -285,6 +220,8 @@ impl ListLayoutStrategy {
         .into_layout())
     }
 
+    /// Empty-stream variant: produces a `ListLayout` whose children all encode 0 rows.
+    /// `offsets.row_count() == 0` is treated as 0 lists by [`ListLayout::row_count`].
     async fn write_empty_chunk(
         &self,
         ctx: ArrayContext,
@@ -300,57 +237,86 @@ impl ListLayoutStrategy {
             .as_ref()
             .clone();
 
-        let elements_eof = eof.split_off();
-        let offsets_eof = eof.split_off();
-        let validity_eof = if is_nullable { Some(eof.split_off()) } else { None };
+        let mut write_empty = |strategy: &Arc<dyn LayoutStrategy>, child_dtype: DType| {
+            write_empty_child(
+                Arc::clone(strategy),
+                ctx.clone(),
+                Arc::clone(&segment_sink),
+                session,
+                child_dtype,
+                eof.split_off(),
+            )
+        };
 
-        let elements_layout = self
-            .elements
-            .write_stream(
-                ctx.clone(),
-                Arc::clone(&segment_sink),
-                empty_stream(elements_dtype),
-                elements_eof,
-                session,
-            )
-            .await?;
-        // Offsets buffer of length 1 (a single 0 boundary) representing 0 lists.
-        // We can't easily synthesize a single-element primitive array here without coupling to
-        // a builder, so we just emit an empty offsets buffer and rely on `row_count()` returning
-        // 0 via `saturating_sub`. The reader treats `offsets.row_count() == 0` as 0 rows.
-        let offsets_layout = self
-            .offsets
-            .write_stream(
-                ctx.clone(),
-                Arc::clone(&segment_sink),
-                empty_stream(DType::Primitive(PType::U32, Nullability::NonNullable)),
-                offsets_eof,
-                session,
-            )
-            .await?;
-        let validity_layout = if let Some(validity_eof) = validity_eof {
+        let elements_layout = write_empty(&self.elements, elements_dtype).await?;
+        let offsets_layout = write_empty(
+            &self.offsets,
+            DType::Primitive(PType::U32, Nullability::NonNullable),
+        )
+        .await?;
+        let validity_layout = if is_nullable {
             Some(
-                self.validity
-                    .write_stream(
-                        ctx,
-                        segment_sink,
-                        empty_stream(DType::Bool(Nullability::NonNullable)),
-                        validity_eof,
-                        session,
-                    )
-                    .await?,
+                write_empty(&self.validity, DType::Bool(Nullability::NonNullable)).await?,
             )
         } else {
             None
         };
 
-        Ok(ListLayout::try_new(dtype, elements_layout, offsets_layout, validity_layout)?
-            .into_layout())
+        Ok(
+            ListLayout::try_new(dtype, elements_layout, offsets_layout, validity_layout)?
+                .into_layout(),
+        )
     }
 }
 
 fn empty_stream(dtype: DType) -> SendableSequentialStream {
     SequentialStreamAdapter::new(dtype, futures::stream::empty().boxed()).sendable()
+}
+
+/// Drive a single child writer with an empty stream of the given `dtype`.
+async fn write_empty_child(
+    strategy: Arc<dyn LayoutStrategy>,
+    ctx: ArrayContext,
+    sink: SegmentSinkRef,
+    session: &VortexSession,
+    dtype: DType,
+    eof: SequencePointer,
+) -> VortexResult<LayoutRef> {
+    strategy
+        .write_stream(ctx, sink, empty_stream(dtype), eof, session)
+        .await
+}
+
+/// Wrap a single array as a one-shot [`SendableSequentialStream`] for handoff to a child writer.
+fn single_chunk_stream(
+    dtype: DType,
+    sequence_id: SequenceId,
+    array: ArrayRef,
+) -> SendableSequentialStream {
+    SequentialStreamAdapter::new(
+        dtype,
+        futures::stream::once(async move { Ok((sequence_id, array)) }).boxed(),
+    )
+    .sendable()
+}
+
+/// Spawn a child layout writer task onto the session handle.
+///
+/// Captures the strategy, ctx, sink, and a cloned session so the spawned future is `'static`.
+fn spawn_layout_write(
+    handle: &vortex_io::runtime::Handle,
+    strategy: Arc<dyn LayoutStrategy>,
+    ctx: ArrayContext,
+    sink: SegmentSinkRef,
+    session: &VortexSession,
+    stream: SendableSequentialStream,
+    eof: SequencePointer,
+) -> vortex_io::runtime::Task<VortexResult<LayoutRef>> {
+    let session = session.clone();
+    handle.spawn_nested(move |h| async move {
+        let session = session.with_handle(h);
+        strategy.write_stream(ctx, sink, stream, eof, &session).await
+    })
 }
 
 #[cfg(test)]
@@ -379,11 +345,8 @@ mod tests {
     async fn round_trip(list: ArrayRef) {
         let segments = Arc::new(TestSegments::default());
         let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
-        let writer = ListLayoutStrategy::new(
-            Arc::clone(&flat),
-            Arc::clone(&flat),
-            Arc::clone(&flat),
-        );
+        let writer =
+            ListLayoutStrategy::new(Arc::clone(&flat), Arc::clone(&flat), Arc::clone(&flat));
 
         let (ptr, eof) = SequenceId::root().split();
         let stream = list.clone().to_array_stream().sequenced(ptr);
@@ -436,5 +399,73 @@ mod tests {
             .unwrap()
             .into_array();
         round_trip(list).await;
+    }
+
+    /// Writes a list, then reads back only a sub-range to exercise projection over a slice.
+    async fn round_trip_subset(list: ArrayRef, row_range: std::ops::Range<u64>) {
+        let segments = Arc::new(TestSegments::default());
+        let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
+        let writer =
+            ListLayoutStrategy::new(Arc::clone(&flat), Arc::clone(&flat), Arc::clone(&flat));
+
+        let (ptr, eof) = SequenceId::root().split();
+        let stream = list.clone().to_array_stream().sequenced(ptr);
+
+        let layout = writer
+            .write_stream(
+                ArrayContext::empty(),
+                Arc::<TestSegments>::clone(&segments),
+                stream,
+                eof,
+                &SESSION,
+            )
+            .await
+            .unwrap();
+
+        let reader = layout
+            .new_reader(Arc::from("test"), segments, &SESSION)
+            .unwrap();
+
+        let mask_len = usize::try_from(row_range.end - row_range.start).unwrap();
+        let result = reader
+            .projection_evaluation(&row_range, &root(), MaskFuture::new_true(mask_len))
+            .unwrap()
+            .await
+            .unwrap();
+
+        let expected = list
+            .slice(
+                usize::try_from(row_range.start).unwrap()
+                    ..usize::try_from(row_range.end).unwrap(),
+            )
+            .unwrap();
+        assert_arrays_eq!(result, expected);
+    }
+
+    #[tokio::test]
+    async fn round_trip_subset_non_nullable() {
+        // 5 lists: [1,2], [3], [], [4,5,6], [7]
+        let elements = buffer![1i32, 2, 3, 4, 5, 6, 7].into_array();
+        let offsets = buffer![0u32, 2, 3, 3, 6, 7].into_array();
+        let list = ListArray::try_new(elements, offsets, Validity::NonNullable)
+            .unwrap()
+            .into_array();
+        // Read the middle three lists: [3], [], [4,5,6]
+        round_trip_subset(list, 1..4).await;
+    }
+
+    #[tokio::test]
+    async fn round_trip_subset_nullable() {
+        // 4 lists with validity [true, false, true, true]:
+        // [10,20], null, [30], [40,50,60]
+        let elements = buffer![10i32, 20, 30, 40, 50, 60].into_array();
+        let offsets = buffer![0u32, 2, 2, 3, 6].into_array();
+        let validity =
+            Validity::Array(BoolArray::from_iter([true, false, true, true]).into_array());
+        let list = ListArray::try_new(elements, offsets, validity)
+            .unwrap()
+            .into_array();
+        // Read lists 1..3: null, [30]
+        round_trip_subset(list, 1..3).await;
     }
 }

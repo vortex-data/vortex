@@ -220,29 +220,28 @@ impl ListLayout {
         offsets: LayoutRef,
         validity: Option<LayoutRef>,
     ) -> VortexResult<Self> {
-        if !dtype.is_list() {
-            vortex_bail!("ListLayout requires a List dtype, got {dtype}");
-        }
+        vortex_ensure!(
+            dtype.is_list(),
+            "ListLayout requires a List dtype, got {dtype}"
+        );
+
         vortex_ensure!(
             dtype.is_nullable() == validity.is_some(),
             "validity must be supplied iff dtype is nullable (dtype: {dtype})",
         );
-        if !offsets.dtype().is_int() || offsets.dtype().is_nullable() {
-            vortex_bail!(
-                "offsets must be a non-nullable integer layout, got {}",
-                offsets.dtype()
-            );
-        }
+
+        let offsets_dtype = offsets.dtype();
         vortex_ensure!(
-            offsets.row_count() >= 1,
-            "ListLayout offsets must have at least 1 row (n+1 entries for n lists), got 0",
+            offsets_dtype.is_int() && !offsets_dtype.is_nullable(),
+            "offsets must be a non-nullable integer layout, got {offsets_dtype}",
         );
-        let row_count = offsets.row_count() - 1;
+
+        let offsets_row_count = offsets.row_count().saturating_sub(1);
         if let Some(validity) = validity.as_ref() {
+            let validity_row_count = validity.row_count();
             vortex_ensure!(
-                validity.row_count() == row_count,
-                "validity row count ({}) must match list row count ({row_count})",
-                validity.row_count(),
+                validity_row_count == offsets_row_count,
+                "validity row count ({validity_row_count}) must match list row count ({offsets_row_count})",
             );
         }
 

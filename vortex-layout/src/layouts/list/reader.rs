@@ -107,25 +107,26 @@ impl LayoutReader for ListReader {
     ) -> VortexResult<()> {
         // Offsets has one more row than the list itself but shares the list's chunking
         // structure, so it's the appropriate child to drive scan splits.
-        self.offsets.register_splits(field_mask, split_range, splits)
+        self.offsets
+            .register_splits(field_mask, split_range, splits)
     }
 
     fn pruning_evaluation(
         &self,
         _row_range: &Range<u64>,
         _expr: &Expression,
-        mask: Mask,
+        _mask: Mask,
     ) -> VortexResult<MaskFuture> {
-        Ok(MaskFuture::ready(mask))
+        todo!()
     }
 
     fn filter_evaluation(
         &self,
         _row_range: &Range<u64>,
         _expr: &Expression,
-        mask: MaskFuture,
+        _mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
-        Ok(mask)
+        todo!()
     }
 
     fn projection_evaluation(
@@ -144,9 +145,9 @@ impl LayoutReader for ListReader {
         let offsets_range = row_range.start..row_range.end + 1;
         let offsets_count = usize::try_from(offsets_range.end - offsets_range.start)?;
 
-        let elements_fut = self
-            .elements
-            .projection_evaluation(&elements_range, &root(), elements_mask)?;
+        let elements_fut =
+            self.elements
+                .projection_evaluation(&elements_range, &root(), elements_mask)?;
         let offsets_fut = self.offsets.projection_evaluation(
             &offsets_range,
             &root(),
