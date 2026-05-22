@@ -2,12 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::AsPrimitive;
-use num_traits::NumCast;
+use num_traits::Bounded;
+use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
@@ -25,6 +25,8 @@ use crate::dtype::PType;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
 use crate::match_each_native_ptype;
+use crate::scalar::PValue;
+use crate::scalar::Scalar;
 use crate::scalar_fn::fns::cast::CastKernel;
 use crate::scalar_fn::fns::cast::CastReduce;
 use crate::validity::Validity;
@@ -102,23 +104,23 @@ impl CastKernel for Primitive {
     }
 }
 
-/// Cast values from `F` to `T`. For infallible casts this is a pure pass; for fallible casts
-/// each valid value goes through a checked `NumCast::from` and the kernel bails if any of them
-/// overflow `T`. Invalid positions use the wrapping `as` cast since their values are masked out.
+/// Cast values from `F` to `T`. For infallible casts this is a pure pass; for fallible casts the
+/// kernel fuses the conversion with a validity-aware min/max reduction over the source and bails
+/// if those bounds don't fit `T`.
 fn cast_values<F, T>(
     array: ArrayView<'_, Primitive>,
     new_validity: Validity,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef>
 where
-    F: NativePType + AsPrimitive<T>,
+    F: NativePType + AsPrimitive<T> + PartialOrd + Bounded + Into<PValue>,
     T: NativePType,
 {
     let values = array.as_slice::<F>();
 
     // Fast path: statically infallible, or cached min/max prove every valid value fits in `T`.
     // The cached check never triggers a stats computation — if the bounds aren't already known
-    // we fall through to the per-lane loop below.
+    // we fall through to the fused kernel below.
     if values_always_fit(F::PTYPE, T::PTYPE) || values_fit_in(array, T::PTYPE, ctx, false) {
         return Ok(PrimitiveArray::new(cast::<F, T>(values), new_validity).into_array());
     }
@@ -126,33 +128,138 @@ where
     // TODO(joe): if the values source and target have the same bit-width we can
     // mutate in place.
 
-    // Fallible: invalid lanes are pre-multiplied to zero so the checked cast always succeeds for
-    // them; valid lanes go through `NumCast::from` and the whole cast bails on the first overflow.
-    let mask = array.validity()?.execute_mask(array.len(), ctx)?;
-    let overflow = || {
-        vortex_err!(
-            Compute: "Cannot cast {} to {} — value exceeds target range",
-            F::PTYPE, T::PTYPE,
-        )
-    };
-    let buffer: Buffer<T> = match &mask {
-        Mask::AllTrue(_) => BufferMut::try_from_trusted_len_iter(
-            values
-                .iter()
-                .map(|&v| <T as NumCast>::from(v).ok_or_else(overflow)),
-        )?
-        .freeze(),
-        Mask::AllFalse(_) => BufferMut::<T>::zeroed(values.len()).freeze(),
-        Mask::Values(m) => BufferMut::try_from_trusted_len_iter(
-            values.iter().zip(m.bit_buffer().iter()).map(|(&v, valid)| {
-                let factor = if valid { F::one() } else { F::zero() };
-                <T as NumCast>::from(v * factor).ok_or_else(overflow)
-            }),
-        )?
-        .freeze(),
+    // Fallible path. A value can only exceed `T`'s range if it is strictly below the smallest or
+    // above the largest *valid* value, so a single validity-aware min/max over the source fully
+    // decides whether the cast can overflow. We fuse that reduction with the value conversion in
+    // one SIMD-friendly pass: every lane is cast unconditionally (out-of-range values at invalid
+    // positions wrap/saturate harmlessly under `as` and are masked out), while the running min/max
+    // folds only valid, non-NaN lanes. If the resulting bounds don't fit `T`, the cast bails.
+    let len = values.len();
+    let mask = array.validity()?.execute_mask(len, ctx)?;
+
+    let mut out = BufferMut::<T>::with_capacity(len);
+    // SAFETY: `T` is a primitive numeric type for which every bit pattern is valid, and every
+    // element of `dst` is written exactly once below before the buffer is frozen and read.
+    unsafe { out.set_len(len) };
+    let dst = out.as_mut_slice();
+
+    let bounds = match &mask {
+        Mask::AllTrue(_) => cast_and_bounds_all::<F, T>(values, dst),
+        Mask::AllFalse(_) => {
+            dst.fill(T::default());
+            None
+        }
+        Mask::Values(m) => cast_and_bounds_masked::<F, T>(values, m.bit_buffer(), dst),
     };
 
-    Ok(PrimitiveArray::new(buffer, new_validity).into_array())
+    if let Some((min, max)) = bounds {
+        let target = DType::Primitive(T::PTYPE, Nullability::NonNullable);
+        let fits = |v: F| {
+            Scalar::primitive(v, Nullability::NonNullable)
+                .cast(&target)
+                .is_ok()
+        };
+        if !fits(min) || !fits(max) {
+            vortex_bail!(
+                Compute: "Cannot cast {} to {} — value exceeds target range",
+                F::PTYPE, T::PTYPE,
+            );
+        }
+    }
+
+    Ok(PrimitiveArray::new(out.freeze(), new_validity).into_array())
+}
+
+/// Fused cast + min/max for an all-valid run. Writes `values as T` into `dst` and returns the
+/// numeric min/max of `values`, ignoring NaN. Returns `None` when there is no non-NaN value (so
+/// the caller skips the range check, since nothing can be out of range).
+#[multiversion::multiversion(targets("x86_64+avx512f", "x86_64+avx2", "aarch64+neon"))]
+fn cast_and_bounds_all<F, T>(values: &[F], dst: &mut [T]) -> Option<(F, F)>
+where
+    F: NativePType + AsPrimitive<T> + PartialOrd + Bounded,
+    T: NativePType,
+{
+    let mut vmin = F::max_value();
+    let mut vmax = F::min_value();
+    for (out, &v) in dst.iter_mut().zip(values) {
+        *out = v.as_();
+        // NaN fails both comparisons and is therefore skipped, matching `min_max` semantics.
+        if v < vmin {
+            vmin = v;
+        }
+        if v > vmax {
+            vmax = v;
+        }
+    }
+    // `vmin <= vmax` holds exactly when at least one non-NaN value was folded.
+    (vmin <= vmax).then_some((vmin, vmax))
+}
+
+/// Fused cast + validity-aware min/max. Writes `values as T` into `dst` for every lane, but folds
+/// only lanes whose validity bit is set into the returned min/max (NaN excluded). Invalid lanes
+/// may hold out-of-range values; those are masked out and never affect the bounds.
+#[multiversion::multiversion(targets("x86_64+avx512f", "x86_64+avx2", "aarch64+neon"))]
+fn cast_and_bounds_masked<F, T>(values: &[F], validity: &BitBuffer, dst: &mut [T]) -> Option<(F, F)>
+where
+    F: NativePType + AsPrimitive<T> + PartialOrd + Bounded,
+    T: NativePType,
+{
+    let mut vmin = F::max_value();
+    let mut vmax = F::min_value();
+
+    let chunks = validity.chunks();
+    let mut base = 0usize;
+    for word in chunks.iter() {
+        let vblk = &values[base..base + 64];
+        let oblk = &mut dst[base..base + 64];
+        // Cast all 64 lanes unconditionally; this vectorizes regardless of validity.
+        for (out, &v) in oblk.iter_mut().zip(vblk) {
+            *out = v.as_();
+        }
+        if word == u64::MAX {
+            // Whole chunk valid: a plain branch-free min/max that the compiler can vectorize.
+            for &v in vblk {
+                if v < vmin {
+                    vmin = v;
+                }
+                if v > vmax {
+                    vmax = v;
+                }
+            }
+        } else if word != 0 {
+            for (j, &v) in vblk.iter().enumerate() {
+                if (word >> j) & 1 != 0 {
+                    if v < vmin {
+                        vmin = v;
+                    }
+                    if v > vmax {
+                        vmax = v;
+                    }
+                }
+            }
+        }
+        base += 64;
+    }
+
+    // Trailing lanes that don't fill a 64-bit chunk.
+    let remainder = chunks.remainder_bits();
+    for (j, (&v, out)) in values[base..]
+        .iter()
+        .zip(dst[base..].iter_mut())
+        .enumerate()
+    {
+        *out = v.as_();
+        if (remainder >> j) & 1 != 0 {
+            if v < vmin {
+                vmin = v;
+            }
+            if v > vmax {
+                vmax = v;
+            }
+        }
+    }
+
+    (vmin <= vmax).then_some((vmin, vmax))
 }
 
 /// Out-of-range values at invalid positions are truncated/wrapped by `as`, which is fine because
@@ -452,6 +559,70 @@ mod test {
             casted,
             PrimitiveArray::from_option_iter([None, Some(10u8), Some(42)])
         );
+        Ok(())
+    }
+
+    /// Fused fallible path: a *valid* out-of-range value must make the cast fail, even when an
+    /// invalid lane also holds an out-of-range value.
+    #[test]
+    fn cast_masked_valid_out_of_range_errors() {
+        let arr = PrimitiveArray::new(
+            buffer![1000u32, 300u32, 42u32],
+            Validity::from_iter([false, true, true]),
+        );
+        #[expect(deprecated)]
+        let err = arr
+            .into_array()
+            .cast(DType::Primitive(PType::U8, Nullability::Nullable))
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()))
+            .unwrap_err();
+        assert!(matches!(err, VortexError::Compute(..)));
+        assert!(err.to_string().contains("exceeds target range"));
+    }
+
+    /// Fused fallible path with no nulls: an out-of-range value must fail.
+    #[test]
+    fn cast_all_valid_out_of_range_errors() {
+        let arr = buffer![10u32, 1000u32, 42u32].into_array();
+        #[expect(deprecated)]
+        let err = arr
+            .cast(PType::U8.into())
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()))
+            .unwrap_err();
+        assert!(matches!(err, VortexError::Compute(..)));
+    }
+
+    /// Float-to-int through the fused path: out-of-range and non-finite *valid* values fail,
+    /// while the same garbage at invalid positions is harmless.
+    #[test]
+    fn cast_f64_to_i32_masked() -> vortex_error::VortexResult<()> {
+        // The invalid lane holds a value far outside i32 range; it must not trigger an error.
+        let arr = PrimitiveArray::new(
+            buffer![1e18f64, -5.0, 7.0],
+            Validity::from_iter([false, true, true]),
+        );
+        #[expect(deprecated)]
+        let casted = arr
+            .into_array()
+            .cast(DType::Primitive(PType::I32, Nullability::Nullable))?
+            .to_primitive();
+        assert_arrays_eq!(
+            casted,
+            PrimitiveArray::from_option_iter([None, Some(-5i32), Some(7)])
+        );
+
+        // A valid out-of-range float must fail.
+        let arr = PrimitiveArray::new(
+            buffer![1.0f64, 1e18, 7.0],
+            Validity::from_iter([true, true, true]),
+        );
+        #[expect(deprecated)]
+        let err = arr
+            .into_array()
+            .cast(DType::Primitive(PType::I32, Nullability::Nullable))
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()))
+            .unwrap_err();
+        assert!(matches!(err, VortexError::Compute(..)));
         Ok(())
     }
 

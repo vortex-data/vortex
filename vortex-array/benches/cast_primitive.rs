@@ -46,3 +46,58 @@ fn cast_u16_to_u32(bencher: Bencher) {
             .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
     });
 }
+
+/// Narrowing cast on nullable data with *no* precomputed stats: exercises the fused fallible
+/// kernel (validity-aware min/max + cast in one pass).
+#[divan::bench]
+fn cast_u32_to_u8_nullable(bencher: Bencher) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let arr = PrimitiveArray::from_option_iter((0..N).map(|_| {
+        if rng.random_bool(0.5) {
+            None
+        } else {
+            Some(rng.random_range(0u32..=255))
+        }
+    }))
+    .into_array();
+    bencher.with_inputs(|| arr.clone()).bench_refs(|a| {
+        #[expect(clippy::unwrap_used)]
+        a.cast(DType::Primitive(PType::U8, Nullability::Nullable))
+            .unwrap()
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+    });
+}
+
+/// Float-to-int narrowing on nullable data with no precomputed stats.
+#[divan::bench]
+fn cast_f64_to_i32_nullable(bencher: Bencher) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let arr = PrimitiveArray::from_option_iter((0..N).map(|_| {
+        if rng.random_bool(0.5) {
+            None
+        } else {
+            Some(rng.random_range(-1000.0f64..=1000.0))
+        }
+    }))
+    .into_array();
+    bencher.with_inputs(|| arr.clone()).bench_refs(|a| {
+        #[expect(clippy::unwrap_used)]
+        a.cast(DType::Primitive(PType::I32, Nullability::Nullable))
+            .unwrap()
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+    });
+}
+
+/// Float-to-int narrowing on dense (all-valid) data with no precomputed stats.
+#[divan::bench]
+fn cast_f64_to_i32_dense(bencher: Bencher) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let arr = PrimitiveArray::from_iter((0..N).map(|_| rng.random_range(-1000.0f64..=1000.0)))
+        .into_array();
+    bencher.with_inputs(|| arr.clone()).bench_refs(|a| {
+        #[expect(clippy::unwrap_used)]
+        a.cast(DType::Primitive(PType::I32, Nullability::Nullable))
+            .unwrap()
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+    });
+}
