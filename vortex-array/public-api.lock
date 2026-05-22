@@ -15310,6 +15310,8 @@ pub vortex_array::scalar::DecimalValue::I8(i8)
 
 impl vortex_array::scalar::DecimalValue
 
+pub fn vortex_array::scalar::DecimalValue::as_i256(&self) -> vortex_array::dtype::i256
+
 pub fn vortex_array::scalar::DecimalValue::cast<T: vortex_array::dtype::NativeDecimalType>(&self) -> core::option::Option<T>
 
 pub fn vortex_array::scalar::DecimalValue::checked_add(&self, &Self) -> core::option::Option<Self>
