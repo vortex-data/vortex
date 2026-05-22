@@ -103,6 +103,62 @@ impl CastKernel for Primitive {
     }
 }
 
+/// Cast values from `F` to `T`. For infallible casts this is a pure pass; for fallible casts
+/// each valid value goes through a checked `NumCast::from` and the kernel bails if any of them
+/// overflow `T`. Invalid positions use the wrapping `as` cast since their values are masked out.
+fn cast_values<F, T>(
+    array: ArrayView<'_, Primitive>,
+    new_validity: Validity,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef>
+where
+    F: NativePType + AsPrimitive<T>,
+    T: NativePType,
+{
+    let values = array.as_slice::<F>();
+
+    // Fast path: statically infallible, or cached min/max prove every valid value fits in `T`.
+    // The cached check never triggers a stats computation — if the bounds aren't already known
+    // we fall through to the per-lane loop below.
+    if values_always_fit(F::PTYPE, T::PTYPE) || values_fit_in(array, T::PTYPE, ctx, false) {
+        return Ok(PrimitiveArray::new(cast::<F, T>(values), new_validity).into_array());
+    }
+
+    // Fallible: invalid lanes are pre-multiplied to zero so the checked cast always succeeds for
+    // them; valid lanes go through `NumCast::from` and the whole cast bails on the first overflow.
+    let mask = array.validity()?.execute_mask(array.len(), ctx)?;
+    let overflow = || {
+        vortex_err!(
+            Compute: "Cannot cast {} to {} — value exceeds target range",
+            F::PTYPE, T::PTYPE,
+        )
+    };
+    let buffer: Buffer<T> = match &mask {
+        Mask::AllTrue(_) => BufferMut::try_from_trusted_len_iter(
+            values
+                .iter()
+                .map(|&v| <T as NumCast>::from(v).ok_or_else(overflow)),
+        )?
+        .freeze(),
+        Mask::AllFalse(_) => BufferMut::<T>::zeroed(values.len()).freeze(),
+        Mask::Values(m) => BufferMut::try_from_trusted_len_iter(
+            values.iter().zip(m.bit_buffer().iter()).map(|(&v, valid)| {
+                let factor = if valid { F::one() } else { F::zero() };
+                <T as NumCast>::from(v * factor).ok_or_else(overflow)
+            }),
+        )?
+        .freeze(),
+    };
+
+    Ok(PrimitiveArray::new(buffer, new_validity).into_array())
+}
+
+/// Out-of-range values at invalid positions are truncated/wrapped by `as`, which is fine because
+/// they are masked out by validity.
+fn cast<F: NativePType + AsPrimitive<T>, T: NativePType>(array: &[F]) -> Buffer<T> {
+    BufferMut::from_trusted_len_iter(array.iter().map(|&src| src.as_())).freeze()
+}
+
 fn reinterpret(
     array: ArrayView<'_, Primitive>,
     new_ptype: PType,
@@ -168,62 +224,6 @@ fn cached_values_fit_in(array: ArrayView<'_, Primitive>, target_dtype: &DType) -
     let min = stats.get(Stat::Min).and_then(Precision::as_exact)?;
     let max = stats.get(Stat::Max).and_then(Precision::as_exact)?;
     Some(min.cast(target_dtype).is_ok() && max.cast(target_dtype).is_ok())
-}
-
-/// Cast values from `F` to `T`. For infallible casts this is a pure pass; for fallible casts
-/// each valid value goes through a checked `NumCast::from` and the kernel bails if any of them
-/// overflow `T`. Invalid positions use the wrapping `as` cast since their values are masked out.
-fn cast_values<F, T>(
-    array: ArrayView<'_, Primitive>,
-    new_validity: Validity,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef>
-where
-    F: NativePType + AsPrimitive<T>,
-    T: NativePType,
-{
-    let values = array.as_slice::<F>();
-
-    // Fast path: statically infallible, or cached min/max prove every valid value fits in `T`.
-    // The cached check never triggers a stats computation — if the bounds aren't already known
-    // we fall through to the per-lane loop below.
-    if values_always_fit(F::PTYPE, T::PTYPE) || values_fit_in(array, T::PTYPE, ctx, false) {
-        return Ok(PrimitiveArray::new(cast::<F, T>(values), new_validity).into_array());
-    }
-
-    // Fallible: invalid lanes are pre-multiplied to zero so the checked cast always succeeds for
-    // them; valid lanes go through `NumCast::from` and the whole cast bails on the first overflow.
-    let mask = array.validity()?.execute_mask(array.len(), ctx)?;
-    let overflow = || {
-        vortex_err!(
-            Compute: "Cannot cast {} to {} — value exceeds target range",
-            F::PTYPE, T::PTYPE,
-        )
-    };
-    let buffer: Buffer<T> = match &mask {
-        Mask::AllTrue(_) => BufferMut::try_from_trusted_len_iter(
-            values
-                .iter()
-                .map(|&v| <T as NumCast>::from(v).ok_or_else(overflow)),
-        )?
-        .freeze(),
-        Mask::AllFalse(_) => BufferMut::<T>::zeroed(values.len()).freeze(),
-        Mask::Values(m) => BufferMut::try_from_trusted_len_iter(
-            values.iter().zip(m.bit_buffer().iter()).map(|(&v, valid)| {
-                let factor = if valid { F::one() } else { F::zero() };
-                <T as NumCast>::from(v * factor).ok_or_else(overflow)
-            }),
-        )?
-        .freeze(),
-    };
-
-    Ok(PrimitiveArray::new(buffer, new_validity).into_array())
-}
-
-/// Out-of-range values at invalid positions are truncated/wrapped by `as`, which is fine because
-/// they are masked out by validity.
-fn cast<F: NativePType + AsPrimitive<T>, T: NativePType>(array: &[F]) -> Buffer<T> {
-    BufferMut::from_trusted_len_iter(array.iter().map(|&src| src.as_())).freeze()
 }
 
 #[cfg(test)]
