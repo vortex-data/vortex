@@ -3,6 +3,8 @@
 
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 mod avx2;
+#[cfg(vortex_mojo)]
+mod mojo;
 
 use std::sync::LazyLock;
 
@@ -28,19 +30,20 @@ use crate::validity::Validity;
 
 // Kernel selection happens on the first call to `take` and uses a combination of compile-time
 // and runtime feature detection to infer the best kernel for the platform.
+// Priority: vortex_mojo > avx2 > scalar.
 static PRIMITIVE_TAKE_KERNEL: LazyLock<&'static dyn TakeImpl> = LazyLock::new(|| {
-    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
-    {
-        if is_x86_feature_detected!("avx2") {
-            &avx2::TakeKernelAVX2
+    cfg_if::cfg_if! {
+        if #[cfg(vortex_mojo)] {
+            &mojo::TakeKernelMojo
+        } else if #[cfg(any(target_arch = "x86_64", target_arch = "x86"))] {
+            if is_x86_feature_detected!("avx2") {
+                &avx2::TakeKernelAVX2
+            } else {
+                &TakeKernelScalar
+            }
         } else {
             &TakeKernelScalar
         }
-    }
-
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "x86")))]
-    {
-        &TakeKernelScalar
     }
 });
 
@@ -53,6 +56,7 @@ trait TakeImpl: Send + Sync {
     ) -> VortexResult<ArrayRef>;
 }
 
+#[allow(unused)]
 struct TakeKernelScalar;
 
 impl TakeImpl for TakeKernelScalar {

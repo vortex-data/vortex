@@ -186,6 +186,17 @@ pub fn runend_decode_primitive(
     length: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
+    // Fast path: when Mojo kernels are available, non-nullable, and offset is zero we can
+    // dispatch directly to the SIMD broadcast-fill kernel.
+    #[cfg(vortex_mojo)]
+    {
+        if offset == 0 && values.dtype().nullability() == Nullability::NonNullable {
+            if let Some(result) = mojo_decode::try_mojo_decode(&ends, &values, length) {
+                return Ok(result);
+            }
+        }
+    }
+
     let validity_mask = values
         .as_ref()
         .validity()?
@@ -201,6 +212,135 @@ pub fn runend_decode_primitive(
             )
         })
     }))
+}
+
+#[cfg(vortex_mojo)]
+mod mojo_decode {
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::primitive::PrimitiveArrayExt;
+    use vortex_array::dtype::NativePType;
+    use vortex_array::dtype::PType;
+    use vortex_array::match_each_native_ptype;
+    use vortex_array::match_each_unsigned_integer_ptype;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::BufferMut;
+
+    unsafe extern "C" {
+        // u32 ends
+        fn vortex_runend_decode_1byte(
+            ends: usize,
+            vals: usize,
+            dst: usize,
+            n_runs: usize,
+            out_len: usize,
+        );
+        fn vortex_runend_decode_2byte(
+            ends: usize,
+            vals: usize,
+            dst: usize,
+            n_runs: usize,
+            out_len: usize,
+        );
+        fn vortex_runend_decode_4byte(
+            ends: usize,
+            vals: usize,
+            dst: usize,
+            n_runs: usize,
+            out_len: usize,
+        );
+        fn vortex_runend_decode_8byte(
+            ends: usize,
+            vals: usize,
+            dst: usize,
+            n_runs: usize,
+            out_len: usize,
+        );
+
+        // u64 ends
+        fn vortex_runend_decode_1byte_u64ends(
+            ends: usize,
+            vals: usize,
+            dst: usize,
+            n_runs: usize,
+            out_len: usize,
+        );
+        fn vortex_runend_decode_2byte_u64ends(
+            ends: usize,
+            vals: usize,
+            dst: usize,
+            n_runs: usize,
+            out_len: usize,
+        );
+        fn vortex_runend_decode_4byte_u64ends(
+            ends: usize,
+            vals: usize,
+            dst: usize,
+            n_runs: usize,
+            out_len: usize,
+        );
+        fn vortex_runend_decode_8byte_u64ends(
+            ends: usize,
+            vals: usize,
+            dst: usize,
+            n_runs: usize,
+            out_len: usize,
+        );
+    }
+
+    type DecodeFn = unsafe extern "C" fn(usize, usize, usize, usize, usize);
+
+    fn dispatch_func(ends_ptype: PType, val_width: usize) -> Option<DecodeFn> {
+        match (ends_ptype, val_width) {
+            (PType::U32, 1) => Some(vortex_runend_decode_1byte),
+            (PType::U32, 2) => Some(vortex_runend_decode_2byte),
+            (PType::U32, 4) => Some(vortex_runend_decode_4byte),
+            (PType::U32, 8) => Some(vortex_runend_decode_8byte),
+            (PType::U64, 1) => Some(vortex_runend_decode_1byte_u64ends),
+            (PType::U64, 2) => Some(vortex_runend_decode_2byte_u64ends),
+            (PType::U64, 4) => Some(vortex_runend_decode_4byte_u64ends),
+            (PType::U64, 8) => Some(vortex_runend_decode_8byte_u64ends),
+            _ => None,
+        }
+    }
+
+    /// Try to dispatch to a Mojo runend decode kernel.  Returns `None` when the
+    /// ends/value type combination is not covered.
+    pub(super) fn try_mojo_decode(
+        ends: &PrimitiveArray,
+        values: &PrimitiveArray,
+        length: usize,
+    ) -> Option<PrimitiveArray> {
+        let val_width = values.ptype().byte_width();
+        let func = dispatch_func(ends.ptype(), val_width)?;
+
+        Some(match_each_native_ptype!(values.ptype(), |V| {
+            match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
+                decode_typed::<V, E>(func, ends.as_slice::<E>(), values.as_slice::<V>(), length)
+            })
+        }))
+    }
+
+    fn decode_typed<V: NativePType, E: NativePType>(
+        func: DecodeFn,
+        ends: &[E],
+        vals: &[V],
+        length: usize,
+    ) -> PrimitiveArray {
+        let n_runs = ends.len();
+        let mut dst = BufferMut::<V>::with_capacity(length);
+        let dst_ptr = dst.spare_capacity_mut().as_mut_ptr() as usize;
+        let ends_ptr = ends.as_ptr() as usize;
+        let vals_ptr = vals.as_ptr() as usize;
+
+        // SAFETY: The Mojo kernel reads `n_runs` ends and values, and writes `length`
+        // decoded elements into `dst`.  All pointers are valid and sizes are correct.
+        unsafe {
+            func(ends_ptr, vals_ptr, dst_ptr, n_runs, length);
+            dst.set_len(length);
+        }
+
+        PrimitiveArray::new(dst.freeze(), Validity::NonNullable)
+    }
 }
 
 /// Decode a run-end encoded slice of values into a flat `Buffer<T>` and `Validity`.
