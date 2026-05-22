@@ -79,15 +79,74 @@ pub(crate) fn unpack_into_primitive_builder<T: BitPackedUnpack>(
     Ok(())
 }
 
+/// Unpack a bit-packed array of physical type `F` directly into a wider primitive type `T`,
+/// casting each value during decompression.
+///
+/// This is the "cast pushdown" path: rather than canonicalizing to a full-length `F`-typed
+/// `PrimitiveArray` and then casting it to `T` (two full-length buffers, with the `F` intermediate
+/// written out to RAM), we unpack each 1024-element FastLanes chunk into a small cache-resident
+/// scratch buffer and cast-copy straight into the `T` output. Only the `T` output buffer is
+/// allocated and touched in RAM.
+///
+/// The caller must ensure all valid values are representable in `T` (it is intended for widening
+/// casts such as `u16 -> u32`); narrowing or sign-changing casts are not validated here.
+pub(crate) fn unpack_and_cast_into_builder<F, T>(
+    array: ArrayView<'_, BitPacked>,
+    builder: &mut PrimitiveBuilder<T>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()>
+where
+    F: BitPackedUnpack + AsPrimitive<T>,
+    T: NativePType,
+{
+    if array.is_empty() {
+        return Ok(());
+    }
+
+    let len = array.len();
+    let mut uninit_range = builder.uninit_range(len);
+
+    // SAFETY: We initialize all `len` values below via `decode_map_into` and the patch loop.
+    unsafe {
+        uninit_range.append_mask(array.validity()?.execute_mask(len, ctx)?);
+    }
+
+    // SAFETY: `decode_map_into` writes a value to every slot in this range.
+    let uninit_slice = unsafe { uninit_range.slice_uninit_mut(0, len) };
+
+    let mut chunks = array.unpacked_chunks::<F>()?;
+    chunks.decode_map_into(uninit_slice, |v: F| v.as_());
+
+    if let Some(patches) = array.patches() {
+        apply_patches_to_uninit_range_map(&mut uninit_range, &patches, ctx, |v: F| v.as_())?;
+    }
+
+    // SAFETY: A correct validity mask of `len` values was set via `append_mask`, and the same
+    // number of values was initialized via `decode_map_into` (and overwritten by patches).
+    unsafe {
+        uninit_range.finish();
+    }
+    Ok(())
+}
+
 pub fn apply_patches_to_uninit_range<T: NativePType>(
     dst: &mut UninitRange<T>,
     patches: &Patches,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    apply_patches_to_uninit_range_fn(dst, patches, ctx, |x| x)
+    apply_patches_to_uninit_range_fn(dst, patches, ctx, |v: T| v)
 }
 
 pub fn apply_patches_to_uninit_range_fn<T: NativePType, F: Fn(T) -> T>(
+    dst: &mut UninitRange<T>,
+    patches: &Patches,
+    ctx: &mut ExecutionCtx,
+    f: F,
+) -> VortexResult<()> {
+    apply_patches_to_uninit_range_map(dst, patches, ctx, f)
+}
+
+pub(crate) fn apply_patches_to_uninit_range_map<S: NativePType, T: NativePType, F: Fn(S) -> T>(
     dst: &mut UninitRange<T>,
     patches: &Patches,
     ctx: &mut ExecutionCtx,
@@ -98,7 +157,7 @@ pub fn apply_patches_to_uninit_range_fn<T: NativePType, F: Fn(T) -> T>(
     let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
     let values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
     assert!(values.all_valid(ctx)?, "Patch values must be all valid");
-    let values = values.as_slice::<T>();
+    let values = values.as_slice::<S>();
 
     match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
         for (index, &value) in indices.as_slice::<P>().iter().zip_eq(values) {
