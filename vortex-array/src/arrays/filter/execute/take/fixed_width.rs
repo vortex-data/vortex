@@ -106,7 +106,7 @@ where
             };
 
             let output_validity = if child_validity.no_nulls() {
-                ranks_validity
+                ranks_validity.union_nullability(child_validity.nullability())
             } else {
                 let translated_indices =
                     PrimitiveArray::new(translate_ranks(filter, ranks, None)?, ranks_validity)
@@ -121,7 +121,7 @@ where
             let taken = take_filtered_values(child.as_slice(), filter, ranks, Some(buf))?;
 
             let output_validity = if child_validity.no_nulls() {
-                ranks_validity
+                ranks_validity.union_nullability(child_validity.nullability())
             } else {
                 let translated_indices =
                     PrimitiveArray::new(translate_ranks(filter, ranks, Some(buf))?, ranks_validity)
