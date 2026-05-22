@@ -56,6 +56,7 @@ fn main() {
     generate_unpack::<u64>(&kernels_src, 16).expect("Failed to generate unpack for u64");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set"));
+    generate_arrow_device_array_bindings(Path::new(&manifest_dir), &out_dir);
     generate_dynamic_dispatch_bindings(&kernels_src, &out_dir);
     generate_patches_bindings(&kernels_src, &out_dir);
 
@@ -194,6 +195,30 @@ fn nvcc_compile_ptx(
         )));
     }
     Ok(())
+}
+
+/// Generate bindings for the vendored Arrow C Device ABI header.
+fn generate_arrow_device_array_bindings(manifest_dir: &Path, out_dir: &Path) {
+    let header = manifest_dir.join("src/arrow/reference/arrow_c_device.h");
+    println!("cargo:rerun-if-changed={}", header.display());
+
+    let bindings = bindgen::Builder::default()
+        .header(header.to_string_lossy())
+        .allowlist_type("ArrowArray")
+        .allowlist_type("ArrowDeviceArray")
+        .allowlist_type("ArrowDeviceType")
+        .allowlist_var("ARROW_DEVICE_.*")
+        // ArrowArray/ArrowDeviceArray own producer state through release/private_data.
+        // Shallow copies must use Arrow C move semantics, not Rust Copy/Clone.
+        .derive_copy(false)
+        .derive_debug(true)
+        .layout_tests(false)
+        .generate()
+        .expect("Failed to generate Arrow C Device bindings");
+
+    bindings
+        .write_to_file(out_dir.join("arrow_c_abi.rs"))
+        .expect("Failed to write arrow_c_abi.rs");
 }
 
 /// Generate bindings for the dynamic dispatch shared header.

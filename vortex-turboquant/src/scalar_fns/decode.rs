@@ -203,11 +203,21 @@ fn build_empty_vector(
     })
 }
 
+/// Borrowed bundle of the per-array decode inputs passed to the typed inner loop.
+///
+/// Packaged as a struct rather than positional arguments because `decode_typed` runs through
+/// [`vortex_array::match_each_float_ptype!`] which expands once per supported element ptype.
+/// Each expansion takes the same set of inputs, and the struct keeps the call site short.
 struct DecodeInputs<'a> {
+    /// TurboQuant metadata recovered from the input extension dtype.
     metadata: &'a TurboQuantMetadata,
+    /// SORF transform reconstructed from `metadata.seed` and `metadata.num_rounds`.
     sorf_matrix: &'a SorfMatrix,
+    /// Centroid codebook for `(padded_dim, bit_width)`, in f32.
     centroids: &'a [f32],
+    /// Per-row stored L2 norm of the original input vector, in the element ptype.
     norms: &'a PrimitiveArray,
+    /// Flat per-row centroid indices, `num_vectors * padded_dim` bytes.
     codes: &'a PrimitiveArray,
 }
 

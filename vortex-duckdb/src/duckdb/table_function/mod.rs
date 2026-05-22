@@ -16,6 +16,7 @@ mod init;
 pub use bind::*;
 pub use init::*;
 
+use crate::convert::can_push_expression;
 use crate::cpp;
 use crate::duckdb::DataChunk;
 use crate::duckdb::DatabaseRef;
@@ -171,6 +172,26 @@ impl DatabaseRef {
 
         Ok(())
     }
+}
+
+/*
+ * Called before pushdown_complex_filter or a table filter expression call.
+ * As we support complex filter pushdown, Duckdb pushes expressions to Vortex.
+ * However, it doesn't know what type of expressions we can handle. Here we list
+ * all expressions that are quaranteed to be converted to Vortex expressions.
+ *
+ * If we return true here, and expression is in the list for
+ * pushdown_complex_filter, we must handle it, or query engine will break.
+ *
+ * Example: we don't support substr() expression so we tell Duckdb we can't
+ * push it.
+ * Example: optional filters may fail to parse on our side (we return
+ * Ok(None)), so we don't allow pushing these.
+ */
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn duckdb_vx_pushdown_expression(expr: cpp::duckdb_vx_expr) -> bool {
+    let expr = unsafe { Expression::borrow(expr) };
+    can_push_expression(expr)
 }
 
 unsafe extern "C-unwind" fn to_string_callback<T: TableFunction>(

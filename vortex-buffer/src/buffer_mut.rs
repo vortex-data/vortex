@@ -644,6 +644,66 @@ impl<T> BufferMut<T> {
         buffer.extend_trusted(iter);
         buffer
     }
+
+    /// Like [`extend_trusted()`](Self::extend_trusted), but the iterator yields `Result<T, E>`
+    /// and the extension short-circuits on the first `Err`.
+    ///
+    /// On error, items written before the failure remain in the buffer.
+    pub fn try_extend_trusted<E, I>(&mut self, iter: I) -> Result<(), E>
+    where
+        I: TrustedLen<Item = Result<T, E>>,
+    {
+        let (_, upper_bound) = iter.size_hint();
+        self.reserve(
+            upper_bound
+                .vortex_expect("`TrustedLen` iterator somehow didn't have valid upper bound"),
+        );
+
+        let begin: *const T = self.bytes.spare_capacity_mut().as_mut_ptr().cast();
+        let mut dst: *mut T = begin.cast_mut();
+        let mut result: Result<(), E> = Ok(());
+
+        for item in iter {
+            match item {
+                Ok(value) => {
+                    // SAFETY: We reserved enough capacity to hold this item, and `dst` is a
+                    // pointer derived from a valid reference to byte data.
+                    unsafe { dst.write(value) };
+                    // SAFETY: The offset fits in `isize` because we reserved that much capacity.
+                    unsafe { dst = dst.add(1) };
+                }
+                Err(e) => {
+                    result = Err(e);
+                    break;
+                }
+            }
+        }
+
+        // SAFETY: `dst` was derived from `begin`, both valid references to byte data, and
+        // `dst >= begin` since the only operation on `dst` is `add`.
+        let items_written = unsafe { dst.offset_from_unsigned(begin) };
+        let length = self.len() + items_written;
+        // SAFETY: We have written valid items between the old length and the new length.
+        unsafe { self.set_len(length) };
+
+        result
+    }
+
+    /// Like [`from_trusted_len_iter()`](Self::from_trusted_len_iter), but the iterator yields
+    /// `Result<T, E>` and construction short-circuits on the first `Err`.
+    pub fn try_from_trusted_len_iter<E, I>(iter: I) -> Result<Self, E>
+    where
+        I: TrustedLen<Item = Result<T, E>>,
+    {
+        let (_, upper_bound) = iter.size_hint();
+        let mut buffer = Self::with_capacity(
+            upper_bound
+                .vortex_expect("`TrustedLen` iterator somehow didn't have valid upper bound"),
+        );
+
+        buffer.try_extend_trusted(iter)?;
+        Ok(buffer)
+    }
 }
 
 impl<T> Extend<T> for BufferMut<T> {
@@ -812,6 +872,25 @@ mod test {
     fn from_iter() {
         let buf = BufferMut::from_iter([0, 10, 20, 30]);
         assert_eq!(buf.as_slice(), &[0, 10, 20, 30]);
+    }
+
+    #[test]
+    fn try_from_trusted_len_iter_ok() {
+        let buf = BufferMut::<i32>::try_from_trusted_len_iter(
+            [0, 10, 20, 30].iter().map(|&v| Ok::<_, ()>(v)),
+        )
+        .unwrap();
+        assert_eq!(buf.as_slice(), &[0, 10, 20, 30]);
+    }
+
+    #[test]
+    fn try_from_trusted_len_iter_err() {
+        let result: Result<BufferMut<i32>, &'static str> = BufferMut::try_from_trusted_len_iter(
+            [0, 10, 20, 30]
+                .iter()
+                .map(|&v| if v == 20 { Err("bad") } else { Ok(v) }),
+        );
+        assert_eq!(result.err(), Some("bad"));
     }
 
     #[test]

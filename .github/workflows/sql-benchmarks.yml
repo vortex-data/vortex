@@ -503,7 +503,6 @@ jobs:
 
       - name: Ingest results to v3 server
         if: inputs.mode == 'develop' && vars.V3_INGEST_URL != ''
-        continue-on-error: true
         shell: bash
         env:
           INGEST_BEARER_TOKEN: ${{ secrets.INGEST_BEARER_TOKEN }}

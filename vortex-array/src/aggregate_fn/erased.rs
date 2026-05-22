@@ -16,6 +16,7 @@ use vortex_utils::debug_with::DebugWith;
 
 use crate::aggregate_fn::AccumulatorRef;
 use crate::aggregate_fn::AggregateFnId;
+use crate::aggregate_fn::AggregateFnSatisfaction;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::GroupedAccumulatorRef;
 use crate::aggregate_fn::options::AggregateFnOptions;
@@ -72,6 +73,11 @@ impl AggregateFnRef {
     /// The type-erased options for this aggregate function.
     pub fn options(&self) -> AggregateFnOptions<'_> {
         AggregateFnOptions { inner: &*self.0 }
+    }
+
+    /// Return whether this stored aggregate can satisfy `requested`.
+    pub fn can_satisfy(&self, requested: &AggregateFnRef) -> AggregateFnSatisfaction {
+        self.0.can_satisfy(requested)
     }
 
     /// Coerce the input type for this aggregate function.

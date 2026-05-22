@@ -18,9 +18,14 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::Filter;
+use crate::arrays::dict::TakeExecuteAdaptor;
 use crate::kernel::ExecuteParentKernel;
+use crate::kernel::ParentKernelSet;
 use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
+
+pub(super) const PARENT_KERNELS: ParentKernelSet<Filter> =
+    ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor(Filter))]);
 
 pub trait FilterReduce: VTable {
     /// Filter an array with the provided mask without reading buffers.

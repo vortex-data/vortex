@@ -27,6 +27,8 @@ async fn static_assets_are_served() -> Result<()> {
         ),
         ("/static/chart-init.js", "application/javascript"),
         ("/static/style.css", "text/css"),
+        ("/static/icon-light.png", "image/png"),
+        ("/static/icon-dark.png", "image/png"),
         ("/Vortex_Black_NoBG.png", "image/png"),
         ("/Vortex_White_NoBG.png", "image/png"),
     ] {

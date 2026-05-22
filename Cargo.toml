@@ -120,7 +120,7 @@ cargo_metadata = "0.23.1"
 cbindgen = "0.29.0"
 cc = "1.2"
 cfg-if = "1.0.1"
-chrono = "0.4.42"
+chrono = "0.4.44"
 clap = "4.5"
 criterion = "0.8"
 crossterm = "0.29"
@@ -289,6 +289,7 @@ vortex-ipc = { version = "0.1.0", path = "./vortex-ipc", default-features = fals
 vortex-layout = { version = "0.1.0", path = "./vortex-layout", default-features = false }
 vortex-mask = { version = "0.1.0", path = "./vortex-mask", default-features = false }
 vortex-metrics = { version = "0.1.0", path = "./vortex-metrics", default-features = false }
+vortex-parquet-variant = { version = "0.1.0", path = "./encodings/parquet-variant" }
 vortex-pco = { version = "0.1.0", path = "./encodings/pco", default-features = false }
 vortex-proto = { version = "0.1.0", path = "./vortex-proto", default-features = false }
 vortex-runend = { version = "0.1.0", path = "./encodings/runend", default-features = false }
