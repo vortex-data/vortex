@@ -134,7 +134,7 @@ fn between_impl<T: NativeDecimalType>(
     BoolArray::new(
         BitBuffer::collect_bool(buffer.len(), |idx| {
             let value = buffer[idx];
-            lower.map_or(true, |l| lower_op(l, value)) & upper.map_or(true, |u| upper_op(value, u))
+            lower.is_none_or(|l| lower_op(l, value)) & upper.is_none_or(|u| upper_op(value, u))
         }),
         arr.validity()
             .vortex_expect("validity should be derivable")
