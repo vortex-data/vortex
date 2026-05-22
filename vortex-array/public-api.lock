@@ -13014,6 +13014,8 @@ pub fn vortex_array::expr::stats::Precision<T>::to_inexact(&self) -> Self
 
 impl<T> vortex_array::expr::stats::Precision<T>
 
+pub fn vortex_array::expr::stats::Precision<T>::and_then<U, F: core::ops::function::FnOnce(T) -> core::option::Option<U>>(self, F) -> vortex_array::expr::stats::Precision<U>
+
 pub fn vortex_array::expr::stats::Precision<T>::as_exact(self) -> core::option::Option<T>
 
 pub fn vortex_array::expr::stats::Precision<T>::as_inexact(self) -> core::option::Option<T>
@@ -13039,10 +13041,6 @@ pub fn vortex_array::expr::stats::Precision<T>::zip<U>(self, vortex_array::expr:
 impl<T> vortex_array::expr::stats::Precision<T>
 
 pub fn vortex_array::expr::stats::Precision<T>::bound<S: vortex_array::expr::stats::StatType<T>>(self) -> core::option::Option<<S as vortex_array::expr::stats::StatType>::Bound>
-
-impl<T> vortex_array::expr::stats::Precision<core::option::Option<T>>
-
-pub fn vortex_array::expr::stats::Precision<core::option::Option<T>>::transpose(self) -> core::option::Option<vortex_array::expr::stats::Precision<T>>
 
 impl<T: core::clone::Clone> core::clone::Clone for vortex_array::expr::stats::Precision<T>
 

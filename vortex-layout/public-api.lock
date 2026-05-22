@@ -974,7 +974,7 @@ pub fn vortex_layout::scan::layout::LayoutReaderDataSource::with_split_max_row_c
 
 impl vortex_scan::DataSource for vortex_layout::scan::layout::LayoutReaderDataSource
 
-pub fn vortex_layout::scan::layout::LayoutReaderDataSource::byte_size(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<u64>>
+pub fn vortex_layout::scan::layout::LayoutReaderDataSource::byte_size(&self) -> vortex_array::expr::stats::precision::Precision<u64>
 
 pub fn vortex_layout::scan::layout::LayoutReaderDataSource::deserialize_partition(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_scan::PartitionRef>
 
@@ -982,7 +982,7 @@ pub fn vortex_layout::scan::layout::LayoutReaderDataSource::dtype(&self) -> &vor
 
 pub fn vortex_layout::scan::layout::LayoutReaderDataSource::field_statistics<'life0, 'life1, 'async_trait>(&'life0 self, &'life1 vortex_array::dtype::field::FieldPath) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_array::stats::stats_set::StatsSet>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
 
-pub fn vortex_layout::scan::layout::LayoutReaderDataSource::row_count(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<u64>>
+pub fn vortex_layout::scan::layout::LayoutReaderDataSource::row_count(&self) -> vortex_array::expr::stats::precision::Precision<u64>
 
 pub fn vortex_layout::scan::layout::LayoutReaderDataSource::scan<'life0, 'async_trait>(&'life0 self, vortex_scan::ScanRequest) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_scan::DataSourceScanRef>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 
@@ -1014,7 +1014,7 @@ pub fn vortex_layout::scan::multi::MultiLayoutDataSource::dtype(&self) -> &vorte
 
 pub fn vortex_layout::scan::multi::MultiLayoutDataSource::field_statistics<'life0, 'life1, 'async_trait>(&'life0 self, &'life1 vortex_array::dtype::field::FieldPath) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_array::stats::stats_set::StatsSet>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
 
-pub fn vortex_layout::scan::multi::MultiLayoutDataSource::row_count(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<u64>>
+pub fn vortex_layout::scan::multi::MultiLayoutDataSource::row_count(&self) -> vortex_array::expr::stats::precision::Precision<u64>
 
 pub fn vortex_layout::scan::multi::MultiLayoutDataSource::scan<'life0, 'async_trait>(&'life0 self, vortex_scan::ScanRequest) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_scan::DataSourceScanRef>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 

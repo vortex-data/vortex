@@ -602,13 +602,13 @@ impl<T: DataSourceTableFunction> TableFunction for T {
 
     fn cardinality(bind_data: &Self::BindData) -> Cardinality {
         match bind_data.data_source.row_count() {
-            Some(Precision::Exact(v) | Precision::Inexact(v)) => {
+            Precision::Exact(v) | Precision::Inexact(v) => {
                 let has_non_optional_filter =
                     bind_data.has_non_optional_filter.load(Ordering::Relaxed);
                 // Post-filter estimate is always a heuristic.
                 Cardinality::Estimate(postfilter_cardinality(v, has_non_optional_filter))
             }
-            Some(Precision::Absent) | None => Cardinality::Unknown,
+            Precision::Absent => Cardinality::Unknown,
         }
     }
 
