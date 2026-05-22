@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem::MaybeUninit;
+
 use fastlanes::BitPacking;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
@@ -21,6 +23,7 @@ use vortex_error::VortexResult;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::unpack_iter::BitPacked as BitPackedUnpack;
+use crate::unpack_iter::BitUnpackedChunks;
 
 /// Unpacks a bit-packed array into a primitive array.
 pub fn unpack_array(
@@ -37,18 +40,38 @@ pub fn unpack_primitive_array<T: BitPackedUnpack>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
     let mut builder = PrimitiveBuilder::with_capacity(array.dtype().nullability(), array.len());
-    unpack_map_into_builder(array, &mut builder, ctx, |v: T| v)?;
+    unpack_into_primitive_builder::<T>(array, &mut builder, ctx)?;
     assert_eq!(builder.len(), array.len());
     Ok(builder.finish_into_primitive())
+}
+
+/// Unpack a bit-packed array directly into a same-typed `PrimitiveBuilder`.
+///
+/// This is the fast path for ordinary decompression: full FastLanes chunks are unpacked straight
+/// into the final output buffer, avoiding the scratch chunk and copy needed by mapped decode.
+pub(crate) fn unpack_into_primitive_builder<T: BitPackedUnpack>(
+    array: ArrayView<'_, BitPacked>,
+    builder: &mut PrimitiveBuilder<T>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    unpack_into_builder_with(
+        array,
+        builder,
+        ctx,
+        |v: T| v,
+        |chunks, output, _| {
+            chunks.decode_into(output);
+        },
+    )
 }
 
 /// Unpack a bit-packed array of physical type `F` into a `PrimitiveBuilder<T>`, applying `map`
 /// to each value during decompression.
 ///
-/// Pass `|v| v` (with `F = T`) for plain decompression, `|v: F| v.as_()` for a widening cast,
-/// or any other element-wise transform. Each 1024-element FastLanes chunk is unpacked into a
-/// cache-resident scratch buffer and written through `map` directly into the `T` output, so when
-/// `F != T` no full-length `F`-typed intermediate is materialized.
+/// Use [`unpack_into_primitive_builder`] for same-type plain decompression. This mapped path is
+/// for widening casts or other element-wise transforms: each 1024-element FastLanes chunk is
+/// unpacked into a cache-resident scratch buffer and written through `map` directly into the `T`
+/// output, so when `F != T` no full-length `F`-typed intermediate is materialized.
 ///
 /// The caller must ensure that every valid source value is representable in `T` under `map`; no
 /// per-value bounds check is performed.
@@ -63,6 +86,24 @@ where
     T: NativePType,
     M: Fn(F) -> T,
 {
+    unpack_into_builder_with(array, builder, ctx, map, |chunks, output, map| {
+        chunks.decode_map_into(output, map);
+    })
+}
+
+fn unpack_into_builder_with<F, T, M, D>(
+    array: ArrayView<'_, BitPacked>,
+    builder: &mut PrimitiveBuilder<T>,
+    ctx: &mut ExecutionCtx,
+    map: M,
+    decode: D,
+) -> VortexResult<()>
+where
+    F: BitPackedUnpack,
+    T: NativePType,
+    M: Fn(F) -> T,
+    D: FnOnce(&mut BitUnpackedChunks<F>, &mut [MaybeUninit<T>], &M),
+{
     if array.is_empty() {
         return Ok(());
     }
@@ -70,23 +111,23 @@ where
     let len = array.len();
     let mut uninit_range = builder.uninit_range(len);
 
-    // SAFETY: We initialize all `len` values below via `decode_map_into` and the patch loop.
+    // SAFETY: We initialize all `len` values below via `decode` and the patch loop.
     unsafe {
         uninit_range.append_mask(array.validity()?.execute_mask(len, ctx)?);
     }
 
-    // SAFETY: `decode_map_into` writes a value to every slot in this range.
+    // SAFETY: `decode` writes a value to every slot in this range.
     let uninit_slice = unsafe { uninit_range.slice_uninit_mut(0, len) };
 
     let mut chunks = array.unpacked_chunks::<F>()?;
-    chunks.decode_map_into(uninit_slice, &map);
+    decode(&mut chunks, uninit_slice, &map);
 
     if let Some(patches) = array.patches() {
         apply_patches_to_uninit_range(&mut uninit_range, &patches, ctx, &map)?;
     }
 
     // SAFETY: A correct validity mask of `len` values was set via `append_mask`, and the same
-    // number of values was initialized via `decode_map_into` (and overwritten by patches).
+    // number of values was initialized via `decode` (and overwritten by patches).
     unsafe {
         uninit_range.finish();
     }

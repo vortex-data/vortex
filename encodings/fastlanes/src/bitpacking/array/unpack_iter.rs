@@ -181,12 +181,11 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
         })
     }
 
-    /// Decode all chunks (initial, full, and trailer) into the output range.
-    /// This consolidates the logic for handling all three chunk types in one place.
+    /// Decode all chunks (initial, full, and trailer) directly into the output range.
     pub fn decode_into(&mut self, output: &mut [MaybeUninit<T>]) {
+        debug_assert_eq!(output.len(), self.len);
         let mut local_idx = 0;
 
-        // Handle initial partial chunk if present
         if let Some(initial) = self.initial() {
             local_idx = initial.len();
 
@@ -196,16 +195,17 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
             output[..local_idx].copy_from_slice(init_initial);
         }
 
-        // Handle full chunks
         local_idx = self.decode_full_chunks_into_at(output, local_idx);
 
-        // Handle trailing partial chunk if present
         if let Some(trailer) = self.trailer() {
             // TODO(connor): use maybe_uninit_write_slice when it gets stabilized.
             // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout.
             let init_trailer: &[MaybeUninit<T>] = unsafe { mem::transmute(trailer) };
             output[local_idx..][..init_trailer.len()].copy_from_slice(init_trailer);
+            local_idx += init_trailer.len();
         }
+
+        debug_assert_eq!(local_idx, self.len);
     }
 
     /// Decode all chunks (initial, full, and trailer), mapping each unpacked value through f.
@@ -261,13 +261,11 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
     }
 
     /// Unpack full chunks into output range starting at the given index.
-    /// Returns the next local index to write to.
     fn decode_full_chunks_into_at(
         &mut self,
         output: &mut [MaybeUninit<T>],
         start_idx: usize,
     ) -> usize {
-        // If there is only one chunk it has been handled already by initial.
         if self.num_chunks == 1 {
             return start_idx;
         }

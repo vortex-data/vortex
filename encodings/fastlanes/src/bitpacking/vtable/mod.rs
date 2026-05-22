@@ -44,7 +44,7 @@ use crate::BitPackedArrayExt;
 use crate::BitPackedData;
 use crate::BitPackedDataParts;
 use crate::bitpack_decompress::unpack_array;
-use crate::bitpack_decompress::unpack_map_into_builder;
+use crate::bitpack_decompress::unpack_into_primitive_builder;
 use crate::bitpacking::array::BitPackedSlots;
 use crate::bitpacking::array::BitPackedSlotsView;
 use crate::bitpacking::array::PATCH_SLOTS;
@@ -239,14 +239,13 @@ impl VTable for BitPacked {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         match_each_integer_ptype!(array.dtype().as_ptype(), |T| {
-            unpack_map_into_builder(
+            unpack_into_primitive_builder::<T>(
                 array,
                 builder
                     .as_any_mut()
                     .downcast_mut()
                     .vortex_expect("bit packed array must canonicalize into a primitive array"),
                 ctx,
-                |v: T| v,
             )
         })
     }
