@@ -261,24 +261,21 @@ fn scan_bytes_dual(
     (lo_bounds, hi_bounds)
 }
 
-/// Walk `slice[start..]`, returning the `(left, right, found)` boundaries for `needle`
-/// and the exit index (where the scan stopped — `slice.len()` if it ran to the end).
-fn scan_primitive_from<T: crate::dtype::NativePType>(
-    slice: &[T],
+/// Walk a sorted sequence of `len` elements from `start`, returning the
+/// `(left, right, found)` boundaries for the needle and the exit index (where the scan
+/// stopped — `len` if it ran to the end). `cmp(i)` orders element `i` against the needle.
+fn scan_from(
+    len: usize,
     start: usize,
-    needle: T,
+    cmp: impl Fn(usize) -> std::cmp::Ordering,
 ) -> (SortedBounds, usize) {
     use std::cmp::Ordering::*;
-    let len = slice.len();
     let mut left: Option<usize> = None;
     let mut right: Option<usize> = None;
     let mut found: Option<usize> = None;
     let mut exit = len;
-    let mut idx = start;
-    while idx < len {
-        // SAFETY: idx < len.
-        let v = unsafe { *slice.get_unchecked(idx) };
-        match v.total_compare(needle) {
+    for idx in start..len {
+        match cmp(idx) {
             Less => {}
             Equal => {
                 if left.is_none() {
@@ -295,7 +292,6 @@ fn scan_primitive_from<T: crate::dtype::NativePType>(
                 break;
             }
         }
-        idx += 1;
     }
     (
         SortedBounds {
@@ -307,44 +303,22 @@ fn scan_primitive_from<T: crate::dtype::NativePType>(
     )
 }
 
+fn scan_primitive_from<T: crate::dtype::NativePType>(
+    slice: &[T],
+    start: usize,
+    needle: T,
+) -> (SortedBounds, usize) {
+    // SAFETY: idx is always in `start..slice.len()`.
+    scan_from(slice.len(), start, |idx| {
+        unsafe { *slice.get_unchecked(idx) }.total_compare(needle)
+    })
+}
+
 fn scan_bytes_from(items: &[Option<&[u8]>], start: usize, needle: &[u8]) -> (SortedBounds, usize) {
-    use std::cmp::Ordering::*;
-    let len = items.len();
-    let mut left: Option<usize> = None;
-    let mut right: Option<usize> = None;
-    let mut found: Option<usize> = None;
-    let mut exit = len;
-    for (idx, opt) in items.iter().copied().enumerate().skip(start) {
-        let cmp = match opt {
-            None => Less, // nulls sort first
-            Some(b) => b.cmp(needle),
-        };
-        match cmp {
-            Less => {}
-            Equal => {
-                if left.is_none() {
-                    left = Some(idx);
-                    found = Some(idx);
-                }
-            }
-            Greater => {
-                if left.is_none() {
-                    left = Some(idx);
-                }
-                right = Some(idx);
-                exit = idx;
-                break;
-            }
-        }
-    }
-    (
-        SortedBounds {
-            left: left.unwrap_or(len),
-            right: right.unwrap_or(len),
-            found,
-        },
-        exit,
-    )
+    scan_from(items.len(), start, |idx| match items[idx] {
+        None => std::cmp::Ordering::Less, // nulls sort first
+        Some(b) => b.cmp(needle),
+    })
 }
 
 #[cfg(test)]

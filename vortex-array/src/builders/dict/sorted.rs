@@ -101,33 +101,26 @@ fn argsort_values(values: &ArrayRef) -> VortexResult<Vec<u32>> {
     let n = u32::try_from(values.len())
         .map_err(|_| vortex_error::vortex_err!("dict values length {} exceeds u32::MAX", values.len()))?;
 
+    // Resolve to a canonical Primitive or VarBinView, canonicalizing only if needed.
     if let Some(prim) = values.as_opt::<Primitive>() {
-        let owned = prim.into_owned();
-        let mut perm = Vec::with_capacity(n as usize);
-        match_each_native_ptype!(owned.ptype(), |P| {
-            argsort_primitive::<P>(&owned, &mut perm)?;
-        });
-        Ok(perm)
+        argsort_primitive_array(&prim.into_owned())
     } else if let Some(vbv) = values.as_opt::<VarBinView>() {
         argsort_varbinview(&vbv.into_owned(), n)
-    } else {
-        // Canonicalize and retry.
+    } else if values.dtype().is_primitive() {
         #[expect(deprecated)]
-        match values.dtype() {
-            crate::dtype::DType::Primitive(_, _) => {
-                let prim = values.to_primitive();
-                let mut perm = Vec::with_capacity(n as usize);
-                match_each_native_ptype!(prim.ptype(), |P| {
-                    argsort_primitive::<P>(&prim, &mut perm)?;
-                });
-                Ok(perm)
-            }
-            _ => {
-                let vbv = values.to_varbinview();
-                argsort_varbinview(&vbv, n)
-            }
-        }
+        argsort_primitive_array(&values.to_primitive())
+    } else {
+        #[expect(deprecated)]
+        argsort_varbinview(&values.to_varbinview(), n)
     }
+}
+
+fn argsort_primitive_array(prim: &PrimitiveArray) -> VortexResult<Vec<u32>> {
+    let mut perm = Vec::with_capacity(prim.len());
+    match_each_native_ptype!(prim.ptype(), |P| {
+        argsort_primitive::<P>(prim, &mut perm)?;
+    });
+    Ok(perm)
 }
 
 /// Argsort a primitive array. Sorts `(value, idx)` pairs to keep comparisons in cache.
