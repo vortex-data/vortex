@@ -3856,15 +3856,13 @@ impl vortex_array::ValidityVTable<vortex_array::arrays::Filter> for vortex_array
 
 pub fn vortex_array::arrays::Filter::validity(vortex_array::ArrayView<'_, vortex_array::arrays::Filter>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
-<<<<<<< HEAD
 impl vortex_array::arrays::dict::TakeExecute for vortex_array::arrays::Filter
 
 pub fn vortex_array::arrays::Filter::take(vortex_array::ArrayView<'_, vortex_array::arrays::Filter>, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-=======
+
 impl vortex_array::arrays::filter::FilterReduce for vortex_array::arrays::Filter
 
 pub fn vortex_array::arrays::Filter::filter(vortex_array::ArrayView<'_, Self>, &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
->>>>>>> 1522ebb59 (refactor)
 
 pub struct vortex_array::arrays::filter::FilterData
 
@@ -7162,15 +7160,13 @@ impl vortex_array::ValidityVTable<vortex_array::arrays::Filter> for vortex_array
 
 pub fn vortex_array::arrays::Filter::validity(vortex_array::ArrayView<'_, vortex_array::arrays::Filter>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
-<<<<<<< HEAD
 impl vortex_array::arrays::dict::TakeExecute for vortex_array::arrays::Filter
 
 pub fn vortex_array::arrays::Filter::take(vortex_array::ArrayView<'_, vortex_array::arrays::Filter>, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-=======
+
 impl vortex_array::arrays::filter::FilterReduce for vortex_array::arrays::Filter
 
 pub fn vortex_array::arrays::Filter::filter(vortex_array::ArrayView<'_, Self>, &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
->>>>>>> 1522ebb59 (refactor)
 
 pub struct vortex_array::arrays::FixedSizeList
 
