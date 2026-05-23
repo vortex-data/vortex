@@ -49,3 +49,39 @@ fn max_f64(bencher: Bencher) {
                 .compute_max::<f64>(&mut LEGACY_SESSION.create_execution_ctx())
         });
 }
+
+// Clustered nulls: long valid runs broken up by null blocks (run-based path's best case).
+#[divan::bench]
+fn max_i32_nulls_clustered(bencher: Bencher) {
+    let mut rng = StdRng::seed_from_u64(4);
+    let data: Vec<Option<i32>> = (0..N)
+        .map(|i| {
+            if (i / 64) % 10 == 0 {
+                None
+            } else {
+                Some(rng.random::<i32>())
+            }
+        })
+        .collect();
+    bencher
+        .with_inputs(|| PrimitiveArray::from_option_iter(data.iter().copied()).into_array())
+        .bench_refs(|a| {
+            a.statistics()
+                .compute_max::<i32>(&mut LEGACY_SESSION.create_execution_ctx())
+        });
+}
+
+// Scattered nulls: ~50% random nulls producing many short runs (run-based path's worst case).
+#[divan::bench]
+fn max_i32_nulls_scattered(bencher: Bencher) {
+    let mut rng = StdRng::seed_from_u64(5);
+    let data: Vec<Option<i32>> = (0..N)
+        .map(|_| rng.random_bool(0.5).then(|| rng.random::<i32>()))
+        .collect();
+    bencher
+        .with_inputs(|| PrimitiveArray::from_option_iter(data.iter().copied()).into_array())
+        .bench_refs(|a| {
+            a.statistics()
+                .compute_max::<i32>(&mut LEGACY_SESSION.create_execution_ctx())
+        });
+}

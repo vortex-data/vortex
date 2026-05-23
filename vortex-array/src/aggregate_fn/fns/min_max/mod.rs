@@ -331,6 +331,32 @@ mod tests {
     }
 
     #[test]
+    fn test_prim_min_max_multiple_null_runs() -> VortexResult<()> {
+        // Several disjoint valid runs separated by nulls exercise the per-run fold; the extrema
+        // (min 1, max 9) fall in different runs.
+        let p = PrimitiveArray::from_option_iter([
+            Some(5i32),
+            Some(3),
+            None,
+            None,
+            Some(9),
+            None,
+            Some(1),
+            Some(7),
+        ])
+        .into_array();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        assert_eq!(
+            min_max(&p, &mut ctx)?,
+            Some(MinMaxResult {
+                min: 1.into(),
+                max: 9.into()
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
     fn test_bool_min_max() -> VortexResult<()> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
 

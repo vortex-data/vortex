@@ -50,3 +50,41 @@ fn sum_i64(bencher: Bencher) {
                 .compute_as::<i64>(Stat::Sum, &mut LEGACY_SESSION.create_execution_ctx())
         });
 }
+
+// Clustered nulls: long runs of valid values broken up by occasional null blocks. This is the
+// case the run-based valid path is expected to accelerate.
+#[divan::bench]
+fn sum_i32_nulls_clustered(bencher: Bencher) {
+    let mut rng = StdRng::seed_from_u64(4);
+    let data: Vec<Option<i32>> = (0..N)
+        .map(|i| {
+            if (i / 64) % 10 == 0 {
+                None
+            } else {
+                Some(rng.random_range(-1000..1000))
+            }
+        })
+        .collect();
+    bencher
+        .with_inputs(|| PrimitiveArray::from_option_iter(data.iter().copied()).into_array())
+        .bench_refs(|a| {
+            a.statistics()
+                .compute_as::<i64>(Stat::Sum, &mut LEGACY_SESSION.create_execution_ctx())
+        });
+}
+
+// Scattered nulls: ~50% nulls placed at random, producing many short runs. This is the worst case
+// for a run-based valid path, used to guard against regressions versus a per-element loop.
+#[divan::bench]
+fn sum_i32_nulls_scattered(bencher: Bencher) {
+    let mut rng = StdRng::seed_from_u64(5);
+    let data: Vec<Option<i32>> = (0..N)
+        .map(|_| rng.random_bool(0.5).then(|| rng.random_range(-1000..1000)))
+        .collect();
+    bencher
+        .with_inputs(|| PrimitiveArray::from_option_iter(data.iter().copied()).into_array())
+        .bench_refs(|a| {
+            a.statistics()
+                .compute_as::<i64>(Stat::Sum, &mut LEGACY_SESSION.create_execution_ctx())
+        });
+}

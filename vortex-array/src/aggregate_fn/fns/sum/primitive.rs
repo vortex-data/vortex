@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
 use num_traits::AsPrimitive;
 use num_traits::ToPrimitive;
 use vortex_error::VortexExpect;
@@ -28,10 +27,10 @@ pub(super) fn accumulate_primitive(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<bool> {
     let mask = p.as_ref().validity()?.execute_mask(p.as_ref().len(), ctx)?;
-    match mask.bit_buffer() {
+    match mask.slices() {
         AllOr::None => Ok(false),
         AllOr::All => accumulate_primitive_all(inner, p),
-        AllOr::Some(validity) => accumulate_primitive_valid(inner, p, validity),
+        AllOr::Some(slices) => accumulate_primitive_valid(inner, p, slices),
     }
 }
 
@@ -110,16 +109,20 @@ where
     false
 }
 
+/// Sum the valid elements, described as contiguous `[start, end)` runs of set validity bits. Each
+/// run is a slice of fully-valid values, so it reuses the same vectorized reduction as the
+/// all-valid path instead of a per-element validity branch.
 fn accumulate_primitive_valid(
     inner: &mut SumState,
     p: &PrimitiveArray,
-    validity: &vortex_buffer::BitBuffer,
+    slices: &[(usize, usize)],
 ) -> VortexResult<bool> {
     match inner {
         SumState::Unsigned(acc) => match_each_native_ptype!(p.ptype(),
             unsigned: |T| {
-                for (&v, valid) in p.as_slice::<T>().iter().zip_eq(validity.iter()) {
-                    if valid && checked_add_u64(acc, v.to_u64().vortex_expect("unsigned to u64")) {
+                let values = p.as_slice::<T>();
+                for &(start, end) in slices {
+                    if sum_unsigned_all(acc, &values[start..end]) {
                         return Ok(true);
                     }
                 }
@@ -131,8 +134,9 @@ fn accumulate_primitive_valid(
         SumState::Signed(acc) => match_each_native_ptype!(p.ptype(),
             unsigned: |_T| { vortex_panic!("signed sum state with unsigned input") },
             signed: |T| {
-                for (&v, valid) in p.as_slice::<T>().iter().zip_eq(validity.iter()) {
-                    if valid && checked_add_i64(acc, v.to_i64().vortex_expect("signed to i64")) {
+                let values = p.as_slice::<T>();
+                for &(start, end) in slices {
+                    if sum_signed_all(acc, &values[start..end]) {
                         return Ok(true);
                     }
                 }
@@ -144,9 +148,12 @@ fn accumulate_primitive_valid(
             unsigned: |_T| { vortex_panic!("float sum state with unsigned input") },
             signed: |_T| { vortex_panic!("float sum state with signed input") },
             floating: |T| {
-                for (&v, valid) in p.as_slice::<T>().iter().zip_eq(validity.iter()) {
-                    if valid && !v.is_nan() {
-                        *acc += ToPrimitive::to_f64(&v).vortex_expect("float to f64");
+                let values = p.as_slice::<T>();
+                for &(start, end) in slices {
+                    for &v in &values[start..end] {
+                        if !v.is_nan() {
+                            *acc += ToPrimitive::to_f64(&v).vortex_expect("float to f64");
+                        }
                     }
                 }
                 Ok(false)
@@ -207,6 +214,26 @@ mod tests {
         let arr = PrimitiveArray::from_option_iter([Some(2i32), None, Some(4)]).into_array();
         let result = sum(&arr, &mut LEGACY_SESSION.create_execution_ctx())?;
         assert_eq!(result.as_primitive().typed_value::<i64>(), Some(6));
+        Ok(())
+    }
+
+    #[test]
+    fn sum_multiple_null_runs() -> VortexResult<()> {
+        // Several disjoint valid runs separated by nulls exercise the per-run fold.
+        let arr = PrimitiveArray::from_option_iter([
+            Some(1i32),
+            Some(2),
+            None,
+            None,
+            Some(3),
+            None,
+            Some(4),
+            Some(5),
+            Some(6),
+        ])
+        .into_array();
+        let result = sum(&arr, &mut LEGACY_SESSION.create_execution_ctx())?;
+        assert_eq!(result.as_primitive().typed_value::<i64>(), Some(21));
         Ok(())
     }
 
