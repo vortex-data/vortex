@@ -56,6 +56,10 @@ fn main() {
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(3);
+    let threshold = env::var("ONPAIR_BENCH_THRESHOLD")
+        .ok()
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(0.5);
 
     let (source, bytes, offsets) = load_corpus(max_bytes);
     let n = offsets.len() - 1;
@@ -71,7 +75,7 @@ fn main() {
         println!("\n=== bits = {bits} ===");
         let cfg = TrainingConfig::from(OnPairTrainingConfig {
             bits: bits as u32,
-            threshold: 0.5,
+            threshold,
             seed: 42,
         });
 
@@ -136,11 +140,22 @@ fn main() {
             &offsets,
             OnPairTrainingConfig {
                 bits: bits as u32,
-                threshold: 0.5,
+                threshold,
                 seed: 42,
             },
         )
         .unwrap();
+        let mut decode_secs = f64::MAX;
+        for _ in 0..iters {
+            let t = Instant::now();
+            let _d = col.decode_all();
+            decode_secs = decode_secs.min(t.elapsed().as_secs_f64());
+        }
+        println!(
+            "  decode: {:.3}s  {:.1} MiB/s",
+            decode_secs,
+            mib / decode_secs
+        );
         let (dbytes, doffsets) = col.decode_all();
         let bytes_ok = dbytes == bytes;
         let offsets_ok = doffsets == off32;
@@ -156,17 +171,17 @@ fn main() {
         assert!(bytes_ok && offsets_ok, "roundtrip mismatch at bits={bits}");
 
         if env::var("ONPAIR_BENCH_CPP").is_ok() {
-            cpp_compare(&bytes, &offsets, bits, mib, iters);
+            cpp_compare(&bytes, &offsets, bits, threshold, mib, iters);
         }
     }
 }
 
-fn cpp_compare(bytes: &[u8], offsets: &[u64], bits: u8, mib: f64, iters: usize) {
+fn cpp_compare(bytes: &[u8], offsets: &[u64], bits: u8, threshold: f64, mib: f64, iters: usize) {
     use vortex_onpair_sys::Column as CppColumn;
     use vortex_onpair_sys::OnPairTrainingConfig as CppCfg;
     let cfg = CppCfg {
         bits: bits as u32,
-        threshold: 0.5,
+        threshold,
         seed: 42,
     };
     let mut secs = f64::MAX;

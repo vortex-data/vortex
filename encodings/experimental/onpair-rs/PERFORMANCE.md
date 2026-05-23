@@ -1,0 +1,210 @@
+# OnPair-rs performance: investigation log
+
+A running, evidence-backed record of compression-speed optimization ideas for
+`vortex-onpair-rs`, what was tested, and the result. Each idea is tagged
+**PROVEN** (benchmarked win, kept), **DISPROVEN** (benchmarked neutral/regression,
+not kept), or **UNPROVEN** (not conclusively tested — with the exact reason).
+
+Reproduce any number with the `bench_tpch` example:
+
+```bash
+cargo run --release -p vortex-onpair-rs --example bench_tpch
+# env: ONPAIR_BENCH_PARQUET=<file> ONPAIR_BENCH_COLUMN=<col>
+#      ONPAIR_BENCH_MAX_BYTES=<n> ONPAIR_BENCH_ITERS=<n>
+#      ONPAIR_BENCH_THRESHOLD=<sample_fraction>  ONPAIR_BENCH_CPP=1
+```
+
+## Context
+
+OnPair is a BPE-style dictionary string compressor (port of
+[`onpair_cpp`](https://github.com/gargiulofrancesco/onpair_cpp)). Pipeline:
+
+1. **train** — build a dictionary of ≤`2^bits` tokens (1–16 bytes each) by
+   greedy pair-merging over a shuffled sample (`trainer.rs`).
+2. **parse/encode** — greedy longest-match tokenize each string via
+   `LongestPrefixMatcher::find_longest_match`, LSB bit-pack the codes
+   (`parser.rs`, `bits.rs`).
+3. **decode** — code → dict bytes with a 16-byte SIMD over-copy (`column.rs`).
+
+`find_longest_match` is the shared hot path: a `short_map` (1–8 byte tokens,
+hashmap) + a `long_map` (8-byte prefix → bucket of 9–16 byte suffixes; linear,
+promoted to a trie above 128 entries).
+
+**Benchmark:** TPC-H `lineitem.l_comment`, bit widths 12 & 16, at 10 MB / 100 MB
+/ 1 GiB. **Machine:** Intel Xeon 2.8 GHz, AVX-512 (F/BW/CD/DQ/VL/VNNI),
+**L1d 32 KB, L2 1 MB/core, L3 33 MB**.
+
+### Methodology note (important)
+
+Throughput here is **memory-latency bound**, so absolute numbers drift with
+machine state. **Always A/B back-to-back** (`git stash` HEAD → measure → pop →
+measure) on the same machine; do not compare against numbers from another
+session/run. An earlier round of this work was misled by comparing against
+baselines that were contaminated by a concurrent benchmark process.
+
+## Baseline (current `HEAD`, clean, 1 GiB)
+
+| | train | parse | total | ratio | C++ total† |
+|---|---|---|---|---|---|
+| bits=12 | 1.9 s | 6.8 s | 8.7 s | 2.909 | 18.7 s |
+| bits=16 | 17.2 s | 9.2 s | 26.3 s | 2.915 | 40.7 s |
+
+† In-repo C++ (`onpair-sys`) is boost-stripped to `std::unordered_map`, so it is
+slower than upstream `onpair_cpp` with `boost::unordered_flat_map`. Rust is ~2×
+this reference at every size with matching ratios.
+
+Decode is ~1.4–1.5 GiB/s (10–20× faster than parse) — **not a bottleneck**.
+
+## PROVEN: the L2 cliff governs parse speed
+
+Parse cost per token vs bit width (100 MB, the working set grows with `2^bits`):
+
+| bits | tokens | dict bytes | ns/token |
+|---|---|---|---|
+| 12 | 4 096 | 34 KB | 39 |
+| 13 | 8 192 | 77 KB | 46 |
+| 14 | 16 384 | 170 KB | 49 |
+| 15 | 32 514 | 354 KB | 54 |
+| **16** | 65 290 | 743 KB | **77** |
+
+Smooth rise to bits=15, then a **jump at bits=16** — exactly where the lookup
+working set crosses the 1 MB L2. The ASM confirms the hot loop is two hashbrown
+swisstable probes (already SSE-vectorized: `pcmpeqb`/`pmovmskb`) plus a bucket
+scan — every step a dependent memory fetch. **bits=16 parse is L3-latency-bound.**
+
+## PROVEN: `sample_fraction` is a strong training lever (output-changing)
+
+bits=16, 100 MB — lowering the dynamic-threshold sample fraction (the `threshold`
+field of `OnPairTrainingConfig`) scans less input during training:
+
+| sample_fraction | train | ratio | vs 0.5 |
+|---|---|---|---|
+| 0.5 (default) | 1.06 s | 2.836 | — |
+| 0.3 | 0.68 s | 2.830 | **1.6× faster, −0.2 % ratio** |
+| 0.2 | 0.45 s | 2.824 | 2.4× faster, −0.4 % |
+| 0.1 | 0.21 s | 2.798 | 5× faster, −1.3 % |
+| 0.05 | 0.12 s | 2.747 | 9× faster, −3.1 % |
+
+bits=12 ratio is unchanged across all fractions (its 4 096-token dict fills
+regardless). **Recommendation: 0.3 is a near-free 1.6× training speedup** for
+bits=16; 0.1 trades ~1.3 % ratio for 5×. Not changed in code because it alters
+output (the dictionary), and the default mirrors `onpair_cpp`.
+
+## DISPROVEN: faster hash functions
+
+The `find` maps are probed mostly with *missing* keys (the longest-match length
+loop); foldhash's avalanche rejects misses fastest. 300 MB parse seconds
+(lower = better):
+
+| hasher | bits=12 | bits=16 |
+|---|---|---|
+| **foldhash (default, kept)** | **2.02** | **2.55** |
+| ahash (AES) | 2.22 | 2.64 |
+| rustc-hash / FxHash | 2.26 | 2.82 |
+| gxhash (SIMD, `target-cpu=native`) | 2.40 | 2.75 |
+
+The trainer's integer-keyed pair-frequency map *does* keep a multiply-mix FxHash
+(small win there). hashbrown is itself the SIMD swisstable, so "a SIMD hashmap"
+is already in use.
+
+## DISPROVEN: alternative `find` data structures
+
+All measured neutral-or-worse vs the contiguous linear bucket scan + hashmap.
+bits=16 parse (300 MB unless noted):
+
+| structure | result |
+|---|---|
+| **baseline contiguous `Vec<LongEntry>` scan (kept)** | **2.55 s** |
+| SoA `firsts: Vec<u8>` + SIMD `memchr` filter | 3.69 s (worse) |
+| SoA `firsts` + plain-loop filter | 2.93 s (worse) |
+| `repr(packed)` 11-byte `LongEntry` alone | ~neutral |
+| binary-search to first-byte group | 3.05 s (worse) |
+| lower trie-promotion threshold (more tries) | 3.24 s (worse) |
+| per-first-byte `max_short_len` | ~neutral |
+| map capacity pre-reservation | neutral / slightly worse (over-alloc) |
+| read-only contiguous bucket **arena** | neutral (see below) |
+
+Reason they lose: the per-entry check is ~1 cycle and the bucket is contiguous
+(prefetcher-friendly); any second array / indirection / pointer-chase adds cache
+lines without removing the dominant cost, which is the **memory fetch**, not
+compute.
+
+## DISPROVEN (by analysis + supporting tests): trie / ART for `find`
+
+Researched (ART paper; ARCD15 comparison): ART lookup is only *comparable* to a
+hash table (its wins are over B-trees, for ordered/range scans). For our 7–9
+byte tokens a trie walks **one node per byte** (~7–9 dependent accesses) vs the
+current ~2–3; and a 65 K-token trie is still ~MB-sized → still spills L2. The
+in-tree pool-trie path was measured slower than linear scan for the typical
+12–28-entry buckets (that is why promotion is gated at 128). Decisive external
+signal: **FSST — the state of the art for this exact problem, by the Vortex
+authors — uses small hash + direct tables, not a trie.**
+
+## UNPROVEN: shrink the bits=16 working set under 1 MB L2 (idea B1/C1)
+
+**Hypothesis:** since the L2 cliff is proven, packing the three structures small
+enough to fit bits=16 in L2 would recover ~54 ns/token (~30 % parse).
+
+**Why not conclusively done:** the cache arithmetic says it cannot reach L2.
+Approximate bits=16 working set:
+
+| structure | HEAD | maximally packed |
+|---|---|---|
+| short_map (`(u64,u8)`→`u16`, cap 32 768) | ~0.79 MB | ~0.52 MB (u64 key) |
+| long_map values (32 B `Bucket`, cap 16 384) | ~0.52 MB | ~0.20 MB (12 B Range/Trie) |
+| bucket entry data (43 K × 16 B) | ~0.70 MB | ~0.48 MB (11 B packed) |
+| **total** | **~2.0 MB** | **~1.2 MB** |
+
+Even maximal packing lands at **~1.2 MB > 1 MB L2**, so full L2-residency is
+unreachable while keeping a 65 536-token dictionary. Supporting evidence:
+`repr(packed)` `LongEntry`, the arena, and pre-reservation were each measured
+**neutral** — each shrinks one component but the total stays > L2. A coordinated
+three-way packing was not implemented because the analysis predicts at best a
+small (~5–10 %) L3-traffic gain, not the 30 % L2 win, at high implementation/
+soundness risk (`repr(packed)`, terminator-bit key packing, two-map split).
+**To revisit:** only worth it if a way is found to drop the *total* below 1 MB
+(e.g. a minimal perfect hash for the read-only short_map, or fewer tokens).
+
+## UNPROVEN: AVX-512 multi-string gather encode (idea B2)
+
+**Hypothesis:** the FSST AVX-512 kernel encodes many strings in parallel via
+gather, keeping 8–16 independent lookups in flight to **overlap cache-miss
+latency** (memory-level parallelism). This is the *correct* use of AVX-512 for a
+latency-bound loop — it raises throughput without lowering per-op latency, and is
+single-core.
+
+**Why not done:** large rewrite. The lookup must be vectorized across lanes
+(per-lane gather into short/long maps, per-lane variable-length bucket handling,
+per-lane greedy advance and bit-packing). OnPair's 16-bit codes, ≤16-byte
+tokens, and bucket scan make this materially harder to vectorize than FSST's
+fixed 8-bit / ≤8-byte / 2-lookup scheme. Highest performance ceiling of any
+remaining idea; highest effort/risk. Not falsified — just unbuilt.
+
+## UNPROVEN: FSST-hybrid 2-lookup scheme (idea C3)
+
+FSST is GB/s because `shortCodes[65536]` + one hash probe over tiny
+cache-resident tables. OnPair's 16-bit codes / ≤16-byte tokens break FSST's
+8-bit / ≤8-byte assumptions, so it is not a drop-in. A hybrid (e.g. a 2-byte
+direct table for the hottest short codes) is conceivable but research-grade and
+unbuilt.
+
+## LOW VALUE: frequency-sort + inverse-code (idea D1)
+
+Sorting the dictionary by frequency with an indirection (so emitted codes are
+unchanged) clusters hot tokens for **index-based** access — i.e. it would speed
+**decode** (`dict_table[code]` with a Zipfian code stream). But decode is already
+~1.4–1.5 GiB/s (not a bottleneck), and it does **not** help encode, which is
+**hash-based** (hashbrown scatters keys by hash regardless of token frequency).
+Not pursued.
+
+## Summary of what is settled vs open
+
+- **Settled (kept):** bucket LPM, foldhash (maps) + FxHash (freq), `max_short_len`,
+  bits=16 overflow fix. Rust ~2× the in-repo C++; ratios match.
+- **Settled (rejected):** alternative hashers, SoA/first-byte/binary-search/
+  packed/arena/pre-reserve `find` layouts, trie/ART for `find`.
+- **Open, output-preserving:** none with a proven win — bits=16 parse is at the
+  L2/L3 memory-latency wall.
+- **Open, output-changing:** `sample_fraction` (proven training lever).
+- **Open, high-effort/high-ceiling:** AVX-512 multi-string gather encode (B2).
+</content>
