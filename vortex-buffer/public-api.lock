@@ -300,6 +300,8 @@ pub fn vortex_buffer::BitBuffer::value(&self, usize) -> bool
 
 pub unsafe fn vortex_buffer::BitBuffer::value_unchecked(&self, usize) -> bool
 
+pub fn vortex_buffer::BitBuffer::zip_lanes<T: core::marker::Copy>(&self, &[T], impl core::ops::function::FnMut(T, bool))
+
 impl vortex_buffer::BitBuffer
 
 pub fn vortex_buffer::BitBuffer::into_inner(self) -> (usize, usize, vortex_buffer::ByteBuffer)

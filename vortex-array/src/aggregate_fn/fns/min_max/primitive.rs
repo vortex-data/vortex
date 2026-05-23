@@ -73,7 +73,8 @@ fn minmax_all<T: NativePType + PartialOrd + Bounded>(values: &[T]) -> (T, T) {
 }
 
 /// Validity-gated min/max, branch-free: invalid lanes fold against neutral bounds (never winning),
-/// NaN is skipped. Word-chunked so it vectorizes regardless of null density.
+/// NaN is skipped. Uses the shared [`BitBuffer::zip_lanes`] word-chunked walk, so it vectorizes
+/// regardless of null density.
 #[multiversion::multiversion(targets("x86_64+avx512f", "x86_64+avx2", "aarch64+neon"))]
 fn minmax_masked<T: NativePType + PartialOrd + Bounded>(
     values: &[T],
@@ -83,25 +84,7 @@ fn minmax_masked<T: NativePType + PartialOrd + Bounded>(
     let lo = T::min_value();
     let mut vmin = hi;
     let mut vmax = lo;
-    let chunks = validity.chunks();
-    let mut base = 0usize;
-    for word in chunks.iter() {
-        for (j, &v) in values[base..base + 64].iter().enumerate() {
-            let valid = (word >> j) & 1 != 0;
-            let for_min = if valid { v } else { hi };
-            let for_max = if valid { v } else { lo };
-            if for_min < vmin {
-                vmin = for_min;
-            }
-            if for_max > vmax {
-                vmax = for_max;
-            }
-        }
-        base += 64;
-    }
-    let remainder = chunks.remainder_bits();
-    for (j, &v) in values[base..].iter().enumerate() {
-        let valid = (remainder >> j) & 1 != 0;
+    validity.zip_lanes(values, |v, valid| {
         let for_min = if valid { v } else { hi };
         let for_max = if valid { v } else { lo };
         if for_min < vmin {
@@ -110,6 +93,6 @@ fn minmax_masked<T: NativePType + PartialOrd + Bounded>(
         if for_max > vmax {
             vmax = for_max;
         }
-    }
+    });
     (vmin, vmax)
 }

@@ -366,6 +366,35 @@ impl BitBuffer {
         BitIterator::new(self.buffer.as_slice(), self.offset, self.len)
     }
 
+    /// Branch-free, word-chunked iteration over `values` paired with this bitmap's bits.
+    ///
+    /// Calls `f(value, is_valid)` for every lane, reading the bitmap one 64-bit word at a time
+    /// (offset-normalized, so it is correct for sliced buffers). This is the fast way to walk a
+    /// value slice alongside a validity mask: the closure **must** consume `is_valid` branch-free
+    /// (e.g. a select / fold against a neutral) so the loop vectorizes — see the type-level docs.
+    ///
+    /// Zero-cost: `#[inline(always)]`, so it folds into the (possibly multiversioned) caller and
+    /// compiles to the same code as the hand-written word loop.
+    ///
+    /// # Panics
+    /// Panics (in debug) if `values.len() != self.len()`.
+    #[inline(always)]
+    pub fn zip_lanes<T: Copy>(&self, values: &[T], mut f: impl FnMut(T, bool)) {
+        debug_assert_eq!(values.len(), self.len);
+        let chunks = self.chunks();
+        let mut base = 0usize;
+        for word in chunks.iter() {
+            for (j, &v) in values[base..base + 64].iter().enumerate() {
+                f(v, (word >> j) & 1 != 0);
+            }
+            base += 64;
+        }
+        let remainder = chunks.remainder_bits();
+        for (j, &v) in values[base..].iter().enumerate() {
+            f(v, (remainder >> j) & 1 != 0);
+        }
+    }
+
     /// Iterator over set indices of the underlying buffer
     pub fn set_indices(&self) -> BitIndexIterator<'_> {
         BitIndexIterator::new(self.buffer.as_slice(), self.offset, self.len)

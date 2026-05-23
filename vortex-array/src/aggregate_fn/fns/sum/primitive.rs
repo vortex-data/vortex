@@ -99,27 +99,16 @@ fn accumulate_primitive_valid(
     }
 }
 
-/// Branch-free, word-chunked float sum over valid lanes. Invalid or NaN lanes contribute `0.0`,
-/// which is exact and preserves the left-to-right summation order, so the result is bit-identical
-/// to a scalar `if valid && !nan { acc += v }` loop — but without a per-lane branch that
-/// mispredicts on null-bearing data. See the `BitBuffer` docs for the general pattern.
+/// Branch-free float sum over valid lanes. Invalid or NaN lanes contribute `0.0`, which is exact
+/// and preserves the left-to-right summation order, so the result is bit-identical to a scalar
+/// `if valid && !nan { acc += v }` loop — but without a per-lane branch that mispredicts on
+/// null-bearing data. Uses the shared [`BitBuffer::zip_lanes`] walk.
 fn accumulate_float_valid<T: NativePType>(acc: &mut f64, values: &[T], validity: &BitBuffer) {
-    let chunks = validity.chunks();
-    let mut base = 0usize;
-    for word in chunks.iter() {
-        for (lane, &value) in values[base..base + 64].iter().enumerate() {
-            let keep = (((word >> lane) & 1) != 0) & !value.is_nan();
-            let wide = ToPrimitive::to_f64(&value).vortex_expect("float to f64");
-            *acc += if keep { wide } else { 0.0 };
-        }
-        base += 64;
-    }
-    let remainder = chunks.remainder_bits();
-    for (lane, &value) in values[base..].iter().enumerate() {
-        let keep = (((remainder >> lane) & 1) != 0) & !value.is_nan();
+    validity.zip_lanes(values, |value, valid| {
+        let keep = valid & !value.is_nan();
         let wide = ToPrimitive::to_f64(&value).vortex_expect("float to f64");
         *acc += if keep { wide } else { 0.0 };
-    }
+    });
 }
 
 /// Branch-free validity-gated unsigned sum: invalid lanes add 0 (a select, not a branch), so the

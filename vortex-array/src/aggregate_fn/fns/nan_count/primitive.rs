@@ -27,27 +27,13 @@ fn compute_nan_count_with_validity<T: NativePType>(values: &[T], validity: Mask)
     match validity {
         Mask::AllTrue(_) => values.iter().filter(|v| v.is_nan()).count(),
         Mask::AllFalse(_) => 0,
-        // Branch-free, word-chunked: `count += valid_bit & is_nan` accumulates an order-independent
-        // count with no per-lane branch, so it does not mispredict on null-bearing data. See the
-        // `BitBuffer` docs for the general pattern.
+        // Branch-free: `count += valid & is_nan` is an order-independent count with no per-lane
+        // branch, so it does not mispredict on null-bearing data. See the `BitBuffer` docs.
         Mask::Values(v) => {
-            let bits = v.bit_buffer();
-            let chunks = bits.chunks();
             let mut count = 0usize;
-            let mut base = 0usize;
-            for word in chunks.iter() {
-                let block = &values[base..base + 64];
-                let mut c = 0u32;
-                for (j, x) in block.iter().enumerate() {
-                    c += (((word >> j) & 1) as u32) & (x.is_nan() as u32);
-                }
-                count += c as usize;
-                base += 64;
-            }
-            let remainder = chunks.remainder_bits();
-            for (j, x) in values[base..].iter().enumerate() {
-                count += ((((remainder >> j) & 1) as u32) & (x.is_nan() as u32)) as usize;
-            }
+            v.bit_buffer().zip_lanes(values, |x, valid| {
+                count += (valid & x.is_nan()) as usize;
+            });
             count
         }
     }
