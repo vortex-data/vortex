@@ -217,13 +217,13 @@ where
 /// only lanes whose validity bit is set into the returned min/max (NaN excluded). Invalid lanes
 /// may hold out-of-range values; those are masked out and never affect the bounds.
 ///
-/// Two structural choices keep this vectorizing regardless of null density:
-/// * The lane gating is branch-free — invalid lanes fold against neutral bounds rather than being
-///   skipped — so a data-dependent branch on the validity word never serializes the reduction.
-/// * Validity is consumed one byte (8 lanes) at a time rather than shifting the 64-bit word per
-///   lane. Reading the byte once lets the backend materialize the lane predicate from a broadcast
-///   plus a constant bit selector (or a mask register) instead of a per-lane variable shift, which
-///   is markedly faster on null-bearing data. See `BitBuffer` docs for the general pattern.
+/// The lane gating is branch-free — invalid lanes fold against neutral bounds rather than being
+/// skipped — so a data-dependent branch on the validity word never serializes the reduction, and
+/// the loop vectorizes at any null density. Validity is consumed a 64-bit word at a time via
+/// [`BitChunks`], which is the fastest traversal measured here. (A byte-per-8-lane variant that
+/// reads each byte out of the word looks appealing on paper, and helps when validity is a real
+/// `&[u8]` slice, but extracting the byte from the offset-normalized word regressed this kernel —
+/// see `BitBuffer` docs for the general guidance and that caveat.)
 #[multiversion::multiversion(targets("x86_64+avx512f", "x86_64+avx2", "aarch64+neon"))]
 fn cast_and_bounds_masked<F, T>(values: &[F], validity: &BitBuffer, dst: &mut [T]) -> Option<(F, F)>
 where
@@ -237,26 +237,21 @@ where
     let mut vmin = hi_neutral;
     let mut vmax = lo_neutral;
 
-    // `BitChunks` yields offset-normalized 64-bit words, so byte `b` of `word` holds the validity
-    // for the 8 lanes starting at `base + b * 8` — correct even for sliced (bit-offset) buffers.
     let chunks = validity.chunks();
     let mut base = 0usize;
     for word in chunks.iter() {
-        for b in 0..8usize {
-            let byte = (word >> (b * 8)) as u8;
-            let blk = base + b * 8;
-            for j in 0..8usize {
-                let v = values[blk + j];
-                dst[blk + j] = v.as_();
-                let valid = (byte >> j) & 1 != 0;
-                let for_min = if valid { v } else { hi_neutral };
-                let for_max = if valid { v } else { lo_neutral };
-                if for_min < vmin {
-                    vmin = for_min;
-                }
-                if for_max > vmax {
-                    vmax = for_max;
-                }
+        let vblk = &values[base..base + 64];
+        let oblk = &mut dst[base..base + 64];
+        for (j, (out, &v)) in oblk.iter_mut().zip(vblk).enumerate() {
+            *out = v.as_();
+            let valid = (word >> j) & 1 != 0;
+            let for_min = if valid { v } else { hi_neutral };
+            let for_max = if valid { v } else { lo_neutral };
+            if for_min < vmin {
+                vmin = for_min;
+            }
+            if for_max > vmax {
+                vmax = for_max;
             }
         }
         base += 64;

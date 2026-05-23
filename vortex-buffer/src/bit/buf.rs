@@ -39,21 +39,22 @@ use crate::buffer;
 /// * **Do not** zip a per-bit `bool` iterator ([`BitBuffer::iter`]) with the values in a hot loop.
 ///   It forces a scalar, bit-at-a-time traversal that the autovectorizer cannot lift, and it is
 ///   several times slower on null-bearing data than the alternatives below.
-/// * **Do** consume the bitmap in word- or byte-sized groups via [`BitBuffer::chunks`], which
-///   yields offset-normalized `u64` words (so the same code is correct for sliced/bit-offset
-///   buffers). For maximum throughput, peel each word into **bytes and process 8 value lanes per
-///   byte**: reading the byte once lets the backend materialize the per-lane predicate from a
-///   broadcast plus a constant power-of-two selector (or a mask register), instead of emitting a
-///   per-lane variable shift (`(word >> j) & 1`), which is the usual bottleneck.
+/// * **Do** consume the bitmap in word-sized groups via [`BitBuffer::chunks`], which yields
+///   offset-normalized `u64` words (so the same code is correct for sliced/bit-offset buffers).
+///   Process one word's worth of lanes per outer iteration and read the word *once*.
 /// * **Keep the per-lane work branch-free.** Gate with a select (e.g. fold invalid lanes against a
 ///   neutral value, or zero them) rather than a data-dependent `if valid { … }` branch on the bit;
 ///   a branch on the bitmap word serializes otherwise-vectorizable loops as soon as nulls appear.
 /// * Indexing the bitmap as `bits[i / 64] >> (i % 64)` inside the value loop defeats the
-///   vectorizer entirely — read the chunk/byte *once* outside the inner 8-lane loop.
+///   vectorizer entirely — read the chunk *once* outside the inner lane loop.
 ///
-/// On nightly, `core::simd::Mask::from_bitmask` turns a validity byte directly into a lane mask
-/// (a single `kmov` on AVX-512) and is the ideal primitive for this; on stable, the byte-per-8
-/// pattern above is the closest the compiler will get without `std::arch` intrinsics.
+/// A finer "one validity byte per 8 lanes" traversal can let the backend build the lane predicate
+/// from a broadcast + constant selector instead of a per-lane variable shift, and is a clear win
+/// when validity is already a flat `&[u8]`. Beware: re-deriving the byte from a `u64` chunk word
+/// (`(word >> b*8) as u8`) does *not* reliably reproduce that win and has measured *slower* than
+/// the plain word traversal in at least one kernel — benchmark before adopting it. On nightly,
+/// `core::simd::Mask::from_bitmask` turns a validity byte directly into a lane mask (a single
+/// `kmov` on AVX-512) and is the ideal primitive; stable Rust cannot match it without `std::arch`.
 #[derive(Debug, Clone, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct BitBuffer {
