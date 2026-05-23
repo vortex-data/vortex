@@ -136,25 +136,33 @@ Decomposing checked `i32 + i32` (N=65,536; ns/elem; ratios matter, absolute numb
 
 | variant | density 1.0 | density 0.5 |
 | --- | --- | --- |
-| bare add (no validity, no overflow check) | 0.165 | 0.166 |
-| + overflow check, no validity | 0.174 (+6%) | 0.177 |
-| + validity (nullable, branch-free) | 0.503 (~3×) | 0.505 |
+| bare add (no validity, no overflow check) | 0.20 | 0.21 |
+| + overflow check, no validity | 0.20 (+1%) | 0.21 |
+| **+ validity, arrow-style (flat dense values, separate word-level `a & b`)** | **0.21 (+4%)** | **0.21** |
+| + validity *fused per-lane into the value loop* (anti-pattern) | 0.97 (~5×) | 0.97 |
 
-Two conclusions:
+Three conclusions:
 
-- **The overflow/fault check is essentially free** (~6% over a bare add) — it rides alongside the
-  arithmetic (`vpaddd` + `vpternlogd` + OR-reduce). Never avoid checking to "save time"; it costs
-  almost nothing when done branch-free.
-- **Validity handling is the expensive part (~3×)** — and it's the *bitmap* work (per-lane mask
-  read + writing the result null buffer), not the values. Both guarded forms are
-  density-independent.
+- **The overflow/fault check is essentially free** (~1% over a bare add) — it rides alongside the
+  arithmetic (`vpaddd` + `vpternlogd` + OR-reduce). Never avoid checking to "save time".
+- **For an elementwise op, validity is also nearly free (~4%)** *if done right*: keep the value
+  computation a **flat dense loop** (it vectorizes exactly like the non-nullable case) and produce
+  the result validity as a **separate word-level bitwise AND** of the input bitmaps. This is arrow's
+  strategy and there is no meaningful penalty for nullability.
+- **The ~5× cost is an anti-pattern, not inherent.** Fusing the per-lane validity bit into the
+  value loop (`for word { for j in 0..64 { … bit j … } }`) breaks vectorization of the arithmetic.
+  An earlier prototype did this and measured ~3–5× — the cost was the broken value loop, not the
+  validity. Do **not** thread the bitmap through the elementwise value loop.
 
-**Best of both:** the validity-free path is ~3× faster, so do not pay for validity when there are
-no nulls — dispatch on `Mask::AllTrue` once and run the validity-free kernel, paying the validity
-cost only when nulls are actually present. Vortex's `AllTrue`/`AllFalse`/`Values` match already
-does this; the measurement confirms it is worth keeping. The residual ~3× (when nulls *are*
-present) is the per-lane bitmap handling — reducible toward free only with AVX-512 mask registers
-(`kmov`/`kand`) or nightly `core::simd::Mask::from_bitmask`.
+**Reductions are different.** `sum`/`min`/`max`/`nan_count` *cannot* compute densely and AND
+bitmaps — they must skip null lanes inside the fold — so they pay a real (but density-independent)
+cost to gate, which is exactly why the branch-free fold above matters for them. For elementwise
+maps, prefer the dense-values + separate-bitmap split; for reductions, use the branch-free gated
+fold.
+
+For a *fallible* elementwise op (checked add/cast) the overflow-anywhere flag is computed ungated in
+the dense pass; only if it trips do you correlate fault-with-validity (rare), so the common path
+stays at the ~4% figure.
 
 ### Caveats learned the hard way
 
