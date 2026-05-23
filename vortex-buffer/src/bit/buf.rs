@@ -29,6 +29,31 @@ use crate::bit::select::bit_select;
 use crate::buffer;
 
 /// An immutable bitset stored as a packed byte buffer.
+///
+/// # Iterating values alongside a bitmap (validity, selection, …)
+///
+/// A very common pattern is walking a value slice while consulting a `BitBuffer` of the same
+/// length — e.g. a primitive array and its validity. How you traverse the bitmap dominates the
+/// performance of these kernels, so prefer the following (measured) guidance:
+///
+/// * **Do not** zip a per-bit `bool` iterator ([`BitBuffer::iter`]) with the values in a hot loop.
+///   It forces a scalar, bit-at-a-time traversal that the autovectorizer cannot lift, and it is
+///   several times slower on null-bearing data than the alternatives below.
+/// * **Do** consume the bitmap in word- or byte-sized groups via [`BitBuffer::chunks`], which
+///   yields offset-normalized `u64` words (so the same code is correct for sliced/bit-offset
+///   buffers). For maximum throughput, peel each word into **bytes and process 8 value lanes per
+///   byte**: reading the byte once lets the backend materialize the per-lane predicate from a
+///   broadcast plus a constant power-of-two selector (or a mask register), instead of emitting a
+///   per-lane variable shift (`(word >> j) & 1`), which is the usual bottleneck.
+/// * **Keep the per-lane work branch-free.** Gate with a select (e.g. fold invalid lanes against a
+///   neutral value, or zero them) rather than a data-dependent `if valid { … }` branch on the bit;
+///   a branch on the bitmap word serializes otherwise-vectorizable loops as soon as nulls appear.
+/// * Indexing the bitmap as `bits[i / 64] >> (i % 64)` inside the value loop defeats the
+///   vectorizer entirely — read the chunk/byte *once* outside the inner 8-lane loop.
+///
+/// On nightly, `core::simd::Mask::from_bitmask` turns a validity byte directly into a lane mask
+/// (a single `kmov` on AVX-512) and is the ideal primitive for this; on stable, the byte-per-8
+/// pattern above is the closest the compiler will get without `std::arch` intrinsics.
 #[derive(Debug, Clone, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct BitBuffer {

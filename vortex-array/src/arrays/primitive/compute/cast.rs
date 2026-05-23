@@ -107,6 +107,24 @@ impl CastKernel for Primitive {
 /// Cast values from `F` to `T`. For infallible casts this is a pure pass; for fallible casts the
 /// kernel fuses the conversion with a validity-aware min/max reduction over the source and bails
 /// if those bounds don't fit `T`.
+///
+/// Performance notes learned while tuning this path:
+/// * **The convert dominates; the overflow check is nearly free.** A branch-free range/`min-max`
+///   reduction folded into the same pass costs only a few ALU ops on top of the bare cast, so it
+///   is never worth a separate pass over the data.
+/// * **Invalid lanes are left as garbage on purpose.** We convert every lane unconditionally —
+///   out-of-range values at invalid positions wrap/saturate harmlessly and are hidden by the
+///   result validity, so masking or zeroing them would only add work. (Zeroing the *output* is
+///   close to free when `T` is at least as wide as the validity granularity, but costs extra when
+///   `T` is a narrow type because the masked store can't fold into the narrowing pack; prefer
+///   gating the *input* if zeroed nulls are ever required.)
+/// * **Decide overflow from the valid min/max, not per element.** A value can only exceed `T`'s
+///   range if it is below the smallest or above the largest valid value, so two `Scalar::cast`
+///   boundary checks at the end suffice and stay consistent with the cached fast path.
+/// * **Never bail per element / never early-return inside the loop** — that serializes the
+///   reduction. Accumulate and check once at the end.
+///
+/// See [`vortex_buffer::BitBuffer`] for the bitmap-traversal guidance the masked kernel relies on.
 fn cast_values<F, T>(
     array: ArrayView<'_, Primitive>,
     new_validity: Validity,
@@ -199,9 +217,13 @@ where
 /// only lanes whose validity bit is set into the returned min/max (NaN excluded). Invalid lanes
 /// may hold out-of-range values; those are masked out and never affect the bounds.
 ///
-/// The lane gating is branch-free (invalid lanes are folded against neutral bounds rather than
-/// skipped) so the loop vectorizes regardless of null density — a data-dependent branch on the
-/// validity word would otherwise serialize the reduction whenever nulls are present.
+/// Two structural choices keep this vectorizing regardless of null density:
+/// * The lane gating is branch-free — invalid lanes fold against neutral bounds rather than being
+///   skipped — so a data-dependent branch on the validity word never serializes the reduction.
+/// * Validity is consumed one byte (8 lanes) at a time rather than shifting the 64-bit word per
+///   lane. Reading the byte once lets the backend materialize the lane predicate from a broadcast
+///   plus a constant bit selector (or a mask register) instead of a per-lane variable shift, which
+///   is markedly faster on null-bearing data. See `BitBuffer` docs for the general pattern.
 #[multiversion::multiversion(targets("x86_64+avx512f", "x86_64+avx2", "aarch64+neon"))]
 fn cast_and_bounds_masked<F, T>(values: &[F], validity: &BitBuffer, dst: &mut [T]) -> Option<(F, F)>
 where
@@ -215,21 +237,26 @@ where
     let mut vmin = hi_neutral;
     let mut vmax = lo_neutral;
 
+    // `BitChunks` yields offset-normalized 64-bit words, so byte `b` of `word` holds the validity
+    // for the 8 lanes starting at `base + b * 8` — correct even for sliced (bit-offset) buffers.
     let chunks = validity.chunks();
     let mut base = 0usize;
     for word in chunks.iter() {
-        let vblk = &values[base..base + 64];
-        let oblk = &mut dst[base..base + 64];
-        for (j, (out, &v)) in oblk.iter_mut().zip(vblk).enumerate() {
-            *out = v.as_();
-            let valid = (word >> j) & 1 != 0;
-            let for_min = if valid { v } else { hi_neutral };
-            let for_max = if valid { v } else { lo_neutral };
-            if for_min < vmin {
-                vmin = for_min;
-            }
-            if for_max > vmax {
-                vmax = for_max;
+        for b in 0..8usize {
+            let byte = (word >> (b * 8)) as u8;
+            let blk = base + b * 8;
+            for j in 0..8usize {
+                let v = values[blk + j];
+                dst[blk + j] = v.as_();
+                let valid = (byte >> j) & 1 != 0;
+                let for_min = if valid { v } else { hi_neutral };
+                let for_max = if valid { v } else { lo_neutral };
+                if for_min < vmin {
+                    vmin = for_min;
+                }
+                if for_max > vmax {
+                    vmax = for_max;
+                }
             }
         }
         base += 64;
