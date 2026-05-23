@@ -250,6 +250,32 @@ AVX-512 gather kernel could still win (no buffering, real parallel lanes), but
 this scalar proxy regressing lowers confidence that the MLP is easily captured,
 and the gather rewrite over variable-length/bucket lookups is very high effort.
 
+## DISPROVEN: changing the `long_map` probe (custom flat table; slim value)
+
+The every-call `long_map` probe is the hottest memory access, so two ways to
+"change the probe" were built and benchmarked (100 MB, A/B vs HEAD):
+
+- **Custom inline flat open-addressing table** (`(u64 prefix, u32 desc)` slots,
+  linear probing, one cache line/probe) replacing hashbrown for the read-only
+  long map: **regressed hard** — bits=16 parse 1.21 s vs 0.72 s. A naive
+  linear-probe table with a multiply-shift hash taking *low* bits clusters
+  badly; hashbrown's SIMD swisstable is far better engineered. Lesson: don't
+  hand-roll the hash table.
+- **Slim descriptor value in hashbrown** — keep hashbrown's probing but store a
+  4-byte packed descriptor (arena range or trie root) instead of the 32-byte
+  `Bucket`, shrinking the probed value array ~671 KB→278 KB, with bucket
+  entries moved to a contiguous arena. Output-identical (238 tests + roundtrip
+  pass). Result: **neutral** — bits=16 parse 0.704 s vs 0.713 s (~1 %, within
+  noise). The value-array size isn't the bottleneck: the long probe is already
+  hashbrown-fast, and the working set stays > L2 (the 818 KB short_map + arena
+  dominate), so shrinking one component doesn't change the cache regime.
+
+Conclusion: the probe cannot be made meaningfully faster by shrinking or
+re-implementing the long map. Its cost is the fundamental latency of a
+hash-located access into a working set that exceeds L2 — only a *total* working
+set < 1 MB (needs a non-pow2 / minimal-perfect-hash short_map; the hand-rolled
+table lost to hashbrown) or fewer tokens (lower bits) changes that.
+
 ## LOW VALUE: frequency-sort + inverse-code (idea D1)
 
 Sorting the dictionary by frequency with an indirection (so emitted codes are
