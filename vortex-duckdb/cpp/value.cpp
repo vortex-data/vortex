@@ -27,7 +27,13 @@ extern "C" duckdb_value duckdb_vx_value_create_geometry(const uint8_t *wkb, idx_
 }
 
 extern "C" duckdb_blob duckdb_vx_value_get_geometry(duckdb_value value) {
+    if (value == nullptr) {
+        return {nullptr, 0};
+    }
     const auto val = reinterpret_cast<duckdb::Value *>(value);
+    if (val->type().id() != duckdb::LogicalTypeId::GEOMETRY) {
+        return {nullptr, 0};
+    }
     const auto &str = duckdb::StringValue::Get(*val);
     const auto size = str.size();
     auto buf = reinterpret_cast<void *>(duckdb_malloc(size));

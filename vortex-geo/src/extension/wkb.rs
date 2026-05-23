@@ -112,7 +112,7 @@ impl ExtVTable for WellKnownBinary {
     type NativeValue<'a> = Wkb<'a>;
 
     fn id(&self) -> ExtId {
-        ExtId::new_static("geo.wkb")
+        ExtId::new_static("vortex.geo.wkb")
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
