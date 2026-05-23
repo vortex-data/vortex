@@ -9928,6 +9928,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-onpair-rs"
+version = "0.1.0"
+dependencies = [
+ "aho-corasick",
+ "arrow-array",
+ "arrow-schema",
+ "codspeed-divan-compat",
+ "hashbrown 0.17.1",
+ "memchr",
+ "parquet",
+ "rand 0.10.1",
+ "rstest",
+ "vortex-onpair-sys",
+]
+
+[[package]]
+name = "vortex-onpair-sys"
+version = "0.1.0"
+dependencies = [
+ "cmake",
+]
+
+[[package]]
 name = "vortex-parquet-variant"
 version = "0.1.0"
 dependencies = [

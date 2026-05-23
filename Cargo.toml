@@ -54,6 +54,8 @@ members = [
     "encodings/zstd",
     "encodings/bytebool",
     "encodings/parquet-variant",
+    "encodings/experimental/onpair-rs",
+    "encodings/experimental/onpair-sys",
     # Benchmarks
     "benchmarks/lance-bench",
     "benchmarks/compress-bench",
@@ -290,6 +292,8 @@ vortex-layout = { version = "0.1.0", path = "./vortex-layout", default-features 
 vortex-mask = { version = "0.1.0", path = "./vortex-mask", default-features = false }
 vortex-metrics = { version = "0.1.0", path = "./vortex-metrics", default-features = false }
 vortex-parquet-variant = { version = "0.1.0", path = "./encodings/parquet-variant" }
+vortex-onpair-rs = { version = "0.1.0", path = "./encodings/experimental/onpair-rs", default-features = false }
+vortex-onpair-sys = { version = "0.1.0", path = "./encodings/experimental/onpair-sys", default-features = false }
 vortex-pco = { version = "0.1.0", path = "./encodings/pco", default-features = false }
 vortex-proto = { version = "0.1.0", path = "./vortex-proto", default-features = false }
 vortex-runend = { version = "0.1.0", path = "./encodings/runend", default-features = false }

@@ -1,0 +1,28 @@
+[package]
+name = "vortex-onpair-sys"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Native FFI bindings to the OnPair short-string compression library"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = [
+    "build.rs",
+    "src/**/*.rs",
+    "cxx/**/*",
+    "cmake/**/*",
+    "Cargo.toml",
+    "README.md",
+]
+keywords = { workspace = true }
+license = { workspace = true }
+links = "onpair_shim"
+readme = "README.md"
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
+
+[build-dependencies]
+cmake = "0.1"
