@@ -83,20 +83,24 @@ full-column decode (lower = better); items/s in parentheses.
 Read left → right as **floor → ceiling → baselines**:
 - **fully-decompressed** = the data is already canonical; "decode" is just
   allocating + copying the values. Nothing can beat this (pure memory bandwidth).
-- **aot** = one monolithic kernel that does the *entire* stack in a single
-  fused pass (every stage inlined/monomorphised per width, no intermediate tile).
-  The best-possible target — it wins among all decoders.
+- **aot** = the best-possible target: a fully-inlined kernel monomorphised per
+  bit-width, fusing as much as profitable (unpack+FoR via const-width
+  `unfor_pack`, then undelta → untranspose → a *vectorized* ALP scale over
+  contiguous digits). Ties or beats every other decoder.
 - **fused** / **patched** = the runtime-composed stencil pipelines.
 - **vortex one-by-one** = genuine same-stack Vortex array decoded by its
   per-layer `execute` (materialises a `PrimitiveArray` between every layer).
 - **vortex regular** = the (shallower) encoding Vortex's compressor actually picks.
 
-| Stack | fully-decompressed (floor) | **aot** (monolithic, best) | fused | patched | materialized | vortex one-by-one | vortex regular¹ |
+Numbers are representative medians; the box is noisy, so aggregate across runs
+and trust ratios over absolutes.
+
+| Stack | fully-decompressed (floor) | **aot** (best) | fused | patched | materialized | vortex one-by-one | vortex regular¹ |
 |---|---|---|---|---|---|---|---|
-| A `delta(bitpack)` u32 | **0.34 ms** (3.08 G) | **0.86 ms** (1.22 G) | 0.87 ms (1.20 G) | — | 1.40 ms (750 M) | 1.05 ms (1.00 G) | 0.74 ms (1.41 G) |
-| B core `delta(ffor(bitpack))`→i64 | — | **1.73 ms** (607 M) | 1.74 ms (602 M) | — | — | 2.60 ms (403 M) | 1.27 ms (825 M) |
-| B full `alp(delta(ffor(bitpack)))` f64 | **0.74 ms** (1.41 G) | **1.88 ms** (559 M) | 1.99 ms (528 M) | 2.39 ms (439 M) | 4.75 ms (221 M) | 7.75 ms (135 M) | 1.13 ms (928 M) |
-| C `rle(...)` f64 | — | **2.83 ms** (393 M) | 2.88 ms (386 M) | 2.94 ms (378 M) | 3.09 ms (360 M) | n/a² | 2.79 ms (399 M) |
+| A `delta(bitpack)` u32 | **0.34 ms** (3.08 G) | **0.76 ms** (1.38 G) | 0.81 ms (1.29 G) | — | 1.40 ms (750 M) | 0.89 ms (1.18 G) | 0.67 ms (1.56 G) |
+| B core `delta(ffor(bitpack))`→i64 | — | **1.30 ms** (807 M) | 1.29 ms (812 M) | — | — | 2.19 ms (479 M) | 1.19 ms (882 M) |
+| B full `alp(delta(ffor(bitpack)))` f64 | **0.54 ms** (1.9 G) | **1.35 ms** (775 M) | 1.35 ms (775 M) | 2.39 ms (439 M) | 4.75 ms (221 M) | 2.43 ms (431 M) | 0.86 ms (1.22 G) |
+| C `rle(...)` f64 | — | **2.44 ms** (456 M) | 2.47 ms (450 M) | 2.94 ms (378 M) | 3.09 ms (360 M) | n/a² | 2.42 ms (459 M) |
 
 ¹ *regular* = shallow Delta (A, B core), ALP over a bit-packed child (B full), or RunEnd over the canonical column (C). Faster than the deep decoders because it decodes **less** — at a real space cost (it stores the inner data uncompressed: ~1.9× larger for A, ~3.8× for B).
 ² Stack C's same-stack Vortex build (RunEnd over the deep ALP cascade) isn't constructed.
@@ -121,31 +125,34 @@ column *is* the primitive array).
 
 ### What the numbers say
 
-1. **The monolithic `aot` kernel is the best decoder and always wins.** Doing the
-   whole stack in one fused pass — and, for stack B, fusing untranspose + ALP
-   scale so the `digits` tile never exists — makes it fastest in every row:
-   marginally where the tail is trivial (A, B core, C), clearly on the deep f64
-   stack (B full: 1.88 ms vs fused 1.99). It is the ceiling the cheaper
-   strategies are measured against.
+1. **`aot` is the best decoder and ties/leads every row** — but the lead is
+   small, because `aot` and `fused` run the *same* staged tail (the only
+   difference is `aot`'s const-width unpack). The interesting result is what
+   does **not** help: fusing the tail further (undelta → untranspose → scale
+   into one pass) **regressed** B from ~1.35 ms to ~1.68 ms. The ALP scale wants
+   to stay a *vectorized* `vcvtqq2pd`/`vmulpd` over contiguous digits; fusing it
+   into the untranspose scatter scalarizes it, and that costs more than the saved
+   tile passes. So the tail is deliberately left staged (untranspose to
+   contiguous digits, then SIMD-scale) — that *is* the best-possible kernel here.
 
 2. **The prototype beats Vortex on the same stack — bigger win the deeper the
    stack.** Against genuine, identically-encoded Vortex arrays decoded one layer
    at a time:
    - A `delta(bitpack)`: aot 0.86 / fused 0.87 ms vs **1.05 ms** → ~1.2×
    - B core `delta(ffor(bitpack))`: 1.73 / 1.74 ms vs **2.60 ms** → ~1.5×
-   - B full `alp(delta(ffor(bitpack)))`: 1.88 / 1.99 ms vs **7.75 ms** → **~4×**
+   - B full `alp(delta(ffor(bitpack)))`: 1.35 / 1.35 ms vs **2.43 ms** → **~1.8×**
 
    Vortex materialises a `PrimitiveArray` between every layer (4 for the full
-   stack); the fused/monolithic kernels keep every intermediate in L1. More
-   layers ⇒ more materialization avoided ⇒ bigger gap. (Vortex's *regular*
-   shallow encoding is faster only because it decodes far less, and compresses
-   worse.)
+   stack); the fused kernels keep every intermediate in L1. More layers ⇒ more
+   materialization avoided ⇒ bigger gap. (Vortex's *regular* shallow encoding is
+   faster only because it decodes far less, and compresses worse.)
 
-3. **`fused` is within a few % of the monolithic `aot`** (A: 0.87 vs 0.86 ms;
-   B full: 1.99 vs 1.88 ms) — the runtime-composed pipeline gets nearly all of
-   the best-possible kernel's throughput with none of the combinatorial AOT
-   build. The remaining gap is the one fused stage (untranspose+scale) the
-   monolithic kernel collapses.
+3. **`fused` matches `aot`** (A: 0.87 vs 0.86 ms; B full: ~equal) — the
+   runtime-composed pipeline gets the best-possible kernel's throughput with none
+   of the combinatorial AOT build. The remaining cost on B is the scalar undelta +
+   untranspose passes, which are the published FastLanes kernels; beating them
+   needs a vectorized transpose, a separate project. The decoders sit ~2.5× above
+   the memory floor, so they are compute-bound there, not bandwidth-bound.
 
 4. **Everyone is well above the fully-decompressed floor.** Reading canonical
    data is 0.34 ms (A) / 0.74 ms (B); the deep decode costs ~2.5× that on B —

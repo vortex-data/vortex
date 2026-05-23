@@ -85,68 +85,6 @@ pub fn alp_scale_tile(digits: &[u64; TILE], scale: f64, out: &mut [f64; TILE]) {
     }
 }
 
-/// Monolithic tail stencil: untranspose **and** ALP-scale in a single
-/// fully-unrolled pass. `transposed[i]` (a transposed `u64` digit) is reinterpreted
-/// as `i64`, scaled, and scattered straight to its natural position
-/// `transpose(i)`. This fuses two stages — and the intermediate `digits` tile —
-/// into one, which is what lets the AOT kernel beat the staged `fused` path.
-#[inline(always)]
-pub fn untranspose_scale_tile(transposed: &[u64; TILE], scale: f64, out: &mut [f64; TILE]) {
-    seq_macro::seq!(I in 0..1024 {
-        out[fastlanes::transpose(I)] = (transposed[I] as i64) as f64 * scale;
-    });
-}
-
-const FL_ORDER: [usize; 8] = [0, 4, 2, 6, 1, 5, 3, 7];
-
-/// Precompute, in FastLanes undelta iteration order, the transposed source index
-/// to read and the natural destination index to write. Lets the fused tail kernel
-/// avoid recomputing the permutation per element.
-const fn undelta_perm() -> ([u16; TILE], [u16; TILE]) {
-    let mut src = [0u16; TILE];
-    let mut dst = [0u16; TILE];
-    let mut p = 0;
-    let mut lane = 0;
-    while lane < LANES64 {
-        let mut row = 0;
-        while row < 64 {
-            // FastLanes `index(row, lane)` — the transposed index undelta visits.
-            let idx = FL_ORDER[row / 8] * 16 + (row % 8) * 128 + lane;
-            src[p] = idx as u16;
-            // `transpose(idx)` — its natural (untransposed) position.
-            dst[p] = ((idx % 16) * 64 + FL_ORDER[(idx / 16) % 8] * 8 + idx / 128) as u16;
-            p += 1;
-            row += 1;
-        }
-        lane += 1;
-    }
-    (src, dst)
-}
-
-const UNDELTA_SRC: [u16; TILE] = undelta_perm().0;
-const UNDELTA_DST: [u16; TILE] = undelta_perm().1;
-
-/// Monolithic tail stencil for `u64`: fuse undelta + untranspose + ALP-scale into
-/// a single pass. The transposed delta tile is prefix-summed per lane and each
-/// running value is scaled and scattered straight to its natural position — so
-/// neither the undelta'd tile nor the digits tile is ever materialised.
-#[inline(always)]
-pub fn undelta_untranspose_scale_tile(
-    transposed_deltas: &[u64; TILE],
-    scale: f64,
-    out: &mut [f64; TILE],
-) {
-    let mut p = 0;
-    for _lane in 0..LANES64 {
-        let mut prev = 0u64;
-        for _ in 0..64 {
-            prev = prev.wrapping_add(transposed_deltas[UNDELTA_SRC[p] as usize]);
-            out[UNDELTA_DST[p] as usize] = (prev as i64) as f64 * scale;
-            p += 1;
-        }
-    }
-}
-
 /// Slice form of [`alp_scale_tile`] used by the materialized strategy.
 #[inline(always)]
 pub fn alp_scale_slice(digits: &[u64], scale: f64, out: &mut [f64]) {

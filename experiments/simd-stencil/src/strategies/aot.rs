@@ -17,9 +17,9 @@ use crate::encode::EncodedA;
 use crate::encode::EncodedB;
 use crate::encode::EncodedC;
 use crate::kernels::LANES32;
+use crate::kernels::alp_scale_tile;
 use crate::kernels::rle_expand;
 use crate::kernels::undelta_u64;
-use crate::kernels::undelta_untranspose_scale_tile;
 use crate::kernels::untranspose_u32;
 use crate::kernels::untranspose_u64;
 use crate::strategies::tile_f64_mut;
@@ -64,6 +64,8 @@ pub fn decode_b(enc: &EncodedB) -> Vec<f64> {
     let tiles = n / TILE;
     let mut out = vec![0f64; n];
     let mut td = [0u64; TILE];
+    let mut tu = [0u64; TILE];
+    let mut digits = [0u64; TILE];
 
     for t in 0..tiles {
         let w = enc.width[t] as usize;
@@ -82,9 +84,14 @@ pub fn decode_b(enc: &EncodedB) -> Vec<f64> {
                 _ => unreachable!("u64 width out of range: {w}"),
             }
         });
-        // Fused undelta + untranspose + scale: no `tu`/`digits` intermediates.
-        undelta_untranspose_scale_tile(
-            &td,
+        undelta_u64(&td, &mut tu);
+        // Untranspose to *contiguous* digits, then scale them with a vectorized
+        // pass. Fusing the scale into the untranspose scatter would scalarize the
+        // `vcvtqq2pd`/`vmulpd` and regress — the SIMD scale over contiguous
+        // digits is the win, so keep untranspose and scale as separate passes.
+        untranspose_u64(&tu, &mut digits);
+        alp_scale_tile(
+            &digits,
             enc.scale,
             tile_f64_mut(&mut out[t * TILE..(t + 1) * TILE]),
         );
