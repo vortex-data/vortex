@@ -23,6 +23,7 @@ use vortex_alp::alp_encode;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
+use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::Nullability;
@@ -164,6 +165,16 @@ pub fn decode(array: &ArrayRef) -> PrimitiveArray {
         .clone()
         .execute::<PrimitiveArray>(&mut ctx)
         .expect("execute")
+}
+
+/// Decode every layer through Vortex and finish with a single `execute` to the
+/// recursive canonical form — the idiomatic end-to-end Vortex scan output.
+pub fn decode_canonical(array: &ArrayRef) -> RecursiveCanonical {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    array
+        .clone()
+        .execute::<RecursiveCanonical>(&mut ctx)
+        .expect("execute canonical")
 }
 
 /// Decode a stack-A array to a `u32` vector.

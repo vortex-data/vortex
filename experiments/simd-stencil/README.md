@@ -101,6 +101,24 @@ Read left → right as **floor → ceiling → baselines**:
 ¹ *regular* = shallow Delta (A, B core), ALP over a bit-packed child (B full), or RunEnd over the canonical column (C). Faster than the deep decoders because it decodes **less** — at a real space cost (it stores the inner data uncompressed: ~1.9× larger for A, ~3.8× for B).
 ² Stack C's same-stack Vortex build (RunEnd over the deep ALP cascade) isn't constructed.
 
+#### Full Vortex decode ending in `execute::<RecursiveCanonical>`
+
+`vortex one-by-one` above uses `execute::<PrimitiveArray>`. The idiomatic
+end-to-end scan output is the *recursive canonical* form; `vortex_canonical`
+runs every layer through Vortex and finishes with `execute::<RecursiveCanonical>`.
+For a primitive column the two are the same work — and the prototype beats both
+(one self-consistent run, median):
+
+| Stack | aot | fused | vortex (execute→PrimitiveArray) | vortex (execute→Canonical) |
+|---|---|---|---|---|
+| A `delta(bitpack)` | 0.76 ms | 0.81 ms | 0.89 ms | 0.90 ms |
+| B full `alp(delta(ffor(bitpack)))` | 1.54 ms | 1.37 ms | 2.34 ms | 2.41 ms |
+
+So the full Vortex pipeline with a canonical execute at the end is ~1.7× slower
+than the prototype on the deep stack, and `execute::<RecursiveCanonical>` costs
+the same as `execute::<PrimitiveArray>` (the canonical form of a primitive
+column *is* the primitive array).
+
 ### What the numbers say
 
 1. **The monolithic `aot` kernel is the best decoder and always wins.** Doing the

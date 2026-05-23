@@ -69,6 +69,15 @@ fn a_vortex_same_stack(bencher: Bencher) {
         .bench(|| vortex_baseline::decode(&arr));
 }
 
+#[divan::bench(name = "a_delta_bitpack/vortex_canonical")]
+fn a_vortex_canonical(bencher: Bencher) {
+    // All layers in Vortex, ending in execute::<RecursiveCanonical>.
+    let arr = vortex_baseline::build_a_same_stack(&gen_u32(N, 1));
+    bencher
+        .counter(ItemsCount::new(N))
+        .bench(|| vortex_baseline::decode_canonical(&arr));
+}
+
 #[divan::bench(name = "a_delta_bitpack/materialized")]
 fn a_materialized(bencher: Bencher) {
     let enc = encode_a(&gen_u32(N, 1));
@@ -111,6 +120,15 @@ fn b_vortex_same_stack(bencher: Bencher) {
     bencher
         .counter(ItemsCount::new(N))
         .bench(|| vortex_baseline::decode(&arr));
+}
+
+#[divan::bench(name = "b_alp_delta_for_bitpack/vortex_canonical")]
+fn b_vortex_canonical(bencher: Bencher) {
+    // All layers in Vortex, ending in execute::<RecursiveCanonical>.
+    let arr = vortex_baseline::build_b_full_same_stack(&gen_f64(N, EXP, 2));
+    bencher
+        .counter(ItemsCount::new(N))
+        .bench(|| vortex_baseline::decode_canonical(&arr));
 }
 
 #[divan::bench(name = "b_alp_delta_for_bitpack/materialized")]
