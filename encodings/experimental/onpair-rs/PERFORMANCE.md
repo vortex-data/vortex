@@ -188,6 +188,28 @@ cache-resident tables. OnPair's 16-bit codes / ≤16-byte tokens break FSST's
 direct table for the hottest short codes) is conceivable but research-grade and
 unbuilt.
 
+## DISPROVEN: memoization cache for encode (frequency idea applied to `find`)
+
+The frequency/repetition insight *can* be applied to encode as memoization: the
+longest match at a position depends only on the next ≤16 bytes, so when ≥16
+bytes remain the result is fully determined by that window. A direct-mapped
+cache (16 384 slots, keyed by the 16-byte window → `(token, len)`, verified by
+window comparison so it stays output-identical) was added in front of
+`find_longest_match`.
+
+Result (100 MB, A/B vs HEAD): **neutral-to-worse** — bits=12 parse 0.684 s vs
+0.640 s, bits=16 0.794 s vs 0.792 s. Measured hit rate only **~10 %**
+(700 k/6.94 M at bits=12; 520 k/5.34 M at bits=16). Break-even is ~7–12 %
+depending on `find` cost, so 10 % is too low; the 384 KB cache also adds L2
+pressure.
+
+Root cause (fundamental): matches are **variable length**, but the cache key is
+a **fixed 16-byte window**. Positions that produce the *same* short match (say 4
+bytes) usually differ in bytes 5–16, so they miss the cache. Keying by a shorter
+window would be incorrect for long-token matches (which determine 67 % of
+bits=16 lookups). Fixed-window memoization therefore over-specifies and can't
+capture match-granularity repetition. Not kept.
+
 ## LOW VALUE: frequency-sort + inverse-code (idea D1)
 
 Sorting the dictionary by frequency with an indirection (so emitted codes are
@@ -195,7 +217,8 @@ unchanged) clusters hot tokens for **index-based** access — i.e. it would spee
 **decode** (`dict_table[code]` with a Zipfian code stream). But decode is already
 ~1.4–1.5 GiB/s (not a bottleneck), and it does **not** help encode, which is
 **hash-based** (hashbrown scatters keys by hash regardless of token frequency).
-Not pursued.
+Not pursued. (Applying the frequency idea to encode *as memoization* was tried
+and disproven — see the section above.)
 
 ## Summary of what is settled vs open
 
