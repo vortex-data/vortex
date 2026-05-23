@@ -130,6 +130,32 @@ crate uses SIMD here — the random gather dominates — so the validity-iterati
 little; the win, if any, is a hardware gather (Vortex already has an AVX2 `take`). The "checked"
 part is an index bounds-check, which vectorizes trivially (`indices < len`, OR-reduced).
 
+### What does the validity guard actually cost?
+
+Decomposing checked `i32 + i32` (N=65,536; ns/elem; ratios matter, absolute numbers are machine-relative):
+
+| variant | density 1.0 | density 0.5 |
+| --- | --- | --- |
+| bare add (no validity, no overflow check) | 0.165 | 0.166 |
+| + overflow check, no validity | 0.174 (+6%) | 0.177 |
+| + validity (nullable, branch-free) | 0.503 (~3×) | 0.505 |
+
+Two conclusions:
+
+- **The overflow/fault check is essentially free** (~6% over a bare add) — it rides alongside the
+  arithmetic (`vpaddd` + `vpternlogd` + OR-reduce). Never avoid checking to "save time"; it costs
+  almost nothing when done branch-free.
+- **Validity handling is the expensive part (~3×)** — and it's the *bitmap* work (per-lane mask
+  read + writing the result null buffer), not the values. Both guarded forms are
+  density-independent.
+
+**Best of both:** the validity-free path is ~3× faster, so do not pay for validity when there are
+no nulls — dispatch on `Mask::AllTrue` once and run the validity-free kernel, paying the validity
+cost only when nulls are actually present. Vortex's `AllTrue`/`AllFalse`/`Values` match already
+does this; the measurement confirms it is worth keeping. The residual ~3× (when nulls *are*
+present) is the per-lane bitmap handling — reducible toward free only with AVX-512 mask registers
+(`kmov`/`kand`) or nightly `core::simd::Mask::from_bitmask`.
+
 ### Caveats learned the hard way
 
 - **Benchmark on the real build, not just a microbenchmark.** A "byte per 8 lanes" traversal that
