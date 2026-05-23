@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
 use num_traits::ToPrimitive;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
@@ -79,27 +78,13 @@ fn accumulate_primitive_valid(
 ) -> VortexResult<bool> {
     match inner {
         SumState::Unsigned(acc) => match_each_native_ptype!(p.ptype(),
-            unsigned: |T| {
-                for (&v, valid) in p.as_slice::<T>().iter().zip_eq(validity.iter()) {
-                    if valid && checked_add_u64(acc, v.to_u64().vortex_expect("unsigned to u64")) {
-                        return Ok(true);
-                    }
-                }
-                Ok(false)
-            },
+            unsigned: |T| { accumulate_unsigned_valid(acc, p.as_slice::<T>(), validity) },
             signed: |_T| { vortex_panic!("unsigned sum state with signed input") },
             floating: |_T| { vortex_panic!("unsigned sum state with float input") }
         ),
         SumState::Signed(acc) => match_each_native_ptype!(p.ptype(),
             unsigned: |_T| { vortex_panic!("signed sum state with unsigned input") },
-            signed: |T| {
-                for (&v, valid) in p.as_slice::<T>().iter().zip_eq(validity.iter()) {
-                    if valid && checked_add_i64(acc, v.to_i64().vortex_expect("signed to i64")) {
-                        return Ok(true);
-                    }
-                }
-                Ok(false)
-            },
+            signed: |T| { accumulate_signed_valid(acc, p.as_slice::<T>(), validity) },
             floating: |_T| { vortex_panic!("signed sum state with float input") }
         ),
         SumState::Float(acc) => match_each_native_ptype!(p.ptype(),
@@ -135,6 +120,67 @@ fn accumulate_float_valid<T: NativePType>(acc: &mut f64, values: &[T], validity:
         let wide = ToPrimitive::to_f64(&value).vortex_expect("float to f64");
         *acc += if keep { wide } else { 0.0 };
     }
+}
+
+/// Branch-free validity-gated unsigned sum: invalid lanes add 0 (a select, not a branch), so the
+/// per-lane validity branch — which mispredicts badly on null-bearing data — is removed. The only
+/// remaining branch is the effectively-never-taken checked-overflow bail. Result is identical to
+/// the scalar `if valid { checked_add(v) }` loop (adding 0 cannot overflow).
+fn accumulate_unsigned_valid<T: NativePType>(
+    acc: &mut u64,
+    values: &[T],
+    validity: &BitBuffer,
+) -> VortexResult<bool> {
+    let chunks = validity.chunks();
+    let mut base = 0usize;
+    for word in chunks.iter() {
+        for (lane, &v) in values[base..base + 64].iter().enumerate() {
+            let raw = v.to_u64().vortex_expect("unsigned to u64");
+            let add = if (word >> lane) & 1 != 0 { raw } else { 0 };
+            if checked_add_u64(acc, add) {
+                return Ok(true);
+            }
+        }
+        base += 64;
+    }
+    let remainder = chunks.remainder_bits();
+    for (lane, &v) in values[base..].iter().enumerate() {
+        let raw = v.to_u64().vortex_expect("unsigned to u64");
+        let add = if (remainder >> lane) & 1 != 0 { raw } else { 0 };
+        if checked_add_u64(acc, add) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Branch-free validity-gated signed sum; see [`accumulate_unsigned_valid`].
+fn accumulate_signed_valid<T: NativePType>(
+    acc: &mut i64,
+    values: &[T],
+    validity: &BitBuffer,
+) -> VortexResult<bool> {
+    let chunks = validity.chunks();
+    let mut base = 0usize;
+    for word in chunks.iter() {
+        for (lane, &v) in values[base..base + 64].iter().enumerate() {
+            let raw = v.to_i64().vortex_expect("signed to i64");
+            let add = if (word >> lane) & 1 != 0 { raw } else { 0 };
+            if checked_add_i64(acc, add) {
+                return Ok(true);
+            }
+        }
+        base += 64;
+    }
+    let remainder = chunks.remainder_bits();
+    for (lane, &v) in values[base..].iter().enumerate() {
+        let raw = v.to_i64().vortex_expect("signed to i64");
+        let add = if (remainder >> lane) & 1 != 0 { raw } else { 0 };
+        if checked_add_i64(acc, add) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 #[cfg(test)]
