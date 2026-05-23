@@ -9,16 +9,16 @@ The website behind `bench.vortex.dev`. The directory currently houses **two
 implementations side by side**, run together until the v3 cutover lands:
 
 - **v2** (top-level files: `server.js`, `src/`, `index.html`, `vite.config.js`,
-  `package.json`, `Dockerfile`, `docker-compose.yml`, `ec2-init.txt`,
-  `public/`). The Node + React stack that has shipped to production for the
-  life of the site. Built and published by
+  `package.json`, `Dockerfile`, `docker-compose.yml`, `public/`). The Node +
+  React stack that has shipped to production for the life of the site. Built
+  and published by
   [`.github/workflows/publish-benchmarks-website.yml`](../.github/workflows/publish-benchmarks-website.yml).
-- **v3** (`server/` + `migrate/`). A single Rust binary —
-  [`vortex-bench-server`](server/) — that owns a DuckDB file on local disk,
+- **v3** (`server/` + `migrate/` + `ops/`). A single Rust binary -
+  [`vortex-bench-server`](server/) - that owns a DuckDB file on local disk,
   serves the API, and renders the HTML. Compiles all static assets
   (`chart.umd.js`, `chart-init.js`, `style.css`) into the binary so deploys
-  are one file plus a database. Container image at
-  `ghcr.io/vortex-data/vortex/vortex-bench-server:latest`.
+  are one file plus a database. Built directly on the EC2 host by
+  [`ops/deploy.sh`](ops/deploy.sh) - see [`ops/README.md`](ops/README.md).
   [`migrate/`](migrate/) is a one-shot tool that loads v2's S3 dataset into a
   v3 DuckDB; it is throwaway and goes away after cutover.
 
@@ -34,7 +34,7 @@ S3 bucket; v3 via `--gh-json-v3` POSTed to `/api/ingest`).
 `axum` (HTTP) + `maud` (compile-time HTML) + embedded `duckdb-rs` over a single
 local DB file. Five fact tables (`query_measurements`, `compression_times`,
 `compression_sizes`, `random_access_times`, `vector_search_runs`) plus a
-`commits` dim table — see [`server/src/schema.rs`](server/src/schema.rs) for
+`commits` dim table - see [`server/src/schema.rs`](server/src/schema.rs) for
 the column contracts. Three HTML routes (`/`, `/chart/{slug}`,
 `/group/{slug}`) and four stable JSON routes (`GET /api/groups`,
 `GET /api/chart/{slug}`, `GET /api/group/{slug}`, `GET /health`), plus
@@ -80,12 +80,23 @@ npm run dev
 
 ## Deployment
 
-`docker-compose.yml` runs both stacks side by side: v2 on `:80` and v3 on
-`:3001`. `watchtower` polls GHCR every 60s so a fresh image push lands
-automatically. v3 reads `INGEST_BEARER_TOKEN` from
-`/etc/vortex-bench/secrets.env`, persists DuckDB to
-`/opt/benchmarks-website/data/bench.duckdb`, and binds `0.0.0.0:3000` so the
-container's `:3001` host port forwards through.
+v3 runs as a systemd service on a single EC2 host. The full operator
+runbook (first-time install, day-to-day, failure modes) is in
+[`ops/README.md`](ops/README.md). Summary:
+
+- A `vortex-bench-deploy.timer` polls `origin/develop` every 60s. If commits
+  in the range touch `benchmarks-website/server/`, `benchmarks-website/migrate/`,
+  `Cargo.toml`, or `Cargo.lock`, it builds and atomically swaps the binary,
+  then verifies `/health`. Otherwise it fast-forwards the working tree and
+  exits silently.
+- A `vortex-bench-backup.timer` fires hourly: it asks the server to write a
+  per-table Vortex snapshot (`schema.sql` plus one `<table>.vortex` file per
+  table) via the bearer-gated `/api/admin/snapshot` endpoint, `tar czf`s the
+  snapshot directory into `<UTC ts>.tar.gz`, uploads it to
+  `s3://vortex-benchmark-results-database/v3-backups/`, and deletes the local
+  copies.
+- For ad-hoc reads against the live DB, `ops/inspect.sh` calls a
+  bearer-gated `/api/admin/sql` endpoint - no server stop required.
 
 The v3 server is throwaway-friendly: every request runs against the local
 DuckDB file, and a fresh boot reapplies the schema DDL idempotently. The
@@ -97,13 +108,12 @@ re-running `vortex-bench-migrate run --output ...` is safe.
 The work to flip `bench.vortex.dev` from v2 to v3 is tracked outside this
 repo. The relevant code-side bits:
 
-- v3 runs alongside v2 on the same EC2 host today (v2 on `:80`, v3 on
-  `:3001`) and is fed by CI's dual-write `--gh-json-v3` path.
+- v3 runs alongside v2 on the same EC2 host today and is fed by CI's
+  dual-write `--gh-json-v3` path.
 - v2 keeps shipping unchanged until DNS flips. **Do not touch the top-level
   v2 files unless you are doing the cleanup PR opened post-flip.**
 - The v2 cleanup PR removes everything top-level under `benchmarks-website/`
   that belongs to v2 (`server.js`, `src/`, `index.html`, `vite.config.js`,
   `package.json`, `package-lock.json`, `public/`, the top-level `Dockerfile`,
-  `docker-compose.yml`, `ec2-init.txt`, and the
-  `publish-benchmarks-website.yml` workflow). The v3 tree under `server/` and
-  `migrate/` is untouched.
+  `docker-compose.yml`, and the `publish-benchmarks-website.yml` workflow).
+  The v3 tree under `server/`, `migrate/`, and `ops/` is untouched.

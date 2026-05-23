@@ -27,12 +27,13 @@ use tokio::sync::OwnedSemaphorePermit;
 use tokio::sync::Semaphore;
 use twox_hash::XxHash64;
 
+use crate::family;
 use crate::records::CompressionSize;
 use crate::records::CompressionTime;
 use crate::records::QueryMeasurement;
 use crate::records::RandomAccessTime;
 use crate::records::VectorSearchRun;
-use crate::schema::SCHEMA_DDL;
+use crate::schema::COMMITS_DDL;
 
 const READ_CONCURRENCY_LIMIT: usize = 4;
 
@@ -58,14 +59,58 @@ impl DbHandle {
     }
 }
 
-/// Open the DuckDB file at `path` (creating it if absent) and apply the
-/// schema DDL. Returns a handle ready to be cloned into the Axum state.
-pub fn open<P: AsRef<Path>>(path: P) -> Result<DbHandle> {
+/// Open the DuckDB file at `path` (creating it if absent), point its
+/// extension installer at `extension_dir`, and apply the schema DDL.
+/// Returns a handle ready to be cloned into the Axum state.
+///
+/// `extension_dir` is created if missing. Pointing DuckDB at a directory
+/// we control (instead of its default `~/.duckdb/extensions/...`) is what
+/// lets the snapshot path's `INSTALL vortex` succeed under systemd's
+/// `ProtectHome=read-only`.
+pub fn open<P: AsRef<Path>>(path: P, extension_dir: &Path) -> Result<DbHandle> {
+    std::fs::create_dir_all(extension_dir)
+        .with_context(|| format!("creating DuckDB extension dir {}", extension_dir.display()))?;
     let conn = Connection::open(path.as_ref())
         .with_context(|| format!("opening DuckDB at {}", path.as_ref().display()))?;
-    conn.execute_batch(SCHEMA_DDL)
-        .context("applying schema DDL")?;
+    apply_extension_directory(&conn, extension_dir)?;
+    conn.execute_batch(COMMITS_DDL)
+        .context("applying commits dim DDL")?;
+    for fam in family::FAMILIES {
+        conn.execute_batch(fam.schema_ddl)
+            .with_context(|| format!("applying {} DDL", fam.table_name))?;
+    }
     Ok(DbHandle::new(conn))
+}
+
+impl DbHandle {
+    /// Re-point DuckDB's extension installer at `dir` on the root connection.
+    /// `SET GLOBAL` propagates to every connection cloned from it, so a
+    /// later override at startup picks up before any handler runs.
+    pub(crate) fn set_extension_directory(&self, dir: &Path) -> Result<()> {
+        std::fs::create_dir_all(dir)
+            .with_context(|| format!("creating DuckDB extension dir {}", dir.display()))?;
+        let root = self.root.lock();
+        apply_extension_directory(&root, dir)
+    }
+}
+
+fn apply_extension_directory(conn: &Connection, dir: &Path) -> Result<()> {
+    let dir_str = dir
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("extension dir is not UTF-8: {}", dir.display()))?;
+    let sql = format!(
+        "SET GLOBAL extension_directory = {}",
+        sql_string_literal(dir_str)
+    );
+    conn.execute_batch(&sql)
+        .with_context(|| format!("SET GLOBAL extension_directory = {dir_str:?}"))
+}
+
+/// Quote `value` as a SQL string literal, escaping embedded single quotes.
+/// Shared between the schema-time `SET GLOBAL` and the per-snapshot
+/// `COPY ... TO '<path>' (FORMAT vortex)` so neither has to roll its own.
+pub(crate) fn sql_string_literal(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
 }
 
 /// Run a synchronous DB operation on the blocking pool using a task-local
@@ -200,7 +245,7 @@ pub fn measurement_id_random_access(r: &RandomAccessTime) -> i64 {
 }
 
 /// Hash for `vector_search_runs` rows. `iterations` is intentionally not
-/// part of the dim tuple — it is a side count, not a dimension.
+/// part of the dim tuple - it is a side count, not a dimension.
 pub fn measurement_id_vector_search(r: &VectorSearchRun) -> i64 {
     let mut h = hasher_for("vector_search_runs");
     write_str(&mut h, &r.commit_sha);
@@ -236,7 +281,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn run_read_blocking_limits_concurrent_db_tasks() -> Result<()> {
         let tmp = TempDir::new()?;
-        let handle = open(tmp.path().join("bench.duckdb"))?;
+        let extension_dir = tmp.path().join("duckdb-extensions");
+        let handle = open(tmp.path().join("bench.duckdb"), &extension_dir)?;
         let active = Arc::new(AtomicUsize::new(0));
         let max_active = Arc::new(AtomicUsize::new(0));
         let mut tasks = Vec::new();

@@ -14,11 +14,19 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnPluginRef;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::fns::all_nan::AllNan;
 use crate::aggregate_fn::fns::all_non_distinct::AllNonDistinct;
+use crate::aggregate_fn::fns::all_non_nan::AllNonNan;
+use crate::aggregate_fn::fns::all_non_null::AllNonNull;
+use crate::aggregate_fn::fns::all_null::AllNull;
+use crate::aggregate_fn::fns::bounded_max::BoundedMax;
+use crate::aggregate_fn::fns::bounded_min::BoundedMin;
 use crate::aggregate_fn::fns::first::First;
 use crate::aggregate_fn::fns::is_constant::IsConstant;
 use crate::aggregate_fn::fns::is_sorted::IsSorted;
 use crate::aggregate_fn::fns::last::Last;
+use crate::aggregate_fn::fns::max::Max;
+use crate::aggregate_fn::fns::min::Min;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::nan_count::NanCount;
 use crate::aggregate_fn::fns::null_count::NullCount;
@@ -69,10 +77,18 @@ impl Default for AggregateFnSession {
 
         // Register the built-in aggregate functions
         this.register(AllNonDistinct);
+        this.register(AllNonNan);
+        this.register(AllNonNull);
+        this.register(AllNan);
+        this.register(AllNull);
+        this.register(BoundedMax);
+        this.register(BoundedMin);
         this.register(First);
         this.register(IsConstant);
         this.register(IsSorted);
         this.register(Last);
+        this.register(Max);
+        this.register(Min);
         this.register(MinMax);
         this.register(NanCount);
         this.register(NullCount);

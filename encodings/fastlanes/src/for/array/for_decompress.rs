@@ -119,11 +119,11 @@ pub(crate) fn fused_decompress<
     unpacked.decode_into(uninit_slice);
 
     if let Some(patches) = bp.patches() {
-        bitpack_decompress::apply_patches_to_uninit_range_fn(
+        bitpack_decompress::apply_patches_to_uninit_range(
             &mut uninit_range,
             &patches,
             ctx,
-            |v| v.wrapping_add(&ref_),
+            |v: T| v.wrapping_add(&ref_),
         )?;
     };
 

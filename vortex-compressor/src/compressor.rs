@@ -4,6 +4,7 @@
 //! Cascading array compression implementation.
 
 use vortex_array::ArrayRef;
+use vortex_array::ArraySlots;
 use vortex_array::Canonical;
 use vortex_array::CanonicalValidity;
 use vortex_array::ExecutionCtx;
@@ -15,6 +16,8 @@ use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::Variant;
+use vortex_array::arrays::VariantArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::list::ListArrayExt;
@@ -23,11 +26,11 @@ use vortex_array::arrays::listview::list_from_list_view;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::scalar_fn::AnyScalarFn;
 use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_array::arrays::variant::VariantArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 
 use crate::builtins::IntDictScheme;
 use crate::ctx::CompressorContext;
@@ -250,8 +253,22 @@ impl CascadingCompressor {
                         .into_array(),
                 )
             }
-            Canonical::Variant(_) => {
-                vortex_bail!("Variant arrays can not be compressed")
+            Canonical::Variant(variant_array) => {
+                let core_storage =
+                    self.compress_physical_slots(variant_array.core_storage(), exec_ctx)?;
+                let shredded = variant_array
+                    .shredded()
+                    .map(|arr| {
+                        // Avoid stack-overflow for variant shredded values
+                        if arr.is::<Variant>() {
+                            self.compress_physical_slots(arr, exec_ctx)
+                        } else {
+                            self.compress(arr, exec_ctx)
+                        }
+                    })
+                    .transpose()?;
+
+                Ok(VariantArray::try_new(core_storage, shredded)?.into_array())
             }
         }
     }
@@ -556,6 +573,25 @@ impl CascadingCompressor {
             list_view.validity()?,
         )?
         .into_array())
+    }
+
+    /// Compress very child slot of the array, then re-build it from them.
+    fn compress_physical_slots(
+        &self,
+        array: &ArrayRef,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let slots = array
+            .slots()
+            .iter()
+            .map(|slot| {
+                slot.as_ref()
+                    .map(|child| self.compress(child, exec_ctx))
+                    .transpose()
+            })
+            .collect::<VortexResult<ArraySlots>>()?;
+
+        array.clone().with_slots(slots)
     }
 }
 

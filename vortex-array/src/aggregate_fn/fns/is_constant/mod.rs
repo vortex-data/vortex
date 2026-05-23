@@ -89,7 +89,7 @@ fn arrays_value_equal(a: &ArrayRef, b: &ArrayRef, ctx: &mut ExecutionCtx) -> Vor
 /// 5. Is all valid AND has minimum and maximum statistics that are equal.
 pub fn is_constant(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
     // Short-circuit using cached array statistics.
-    if let Some(Precision::Exact(value)) = array.statistics().get_as::<bool>(Stat::IsConstant) {
+    if let Precision::Exact(value) = array.statistics().get_as::<bool>(Stat::IsConstant) {
         return Ok(value);
     }
 
@@ -133,14 +133,14 @@ pub fn is_constant(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<boo
     }
 
     // We already know here that the array is all valid, so we check for min/max stats.
-    let min = array.statistics().get(Stat::Min);
-    let max = array.statistics().get(Stat::Max);
+    let min_stat = array.statistics().get(Stat::Min);
+    let max_stat = array.statistics().get(Stat::Max);
 
-    if let Some((min, max)) = min.zip(max)
-        && min.is_exact()
+    if let Precision::Exact(min) = min_stat.as_ref()
+        && let Precision::Exact(max) = max_stat.as_ref()
         && min == max
         && (Stat::NaNCount.dtype(array.dtype()).is_none()
-            || array.statistics().get_as::<u64>(Stat::NaNCount) == Some(Precision::exact(0u64)))
+            || array.statistics().get_as::<u64>(Stat::NaNCount) == Precision::exact(0u64))
     {
         array
             .statistics()

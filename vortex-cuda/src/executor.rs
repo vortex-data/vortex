@@ -26,6 +26,7 @@ use vortex::array::arrays::struct_::StructDataParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::dtype::PType;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 
 use crate::CudaSession;
@@ -417,8 +418,9 @@ impl CudaArrayExt for ArrayRef {
 
         // Try all GPU execution strategies: fused dynamic dispatch, partial
         // fusion with subtree fallbacks, and single-kernel fallback.
-        // If none succeed, fall back to CPU execution.
-        match hybrid_dispatch::try_gpu_dispatch(&self, ctx).await {
+        // If none succeed, fall back to CPU execution only when all buffers
+        // remain host-resident.
+        let gpu_error = match hybrid_dispatch::try_gpu_dispatch(&self, ctx).await {
             Ok(canonical) => return Ok(canonical),
             Err(e) => {
                 debug!(
@@ -426,10 +428,17 @@ impl CudaArrayExt for ArrayRef {
                     error = %e,
                     "No GPU execution path available, falling back to CPU"
                 );
+                e
             }
+        };
+
+        if !self.is_host() {
+            vortex_bail!(
+                "GPU execution for encoding {} failed ({gpu_error}); CPU fallback with device-resident buffers is not supported",
+                self.encoding_id()
+            );
         }
 
-        // TODO(0ax1): Double check whether we need to move buffers back to the host explicitly.
         self.execute(&mut ctx.ctx)
     }
 }

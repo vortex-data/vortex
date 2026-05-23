@@ -1,8 +1,6 @@
 name: PR Approval Check
 
 on:
-  pull_request_review:
-    types: [submitted, dismissed]
   pull_request:
     branches:
       - "develop"

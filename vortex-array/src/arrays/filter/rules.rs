@@ -12,34 +12,23 @@ use crate::arrays::Filter;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::arrays::filter::FilterArrayExt;
+use crate::arrays::filter::FilterReduce;
+use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::struct_::StructDataParts;
-use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
 
 pub(super) const PARENT_RULES: ParentRuleSet<Filter> =
-    ParentRuleSet::new(&[ParentRuleSet::lift(&FilterFilterRule)]);
+    ParentRuleSet::new(&[ParentRuleSet::lift(&FilterReduceAdaptor(Filter))]);
 
 pub(super) const RULES: ReduceRuleSet<Filter> =
     ReduceRuleSet::new(&[&TrivialFilterRule, &FilterStructRule]);
 
-/// A simple redecution rule that simplifies a [`FilterArray`] whose child is also a
-/// [`FilterArray`].
-#[derive(Debug)]
-struct FilterFilterRule;
-
-impl ArrayParentReduceRule<Filter> for FilterFilterRule {
-    type Parent = Filter;
-
-    fn reduce_parent(
-        &self,
-        child: ArrayView<'_, Filter>,
-        parent: ArrayView<'_, Filter>,
-        _child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        let combined_mask = child.mask.intersect_by_rank(&parent.mask);
-        let new_array = child.child().filter(combined_mask)?;
+impl FilterReduce for Filter {
+    fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+        let combined_mask = array.mask.intersect_by_rank(mask);
+        let new_array = array.child().filter(combined_mask)?;
 
         Ok(Some(new_array))
     }

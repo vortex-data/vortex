@@ -420,6 +420,25 @@ pub(crate) fn insta_settings() -> insta::Settings {
     let mut s = insta::Settings::clone_current();
     s.set_snapshot_path("snapshots");
     s.set_prepend_module_to_snapshot(false);
+    // Redact the build SHA in the footer so the locked snapshots survive
+    // every commit. The footer in `html::render::site_footer` embeds the
+    // real `git rev-parse HEAD` of the build (captured by `build.rs` into
+    // `VORTEX_BENCH_BUILD_SHA`); without redaction the three HTML
+    // snapshots would diff on every PR. The regex is anchored on the
+    // footer's `class="site-footer-sha"` attribute so it does NOT also
+    // match `<a href="https://github.com/vortex-data/vortex/commit/...">`
+    // URLs that come from ingested COMMITS rows (the fixtures use
+    // 1111..., 2222..., 3333... so a regression that misrenders those
+    // links is still pinned). The hex match is `{7,40}` so an extended
+    // disambiguating short-SHA (git auto-extends to 8-12 chars when the
+    // 7-char prefix is ambiguous) is also caught.
+    s.add_filter(
+        concat!(
+            r#"class="site-footer-sha"[^>]*href="https://github\.com/vortex-data/vortex/commit/"#,
+            r#"[0-9a-f]{7,40}"[^>]*><code>[0-9a-f]{7,40}</code></a>"#,
+        ),
+        r#"class="site-footer-sha" href="https://github.com/vortex-data/vortex/commit/<build-sha>" rel="noopener noreferrer" target="_blank"><code><build-sha></code></a>"#,
+    );
     s
 }
 
@@ -494,7 +513,7 @@ pub(crate) fn assert_close(actual: f64, expected: f64) {
 }
 
 /// Pull just the `<div class="filter-dropdown" …>…</div>` substring of the
-/// filter dropdown — its trigger button and the chip panel. Keeps the
+/// filter dropdown - its trigger button and the chip panel. Keeps the
 /// snapshot focused on the chip markup and stable against changes elsewhere
 /// on the page.
 pub(crate) fn filter_bar_section(body: &str) -> String {

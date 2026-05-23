@@ -31,8 +31,8 @@ impl fmt::Display for StatsDisplay<'_> {
         };
 
         // Null count or validity fallback
-        if let Some(nc) = stats.get(Stat::NullCount) {
-            if let Ok(n) = usize::try_from(&nc.clone().into_inner()) {
+        if let Some(nc) = stats.get(Stat::NullCount).into_inner() {
+            if let Ok(n) = usize::try_from(&nc) {
                 sep(f)?;
                 write!(f, "nulls={}", n)?;
             } else {
@@ -61,8 +61,8 @@ impl fmt::Display for StatsDisplay<'_> {
         }
 
         // NaN count (only if > 0)
-        if let Some(nan) = stats.get(Stat::NaNCount)
-            && let Ok(n) = usize::try_from(&nan.into_inner())
+        if let Some(nan) = stats.get(Stat::NaNCount).into_inner()
+            && let Ok(n) = usize::try_from(&nan)
             && n > 0
         {
             sep(f)?;
@@ -70,35 +70,35 @@ impl fmt::Display for StatsDisplay<'_> {
         }
 
         // Min/Max
-        if let Some(min) = stats.get(Stat::Min) {
+        if let Some(min) = stats.get(Stat::Min).into_inner() {
             sep(f)?;
             write!(f, "min={}", min)?;
         }
-        if let Some(max) = stats.get(Stat::Max) {
+        if let Some(max) = stats.get(Stat::Max).into_inner() {
             sep(f)?;
             write!(f, "max={}", max)?;
         }
 
         // Sum
-        if let Some(sum) = stats.get(Stat::Sum) {
+        if let Some(sum) = stats.get(Stat::Sum).into_inner() {
             sep(f)?;
             write!(f, "sum={}", sum)?;
         }
 
         // Boolean flags (compact)
-        if let Some(c) = stats.get(Stat::IsConstant)
-            && bool::try_from(&c.into_inner()).unwrap_or(false)
+        if let Some(c) = stats.get(Stat::IsConstant).into_inner()
+            && bool::try_from(&c).unwrap_or(false)
         {
             sep(f)?;
             f.write_str("const")?;
         }
-        if let Some(s) = stats.get(Stat::IsStrictSorted) {
-            if bool::try_from(&s.into_inner()).unwrap_or(false) {
+        if let Some(s) = stats.get(Stat::IsStrictSorted).into_inner() {
+            if bool::try_from(&s).unwrap_or(false) {
                 sep(f)?;
                 f.write_str("strict")?;
             }
-        } else if let Some(s) = stats.get(Stat::IsSorted)
-            && bool::try_from(&s.into_inner()).unwrap_or(false)
+        } else if let Some(s) = stats.get(Stat::IsSorted).into_inner()
+            && bool::try_from(&s).unwrap_or(false)
         {
             sep(f)?;
             f.write_str("sorted")?;

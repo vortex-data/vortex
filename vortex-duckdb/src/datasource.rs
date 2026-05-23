@@ -230,16 +230,16 @@ pub struct ColumnStatisticsAggregate {
 impl ColumnStatisticsAggregate {
     pub fn new(stats: &StatsSet) -> Self {
         let min = match stats.get(Stat::Min) {
-            Some(Precision::Exact(min)) => Some(min),
+            Precision::Exact(min) => Some(min),
             _ => None,
         };
         let max = match stats.get(Stat::Max) {
-            Some(Precision::Exact(max)) => Some(max),
+            Precision::Exact(max) => Some(max),
             _ => None,
         };
 
         let max_string_length =
-            if let Some(Precision::Exact(value)) = stats.get(Stat::UncompressedSizeInBytes) {
+            if let Precision::Exact(value) = stats.get(Stat::UncompressedSizeInBytes) {
                 // DuckDB's string length is u32
                 #[allow(clippy::cast_possible_truncation)]
                 Some(value.as_primitive().as_u64().vortex_expect("not a u64") as u32)
@@ -248,9 +248,7 @@ impl ColumnStatisticsAggregate {
             };
 
         let has_null = match stats.get(Stat::NullCount) {
-            Some(Precision::Exact(cnt)) => {
-                cnt.as_primitive().as_u64().vortex_expect("not a u64") > 0
-            }
+            Precision::Exact(cnt) => cnt.as_primitive().as_u64().vortex_expect("not a u64") > 0,
             _ => true,
         };
 
@@ -604,13 +602,13 @@ impl<T: DataSourceTableFunction> TableFunction for T {
 
     fn cardinality(bind_data: &Self::BindData) -> Cardinality {
         match bind_data.data_source.row_count() {
-            Some(Precision::Exact(v) | Precision::Inexact(v)) => {
+            Precision::Exact(v) | Precision::Inexact(v) => {
                 let has_non_optional_filter =
                     bind_data.has_non_optional_filter.load(Ordering::Relaxed);
                 // Post-filter estimate is always a heuristic.
                 Cardinality::Estimate(postfilter_cardinality(v, has_non_optional_filter))
             }
-            None => Cardinality::Unknown,
+            Precision::Absent => Cardinality::Unknown,
         }
     }
 

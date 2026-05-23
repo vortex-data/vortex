@@ -173,6 +173,7 @@ impl FromLogicalType for DType {
                     .erased(),
                 )
             }
+            DUCKDB_TYPE::DUCKDB_TYPE_VARIANT => DType::Variant(nullability),
             DUCKDB_TYPE::DUCKDB_TYPE_TIME_TZ => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_INTERVAL => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_ENUM => todo!(),

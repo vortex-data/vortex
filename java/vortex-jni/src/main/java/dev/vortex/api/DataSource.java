@@ -80,7 +80,7 @@ public final class DataSource {
     }
 
     /**
-     * Row count along with the precision of that estimate. Mirrors the Rust {@code Option<Precision<u64>>} returned by
+     * Row count along with the precision of that estimate. Mirrors the Rust {@code Precision<u64>} returned by
      * {@code DataSource::row_count}: {@link RowCount.Unknown} when no estimate is available, {@link RowCount.Estimate}
      * for an inexact hint, {@link RowCount.Exact} when the count is authoritative.
      */

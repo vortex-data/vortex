@@ -4033,6 +4033,7 @@ checksum = "7b4a6248eb93a4401ed2f37dfe8ea592d3cf05b7cf4f8efa867b6895af7e094e"
 dependencies = [
  "console 0.16.3",
  "once_cell",
+ "regex",
  "similar 2.7.0",
  "tempfile",
 ]
@@ -6809,6 +6810,7 @@ dependencies = [
  "lance-bench",
  "rand 0.10.1",
  "rand_distr 0.6.0",
+ "tabled",
  "tokio",
  "vortex-bench",
 ]
@@ -9356,6 +9358,7 @@ dependencies = [
  "dashmap",
  "duckdb",
  "flate2",
+ "futures",
  "insta",
  "maud",
  "parking_lot",
@@ -9502,6 +9505,7 @@ name = "vortex-cuda"
 version = "0.1.0"
 dependencies = [
  "arc-swap",
+ "arrow-schema",
  "async-trait",
  "bindgen",
  "bytes",

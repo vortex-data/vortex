@@ -13,6 +13,7 @@ mod buf_mut;
 mod count_ones;
 mod macros;
 mod ops;
+mod select;
 
 pub use arrow_buffer::bit_chunk_iterator::BitChunkIterator;
 pub use arrow_buffer::bit_chunk_iterator::BitChunks;

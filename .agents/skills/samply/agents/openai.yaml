@@ -1,0 +1,4 @@
+interface:
+  display_name: "Samply"
+  short_description: "Analyze and record Samply Firefox-profiler profiles."
+  default_prompt: "Use this skill to record Samply profiles, analyze Firefox profiler JSON, identify hotspots, summarize stacks and thread activity, and verify before/after performance evidence."

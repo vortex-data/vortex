@@ -660,10 +660,14 @@ impl Executable for CanonicalValidity {
                 let shredded = variant
                     .shredded()
                     .map(|shredded| {
-                        shredded
-                            .clone()
-                            .execute::<CanonicalValidity>(ctx)
-                            .map(|canonical| canonical.0.into_array())
+                        if shredded.is::<Variant>() {
+                            recursively_canonicalize_slots(shredded, ctx)
+                        } else {
+                            shredded
+                                .clone()
+                                .execute::<CanonicalValidity>(ctx)
+                                .map(|canonical| canonical.0.into_array())
+                        }
                     })
                     .transpose()?;
                 Ok(CanonicalValidity(Canonical::Variant(
@@ -702,7 +706,6 @@ fn recursively_canonicalize_slots(
         .collect::<VortexResult<ArraySlots>>()?;
     array.clone().with_slots(slots)
 }
-
 impl Executable for RecursiveCanonical {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         match array.execute::<Canonical>(ctx)? {
@@ -827,10 +830,14 @@ impl Executable for RecursiveCanonical {
                 let shredded = variant
                     .shredded()
                     .map(|shredded| {
-                        shredded
-                            .clone()
-                            .execute::<RecursiveCanonical>(ctx)
-                            .map(|canonical| canonical.0.into_array())
+                        if shredded.is::<Variant>() {
+                            recursively_canonicalize_slots(shredded, ctx)
+                        } else {
+                            shredded
+                                .clone()
+                                .execute::<RecursiveCanonical>(ctx)
+                                .map(|canonical| canonical.0.into_array())
+                        }
                     })
                     .transpose()?;
                 Ok(RecursiveCanonical(Canonical::Variant(
@@ -1113,15 +1120,73 @@ mod test {
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
 
     use crate::ArrayRef;
+    use crate::Canonical;
+    use crate::CanonicalValidity;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
+    use crate::arrays::Primitive;
+    use crate::arrays::Struct;
+    use crate::arrays::Variant;
+    use crate::arrays::VariantArray;
+    use crate::arrays::struct_::StructArrayExt;
+    use crate::arrays::variant::VariantArrayExt;
     use crate::arrow::ArrowSessionExt;
     use crate::arrow::FromArrowArray;
     use crate::canonical::StructArray;
+    use crate::dtype::Nullability;
+    use crate::scalar::Scalar;
+
+    fn variant_core_storage(len: usize) -> ArrayRef {
+        ConstantArray::new(
+            Scalar::variant(Scalar::primitive(1i32, Nullability::NonNullable)),
+            len,
+        )
+        .into_array()
+    }
+
+    #[test]
+    fn canonical_validity_canonicalizes_variant_shredded_physical_slots() -> VortexResult<()> {
+        let len = 2;
+        let nested_shredded =
+            StructArray::try_from_iter([("value", ConstantArray::new(10i32, len).into_array())])?;
+        let inner_variant = VariantArray::try_new(
+            variant_core_storage(len),
+            Some(nested_shredded.into_array()),
+        )?;
+        let outer_variant =
+            VariantArray::try_new(variant_core_storage(len), Some(inner_variant.into_array()))?;
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let Canonical::Variant(canonical) = outer_variant
+            .into_array()
+            .execute::<CanonicalValidity>(&mut ctx)?
+            .0
+        else {
+            return Err(vortex_err!("expected canonical variant"));
+        };
+
+        let nested_variant = canonical
+            .shredded()
+            .and_then(|shredded| shredded.as_opt::<Variant>())
+            .ok_or_else(|| vortex_err!("expected nested variant shredded child"))?;
+        let nested_struct = nested_variant
+            .shredded()
+            .and_then(|shredded| shredded.as_opt::<Struct>())
+            .ok_or_else(|| vortex_err!("expected nested struct shredded child"))?;
+        let value = nested_struct.unmasked_field_by_name("value")?;
+
+        assert!(value.is::<Primitive>());
+        assert!(!value.is::<Constant>());
+
+        Ok(())
+    }
 
     #[test]
     fn test_canonicalize_nested_struct() {
