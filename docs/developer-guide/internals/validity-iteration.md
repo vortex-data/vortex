@@ -57,6 +57,25 @@ The rules, in order of impact:
 
 See the [`vortex_buffer::BitBuffer`] docs for the same guidance from the bitmap side.
 
+## Two shapes of kernel
+
+The right strategy depends on whether the kernel is a reduction or an elementwise map.
+
+- **Reductions** (`sum`, `min`/`max`, `nan_count`, the cast's range check) *must* consult validity
+  to skip null lanes. Use the word-chunked branch-free fold above: fold invalid lanes against a
+  neutral, accumulate, decide once.
+- **Elementwise maps** (`a + b`, `cast`, `take`) should **not** gate the value computation by
+  validity at all. Compute the result for *every* lane at full SIMD width — null-position values
+  are arbitrary but masked — and produce the result validity as a cheap, separate **bitwise op on
+  the input bitmaps** (e.g. `result_nulls = a_nulls & b_nulls`, a vectorized word-wise AND). This is
+  the approach arrow-rs uses for arithmetic (`arrow-arith`'s `binary`/`try_binary`), and it keeps
+  the hot value loop completely branch- and validity-free.
+
+  The only wrinkle is a **fallible** elementwise op (checked add, checked cast): an overflow at a
+  *null* lane must not error. Handle it exactly as the cast does — compute on all lanes, detect the
+  fault branch-free per lane, **AND the fault mask with validity**, and bail once at the end if any
+  *valid* lane faulted. Never branch on validity in the per-lane body.
+
 ## Evidence
 
 This pattern was validated while tuning the primitive cast kernel
@@ -70,6 +89,19 @@ idiom to the branch-free word-chunk form:
   from making the loop *branch-free* (the scalar convert was unchanged), so it is
   density-independent where the old branchy version got worse as nulls increased.
 
+The same rewrite on the nullable aggregate kernels (`aggregate_fn/fns/...`), benchmarked at N=100k,
+50% nulls, before → after:
+
+| kernel | before | after | speedup |
+| --- | --- | --- | --- |
+| `nan_count` (f64) | 140.7 µs | 79.3 µs | 1.77× |
+| `sum` (f64) | 720.9 µs | 430.5 µs | 1.67× |
+
+The branch-free `sum` is *bit-identical* to the old scalar version (adding `0.0` for invalid/NaN
+lanes is exact and preserves order); `nan_count` is an order-independent count. The measured
+per-kernel branch-misprediction penalty at 50% nulls was 3–8× (`nan_count` 8×, `sum` 3.9×,
+`min_max` 3×) — that penalty is what the branch-free form removes.
+
 ### Caveats learned the hard way
 
 - **Benchmark on the real build, not just a microbenchmark.** A "byte per 8 lanes" traversal that
@@ -81,6 +113,10 @@ idiom to the branch-free word-chunk form:
 - **End-to-end overhead can mask a kernel win.** `cast_u32_to_u8_nullable` barely moved end-to-end
   even though the kernel went scalar → SIMD, because that path is dominated by mask materialization
   and array construction, not the cast loop. Profile to confirm the kernel is the bottleneck.
+- **Beware the statistics cache when benchmarking aggregates.** Calling `sum`/`min_max`/`nan_count`
+  on a cloned array measures a cached-stat lookup (~100 ns for 100k elements), not the kernel.
+  Construct a fresh `PrimitiveArray` (cheap buffer/validity `clone`s) per timed iteration so the
+  stats cache is empty and the kernel actually runs.
 
 ## Rollout plan
 
