@@ -46,7 +46,9 @@ fn bench_agg<R>(bencher: Bencher, valid_pct: u32, f: impl Fn(&vortex_array::Arra
 
 fn inputs_i64(valid_frac: f64) -> (Buffer<i64>, Validity) {
     let mut rng = StdRng::seed_from_u64(7);
-    let values: Buffer<i64> = (0..N).map(|_| rng.random_range(-1_000_000i64..1_000_000)).collect();
+    let values: Buffer<i64> = (0..N)
+        .map(|_| rng.random_range(-1_000_000i64..1_000_000))
+        .collect();
     let validity = Validity::from_iter((0..N).map(|_| rng.random_bool(valid_frac)));
     (values, validity)
 }
