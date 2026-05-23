@@ -102,6 +102,34 @@ lanes is exact and preserves order); `nan_count` is an order-independent count. 
 per-kernel branch-misprediction penalty at 50% nulls was 3–8× (`nan_count` 8×, `sum` 3.9×,
 `min_max` 3×) — that penalty is what the branch-free form removes.
 
+### Fallible elementwise: checked add with validity (prototype, N=65,536)
+
+A standalone prototype of `i32 + i32` with per-operand validity compared three strategies:
+
+| strategy | 100% valid | 50% valid |
+| --- | --- | --- |
+| naive per-lane zip + branch + early return | 1.61 ns/elem | 7.58 ns/elem |
+| arrow-style scalar valid-index gather (`try_for_each_valid_idx`) | 1.17 | 0.52 |
+| **dense branch-free (compute all, AND fault with validity, bail once)** | **0.27** | **0.28** |
+
+The dense form vectorizes to `vpaddd` + `vpternlogd` (the branch-free signed-overflow test
+`((x^s) & (y^s)) < 0` in one op) + `vpsrld` + `vporq`, and is **4.3× faster than arrow's approach**
+and density-independent. Note arrow-rs *cannot* do this for checked arithmetic: its `op` is a
+generic fallible closure that would trap on the garbage at null slots, so it gathers valid indices
+instead. Rust's non-trapping `i32::overflowing_add` (or the explicit sign test) lets us stay dense
+and branch-free — overflow at a *null* lane is computed but its fault bit is masked out by the
+`& validity` before the final bail. Result validity is the cheap word-wise `a_nulls & b_nulls`.
+
+### `take` / gather with validity
+
+Per arrow-rs (`arrow-select`) and confirmed by inspection, `take` is **gather-bound, not bitmap- or
+branch-bound**: gather the values (`out[i] = values[indices[i]]`) and build the result validity in
+a separate pass (gather the source validity bits at the indices, AND with the indices' own
+validity; when the source has no nulls, just propagate the indices' null buffer). No mainstream
+crate uses SIMD here — the random gather dominates — so the validity-iteration pattern above buys
+little; the win, if any, is a hardware gather (Vortex already has an AVX2 `take`). The "checked"
+part is an index bounds-check, which vectorizes trivially (`indices < len`, OR-reduced).
+
 ### Caveats learned the hard way
 
 - **Benchmark on the real build, not just a microbenchmark.** A "byte per 8 lanes" traversal that
