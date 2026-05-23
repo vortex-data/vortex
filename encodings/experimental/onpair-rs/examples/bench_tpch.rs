@@ -38,6 +38,7 @@ use std::time::Instant;
 use arrow_array::Array;
 use arrow_array::cast::AsArray;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use vortex_onpair_rs::Column;
 use vortex_onpair_rs::OnPairTrainingConfig;
 use vortex_onpair_rs::Store;
 use vortex_onpair_rs::TrainingConfig;
@@ -128,6 +129,31 @@ fn main() {
             compressed as f64 / (1024.0 * 1024.0),
             total as f64 / compressed as f64
         );
+
+        // ── correctness: full train+parse+decode roundtrip on this corpus ───
+        let col = Column::compress(
+            &bytes,
+            &offsets,
+            OnPairTrainingConfig {
+                bits: bits as u32,
+                threshold: 0.5,
+                seed: 42,
+            },
+        )
+        .unwrap();
+        let (dbytes, doffsets) = col.decode_all();
+        let bytes_ok = dbytes == bytes;
+        let offsets_ok = doffsets == off32;
+        println!(
+            "  roundtrip: {} (bytes_match={bytes_ok}, offsets_match={offsets_ok}, decoded={} MiB)",
+            if bytes_ok && offsets_ok {
+                "PASS"
+            } else {
+                "FAIL"
+            },
+            dbytes.len() as f64 / (1024.0 * 1024.0),
+        );
+        assert!(bytes_ok && offsets_ok, "roundtrip mismatch at bits={bits}");
 
         if env::var("ONPAIR_BENCH_CPP").is_ok() {
             cpp_compare(&bytes, &offsets, bits, mib, iters);
