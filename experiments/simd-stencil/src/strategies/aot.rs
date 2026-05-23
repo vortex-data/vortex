@@ -19,7 +19,7 @@ use crate::encode::EncodedC;
 use crate::kernels::LANES32;
 use crate::kernels::rle_expand;
 use crate::kernels::undelta_u64;
-use crate::kernels::untranspose_scale_tile;
+use crate::kernels::undelta_untranspose_scale_tile;
 use crate::kernels::untranspose_u32;
 use crate::kernels::untranspose_u64;
 use crate::strategies::tile_f64_mut;
@@ -64,7 +64,6 @@ pub fn decode_b(enc: &EncodedB) -> Vec<f64> {
     let tiles = n / TILE;
     let mut out = vec![0f64; n];
     let mut td = [0u64; TILE];
-    let mut tu = [0u64; TILE];
 
     for t in 0..tiles {
         let w = enc.width[t] as usize;
@@ -83,10 +82,9 @@ pub fn decode_b(enc: &EncodedB) -> Vec<f64> {
                 _ => unreachable!("u64 width out of range: {w}"),
             }
         });
-        undelta_u64(&td, &mut tu);
-        // Fused untranspose + scale straight into the output tile (no `digits`).
-        untranspose_scale_tile(
-            &tu,
+        // Fused undelta + untranspose + scale: no `tu`/`digits` intermediates.
+        undelta_untranspose_scale_tile(
+            &td,
             enc.scale,
             tile_f64_mut(&mut out[t * TILE..(t + 1) * TILE]),
         );
