@@ -55,10 +55,10 @@ pub fn decode_a(enc: &EncodedA) -> Vec<u32> {
     out
 }
 
-/// Monolithic AOT decode of stack B: per tile, one const-width fused unpack+FoR,
-/// one undelta, then a single fused untranspose+scale pass. Every stage is
-/// inlined/monomorphised and the intermediate `digits` tile is eliminated, so
-/// this is the best-possible single-kernel target.
+/// Best-possible AOT decode of stack B: per tile, const-width fused unpack+FoR,
+/// undelta, untranspose to contiguous digits, then a vectorized ALP scale.
+/// Fusing the scale into the untranspose scatter was tried and regressed (it
+/// scalarizes the `vcvtqq2pd`/`vmulpd`), so the tail stays staged.
 pub fn decode_b(enc: &EncodedB) -> Vec<f64> {
     let n = enc.n;
     let tiles = n / TILE;
