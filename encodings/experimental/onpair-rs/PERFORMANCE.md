@@ -210,6 +210,46 @@ window would be incorrect for long-token matches (which determine 67 % of
 bits=16 lookups). Fixed-window memoization therefore over-specifies and can't
 capture match-granularity repetition. Not kept.
 
+## DISPROVEN: frequency-clustering for encode (the freq idea applied to `find`)
+
+Two ways to apply the "exploit token frequency" idea to the encode hot path
+were built and benchmarked; both neutral-or-worse. The root cause is the same:
+`find_longest_match`'s dominant cost is the **hash probe into `long_map`** (done
+every call to locate the bucket), and a swisstable slot is **hash-located** — it
+cannot be reordered by frequency. The only orderable structure (bucket entry
+data) is downstream of that probe and is not the bottleneck.
+
+- **Frequency(size)-ordered bucket arena** — pack all linear buckets into one
+  contiguous arena, largest-first (bucket size as a hot-prefix proxy), so hot
+  bucket data clusters at the front (cache-resident). Result (100 MB, A/B):
+  **neutral** — bits=12 parse 0.586 s vs 0.579 s, bits=16 0.734 s vs 0.735 s.
+  The scattered probe to *reach* the bucket dominates; clustering the scanned
+  data after it doesn't move the needle (and a plain unordered arena was also
+  neutral).
+- **16-byte-window memoization cache** — see the dedicated section above
+  (~10 % hit, neutral-to-worse).
+
+Note: the encode path never reads the dictionary by token id — `find` returns
+the id straight from the hash structures (long bucket entries store their
+suffix bytes inline). So "freq-sort the dict + inverse code" has no encode
+surface to act on; it only helps decode's `dict_table[code]` access.
+
+## DISPROVEN: multi-string interleave for memory-level parallelism (scalar B2 proxy)
+
+A single string's parse is latency-bound (each `find` position depends on the
+previous match, so consecutive finds can't overlap). Processing G=8 independent
+strings in lockstep — buffering tokens per lane, flushing in string order —
+issues G independent finds per round so the out-of-order engine can overlap
+their cache misses (the scalar analogue of the FSST AVX-512 gather kernel).
+
+Result (100 MB, A/B): **regressed** — bits=12 parse 0.737 s vs 0.581 s, bits=16
+0.821 s vs 0.716 s. The per-token buffering + lockstep bookkeeping cost more than
+the MLP gained, and the OoO engine already overlaps finds across string
+boundaries in the simple loop. Output identical (238 tests pass). The *true*
+AVX-512 gather kernel could still win (no buffering, real parallel lanes), but
+this scalar proxy regressing lowers confidence that the MLP is easily captured,
+and the gather rewrite over variable-length/bucket lookups is very high effort.
+
 ## LOW VALUE: frequency-sort + inverse-code (idea D1)
 
 Sorting the dictionary by frequency with an indirection (so emitted codes are
