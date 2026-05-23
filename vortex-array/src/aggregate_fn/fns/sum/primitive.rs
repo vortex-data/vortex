@@ -3,6 +3,7 @@
 
 use itertools::Itertools;
 use num_traits::ToPrimitive;
+use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
@@ -13,6 +14,7 @@ use super::checked_add_i64;
 use super::checked_add_u64;
 use crate::ExecutionCtx;
 use crate::arrays::PrimitiveArray;
+use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
 
 pub(super) fn accumulate_primitive(
@@ -73,7 +75,7 @@ fn accumulate_primitive_all(inner: &mut SumState, p: &PrimitiveArray) -> VortexR
 fn accumulate_primitive_valid(
     inner: &mut SumState,
     p: &PrimitiveArray,
-    validity: &vortex_buffer::BitBuffer,
+    validity: &BitBuffer,
 ) -> VortexResult<bool> {
     match inner {
         SumState::Unsigned(acc) => match_each_native_ptype!(p.ptype(),
@@ -104,15 +106,34 @@ fn accumulate_primitive_valid(
             unsigned: |_T| { vortex_panic!("float sum state with unsigned input") },
             signed: |_T| { vortex_panic!("float sum state with signed input") },
             floating: |T| {
-                for (&v, valid) in p.as_slice::<T>().iter().zip_eq(validity.iter()) {
-                    if valid && !v.is_nan() {
-                        *acc += ToPrimitive::to_f64(&v).vortex_expect("float to f64");
-                    }
-                }
+                accumulate_float_valid(acc, p.as_slice::<T>(), validity);
                 Ok(false)
             }
         ),
         SumState::Decimal { .. } => vortex_panic!("decimal sum state with primitive input"),
+    }
+}
+
+/// Branch-free, word-chunked float sum over valid lanes. Invalid or NaN lanes contribute `0.0`,
+/// which is exact and preserves the left-to-right summation order, so the result is bit-identical
+/// to a scalar `if valid && !nan { acc += v }` loop — but without a per-lane branch that
+/// mispredicts on null-bearing data. See the `BitBuffer` docs for the general pattern.
+fn accumulate_float_valid<T: NativePType>(acc: &mut f64, values: &[T], validity: &BitBuffer) {
+    let chunks = validity.chunks();
+    let mut base = 0usize;
+    for word in chunks.iter() {
+        for (lane, &value) in values[base..base + 64].iter().enumerate() {
+            let keep = (((word >> lane) & 1) != 0) & !value.is_nan();
+            let wide = ToPrimitive::to_f64(&value).vortex_expect("float to f64");
+            *acc += if keep { wide } else { 0.0 };
+        }
+        base += 64;
+    }
+    let remainder = chunks.remainder_bits();
+    for (lane, &value) in values[base..].iter().enumerate() {
+        let keep = (((remainder >> lane) & 1) != 0) & !value.is_nan();
+        let wide = ToPrimitive::to_f64(&value).vortex_expect("float to f64");
+        *acc += if keep { wide } else { 0.0 };
     }
 }
 
