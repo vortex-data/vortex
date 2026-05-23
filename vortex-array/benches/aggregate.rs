@@ -44,6 +44,24 @@ fn bench_agg<R>(bencher: Bencher, valid_pct: u32, f: impl Fn(&vortex_array::Arra
         .bench_refs(|a| f(a));
 }
 
+fn inputs_i64(valid_frac: f64) -> (Buffer<i64>, Validity) {
+    let mut rng = StdRng::seed_from_u64(7);
+    let values: Buffer<i64> = (0..N).map(|_| rng.random_range(-1_000_000i64..1_000_000)).collect();
+    let validity = Validity::from_iter((0..N).map(|_| rng.random_bool(valid_frac)));
+    (values, validity)
+}
+
+#[divan::bench(args = [100u32, 50])]
+fn sum_i64_nullable(bencher: Bencher, valid_pct: u32) {
+    let (values, validity) = inputs_i64(valid_pct as f64 / 100.0);
+    bencher
+        .with_inputs(|| PrimitiveArray::new(values.clone(), validity.clone()).into_array())
+        .bench_refs(|a| {
+            #[expect(clippy::unwrap_used)]
+            sum(a, &mut LEGACY_SESSION.create_execution_ctx()).unwrap()
+        });
+}
+
 #[divan::bench(args = [100u32, 50])]
 fn sum_f64_nullable(bencher: Bencher, valid_pct: u32) {
     bench_agg(bencher, valid_pct, |a| {
