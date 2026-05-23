@@ -233,6 +233,9 @@ fn runend_decode_slice<T: Copy + Default>(
         Mask::Values(mask) => {
             let mut decoded = BufferMut::with_capacity(length);
             let mut decoded_validity = BitBufferMut::with_capacity(length);
+            // TODO(perf): per-bit `zip` over the validity bitmap is scalar; this is on the
+            // decompression path. A word-chunked validity walk would vectorize the value handling.
+            // See vortex-array docs/developer-guide/internals/validity-iteration.md.
             for (end, value) in run_ends.zip_eq(
                 values
                     .iter()

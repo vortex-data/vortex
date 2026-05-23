@@ -32,6 +32,8 @@ pub(super) fn check_bool_sorted(
             if strict {
                 let validity_buffer = mask_values.bit_buffer();
                 let values = array.to_bit_buffer();
+                // TODO(perf): per-bit `zip` of two bitmaps is scalar; a word-at-a-time scan over
+                // both bitmaps would vectorize. See docs/developer-guide/internals/validity-iteration.md.
                 Ok(validity_buffer
                     .iter()
                     .zip(values.iter())

@@ -44,6 +44,9 @@ fn compute_is_sorted<T: NativePType>(
             })
         }
         Mask::Values(mask_values) => {
+            // TODO(perf): per-bit `zip` over the validity bitmap is scalar and mispredicts on
+            // nulls. Prefer a word-chunked branch-free walk. See
+            // docs/developer-guide/internals/validity-iteration.md.
             let iter = mask_values
                 .bit_buffer()
                 .iter()

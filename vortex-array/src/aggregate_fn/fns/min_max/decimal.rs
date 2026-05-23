@@ -43,6 +43,10 @@ where
         {
             Mask::AllTrue(_) => compute_min_max(array.buffer::<D>().iter(), array.decimal_dtype()),
             Mask::AllFalse(_) => None,
+            // TODO(perf): the per-bit `zip + filter_map` is scalar and mispredicts on nulls. Port
+            // the branch-free neutral-replacement word-chunked min/max from the primitive `min_max`
+            // (vortex-array/src/aggregate_fn/fns/min_max/primitive.rs). See
+            // docs/developer-guide/internals/validity-iteration.md.
             Mask::Values(v) => compute_min_max(
                 array
                     .buffer::<D>()

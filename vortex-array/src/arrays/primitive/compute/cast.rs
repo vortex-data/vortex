@@ -161,6 +161,13 @@ where
     unsafe { out.set_len(len) };
     let dst = out.as_mut_slice();
 
+    // TODO(perf): the `Mask::Values` arm runs a validity-gated min/max reduction. A prototype
+    // showed a faster "split" form (measured ~2x for nullable f64->i32, see
+    // docs/developer-guide/internals/validity-iteration.md): compute the DENSE min/max ignoring
+    // validity (`cast_and_bounds_all`) first — if it fits `T`, every valid value fits too, so skip
+    // the gated pass entirely; only fall back to the gated `cast_and_bounds_masked` when the dense
+    // bounds don't fit. A further ~7x for float->int needs a vectorized convert (clamp +
+    // `to_int_unchecked` -> `vcvttpd2dq`) with per-pair NaN->0 handling (separate, `unsafe`).
     let bounds = match &mask {
         Mask::AllTrue(_) => cast_and_bounds_all::<F, T>(values, dst),
         Mask::AllFalse(_) => {

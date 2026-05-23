@@ -187,6 +187,9 @@ fn process_duckdb_lists(
             let mut child_min_length = 0;
             let mut previous_end = 0;
 
+            // TODO(perf): per-bit `zip` over validity is scalar; runs on every DuckDB->Vortex list
+            // import with nulls. A word-chunked validity walk would avoid the per-lane branch. See
+            // vortex-array docs/developer-guide/internals/validity-iteration.md.
             for (entry, is_valid) in entries.iter().zip(values.bit_buffer().iter()) {
                 let (offset, size) = if is_valid {
                     convert_valid_list_entry(entry, &mut child_min_length, &mut previous_end)
