@@ -250,6 +250,49 @@ AVX-512 gather kernel could still win (no buffering, real parallel lanes), but
 this scalar proxy regressing lowers confidence that the MLP is easily captured,
 and the gather rewrite over variable-length/bucket lookups is very high effort.
 
+## PROVEN: partial-shuffle the training order (training speedup, ratio preserved)
+
+Per-section timing of `train` across real columns (TPC-H lineitem, 100 MB)
+revealed an overlooked cost: the training **row shuffle**. `train` does a full
+Fisher-Yates `order.shuffle()` over **all `n` rows**, which is *memory-bound* (a
+random swap per row across an `n*4`-byte buffer) and ∝ row count — so for
+datasets with many short rows it dominates. Measured `[train.shuffle]` at 100 MB:
+
+| column | rows | shuffle (full) | as % of train @ thr 0.1 |
+|---|---|---|---|
+| l_comment (free text) | 4.0 M | 0.025 s | small |
+| l_shipinstruct (4 vals) | 8.7 M | 0.089 s | ~40 % |
+| l_shipmode (7 short vals) | 24 M | **0.34–0.41 s** | **~56 %** |
+
+With a dynamic threshold only the first ~`sample_fraction*n` rows are consumed
+before the byte budget stops the scan, so shuffling all `n` is wasteful.
+**Fix:** `order.partial_shuffle(rng, k)` with `k = min(n, 2*sample_fraction*n +
+1024)` — shuffle only the prefix actually read. (A faster RNG was tried first
+and was neutral, confirming the cost is memory, not the RNG.)
+
+Clean A/B (thr 0.1, 100 MB), **ratio preserved**:
+
+| column / bits | train: partial vs full | speedup | ratio partial vs full |
+|---|---|---|---|
+| l_shipmode / 12 | 0.248 s vs 0.818 s | **3.3×** | 0.779 / 0.779 |
+| l_shipmode / 16 | 0.248 s vs 0.901 s | **3.6×** | 0.714 / 0.714 |
+| l_comment / 16 | 0.155 s vs 0.273 s | **1.8×** | 2.798 / 2.798 |
+| l_comment / 12 | 0.117 s vs 0.246 s | 2.1× | 2.895 / 2.899 |
+
+At `threshold=0.5` (default) `k=n`, so it's a full shuffle (unchanged). 238 unit
+tests + 19 cross-impl parity tests pass. **Kept.** The win scales with smaller
+`sample_fraction` and with shorter rows.
+
+## Compression section breakdown (for reference)
+
+Timed sections (enable `--features lpm-stats`): `train.shuffle` (above) →
+`train.scan` (BPE find+freq+merge — dominates for free text, controlled by
+`sample_fraction`) → `train.sort+lpm` (lexicographic dict sort + LPM rebuild —
+**always negligible, ≤0.022 s**) → `parse` (~92 % `find`, ~8 % bit-packing) →
+`decode` (~1.1 GiB/s, index-based, flat across bit widths). Caveat: OnPair is a
+poor fit for tiny low-cardinality columns (l_shipmode ratio 0.78× = expansion);
+prefer dict/RLE there.
+
 ## DISPROVEN: changing the `long_map` probe (custom flat table; slim value)
 
 The every-call `long_map` probe is the hottest memory access, so two ways to

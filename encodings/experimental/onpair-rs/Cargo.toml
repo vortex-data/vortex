@@ -22,6 +22,10 @@ hashbrown = { workspace = true }
 memchr = { workspace = true }
 rand = { workspace = true }
 
+[features]
+# Internal: print per-section timings of train()/parse() for profiling.
+lpm-stats = []
+
 [dev-dependencies]
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }

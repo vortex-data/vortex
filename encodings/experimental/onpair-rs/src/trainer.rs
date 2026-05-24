@@ -171,13 +171,39 @@ pub fn train(data: &[u8], offsets: &[u32], n: usize, cfg: &TrainingConfig) -> Tr
     // divergence — cross-impl comparison tests assert structural equality
     // (decompression equivalence, predicate equivalence), not bit-exact
     // dictionary equality.
+    //
+    // With a dynamic threshold we only ever consume the first
+    // ~`sample_fraction * n` rows before the byte budget is exhausted, so we
+    // partial-shuffle just a generous prefix instead of all `n` rows. A full
+    // Fisher-Yates over the whole `order` array is memory-bound (a random swap
+    // per row across an `n * 4`-byte buffer), and dominates training for
+    // datasets with many short rows; shuffling only the prefix we read cuts
+    // that proportionally. Any rows past the prefix stay in input order, which
+    // is harmless: the byte budget stops the scan well within the shuffled
+    // prefix, and an under-estimate only makes the tail sample slightly less
+    // random (roundtrip stays correct, ratio is unaffected in practice).
     let mut order: Vec<u32> = (0..n as u32).collect();
     let seed = cfg.seed.unwrap_or_else(|| {
         use rand::RngExt;
         rand::rng().random()
     });
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
-    order.shuffle(&mut rng);
+    let shuffle_k = match cfg.threshold {
+        ThresholdSpec::Dynamic(dt) => {
+            (((dt.sample_fraction * 2.0).min(1.0) * n as f64) as usize + 1024).min(n)
+        }
+        ThresholdSpec::Fixed(_) => n,
+    };
+    #[cfg(feature = "lpm-stats")]
+    let _t = std::time::Instant::now();
+    order.partial_shuffle(&mut rng, shuffle_k);
+    #[cfg(feature = "lpm-stats")]
+    {
+        eprintln!(
+            "      [train.shuffle]   {:.3}s  (k={shuffle_k}/{n})",
+            _t.elapsed().as_secs_f64()
+        );
+    }
 
     // ── Pair frequency map. Key packs two Token values into a u32. ─────────
     let mut freq: HashMap<u32, u8, FxBuildHasher> = HashMap::default();
@@ -185,6 +211,8 @@ pub fn train(data: &[u8], offsets: &[u32], n: usize, cfg: &TrainingConfig) -> Tr
     let mut full_dictionary = false;
     let mut budget_exhausted = false;
 
+    #[cfg(feature = "lpm-stats")]
+    let _t_scan = std::time::Instant::now();
     for idx in order {
         if full_dictionary || budget_exhausted {
             break;
@@ -261,9 +289,23 @@ pub fn train(data: &[u8], offsets: &[u32], n: usize, cfg: &TrainingConfig) -> Tr
         }
     }
 
+    #[cfg(feature = "lpm-stats")]
+    eprintln!(
+        "      [train.scan]      {:.3}s  (dict={} tokens)",
+        _t_scan.elapsed().as_secs_f64(),
+        dict.num_tokens()
+    );
+
+    #[cfg(feature = "lpm-stats")]
+    let _t_sort = std::time::Instant::now();
     let mut result = TrainResult { dict, lpm };
     sort_dictionary(&mut result);
     result.dict.pad_for_decoder();
+    #[cfg(feature = "lpm-stats")]
+    eprintln!(
+        "      [train.sort+lpm]  {:.3}s",
+        _t_sort.elapsed().as_secs_f64()
+    );
     result
 }
 
