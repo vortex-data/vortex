@@ -3028,6 +3028,14 @@ pub type vortex_array::arrays::datetime::TemporalArray = vortex_array::arrays::d
 
 pub mod vortex_array::arrays::decimal
 
+pub mod vortex_array::arrays::decimal::i128_simd
+
+pub fn vortex_array::arrays::decimal::i128_simd::add_i128(&[i128], &[i128]) -> vortex_buffer::buffer::Buffer<i128>
+
+pub fn vortex_array::arrays::decimal::i128_simd::sum_i128(&[i128]) -> i128
+
+pub fn vortex_array::arrays::decimal::i128_simd::sum_i128_checked(i128, &[i128]) -> core::option::Option<i128>
+
 pub struct vortex_array::arrays::decimal::Decimal
 
 impl core::clone::Clone for vortex_array::arrays::Decimal

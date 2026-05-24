@@ -9,6 +9,8 @@ pub use vtable::DecimalArray;
 
 pub(crate) mod compute;
 
+pub mod i128_simd;
+
 mod vtable;
 pub use compute::rules::DecimalMaskedValidityRule;
 pub use vtable::Decimal;

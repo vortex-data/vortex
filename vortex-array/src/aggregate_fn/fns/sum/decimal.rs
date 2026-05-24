@@ -15,6 +15,7 @@ use vortex_mask::Mask;
 use super::SumState;
 use crate::ExecutionCtx;
 use crate::arrays::DecimalArray;
+use crate::arrays::decimal::i128_simd;
 use crate::dtype::DecimalDType;
 use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
@@ -63,7 +64,7 @@ fn sum_decimal_value<T, I>(
     output_dtype: DecimalDType,
 ) -> Option<DecimalValue>
 where
-    T: AsPrimitive<I>,
+    T: AsPrimitive<I> + NativeDecimalType,
     I: NumOps + CheckedAdd + Copy + NativeDecimalType + 'static,
     bool: AsPrimitive<I>,
     DecimalValue: From<I>,
@@ -78,10 +79,25 @@ where
         .filter(|v| v.fits_in_precision(output_dtype))
 }
 
-fn sum_decimal<T: AsPrimitive<I>, I: Copy + CheckedAdd + 'static>(
-    values: Buffer<T>,
-    initial: I,
-) -> Option<I> {
+fn sum_decimal<T, I>(values: Buffer<T>, initial: I) -> Option<I>
+where
+    T: AsPrimitive<I> + NativeDecimalType,
+    I: Copy + CheckedAdd + NativeDecimalType + 'static,
+{
+    // Fast path: 128-bit storage accumulated into a 128-bit result uses the vectorized
+    // add-with-carry kernel. On overflow it falls through to the scalar reduction so the
+    // observable behavior is identical to the non-SIMD path.
+    if T::DECIMAL_TYPE == DecimalType::I128 && I::DECIMAL_TYPE == DecimalType::I128 {
+        // SAFETY: both `T` and `I` are `i128` in this branch, so the slice and scalar
+        // reinterpretations are layout-compatible.
+        let slice: &[i128] = unsafe { std::mem::transmute::<&[T], &[i128]>(values.as_slice()) };
+        let initial_i128: i128 = unsafe { std::mem::transmute_copy(&initial) };
+        if let Some(result) = i128_simd::sum_i128_checked(initial_i128, slice) {
+            // SAFETY: `I` is `i128`, matching the kernel's return type.
+            return Some(unsafe { std::mem::transmute_copy(&result) });
+        }
+    }
+
     let mut sum = initial;
     for v in values.iter() {
         let v: I = v.as_();
@@ -107,6 +123,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
@@ -300,6 +317,32 @@ mod tests {
         let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(14, 2), Nullable),
             Some(ScalarValue::from(DecimalValue::from(300i32))),
+        )?;
+
+        assert_eq!(result, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn sum_decimal_i128_storage_simd_path() -> VortexResult<()> {
+        // Input precision 24 (i128 storage) -> return precision 34 (still i128 accumulator),
+        // exercising the vectorized i128 sum fast path with more than one SIMD block.
+        let values: Vec<i128> = (0..100).map(|i| (i as i128) * (1i128 << 70)).collect();
+        let expected_sum: i128 = values.iter().copied().sum();
+        let decimal = DecimalArray::new(
+            Buffer::copy_from(&values),
+            DecimalDType::new(24, 0),
+            Validity::AllValid,
+        );
+
+        let result = sum(
+            &decimal.into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
+
+        let expected = Scalar::try_new(
+            DType::Decimal(DecimalDType::new(34, 0), Nullability::NonNullable),
+            Some(ScalarValue::from(DecimalValue::from(expected_sum))),
         )?;
 
         assert_eq!(result, expected);

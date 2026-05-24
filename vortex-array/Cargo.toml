@@ -110,6 +110,10 @@ name = "scalar_subtract"
 harness = false
 
 [[bench]]
+name = "decimal_i128"
+harness = false
+
+[[bench]]
 name = "compare"
 harness = false
 
