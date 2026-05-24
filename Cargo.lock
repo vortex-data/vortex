@@ -9940,6 +9940,8 @@ dependencies = [
  "parquet",
  "rand 0.10.1",
  "rstest",
+ "tpchgen",
+ "tpchgen-arrow",
  "vortex-onpair-sys",
 ]
 

@@ -32,6 +32,8 @@ arrow-schema = { workspace = true }
 divan = { workspace = true }
 parquet = { workspace = true }
 rstest = { workspace = true }
+tpchgen = { workspace = true }
+tpchgen-arrow = { workspace = true }
 vortex-onpair-sys = { workspace = true }
 
 [[bench]]
@@ -41,3 +43,11 @@ harness = false
 [[example]]
 name = "bench_tpch"
 path = "examples/bench_tpch.rs"
+
+[[example]]
+name = "gen_l_comment"
+path = "examples/gen_l_comment.rs"
+
+[[example]]
+name = "bench_gather"
+path = "examples/bench_gather.rs"

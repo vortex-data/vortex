@@ -14,6 +14,17 @@ cargo run --release -p vortex-onpair-rs --example bench_tpch
 #      ONPAIR_BENCH_THRESHOLD=<sample_fraction>  ONPAIR_BENCH_CPP=1
 ```
 
+For *real* TPC-H `lineitem.l_comment` (not the synthetic shape), generate a
+single-column parquet of the desired size with the `gen_l_comment` example,
+then point `bench_tpch` at it:
+
+```bash
+OUT=target/l_comment.parquet TARGET_BYTES=$((1124*1024*1024)) \
+  cargo run --release -p vortex-onpair-rs --example gen_l_comment
+ONPAIR_BENCH_PARQUET=target/l_comment.parquet ONPAIR_BENCH_COLUMN=l_comment \
+  cargo run --release -p vortex-onpair-rs --example bench_tpch
+```
+
 ## Context
 
 OnPair is a BPE-style dictionary string compressor (port of
@@ -54,6 +65,24 @@ slower than upstream `onpair_cpp` with `boost::unordered_flat_map`. Rust is ~2×
 this reference at every size with matching ratios.
 
 Decode is ~1.4–1.5 GiB/s (10–20× faster than parse) — **not a bottleneck**.
+
+## PROVEN: the wall reproduces on real `l_comment` and a 2nd machine
+
+The numbers above use the synthetic corpus. Re-running on **real** TPC-H
+`lineitem.l_comment` (1024 MiB, ~40.5 M rows, generated with `gen_l_comment`)
+on a different host (Intel Xeon 2.1 GHz, **L2 2 MiB/core, L3 260 MiB** — a much
+larger cache than the baseline machine) reproduces the same per-token cost:
+
+| bits | tokens | parse | ns/token | decode | ratio |
+|---|---|---|---|---|---|
+| 12 | 138.4 M | 6.46 s (158.6 MiB/s) | 46.7 | 1.05 s | 2.904 |
+| 16 | 102.7 M | 8.03 s (127.5 MiB/s) | 78.2 | 0.98 s | 2.914 |
+
+The ~47 / ~78 ns/token match the baseline machine's ~44 / ~80 almost exactly,
+**despite 2× the L2 and ~8× the L3**. The big L3 does not rescue bits=16: the
+bottleneck is the *latency* of a hash-located access whose working set exceeds
+L2, not L3 capacity. bits=12 (94 KB working set, L2-resident) is correspondingly
+compute/L2-latency bound, not memory-capacity bound.
 
 ## PROVEN: the L2 cliff governs parse speed
 
@@ -165,20 +194,49 @@ soundness risk (`repr(packed)`, terminator-bit key packing, two-map split).
 **To revisit:** only worth it if a way is found to drop the *total* below 1 MB
 (e.g. a minimal perfect hash for the read-only short_map, or fewer tokens).
 
-## UNPROVEN: AVX-512 multi-string gather encode (idea B2)
+## DISPROVEN (on AVX-512 Xeon hardware): multi-string gather encode (idea B2)
 
 **Hypothesis:** the FSST AVX-512 kernel encodes many strings in parallel via
 gather, keeping 8–16 independent lookups in flight to **overlap cache-miss
-latency** (memory-level parallelism). This is the *correct* use of AVX-512 for a
-latency-bound loop — it raises throughput without lowering per-op latency, and is
-single-core.
+latency** (memory-level parallelism). This is the textbook use of AVX-512 for a
+latency-bound loop — raise throughput without lowering per-op latency, single-core.
 
-**Why not done:** large rewrite. The lookup must be vectorized across lanes
-(per-lane gather into short/long maps, per-lane variable-length bucket handling,
-per-lane greedy advance and bit-packing). OnPair's 16-bit codes, ≤16-byte
-tokens, and bucket scan make this materially harder to vectorize than FSST's
-fixed 8-bit / ≤8-byte / 2-lookup scheme. Highest performance ceiling of any
-remaining idea; highest effort/risk. Not falsified — just unbuilt.
+**De-risked before the rewrite.** Rather than build the full vectorized parser
+(per-lane variable-length bucket handling + greedy advance + bit-packing — a very
+large change), the `bench_gather` example isolates the one load-bearing
+assumption: *does an AVX-512 `vpgatherqq` over a custom open-addressing table
+overlap DRAM-miss latency better than serial scalar probes on this CPU?* It
+compares (a) serial hashbrown, (b) serial custom flat table, (c) AVX-512
+masked-gather flat table, on random keys in a table sized past L3 so nearly every
+probe misses to DRAM. Result (Xeon 2.1 GHz, AVX-512F/DQ; ns per probe):
+
+| table size | (a) hashbrown serial | (b) flat serial | (c) gather512 | (c) vs (a) |
+|---|---|---|---|---|
+| 64 MiB  | 20.6 | 27.5 | 30.2 | **0.68×** |
+| 512 MiB | 32.8 | 47.4 | 66.2 | **0.50×** |
+| 2 GiB   | 43.0 | 53.9 | 75.6 | **0.57×** |
+
+The gather is **0.5–0.7× the speed of plain scalar** — a throughput *loss* at
+every DRAM size, and even loses to serial scalar probing of the same flat table.
+Two decisive reasons:
+
+1. **Scalar already gets the MLP.** hashbrown-serial runs at **43 ns/probe at
+   2 GiB — faster than a single DRAM access (~80–100 ns)** — because the
+   out-of-order core already overlaps consecutive *independent* loop iterations.
+   The MLP B2 hoped to add by hand is largely already present. (This also
+   explains why the scalar multi-string interleave regressed.)
+2. **`vpgatherqq` is not parallel here.** On this Xeon the gather decomposes into
+   serialized per-lane loads in the load ports, so 8 lanes do **not** overlap;
+   the instruction's overhead makes it slower than the scalar loop it replaces.
+
+Caveat: this is one (cloud) Xeon microarchitecture. A part with a genuinely
+parallel gather (or a different core) could differ — re-run `bench_gather` there.
+But on the hardware Vortex parse is tuned for, **B2 does not pay**, and the custom
+flat table needed to enable it is itself slower than hashbrown (matching the
+earlier "custom flat table regressed hard" finding). The last high-ceiling
+output-preserving idea is therefore closed on this hardware: parse throughput is
+governed by per-access DRAM/L2 latency that the scalar OoO engine already hides
+as well as the ISA allows.
 
 ## UNPROVEN: FSST-hybrid 2-lookup scheme (idea C3)
 
@@ -328,6 +386,41 @@ hash-located access into a working set that exceeds L2 — only a *total* workin
 set < 1 MB (needs a non-pow2 / minimal-perfect-hash short_map; the hand-rolled
 table lost to hashbrown) or fewer tokens (lower bits) changes that.
 
+## DISPROVEN: skip/shrink the per-call probes (short-present mask; long filter)
+
+Two output-identical attempts to cut the per-token probe work, both built,
+roundtrip-verified (238 unit + 19 cross-impl tests pass), and A/B'd
+back-to-back on real `l_comment` (saved binaries, alternated run-by-run to
+remove thermal drift):
+
+- **Per-2-byte short-present length mask** — the short-map fallback probes
+  lengths `max_short_len..1`, one hashbrown lookup each. A `[u8; 65536]` bitset
+  keyed by the first 2 input bytes (bit `L-2` set iff a length-`L` short token
+  shares that prefix) lets the loop visit only present lengths, plus a direct
+  `[Token; 256]` table for the always-present length-1 fallback. This is a
+  stronger version of the disproven "per-first-byte `max_short_len`" — it skips
+  *interior* absent lengths, not just caps the top. Result (300 MB, A/B):
+  **neutral** (bits=12 1.938 vs 1.935 s; bits=16 2.373 vs 2.388 s). The missing
+  short probes are already cheap — foldhash rejects misses fast — so removing
+  them is lost in the noise; the dominant cost is the long probe, untouched.
+
+- **L1-resident long-prefix presence filter** — a 16 KiB bitset (`2^17` bits,
+  multiply-shift indexed) set for every long-token 8-byte prefix; a zero bit
+  proves absence and *skips the `long_map` hash probe entirely* (false positives
+  fall through to the exact probe, so output is identical). This targets the
+  actual bottleneck — the every-call long probe — rather than the cheap short
+  loop. Result (tight interleaved A/B): bits=12 ~2% faster at 300 MB but **flat
+  at 100 MB** (same 4096-token dict, so a genuine win should be size-invariant —
+  the 300 MB delta is within the run-to-run band), and bits=16 **~0.6–1.2 %
+  slower** at both sizes (the filter's own access + 16 KB compete with the
+  ~1.7 MB working set). Net **neutral-to-mild-regression**; not kept.
+
+Both reconfirm the central finding: the cost is the *memory-latency* of the
+long-map probe into a >L2 working set, and neither avoiding nor reorganizing the
+cheaper surrounding probes changes the regime. Only fewer tokens (lower bits),
+a total working set < L2 (unreachable at 65 536 tokens), or memory-level
+parallelism (the AVX-512 multi-string gather, idea B2) can move bits=16.
+
 ## LOW VALUE: frequency-sort + inverse-code (idea D1)
 
 Sorting the dictionary by frequency with an indirection (so emitted codes are
@@ -343,9 +436,14 @@ and disproven — see the section above.)
 - **Settled (kept):** bucket LPM, foldhash (maps) + FxHash (freq), `max_short_len`,
   bits=16 overflow fix. Rust ~2× the in-repo C++; ratios match.
 - **Settled (rejected):** alternative hashers, SoA/first-byte/binary-search/
-  packed/arena/pre-reserve `find` layouts, trie/ART for `find`.
+  packed/arena/pre-reserve `find` layouts, trie/ART for `find`, per-2-byte
+  short-present length mask, L1 long-prefix presence filter (skip the probe).
+  Confirmed on real `l_comment` and a larger-cache (2 MiB L2 / 260 MiB L3) host.
+- **Settled (rejected, hardware-tested):** AVX-512 multi-string gather (B2) —
+  `vpgatherqq` is 0.5–0.7× scalar at DRAM sizes on this Xeon (`bench_gather`); the
+  scalar OoO engine already hides the latency the gather aimed to overlap.
 - **Open, output-preserving:** none with a proven win — bits=16 parse is at the
-  L2/L3 memory-latency wall.
+  L2/L3 memory-latency wall; the only high-ceiling idea (B2) is now disproven on
+  this hardware. A part with a genuinely parallel gather could reopen it.
 - **Open, output-changing:** `sample_fraction` (proven training lever).
-- **Open, high-effort/high-ceiling:** AVX-512 multi-string gather encode (B2).
 </content>
