@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+[package]
+name = "decimal-split-experiment"
+description = "Experiment: split (hi,lo) struct-of-arrays layout for decimal i128/i256 compression and SIMD arithmetic vs Arrow"
+edition = "2024"
+version = "0.0.0"
+publish = false
+license = "Apache-2.0"
+
+[dependencies]
+arrow-arith = { workspace = true }
+arrow-array = { workspace = true }
+arrow-buffer = { workspace = true }
+arrow-schema = { workspace = true }
+rand = { workspace = true }
+zstd = { workspace = true }
+tpchgen = { workspace = true }
+tpchgen-arrow = { workspace = true }
+
+[dev-dependencies]
+divan = { workspace = true }
+
+[[bench]]
+name = "decimal_arith"
+harness = false
+
+[[bin]]
+name = "decimal_split_analyze"
+path = "src/bin/analyze.rs"
+
+# This is a throwaway research harness: it uses unsafe SIMD intrinsics, prints
+# report tables, and casts freely. It deliberately does NOT inherit the strict
+# workspace lint set.
+[lints.clippy]
+all = "allow"
+pedantic = "allow"
