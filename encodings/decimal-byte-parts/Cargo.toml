@@ -26,5 +26,18 @@ vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 
 [dev-dependencies]
+arrow-arith = { workspace = true }
+arrow-array = { workspace = true }
+arrow-buffer = { workspace = true }
+arrow-ord = { workspace = true }
+arrow-schema = { workspace = true }
+divan = { workspace = true }
+rand = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { path = "../../vortex-array", features = ["_test-harness"] }
+vortex-session = { workspace = true }
+
+[[bench]]
+name = "decimal_ops"
+harness = false
+
