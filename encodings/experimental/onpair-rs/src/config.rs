@@ -25,7 +25,7 @@ pub struct DynamicThreshold {
 impl Default for DynamicThreshold {
     fn default() -> Self {
         Self {
-            sample_fraction: 0.15,
+            sample_fraction: 0.2,
         }
     }
 }
@@ -79,10 +79,14 @@ pub struct OnPairTrainingConfig {
     pub seed: u64,
 }
 
-/// `dict-12`: 12-bit codes (4 096 entries), dynamic threshold 0.5.
+/// `dict-12`: 12-bit codes (4 096 entries), dynamic-threshold sample fraction
+/// 0.2. The dynamic trainer fills the dictionary within ~20 % of the input
+/// bytes; on real corpora this trains markedly faster than the original 0.5
+/// for a ≤0.4 % ratio cost (see PERFORMANCE.md), and pairs with the
+/// partial-shuffle optimisation that only shuffles the sampled prefix.
 pub const DEFAULT_DICT12_CONFIG: OnPairTrainingConfig = OnPairTrainingConfig {
     bits: 12,
-    threshold: 0.5,
+    threshold: 0.2,
     seed: 0,
 };
 

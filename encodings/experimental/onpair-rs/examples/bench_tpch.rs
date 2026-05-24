@@ -59,7 +59,7 @@ fn main() {
     let threshold = env::var("ONPAIR_BENCH_THRESHOLD")
         .ok()
         .and_then(|s| s.parse::<f64>().ok())
-        .unwrap_or(0.5);
+        .unwrap_or(0.2);
 
     let (source, bytes, offsets) = load_corpus(max_bytes);
     let n = offsets.len() - 1;

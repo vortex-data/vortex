@@ -250,6 +250,15 @@ AVX-512 gather kernel could still win (no buffering, real parallel lanes), but
 this scalar proxy regressing lowers confidence that the MLP is easily captured,
 and the gather rewrite over variable-length/bucket lookups is very high effort.
 
+## CHANGED DEFAULT: `sample_fraction` 0.5 → 0.2
+
+Given the proven `sample_fraction` tradeoff and the partial-shuffle win, the
+default dynamic-threshold sample fraction is now **0.2** (`DynamicThreshold::
+default()` and `DEFAULT_DICT12_CONFIG`). At 100 MB l_comment this trains the
+bits=16 dictionary ~3.6× faster (total compression 1.78 s → 1.00 s, **1.8×**)
+for a **−0.4 %** ratio (2.836 → 2.824); bits=12 is faster with ~equal ratio.
+Decode is unaffected. Override per call via `OnPairTrainingConfig.threshold`.
+
 ## PROVEN: partial-shuffle the training order (training speedup, ratio preserved)
 
 Per-section timing of `train` across real columns (TPC-H lineitem, 100 MB)
