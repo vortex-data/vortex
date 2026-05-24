@@ -180,27 +180,63 @@ stays at the ~4% figure.
   Construct a fresh `PrimitiveArray` (cheap buffer/validity `clone`s) per timed iteration so the
   stats cache is empty and the kernel actually runs.
 
+## Iterator interop & API ergonomics
+
+A natural question is whether the ergonomic `iterator.map(…).collect()` style can be used without
+losing the vectorization. Measured findings (N=65,536, i32 transform / f64 reduction):
+
+- **`Iterator::collect()` over a packed bitmap does not vectorize** (~2–4 ns/elem). The blocker is
+  twofold: per-element `next()` extracts the bit with a scalar shift, and `FromIterator`'s
+  `Vec`-growth defeats a tight store loop.
+- **`TrustedLen` / `ExactSizeIterator` helps allocation, not vectorization.** Telling `collect`
+  the exact size lets it preallocate + use the tight `extend_trusted` loop (~1.2× — 1.01 → 0.84
+  ns/elem), but the per-element bitmap `next()` stays scalar. Sizing is necessary, not sufficient.
+- **Slice iterators *do* vectorize through `collect`.** `values.iter().zip(bools.iter()).map(sel)
+  .collect()` hits ~0.16 ns/elem — but only because the mask is a `&[bool]` slice (cheap
+  pointer-bump `next()`); the packed bit is what blocks it. Expanding a bitmap to `&[bool]` costs a
+  pass + 8× memory, so it only pays if validity is already byte-per-lane or reused.
+- **The fast ergonomic form is a `for_each`/fill into a *sized* target**, not `collect`:
+  `out.chunks_exact_mut(64).zip(values.chunks_exact(64)).zip(bits).for_each(per-64)` is pure
+  `std::iter` and vectorizes (~0.19). Collecting into a sized value is fine too — allocate
+  **uninitialized** (`with_capacity` + `set_len`) and fill once (~0.18); never `vec![0; n]` (wasted
+  zeroing) or growable `FromIterator`.
+- **Chunk width matters: use ≥32 (64 is ideal).** Letting the backend vectorize the inner per-lane
+  loop only kicks in at width ≥32; chunk-8 and chunk-16 fall back to scalar (~4 ns/elem). The
+  bitmap's native 64-bit word is both the natural and the fast granularity.
+
+So the shipped combinator is closure-shaped and word-chunked on purpose: it keeps the
+`.map_if(…).collect()` / `.fold(…)` ergonomics while running the word loop into a sized buffer,
+which is the only form that is fast for *packed* bitmaps. A reductions consumer should capture a
+`&mut` accumulator (like [`BitBuffer::zip_lanes`]) rather than thread it through `Iterator::fold`,
+which went scalar in testing.
+
+### Guarding against silent scalar regressions
+
+Vectorization is an LLVM outcome, not a type-level guarantee — there is no "this `next()` is
+SIMD-able" marker. Verify it stays vectorized with either: a **divan threshold** on the kernel
+bench (primary — robust to codegen details), or an **asm check** that the monomorphized body
+contains packed ops (`zmm`/`vpaddd`/`vcvttpd2dq`) and no scalar fallback (`vcvttsd2si`); the latter
+is a good diagnostic when the threshold trips. The byte-per-8 cast attempt that silently went
+scalar is exactly what such a guard catches.
+
 ## Rollout plan
 
-The goal is one shared, branch-free `(values, validity)` reducer/mapper rather than rewriting each
-kernel by hand — the same "avoid N bespoke kernels" principle the cast work demonstrated.
+A shared, branch-free `(values, validity)` reducer now exists — [`BitBuffer::zip_lanes`] — and the
+primitive `sum`, `min_max`, and `nan_count` kernels route through it (see Evidence above). Remaining
+work, hottest first, **each behind a benchmark**:
 
-1. **Extract a shared helper** (in `vortex-array`, near the aggregate plumbing, building on
-   [`BitBuffer::chunks`]) that drives a word-chunked, branch-free fold over `(values, validity)`
-   with a caller-supplied combine + neutral. Aggregates and simple masked maps route through it.
-2. **Retrofit the hottest sites first, each behind a benchmark.** For every site: add/keep a divan
-   bench, confirm scalar → SIMD in the emitted asm, and measure before/after on the real build.
+   | tier | sites | status |
+   | --- | --- | --- |
+   | 1 — aggregates | `sum/primitive`, `min_max/primitive`, `nan_count/primitive` | **done** (1.8–3.7×) |
+   | 1 — aggregates | `sum/decimal`, `min_max/decimal` | candidate (same reduction shape) |
+   | 2 — metadata / strings / bridges | `is_sorted/{primitive,bool,decimal}`, `arrays/varbinview/compact` | candidate (warm) |
+   | 3 — decompression / bridges | `encodings/runend/compress`, `vortex-duckdb/convert/vector` | candidate |
+   | — bottlenecked elsewhere | `fastlanes fill_null_forward` (sequential carry), `runend decompress` (per-run), `compressor/stats/integer` (HashMap), `take`/`patches` (gather) | **skip** — validity walk isn't the cost |
 
-   Priority order (hottest first; these run on every scan batch):
-
-   | tier | sites |
-   | --- | --- |
-   | 1 — aggregates | `aggregate_fn/fns/sum/{primitive,decimal}.rs`, `aggregate_fn/fns/min_max/{primitive,decimal}.rs`, `aggregate_fn/fns/nan_count/primitive.rs` |
-   | 2 — metadata / strings / bridges | `aggregate_fn/fns/is_sorted/{primitive,bool,decimal}.rs`, `arrays/varbinview/compact.rs`, `vortex-duckdb/src/convert/vector.rs` |
-   | 3 — decompression | `encodings/runend/src/compress.rs`, `encodings/fastlanes/src/lib.rs` (`fill_null_forward`) |
-
-   `sum` and `min_max` (primitive + decimal) are the highest leverage; `min_max` is also the exact
-   reduction the cast kernel already does well, so it is the natural first consumer of the helper.
+   The decimal aggregates are the strongest remaining candidates (identical structure to the
+   primitives that won 1.8–3.7×). Several "hot"-looking sites are bottlenecked by a sequential
+   carry, per-run granularity, a `HashMap`, or a random gather, so the combinator would not help —
+   verify what dominates each loop before rewriting.
 3. **Don't trust unbenchmarked estimates.** Treat per-site projections as "worth measuring," not
    promises — the cast work produced at least one change that looked good on paper and regressed in
    practice.
