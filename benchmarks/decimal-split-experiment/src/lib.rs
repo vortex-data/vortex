@@ -10,6 +10,7 @@
 
 pub mod arrow_ref;
 pub mod compress;
+pub mod cpu;
 pub mod data;
 pub mod layout;
 pub mod scalar;

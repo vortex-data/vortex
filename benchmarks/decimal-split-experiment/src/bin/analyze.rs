@@ -17,6 +17,7 @@ use std::time::Instant;
 use arrow_buffer::i256;
 use decimal_split_experiment::arrow_ref;
 use decimal_split_experiment::compress;
+use decimal_split_experiment::cpu;
 use decimal_split_experiment::data;
 use decimal_split_experiment::data::Magnitude;
 use decimal_split_experiment::layout::SplitI128;
@@ -36,6 +37,7 @@ fn main() {
         std::thread::available_parallelism().map_or(0, std::num::NonZero::get),
     );
 
+    cpu::report();
     compression_report();
     arithmetic_report();
 }
