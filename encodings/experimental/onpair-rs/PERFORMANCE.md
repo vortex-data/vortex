@@ -84,6 +84,41 @@ bottleneck is the *latency* of a hash-located access whose working set exceeds
 L2, not L3 capacity. bits=12 (94 KB working set, L2-resident) is correspondingly
 compute/L2-latency bound, not memory-capacity bound.
 
+## PROVEN: the parse is at the floor (a lower-bound decomposition)
+
+"Parse is at the wall" is measurable, not hand-waved. The `bench_find` example
+decomposes parse on the real `l_comment` dictionary into three numbers (256 MiB,
+this machine):
+
+| bits | (1) full parse | (2) dependent find | (3) independent find | bit-pack | **MLP headroom** |
+|---|---|---|---|---|---|
+| 12 | 43.5 ns/tok | 38.5 ns/tok | 38.3 ns/tok | ~11 % | **1.01×** |
+| 16 | 73.7 ns/tok | 64.0 ns/tok | 62.9 ns/tok | ~13 % | **1.01×** |
+
+- **(2) ≈ (1):** stripping bit-packing and boundary bookkeeping leaves ~89 % of
+  the time, so `find_longest_match` *is* the parse; everything around it is
+  already free. The ~11–13 % residual is the bit-packer (sequential writes to a
+  contiguous buffer — already near write bandwidth).
+- **(3) ≈ (2) — the decisive result.** (3) re-issues the *identical* set of finds
+  but from a pre-collected position array, so iterations are independent and the
+  out-of-order core is free to overlap their memory accesses. It is **not faster**
+  (headroom 1.01×). That means there is **~zero memory-level-parallelism slack**:
+  the finds do not stall on overlappable misses — each find is bound by its own
+  dependent probe/scan chain at L2/L3-hit latency plus execution throughput,
+  which the core already pipelines to the limit.
+
+This is a stronger statement than the individual disproven experiments. The
+entire *class* of "expose MLP across strings" ideas — the AVX-512 multi-string
+gather (B2), the scalar multi-string interleave — is chasing headroom that the
+hardware says is **not there** (1.01×). That is *why* every such attempt landed
+neutral-or-worse, independent of implementation quality. Combined with the
+exhausted space of "make each find cheaper" attempts below (hashers, data
+structures, tries, packing, memoization, frequency, presence filters/masks), the
+only sliver of output-preserving room left is the ~11 % bit-packer (a SIMD
+batched packer might recover a few percent of total), and nothing in `find`.
+
+Reproduce: `cargo run --release -p vortex-onpair-rs --example bench_find`.
+
 ## PROVEN: the L2 cliff governs parse speed
 
 Parse cost per token vs bit width (100 MB, the working set grows with `2^bits`):

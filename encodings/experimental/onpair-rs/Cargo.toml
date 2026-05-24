@@ -51,3 +51,7 @@ path = "examples/gen_l_comment.rs"
 [[example]]
 name = "bench_gather"
 path = "examples/bench_gather.rs"
+
+[[example]]
+name = "bench_find"
+path = "examples/bench_find.rs"
