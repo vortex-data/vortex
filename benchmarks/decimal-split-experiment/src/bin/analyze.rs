@@ -432,5 +432,121 @@ fn operations_report() {
             si / arrow
         );
     }
+
+    muldiv_report(dur, n);
     println!();
+}
+
+fn muldiv_report(dur: Duration, n: usize) {
+    use decimal_split_experiment::muldiv;
+
+    // Operands kept small so the product fits precision 38 (Arrow validates it)
+    // and divisors are non-zero. The SIMD kernels execute the full limb-product
+    // path regardless of operand magnitude, so throughput is representative.
+    let a = data::gen_i128(n, Magnitude::Small, 5);
+    let b: Vec<i128> = data::gen_i128(n, Magnitude::Small, 6)
+        .into_iter()
+        .map(|v| v + 1)
+        .collect();
+    let aa = arrow_ref::decimal128(&a, 38, 0);
+    let ba = arrow_ref::decimal128(&b, 38, 0);
+    let sa = SplitI128::from_aos(&a);
+    let sb = SplitI128::from_aos(&b);
+
+    // ---- multiply (compute-bound: SIMD can win) ----
+    println!("\n### multiply (i128, low-128 product)");
+    println!(
+        "Multiply is compute-bound, so unlike add the AVX-512 kernel can beat Arrow outright.\n"
+    );
+    println!("| Arrow | AoS scalar | split scalar | split AVX-512 (vpmullq+mulhi) | speedup |");
+    println!("|---:|---:|---:|---:|---:|");
+    let arrow_mul = throughput(
+        time_per_call(dur, || {
+            black_box(arrow_ref::mul_decimal128(black_box(&aa), black_box(&ba)));
+        }),
+        n,
+    );
+    let mut out_aos = vec![0i128; n];
+    let aos_mul = throughput(
+        time_per_call(dur, || {
+            muldiv::mul_i128_aos(black_box(&a), black_box(&b), black_box(&mut out_aos));
+        }),
+        n,
+    );
+    let mut out = sa.zeroed_like();
+    let soa_mul = throughput(
+        time_per_call(dur, || {
+            muldiv::mul_i128_soa_scalar(black_box(&sa), black_box(&sb), black_box(&mut out));
+        }),
+        n,
+    );
+    let simd_mul = throughput(
+        time_per_call(dur, || {
+            muldiv::mul_i128(black_box(&sa), black_box(&sb), black_box(&mut out));
+        }),
+        n,
+    );
+    println!(
+        "| {arrow_mul:.0} | {aos_mul:.0} | {soa_mul:.0} | {simd_mul:.0} | {:.2}x |",
+        simd_mul / arrow_mul
+    );
+
+    // Full-range products (genuine non-zero cross terms). Arrow can't play here
+    // (the product overflows precision 38), so this isolates SIMD vs scalar on
+    // real 128-bit multiplies.
+    println!("\nFull-range 128-bit products (no Arrow: overflows precision 38):");
+    println!("| magnitude | split scalar | split AVX-512 | SIMD/scalar |");
+    println!("|---|---:|---:|---:|");
+    for mag in [Magnitude::Medium, Magnitude::Large] {
+        let fa = SplitI128::from_aos(&data::gen_i128(n, mag, 7));
+        let fb = SplitI128::from_aos(&data::gen_i128(n, mag, 8));
+        let mut fout = fa.zeroed_like();
+        let fsc = throughput(
+            time_per_call(dur, || {
+                muldiv::mul_i128_soa_scalar(black_box(&fa), black_box(&fb), black_box(&mut fout));
+            }),
+            n,
+        );
+        let fsi = throughput(
+            time_per_call(dur, || {
+                muldiv::mul_i128(black_box(&fa), black_box(&fb), black_box(&mut fout));
+            }),
+            n,
+        );
+        println!(
+            "| {} | {fsc:.0} | {fsi:.0} | {:.2}x |",
+            mag.label(),
+            fsi / fsc
+        );
+    }
+
+    // ---- divide (no SIMD; split gives no leverage) ----
+    println!("\n### divide (i128)");
+    println!("No SIMD divide exists and the split gives no leverage, so both modes are scalar and");
+    println!("equal. Arrow's decimal div additionally rescales and rounds (more work, different");
+    println!("semantics); ours is truncating integer division - throughput comparison only.\n");
+    println!("| Arrow (rescale+round) | AoS scalar (trunc) | split scalar (trunc) | speedup |");
+    println!("|---:|---:|---:|---:|");
+    let arrow_div = throughput(
+        time_per_call(dur, || {
+            black_box(arrow_ref::div_decimal128(black_box(&aa), black_box(&ba)));
+        }),
+        n,
+    );
+    let aos_div = throughput(
+        time_per_call(dur, || {
+            muldiv::div_i128_aos(black_box(&a), black_box(&b), black_box(&mut out_aos));
+        }),
+        n,
+    );
+    let soa_div = throughput(
+        time_per_call(dur, || {
+            muldiv::div_i128_soa(black_box(&sa), black_box(&sb), black_box(&mut out));
+        }),
+        n,
+    );
+    println!(
+        "| {arrow_div:.0} | {aos_div:.0} | {soa_div:.0} | {:.2}x |",
+        aos_div / arrow_div
+    );
 }

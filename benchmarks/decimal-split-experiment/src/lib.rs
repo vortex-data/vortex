@@ -15,6 +15,7 @@ pub mod compress;
 pub mod cpu;
 pub mod data;
 pub mod layout;
+pub mod muldiv;
 pub mod scalar;
 pub mod simd;
 
@@ -269,5 +270,69 @@ mod tests {
             assert_eq!(aggregate::min_i128(&split), amin, "min simd {mag:?}");
             assert_eq!(aggregate::max_i128(&split), amax, "max simd {mag:?}");
         }
+    }
+
+    #[test]
+    fn i128_mul_matches_arrow_and_native() {
+        use crate::muldiv;
+        for mag in [Magnitude::Small, Magnitude::Medium, Magnitude::Large] {
+            let a = gen_i128(N, mag, 12);
+            let b = gen_i128(N, mag, 13);
+            let expected: Vec<i128> = a.iter().zip(&b).map(|(&x, &y)| x.wrapping_mul(y)).collect();
+
+            // Arrow validates the product against precision 38, so only the small
+            // case (product < 10^38) is Arrow-comparable; the kernels are checked
+            // against native wrapping_mul for every magnitude below.
+            if mag == Magnitude::Small {
+                let arrow = arrow_ref::mul_decimal128(
+                    &arrow_ref::decimal128(&a, 38, 0),
+                    &arrow_ref::decimal128(&b, 38, 0),
+                );
+                assert_eq!(
+                    arrow_ref::decimal128_values(&arrow),
+                    expected,
+                    "arrow {mag:?}"
+                );
+            }
+
+            let sa = SplitI128::from_aos(&a);
+            let sb = SplitI128::from_aos(&b);
+
+            let mut aos = vec![0i128; N];
+            muldiv::mul_i128_aos(&a, &b, &mut aos);
+            assert_eq!(aos, expected, "aos {mag:?}");
+
+            let mut sc = sa.zeroed_like();
+            muldiv::mul_i128_soa_scalar(&sa, &sb, &mut sc);
+            assert_eq!(sc.to_aos(), expected, "soa scalar {mag:?}");
+
+            let mut si = sa.zeroed_like();
+            muldiv::mul_i128(&sa, &sb, &mut si);
+            assert_eq!(si.to_aos(), expected, "soa simd {mag:?}");
+        }
+    }
+
+    #[test]
+    fn i128_div_matches_native() {
+        // Our kernel is truncating integer division. (Arrow's decimal div
+        // rescales and rounds, so it is a different operation - benchmarked for
+        // throughput but not asserted equal here.)
+        use crate::muldiv;
+        let a = gen_i128(N, Magnitude::Large, 14);
+        let b: Vec<i128> = gen_i128(N, Magnitude::Small, 15)
+            .into_iter()
+            .map(|v| v + 1) // avoid zero divisors
+            .collect();
+        let expected: Vec<i128> = a.iter().zip(&b).map(|(&x, &y)| x / y).collect();
+
+        let mut aos = vec![0i128; N];
+        muldiv::div_i128_aos(&a, &b, &mut aos);
+        assert_eq!(aos, expected, "aos div");
+
+        let sa = SplitI128::from_aos(&a);
+        let sb = SplitI128::from_aos(&b);
+        let mut soa = sa.zeroed_like();
+        muldiv::div_i128_soa(&sa, &sb, &mut soa);
+        assert_eq!(soa.to_aos(), expected, "soa div");
     }
 }

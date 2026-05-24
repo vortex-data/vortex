@@ -39,6 +39,17 @@ pub fn add_decimal256(a: &Decimal256Array, b: &Decimal256Array) -> ArrayRef {
     arrow_arith::numeric::add_wrapping(a, b).expect("arrow add")
 }
 
+/// Arrow's wrapping multiply for Decimal128 (low-128 product, interleaved).
+pub fn mul_decimal128(a: &Decimal128Array, b: &Decimal128Array) -> ArrayRef {
+    arrow_arith::numeric::mul_wrapping(a, b).expect("arrow mul")
+}
+
+/// Arrow's checked divide for Decimal128 (errors on zero divisor; with scale 0
+/// this is integer division).
+pub fn div_decimal128(a: &Decimal128Array, b: &Decimal128Array) -> ArrayRef {
+    arrow_arith::numeric::div(a, b).expect("arrow div")
+}
+
 /// Pull the i128 values back out of an Arrow result for verification.
 pub fn decimal128_values(arr: &ArrayRef) -> Vec<i128> {
     let arr = arr
