@@ -106,6 +106,12 @@ impl HalfIntExponent {
 /// The probability distribution function is:
 ///   `f(x) = C_d * (1 - x^2)^((d-3)/2)` on `[-1, 1]`
 /// where `C_d` is the normalizing constant.
+///
+/// Centroids are seeded uniformly on `±sqrt(bit_width) * sigma` (`sigma = 1/sqrt(dimension)`)
+/// rather than across the full support `[-1, 1]`, which would strand most of them in the
+/// near-zero-mass tails where the zero-denominator guard in [`mean_between_centroids`] freezes them.
+/// This must stay identical to `vortex-tensor`'s canonical centroid code (which carries the
+/// supporting sweep); the cross-crate parity test enforces it.
 fn max_lloyd_centroids(dimension: u32, bit_width: u8) -> Buffer<f32> {
     debug_assert!((1..=MAX_BIT_WIDTH).contains(&bit_width));
     let num_centroids = 1usize << bit_width;
@@ -113,9 +119,14 @@ fn max_lloyd_centroids(dimension: u32, bit_width: u8) -> Buffer<f32> {
     // For the marginal distribution on [-1, 1], we use the exponent (d-3)/2.
     let exponent = HalfIntExponent::from_numerator(dimension as i32 - 3);
 
-    // Initialize centroids uniformly on [-1, 1].
+    // The coordinate marginal concentrates around 0 with this standard deviation.
+    let sigma = 1.0 / f64::from(dimension).sqrt();
+    let init_half = (f64::from(bit_width).sqrt() * sigma).min(1.0);
+
+    // Initialize centroids uniformly on [-init_half, init_half], where the mass lives, so no cell
+    // starts in a zero-mass region and freezes.
     let mut centroids: Vec<f64> = (0..num_centroids)
-        .map(|idx| -1.0 + (2.0 * (idx as f64) + 1.0) / (num_centroids as f64))
+        .map(|idx| -init_half + (2.0 * (idx as f64) + 1.0) * init_half / (num_centroids as f64))
         .collect();
 
     let mut boundaries: Vec<f64> = vec![0.0; num_centroids + 1];
