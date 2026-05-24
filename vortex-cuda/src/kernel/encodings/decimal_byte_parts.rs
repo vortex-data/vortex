@@ -35,6 +35,10 @@ impl CudaExecute for DecimalBytePartsExecutor {
             vortex_bail!("cannot downcast to DecimalBytePartsArray")
         };
 
+        if array.num_lower_parts() > 0 {
+            vortex_bail!("CUDA decode of multi-part DecimalBytePartsArray is not yet supported")
+        }
+
         let decimal_dtype = *array
             .dtype()
             .as_decimal_opt()

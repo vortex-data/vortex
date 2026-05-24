@@ -6,6 +6,8 @@ impl vortex_decimal_byte_parts::DecimalByteParts
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::try_new(vortex_array::array::erased::ArrayRef, vortex_array::dtype::decimal::DecimalDType) -> vortex_error::VortexResult<vortex_decimal_byte_parts::DecimalBytePartsArray>
 
+pub fn vortex_decimal_byte_parts::DecimalByteParts::try_new_parts(vortex_array::array::erased::ArrayRef, alloc::vec::Vec<vortex_array::array::erased::ArrayRef>, vortex_array::dtype::decimal::DecimalDType) -> vortex_error::VortexResult<vortex_decimal_byte_parts::DecimalBytePartsArray>
+
 impl core::clone::Clone for vortex_decimal_byte_parts::DecimalByteParts
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::clone(&self) -> vortex_decimal_byte_parts::DecimalByteParts
@@ -134,11 +136,23 @@ pub fn vortex_decimal_byte_parts::DecimalBytesPartsMetadata::encoded_len(&self) 
 
 pub trait vortex_decimal_byte_parts::DecimalBytePartsArrayExt: vortex_array::array::typed::TypedArrayRef<vortex_decimal_byte_parts::DecimalByteParts>
 
+pub fn vortex_decimal_byte_parts::DecimalBytePartsArrayExt::lower_part(&self, usize) -> &vortex_array::array::erased::ArrayRef
+
+pub fn vortex_decimal_byte_parts::DecimalBytePartsArrayExt::lower_parts(&self) -> alloc::vec::Vec<vortex_array::array::erased::ArrayRef>
+
 pub fn vortex_decimal_byte_parts::DecimalBytePartsArrayExt::msp(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn vortex_decimal_byte_parts::DecimalBytePartsArrayExt::num_lower_parts(&self) -> usize
 
 impl<T: vortex_array::array::typed::TypedArrayRef<vortex_decimal_byte_parts::DecimalByteParts>> vortex_decimal_byte_parts::DecimalBytePartsArrayExt for T
 
+pub fn T::lower_part(&self, usize) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::lower_parts(&self) -> alloc::vec::Vec<vortex_array::array::erased::ArrayRef>
+
 pub fn T::msp(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::num_lower_parts(&self) -> usize
 
 pub fn vortex_decimal_byte_parts::initialize(&vortex_session::VortexSession)
 

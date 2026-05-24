@@ -16,14 +16,17 @@ use crate::decimal_byte_parts::DecimalBytePartsArrayExt;
 
 impl MaskReduce for DecimalByteParts {
     fn mask(array: ArrayView<'_, Self>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        // The array validity lives entirely in the msp, so masking only the msp suffices; the
+        // lower parts keep their (now-null) values, which are ignored on canonicalization.
         let masked_msp = MaskExpr.try_new_array(
             array.msp().len(),
             EmptyOptions,
             [array.msp().clone(), mask.clone()],
         )?;
         Ok(Some(
-            DecimalByteParts::try_new(
+            DecimalByteParts::try_new_parts(
                 masked_msp,
+                array.lower_parts(),
                 *array
                     .dtype()
                     .as_decimal_opt()

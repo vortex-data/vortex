@@ -35,6 +35,12 @@ impl CompareKernel for DecimalByteParts {
         operator: CompareOperator,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        // Multi-part decimals are compared after canonicalization; the narrowed-constant trick below
+        // only reasons about the single signed msp width.
+        if lhs.num_lower_parts() > 0 {
+            return Ok(None);
+        }
+
         let Some(rhs_const) = rhs.as_constant() else {
             return Ok(None);
         };

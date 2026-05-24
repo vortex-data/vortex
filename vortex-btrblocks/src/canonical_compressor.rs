@@ -191,4 +191,58 @@ mod tests {
         assert_arrays_eq!(compressed, array);
         Ok(())
     }
+
+    #[test]
+    fn test_decimal_i128_byte_parts_roundtrip() -> VortexResult<()> {
+        use vortex_array::arrays::DecimalArray;
+        use vortex_array::dtype::DecimalDType;
+        use vortex_decimal_byte_parts::DecimalByteParts;
+        use vortex_decimal_byte_parts::DecimalBytePartsArrayExt;
+
+        // Values that genuinely require more than 64 bits, so the compressor must split them.
+        let decimal_dtype = DecimalDType::new(38, 6);
+        let values: Vec<i128> = (0..256i128)
+            .map(|i| 10i128.pow(30) + i * 7 - 128 * (i % 2) * 10i128.pow(28))
+            .collect();
+        let array = DecimalArray::from_iter(values, decimal_dtype).into_array();
+
+        let compressed =
+            BtrBlocksCompressor::default().compress(&array, &mut SESSION.create_execution_ctx())?;
+
+        let byte_parts = compressed
+            .as_opt::<DecimalByteParts>()
+            .expect("i128 decimal should compress to byte parts");
+        assert_eq!(byte_parts.num_lower_parts(), 1);
+
+        assert_arrays_eq!(compressed, array);
+        Ok(())
+    }
+
+    #[test]
+    fn test_decimal_i256_byte_parts_roundtrip() -> VortexResult<()> {
+        use vortex_array::arrays::DecimalArray;
+        use vortex_array::dtype::DecimalDType;
+        use vortex_array::dtype::i256;
+        use vortex_decimal_byte_parts::DecimalByteParts;
+        use vortex_decimal_byte_parts::DecimalBytePartsArrayExt;
+
+        // Values requiring more than 128 bits, forcing an i256 four-part split.
+        let decimal_dtype = DecimalDType::new(76, 8);
+        let base = i256::from_parts(0, 10i128.pow(30));
+        let values: Vec<i256> = (0..256i128)
+            .map(|i| base + i256::from_i128(i * 1_000_003))
+            .collect();
+        let array = DecimalArray::from_iter(values, decimal_dtype).into_array();
+
+        let compressed =
+            BtrBlocksCompressor::default().compress(&array, &mut SESSION.create_execution_ctx())?;
+
+        let byte_parts = compressed
+            .as_opt::<DecimalByteParts>()
+            .expect("i256 decimal should compress to byte parts");
+        assert_eq!(byte_parts.num_lower_parts(), 3);
+
+        assert_arrays_eq!(compressed, array);
+        Ok(())
+    }
 }

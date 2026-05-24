@@ -34,6 +34,11 @@ impl DynAggregateKernel for DecimalBytePartsIsConstantKernel {
             return Ok(None);
         };
 
+        // For multi-part decimals, constness depends on every part; defer to canonicalization.
+        if array.num_lower_parts() > 0 {
+            return Ok(None);
+        }
+
         let result = is_constant(array.msp(), ctx)?;
         Ok(Some(IsConstant::make_partial(batch, result, ctx)?))
     }
