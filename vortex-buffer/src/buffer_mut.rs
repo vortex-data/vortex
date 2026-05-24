@@ -645,6 +645,52 @@ impl<T> BufferMut<T> {
         buffer
     }
 
+    /// Creates a `BufferMut` from an iterator with a caller-provided exact length.
+    ///
+    /// Unlike [`from_trusted_len_iter()`](Self::from_trusted_len_iter), this does not rely on the
+    /// unsafe [`TrustedLen`](crate::TrustedLen) contract. The buffer is pre-allocated once to
+    /// `len`, and every write is bounds-checked against `len`, so a mismatched length can never
+    /// cause undefined behavior.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the iterator yields more or fewer than `len` items.
+    pub fn from_exact_len_iter<I>(len: usize, iter: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+    {
+        let mut buffer = Self::with_capacity(len);
+
+        let begin: *const T = buffer.bytes.spare_capacity_mut().as_mut_ptr().cast();
+        let mut dst: *mut T = begin.cast_mut();
+        // SAFETY: `begin` points to `len` reserved elements, so `begin + len` is one-past-the-end
+        // of the allocation and valid to form.
+        let end: *const T = unsafe { begin.add(len) };
+
+        iter.into_iter().for_each(|item| {
+            if dst.cast_const() >= end {
+                vortex_panic!("`from_exact_len_iter` iterator yielded more than {len} items");
+            }
+            // SAFETY: the bounds check above guarantees `dst` is within the reserved capacity.
+            unsafe {
+                dst.write(item);
+                dst = dst.add(1);
+            }
+        });
+
+        // SAFETY: `dst` and `begin` were both derived from the same allocation and `dst >= begin`.
+        let items_written = unsafe { dst.offset_from_unsigned(begin) };
+        if items_written != len {
+            vortex_panic!(
+                "`from_exact_len_iter` iterator yielded {items_written} items, expected {len}"
+            );
+        }
+        // SAFETY: we wrote exactly `len` valid items into the reserved capacity.
+        unsafe { buffer.set_len(len) };
+
+        buffer
+    }
+
     /// Like [`extend_trusted()`](Self::extend_trusted), but the iterator yields `Result<T, E>`
     /// and the extension short-circuits on the first `Err`.
     ///
@@ -872,6 +918,29 @@ mod test {
     fn from_iter() {
         let buf = BufferMut::from_iter([0, 10, 20, 30]);
         assert_eq!(buf.as_slice(), &[0, 10, 20, 30]);
+    }
+
+    #[test]
+    fn from_exact_len_iter() {
+        let buf = BufferMut::from_exact_len_iter(4, [0, 10, 20, 30]);
+        assert_eq!(buf.as_slice(), &[0, 10, 20, 30]);
+
+        let empty = BufferMut::<i32>::from_exact_len_iter(0, std::iter::empty());
+        assert_eq!(empty.as_slice(), &[] as &[i32]);
+    }
+
+    #[test]
+    #[should_panic(expected = "yielded more than")]
+    fn from_exact_len_iter_too_many() {
+        let buf = BufferMut::from_exact_len_iter(2, [0, 10, 20, 30]);
+        drop(buf);
+    }
+
+    #[test]
+    #[should_panic(expected = "expected")]
+    fn from_exact_len_iter_too_few() {
+        let buf = BufferMut::from_exact_len_iter(4, [0, 10]);
+        drop(buf);
     }
 
     #[test]

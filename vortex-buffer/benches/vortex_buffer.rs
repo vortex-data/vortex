@@ -141,6 +141,19 @@ fn push_n_vortex_buffer<T: PrimInt>(bencher: Bencher, length: usize) {
 }
 
 #[divan::bench(args = INPUT_SIZE)]
+fn collect_trusted_len(n: i32) {
+    let buf = BufferMut::from_trusted_len_iter((0..n).map(|i| divan::black_box(i % i32::MAX)));
+    divan::black_box(buf);
+}
+
+#[divan::bench(args = INPUT_SIZE)]
+fn collect_exact_len(n: i32) {
+    let buf =
+        BufferMut::from_exact_len_iter(n as usize, (0..n).map(|i| divan::black_box(i % i32::MAX)));
+    divan::black_box(buf);
+}
+
+#[divan::bench(args = INPUT_SIZE)]
 fn map_new_output(bencher: Bencher, n: i32) {
     bencher
         .with_inputs(|| {

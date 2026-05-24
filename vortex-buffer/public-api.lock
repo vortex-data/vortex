@@ -576,6 +576,8 @@ pub fn vortex_buffer::Buffer<T>::from_byte_buffer_aligned(vortex_buffer::ByteBuf
 
 pub fn vortex_buffer::Buffer<T>::from_bytes_aligned(bytes::bytes::Bytes, vortex_buffer::Alignment) -> Self
 
+pub fn vortex_buffer::Buffer<T>::from_exact_len_iter<I: core::iter::traits::collect::IntoIterator<Item = T>>(usize, I) -> Self
+
 pub fn vortex_buffer::Buffer<T>::from_trusted_len_iter<I: vortex_buffer::trusted_len::TrustedLen<Item = T>>(I) -> Self
 
 pub fn vortex_buffer::Buffer<T>::full(T, usize) -> Self where T: core::marker::Copy
@@ -787,6 +789,8 @@ pub fn vortex_buffer::BufferMut<T>::zeroed_aligned(usize, vortex_buffer::Alignme
 impl<T> vortex_buffer::BufferMut<T>
 
 pub fn vortex_buffer::BufferMut<T>::extend_trusted<I: vortex_buffer::trusted_len::TrustedLen<Item = T>>(&mut self, I)
+
+pub fn vortex_buffer::BufferMut<T>::from_exact_len_iter<I>(usize, I) -> Self where I: core::iter::traits::collect::IntoIterator<Item = T>
 
 pub fn vortex_buffer::BufferMut<T>::from_trusted_len_iter<I>(I) -> Self where I: vortex_buffer::trusted_len::TrustedLen<Item = T>
 

@@ -208,6 +208,20 @@ impl<T> Buffer<T> {
         buffer.freeze()
     }
 
+    /// Create a buffer from an iterator with a caller-provided exact length.
+    ///
+    /// Unlike [`from_trusted_len_iter()`](Self::from_trusted_len_iter), this does not rely on the
+    /// unsafe [`TrustedLen`](crate::TrustedLen) contract: the buffer is pre-allocated once to
+    /// `len` and every write is bounds-checked, so a mismatched length cannot cause undefined
+    /// behavior.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the iterator yields more or fewer than `len` items.
+    pub fn from_exact_len_iter<I: IntoIterator<Item = T>>(len: usize, iter: I) -> Self {
+        BufferMut::from_exact_len_iter(len, iter).freeze()
+    }
+
     /// Map each element of the buffer with a closure.
     pub fn map_each_in_place<R, F>(self, mut f: F) -> BufferMut<R>
     where
