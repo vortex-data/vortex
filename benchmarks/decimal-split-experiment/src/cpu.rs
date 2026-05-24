@@ -22,12 +22,36 @@ pub fn features() -> Vec<(&'static str, bool, bool)> {
     #[cfg(target_arch = "x86_64")]
     {
         vec![
-            ("avx2", cfg!(target_feature = "avx2"), std::arch::is_x86_feature_detected!("avx2")),
-            ("avx512f", cfg!(target_feature = "avx512f"), std::arch::is_x86_feature_detected!("avx512f")),
-            ("avx512bw", cfg!(target_feature = "avx512bw"), std::arch::is_x86_feature_detected!("avx512bw")),
-            ("avx512dq", cfg!(target_feature = "avx512dq"), std::arch::is_x86_feature_detected!("avx512dq")),
-            ("avx512vl", cfg!(target_feature = "avx512vl"), std::arch::is_x86_feature_detected!("avx512vl")),
-            ("avx512cd", cfg!(target_feature = "avx512cd"), std::arch::is_x86_feature_detected!("avx512cd")),
+            (
+                "avx2",
+                cfg!(target_feature = "avx2"),
+                std::arch::is_x86_feature_detected!("avx2"),
+            ),
+            (
+                "avx512f",
+                cfg!(target_feature = "avx512f"),
+                std::arch::is_x86_feature_detected!("avx512f"),
+            ),
+            (
+                "avx512bw",
+                cfg!(target_feature = "avx512bw"),
+                std::arch::is_x86_feature_detected!("avx512bw"),
+            ),
+            (
+                "avx512dq",
+                cfg!(target_feature = "avx512dq"),
+                std::arch::is_x86_feature_detected!("avx512dq"),
+            ),
+            (
+                "avx512vl",
+                cfg!(target_feature = "avx512vl"),
+                std::arch::is_x86_feature_detected!("avx512vl"),
+            ),
+            (
+                "avx512cd",
+                cfg!(target_feature = "avx512cd"),
+                std::arch::is_x86_feature_detected!("avx512cd"),
+            ),
         ]
     }
     #[cfg(not(target_arch = "x86_64"))]

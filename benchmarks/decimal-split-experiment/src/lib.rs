@@ -8,7 +8,9 @@
 //! See `src/bin/analyze.rs` for the report driver and `benches/decimal_arith.rs`
 //! for the Divan benchmarks.
 
+pub mod aggregate;
 pub mod arrow_ref;
+pub mod compare;
 pub mod compress;
 pub mod cpu;
 pub mod data;
@@ -131,6 +133,141 @@ mod tests {
             let mut out_simd = sa.zeroed_like();
             simd::add_i256(&sa, &sb, &mut out_simd);
             assert_eq!(out_simd.to_aos(), expected, "simd soa {mag:?}");
+        }
+    }
+
+    #[test]
+    fn i128_compare_matches_arrow() {
+        use crate::compare;
+        for mag in [Magnitude::Small, Magnitude::Medium, Magnitude::Large] {
+            let a = gen_i128(N, mag, 70);
+            let b = gen_i128(N, mag, 71);
+            // Force some equal elements to exercise the hi-equal tiebreak.
+            let mut b = b;
+            b[..50].copy_from_slice(&a[..50]);
+
+            let arrow_lt = arrow_ref::lt_decimal128(
+                &arrow_ref::decimal128(&a, 38, 0),
+                &arrow_ref::decimal128(&b, 38, 0),
+            );
+            let arrow_eq = arrow_ref::eq_decimal128(
+                &arrow_ref::decimal128(&a, 38, 0),
+                &arrow_ref::decimal128(&b, 38, 0),
+            );
+
+            let sa = SplitI128::from_aos(&a);
+            let sb = SplitI128::from_aos(&b);
+            let mut lt = vec![0u8; compare::bitmap_len(N)];
+            let mut eq = vec![0u8; compare::bitmap_len(N)];
+            compare::lt_i128(&sa, &sb, &mut lt);
+            compare::eq_i128(&sa, &sb, &mut eq);
+
+            for i in 0..N {
+                assert_eq!(
+                    compare::get_bit(&lt, i),
+                    arrow_ref::boolean_at(&arrow_lt, i),
+                    "lt {mag:?} @ {i}"
+                );
+                assert_eq!(
+                    compare::get_bit(&eq, i),
+                    arrow_ref::boolean_at(&arrow_eq, i),
+                    "eq {mag:?} @ {i}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn i256_compare_matches_arrow() {
+        use crate::compare;
+        for mag in [Magnitude::Small, Magnitude::Medium, Magnitude::Large] {
+            let a = gen_i256(N, mag, 80);
+            let mut b = gen_i256(N, mag, 81);
+            b[..50].copy_from_slice(&a[..50]);
+
+            let arrow_lt = arrow_ref::lt_decimal256(
+                &arrow_ref::decimal256(&a, 76, 0),
+                &arrow_ref::decimal256(&b, 76, 0),
+            );
+
+            let sa = SplitI256::from_aos(&a);
+            let sb = SplitI256::from_aos(&b);
+            let mut lt = vec![0u8; compare::bitmap_len(N)];
+            compare::lt_i256(&sa, &sb, &mut lt);
+
+            for i in 0..N {
+                assert_eq!(
+                    compare::get_bit(&lt, i),
+                    arrow_ref::boolean_at(&arrow_lt, i),
+                    "lt {mag:?} @ {i}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn i128_sum_widening_is_exact_and_overflow_safe() {
+        use crate::aggregate;
+        for mag in [Magnitude::Small, Magnitude::Medium, Magnitude::Large] {
+            let v = gen_i128(N, mag, 90);
+            let split = SplitI128::from_aos(&v);
+
+            // Ground truth: fold each value into i256.
+            let expected = v
+                .iter()
+                .fold(i256::ZERO, |acc, &x| acc.wrapping_add(i256::from_i128(x)));
+            assert_eq!(
+                aggregate::sum_i128_widening_scalar(&split),
+                expected,
+                "scalar {mag:?}"
+            );
+            assert_eq!(
+                aggregate::sum_i128_widening(&split),
+                expected,
+                "simd {mag:?}"
+            );
+
+            if mag == Magnitude::Small {
+                // Small decimals have hi == 0, so the lo-only fast path is exact.
+                assert_eq!(aggregate::sum_i128_lo_only(&split), expected, "lo-only");
+            }
+        }
+
+        // Overflow safety: a same-width i128 accumulator wraps; the widening one
+        // stays exact.
+        let overflow = vec![i128::MAX; 100];
+        let split = SplitI128::from_aos(&overflow);
+        let expected = i256::from_i128(i128::MAX).wrapping_mul(i256::from_i128(100));
+        assert_eq!(aggregate::sum_i128_widening_scalar(&split), expected);
+        assert_ne!(
+            aggregate::sum_i128_naive_wrapping(&split),
+            i128::MAX, // wrapped: definitely not the true sum
+        );
+    }
+
+    #[test]
+    fn i128_min_max_match_arrow() {
+        use crate::aggregate;
+        for mag in [Magnitude::Small, Magnitude::Medium, Magnitude::Large] {
+            let v = gen_i128(N, mag, 91);
+            let split = SplitI128::from_aos(&v);
+
+            let arrow = arrow_ref::decimal128(&v, 38, 0);
+            let amin = arrow_ref::min_decimal128(&arrow);
+            let amax = arrow_ref::max_decimal128(&arrow);
+
+            assert_eq!(
+                aggregate::min_i128_scalar(&split),
+                amin,
+                "min scalar {mag:?}"
+            );
+            assert_eq!(
+                aggregate::max_i128_scalar(&split),
+                amax,
+                "max scalar {mag:?}"
+            );
+            assert_eq!(aggregate::min_i128(&split), amin, "min simd {mag:?}");
+            assert_eq!(aggregate::max_i128(&split), amax, "max simd {mag:?}");
         }
     }
 }

@@ -13,6 +13,7 @@ license = "Apache-2.0"
 arrow-arith = { workspace = true }
 arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
+arrow-ord = { workspace = true }
 arrow-schema = { workspace = true }
 rand = { workspace = true }
 zstd = { workspace = true }

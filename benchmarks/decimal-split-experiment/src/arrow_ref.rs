@@ -10,6 +10,7 @@
 
 use arrow_array::Array;
 use arrow_array::ArrayRef;
+use arrow_array::BooleanArray;
 use arrow_array::Decimal128Array;
 use arrow_array::Decimal256Array;
 use arrow_buffer::i256;
@@ -54,4 +55,44 @@ pub fn decimal256_values(arr: &ArrayRef) -> Vec<i256> {
         .downcast_ref::<Decimal256Array>()
         .expect("decimal256 result");
     (0..arr.len()).map(|i| arr.value(i)).collect()
+}
+
+// ---- comparison --------------------------------------------------------------
+
+/// Arrow's `lt` for Decimal128 (arrow_ord interleaved kernel).
+pub fn lt_decimal128(a: &Decimal128Array, b: &Decimal128Array) -> BooleanArray {
+    arrow_ord::cmp::lt(a, b).expect("arrow lt")
+}
+
+/// Arrow's `eq` for Decimal128.
+pub fn eq_decimal128(a: &Decimal128Array, b: &Decimal128Array) -> BooleanArray {
+    arrow_ord::cmp::eq(a, b).expect("arrow eq")
+}
+
+/// Arrow's `lt` for Decimal256.
+pub fn lt_decimal256(a: &Decimal256Array, b: &Decimal256Array) -> BooleanArray {
+    arrow_ord::cmp::lt(a, b).expect("arrow lt")
+}
+
+/// `true` at index `i` of an Arrow boolean result.
+pub fn boolean_at(arr: &BooleanArray, i: usize) -> bool {
+    arr.value(i)
+}
+
+// ---- aggregation -------------------------------------------------------------
+
+/// Arrow's checked sum over a Decimal128 column (`None` on overflow). Arrow sums
+/// into the same i128 width, so this overflows where Vortex's i256-widening sum
+/// would not - a semantic difference worth showing.
+pub fn sum_decimal128(a: &Decimal128Array) -> Option<i128> {
+    arrow_arith::aggregate::sum(a)
+}
+
+/// Arrow's min/max over a Decimal128 column.
+pub fn min_decimal128(a: &Decimal128Array) -> Option<i128> {
+    arrow_arith::aggregate::min(a)
+}
+
+pub fn max_decimal128(a: &Decimal128Array) -> Option<i128> {
+    arrow_arith::aggregate::max(a)
 }

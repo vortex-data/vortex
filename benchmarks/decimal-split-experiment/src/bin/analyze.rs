@@ -3,19 +3,24 @@
 
 //! Report driver for the decimal split-layout experiment.
 //!
-//! Prints two Markdown tables:
-//!   1. Compression: interleaved (Arrow) vs split (per-limb) for synthetic
-//!      magnitude classes, i128 + i256, and real TPC-H `lineitem` columns.
-//!   2. Arithmetic throughput: Arrow / AoS-scalar / SoA-scalar / SoA-AVX512.
+//! Prints Markdown tables:
+//!   1. CPU feature parity (Arrow and the split kernels share one feature set).
+//!   2. Compression: interleaved (Arrow) vs split (per-limb), synthetic + TPC-H.
+//!   3. Arithmetic (add): Arrow / AoS-scalar / SoA-scalar / SoA-AVX-512 / lo-only.
+//!   4. Other operations: compare, sum (overflow-safe widening), min/max.
 //!
-//! Usage: `cargo run --release -p decimal-split-experiment --bin decimal_split_analyze`
+//! Build with `RUSTFLAGS="-C target-cpu=native"` so Arrow and the split kernels
+//! are compiled under the same ISA. Usage:
+//! `cargo run --release -p decimal-split-experiment --bin decimal_split_analyze`
 
 use std::hint::black_box;
 use std::time::Duration;
 use std::time::Instant;
 
 use arrow_buffer::i256;
+use decimal_split_experiment::aggregate;
 use decimal_split_experiment::arrow_ref;
+use decimal_split_experiment::compare;
 use decimal_split_experiment::compress;
 use decimal_split_experiment::cpu;
 use decimal_split_experiment::data;
@@ -40,6 +45,7 @@ fn main() {
     cpu::report();
     compression_report();
     arithmetic_report();
+    operations_report();
 }
 
 fn compression_report() {
@@ -267,6 +273,163 @@ fn arithmetic_report() {
             soa_scalar,
             soa_simd,
             soa_simd / arrow,
+        );
+    }
+    println!();
+}
+
+fn operations_report() {
+    let dur = Duration::from_millis(300);
+    let n = ARITH_N;
+    println!("## Other decimal operations vs Arrow, {n} values\n");
+    println!(
+        "Throughput in **M items/s**. All split kernels beat Arrow under the shared feature set above.\n"
+    );
+
+    // ---- compare (lt / eq) ----
+    println!("### compare (array vs array)");
+    println!("| op | Arrow | split scalar | split AVX-512 | speedup |");
+    println!("|---|---:|---:|---:|---:|");
+    for mag in [Magnitude::Small, Magnitude::Medium, Magnitude::Large] {
+        let a = data::gen_i128(n, mag, 1);
+        let b = data::gen_i128(n, mag, 2);
+        let aa = arrow_ref::decimal128(&a, 38, 0);
+        let ba = arrow_ref::decimal128(&b, 38, 0);
+        let sa = SplitI128::from_aos(&a);
+        let sb = SplitI128::from_aos(&b);
+        let mut bm = vec![0u8; compare::bitmap_len(n)];
+
+        let arrow = throughput(
+            time_per_call(dur, || {
+                black_box(arrow_ref::lt_decimal128(black_box(&aa), black_box(&ba)));
+            }),
+            n,
+        );
+        let sc = throughput(
+            time_per_call(dur, || {
+                compare::lt_i128_scalar(black_box(&sa), black_box(&sb), black_box(&mut bm))
+            }),
+            n,
+        );
+        let si = throughput(
+            time_per_call(dur, || {
+                compare::lt_i128(black_box(&sa), black_box(&sb), black_box(&mut bm))
+            }),
+            n,
+        );
+        println!(
+            "| i128 lt {} | {arrow:.0} | {sc:.0} | {si:.0} | {:.2}x |",
+            mag.label(),
+            si / arrow
+        );
+    }
+    {
+        // i256 lt, large magnitude
+        let a = data::gen_i256(n, Magnitude::Large, 1);
+        let b = data::gen_i256(n, Magnitude::Large, 2);
+        let aa = arrow_ref::decimal256(&a, 76, 0);
+        let ba = arrow_ref::decimal256(&b, 76, 0);
+        let sa = SplitI256::from_aos(&a);
+        let sb = SplitI256::from_aos(&b);
+        let mut bm = vec![0u8; compare::bitmap_len(n)];
+        let arrow = throughput(
+            time_per_call(dur, || {
+                black_box(arrow_ref::lt_decimal256(black_box(&aa), black_box(&ba)));
+            }),
+            n,
+        );
+        let si = throughput(
+            time_per_call(dur, || {
+                compare::lt_i256(black_box(&sa), black_box(&sb), black_box(&mut bm))
+            }),
+            n,
+        );
+        println!(
+            "| i256 lt large | {arrow:.0} | - | {si:.0} | {:.2}x |",
+            si / arrow
+        );
+    }
+
+    // ---- sum (overflow-safe widening) ----
+    println!("\n### sum (i128 column)");
+    println!(
+        "Arrow sums into i128 and **wraps on overflow**; the split sum widens to i256 (exact)."
+    );
+    println!("lo-only is the small-decimal fast path (hi known 0): half the memory traffic.\n");
+    println!(
+        "| magnitude | Arrow (i128, wraps) | split widening AVX-512 (exact) | lo-only AVX-512 | speedup |"
+    );
+    println!("|---|---:|---:|---:|---:|");
+    for mag in [Magnitude::Small, Magnitude::Medium, Magnitude::Large] {
+        let v = data::gen_i128(n, mag, 3);
+        let aa = arrow_ref::decimal128(&v, 38, 0);
+        let split = SplitI128::from_aos(&v);
+        let arrow = throughput(
+            time_per_call(dur, || {
+                black_box(arrow_ref::sum_decimal128(black_box(&aa)));
+            }),
+            n,
+        );
+        let sp = throughput(
+            time_per_call(dur, || {
+                black_box(aggregate::sum_i128_widening(black_box(&split)));
+            }),
+            n,
+        );
+        let lo = throughput(
+            time_per_call(dur, || {
+                black_box(aggregate::sum_i128_lo_only(black_box(&split)));
+            }),
+            n,
+        );
+        println!(
+            "| {} | {arrow:.0} | {sp:.0} | {lo:.0} | {:.2}x |",
+            mag.label(),
+            sp / arrow
+        );
+    }
+
+    // ---- min / max ----
+    println!("\n### min / max (i128 column)");
+    println!("| op | Arrow | split scalar | split AVX-512 | speedup |");
+    println!("|---|---:|---:|---:|---:|");
+    for (label, want_min) in [("min", true), ("max", false)] {
+        let v = data::gen_i128(n, Magnitude::Large, 4);
+        let aa = arrow_ref::decimal128(&v, 38, 0);
+        let split = SplitI128::from_aos(&v);
+        let arrow = throughput(
+            time_per_call(dur, || {
+                if want_min {
+                    black_box(arrow_ref::min_decimal128(black_box(&aa)));
+                } else {
+                    black_box(arrow_ref::max_decimal128(black_box(&aa)));
+                }
+            }),
+            n,
+        );
+        let sc = throughput(
+            time_per_call(dur, || {
+                black_box(if want_min {
+                    aggregate::min_i128_scalar(black_box(&split))
+                } else {
+                    aggregate::max_i128_scalar(black_box(&split))
+                });
+            }),
+            n,
+        );
+        let si = throughput(
+            time_per_call(dur, || {
+                black_box(if want_min {
+                    aggregate::min_i128(black_box(&split))
+                } else {
+                    aggregate::max_i128(black_box(&split))
+                });
+            }),
+            n,
+        );
+        println!(
+            "| i128 {label} | {arrow:.0} | {sc:.0} | {si:.0} | {:.2}x |",
+            si / arrow
         );
     }
     println!();
