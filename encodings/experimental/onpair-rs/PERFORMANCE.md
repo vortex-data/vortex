@@ -114,10 +114,20 @@ hardware says is **not there** (1.01×). That is *why* every such attempt landed
 neutral-or-worse, independent of implementation quality. Combined with the
 exhausted space of "make each find cheaper" attempts below (hashers, data
 structures, tries, packing, memoization, frequency, presence filters/masks), the
-only sliver of output-preserving room left is the ~11 % bit-packer (a SIMD
-batched packer might recover a few percent of total), and nothing in `find`.
+only sliver of output-preserving room left is the ~11 % bit-packer, and nothing
+in `find`.
 
-Reproduce: `cargo run --release -p vortex-onpair-rs --example bench_find`.
+**The bit-packer sliver, tested (`bench_pack`).** Monomorphizing the pack on
+`const BITS` (folding the shift/mask/spill to literals, as the decode
+`TokenCursor` already does) is **~2 % faster at bits=16 and neutral at bits=12**
+(output byte-identical). So even the entire 11 % residual yields only ~2 %: most
+of it is unavoidable output-write traffic and execution-port pressure that
+already overlaps `find`, not foldable arithmetic. Not worth the 8× monomorphized
+parse-loop code bloat for the bits=16-only gain; bits=12 (the default) sees
+nothing. Single-core parse is at its floor.
+
+Reproduce: `cargo run --release -p vortex-onpair-rs --example bench_find`
+(decomposition) and `--example bench_pack` (the const-BITS pack A/B).
 
 ## PROVEN: parallelize across rows — the real wall-clock win
 

@@ -59,3 +59,7 @@ path = "examples/bench_find.rs"
 [[example]]
 name = "bench_parallel"
 path = "examples/bench_parallel.rs"
+
+[[example]]
+name = "bench_pack"
+path = "examples/bench_pack.rs"
