@@ -10,7 +10,8 @@
 //!   are hand-written scalar loops).
 //! - `byteparts`: Vortex [`DecimalByteParts`] with the values split into 64-bit parts. Compare now
 //!   has a native limb-wise kernel (no canonicalization); aggregations still canonicalize first.
-//! - `arrow`: Arrow `Decimal128Array` / `Decimal256Array` with the Arrow compute kernels directly.
+//! - `arrow`: Arrow decimal arrays with the Arrow compute kernels directly, each width using the
+//!   narrowest matching Arrow type (`Decimal64`/`Decimal128`/`Decimal256`) for a fair layout.
 //!
 //! The `cmp_lt_raw_*` benches isolate the limb-wise compute (on pre-decoded slices) from the
 //! executor dispatch, showing that the compare itself is on par with Arrow (and faster on i256),
@@ -19,6 +20,7 @@
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 
+use arrow_array::Decimal64Array;
 use arrow_array::Decimal128Array;
 use arrow_array::Decimal256Array;
 use divan::Bencher;
@@ -236,6 +238,12 @@ fn fresh_byteparts(width: Width, seed: u64) -> Box<dyn Fn() -> ArrayRef + Send +
 
 // ---- Arrow array builders -------------------------------------------------------------------
 
+fn arrow_dec64(values: impl IntoIterator<Item = i64>, dtype: DecimalDType) -> Decimal64Array {
+    Decimal64Array::from_iter_values(values)
+        .with_precision_and_scale(dtype.precision(), dtype.scale())
+        .unwrap()
+}
+
 fn arrow_dec128(values: impl IntoIterator<Item = i128>, dtype: DecimalDType) -> Decimal128Array {
     Decimal128Array::from_iter_values(values)
         .with_precision_and_scale(dtype.precision(), dtype.scale())
@@ -280,8 +288,8 @@ fn cmp_lt_byteparts(bencher: Bencher, width: Width) {
 fn cmp_lt_arrow(bencher: Bencher, width: Width) {
     match width {
         Width::Small => {
-            let a = arrow_dec128(vals_i64(0).into_iter().map(i128::from), width.dtype());
-            let b = arrow_dec128(vals_i64(1).into_iter().map(i128::from), width.dtype());
+            let a = arrow_dec64(vals_i64(0), width.dtype());
+            let b = arrow_dec64(vals_i64(1), width.dtype());
             bencher.bench(|| arrow_ord::cmp::lt(black_box(&a), black_box(&b)).unwrap());
         }
         Width::I128 => {
@@ -453,8 +461,8 @@ fn add_canonical(bencher: Bencher, width: Width) {
 fn add_arrow(bencher: Bencher, width: Width) {
     match width {
         Width::Small => {
-            let a = arrow_dec128(vals_i64(0).into_iter().map(i128::from), width.dtype());
-            let b = arrow_dec128(vals_i64(1).into_iter().map(i128::from), width.dtype());
+            let a = arrow_dec64(vals_i64(0), width.dtype());
+            let b = arrow_dec64(vals_i64(1), width.dtype());
             bencher.bench(|| arrow_arith::numeric::add(black_box(&a), black_box(&b)).unwrap());
         }
         Width::I128 => {
@@ -486,8 +494,8 @@ fn sub_byteparts(bencher: Bencher, width: Width) {
 fn sub_arrow(bencher: Bencher, width: Width) {
     match width {
         Width::Small => {
-            let a = arrow_dec128(vals_i64(0).into_iter().map(i128::from), width.dtype());
-            let b = arrow_dec128(vals_i64(1).into_iter().map(i128::from), width.dtype());
+            let a = arrow_dec64(vals_i64(0), width.dtype());
+            let b = arrow_dec64(vals_i64(1), width.dtype());
             bencher.bench(|| arrow_arith::numeric::sub(black_box(&a), black_box(&b)).unwrap());
         }
         Width::I128 => {
@@ -527,7 +535,7 @@ fn sum_byteparts(bencher: Bencher, width: Width) {
 fn sum_arrow(bencher: Bencher, width: Width) {
     match width {
         Width::Small => {
-            let a = arrow_dec128(vals_i64(0).into_iter().map(i128::from), width.dtype());
+            let a = arrow_dec64(vals_i64(0), width.dtype());
             bencher.bench(|| arrow_arith::aggregate::sum(black_box(&a)));
         }
         Width::I128 => {
@@ -565,7 +573,7 @@ fn minmax_byteparts(bencher: Bencher, width: Width) {
 fn minmax_arrow(bencher: Bencher, width: Width) {
     match width {
         Width::Small => {
-            let a = arrow_dec128(vals_i64(0).into_iter().map(i128::from), width.dtype());
+            let a = arrow_dec64(vals_i64(0), width.dtype());
             bencher.bench(|| {
                 (
                     arrow_arith::aggregate::min(black_box(&a)),
