@@ -119,6 +119,30 @@ batched packer might recover a few percent of total), and nothing in `find`.
 
 Reproduce: `cargo run --release -p vortex-onpair-rs --example bench_find`.
 
+## PROVEN: parallelize across rows — the real wall-clock win
+
+The single-core per-token floor is fixed, but parse over rows is embarrassingly
+parallel and `Column::compress` runs it on **one thread**. Splitting the rows
+across threads (each runs the `find` loop on its row range; results merge into a
+**byte-identical** packed stream + boundaries) scales nearly linearly. Real
+`l_comment`, 256 MiB, this 4-core host (`bench_parallel`):
+
+| threads | bits=12 | bits=16 |
+|---|---|---|
+| 1 | 0.98× (≈ serial) | 0.98× |
+| 2 | 1.76× | 1.71× |
+| 4 | **3.0×** (150→465 MiB/s) | **3.1×** (114→377 MiB/s) |
+
+`threads=1` ≈ serial confirms the chunk/merge adds no penalty; the win is pure.
+bits=16 scales slightly better (find is a larger share, so the serial bit-pack
+tail is relatively smaller). This is **orthogonal to the per-token wall** — it
+multiplies throughput by core count and is output-identical (roundtrip-safe), so
+it's the highest-value parse change available. Implemented as a prototype in
+`bench_parallel`; integrating it into `Column::compress` (or confirming the
+Vortex compressor already parallelizes column/chunk work above this layer) is the
+follow-up. The serial bit-pack merge (~11 %) caps speedup at ~`1/(0.11+0.89/C)`;
+a per-chunk bit-packer with a bit-aligned merge would lift the ceiling further.
+
 ## PROVEN: the L2 cliff governs parse speed
 
 Parse cost per token vs bit width (100 MB, the working set grows with `2^bits`):
@@ -480,5 +504,10 @@ and disproven — see the section above.)
 - **Open, output-preserving:** none with a proven win — bits=16 parse is at the
   L2/L3 memory-latency wall; the only high-ceiling idea (B2) is now disproven on
   this hardware. A part with a genuinely parallel gather could reopen it.
-- **Open, output-changing:** `sample_fraction` (proven training lever).
+- **Open, output-changing:** `sample_fraction` (proven training lever); for
+  free-text like `l_comment`, bits=16 buys ~nothing over bits=12 in ratio
+  (2.914 vs 2.904 at 1 GiB; sometimes worse) at ~1.7× the cost — prefer bits=12.
+- **PROVEN, highest-value parse win:** parallelize parse across rows — ~3× on
+  4 cores, output-identical (`bench_parallel`). Orthogonal to the single-core
+  wall; awaits integration into `Column::compress`.
 </content>
