@@ -163,32 +163,53 @@ fn sum_unsigned(prim: &PrimitiveArray, mask: &Mask) -> u128 {
 }
 
 // Wide (`i128`/`u128`) accumulation does not vectorize — there is no SIMD 128-bit add. Instead we
-// keep the running sum as two 64-bit *limbs* (the low and high 32 bits of every element summed
-// separately). Each half-sum stays a 64-bit add, which LLVM lowers to 8-wide `vpaddq` reductions,
-// and the two limbs can never overflow `i64`/`u64` for any realistic length (`len * 2^32 < 2^64`).
-// The limbs are combined into the wide value once, at the end.
+// sum each column as two 64-bit *limbs*: the low and high 32 bits of every element accumulated
+// separately into 64-bit lanes, which LLVM lowers to 8-wide `vpaddq` reductions. A 64-bit limb
+// accumulator would itself overflow after ~2^32 elements (each half-term is < 2^32), so we flush
+// the limbs into the wide total every `SUM_BLOCK` elements — small enough that a block's limb sum
+// stays below 2^63. Any realistic batch is a single block (still fully vectorized); larger inputs
+// stay exact.
+
+/// Block size bounding each 64-bit limb accumulator: `SUM_BLOCK * (2^32 - 1) < 2^63`.
+const SUM_BLOCK: usize = 1 << 31;
 
 /// SIMD-friendly widening sum of a signed-integer column into `i128`.
 fn sum_all_i128<P: Into<i64> + Copy>(values: &[P]) -> i128 {
-    let mut lo: i64 = 0;
-    let mut hi: i64 = 0;
-    for &value in values {
-        let value: i64 = value.into();
-        lo += value & 0xffff_ffff;
-        hi += value >> 32;
+    sum_i128_blocked(values, SUM_BLOCK)
+}
+
+fn sum_i128_blocked<P: Into<i64> + Copy>(values: &[P], block: usize) -> i128 {
+    let mut total: i128 = 0;
+    for block in values.chunks(block) {
+        let mut lo: i64 = 0;
+        let mut hi: i64 = 0;
+        for &value in block {
+            let value: i64 = value.into();
+            lo += value & 0xffff_ffff;
+            hi += value >> 32;
+        }
+        total += (i128::from(hi) << 32) + i128::from(lo);
     }
-    (i128::from(hi) << 32) + i128::from(lo)
+    total
 }
 
 /// SIMD-friendly widening sum of a `u64` column into `u128`.
 fn sum_all_u128(values: &[u64]) -> u128 {
-    let mut lo: u64 = 0;
-    let mut hi: u64 = 0;
-    for &value in values {
-        lo += value & 0xffff_ffff;
-        hi += value >> 32;
+    sum_u128_blocked(values, SUM_BLOCK)
+}
+
+fn sum_u128_blocked(values: &[u64], block: usize) -> u128 {
+    let mut total: u128 = 0;
+    for block in values.chunks(block) {
+        let mut lo: u64 = 0;
+        let mut hi: u64 = 0;
+        for &value in block {
+            lo += value & 0xffff_ffff;
+            hi += value >> 32;
+        }
+        total += (u128::from(hi) << 32) + u128::from(lo);
     }
-    (u128::from(hi) << 32) + u128::from(lo)
+    total
 }
 
 #[cfg(test)]
@@ -213,7 +234,22 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use super::{sum_i128_blocked, sum_u128_blocked};
     use crate::DecimalByteParts;
+
+    /// The block-flushed limb sums must equal a naive wide sum even when many blocks are crossed
+    /// with limb values near `u32::MAX` (the case that would overflow a single 64-bit accumulator).
+    #[test]
+    fn blocked_limb_sum_is_exact_across_blocks() {
+        let big: Vec<u64> = (0..50).map(|i| u64::MAX - i).collect();
+        let expected: u128 = big.iter().map(|&v| u128::from(v)).sum();
+        // Tiny block size forces repeated flushing.
+        assert_eq!(sum_u128_blocked(&big, 4), expected);
+
+        let signed: Vec<i64> = (0..50).map(|i| if i % 2 == 0 { i64::MAX - i } else { i64::MIN + i }).collect();
+        let expected: i128 = signed.iter().map(|&v| i128::from(v)).sum();
+        assert_eq!(sum_i128_blocked(&signed, 4), expected);
+    }
 
     fn validity(present: impl Iterator<Item = bool>) -> Validity {
         Validity::Array(BoolArray::from_iter(present).into_array())
