@@ -148,29 +148,33 @@ column *is* the primitive array).
 
    **The gap grows with column size (the headline correction).** Sweeping stack B
    `alp(delta(ffor(bitpack)))`, `fused` vs Vortex `execute::<RecursiveCanonical>`
-   (`--bench sweep`, median):
+   (`--bench sweep`). Absolute times swing run-to-run on this shared 4-vCPU box
+   (memory-bandwidth contention hits the large bandwidth-bound sizes hardest —
+   `fused` at 32 MB measured 13–20 ms across runs), so the table shows the
+   **ratio range over two runs**; ratios are stabler than absolutes since both
+   decoders share the same contended bandwidth:
 
-   | column size (f64) | fused | vortex_canonical | speedup |
+   | column size (f64) | fused (median) | vortex_canonical (median) | speedup |
    |---|---|---|---|
-   | 8 KB | 1.13 µs | 5.15 µs | 4.5×¹ |
-   | 64 KB | 9.2 µs | 15.9 µs | 1.7× |
-   | 512 KB | 69 µs | 106 µs | 1.5× |
-   | 2 MB | 336 µs | 705 µs | 2.1× |
-   | 8 MB | 1.49 ms | 2.88 ms | 1.9× |
-   | 32 MB | 13.2 ms | 36.1 ms | **2.7×** |
-   | 64 MB | 32.7 ms | 91.2 ms | **2.8×** |
+   | 8 KB | ~1.1–1.5 µs | ~5–6 µs | ~4.5׹ |
+   | 64 KB | ~9–12 µs | ~16–18 µs | ~1.6× |
+   | 512 KB | ~69–91 µs | ~106–145 µs | ~1.5× |
+   | 2 MB | ~0.34–0.47 ms | ~0.70 ms | ~1.5–2.1× |
+   | 8 MB | ~1.5–1.9 ms | ~2.9 ms | ~1.5–1.9× |
+   | 32 MB | ~13–20 ms | ~36–46 ms | **~2.3–2.7×** |
+   | 64 MB | ~33–41 ms | ~91–96 ms | **~2.4–2.8×** |
 
    ¹ tiny columns are dominated by Vortex's fixed per-`execute` overhead (vtable
    dispatch, `ExecutionCtx`, allocations), not kernel work — not representative.
 
    In the middle (64 KB–8 MB) everything fits in this machine's 260 MiB L3 so
    materialization is cheap and the gap is ~1.5–2×. Past ~32 MB Vortex's ~4
-   full-column buffers spill: its throughput collapses (92 M/s at 64 MB) while the
-   fused pipeline keeps intermediates in L1 and reads only the ~17 MB *compressed*
-   input (257 M/s), so the gap widens to **~2.8× and is still climbing**. At 64 MB
-   the fused decode also **beats Vortex's shallow uncompressed encoding** (38 ms)
-   and lands within 10% of the pure-`memcpy` floor (29.5 ms). This is the regime
-   real scans live in.
+   full-column buffers spill: its throughput collapses (~90 M/s at 64 MB) while
+   the fused pipeline keeps intermediates in L1 and reads only the ~17 MB
+   *compressed* input (~210–260 M/s), so the gap widens to **~2.5× (range
+   2.3–2.8×)**. At 64 MB the fused decode also **beats Vortex's shallow
+   uncompressed encoding** and lands close to the pure-`memcpy` floor. This is the
+   regime real scans live in.
 
 3. **`fused` matches `aot`** (A: 0.87 vs 0.86 ms; B full: ~equal) — the
    runtime-composed pipeline gets the best-possible kernel's throughput with none
