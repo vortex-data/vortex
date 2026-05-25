@@ -154,18 +154,42 @@ column *is* the primitive array).
    **ratio range over two runs**; ratios are stabler than absolutes since both
    decoders share the same contended bandwidth:
 
-   | column size (f64) | fused (median) | vortex_canonical (median) | speedup |
-   |---|---|---|---|
-   | 8 KB | ~1.1–1.5 µs | ~5–6 µs | ~4.5׹ |
-   | 64 KB | ~9–12 µs | ~16–18 µs | ~1.6× |
-   | 512 KB | ~69–91 µs | ~106–145 µs | ~1.5× |
-   | 2 MB | ~0.34–0.47 ms | ~0.70 ms | ~1.5–2.1× |
-   | 8 MB | ~1.5–1.9 ms | ~2.9 ms | ~1.5–1.9× |
-   | 32 MB | ~13–20 ms | ~36–46 ms | **~2.3–2.7×** |
-   | 64 MB | ~33–41 ms | ~91–96 ms | **~2.4–2.8×** |
+   | column size (f64) | memcpy floor | fused | vortex_canonical | speedup | **fused vs floor** |
+   |---|---|---|---|---|---|
+   | 64 KB | 2.2 µs | 12.0 µs | 18.7 µs | ~1.6× | 5.5× |
+   | 512 KB | 23.6 µs | 94.5 µs | 165 µs | ~1.7× | 4.0× |
+   | 2 MB | 146 µs | 467 µs | 740 µs | ~1.6× | 3.2× |
+   | 8 MB | 0.71 ms | 2.03 ms | 2.86 ms | ~1.4× | 2.9× |
+   | 32 MB | 15.5 ms | 19.6 ms | 46.8 ms | **~2.4×** | 1.3× |
+   | 64 MB | 31.6 ms | 40.5 ms | 106.8 ms | **~2.6×** | 1.3× |
 
-   ¹ tiny columns are dominated by Vortex's fixed per-`execute` overhead (vtable
-   dispatch, `ExecutionCtx`, allocations), not kernel work — not representative.
+   **Why the speedup is ~2.5× and not the ~5× the structure allows.** The
+   `fused vs floor` column is the tell: in cache `fused` is **3–5× *above* the
+   memcpy floor**, i.e. **compute-bound**, not memory-bound. Accounting for the
+   four decode ops:
+   - **FoR (add reference)** — elementwise; already **free**, folded into the
+     unpack (`unchecked_unfor_pack` broadcasts the ref and adds it to each
+     unpacked vector in one SIMD pass).
+   - **ALP (scale)** — elementwise; cheap, but only as a *contiguous* 8-wide
+     `vcvtqq2pd`/`vmulpd`. Folding it into a scalar neighbor (the prefix-sum or
+     the scatter) scalarizes it and regresses (measured 1.35→1.68 ms), so it
+     stays its own SIMD pass.
+   - **undelta** (per-lane prefix sum) and **untranspose** (1024-element
+     permutation) — *structural* and scalar. They can't be register-streamed (the
+     transpose mixes all 1024 elements) and fusing them together stays scalar.
+
+   So only **two** of the four ops actually cost — undelta and untranspose — and
+   they are what hold `fused` at 40 ms instead of its ~20 ms memory-ideal. The
+   remaining ~2× needs them **vectorized** (a SIMD FastLanes transpose +
+   segmented prefix-sum), not fused.
+
+   Crucially, `fused` reads the *compressed* input (~17 MB) and writes only the
+   64 MB output ≈ 81 MB traffic, vs the floor's 128 MB. So the decoder's
+   *memory-ideal* at 64 MB is ~31.6 ms × 81/128 ≈ **20 ms** — below the memcpy
+   floor. Against Vortex's 107 ms that is a **~5.3× ceiling**. `fused` reaches only
+   40.5 ms (2.6×); the missing ~2× is the scalar undelta+untranspose compute that
+   *should* hide under the 81 MB of memory traffic at scale but doesn't. **The gate
+   to ~5× is a vectorized FastLanes transpose**, not register-fusion or memory.
 
    In the middle (64 KB–8 MB) everything fits in this machine's 260 MiB L3 so
    materialization is cheap and the gap is ~1.5–2×. Past ~32 MB Vortex's ~4
