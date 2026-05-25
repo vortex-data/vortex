@@ -35,6 +35,7 @@ divan = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { path = "../../vortex-array", features = ["_test-harness"] }
+vortex-btrblocks = { workspace = true }
 vortex-session = { workspace = true }
 
 [[bench]]

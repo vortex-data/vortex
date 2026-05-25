@@ -234,7 +234,8 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use super::{sum_i128_blocked, sum_u128_blocked};
+    use super::sum_i128_blocked;
+    use super::sum_u128_blocked;
     use crate::DecimalByteParts;
 
     /// The block-flushed limb sums must equal a naive wide sum even when many blocks are crossed
@@ -246,7 +247,15 @@ mod tests {
         // Tiny block size forces repeated flushing.
         assert_eq!(sum_u128_blocked(&big, 4), expected);
 
-        let signed: Vec<i64> = (0..50).map(|i| if i % 2 == 0 { i64::MAX - i } else { i64::MIN + i }).collect();
+        let signed: Vec<i64> = (0..50)
+            .map(|i| {
+                if i % 2 == 0 {
+                    i64::MAX - i
+                } else {
+                    i64::MIN + i
+                }
+            })
+            .collect();
         let expected: i128 = signed.iter().map(|&v| i128::from(v)).sum();
         assert_eq!(sum_i128_blocked(&signed, 4), expected);
     }

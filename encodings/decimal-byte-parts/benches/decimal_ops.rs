@@ -531,6 +531,102 @@ fn sum_byteparts(bencher: Bencher, width: Width) {
         .bench_values(|(a, mut ctx)| sum(&a, &mut ctx).unwrap());
 }
 
+/// Isolates the *pure limb-sum compute* (on already-decoded part slices) from the full `sum()`
+/// dispatch path (`sum_byteparts`). The gap between the two is Vortex aggregate-framework +
+/// decode + scalar-construction overhead — not the decimal summation.
+#[divan::bench(args = WIDTHS)]
+fn sum_byteparts_compute(bencher: Bencher, width: Width) {
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_decimal_byte_parts::DecimalBytePartsArrayExt;
+
+    let session = session();
+    let mut ctx = session.create_execution_ctx();
+    let arr = byteparts(width, 0);
+    let bp = arr.as_opt::<DecimalByteParts>().unwrap();
+    let k = bp.num_lower_parts();
+    // Decode the part columns once, outside the timed loop.
+    let msp = bp
+        .msp()
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)
+        .unwrap();
+    let lowers: Vec<PrimitiveArray> = (0..k)
+        .map(|i| {
+            bp.lower_part(i)
+                .clone()
+                .execute::<PrimitiveArray>(&mut ctx)
+                .unwrap()
+        })
+        .collect();
+
+    bencher.bench(|| {
+        // Half-split limb sums (vectorizable), combined into an i256 total — the kernel's hot path.
+        let mut sum_hi: i64 = 0;
+        let mut sum_lo: i64 = 0;
+        for &v in msp.as_slice::<i64>() {
+            sum_lo += v & 0xffff_ffff;
+            sum_hi += v >> 32;
+        }
+        let mut total = (i256::from_i128(i128::from(sum_hi)) << 32 << (64 * k))
+            + (i256::from_i128(i128::from(sum_lo)) << (64 * k));
+        for (j, lower) in lowers.iter().enumerate() {
+            let mut lo: u64 = 0;
+            let mut hi: u64 = 0;
+            for &v in lower.as_slice::<u64>() {
+                lo += v & 0xffff_ffff;
+                hi += v >> 32;
+            }
+            let part = i256::from_parts((u128::from(hi) << 32) + u128::from(lo), 0);
+            total += part << (64 * (k - 1 - j));
+        }
+        black_box(total)
+    });
+}
+
+/// Sum over a *compressed* byte-parts column (parts encoded by the BtrBlocks compressor, e.g. FoR /
+/// bit-packing). The native kernel decodes each part via `as_primitive` before summing, so this
+/// shows whether compression helps the sum (it pays decode) — and that summing compressed
+/// byte-parts works at all (decode uses the parts' embedded vtables).
+#[divan::bench(args = WIDTHS)]
+fn sum_byteparts_compressed(bencher: Bencher, width: Width) {
+    use vortex_array::VortexSessionExecute;
+    use vortex_btrblocks::BtrBlocksCompressor;
+    use vortex_decimal_byte_parts::DecimalBytePartsArrayExt;
+
+    let session = session();
+    let mut ctx = session.create_execution_ctx();
+    let canonical = canonical(width, 0);
+    let uncompressed_bytes = canonical.nbytes();
+    let compressed = BtrBlocksCompressor::default()
+        .compress(&canonical, &mut ctx)
+        .unwrap();
+    eprintln!(
+        "[{width:?}] compressed encoding={} nbytes {} -> {} ({:.0}%)",
+        compressed.encoding_id(),
+        uncompressed_bytes,
+        compressed.nbytes(),
+        100.0 * compressed.nbytes() as f64 / uncompressed_bytes as f64,
+    );
+    let bp = compressed
+        .as_opt::<DecimalByteParts>()
+        .expect("decimal compresses to byte-parts");
+    let msp = bp.msp().clone();
+    let lowers = bp.lower_parts();
+    let dtype = *compressed.dtype().as_decimal_opt().unwrap();
+
+    bencher
+        .with_inputs(|| {
+            (
+                DecimalByteParts::try_new_parts(msp.clone(), lowers.clone(), dtype)
+                    .unwrap()
+                    .into_array(),
+                session.create_execution_ctx(),
+            )
+        })
+        .bench_values(|(a, mut ctx)| sum(&a, &mut ctx).unwrap());
+}
+
 #[divan::bench(args = WIDTHS)]
 fn sum_arrow(bencher: Bencher, width: Width) {
     match width {
