@@ -220,6 +220,19 @@ mod tests {
         assert_eq!(sum_i128_checked(0, &v), Some(expected));
     }
 
+    #[rstest]
+    #[case(5)]
+    #[case(64)]
+    #[case(1000)]
+    #[case(4099)]
+    fn sum_wrapping_large_values(#[case] n: usize) {
+        // Full-range i128 values exercise carry propagation and i128 wraparound in the sum.
+        let mut rng = StdRng::seed_from_u64(0xB16 ^ n as u64);
+        let v: Vec<i128> = (0..n).map(|_| rng.random::<i128>()).collect();
+        let expected = v.iter().copied().fold(0i128, i128::wrapping_add);
+        assert_eq!(sum_i128(&v), expected);
+    }
+
     #[test]
     fn sum_checked_detects_overflow() {
         let big = i128::MAX / 2;
