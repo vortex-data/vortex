@@ -416,13 +416,38 @@ fn cmp_lt_raw_branchless(bencher: Bencher, width: Width) {
 }
 
 // =============================================================================================
-// Numeric add, array vs array.
+// Numeric add / subtract, array vs array.
 //
-// NOTE: Vortex's `binary` rejects arithmetic on decimal dtypes (only primitive dtypes are allowed
-// in `Binary::return_dtype`), so there is no `canonical`/`byteparts` engine for numeric ops today.
-// Only the Arrow reference is benched here; it is the cost curve a future native byte-parts numeric
-// kernel would target.
+// `byteparts` is the native limb-wise pushdown kernel: it computes the result in-place on the
+// 64-bit part columns (SoA) and the result *stays* a `DecimalByteParts` array (no canonicalization).
+// `canonical` runs Vortex's `binary` over canonical `DecimalArray`s, which delegates to Arrow.
+// `arrow` calls the Arrow kernel directly on `Decimal128`/`Decimal256` (AoS) — each engine uses the
+// byte layout natural to it, so this is a fair SoA-vs-AoS comparison.
 // =============================================================================================
+
+#[divan::bench(args = WIDTHS)]
+fn add_byteparts(bencher: Bencher, width: Width) {
+    let (a, b, session) = (byteparts(width, 0), byteparts(width, 1), session());
+    bencher
+        .with_inputs(|| (a.clone(), b.clone(), session.create_execution_ctx()))
+        .bench_values(|(a, b, mut ctx)| {
+            a.binary(b, Operator::Add)
+                .unwrap()
+                .execute::<ArrayRef>(&mut ctx)
+        });
+}
+
+#[divan::bench(args = WIDTHS)]
+fn add_canonical(bencher: Bencher, width: Width) {
+    let (a, b, session) = (canonical(width, 0), canonical(width, 1), session());
+    bencher
+        .with_inputs(|| (a.clone(), b.clone(), session.create_execution_ctx()))
+        .bench_values(|(a, b, mut ctx)| {
+            a.binary(b, Operator::Add)
+                .unwrap()
+                .execute::<ArrayRef>(&mut ctx)
+        });
+}
 
 #[divan::bench(args = WIDTHS)]
 fn add_arrow(bencher: Bencher, width: Width) {
@@ -441,6 +466,39 @@ fn add_arrow(bencher: Bencher, width: Width) {
             let a = arrow_dec256(&vals_i256(0), width.dtype());
             let b = arrow_dec256(&vals_i256(1), width.dtype());
             bencher.bench(|| arrow_arith::numeric::add(black_box(&a), black_box(&b)).unwrap());
+        }
+    }
+}
+
+#[divan::bench(args = WIDTHS)]
+fn sub_byteparts(bencher: Bencher, width: Width) {
+    let (a, b, session) = (byteparts(width, 0), byteparts(width, 1), session());
+    bencher
+        .with_inputs(|| (a.clone(), b.clone(), session.create_execution_ctx()))
+        .bench_values(|(a, b, mut ctx)| {
+            a.binary(b, Operator::Sub)
+                .unwrap()
+                .execute::<ArrayRef>(&mut ctx)
+        });
+}
+
+#[divan::bench(args = WIDTHS)]
+fn sub_arrow(bencher: Bencher, width: Width) {
+    match width {
+        Width::Small => {
+            let a = arrow_dec128(vals_i64(0).into_iter().map(i128::from), width.dtype());
+            let b = arrow_dec128(vals_i64(1).into_iter().map(i128::from), width.dtype());
+            bencher.bench(|| arrow_arith::numeric::sub(black_box(&a), black_box(&b)).unwrap());
+        }
+        Width::I128 => {
+            let a = arrow_dec128(vals_i128(0), width.dtype());
+            let b = arrow_dec128(vals_i128(1), width.dtype());
+            bencher.bench(|| arrow_arith::numeric::sub(black_box(&a), black_box(&b)).unwrap());
+        }
+        Width::I256 => {
+            let a = arrow_dec256(&vals_i256(0), width.dtype());
+            let b = arrow_dec256(&vals_i256(1), width.dtype());
+            bencher.bench(|| arrow_arith::numeric::sub(black_box(&a), black_box(&b)).unwrap());
         }
     }
 }

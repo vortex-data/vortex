@@ -7,6 +7,7 @@ mod filter;
 pub(crate) mod is_constant;
 pub(crate) mod kernel;
 mod mask;
+mod numeric;
 mod take;
 
 #[cfg(test)]

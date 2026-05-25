@@ -7,9 +7,13 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
+use crate::arrays::Decimal;
+use crate::arrays::DecimalArray;
+use crate::arrays::decimal::DecimalArrayExt;
 use crate::arrow::Datum;
 use crate::arrow::from_arrow_array_with_len;
 use crate::executor::ExecutionCtx;
+use crate::match_each_decimal_value_type;
 use crate::scalar::NumericOperator;
 
 /// Execute a numeric operation between two arrays.
@@ -48,7 +52,22 @@ pub(crate) fn arrow_numeric(
         NumericOperator::Div => arrow_arith::numeric::div(&left, &right)?,
     };
 
-    from_arrow_array_with_len(array.as_ref(), len, nullable)
+    let result = from_arrow_array_with_len(array.as_ref(), len, nullable)?;
+
+    // Vortex uses same-dtype decimal arithmetic (mirroring its primitive arithmetic), but Arrow
+    // promotes the result precision (e.g. `decimal(60,2) + decimal(60,2)` -> `decimal(61,2)`).
+    // Relabel the result back to the operand decimal type so it matches `Binary::return_dtype`.
+    if let Some(target) = lhs.dtype().as_decimal_opt().copied()
+        && let Some(dec) = result.as_opt::<Decimal>()
+        && dec.decimal_dtype() != target
+    {
+        let validity = DecimalArrayExt::validity(&dec);
+        return Ok(match_each_decimal_value_type!(dec.values_type(), |D| {
+            DecimalArray::new(dec.buffer::<D>(), target, validity).into_array()
+        }));
+    }
+
+    Ok(result)
 }
 
 fn constant_numeric(
@@ -56,6 +75,10 @@ fn constant_numeric(
     rhs: &ArrayRef,
     op: NumericOperator,
 ) -> VortexResult<Option<ArrayRef>> {
+    // Decimal scalars are not primitive; let `arrow_numeric` handle the constant-constant case.
+    if lhs.dtype().as_decimal_opt().is_some() {
+        return Ok(None);
+    }
     let (Some(lhs), Some(rhs)) = (lhs.as_opt::<Constant>(), rhs.as_opt::<Constant>()) else {
         return Ok(None);
     };

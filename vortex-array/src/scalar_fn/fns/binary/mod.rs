@@ -120,6 +120,15 @@ impl ScalarFnVTable for Binary {
             if lhs.is_primitive() && lhs.eq_ignore_nullability(rhs) {
                 return Ok(lhs.with_nullability(lhs.nullability() | rhs.nullability()));
             }
+            // Same-scale decimal addition/subtraction is exactly raw-integer add/sub on the backing
+            // values, so the result keeps the operand decimal type (nullability unioned). Multiply
+            // and divide change the scale and are not supported here.
+            if matches!(operator, Operator::Add | Operator::Sub)
+                && lhs.as_decimal_opt().is_some()
+                && lhs.eq_ignore_nullability(rhs)
+            {
+                return Ok(lhs.with_nullability(lhs.nullability() | rhs.nullability()));
+            }
             vortex_bail!(
                 "incompatible types for arithmetic operation: {} {}",
                 lhs,

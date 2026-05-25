@@ -95,6 +95,18 @@ impl CompareKernel for DecimalByteParts {
     }
 }
 
+/// Decodes a byte-parts limb to a [`PrimitiveArray`]. Already-canonical parts are downcast for free
+/// (the buffers are `Arc`-shared); only genuinely encoded parts pay a decode.
+pub(crate) fn as_primitive(
+    part: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray> {
+    match part.as_opt::<Primitive>() {
+        Some(p) => Ok(TypedArrayRef::to_owned(&p)),
+        None => part.clone().execute::<PrimitiveArray>(ctx),
+    }
+}
+
 /// Compares two byte-parts decimal columns of the same layout limb-by-limb, most-significant part
 /// first. Because a decimal stored as `(msp: i64, lower: u64, ...)` is exactly the two's-complement
 /// limb decomposition of the wide value, lexicographic comparison (signed on the msp, unsigned on
@@ -102,15 +114,6 @@ impl CompareKernel for DecimalByteParts {
 ///
 /// Returns `Ok(None)` (so the engine falls back to canonicalization) when `rhs` is not a byte-parts
 /// column with the standard `i64 + u64*` layout matching `lhs`.
-/// Decodes a byte-parts limb to a [`PrimitiveArray`]. Already-canonical parts are downcast for free
-/// (the buffers are `Arc`-shared); only genuinely encoded parts pay a decode.
-fn as_primitive(part: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
-    match part.as_opt::<Primitive>() {
-        Some(p) => Ok(TypedArrayRef::to_owned(&p)),
-        None => part.clone().execute::<PrimitiveArray>(ctx),
-    }
-}
-
 fn lexicographic_compare(
     lhs: ArrayView<'_, DecimalByteParts>,
     rhs: &ArrayRef,

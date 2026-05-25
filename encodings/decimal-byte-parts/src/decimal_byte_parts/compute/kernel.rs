@@ -6,8 +6,10 @@ use vortex_array::kernel::ParentKernelSet;
 use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
 
 use crate::DecimalByteParts;
+use crate::decimal_byte_parts::compute::numeric::NumericExecuteAdaptor;
 
 pub(crate) const PARENT_KERNELS: ParentKernelSet<DecimalByteParts> = ParentKernelSet::new(&[
     ParentKernelSet::lift(&CompareExecuteAdaptor(DecimalByteParts)),
+    ParentKernelSet::lift(&NumericExecuteAdaptor),
     ParentKernelSet::lift(&TakeExecuteAdaptor(DecimalByteParts)),
 ]);
