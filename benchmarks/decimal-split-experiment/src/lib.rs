@@ -78,6 +78,10 @@ mod tests {
             let mut out_simd = sa.zeroed_like();
             simd::add_i128(&sa, &sb, &mut out_simd);
             assert_eq!(out_simd.to_aos(), expected, "simd soa {mag:?}");
+
+            let mut out_u4 = sa.zeroed_like();
+            simd::add_i128_u4(&sa, &sb, &mut out_u4);
+            assert_eq!(out_u4.to_aos(), expected, "simd u4 {mag:?}");
         }
     }
 

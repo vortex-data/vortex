@@ -51,6 +51,63 @@ fn main() {
     preferred_layout_report();
     constant_exploitation_report();
     lt_roofline_report();
+    add_unroll_report();
+}
+
+/// Did unrolling the add kernel beat the single-vector one? Measured across the
+/// cache hierarchy, since the win is in the latency/overhead-bound regime (small
+/// working sets), not when streaming from DRAM. Both are split AVX-512.
+fn add_unroll_report() {
+    let dur = Duration::from_millis(300);
+    println!("## add kernel: single-vector vs unrolled-by-4 (split AVX-512)\n");
+    println!("M items/s. Same kernel math; u4 issues 8 loads up front per 32 values.\n");
+    println!("| values | working set | Arrow | split (1x) | split (u4) | u4/1x |");
+    println!("|---|---|---:|---:|---:|---:|");
+    for &(label, n) in &[
+        ("1 Ki", 1024usize),
+        ("8 Ki", 8192),
+        ("64 Ki", 65536),
+        ("1 Mi", 1 << 20),
+    ] {
+        let a = SplitI128::from_aos(&data::gen_i128(n, Magnitude::Large, 1));
+        let b = SplitI128::from_aos(&data::gen_i128(n, Magnitude::Large, 2));
+        let aa = arrow_ref::decimal128(&data::gen_i128(n, Magnitude::Large, 1), 38, 0);
+        let ba = arrow_ref::decimal128(&data::gen_i128(n, Magnitude::Large, 2), 38, 0);
+        let mut out = a.zeroed_like();
+        let arrow = throughput(
+            time_per_call(dur, || {
+                black_box(arrow_ref::add_decimal128(black_box(&aa), black_box(&ba)));
+            }),
+            n,
+        );
+        let one = throughput(
+            time_per_call(dur, || {
+                simd::add_i128(black_box(&a), black_box(&b), black_box(&mut out))
+            }),
+            n,
+        );
+        let u4 = throughput(
+            time_per_call(dur, || {
+                simd::add_i128_u4(black_box(&a), black_box(&b), black_box(&mut out))
+            }),
+            n,
+        );
+        let ws = n * 48; // add moves 48 B/value (4 loads + 2 stores)
+        let ws_str = if ws >= 1 << 20 {
+            format!("{} MiB", ws >> 20)
+        } else {
+            format!("{} KiB", ws >> 10)
+        };
+        println!(
+            "| {label} | {ws_str} | {arrow:.0} | {one:.0} | {u4:.0} | {:.2}x |",
+            u4 / one
+        );
+    }
+    println!(
+        "\n> Result: unroll is within noise of the single-vector loop (~1.0x). The compiler/core\n\
+         > already extract enough memory-level parallelism, and beyond L1 add is bandwidth-bound,\n\
+         > so micro-asm tuning is not the lever - reducing bytes moved (const-hi skip) is.\n"
+    );
 }
 
 /// Why full i128 `lt` is only ~parity with Arrow despite our 8-wide SIMD: it is

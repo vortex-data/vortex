@@ -30,6 +30,24 @@ pub fn add_i128(a: &SplitI128, b: &SplitI128, out: &mut SplitI128) {
     scalar::add_i128_soa(a, b, out);
 }
 
+/// Unrolled-by-4 i128 add: 32 values per loop iteration. Amortizes loop overhead
+/// and exposes 4 independent dependency chains so the core can keep more loads in
+/// flight (more memory-level parallelism) - the win in cache/L2/L3 where the
+/// single-vector loop is latency-bound, not bandwidth-bound.
+pub fn add_i128_u4(a: &SplitI128, b: &SplitI128, out: &mut SplitI128) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if std::arch::is_x86_feature_detected!("avx512f") {
+            // SAFETY: avx512f confirmed present; all slices share `a.len()`.
+            unsafe {
+                x86::add_i128_avx512_u4(&a.lo, &a.hi, &b.lo, &b.hi, &mut out.lo, &mut out.hi);
+            }
+            return;
+        }
+    }
+    scalar::add_i128_soa(a, b, out);
+}
+
 /// i128 subtract over the split layout, dispatching to AVX-512 when available.
 pub fn sub_i128(a: &SplitI128, b: &SplitI128, out: &mut SplitI128) {
     #[cfg(target_arch = "x86_64")]
@@ -103,6 +121,69 @@ mod x86 {
                 let mut shi = _mm512_add_epi64(ahi, bhi);
                 shi = _mm512_mask_add_epi64(shi, carry, shi, one);
 
+                _mm512_storeu_epi64(out_lo.as_mut_ptr().add(i).cast(), slo);
+                _mm512_storeu_epi64(out_hi.as_mut_ptr().add(i).cast(), shi);
+            }
+            i += LANES;
+        }
+        while i < n {
+            let (lo, carry) = a_lo[i].overflowing_add(b_lo[i]);
+            out_lo[i] = lo;
+            out_hi[i] = a_hi[i].wrapping_add(b_hi[i]).wrapping_add(u64::from(carry));
+            i += 1;
+        }
+    }
+
+    /// Unrolled-by-4 variant: 32 values/iteration, 8 independent loads issued
+    /// before the dependent carry work, then a single-vector tail.
+    #[target_feature(enable = "avx512f")]
+    pub unsafe fn add_i128_avx512_u4(
+        a_lo: &[u64],
+        a_hi: &[u64],
+        b_lo: &[u64],
+        b_hi: &[u64],
+        out_lo: &mut [u64],
+        out_hi: &mut [u64],
+    ) {
+        let n = a_lo.len();
+        let mut i = 0;
+        while i + 4 * LANES <= n {
+            unsafe {
+                // Issue all 8 low/high loads first so the core has 4 independent
+                // chains' worth of outstanding memory requests.
+                let mut alo = [_mm512_setzero_si512(); 4];
+                let mut blo = [_mm512_setzero_si512(); 4];
+                let mut ahi = [_mm512_setzero_si512(); 4];
+                let mut bhi = [_mm512_setzero_si512(); 4];
+                for j in 0..4 {
+                    let o = i + j * LANES;
+                    alo[j] = _mm512_loadu_epi64(a_lo.as_ptr().add(o).cast());
+                    blo[j] = _mm512_loadu_epi64(b_lo.as_ptr().add(o).cast());
+                    ahi[j] = _mm512_loadu_epi64(a_hi.as_ptr().add(o).cast());
+                    bhi[j] = _mm512_loadu_epi64(b_hi.as_ptr().add(o).cast());
+                }
+                for j in 0..4 {
+                    let o = i + j * LANES;
+                    let slo = _mm512_add_epi64(alo[j], blo[j]);
+                    let carry = _mm512_cmplt_epu64_mask(slo, alo[j]);
+                    let shi = _mm512_add_epi64(ahi[j], bhi[j]);
+                    let shi = _mm512_mask_add_epi64(shi, carry, shi, _mm512_set1_epi64(1));
+                    _mm512_storeu_epi64(out_lo.as_mut_ptr().add(o).cast(), slo);
+                    _mm512_storeu_epi64(out_hi.as_mut_ptr().add(o).cast(), shi);
+                }
+            }
+            i += 4 * LANES;
+        }
+        while i + LANES <= n {
+            unsafe {
+                let alo = _mm512_loadu_epi64(a_lo.as_ptr().add(i).cast());
+                let blo = _mm512_loadu_epi64(b_lo.as_ptr().add(i).cast());
+                let slo = _mm512_add_epi64(alo, blo);
+                let carry = _mm512_cmplt_epu64_mask(slo, alo);
+                let ahi = _mm512_loadu_epi64(a_hi.as_ptr().add(i).cast());
+                let bhi = _mm512_loadu_epi64(b_hi.as_ptr().add(i).cast());
+                let shi = _mm512_add_epi64(ahi, bhi);
+                let shi = _mm512_mask_add_epi64(shi, carry, shi, _mm512_set1_epi64(1));
                 _mm512_storeu_epi64(out_lo.as_mut_ptr().add(i).cast(), slo);
                 _mm512_storeu_epi64(out_hi.as_mut_ptr().add(i).cast(), shi);
             }
