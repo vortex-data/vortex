@@ -7,6 +7,7 @@
 //! ```text
 //! RUSTFLAGS="-C target-cpu=native" cargo bench -p simd-stencil --bench stages
 //! ```
+#![allow(clippy::unwrap_used)]
 
 use divan::Bencher;
 use divan::counter::ItemsCount;

@@ -45,6 +45,28 @@ fn roundtrip_c() {
 }
 
 #[test]
+fn fused_filter_matches_materialized() {
+    use crate::scan;
+
+    let values = gen_f64(N, 2, 9);
+    let enc = encode_b(&values, 2);
+    let threshold = 1000.0;
+
+    // Fused (never materialises the column) agrees with decode-then-filter.
+    assert_eq!(
+        scan::fused_count_gt(&enc, threshold),
+        scan::materialized_count_gt(&enc, threshold)
+    );
+    assert_eq!(
+        scan::fused_mask_gt(&enc, threshold),
+        scan::materialized_mask_gt(&enc, threshold)
+    );
+    // And both agree with a plain scan of the canonical values.
+    let want = values.iter().filter(|&&x| x > threshold).count();
+    assert_eq!(scan::fused_count_gt(&enc, threshold), want);
+}
+
+#[test]
 fn vortex_baseline_decodes_same_data() {
     use crate::vortex_baseline;
 

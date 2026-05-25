@@ -53,5 +53,9 @@ harness = false
 name = "stages"
 harness = false
 
+[[bench]]
+name = "filter"
+harness = false
+
 [lints]
 workspace = true
