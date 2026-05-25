@@ -146,26 +146,31 @@ column *is* the primitive array).
    every intermediate in L1. More layers ⇒ more materialization avoided ⇒ bigger
    gap. The 1M-element gap is *understated*, though — see the scaling note next.
 
-   **The gap grows with column size (the headline correction).** At 1M elements
-   (~8 MB) the whole working set — output *and* Vortex's intermediates — fits in
-   this machine's huge 260 MiB L3, so materialization is nearly free and the gap
-   is only ~1.8×. At **8M elements (64 MB)**, Vortex's ~4 full-column buffers
-   (~256 MB) saturate L3 and spill, while the fused pipeline keeps intermediates
-   in L1 (8 KB tiles) and reads only the ~17 MB *compressed* input:
+   **The gap grows with column size (the headline correction).** Sweeping stack B
+   `alp(delta(ffor(bitpack)))`, `fused` vs Vortex `execute::<RecursiveCanonical>`
+   (`--bench sweep`, median):
 
-   | B full `alp(delta(ffor(bitpack)))`, 8M elems | median | vs fused |
-   |---|---|---|
-   | fully-decompressed (floor) | 29.5 ms | 0.9× |
-   | **fused** / **aot** | **32.6 / 33.4 ms** | 1.0× |
-   | vortex_regular (shallow) | 38.4 ms | fused **beats** it |
-   | vortex_canonical (`RecursiveCanonical`) | 91.2 ms | **2.8×** |
-   | vortex_same_stack (`execute`) | 95.2 ms | **2.9×** |
-   | materialized (fully naive) | 120.8 ms | 3.7× |
+   | column size (f64) | fused | vortex_canonical | speedup |
+   |---|---|---|---|
+   | 8 KB | 1.13 µs | 5.15 µs | 4.5×¹ |
+   | 64 KB | 9.2 µs | 15.9 µs | 1.7× |
+   | 512 KB | 69 µs | 106 µs | 1.5× |
+   | 2 MB | 336 µs | 705 µs | 2.1× |
+   | 8 MB | 1.49 ms | 2.88 ms | 1.9× |
+   | 32 MB | 13.2 ms | 36.1 ms | **2.7×** |
+   | 64 MB | 32.7 ms | 91.2 ms | **2.8×** |
 
-   At scale the fused decode is **~2.9× faster than Vortex**, **beats even
-   Vortex's shallow uncompressed encoding** (it reads compressed input, so less
-   memory traffic), and lands within 10% of the pure-`memcpy` floor. This is the
-   regime that matters for real scans.
+   ¹ tiny columns are dominated by Vortex's fixed per-`execute` overhead (vtable
+   dispatch, `ExecutionCtx`, allocations), not kernel work — not representative.
+
+   In the middle (64 KB–8 MB) everything fits in this machine's 260 MiB L3 so
+   materialization is cheap and the gap is ~1.5–2×. Past ~32 MB Vortex's ~4
+   full-column buffers spill: its throughput collapses (92 M/s at 64 MB) while the
+   fused pipeline keeps intermediates in L1 and reads only the ~17 MB *compressed*
+   input (257 M/s), so the gap widens to **~2.8× and is still climbing**. At 64 MB
+   the fused decode also **beats Vortex's shallow uncompressed encoding** (38 ms)
+   and lands within 10% of the pure-`memcpy` floor (29.5 ms). This is the regime
+   real scans live in.
 
 3. **`fused` matches `aot`** (A: 0.87 vs 0.86 ms; B full: ~equal) — the
    runtime-composed pipeline gets the best-possible kernel's throughput with none
@@ -309,6 +314,7 @@ fall back to today's path, so it is incremental.
 ```bash
 cargo test  -p simd-stencil
 RUSTFLAGS="-C target-cpu=native" cargo bench -p simd-stencil --bench stacks
+RUSTFLAGS="-C target-cpu=native" cargo bench -p simd-stencil --bench sweep
 RUSTFLAGS="-C target-cpu=native" cargo bench -p simd-stencil --bench stitch
 RUSTFLAGS="-C target-cpu=native" cargo bench -p simd-stencil --bench dispatch
 ```
