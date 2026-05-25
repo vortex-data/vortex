@@ -58,19 +58,34 @@ pub fn sum_i128_widening(a: &SplitI128) -> i256 {
 /// zero: only the low limbs are summed, halving memory traffic. Caller must have
 /// established `hi == 0` (e.g. from stats / the split's hi-limb bit-width).
 pub fn sum_i128_lo_only(a: &SplitI128) -> i256 {
+    u128_to_i256(sum_lo_u128(&a.lo))
+}
+
+/// Sum when the high limb is a *known constant* `hi_const` (recorded by the
+/// compression encoding, so known for free - no scan). Reads only the low
+/// limbs; the constant high contribution is folded analytically as
+/// `hi_const * N * 2^64`. The entire high stream is skipped.
+///
+/// Arrow cannot do this: its high bytes are interleaved with the low bytes, so
+/// it must read every value in full regardless of how trivial the high half is.
+pub fn sum_i128_const_hi(lo: &[u64], hi_const: u64) -> i256 {
+    let s_lo = sum_lo_u128(lo);
+    let n = lo.len() as i128;
+    let s_hi = i128::from(hi_const as i64).wrapping_mul(n);
+    combine(s_hi, s_lo)
+}
+
+/// Exact unsigned sum of a low-limb stream (AVX-512 lane+carry when available).
+fn sum_lo_u128(lo: &[u64]) -> u128 {
     #[cfg(target_arch = "x86_64")]
     {
         if std::arch::is_x86_feature_detected!("avx512f") {
             // SAFETY: avx512f present.
-            let s_lo = unsafe { x86_sum::sum_u64_lane_carry_avx512(&a.lo) };
-            return u128_to_i256(s_lo);
+            return unsafe { x86_sum::sum_u64_lane_carry_avx512(lo) };
         }
     }
-    let mut s_lo: u128 = 0;
-    for &lo in &a.lo {
-        s_lo = s_lo.wrapping_add(u128::from(lo));
-    }
-    u128_to_i256(s_lo)
+    lo.iter()
+        .fold(0u128, |acc, &v| acc.wrapping_add(u128::from(v)))
 }
 
 /// `Σhi * 2^64 + Σlo` as an exact i256.

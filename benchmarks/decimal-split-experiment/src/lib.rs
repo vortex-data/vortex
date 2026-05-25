@@ -335,4 +335,61 @@ mod tests {
         muldiv::div_i128_soa(&sa, &sb, &mut soa);
         assert_eq!(soa.to_aos(), expected, "soa div");
     }
+
+    /// Build a SplitI128 with an explicit constant high limb.
+    fn split_with_const_hi(lo: Vec<u64>, hi_const: u64) -> SplitI128 {
+        let hi = vec![hi_const; lo.len()];
+        SplitI128 { lo, hi }
+    }
+
+    #[test]
+    fn sum_const_hi_matches_widening() {
+        use crate::aggregate;
+        let lo: Vec<u64> = gen_i128(N, Magnitude::Small, 21)
+            .iter()
+            .map(|&v| v as u64)
+            .collect();
+        // Try zero, a positive, and a negative (sign-word) constant high limb.
+        for hi_const in [0u64, 7, u64::MAX /* = -1 */] {
+            let split = split_with_const_hi(lo.clone(), hi_const);
+            let expected = aggregate::sum_i128_widening(&split);
+            let got = aggregate::sum_i128_const_hi(&split.lo, hi_const);
+            assert_eq!(got, expected, "hi_const={hi_const}");
+        }
+    }
+
+    #[test]
+    fn lt_const_hi_matches_full_compare() {
+        use crate::compare;
+        let la: Vec<u64> = gen_i128(N, Magnitude::Small, 22)
+            .iter()
+            .map(|&v| v as u64)
+            .collect();
+        let lb: Vec<u64> = gen_i128(N, Magnitude::Small, 23)
+            .iter()
+            .map(|&v| v as u64)
+            .collect();
+
+        // Equal high constants -> low-limb comparison; and differing highs ->
+        // whole-column constant result. Both must match the full lexicographic
+        // kernel.
+        for (ca, cb) in [(0u64, 0u64), (5, 5), (0, 1), (3, 2), (u64::MAX, 0)] {
+            let a = split_with_const_hi(la.clone(), ca);
+            let b = split_with_const_hi(lb.clone(), cb);
+
+            let mut full = vec![0u8; compare::bitmap_len(N)];
+            compare::lt_i128(&a, &b, &mut full);
+
+            let mut fast = vec![0u8; compare::bitmap_len(N)];
+            compare::lt_i128_const_hi(&a.lo, ca, &b.lo, cb, &mut fast);
+
+            for i in 0..N {
+                assert_eq!(
+                    compare::get_bit(&fast, i),
+                    compare::get_bit(&full, i),
+                    "ca={ca} cb={cb} @ {i}"
+                );
+            }
+        }
+    }
 }

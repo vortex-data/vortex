@@ -81,6 +81,69 @@ fn lexicographic_lt_i256(a: &SplitI256, b: &SplitI256, i: usize) -> bool {
     false
 }
 
+// ---- constant-limb-aware fast paths ------------------------------------------
+
+/// Whether a limb stream is constant, returning the value if so. In the real
+/// system this is recorded by the compression encoding, so it is known for free;
+/// this scan exists only to drive tests/benchmarks.
+pub fn const_value(s: &[u64]) -> Option<u64> {
+    s.first()
+        .copied()
+        .filter(|&first| s.iter().all(|&v| v == first))
+}
+
+/// `lt` when both columns have a *known constant* high limb (from the encoding).
+///
+/// - If the two high constants differ, every result is identical: the output is
+///   a constant bitmap filled in O(1) - no per-element work at all.
+/// - If they are equal, the high limbs cancel and we compare only the low limbs
+///   (unsigned), never touching the high streams.
+///
+/// Arrow cannot collapse either case: it must scan all values regardless.
+pub fn lt_i128_const_hi(
+    a_lo: &[u64],
+    a_hi_const: u64,
+    b_lo: &[u64],
+    b_hi_const: u64,
+    out: &mut [u8],
+) {
+    let n = a_lo.len();
+    let ah = a_hi_const as i64;
+    let bh = b_hi_const as i64;
+    if ah != bh {
+        // Whole-column constant result.
+        let fill = if ah < bh { 0xFFu8 } else { 0x00u8 };
+        for byte in out.iter_mut() {
+            *byte = fill;
+        }
+        // Clear bits past the last value in the final byte.
+        if fill != 0 && n % 8 != 0 {
+            out[n / 8] = (1u8 << (n % 8)) - 1;
+        }
+        return;
+    }
+    // High limbs equal: pure unsigned low-limb comparison.
+    lt_u64_unsigned(a_lo, b_lo, out);
+}
+
+/// Unsigned `lt` over two u64 streams into a bitmap (AVX-512 when available).
+pub fn lt_u64_unsigned(a: &[u64], b: &[u64], out: &mut [u8]) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if std::arch::is_x86_feature_detected!("avx512f") {
+            // SAFETY: avx512f present; slices share length.
+            unsafe {
+                x86::lt_u64_avx512(a, b, out);
+            }
+            return;
+        }
+    }
+    out.iter_mut().for_each(|byte| *byte = 0);
+    for i in 0..a.len() {
+        set_bit(out, i, a[i] < b[i]);
+    }
+}
+
 // ---- dispatch ----------------------------------------------------------------
 
 pub fn lt_i128(a: &SplitI128, b: &SplitI128, out: &mut [u8]) {
@@ -130,6 +193,29 @@ mod x86 {
     use core::arch::x86_64::*;
 
     const LANES: usize = 8;
+
+    /// Unsigned `lt` over two u64 streams - the kernel used once the constant
+    /// high limbs have been established equal, so only low limbs remain.
+    #[target_feature(enable = "avx512f")]
+    pub unsafe fn lt_u64_avx512(a: &[u64], b: &[u64], out: &mut [u8]) {
+        let n = a.len();
+        let mut i = 0;
+        while i + LANES <= n {
+            unsafe {
+                let av = _mm512_loadu_epi64(a.as_ptr().add(i).cast());
+                let bv = _mm512_loadu_epi64(b.as_ptr().add(i).cast());
+                out[i / 8] = _mm512_cmplt_epu64_mask(av, bv);
+            }
+            i += LANES;
+        }
+        for j in i..n {
+            if a[j] < b[j] {
+                out[j / 8] |= 1 << (j % 8);
+            } else {
+                out[j / 8] &= !(1 << (j % 8));
+            }
+        }
+    }
 
     #[target_feature(enable = "avx512f")]
     pub unsafe fn lt_i128_avx512(

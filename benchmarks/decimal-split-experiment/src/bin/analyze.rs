@@ -49,6 +49,116 @@ fn main() {
     arithmetic_report();
     operations_report();
     preferred_layout_report();
+    constant_exploitation_report();
+}
+
+/// Exploiting constant limb streams. When decimals are stored split, the
+/// encoding records that a limb is constant (e.g. the high limb of small
+/// decimals is 0), so at compute time it is known for free. Compute can then
+/// skip the limb entirely, or fold a comparison to a whole-column constant.
+/// Arrow cannot: its high bytes are interleaved, so every kernel touches them.
+fn constant_exploitation_report() {
+    let dur = Duration::from_millis(300);
+    let n = ARITH_N;
+    println!("## Exploiting constant/zero limb streams, {n} values\n");
+    println!("Small decimals have an all-zero high limb. The encoding records that, so the high");
+    println!("stream is skipped at compute time. Arrow must still scan every value.\n");
+
+    // Small-decimal columns: high limb is all zero.
+    let a = data::gen_i128(n, Magnitude::Small, 1);
+    let b = data::gen_i128(n, Magnitude::Small, 2);
+    let aa = arrow_ref::decimal128(&a, 38, 0);
+    let ba = arrow_ref::decimal128(&b, 38, 0);
+    let sa = SplitI128::from_aos(&a);
+    let sb = SplitI128::from_aos(&b);
+
+    println!("### sum");
+    println!("| Arrow (scans all) | split widening (reads lo+hi) | split const-hi (skips hi) |");
+    println!("|---:|---:|---:|");
+    let s_arrow = throughput(
+        time_per_call(dur, || {
+            black_box(arrow_ref::sum_decimal128(black_box(&aa)));
+        }),
+        n,
+    );
+    let s_full = throughput(
+        time_per_call(dur, || {
+            black_box(aggregate::sum_i128_widening(black_box(&sa)));
+        }),
+        n,
+    );
+    let s_const = throughput(
+        time_per_call(dur, || {
+            black_box(aggregate::sum_i128_const_hi(black_box(&sa.lo), 0));
+        }),
+        n,
+    );
+    println!("| {s_arrow:.0} | {s_full:.0} | {s_const:.0} |");
+
+    println!("\n### compare lt, both high limbs constant = 0 (equal): low-limb compare only");
+    println!("| Arrow (scans all) | split full lt | split const-hi (lo only) |");
+    println!("|---:|---:|---:|");
+    let mut bm = vec![0u8; compare::bitmap_len(n)];
+    let c_arrow = throughput(
+        time_per_call(dur, || {
+            black_box(arrow_ref::lt_decimal128(black_box(&aa), black_box(&ba)));
+        }),
+        n,
+    );
+    let c_full = throughput(
+        time_per_call(dur, || {
+            compare::lt_i128(black_box(&sa), black_box(&sb), black_box(&mut bm));
+        }),
+        n,
+    );
+    let c_const = throughput(
+        time_per_call(dur, || {
+            compare::lt_i128_const_hi(
+                black_box(&sa.lo),
+                0,
+                black_box(&sb.lo),
+                0,
+                black_box(&mut bm),
+            );
+        }),
+        n,
+    );
+    println!("| {c_arrow:.0} | {c_full:.0} | {c_const:.0} |");
+
+    // Differing constant high limbs: column A in [0, 2^64), column B in
+    // [2^64, 2^64 + ...). Every a < b, so the result is a whole-column constant.
+    let hb = SplitI128 {
+        lo: sb.lo.clone(),
+        hi: vec![1u64; n],
+    };
+    let b_diff = hb.to_aos();
+    let ba_diff = arrow_ref::decimal128(&b_diff, 38, 0);
+    println!("\n### compare lt, high constants DIFFER (0 vs 1): whole-column constant, O(1)");
+    println!("| Arrow (scans all) | split const-hi (O(1) fill) |");
+    println!("|---:|---:|");
+    let d_arrow = throughput(
+        time_per_call(dur, || {
+            black_box(arrow_ref::lt_decimal128(
+                black_box(&aa),
+                black_box(&ba_diff),
+            ));
+        }),
+        n,
+    );
+    let d_const = throughput(
+        time_per_call(dur, || {
+            compare::lt_i128_const_hi(
+                black_box(&sa.lo),
+                0,
+                black_box(&hb.lo),
+                1,
+                black_box(&mut bm),
+            );
+        }),
+        n,
+    );
+    println!("| {d_arrow:.0} | {d_const:.0} |");
+    println!();
 }
 
 fn compression_report() {
