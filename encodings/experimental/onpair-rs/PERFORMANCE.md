@@ -205,6 +205,49 @@ The trainer's integer-keyed pair-frequency map *does* keep a multiply-mix FxHash
 (small win there). hashbrown is itself the SIMD swisstable, so "a SIMD hashmap"
 is already in use.
 
+### Full hasher sweep on the real **1 GiB** `l_comment` (MiB/s, higher = better)
+
+Reproduced the comparison at the headline 1 GiB size, building each candidate
+with `RUSTFLAGS="-C target-cpu=native"` and a `hash-*` feature flag (see
+`Cargo.toml`; the swap point is `crate::hash::MapHasher`, wired into the LPM
+`short_map`/`long_map` in `lpm.rs`). Same corpus, `seed=42`, `threshold=0.2`,
+3 timed iterations (best taken). The achieved ratio is **identical across every
+hasher** (2.904× at bits=12, 2.914× at bits=16) — the hasher only affects probe
+speed, never the output — confirming this is a pure throughput experiment.
+
+| hasher (crate) | b12 parse | b12 total | b16 parse | b16 total |
+|---|---|---|---|---|
+| **foldhash — hashbrown default (kept)** | **170.0** | **149.8** | **119.0** | **73.2** |
+| rapidhash (`rapidhash` 1.4) | 152.1 | 133.6 | 107.7 | 67.1 |
+| wyhash (`wyhash` 0.5) | 151.7 | 133.7 | 112.2 | 69.0 |
+| rustc-hash / FxHash (`rustc-hash` 2) | 147.8 | 130.3 | 109.6 | 68.6 |
+| ahash (`ahash` 0.8, AES) | 147.1 | 130.1 | 108.4 | 67.3 |
+| gxhash (`gxhash` 3, SIMD `target-cpu=native`) | 144.0 | 128.5 | 108.3 | 68.3 |
+
+**foldhash wins parse and total at both bit widths** — every alternative is
+2–15 % slower on parse. The newer "fastest hash" crates (rapidhash, wyhash) are
+the closest challengers but still trail; gxhash's AES/SIMD throughput advantage
+on *bulk* hashing does not help here because each probe hashes only an 8-byte
+(short) or 8+suffix key and the loop is latency-bound on the dependent cache
+miss, not hash compute. This matches the 300 MB result above and the L2-cliff
+analysis: the hasher is not the bottleneck. **No swap shipped; the default
+stays foldhash.** The `hash-*` features remain in `Cargo.toml` purely so this
+table can be reproduced.
+
+### Maps and perfect hashing (surveyed, not adopted)
+
+- **hashbrown SwissTable** is already the best general-purpose Rust map (flat,
+  SIMD group probe, the same design as Abseil/boost `unordered_flat_map`);
+  it is what we use. `std::collections::HashMap` *is* hashbrown underneath.
+- **Perfect hashing** (`phf`, `boomphf`, `quetzal`/FCH) only applies to the
+  read-only `short_map`/`long_map` after training. It removes collision
+  handling but **not the dependent load that dominates** (idea B1/C1 below): the
+  256 single-byte + dictionary keys still land in a 1.7–2 MB table at bits=16,
+  so the L2 miss per probe remains. A minimal perfect hash would also forfeit
+  the *miss-rejection* speed that makes foldhash win, since most probes miss.
+  Left as UNPROVEN under "shrink the bits=16 working set" rather than measured,
+  because the analysis says it cannot beat the cache wall.
+
 ## DISPROVEN: alternative `find` data structures
 
 All measured neutral-or-worse vs the contiguous linear bucket scan + hashmap.
