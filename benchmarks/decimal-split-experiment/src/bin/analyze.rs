@@ -50,6 +50,64 @@ fn main() {
     operations_report();
     preferred_layout_report();
     constant_exploitation_report();
+    lt_roofline_report();
+}
+
+/// Why full i128 `lt` is only ~parity with Arrow despite our 8-wide SIMD: it is
+/// memory-bandwidth-bound. The same kernels are timed cache-resident (small N,
+/// re-read from L1/L2 - compute-bound) and DRAM-resident (large N - bandwidth-
+/// bound). Full `lt` reads 32 bytes/value (two i128 columns); the const-hi path
+/// reads 16 (low limbs only). GB/s counts bytes read.
+fn lt_roofline_report() {
+    let dur = Duration::from_millis(300);
+    println!("## `lt` roofline: compute-bound (in cache) vs bandwidth-bound (DRAM)\n");
+    println!("M items/s and GB/s (bytes read). Full lt reads 32 B/value; const-hi reads 16.\n");
+    println!("| working set | Arrow | split SIMD full | split const-hi (lo only) |");
+    println!("|---|---|---|---|");
+
+    for &(label, n) in &[("4 Ki (fits L1/L2)", 4096usize), ("1 Mi (DRAM)", 1 << 20)] {
+        let a = data::gen_i128(n, Magnitude::Large, 1);
+        let b = data::gen_i128(n, Magnitude::Large, 2);
+        let aa = arrow_ref::decimal128(&a, 38, 0);
+        let ba = arrow_ref::decimal128(&b, 38, 0);
+        let sa = SplitI128::from_aos(&a);
+        let sb = SplitI128::from_aos(&b);
+        let mut out = vec![0u8; compare::bitmap_len(n)];
+
+        let arrow = throughput(
+            time_per_call(dur, || {
+                black_box(arrow_ref::lt_decimal128(black_box(&aa), black_box(&ba)));
+            }),
+            n,
+        );
+        let full = throughput(
+            time_per_call(dur, || {
+                compare::lt_i128(black_box(&sa), black_box(&sb), black_box(&mut out));
+            }),
+            n,
+        );
+        let cst = throughput(
+            time_per_call(dur, || {
+                compare::lt_i128_const_hi(
+                    black_box(&sa.lo),
+                    0,
+                    black_box(&sb.lo),
+                    0,
+                    black_box(&mut out),
+                );
+            }),
+            n,
+        );
+        // GB/s reading: Arrow & full read 32 B/value, const-hi reads 16 B/value.
+        let gbps = |m_items: f64, bytes: f64| m_items * 1e6 * bytes / 1e9;
+        println!(
+            "| {label} | {arrow:.0} M/s ({:.0} GB/s) | {full:.0} M/s ({:.0} GB/s) | {cst:.0} M/s ({:.0} GB/s) |",
+            gbps(arrow, 32.0),
+            gbps(full, 32.0),
+            gbps(cst, 16.0),
+        );
+    }
+    println!();
 }
 
 /// Exploiting *partial* (block-wise) constancy. Real engines process fixed
