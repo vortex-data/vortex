@@ -163,33 +163,32 @@ column *is* the primitive array).
    | 32 MB | 15.5 ms | 19.6 ms | 46.8 ms | **~2.4×** | 1.3× |
    | 64 MB | 31.6 ms | 40.5 ms | 106.8 ms | **~2.6×** | 1.3× |
 
-   **Why the speedup is ~2.5× and not the ~5× the structure allows.** The
-   `fused vs floor` column is the tell: in cache `fused` is **3–5× *above* the
-   memcpy floor**, i.e. **compute-bound**, not memory-bound. Accounting for the
-   four decode ops:
-   - **FoR (add reference)** — elementwise; already **free**, folded into the
-     unpack (`unchecked_unfor_pack` broadcasts the ref and adds it to each
-     unpacked vector in one SIMD pass).
-   - **ALP (scale)** — elementwise; cheap, but only as a *contiguous* 8-wide
-     `vcvtqq2pd`/`vmulpd`. Folding it into a scalar neighbor (the prefix-sum or
-     the scatter) scalarizes it and regresses (measured 1.35→1.68 ms), so it
-     stays its own SIMD pass.
-   - **undelta** (per-lane prefix sum) and **untranspose** (1024-element
-     permutation) — *structural* and scalar. They can't be register-streamed (the
-     transpose mixes all 1024 elements) and fusing them together stays scalar.
+   **Why the speedup is ~2.5× and not more — per-stage breakdown (`--bench
+   stages`, 1M elems, median):**
 
-   So only **two** of the four ops actually cost — undelta and untranspose — and
-   they are what hold `fused` at 40 ms instead of its ~20 ms memory-ideal. The
-   remaining ~2× needs them **vectorized** (a SIMD FastLanes transpose +
-   segmented prefix-sum), not fused.
+   | stage | time | share |
+   |---|---|---|
+   | unpack + FoR | 193 µs | 13% |
+   | undelta | 470 µs | 22% |
+   | untranspose | 443 µs | 21% |
+   | **ALP scale (writes the f64 output)** | **1.11 ms** | **~50%** |
 
-   Crucially, `fused` reads the *compressed* input (~17 MB) and writes only the
-   64 MB output ≈ 81 MB traffic, vs the floor's 128 MB. So the decoder's
-   *memory-ideal* at 64 MB is ~31.6 ms × 81/128 ≈ **20 ms** — below the memcpy
-   floor. Against Vortex's 107 ms that is a **~5.3× ceiling**. `fused` reaches only
-   40.5 ms (2.6×); the missing ~2× is the scalar undelta+untranspose compute that
-   *should* hide under the 81 MB of memory traffic at scale but doesn't. **The gate
-   to ~5× is a vectorized FastLanes transpose**, not register-fusion or memory.
+   The transpose is **not** the bottleneck — it is ~20%. The dominant stage is the
+   one that **allocates and writes the full f64 output column** (the ALP-scale
+   pass). And the breakdown *overstates* the structural ops: here `undelta` and
+   `untranspose` read their input from a full DRAM `Vec`, whereas in the real
+   fused decode they read an 8 KB L1 tile — so their true cost is lower and the
+   output write dominates even more. (For the record: FoR is already free — folded
+   into `unchecked_unfor_pack`; ALP must stay a contiguous SIMD pass, since
+   folding it into the scalar scatter regresses 1.35→1.68 ms.)
+
+   **Conclusion (it disproved the "vectorize the transpose" hypothesis):** the
+   wall is *producing the output column*. Writing 8 MB / 64 MB of `f64` is
+   irreducible for any full-column decoder, so a SIMD transpose would buy ~10%,
+   not 2×. **The only path to 4–5×+ is to not materialize the column at all** —
+   fuse the decode into the query operator (filter/aggregate over tiles, emit a
+   small result), skipping the big write. That is the real columnar win, and it is
+   beyond decode-in-isolation.
 
    In the middle (64 KB–8 MB) everything fits in this machine's 260 MiB L3 so
    materialization is cheap and the gap is ~1.5–2×. Past ~32 MB Vortex's ~4
@@ -202,9 +201,8 @@ column *is* the primitive array).
 
 3. **`fused` matches `aot`** (A: 0.87 vs 0.86 ms; B full: ~equal) — the
    runtime-composed pipeline gets the best-possible kernel's throughput with none
-   of the combinatorial AOT build. The remaining per-element cost is the scalar
-   undelta + untranspose (the published FastLanes kernels); beating *those* needs
-   a vectorized transpose, a separate project.
+   of the combinatorial AOT build. Per the stage breakdown above, the largest
+   remaining cost is the output write, not any one kernel.
 
 4. **Why it can't be 10×.** Vortex uses the *same* FastLanes SIMD kernels, so the
    per-element decode is identical (≈0.86 ms of real work at 1M). Fusion only
@@ -343,6 +341,7 @@ fall back to today's path, so it is incremental.
 cargo test  -p simd-stencil
 RUSTFLAGS="-C target-cpu=native" cargo bench -p simd-stencil --bench stacks
 RUSTFLAGS="-C target-cpu=native" cargo bench -p simd-stencil --bench sweep
+RUSTFLAGS="-C target-cpu=native" cargo bench -p simd-stencil --bench stages
 RUSTFLAGS="-C target-cpu=native" cargo bench -p simd-stencil --bench stitch
 RUSTFLAGS="-C target-cpu=native" cargo bench -p simd-stencil --bench dispatch
 ```
