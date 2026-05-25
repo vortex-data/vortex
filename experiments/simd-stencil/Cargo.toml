@@ -45,5 +45,9 @@ harness = false
 name = "stitch"
 harness = false
 
+[[bench]]
+name = "sweep"
+harness = false
+
 [lints]
 workspace = true
