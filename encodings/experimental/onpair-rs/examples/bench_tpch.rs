@@ -182,9 +182,9 @@ fn main() {
             let mut rsecs = f64::MAX;
             for _ in 0..iters {
                 let t = Instant::now();
-                let c = Column::compress(&bytes, &offsets, rcfg).unwrap();
+                let rcol = Column::compress(&bytes, &offsets, rcfg).unwrap();
                 rsecs = rsecs.min(t.elapsed().as_secs_f64());
-                std::hint::black_box(&c);
+                std::hint::black_box(&rcol);
             }
             println!(
                 "  [Rust  Column::compress] {:.3}s  {:.1} MiB/s",
