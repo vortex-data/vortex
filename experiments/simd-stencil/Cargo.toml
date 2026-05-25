@@ -49,5 +49,9 @@ harness = false
 name = "sweep"
 harness = false
 
+[[bench]]
+name = "stages"
+harness = false
+
 [lints]
 workspace = true
