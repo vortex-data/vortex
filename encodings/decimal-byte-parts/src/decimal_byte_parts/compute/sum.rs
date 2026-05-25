@@ -8,6 +8,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::fns::sum::Sum;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
+use vortex_array::arrays::Constant;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
@@ -74,19 +75,20 @@ impl DynAggregateKernel for DecimalBytePartsSumKernel {
             ))))
         };
 
-        let msp = as_primitive(arr.msp(), ctx)?;
-        let len = msp.len();
-        let mask = msp.validity()?.execute_mask(len, ctx)?;
+        let len = arr.msp().len();
+        let mask = arr.msp().validity()?.execute_mask(len, ctx)?;
+        let valid_count = mask.true_count();
 
         // Combine the limb sums most-significant first: total = msp << 64k + Σ lower[j] << 64(k-1-j).
-        let mut total = match i256::from_i128(sum_signed(&msp, &mask)).checked_mul(&base(64 * k)) {
+        let mut total = match i256::from_i128(limb_sum_signed(arr.msp(), &mask, valid_count, ctx)?)
+            .checked_mul(&base(64 * k))
+        {
             Some(acc) => acc,
             None => return null(),
         };
         for idx in 0..k {
-            let lower = as_primitive(arr.lower_part(idx), ctx)?;
-            let term = i256::from_parts(sum_unsigned(&lower, &mask), 0);
-            total = match term
+            let lower = limb_sum_unsigned(arr.lower_part(idx), &mask, valid_count, ctx)?;
+            total = match i256::from_parts(lower, 0)
                 .checked_mul(&base(64 * (k - 1 - idx)))
                 .and_then(|shifted| total.checked_add(&shifted))
             {
@@ -127,6 +129,38 @@ fn narrow<T: vortex_array::dtype::NativeDecimalType>(value: DecimalValue) -> T {
     value
         .cast::<T>()
         .vortex_expect("value validated to fit the return precision")
+}
+
+/// Sum of a signed limb over valid rows, into `i128`. A constant limb (the common shape after
+/// compression — e.g. an all-zero high limb, or a narrowed column) is summed in O(1) as
+/// `value * valid_count`, without decoding it; otherwise the limb is decoded and summed.
+fn limb_sum_signed(
+    part: &ArrayRef,
+    mask: &Mask,
+    valid_count: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<i128> {
+    if let Some(constant) = part.as_opt::<Constant>()
+        && let Some(value) = constant.scalar().as_primitive().typed_value::<i64>()
+    {
+        return Ok(i128::from(value) * valid_count as i128);
+    }
+    Ok(sum_signed(&as_primitive(part, ctx)?, mask))
+}
+
+/// Sum of an unsigned `u64` limb over valid rows, into `u128`, with the same constant fast path.
+fn limb_sum_unsigned(
+    part: &ArrayRef,
+    mask: &Mask,
+    valid_count: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<u128> {
+    if let Some(constant) = part.as_opt::<Constant>()
+        && let Some(value) = constant.scalar().as_primitive().typed_value::<u64>()
+    {
+        return Ok(u128::from(value) * valid_count as u128);
+    }
+    Ok(sum_unsigned(&as_primitive(part, ctx)?, mask))
 }
 
 /// Sum of the signed msp column over valid rows, into `i128` (cannot overflow for realistic
@@ -225,10 +259,13 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::fns::sum::sum;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::DecimalDType;
+    use vortex_array::dtype::Nullability;
     use vortex_array::dtype::i256;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
@@ -237,6 +274,32 @@ mod tests {
     use super::sum_i128_blocked;
     use super::sum_u128_blocked;
     use crate::DecimalByteParts;
+
+    /// A constant lower limb (the common post-compression shape) must sum identically to the
+    /// decoded form — exercising the O(1) `value * valid_count` fast path.
+    #[test]
+    fn constant_limb_matches_canonical() -> VortexResult<()> {
+        let dtype = DecimalDType::new(38, 2);
+        let msp_vals = [1i64, 2, -3, 0, 5];
+        let lower_const = 7u64;
+        let msp = PrimitiveArray::new(
+            msp_vals.iter().copied().collect::<Buffer<i64>>(),
+            Validity::NonNullable,
+        )
+        .into_array();
+        let lower = ConstantArray::new(
+            Scalar::primitive(lower_const, Nullability::NonNullable),
+            msp_vals.len(),
+        )
+        .into_array();
+        let bp = DecimalByteParts::try_new_parts(msp, vec![lower], dtype)?.into_array();
+        let values: Vec<i128> = msp_vals
+            .iter()
+            .map(|&m| (i128::from(m) << 64) + i128::from(lower_const))
+            .collect();
+        let canon = DecimalArray::from_iter(values, dtype).into_array();
+        check(bp, canon)
+    }
 
     /// The block-flushed limb sums must equal a naive wide sum even when many blocks are crossed
     /// with limb values near `u32::MAX` (the case that would overflow a single 64-bit accumulator).

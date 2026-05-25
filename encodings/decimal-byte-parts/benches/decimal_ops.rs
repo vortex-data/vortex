@@ -596,21 +596,10 @@ fn sum_byteparts_compressed(bencher: Bencher, width: Width) {
 
     let session = session();
     let mut ctx = session.create_execution_ctx();
-    let canonical = canonical(width, 0);
-    let uncompressed_bytes = canonical.nbytes();
     let compressed = BtrBlocksCompressor::default()
-        .compress(&canonical, &mut ctx)
+        .compress(&canonical(width, 0), &mut ctx)
         .unwrap();
-    eprintln!(
-        "[{width:?}] compressed encoding={} nbytes {} -> {} ({:.0}%)",
-        compressed.encoding_id(),
-        uncompressed_bytes,
-        compressed.nbytes(),
-        100.0 * compressed.nbytes() as f64 / uncompressed_bytes as f64,
-    );
-    let bp = compressed
-        .as_opt::<DecimalByteParts>()
-        .expect("decimal compresses to byte-parts");
+    let bp = compressed.as_opt::<DecimalByteParts>().unwrap();
     let msp = bp.msp().clone();
     let lowers = bp.lower_parts();
     let dtype = *compressed.dtype().as_decimal_opt().unwrap();
