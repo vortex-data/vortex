@@ -62,10 +62,18 @@ fn lt_roofline_report() {
     let dur = Duration::from_millis(300);
     println!("## `lt` roofline: compute-bound (in cache) vs bandwidth-bound (DRAM)\n");
     println!("M items/s and GB/s (bytes read). Full lt reads 32 B/value; const-hi reads 16.\n");
-    println!("| working set | Arrow | split SIMD full | split const-hi (lo only) |");
-    println!("|---|---|---|---|");
+    println!("This box: L1d 48 KiB, L2 2 MiB, L3 260 MiB. Working set = ~32 B/value (both sides:");
+    println!("two i128 columns). 65 Ki values ~= 2 MiB, right at the L2 edge.\n");
+    println!("| values | working set | Arrow | split SIMD full | split const-hi (lo only) |");
+    println!("|---|---|---|---|---|");
 
-    for &(label, n) in &[("4 Ki (fits L1/L2)", 4096usize), ("1 Mi (DRAM)", 1 << 20)] {
+    for &(label, n) in &[
+        ("1 Ki", 1024usize),
+        ("8 Ki", 8192),
+        ("64 Ki", 65536),
+        ("1 Mi", 1 << 20),
+        ("8 Mi", 1 << 23),
+    ] {
         let a = data::gen_i128(n, Magnitude::Large, 1);
         let b = data::gen_i128(n, Magnitude::Large, 2);
         let aa = arrow_ref::decimal128(&a, 38, 0);
@@ -100,8 +108,14 @@ fn lt_roofline_report() {
         );
         // GB/s reading: Arrow & full read 32 B/value, const-hi reads 16 B/value.
         let gbps = |m_items: f64, bytes: f64| m_items * 1e6 * bytes / 1e9;
+        let ws = n * 32;
+        let ws_str = if ws >= 1 << 20 {
+            format!("{} MiB", ws >> 20)
+        } else {
+            format!("{} KiB", ws >> 10)
+        };
         println!(
-            "| {label} | {arrow:.0} M/s ({:.0} GB/s) | {full:.0} M/s ({:.0} GB/s) | {cst:.0} M/s ({:.0} GB/s) |",
+            "| {label} | {ws_str} | {arrow:.0} M/s ({:.0} GB/s) | {full:.0} M/s ({:.0} GB/s) | {cst:.0} M/s ({:.0} GB/s) |",
             gbps(arrow, 32.0),
             gbps(full, 32.0),
             gbps(cst, 16.0),
