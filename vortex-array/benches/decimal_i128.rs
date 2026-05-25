@@ -3,6 +3,17 @@
 
 //! Compares the Vortex AVX-512 `i128` decimal add/sum kernels against the equivalent
 //! Apache Arrow `Decimal128Array` kernels.
+//!
+//! For an apples-to-apples comparison both crates must be compiled to the same ISA tier.
+//! The Vortex kernels always use AVX-512 (via `#[target_feature]` + runtime detection), but
+//! Arrow only autovectorizes to whatever the build target allows, and `target-cpu=native`
+//! sets Intel's `prefer-256-bit` tuning which steers Arrow to AVX2. Force a uniform AVX-512
+//! baseline so both emit `zmm` code:
+//!
+//! ```text
+//! RUSTFLAGS="-C target-feature=+avx512f,+avx512vl,+avx512bw,+avx512dq,+avx512cd" \
+//!     cargo bench -p vortex-array --bench decimal_i128
+//! ```
 
 #![expect(clippy::unwrap_used)]
 
