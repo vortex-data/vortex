@@ -70,19 +70,6 @@ pub fn mul_i128(a: &SplitI128, b: &SplitI128, out: &mut SplitI128) {
     mul_i128_soa_scalar(a, b, out);
 }
 
-/// True if the AVX-512 multiply path will be used.
-pub fn mul_simd_available() -> bool {
-    #[cfg(target_arch = "x86_64")]
-    {
-        return std::arch::is_x86_feature_detected!("avx512f")
-            && std::arch::is_x86_feature_detected!("avx512dq");
-    }
-    #[cfg(not(target_arch = "x86_64"))]
-    {
-        false
-    }
-}
-
 // ---- divide ------------------------------------------------------------------
 
 /// Interleaved 128-bit integer division (guards divide-by-zero by emitting 0).

@@ -83,15 +83,6 @@ fn lexicographic_lt_i256(a: &SplitI256, b: &SplitI256, i: usize) -> bool {
 
 // ---- constant-limb-aware fast paths ------------------------------------------
 
-/// Whether a limb stream is constant, returning the value if so. In the real
-/// system this is recorded by the compression encoding, so it is known for free;
-/// this scan exists only to drive tests/benchmarks.
-pub fn const_value(s: &[u64]) -> Option<u64> {
-    s.first()
-        .copied()
-        .filter(|&first| s.iter().all(|&v| v == first))
-}
-
 /// `lt` when both columns have a *known constant* high limb (from the encoding).
 ///
 /// - If the two high constants differ, every result is identical: the output is
@@ -361,7 +352,6 @@ mod x86 {
         }
     }
 
-    #[expect(clippy::too_many_arguments)]
     fn scalar_tail_lt_i128(
         a_lo: &[u64],
         a_hi: &[u64],
