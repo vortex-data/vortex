@@ -75,14 +75,31 @@ impl DynAggregateKernel for DecimalBytePartsSumKernel {
             ))))
         };
 
-        let len = arr.msp().len();
-        let mask = arr.msp().validity()?.execute_mask(len, ctx)?;
+        // The msp carries the array validity. A constant msp is summed in O(1) (and its validity is
+        // cheap); otherwise decode it exactly once and take both the validity mask and the sum from
+        // that decoded copy — never decode the msp twice.
+        let msp = arr.msp();
+        let len = msp.len();
+        let msp_const = msp
+            .as_opt::<Constant>()
+            .and_then(|c| c.scalar().as_primitive().typed_value::<i64>());
+        let (mask, msp_sum) = match msp_const {
+            Some(value) => {
+                let mask = msp.validity()?.execute_mask(len, ctx)?;
+                let sum = i128::from(value) * mask.true_count() as i128;
+                (mask, sum)
+            }
+            None => {
+                let prim = as_primitive(msp, ctx)?;
+                let mask = prim.validity()?.execute_mask(len, ctx)?;
+                let sum = sum_signed(&prim, &mask);
+                (mask, sum)
+            }
+        };
         let valid_count = mask.true_count();
 
         // Combine the limb sums most-significant first: total = msp << 64k + Σ lower[j] << 64(k-1-j).
-        let mut total = match i256::from_i128(limb_sum_signed(arr.msp(), &mask, valid_count, ctx)?)
-            .checked_mul(&base(64 * k))
-        {
+        let mut total = match i256::from_i128(msp_sum).checked_mul(&base(64 * k)) {
             Some(acc) => acc,
             None => return null(),
         };
@@ -131,24 +148,9 @@ fn narrow<T: vortex_array::dtype::NativeDecimalType>(value: DecimalValue) -> T {
         .vortex_expect("value validated to fit the return precision")
 }
 
-/// Sum of a signed limb over valid rows, into `i128`. A constant limb (the common shape after
-/// compression — e.g. an all-zero high limb, or a narrowed column) is summed in O(1) as
-/// `value * valid_count`, without decoding it; otherwise the limb is decoded and summed.
-fn limb_sum_signed(
-    part: &ArrayRef,
-    mask: &Mask,
-    valid_count: usize,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<i128> {
-    if let Some(constant) = part.as_opt::<Constant>()
-        && let Some(value) = constant.scalar().as_primitive().typed_value::<i64>()
-    {
-        return Ok(i128::from(value) * valid_count as i128);
-    }
-    Ok(sum_signed(&as_primitive(part, ctx)?, mask))
-}
-
-/// Sum of an unsigned `u64` limb over valid rows, into `u128`, with the same constant fast path.
+/// Sum of an unsigned `u64` limb over valid rows, into `u128`. A constant limb (the common shape
+/// after compression — e.g. an all-zero limb, or a narrowed column) is summed in O(1) as
+/// `value * valid_count` without decoding it; otherwise the limb is decoded and summed.
 fn limb_sum_unsigned(
     part: &ArrayRef,
     mask: &Mask,
