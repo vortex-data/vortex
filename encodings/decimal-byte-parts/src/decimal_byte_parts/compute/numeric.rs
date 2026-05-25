@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use num_traits::ops::overflowing::OverflowingAdd;
+use num_traits::ops::overflowing::OverflowingSub;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -10,6 +12,9 @@ use vortex_array::arrays::ScalarFn;
 use vortex_array::arrays::scalar_fn::ExactScalarFn;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
+use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::DecimalType;
+use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::scalar_fn::fns::binary::Binary;
@@ -64,14 +69,29 @@ impl ExecuteParentKernel<DecimalByteParts> for NumericExecuteAdaptor {
             return Ok(None);
         };
 
-        // Both operands must share the standard wide layout: signed i64 msp + unsigned u64 limbs of
-        // matching arity. Otherwise fall back to the canonical (Arrow) path.
-        let k = array.num_lower_parts();
-        if other.num_lower_parts() != k
-            || !array.dtype().eq_ignore_nullability(other.dtype())
-            || !is_i64(array.msp())
-            || !is_i64(other.msp())
-            || (0..k).any(|i| !is_u64(array.lower_part(i)) || !is_u64(other.lower_part(i)))
+        if !array.dtype().eq_ignore_nullability(other.dtype()) {
+            return Ok(None);
+        }
+        let in_dtype = *array
+            .dtype()
+            .as_decimal_opt()
+            .vortex_expect("byte-parts is always a decimal");
+
+        // Only push down when both operands are in the *natural* (un-narrowed) layout for the dtype,
+        // and only for widths that keep the same physical storage under add/sub precision promotion
+        // (i32/i64 single part, i128/i256 split). A column narrowed below its natural width, or an
+        // i8/i16 decimal whose promoted precision crosses into a wider type, falls back to the
+        // canonical path (which widens correctly) so the cheap fixed-width overflow check stays sound.
+        let natural = DecimalType::smallest_decimal_value_type(&in_dtype);
+        let (natural_k, msp_is_i64) = match natural {
+            DecimalType::I32 => (0, false),
+            DecimalType::I64 => (0, true),
+            DecimalType::I128 => (1, true),
+            DecimalType::I256 => (3, true),
+            DecimalType::I8 | DecimalType::I16 => return Ok(None),
+        };
+        if !layout_matches(&array, natural_k, msp_is_i64)
+            || !layout_matches(&other, natural_k, msp_is_i64)
         {
             return Ok(None);
         }
@@ -82,8 +102,18 @@ impl ExecuteParentKernel<DecimalByteParts> for NumericExecuteAdaptor {
             (Op::Sub, 1) => (&other, &array),
             _ => (&array, &other),
         };
-        add_sub(lhs, rhs, op, ctx).map(Some)
+        let out_dtype = in_dtype.promote_add_sub();
+        let result = match natural {
+            DecimalType::I32 => add_sub_single::<i32>(lhs.msp(), rhs.msp(), op, out_dtype, ctx)?,
+            DecimalType::I64 => add_sub_single::<i64>(lhs.msp(), rhs.msp(), op, out_dtype, ctx)?,
+            _ => add_sub_multi(lhs, rhs, op, out_dtype, ctx)?,
+        };
+        Ok(Some(result))
     }
+}
+
+fn is_i32(part: &ArrayRef) -> bool {
+    PType::try_from(part.dtype()).ok() == Some(PType::I32)
 }
 
 fn is_i64(part: &ArrayRef) -> bool {
@@ -94,22 +124,73 @@ fn is_u64(part: &ArrayRef) -> bool {
     PType::try_from(part.dtype()).ok() == Some(PType::U64)
 }
 
+/// True if `v` is stored in the natural byte-parts layout for its dtype: `natural_k` unsigned u64
+/// lower parts and a signed msp of the expected width.
+fn layout_matches(v: &ArrayView<'_, DecimalByteParts>, natural_k: usize, msp_is_i64: bool) -> bool {
+    v.num_lower_parts() == natural_k
+        && (if msp_is_i64 {
+            is_i64(v.msp())
+        } else {
+            is_i32(v.msp())
+        })
+        && (0..natural_k).all(|i| is_u64(v.lower_part(i)))
+}
+
+/// Single-part (`i32`/`i64`) decimal add/subtract: the msp *is* the value, so this is a plain
+/// fixed-width wrapping op with overflow detection (vectorizable), staying a single-part byte-parts.
+fn add_sub_single<T>(
+    lhs_msp: &ArrayRef,
+    rhs_msp: &ArrayRef,
+    op: Op,
+    out_dtype: DecimalDType,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef>
+where
+    T: NativePType + OverflowingAdd + OverflowingSub,
+{
+    let lhs = as_primitive(lhs_msp, ctx)?;
+    let rhs = as_primitive(rhs_msp, ctx)?;
+    let av = lhs.as_slice::<T>();
+    let bv = rhs.as_slice::<T>();
+    let n = av.len();
+    let is_add = matches!(op, Op::Add);
+
+    let mut out = BufferMut::<T>::zeroed(n);
+    let dst = out.as_mut_slice();
+    let mut overflow = 0u8;
+    for i in 0..n {
+        let (res, of) = if is_add {
+            av[i].overflowing_add(&bv[i])
+        } else {
+            av[i].overflowing_sub(&bv[i])
+        };
+        dst[i] = res;
+        overflow |= u8::from(of);
+    }
+    if overflow != 0 {
+        vortex_bail!(
+            "decimal {} overflowed precision {}",
+            if is_add { "add" } else { "subtract" },
+            out_dtype.precision()
+        );
+    }
+
+    let validity = lhs.validity()?.and(rhs.validity()?)?;
+    let msp = PrimitiveArray::new(out.freeze(), validity).into_array();
+    Ok(DecimalByteParts::try_new(msp, out_dtype)?.into_array())
+}
+
 /// Limb-wise multi-precision add/subtract of two same-layout byte-parts columns.
 ///
 /// Each limb column is processed least-significant-first so the carry (borrow) chain runs across
 /// limbs while every per-limb pass stays a straight loop over rows that vectorizes across lanes.
-fn add_sub(
+fn add_sub_multi(
     lhs: &ArrayView<'_, DecimalByteParts>,
     rhs: &ArrayView<'_, DecimalByteParts>,
     op: Op,
+    out_dtype: DecimalDType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let out_dtype = lhs
-        .dtype()
-        .as_decimal_opt()
-        .vortex_expect("operands validated as decimal")
-        .promote_add_sub();
-
     let a_msp = as_primitive(lhs.msp(), ctx)?;
     let b_msp = as_primitive(rhs.msp(), ctx)?;
     let n = a_msp.len();
@@ -375,6 +456,97 @@ mod tests {
                 .is_err(),
             "canonical add should detect overflow"
         );
+        Ok(())
+    }
+
+    fn single_i32(values: &[Option<i32>], dtype: DecimalDType) -> (ArrayRef, ArrayRef) {
+        let validity = validity_of(values.iter().map(Option::is_some));
+        let msp = PrimitiveArray::new(
+            values
+                .iter()
+                .map(|v| v.unwrap_or(0))
+                .collect::<Buffer<i32>>(),
+            validity,
+        );
+        let bp = DecimalByteParts::try_new(msp.into_array(), dtype)
+            .unwrap()
+            .into_array();
+        let canon = DecimalArray::from_option_iter(values.iter().copied(), dtype).into_array();
+        (bp, canon)
+    }
+
+    fn single_i64(values: &[Option<i64>], dtype: DecimalDType) -> (ArrayRef, ArrayRef) {
+        let validity = validity_of(values.iter().map(Option::is_some));
+        let msp = PrimitiveArray::new(
+            values
+                .iter()
+                .map(|v| v.unwrap_or(0))
+                .collect::<Buffer<i64>>(),
+            validity,
+        );
+        let bp = DecimalByteParts::try_new(msp.into_array(), dtype)
+            .unwrap()
+            .into_array();
+        let canon = DecimalArray::from_option_iter(values.iter().copied(), dtype).into_array();
+        (bp, canon)
+    }
+
+    #[rstest]
+    #[case(Operator::Add)]
+    #[case(Operator::Sub)]
+    fn i32_matches_canonical(#[case] op: Operator) -> VortexResult<()> {
+        let dtype = DecimalDType::new(9, 2);
+        let a = [Some(123_456_789), Some(-100), None, Some(0), Some(50)];
+        let b = [Some(1), Some(2_000), Some(7), None, Some(-50)];
+        let (bp_a, canon_a) = single_i32(&a, dtype);
+        let (bp_b, canon_b) = single_i32(&b, dtype);
+        check(bp_a, bp_b, canon_a, canon_b, op)
+    }
+
+    #[rstest]
+    #[case(Operator::Add)]
+    #[case(Operator::Sub)]
+    fn i64_matches_canonical(#[case] op: Operator) -> VortexResult<()> {
+        let dtype = DecimalDType::new(18, 2);
+        let a = [Some(1_000_000_000_000i64), Some(-5), None, Some(0)];
+        let b = [Some(2i64), Some(3), Some(9), None];
+        let (bp_a, canon_a) = single_i64(&a, dtype);
+        let (bp_b, canon_b) = single_i64(&b, dtype);
+        check(bp_a, bp_b, canon_a, canon_b, op)
+    }
+
+    /// A `Decimal(38,2)` whose values fit `i64` is narrowed to a single `i64` part. Its natural
+    /// storage is `i128`, so add/sub must fall back to the canonical path (not push down) — and must
+    /// not false-overflow at the `i64` boundary when the true sum exceeds `i64::MAX` but fits the
+    /// decimal precision.
+    #[test]
+    fn narrowed_wide_decimal_is_correct() -> VortexResult<()> {
+        let dtype = DecimalDType::new(38, 2);
+        let big = 8_000_000_000_000_000_000i64; // ~8e18; sum 1.6e19 overflows i64, fits Decimal(38,2)
+        let bp = |x: i64| {
+            DecimalByteParts::try_new(
+                PrimitiveArray::new(
+                    [x].into_iter().collect::<Buffer<i64>>(),
+                    Validity::NonNullable,
+                )
+                .into_array(),
+                dtype,
+            )
+            .unwrap()
+            .into_array()
+        };
+        let canon = |x: i64| DecimalArray::from_iter([i128::from(x)], dtype).into_array();
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let native = bp(big)
+            .binary(bp(big), Operator::Add)?
+            .execute::<DecimalArray>(&mut ctx)?
+            .into_array();
+        let expected = canon(big)
+            .binary(canon(big), Operator::Add)?
+            .execute::<DecimalArray>(&mut ctx)?
+            .into_array();
+        assert_arrays_eq!(native, expected);
         Ok(())
     }
 }

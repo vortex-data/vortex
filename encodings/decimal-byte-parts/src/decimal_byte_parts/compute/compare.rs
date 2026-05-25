@@ -524,4 +524,81 @@ mod tests {
         assert_arrays_eq!(native.into_array(), canonical.into_array());
         Ok(())
     }
+
+    fn single_i32_pair(values: &[Option<i32>], dtype: DecimalDType) -> (ArrayRef, ArrayRef) {
+        let validity =
+            Validity::Array(BoolArray::from_iter(values.iter().map(Option::is_some)).into_array());
+        let msp = PrimitiveArray::new(
+            values
+                .iter()
+                .map(|v| v.unwrap_or(0))
+                .collect::<Buffer<i32>>(),
+            validity,
+        );
+        let bp = DecimalByteParts::try_new(msp.into_array(), dtype)
+            .unwrap()
+            .into_array();
+        let canon = DecimalArray::from_option_iter(values.iter().copied(), dtype).into_array();
+        (bp, canon)
+    }
+
+    fn single_i64_pair(values: &[Option<i64>], dtype: DecimalDType) -> (ArrayRef, ArrayRef) {
+        let validity =
+            Validity::Array(BoolArray::from_iter(values.iter().map(Option::is_some)).into_array());
+        let msp = PrimitiveArray::new(
+            values
+                .iter()
+                .map(|v| v.unwrap_or(0))
+                .collect::<Buffer<i64>>(),
+            validity,
+        );
+        let bp = DecimalByteParts::try_new(msp.into_array(), dtype)
+            .unwrap()
+            .into_array();
+        let canon = DecimalArray::from_option_iter(values.iter().copied(), dtype).into_array();
+        (bp, canon)
+    }
+
+    /// Single-part (`i32`/`i64`) decimals compare correctly (these fall back to the canonical path,
+    /// as the native lexicographic kernel only handles the multi-part layout).
+    #[rstest]
+    fn single_part_matches_canonical(
+        #[values(0, 1, 2, 3, 4, 5)] op_idx: usize,
+    ) -> VortexResult<()> {
+        let operator = OPERATORS[op_idx];
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
+        let (bp_a, canon_a) = single_i32_pair(
+            &[Some(5), Some(5), Some(-3), None, Some(7)],
+            DecimalDType::new(9, 2),
+        );
+        let (bp_b, canon_b) = single_i32_pair(
+            &[Some(5), Some(6), Some(2), Some(1), None],
+            DecimalDType::new(9, 2),
+        );
+        let native = bp_a
+            .binary(bp_b, operator)?
+            .execute::<BoolArray>(&mut ctx)?;
+        let canonical = canon_a
+            .binary(canon_b, operator)?
+            .execute::<BoolArray>(&mut ctx)?;
+        assert_arrays_eq!(native.into_array(), canonical.into_array());
+
+        let (bp_a, canon_a) = single_i64_pair(
+            &[Some(5i64), Some(5), Some(-3), None, Some(7)],
+            DecimalDType::new(18, 2),
+        );
+        let (bp_b, canon_b) = single_i64_pair(
+            &[Some(5i64), Some(6), Some(2), Some(1), None],
+            DecimalDType::new(18, 2),
+        );
+        let native = bp_a
+            .binary(bp_b, operator)?
+            .execute::<BoolArray>(&mut ctx)?;
+        let canonical = canon_a
+            .binary(canon_b, operator)?
+            .execute::<BoolArray>(&mut ctx)?;
+        assert_arrays_eq!(native.into_array(), canonical.into_array());
+        Ok(())
+    }
 }

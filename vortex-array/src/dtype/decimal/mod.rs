@@ -101,15 +101,11 @@ impl DecimalDType {
     }
 
     /// The decimal type produced by a same-scale add or subtract, following the Arrow/Hive
-    /// promotion rule: the precision grows by one, capped at the maximum precision that still fits
-    /// the same physical storage width (`Decimal32`/`64`/`128`/`256` → 9/18/38/76).
+    /// promotion rule: the precision grows by one, capped at the maximum precision of the physical
+    /// storage width. Vortex canonicalizes decimals to Arrow `Decimal128` (precision ≤ 38) or
+    /// `Decimal256` (precision ≤ 76), so those are the only two caps.
     pub fn promote_add_sub(&self) -> DecimalDType {
-        let physical_max = match self.precision() {
-            0..=9 => 9,
-            10..=18 => 18,
-            19..=38 => 38,
-            _ => 76,
-        };
+        let physical_max = if self.precision() <= 38 { 38 } else { 76 };
         DecimalDType::new((self.precision() + 1).min(physical_max), self.scale())
     }
 
