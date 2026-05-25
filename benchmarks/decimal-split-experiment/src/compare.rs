@@ -203,6 +203,23 @@ pub fn lt_i128_slices(a_lo: &[u64], a_hi: &[u64], b_lo: &[u64], b_hi: &[u64], ou
     }
 }
 
+/// Unrolled-by-4 `lt`: 32 values/iteration, 16 loads issued before the mask
+/// work, so four independent compare/mask chains overlap. Targets the L1
+/// compute-bound regime where the single-vector loop is mask-port/latency-bound.
+pub fn lt_i128_u4(a: &SplitI128, b: &SplitI128, out: &mut [u8]) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if std::arch::is_x86_feature_detected!("avx512f") {
+            // SAFETY: avx512f present; slices share length, out is bitmap-sized.
+            unsafe {
+                x86::lt_i128_avx512_u4(&a.lo, &a.hi, &b.lo, &b.hi, out);
+            }
+            return;
+        }
+    }
+    lt_i128_slices(&a.lo, &a.hi, &b.lo, &b.hi, out);
+}
+
 pub fn eq_i128(a: &SplitI128, b: &SplitI128, out: &mut [u8]) {
     #[cfg(target_arch = "x86_64")]
     {
@@ -236,6 +253,65 @@ mod x86 {
     use core::arch::x86_64::*;
 
     const LANES: usize = 8;
+
+    /// Unrolled-by-4 i128 `lt`: 32 values/iteration. Issues all 16 loads up
+    /// front, then four independent mask chains, then four byte stores.
+    #[target_feature(enable = "avx512f")]
+    pub unsafe fn lt_i128_avx512_u4(
+        a_lo: &[u64],
+        a_hi: &[u64],
+        b_lo: &[u64],
+        b_hi: &[u64],
+        out: &mut [u8],
+    ) {
+        let n = a_lo.len();
+        let mut i = 0;
+        while i + 4 * LANES <= n {
+            unsafe {
+                let mut al = [_mm512_setzero_si512(); 4];
+                let mut ah = [_mm512_setzero_si512(); 4];
+                let mut bl = [_mm512_setzero_si512(); 4];
+                let mut bh = [_mm512_setzero_si512(); 4];
+                for j in 0..4 {
+                    let o = i + j * LANES;
+                    al[j] = _mm512_loadu_epi64(a_lo.as_ptr().add(o).cast());
+                    ah[j] = _mm512_loadu_epi64(a_hi.as_ptr().add(o).cast());
+                    bl[j] = _mm512_loadu_epi64(b_lo.as_ptr().add(o).cast());
+                    bh[j] = _mm512_loadu_epi64(b_hi.as_ptr().add(o).cast());
+                }
+                for j in 0..4 {
+                    let hi_lt = _mm512_cmplt_epi64_mask(ah[j], bh[j]);
+                    let hi_eq = _mm512_cmpeq_epi64_mask(ah[j], bh[j]);
+                    let lo_lt = _mm512_cmplt_epu64_mask(al[j], bl[j]);
+                    out[(i + j * LANES) / 8] = hi_lt | (hi_eq & lo_lt);
+                }
+            }
+            i += 4 * LANES;
+        }
+        while i + LANES <= n {
+            unsafe {
+                let ah = _mm512_loadu_epi64(a_hi.as_ptr().add(i).cast());
+                let bh = _mm512_loadu_epi64(b_hi.as_ptr().add(i).cast());
+                let al = _mm512_loadu_epi64(a_lo.as_ptr().add(i).cast());
+                let bl = _mm512_loadu_epi64(b_lo.as_ptr().add(i).cast());
+                let hi_lt = _mm512_cmplt_epi64_mask(ah, bh);
+                let hi_eq = _mm512_cmpeq_epi64_mask(ah, bh);
+                let lo_lt = _mm512_cmplt_epu64_mask(al, bl);
+                out[i / 8] = hi_lt | (hi_eq & lo_lt);
+            }
+            i += LANES;
+        }
+        for j in i..n {
+            let ah = a_hi[j] as i64;
+            let bh = b_hi[j] as i64;
+            let lt = ah < bh || (ah == bh && a_lo[j] < b_lo[j]);
+            if lt {
+                out[j / 8] |= 1 << (j % 8);
+            } else {
+                out[j / 8] &= !(1 << (j % 8));
+            }
+        }
+    }
 
     /// Unsigned `lt` over two u64 streams - the kernel used once the constant
     /// high limbs have been established equal, so only low limbs remain.

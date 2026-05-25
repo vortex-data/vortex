@@ -52,15 +52,19 @@ fn main() {
     constant_exploitation_report();
     lt_roofline_report();
     add_unroll_report();
+    lt_unroll_report();
 }
 
 /// Did unrolling the add kernel beat the single-vector one? Measured across the
 /// cache hierarchy, since the win is in the latency/overhead-bound regime (small
 /// working sets), not when streaming from DRAM. Both are split AVX-512.
 fn add_unroll_report() {
-    let dur = Duration::from_millis(300);
-    println!("## add kernel: single-vector vs unrolled-by-4 (split AVX-512)\n");
-    println!("M items/s. Same kernel math; u4 issues 8 loads up front per 32 values.\n");
+    let dur = Duration::from_millis(150);
+    let runs = 7;
+    println!("## add kernel: single-vector vs unrolled-by-4 (split AVX-512, best-of-{runs})\n");
+    println!(
+        "M items/s, best of {runs} runs. Same kernel math; u4 issues 8 loads up front per 32 values.\n"
+    );
     println!("| values | working set | Arrow | split (1x) | split (u4) | u4/1x |");
     println!("|---|---|---:|---:|---:|---:|");
     for &(label, n) in &[
@@ -74,24 +78,15 @@ fn add_unroll_report() {
         let aa = arrow_ref::decimal128(&data::gen_i128(n, Magnitude::Large, 1), 38, 0);
         let ba = arrow_ref::decimal128(&data::gen_i128(n, Magnitude::Large, 2), 38, 0);
         let mut out = a.zeroed_like();
-        let arrow = throughput(
-            time_per_call(dur, || {
-                black_box(arrow_ref::add_decimal128(black_box(&aa), black_box(&ba)));
-            }),
-            n,
-        );
-        let one = throughput(
-            time_per_call(dur, || {
-                simd::add_i128(black_box(&a), black_box(&b), black_box(&mut out))
-            }),
-            n,
-        );
-        let u4 = throughput(
-            time_per_call(dur, || {
-                simd::add_i128_u4(black_box(&a), black_box(&b), black_box(&mut out))
-            }),
-            n,
-        );
+        let arrow = throughput_best(dur, runs, n, || {
+            black_box(arrow_ref::add_decimal128(black_box(&aa), black_box(&ba)));
+        });
+        let one = throughput_best(dur, runs, n, || {
+            simd::add_i128(black_box(&a), black_box(&b), black_box(&mut out));
+        });
+        let u4 = throughput_best(dur, runs, n, || {
+            simd::add_i128_u4(black_box(&a), black_box(&b), black_box(&mut out));
+        });
         let ws = n * 48; // add moves 48 B/value (4 loads + 2 stores)
         let ws_str = if ws >= 1 << 20 {
             format!("{} MiB", ws >> 20)
@@ -104,9 +99,66 @@ fn add_unroll_report() {
         );
     }
     println!(
-        "\n> Result: unroll is within noise of the single-vector loop (~1.0x). The compiler/core\n\
-         > already extract enough memory-level parallelism, and beyond L1 add is bandwidth-bound,\n\
-         > so micro-asm tuning is not the lever - reducing bytes moved (const-hi skip) is.\n"
+        "\n> Result: unrolling add *hurts* in cache (~0.7-0.85x in L1/L2), parity at larger sizes.\n\
+         > add writes two full zmm outputs per block, so the unrolled version must keep 16 input\n\
+         > vectors + outputs live and spills (register pressure). Keep the single-vector add. (lt\n\
+         > below produces a 1-byte mask, has registers to spare, and *does* benefit from unrolling.)\n"
+    );
+}
+
+/// Best (max) throughput over `runs` repeats of `time_per_call`. The minimum
+/// time is the least-contended sample, the cleanest estimate of the kernel's
+/// true speed on a noisy shared box.
+fn throughput_best(dur: Duration, runs: usize, n: usize, mut f: impl FnMut()) -> f64 {
+    let mut best = 0.0f64;
+    for _ in 0..runs {
+        let t = throughput(time_per_call(dur, &mut f), n);
+        if t > best {
+            best = t;
+        }
+    }
+    best
+}
+
+/// Try-to-beat-it for `lt` in L1: single-vector vs unrolled-by-4, best-of-N to
+/// suppress shared-box noise. Run pinned (`taskset -c <cpu>`) for stability.
+fn lt_unroll_report() {
+    let dur = Duration::from_millis(150);
+    let runs = 7;
+    println!(
+        "## `lt` micro-opt: single-vector vs unrolled-by-4 (best-of-{runs}, pin with taskset)\n"
+    );
+    println!("M items/s, best of {runs} runs (min time = least contention).\n");
+    println!("| values | working set | Arrow | split lt (1x) | split lt (u4) | u4/1x |");
+    println!("|---|---|---:|---:|---:|---:|");
+    for &(label, n) in &[("1 Ki", 1024usize), ("4 Ki", 4096), ("8 Ki", 8192)] {
+        let a = SplitI128::from_aos(&data::gen_i128(n, Magnitude::Large, 1));
+        let b = SplitI128::from_aos(&data::gen_i128(n, Magnitude::Large, 2));
+        let aa = arrow_ref::decimal128(&data::gen_i128(n, Magnitude::Large, 1), 38, 0);
+        let ba = arrow_ref::decimal128(&data::gen_i128(n, Magnitude::Large, 2), 38, 0);
+        let mut out = vec![0u8; compare::bitmap_len(n)];
+        let arrow = throughput_best(dur, runs, n, || {
+            black_box(arrow_ref::lt_decimal128(black_box(&aa), black_box(&ba)));
+        });
+        let one = throughput_best(dur, runs, n, || {
+            compare::lt_i128(black_box(&a), black_box(&b), black_box(&mut out));
+        });
+        let u4 = throughput_best(dur, runs, n, || {
+            compare::lt_i128_u4(black_box(&a), black_box(&b), black_box(&mut out));
+        });
+        let ws = n * 32;
+        println!(
+            "| {label} | {} KiB | {arrow:.0} | {one:.0} | {u4:.0} | {:.2}x |",
+            ws >> 10,
+            u4 / one
+        );
+    }
+    println!(
+        "\n> Result: u4 is parity in L1 and a reproducible ~1.1-1.2x at L2-resident sizes - the\n\
+         > single-vector loop has too few outstanding loads to hide L2 latency; issuing 16 loads\n\
+         > up front fixes that. (A first run showed a 3.9x outlier; re-running exposed it as box\n\
+         > contention - best-of-N within one process is not enough on a shared host.) u4 ties or\n\
+         > beats the baseline everywhere, so it is the one to ship.\n"
     );
 }
 

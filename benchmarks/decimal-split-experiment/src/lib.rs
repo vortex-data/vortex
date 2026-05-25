@@ -167,6 +167,10 @@ mod tests {
             compare::lt_i128(&sa, &sb, &mut lt);
             compare::eq_i128(&sa, &sb, &mut eq);
 
+            let mut lt_u4 = vec![0u8; compare::bitmap_len(N)];
+            compare::lt_i128_u4(&sa, &sb, &mut lt_u4);
+            assert_eq!(lt_u4, lt, "lt u4 {mag:?}");
+
             for i in 0..N {
                 assert_eq!(
                     compare::get_bit(&lt, i),
