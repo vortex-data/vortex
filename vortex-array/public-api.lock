@@ -3032,6 +3032,8 @@ pub mod vortex_array::arrays::decimal::i128_simd
 
 pub fn vortex_array::arrays::decimal::i128_simd::add_i128(&[i128], &[i128]) -> vortex_buffer::buffer::Buffer<i128>
 
+pub fn vortex_array::arrays::decimal::i128_simd::sub_i128(&[i128], &[i128]) -> vortex_buffer::buffer::Buffer<i128>
+
 pub fn vortex_array::arrays::decimal::i128_simd::sum_i128(&[i128]) -> i128
 
 pub fn vortex_array::arrays::decimal::i128_simd::sum_i128_checked(i128, &[i128]) -> core::option::Option<i128>

@@ -42,6 +42,28 @@ pub fn add_i128(a: &[i128], b: &[i128]) -> Buffer<i128> {
     add_i128_scalar(a, b)
 }
 
+/// Elementwise wrapping subtract (`a - b`) of two equal-length `i128` slices.
+///
+/// On `x86_64` hosts with `avx512f` this uses a vectorized 128-bit subtract-with-borrow,
+/// otherwise it falls back to a scalar [`i128::wrapping_sub`] loop.
+///
+/// # Panics
+///
+/// Panics if `a` and `b` have different lengths.
+pub fn sub_i128(a: &[i128], b: &[i128]) -> Buffer<i128> {
+    assert_eq!(a.len(), b.len(), "sub_i128 requires equal-length inputs");
+
+    #[cfg(target_arch = "x86_64")]
+    {
+        if std::arch::is_x86_feature_detected!("avx512f") {
+            // SAFETY: `avx512f` is available and the lengths are equal.
+            return unsafe { avx512::sub_i128_avx512(a, b) };
+        }
+    }
+
+    sub_i128_scalar(a, b)
+}
+
 /// Wrapping sum of all elements of an `i128` slice.
 ///
 /// On `x86_64` hosts with `avx512f` this accumulates four partial 128-bit sums in a single
@@ -85,6 +107,14 @@ fn add_i128_scalar(a: &[i128], b: &[i128]) -> Buffer<i128> {
     out.freeze()
 }
 
+fn sub_i128_scalar(a: &[i128], b: &[i128]) -> Buffer<i128> {
+    let mut out = BufferMut::<i128>::with_capacity(a.len());
+    for (x, y) in a.iter().zip(b.iter()) {
+        out.push(x.wrapping_sub(*y));
+    }
+    out.freeze()
+}
+
 fn sum_i128_scalar(initial: i128, values: &[i128]) -> i128 {
     values.iter().fold(initial, |acc, &v| acc.wrapping_add(v))
 }
@@ -108,6 +138,10 @@ mod tests {
 
     fn reference_add(a: &[i128], b: &[i128]) -> Vec<i128> {
         a.iter().zip(b).map(|(x, y)| x.wrapping_add(*y)).collect()
+    }
+
+    fn reference_sub(a: &[i128], b: &[i128]) -> Vec<i128> {
+        a.iter().zip(b).map(|(x, y)| x.wrapping_sub(*y)).collect()
     }
 
     #[rstest]
@@ -141,6 +175,32 @@ mod tests {
         let b = vec![1i128, 1i128, 1i128, 1i128, -1i128];
         let got = add_i128(&a, &b);
         assert_eq!(got.as_slice(), reference_add(&a, &b).as_slice());
+    }
+
+    #[rstest]
+    #[case::empty(0)]
+    #[case::sub_block(3)]
+    #[case::one_block(4)]
+    #[case::block_plus_remainder(7)]
+    #[case::many_blocks(1000)]
+    #[case::odd(1001)]
+    fn sub_matches_scalar(#[case] n: usize) {
+        let mut rng = StdRng::seed_from_u64(0x50B5E ^ n as u64);
+        let a: Vec<i128> = (0..n).map(|_| rng.random::<i128>()).collect();
+        let b: Vec<i128> = (0..n).map(|_| rng.random::<i128>()).collect();
+
+        let got = sub_i128(&a, &b);
+        assert_eq!(got.as_slice(), reference_sub(&a, &b).as_slice());
+        assert_eq!(got.as_slice(), sub_i128_scalar(&a, &b).as_slice());
+    }
+
+    #[test]
+    fn sub_borrow_edges() {
+        // Exercises borrow propagation out of the low 64 bits and wraparound of i128.
+        let a = vec![0i128, i128::MIN, 1i128 << 64, 0i128, i128::MAX];
+        let b = vec![1i128, 1i128, 1i128, -1i128, -1i128];
+        let got = sub_i128(&a, &b);
+        assert_eq!(got.as_slice(), reference_sub(&a, &b).as_slice());
     }
 
     #[rstest]

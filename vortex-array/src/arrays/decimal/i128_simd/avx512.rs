@@ -19,10 +19,12 @@ use std::arch::x86_64::_mm512_add_epi64;
 use std::arch::x86_64::_mm512_cmplt_epu64_mask;
 use std::arch::x86_64::_mm512_loadu_epi64;
 use std::arch::x86_64::_mm512_mask_add_epi64;
+use std::arch::x86_64::_mm512_mask_sub_epi64;
 use std::arch::x86_64::_mm512_movepi64_mask;
 use std::arch::x86_64::_mm512_set1_epi64;
 use std::arch::x86_64::_mm512_setzero_si512;
 use std::arch::x86_64::_mm512_storeu_epi64;
+use std::arch::x86_64::_mm512_sub_epi64;
 
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -45,6 +47,18 @@ unsafe fn add_with_carry(a: __m512i, b: __m512i) -> __m512i {
     // Keep only low-lane carries, then shift them into the adjacent high lane.
     let carry_into_hi: __mmask8 = (carry & LO_LANES) << 1;
     _mm512_mask_add_epi64(sum, carry_into_hi, sum, _mm512_set1_epi64(1))
+}
+
+/// Subtract-with-borrow of four packed `i128` values, computing `a - b`.
+#[inline]
+#[target_feature(enable = "avx512f")]
+unsafe fn sub_with_borrow(a: __m512i, b: __m512i) -> __m512i {
+    let diff = _mm512_sub_epi64(a, b);
+    // A low lane borrowed iff `a.lo < b.lo` (unsigned).
+    let borrow = _mm512_cmplt_epu64_mask(a, b);
+    // Keep only low-lane borrows, then subtract them from the adjacent high lane.
+    let borrow_into_hi: __mmask8 = (borrow & LO_LANES) << 1;
+    _mm512_mask_sub_epi64(diff, borrow_into_hi, diff, _mm512_set1_epi64(1))
 }
 
 /// Reconstruct an `i128` from a `[lo, hi]` pair of 64-bit lanes.
@@ -86,6 +100,47 @@ pub(super) unsafe fn add_i128_avx512(a: &[i128], b: &[i128]) -> Buffer<i128> {
     while i < n {
         // SAFETY: `i < n <= capacity`.
         unsafe { dst.add(i).write(a[i].wrapping_add(b[i])) };
+        i += 1;
+    }
+
+    // SAFETY: all `n` elements were initialized above.
+    unsafe { out.set_len(n) };
+    out.freeze()
+}
+
+/// Elementwise wrapping subtract (`a - b`) over the AoS `i128` layout.
+///
+/// # Safety
+///
+/// `avx512f` must be available at runtime and `a.len() == b.len()`.
+#[target_feature(enable = "avx512f")]
+pub(super) unsafe fn sub_i128_avx512(a: &[i128], b: &[i128]) -> Buffer<i128> {
+    let n = a.len();
+    let mut out = BufferMut::<i128>::with_capacity(n);
+    let dst = out.spare_capacity_mut().as_mut_ptr().cast::<i128>();
+
+    let ap = a.as_ptr().cast::<i64>();
+    let bp = b.as_ptr().cast::<i64>();
+    let dp = dst.cast::<i64>();
+
+    let mut i = 0usize;
+    // Four i128 (eight i64 lanes) per iteration.
+    while i + 4 <= n {
+        let lane = (i * 2) as isize;
+        // SAFETY: `lane .. lane + 8` is in bounds for the i64 views of `a`, `b`, and `dst`.
+        unsafe {
+            let va = _mm512_loadu_epi64(ap.offset(lane));
+            let vb = _mm512_loadu_epi64(bp.offset(lane));
+            let diff = sub_with_borrow(va, vb);
+            _mm512_storeu_epi64(dp.offset(lane), diff);
+        }
+        i += 4;
+    }
+
+    // Scalar remainder.
+    while i < n {
+        // SAFETY: `i < n <= capacity`.
+        unsafe { dst.add(i).write(a[i].wrapping_sub(b[i])) };
         i += 1;
     }
 
