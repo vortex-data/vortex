@@ -23,6 +23,7 @@
 //! [`ListingOptions`]: https://docs.rs/datafusion/latest/datafusion/datasource/listing/struct.ListingOptions.html
 
 mod access_plan;
+mod aggregate;
 mod cache;
 mod format;
 pub mod metrics;
@@ -33,6 +34,7 @@ mod source;
 mod stream;
 
 pub use access_plan::VortexAccessPlan;
+pub use aggregate::VortexAggregatePushdown;
 pub use format::VortexFormat;
 pub use format::VortexFormatFactory;
 pub use format::VortexTableOptions;

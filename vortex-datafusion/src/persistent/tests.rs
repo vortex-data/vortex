@@ -170,7 +170,8 @@ async fn test_aggregate_pushdown_from_statistics() -> anyhow::Result<()> {
         .collect()
         .await?;
 
-    // (query, expected single-row formatted output)
+    // (query, expected single-row formatted output). `SUM` is resolved by the
+    // VortexAggregatePushdown rule; the others by DataFusion's own rule.
     let cases = [
         (
             "SELECT COUNT(*) FROM t",
@@ -185,8 +186,16 @@ async fn test_aggregate_pushdown_from_statistics() -> anyhow::Result<()> {
             "+----------+----------+\n| min(t.a) | max(t.a) |\n+----------+----------+\n| 1        | 4        |\n+----------+----------+",
         ),
         (
-            "SELECT MIN(a), MAX(a), COUNT(*) FROM t",
-            "+----------+----------+----------+\n| min(t.a) | max(t.a) | count(*) |\n+----------+----------+----------+\n| 1        | 4        | 4        |\n+----------+----------+----------+",
+            "SELECT SUM(a) FROM t",
+            "+----------+\n| sum(t.a) |\n+----------+\n| 10       |\n+----------+",
+        ),
+        (
+            "SELECT SUM(b) FROM t",
+            "+----------+\n| sum(t.b) |\n+----------+\n| 70       |\n+----------+",
+        ),
+        (
+            "SELECT SUM(a), MIN(a), MAX(a), COUNT(*) FROM t",
+            "+----------+----------+----------+----------+\n| sum(t.a) | min(t.a) | max(t.a) | count(*) |\n+----------+----------+----------+----------+\n| 10       | 1        | 4        | 4        |\n+----------+----------+----------+----------+",
         ),
     ];
 
@@ -217,6 +226,48 @@ async fn test_aggregate_pushdown_from_statistics() -> anyhow::Result<()> {
             "unexpected result for `{sql}`"
         );
     }
+
+    Ok(())
+}
+
+/// A `SUM` (or any aggregate) over a *filtered* scan cannot be answered from
+/// statistics: the pushed predicate makes the scan statistics inexact. The
+/// aggregate must therefore still be computed over the (filtered, projected)
+/// Vortex scan, and the result must be correct.
+#[tokio::test]
+async fn test_filtered_aggregate_is_not_folded() -> anyhow::Result<()> {
+    let ctx = TestSessionContext::default();
+
+    ctx.session
+        .sql("CREATE EXTERNAL TABLE t (a INT NOT NULL, b INT) STORED AS vortex LOCATION '/test/'")
+        .await?;
+    ctx.session
+        .sql("INSERT INTO t VALUES (1, 10), (2, 20), (3, NULL), (4, 40)")
+        .await?
+        .collect()
+        .await?;
+
+    let sql = "SELECT SUM(a) FROM t WHERE a > 2";
+    let df = ctx.session.sql(sql).await?;
+    let physical_plan = ctx
+        .session
+        .state()
+        .create_physical_plan(df.logical_plan())
+        .await?;
+    let plan = DisplayableExecutionPlan::new(physical_plan.as_ref())
+        .indent(false)
+        .to_string();
+
+    assert!(
+        plan.contains("DataSourceExec"),
+        "expected `{sql}` to scan the file, plan was:\n{plan}"
+    );
+
+    let result = df.collect().await?;
+    assert_eq!(
+        pretty_format_batches(&result)?.to_string(),
+        "+----------+\n| sum(t.a) |\n+----------+\n| 7        |\n+----------+",
+    );
 
     Ok(())
 }

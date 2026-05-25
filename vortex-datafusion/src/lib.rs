@@ -175,6 +175,7 @@ mod common_tests {
             let factory = Arc::new(VortexFormatFactory::new().with_options(opts));
             let mut session_state_builder = SessionStateBuilder::new()
                 .with_default_features()
+                .with_physical_optimizer_rule(Arc::new(crate::VortexAggregatePushdown::new()))
                 .with_table_factory(
                     factory.get_ext().to_uppercase(),
                     Arc::new(DefaultTableFactory::new()),

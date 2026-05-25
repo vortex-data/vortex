@@ -120,6 +120,28 @@ impl core::default::Default for vortex_datafusion::VortexAccessPlan
 
 pub fn vortex_datafusion::VortexAccessPlan::default() -> vortex_datafusion::VortexAccessPlan
 
+pub struct vortex_datafusion::VortexAggregatePushdown
+
+impl vortex_datafusion::VortexAggregatePushdown
+
+pub fn vortex_datafusion::VortexAggregatePushdown::new() -> Self
+
+impl core::default::Default for vortex_datafusion::VortexAggregatePushdown
+
+pub fn vortex_datafusion::VortexAggregatePushdown::default() -> vortex_datafusion::VortexAggregatePushdown
+
+impl core::fmt::Debug for vortex_datafusion::VortexAggregatePushdown
+
+pub fn vortex_datafusion::VortexAggregatePushdown::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl datafusion_physical_optimizer::optimizer::PhysicalOptimizerRule for vortex_datafusion::VortexAggregatePushdown
+
+pub fn vortex_datafusion::VortexAggregatePushdown::name(&self) -> &str
+
+pub fn vortex_datafusion::VortexAggregatePushdown::optimize(&self, alloc::sync::Arc<dyn datafusion_physical_plan::execution_plan::ExecutionPlan>, &datafusion_common::config::ConfigOptions) -> datafusion_common::error::Result<alloc::sync::Arc<dyn datafusion_physical_plan::execution_plan::ExecutionPlan>>
+
+pub fn vortex_datafusion::VortexAggregatePushdown::schema_check(&self) -> bool
+
 pub struct vortex_datafusion::VortexFormat
 
 impl vortex_datafusion::VortexFormat

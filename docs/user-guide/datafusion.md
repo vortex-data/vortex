@@ -83,4 +83,19 @@ The integration pushes the following operations into the Vortex scan:
   file-level column statistics (min/max).
 - **Aggregates** — ungrouped `COUNT`, `MIN`, and `MAX` are answered directly from Vortex file
   statistics (row count, per-column min/max, and null count) without scanning, via DataFusion's
-  `AggregateStatistics` optimizer rule.
+  `AggregateStatistics` optimizer rule. Register the `VortexAggregatePushdown` rule to additionally
+  answer ungrouped `SUM` (and any mix of `COUNT`/`MIN`/`MAX`/`SUM`) from the file's per-column sum
+  statistic:
+
+  ```rust,ignore
+  use vortex_datafusion::VortexAggregatePushdown;
+
+  let state = SessionStateBuilder::new()
+      .with_default_features()
+      .with_physical_optimizer_rule(Arc::new(VortexAggregatePushdown::new()))
+      .build();
+  ```
+
+  Aggregates over a filtered scan are not folded — a pushed predicate makes the scan statistics
+  inexact, so the filter and projection are pushed into Vortex and the aggregate is computed over
+  the matching rows.

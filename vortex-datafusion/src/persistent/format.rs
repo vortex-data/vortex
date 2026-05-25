@@ -552,13 +552,26 @@ impl FileFormat for VortexFormat {
                     &target_dtype,
                 );
 
+                // The sum statistic is stored using a widened dtype (e.g. the sum of an
+                // `i32` column is an `i64`), so we convert it into the widened dtype derived
+                // from the target column type rather than the column type itself.
+                let sum = match Stat::Sum.dtype(&target_dtype) {
+                    Some(sum_dtype) => scalar_stat_to_df(
+                        Stat::Sum,
+                        stats_set.get(Stat::Sum),
+                        stats_dtype,
+                        &sum_dtype,
+                    ),
+                    None => Precision::Absent,
+                };
+
                 let null_count = stats_set.get_as::<usize>(Stat::NullCount, &PType::U64.into());
 
                 column_statistics.push(ColumnStatistics {
                     null_count: null_count.to_df(),
                     min_value: min.to_df(),
                     max_value: max.to_df(),
-                    sum_value: DFPrecision::Absent,
+                    sum_value: sum.to_df(),
                     distinct_count: is_constant_to_distinct_count(
                         stats_set.get_as::<bool>(
                             Stat::IsConstant,

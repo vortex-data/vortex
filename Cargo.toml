@@ -143,6 +143,7 @@ datafusion-functions = { version = "53" }
 datafusion-physical-expr = { version = "53" }
 datafusion-physical-expr-adapter = { version = "53" }
 datafusion-physical-expr-common = { version = "53" }
+datafusion-physical-optimizer = { version = "53" }
 datafusion-physical-plan = { version = "53" }
 datafusion-pruning = { version = "53" }
 datafusion-sqllogictest = { version = "53" }
