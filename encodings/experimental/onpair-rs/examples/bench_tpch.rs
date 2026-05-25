@@ -171,6 +171,26 @@ fn main() {
         assert!(bytes_ok && offsets_ok, "roundtrip mismatch at bits={bits}");
 
         if env::var("ONPAIR_BENCH_CPP").is_ok() {
+            // Apples-to-apples: time Rust's full Column::compress (which, like
+            // the C++ shim, repacks u64->u32 offsets and builds the column)
+            // against the C++ Column::compress.
+            let rcfg = OnPairTrainingConfig {
+                bits: bits as u32,
+                threshold,
+                seed: 42,
+            };
+            let mut rsecs = f64::MAX;
+            for _ in 0..iters {
+                let t = Instant::now();
+                let c = Column::compress(&bytes, &offsets, rcfg).unwrap();
+                rsecs = rsecs.min(t.elapsed().as_secs_f64());
+                std::hint::black_box(&c);
+            }
+            println!(
+                "  [Rust  Column::compress] {:.3}s  {:.1} MiB/s",
+                rsecs,
+                mib / rsecs
+            );
             cpp_compare(&bytes, &offsets, bits, threshold, mib, iters);
         }
     }
