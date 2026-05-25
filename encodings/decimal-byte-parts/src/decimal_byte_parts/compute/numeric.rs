@@ -549,4 +549,44 @@ mod tests {
         assert_arrays_eq!(native, expected);
         Ok(())
     }
+
+    /// Differential check around the `Decimal(38,2)` overflow boundary: byte-parts add must agree
+    /// with the canonical (Arrow-backed) path either by producing equal arrays or by both erroring.
+    #[test]
+    fn overflow_semantics_match_arrow() -> VortexResult<()> {
+        let dtype = DecimalDType::new(38, 2);
+        let xs = [
+            10i128.pow(36),     // sum 2e36, well inside
+            6 * 10i128.pow(37), // sum 1.2e38, exceeds 38 digits but fits i128
+            9 * 10i128.pow(37), // sum 1.8e38, overflows i128
+            10i128.pow(38) - 1, // 38 nines, sum overflows i128
+        ];
+        for x in xs {
+            let (bp_a, canon_a) = i128_pair(&[Some(x)], dtype);
+            let (bp_b, canon_b) = i128_pair(&[Some(x)], dtype);
+            let mut ctx = LEGACY_SESSION.create_execution_ctx();
+            let bp = bp_a
+                .binary(bp_b, Operator::Add)?
+                .execute::<DecimalArray>(&mut ctx);
+            let canon = canon_a
+                .binary(canon_b, Operator::Add)?
+                .execute::<DecimalArray>(&mut ctx);
+            assert_eq!(
+                bp.is_ok(),
+                canon.is_ok(),
+                "byte-parts and canonical disagree on ok/err for x={x}"
+            );
+            if let (Ok(bp), Ok(canon)) = (bp, canon) {
+                // Compare raw i128 buffers directly: the precision-band results are valid i128 values
+                // but exceed 38 digits, so building decimal scalars (as `assert_arrays_eq` does) would
+                // fail — yet both paths still produce the same bits.
+                assert_eq!(
+                    bp.buffer::<i128>().as_slice(),
+                    canon.buffer::<i128>().as_slice(),
+                    "byte-parts and canonical produced different values for x={x}"
+                );
+            }
+        }
+        Ok(())
+    }
 }
