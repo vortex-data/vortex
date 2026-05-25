@@ -7,7 +7,10 @@
 //!   1. CPU feature parity (Arrow and the split kernels share one feature set).
 //!   2. Compression: interleaved (Arrow) vs split (per-limb), synthetic + TPC-H.
 //!   3. Arithmetic (add): Arrow / AoS-scalar / SoA-scalar / SoA-AVX-512 / lo-only.
-//!   4. Other operations: compare, sum (overflow-safe widening), min/max.
+//!   4. Other operations: compare, sum (overflow-safe widening), min/max, mul/div.
+//!   5. Apples-to-apples from a common storage layout: both regimes measured -
+//!      stored-interleaved (split pays the transpose) and stored-split (Arrow
+//!      pays the gather).
 //!
 //! Build with `RUSTFLAGS="-C target-cpu=native"` so Arrow and the split kernels
 //! are compiled under the same ISA. Usage:
@@ -663,13 +666,70 @@ fn endtoend_report() {
     );
 
     println!("\n### Regime B: data stored SPLIT (Arrow pays the gather)");
+    println!("This is what the turn-1 compression encoding gives: operands already live as limb");
     println!(
-        "This is what the tables above assume and what the turn-1 compression encoding gives:"
+        "streams. The split kernels run directly; Arrow must first gather them into interleaved"
+    );
+    println!("Decimal128 (single pass) before its kernel. Arrow column = gather + kernel.\n");
+    println!("| op | Arrow end-to-end | split kernel | speedup |");
+    println!("|---|---:|---:|---:|");
+
+    let arrowb_add = throughput(
+        time_per_call(dur, || {
+            let ag = arrow_ref::decimal128_from_split(&sa, 38, 0);
+            let bg = arrow_ref::decimal128_from_split(&sb, 38, 0);
+            black_box(arrow_ref::add_decimal128(&ag, &bg));
+        }),
+        n,
+    );
+    let splitb_add = throughput(
+        time_per_call(dur, || {
+            simd::add_i128(&sa, &sb, &mut so);
+            black_box(&so);
+        }),
+        n,
     );
     println!(
-        "operands already live as limb streams, so the split kernels run directly while Arrow"
+        "| add | {arrowb_add:.0} | {splitb_add:.0} | {:.2}x |",
+        splitb_add / arrowb_add
     );
-    println!("must first merge them into interleaved Decimal128 (SoA->AoS) before its kernel. The");
-    println!("per-op kernel speedups (add ~2x, compare/min/max ~1.5x, sum 1.3x + exact, mul 1.8x)");
-    println!("hold here, with the gather tax landing on Arrow instead.\n");
+
+    let arrowb_sum = throughput(
+        time_per_call(dur, || {
+            let ag = arrow_ref::decimal128_from_split(&sa, 38, 0);
+            black_box(arrow_ref::sum_decimal128(&ag));
+        }),
+        n,
+    );
+    let splitb_sum = throughput(
+        time_per_call(dur, || {
+            black_box(aggregate::sum_i128_widening(&sa));
+        }),
+        n,
+    );
+    println!(
+        "| sum | {arrowb_sum:.0} | {splitb_sum:.0} | {:.2}x |",
+        splitb_sum / arrowb_sum
+    );
+
+    let arrowb_lt = throughput(
+        time_per_call(dur, || {
+            let ag = arrow_ref::decimal128_from_split(&sa, 38, 0);
+            let bg = arrow_ref::decimal128_from_split(&sb, 38, 0);
+            black_box(arrow_ref::lt_decimal128(&ag, &bg));
+        }),
+        n,
+    );
+    let splitb_lt = throughput(
+        time_per_call(dur, || {
+            compare::lt_i128(&sa, &sb, &mut bm);
+            black_box(&bm);
+        }),
+        n,
+    );
+    println!(
+        "| lt | {arrowb_lt:.0} | {splitb_lt:.0} | {:.2}x |",
+        splitb_lt / arrowb_lt
+    );
+    println!();
 }

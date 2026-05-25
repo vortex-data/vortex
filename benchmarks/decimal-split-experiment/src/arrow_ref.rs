@@ -22,6 +22,21 @@ pub fn decimal128(values: &[i128], precision: u8, scale: i8) -> Decimal128Array 
         .expect("valid precision/scale")
 }
 
+/// Gather split limb streams into an interleaved Arrow `Decimal128Array` in a
+/// single pass. This is the cost Arrow pays when decimals are *stored* split
+/// (the inverse of the split kernels' transpose tax when data is interleaved).
+pub fn decimal128_from_split(
+    s: &crate::layout::SplitI128,
+    precision: u8,
+    scale: i8,
+) -> Decimal128Array {
+    Decimal128Array::from_iter_values(
+        (0..s.len()).map(|i| (((s.hi[i] as u128) << 64) | (s.lo[i] as u128)) as i128),
+    )
+    .with_precision_and_scale(precision, scale)
+    .expect("valid precision/scale")
+}
+
 /// Build an Arrow `Decimal256Array` from raw i256 values.
 pub fn decimal256(values: &[i256], precision: u8, scale: i8) -> Decimal256Array {
     Decimal256Array::from_iter_values(values.iter().copied())
