@@ -13988,6 +13988,8 @@ pub fn vortex_array::expr::case_when_no_else(vortex_array::expr::Expression, vor
 
 pub fn vortex_array::expr::cast(vortex_array::expr::Expression, vortex_array::dtype::DType) -> vortex_array::expr::Expression
 
+pub fn vortex_array::expr::char_len(vortex_array::expr::Expression) -> vortex_array::expr::Expression
+
 pub fn vortex_array::expr::checked_add(vortex_array::expr::Expression, vortex_array::expr::Expression) -> vortex_array::expr::Expression
 
 pub fn vortex_array::expr::col(impl core::convert::Into<vortex_array::dtype::FieldName>) -> vortex_array::expr::Expression
@@ -14051,6 +14053,8 @@ pub fn vortex_array::expr::not_eq(vortex_array::expr::Expression, vortex_array::
 pub fn vortex_array::expr::not_ilike(vortex_array::expr::Expression, vortex_array::expr::Expression) -> vortex_array::expr::Expression
 
 pub fn vortex_array::expr::not_like(vortex_array::expr::Expression, vortex_array::expr::Expression) -> vortex_array::expr::Expression
+
+pub fn vortex_array::expr::octet_len(vortex_array::expr::Expression) -> vortex_array::expr::Expression
 
 pub fn vortex_array::expr::or(vortex_array::expr::Expression, vortex_array::expr::Expression) -> vortex_array::expr::Expression
 
@@ -18050,6 +18054,88 @@ pub fn vortex_array::scalar_fn::fns::is_null::IsNull::stat_falsification(&self, 
 
 pub fn vortex_array::scalar_fn::fns::is_null::IsNull::validity(&self, &Self::Options, &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
 
+pub mod vortex_array::scalar_fn::fns::len
+
+pub enum vortex_array::scalar_fn::fns::len::LenMode
+
+pub vortex_array::scalar_fn::fns::len::LenMode::Bytes
+
+pub vortex_array::scalar_fn::fns::len::LenMode::Chars
+
+impl core::clone::Clone for vortex_array::scalar_fn::fns::len::LenMode
+
+pub fn vortex_array::scalar_fn::fns::len::LenMode::clone(&self) -> vortex_array::scalar_fn::fns::len::LenMode
+
+impl core::cmp::Eq for vortex_array::scalar_fn::fns::len::LenMode
+
+impl core::cmp::PartialEq for vortex_array::scalar_fn::fns::len::LenMode
+
+pub fn vortex_array::scalar_fn::fns::len::LenMode::eq(&self, &vortex_array::scalar_fn::fns::len::LenMode) -> bool
+
+impl core::default::Default for vortex_array::scalar_fn::fns::len::LenMode
+
+pub fn vortex_array::scalar_fn::fns::len::LenMode::default() -> vortex_array::scalar_fn::fns::len::LenMode
+
+impl core::fmt::Debug for vortex_array::scalar_fn::fns::len::LenMode
+
+pub fn vortex_array::scalar_fn::fns::len::LenMode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_array::scalar_fn::fns::len::LenMode
+
+pub fn vortex_array::scalar_fn::fns::len::LenMode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::scalar_fn::fns::len::LenMode
+
+pub fn vortex_array::scalar_fn::fns::len::LenMode::hash<__H: core::hash::Hasher>(&self, &mut __H)
+
+impl core::marker::Copy for vortex_array::scalar_fn::fns::len::LenMode
+
+impl core::marker::StructuralPartialEq for vortex_array::scalar_fn::fns::len::LenMode
+
+pub struct vortex_array::scalar_fn::fns::len::Len
+
+impl core::clone::Clone for vortex_array::scalar_fn::fns::len::Len
+
+pub fn vortex_array::scalar_fn::fns::len::Len::clone(&self) -> vortex_array::scalar_fn::fns::len::Len
+
+impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::len::Len
+
+pub type vortex_array::scalar_fn::fns::len::Len::Options = vortex_array::scalar_fn::fns::len::LenMode
+
+pub fn vortex_array::scalar_fn::fns::len::Len::arity(&self, &Self::Options) -> vortex_array::scalar_fn::Arity
+
+pub fn vortex_array::scalar_fn::fns::len::Len::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
+
+pub fn vortex_array::scalar_fn::fns::len::Len::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
+
+pub fn vortex_array::scalar_fn::fns::len::Len::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::scalar_fn::fns::len::Len::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::scalar_fn::fns::len::Len::fmt_sql(&self, &Self::Options, &vortex_array::expr::Expression, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub fn vortex_array::scalar_fn::fns::len::Len::id(&self) -> vortex_array::scalar_fn::ScalarFnId
+
+pub fn vortex_array::scalar_fn::fns::len::Len::is_fallible(&self, &Self::Options) -> bool
+
+pub fn vortex_array::scalar_fn::fns::len::Len::is_null_sensitive(&self, &Self::Options) -> bool
+
+pub fn vortex_array::scalar_fn::fns::len::Len::reduce(&self, &Self::Options, &dyn vortex_array::scalar_fn::ReduceNode, &dyn vortex_array::scalar_fn::ReduceCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar_fn::ReduceNodeRef>>
+
+pub fn vortex_array::scalar_fn::fns::len::Len::return_dtype(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::scalar_fn::fns::len::Len::serialize(&self, &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::scalar_fn::fns::len::Len::simplify(&self, &Self::Options, &vortex_array::expr::Expression, &dyn vortex_array::scalar_fn::SimplifyCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::len::Len::simplify_untyped(&self, &Self::Options, &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::len::Len::stat_expression(&self, &Self::Options, &vortex_array::expr::Expression, vortex_array::expr::stats::Stat, &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::len::Len::stat_falsification(&self, &Self::Options, &vortex_array::expr::Expression, &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::len::Len::validity(&self, &Self::Options, &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
 pub mod vortex_array::scalar_fn::fns::like
 
 pub struct vortex_array::scalar_fn::fns::like::Like
@@ -20179,6 +20265,44 @@ pub fn vortex_array::scalar_fn::fns::is_null::IsNull::stat_expression(&self, &Se
 pub fn vortex_array::scalar_fn::fns::is_null::IsNull::stat_falsification(&self, &Self::Options, &vortex_array::expr::Expression, &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
 
 pub fn vortex_array::scalar_fn::fns::is_null::IsNull::validity(&self, &Self::Options, &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::len::Len
+
+pub type vortex_array::scalar_fn::fns::len::Len::Options = vortex_array::scalar_fn::fns::len::LenMode
+
+pub fn vortex_array::scalar_fn::fns::len::Len::arity(&self, &Self::Options) -> vortex_array::scalar_fn::Arity
+
+pub fn vortex_array::scalar_fn::fns::len::Len::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
+
+pub fn vortex_array::scalar_fn::fns::len::Len::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
+
+pub fn vortex_array::scalar_fn::fns::len::Len::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::scalar_fn::fns::len::Len::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::scalar_fn::fns::len::Len::fmt_sql(&self, &Self::Options, &vortex_array::expr::Expression, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub fn vortex_array::scalar_fn::fns::len::Len::id(&self) -> vortex_array::scalar_fn::ScalarFnId
+
+pub fn vortex_array::scalar_fn::fns::len::Len::is_fallible(&self, &Self::Options) -> bool
+
+pub fn vortex_array::scalar_fn::fns::len::Len::is_null_sensitive(&self, &Self::Options) -> bool
+
+pub fn vortex_array::scalar_fn::fns::len::Len::reduce(&self, &Self::Options, &dyn vortex_array::scalar_fn::ReduceNode, &dyn vortex_array::scalar_fn::ReduceCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar_fn::ReduceNodeRef>>
+
+pub fn vortex_array::scalar_fn::fns::len::Len::return_dtype(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::scalar_fn::fns::len::Len::serialize(&self, &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::scalar_fn::fns::len::Len::simplify(&self, &Self::Options, &vortex_array::expr::Expression, &dyn vortex_array::scalar_fn::SimplifyCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::len::Len::simplify_untyped(&self, &Self::Options, &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::len::Len::stat_expression(&self, &Self::Options, &vortex_array::expr::Expression, vortex_array::expr::stats::Stat, &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::len::Len::stat_falsification(&self, &Self::Options, &vortex_array::expr::Expression, &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::len::Len::validity(&self, &Self::Options, &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
 
 impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::like::Like
 

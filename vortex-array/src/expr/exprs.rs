@@ -31,6 +31,8 @@ use crate::scalar_fn::fns::fill_null::FillNull;
 use crate::scalar_fn::fns::get_item::GetItem;
 use crate::scalar_fn::fns::is_not_null::IsNotNull;
 use crate::scalar_fn::fns::is_null::IsNull;
+use crate::scalar_fn::fns::len::Len;
+use crate::scalar_fn::fns::len::LenMode;
 use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::like::LikeOptions;
 use crate::scalar_fn::fns::list_contains::ListContains;
@@ -587,6 +589,36 @@ pub fn is_null(child: Expression) -> Expression {
 /// ```
 pub fn is_not_null(child: Expression) -> Expression {
     IsNotNull.new_expr(EmptyOptions, vec![child])
+}
+
+// ---- Len ----
+
+/// Creates an expression computing the byte length (SQL `octet_length`) of each value.
+///
+/// Returns a `u64` column. For UTF-8/binary inputs the lengths can be derived from the
+/// variable-binary view metadata without reading the value bytes, which lets the scan layer
+/// materialize a narrow integer column instead of the full string column.
+///
+/// ```rust
+/// # use vortex_array::expr::{octet_len, root};
+/// let expr = octet_len(root());
+/// ```
+pub fn octet_len(child: Expression) -> Expression {
+    Len.new_expr(LenMode::Bytes, [child])
+}
+
+/// Creates an expression computing the UTF-8 character length (SQL `character_length`/`length`)
+/// of each value.
+///
+/// Returns a `u64` column. Unlike [`octet_len`], counting characters requires inspecting the
+/// value bytes to find codepoint boundaries.
+///
+/// ```rust
+/// # use vortex_array::expr::{char_len, root};
+/// let expr = char_len(root());
+/// ```
+pub fn char_len(child: Expression) -> Expression {
+    Len.new_expr(LenMode::Chars, [child])
 }
 
 // ---- Like ----

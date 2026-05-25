@@ -10,6 +10,7 @@ pub mod fill_null;
 pub mod get_item;
 pub mod is_not_null;
 pub mod is_null;
+pub mod len;
 pub mod like;
 pub mod list_contains;
 pub mod literal;
