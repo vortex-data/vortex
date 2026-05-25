@@ -11110,6 +11110,8 @@ pub fn vortex_array::dtype::DecimalDType::new(u8, i8) -> Self
 
 pub fn vortex_array::dtype::DecimalDType::precision(&self) -> u8
 
+pub fn vortex_array::dtype::DecimalDType::promote_add_sub(&self) -> vortex_array::dtype::DecimalDType
+
 pub fn vortex_array::dtype::DecimalDType::required_bit_width(&self) -> usize
 
 pub fn vortex_array::dtype::DecimalDType::scale(&self) -> i8

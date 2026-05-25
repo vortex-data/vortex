@@ -18,6 +18,7 @@ use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use crate::DecimalByteParts;
 use crate::decimal_byte_parts::DecimalBytePartsArrayExt;
@@ -103,6 +104,12 @@ fn add_sub(
     op: Op,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
+    let out_dtype = lhs
+        .dtype()
+        .as_decimal_opt()
+        .vortex_expect("operands validated as decimal")
+        .promote_add_sub();
+
     let a_msp = as_primitive(lhs.msp(), ctx)?;
     let b_msp = as_primitive(rhs.msp(), ctx)?;
     let n = a_msp.len();
@@ -145,22 +152,35 @@ fn add_sub(
         }
     }
 
-    // The msp carries the sign, but two's-complement makes the high-limb add/sub identical to the
-    // unsigned operation reinterpreted as signed.
+    // The msp is the signed high limb. Signed overflow here means the whole wide value overflowed
+    // its i128/i256 storage; we OR it into a single accumulator (a vectorizable reduction) and, to
+    // match Arrow's checked arithmetic, error if any row overflowed. This is an approximate match
+    // for Arrow's precision check: it catches physical-width overflow exactly but not the narrow
+    // band between `10^precision` and the storage max for precisions capped at the width.
     let mut out_msp = BufferMut::<i64>::zeroed(n);
     let msp = out_msp.as_mut_slice();
+    let mut overflow = 0u8;
     if is_add {
         for i in 0..n {
-            msp[i] = (a0[i] as u64)
-                .wrapping_add(b0[i] as u64)
-                .wrapping_add(carry[i]) as i64;
+            let (sum, o1) = a0[i].overflowing_add(b0[i]);
+            let (res, o2) = sum.overflowing_add(carry[i] as i64);
+            msp[i] = res;
+            overflow |= u8::from(o1 | o2);
         }
     } else {
         for i in 0..n {
-            msp[i] = (a0[i] as u64)
-                .wrapping_sub(b0[i] as u64)
-                .wrapping_sub(carry[i]) as i64;
+            let (diff, o1) = a0[i].overflowing_sub(b0[i]);
+            let (res, o2) = diff.overflowing_sub(carry[i] as i64);
+            msp[i] = res;
+            overflow |= u8::from(o1 | o2);
         }
+    }
+    if overflow != 0 {
+        vortex_bail!(
+            "decimal {} overflowed precision {}",
+            if is_add { "add" } else { "subtract" },
+            out_dtype.precision()
+        );
     }
 
     let validity = a_msp.validity()?.and(b_msp.validity()?)?;
@@ -170,11 +190,7 @@ fn add_sub(
         .map(|buf| PrimitiveArray::new(buf.freeze(), Validity::NonNullable).into_array())
         .collect();
 
-    let dtype = *lhs
-        .dtype()
-        .as_decimal_opt()
-        .vortex_expect("operands validated as decimal");
-    Ok(DecimalByteParts::try_new_parts(msp_array, lowers, dtype)?.into_array())
+    Ok(DecimalByteParts::try_new_parts(msp_array, lowers, out_dtype)?.into_array())
 }
 
 #[cfg(test)]
@@ -336,5 +352,29 @@ mod tests {
         let (bp_a, canon_a) = i256_pair(&a, dtype);
         let (bp_b, canon_b) = i256_pair(&b, dtype);
         check(bp_a, bp_b, canon_a, canon_b, op)
+    }
+
+    /// Overflow past the storage width must error on both paths, matching Arrow's checked add.
+    #[test]
+    fn add_overflow_errors() -> VortexResult<()> {
+        let dtype = DecimalDType::new(38, 2);
+        let big = 10i128.pow(38) - 1; // 38 nines: valid at precision 38, but the sum overflows i128
+        let (bp_a, canon_a) = i128_pair(&[Some(big)], dtype);
+        let (bp_b, canon_b) = i128_pair(&[Some(big)], dtype);
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        assert!(
+            bp_a.binary(bp_b, Operator::Add)?
+                .execute::<ArrayRef>(&mut ctx)
+                .is_err(),
+            "byte-parts add should detect overflow"
+        );
+        assert!(
+            canon_a
+                .binary(canon_b, Operator::Add)?
+                .execute::<ArrayRef>(&mut ctx)
+                .is_err(),
+            "canonical add should detect overflow"
+        );
+        Ok(())
     }
 }
