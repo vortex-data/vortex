@@ -32,6 +32,7 @@ use vortex_session::registry::CachedId;
 use crate::Precision;
 use crate::array::ArrayId;
 use crate::arrays::primitive::array::SLOT_NAMES;
+use crate::arrays::primitive::compute::rules::REDUCE_RULES;
 use crate::arrays::primitive::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
@@ -182,6 +183,10 @@ impl VTable for Primitive {
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
+    }
+
+    fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
+        REDUCE_RULES.evaluate(array)
     }
 
     fn reduce_parent(

@@ -15,14 +15,17 @@ use arrow_array::cast::AsArray as _;
 use arrow_array::types::Int32Type;
 use vortex_error::VortexResult;
 
+use crate::arrays::Masked;
 use crate::arrays::MaskedArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::masked::array::MaskedArraySlotsExt as _;
 use crate::arrow::ArrowSessionExt as _;
 #[expect(deprecated)]
 use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::optimizer::ArrayOptimizer as _;
 use crate::validity::Validity;
 use crate::{ArrayRef, IntoArray as _, LEGACY_SESSION, VortexSessionExecute as _};
 
@@ -97,5 +100,22 @@ fn pure_data_primitive_arrow_export_is_zero_copy() -> VortexResult<()> {
     // The exported Arrow values buffer points at the same allocation as the Vortex child: only the
     // null buffer is newly attached, the data is shared.
     assert_eq!(arrow.values().as_ptr(), src_ptr);
+    Ok(())
+}
+
+#[test]
+fn nullable_primitive_optimizes_into_masked_wrapper() -> VortexResult<()> {
+    // A primitive carrying a real validity buffer should have its definedness lifted out into a
+    // MaskedArray, leaving the primitive child as pure NonNullable data.
+    let nullable =
+        PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None, Some(5)]).into_array();
+    assert!(matches!(nullable.validity()?, Validity::Array(_)));
+
+    let optimized = nullable.optimize()?;
+
+    let masked = optimized
+        .as_opt::<Masked>()
+        .expect("nullable primitive should optimize into a MaskedArray");
+    assert!(matches!(masked.child().validity()?, Validity::NonNullable));
     Ok(())
 }

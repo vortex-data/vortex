@@ -12,7 +12,7 @@ pub use vtable::PrimitiveArray;
 pub(crate) mod compute;
 
 mod vtable;
-pub use compute::rules::PrimitiveMaskedValidityRule;
+pub use compute::rules::PrimitiveLiftValidityRule;
 pub use vtable::Primitive;
 
 mod native_value;
