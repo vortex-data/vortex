@@ -135,7 +135,7 @@ fn sum_signed(prim: &PrimitiveArray, mask: &Mask) -> i128 {
     match_each_signed_integer_ptype!(prim.ptype(), |P| {
         let values = prim.as_slice::<P>();
         match mask {
-            Mask::AllTrue(_) => values.iter().map(|&val| i128::from(val)).sum(),
+            Mask::AllTrue(_) => sum_all_i128(values),
             Mask::AllFalse(_) => 0,
             Mask::Values(bits) => values
                 .iter()
@@ -151,7 +151,7 @@ fn sum_signed(prim: &PrimitiveArray, mask: &Mask) -> i128 {
 fn sum_unsigned(prim: &PrimitiveArray, mask: &Mask) -> u128 {
     let values = prim.as_slice::<u64>();
     match mask {
-        Mask::AllTrue(_) => values.iter().map(|&val| u128::from(val)).sum(),
+        Mask::AllTrue(_) => sum_all_u128(values),
         Mask::AllFalse(_) => 0,
         Mask::Values(bits) => values
             .iter()
@@ -160,6 +160,35 @@ fn sum_unsigned(prim: &PrimitiveArray, mask: &Mask) -> u128 {
             .map(|(&val, _)| u128::from(val))
             .sum(),
     }
+}
+
+// Wide (`i128`/`u128`) accumulation does not vectorize — there is no SIMD 128-bit add. Instead we
+// keep the running sum as two 64-bit *limbs* (the low and high 32 bits of every element summed
+// separately). Each half-sum stays a 64-bit add, which LLVM lowers to 8-wide `vpaddq` reductions,
+// and the two limbs can never overflow `i64`/`u64` for any realistic length (`len * 2^32 < 2^64`).
+// The limbs are combined into the wide value once, at the end.
+
+/// SIMD-friendly widening sum of a signed-integer column into `i128`.
+fn sum_all_i128<P: Into<i64> + Copy>(values: &[P]) -> i128 {
+    let mut lo: i64 = 0;
+    let mut hi: i64 = 0;
+    for &value in values {
+        let value: i64 = value.into();
+        lo += value & 0xffff_ffff;
+        hi += value >> 32;
+    }
+    (i128::from(hi) << 32) + i128::from(lo)
+}
+
+/// SIMD-friendly widening sum of a `u64` column into `u128`.
+fn sum_all_u128(values: &[u64]) -> u128 {
+    let mut lo: u64 = 0;
+    let mut hi: u64 = 0;
+    for &value in values {
+        lo += value & 0xffff_ffff;
+        hi += value >> 32;
+    }
+    (u128::from(hi) << 32) + u128::from(lo)
 }
 
 #[cfg(test)]
