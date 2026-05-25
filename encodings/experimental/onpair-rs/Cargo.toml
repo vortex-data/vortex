@@ -21,10 +21,23 @@ aho-corasick = { workspace = true }
 hashbrown = { workspace = true }
 memchr = { workspace = true }
 rand = { workspace = true }
+# Experiment-only: alternative hashers for the LPM maps, selected by feature.
+ahash = { version = "0.8", optional = true }
+rustc-hash = { version = "2", optional = true }
+rapidhash = { version = "1", optional = true }
+wyhash = { version = "0.5", optional = true }
+gxhash = { version = "3", optional = true }
 
 [features]
 # Internal: print per-section timings of train()/parse() for profiling.
 lpm-stats = []
+# Experiment-only hasher selection for the LPM short/long maps (default =
+# hashbrown's foldhash). Used to benchmark hashers; not for shipping.
+hash-ahash = ["dep:ahash"]
+hash-rustc = ["dep:rustc-hash"]
+hash-rapid = ["dep:rapidhash"]
+hash-wy = ["dep:wyhash"]
+hash-gxhash = ["dep:gxhash"]
 
 [dev-dependencies]
 arrow-array = { workspace = true }

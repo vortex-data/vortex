@@ -33,3 +33,50 @@ impl Hasher for FxHasher {
 }
 
 pub type FxBuildHasher = BuildHasherDefault<FxHasher>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Experiment-only: the hasher backing the LPM short/long maps.
+//
+// The default is hashbrown's foldhash (the established winner). The `hash-*`
+// features swap in alternative crates so we can A/B them on the real corpus.
+// None of these are meant to ship; the bench numbers live in PERFORMANCE.md.
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[cfg(not(any(
+    feature = "hash-ahash",
+    feature = "hash-rustc",
+    feature = "hash-rapid",
+    feature = "hash-wy",
+    feature = "hash-gxhash"
+)))]
+pub type MapHasher = hashbrown::DefaultHashBuilder;
+
+#[cfg(feature = "hash-ahash")]
+pub type MapHasher = ahash::RandomState;
+
+#[cfg(feature = "hash-rustc")]
+pub type MapHasher = rustc_hash::FxBuildHasher;
+
+#[cfg(feature = "hash-rapid")]
+pub type MapHasher = rapidhash::RapidBuildHasher;
+
+#[cfg(feature = "hash-wy")]
+pub type MapHasher = BuildHasherDefault<wyhash::WyHash>;
+
+#[cfg(feature = "hash-gxhash")]
+pub type MapHasher = gxhash::GxBuildHasher;
+
+/// LPM map type, parameterised over the feature-selected [`MapHasher`].
+pub type Map<K, V> = hashbrown::HashMap<K, V, MapHasher>;
+
+/// An empty [`Map`] with the selected hasher.
+#[inline]
+pub fn map<K, V>() -> Map<K, V> {
+    Map::with_hasher(MapHasher::default())
+}
+
+/// A [`Map`] preallocated for `cap` entries with the selected hasher.
+#[inline]
+pub fn map_with_capacity<K, V>(cap: usize) -> Map<K, V> {
+    Map::with_capacity_and_hasher(cap, MapHasher::default())
+}

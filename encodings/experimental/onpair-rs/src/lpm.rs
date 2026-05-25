@@ -18,9 +18,10 @@
 // tokens exceed 8 bytes. It then falls through to the short map, probing
 // lengths `min(max_len, 8) .. 1`.
 
-use hashbrown::HashMap;
-
 use crate::dict::Dictionary;
+use crate::hash::Map;
+use crate::hash::map;
+use crate::hash::map_with_capacity;
 use crate::types::MAX_TOKEN_SIZE;
 use crate::types::Token;
 
@@ -161,9 +162,9 @@ fn build_trie(pool: &mut Vec<TrieNode>, entries: &[LongEntry]) -> Bucket {
 #[derive(Default, Debug, Clone)]
 pub struct LongestPrefixMatcher {
     /// Length 1..=8 tokens keyed by (low-`len`-byte u64, length).
-    short_map: HashMap<(u64, u8), Token>,
+    short_map: Map<(u64, u8), Token>,
     /// Length 9..=16 tokens bucketed by their 8-byte prefix.
-    long_map: HashMap<u64, Bucket>,
+    long_map: Map<u64, Bucket>,
     /// Trie node arena shared by every promoted long bucket.
     pool: Vec<TrieNode>,
     /// Longest short-map token length present (1..=8). The short-map probe
@@ -178,13 +179,13 @@ pub struct LongestPrefixMatcher {
 impl LongestPrefixMatcher {
     /// Pre-inserts the 256 single-byte tokens with IDs 0..=255.
     pub fn new() -> Self {
-        let mut short_map = HashMap::with_capacity(256);
+        let mut short_map = map_with_capacity(256);
         for i in 0u16..=255 {
             short_map.insert((i as u64, 1u8), i);
         }
         Self {
             short_map,
-            long_map: HashMap::new(),
+            long_map: map(),
             pool: Vec::new(),
             max_short_len: 1,
             next_id: 256,
@@ -197,8 +198,8 @@ impl LongestPrefixMatcher {
     pub fn from_dictionary(dict: &Dictionary) -> Self {
         let n = dict.num_tokens();
         let mut me = Self {
-            short_map: HashMap::with_capacity(n.min(BUCKET_PREFIX_LEN * 256)),
-            long_map: HashMap::new(),
+            short_map: map_with_capacity(n.min(BUCKET_PREFIX_LEN * 256)),
+            long_map: map(),
             pool: Vec::new(),
             max_short_len: 1,
             next_id: n as u32,
