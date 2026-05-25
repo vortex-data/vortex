@@ -186,6 +186,53 @@ async fn test_addition_pushdown() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn test_length_pushdown() -> anyhow::Result<()> {
+    // Projection pushdown enabled so the length functions are converted into the Vortex scan
+    // projection rather than computed by a DataFusion ProjectionExec above the scan.
+    let ctx = TestSessionContext::new(true);
+
+    ctx.session
+        .sql(
+            "CREATE EXTERNAL TABLE strings \
+                    (s VARCHAR NOT NULL) \
+                STORED AS vortex \
+                LOCATION '/test/'",
+        )
+        .await?;
+
+    ctx.session
+        .sql("INSERT INTO strings VALUES ('a'), ('bb'), (''), ('hello'), ('héllo')")
+        .await?
+        .collect()
+        .await?;
+
+    let result = ctx
+        .session
+        .sql(
+            "SELECT length(s) AS chars, octet_length(s) AS bytes \
+                FROM strings ORDER BY bytes, chars",
+        )
+        .await?
+        .collect()
+        .await?;
+
+    // 'héllo' has 5 characters but 6 bytes (é is two bytes), exercising the char/byte distinction.
+    assert_snapshot!(pretty_format_batches(&result)?, @r"
+    +-------+-------+
+    | chars | bytes |
+    +-------+-------+
+    | 0     | 0     |
+    | 1     | 1     |
+    | 2     | 2     |
+    | 5     | 5     |
+    | 5     | 6     |
+    +-------+-------+
+    ");
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn create_table_ordered_by() -> anyhow::Result<()> {
     let ctx = TestSessionContext::default();
 
