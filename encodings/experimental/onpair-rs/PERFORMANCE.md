@@ -234,6 +234,72 @@ analysis: the hasher is not the bottleneck. **No swap shipped; the default
 stays foldhash.** The `hash-*` features remain in `Cargo.toml` purely so this
 table can be reproduced.
 
+### Why foldhash wins — and what % of runtime the hasher can touch
+
+**How much runtime is even hasher-sensitive.** The whole best-vs-worst envelope
+*is* the answer to "what fraction does the hasher affect", because foldhash is
+already the best — no other hasher can claw any of it back:
+
+| metric | bits=12 | bits=16 |
+|---|---|---|
+| parse spread (foldhash → worst) | **15.3 %** (170.0→144.0) | **9.5 %** (119.0→107.7) |
+| total spread (foldhash → worst) | **14.2 %** (149.8→128.5) | **8.3 %** (73.2→67.1) |
+
+So swapping the hash function moves at most ~15 % of parse at bits=12 and
+~9.5 % at bits=16; **≥85 % / ≥90 % of parse is invariant to the hasher.**
+
+**Where that envelope comes from (per-token decomposition, `bench_find`, this
+host, 256 MiB).** Parse is `find` + bit-pack, and `find` is the whole cost:
+
+| bits | full parse | find (=parse−pack) | bit-pack | MLP headroom |
+|---|---|---|---|---|
+| 12 | 43.7 ns/tok | 38.6 ns/tok (88 %) | 5.2 ns (12 %) | 0.99× (none) |
+| 16 | 80.1 ns/tok | 69.7 ns/tok (87 %) | 10.4 ns (13 %) | 0.99× (none) |
+
+Each `find` issues ~2–4 SwissTable probes (one `long_map` 8-byte-prefix probe,
+plus the `short_map` descending fallback from length 8). A foldhash probe on an
+8-byte key is ~1 multiply + a 128-bit fold ≈ ~1.5 ns, so **hash *compute* is only
+~3–6 ns/token** — ~8–16 % of `find` at bits=12 and ~4–9 % at bits=16. That band
+matches the measured cross-hasher spread above almost exactly, which is the
+internal check that the spread really is the hash slice and nothing else. The
+remaining ~60–66 ns/token is the dependent L2/L3 **load latency** of each probe
+plus the bucket scan; `bench_find` shows MLP headroom 0.99× (§"parse is at the
+floor"), i.e. the core already overlaps everything it can and every probe waits
+on its own miss. The hasher cannot shrink that wait.
+
+**Why the hasher matters *less* at bits=16, not more.** At bits=12 the dict
+(~34 KB) is near-resident, so each probe's memory stall is short and hash compute
+is a *larger* share (15 % spread). At bits=16 the lookup working set crosses the
+1 MB L2 (§"L2 cliff"), the per-probe stall roughly doubles, and that fixed stall
+*dilutes* the (unchanged) hash-compute slice down to ~9 %. **The more
+memory-bound the config, the less any hasher can do.**
+
+**Why these specific hashers ranked as they did.** Most probes *miss* (the
+fallback loop and the long-prefix probe for short tokens), and a SwissTable miss
+is rejected by SIMD-comparing 16 one-byte tags taken from the hash's high bits —
+*zero* key compares *iff* the tag doesn't false-match. So the winner is the
+cheapest hash that still spreads its high bits well:
+
+- **foldhash (winner):** one multiply-fold, strong high-bit avalanche → cheap
+  *and* almost no false tag matches → fastest miss rejection.
+- **rapidhash / wyhash (closest, −2–10 %):** same multiply-fold family, a touch
+  more work per key.
+- **rustc-hash / FxHash (slow despite being the *cheapest* to compute):** a bare
+  multiply-rotate with weak high-bit mixing on patterned ASCII keys → more tag
+  false-matches → wasted full-key compares. The clean lesson that **hash quality
+  beats raw hash speed here.**
+- **ahash / gxhash (AES/SIMD, slowest):** built to amortize over *long* inputs;
+  on an 8-byte key the AES round-key setup + ~4-cycle `aesenc` latency is pure
+  overhead and doesn't pipeline for a single tiny key. They win "fastest hash"
+  leaderboards because those hash KB-sized buffers — throughput that does not
+  transfer to 8-byte-key point lookups.
+
+**Bottom line:** the hasher is a single-digit-% lever at bits=16 and a
+low-double-digit lever at bits=12, it's already maxed by foldhash, and the
+dominant ≥85–90 % is dependent-load latency that no hash function can move. The
+real levers remain cross-row parallelism (§"parallelize across rows", ~3×) and
+`sample_fraction` for training.
+
 ### Maps and perfect hashing (surveyed, not adopted)
 
 - **hashbrown SwissTable** is already the best general-purpose Rust map (flat,
