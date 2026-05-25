@@ -29,6 +29,7 @@ use decimal_split_experiment::data;
 use decimal_split_experiment::data::Magnitude;
 use decimal_split_experiment::layout::SplitI128;
 use decimal_split_experiment::layout::SplitI256;
+use decimal_split_experiment::muldiv;
 use decimal_split_experiment::scalar;
 use decimal_split_experiment::simd;
 
@@ -54,6 +55,169 @@ fn main() {
     add_unroll_report();
     lt_unroll_report();
     sum_accumulators_report();
+    best_vs_arrow_report();
+}
+
+/// Final head-to-head: the *best* split kernel for each operation vs Arrow-rs
+/// decimal, identical AVX-512 build, at 65 Ki values (~L2-resident - the regime
+/// a chunked engine actually runs in). Best-of-7, pin with taskset.
+fn best_vs_arrow_report() {
+    let dur = Duration::from_millis(150);
+    let runs = 7;
+    let n = 65536usize;
+    println!("## Best split kernel vs Arrow-rs decimal, same AVX-512, {n} values (~L2)\n");
+    println!("M items/s, best of {runs}, pinned. 'best' = the winning split variant per op.\n");
+    println!("| op | Arrow | best split | speedup | best variant |");
+    println!("|---|---:|---:|---:|---|");
+
+    let large_a = data::gen_i128(n, Magnitude::Large, 1);
+    let large_b = data::gen_i128(n, Magnitude::Large, 2);
+    let small_a = data::gen_i128(n, Magnitude::Small, 3);
+    let small_b: Vec<i128> = data::gen_i128(n, Magnitude::Small, 4)
+        .into_iter()
+        .map(|v| v + 1)
+        .collect();
+
+    // i128 add
+    {
+        let aa = arrow_ref::decimal128(&large_a, 38, 0);
+        let ba = arrow_ref::decimal128(&large_b, 38, 0);
+        let sa = SplitI128::from_aos(&large_a);
+        let sb = SplitI128::from_aos(&large_b);
+        let mut out = sa.zeroed_like();
+        let ar = throughput_best(dur, runs, n, || {
+            black_box(arrow_ref::add_decimal128(black_box(&aa), black_box(&ba)));
+        });
+        let sp = throughput_best(dur, runs, n, || {
+            simd::add_i128(black_box(&sa), black_box(&sb), black_box(&mut out));
+        });
+        row("i128 add", ar, sp, "single-vector SIMD");
+    }
+    // i128 lt
+    {
+        let aa = arrow_ref::decimal128(&large_a, 38, 0);
+        let ba = arrow_ref::decimal128(&large_b, 38, 0);
+        let sa = SplitI128::from_aos(&large_a);
+        let sb = SplitI128::from_aos(&large_b);
+        let mut out = vec![0u8; compare::bitmap_len(n)];
+        let ar = throughput_best(dur, runs, n, || {
+            black_box(arrow_ref::lt_decimal128(black_box(&aa), black_box(&ba)));
+        });
+        let sp = throughput_best(dur, runs, n, || {
+            compare::lt_i128_u4(black_box(&sa), black_box(&sb), black_box(&mut out));
+        });
+        row("i128 lt", ar, sp, "unrolled-by-4 SIMD");
+    }
+    // i128 sum, high limb varies
+    {
+        let aa = arrow_ref::decimal128(&large_a, 38, 0);
+        let sa = SplitI128::from_aos(&large_a);
+        let ar = throughput_best(dur, runs, n, || {
+            black_box(arrow_ref::sum_decimal128(black_box(&aa)));
+        });
+        let sp = throughput_best(dur, runs, n, || {
+            black_box(aggregate::sum_i128_widening(black_box(&sa)));
+        });
+        row("i128 sum (hi varies)", ar, sp, "widening SIMD (exact i256)");
+    }
+    // i128 sum, high limb constant 0 (small decimals)
+    {
+        let aa = arrow_ref::decimal128(&small_a, 38, 0);
+        let sa = SplitI128::from_aos(&small_a);
+        let ar = throughput_best(dur, runs, n, || {
+            black_box(arrow_ref::sum_decimal128(black_box(&aa)));
+        });
+        let sp = throughput_best(dur, runs, n, || {
+            black_box(aggregate::sum_i128_lo_only_u4(black_box(&sa)));
+        });
+        row("i128 sum (hi const 0)", ar, sp, "lo-only 4-acc (skips hi)");
+    }
+    // i128 min / max
+    {
+        let aa = arrow_ref::decimal128(&large_a, 38, 0);
+        let sa = SplitI128::from_aos(&large_a);
+        let ar = throughput_best(dur, runs, n, || {
+            black_box(arrow_ref::min_decimal128(black_box(&aa)));
+        });
+        let sp = throughput_best(dur, runs, n, || {
+            black_box(aggregate::min_i128(black_box(&sa)));
+        });
+        row("i128 min", ar, sp, "lane-parallel SIMD");
+    }
+    // i128 mul (small operands so product fits precision 38)
+    {
+        let aa = arrow_ref::decimal128(&small_a, 38, 0);
+        let ba = arrow_ref::decimal128(&small_b, 38, 0);
+        let sa = SplitI128::from_aos(&small_a);
+        let sb = SplitI128::from_aos(&small_b);
+        let mut out = sa.zeroed_like();
+        let ar = throughput_best(dur, runs, n, || {
+            black_box(arrow_ref::mul_decimal128(black_box(&aa), black_box(&ba)));
+        });
+        let sp = throughput_best(dur, runs, n, || {
+            muldiv::mul_i128(black_box(&sa), black_box(&sb), black_box(&mut out));
+        });
+        row("i128 mul", ar, sp, "vpmullq+mulhi SIMD");
+    }
+    // i128 div (truncating; Arrow rounds+rescales, does more)
+    {
+        let aa = arrow_ref::decimal128(&small_a, 38, 0);
+        let ba = arrow_ref::decimal128(&small_b, 38, 0);
+        let mut out = vec![0i128; n];
+        let ar = throughput_best(dur, runs, n, || {
+            black_box(arrow_ref::div_decimal128(black_box(&aa), black_box(&ba)));
+        });
+        let sp = throughput_best(dur, runs, n, || {
+            muldiv::div_i128_aos(
+                black_box(&small_a),
+                black_box(&small_b),
+                black_box(&mut out),
+            );
+        });
+        row("i128 div*", ar, sp, "scalar (no SIMD; *diff semantics)");
+    }
+    // i256 add
+    {
+        let v1 = data::gen_i256(n, Magnitude::Large, 1);
+        let v2 = data::gen_i256(n, Magnitude::Large, 2);
+        let aa = arrow_ref::decimal256(&v1, 76, 0);
+        let ba = arrow_ref::decimal256(&v2, 76, 0);
+        let sa = SplitI256::from_aos(&v1);
+        let sb = SplitI256::from_aos(&v2);
+        let mut out = sa.zeroed_like();
+        let ar = throughput_best(dur, runs, n, || {
+            black_box(arrow_ref::add_decimal256(black_box(&aa), black_box(&ba)));
+        });
+        let sp = throughput_best(dur, runs, n, || {
+            simd::add_i256(black_box(&sa), black_box(&sb), black_box(&mut out));
+        });
+        row("i256 add", ar, sp, "4-limb SIMD");
+    }
+    // i256 lt
+    {
+        let v1 = data::gen_i256(n, Magnitude::Large, 1);
+        let v2 = data::gen_i256(n, Magnitude::Large, 2);
+        let aa = arrow_ref::decimal256(&v1, 76, 0);
+        let ba = arrow_ref::decimal256(&v2, 76, 0);
+        let sa = SplitI256::from_aos(&v1);
+        let sb = SplitI256::from_aos(&v2);
+        let mut out = vec![0u8; compare::bitmap_len(n)];
+        let ar = throughput_best(dur, runs, n, || {
+            black_box(arrow_ref::lt_decimal256(black_box(&aa), black_box(&ba)));
+        });
+        let sp = throughput_best(dur, runs, n, || {
+            compare::lt_i256(black_box(&sa), black_box(&sb), black_box(&mut out));
+        });
+        row("i256 lt", ar, sp, "4-limb lexicographic SIMD");
+    }
+    println!();
+}
+
+fn row(op: &str, arrow: f64, split: f64, variant: &str) {
+    println!(
+        "| {op} | {arrow:.0} | {split:.0} | {:.2}x | {variant} |",
+        split / arrow
+    );
 }
 
 /// Try-to-beat-it for the sum reduction: single accumulator vs 4 independent
