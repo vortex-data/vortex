@@ -8,12 +8,13 @@
 //!
 //! - `canonical`: Vortex canonical [`DecimalArray`] (compare/numeric delegate to Arrow, aggregations
 //!   are hand-written scalar loops).
-//! - `byteparts`: Vortex [`DecimalByteParts`] with the values split into 64-bit parts. Today every
-//!   value-wise op canonicalizes first, so this measures "canonicalize + canonical".
+//! - `byteparts`: Vortex [`DecimalByteParts`] with the values split into 64-bit parts. Compare now
+//!   has a native limb-wise kernel (no canonicalization); aggregations still canonicalize first.
 //! - `arrow`: Arrow `Decimal128Array` / `Decimal256Array` with the Arrow compute kernels directly.
 //!
-//! This establishes where the real cost is (especially the i128/i256 penalty in Arrow's wide-integer
-//! kernels) before we add native SIMD kernels on the byte-parts representation.
+//! The `cmp_lt_raw_*` benches isolate the limb-wise compute (on pre-decoded slices) from the
+//! executor dispatch, showing that the compare itself is on par with Arrow (and faster on i256),
+//! and that efficient bit-packing (`collect_bool`) rather than decode is what makes it competitive.
 
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -39,6 +40,7 @@ use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::i256;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::validity::Validity;
+use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_decimal_byte_parts::DecimalByteParts;
 use vortex_session::VortexSession;
@@ -293,6 +295,124 @@ fn cmp_lt_arrow(bencher: Bencher, width: Width) {
             bencher.bench(|| arrow_ord::cmp::lt(black_box(&a), black_box(&b)).unwrap());
         }
     }
+}
+
+// =============================================================================================
+// Compare (Lt) on raw pre-decoded limb slices.
+//
+// These isolate the limb-wise compute from the kernel's `.execute()`/array-wrapping overhead, so we
+// can see (a) how much of `cmp_lt_byteparts` is decode/dispatch vs arithmetic, and (b) whether a
+// branchless column-major form (which the compiler can autovectorize / AVX512) beats the branchy
+// row-major early-exit form and Arrow's wide-integer compare.
+// =============================================================================================
+
+/// Pre-decoded 64-bit limb columns for two operands of the same width (most-significant first).
+struct RawLimbs {
+    a0: Buffer<i64>,
+    b0: Buffer<i64>,
+    lo_a: Vec<Buffer<u64>>,
+    lo_b: Vec<Buffer<u64>>,
+}
+
+fn raw_limbs(width: Width) -> RawLimbs {
+    let msp_i64 = |vs: &[i64]| vs.iter().copied().collect::<Buffer<i64>>();
+    match width {
+        Width::Small => RawLimbs {
+            a0: msp_i64(&vals_i64(0)),
+            b0: msp_i64(&vals_i64(1)),
+            lo_a: vec![],
+            lo_b: vec![],
+        },
+        Width::I128 => {
+            let split = |seed| {
+                let v = vals_i128(seed);
+                let msp: Buffer<i64> = v.iter().map(|x| (x >> 64) as i64).collect();
+                let lo: Buffer<u64> = v.iter().map(|x| *x as u64).collect();
+                (msp, vec![lo])
+            };
+            let (a0, lo_a) = split(0);
+            let (b0, lo_b) = split(1);
+            RawLimbs { a0, b0, lo_a, lo_b }
+        }
+        Width::I256 => {
+            let split = |seed| {
+                let v = vals_i256(seed);
+                let msp: Buffer<i64> = v.iter().map(|x| (x.to_parts().1 >> 64) as i64).collect();
+                let p0: Buffer<u64> = v.iter().map(|x| x.to_parts().1 as u64).collect();
+                let p1: Buffer<u64> = v.iter().map(|x| (x.to_parts().0 >> 64) as u64).collect();
+                let p2: Buffer<u64> = v.iter().map(|x| x.to_parts().0 as u64).collect();
+                (msp, vec![p0, p1, p2])
+            };
+            let (a0, lo_a) = split(0);
+            let (b0, lo_b) = split(1);
+            RawLimbs { a0, b0, lo_a, lo_b }
+        }
+    }
+}
+
+/// Row-major lexicographic `<` with data-dependent early-exit (does not vectorize).
+fn lex_lt_branchy(a0: &[i64], b0: &[i64], lo_a: &[&[u64]], lo_b: &[&[u64]]) -> BitBuffer {
+    use std::cmp::Ordering;
+    let n = a0.len();
+    BitBuffer::collect_bool(n, |i| {
+        let mut ord = a0[i].cmp(&b0[i]);
+        let mut k = 0;
+        while ord == Ordering::Equal && k < lo_a.len() {
+            ord = lo_a[k][i].cmp(&lo_b[k][i]);
+            k += 1;
+        }
+        ord == Ordering::Less
+    })
+}
+
+/// Branchless column-major lexicographic `<`: each pass over a limb column is a straight-line
+/// `cmp + select` the compiler can lower to AVX512 masked vector ops, and bit-packing happens
+/// 64 lanes at a time.
+fn lex_lt_branchless(a0: &[i64], b0: &[i64], lo_a: &[&[u64]], lo_b: &[&[u64]]) -> BitBuffer {
+    let n = a0.len();
+    let mut lt = vec![0u8; n];
+    let mut eq = vec![0u8; n];
+    for i in 0..n {
+        lt[i] = u8::from(a0[i] < b0[i]);
+        eq[i] = u8::from(a0[i] == b0[i]);
+    }
+    for (a, b) in lo_a.iter().zip(lo_b.iter()) {
+        for i in 0..n {
+            lt[i] |= eq[i] & u8::from(a[i] < b[i]);
+            eq[i] &= u8::from(a[i] == b[i]);
+        }
+    }
+    BitBuffer::collect_bool(n, |i| lt[i] != 0)
+}
+
+#[divan::bench(args = WIDTHS)]
+fn cmp_lt_raw_branchy(bencher: Bencher, width: Width) {
+    let r = raw_limbs(width);
+    bencher.bench(|| {
+        let lo_a: Vec<&[u64]> = r.lo_a.iter().map(|b| b.as_slice()).collect();
+        let lo_b: Vec<&[u64]> = r.lo_b.iter().map(|b| b.as_slice()).collect();
+        black_box(lex_lt_branchy(
+            black_box(r.a0.as_slice()),
+            black_box(r.b0.as_slice()),
+            &lo_a,
+            &lo_b,
+        ))
+    });
+}
+
+#[divan::bench(args = WIDTHS)]
+fn cmp_lt_raw_branchless(bencher: Bencher, width: Width) {
+    let r = raw_limbs(width);
+    bencher.bench(|| {
+        let lo_a: Vec<&[u64]> = r.lo_a.iter().map(|b| b.as_slice()).collect();
+        let lo_b: Vec<&[u64]> = r.lo_b.iter().map(|b| b.as_slice()).collect();
+        black_box(lex_lt_branchless(
+            black_box(r.a0.as_slice()),
+            black_box(r.b0.as_slice()),
+            &lo_a,
+            &lo_b,
+        ))
+    });
 }
 
 // =============================================================================================

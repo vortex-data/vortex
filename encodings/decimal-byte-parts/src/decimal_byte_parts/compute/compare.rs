@@ -9,8 +9,10 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::TypedArrayRef;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::IntegerPType;
@@ -100,6 +102,15 @@ impl CompareKernel for DecimalByteParts {
 ///
 /// Returns `Ok(None)` (so the engine falls back to canonicalization) when `rhs` is not a byte-parts
 /// column with the standard `i64 + u64*` layout matching `lhs`.
+/// Decodes a byte-parts limb to a [`PrimitiveArray`]. Already-canonical parts are downcast for free
+/// (the buffers are `Arc`-shared); only genuinely encoded parts pay a decode.
+fn as_primitive(part: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
+    match part.as_opt::<Primitive>() {
+        Some(p) => Ok(TypedArrayRef::to_owned(&p)),
+        None => part.clone().execute::<PrimitiveArray>(ctx),
+    }
+}
+
 fn lexicographic_compare(
     lhs: ArrayView<'_, DecimalByteParts>,
     rhs: &ArrayRef,
@@ -123,15 +134,15 @@ fn lexicographic_compare(
         return Ok(None);
     }
 
-    let lhs_msp = lhs.msp().clone().execute::<PrimitiveArray>(ctx)?;
-    let rhs_msp = rhs.msp().clone().execute::<PrimitiveArray>(ctx)?;
+    let lhs_msp = as_primitive(lhs.msp(), ctx)?;
+    let rhs_msp = as_primitive(rhs.msp(), ctx)?;
     let n = lhs_msp.len();
 
     let lhs_lower = (0..k)
-        .map(|i| lhs.lower_part(i).clone().execute::<PrimitiveArray>(ctx))
+        .map(|i| as_primitive(lhs.lower_part(i), ctx))
         .collect::<VortexResult<Vec<_>>>()?;
     let rhs_lower = (0..k)
-        .map(|i| rhs.lower_part(i).clone().execute::<PrimitiveArray>(ctx))
+        .map(|i| as_primitive(rhs.lower_part(i), ctx))
         .collect::<VortexResult<Vec<_>>>()?;
 
     let a0 = lhs_msp.as_slice::<i64>();
@@ -140,9 +151,10 @@ fn lexicographic_compare(
     let lo_b: Vec<&[u64]> = rhs_lower.iter().map(|p| p.as_slice::<u64>()).collect();
 
     // Row-major lexicographic compare with early-exit: the most significant limb is signed, the rest
-    // unsigned. Per-row ordering is computed with the running state in registers and emitted in a
-    // single pass, so no full value is ever reconstructed.
-    let bits = BitBuffer::from_iter((0..n).map(|i| {
+    // unsigned. Per-row ordering is computed with the running state in registers and the result is
+    // bit-packed 64 lanes at a time (`collect_bool`), so no full value is ever reconstructed and the
+    // boolean output never goes through a bit-at-a-time path.
+    let bits = BitBuffer::collect_bool(n, |i| {
         let mut ord = a0[i].cmp(&b0[i]);
         let mut limb = 0;
         while ord == Ordering::Equal && limb < k {
@@ -157,7 +169,7 @@ fn lexicographic_compare(
             CompareOperator::Gt => ord == Ordering::Greater,
             CompareOperator::Gte => ord != Ordering::Less,
         }
-    }));
+    });
 
     // A row is null iff either operand is null; both carry their validity in the msp.
     let validity = lhs_msp.validity()?.and(rhs_msp.validity()?)?;
