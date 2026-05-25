@@ -81,3 +81,6 @@ The integration pushes the following operations into the Vortex scan:
 - **Limits** — applied at the scan level when no filter is present.
 - **File pruning** — files are eliminated without being opened based on partition values and
   file-level column statistics (min/max).
+- **Aggregates** — ungrouped `COUNT`, `MIN`, and `MAX` are answered directly from Vortex file
+  statistics (row count, per-column min/max, and null count) without scanning, via DataFusion's
+  `AggregateStatistics` optimizer rule.

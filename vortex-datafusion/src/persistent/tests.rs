@@ -147,6 +147,80 @@ async fn test_query_file(#[values(Some(1), None)] limit: Option<usize>) -> anyho
     Ok(())
 }
 
+/// Aggregations over `COUNT`, `MIN`, and `MAX` with no `GROUP BY` are answered
+/// directly from Vortex file statistics. DataFusion's `AggregateStatistics`
+/// optimizer rule consumes the exact `num_rows`, per-column `min`/`max`, and
+/// `null_count` that [`VortexFormat::infer_stats`] reports and rewrites the
+/// aggregate into a `PlaceholderRowExec`, eliminating the scan entirely.
+///
+/// This test locks in that behavior: if statistics ever stop being reported as
+/// exact, the plans below would fall back to a `DataSourceExec` scan.
+///
+/// [`VortexFormat::infer_stats`]: crate::VortexFormat
+#[tokio::test]
+async fn test_aggregate_pushdown_from_statistics() -> anyhow::Result<()> {
+    let ctx = TestSessionContext::default();
+
+    ctx.session
+        .sql("CREATE EXTERNAL TABLE t (a INT NOT NULL, b INT) STORED AS vortex LOCATION '/test/'")
+        .await?;
+    ctx.session
+        .sql("INSERT INTO t VALUES (1, 10), (2, 20), (3, NULL), (4, 40)")
+        .await?
+        .collect()
+        .await?;
+
+    // (query, expected single-row formatted output)
+    let cases = [
+        (
+            "SELECT COUNT(*) FROM t",
+            "+----------+\n| count(*) |\n+----------+\n| 4        |\n+----------+",
+        ),
+        (
+            "SELECT COUNT(b) FROM t",
+            "+------------+\n| count(t.b) |\n+------------+\n| 3          |\n+------------+",
+        ),
+        (
+            "SELECT MIN(a), MAX(a) FROM t",
+            "+----------+----------+\n| min(t.a) | max(t.a) |\n+----------+----------+\n| 1        | 4        |\n+----------+----------+",
+        ),
+        (
+            "SELECT MIN(a), MAX(a), COUNT(*) FROM t",
+            "+----------+----------+----------+\n| min(t.a) | max(t.a) | count(*) |\n+----------+----------+----------+\n| 1        | 4        | 4        |\n+----------+----------+----------+",
+        ),
+    ];
+
+    for (sql, expected) in cases {
+        let df = ctx.session.sql(sql).await?;
+        let physical_plan = ctx
+            .session
+            .state()
+            .create_physical_plan(df.logical_plan())
+            .await?;
+        let plan = DisplayableExecutionPlan::new(physical_plan.as_ref())
+            .indent(false)
+            .to_string();
+
+        assert!(
+            plan.contains("PlaceholderRowExec"),
+            "expected `{sql}` to be answered from statistics, plan was:\n{plan}"
+        );
+        assert!(
+            !plan.contains("DataSourceExec"),
+            "expected `{sql}` to avoid scanning the file, plan was:\n{plan}"
+        );
+
+        let result = df.collect().await?;
+        assert_eq!(
+            pretty_format_batches(&result)?.to_string(),
+            expected,
+            "unexpected result for `{sql}`"
+        );
+    }
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn test_addition_pushdown() -> anyhow::Result<()> {
     let ctx = TestSessionContext::default();
