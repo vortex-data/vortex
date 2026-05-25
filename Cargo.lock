@@ -9600,6 +9600,7 @@ dependencies = [
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-error",
+ "vortex-fastlanes",
  "vortex-mask",
  "vortex-session",
 ]

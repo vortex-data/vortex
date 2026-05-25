@@ -21,6 +21,8 @@ use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_fastlanes::FoR;
+use vortex_fastlanes::FoRArrayExt;
 use vortex_mask::Mask;
 
 use crate::DecimalByteParts;
@@ -75,36 +77,23 @@ impl DynAggregateKernel for DecimalBytePartsSumKernel {
             ))))
         };
 
-        // The msp carries the array validity. A constant msp is summed in O(1) (and its validity is
-        // cheap); otherwise decode it exactly once and take both the validity mask and the sum from
-        // that decoded copy — never decode the msp twice.
+        // The msp carries the array validity; its `validity()` is structural (no value decode), so
+        // computing the mask up front never forces a decode. Each limb is then summed by pushing the
+        // aggregate *through* its encoding (constant / FoR) where possible, decoding only as a last
+        // resort.
         let msp = arr.msp();
         let len = msp.len();
-        let msp_const = msp
-            .as_opt::<Constant>()
-            .and_then(|c| c.scalar().as_primitive().typed_value::<i64>());
-        let (mask, msp_sum) = match msp_const {
-            Some(value) => {
-                let mask = msp.validity()?.execute_mask(len, ctx)?;
-                let sum = i128::from(value) * mask.true_count() as i128;
-                (mask, sum)
-            }
-            None => {
-                let prim = as_primitive(msp, ctx)?;
-                let mask = prim.validity()?.execute_mask(len, ctx)?;
-                let sum = sum_signed(&prim, &mask);
-                (mask, sum)
-            }
-        };
+        let mask = msp.validity()?.execute_mask(len, ctx)?;
         let valid_count = mask.true_count();
 
         // Combine the limb sums most-significant first: total = msp << 64k + Σ lower[j] << 64(k-1-j).
+        let msp_sum = widening_sum_signed(msp, &mask, valid_count, ctx)?;
         let mut total = match i256::from_i128(msp_sum).checked_mul(&base(64 * k)) {
             Some(acc) => acc,
             None => return null(),
         };
         for idx in 0..k {
-            let lower = limb_sum_unsigned(arr.lower_part(idx), &mask, valid_count, ctx)?;
+            let lower = widening_sum_unsigned(arr.lower_part(idx), &mask, valid_count, ctx)?;
             total = match i256::from_parts(lower, 0)
                 .checked_mul(&base(64 * (k - 1 - idx)))
                 .and_then(|shifted| total.checked_add(&shifted))
@@ -148,10 +137,38 @@ fn narrow<T: vortex_array::dtype::NativeDecimalType>(value: DecimalValue) -> T {
         .vortex_expect("value validated to fit the return precision")
 }
 
-/// Sum of an unsigned `u64` limb over valid rows, into `u128`. A constant limb (the common shape
-/// after compression — e.g. an all-zero limb, or a narrowed column) is summed in O(1) as
-/// `value * valid_count` without decoding it; otherwise the limb is decoded and summed.
-fn limb_sum_unsigned(
+/// Widening sum of a signed limb over valid rows, into `i128`, pushing the aggregate *through* the
+/// limb's encoding so a compressed limb is summed without materializing it:
+/// - `Constant(v)` → `v * valid_count` (O(1));
+/// - `FoR{reference, encoded}` → `reference * valid_count + Σ encoded` (the reference is the column
+///   minimum, so `encoded = value - reference` never wraps and the identity is exact);
+/// - otherwise decode the limb and SIMD-sum it.
+fn widening_sum_signed(
+    part: &ArrayRef,
+    mask: &Mask,
+    valid_count: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<i128> {
+    if let Some(constant) = part.as_opt::<Constant>()
+        && let Some(value) = constant.scalar().as_primitive().typed_value::<i64>()
+    {
+        return Ok(i128::from(value) * valid_count as i128);
+    }
+    if let Some(for_array) = part.as_opt::<FoR>()
+        && let Some(reference) = for_array
+            .reference_scalar()
+            .as_primitive()
+            .typed_value::<i64>()
+    {
+        let encoded = widening_sum_signed(for_array.encoded(), mask, valid_count, ctx)?;
+        return Ok(i128::from(reference) * valid_count as i128 + encoded);
+    }
+    Ok(sum_signed(&as_primitive(part, ctx)?, mask))
+}
+
+/// Widening sum of an unsigned `u64` limb over valid rows, into `u128`, with the same
+/// encoding-pushdown (`Constant`, `FoR`) and decode fallback as [`widening_sum_signed`].
+fn widening_sum_unsigned(
     part: &ArrayRef,
     mask: &Mask,
     valid_count: usize,
@@ -161,6 +178,15 @@ fn limb_sum_unsigned(
         && let Some(value) = constant.scalar().as_primitive().typed_value::<u64>()
     {
         return Ok(u128::from(value) * valid_count as u128);
+    }
+    if let Some(for_array) = part.as_opt::<FoR>()
+        && let Some(reference) = for_array
+            .reference_scalar()
+            .as_primitive()
+            .typed_value::<u64>()
+    {
+        let encoded = widening_sum_unsigned(for_array.encoded(), mask, valid_count, ctx)?;
+        return Ok(u128::from(reference) * valid_count as u128 + encoded);
     }
     Ok(sum_unsigned(&as_primitive(part, ctx)?, mask))
 }
@@ -276,6 +302,35 @@ mod tests {
     use super::sum_i128_blocked;
     use super::sum_u128_blocked;
     use crate::DecimalByteParts;
+
+    /// A FoR-encoded lower limb must sum identically to the decoded form — exercising the
+    /// `reference * valid_count + Σ encoded` pushdown (no full materialization).
+    #[test]
+    fn for_limb_matches_canonical() -> VortexResult<()> {
+        use vortex_fastlanes::FoRData;
+
+        let dtype = DecimalDType::new(38, 2);
+        let msp_vals = [1i64, 2, 1, 3, 1];
+        let lower_vals = [1000u64, 1005, 1001, 1008, 1002]; // clustered -> FoR-friendly
+        let msp = PrimitiveArray::new(
+            msp_vals.iter().copied().collect::<Buffer<i64>>(),
+            Validity::NonNullable,
+        )
+        .into_array();
+        let lower_prim = PrimitiveArray::new(
+            lower_vals.iter().copied().collect::<Buffer<u64>>(),
+            Validity::NonNullable,
+        );
+        let lower = FoRData::encode(lower_prim)?.into_array();
+        let bp = DecimalByteParts::try_new_parts(msp, vec![lower], dtype)?.into_array();
+        let values: Vec<i128> = msp_vals
+            .iter()
+            .zip(lower_vals.iter())
+            .map(|(&m, &l)| (i128::from(m) << 64) + i128::from(l))
+            .collect();
+        let canon = DecimalArray::from_iter(values, dtype).into_array();
+        check(bp, canon)
+    }
 
     /// A constant lower limb (the common post-compression shape) must sum identically to the
     /// decoded form — exercising the O(1) `value * valid_count` fast path.
