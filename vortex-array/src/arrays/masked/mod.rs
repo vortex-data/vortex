@@ -18,3 +18,6 @@ pub use vtable::Masked;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod pure_data_tests;
