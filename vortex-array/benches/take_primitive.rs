@@ -26,6 +26,47 @@ fn main() {
 /// Number of indices to take.
 const NUM_INDICES: &[usize] = &[1_000, 10_000, 100_000];
 
+// --- Direct take by value width ---
+//
+// The AVX2 take kernel only accelerates 32- and 64-bit value types; 8- and 16-bit value
+// columns fall back to a scalar bounds-checked gather. These benches measure take across value
+// widths (u8/u16/u32/u64) with a fixed-size value array and many u32 indices.
+
+/// Sizes of the value array that indices address into, spanning in-cache (4K) to
+/// out-of-cache (4M elements ~ 16MB for u32, exceeding typical L3).
+const VALUE_LENS: &[usize] = &[4_096, 262_144, 4_194_304];
+
+macro_rules! take_by_width {
+    ($name:ident, $ty:ty) => {
+        #[divan::bench(args = VALUE_LENS, sample_count = 2_000)]
+        fn $name(bencher: Bencher, value_len: usize) {
+            const NUM_INDICES: usize = 100_000;
+            #[allow(clippy::cast_possible_truncation)]
+            let values =
+                PrimitiveArray::from_iter((0..value_len as u64).map(|i| i as $ty)).into_array();
+
+            let rng = StdRng::seed_from_u64(0);
+            let range = Uniform::new(0u32, value_len as u32).unwrap();
+            let indices =
+                PrimitiveArray::from_iter(rng.sample_iter(range).take(NUM_INDICES)).into_array();
+
+            bencher
+                .with_inputs(|| (values.clone(), indices.clone()))
+                .bench_values(|(values, indices)| {
+                    values
+                        .take(indices)
+                        .unwrap()
+                        .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                });
+        }
+    };
+}
+
+take_by_width!(take_u8_values, u8);
+take_by_width!(take_u16_values, u16);
+take_by_width!(take_u32_values, u32);
+take_by_width!(take_u64_values, u64);
+
 /// Size of the source vector / dictionary values.
 const VECTOR_SIZE: &[usize] = &[16, 256, 2048, 8192];
 
