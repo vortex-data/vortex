@@ -15070,6 +15070,12 @@ pub type vortex_array::scalar_fn::fns::fill_null::FillNullReduceAdaptor<V>::Pare
 
 pub fn vortex_array::scalar_fn::fns::fill_null::FillNullReduceAdaptor<V>::reduce_parent(&self, vortex_array::ArrayView<'_, V>, vortex_array::arrays::scalar_fn::ScalarFnArrayView<'_, vortex_array::scalar_fn::fns::fill_null::FillNull>, usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
+impl<V> vortex_array::optimizer::rules::ArrayParentReduceRule<V> for vortex_array::scalar_fn::fns::len::LenReduceAdaptor<V> where V: vortex_array::scalar_fn::fns::len::LenReduce
+
+pub type vortex_array::scalar_fn::fns::len::LenReduceAdaptor<V>::Parent = vortex_array::arrays::scalar_fn::ExactScalarFn<vortex_array::scalar_fn::fns::len::Len>
+
+pub fn vortex_array::scalar_fn::fns::len::LenReduceAdaptor<V>::reduce_parent(&self, vortex_array::ArrayView<'_, V>, vortex_array::arrays::scalar_fn::ScalarFnArrayView<'_, vortex_array::scalar_fn::fns::len::Len>, usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 impl<V> vortex_array::optimizer::rules::ArrayParentReduceRule<V> for vortex_array::scalar_fn::fns::like::LikeReduceAdaptor<V> where V: vortex_array::scalar_fn::fns::like::LikeReduce
 
 pub type vortex_array::scalar_fn::fns::like::LikeReduceAdaptor<V>::Parent = vortex_array::arrays::scalar_fn::ExactScalarFn<vortex_array::scalar_fn::fns::like::Like>
@@ -18135,6 +18141,26 @@ pub fn vortex_array::scalar_fn::fns::len::Len::stat_expression(&self, &Self::Opt
 pub fn vortex_array::scalar_fn::fns::len::Len::stat_falsification(&self, &Self::Options, &vortex_array::expr::Expression, &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
 
 pub fn vortex_array::scalar_fn::fns::len::Len::validity(&self, &Self::Options, &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub struct vortex_array::scalar_fn::fns::len::LenReduceAdaptor<V>(pub V)
+
+impl<V: core::default::Default> core::default::Default for vortex_array::scalar_fn::fns::len::LenReduceAdaptor<V>
+
+pub fn vortex_array::scalar_fn::fns::len::LenReduceAdaptor<V>::default() -> vortex_array::scalar_fn::fns::len::LenReduceAdaptor<V>
+
+impl<V: core::fmt::Debug> core::fmt::Debug for vortex_array::scalar_fn::fns::len::LenReduceAdaptor<V>
+
+pub fn vortex_array::scalar_fn::fns::len::LenReduceAdaptor<V>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<V> vortex_array::optimizer::rules::ArrayParentReduceRule<V> for vortex_array::scalar_fn::fns::len::LenReduceAdaptor<V> where V: vortex_array::scalar_fn::fns::len::LenReduce
+
+pub type vortex_array::scalar_fn::fns::len::LenReduceAdaptor<V>::Parent = vortex_array::arrays::scalar_fn::ExactScalarFn<vortex_array::scalar_fn::fns::len::Len>
+
+pub fn vortex_array::scalar_fn::fns::len::LenReduceAdaptor<V>::reduce_parent(&self, vortex_array::ArrayView<'_, V>, vortex_array::arrays::scalar_fn::ScalarFnArrayView<'_, vortex_array::scalar_fn::fns::len::Len>, usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+pub trait vortex_array::scalar_fn::fns::len::LenReduce: vortex_array::VTable
+
+pub fn vortex_array::scalar_fn::fns::len::LenReduce::len(vortex_array::ArrayView<'_, Self>, vortex_array::scalar_fn::fns::len::LenMode) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub mod vortex_array::scalar_fn::fns::like
 

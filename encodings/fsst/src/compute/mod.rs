@@ -4,6 +4,7 @@
 mod cast;
 mod compare;
 mod filter;
+mod len;
 mod like;
 
 use vortex_array::ArrayRef;

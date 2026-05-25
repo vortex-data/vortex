@@ -78,6 +78,10 @@ impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_fsst::FSS
 
 pub fn vortex_fsst::FSST::cast(vortex_array::array::view::ArrayView<'_, Self>, &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
+impl vortex_array::scalar_fn::fns::len::kernel::LenReduce for vortex_fsst::FSST
+
+pub fn vortex_fsst::FSST::len(vortex_array::array::view::ArrayView<'_, Self>, vortex_array::scalar_fn::fns::len::LenMode) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
+
 impl vortex_array::scalar_fn::fns::like::kernel::LikeKernel for vortex_fsst::FSST
 
 pub fn vortex_fsst::FSST::like(vortex_array::array::view::ArrayView<'_, Self>, &vortex_array::array::erased::ArrayRef, vortex_array::scalar_fn::fns::like::LikeOptions, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>

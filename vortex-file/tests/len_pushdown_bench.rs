@@ -21,6 +21,7 @@ use std::time::Instant;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
@@ -174,7 +175,9 @@ async fn bench_len_pushdown() {
     println!("\n=== len pushdown benchmark ===");
     println!("rows: {num_rows}, file size: {} MiB", file_bytes.len() >> 20);
 
-    // ---- Baseline: read the full URL column, then compute length in-process. ----
+    // ---- Baseline: materialize (decompress) the full URL column, then compute length. ----
+    // This is what an engine without length pushdown pays: the FSST column is decoded to
+    // canonical strings before the length is computed.
     let (baseline_sum, baseline_bytes, baseline_reqs, baseline_max, baseline_time) = {
         let (reader, stats) = CountingReadAt::new(file_bytes.clone());
         let vxf = SESSION
@@ -192,8 +195,13 @@ async fn bench_len_pushdown() {
             .read_all()
             .await
             .expect("read_all");
-        // Compute the total length the way an engine would, after materializing the strings.
-        let lengths = result
+        // Force decompression of the FSST column into canonical strings, as a query engine would
+        // when it materializes the column, then compute the length over the decoded strings.
+        let decoded = result
+            .execute::<Canonical>(&mut SESSION.create_execution_ctx())
+            .expect("canonical")
+            .into_array();
+        let lengths = decoded
             .apply(&octet_len(root()))
             .expect("len")
             .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
@@ -316,7 +324,7 @@ async fn bench_len_pushdown() {
     // the `2 reqs / max ~= file size` above), so the byte counter reflects file size, not
     // per-projection I/O. The meaningful signal here is scan/decode time.
     println!(
-        "\npushdown octet_len(url) vs baseline:   {:.2}x   (function pushdown alone)",
+        "\npushdown octet_len(url) vs baseline:   {:.2}x   (FSST len reduce: no decompression)",
         baseline_time.as_secs_f64() / pushdown_time.as_secs_f64(),
     );
     println!(

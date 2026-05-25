@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod kernel;
+
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+pub use kernel::*;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
