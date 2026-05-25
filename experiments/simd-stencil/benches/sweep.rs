@@ -36,6 +36,14 @@ fn main() {
 }
 
 #[divan::bench(args = SIZES)]
+fn fully_decompressed(bencher: Bencher, n: usize) {
+    // Floor: just allocate + copy the canonical values. Every decoder must at
+    // least write this f64 output, so it caps the achievable speedup.
+    let values = gen_f64(n, EXP, 2);
+    bencher.counter(ItemsCount::new(n)).bench(|| values.clone());
+}
+
+#[divan::bench(args = SIZES)]
 fn fused(bencher: Bencher, n: usize) {
     let enc = encode_b(&gen_f64(n, EXP, 2), EXP);
     bencher
