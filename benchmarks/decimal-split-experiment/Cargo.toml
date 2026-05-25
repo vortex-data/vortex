@@ -27,6 +27,10 @@ divan = { workspace = true }
 name = "decimal_arith"
 harness = false
 
+[[bench]]
+name = "decimal_ops"
+harness = false
+
 [[bin]]
 name = "decimal_split_analyze"
 path = "src/bin/analyze.rs"
