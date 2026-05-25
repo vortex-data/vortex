@@ -8,6 +8,7 @@ pub(crate) mod is_constant;
 pub(crate) mod kernel;
 mod mask;
 mod numeric;
+pub(crate) mod sum;
 mod take;
 
 #[cfg(test)]

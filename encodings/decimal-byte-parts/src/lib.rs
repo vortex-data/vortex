@@ -4,6 +4,7 @@
 mod decimal_byte_parts;
 
 use decimal_byte_parts::compute::is_constant::DecimalBytePartsIsConstantKernel;
+use decimal_byte_parts::compute::sum::DecimalBytePartsSumKernel;
 /// This encoding allow compression of decimals using integer compression schemes.
 /// Decimals can be compressed by narrowing the signed decimal value into the smallest signed value,
 /// then integer compression if that is a value `ptype`, otherwise the decimal can be split into
@@ -16,6 +17,7 @@ pub use decimal_byte_parts::*;
 use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
+use vortex_array::aggregate_fn::fns::sum::Sum;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
@@ -28,5 +30,10 @@ pub fn initialize(session: &VortexSession) {
         DecimalByteParts.id(),
         Some(IsConstant.id()),
         &DecimalBytePartsIsConstantKernel,
+    );
+    session.aggregate_fns().register_aggregate_kernel(
+        DecimalByteParts.id(),
+        Some(Sum.id()),
+        &DecimalBytePartsSumKernel,
     );
 }
