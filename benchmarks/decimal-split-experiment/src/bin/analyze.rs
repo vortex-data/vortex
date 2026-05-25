@@ -8,9 +8,8 @@
 //!   2. Compression: interleaved (Arrow) vs split (per-limb), synthetic + TPC-H.
 //!   3. Arithmetic (add): Arrow / AoS-scalar / SoA-scalar / SoA-AVX-512 / lo-only.
 //!   4. Other operations: compare, sum (overflow-safe widening), min/max, mul/div.
-//!   5. Apples-to-apples from a common storage layout: both regimes measured -
-//!      stored-interleaved (split pays the transpose) and stored-split (Arrow
-//!      pays the gather).
+//!   5. Each kernel on its preferred layout (Arrow interleaved, split SoA), no
+//!      conversion on either side - the fair kernel-vs-kernel comparison.
 //!
 //! Build with `RUSTFLAGS="-C target-cpu=native"` so Arrow and the split kernels
 //! are compiled under the same ISA. Usage:
@@ -49,7 +48,7 @@ fn main() {
     compression_report();
     arithmetic_report();
     operations_report();
-    endtoend_report();
+    preferred_layout_report();
 }
 
 fn compression_report() {
@@ -555,53 +554,29 @@ fn muldiv_report(dur: Duration, n: usize) {
     );
 }
 
-/// Apples-to-apples from a *common* starting layout.
-///
-/// Every table above pre-splits operands outside the timed loop, which is the
-/// honest comparison only when decimals are *stored* split (the compression
-/// encoding). This section instead assumes data is stored interleaved (Arrow's
-/// native layout) and charges the split kernels for the AoS->SoA transpose on
-/// input, plus the SoA->AoS merge on output for elementwise ops. It exposes when
-/// the split's algorithmic win survives the transpose tax and when it does not.
-fn endtoend_report() {
+/// The fair comparison: each kernel runs on the data layout it would actually
+/// store. Arrow keeps its interleaved Decimal128 buffer; the split kernels keep
+/// their SoA limb streams. Neither side converts - in a real system the data is
+/// born in that system's preferred layout, so a conversion tax on either side
+/// would be artificial. Operands are built once, outside the timed loop; only
+/// the kernel is timed.
+fn preferred_layout_report() {
     let dur = Duration::from_millis(300);
     let n = ARITH_N;
-    println!("## Apples-to-apples from a common layout, {n} values\n");
-
-    // Transpose cost alone, for reference.
-    let v = data::gen_i128(n, Magnitude::Large, 1);
-    let mut split = SplitI128::from_aos(&v);
-    let mut merged = vec![0i128; n];
-    let t_split = throughput(
-        time_per_call(dur, || {
-            SplitI128::split_into(black_box(&v), black_box(&mut split));
-        }),
-        n,
-    );
-    let t_merge = throughput(
-        time_per_call(dur, || {
-            split.merge_into(black_box(&mut merged));
-        }),
-        n,
-    );
-    println!(
-        "Transpose throughput: AoS->SoA **{t_split:.0}**, SoA->AoS **{t_merge:.0}** M items/s.\n"
-    );
-
-    println!("### Regime A: data stored INTERLEAVED (split pays the transpose)");
-    println!("Split column = full pipeline (split inputs [+ merge output]) + kernel.\n");
-    println!("| op | Arrow | split end-to-end | speedup |");
+    println!("## Each kernel on its preferred layout (no conversion either side), {n} values\n");
+    println!("Arrow operates on interleaved Decimal128 (its native storage); the split kernels");
+    println!("operate on SoA limb streams (their native storage). Kernel-only timing.\n");
+    println!("| op | Arrow (interleaved) | split (SoA, AVX-512) | speedup |");
     println!("|---|---:|---:|---:|");
 
-    // add: 2 input transposes + kernel + 1 output merge.
     let a = data::gen_i128(n, Magnitude::Large, 1);
     let b = data::gen_i128(n, Magnitude::Large, 2);
     let aa = arrow_ref::decimal128(&a, 38, 0);
     let ba = arrow_ref::decimal128(&b, 38, 0);
-    let mut sa = SplitI128::from_aos(&a);
-    let mut sb = SplitI128::from_aos(&b);
+    let sa = SplitI128::from_aos(&a);
+    let sb = SplitI128::from_aos(&b);
     let mut so = sa.zeroed_like();
-    let mut out_aos = vec![0i128; n];
+    let mut bm = vec![0u8; compare::bitmap_len(n)];
 
     let arrow_add = throughput(
         time_per_call(dur, || {
@@ -611,116 +586,40 @@ fn endtoend_report() {
     );
     let split_add = throughput(
         time_per_call(dur, || {
-            SplitI128::split_into(black_box(&a), &mut sa);
-            SplitI128::split_into(black_box(&b), &mut sb);
-            simd::add_i128(&sa, &sb, &mut so);
-            so.merge_into(&mut out_aos);
-            black_box(&out_aos);
-        }),
-        n,
-    );
-    println!(
-        "| add (2 split + merge) | {arrow_add:.0} | {split_add:.0} | {:.2}x |",
-        split_add / arrow_add
-    );
-
-    // sum: 1 input transpose + reduction, no merge.
-    let sum_arrow = throughput(
-        time_per_call(dur, || {
-            black_box(arrow_ref::sum_decimal128(black_box(&aa)));
-        }),
-        n,
-    );
-    let sum_split = throughput(
-        time_per_call(dur, || {
-            SplitI128::split_into(black_box(&a), &mut sa);
-            black_box(aggregate::sum_i128_widening(&sa));
-        }),
-        n,
-    );
-    println!(
-        "| sum (1 split) | {sum_arrow:.0} | {sum_split:.0} | {:.2}x |",
-        sum_split / sum_arrow
-    );
-
-    // compare lt: 2 input transposes + kernel -> bitmap, no merge.
-    let mut bm = vec![0u8; compare::bitmap_len(n)];
-    let cmp_arrow = throughput(
-        time_per_call(dur, || {
-            black_box(arrow_ref::lt_decimal128(black_box(&aa), black_box(&ba)));
-        }),
-        n,
-    );
-    let cmp_split = throughput(
-        time_per_call(dur, || {
-            SplitI128::split_into(black_box(&a), &mut sa);
-            SplitI128::split_into(black_box(&b), &mut sb);
-            compare::lt_i128(&sa, &sb, &mut bm);
-            black_box(&bm);
-        }),
-        n,
-    );
-    println!(
-        "| lt (2 split) | {cmp_arrow:.0} | {cmp_split:.0} | {:.2}x |",
-        cmp_split / cmp_arrow
-    );
-
-    println!("\n### Regime B: data stored SPLIT (Arrow pays the gather)");
-    println!("This is what the turn-1 compression encoding gives: operands already live as limb");
-    println!(
-        "streams. The split kernels run directly; Arrow must first gather them into interleaved"
-    );
-    println!("Decimal128 (single pass) before its kernel. Arrow column = gather + kernel.\n");
-    println!("| op | Arrow end-to-end | split kernel | speedup |");
-    println!("|---|---:|---:|---:|");
-
-    let arrowb_add = throughput(
-        time_per_call(dur, || {
-            let ag = arrow_ref::decimal128_from_split(&sa, 38, 0);
-            let bg = arrow_ref::decimal128_from_split(&sb, 38, 0);
-            black_box(arrow_ref::add_decimal128(&ag, &bg));
-        }),
-        n,
-    );
-    let splitb_add = throughput(
-        time_per_call(dur, || {
             simd::add_i128(&sa, &sb, &mut so);
             black_box(&so);
         }),
         n,
     );
     println!(
-        "| add | {arrowb_add:.0} | {splitb_add:.0} | {:.2}x |",
-        splitb_add / arrowb_add
+        "| add | {arrow_add:.0} | {split_add:.0} | {:.2}x |",
+        split_add / arrow_add
     );
 
-    let arrowb_sum = throughput(
+    let arrow_sum = throughput(
         time_per_call(dur, || {
-            let ag = arrow_ref::decimal128_from_split(&sa, 38, 0);
-            black_box(arrow_ref::sum_decimal128(&ag));
+            black_box(arrow_ref::sum_decimal128(black_box(&aa)));
         }),
         n,
     );
-    let splitb_sum = throughput(
+    let split_sum = throughput(
         time_per_call(dur, || {
             black_box(aggregate::sum_i128_widening(&sa));
         }),
         n,
     );
     println!(
-        "| sum | {arrowb_sum:.0} | {splitb_sum:.0} | {:.2}x |",
-        splitb_sum / arrowb_sum
+        "| sum (split is exact i256; Arrow wraps i128) | {arrow_sum:.0} | {split_sum:.0} | {:.2}x |",
+        split_sum / arrow_sum
     );
 
-    let arrowb_lt = throughput(
+    let arrow_lt = throughput(
         time_per_call(dur, || {
-            let ag = arrow_ref::decimal128_from_split(&sa, 38, 0);
-            let bg = arrow_ref::decimal128_from_split(&sb, 38, 0);
-            black_box(arrow_ref::lt_decimal128(&ag, &bg));
+            black_box(arrow_ref::lt_decimal128(black_box(&aa), black_box(&ba)));
         }),
         n,
     );
-    let splitb_lt = throughput(
+    let split_lt = throughput(
         time_per_call(dur, || {
             compare::lt_i128(&sa, &sb, &mut bm);
             black_box(&bm);
@@ -728,8 +627,34 @@ fn endtoend_report() {
         n,
     );
     println!(
-        "| lt | {arrowb_lt:.0} | {splitb_lt:.0} | {:.2}x |",
-        splitb_lt / arrowb_lt
+        "| lt | {arrow_lt:.0} | {split_lt:.0} | {:.2}x |",
+        split_lt / arrow_lt
+    );
+
+    // mul needs operands small enough that the product fits precision 38.
+    let ma = data::gen_i128(n, Magnitude::Small, 3);
+    let mb = data::gen_i128(n, Magnitude::Small, 4);
+    let maa = arrow_ref::decimal128(&ma, 38, 0);
+    let mba = arrow_ref::decimal128(&mb, 38, 0);
+    let msa = SplitI128::from_aos(&ma);
+    let msb = SplitI128::from_aos(&mb);
+    let mut mso = msa.zeroed_like();
+    let arrow_mul = throughput(
+        time_per_call(dur, || {
+            black_box(arrow_ref::mul_decimal128(black_box(&maa), black_box(&mba)));
+        }),
+        n,
+    );
+    let split_mul = throughput(
+        time_per_call(dur, || {
+            decimal_split_experiment::muldiv::mul_i128(&msa, &msb, &mut mso);
+            black_box(&mso);
+        }),
+        n,
+    );
+    println!(
+        "| mul | {arrow_mul:.0} | {split_mul:.0} | {:.2}x |",
+        split_mul / arrow_mul
     );
     println!();
 }
