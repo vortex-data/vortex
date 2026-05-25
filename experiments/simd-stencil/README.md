@@ -215,6 +215,27 @@ column *is* the primitive array).
    untranspose and scale costs more than baking the scale saves. This is the
    motivation for body-stitching, below.
 
+### The 4–5× is in *not materializing* the column: fused decode+filter (`--bench filter`)
+
+Faster decode caps at ~2.5× because the output write dominates. But most scans
+don't want the column — they want a `WHERE` result. Fusing the predicate into the
+decode (decode a tile in L1 → test `col > k` in registers → fold into a count /
+sum / selection mask, never writing the f64 column) removes the dominant write
+*and* the decode→DRAM→re-read round trip. At 64 MB (median):
+
+| query | fused | decode-then-filter | speedup |
+|---|---|---|---|
+| `COUNT(*) WHERE col > k` | **11.9 ms** (703 M/s) | 59.2 ms (142 M/s) | **5.0×** |
+| selection mask `col > k` (1 bit/row) | **12.8 ms** (657 M/s) | 72.6 ms (116 M/s) | **5.7×** |
+
+The fused scan is even faster than a *plain full-column decode* (~40 ms): it reads
+~17 MB compressed, consumes each tile in L1, and writes only a tiny count/mask,
+while the materialized path pays a 64 MB write + 64 MB re-read (~128 MB of DRAM
+traffic) that fusion deletes. **This is the 4–5× — it comes from operator fusion
+(no column materialized), not from faster kernels.** In a real engine the mask
+then drives gathers on other columns; the decoded values of this column are never
+stored. See `src/scan.rs`.
+
 ### Body-stitching matches AOT (`--bench stitch`)
 
 The fix for (5): stitch op bodies into one loop. The `stitch` bench runs a 6-op
@@ -342,6 +363,7 @@ cargo test  -p simd-stencil
 RUSTFLAGS="-C target-cpu=native" cargo bench -p simd-stencil --bench stacks
 RUSTFLAGS="-C target-cpu=native" cargo bench -p simd-stencil --bench sweep
 RUSTFLAGS="-C target-cpu=native" cargo bench -p simd-stencil --bench stages
+RUSTFLAGS="-C target-cpu=native" cargo bench -p simd-stencil --bench filter
 RUSTFLAGS="-C target-cpu=native" cargo bench -p simd-stencil --bench stitch
 RUSTFLAGS="-C target-cpu=native" cargo bench -p simd-stencil --bench dispatch
 ```
