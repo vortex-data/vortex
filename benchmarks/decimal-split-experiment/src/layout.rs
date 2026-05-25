@@ -48,6 +48,32 @@ impl SplitI128 {
             .collect()
     }
 
+    /// Transpose interleaved values into reused limb buffers (no allocation
+    /// after warmup). This is the AoS->SoA cost a system pays when decimals are
+    /// *stored* interleaved (Arrow's layout).
+    pub fn split_into(values: &[i128], out: &mut SplitI128) {
+        out.lo.clear();
+        out.hi.clear();
+        out.lo.reserve(values.len());
+        out.hi.reserve(values.len());
+        for &v in values {
+            let bits = v as u128;
+            out.lo.push(bits as u64);
+            out.hi.push((bits >> 64) as u64);
+        }
+    }
+
+    /// Transpose limb buffers back to interleaved values (SoA->AoS), reusing the
+    /// output buffer. This is the merge cost an elementwise op pays to return an
+    /// interleaved result.
+    pub fn merge_into(&self, out: &mut Vec<i128>) {
+        out.clear();
+        out.reserve(self.lo.len());
+        for (&lo, &hi) in self.lo.iter().zip(&self.hi) {
+            out.push((((hi as u128) << 64) | (lo as u128)) as i128);
+        }
+    }
+
     /// Allocate an output buffer of the same length.
     pub fn zeroed_like(&self) -> Self {
         Self {
