@@ -62,6 +62,38 @@ pub fn gen_i128(n: usize, mag: Magnitude, seed: u64) -> Vec<i128> {
         .collect()
 }
 
+/// Generate an i128 column with block-wise structure: each `block`-sized chunk
+/// is, with probability `const_frac`, "small" (high limb constant 0) and
+/// otherwise full-range. Returns the values plus per-block metadata
+/// (`Some(0)` for constant-high blocks, `None` for varying ones) - the kind of
+/// per-chunk stat a real encoding records.
+pub fn gen_i128_blocked(
+    n: usize,
+    block: usize,
+    const_frac: f64,
+    seed: u64,
+) -> (Vec<i128>, Vec<Option<u64>>) {
+    let mut rng = StdRng::seed_from_u64(seed);
+    let mut values = Vec::with_capacity(n);
+    let num_blocks = n.div_ceil(block);
+    let mut meta = Vec::with_capacity(num_blocks);
+    for _ in 0..num_blocks {
+        let is_const = rng.random::<f64>() < const_frac;
+        meta.push(if is_const { Some(0u64) } else { None });
+        let remaining = n - values.len();
+        for _ in 0..block.min(remaining) {
+            if is_const {
+                values.push(i128::from(rng.random_range(0i64..1_000_000_000i64)));
+            } else {
+                let hi = rng.random::<u64>() & (u64::MAX >> 3);
+                let lo = rng.random::<u64>();
+                values.push(((u128::from(hi) << 64) | u128::from(lo)) as i128);
+            }
+        }
+    }
+    (values, meta)
+}
+
 /// Generate a synthetic i256 decimal column.
 pub fn gen_i256(n: usize, mag: Magnitude, seed: u64) -> Vec<i256> {
     let mut rng = StdRng::seed_from_u64(seed);

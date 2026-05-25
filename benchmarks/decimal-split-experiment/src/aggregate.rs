@@ -44,14 +44,55 @@ pub fn sum_i128_naive_wrapping(a: &SplitI128) -> i128 {
 
 /// Exact widening sum, dispatching to the AVX-512 lane-accumulator when present.
 pub fn sum_i128_widening(a: &SplitI128) -> i256 {
+    sum_widening_slices(&a.lo, &a.hi)
+}
+
+/// Slice-based exact widening sum (so block-wise code can sum sub-ranges).
+pub fn sum_widening_slices(lo: &[u64], hi: &[u64]) -> i256 {
     #[cfg(target_arch = "x86_64")]
     {
         if std::arch::is_x86_feature_detected!("avx512f") {
             // SAFETY: avx512f present; lo/hi share length.
-            return unsafe { x86_sum::sum_widening_avx512(&a.lo, &a.hi) };
+            return unsafe { x86_sum::sum_widening_avx512(lo, hi) };
         }
     }
-    sum_i128_widening_scalar(a)
+    let mut s_lo: u128 = 0;
+    let mut s_hi: i128 = 0;
+    for i in 0..lo.len() {
+        s_lo = s_lo.wrapping_add(u128::from(lo[i]));
+        s_hi = s_hi.wrapping_add(i128::from(hi[i] as i64));
+    }
+    combine(s_hi, s_lo)
+}
+
+/// Block-wise sum exploiting *partial* constancy. Real columnar engines carry
+/// per-chunk stats; `hi_const_per_block[k]` is `Some(c)` when the high limb is
+/// constant `c` within block `k` (so that block skips the high stream entirely)
+/// and `None` when it varies (full widening for that block). The column as a
+/// whole need not be constant - this is the realistic case.
+pub fn sum_i128_blockwise(
+    lo: &[u64],
+    hi: &[u64],
+    hi_const_per_block: &[Option<u64>],
+    block: usize,
+) -> i256 {
+    let n = lo.len();
+    let mut total = i256::ZERO;
+    for (k, &meta) in hi_const_per_block.iter().enumerate() {
+        let start = k * block;
+        let end = (start + block).min(n);
+        if start >= end {
+            break;
+        }
+        let part = match meta {
+            // Constant high block: read only the low limbs.
+            Some(c) => sum_i128_const_hi(&lo[start..end], c),
+            // Varying block: full widening over both limbs.
+            None => sum_widening_slices(&lo[start..end], &hi[start..end]),
+        };
+        total = total.wrapping_add(part);
+    }
+    total
 }
 
 /// Fast path for the small-decimal case where the high limb is a known constant

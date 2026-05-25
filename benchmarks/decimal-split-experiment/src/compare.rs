@@ -144,20 +144,72 @@ pub fn lt_u64_unsigned(a: &[u64], b: &[u64], out: &mut [u8]) {
     }
 }
 
+/// Block-wise `lt` exploiting *partial* constancy. `block` must be a multiple of
+/// 8 so block boundaries are byte-aligned in the output bitmap. Per block: if
+/// both columns' high limbs are constant there, use the constant fast path
+/// (skip the high stream / fill); otherwise fall back to the full lexicographic
+/// kernel for that block.
+pub fn lt_i128_blockwise(
+    a: &SplitI128,
+    a_hi_const: &[Option<u64>],
+    b: &SplitI128,
+    b_hi_const: &[Option<u64>],
+    block: usize,
+    out: &mut [u8],
+) {
+    debug_assert_eq!(block % 8, 0, "block must be byte-aligned");
+    let n = a.len();
+    for (k, (&ca, &cb)) in a_hi_const.iter().zip(b_hi_const).enumerate() {
+        let start = k * block;
+        let end = (start + block).min(n);
+        if start >= end {
+            break;
+        }
+        let byte_lo = start / 8;
+        let byte_hi = end.div_ceil(8);
+        let out_block = &mut out[byte_lo..byte_hi];
+        match (ca, cb) {
+            (Some(ca), Some(cb)) => {
+                lt_i128_const_hi(&a.lo[start..end], ca, &b.lo[start..end], cb, out_block);
+            }
+            // Varying block: full lexicographic kernel, written straight into
+            // the block's bitmap bytes (no allocation, no copy).
+            _ => lt_i128_slices(
+                &a.lo[start..end],
+                &a.hi[start..end],
+                &b.lo[start..end],
+                &b.hi[start..end],
+                out_block,
+            ),
+        }
+    }
+}
+
 // ---- dispatch ----------------------------------------------------------------
 
 pub fn lt_i128(a: &SplitI128, b: &SplitI128, out: &mut [u8]) {
+    lt_i128_slices(&a.lo, &a.hi, &b.lo, &b.hi, out);
+}
+
+/// Slice-based `lt` core so block-wise code can write into a sub-bitmap with no
+/// allocation.
+pub fn lt_i128_slices(a_lo: &[u64], a_hi: &[u64], b_lo: &[u64], b_hi: &[u64], out: &mut [u8]) {
     #[cfg(target_arch = "x86_64")]
     {
         if std::arch::is_x86_feature_detected!("avx512f") {
             // SAFETY: avx512f present; slices share length, out is bitmap-sized.
             unsafe {
-                x86::lt_i128_avx512(&a.lo, &a.hi, &b.lo, &b.hi, out);
+                x86::lt_i128_avx512(a_lo, a_hi, b_lo, b_hi, out);
             }
             return;
         }
     }
-    lt_i128_scalar(a, b, out);
+    out.iter_mut().for_each(|byte| *byte = 0);
+    for i in 0..a_lo.len() {
+        let ah = a_hi[i] as i64;
+        let bh = b_hi[i] as i64;
+        set_bit(out, i, ah < bh || (ah == bh && a_lo[i] < b_lo[i]));
+    }
 }
 
 pub fn eq_i128(a: &SplitI128, b: &SplitI128, out: &mut [u8]) {

@@ -359,6 +359,44 @@ mod tests {
     }
 
     #[test]
+    fn sum_blockwise_matches_widening() {
+        use crate::aggregate;
+        use crate::data::gen_i128_blocked;
+        const BLK: usize = 256;
+        for frac in [0.0, 0.5, 1.0] {
+            let (values, meta) = gen_i128_blocked(5000, BLK, frac, 31);
+            let split = SplitI128::from_aos(&values);
+            let expected = aggregate::sum_i128_widening(&split);
+            let got = aggregate::sum_i128_blockwise(&split.lo, &split.hi, &meta, BLK);
+            assert_eq!(got, expected, "frac={frac}");
+        }
+    }
+
+    #[test]
+    fn lt_blockwise_matches_full() {
+        use crate::compare;
+        use crate::data::gen_i128_blocked;
+        const BLK: usize = 256; // multiple of 8
+        let (av, am) = gen_i128_blocked(5000, BLK, 0.5, 41);
+        let (bv, bm) = gen_i128_blocked(5000, BLK, 0.5, 42);
+        let sa = SplitI128::from_aos(&av);
+        let sb = SplitI128::from_aos(&bv);
+
+        let mut full = vec![0u8; compare::bitmap_len(av.len())];
+        compare::lt_i128(&sa, &sb, &mut full);
+        let mut blk = vec![0u8; compare::bitmap_len(av.len())];
+        compare::lt_i128_blockwise(&sa, &am, &sb, &bm, BLK, &mut blk);
+
+        for i in 0..av.len() {
+            assert_eq!(
+                compare::get_bit(&blk, i),
+                compare::get_bit(&full, i),
+                "@ {i}"
+            );
+        }
+    }
+
+    #[test]
     fn lt_const_hi_matches_full_compare() {
         use crate::compare;
         let la: Vec<u64> = gen_i128(N, Magnitude::Small, 22)
