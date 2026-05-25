@@ -25,6 +25,9 @@ use simd_stencil::vortex_baseline;
 
 /// ~1M elements: a `u64` column is 8 MiB, well past L2, so full-column
 /// materialization pays real memory traffic.
+// 1M (~8 MB f64) keeps a casual run fast. The fusion advantage is
+// size-dependent — see the README "scaling" note for 8M, where Vortex's
+// full-column intermediates pressure L3 and the gap widens to ~2.9×.
 const N: usize = 1 << 20;
 const EXP: i32 = 2;
 const N_RUNS: usize = 1 << 17;

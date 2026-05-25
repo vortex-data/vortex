@@ -142,21 +142,42 @@ column *is* the primitive array).
    - B core `delta(ffor(bitpack))`: 1.73 / 1.74 ms vs **2.60 ms** → ~1.5×
    - B full `alp(delta(ffor(bitpack)))`: 1.35 / 1.35 ms vs **2.43 ms** → **~1.8×**
 
-   Vortex materialises a `PrimitiveArray` between every layer (4 for the full
-   stack); the fused kernels keep every intermediate in L1. More layers ⇒ more
-   materialization avoided ⇒ bigger gap. (Vortex's *regular* shallow encoding is
-   faster only because it decodes far less, and compresses worse.)
+   Vortex materialises a `PrimitiveArray` between layers; the fused kernels keep
+   every intermediate in L1. More layers ⇒ more materialization avoided ⇒ bigger
+   gap. The 1M-element gap is *understated*, though — see the scaling note next.
+
+   **The gap grows with column size (the headline correction).** At 1M elements
+   (~8 MB) the whole working set — output *and* Vortex's intermediates — fits in
+   this machine's huge 260 MiB L3, so materialization is nearly free and the gap
+   is only ~1.8×. At **8M elements (64 MB)**, Vortex's ~4 full-column buffers
+   (~256 MB) saturate L3 and spill, while the fused pipeline keeps intermediates
+   in L1 (8 KB tiles) and reads only the ~17 MB *compressed* input:
+
+   | B full `alp(delta(ffor(bitpack)))`, 8M elems | median | vs fused |
+   |---|---|---|
+   | fully-decompressed (floor) | 29.5 ms | 0.9× |
+   | **fused** / **aot** | **32.6 / 33.4 ms** | 1.0× |
+   | vortex_regular (shallow) | 38.4 ms | fused **beats** it |
+   | vortex_canonical (`RecursiveCanonical`) | 91.2 ms | **2.8×** |
+   | vortex_same_stack (`execute`) | 95.2 ms | **2.9×** |
+   | materialized (fully naive) | 120.8 ms | 3.7× |
+
+   At scale the fused decode is **~2.9× faster than Vortex**, **beats even
+   Vortex's shallow uncompressed encoding** (it reads compressed input, so less
+   memory traffic), and lands within 10% of the pure-`memcpy` floor. This is the
+   regime that matters for real scans.
 
 3. **`fused` matches `aot`** (A: 0.87 vs 0.86 ms; B full: ~equal) — the
    runtime-composed pipeline gets the best-possible kernel's throughput with none
-   of the combinatorial AOT build. The remaining cost on B is the scalar undelta +
-   untranspose passes, which are the published FastLanes kernels; beating them
-   needs a vectorized transpose, a separate project. The decoders sit ~2.5× above
-   the memory floor, so they are compute-bound there, not bandwidth-bound.
+   of the combinatorial AOT build. The remaining per-element cost is the scalar
+   undelta + untranspose (the published FastLanes kernels); beating *those* needs
+   a vectorized transpose, a separate project.
 
-4. **Everyone is well above the fully-decompressed floor.** Reading canonical
-   data is 0.34 ms (A) / 0.74 ms (B); the deep decode costs ~2.5× that on B —
-   the price of 3.8× better compression.
+4. **Why it can't be 10×.** Vortex uses the *same* FastLanes SIMD kernels, so the
+   per-element decode is identical (≈0.86 ms of real work at 1M). Fusion only
+   removes per-layer materialization traffic — it doesn't make kernels faster. So
+   the ceiling is "how much memory traffic the baseline wastes", which is modest
+   when cache-resident and large (≈3×) once it spills.
 
 5. **A single-op `patched` leaf still trails `fused`** (B full: 2.39 vs 1.99 ms):
    one indirect call per tile plus a materialised `digits` buffer between
