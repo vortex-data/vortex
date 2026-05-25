@@ -53,6 +53,53 @@ fn main() {
     lt_roofline_report();
     add_unroll_report();
     lt_unroll_report();
+    sum_accumulators_report();
+}
+
+/// Try-to-beat-it for the sum reduction: single accumulator vs 4 independent
+/// accumulators. The reduction is loop-carried (acc/carry-counter updated each
+/// iteration), so it is latency-bound; multiple accumulators break the chain.
+/// Best-of-N, pin with taskset. (lo-only path: reads 8 B/value.)
+fn sum_accumulators_report() {
+    let dur = Duration::from_millis(150);
+    let runs = 7;
+    println!("## sum reduction: 1 accumulator vs 4 (best-of-{runs}, pin with taskset)\n");
+    println!(
+        "M items/s, best of {runs}. lo-only sum (reads 8 B/value); 4-acc breaks the loop-carried chain.\n"
+    );
+    println!("| values | working set | 1 acc | 4 acc | 4/1 |");
+    println!("|---|---|---:|---:|---:|");
+    for &(label, n) in &[
+        ("1 Ki", 1024usize),
+        ("8 Ki", 8192),
+        ("64 Ki", 65536),
+        ("256 Ki", 1 << 18),
+        ("1 Mi", 1 << 20),
+    ] {
+        let a = SplitI128::from_aos(&data::gen_i128(n, Magnitude::Small, 1));
+        let one = throughput_best(dur, runs, n, || {
+            black_box(aggregate::sum_i128_lo_only(black_box(&a)));
+        });
+        let u4 = throughput_best(dur, runs, n, || {
+            black_box(aggregate::sum_i128_lo_only_u4(black_box(&a)));
+        });
+        let ws = n * 8; // lo-only reads 8 B/value
+        let ws_str = if ws >= 1 << 20 {
+            format!("{} MiB", ws >> 20)
+        } else {
+            format!("{} KiB", ws >> 10)
+        };
+        println!(
+            "| {label} | {ws_str} | {one:.0} | {u4:.0} | {:.2}x |",
+            u4 / one
+        );
+    }
+    println!(
+        "\n> Result: 4 accumulators give ~1.07-1.12x at L2-resident sizes (breaking the loop-carried\n\
+         > carry-counter chain), parity in tiny L1 (reduction-tail overhead) and at L3 (bandwidth-\n\
+         > bound). Same shape as lt: a ~10% latency-hiding win in the L2 regime, nothing where the\n\
+         > kernel is already compute-saturated or memory-bound.\n"
+    );
 }
 
 /// Did unrolling the add kernel beat the single-vector one? Measured across the

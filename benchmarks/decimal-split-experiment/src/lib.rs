@@ -239,6 +239,11 @@ mod tests {
             if mag == Magnitude::Small {
                 // Small decimals have hi == 0, so the lo-only fast path is exact.
                 assert_eq!(aggregate::sum_i128_lo_only(&split), expected, "lo-only");
+                assert_eq!(
+                    aggregate::sum_i128_lo_only_u4(&split),
+                    expected,
+                    "lo-only u4"
+                );
             }
         }
 

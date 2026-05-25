@@ -102,6 +102,20 @@ pub fn sum_i128_lo_only(a: &SplitI128) -> i256 {
     u128_to_i256(sum_lo_u128(&a.lo))
 }
 
+/// Same as `sum_i128_lo_only` but using 4 independent accumulators to break the
+/// loop-carried dependency on the running sum/carry-counter (the reduction is
+/// otherwise latency-bound). Helps when the stream is cache-resident.
+pub fn sum_i128_lo_only_u4(a: &SplitI128) -> i256 {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if std::arch::is_x86_feature_detected!("avx512f") {
+            // SAFETY: avx512f present.
+            return u128_to_i256(unsafe { x86_sum::sum_u64_lane_carry_avx512_u4(&a.lo) });
+        }
+    }
+    u128_to_i256(sum_lo_u128(&a.lo))
+}
+
 /// Sum when the high limb is a *known constant* `hi_const` (recorded by the
 /// compression encoding, so known for free - no scan). Reads only the low
 /// limbs; the constant high contribution is folded analytically as
@@ -329,6 +343,54 @@ mod x86_sum {
             for k in 0..LANES {
                 total = total.wrapping_add(u128::from(accl[k]));
                 carries = carries.wrapping_add(u128::from(cntl[k]));
+            }
+            for &v in &s[i..n] {
+                total = total.wrapping_add(u128::from(v));
+            }
+            total.wrapping_add(carries << 64)
+        }
+    }
+
+    /// 4-accumulator variant: four independent (acc, carry-count) pairs, summed
+    /// at the end. Breaks the loop-carried dependency so the reduction is no
+    /// longer latency-bound on a single accumulator chain.
+    #[target_feature(enable = "avx512f")]
+    pub unsafe fn sum_u64_lane_carry_avx512_u4(s: &[u64]) -> u128 {
+        unsafe {
+            let n = s.len();
+            let one = _mm512_set1_epi64(1);
+            let mut acc = [_mm512_setzero_si512(); 4];
+            let mut cnt = [_mm512_setzero_si512(); 4];
+            let mut i = 0;
+            while i + 4 * LANES <= n {
+                for j in 0..4 {
+                    let v = _mm512_loadu_epi64(s.as_ptr().add(i + j * LANES).cast());
+                    let new = _mm512_add_epi64(acc[j], v);
+                    let carry = _mm512_cmplt_epu64_mask(new, acc[j]);
+                    acc[j] = new;
+                    cnt[j] = _mm512_mask_add_epi64(cnt[j], carry, cnt[j], one);
+                }
+                i += 4 * LANES;
+            }
+            while i + LANES <= n {
+                let v = _mm512_loadu_epi64(s.as_ptr().add(i).cast());
+                let new = _mm512_add_epi64(acc[0], v);
+                let carry = _mm512_cmplt_epu64_mask(new, acc[0]);
+                acc[0] = new;
+                cnt[0] = _mm512_mask_add_epi64(cnt[0], carry, cnt[0], one);
+                i += LANES;
+            }
+            let mut total: u128 = 0;
+            let mut carries: u128 = 0;
+            for j in 0..4 {
+                let mut accl = [0u64; LANES];
+                let mut cntl = [0u64; LANES];
+                _mm512_storeu_epi64(accl.as_mut_ptr().cast(), acc[j]);
+                _mm512_storeu_epi64(cntl.as_mut_ptr().cast(), cnt[j]);
+                for k in 0..LANES {
+                    total = total.wrapping_add(u128::from(accl[k]));
+                    carries = carries.wrapping_add(u128::from(cntl[k]));
+                }
             }
             for &v in &s[i..n] {
                 total = total.wrapping_add(u128::from(v));
