@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
+use num_traits::Bounded;
+use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -32,53 +33,66 @@ fn compute_min_max_with_validity<T>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<MinMaxResult>>
 where
-    T: NativePType,
+    T: NativePType + PartialOrd + Bounded,
     PValue: From<T>,
 {
-    Ok(
-        match array
-            .as_ref()
-            .validity()?
-            .execute_mask(array.as_ref().len(), ctx)?
-        {
-            Mask::AllTrue(_) => compute_min_max(array.as_slice::<T>().iter()),
-            Mask::AllFalse(_) => None,
-            // TODO(perf): per-bit `zip + filter_map` is scalar and mispredicts on null-bearing
-            // data. Replace with a branch-free neutral-replacement walk via `BitBuffer::zip_lanes`
-            // (fold invalid lanes against `T::MAX`/`T::MIN`, decide via `vmin <= vmax`). Measured
-            // ~3x branch-misprediction reduction and ~1.8x speedup at 50% nulls. See
-            // `docs/developer-guide/internals/validity-iteration.md`.
-            Mask::Values(v) => compute_min_max(
-                array
-                    .as_slice::<T>()
-                    .iter()
-                    .zip(v.bit_buffer().iter())
-                    .filter_map(|(v, m)| m.then_some(v)),
-            ),
-        },
-    )
+    let values = array.as_slice::<T>();
+    let (vmin, vmax) = match array
+        .as_ref()
+        .validity()?
+        .execute_mask(array.as_ref().len(), ctx)?
+    {
+        Mask::AllTrue(_) => minmax_all(values),
+        Mask::AllFalse(_) => return Ok(None),
+        Mask::Values(v) => minmax_masked(values, v.bit_buffer()),
+    };
+    // Neutral seeds invert (`vmin > vmax`) exactly when no non-NaN value was folded, so this both
+    // detects the empty/all-NaN case and produces the result otherwise.
+    Ok((vmin <= vmax).then(|| MinMaxResult {
+        min: Scalar::primitive(vmin, NonNullable),
+        max: Scalar::primitive(vmax, NonNullable),
+    }))
 }
 
-fn compute_min_max<'a, T>(iter: impl Iterator<Item = &'a T>) -> Option<MinMaxResult>
-where
-    T: NativePType,
-    PValue: From<T>,
-{
-    match iter
-        .filter(|v| !v.is_nan())
-        .minmax_by(|a, b| a.total_compare(**b))
-    {
-        itertools::MinMaxResult::NoElements => None,
-        itertools::MinMaxResult::OneElement(&x) => {
-            let scalar = Scalar::primitive(x, NonNullable);
-            Some(MinMaxResult {
-                min: scalar.clone(),
-                max: scalar,
-            })
+/// Plain-comparison min/max over all values, skipping NaN (NaN fails both comparisons). For every
+/// non-NaN input this matches the previous `total_compare`-based result; `±0.0` ties are
+/// numerically equal and not distinguished, which is irrelevant to callers (range pruning, casts).
+#[multiversion::multiversion(targets("x86_64+avx512f", "x86_64+avx2", "aarch64+neon"))]
+fn minmax_all<T: NativePType + PartialOrd + Bounded>(values: &[T]) -> (T, T) {
+    let mut vmin = T::max_value();
+    let mut vmax = T::min_value();
+    for &v in values {
+        if v < vmin {
+            vmin = v;
         }
-        itertools::MinMaxResult::MinMax(&min, &max) => Some(MinMaxResult {
-            min: Scalar::primitive(min, NonNullable),
-            max: Scalar::primitive(max, NonNullable),
-        }),
+        if v > vmax {
+            vmax = v;
+        }
     }
+    (vmin, vmax)
+}
+
+/// Validity-gated min/max, branch-free: invalid lanes fold against neutral bounds (never winning),
+/// NaN is skipped. Uses the shared [`BitBuffer::zip_lanes`] word-chunked walk, so it vectorizes
+/// regardless of null density.
+#[multiversion::multiversion(targets("x86_64+avx512f", "x86_64+avx2", "aarch64+neon"))]
+fn minmax_masked<T: NativePType + PartialOrd + Bounded>(
+    values: &[T],
+    validity: &BitBuffer,
+) -> (T, T) {
+    let hi = T::max_value();
+    let lo = T::min_value();
+    let mut vmin = hi;
+    let mut vmax = lo;
+    validity.zip_lanes(values, |v, valid| {
+        let for_min = if valid { v } else { hi };
+        let for_max = if valid { v } else { lo };
+        if for_min < vmin {
+            vmin = for_min;
+        }
+        if for_max > vmax {
+            vmax = for_max;
+        }
+    });
+    (vmin, vmax)
 }

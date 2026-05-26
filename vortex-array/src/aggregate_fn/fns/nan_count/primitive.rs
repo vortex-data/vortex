@@ -27,16 +27,15 @@ fn compute_nan_count_with_validity<T: NativePType>(values: &[T], validity: Mask)
     match validity {
         Mask::AllTrue(_) => values.iter().filter(|v| v.is_nan()).count(),
         Mask::AllFalse(_) => 0,
-        // TODO(perf): per-bit `zip + filter_map + filter + count` is scalar and mispredicts on
-        // null-bearing data. Replace with a branch-free walk via `BitBuffer::zip_lanes`
-        // (`count += (valid & is_nan) as usize`). Measured ~1.77x at 50% nulls. See
-        // `docs/developer-guide/internals/validity-iteration.md`.
-        Mask::Values(v) => values
-            .iter()
-            .zip(v.bit_buffer().iter())
-            .filter_map(|(v, m)| m.then_some(v))
-            .filter(|v| v.is_nan())
-            .count(),
+        // Branch-free: `count += valid & is_nan` is an order-independent count with no per-lane
+        // branch, so it does not mispredict on null-bearing data. See the `BitBuffer` docs.
+        Mask::Values(v) => {
+            let mut count = 0usize;
+            v.bit_buffer().zip_lanes(values, |x, valid| {
+                count += (valid & x.is_nan()) as usize;
+            });
+            count
+        }
     }
 }
 
