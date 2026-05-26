@@ -10,9 +10,13 @@
 //! exactly one byte of the output bitmap — no serial bit-packing. A scalar reconstruct path (which
 //! is itself competitive with arrow) is used when AVX-512 is unavailable.
 
+use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::Nullability;
 use vortex_array::scalar_fn::fns::between::BetweenOptions;
 use vortex_array::scalar_fn::fns::between::StrictComparison;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
@@ -24,26 +28,30 @@ use vortex_error::VortexResult;
 use crate::DecimalByteParts;
 use crate::decimal_byte_parts::DecimalBytePartsArrayExt;
 
-/// Materialize the high (signed `i64`) and low (unsigned `u64`) limbs of a two-limb array.
-///
-/// The caller must check [`DecimalBytePartsArrayExt::lower`] is present first; this panics
-/// otherwise.
-pub(crate) fn materialize_limbs(
+/// Materialize the two limbs, run a fused bit-kernel over them, and wrap the result as a boolean
+/// array carrying the combined validity. Shared entry point for the two-limb `compare`/`between`
+/// paths: the caller supplies a kernel mapping the high (`i64`) and low (`u64`) limb slices to a
+/// packed [`BitBuffer`].
+pub(crate) fn eval(
     arr: &ArrayView<'_, DecimalByteParts>,
+    nullability: Nullability,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<(PrimitiveArray, PrimitiveArray)> {
+    kernel: impl FnOnce(&[i64], &[u64]) -> BitBuffer,
+) -> VortexResult<ArrayRef> {
     let high = arr.msp().clone().execute::<PrimitiveArray>(ctx)?;
     let low = arr
         .lower()
         .vortex_expect("two-limb path requires a lower limb")
         .clone()
         .execute::<PrimitiveArray>(ctx)?;
-    Ok((high, low))
+    let validity = high.validity()?.union_nullability(nullability);
+    let bits = kernel(high.as_slice::<i64>(), low.as_slice::<u64>());
+    Ok(BoolArray::new(bits, validity).into_array())
 }
 
 /// Reconstruct the i128 value from its limbs: sign-extend the high limb, zero-extend the low limb.
 #[inline(always)]
-pub(crate) fn reconstruct(high: i64, low: u64) -> i128 {
+fn reconstruct(high: i64, low: u64) -> i128 {
     ((high as i128) << 64) | (low as i128)
 }
 

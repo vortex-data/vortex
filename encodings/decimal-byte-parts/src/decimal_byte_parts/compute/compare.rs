@@ -7,7 +7,6 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::IntegerPType;
@@ -29,7 +28,7 @@ use crate::DecimalByteParts;
 use crate::decimal_byte_parts::DecimalBytePartsArrayExt;
 use crate::decimal_byte_parts::compute::compare::Sign::Positive;
 use crate::decimal_byte_parts::compute::two_limb::compare_bits;
-use crate::decimal_byte_parts::compute::two_limb::materialize_limbs;
+use crate::decimal_byte_parts::compute::two_limb::eval;
 
 impl CompareKernel for DecimalByteParts {
     fn compare(
@@ -56,13 +55,9 @@ impl CompareKernel for DecimalByteParts {
             let Some(rhs_i128) = rhs_decimal.cast::<i128>() else {
                 return Ok(None);
             };
-            return Ok(Some(two_limb_compare(
-                &lhs,
-                rhs_i128,
-                operator,
-                nullability,
-                ctx,
-            )?));
+            return Ok(Some(eval(&lhs, nullability, ctx, |high, low| {
+                compare_bits(high, low, rhs_i128, operator)
+            })?));
         }
 
         let scalar_type = lhs.msp().dtype().with_nullability(nullability);
@@ -99,25 +94,6 @@ impl CompareKernel for DecimalByteParts {
             }
         }
     }
-}
-
-/// Compare the two-limb array against the constant `rhs` in a single fused pass, dispatching to the
-/// AVX-512 limb kernel when available (see [`compare_bits`]).
-fn two_limb_compare(
-    lhs: &ArrayView<'_, DecimalByteParts>,
-    rhs: i128,
-    operator: CompareOperator,
-    nullability: Nullability,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    let (high, low) = materialize_limbs(lhs, ctx)?;
-    let validity = high.validity()?.union_nullability(nullability);
-    let high = high.as_slice::<i64>();
-    let low = low.as_slice::<u64>();
-    assert_eq!(high.len(), low.len(), "limb lengths must match");
-
-    let bits = compare_bits(high, low, rhs, operator);
-    Ok(BoolArray::new(bits, validity).into_array())
 }
 
 // Used to represent the overflow direction when trying to

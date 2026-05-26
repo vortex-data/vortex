@@ -5,10 +5,8 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::between::BetweenKernel;
 use vortex_array::scalar_fn::fns::between::BetweenOptions;
@@ -19,7 +17,7 @@ use crate::DecimalByteParts;
 use crate::decimal_byte_parts::DecimalBytePartsArrayExt;
 use crate::decimal_byte_parts::compute::compare::decimal_value_wrapper_to_primitive;
 use crate::decimal_byte_parts::compute::two_limb::between_bits;
-use crate::decimal_byte_parts::compute::two_limb::materialize_limbs;
+use crate::decimal_byte_parts::compute::two_limb::eval;
 
 impl BetweenKernel for DecimalByteParts {
     fn between(
@@ -57,14 +55,9 @@ impl BetweenKernel for DecimalByteParts {
             else {
                 return Ok(None);
             };
-            return Ok(Some(two_limb_between(
-                &arr,
-                lower_i128,
-                upper_i128,
-                options,
-                nullability,
-                ctx,
-            )?));
+            return Ok(Some(eval(&arr, nullability, ctx, |high, low| {
+                between_bits(high, low, lower_i128, upper_i128, options)
+            })?));
         }
 
         let scalar_type = arr.msp().dtype().with_nullability(nullability);
@@ -96,26 +89,6 @@ impl BetweenKernel for DecimalByteParts {
             )
             .map(Some)
     }
-}
-
-/// Evaluate `lower <= value <= upper` (respecting strictness) over the two-limb representation in a
-/// single fused pass, dispatching to the AVX-512 limb kernel when available (see [`between_bits`]).
-fn two_limb_between(
-    arr: &ArrayView<'_, DecimalByteParts>,
-    lower: i128,
-    upper: i128,
-    options: &BetweenOptions,
-    nullability: Nullability,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    let (high, low) = materialize_limbs(arr, ctx)?;
-    let validity = high.validity()?.union_nullability(nullability);
-    let high = high.as_slice::<i64>();
-    let low = low.as_slice::<u64>();
-    assert_eq!(high.len(), low.len(), "limb lengths must match");
-
-    let bits = between_bits(high, low, lower, upper, options);
-    Ok(BoolArray::new(bits, validity).into_array())
 }
 
 #[cfg(test)]
