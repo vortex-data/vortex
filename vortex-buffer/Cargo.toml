@@ -37,8 +37,14 @@ vortex-error = { workspace = true }
 workspace = true
 
 [dev-dependencies]
+# TEMP: arrow-{array,cast,schema} are only used by the cast_to bench for cross-impl
+# performance comparisons. Drop them when the bench is removed.
+arrow-array = { workspace = true }
+arrow-cast = { workspace = true }
+arrow-schema = { workspace = true }
 divan = { workspace = true }
 num-traits = { workspace = true }
+rand = { workspace = true }
 rstest = { workspace = true }
 
 [[bench]]
@@ -47,4 +53,8 @@ harness = false
 
 [[bench]]
 name = "vortex_bitbuffer"
+harness = false
+
+[[bench]]
+name = "cast_to"
 harness = false

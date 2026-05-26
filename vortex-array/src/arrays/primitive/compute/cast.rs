@@ -5,6 +5,7 @@ use num_traits::AsPrimitive;
 use num_traits::NumCast;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_buffer::try_map_with_mask;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -143,13 +144,22 @@ where
         )?
         .freeze(),
         Mask::AllFalse(_) => BufferMut::<T>::zeroed(values.len()).freeze(),
-        Mask::Values(m) => BufferMut::try_from_trusted_len_iter(
-            values.iter().zip(m.bit_buffer().iter()).map(|(&v, valid)| {
-                let factor = if valid { F::one() } else { F::zero() };
-                <T as NumCast>::from(v * factor).ok_or_else(overflow)
-            }),
-        )?
-        .freeze(),
+        Mask::Values(m) => {
+            let mut buffer = BufferMut::<T>::with_capacity(values.len());
+            try_map_with_mask(
+                values,
+                m.bit_buffer(),
+                &mut buffer.spare_capacity_mut()[..values.len()],
+                |v, valid| {
+                    let factor = if valid { F::one() } else { F::zero() };
+                    <T as NumCast>::from(v * factor)
+                },
+            )
+            .map_err(|_| overflow())?;
+            // SAFETY: try_map_with_mask returned Ok, so it initialized every lane.
+            unsafe { buffer.set_len(values.len()) };
+            buffer.freeze()
+        }
     };
 
     Ok(PrimitiveArray::new(buffer, new_validity).into_array())
