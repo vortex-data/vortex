@@ -61,12 +61,12 @@ where
                 let mut p_cur: usize = 0;
                 chunks.for_each_unpacked_chunk(|block, range| {
                     splice_patches::<T, I>(block, range.start, &mut p_cur, p_idx, p_val, p_off);
-                    write_block(words, range, block, &predicate);
+                    pack_predicate_block(words, range, block, &predicate);
                 });
             });
         } else {
             chunks.for_each_unpacked_chunk(|block, range| {
-                write_block(words, range, block, &predicate);
+                pack_predicate_block(words, range, block, &predicate);
             });
         }
     }
@@ -105,10 +105,9 @@ fn splice_patches<T, I>(
 }
 
 /// Fold `predicate` over `block`, packing 64 bools into a `u64` per inner-loop pass and
-/// writing the words directly into `words` at `range.start`. Auto-vectorises into the same
-/// `pcmpeq + psllq + por` shape that arrow-ord's `apply_op` lowers to.
+/// writing the words directly into `words` at `range.start`.
 #[inline]
-fn write_block<T, P>(words: &mut [u64], range: Range<usize>, block: &[T], predicate: &P)
+fn pack_predicate_block<T, P>(words: &mut [u64], range: Range<usize>, block: &[T], predicate: &P)
 where
     T: Copy,
     P: Fn(T) -> bool,
@@ -122,45 +121,37 @@ where
 
     if start_bit.is_multiple_of(64) {
         let mut word_idx = start_bit / 64;
-        let full_words = active_len / 64;
-        for w in 0..full_words {
-            let mut packed = 0u64;
-            for b in 0..64 {
-                // SAFETY: w * 64 + b < full_words * 64 <= block.len().
-                let v = unsafe { *block.get_unchecked(w * 64 + b) };
-                packed |= (predicate(v) as u64) << b;
-            }
-            // SAFETY: `range.end` is bounded by the original array length, and `words`
-            // is allocated for exactly that many bits.
-            unsafe {
-                *words.get_unchecked_mut(word_idx) = packed;
-            }
+        let mut chunks = block.chunks_exact(64);
+
+        for chunk in chunks.by_ref() {
+            words[word_idx] = pack_predicate_word(chunk, predicate);
             word_idx += 1;
         }
-        let tail = active_len % 64;
-        if tail > 0 {
-            let base = full_words * 64;
-            let mut packed = 0u64;
-            for b in 0..tail {
-                // SAFETY: base + b < block.len().
-                let v = unsafe { *block.get_unchecked(base + b) };
-                packed |= (predicate(v) as u64) << b;
-            }
-            unsafe {
-                *words.get_unchecked_mut(word_idx) = packed;
-            }
+
+        let tail = chunks.remainder();
+        if !tail.is_empty() {
+            words[word_idx] = pack_predicate_word(tail, predicate);
         }
     } else {
         // Unaligned cursor — array sliced at a non-64-aligned offset. Per-bit OR.
-        for b in 0..active_len {
-            // SAFETY: b < block.len().
-            let v = unsafe { *block.get_unchecked(b) };
-            if predicate(v) {
-                let bit_pos = start_bit + b;
-                unsafe {
-                    *words.get_unchecked_mut(bit_pos / 64) |= 1u64 << (bit_pos % 64);
-                }
+        for (bit_offset, &value) in block.iter().enumerate() {
+            if predicate(value) {
+                let bit_pos = start_bit + bit_offset;
+                words[bit_pos / 64] |= 1u64 << (bit_pos % 64);
             }
         }
     }
+}
+
+#[inline]
+fn pack_predicate_word<T, P>(values: &[T], predicate: &P) -> u64
+where
+    T: Copy,
+    P: Fn(T) -> bool,
+{
+    let mut packed = 0u64;
+    for (bit_idx, &value) in values.iter().enumerate() {
+        packed |= (predicate(value) as u64) << bit_idx;
+    }
+    packed
 }
