@@ -54,13 +54,15 @@ impl FilterReduce for Dict {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     #[expect(unused_imports)]
     use itertools::Itertools;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     #[expect(deprecated)]
     use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
@@ -79,6 +81,11 @@ mod test {
     use crate::dtype::Nullability;
     use crate::dtype::PType::I32;
     use crate::scalar_fn::fns::operators::Operator;
+    use crate::session::ArraySession;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+
     #[test]
     fn canonicalise_nullable_primitive() {
         let values: Vec<Option<i32>> = (0..65)
@@ -92,7 +99,7 @@ mod test {
 
         let dict = dict_encode(
             &PrimitiveArray::from_option_iter(values.clone()).into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
         #[expect(deprecated)]
@@ -110,7 +117,7 @@ mod test {
 
         let dict = dict_encode(
             &expected.clone().into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
         #[expect(deprecated)]
@@ -126,7 +133,7 @@ mod test {
 
         let dict = dict_encode(
             &expected.clone().into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
         #[expect(deprecated)]
@@ -144,7 +151,7 @@ mod test {
         assert_eq!(reference.len(), 6);
         let dict = dict_encode(
             &reference.clone().into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
         #[expect(deprecated)]
@@ -168,11 +175,8 @@ mod test {
             Some(1),
             Some(5),
         ]);
-        let dict = dict_encode(
-            &reference.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let dict =
+            dict_encode(&reference.into_array(), &mut SESSION.create_execution_ctx()).unwrap();
         dict.slice(1..4).unwrap()
     }
 
@@ -192,7 +196,7 @@ mod test {
     fn test_mask_dict_array() {
         let array = dict_encode(
             &buffer![2, 0, 2, 0, 10].into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
         test_mask_conformance(&array.into_array());
@@ -200,7 +204,7 @@ mod test {
         let array = dict_encode(
             &PrimitiveArray::from_option_iter([Some(2), None, Some(2), Some(0), Some(10)])
                 .into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
         test_mask_conformance(&array.into_array());
@@ -217,7 +221,7 @@ mod test {
                 DType::Utf8(Nullability::Nullable),
             )
             .into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
         test_mask_conformance(&array.into_array());
@@ -227,7 +231,7 @@ mod test {
     fn test_filter_dict_array() {
         let array = dict_encode(
             &buffer![2, 0, 2, 0, 10].into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
         test_filter_conformance(&array.into_array());
@@ -235,7 +239,7 @@ mod test {
         let array = dict_encode(
             &PrimitiveArray::from_option_iter([Some(2), None, Some(2), Some(0), Some(10)])
                 .into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
         test_filter_conformance(&array.into_array());
@@ -252,7 +256,7 @@ mod test {
                 DType::Utf8(Nullability::Nullable),
             )
             .into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
         test_filter_conformance(&array.into_array());
@@ -262,7 +266,7 @@ mod test {
     fn test_take_dict() {
         let array = dict_encode(
             &buffer![1, 2].into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
 
@@ -279,7 +283,7 @@ mod test {
     fn test_take_dict_conformance() {
         let array = dict_encode(
             &buffer![2, 0, 2, 0, 10].into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
         test_take_conformance(&array.into_array());
@@ -287,7 +291,7 @@ mod test {
         let array = dict_encode(
             &PrimitiveArray::from_option_iter([Some(2), None, Some(2), Some(0), Some(10)])
                 .into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
         test_take_conformance(&array.into_array());
@@ -304,7 +308,7 @@ mod test {
                 DType::Utf8(Nullability::Nullable),
             )
             .into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
         test_take_conformance(&array.into_array());
@@ -313,11 +317,13 @@ mod test {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
@@ -326,35 +332,39 @@ mod tests {
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::session::ArraySession;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[rstest]
     // Primitive arrays
-    #[case::dict_i32(dict_encode(&buffer![1i32, 2, 3, 2, 1].into_array(), &mut LEGACY_SESSION.create_execution_ctx()).unwrap())]
+    #[case::dict_i32(dict_encode(&buffer![1i32, 2, 3, 2, 1].into_array(), &mut SESSION.create_execution_ctx()).unwrap())]
     #[case::dict_nullable_codes(DictArray::try_new(
         buffer![0u32, 1, 2, 2, 0].into_array(),
         PrimitiveArray::from_option_iter([Some(10), Some(20), None]).into_array(),
     ).unwrap())]
     #[case::dict_nullable_values(dict_encode(
         &PrimitiveArray::from_option_iter([Some(1i32), None, Some(2), Some(1), None]).into_array()
-    , &mut LEGACY_SESSION.create_execution_ctx()).unwrap())]
-    #[case::dict_u64(dict_encode(&buffer![100u64, 200, 100, 300, 200].into_array(), &mut LEGACY_SESSION.create_execution_ctx()).unwrap())]
+    , &mut SESSION.create_execution_ctx()).unwrap())]
+    #[case::dict_u64(dict_encode(&buffer![100u64, 200, 100, 300, 200].into_array(), &mut SESSION.create_execution_ctx()).unwrap())]
     // String arrays
     #[case::dict_str(dict_encode(
         &VarBinArray::from_iter(
             ["hello", "world", "hello", "test", "world"].map(Some),
             DType::Utf8(Nullability::NonNullable),
         ).into_array()
-    , &mut LEGACY_SESSION.create_execution_ctx()).unwrap())]
+    , &mut SESSION.create_execution_ctx()).unwrap())]
     #[case::dict_nullable_str(dict_encode(
         &VarBinArray::from_iter(
             [Some("hello"), None, Some("world"), Some("hello"), None],
             DType::Utf8(Nullability::Nullable),
         ).into_array()
-    , &mut LEGACY_SESSION.create_execution_ctx()).unwrap())]
+    , &mut SESSION.create_execution_ctx()).unwrap())]
     // Edge cases
-    #[case::dict_single(dict_encode(&buffer![42i32].into_array(), &mut LEGACY_SESSION.create_execution_ctx()).unwrap())]
-    #[case::dict_all_same(dict_encode(&buffer![5i32, 5, 5, 5, 5].into_array(), &mut LEGACY_SESSION.create_execution_ctx()).unwrap())]
-    #[case::dict_large(dict_encode(&PrimitiveArray::from_iter((0..1000).map(|i| i % 10)).into_array(), &mut LEGACY_SESSION.create_execution_ctx()).unwrap())]
+    #[case::dict_single(dict_encode(&buffer![42i32].into_array(), &mut SESSION.create_execution_ctx()).unwrap())]
+    #[case::dict_all_same(dict_encode(&buffer![5i32, 5, 5, 5, 5].into_array(), &mut SESSION.create_execution_ctx()).unwrap())]
+    #[case::dict_large(dict_encode(&PrimitiveArray::from_iter((0..1000).map(|i| i % 10)).into_array(), &mut SESSION.create_execution_ctx()).unwrap())]
     fn test_dict_consistency(#[case] array: DictArray) {
         test_array_consistency(&array.into_array());
     }
