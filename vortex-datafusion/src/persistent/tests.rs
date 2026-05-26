@@ -2,10 +2,16 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::anyhow;
 use datafusion::arrow::array::Int32Array;
+use datafusion::arrow::array::Int64Array;
 use datafusion::arrow::array::RecordBatch;
+use datafusion::arrow::array::StringArray;
+use datafusion::arrow::datatypes::DataType as ArrowDataType;
+use datafusion::arrow::datatypes::Field as ArrowField;
+use datafusion::arrow::datatypes::Schema as ArrowSchema;
 use datafusion::arrow::util::pretty::pretty_format_batches;
 use datafusion::datasource::provider::DefaultTableFactory;
 use datafusion::execution::SessionStateBuilder;
@@ -143,6 +149,91 @@ async fn test_query_file(#[values(Some(1), None)] limit: Option<usize>) -> anyho
         .await?;
 
     assert_eq!(read_row_count, limit.unwrap_or(8));
+
+    Ok(())
+}
+
+/// A/B benchmark for the SQL projection-pushdown of `octet_length`.
+///
+/// Writes a wide, FSST-friendly URL column (the default write path compresses with BtrBlocks,
+/// which encodes URL strings as FSST), then times `SELECT sum(octet_length(url))` with projection
+/// pushdown disabled (DataFusion materializes the column and runs the Arrow kernel) versus enabled
+/// (the length is pushed into the Vortex scan, where the FSST reduce returns the stored lengths
+/// without decompressing).
+///
+/// Run with:
+/// ```text
+/// cargo test -p vortex-datafusion --release --lib \
+///     persistent::tests::bench_octet_length_projection_pushdown -- --ignored --nocapture
+/// ```
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "benchmark, run manually with --ignored --nocapture"]
+async fn bench_octet_length_projection_pushdown() -> anyhow::Result<()> {
+    let num_rows = 4_000_000usize;
+
+    let ids = Int64Array::from_iter_values((0..num_rows as i64).map(|i| i % 1000));
+    let urls = StringArray::from_iter_values((0..num_rows).map(|i| {
+        let path_repeats = (i % 16) + 1;
+        format!(
+            "https://example.com/path/{}/{}?q={}",
+            i % 4096,
+            "segment/".repeat(path_repeats),
+            i
+        )
+    }));
+    let schema = Arc::new(ArrowSchema::new(vec![
+        ArrowField::new("id", ArrowDataType::Int64, false),
+        ArrowField::new("url", ArrowDataType::Utf8, false),
+    ]));
+    let batch = RecordBatch::try_new(schema, vec![Arc::new(ids), Arc::new(urls)])?;
+
+    // A bare projection (not wrapped in an aggregate) is what the projection-pushdown rule can
+    // absorb into the scan.
+    let sql = "SELECT octet_length(url) AS l FROM '/bench.vortex'";
+
+    let mut timings = Vec::new();
+    for projection_pushdown in [false, true] {
+        let ctx = TestSessionContext::new(projection_pushdown);
+        ctx.write_arrow_batch("bench.vortex", &batch).await?;
+
+        // Confirm where octet_length is evaluated (scan vs ProjectionExec above it).
+        let plan = ctx
+            .session
+            .sql(&format!("EXPLAIN {sql}"))
+            .await?
+            .collect()
+            .await?;
+        println!(
+            "--- plan (projection_pushdown={projection_pushdown}) ---\n{}",
+            pretty_format_batches(&plan)?
+        );
+
+        // Warm run (file open, planning), then a timed run that also re-derives the checksum.
+        let _warmup = ctx.session.sql(sql).await?.collect().await?;
+        let start = Instant::now();
+        let result = ctx.session.sql(sql).await?.collect().await?;
+        let elapsed = start.elapsed();
+
+        let mut total: i64 = 0;
+        for batch in &result {
+            let col = batch
+                .column(0)
+                .as_any()
+                .downcast_ref::<Int32Array>()
+                .ok_or_else(|| anyhow!("expected Int32 octet_length"))?;
+            total += col.iter().flatten().map(i64::from).sum::<i64>();
+        }
+        println!(
+            "projection_pushdown={projection_pushdown:<5}  time: {:>8.2} ms  sum(octet_length)={total}",
+            elapsed.as_secs_f64() * 1000.0
+        );
+        timings.push(elapsed);
+    }
+
+    println!(
+        "\nspeedup (pushdown vs no-pushdown): {:.2}x\n",
+        timings[0].as_secs_f64() / timings[1].as_secs_f64()
+    );
 
     Ok(())
 }
