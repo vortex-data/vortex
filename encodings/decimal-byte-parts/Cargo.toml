@@ -22,7 +22,6 @@ prost = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
-vortex-fastlanes = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 
@@ -36,7 +35,6 @@ divan = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { path = "../../vortex-array", features = ["_test-harness"] }
-vortex-btrblocks = { workspace = true }
 vortex-session = { workspace = true }
 
 [[bench]]

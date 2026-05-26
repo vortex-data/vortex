@@ -584,38 +584,6 @@ fn sum_byteparts_compute(bencher: Bencher, width: Width) {
     });
 }
 
-/// Sum over a *compressed* byte-parts column (parts encoded by the BtrBlocks compressor, e.g. FoR /
-/// bit-packing). The native kernel decodes each part via `as_primitive` before summing, so this
-/// shows whether compression helps the sum (it pays decode) — and that summing compressed
-/// byte-parts works at all (decode uses the parts' embedded vtables).
-#[divan::bench(args = WIDTHS)]
-fn sum_byteparts_compressed(bencher: Bencher, width: Width) {
-    use vortex_array::VortexSessionExecute;
-    use vortex_btrblocks::BtrBlocksCompressor;
-    use vortex_decimal_byte_parts::DecimalBytePartsArrayExt;
-
-    let session = session();
-    let mut ctx = session.create_execution_ctx();
-    let compressed = BtrBlocksCompressor::default()
-        .compress(&canonical(width, 0), &mut ctx)
-        .unwrap();
-    let bp = compressed.as_opt::<DecimalByteParts>().unwrap();
-    let msp = bp.msp().clone();
-    let lowers = bp.lower_parts();
-    let dtype = *compressed.dtype().as_decimal_opt().unwrap();
-
-    bencher
-        .with_inputs(|| {
-            (
-                DecimalByteParts::try_new_parts(msp.clone(), lowers.clone(), dtype)
-                    .unwrap()
-                    .into_array(),
-                session.create_execution_ctx(),
-            )
-        })
-        .bench_values(|(a, mut ctx)| sum(&a, &mut ctx).unwrap());
-}
-
 #[divan::bench(args = WIDTHS)]
 fn sum_arrow(bencher: Bencher, width: Width) {
     match width {
