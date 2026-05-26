@@ -20,7 +20,6 @@ anyhow = { workspace = true }
 cargo_metadata = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 prost-build = { workspace = true }
-public-api = { workspace = true }
 xshell = { workspace = true }
 
 [lints]
