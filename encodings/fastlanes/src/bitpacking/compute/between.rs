@@ -133,7 +133,7 @@ where
     stream_predicate::<T, _>(
         array,
         nullability,
-        |v| lower_fn(lower, v) && upper_fn(v, upper),
+        |v| lower_fn(lower, v) & upper_fn(v, upper),
         ctx,
     )
 }
