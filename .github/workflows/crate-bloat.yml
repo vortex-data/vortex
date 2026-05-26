@@ -31,15 +31,30 @@ jobs:
         with:
           tool: cargo-bloat
 
-      - name: Measure per-crate binary size
+      - name: Measure per-crate binary size vs develop
         shell: bash
         run: |
           set -Eeu -o pipefail -x
 
-          cargo bloat --package datafusion-bench --bin datafusion-bench \
-            --release --crates -n 0 --message-format json > bloat.json
+          bloat() {
+            cargo bloat --package datafusion-bench --bin datafusion-bench \
+              --release --crates -n 0 --message-format json
+          }
 
-          python3 scripts/crate-bloat.py bloat.json > comment.md
+          head_sha=$(git rev-parse HEAD)
+
+          # Measure the PR head.
+          bloat > bloat-head.json
+
+          # Measure develop on the same machine, reusing the target directory so
+          # only changed crates are rebuilt.
+          git fetch --no-tags --depth=1 origin develop
+          git checkout -f FETCH_HEAD
+          bloat > bloat-develop.json
+
+          # Restore the PR head and render with its copy of the script.
+          git checkout -f "$head_sha"
+          python3 scripts/crate-bloat.py bloat-head.json --base-file bloat-develop.json > comment.md
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment PR
