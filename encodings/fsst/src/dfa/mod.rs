@@ -235,33 +235,37 @@ impl<'a> LikeKind<'a> {
         Self::parse_literal_until_final_percent(pattern, 1).map(LikeKind::Contains)
     }
 
+    /// Parse `pattern[literal_start..]` as a literal terminated by a single
+    /// trailing `%`. Returns `None` if `_` or a non-final `%` is encountered.
+    ///
+    /// `literal` stays `None` until an escape forces us to materialize bytes;
+    /// from then on we push into the owned `Vec`. Otherwise we return a
+    /// borrowed slice straight from `pattern`.
     fn parse_literal_until_final_percent(
         pattern: &'a [u8],
         literal_start: usize,
     ) -> Option<Cow<'a, [u8]>> {
-        let mut literal = None;
+        let mut literal: Option<Vec<u8>> = None;
         let mut idx = literal_start;
         while idx < pattern.len() {
             match pattern[idx] {
                 b'\\' => {
+                    // Trailing `\` is treated as a literal backslash.
                     let escaped = pattern.get(idx + 1).copied().unwrap_or(b'\\');
                     literal
                         .get_or_insert_with(|| pattern[literal_start..idx].to_vec())
                         .push(escaped);
-                    idx += if idx + 1 < pattern.len() { 2 } else { 1 };
+                    idx = (idx + 2).min(pattern.len());
                 }
-                b'%' => {
-                    if idx + 1 != pattern.len() {
-                        return None;
-                    }
-                    let literal = match literal {
-                        Some(literal) => Cow::Owned(literal),
+                b'%' if idx + 1 == pattern.len() => {
+                    return Some(match literal {
+                        Some(buf) => Cow::Owned(buf),
                         None => Cow::Borrowed(&pattern[literal_start..idx]),
-                    };
-                    return Some(literal);
+                    });
                 }
-                b'_' => return None,
+                b'%' | b'_' => return None,
                 byte => {
+                    // No-op on the borrowed path; only push once we've started copying.
                     if let Some(literal) = &mut literal {
                         literal.push(byte);
                     }
