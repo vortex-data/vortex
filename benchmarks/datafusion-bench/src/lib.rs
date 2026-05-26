@@ -45,8 +45,11 @@ pub fn get_session_context() -> SessionContext {
         .build_arc()
         .expect("could not build runtime environment");
 
+    let projection_pushdown = std::env::var("VX_PROJECTION_PUSHDOWN")
+        .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
+        .unwrap_or(true);
     let factory = VortexFormatFactory::new().with_options(VortexTableOptions {
-        projection_pushdown: true,
+        projection_pushdown,
         ..Default::default()
     });
 
