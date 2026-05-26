@@ -1022,11 +1022,17 @@ pub fn B::copy_to_const_aligned<const A: usize>(&mut self, usize) -> vortex_buff
 
 pub fn vortex_buffer::collect_bool_word<F>(usize, F) -> u64 where F: core::ops::function::FnMut(usize) -> bool
 
+pub fn vortex_buffer::collect_bool_words<F>(&mut [u64], usize, F) where F: core::ops::function::FnMut(usize) -> bool
+
 pub fn vortex_buffer::get_bit(&[u8], usize) -> bool
 
 pub unsafe fn vortex_buffer::get_bit_unchecked(*const u8, usize) -> bool
 
+pub fn vortex_buffer::pack_bools_into_words<F>(&mut [u64], usize, usize, F) where F: core::ops::function::FnMut(usize) -> bool
+
 pub unsafe fn vortex_buffer::set_bit_unchecked(*mut u8, usize)
+
+pub fn vortex_buffer::splice_word_at_bit(&mut [u64], usize, u64)
 
 pub unsafe fn vortex_buffer::unset_bit_unchecked(*mut u8, usize)
 
