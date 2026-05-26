@@ -1995,6 +1995,353 @@
     });
   }
 
+  // Shared by the Current page's speedup charts.
+  var MONO_FONT = '"Geist Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace';
+
+  function cssVar(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+
+  // -----------------------------------------------------------------------
+  // Current page: per-query format-vs-format speedup distributions. Each figure
+  // holds one engine's full per-query/per-format matrix; two "A vs B" dropdowns
+  // pick the pair to race (default Vortex vs Parquet). The chart is a diverging
+  // horizontal bar of log2(B/A) per query with a 1x baseline: right = A faster
+  // (accent), left = B faster (bad). Tooltips carry the query + raw latencies.
+  // The sort control re-orders by speedup (default) or the suite's query order.
+  // -----------------------------------------------------------------------
+  var speedupChartEntries = [];
+  // Metric verb (from EngineData.metric) and its antonym for the losing side.
+  var SPEEDUP_ANTONYM = { faster: "slower", smaller: "larger" };
+  // Hover highlight: a gold outline reads on both the white (dark mode) and
+  // black (light mode) bars, where the default darken-on-hover is invisible.
+  var HOVER_GOLD = "#f0b429";
+
+  // Format a log2-speedup tick as a ratio: 0 -> "1x", 1 -> "2x", -1 -> "0.5x".
+  function fmtSpeedupTick(logVal) {
+    var r = Math.pow(2, logVal);
+    var s = r >= 100 ? String(Math.round(r)) : String(Math.round(r * 100) / 100);
+    return s + "×";
+  }
+
+  // Display rank (0 = top) of each point under a sort mode. Points keep their
+  // array index forever; only their rank (y-position) changes, so reordering
+  // animates as a vertical slide rather than bars morphing length in place.
+  function speedupRanks(points, mode) {
+    var n = points.length;
+    var rank = new Array(n);
+    if (mode === "query") {
+      for (var i = 0; i < n; i++) rank[i] = i;
+      return rank;
+    }
+    var idx = points.map(function (_, i) { return i; });
+    idx.sort(function (a, b) { return points[b].speedup - points[a].speedup; });
+    idx.forEach(function (origIdx, pos) { rank[origIdx] = pos; });
+    return rank;
+  }
+
+  // Geometric mean of positive, finite values (1 if none qualify).
+  function geomeanArr(xs) {
+    var v = xs.filter(function (x) { return x > 0 && isFinite(x); });
+    if (!v.length) return 1;
+    var s = 0;
+    for (var i = 0; i < v.length; i++) s += Math.log(v[i]);
+    return Math.exp(s / v.length);
+  }
+
+  function labelOf(ed, id) {
+    for (var i = 0; i < ed.formats.length; i++) {
+      if (ed.formats[i].id === id) return ed.formats[i].label;
+    }
+    return id;
+  }
+
+  // Mirror the hovered item onto the sibling chart(s) in the same grid (the
+  // other engine, or encode<->decode), so one query/dataset reads across both.
+  // `query == null` clears. Rather than drive Chart.js's stateful hover (whose
+  // style-restore is event-driven and leaves stale highlights on a fast swipe),
+  // we rebuild each sibling's whole backgroundColor array — every bar back to
+  // its win/loss colour, only the matched one gold — so nothing can accumulate.
+  function propagateHover(entry, query) {
+    if (entry._linkedQuery === query) return;
+    entry._linkedQuery = query;
+    var grid = entry.figure.closest(".speedup-grid");
+    var accent = cssVar("--accent"), bad = cssVar("--bad");
+    speedupChartEntries.forEach(function (other) {
+      if (other === entry || !other.chart || other.figure.closest(".speedup-grid") !== grid) return;
+      other.chart.data.datasets[0].backgroundColor = other.points.map(function (p) {
+        if (query != null && p.query === query) return HOVER_GOLD;
+        return p.speedup >= 1 ? accent : bad;
+      });
+      other.chart.update("none");
+    });
+  }
+
+  // Per-query speedup points for the current A-vs-B selection (query order):
+  // speedup = B_latency / A_latency, so > 1 means A is faster. Only queries
+  // that measured both formats appear.
+  function speedupPoints(ed, a, b) {
+    var pts = [];
+    ed.queries.forEach(function (q) {
+      var va = q.v[a], vb = q.v[b];
+      if (va > 0 && vb > 0) {
+        pts.push({ query: q.query, speedup: vb / va, aDisp: q.d[a], bDisp: q.d[b] });
+      }
+    });
+    return pts;
+  }
+
+  // Recompute everything for the current selection + sort and animate. Both the
+  // bar lengths (x) and the ranks (y) can change, so a selection switch slides
+  // and rescales; a pure sort switch only slides.
+  function renderSpeedup(entry) {
+    var ed = entry.ed;
+    var a = entry.aSel.value, b = entry.bSel.value;
+    var points = speedupPoints(ed, a, b);
+    entry.points = points;
+    var ranks = speedupRanks(points, entry.sortMode);
+    var accent = cssVar("--accent"), bad = cssVar("--bad");
+    var chart = entry.chart;
+    chart.data.datasets[0].data = points.map(function (p, i) {
+      return { x: Math.log2(p.speedup), y: ranks[i] };
+    });
+    chart.data.datasets[0].backgroundColor = points.map(function (p) {
+      return p.speedup >= 1 ? accent : bad;
+    });
+    chart.options.scales.y.max = Math.max(0.5, points.length - 0.5);
+    chart.options.scales.x.ticks.color = cssVar("--muted");
+    var aL = labelOf(ed, a), bL = labelOf(ed, b);
+    var metric = ed.metric || "faster", anti = SPEEDUP_ANTONYM[metric] || "slower";
+    var title = chart.options.scales.x.title;
+    title.text = "← " + bL + " " + metric + "      " + aL + " " + metric + " →";
+    title.color = cssVar("--faint");
+    chart.update();
+    // Headline reflects the chosen A vs B.
+    var speeds = points.map(function (p) { return p.speedup; });
+    var geo = geomeanArr(speeds);
+    var wins = speeds.filter(function (s) { return s >= 1; }).length;
+    var stat = geo >= 1 ? geo.toFixed(2) + "× " + metric : (1 / geo).toFixed(2) + "× " + anti;
+    if (entry.statEl) {
+      entry.statEl.innerHTML = escapeHtml(stat) + ' <span class="speedup-stat-note">(geo. mean)</span>';
+    }
+    if (entry.winsEl) entry.winsEl.textContent = aL + " wins " + wins + "/" + speeds.length;
+  }
+
+  // Sort switch: only the ranks (y) change, so the bars slide in place.
+  function applySpeedupSort(entry, mode) {
+    entry.sortMode = mode;
+    renderSpeedup(entry);
+  }
+
+  function buildSpeedupChart(figure) {
+    if (typeof Chart === "undefined") return;
+    var canvas = figure.querySelector('[data-role="speedup-canvas"]');
+    var dataNode = figure.querySelector('[data-role="speedup-data"]');
+    if (!canvas || !dataNode) return;
+    var ed;
+    try {
+      ed = JSON.parse(dataNode.textContent);
+    } catch (e) {
+      return;
+    }
+    if (!ed || !ed.queries || !ed.queries.length) return;
+    var aSel = figure.querySelector('[data-role="speedup-a"]');
+    var bSel = figure.querySelector('[data-role="speedup-b"]');
+    var line = cssVar("--line");
+    var fg = cssVar("--fg");
+    var wrap = figure.querySelector(".speedup-chart-wrap");
+    var h = (wrap && wrap.clientHeight) || 64 + ed.queries.length * 13;
+    var thickness = Math.max(4, Math.min(16, Math.floor((h - 44) / Math.max(1, ed.queries.length)) - 2));
+    var entry = {
+      chart: null, ed: ed, aSel: aSel, bSel: bSel,
+      statEl: figure.querySelector('[data-role="speedup-stat"]'),
+      winsEl: figure.querySelector('[data-role="speedup-wins"]'),
+      points: [], sortMode: "speedup", figure: figure,
+    };
+    entry.chart = new Chart(canvas, {
+      type: "bar",
+      data: {
+        datasets: [{
+          data: [],
+          backgroundColor: [],
+          borderWidth: 0,
+          barThickness: thickness,
+          // Hovered bar fills gold with a gold outline — reads clearly on both
+          // the white (dark mode) and black (light mode) bars.
+          hoverBackgroundColor: HOVER_GOLD,
+          hoverBorderColor: HOVER_GOLD,
+          hoverBorderWidth: 2,
+        }],
+      },
+      options: {
+        indexAxis: "y",
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 650, easing: "easeInOutQuart" },
+        layout: { padding: { right: 10, left: 2 } },
+        // Highlight the same item in the sibling chart(s) of this grid (the
+        // other engine, or encode<->decode) so a query reads across both.
+        onHover: function (e, els) {
+          propagateHover(entry, els.length ? entry.points[els[0].index].query : null);
+        },
+        scales: {
+          x: {
+            // Emphasise the 1x (log2 = 0) baseline; other gridlines stay faint.
+            grid: {
+              color: function (ctx) { return ctx.tick && ctx.tick.value === 0 ? fg : line; },
+              lineWidth: function (ctx) { return ctx.tick && ctx.tick.value === 0 ? 1.5 : 1; },
+              drawTicks: false,
+            },
+            border: { display: false },
+            ticks: {
+              stepSize: 1,
+              color: cssVar("--muted"),
+              font: { family: MONO_FONT, size: 12 },
+              callback: function (v) { return fmtSpeedupTick(v); },
+            },
+            title: { display: true, text: "", color: cssVar("--faint"), font: { family: MONO_FONT, size: 12 } },
+          },
+          // Linear rank axis (0 = top). Bars carry their own y, so this only
+          // bounds the range; ticks/labels are off (the tooltip names queries).
+          y: {
+            type: "linear",
+            reverse: true,
+            min: -0.5,
+            max: Math.max(0.5, ed.queries.length - 0.5),
+            grid: { display: false },
+            border: { display: false },
+            ticks: { display: false },
+          },
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            displayColors: false,
+            bodyFont: { family: MONO_FONT, size: 12 },
+            titleFont: { family: MONO_FONT, size: 12 },
+            callbacks: {
+              title: function (items) {
+                return items.length ? entry.points[items[0].dataIndex].query : "";
+              },
+              label: function (ctx) {
+                var p = entry.points[ctx.dataIndex];
+                if (!p) return "";
+                var aL = labelOf(ed, entry.aSel.value), bL = labelOf(ed, entry.bSel.value);
+                var metric = ed.metric || "faster", anti = SPEEDUP_ANTONYM[metric] || "slower";
+                var rel = p.speedup >= 1
+                  ? p.speedup.toFixed(2) + "× " + metric
+                  : (1 / p.speedup).toFixed(2) + "× " + anti;
+                return [aL + " " + rel, aL.toLowerCase() + " " + p.aDisp + "   " + bL.toLowerCase() + " " + p.bDisp];
+              },
+            },
+          },
+        },
+      },
+    });
+    speedupChartEntries.push(entry);
+    // Keep A and B distinct: if a change collides, bump the other select.
+    function onChange(changed) {
+      if (aSel.value === bSel.value) {
+        var other = changed === aSel ? bSel : aSel;
+        for (var i = 0; i < other.options.length; i++) {
+          if (other.options[i].value !== changed.value) { other.value = other.options[i].value; break; }
+        }
+      }
+      renderSpeedup(entry);
+    }
+    aSel.addEventListener("change", function () { onChange(aSel); });
+    bSel.addEventListener("change", function () { onChange(bSel); });
+    renderSpeedup(entry);
+  }
+
+  function initSpeedupCharts() {
+    document.querySelectorAll('[data-role="speedup-chart"]').forEach(buildSpeedupChart);
+  }
+
+  // Wire each section's Speedup/Query sort toggle. A click re-sorts every
+  // speedup chart inside the same `.current-group` section.
+  function initSpeedupSortControls() {
+    document.querySelectorAll('[data-role="speedup-sort"]').forEach(function (group) {
+      group.addEventListener("click", function (e) {
+        var btn = e.target.closest("[data-sort]");
+        if (!btn || !group.contains(btn)) return;
+        var mode = btn.getAttribute("data-sort");
+        group.querySelectorAll("[data-sort]").forEach(function (b) {
+          var on = b === btn;
+          b.classList.toggle("speedup-sort-btn--active", on);
+          b.setAttribute("aria-pressed", on ? "true" : "false");
+        });
+        var section = group.closest(".current-group");
+        speedupChartEntries.forEach(function (entry) {
+          if (section && section.contains(entry.figure)) applySpeedupSort(entry, mode);
+        });
+      });
+    });
+  }
+
+  // Theme flip: recolour bars + axis from the current points (no data rebuild,
+  // so no animation).
+  // Scale-factor toggle on a TPC section: show the chosen `.speedup-sf` set and
+  // hide the others, then resize the now-visible charts (they were 0-sized
+  // while hidden).
+  function initSfToggles() {
+    document.querySelectorAll('[data-role="sf-toggle"]').forEach(function (group) {
+      group.addEventListener("click", function (e) {
+        var btn = e.target.closest("[data-sf]");
+        if (!btn || btn.disabled || !group.contains(btn)) return;
+        var sf = btn.getAttribute("data-sf");
+        var section = group.closest(".current-group");
+        if (!section) return;
+        group.querySelectorAll("[data-sf]").forEach(function (b) {
+          var on = b === btn;
+          b.classList.toggle("dim-btn--active", on);
+          b.setAttribute("aria-pressed", on ? "true" : "false");
+        });
+        section.querySelectorAll(".speedup-sf").forEach(function (div) {
+          div.hidden = div.getAttribute("data-sf") !== sf;
+        });
+        speedupChartEntries.forEach(function (en) {
+          if (en.chart && en.chart.canvas && section.contains(en.chart.canvas)) {
+            var sfDiv = en.chart.canvas.closest(".speedup-sf");
+            if (sfDiv && !sfDiv.hidden) en.chart.resize();
+          }
+        });
+      });
+    });
+  }
+
+  function recolorSpeedupCharts() {
+    var accent = cssVar("--accent"), bad = cssVar("--bad");
+    speedupChartEntries.forEach(function (e) {
+      if (!e.chart) return;
+      e.chart.data.datasets[0].backgroundColor = e.points.map(function (p) {
+        return p.speedup >= 1 ? accent : bad;
+      });
+      e.chart.options.scales.x.ticks.color = cssVar("--muted");
+      e.chart.options.scales.x.title.color = cssVar("--faint");
+      e.chart.update();
+    });
+  }
+
+  // Collapse/expand a Current section by clicking its heading. The body
+  // (.speedup-grid / .current-figure) hides via a class; on expand we resize
+  // the section's charts, since canvases sized to 0 while their container was
+  // display:none.
+  function initCurrentCollapse() {
+    document.querySelectorAll('[data-role="current-collapse"]').forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var section = btn.closest(".current-group");
+        if (!section) return;
+        var collapsed = section.classList.toggle("current-group--collapsed");
+        btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        if (collapsed) return;
+        speedupChartEntries.forEach(function (e) {
+          if (e.chart && e.chart.canvas && section.contains(e.chart.canvas)) e.chart.resize();
+        });
+      });
+    });
+  }
+
   function syncFilterChipsUi() {
     var bar = document.querySelector('[data-role="global-filter-bar"]');
     if (!bar) return;
@@ -2454,6 +2801,9 @@
       try { localStorage.setItem("bench-theme", theme); } catch (e) {}
     }
     updateThemeButtons();
+    // Canvas fills are baked at draw time, so the Current charts need a
+    // re-render to pick up the flipped palette.
+    recolorSpeedupCharts();
   }
 
   function updateThemeButtons() {
@@ -2468,9 +2818,25 @@
   }
 
   function setAllGroups(open) {
+    // Previous Versions: the explorer's <details> disclosures.
     document.querySelectorAll("details.group-disclosure").forEach(function (disclosure) {
       disclosure.open = open;
       if (open) hydrateOpenGroup(disclosure);
+    });
+    // Latest Commit: the collapsible speedup sections.
+    document.querySelectorAll(".current-group").forEach(function (sec) {
+      var wasCollapsed = sec.classList.contains("current-group--collapsed");
+      sec.classList.toggle("current-group--collapsed", !open);
+      var btn = sec.querySelector('[data-role="current-collapse"]');
+      if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+      if (open && wasCollapsed) {
+        speedupChartEntries.forEach(function (en) {
+          if (en.chart && en.chart.canvas && sec.contains(en.chart.canvas)) {
+            var sfDiv = en.chart.canvas.closest(".speedup-sf");
+            if (!sfDiv || !sfDiv.hidden) en.chart.resize();
+          }
+        });
+      }
     });
   }
 
@@ -2581,6 +2947,11 @@
   function init() {
     initHeaderControls();
     initGlobalFilterBar();
+    // Build the Current page's speedup charts (no-op elsewhere).
+    initSpeedupCharts();
+    initSpeedupSortControls();
+    initSfToggles();
+    initCurrentCollapse();
     initGroupToolbars();
     initDetailsToggle();
     initGroupIntentPrefetch();

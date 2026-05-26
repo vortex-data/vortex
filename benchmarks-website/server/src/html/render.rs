@@ -13,7 +13,6 @@ use maud::PreEscaped;
 use maud::html;
 
 use super::FilterState;
-use super::filter::filter_dropdown;
 use super::filter::filter_state_script;
 use super::static_assets::versioned_asset;
 use crate::api;
@@ -26,14 +25,30 @@ pub(super) enum PageScripts {
     Chart,
 }
 
-/// Render the full HTML page wrapper around `body`. The header carries the
-/// global filter dropdown when `universe` is non-empty.
+/// Which top-level page is active, for the header nav's active state and to
+/// gate the explorer-only controls (Expand/Collapse/Filter).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum NavPage {
+    /// `/` - the showcase.
+    Overview,
+    /// `/current` - the synthesized Vortex-vs-Parquet comparisons.
+    Current,
+    /// `/raw` (and `/historic`, `/all`) - the as-collected experiment charts
+    /// and their drift over time.
+    RawData,
+    /// Permalink / error pages - no nav item highlighted.
+    Other,
+}
+
+/// Render the full HTML page wrapper around `body`. `_universe` is retained for
+/// callers but currently unused — the header filter is removed for now.
 pub(super) fn render_page(
     title: &str,
     _header_subtitle: &str,
     body: Markup,
     scripts: PageScripts,
-    universe: Option<&api::FilterUniverse>,
+    nav: NavPage,
+    _universe: Option<&api::FilterUniverse>,
     filter: &FilterState,
 ) -> Markup {
     let style_href = versioned_asset("/static/style.css");
@@ -54,7 +69,7 @@ pub(super) fn render_page(
             }
             body {
                 (filter_state_script(filter))
-                (site_header(universe, filter))
+                (site_header(nav))
                 main { (body) }
                 (site_footer())
                 @match scripts {
@@ -147,13 +162,12 @@ fn theme_bootstrap_script() -> Markup {
     }
 }
 
-fn site_header(universe: Option<&api::FilterUniverse>, filter: &FilterState) -> Markup {
+fn site_header(nav: NavPage) -> Markup {
     let black_logo = versioned_asset("/Vortex_Black_NoBG.png");
     let white_logo = versioned_asset("/Vortex_White_NoBG.png");
-    let show_filters = universe
-        .map(|u| !u.engines.is_empty() || !u.formats.is_empty())
-        .unwrap_or(false);
-    let active_count = filter.engines.len() + filter.formats.len();
+    // Expand/Collapse All act on both data tabs: the explorer's disclosures
+    // (Previous Versions) and the speedup sections (Latest Commit).
+    let show_group_controls = matches!(nav, NavPage::Current | NavPage::RawData);
     html! {
         header.sticky-header {
             div.header-content {
@@ -172,23 +186,14 @@ fn site_header(universe: Option<&api::FilterUniverse>, filter: &FilterState) -> 
                         img.site-logo.logo-dark src=(white_logo) alt="Vortex";
                     }
                     h1.site-title { "Vortex Benchmarks" }
-                }
-                div.header-center {
+                    // Nav lives in the left cluster (anchored to the brand) so
+                    // its position is identical on every page, regardless of
+                    // what the right-side actions add.
                     div.nav-controls
                         id="bench-nav-controls"
                         data-role="nav-controls"
-                        aria-label="Benchmark group controls" {
-                        button.control-btn type="button" data-action="expand-all" {
-                            (chevrons_down_icon())
-                            span { "Expand All" }
-                        }
-                        button.control-btn type="button" data-action="collapse-all" {
-                            (chevrons_up_icon())
-                            span { "Collapse All" }
-                        }
-                        @if show_filters {
-                            (filter_dropdown(universe.expect("show_filters guard"), filter, active_count))
-                        }
+                        aria-label="Site navigation" {
+                        (site_nav(nav))
                         // Mobile-only GitHub link rendered inside the
                         // hamburger panel. Hidden on desktop via CSS;
                         // the desktop GitHub link in `.header-right`
@@ -203,6 +208,18 @@ fn site_header(universe: Option<&api::FilterUniverse>, filter: &FilterState) -> 
                     }
                 }
                 div.header-right {
+                    @if show_group_controls {
+                        div.page-actions {
+                            button.control-btn type="button" data-action="expand-all" {
+                                (chevrons_down_icon())
+                                span { "Expand All" }
+                            }
+                            button.control-btn type="button" data-action="collapse-all" {
+                                (chevrons_up_icon())
+                                span { "Collapse All" }
+                            }
+                        }
+                    }
                     a.repo-link.repo-link-desktop
                         href="https://github.com/vortex-data/vortex"
                         rel="noopener noreferrer"
@@ -217,6 +234,30 @@ fn site_header(universe: Option<&api::FilterUniverse>, filter: &FilterState) -> 
                     }
                 }
             }
+        }
+    }
+}
+
+/// The primary page nav: Overview / Current / Historic. The active page gets
+/// `.site-nav-link--active` (and `aria-current="page"`). These are the three
+/// top-level views; permalink and error pages pass [`NavPage::Other`] so none
+/// is highlighted.
+fn site_nav(active: NavPage) -> Markup {
+    let link = |href: &str, label: &str, page: NavPage| {
+        let is_active = active == page;
+        html! {
+            a.site-nav-link.site-nav-link--active[is_active]
+                href=(href)
+                aria-current=[is_active.then_some("page")] {
+                (label)
+            }
+        }
+    };
+    html! {
+        nav.site-nav aria-label="Primary" {
+            (link("/", "Overview", NavPage::Overview))
+            (link("/current", "Latest Commit", NavPage::Current))
+            (link("/raw", "Previous Versions", NavPage::RawData))
         }
     }
 }
@@ -306,7 +347,7 @@ pub(super) fn error_page(status: StatusCode, message: &str) -> Response {
                 link rel="stylesheet" href=(style_href);
             }
             body {
-                (site_header(None, &FilterState::default()))
+                (site_header(NavPage::Other))
                 main {
                     p.empty { (message) }
                 }

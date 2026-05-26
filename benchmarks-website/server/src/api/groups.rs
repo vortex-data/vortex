@@ -207,7 +207,7 @@ pub(crate) fn collect_compression_time_group(conn: &Connection) -> Result<Option
         Ok(None)
     } else {
         Ok(Some(Group {
-            name: "Compression".into(),
+            name: "Compression Speed".into(),
             slug: GroupKey::CompressionTimeGroup.to_slug(),
             charts,
             summary: None,

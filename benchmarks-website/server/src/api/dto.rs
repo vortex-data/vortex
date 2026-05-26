@@ -32,7 +32,7 @@ pub const DEFAULT_COMMIT_WINDOW: u32 = 100;
 /// `server/ARCHITECTURE.md` → "Hot Read Path").
 pub const GROUP_ORDER: &[&str] = &[
     "Random Access",
-    "Compression",
+    "Compression Speed",
     "Compression Size",
     "Clickbench",
     "TPC-H (NVMe) (SF=1)",
@@ -56,6 +56,24 @@ pub fn group_sort_key(name: &str) -> (usize, &str) {
         .position(|&n| n == name)
         .unwrap_or(GROUP_ORDER.len());
     (pos, name)
+}
+
+/// Geomean Vortex-vs-Parquet query speedups backing the "scans" claim on the
+/// landing page. Each value is the geomean of per-query `parquet / vortex`
+/// latency ratios at the latest commit, datafusion engine, `nvme` storage, and
+/// the largest scale factor present. Values above 1.0 mean Vortex is faster; a
+/// field is `None` when the suite has no comparable rows.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ScanGeomeans {
+    /// Geomean over the scan-heavy TPC-H queries (Q1, Q6).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scan_heavy_tpch: Option<f64>,
+    /// Geomean over every TPC-H query.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tpch: Option<f64>,
+    /// Geomean over every TPC-DS query.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tpcds: Option<f64>,
 }
 
 /// Body of `GET /api/groups`: every group with its chart links and summary.

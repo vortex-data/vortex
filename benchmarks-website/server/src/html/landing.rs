@@ -45,6 +45,19 @@ pub(super) struct LandingGroup {
     /// the slugs server-side so the chart-card shell can carry
     /// `data-chart-slug` for the lazy fetch.
     pub(super) chart_links: Vec<api::ChartLink>,
+    /// Scale-factor selector for TPC query suites: the largest SF is current,
+    /// the rest link to their group pages. Empty for non-TPC and single-SF groups.
+    pub(super) scale_pills: Vec<ScalePill>,
+}
+
+/// One scale-factor option in a TPC suite's selector.
+pub(super) struct ScalePill {
+    /// Display label, e.g. `SF10`.
+    pub(super) label: String,
+    /// `/group/{slug}` target (ignored when `current`).
+    pub(super) slug: String,
+    /// Whether this is the SF shown by default (the largest available).
+    pub(super) current: bool,
 }
 
 /// Render the landing-page body - one `<section>` per group, each wrapping a
@@ -83,6 +96,7 @@ pub(super) fn landing_body(groups: &[LandingGroup], universe: &api::FilterUniver
                             span.group-count {
                                 (group.chart_links.len()) " chart" @if group.chart_links.len() != 1 { "s" }
                             }
+                            (scale_pills_markup(&group.scale_pills))
                         }
                     }
                 }
@@ -207,6 +221,26 @@ fn group_macro_row(label: &str, dim: &str, universe: &[String]) -> Markup {
 ///
 /// Returns an empty markup fragment when `description` is `None` so groups
 /// without a canonical blurb (e.g. vector-search groups) render unchanged.
+/// Render the scale-factor selector in a TPC group header: the current
+/// (largest) SF is a highlighted label, the others link to their group pages.
+/// Empty when there's nothing to switch between.
+pub(super) fn scale_pills_markup(pills: &[ScalePill]) -> Markup {
+    if pills.len() < 2 {
+        return html! {};
+    }
+    html! {
+        span.group-scale-pills aria-label="Scale factor" {
+            @for pill in pills {
+                @if pill.current {
+                    span.scale-pill.scale-pill--current { (pill.label) }
+                } @else {
+                    a.scale-pill href=(format!("/group/{}", pill.slug)) { (pill.label) }
+                }
+            }
+        }
+    }
+}
+
 pub(super) fn group_description_icon(description: Option<&str>) -> Markup {
     let Some(text) = description else {
         return html! {};

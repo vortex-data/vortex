@@ -27,6 +27,10 @@ use crate::api;
 /// Chip universes are sourced from [`api::collect_filter_universe`] so a new
 /// engine or format showing up in ingest automatically grows the panel;
 /// nothing is hard-coded.
+///
+/// Temporarily unrendered: the header filter was removed from the nav for now
+/// (see [`super::render`]). Retained so it can be re-added without re-deriving.
+#[allow(dead_code)]
 pub(super) fn filter_dropdown(
     universe: &api::FilterUniverse,
     filter: &FilterState,
@@ -56,6 +60,7 @@ pub(super) fn filter_dropdown(
 /// Render one row of chips inside the filter panel. `active_list` is empty
 /// when no filter is applied for this dimension — every chip renders active.
 /// When non-empty, only chips whose value is in the list render active.
+#[allow(dead_code)] // see `filter_dropdown`
 fn filter_row(label: &str, dim: &str, universe: &[String], active_list: &[String]) -> Markup {
     let dim_filtered = !active_list.is_empty();
     html! {

@@ -37,7 +37,7 @@ fn static_description(name: &str) -> Option<&'static str> {
         "Random Access" => {
             Some("Tests performance of selecting arbitrary row indices from a file on NVMe storage")
         }
-        "Compression" => Some(
+        "Compression Speed" => Some(
             "Measures encoding and decoding throughput (MB/s) for Vortex files and Parquet \
              files (with zstd page compression)",
         ),
@@ -133,7 +133,7 @@ mod tests {
             ),
         );
         assert_eq!(
-            group_description("Compression").as_deref(),
+            group_description("Compression Speed").as_deref(),
             Some(
                 "Measures encoding and decoding throughput (MB/s) for Vortex files and Parquet \
                  files (with zstd page compression)",

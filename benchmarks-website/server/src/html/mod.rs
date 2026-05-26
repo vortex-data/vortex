@@ -49,12 +49,16 @@
 //! - `static_assets` - `include_bytes!`'d JS/CSS/PNG handlers.
 
 mod chart;
+mod current;
 mod filter;
 mod landing;
 mod render;
+mod showcase;
 mod static_assets;
 mod summary;
 mod toolbar;
+
+use std::collections::HashMap;
 
 use axum::Router;
 use axum::extract::Path;
@@ -67,11 +71,15 @@ use axum::routing::get;
 use serde::Deserialize;
 
 use self::chart::chart_body;
+use self::current::current_body;
 use self::landing::LandingGroup;
+use self::landing::ScalePill;
 use self::landing::landing_body;
+use self::render::NavPage;
 use self::render::PageScripts;
 use self::render::error_page;
 use self::render::render_page;
+use self::showcase::showcase_body;
 use self::static_assets::serve_chart_init_js;
 use self::static_assets::serve_chart_js;
 use self::static_assets::serve_chart_zoom_js;
@@ -91,7 +99,13 @@ use crate::slug::GroupKey;
 /// HTML routes mounted under `/`.
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/", get(landing))
+        .route("/", get(showcase))
+        .route("/current", get(current))
+        .route("/raw", get(explorer))
+        // `/historic` and `/all` predate the Raw-data rename; keep them as
+        // aliases so old links and bookmarks still resolve.
+        .route("/historic", get(explorer))
+        .route("/all", get(explorer))
         .route("/chart/{slug}", get(chart_page))
         .route("/group/{slug}", get(group_page))
         .route("/static/chart.umd.js", get(serve_chart_js))
@@ -172,8 +186,52 @@ fn parse_csv(raw: Option<&str>) -> Vec<String> {
         .collect()
 }
 
-async fn landing(State(state): State<AppState>, Query(ui): Query<UiQuery>) -> Response {
-    // The landing page intentionally ignores `?n=` for group hydration. It
+/// Landing page (`/`): the "claim → why it matters → proof" lead. Charts live
+/// behind "Show me everything" (`/all`), so this body inlines no payloads and
+/// pulls only the precomputed scan geomeans.
+async fn showcase(State(state): State<AppState>) -> Response {
+    let generation = state.read_store.active();
+    render_page(
+        "Vortex Benchmarks",
+        "Vortex benchmarks (v3 alpha)",
+        showcase_body(&generation),
+        PageScripts::Empty,
+        NavPage::Overview,
+        None,
+        &FilterState::default(),
+    )
+    .into_response()
+}
+
+/// Current snapshot (`/current`): every benchmark's latest-commit values as
+/// server-rendered bar charts, grouped and defaulting to the largest scale
+/// factor (the same clustering the explorer uses). No Chart.js - the bars are
+/// pure HTML so the page is a fast, static, deep-linkable snapshot. Each group
+/// section carries an `id` ([`anchor_for`]) so the showcase can jump straight
+/// to it.
+async fn current(State(state): State<AppState>, Query(ui): Query<UiQuery>) -> Response {
+    let filter = ui.filter_state();
+    let generation = state.read_store.active();
+    let groups = generation.groups();
+    let universe = generation.filter_universe();
+    let landing_groups = collect_landing_groups(&generation, &groups, None);
+    render_page(
+        "Current - Vortex Benchmarks",
+        "Current snapshot",
+        current_body(&generation, &landing_groups),
+        PageScripts::Chart,
+        NavPage::Current,
+        Some(universe.as_ref()),
+        &filter,
+    )
+    .into_response()
+}
+
+/// Full benchmark explorer (`/all`): every group, chart, scale factor, and the
+/// per-chart viewer controls. This is the page the reskin produced; the
+/// showcase now sits in front of it.
+async fn explorer(State(state): State<AppState>, Query(ui): Query<UiQuery>) -> Response {
+    // The explorer intentionally ignores `?n=` for group hydration. It
     // always starts from the materialized latest-100 shards, and
     // `chart-init.js` fetches `/api/chart/{slug}?n=all` only after a user asks
     // for history beyond that loaded window.
@@ -192,6 +250,7 @@ async fn landing(State(state): State<AppState>, Query(ui): Query<UiQuery>) -> Re
         "Vortex benchmarks (v3 alpha)",
         landing_body(&landing_groups, universe.as_ref()),
         scripts,
+        NavPage::RawData,
         Some(universe.as_ref()),
         &filter,
     )
@@ -205,26 +264,97 @@ fn collect_landing_groups(
     groups: &[Group],
     open_slug: Option<&str>,
 ) -> Vec<LandingGroup> {
-    let mut out = Vec::with_capacity(groups.len());
+    // TPC query suites fan out one group per scale factor. Cluster them by
+    // (dataset, variant, storage) and render the largest SF by default, with a
+    // selector linking to the smaller ones. Everything else passes through.
+    type ClusterKey = (String, Option<String>, String);
+    enum Slot<'a> {
+        Standalone(&'a Group),
+        Cluster(ClusterKey),
+    }
+    let mut slots: Vec<Slot> = Vec::new();
+    let mut clusters: HashMap<ClusterKey, Vec<(f64, &Group)>> = HashMap::new();
     for group in groups {
-        let shard_prefix = format!(
+        match GroupKey::from_slug(&group.slug) {
+            Ok(GroupKey::QueryGroup {
+                dataset,
+                dataset_variant,
+                scale_factor: Some(sf),
+                storage,
+            }) => {
+                let key = (dataset, dataset_variant, storage);
+                let entry = clusters.entry(key.clone()).or_default();
+                if entry.is_empty() {
+                    slots.push(Slot::Cluster(key.clone()));
+                }
+                entry.push((sf.parse::<f64>().unwrap_or(0.0), group));
+            }
+            _ => slots.push(Slot::Standalone(group)),
+        }
+    }
+
+    let mk = |group: &Group, scale_pills: Vec<ScalePill>| LandingGroup {
+        name: group.name.clone(),
+        slug: group.slug.clone(),
+        generation: generation.id().to_string(),
+        shard_count: generation.group_shard_count(&group.slug),
+        shard_prefix: format!(
             "/api/artifacts/{}/groups/{}/shards/",
             generation.id(),
             group.slug
-        );
-        out.push(LandingGroup {
-            name: group.name.clone(),
-            slug: group.slug.clone(),
-            generation: generation.id().to_string(),
-            shard_count: generation.group_shard_count(&group.slug),
-            shard_prefix,
-            open: open_slug == Some(group.slug.as_str()),
-            description: group.description.clone(),
-            summary: group.summary.clone(),
-            chart_links: group.charts.clone(),
-        });
+        ),
+        open: open_slug == Some(group.slug.as_str()),
+        description: group.description.clone(),
+        summary: group.summary.clone(),
+        chart_links: group.charts.clone(),
+        scale_pills,
+    };
+
+    let mut out = Vec::with_capacity(slots.len());
+    for slot in slots {
+        match slot {
+            Slot::Standalone(group) => out.push(mk(group, Vec::new())),
+            Slot::Cluster(key) => {
+                let mut variants = clusters.remove(&key).expect("cluster present");
+                variants.sort_by(|a, b| a.0.total_cmp(&b.0));
+                let rep = variants.last().expect("non-empty cluster").1;
+                let pills = variants
+                    .iter()
+                    .map(|(sf, g)| ScalePill {
+                        label: format!("SF{}", fmt_scale(*sf)),
+                        slug: g.slug.clone(),
+                        current: g.slug == rep.slug,
+                    })
+                    .collect();
+                out.push(mk(rep, pills));
+            }
+        }
     }
     out
+}
+
+/// Stable DOM-id / URL-fragment anchor for a group slug. Group slugs carry
+/// base64 payloads and a `.` separator, so we map everything outside
+/// `[A-Za-z0-9]` to `-`. The showcase emits `/current#{anchor}` links and the
+/// Current page tags each group section with the same id, so deep links land
+/// on (and `:target`-highlight) the right section. Both sides call this, so
+/// they stay in lockstep by construction.
+fn anchor_for(slug: &str) -> String {
+    let mut s = String::with_capacity(slug.len() + 2);
+    s.push_str("g-");
+    for c in slug.chars() {
+        s.push(if c.is_ascii_alphanumeric() { c } else { '-' });
+    }
+    s
+}
+
+/// Format a scale factor without a trailing `.0` (`10.0` → `10`).
+fn fmt_scale(sf: f64) -> String {
+    if sf.fract() == 0.0 {
+        (sf as i64).to_string()
+    } else {
+        format!("{sf}")
+    }
 }
 
 async fn chart_page(
@@ -291,6 +421,7 @@ async fn chart_page(
         &subtitle,
         chart_body(&chart, &slug, &payload_json, &window),
         PageScripts::Chart,
+        NavPage::RawData,
         universe.as_deref(),
         &filter,
     )
@@ -326,6 +457,7 @@ async fn group_page(
         &subtitle,
         landing_body(&group_shell, universe.as_ref()),
         PageScripts::Chart,
+        NavPage::RawData,
         Some(universe.as_ref()),
         &filter,
     )

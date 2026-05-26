@@ -20,6 +20,7 @@ use duckdb::params_from_iter;
 use super::dto::ChartLink;
 use super::dto::QueryRanking;
 use super::dto::RandomAccessRanking;
+use super::dto::ScanGeomeans;
 use super::dto::Summary;
 use crate::slug::GroupKey;
 
@@ -374,4 +375,106 @@ fn geo_mean(values: &[f64]) -> Option<f64> {
         }
     }
     (n > 0).then(|| (sum_ln / n as f64).exp())
+}
+
+/// Compute the three scan-claim geomeans for the landing page. See
+/// [`ScanGeomeans`]. Each suite uses its largest scale factor present.
+pub(crate) fn collect_scan_geomeans(conn: &Connection) -> Result<ScanGeomeans> {
+    let tpch_sf = largest_query_sf(conn, "tpch")?;
+    let tpcds_sf = largest_query_sf(conn, "tpcds")?;
+    Ok(ScanGeomeans {
+        scan_heavy_tpch: match &tpch_sf {
+            Some(sf) => query_speedup_geomean(conn, "tpch", sf, Some(&[1, 6]))?,
+            None => None,
+        },
+        tpch: match &tpch_sf {
+            Some(sf) => query_speedup_geomean(conn, "tpch", sf, None)?,
+            None => None,
+        },
+        tpcds: match &tpcds_sf {
+            Some(sf) => query_speedup_geomean(conn, "tpcds", sf, None)?,
+            None => None,
+        },
+    })
+}
+
+/// Largest scale factor present for a query suite, by numeric value.
+fn largest_query_sf(conn: &Connection, dataset: &str) -> Result<Option<String>> {
+    let mut stmt = conn.prepare(
+        r#"
+        SELECT scale_factor
+          FROM query_measurements
+         WHERE dataset = ? AND scale_factor IS NOT NULL
+         GROUP BY scale_factor
+         ORDER BY CAST(scale_factor AS DOUBLE) DESC
+         LIMIT 1
+        "#,
+    )?;
+    let mut rows = stmt.query_map([dataset], |row| row.get::<_, String>(0))?;
+    match rows.next() {
+        Some(sf) => Ok(Some(sf?)),
+        None => Ok(None),
+    }
+}
+
+/// Geomean of per-query `parquet / vortex` latency ratios at the latest commit
+/// for `(dataset, scale_factor)`, datafusion engine, `nvme` storage. When
+/// `query_idx_filter` is set, restricts to those query indices (the scan-heavy
+/// set). Returns `None` when no comparable rows exist.
+fn query_speedup_geomean(
+    conn: &Connection,
+    dataset: &str,
+    scale_factor: &str,
+    query_idx_filter: Option<&[i32]>,
+) -> Result<Option<f64>> {
+    let mut sql = String::from(
+        r#"
+        SELECT CAST(p.value_ns AS DOUBLE) / CAST(v.value_ns AS DOUBLE)
+          FROM query_measurements v
+          JOIN query_measurements p
+            ON p.commit_sha = v.commit_sha
+           AND p.dataset = v.dataset
+           AND p.scale_factor IS NOT DISTINCT FROM v.scale_factor
+           AND p.storage = v.storage
+           AND p.engine = v.engine
+           AND p.query_idx = v.query_idx
+          JOIN commits c ON c.commit_sha = v.commit_sha
+         WHERE v.dataset = ?
+           AND v.scale_factor IS NOT DISTINCT FROM ?
+           AND v.storage = 'nvme'
+           AND v.engine = 'datafusion'
+           AND v.format = 'vortex-file-compressed'
+           AND p.format = 'parquet'
+           AND v.value_ns > 0
+           AND p.value_ns > 0
+           AND c.timestamp = (
+                SELECT MAX(c2.timestamp)
+                  FROM query_measurements v2
+                  JOIN commits c2 USING (commit_sha)
+                 WHERE v2.dataset = ?
+                   AND v2.scale_factor IS NOT DISTINCT FROM ?
+                   AND v2.storage = 'nvme'
+                   AND v2.engine = 'datafusion'
+                   AND v2.value_ns > 0
+           )
+        "#,
+    );
+    if let Some(qs) = query_idx_filter {
+        let list = qs
+            .iter()
+            .map(|q| q.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        sql.push_str(&format!("   AND v.query_idx IN ({list})\n"));
+    }
+    let mut stmt = conn.prepare(&sql)?;
+    let binds: Vec<Box<dyn ToSql>> = vec![
+        Box::new(dataset.to_string()),
+        Box::new(scale_factor.to_string()),
+        Box::new(dataset.to_string()),
+        Box::new(scale_factor.to_string()),
+    ];
+    let rows = stmt.query_map(params_from_iter(binds.iter()), |row| row.get::<_, f64>(0))?;
+    let ratios = rows.collect::<Result<Vec<_>, _>>()?;
+    Ok(geo_mean(&ratios))
 }

@@ -43,6 +43,7 @@ use crate::api::Group;
 use crate::api::GroupChartsResponse;
 use crate::api::GroupsResponse;
 use crate::api::NamedChartResponse;
+use crate::api::ScanGeomeans;
 use crate::api::Summary;
 use crate::db;
 use crate::db::DbHandle;
@@ -338,6 +339,7 @@ pub struct ReadGeneration {
     group_shards: HashMap<GroupShardKey, EncodedArtifact>,
     group_shard_counts: HashMap<String, usize>,
     chart_payloads: HashMap<String, Arc<ChartResponse>>,
+    scan_geomeans: ScanGeomeans,
 }
 
 impl ReadGeneration {
@@ -354,6 +356,11 @@ impl ReadGeneration {
     /// Structured filter universe for HTML rendering.
     pub fn filter_universe(&self) -> Arc<FilterUniverse> {
         Arc::clone(&self.filter_universe)
+    }
+
+    /// Precomputed scan-claim geomeans for the landing page.
+    pub fn scan_geomeans(&self) -> &ScanGeomeans {
+        &self.scan_geomeans
     }
 
     /// Materialized `/api/groups` body.
@@ -429,6 +436,7 @@ fn build_generation(conn: &mut Connection) -> Result<ReadGeneration> {
 fn build_generation_from_snapshot(conn: &Connection) -> Result<ReadGeneration> {
     let groups = Arc::new(api::collect_groups(conn)?);
     let filter_universe = Arc::new(api::collect_filter_universe(conn)?);
+    let scan_geomeans = api::collect_scan_geomeans(conn)?;
     let window = CommitWindow::Last(
         NonZeroU32::new(api::DEFAULT_COMMIT_WINDOW).expect("default window is non-zero"),
     );
@@ -557,6 +565,7 @@ fn build_generation_from_snapshot(conn: &Connection) -> Result<ReadGeneration> {
         group_shards,
         group_shard_counts,
         chart_payloads,
+        scan_geomeans,
     })
 }
 
@@ -604,6 +613,7 @@ mod tests {
             group_shards: HashMap::new(),
             group_shard_counts: HashMap::new(),
             chart_payloads: HashMap::new(),
+            scan_geomeans: ScanGeomeans::default(),
         })
     }
 
