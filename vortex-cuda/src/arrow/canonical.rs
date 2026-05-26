@@ -18,8 +18,6 @@ use vortex::array::arrays::struct_::StructDataParts;
 use vortex::array::arrays::varbinview::VarBinViewDataParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::validity::Validity;
-use vortex::buffer::BitBuffer;
-use vortex::buffer::BitBufferMut;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::DecimalType;
@@ -219,52 +217,17 @@ async fn export_arrow_validity_buffer(
 ) -> VortexResult<(Option<BufferHandle>, i64)> {
     let mask = validity.execute_mask(len, ctx.execution_ctx())?;
     let null_count = i64::try_from(mask.false_count())?;
-    if null_count == 0 {
-        return Ok((None, 0));
-    }
 
     let validity_buffer = match mask {
         Mask::AllTrue(_) => return Ok((None, 0)),
         Mask::AllFalse(len) => ByteBuffer::zeroed((len + arrow_offset).div_ceil(8)),
-        values @ Mask::Values(_) => {
-            to_arrow_validity_byte_buffer(values.into_bit_buffer(), arrow_offset)?
-        }
+        values @ Mask::Values(_) => values.into_bit_buffer().into_inner().2,
     };
     let validity = ctx
         .ensure_on_device(BufferHandle::new_host(validity_buffer))
         .await?;
 
     Ok((Some(validity), null_count))
-}
-
-/// Convert logical validity bits into an Arrow validity byte buffer.
-///
-/// Arrow consumers read validity at `ArrowArray.offset + row`, so
-/// non-zero offsets need leading padding bits before logical row 0.
-fn to_arrow_validity_byte_buffer(
-    logical_validity: BitBuffer,
-    arrow_offset: usize,
-) -> VortexResult<ByteBuffer> {
-    vortex_ensure!(
-        arrow_offset < 8,
-        "Arrow Device export only supports bit offsets smaller than one byte"
-    );
-
-    let arrow_bitmap = if logical_validity.offset() == arrow_offset {
-        logical_validity
-    } else {
-        // `arrow_offset` is where Arrow starts reading, not how many validity bits to skip.
-        // For validity bits [A, B, C] and offset 1, Arrow needs physical bits [_, A, B, C];
-        // slicing would produce [B, C] and drop the first validity bit.
-        let mut padded_validity =
-            BitBufferMut::with_capacity(logical_validity.len() + arrow_offset);
-        padded_validity.append_n(false, arrow_offset);
-        padded_validity.append_buffer(&logical_validity);
-        padded_validity.freeze()
-    };
-
-    let (_, _, bytes) = arrow_bitmap.into_inner();
-    Ok(bytes)
 }
 
 async fn export_struct(
@@ -395,7 +358,6 @@ mod tests {
     use vortex::array::arrays::TemporalArray;
     use vortex::array::arrays::VarBinViewArray;
     use vortex::array::validity::Validity;
-    use vortex::buffer::BitBuffer;
     use vortex::dtype::DecimalDType;
     use vortex::dtype::FieldNames;
     use vortex::error::VortexExpect;
@@ -403,12 +365,12 @@ mod tests {
     use vortex::extension::datetime::TimeUnit;
     use vortex::session::VortexSession;
 
-    use super::to_arrow_validity_byte_buffer;
     use crate::CudaExecutionCtx;
     use crate::arrow::ARROW_DEVICE_CUDA;
     use crate::arrow::ArrowArray;
     use crate::arrow::ArrowDeviceArray;
     use crate::arrow::DeviceArrayExt;
+    use crate::arrow::PrivateData;
     use crate::session::CudaSession;
 
     unsafe fn release_exported_array(array: *mut ArrowArray) {
@@ -622,29 +584,6 @@ mod tests {
         Ok(())
     }
 
-    // Check validity bitmaps are laid out for Arrow offset-based reads.
-    #[rstest]
-    #[case::offset_zero(BitBuffer::from_iter([false, true, true]), 0, [false, true, true])]
-    #[case::repack_for_arrow_offset(BitBuffer::from_iter([false, true, true]), 1, [false, true, true])]
-    #[case::repack_across_byte_boundary(BitBuffer::from_iter([false, true, true]), 7, [false, true, true])]
-    #[case::reuse_matching_offset(BitBuffer::from_iter([true, false, true]).slice(1..), 1, [false, true])]
-    #[case::reuse_matching_byte_boundary_offset(BitBuffer::from_iter([true, true, true, true, true, true, true, false, true]).slice(7..), 7, [false, true])]
-    #[case::normalize_nonzero_offset(BitBuffer::from_iter([true, false, true]).slice(1..), 0, [false, true])]
-    fn test_to_arrow_validity_byte_buffer(
-        #[case] logical_validity: BitBuffer,
-        #[case] arrow_offset: usize,
-        #[case] expected: impl AsRef<[bool]>,
-    ) -> VortexResult<()> {
-        let len = logical_validity.len();
-        let bytes = to_arrow_validity_byte_buffer(logical_validity, arrow_offset)?;
-        let exported = BitBuffer::new_with_offset(bytes, len, arrow_offset);
-
-        for (index, expected_value) in expected.as_ref().iter().copied().enumerate() {
-            assert_eq!(exported.value(index), expected_value);
-        }
-        Ok(())
-    }
-
     // Check device metadata for data-bearing and metadata-only exports.
     #[crate::test]
     async fn test_export_device_metadata() -> VortexResult<()> {
@@ -737,6 +676,32 @@ mod tests {
         )
         .await?;
         assert_eq!(bools.array.offset, 1);
+        unsafe { release_exported_array(&raw mut bools.array) };
+
+        Ok(())
+    }
+
+    // Check synthesized all-null bool validity is large enough for Arrow offset-based reads.
+    #[crate::test]
+    async fn test_export_all_null_sliced_bool_validity_covers_arrow_offset() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let mut bools = assert_nullable_export(
+            BoolArray::from_iter([None; 10]).into_array().slice(7..9)?,
+            2,
+            2,
+            &mut ctx,
+        )
+        .await?;
+        assert_eq!(bools.array.offset, 7);
+
+        let private_data = unsafe { &*bools.array.private_data.cast::<PrivateData>() };
+        let null_buffer = private_data.buffers[0]
+            .as_ref()
+            .vortex_expect("null buffer should be present");
+        assert_eq!(null_buffer.len(), 2);
+
         unsafe { release_exported_array(&raw mut bools.array) };
 
         Ok(())
