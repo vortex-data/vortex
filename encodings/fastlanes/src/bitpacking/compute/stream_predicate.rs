@@ -11,7 +11,8 @@
 //! resulting words straight into the output bit buffer, so the materialised primitive
 //! never appears anywhere.
 
-use lending_iterator::LendingIterator;
+use std::ops::Range;
+
 use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -29,7 +30,6 @@ use vortex_error::VortexResult;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::unpack_iter::BitPacked as BitPackedIter;
-use crate::unpack_iter::BitUnpackedChunks;
 
 /// Stream `predicate` over the unpacked values of a [`BitPackedArray`], one FastLanes
 /// block at a time, producing a [`BoolArray`].
@@ -46,7 +46,6 @@ where
     let len = array.len();
     let num_words = len.div_ceil(64);
     let mut words: BufferMut<u64> = BufferMut::zeroed(num_words);
-    let mut cursor: usize = 0;
 
     if len > 0 {
         let mut chunks = array.unpacked_chunks::<T>()?;
@@ -60,59 +59,21 @@ where
                 let p_idx = p_idx_arr.as_slice::<I>();
                 let p_val = p_val_arr.as_slice::<T>();
                 let mut p_cur: usize = 0;
-                cursor = walk_blocks(&mut chunks, len, cursor, |block, c| {
-                    splice_patches::<T, I>(block, c, &mut p_cur, p_idx, p_val, p_off);
-                    write_block(words, c, block, &predicate, len)
+                chunks.for_each_unpacked_chunk(|block, range| {
+                    splice_patches::<T, I>(block, range.start, &mut p_cur, p_idx, p_val, p_off);
+                    write_block(words, range, block, &predicate);
                 });
             });
         } else {
-            cursor = walk_blocks(&mut chunks, len, cursor, |block, c| {
-                write_block(words, c, block, &predicate, len)
+            chunks.for_each_unpacked_chunk(|block, range| {
+                write_block(words, range, block, &predicate);
             });
         }
     }
 
-    debug_assert_eq!(cursor, len);
     let bits = BitBufferMut::from_buffer(words.into_byte_buffer(), 0, len);
     let validity = array.validity()?.union_nullability(nullability);
     Ok(BoolArray::new(bits.freeze(), validity).into_array())
-}
-
-/// Walk every unpacked block (initial / full / trailer) in order, invoking `f` once per
-/// block. `f` receives the block and the current bit cursor and returns the new cursor.
-/// The internal scratch buffer is reused between calls, so `f` must consume the block
-/// before returning.
-fn walk_blocks<T, F>(
-    chunks: &mut BitUnpackedChunks<T>,
-    len: usize,
-    start_cursor: usize,
-    mut f: F,
-) -> usize
-where
-    T: BitPackedIter,
-    F: FnMut(&mut [T], usize) -> usize,
-{
-    let mut cursor = start_cursor;
-    if let Some(initial) = chunks.initial() {
-        cursor = f(initial, cursor);
-    }
-    // When `num_chunks == 1` and not sliced at the tail, `initial` already consumed the
-    // whole array and `full_chunks` would re-yield the same data. Guard with the cursor.
-    if cursor < len {
-        let mut iter = chunks.full_chunks();
-        while let Some(chunk) = iter.next() {
-            cursor = f(chunk, cursor);
-            if cursor >= len {
-                break;
-            }
-        }
-    }
-    if cursor < len
-        && let Some(trailer) = chunks.trailer()
-    {
-        cursor = f(trailer, cursor);
-    }
-    cursor
 }
 
 /// Overwrite the unpacked block in place with any patches falling in
@@ -144,24 +105,19 @@ fn splice_patches<T, I>(
 }
 
 /// Fold `predicate` over `block`, packing 64 bools into a `u64` per inner-loop pass and
-/// writing the words directly into `words` at `start_bit`. Auto-vectorises into the same
+/// writing the words directly into `words` at `range.start`. Auto-vectorises into the same
 /// `pcmpeq + psllq + por` shape that arrow-ord's `apply_op` lowers to.
 #[inline]
-fn write_block<T, P>(
-    words: &mut [u64],
-    start_bit: usize,
-    block: &[T],
-    predicate: &P,
-    total_len: usize,
-) -> usize
+fn write_block<T, P>(words: &mut [u64], range: Range<usize>, block: &[T], predicate: &P)
 where
     T: Copy,
     P: Fn(T) -> bool,
 {
-    let end_bit = (start_bit + block.len()).min(total_len);
-    let active_len = end_bit - start_bit;
+    debug_assert_eq!(range.len(), block.len());
+    let start_bit = range.start;
+    let active_len = range.len();
     if active_len == 0 {
-        return start_bit;
+        return;
     }
 
     if start_bit.is_multiple_of(64) {
@@ -170,11 +126,12 @@ where
         for w in 0..full_words {
             let mut packed = 0u64;
             for b in 0..64 {
-                // SAFETY: w * 64 + b < full_words * 64 <= active_len <= block.len().
+                // SAFETY: w * 64 + b < full_words * 64 <= block.len().
                 let v = unsafe { *block.get_unchecked(w * 64 + b) };
                 packed |= (predicate(v) as u64) << b;
             }
-            // SAFETY: word_idx < num_words = total_len.div_ceil(64) by construction.
+            // SAFETY: `range.end` is bounded by the original array length, and `words`
+            // is allocated for exactly that many bits.
             unsafe {
                 *words.get_unchecked_mut(word_idx) = packed;
             }
@@ -185,7 +142,7 @@ where
             let base = full_words * 64;
             let mut packed = 0u64;
             for b in 0..tail {
-                // SAFETY: base + b < active_len <= block.len().
+                // SAFETY: base + b < block.len().
                 let v = unsafe { *block.get_unchecked(base + b) };
                 packed |= (predicate(v) as u64) << b;
             }
@@ -196,7 +153,7 @@ where
     } else {
         // Unaligned cursor — array sliced at a non-64-aligned offset. Per-bit OR.
         for b in 0..active_len {
-            // SAFETY: b < active_len <= block.len().
+            // SAFETY: b < block.len().
             let v = unsafe { *block.get_unchecked(b) };
             if predicate(v) {
                 let bit_pos = start_bit + b;
@@ -206,6 +163,4 @@ where
             }
         }
     }
-
-    end_bit
 }
