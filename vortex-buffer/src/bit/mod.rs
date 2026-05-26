@@ -82,12 +82,12 @@ where
 /// spillover when its bits are all zero means a tail that fits entirely in the
 /// leading word never touches `words[dest_word + 1]`.
 #[inline]
-pub fn splice_word_at_bit(words: &mut [u64], bit_offset: usize, w: u64) {
+pub fn splice_word_at_bit(words: &mut [u64], bit_offset: usize, word: u64) {
     let dest_word = bit_offset / 64;
-    let b = bit_offset % 64;
-    words[dest_word] |= w << b;
-    if b != 0 {
-        let high = w >> (64 - b);
+    let bit_in_word = bit_offset % 64;
+    words[dest_word] |= word << bit_in_word;
+    if bit_in_word != 0 {
+        let high = word >> (64 - bit_in_word);
         if high != 0 {
             words[dest_word + 1] = high;
         }
@@ -117,16 +117,16 @@ where
         words.len(),
     );
 
-    let mut i = 0;
-    while len - i >= 64 {
-        let w = collect_bool_word(64, |k| f(i + k));
-        splice_word_at_bit(words, bit_offset + i, w);
-        i += 64;
+    let mut done = 0;
+    while len - done >= 64 {
+        let word = collect_bool_word(64, |bit| f(done + bit));
+        splice_word_at_bit(words, bit_offset + done, word);
+        done += 64;
     }
-    let n = len - i;
-    if n > 0 {
-        let w = collect_bool_word(n, |k| f(i + k));
-        splice_word_at_bit(words, bit_offset + i, w);
+    let tail = len - done;
+    if tail > 0 {
+        let word = collect_bool_word(tail, |bit| f(done + bit));
+        splice_word_at_bit(words, bit_offset + done, word);
     }
 }
 

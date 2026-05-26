@@ -59,9 +59,7 @@ where
                 let mut p_cur: usize = 0;
                 chunks.for_each_unpacked_chunk(|block, range| {
                     p_cur = splice_patches::<T, I>(block, range.start, p_cur, p_idx, p_val, p_off);
-                    pack_bools_into_words(words, range.start, block.len(), |i| {
-                        predicate(block[i])
-                    });
+                    pack_bools_into_words(words, range.start, block.len(), |i| predicate(block[i]));
                 });
             });
         } else {
@@ -105,4 +103,3 @@ where
     }
     cursor
 }
-
