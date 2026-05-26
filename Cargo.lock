@@ -9618,6 +9618,7 @@ dependencies = [
  "paste",
  "reqwest 0.13.3",
  "rstest",
+ "static_assertions",
  "tempfile",
  "tracing",
  "tracing-subscriber",
