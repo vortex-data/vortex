@@ -26,6 +26,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::extension::datetime::AnyTemporal;
+use vortex::mask::Mask;
 
 use crate::CudaExecutionCtx;
 use crate::arrow::ARROW_DEVICE_CUDA;
@@ -221,7 +222,13 @@ async fn export_arrow_validity_buffer(
         return Ok((None, 0));
     }
 
-    let validity_buffer = to_arrow_validity_byte_buffer(mask.into_bit_buffer(), arrow_offset)?;
+    let validity_buffer = match mask {
+        Mask::AllTrue(_) => return Ok((None, 0)),
+        Mask::AllFalse(len) => ByteBuffer::zeroed((len + arrow_offset).div_ceil(8)),
+        Mask::Values(values) => {
+            to_arrow_validity_byte_buffer(Mask::Values(values).into_bit_buffer(), arrow_offset)?
+        }
+    };
     let validity = ctx
         .ensure_on_device(BufferHandle::new_host(validity_buffer))
         .await?;
@@ -243,8 +250,8 @@ fn to_arrow_validity_byte_buffer(
     );
 
     let len = logical_validity.len();
-    let arrow_bitmap = if arrow_offset == 0 {
-        logical_validity.sliced()
+    let arrow_bitmap = if logical_validity.offset() == arrow_offset {
+        logical_validity
     } else {
         let physical_bits = BitBuffer::collect_bool(len + arrow_offset, |physical_index| {
             physical_index >= arrow_offset && logical_validity.value(physical_index - arrow_offset)
@@ -614,15 +621,26 @@ mod tests {
         Ok(())
     }
 
-    // Check validity bitmaps are repacked for the Arrow array offset.
-    #[test]
-    fn test_to_arrow_validity_byte_buffer() -> VortexResult<()> {
-        let bytes = to_arrow_validity_byte_buffer(BitBuffer::from_iter([false, true, true]), 1)?;
-        let exported = BitBuffer::new_with_offset(bytes, 3, 1);
+    // Check validity bitmaps are laid out for Arrow offset-based reads.
+    #[rstest]
+    #[case::offset_zero(BitBuffer::from_iter([false, true, true]), 0, [false, true, true])]
+    #[case::repack_for_arrow_offset(BitBuffer::from_iter([false, true, true]), 1, [false, true, true])]
+    #[case::repack_across_byte_boundary(BitBuffer::from_iter([false, true, true]), 7, [false, true, true])]
+    #[case::reuse_matching_offset(BitBuffer::from_iter([true, false, true]).slice(1..), 1, [false, true])]
+    #[case::reuse_matching_byte_boundary_offset(BitBuffer::from_iter([true, true, true, true, true, true, true, false, true]).slice(7..), 7, [false, true])]
+    #[case::normalize_nonzero_offset(BitBuffer::from_iter([true, false, true]).slice(1..), 0, [false, true])]
+    fn test_to_arrow_validity_byte_buffer(
+        #[case] logical_validity: BitBuffer,
+        #[case] arrow_offset: usize,
+        #[case] expected: impl AsRef<[bool]>,
+    ) -> VortexResult<()> {
+        let len = logical_validity.len();
+        let bytes = to_arrow_validity_byte_buffer(logical_validity, arrow_offset)?;
+        let exported = BitBuffer::new_with_offset(bytes, len, arrow_offset);
 
-        assert!(!exported.value(0));
-        assert!(exported.value(1));
-        assert!(exported.value(2));
+        for (index, expected_value) in expected.as_ref().iter().copied().enumerate() {
+            assert_eq!(exported.value(index), expected_value);
+        }
         Ok(())
     }
 
