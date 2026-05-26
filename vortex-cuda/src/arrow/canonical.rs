@@ -226,8 +226,8 @@ async fn export_arrow_validity_buffer(
     let validity_buffer = match mask {
         Mask::AllTrue(_) => return Ok((None, 0)),
         Mask::AllFalse(len) => ByteBuffer::zeroed((len + arrow_offset).div_ceil(8)),
-        Mask::Values(values) => {
-            to_arrow_validity_byte_buffer(Mask::Values(values).into_bit_buffer(), arrow_offset)?
+        values @ Mask::Values(_) => {
+            to_arrow_validity_byte_buffer(values.into_bit_buffer(), arrow_offset)?
         }
     };
     let validity = ctx
@@ -253,6 +253,9 @@ fn to_arrow_validity_byte_buffer(
     let arrow_bitmap = if logical_validity.offset() == arrow_offset {
         logical_validity
     } else {
+        // `arrow_offset` is where Arrow starts reading, not how many validity bits to skip.
+        // For validity bits [A, B, C] and offset 1, Arrow needs physical bits [_, A, B, C];
+        // slicing would produce [B, C] and drop the first validity bit.
         let mut padded_validity =
             BitBufferMut::with_capacity(logical_validity.len() + arrow_offset);
         padded_validity.append_n(false, arrow_offset);
