@@ -1,0 +1,56 @@
+# Reports Rust lines of code per crate as a sticky PR comment.
+# Runs on every push to a pull request and updates a single collapsible comment.
+
+name: Code Size
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+on: [pull_request]
+
+permissions:
+  contents: read
+  pull-requests: write  # for commenting on PRs
+
+jobs:
+  code-size:
+    name: Per-crate LOC
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout HEAD
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          path: head
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Checkout base
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          path: base
+          ref: ${{ github.event.pull_request.base.sha }}
+
+      - name: Install tokei
+        uses: taiki-e/install-action@7be9fd86bd1707236395105d6e9329dd1511a7e1  # v2
+        with:
+          tool: tokei
+
+      - name: Compute and compare LOC
+        shell: bash
+        run: |
+          set -Eeu -o pipefail -x
+
+          # Always use HEAD's scripts so the report format is consistent.
+          python3 head/scripts/crate-loc.py head > head-loc.json
+          python3 head/scripts/crate-loc.py base > base-loc.json
+
+          python3 head/scripts/compare-loc.py head-loc.json --base-file base-loc.json > comment.md
+          cat comment.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment PR
+        if: github.event.pull_request.head.repo.fork == false
+        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
+        with:
+          file-path: comment.md
+          comment-tag: code-size-comment
