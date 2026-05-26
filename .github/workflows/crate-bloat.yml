@@ -1,0 +1,50 @@
+# Reports compiled machine-code (.text) size per Vortex crate as a sticky PR comment.
+# Builds the datafusion-bench binary on stable and attributes its .text back to
+# each first-party crate with cargo-bloat.
+
+name: Crate Binary Size
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+on: [pull_request]
+
+permissions:
+  contents: read
+  pull-requests: write  # for commenting on PRs
+
+jobs:
+  bloat:
+    name: Per-crate .text size
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cargo-bloat
+        uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
+        with:
+          tool: cargo-bloat
+
+      - name: Measure per-crate binary size
+        shell: bash
+        run: |
+          set -Eeu -o pipefail -x
+
+          cargo bloat --package datafusion-bench --bin datafusion-bench \
+            --release --crates -n 0 --message-format json > bloat.json
+
+          python3 scripts/crate-bloat.py bloat.json > comment.md
+          cat comment.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment PR
+        if: github.event.pull_request.head.repo.fork == false
+        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
+        with:
+          file-path: comment.md
+          comment-tag: crate-bloat-comment
