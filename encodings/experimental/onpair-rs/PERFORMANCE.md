@@ -416,13 +416,52 @@ output-preserving idea is therefore closed on this hardware: parse throughput is
 governed by per-access DRAM/L2 latency that the scalar OoO engine already hides
 as well as the ISA allows.
 
-## UNPROVEN: FSST-hybrid 2-lookup scheme (idea C3)
+## DISPROVEN: FSST-hybrid 2-byte direct table (idea C3, now built)
 
 FSST is GB/s because `shortCodes[65536]` + one hash probe over tiny
 cache-resident tables. OnPair's 16-bit codes / ≤16-byte tokens break FSST's
-8-bit / ≤8-byte assumptions, so it is not a drop-in. A hybrid (e.g. a 2-byte
-direct table for the hottest short codes) is conceivable but research-grade and
-unbuilt.
+8-bit / ≤8-byte assumptions, so it is not a drop-in. The hybrid was **built and
+measured**: a `short2: [u32; 65536]` direct table indexed by the first two input
+bytes, each slot packing the longest 1- or 2-byte token there (`token | (len2 <<
+16)`), plus a `byte_token[256]` length-1 fallback. `find_longest_match` keeps the
+long-prefix probe and the length-8..3 short-map descent, but answers lengths 2
+and 1 with **one array load and zero hashing** (kept correct for mid-training
+`find`s by patching the slot on each 2-byte insert; rebuilt wholesale in
+`from_dictionary`). Output is byte-identical (238 tests pass, 1 GiB roundtrip
+PASS, ratio unchanged 2.904×/2.914×).
+
+**Result — neutral-to-worse** (clean back-to-back A/B, 1 GiB `l_comment`, this
+host; HEAD averaged over two interleaved runs to bound variance):
+
+| metric | HEAD | direct table | Δ |
+|---|---|---|---|
+| b12 parse | 169.5 MiB/s | 162.7 | **−4.0 %** |
+| b12 total | 151.8 MiB/s | 145.9 | −3.9 % |
+| b16 parse | 133.7 MiB/s | 130.5 | **−2.4 %** |
+| b16 total | 87.8 MiB/s | 86.8 | −1.1 % |
+
+Why it loses, despite removing two probes:
+
+1. **The length-1/2 probes were rarely the ones reached.** Average match is
+   ~7.7 B (bits=12) / ~10.4 B (bits=16), so most positions resolve in the long
+   probe or the length-8..3 descent *before* ever reaching length 2 — the table
+   only helps the minority that fall all the way through.
+2. **It replaces hot probes with a colder, bigger structure.** The length-1/2
+   `short_map` slots are a tiny, cache-resident set; the 256 KB `short2` table is
+   larger and indexed by a near-random 2-byte value, so its own access is *more*
+   likely to miss — and at bits=16 it adds to a working set that already exceeds
+   the 1 MB L2 (the L2-cliff section), so it slightly hurts the long path too.
+3. **No miss was removed.** OnPair's cost is the *long-prefix* probe that reaches
+   the bucket (the dependent L2/L3 miss); the short tail FSST optimises is not
+   where OnPair spends its time, because OnPair's longer tokens shift the mass
+   onto the long path. FSST's table pays off precisely because FSST's matches are
+   mostly ≤2 bytes and its tables stay L1/L2-resident — neither holds here.
+
+This is the cleanest confirmation of the "parse is at the floor" thesis: even the
+state-of-the-art structural trick, faithfully ported, cannot beat the contiguous
+hashmap + linear-bucket design on this workload. Reverted; not kept. **Lesson
+(again): always A/B back-to-back — a contaminated first run showed a bogus +10 %
+"win" that the interleaved comparison erased.**
 
 ## DISPROVEN: memoization cache for encode (frequency idea applied to `find`)
 
