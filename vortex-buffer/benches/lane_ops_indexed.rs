@@ -52,6 +52,8 @@ struct Fixture {
     rhs_mask: BitBuffer,
     lhs_arrow: Arc<UInt32Array>,
     rhs_arrow: Arc<UInt32Array>,
+    lhs_arrow_nonnull: Arc<UInt32Array>,
+    rhs_arrow_nonnull: Arc<UInt32Array>,
 }
 
 fn fixture(n: usize) -> Fixture {
@@ -87,6 +89,10 @@ fn fixture(n: usize) -> Fixture {
         m.freeze()
     };
 
+    // No-null arrays: arrow takes its `try_binary_no_nulls` path (no null-buffer union).
+    let lhs_arrow_nonnull = Arc::new(UInt32Array::from(raw_lhs.clone()));
+    let rhs_arrow_nonnull = Arc::new(UInt32Array::from(raw_rhs.clone()));
+
     let lhs_arrow = Arc::new(UInt32Array::new(
         ScalarBuffer::from(raw_lhs),
         Some(NullBuffer::from(lhs_valid)),
@@ -103,6 +109,8 @@ fn fixture(n: usize) -> Fixture {
         rhs_mask,
         lhs_arrow,
         rhs_arrow,
+        lhs_arrow_nonnull,
+        rhs_arrow_nonnull,
     }
 }
 
@@ -233,6 +241,40 @@ fn indexed_nullable_fair(bencher: Bencher, n: usize) {
             )
             .unwrap();
             (combined_mask, out)
+        });
+}
+
+/// No-validity comparison: `try_map` checked add over two non-null columns, timing only
+/// allocate + kernel (there is no validity to merge). Pairs with `arrow_add_nonnull`.
+#[divan::bench(args = SIZES)]
+fn indexed_try_map_nonnull(bencher: Bencher, n: usize) {
+    let f = fixture(n);
+    bencher
+        .with_inputs(|| (f.lhs.clone(), f.rhs.clone()))
+        .bench_refs(|(lhs, rhs)| {
+            let mut out: Vec<MaybeUninit<u32>> = Vec::with_capacity(n);
+            // SAFETY: every lane is written before any read inside the kernel.
+            unsafe { out.set_len(n) };
+            try_map(
+                LaneZip::new(lhs.as_slice(), rhs.as_slice()),
+                out.as_mut_slice(),
+                |(a, b)| a.checked_add(b),
+            )
+            .unwrap();
+            out
+        });
+}
+
+/// `arrow_arith::numeric::add` on two **non-null** `UInt32Array`s — arrow's
+/// `try_binary_no_nulls` path: a dense scalar `op(a,b)?` loop, no null-buffer union.
+#[divan::bench(args = SIZES)]
+fn arrow_add_nonnull(bencher: Bencher, n: usize) {
+    let f = fixture(n);
+    bencher
+        .with_inputs(|| (f.lhs_arrow_nonnull.clone(), f.rhs_arrow_nonnull.clone()))
+        .bench_refs(|(lhs, rhs)| {
+            arrow_arith::numeric::add(lhs.as_ref() as &dyn Datum, rhs.as_ref() as &dyn Datum)
+                .unwrap()
         });
 }
 
