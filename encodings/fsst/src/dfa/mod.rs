@@ -224,37 +224,7 @@ impl<'a> LikeKind<'a> {
     }
 
     fn parse_prefix(pattern: &'a [u8]) -> Option<Self> {
-        let mut literal = None;
-        let mut idx = 0;
-        while idx < pattern.len() {
-            match pattern[idx] {
-                b'\\' => {
-                    let escaped = pattern.get(idx + 1).copied().unwrap_or(b'\\');
-                    literal
-                        .get_or_insert_with(|| pattern[..idx].to_vec())
-                        .push(escaped);
-                    idx += if idx + 1 < pattern.len() { 2 } else { 1 };
-                }
-                b'%' => {
-                    if idx + 1 != pattern.len() {
-                        return None;
-                    }
-                    let prefix = match literal {
-                        Some(literal) => Cow::Owned(literal),
-                        None => Cow::Borrowed(&pattern[..idx]),
-                    };
-                    return Some(LikeKind::Prefix(prefix));
-                }
-                b'_' => return None,
-                byte => {
-                    if let Some(literal) = &mut literal {
-                        literal.push(byte);
-                    }
-                    idx += 1;
-                }
-            }
-        }
-        None
+        Self::parse_literal_until_final_percent(pattern, 0).map(LikeKind::Prefix)
     }
 
     fn parse_contains(pattern: &'a [u8]) -> Option<Self> {
@@ -262,14 +232,21 @@ impl<'a> LikeKind<'a> {
             return None;
         }
 
+        Self::parse_literal_until_final_percent(pattern, 1).map(LikeKind::Contains)
+    }
+
+    fn parse_literal_until_final_percent(
+        pattern: &'a [u8],
+        literal_start: usize,
+    ) -> Option<Cow<'a, [u8]>> {
         let mut literal = None;
-        let mut idx = 1;
+        let mut idx = literal_start;
         while idx < pattern.len() {
             match pattern[idx] {
                 b'\\' => {
                     let escaped = pattern.get(idx + 1).copied().unwrap_or(b'\\');
                     literal
-                        .get_or_insert_with(|| pattern[1..idx].to_vec())
+                        .get_or_insert_with(|| pattern[literal_start..idx].to_vec())
                         .push(escaped);
                     idx += if idx + 1 < pattern.len() { 2 } else { 1 };
                 }
@@ -277,11 +254,11 @@ impl<'a> LikeKind<'a> {
                     if idx + 1 != pattern.len() {
                         return None;
                     }
-                    let needle = match literal {
+                    let literal = match literal {
                         Some(literal) => Cow::Owned(literal),
-                        None => Cow::Borrowed(&pattern[1..idx]),
+                        None => Cow::Borrowed(&pattern[literal_start..idx]),
                     };
-                    return Some(LikeKind::Contains(needle));
+                    return Some(literal);
                 }
                 b'_' => return None,
                 byte => {
