@@ -356,3 +356,22 @@ mod avx512 {
         }
     }
 }
+
+/// Test helper: build a two-limb [`DecimalByteParts`] array from i128 values, splitting each into a
+/// signed high limb and an unsigned low limb.
+#[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
+pub(crate) fn two_limb_array(
+    values: &[i128],
+    validity: vortex_array::validity::Validity,
+    dt: vortex_array::dtype::DecimalDType,
+) -> crate::DecimalBytePartsArray {
+    let highs: vortex_buffer::Buffer<i64> = values.iter().map(|v| (v >> 64) as i64).collect();
+    let lows: vortex_buffer::Buffer<u64> = values.iter().map(|v| *v as u64).collect();
+    DecimalByteParts::try_new_with_lower(
+        PrimitiveArray::new(highs, validity).into_array(),
+        PrimitiveArray::new(lows, vortex_array::validity::Validity::NonNullable).into_array(),
+        dt,
+    )
+    .unwrap()
+}

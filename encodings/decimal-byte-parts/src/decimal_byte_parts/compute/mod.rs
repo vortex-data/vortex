@@ -20,9 +20,9 @@ mod tests {
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_array::dtype::DecimalDType;
     use vortex_array::validity::Validity;
-    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
 
+    use super::two_limb::two_limb_array as two_limb;
     use crate::DecimalByteParts;
     use crate::DecimalBytePartsArray;
 
@@ -33,18 +33,6 @@ mod tests {
         (0..99i128)
             .map(|i| ((i - 50) << 64) | i128::from((i as u64).wrapping_mul(0x0123_4567_89ab_cdef)))
             .collect()
-    }
-
-    #[allow(clippy::cast_possible_truncation)]
-    fn two_limb(values: &[i128], validity: Validity, dt: DecimalDType) -> DecimalBytePartsArray {
-        let highs: Buffer<i64> = values.iter().map(|v| (v >> 64) as i64).collect();
-        let lows: Buffer<u64> = values.iter().map(|v| *v as u64).collect();
-        DecimalByteParts::try_new_with_lower(
-            PrimitiveArray::new(highs, validity).into_array(),
-            PrimitiveArray::new(lows, Validity::NonNullable).into_array(),
-            dt,
-        )
-        .unwrap()
     }
 
     #[rstest]

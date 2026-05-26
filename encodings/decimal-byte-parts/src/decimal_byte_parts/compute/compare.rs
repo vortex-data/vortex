@@ -176,23 +176,14 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::fns::operators::Operator;
     use vortex_array::validity::Validity;
-    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
+    use super::super::two_limb::two_limb_array;
     use crate::DecimalByteParts;
 
-    #[allow(clippy::cast_possible_truncation)]
     fn two_limb(values: &[i128], validity: Validity, dt: DecimalDType) -> ArrayRef {
-        let highs: Buffer<i64> = values.iter().map(|v| (v >> 64) as i64).collect();
-        let lows: Buffer<u64> = values.iter().map(|v| *v as u64).collect();
-        DecimalByteParts::try_new_with_lower(
-            PrimitiveArray::new(highs, validity).into_array(),
-            PrimitiveArray::new(lows, Validity::NonNullable).into_array(),
-            dt,
-        )
-        .unwrap()
-        .into_array()
+        two_limb_array(values, validity, dt).into_array()
     }
 
     #[test]

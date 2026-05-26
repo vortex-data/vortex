@@ -115,6 +115,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
+    use super::super::two_limb::two_limb_array;
     use crate::DecimalByteParts;
 
     fn decimal_const(value: DecimalValue, decimal_type: DecimalDType, len: usize) -> ArrayRef {
@@ -125,17 +126,8 @@ mod tests {
         .into_array()
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn two_limb(values: &[i128], decimal_type: DecimalDType) -> ArrayRef {
-        let highs: Buffer<i64> = values.iter().map(|v| (v >> 64) as i64).collect();
-        let lows: Buffer<u64> = values.iter().map(|v| *v as u64).collect();
-        DecimalByteParts::try_new_with_lower(
-            PrimitiveArray::new(highs, Validity::NonNullable).into_array(),
-            PrimitiveArray::new(lows, Validity::NonNullable).into_array(),
-            decimal_type,
-        )
-        .unwrap()
-        .into_array()
+        two_limb_array(values, Validity::NonNullable, decimal_type).into_array()
     }
 
     /// The two-limb `between` pushdown must agree with the canonical i128 implementation across
