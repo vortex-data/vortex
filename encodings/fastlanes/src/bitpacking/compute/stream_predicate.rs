@@ -61,7 +61,7 @@ where
                 let p_val = p_val_arr.as_slice::<T>();
                 let mut p_cur: usize = 0;
                 chunks.for_each_unpacked_chunk(|block, range| {
-                    splice_patches::<T, I>(block, range.start, &mut p_cur, p_idx, p_val, p_off);
+                    p_cur = splice_patches::<T, I>(block, range.start, p_cur, p_idx, p_val, p_off);
                     pack_predicate_block(words, range, block, &predicate);
                 });
             });
@@ -78,31 +78,33 @@ where
 }
 
 /// Overwrite the unpacked block in place with any patches falling in
-/// `[chunk_start, chunk_start + block.len())`, then advance `cursor` past them. Sorted
-/// indices mean the cursor only moves forward across the whole walk.
+/// `[chunk_start, chunk_start + block.len())`, starting from `cursor` and returning the
+/// advanced cursor. Sorted indices mean the cursor only moves forward across the walk.
 #[inline]
 fn splice_patches<T, I>(
     block: &mut [T],
     chunk_start: usize,
-    cursor: &mut usize,
+    mut cursor: usize,
     indices: &[I],
     values: &[T],
     patch_offset: usize,
-) where
+) -> usize
+where
     T: Copy,
     I: AsPrimitive<usize>,
 {
     let end = chunk_start + block.len();
-    while *cursor < indices.len() {
-        let global: usize = indices[*cursor].as_();
+    while cursor < indices.len() {
+        let global: usize = indices[cursor].as_();
         let local = global - patch_offset;
         if local >= end {
             break;
         }
         debug_assert!(local >= chunk_start);
-        block[local - chunk_start] = values[*cursor];
-        *cursor += 1;
+        block[local - chunk_start] = values[cursor];
+        cursor += 1;
     }
+    cursor
 }
 
 /// Fold `predicate` over `block`, packing 64 bools into a `u64` per inner-loop pass and
