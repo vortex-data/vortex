@@ -3,11 +3,11 @@
 
 use num_traits::AsPrimitive;
 use num_traits::NumCast;
+use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
@@ -126,33 +126,56 @@ where
     // TODO(joe): if the values source and target have the same bit-width we can
     // mutate in place.
 
-    // Fallible: invalid lanes are pre-multiplied to zero so the checked cast always succeeds for
-    // them; valid lanes go through `NumCast::from` and the whole cast bails on the first overflow.
+    // Fallible: an overflow is an error only when the lane is valid. We detect any valid-lane
+    // overflow up front (consuming validity 64 bits at a time, not one bit at a time) and then
+    // cast every lane with the wrapping `as`. Invalid lanes may overflow harmlessly because their
+    // wrapped output is masked out, exactly like the fast path above.
     let mask = array.validity()?.execute_mask(array.len(), ctx)?;
-    let overflow = || {
-        vortex_err!(
+    let overflows = match &mask {
+        Mask::AllFalse(_) => false,
+        Mask::AllTrue(_) => values.iter().any(|&v| <T as NumCast>::from(v).is_none()),
+        Mask::Values(m) => any_valid_overflow::<F, T>(values, m.bit_buffer()),
+    };
+    if overflows {
+        vortex_bail!(
             Compute: "Cannot cast {} to {} — value exceeds target range",
             F::PTYPE, T::PTYPE,
-        )
-    };
-    let buffer: Buffer<T> = match &mask {
-        Mask::AllTrue(_) => BufferMut::try_from_trusted_len_iter(
-            values
-                .iter()
-                .map(|&v| <T as NumCast>::from(v).ok_or_else(overflow)),
-        )?
-        .freeze(),
-        Mask::AllFalse(_) => BufferMut::<T>::zeroed(values.len()).freeze(),
-        Mask::Values(m) => BufferMut::try_from_trusted_len_iter(
-            values.iter().zip(m.bit_buffer().iter()).map(|(&v, valid)| {
-                let factor = if valid { F::one() } else { F::zero() };
-                <T as NumCast>::from(v * factor).ok_or_else(overflow)
-            }),
-        )?
-        .freeze(),
-    };
+        );
+    }
 
-    Ok(PrimitiveArray::new(buffer, new_validity).into_array())
+    Ok(PrimitiveArray::new(cast::<F, T>(values), new_validity).into_array())
+}
+
+/// Returns `true` if any lane marked valid in `validity` overflows `T` under a checked cast.
+///
+/// Validity is consumed a 64-bit word at a time and `AND`-ed against the per-lane overflow bits,
+/// so there is no per-element bitmask iteration (which would not vectorize). `validity.len()` must
+/// equal `values.len()`.
+fn any_valid_overflow<F, T>(values: &[F], validity: &BitBuffer) -> bool
+where
+    F: NativePType,
+    T: NativePType,
+{
+    let chunks = validity.chunks();
+    let mut blocks = values.chunks_exact(64);
+    let mut bad = 0u64;
+    for (block, vword) in (&mut blocks).zip(chunks.iter()) {
+        let mut lossy = 0u64;
+        for (j, &v) in block.iter().enumerate() {
+            lossy |= (<T as NumCast>::from(v).is_none() as u64) << j;
+        }
+        bad |= lossy & vword;
+    }
+    let remainder = blocks.remainder();
+    if !remainder.is_empty() {
+        let vword = chunks.remainder_bits();
+        let mut lossy = 0u64;
+        for (j, &v) in remainder.iter().enumerate() {
+            lossy |= (<T as NumCast>::from(v).is_none() as u64) << j;
+        }
+        bad |= lossy & vword;
+    }
+    bad != 0
 }
 
 /// Out-of-range values at invalid positions are truncated/wrapped by `as`, which is fine because
@@ -367,6 +390,43 @@ mod test {
                 .execute_mask(p.as_ref().len(), &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             Mask::from(BitBuffer::from(vec![false, true, true]))
+        );
+    }
+
+    /// A valid lane that overflows the target is an error, even when other lanes are invalid.
+    #[test]
+    fn cast_valid_overflow_in_masked_array_errors() {
+        // 300 is valid and exceeds u8; the invalid 999 lane must be ignored.
+        let arr = PrimitiveArray::new(
+            buffer![300u32, 999u32, 5u32],
+            Validity::from_iter([true, false, true]),
+        );
+        #[expect(deprecated)]
+        let err = arr
+            .into_array()
+            .cast(DType::Primitive(PType::U8, Nullability::Nullable))
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()))
+            .unwrap_err();
+        assert!(matches!(err, VortexError::Compute(..)));
+        assert!(err.to_string().contains("exceeds target range"));
+    }
+
+    /// A `NaN` (or out-of-range float) at an invalid lane must not fail a float-to-int cast.
+    #[test]
+    fn cast_float_out_of_range_at_invalid_lane_succeeds() {
+        let arr = PrimitiveArray::new(
+            buffer![f32::NAN, 1.0f32, 2.0f32],
+            Validity::from_iter([false, true, true]),
+        );
+        #[expect(deprecated)]
+        let p = arr
+            .into_array()
+            .cast(DType::Primitive(PType::I32, Nullability::Nullable))
+            .unwrap()
+            .to_primitive();
+        assert_arrays_eq!(
+            p,
+            PrimitiveArray::from_option_iter([None, Some(1i32), Some(2i32)])
         );
     }
 

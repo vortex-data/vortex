@@ -96,8 +96,9 @@ where
             let lost = !(<T as AsPrimitive<F>>::as_(t)).is_eq(v);
             lossy |= (lost as u64) << j;
         }
-        let vword = u64::from_le_bytes(vbytes[blk * 8..blk * 8 + 8].try_into().unwrap());
-        bad |= lossy & vword;
+        let mut vb8 = [0u8; 8];
+        vb8.copy_from_slice(&vbytes[blk * 8..blk * 8 + 8]);
+        bad |= lossy & u64::from_le_bytes(vb8);
     }
     let mut err = bad != 0;
     for i in (full * 64)..len {
