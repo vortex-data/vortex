@@ -554,7 +554,7 @@ impl Scheme for SparseScheme {
                 .indices()
                 .clone()
                 .execute::<PrimitiveArray>(exec_ctx)?
-                .narrow()?;
+                .narrow(exec_ctx)?;
 
             let compressed_indices = compressor.compress_child(
                 &indices.into_array(),
@@ -849,7 +849,7 @@ pub(crate) fn rle_compress(
             .indices()
             .clone()
             .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow()?;
+            .narrow(exec_ctx)?;
         try_compress_delta(
             compressor,
             &rle_indices_primitive.into_array(),
@@ -866,7 +866,7 @@ pub(crate) fn rle_compress(
             .indices()
             .clone()
             .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow()?;
+            .narrow(exec_ctx)?;
         compressor.compress_child(
             &rle_indices_primitive.into_array(),
             &compress_ctx,
@@ -880,7 +880,7 @@ pub(crate) fn rle_compress(
         .values_idx_offsets()
         .clone()
         .execute::<PrimitiveArray>(exec_ctx)?
-        .narrow()?;
+        .narrow(exec_ctx)?;
     let compressed_offsets = compressor.compress_child(
         &rle_offsets_primitive.into_array(),
         &compress_ctx,

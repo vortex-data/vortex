@@ -268,7 +268,7 @@ impl Scheme for NullDominatedSparseScheme {
                 .indices()
                 .clone()
                 .execute::<PrimitiveArray>(exec_ctx)?
-                .narrow()?;
+                .narrow(exec_ctx)?;
             let compressed_indices = compressor.compress_child(
                 &indices.into_array(),
                 &compress_ctx,

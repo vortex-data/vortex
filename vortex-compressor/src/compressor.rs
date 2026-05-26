@@ -517,7 +517,7 @@ impl CascadingCompressor {
             .offsets()
             .clone()
             .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow()?;
+            .narrow(exec_ctx)?;
         let compressed_offsets = self.compress_canonical(
             Canonical::Primitive(list_offsets_primitive),
             offset_ctx,
@@ -547,7 +547,7 @@ impl CascadingCompressor {
             .offsets()
             .clone()
             .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow()?;
+            .narrow(exec_ctx)?;
         let compressed_offsets = self.compress_canonical(
             Canonical::Primitive(list_view_offsets_primitive),
             offset_ctx,
@@ -559,7 +559,7 @@ impl CascadingCompressor {
             .sizes()
             .clone()
             .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow()?;
+            .narrow(exec_ctx)?;
         let compressed_sizes = self.compress_canonical(
             Canonical::Primitive(list_view_sizes_primitive),
             sizes_ctx,

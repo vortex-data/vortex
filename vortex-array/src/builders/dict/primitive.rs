@@ -160,6 +160,8 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::IntoArray as _;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::dict::DictArraySlotsExt;
     use crate::assert_arrays_eq;
     use crate::builders::dict::dict_encode;
@@ -168,7 +170,7 @@ mod test {
     #[test]
     fn encode_primitive() {
         let arr = buffer![1, 1, 3, 3, 3].into_array();
-        let dict = dict_encode(&arr).unwrap();
+        let dict = dict_encode(&arr, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
 
         let expected_codes = buffer![0u8, 0, 1, 1, 1].into_array();
         assert_arrays_eq!(dict.codes(), expected_codes);
@@ -189,7 +191,11 @@ mod test {
             Some(3),
             None,
         ]);
-        let dict = dict_encode(&arr.into_array()).unwrap();
+        let dict = dict_encode(
+            &arr.into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
 
         let expected_codes = buffer![0u8, 0, 1, 2, 2, 1, 2, 1].into_array();
         assert_arrays_eq!(dict.codes(), expected_codes);

@@ -127,7 +127,7 @@ impl Scheme for FloatDictScheme {
             .codes()
             .clone()
             .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow()?
+            .narrow(exec_ctx)?
             .into_array();
         let compressed_codes =
             compressor.compress_child(&narrowed_codes, &compress_ctx, self.id(), 1, exec_ctx)?;

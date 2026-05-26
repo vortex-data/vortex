@@ -117,7 +117,11 @@ mod tests {
     }
 
     fn dict_single() -> DictArray {
-        dict_encode(&buffer![42i32].into_array()).expect("valid single-value dictionary")
+        dict_encode(
+            &buffer![42i32].into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .expect("valid single-value dictionary")
     }
 
     fn dict_nullable_codes() -> DictArray {
@@ -132,6 +136,7 @@ mod tests {
         dict_encode(
             &PrimitiveArray::from_option_iter([Some(1i32), None, Some(2), Some(1), None])
                 .into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )
         .expect("valid nullable-value dictionary")
     }
@@ -166,7 +171,10 @@ mod tests {
     #[test]
     fn test_sliced_dict() -> VortexResult<()> {
         let reference = PrimitiveArray::from_iter([1, 5, 10, 50, 100]);
-        let dict = dict_encode(&reference.into_array())?;
+        let dict = dict_encode(
+            &reference.into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         let sliced = dict.slice(1..3)?;
         assert_min_max(&sliced, Some((5, 10)))
     }
