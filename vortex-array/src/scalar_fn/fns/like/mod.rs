@@ -334,45 +334,56 @@ mod tests {
         assert_eq!(expr2.to_string(), "$ not ilike \"test*\"");
     }
 
+    fn assert_borrowed_exact(pattern: &str, expected: &str) {
+        let Some(LikeVariant::Exact(actual)) = LikeVariant::from_str(pattern) else {
+            panic!("expected borrowed exact pattern");
+        };
+        assert!(matches!(actual, Cow::Borrowed(_)));
+        assert_eq!(actual.as_ref(), expected);
+    }
+
+    fn assert_owned_exact(pattern: &str, expected: &str) {
+        let Some(LikeVariant::Exact(actual)) = LikeVariant::from_str(pattern) else {
+            panic!("expected owned exact pattern");
+        };
+        assert!(matches!(actual, Cow::Owned(_)));
+        assert_eq!(actual.as_ref(), expected);
+    }
+
+    fn assert_borrowed_prefix(pattern: &str, expected: &str) {
+        let Some(LikeVariant::Prefix(actual)) = LikeVariant::from_str(pattern) else {
+            panic!("expected borrowed prefix pattern");
+        };
+        assert!(matches!(actual, Cow::Borrowed(_)));
+        assert_eq!(actual.as_ref(), expected);
+    }
+
+    fn assert_owned_prefix(pattern: &str, expected: &str) {
+        let Some(LikeVariant::Prefix(actual)) = LikeVariant::from_str(pattern) else {
+            panic!("expected owned prefix pattern");
+        };
+        assert!(matches!(actual, Cow::Owned(_)));
+        assert_eq!(actual.as_ref(), expected);
+    }
+
     #[test]
-    fn test_like_variant() {
-        // Supported patterns
-        assert!(matches!(
-            LikeVariant::from_str("simple"),
-            Some(LikeVariant::Exact(Cow::Borrowed(text))) if text == "simple"
-        ));
-        assert!(matches!(
-            LikeVariant::from_str("prefix%"),
-            Some(LikeVariant::Prefix(Cow::Borrowed(text))) if text == "prefix"
-        ));
-        assert!(matches!(
-            LikeVariant::from_str("first%rest_stuff"),
-            Some(LikeVariant::Prefix(Cow::Borrowed(text))) if text == "first"
-        ));
+    fn test_like_variant_borrowed_patterns() {
+        assert_borrowed_exact("simple", "simple");
+        assert_borrowed_prefix("prefix%", "prefix");
+        assert_borrowed_prefix("first%rest_stuff", "first");
+    }
 
-        // Escaped LIKE wildcards are literal prefix bytes, not wildcard boundaries.
-        assert!(matches!(
-            LikeVariant::from_str(r"\%%"),
-            Some(LikeVariant::Prefix(Cow::Owned(text))) if text == "%"
-        ));
-        assert!(matches!(
-            LikeVariant::from_str(r"\_%"),
-            Some(LikeVariant::Prefix(Cow::Owned(text))) if text == "_"
-        ));
-        assert!(matches!(
-            LikeVariant::from_str(r"\\%"),
-            Some(LikeVariant::Prefix(Cow::Owned(text))) if text == "\\"
-        ));
-        assert!(matches!(
-            LikeVariant::from_str(r"\%"),
-            Some(LikeVariant::Exact(Cow::Owned(text))) if text == "%"
-        ));
-        assert!(matches!(
-            LikeVariant::from_str("trailing\\"),
-            Some(LikeVariant::Exact(Cow::Owned(text))) if text == "trailing\\"
-        ));
+    #[test]
+    fn test_like_variant_escaped_patterns() {
+        assert_owned_prefix(r"\%%", "%");
+        assert_owned_prefix(r"\_%", "_");
+        assert_owned_prefix(r"\\%", "\\");
+        assert_owned_exact(r"\%", "%");
+        assert_owned_exact("trailing\\", "trailing\\");
+    }
 
-        // Unsupported patterns
+    #[test]
+    fn test_like_variant_unsupported_patterns() {
         assert_eq!(LikeVariant::from_str("%suffix"), None);
         assert_eq!(LikeVariant::from_str(r"%\%%"), None);
         assert_eq!(LikeVariant::from_str("_pattern"), None);
