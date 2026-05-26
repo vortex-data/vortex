@@ -304,7 +304,8 @@ fn try_build_duckdb(
     }
 }
 
-fn c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
+/// Generate rust functions with bindgen from C sources.
+fn bindgen_c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
     let bindings = bindgen::Builder::default()
         .header("cpp/include/duckdb_vx.h")
         .override_abi(Abi::CUnwind, ".*")
@@ -350,7 +351,8 @@ fn c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
     }
 }
 
-fn cpp(duckdb_include_dir: &Path) {
+/// Generate libvortex_duckdb.*
+fn compile_cpp(duckdb_include_dir: &Path) {
     cc::Build::new()
         .std("c++20")
         .flags(["-Wall", "-Wextra", "-Wpedantic", "-Werror"])
@@ -367,7 +369,8 @@ fn cpp(duckdb_include_dir: &Path) {
     }
 }
 
-fn rust2c(crate_dir: &Path) {
+/// Generate include/vortex.h from rust sources
+fn cbindgen_rust2c(crate_dir: &Path) {
     let header = crate_dir.join("include/vortex.h");
     let output = cbindgen::Builder::new()
         .with_config(cbindgen::Config::from_file(crate_dir.join("cbindgen.toml")).unwrap())
@@ -484,7 +487,7 @@ fn main() {
 
     let duckdb_include_dir = inner_dir.join("src").join("include");
     println!("cargo:rerun-if-changed=cpp/include");
-    c2rust(&crate_dir, &duckdb_include_dir);
-    cpp(&duckdb_include_dir);
-    rust2c(&crate_dir);
+    bindgen_c2rust(&crate_dir, &duckdb_include_dir);
+    cbindgen_rust2c(&crate_dir);
+    compile_cpp(&duckdb_include_dir);
 }
