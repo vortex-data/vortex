@@ -291,6 +291,65 @@ mod tests {
     }
 
     #[test]
+    fn test_like_kernel_falls_back_for_escape_patterns() -> VortexResult<()> {
+        let fsst = make_fsst(
+            &[Some("\\front"), Some("\\\\front"), Some("%front")],
+            Nullability::NonNullable,
+        );
+        let mut ctx = SESSION.create_execution_ctx();
+        let fsst_v = fsst.as_view();
+
+        let pattern = ConstantArray::new(r"\\%", fsst.len()).into_array();
+        let result =
+            <FSST as LikeKernel>::like(fsst_v, &pattern, LikeOptions::default(), &mut ctx)?;
+        assert!(
+            result.is_none(),
+            "escaped backslash pattern should fall back"
+        );
+
+        let pattern = ConstantArray::new(r"\%%", fsst.len()).into_array();
+        let result =
+            <FSST as LikeKernel>::like(fsst_v, &pattern, LikeOptions::default(), &mut ctx)?;
+        assert!(result.is_none(), "escaped percent pattern should fall back");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_like_escape_patterns_fall_back_correctly() -> VortexResult<()> {
+        let fsst = make_fsst(
+            &[
+                Some("\\front"),
+                Some("\\\\front"),
+                Some("%front"),
+                Some("_front"),
+                Some("front"),
+            ],
+            Nullability::NonNullable,
+        );
+
+        let result = like(fsst.clone(), r"\\%")?;
+        assert_arrays_eq!(
+            &result,
+            &BoolArray::from_iter([true, true, false, false, false])
+        );
+
+        let result = like(fsst.clone(), r"\%%")?;
+        assert_arrays_eq!(
+            &result,
+            &BoolArray::from_iter([false, false, true, false, false])
+        );
+
+        let result = like(fsst, r"\_%")?;
+        assert_arrays_eq!(
+            &result,
+            &BoolArray::from_iter([false, false, false, true, false])
+        );
+
+        Ok(())
+    }
+
+    #[test]
     fn test_like_long_prefix_handled_by_flat_dfa() -> VortexResult<()> {
         let fsst = make_fsst(
             &[
