@@ -1,18 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use rand::prelude::*;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::session::ArraySession;
+use vortex_session::VortexSession;
 
 fn main() {
     divan::main();
 }
 
 const N: usize = 100_000;
+
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 #[divan::bench]
 fn max_i32(bencher: Bencher) {
@@ -22,7 +28,7 @@ fn max_i32(bencher: Bencher) {
         .with_inputs(|| PrimitiveArray::from_iter(data.iter().copied()).into_array())
         .bench_refs(|a| {
             a.statistics()
-                .compute_max::<i32>(&mut LEGACY_SESSION.create_execution_ctx())
+                .compute_max::<i32>(&mut SESSION.create_execution_ctx())
         });
 }
 
@@ -34,7 +40,7 @@ fn max_i64(bencher: Bencher) {
         .with_inputs(|| PrimitiveArray::from_iter(data.iter().copied()).into_array())
         .bench_refs(|a| {
             a.statistics()
-                .compute_max::<i64>(&mut LEGACY_SESSION.create_execution_ctx())
+                .compute_max::<i64>(&mut SESSION.create_execution_ctx())
         });
 }
 
@@ -46,7 +52,7 @@ fn max_f64(bencher: Bencher) {
         .with_inputs(|| PrimitiveArray::from_iter(data.iter().copied()).into_array())
         .bench_refs(|a| {
             a.statistics()
-                .compute_max::<f64>(&mut LEGACY_SESSION.create_execution_ctx())
+                .compute_max::<f64>(&mut SESSION.create_execution_ctx())
         });
 }
 
@@ -67,7 +73,7 @@ fn max_i32_nulls_clustered(bencher: Bencher) {
         .with_inputs(|| PrimitiveArray::from_option_iter(data.iter().copied()).into_array())
         .bench_refs(|a| {
             a.statistics()
-                .compute_max::<i32>(&mut LEGACY_SESSION.create_execution_ctx())
+                .compute_max::<i32>(&mut SESSION.create_execution_ctx())
         });
 }
 
@@ -82,6 +88,6 @@ fn max_i32_nulls_scattered(bencher: Bencher) {
         .with_inputs(|| PrimitiveArray::from_option_iter(data.iter().copied()).into_array())
         .bench_refs(|a| {
             a.statistics()
-                .compute_max::<i32>(&mut LEGACY_SESSION.create_execution_ctx())
+                .compute_max::<i32>(&mut SESSION.create_execution_ctx())
         });
 }
