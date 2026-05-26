@@ -41,7 +41,7 @@ fn main() {
     divan::main();
 }
 
-const LENGTHS: &[usize] = &[1 << 16, 1 << 20];
+const LENGTHS: &[usize] = &[1 << 16, 1 << 17];
 
 // Logical decimal range [0, 1000), precision 9 scale 2 (fits i32) and precision 18 (fits i64).
 const LOWER: i64 = 250;
