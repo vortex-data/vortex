@@ -7,7 +7,6 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
@@ -21,6 +20,12 @@ use vortex_error::VortexResult;
 use crate::DecimalByteParts;
 use crate::decimal_byte_parts::DecimalBytePartsArrayExt;
 use crate::decimal_byte_parts::compute::compare::decimal_value_wrapper_to_primitive;
+use crate::decimal_byte_parts::compute::two_limb::i128_ge;
+use crate::decimal_byte_parts::compute::two_limb::i128_gt;
+use crate::decimal_byte_parts::compute::two_limb::i128_le;
+use crate::decimal_byte_parts::compute::two_limb::i128_lt;
+use crate::decimal_byte_parts::compute::two_limb::materialize_limbs;
+use crate::decimal_byte_parts::compute::two_limb::reconstruct;
 
 impl BetweenKernel for DecimalByteParts {
     fn between(
@@ -115,13 +120,7 @@ fn two_limb_between(
     nullability: Nullability,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let high = arr.msp().clone().execute::<PrimitiveArray>(ctx)?;
-    let low = arr
-        .lower()
-        .vortex_expect("two-limb path requires a lower limb")
-        .clone()
-        .execute::<PrimitiveArray>(ctx)?;
-
+    let (high, low) = materialize_limbs(arr, ctx)?;
     let validity = high.validity()?.union_nullability(nullability);
     let high = high.as_slice::<i64>();
     let low = low.as_slice::<u64>();
@@ -162,23 +161,9 @@ fn collect_two_limb(
         // SAFETY: collect_bool yields idx in 0..high.len(), and low.len() == high.len().
         let hi = unsafe { *high.get_unchecked(idx) };
         let lo = unsafe { *low.get_unchecked(idx) };
-        // Sign-extend the high limb, zero-extend the low limb: value = (hi << 64) | lo.
-        let value = ((hi as i128) << 64) | (lo as i128);
+        let value = reconstruct(hi, lo);
         lower_cmp(value, lower) & upper_cmp(value, upper)
     })
-}
-
-fn i128_ge(a: i128, b: i128) -> bool {
-    a >= b
-}
-fn i128_gt(a: i128, b: i128) -> bool {
-    a > b
-}
-fn i128_le(a: i128, b: i128) -> bool {
-    a <= b
-}
-fn i128_lt(a: i128, b: i128) -> bool {
-    a < b
 }
 
 #[cfg(test)]

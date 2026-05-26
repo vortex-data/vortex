@@ -7,6 +7,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::IntegerPType;
@@ -21,12 +22,21 @@ use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::fns::binary::CompareKernel;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::DecimalByteParts;
 use crate::decimal_byte_parts::DecimalBytePartsArrayExt;
 use crate::decimal_byte_parts::compute::compare::Sign::Positive;
+use crate::decimal_byte_parts::compute::two_limb::i128_eq;
+use crate::decimal_byte_parts::compute::two_limb::i128_ge;
+use crate::decimal_byte_parts::compute::two_limb::i128_gt;
+use crate::decimal_byte_parts::compute::two_limb::i128_le;
+use crate::decimal_byte_parts::compute::two_limb::i128_lt;
+use crate::decimal_byte_parts::compute::two_limb::i128_ne;
+use crate::decimal_byte_parts::compute::two_limb::materialize_limbs;
+use crate::decimal_byte_parts::compute::two_limb::reconstruct;
 
 impl CompareKernel for DecimalByteParts {
     fn compare(
@@ -39,18 +49,30 @@ impl CompareKernel for DecimalByteParts {
             return Ok(None);
         };
 
-        // The two-limb representation only specializes `between`; defer comparisons to canonical.
-        if lhs.lower().is_some() {
-            return Ok(None);
-        }
-
         let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
-        let scalar_type = lhs.msp().dtype().with_nullability(nullability);
 
         let rhs_decimal = rhs_const
             .as_decimal()
             .decimal_value()
             .vortex_expect("checked for null in entry func");
+
+        if lhs.lower().is_some() {
+            // Two-limb representation: reconstruct each i128 and compare directly in a single fused
+            // pass. The constant must fit in i128, which it always does for a two-limb (<= 38 digit)
+            // decimal; defer to canonical otherwise.
+            let Some(rhs_i128) = rhs_decimal.cast::<i128>() else {
+                return Ok(None);
+            };
+            return Ok(Some(two_limb_compare(
+                &lhs,
+                rhs_i128,
+                operator,
+                nullability,
+                ctx,
+            )?));
+        }
+
+        let scalar_type = lhs.msp().dtype().with_nullability(nullability);
 
         match decimal_value_wrapper_to_primitive(
             rhs_decimal,
@@ -84,6 +106,49 @@ impl CompareKernel for DecimalByteParts {
             }
         }
     }
+}
+
+/// Compare each reconstructed i128 value against the constant `rhs` in a single fused pass. See
+/// `two_limb::reconstruct`; a native i128 compare is cheaper than a manual lexicographic
+/// decomposition and reads each limb only once.
+fn two_limb_compare(
+    lhs: &ArrayView<'_, DecimalByteParts>,
+    rhs: i128,
+    operator: CompareOperator,
+    nullability: Nullability,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let (high, low) = materialize_limbs(lhs, ctx)?;
+    let validity = high.validity()?.union_nullability(nullability);
+    let high = high.as_slice::<i64>();
+    let low = low.as_slice::<u64>();
+    assert_eq!(high.len(), low.len(), "limb lengths must match");
+
+    let bits = match operator {
+        CompareOperator::Eq => collect_compare(high, low, rhs, i128_eq),
+        CompareOperator::NotEq => collect_compare(high, low, rhs, i128_ne),
+        CompareOperator::Gt => collect_compare(high, low, rhs, i128_gt),
+        CompareOperator::Gte => collect_compare(high, low, rhs, i128_ge),
+        CompareOperator::Lt => collect_compare(high, low, rhs, i128_lt),
+        CompareOperator::Lte => collect_compare(high, low, rhs, i128_le),
+    };
+
+    Ok(BoolArray::new(bits, validity).into_array())
+}
+
+fn collect_compare(
+    high: &[i64],
+    low: &[u64],
+    rhs: i128,
+    cmp: impl Fn(i128, i128) -> bool,
+) -> BitBuffer {
+    BitBuffer::collect_bool(high.len(), |idx| {
+        // SAFETY: collect_bool yields idx in 0..high.len(), and low.len() == high.len().
+        let hi = unsafe { *high.get_unchecked(idx) };
+        let lo = unsafe { *low.get_unchecked(idx) };
+        let value = reconstruct(hi, lo);
+        cmp(value, rhs)
+    })
 }
 
 // Used to represent the overflow direction when trying to
@@ -152,6 +217,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
@@ -165,10 +231,83 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::fns::operators::Operator;
     use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
     use crate::DecimalByteParts;
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn two_limb(values: &[i128], validity: Validity, dt: DecimalDType) -> ArrayRef {
+        let highs: Buffer<i64> = values.iter().map(|v| (v >> 64) as i64).collect();
+        let lows: Buffer<u64> = values.iter().map(|v| *v as u64).collect();
+        DecimalByteParts::try_new_with_lower(
+            PrimitiveArray::new(highs, validity).into_array(),
+            PrimitiveArray::new(lows, Validity::NonNullable).into_array(),
+            dt,
+        )
+        .unwrap()
+        .into_array()
+    }
+
+    #[test]
+    fn two_limb_compare_lt() -> VortexResult<()> {
+        let dt = DecimalDType::new(38, 0);
+        // 0, 2^64, 2^64 + 5, -(2^64): straddle the constant 2^64 across both limbs.
+        let arr = two_limb(
+            &[0, 1i128 << 64, (1i128 << 64) | 5, -(1i128 << 64)],
+            Validity::AllValid,
+            dt,
+        );
+        let rhs = ConstantArray::new(
+            Scalar::decimal(
+                DecimalValue::I128(1i128 << 64),
+                dt,
+                Nullability::NonNullable,
+            ),
+            arr.len(),
+        )
+        .into_array();
+
+        let lt = arr.binary(rhs.clone(), Operator::Lt)?;
+        assert_arrays_eq!(
+            lt,
+            BoolArray::from_iter([Some(true), Some(false), Some(false), Some(true)])
+        );
+
+        // Gte is the complement here since all values are valid.
+        let gte = arr.binary(rhs, Operator::Gte)?;
+        assert_arrays_eq!(
+            gte,
+            BoolArray::from_iter([Some(false), Some(true), Some(true), Some(false)])
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn two_limb_compare_lt_nullable() -> VortexResult<()> {
+        let dt = DecimalDType::new(38, 0);
+        let arr = two_limb(
+            &[0, 1i128 << 64, (1i128 << 64) | 5],
+            Validity::Array(BoolArray::from_iter([true, false, true]).into_array()),
+            dt,
+        );
+        let rhs = ConstantArray::new(
+            Scalar::decimal(
+                DecimalValue::I128(1i128 << 64),
+                dt,
+                Nullability::NonNullable,
+            ),
+            arr.len(),
+        )
+        .into_array();
+
+        let lt = arr.binary(rhs, Operator::Lt)?;
+        assert_arrays_eq!(lt, BoolArray::from_iter([Some(true), None, Some(false)]));
+
+        Ok(())
+    }
 
     #[test]
     fn compare_decimal_const() {

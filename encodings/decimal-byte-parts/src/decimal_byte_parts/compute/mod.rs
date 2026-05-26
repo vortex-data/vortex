@@ -9,6 +9,7 @@ pub(crate) mod is_constant;
 pub(crate) mod kernel;
 mod mask;
 mod take;
+mod two_limb;
 
 #[cfg(test)]
 mod tests {
