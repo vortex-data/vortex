@@ -68,7 +68,7 @@ impl VTable for List {
     }
 
     fn metadata(layout: &Self::Layout) -> Self::Metadata {
-        ProstMetadata(ListLayoutMetadata::new(layout.offsets_ptype))
+        ProstMetadata(ListLayoutMetadata::new(layout.offsets_ptype()))
     }
 
     fn segment_ids(_layout: &Self::Layout) -> Vec<SegmentId> {
@@ -124,10 +124,6 @@ impl VTable for List {
         children: &dyn LayoutChildren,
         _ctx: &ReadContext,
     ) -> VortexResult<Self::Layout> {
-        let elements_dtype = dtype
-            .as_list_element_opt()
-            .ok_or_else(|| vortex_err!("ListLayout requires a List dtype, got {dtype}"))?;
-
         let expected_children = if dtype.is_nullable() {
             NUM_CHILDREN_NULLABLE
         } else {
@@ -139,9 +135,14 @@ impl VTable for List {
             children.nchildren(),
         );
 
+        let elements_dtype = dtype
+            .as_list_element_opt()
+            .ok_or_else(|| vortex_err!("ListLayout requires a List dtype, got {dtype}"))?;
         let elements = children.child(ELEMENTS_CHILD_INDEX, elements_dtype.as_ref())?;
+
         let offsets_dtype = DType::Primitive(metadata.offsets_ptype(), Nullability::NonNullable);
         let offsets = children.child(OFFSETS_CHILD_INDEX, &offsets_dtype)?;
+
         let validity = if dtype.is_nullable() {
             Some(children.child(VALIDITY_CHILD_INDEX, &DType::Bool(Nullability::NonNullable))?)
         } else {
@@ -153,7 +154,6 @@ impl VTable for List {
             elements,
             offsets,
             validity,
-            offsets_ptype: metadata.offsets_ptype(),
         })
     }
 
@@ -205,60 +205,36 @@ pub struct ListLayout {
     elements: LayoutRef,
     offsets: LayoutRef,
     validity: Option<LayoutRef>,
-    offsets_ptype: PType,
 }
 
 impl ListLayout {
     /// Construct a new `ListLayout` from its components.
     ///
-    /// `dtype` must be a [`DType::List`]. The `validity` child must be supplied iff the dtype is
-    /// nullable. The list's row count is derived from the `offsets` child as
-    /// `offsets.row_count() - 1`.
-    pub fn try_new(
+    /// # Invariants (caller's responsibility)
+    ///
+    /// - `dtype` must be a [`DType::List`].
+    /// - `validity` must be `Some` iff `dtype.is_nullable()`.
+    /// - `offsets.dtype()` must be a non-nullable integer.
+    /// - `offsets.row_count()` is the Arrow-canonical `n+1` for `n` lists (or `0` for empty).
+    /// - When present, `validity.row_count() == offsets.row_count().saturating_sub(1)`.
+    ///
+    /// The [`ListLayoutStrategy`](writer::ListLayoutStrategy) writer upholds these invariants by
+    /// construction.
+    pub fn new(
         dtype: DType,
         elements: LayoutRef,
         offsets: LayoutRef,
         validity: Option<LayoutRef>,
-    ) -> VortexResult<Self> {
-        vortex_ensure!(
-            dtype.is_list(),
-            "ListLayout requires a List dtype, got {dtype}"
-        );
-
-        vortex_ensure!(
-            dtype.is_nullable() == validity.is_some(),
-            "validity must be supplied iff dtype is nullable (dtype: {dtype})",
-        );
-
-        let offsets_dtype = offsets.dtype();
-        vortex_ensure!(
-            offsets_dtype.is_int() && !offsets_dtype.is_nullable(),
-            "offsets must be a non-nullable integer layout, got {offsets_dtype}",
-        );
-
-        let offsets_row_count = offsets.row_count().saturating_sub(1);
-        if let Some(validity) = validity.as_ref() {
-            let validity_row_count = validity.row_count();
-            vortex_ensure!(
-                validity_row_count == offsets_row_count,
-                "validity row count ({validity_row_count}) must match list row count ({offsets_row_count})",
-            );
-        }
-
-        let offsets_ptype = offsets.dtype().as_ptype();
-
-        Ok(Self {
+    ) -> Self {
+        Self {
             dtype,
             elements,
             offsets,
             validity,
-            offsets_ptype,
-        })
+        }
     }
 
     /// Number of lists in this layout.
-    ///
-    /// Equal to `offsets.row_count() - 1` by construction.
     #[inline]
     pub fn row_count(&self) -> u64 {
         self.offsets.row_count().saturating_sub(1)
@@ -279,9 +255,10 @@ impl ListLayout {
         self.validity.as_ref()
     }
 
+    /// The integer type used for the `offsets` child layout.
     #[inline]
     pub fn offsets_ptype(&self) -> PType {
-        self.offsets_ptype
+        self.offsets.dtype().as_ptype()
     }
 
     /// The dtype of the inner elements column.

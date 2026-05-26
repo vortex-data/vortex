@@ -168,8 +168,7 @@ impl ListLayoutStrategy {
             offsets,
             validity,
             ..
-        } = list_from_list_view(array.execute::<ListViewArray>(&mut exec_ctx)?)?
-            .into_data_parts();
+        } = list_from_list_view(array.execute::<ListViewArray>(&mut exec_ctx)?)?.into_data_parts();
         // `offsets` is the Arrow-canonical `n+1` entries, so the list count is one less.
         let validity_array = is_nullable
             .then(|| {
@@ -200,24 +199,18 @@ impl ListLayoutStrategy {
         let validity_task = validity_array.map(|arr| spawn(&self.validity, arr));
         drop(spawn);
 
-        let (elements_layout, offsets_layout, validity_layout) = futures::try_join!(
-            elements_task,
-            offsets_task,
-            async {
+        let (elements_layout, offsets_layout, validity_layout) =
+            futures::try_join!(elements_task, offsets_task, async {
                 match validity_task {
                     Some(task) => task.await.map(Some),
                     None => Ok(None),
                 }
-            }
-        )?;
+            })?;
 
-        Ok(ListLayout::try_new(
-            dtype.clone(),
-            elements_layout,
-            offsets_layout,
-            validity_layout,
-        )?
-        .into_layout())
+        Ok(
+            ListLayout::new(dtype.clone(), elements_layout, offsets_layout, validity_layout)
+                .into_layout(),
+        )
     }
 
     /// Empty-stream variant: produces a `ListLayout` whose children all encode 0 rows.
@@ -255,17 +248,12 @@ impl ListLayoutStrategy {
         )
         .await?;
         let validity_layout = if is_nullable {
-            Some(
-                write_empty(&self.validity, DType::Bool(Nullability::NonNullable)).await?,
-            )
+            Some(write_empty(&self.validity, DType::Bool(Nullability::NonNullable)).await?)
         } else {
             None
         };
 
-        Ok(
-            ListLayout::try_new(dtype, elements_layout, offsets_layout, validity_layout)?
-                .into_layout(),
-        )
+        Ok(ListLayout::new(dtype, elements_layout, offsets_layout, validity_layout).into_layout())
     }
 }
 
@@ -315,7 +303,9 @@ fn spawn_layout_write(
     let session = session.clone();
     handle.spawn_nested(move |h| async move {
         let session = session.with_handle(h);
-        strategy.write_stream(ctx, sink, stream, eof, &session).await
+        strategy
+            .write_stream(ctx, sink, stream, eof, &session)
+            .await
     })
 }
 
@@ -435,8 +425,7 @@ mod tests {
 
         let expected = list
             .slice(
-                usize::try_from(row_range.start).unwrap()
-                    ..usize::try_from(row_range.end).unwrap(),
+                usize::try_from(row_range.start).unwrap()..usize::try_from(row_range.end).unwrap(),
             )
             .unwrap();
         assert_arrays_eq!(result, expected);
