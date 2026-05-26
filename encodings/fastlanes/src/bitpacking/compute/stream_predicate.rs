@@ -11,8 +11,6 @@
 //! resulting words straight into the output bit buffer, so the materialised primitive
 //! never appears anywhere.
 
-use std::ops::Range;
-
 use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -25,12 +23,14 @@ use vortex_array::dtype::Nullability;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
-use vortex_buffer::collect_bool_word;
+use vortex_buffer::collect_bool_words;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::unpack_iter::BitPacked as BitPackedIter;
+
+const BITS_PER_WORD: usize = u64::BITS as usize;
 
 /// Stream `predicate` over the unpacked values of a [`BitPackedArray`], one FastLanes
 /// block at a time, producing a [`BoolArray`].
@@ -45,7 +45,7 @@ where
     P: Fn(T) -> bool,
 {
     let len = array.len();
-    let num_words = len.div_ceil(64);
+    let num_words = len.div_ceil(BITS_PER_WORD);
     let mut words: BufferMut<u64> = BufferMut::zeroed(num_words);
 
     if len > 0 {
@@ -62,12 +62,14 @@ where
                 let mut p_cur: usize = 0;
                 chunks.for_each_unpacked_chunk(|block, range| {
                     p_cur = splice_patches::<T, I>(block, range.start, p_cur, p_idx, p_val, p_off);
-                    pack_predicate_block(words, range, block, &predicate);
+                    let (word_idx, bit_off) = (range.start / BITS_PER_WORD, range.start % BITS_PER_WORD);
+                    pack_predicate_block(&mut words[word_idx..], bit_off, block, &predicate);
                 });
             });
         } else {
             chunks.for_each_unpacked_chunk(|block, range| {
-                pack_predicate_block(words, range, block, &predicate);
+                let (word_idx, bit_off) = (range.start / BITS_PER_WORD, range.start % BITS_PER_WORD);
+                pack_predicate_block(&mut words[word_idx..], bit_off, block, &predicate);
             });
         }
     }
@@ -107,40 +109,27 @@ where
     cursor
 }
 
-/// Fold `predicate` over `block`, packing 64 bools into a `u64` per inner-loop pass and
-/// writing the words directly into `words` at `range.start`.
+/// Fold `predicate` over `block`, packing the bools into `words` starting at
+/// `bit_off` within the first word. `words` must already be sliced to start at the
+/// first containing word.
 #[inline]
-fn pack_predicate_block<T, P>(words: &mut [u64], range: Range<usize>, block: &[T], predicate: &P)
+fn pack_predicate_block<T, P>(words: &mut [u64], bit_off: usize, block: &[T], predicate: &P)
 where
     T: Copy,
     P: Fn(T) -> bool,
 {
-    debug_assert_eq!(range.len(), block.len());
-    let start_bit = range.start;
-    let active_len = range.len();
-    if active_len == 0 {
+    if block.is_empty() {
         return;
     }
 
-    if start_bit.is_multiple_of(64) {
-        let mut word_idx = start_bit / 64;
-        let mut chunks = block.chunks_exact(64);
-
-        for chunk in chunks.by_ref() {
-            words[word_idx] = collect_bool_word(chunk.len(), |bit_idx| predicate(chunk[bit_idx]));
-            word_idx += 1;
-        }
-
-        let tail = chunks.remainder();
-        if !tail.is_empty() {
-            words[word_idx] = collect_bool_word(tail.len(), |bit_idx| predicate(tail[bit_idx]));
-        }
+    if bit_off == 0 {
+        collect_bool_words(words, block.len(), |i| predicate(block[i]));
     } else {
-        // Unaligned cursor — array sliced at a non-64-aligned offset. Per-bit OR.
-        for (bit_offset, &value) in block.iter().enumerate() {
+        // Unaligned start — array sliced at a non-word-aligned offset. Per-bit OR.
+        for (i, &value) in block.iter().enumerate() {
             if predicate(value) {
-                let bit_pos = start_bit + bit_offset;
-                words[bit_pos / 64] |= 1u64 << (bit_pos % 64);
+                let bit_pos = bit_off + i;
+                words[bit_pos / BITS_PER_WORD] |= 1u64 << (bit_pos % BITS_PER_WORD);
             }
         }
     }

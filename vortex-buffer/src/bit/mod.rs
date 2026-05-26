@@ -40,6 +40,34 @@ where
     packed
 }
 
+/// Pack `len` boolean values returned by `f` into the prefix of `words`, LSB-first,
+/// 64 bits per `u64`. `words` must have capacity for at least `len.div_ceil(64)` entries.
+#[inline]
+pub fn collect_bool_words<F>(words: &mut [u64], len: usize, mut f: F)
+where
+    F: FnMut(usize) -> bool,
+{
+    let num_words = len.div_ceil(64);
+    assert!(
+        words.len() >= num_words,
+        "words slice has {} entries, need at least {num_words}",
+        words.len(),
+    );
+
+    let full = len / 64;
+    let remainder = len % 64;
+
+    for word_idx in 0..full {
+        let offset = word_idx * 64;
+        words[word_idx] = collect_bool_word(64, |bit_idx| f(offset + bit_idx));
+    }
+
+    if remainder != 0 {
+        let offset = full * 64;
+        words[full] = collect_bool_word(remainder, |bit_idx| f(offset + bit_idx));
+    }
+}
+
 /// Get the bit value at `index` out of `buf`.
 ///
 /// # Panics
