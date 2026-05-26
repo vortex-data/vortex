@@ -249,7 +249,8 @@ fn to_arrow_validity_byte_buffer(
         let physical_bits = BitBuffer::collect_bool(len + arrow_offset, |physical_index| {
             physical_index >= arrow_offset && logical_validity.value(physical_index - arrow_offset)
         });
-        BitBuffer::new_with_offset(physical_bits.inner().clone(), len, arrow_offset)
+        let (_, _, bytes) = physical_bits.into_inner();
+        BitBuffer::new_with_offset(bytes, len, arrow_offset)
     };
 
     let (bit_offset, bit_len, bytes) = arrow_bitmap.into_inner();
