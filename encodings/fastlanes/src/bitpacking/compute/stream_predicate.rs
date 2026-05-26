@@ -25,6 +25,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
+use vortex_buffer::collect_bool_word;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
@@ -124,13 +125,13 @@ where
         let mut chunks = block.chunks_exact(64);
 
         for chunk in chunks.by_ref() {
-            words[word_idx] = pack_predicate_word(chunk, predicate);
+            words[word_idx] = collect_bool_word(chunk.len(), |bit_idx| predicate(chunk[bit_idx]));
             word_idx += 1;
         }
 
         let tail = chunks.remainder();
         if !tail.is_empty() {
-            words[word_idx] = pack_predicate_word(tail, predicate);
+            words[word_idx] = collect_bool_word(tail.len(), |bit_idx| predicate(tail[bit_idx]));
         }
     } else {
         // Unaligned cursor — array sliced at a non-64-aligned offset. Per-bit OR.
@@ -141,17 +142,4 @@ where
             }
         }
     }
-}
-
-#[inline]
-fn pack_predicate_word<T, P>(values: &[T], predicate: &P) -> u64
-where
-    T: Copy,
-    P: Fn(T) -> bool,
-{
-    let mut packed = 0u64;
-    for (bit_idx, &value) in values.iter().enumerate() {
-        packed |= (predicate(value) as u64) << bit_idx;
-    }
-    packed
 }

@@ -8,6 +8,7 @@ use bitvec::view::BitView;
 use crate::BitBuffer;
 use crate::BufferMut;
 use crate::ByteBufferMut;
+use crate::bit::collect_bool_word;
 use crate::bit::get_bit_unchecked;
 use crate::bit::ops;
 use crate::bit::set_bit_unchecked;
@@ -190,22 +191,16 @@ impl BitBufferMut {
         let chunks = len / 64;
         let remainder = len % 64;
         for chunk in 0..chunks {
-            let mut packed = 0;
-            for bit_idx in 0..64 {
-                let i = bit_idx + chunk * 64;
-                packed |= (f(i) as u64) << bit_idx;
-            }
+            let offset = chunk * 64;
+            let packed = collect_bool_word(64, |bit_idx| f(offset + bit_idx));
 
             // SAFETY: Already allocated sufficient capacity
             unsafe { buffer.push_unchecked(packed) }
         }
 
         if remainder != 0 {
-            let mut packed = 0;
-            for bit_idx in 0..remainder {
-                let i = bit_idx + chunks * 64;
-                packed |= (f(i) as u64) << bit_idx;
-            }
+            let offset = chunks * 64;
+            let packed = collect_bool_word(remainder, |bit_idx| f(offset + bit_idx));
 
             // SAFETY: Already allocated sufficient capacity
             unsafe { buffer.push_unchecked(packed) }

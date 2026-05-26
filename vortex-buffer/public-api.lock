@@ -1020,6 +1020,8 @@ pub fn B::copy_to_aligned(&mut self, usize, vortex_buffer::Alignment) -> vortex_
 
 pub fn B::copy_to_const_aligned<const A: usize>(&mut self, usize) -> vortex_buffer::ConstByteBuffer<A>
 
+pub fn vortex_buffer::collect_bool_word<F>(usize, F) -> u64 where F: core::ops::function::FnMut(usize) -> bool
+
 pub fn vortex_buffer::get_bit(&[u8], usize) -> bool
 
 pub unsafe fn vortex_buffer::get_bit_unchecked(*const u8, usize) -> bool

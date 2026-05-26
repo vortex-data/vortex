@@ -25,6 +25,21 @@ pub use arrow_buffer::bit_iterator::BitSliceIterator;
 pub use buf::*;
 pub use buf_mut::*;
 
+/// Packs up to 64 boolean values into a little-endian `u64` word.
+#[inline]
+pub fn collect_bool_word<F>(len: usize, mut f: F) -> u64
+where
+    F: FnMut(usize) -> bool,
+{
+    assert!(len <= 64, "cannot pack {len} bits into a u64 word");
+
+    let mut packed = 0;
+    for bit_idx in 0..len {
+        packed |= (f(bit_idx) as u64) << bit_idx;
+    }
+    packed
+}
+
 /// Get the bit value at `index` out of `buf`.
 ///
 /// # Panics
@@ -63,4 +78,26 @@ pub unsafe fn set_bit_unchecked(buf: *mut u8, index: usize) {
 #[inline(always)]
 pub unsafe fn unset_bit_unchecked(buf: *mut u8, index: usize) {
     unsafe { *buf.add(index / 8) &= !(1 << (index % 8)) };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::collect_bool_word;
+
+    #[test]
+    fn collect_bool_word_packs_lsb_first() {
+        let word = collect_bool_word(5, |idx| idx.is_multiple_of(2));
+        assert_eq!(word, 0b10101);
+    }
+
+    #[test]
+    fn collect_bool_word_empty() {
+        assert_eq!(collect_bool_word(0, |_| true), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "cannot pack 65 bits into a u64 word")]
+    fn collect_bool_word_rejects_too_many_bits() {
+        let _ = collect_bool_word(65, |_| true);
+    }
 }
