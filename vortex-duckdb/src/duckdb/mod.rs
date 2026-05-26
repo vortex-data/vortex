@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod bind_input;
 mod client_context;
 mod config;
 mod connection;
@@ -17,8 +18,9 @@ mod query_result;
 mod reusable_dict;
 mod scalar_function;
 mod selection_vector;
+mod string_map;
 mod table_filter;
-mod table_function;
+mod table_init_input;
 mod value;
 mod vector;
 mod vector_buffer;
@@ -26,6 +28,7 @@ mod vector_buffer;
 use std::ffi::c_void;
 use std::ptr;
 
+pub use bind_input::*;
 pub use client_context::*;
 pub use config::*;
 pub use connection::*;
@@ -41,8 +44,9 @@ pub use query_result::*;
 pub use reusable_dict::*;
 pub use scalar_function::*;
 pub use selection_vector::*;
+pub use string_map::*;
 pub use table_filter::*;
-pub use table_function::*;
+pub use table_init_input::*;
 pub use value::*;
 pub use vector::*;
 pub use vector_buffer::*;
