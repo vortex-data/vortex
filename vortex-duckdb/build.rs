@@ -7,6 +7,7 @@
 
 use std::env;
 use std::fs;
+use std::io;
 use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::path::PathBuf;
@@ -278,7 +279,7 @@ fn try_build_duckdb(
 
     let library_dir_str = library_dir.display();
     if let Err(err) = fs::remove_dir_all(library_dir)
-        && err.kind() != std::io::ErrorKind::NotFound
+        && err.kind() != io::ErrorKind::NotFound
     {
         println!("cargo:error=Failed to remove {library_dir_str}: {err}");
         exit(1);
@@ -441,13 +442,24 @@ fn main() {
         DuckDBVersion::Commit(c) => format!("{DUCKDB_SOURCE_COMMIT_URL}/{c}.zip"),
     };
 
-    fs::create_dir_all(&source_dir).unwrap();
     let source_archive_path = source_dir.with_extension("zip");
     download_url(&source_archive_url, &source_archive_path);
 
     let inner_dir = source_dir.join(version.archive_inner_dir_name());
-    if !inner_dir.join("CMakeLists.txt").exists() {
+    let extract_marker = source_dir.join(".vx-extract-complete");
+    if !extract_marker.exists() {
+        if let Err(err) = fs::remove_dir_all(&source_dir)
+            && err.kind() != io::ErrorKind::NotFound
+        {
+            println!(
+                "cargo:error=Failed to clear {}: {err}",
+                source_dir.display()
+            );
+            exit(1);
+        }
+        fs::create_dir_all(&source_dir).unwrap();
         extract(&source_archive_path, &source_dir);
+        fs::write(&extract_marker, version.to_string()).unwrap();
     }
 
     drop(fs::remove_file(&duckdb_dir));
