@@ -127,71 +127,58 @@ fn two_limb_between(
     let low = low.as_slice::<u64>();
     assert_eq!(high.len(), low.len(), "limb lengths must match");
 
-    let (lower_high, lower_low) = split_i128(lower);
-    let (upper_high, upper_low) = split_i128(upper);
-
-    let lower_limbs = (lower_high, lower_low);
-    let upper_limbs = (upper_high, upper_low);
-
-    // Pass the low-limb comparison as a monomorphized fn so the whole per-element body inlines.
+    // Pass the comparison as a monomorphized fn so the whole per-element body inlines.
     let bits = match (options.lower_strict, options.upper_strict) {
         (StrictComparison::Strict, StrictComparison::Strict) => {
-            collect_two_limb(high, low, lower_limbs, u64_gt, upper_limbs, u64_lt)
+            collect_two_limb(high, low, lower, i128_gt, upper, i128_lt)
         }
         (StrictComparison::Strict, StrictComparison::NonStrict) => {
-            collect_two_limb(high, low, lower_limbs, u64_gt, upper_limbs, u64_le)
+            collect_two_limb(high, low, lower, i128_gt, upper, i128_le)
         }
         (StrictComparison::NonStrict, StrictComparison::Strict) => {
-            collect_two_limb(high, low, lower_limbs, u64_ge, upper_limbs, u64_lt)
+            collect_two_limb(high, low, lower, i128_ge, upper, i128_lt)
         }
         (StrictComparison::NonStrict, StrictComparison::NonStrict) => {
-            collect_two_limb(high, low, lower_limbs, u64_ge, upper_limbs, u64_le)
+            collect_two_limb(high, low, lower, i128_ge, upper, i128_le)
         }
     };
 
     Ok(BoolArray::new(bits, validity).into_array())
 }
 
-/// The fused per-element loop. `lower_low_cmp`/`upper_low_cmp` apply the (possibly strict) low-limb
-/// comparison. Bitwise (non-short-circuiting) `&`/`|` keep the body branch-free for the vectorizer.
+/// The fused per-element loop. Reconstruct the i128 from its signed-high / unsigned-low limbs and
+/// compare against the bounds. A native i128 comparison is ~2 instructions, cheaper than a manual
+/// lexicographic decomposition, and the single pass reads each limb once (arrow reads its i128
+/// array twice, once per `gt_eq`/`lt_eq`). Bitwise `&` keeps the body branch-free.
 fn collect_two_limb(
     high: &[i64],
     low: &[u64],
-    lower: (i64, u64),
-    lower_low_cmp: impl Fn(u64, u64) -> bool,
-    upper: (i64, u64),
-    upper_low_cmp: impl Fn(u64, u64) -> bool,
+    lower: i128,
+    lower_cmp: impl Fn(i128, i128) -> bool,
+    upper: i128,
+    upper_cmp: impl Fn(i128, i128) -> bool,
 ) -> BitBuffer {
-    let (lower_high, lower_low) = lower;
-    let (upper_high, upper_low) = upper;
     BitBuffer::collect_bool(high.len(), |idx| {
         // SAFETY: collect_bool yields idx in 0..high.len(), and low.len() == high.len().
-        let h = unsafe { *high.get_unchecked(idx) };
-        let l = unsafe { *low.get_unchecked(idx) };
-        let ge_lower = (h > lower_high) | ((h == lower_high) & lower_low_cmp(l, lower_low));
-        let le_upper = (h < upper_high) | ((h == upper_high) & upper_low_cmp(l, upper_low));
-        ge_lower & le_upper
+        let hi = unsafe { *high.get_unchecked(idx) };
+        let lo = unsafe { *low.get_unchecked(idx) };
+        // Sign-extend the high limb, zero-extend the low limb: value = (hi << 64) | lo.
+        let value = ((hi as i128) << 64) | (lo as i128);
+        lower_cmp(value, lower) & upper_cmp(value, upper)
     })
 }
 
-fn u64_ge(a: u64, b: u64) -> bool {
+fn i128_ge(a: i128, b: i128) -> bool {
     a >= b
 }
-fn u64_gt(a: u64, b: u64) -> bool {
+fn i128_gt(a: i128, b: i128) -> bool {
     a > b
 }
-fn u64_le(a: u64, b: u64) -> bool {
+fn i128_le(a: i128, b: i128) -> bool {
     a <= b
 }
-fn u64_lt(a: u64, b: u64) -> bool {
+fn i128_lt(a: i128, b: i128) -> bool {
     a < b
-}
-
-/// Split an i128 into its signed high and unsigned low 64-bit limbs. The truncating casts are the
-/// intended limb extraction: `>> 64` keeps the high 64 bits and `as u64` keeps the low 64 bits.
-#[allow(clippy::cast_possible_truncation)]
-fn split_i128(value: i128) -> (i64, u64) {
-    ((value >> 64) as i64, value as u64)
 }
 
 #[cfg(test)]
