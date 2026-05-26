@@ -13,18 +13,14 @@ use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::list::ListDataParts;
 use vortex_array::arrays::listview::list_from_list_view;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
+use vortex_error::vortex_bail;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 
 use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
-use crate::children::OwnedLayoutChildren;
-use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::list::ListLayout;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
@@ -36,26 +32,21 @@ use crate::sequence::SequentialStreamExt;
 
 /// Strategy for writing list-typed arrays.
 ///
-/// For each input chunk, the strategy:
-///  1. Canonicalizes the chunk into a [`ListViewArray`].
+/// Single-chunk only. The strategy:
+///  1. Canonicalizes the input chunk into a [`ListViewArray`].
 ///  2. Calls [`list_from_list_view`] to rebuild it into zero-copy-to-list form
 ///     (sorted, gapless, non-overlapping offsets) and produce a [`ListArray`].
 ///  3. Writes the `elements`, `n+1` `offsets`, and (when nullable) `validity` columns into
-///     separately configurable downstream strategies, producing a single [`ListLayout`] for
-///     that chunk.
+///     separately configurable downstream strategies, producing a single [`ListLayout`].
 ///
-/// # Multi-chunk handling
+/// # Chunking
 ///
-/// Each input chunk is a self-contained list array — its own elements buffer, its own
-/// `n_i + 1` offsets starting from 0, its own validity. When the stream contains multiple
-/// chunks, the strategy produces one `ListLayout` per chunk and wraps them in a
-/// [`ChunkedLayout`], rather than merging them into a single `ListLayout` by rebasing offsets
-/// across chunks.
-///
-/// This mirrors how `ChunkedReader` reads back the column: it returns a `ChunkedArray` of
-/// per-chunk `ListArray`s rather than concatenating into one big `ListArray`. The chunk
-/// boundary is preserved end-to-end, consistent with how every other dtype's chunked column
-/// is handled in Vortex.
+/// `ListLayoutStrategy` bails on empty or multi-chunk input, matching the convention used by
+/// [`FlatLayoutStrategy`](crate::layouts::flat::writer::FlatLayoutStrategy). To handle
+/// multi-chunk input, wrap with
+/// [`ChunkedLayoutStrategy`](crate::layouts::chunked::writer::ChunkedLayoutStrategy), which
+/// slices the input into one-chunk substreams and produces
+/// `ChunkedLayout(ListLayout × K)`.
 ///
 /// [`ListArray`]: vortex_array::arrays::ListArray
 pub struct ListLayoutStrategy {
@@ -84,82 +75,20 @@ impl LayoutStrategy for ListLayoutStrategy {
         &self,
         ctx: ArrayContext,
         segment_sink: SegmentSinkRef,
-        stream: SendableSequentialStream,
+        mut stream: SendableSequentialStream,
         mut eof: SequencePointer,
         session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         if !dtype.is_list() {
-            return Err(vortex_err!(
-                "ListLayoutStrategy requires a List dtype, got {dtype}"
-            ));
-        }
-        let is_nullable = dtype.is_nullable();
-
-        let mut stream = stream;
-        let mut chunk_layouts = Vec::<LayoutRef>::new();
-
-        while let Some(item) = stream.next().await {
-            let (sequence_id, array) = item?;
-            let chunk_eof = eof.split_off();
-
-            let chunk_layout = self
-                .write_chunk(
-                    ctx.clone(),
-                    Arc::clone(&segment_sink),
-                    sequence_id,
-                    chunk_eof,
-                    session,
-                    &dtype,
-                    is_nullable,
-                    array,
-                )
-                .await?;
-            chunk_layouts.push(chunk_layout);
+            vortex_bail!("ListLayoutStrategy requires a List dtype, got {dtype}");
         }
 
-        if chunk_layouts.is_empty() {
-            // Empty stream: emit an empty ListLayout. We write empty children of the same dtype
-            // (with u32 offsets) so the children's encoding ID is still derivable.
-            let chunk_layout = self
-                .write_empty_chunk(ctx, segment_sink, eof, session, dtype.clone(), is_nullable)
-                .await?;
-            return Ok(chunk_layout);
-        }
+        let Some(item) = stream.next().await else {
+            vortex_bail!("ListLayoutStrategy needs a single chunk");
+        };
+        let (sequence_id, array) = item?;
 
-        if chunk_layouts.len() == 1 {
-            return Ok(chunk_layouts.pop().expect("len == 1"));
-        }
-
-        let row_count = chunk_layouts.iter().map(|l| l.row_count()).sum();
-        Ok(ChunkedLayout::new(
-            row_count,
-            dtype,
-            OwnedLayoutChildren::layout_children(chunk_layouts),
-        )
-        .into_layout())
-    }
-
-    fn buffered_bytes(&self) -> u64 {
-        self.elements.buffered_bytes()
-            + self.offsets.buffered_bytes()
-            + self.validity.buffered_bytes()
-    }
-}
-
-impl ListLayoutStrategy {
-    #[allow(clippy::too_many_arguments)]
-    async fn write_chunk(
-        &self,
-        ctx: ArrayContext,
-        segment_sink: SegmentSinkRef,
-        sequence_id: SequenceId,
-        mut chunk_eof: SequencePointer,
-        session: &VortexSession,
-        dtype: &DType,
-        is_nullable: bool,
-        array: ArrayRef,
-    ) -> VortexResult<LayoutRef> {
         let mut exec_ctx = session.create_execution_ctx();
         // Canonicalize to ListView, then rebuild into zero-copy-to-list form with `n+1`
         // monotonic offsets.
@@ -170,7 +99,8 @@ impl ListLayoutStrategy {
             ..
         } = list_from_list_view(array.execute::<ListViewArray>(&mut exec_ctx)?)?.into_data_parts();
         // `offsets` is the Arrow-canonical `n+1` entries, so the list count is one less.
-        let validity_array = is_nullable
+        let validity_array = dtype
+            .is_nullable()
             .then(|| {
                 validity
                     .execute_mask(offsets.len().saturating_sub(1), &mut exec_ctx)
@@ -178,8 +108,8 @@ impl ListLayoutStrategy {
             })
             .transpose()?;
 
-        // Closure to spawn one child writer with its own sequence id and EOF pointer, advanced
-        // in invocation order: elements, offsets, validity (when nullable).
+        // Closure to spawn one child writer with its own sequence id and EOF pointer,
+        // advanced in invocation order: elements, offsets, validity (when nullable).
         let mut sp = sequence_id.descend();
         let handle = session.handle();
         let mut spawn = |strategy: &Arc<dyn LayoutStrategy>, array: ArrayRef| {
@@ -190,7 +120,7 @@ impl ListLayoutStrategy {
                 Arc::clone(&segment_sink),
                 session,
                 single_chunk_stream(array.dtype().clone(), sp.advance(), array),
-                chunk_eof.split_off(),
+                eof.split_off(),
             )
         };
 
@@ -207,72 +137,21 @@ impl ListLayoutStrategy {
                 }
             })?;
 
+        if stream.next().await.is_some() {
+            vortex_bail!("ListLayoutStrategy received stream with more than a single chunk");
+        }
+
         Ok(
-            ListLayout::new(dtype.clone(), elements_layout, offsets_layout, validity_layout)
+            ListLayout::new(dtype, elements_layout, offsets_layout, validity_layout)
                 .into_layout(),
         )
     }
 
-    /// Empty-stream variant: produces a `ListLayout` whose children all encode 0 rows.
-    /// `offsets.row_count() == 0` is treated as 0 lists by [`ListLayout::row_count`].
-    async fn write_empty_chunk(
-        &self,
-        ctx: ArrayContext,
-        segment_sink: SegmentSinkRef,
-        mut eof: SequencePointer,
-        session: &VortexSession,
-        dtype: DType,
-        is_nullable: bool,
-    ) -> VortexResult<LayoutRef> {
-        let elements_dtype = dtype
-            .as_list_element_opt()
-            .ok_or_else(|| vortex_err!("ListLayoutStrategy requires a List dtype, got {dtype}"))?
-            .as_ref()
-            .clone();
-
-        let mut write_empty = |strategy: &Arc<dyn LayoutStrategy>, child_dtype: DType| {
-            write_empty_child(
-                Arc::clone(strategy),
-                ctx.clone(),
-                Arc::clone(&segment_sink),
-                session,
-                child_dtype,
-                eof.split_off(),
-            )
-        };
-
-        let elements_layout = write_empty(&self.elements, elements_dtype).await?;
-        let offsets_layout = write_empty(
-            &self.offsets,
-            DType::Primitive(PType::U32, Nullability::NonNullable),
-        )
-        .await?;
-        let validity_layout = if is_nullable {
-            Some(write_empty(&self.validity, DType::Bool(Nullability::NonNullable)).await?)
-        } else {
-            None
-        };
-
-        Ok(ListLayout::new(dtype, elements_layout, offsets_layout, validity_layout).into_layout())
+    fn buffered_bytes(&self) -> u64 {
+        self.elements.buffered_bytes()
+            + self.offsets.buffered_bytes()
+            + self.validity.buffered_bytes()
     }
-}
-
-fn empty_stream(dtype: DType) -> SendableSequentialStream {
-    SequentialStreamAdapter::new(dtype, futures::stream::empty().boxed()).sendable()
-}
-
-/// Drive a single child writer with an empty stream of the given `dtype`.
-async fn write_empty_child(
-    strategy: Arc<dyn LayoutStrategy>,
-    ctx: ArrayContext,
-    sink: SegmentSinkRef,
-    session: &VortexSession,
-    dtype: DType,
-    eof: SequencePointer,
-) -> VortexResult<LayoutRef> {
-    strategy
-        .write_stream(ctx, sink, empty_stream(dtype), eof, session)
-        .await
 }
 
 /// Wrap a single array as a one-shot [`SendableSequentialStream`] for handoff to a child writer.
@@ -456,5 +335,136 @@ mod tests {
             .into_array();
         // Read lists 1..3: null, [30]
         round_trip_subset(list, 1..3).await;
+    }
+
+    // -- tree shape visualization ---------------------------------------------------------
+    //
+    // These tests are mostly for development/inspection — they show what the resulting
+    // layout tree looks like for various input shapes. Run with `--nocapture` to see the
+    // pretty-printed trees:
+    //
+    //   cargo test -p vortex-layout layouts::list::writer::tests::tree -- --nocapture
+
+    use vortex_array::ArrayContext as _ArrayContextAlias;
+
+    /// Write `array` directly through `ListLayoutStrategy` (no ChunkedLayoutStrategy wrap)
+    /// and return the resulting top-level layout.
+    async fn write_through_list_strategy(array: ArrayRef) -> crate::LayoutRef {
+        let segments = Arc::new(TestSegments::default());
+        let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
+        let writer =
+            ListLayoutStrategy::new(Arc::clone(&flat), Arc::clone(&flat), Arc::clone(&flat));
+        let (ptr, eof) = SequenceId::root().split();
+        let stream = array.to_array_stream().sequenced(ptr);
+        writer
+            .write_stream(
+                _ArrayContextAlias::empty(),
+                segments,
+                stream,
+                eof,
+                &SESSION,
+            )
+            .await
+            .unwrap()
+    }
+
+    /// Wrap `ListLayoutStrategy` in `ChunkedLayoutStrategy` and write `array`. For a chunked
+    /// input, each chunk becomes one `ListLayout` under the outer `ChunkedLayout`.
+    async fn write_through_chunked_list_strategy(array: ArrayRef) -> crate::LayoutRef {
+        use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
+        let segments = Arc::new(TestSegments::default());
+        let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
+        let list_strategy =
+            ListLayoutStrategy::new(Arc::clone(&flat), Arc::clone(&flat), Arc::clone(&flat));
+        let writer = ChunkedLayoutStrategy::new(list_strategy);
+        let (ptr, eof) = SequenceId::root().split();
+        let stream = array.to_array_stream().sequenced(ptr);
+        writer
+            .write_stream(
+                _ArrayContextAlias::empty(),
+                segments,
+                stream,
+                eof,
+                &SESSION,
+            )
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn tree_shape_single_chunk_non_nullable() {
+        let elements = buffer![1i32, 2, 3, 4, 5].into_array();
+        let offsets = buffer![0u32, 2, 5, 5].into_array();
+        let list = ListArray::try_new(elements, offsets, Validity::NonNullable)
+            .unwrap()
+            .into_array();
+
+        let layout = write_through_list_strategy(list).await;
+        let tree = layout.display_tree().to_string();
+        eprintln!("--- single-chunk non-nullable ---\n{tree}");
+        // Top level is a single ListLayout with 2 children (elements, offsets).
+        assert!(tree.starts_with("vortex.list"));
+        assert!(tree.contains("elements"));
+        assert!(tree.contains("offsets"));
+        assert!(!tree.contains("validity"));
+    }
+
+    #[tokio::test]
+    async fn tree_shape_single_chunk_nullable() {
+        let elements = buffer![10i32, 20, 30, 40, 50].into_array();
+        let offsets = buffer![0u32, 2, 3, 5].into_array();
+        let validity = Validity::Array(BoolArray::from_iter([true, false, true]).into_array());
+        let list = ListArray::try_new(elements, offsets, validity)
+            .unwrap()
+            .into_array();
+
+        let layout = write_through_list_strategy(list).await;
+        let tree = layout.display_tree().to_string();
+        eprintln!("--- single-chunk nullable ---\n{tree}");
+        // Top level is a single ListLayout with 3 children (elements, offsets, validity).
+        assert!(tree.starts_with("vortex.list"));
+        assert!(tree.contains("elements"));
+        assert!(tree.contains("offsets"));
+        assert!(tree.contains("validity"));
+    }
+
+    #[tokio::test]
+    async fn tree_shape_multi_chunk_via_chunked_strategy() {
+        use vortex_array::arrays::ChunkedArray;
+        use vortex_array::dtype::DType;
+        use vortex_array::dtype::Nullability;
+        use vortex_array::dtype::PType;
+        use std::sync::Arc as StdArc;
+
+        // Two list-array chunks fed through ChunkedArray -> ChunkedLayoutStrategy.
+        let chunk0 = ListArray::try_new(
+            buffer![1i32, 2, 3].into_array(),
+            buffer![0u32, 2, 3].into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap()
+        .into_array();
+        let chunk1 = ListArray::try_new(
+            buffer![4i32, 5, 6, 7].into_array(),
+            buffer![0u32, 1, 4].into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap()
+        .into_array();
+
+        let list_dtype = DType::List(
+            StdArc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            Nullability::NonNullable,
+        );
+        let chunked = ChunkedArray::try_new(vec![chunk0, chunk1], list_dtype)
+            .unwrap()
+            .into_array();
+
+        let layout = write_through_chunked_list_strategy(chunked).await;
+        let tree = layout.display_tree().to_string();
+        eprintln!("--- multi-chunk via ChunkedLayoutStrategy ---\n{tree}");
+        // Top level is a ChunkedLayout containing two ListLayouts.
+        assert!(tree.starts_with("vortex.chunked"));
+        assert_eq!(tree.matches("vortex.list").count(), 2);
     }
 }
