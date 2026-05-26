@@ -37,12 +37,19 @@ vortex-error = { workspace = true }
 workspace = true
 
 [dev-dependencies]
+arrow-arith = { workspace = true }
+arrow-array = { workspace = true }
 divan = { workspace = true }
 num-traits = { workspace = true }
+rand = { workspace = true }
 rstest = { workspace = true }
 
 [[bench]]
 name = "vortex_buffer"
+harness = false
+
+[[bench]]
+name = "lane_ops_indexed"
 harness = false
 
 [[bench]]

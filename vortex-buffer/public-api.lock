@@ -14,6 +14,66 @@ pub use vortex_buffer::UnalignedBitChunk
 
 pub use vortex_buffer::UnalignedBitChunkIterator
 
+pub mod vortex_buffer::lane_ops_indexed
+
+pub struct vortex_buffer::lane_ops_indexed::LaneZip<A, B>(pub A, pub B)
+
+impl<A: vortex_buffer::lane_ops_indexed::IndexedSource, B: vortex_buffer::lane_ops_indexed::IndexedSource> vortex_buffer::lane_ops_indexed::LaneZip<A, B>
+
+pub fn vortex_buffer::lane_ops_indexed::LaneZip<A, B>::new(A, B) -> Self
+
+impl<A: vortex_buffer::lane_ops_indexed::IndexedSource, B: vortex_buffer::lane_ops_indexed::IndexedSource> vortex_buffer::lane_ops_indexed::IndexedSource for vortex_buffer::lane_ops_indexed::LaneZip<A, B>
+
+pub type vortex_buffer::lane_ops_indexed::LaneZip<A, B>::Item = (<A as vortex_buffer::lane_ops_indexed::IndexedSource>::Item, <B as vortex_buffer::lane_ops_indexed::IndexedSource>::Item)
+
+pub unsafe fn vortex_buffer::lane_ops_indexed::LaneZip<A, B>::get_unchecked(&self, usize) -> (<A as vortex_buffer::lane_ops_indexed::IndexedSource>::Item, <B as vortex_buffer::lane_ops_indexed::IndexedSource>::Item)
+
+pub fn vortex_buffer::lane_ops_indexed::LaneZip<A, B>::is_empty(&self) -> bool
+
+pub fn vortex_buffer::lane_ops_indexed::LaneZip<A, B>::len(&self) -> usize
+
+pub trait vortex_buffer::lane_ops_indexed::IndexedSource
+
+pub type vortex_buffer::lane_ops_indexed::IndexedSource::Item: core::marker::Copy
+
+pub unsafe fn vortex_buffer::lane_ops_indexed::IndexedSource::get_unchecked(&self, usize) -> Self::Item
+
+pub fn vortex_buffer::lane_ops_indexed::IndexedSource::is_empty(&self) -> bool
+
+pub fn vortex_buffer::lane_ops_indexed::IndexedSource::len(&self) -> usize
+
+impl<A: vortex_buffer::lane_ops_indexed::IndexedSource, B: vortex_buffer::lane_ops_indexed::IndexedSource> vortex_buffer::lane_ops_indexed::IndexedSource for vortex_buffer::lane_ops_indexed::LaneZip<A, B>
+
+pub type vortex_buffer::lane_ops_indexed::LaneZip<A, B>::Item = (<A as vortex_buffer::lane_ops_indexed::IndexedSource>::Item, <B as vortex_buffer::lane_ops_indexed::IndexedSource>::Item)
+
+pub unsafe fn vortex_buffer::lane_ops_indexed::LaneZip<A, B>::get_unchecked(&self, usize) -> (<A as vortex_buffer::lane_ops_indexed::IndexedSource>::Item, <B as vortex_buffer::lane_ops_indexed::IndexedSource>::Item)
+
+pub fn vortex_buffer::lane_ops_indexed::LaneZip<A, B>::is_empty(&self) -> bool
+
+pub fn vortex_buffer::lane_ops_indexed::LaneZip<A, B>::len(&self) -> usize
+
+impl<T: core::marker::Copy> vortex_buffer::lane_ops_indexed::IndexedSource for &[T]
+
+pub type &[T]::Item = T
+
+pub unsafe fn &[T]::get_unchecked(&self, usize) -> T
+
+pub fn &[T]::is_empty(&self) -> bool
+
+pub fn &[T]::len(&self) -> usize
+
+pub fn vortex_buffer::lane_ops_indexed::map_to_bits<S, F>(S, &mut [u64], F) where S: vortex_buffer::lane_ops_indexed::IndexedSource, F: core::ops::function::FnMut(<S as vortex_buffer::lane_ops_indexed::IndexedSource>::Item) -> bool
+
+pub fn vortex_buffer::lane_ops_indexed::map_with_mask<S, R, F>(S, &vortex_buffer::BitBuffer, &mut [core::mem::maybe_uninit::MaybeUninit<R>], F) where S: vortex_buffer::lane_ops_indexed::IndexedSource, F: core::ops::function::FnMut(<S as vortex_buffer::lane_ops_indexed::IndexedSource>::Item, bool) -> R
+
+pub fn vortex_buffer::lane_ops_indexed::map_with_mask_to_bits<S, F>(S, &vortex_buffer::BitBuffer, &mut [u64], F) where S: vortex_buffer::lane_ops_indexed::IndexedSource, F: core::ops::function::FnMut(<S as vortex_buffer::lane_ops_indexed::IndexedSource>::Item, bool) -> bool
+
+pub fn vortex_buffer::lane_ops_indexed::try_map<S, R, F>(S, &mut [core::mem::maybe_uninit::MaybeUninit<R>], F) -> core::result::Result<(), usize> where S: vortex_buffer::lane_ops_indexed::IndexedSource, R: core::marker::Copy + core::default::Default, F: core::ops::function::FnMut(<S as vortex_buffer::lane_ops_indexed::IndexedSource>::Item) -> core::option::Option<R>
+
+pub fn vortex_buffer::lane_ops_indexed::try_map_nullable<S, R, F>(S, &vortex_buffer::BitBuffer, &mut [core::mem::maybe_uninit::MaybeUninit<R>], F) -> core::result::Result<(), usize> where S: vortex_buffer::lane_ops_indexed::IndexedSource, R: core::marker::Copy + core::default::Default, F: core::ops::function::FnMut(<S as vortex_buffer::lane_ops_indexed::IndexedSource>::Item) -> core::option::Option<R>
+
+pub fn vortex_buffer::lane_ops_indexed::try_map_with_mask<S, R, F>(S, &vortex_buffer::BitBuffer, &mut [core::mem::maybe_uninit::MaybeUninit<R>], F) -> core::result::Result<(), usize> where S: vortex_buffer::lane_ops_indexed::IndexedSource, R: core::marker::Copy + core::default::Default, F: core::ops::function::FnMut(<S as vortex_buffer::lane_ops_indexed::IndexedSource>::Item, bool) -> core::option::Option<R>
+
 pub mod vortex_buffer::trusted_len
 
 pub struct vortex_buffer::trusted_len::TrustedLenAdapter<I>

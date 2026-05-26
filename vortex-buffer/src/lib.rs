@@ -62,6 +62,8 @@ mod buffer_mut;
 mod bytes;
 mod r#const;
 mod debug;
+/// Index-addressable lane operations over buffers and validity masks.
+pub mod lane_ops_indexed;
 mod macros;
 #[cfg(feature = "memmap2")]
 mod memmap2;

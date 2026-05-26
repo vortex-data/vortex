@@ -9394,6 +9394,8 @@ dependencies = [
 name = "vortex-buffer"
 version = "0.1.0"
 dependencies = [
+ "arrow-arith",
+ "arrow-array",
  "arrow-buffer",
  "bitvec",
  "bytes",
@@ -9401,6 +9403,7 @@ dependencies = [
  "itertools 0.14.0",
  "memmap2",
  "num-traits",
+ "rand 0.10.1",
  "rstest",
  "serde",
  "simdutf8",
