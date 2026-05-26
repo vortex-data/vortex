@@ -11,6 +11,8 @@
 //! Vortex keeps in an i32/i64 MSP must be materialised as i128 in Arrow. This benchmark
 //! measures the resulting throughput difference.
 
+#![allow(clippy::unwrap_used, clippy::cast_possible_truncation)]
+
 use arrow_arith::boolean::and;
 use arrow_array::Decimal128Array;
 use arrow_array::Scalar as ArrowScalar;
@@ -203,6 +205,131 @@ fn arrow_decimal128(bencher: Bencher, len: usize) {
     let upper = ArrowScalar::new(
         Decimal128Array::from_iter_values([UPPER as i128])
             .with_precision_and_scale(9, 2)
+            .unwrap(),
+    );
+
+    bencher
+        .with_inputs(|| (arr.clone(), lower.clone(), upper.clone()))
+        .bench_values(|(arr, lower, upper)| {
+            let ge = cmp::gt_eq(&arr, &lower).unwrap();
+            let le = cmp::lt_eq(&arr, &upper).unwrap();
+            black_box(and(&ge, &le).unwrap())
+        });
+}
+
+// ---- Wide i128 decimals: two-limb vs canonical i128 vs arrow Decimal128 ----
+//
+// These values genuinely occupy the i128 range (the high 64-bit limb varies), so neither Vortex
+// nor arrow can keep them in a narrow integer. The two-limb representation splits each value into
+// a signed i64 high limb and an unsigned u64 low limb, letting `between` run as native-width
+// (SIMD-friendly) integer comparisons instead of arrow's 128-bit comparison.
+
+fn wide_values(len: usize) -> Vec<i128> {
+    let mut rng = StdRng::seed_from_u64(0x5eed);
+    (0..len)
+        .map(|_| {
+            let high = i128::from(rng.random_range(0..1000i64));
+            let low = i128::from(rng.random_range(0..u64::MAX));
+            (high << 64) | low
+        })
+        .collect()
+}
+
+// Bounds with non-zero low limbs so the low-limb tie-break is exercised at the high-limb edges.
+const WIDE_LOWER: i128 = (250i128 << 64) | 0x1234_5678;
+const WIDE_UPPER: i128 = (750i128 << 64) | 0x90ab_cdef;
+
+#[divan::bench(args = LENGTHS)]
+fn vortex_byteparts_twolimb(bencher: Bencher, len: usize) {
+    let dt = DecimalDType::new(38, 2);
+    let values = wide_values(len);
+    let highs = PrimitiveArray::from_iter(values.iter().map(|v| (v >> 64) as i64)).into_array();
+    let lows = PrimitiveArray::from_iter(values.iter().map(|v| *v as u64)).into_array();
+    let arr = DecimalByteParts::try_new_with_lower(highs, lows, dt)
+        .unwrap()
+        .into_array();
+    let lower = ConstantArray::new(
+        Scalar::decimal(DecimalValue::I128(WIDE_LOWER), dt, Nullability::NonNullable),
+        len,
+    )
+    .into_array();
+    let upper = ConstantArray::new(
+        Scalar::decimal(DecimalValue::I128(WIDE_UPPER), dt, Nullability::NonNullable),
+        len,
+    )
+    .into_array();
+
+    bencher
+        .with_inputs(|| {
+            (
+                arr.clone(),
+                lower.clone(),
+                upper.clone(),
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_values(|(arr, lower, upper, mut ctx)| {
+            black_box(
+                arr.between(lower, upper, OPTIONS)
+                    .unwrap()
+                    .execute::<BoolArray>(&mut ctx)
+                    .unwrap(),
+            )
+        });
+}
+
+#[divan::bench(args = LENGTHS)]
+fn vortex_canonical_i128_wide(bencher: Bencher, len: usize) {
+    let dt = DecimalDType::new(38, 2);
+    let arr = DecimalArray::new(
+        wide_values(len).into_iter().collect(),
+        dt,
+        Validity::NonNullable,
+    )
+    .into_array();
+    let lower = ConstantArray::new(
+        Scalar::decimal(DecimalValue::I128(WIDE_LOWER), dt, Nullability::NonNullable),
+        len,
+    )
+    .into_array();
+    let upper = ConstantArray::new(
+        Scalar::decimal(DecimalValue::I128(WIDE_UPPER), dt, Nullability::NonNullable),
+        len,
+    )
+    .into_array();
+
+    bencher
+        .with_inputs(|| {
+            (
+                arr.clone(),
+                lower.clone(),
+                upper.clone(),
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_values(|(arr, lower, upper, mut ctx)| {
+            black_box(
+                arr.between(lower, upper, OPTIONS)
+                    .unwrap()
+                    .execute::<BoolArray>(&mut ctx)
+                    .unwrap(),
+            )
+        });
+}
+
+#[divan::bench(args = LENGTHS)]
+fn arrow_decimal128_wide(bencher: Bencher, len: usize) {
+    let arr = Decimal128Array::from_iter_values(wide_values(len))
+        .with_precision_and_scale(38, 2)
+        .unwrap();
+    let lower = ArrowScalar::new(
+        Decimal128Array::from_iter_values([WIDE_LOWER])
+            .with_precision_and_scale(38, 2)
+            .unwrap(),
+    );
+    let upper = ArrowScalar::new(
+        Decimal128Array::from_iter_values([WIDE_UPPER])
+            .with_precision_and_scale(38, 2)
             .unwrap(),
     );
 

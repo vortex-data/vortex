@@ -34,6 +34,11 @@ impl DynAggregateKernel for DecimalBytePartsIsConstantKernel {
             return Ok(None);
         };
 
+        // Constness of a two-limb array depends on both limbs; defer to the canonical path.
+        if array.lower().is_some() {
+            return Ok(None);
+        }
+
         let result = is_constant(array.msp(), ctx)?;
         Ok(Some(IsConstant::make_partial(batch, result, ctx)?))
     }

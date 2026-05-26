@@ -6,6 +6,8 @@ impl vortex_decimal_byte_parts::DecimalByteParts
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::try_new(vortex_array::array::erased::ArrayRef, vortex_array::dtype::decimal::DecimalDType) -> vortex_error::VortexResult<vortex_decimal_byte_parts::DecimalBytePartsArray>
 
+pub fn vortex_decimal_byte_parts::DecimalByteParts::try_new_with_lower(vortex_array::array::erased::ArrayRef, vortex_array::array::erased::ArrayRef, vortex_array::dtype::decimal::DecimalDType) -> vortex_error::VortexResult<vortex_decimal_byte_parts::DecimalBytePartsArray>
+
 impl core::clone::Clone for vortex_decimal_byte_parts::DecimalByteParts
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::clone(&self) -> vortex_decimal_byte_parts::DecimalByteParts
@@ -84,7 +86,7 @@ pub struct vortex_decimal_byte_parts::DecimalBytePartsData
 
 impl vortex_decimal_byte_parts::DecimalBytePartsData
 
-pub fn vortex_decimal_byte_parts::DecimalBytePartsData::validate(&vortex_array::array::erased::ArrayRef, vortex_array::dtype::decimal::DecimalDType, &vortex_array::dtype::DType, usize) -> vortex_error::VortexResult<()>
+pub fn vortex_decimal_byte_parts::DecimalBytePartsData::validate(&vortex_array::array::erased::ArrayRef, core::option::Option<&vortex_array::array::erased::ArrayRef>, vortex_array::dtype::decimal::DecimalDType, &vortex_array::dtype::DType, usize) -> vortex_error::VortexResult<()>
 
 impl core::clone::Clone for vortex_decimal_byte_parts::DecimalBytePartsData
 
@@ -138,9 +140,13 @@ pub fn vortex_decimal_byte_parts::DecimalBytesPartsMetadata::encoded_len(&self) 
 
 pub trait vortex_decimal_byte_parts::DecimalBytePartsArrayExt: vortex_array::array::typed::TypedArrayRef<vortex_decimal_byte_parts::DecimalByteParts>
 
+pub fn vortex_decimal_byte_parts::DecimalBytePartsArrayExt::lower(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
+
 pub fn vortex_decimal_byte_parts::DecimalBytePartsArrayExt::msp(&self) -> &vortex_array::array::erased::ArrayRef
 
 impl<T: vortex_array::array::typed::TypedArrayRef<vortex_decimal_byte_parts::DecimalByteParts>> vortex_decimal_byte_parts::DecimalBytePartsArrayExt for T
+
+pub fn T::lower(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
 
 pub fn T::msp(&self) -> &vortex_array::array::erased::ArrayRef
 

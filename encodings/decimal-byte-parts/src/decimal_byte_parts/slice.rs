@@ -15,15 +15,17 @@ use crate::decimal_byte_parts::DecimalBytePartsArrayExt;
 
 impl SliceReduce for DecimalByteParts {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(
-            DecimalByteParts::try_new(
-                array.msp().slice(range)?,
-                *array
-                    .dtype()
-                    .as_decimal_opt()
-                    .vortex_expect("must be a decimal dtype"),
-            )?
-            .into_array(),
-        ))
+        let decimal_dtype = *array
+            .dtype()
+            .as_decimal_opt()
+            .vortex_expect("must be a decimal dtype");
+        let msp = array.msp().slice(range.clone())?;
+        let sliced = match array.lower() {
+            None => DecimalByteParts::try_new(msp, decimal_dtype)?,
+            Some(lower) => {
+                DecimalByteParts::try_new_with_lower(msp, lower.slice(range)?, decimal_dtype)?
+            }
+        };
+        Ok(Some(sliced.into_array()))
     }
 }

@@ -16,20 +16,23 @@ use crate::decimal_byte_parts::DecimalBytePartsArrayExt;
 
 impl MaskReduce for DecimalByteParts {
     fn mask(array: ArrayView<'_, Self>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        let decimal_dtype = *array
+            .dtype()
+            .as_decimal_opt()
+            .vortex_expect("must be a decimal dtype");
+        // Validity is carried solely by the msp, so masking the msp is sufficient; the lower
+        // limb's values at masked positions become unobservable.
         let masked_msp = MaskExpr.try_new_array(
             array.msp().len(),
             EmptyOptions,
             [array.msp().clone(), mask.clone()],
         )?;
-        Ok(Some(
-            DecimalByteParts::try_new(
-                masked_msp,
-                *array
-                    .dtype()
-                    .as_decimal_opt()
-                    .vortex_expect("must be a decimal dtype"),
-            )?
-            .into_array(),
-        ))
+        let masked = match array.lower() {
+            None => DecimalByteParts::try_new(masked_msp, decimal_dtype)?,
+            Some(lower) => {
+                DecimalByteParts::try_new_with_lower(masked_msp, lower.clone(), decimal_dtype)?
+            }
+        };
+        Ok(Some(masked.into_array()))
     }
 }

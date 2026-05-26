@@ -18,13 +18,19 @@ impl TakeExecute for DecimalByteParts {
         indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        DecimalByteParts::try_new(
-            array.msp().take(indices.clone())?,
-            *array
-                .dtype()
-                .as_decimal_opt()
-                .vortex_expect("must be a decimal dtype"),
-        )
-        .map(|a| Some(a.into_array()))
+        let decimal_dtype = *array
+            .dtype()
+            .as_decimal_opt()
+            .vortex_expect("must be a decimal dtype");
+        let msp = array.msp().take(indices.clone())?;
+        let taken = match array.lower() {
+            None => DecimalByteParts::try_new(msp, decimal_dtype)?,
+            Some(lower) => DecimalByteParts::try_new_with_lower(
+                msp,
+                lower.take(indices.clone())?,
+                decimal_dtype,
+            )?,
+        };
+        Ok(Some(taken.into_array()))
     }
 }

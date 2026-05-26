@@ -38,8 +38,9 @@ impl ArrayParentReduceRule<DecimalByteParts> for DecimalBytePartsFilterPushDownR
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // TODO(ngates): we should benchmark whether to push-down filters with "lower parts".
-        //  For now, we only push down if there are no lower parts.
-        if !child._lower_parts.is_empty() {
+        //  For now, we only push down if there are no lower parts; two-limb arrays fall back to
+        //  the generic `FilterReduce` implementation which filters both limbs.
+        if child.lower().is_some() {
             return Ok(None);
         }
 

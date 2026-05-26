@@ -14,13 +14,28 @@ mod take;
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_array::dtype::DecimalDType;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
 
     use crate::DecimalByteParts;
     use crate::DecimalBytePartsArray;
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn two_limb(values: &[i128], validity: Validity, dt: DecimalDType) -> DecimalBytePartsArray {
+        let highs: Buffer<i64> = values.iter().map(|v| (v >> 64) as i64).collect();
+        let lows: Buffer<u64> = values.iter().map(|v| *v as u64).collect();
+        DecimalByteParts::try_new_with_lower(
+            PrimitiveArray::new(highs, validity).into_array(),
+            PrimitiveArray::new(lows, Validity::NonNullable).into_array(),
+            dt,
+        )
+        .unwrap()
+    }
 
     #[rstest]
     // Basic decimal byte parts arrays
@@ -68,6 +83,17 @@ mod tests {
         PrimitiveArray::from_iter((0..2000i64).map(|i| i * 1000000)).into_array(),
         DecimalDType::new(19, 6)
     ).unwrap())]
+    // Two-limb i128 representation
+    #[case::two_limb(two_limb(
+        &[0, -1, (3i128 << 64) | 42, -(9i128 << 64) | 17, i128::from(i64::MIN), (7i128 << 64)],
+        Validity::NonNullable,
+        DecimalDType::new(38, 2),
+    ))]
+    #[case::two_limb_nullable(two_limb(
+        &[0, -1, (3i128 << 64) | 42, -(9i128 << 64) | 17, 5],
+        Validity::Array(BoolArray::from_iter([true, false, true, true, false]).into_array()),
+        DecimalDType::new(38, 2),
+    ))]
 
     fn test_decimal_byte_parts_consistency(#[case] array: DecimalBytePartsArray) {
         test_array_consistency(&array.into_array());

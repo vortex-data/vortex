@@ -13,14 +13,20 @@ use crate::DecimalByteParts;
 use crate::decimal_byte_parts::DecimalBytePartsArrayExt;
 impl FilterReduce for DecimalByteParts {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
-        DecimalByteParts::try_new(
-            array.msp().filter(mask.clone())?,
-            *array
-                .dtype()
-                .as_decimal_opt()
-                .vortex_expect("must be a decimal dtype"),
-        )
-        .map(|d| Some(d.into_array()))
+        let decimal_dtype = *array
+            .dtype()
+            .as_decimal_opt()
+            .vortex_expect("must be a decimal dtype");
+        let msp = array.msp().filter(mask.clone())?;
+        let filtered = match array.lower() {
+            None => DecimalByteParts::try_new(msp, decimal_dtype)?,
+            Some(lower) => DecimalByteParts::try_new_with_lower(
+                msp,
+                lower.filter(mask.clone())?,
+                decimal_dtype,
+            )?,
+        };
+        Ok(Some(filtered.into_array()))
     }
 }
 

@@ -39,6 +39,11 @@ impl CompareKernel for DecimalByteParts {
             return Ok(None);
         };
 
+        // The two-limb representation only specializes `between`; defer comparisons to canonical.
+        if lhs.lower().is_some() {
+            return Ok(None);
+        }
+
         let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
         let scalar_type = lhs.msp().dtype().with_nullability(nullability);
 

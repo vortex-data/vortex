@@ -24,14 +24,19 @@ impl CastReduce for DecimalByteParts {
             return Ok(None);
         };
 
-        // Cast the msp array to handle nullability change
+        // Cast the msp array to handle nullability change. Validity lives on the msp, so the lower
+        // limb (always non-nullable) is unchanged.
         let new_msp = array
             .msp()
             .cast(array.msp().dtype().with_nullability(*target_nullability))?;
 
-        Ok(Some(
-            DecimalByteParts::try_new(new_msp, *target_decimal)?.into_array(),
-        ))
+        let casted = match array.lower() {
+            None => DecimalByteParts::try_new(new_msp, *target_decimal)?,
+            Some(lower) => {
+                DecimalByteParts::try_new_with_lower(new_msp, lower.clone(), *target_decimal)?
+            }
+        };
+        Ok(Some(casted.into_array()))
     }
 }
 
