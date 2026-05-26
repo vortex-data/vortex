@@ -83,68 +83,60 @@ impl LayoutStrategy for ListLayoutStrategy {
         if !dtype.is_list() {
             vortex_bail!("ListLayoutStrategy requires a List dtype, got {dtype}");
         }
+        let (sequence_id, array) = take_single_chunk(&mut stream).await?;
 
-        let Some(item) = stream.next().await else {
-            vortex_bail!("ListLayoutStrategy needs a single chunk");
-        };
-        let (sequence_id, array) = item?;
-
-        let mut exec_ctx = session.create_execution_ctx();
         // Canonicalize to ListView, then rebuild into zero-copy-to-list form with `n+1`
         // monotonic offsets.
+        let mut exec_ctx = session.create_execution_ctx();
         let ListDataParts {
             elements,
             offsets,
             validity,
             ..
         } = list_from_list_view(array.execute::<ListViewArray>(&mut exec_ctx)?)?.into_data_parts();
+
         // `offsets` is the Arrow-canonical `n+1` entries, so the list count is one less.
+        let row_count = offsets.len().saturating_sub(1);
         let validity_array = dtype
             .is_nullable()
             .then(|| {
                 validity
-                    .execute_mask(offsets.len().saturating_sub(1), &mut exec_ctx)
+                    .execute_mask(row_count, &mut exec_ctx)
                     .map(|m| m.into_array())
             })
             .transpose()?;
 
-        // Closure to spawn one child writer with its own sequence id and EOF pointer,
-        // advanced in invocation order: elements, offsets, validity (when nullable).
+        // Collect (strategy, array) pairs for each child to write. Validity is optional.
+        let mut child_writes: Vec<(Arc<dyn LayoutStrategy>, ArrayRef)> = vec![
+            (self.elements.clone(), elements),
+            (self.offsets.clone(), offsets),
+        ];
+        if let Some(arr) = validity_array {
+            child_writes.push((self.validity.clone(), arr));
+        }
+
+        // Spawn one task per child writer.
         let mut sp = sequence_id.descend();
         let handle = session.handle();
-        let mut spawn = |strategy: &Arc<dyn LayoutStrategy>, array: ArrayRef| {
+        let tasks = child_writes.into_iter().map(|(strategy, array)| {
             spawn_layout_write(
                 &handle,
-                Arc::clone(strategy),
+                strategy,
                 ctx.clone(),
                 Arc::clone(&segment_sink),
                 session,
                 single_chunk_stream(array.dtype().clone(), sp.advance(), array),
                 eof.split_off(),
             )
-        };
+        });
+        let mut layouts = futures::future::try_join_all(tasks).await?.into_iter();
 
-        let elements_task = spawn(&self.elements, elements);
-        let offsets_task = spawn(&self.offsets, offsets);
-        let validity_task = validity_array.map(|arr| spawn(&self.validity, arr));
-        drop(spawn);
+        // Same construction order as `child_writes`: elements, offsets, optional validity.
+        let elements_layout = layouts.next().expect("elements task");
+        let offsets_layout = layouts.next().expect("offsets task");
+        let validity_layout = layouts.next();
 
-        let (elements_layout, offsets_layout, validity_layout) =
-            futures::try_join!(elements_task, offsets_task, async {
-                match validity_task {
-                    Some(task) => task.await.map(Some),
-                    None => Ok(None),
-                }
-            })?;
-
-        if stream.next().await.is_some() {
-            vortex_bail!("ListLayoutStrategy received stream with more than a single chunk");
-        }
-
-        Ok(
-            ListLayout::new(dtype, elements_layout, offsets_layout, validity_layout)
-                .into_layout(),
-        )
+        Ok(ListLayout::new(dtype, elements_layout, offsets_layout, validity_layout).into_layout())
     }
 
     fn buffered_bytes(&self) -> u64 {
@@ -152,6 +144,20 @@ impl LayoutStrategy for ListLayoutStrategy {
             + self.offsets.buffered_bytes()
             + self.validity.buffered_bytes()
     }
+}
+
+/// Pull the lone chunk out of a single-chunk stream, erroring on empty or multi-chunk input.
+async fn take_single_chunk(
+    stream: &mut SendableSequentialStream,
+) -> VortexResult<(SequenceId, ArrayRef)> {
+    let Some(chunk) = stream.next().await else {
+        vortex_bail!("ListLayoutStrategy needs a single chunk");
+    };
+    let chunk = chunk?;
+    if stream.next().await.is_some() {
+        vortex_bail!("ListLayoutStrategy received more than a single chunk");
+    }
+    Ok(chunk)
 }
 
 /// Wrap a single array as a one-shot [`SendableSequentialStream`] for handoff to a child writer.
@@ -357,13 +363,7 @@ mod tests {
         let (ptr, eof) = SequenceId::root().split();
         let stream = array.to_array_stream().sequenced(ptr);
         writer
-            .write_stream(
-                _ArrayContextAlias::empty(),
-                segments,
-                stream,
-                eof,
-                &SESSION,
-            )
+            .write_stream(_ArrayContextAlias::empty(), segments, stream, eof, &SESSION)
             .await
             .unwrap()
     }
@@ -380,13 +380,7 @@ mod tests {
         let (ptr, eof) = SequenceId::root().split();
         let stream = array.to_array_stream().sequenced(ptr);
         writer
-            .write_stream(
-                _ArrayContextAlias::empty(),
-                segments,
-                stream,
-                eof,
-                &SESSION,
-            )
+            .write_stream(_ArrayContextAlias::empty(), segments, stream, eof, &SESSION)
             .await
             .unwrap()
     }
@@ -430,11 +424,11 @@ mod tests {
 
     #[tokio::test]
     async fn tree_shape_multi_chunk_via_chunked_strategy() {
+        use std::sync::Arc as StdArc;
         use vortex_array::arrays::ChunkedArray;
         use vortex_array::dtype::DType;
         use vortex_array::dtype::Nullability;
         use vortex_array::dtype::PType;
-        use std::sync::Arc as StdArc;
 
         // Two list-array chunks fed through ChunkedArray -> ChunkedLayoutStrategy.
         let chunk0 = ListArray::try_new(
