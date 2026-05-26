@@ -12,6 +12,7 @@ members = [
     "vortex-io",
     "vortex-proto",
     "vortex-array",
+    "vortex-iter",
     "vortex-tensor",
     "vortex-turboquant",
     "vortex-compressor",

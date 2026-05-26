@@ -1,0 +1,147 @@
+pub mod vortex_iter
+
+pub struct vortex_iter::Batches<'a, T, const N: usize>
+
+impl<'a, T: core::marker::Copy, const N: usize> vortex_iter::BatchIter<N> for vortex_iter::Batches<'a, T, N>
+
+pub type vortex_iter::Batches<'a, T, N>::Lane = T
+
+pub fn vortex_iter::Batches<'a, T, N>::for_each<F>(self, F) where F: core::ops::function::FnMut(Self::Lane)
+
+pub fn vortex_iter::Batches<'a, T, N>::map<U, F>(self, F) -> vortex_iter::Map<Self, F> where U: core::marker::Copy, F: core::ops::function::FnMut(Self::Lane) -> U
+
+pub fn vortex_iter::Batches<'a, T, N>::map_batch<U, F>(self, F) -> vortex_iter::MapBatch<Self, F, U, N> where U: core::marker::Copy, Self::Lane: core::default::Default, F: core::ops::function::FnMut([Self::Lane; N]) -> [U; N]
+
+pub fn vortex_iter::Batches<'a, T, N>::next_batch(&mut self) -> core::option::Option<[T; N]>
+
+pub fn vortex_iter::Batches<'a, T, N>::next_tail(&mut self) -> core::option::Option<T>
+
+pub fn vortex_iter::Batches<'a, T, N>::reduce_lanes<F>(self, Self::Lane, F) -> Self::Lane where F: core::ops::function::FnMut(Self::Lane, Self::Lane) -> Self::Lane
+
+pub fn vortex_iter::Batches<'a, T, N>::write_to(self, &mut [Self::Lane])
+
+pub struct vortex_iter::Map<I, F>
+
+impl<I, F, U, const N: usize> vortex_iter::BatchIter<N> for vortex_iter::Map<I, F> where I: vortex_iter::BatchIter<N>, U: core::marker::Copy, F: core::ops::function::FnMut(<I as vortex_iter::BatchIter>::Lane) -> U
+
+pub type vortex_iter::Map<I, F>::Lane = U
+
+pub fn vortex_iter::Map<I, F>::for_each<F>(self, F) where F: core::ops::function::FnMut(Self::Lane)
+
+pub fn vortex_iter::Map<I, F>::map<U, F>(self, F) -> vortex_iter::Map<Self, F> where U: core::marker::Copy, F: core::ops::function::FnMut(Self::Lane) -> U
+
+pub fn vortex_iter::Map<I, F>::map_batch<U, F>(self, F) -> vortex_iter::MapBatch<Self, F, U, N> where U: core::marker::Copy, Self::Lane: core::default::Default, F: core::ops::function::FnMut([Self::Lane; N]) -> [U; N]
+
+pub fn vortex_iter::Map<I, F>::next_batch(&mut self) -> core::option::Option<[U; N]>
+
+pub fn vortex_iter::Map<I, F>::next_tail(&mut self) -> core::option::Option<U>
+
+pub fn vortex_iter::Map<I, F>::reduce_lanes<F>(self, Self::Lane, F) -> Self::Lane where F: core::ops::function::FnMut(Self::Lane, Self::Lane) -> Self::Lane
+
+pub fn vortex_iter::Map<I, F>::write_to(self, &mut [Self::Lane])
+
+pub struct vortex_iter::MapBatch<I, F, U, const N: usize>
+
+impl<I, F, U, const N: usize> vortex_iter::BatchIter<N> for vortex_iter::MapBatch<I, F, U, N> where I: vortex_iter::BatchIter<N>, <I as vortex_iter::BatchIter>::Lane: core::default::Default, U: core::marker::Copy, F: core::ops::function::FnMut([<I as vortex_iter::BatchIter>::Lane; N]) -> [U; N]
+
+pub type vortex_iter::MapBatch<I, F, U, N>::Lane = U
+
+pub fn vortex_iter::MapBatch<I, F, U, N>::for_each<F>(self, F) where F: core::ops::function::FnMut(Self::Lane)
+
+pub fn vortex_iter::MapBatch<I, F, U, N>::map<U, F>(self, F) -> vortex_iter::Map<Self, F> where U: core::marker::Copy, F: core::ops::function::FnMut(Self::Lane) -> U
+
+pub fn vortex_iter::MapBatch<I, F, U, N>::map_batch<U, F>(self, F) -> vortex_iter::MapBatch<Self, F, U, N> where U: core::marker::Copy, Self::Lane: core::default::Default, F: core::ops::function::FnMut([Self::Lane; N]) -> [U; N]
+
+pub fn vortex_iter::MapBatch<I, F, U, N>::next_batch(&mut self) -> core::option::Option<[U; N]>
+
+pub fn vortex_iter::MapBatch<I, F, U, N>::next_tail(&mut self) -> core::option::Option<U>
+
+pub fn vortex_iter::MapBatch<I, F, U, N>::reduce_lanes<F>(self, Self::Lane, F) -> Self::Lane where F: core::ops::function::FnMut(Self::Lane, Self::Lane) -> Self::Lane
+
+pub fn vortex_iter::MapBatch<I, F, U, N>::write_to(self, &mut [Self::Lane])
+
+pub struct vortex_iter::ZipBatches<'a, A, B, const N: usize>
+
+impl<'a, A: core::marker::Copy, B: core::marker::Copy, const N: usize> vortex_iter::ZipBatches<'a, A, B, N>
+
+pub fn vortex_iter::ZipBatches<'a, A, B, N>::fold_lanes<Acc, F, G>(self, Acc, F, G) -> Acc where Acc: core::marker::Copy, F: core::ops::function::FnMut(Acc, A, B) -> Acc, G: core::ops::function::FnMut(Acc, Acc) -> Acc
+
+pub fn vortex_iter::ZipBatches<'a, A, B, N>::map_to<U, F>(self, &mut [U], F) where U: core::marker::Copy, F: core::ops::function::FnMut(A, B) -> U
+
+pub fn vortex_iter::ZipBatches<'a, A, B, N>::next_pair(&mut self) -> core::option::Option<([A; N], [B; N])>
+
+pub trait vortex_iter::BatchIter<const N: usize>: core::marker::Sized
+
+pub type vortex_iter::BatchIter::Lane: core::marker::Copy
+
+pub fn vortex_iter::BatchIter::for_each<F>(self, F) where F: core::ops::function::FnMut(Self::Lane)
+
+pub fn vortex_iter::BatchIter::map<U, F>(self, F) -> vortex_iter::Map<Self, F> where U: core::marker::Copy, F: core::ops::function::FnMut(Self::Lane) -> U
+
+pub fn vortex_iter::BatchIter::map_batch<U, F>(self, F) -> vortex_iter::MapBatch<Self, F, U, N> where U: core::marker::Copy, Self::Lane: core::default::Default, F: core::ops::function::FnMut([Self::Lane; N]) -> [U; N]
+
+pub fn vortex_iter::BatchIter::next_batch(&mut self) -> core::option::Option<[Self::Lane; N]>
+
+pub fn vortex_iter::BatchIter::next_tail(&mut self) -> core::option::Option<Self::Lane>
+
+pub fn vortex_iter::BatchIter::reduce_lanes<F>(self, Self::Lane, F) -> Self::Lane where F: core::ops::function::FnMut(Self::Lane, Self::Lane) -> Self::Lane
+
+pub fn vortex_iter::BatchIter::write_to(self, &mut [Self::Lane])
+
+impl<'a, T: core::marker::Copy, const N: usize> vortex_iter::BatchIter<N> for vortex_iter::Batches<'a, T, N>
+
+pub type vortex_iter::Batches<'a, T, N>::Lane = T
+
+pub fn vortex_iter::Batches<'a, T, N>::for_each<F>(self, F) where F: core::ops::function::FnMut(Self::Lane)
+
+pub fn vortex_iter::Batches<'a, T, N>::map<U, F>(self, F) -> vortex_iter::Map<Self, F> where U: core::marker::Copy, F: core::ops::function::FnMut(Self::Lane) -> U
+
+pub fn vortex_iter::Batches<'a, T, N>::map_batch<U, F>(self, F) -> vortex_iter::MapBatch<Self, F, U, N> where U: core::marker::Copy, Self::Lane: core::default::Default, F: core::ops::function::FnMut([Self::Lane; N]) -> [U; N]
+
+pub fn vortex_iter::Batches<'a, T, N>::next_batch(&mut self) -> core::option::Option<[T; N]>
+
+pub fn vortex_iter::Batches<'a, T, N>::next_tail(&mut self) -> core::option::Option<T>
+
+pub fn vortex_iter::Batches<'a, T, N>::reduce_lanes<F>(self, Self::Lane, F) -> Self::Lane where F: core::ops::function::FnMut(Self::Lane, Self::Lane) -> Self::Lane
+
+pub fn vortex_iter::Batches<'a, T, N>::write_to(self, &mut [Self::Lane])
+
+impl<I, F, U, const N: usize> vortex_iter::BatchIter<N> for vortex_iter::Map<I, F> where I: vortex_iter::BatchIter<N>, U: core::marker::Copy, F: core::ops::function::FnMut(<I as vortex_iter::BatchIter>::Lane) -> U
+
+pub type vortex_iter::Map<I, F>::Lane = U
+
+pub fn vortex_iter::Map<I, F>::for_each<F>(self, F) where F: core::ops::function::FnMut(Self::Lane)
+
+pub fn vortex_iter::Map<I, F>::map<U, F>(self, F) -> vortex_iter::Map<Self, F> where U: core::marker::Copy, F: core::ops::function::FnMut(Self::Lane) -> U
+
+pub fn vortex_iter::Map<I, F>::map_batch<U, F>(self, F) -> vortex_iter::MapBatch<Self, F, U, N> where U: core::marker::Copy, Self::Lane: core::default::Default, F: core::ops::function::FnMut([Self::Lane; N]) -> [U; N]
+
+pub fn vortex_iter::Map<I, F>::next_batch(&mut self) -> core::option::Option<[U; N]>
+
+pub fn vortex_iter::Map<I, F>::next_tail(&mut self) -> core::option::Option<U>
+
+pub fn vortex_iter::Map<I, F>::reduce_lanes<F>(self, Self::Lane, F) -> Self::Lane where F: core::ops::function::FnMut(Self::Lane, Self::Lane) -> Self::Lane
+
+pub fn vortex_iter::Map<I, F>::write_to(self, &mut [Self::Lane])
+
+impl<I, F, U, const N: usize> vortex_iter::BatchIter<N> for vortex_iter::MapBatch<I, F, U, N> where I: vortex_iter::BatchIter<N>, <I as vortex_iter::BatchIter>::Lane: core::default::Default, U: core::marker::Copy, F: core::ops::function::FnMut([<I as vortex_iter::BatchIter>::Lane; N]) -> [U; N]
+
+pub type vortex_iter::MapBatch<I, F, U, N>::Lane = U
+
+pub fn vortex_iter::MapBatch<I, F, U, N>::for_each<F>(self, F) where F: core::ops::function::FnMut(Self::Lane)
+
+pub fn vortex_iter::MapBatch<I, F, U, N>::map<U, F>(self, F) -> vortex_iter::Map<Self, F> where U: core::marker::Copy, F: core::ops::function::FnMut(Self::Lane) -> U
+
+pub fn vortex_iter::MapBatch<I, F, U, N>::map_batch<U, F>(self, F) -> vortex_iter::MapBatch<Self, F, U, N> where U: core::marker::Copy, Self::Lane: core::default::Default, F: core::ops::function::FnMut([Self::Lane; N]) -> [U; N]
+
+pub fn vortex_iter::MapBatch<I, F, U, N>::next_batch(&mut self) -> core::option::Option<[U; N]>
+
+pub fn vortex_iter::MapBatch<I, F, U, N>::next_tail(&mut self) -> core::option::Option<U>
+
+pub fn vortex_iter::MapBatch<I, F, U, N>::reduce_lanes<F>(self, Self::Lane, F) -> Self::Lane where F: core::ops::function::FnMut(Self::Lane, Self::Lane) -> Self::Lane
+
+pub fn vortex_iter::MapBatch<I, F, U, N>::write_to(self, &mut [Self::Lane])
+
+pub fn vortex_iter::batches<T: core::marker::Copy, const N: usize>(&[T]) -> vortex_iter::Batches<'_, T, N>
+
+pub fn vortex_iter::zip<'a, A: core::marker::Copy, B: core::marker::Copy, const N: usize>(&'a [A], &'a [B]) -> vortex_iter::ZipBatches<'a, A, B, N>
