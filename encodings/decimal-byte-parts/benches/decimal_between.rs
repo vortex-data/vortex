@@ -217,12 +217,16 @@ fn arrow_decimal128(bencher: Bencher, len: usize) {
         });
 }
 
-// ---- Wide i128 decimals: two-limb vs canonical i128 vs arrow Decimal128 ----
+// ---- Wide i128 decimals: two-limb ----
 //
 // These values genuinely occupy the i128 range (the high 64-bit limb varies), so neither Vortex
 // nor arrow can keep them in a narrow integer. The two-limb representation splits each value into
-// a signed i64 high limb and an unsigned u64 low limb, letting `between` run as native-width
-// (SIMD-friendly) integer comparisons instead of arrow's 128-bit comparison.
+// a signed i64 high limb and an unsigned u64 low limb, compared limb-wise (AVX-512 when available)
+// instead of arrow's 128-bit comparison.
+//
+// The i128 baselines for this comparison are `arrow_decimal128` and `vortex_canonical_i128` above:
+// an i128 comparison's cost is independent of the values and the declared precision/scale, so those
+// benches measure the same kernel regardless of whether the data is logically narrow or wide.
 
 fn wide_values(len: usize) -> Vec<i128> {
     let mut rng = StdRng::seed_from_u64(0x5eed);
@@ -275,69 +279,5 @@ fn vortex_byteparts_twolimb(bencher: Bencher, len: usize) {
                     .execute::<BoolArray>(&mut ctx)
                     .unwrap(),
             )
-        });
-}
-
-#[divan::bench(args = LENGTHS)]
-fn vortex_canonical_i128_wide(bencher: Bencher, len: usize) {
-    let dt = DecimalDType::new(38, 2);
-    let arr = DecimalArray::new(
-        wide_values(len).into_iter().collect(),
-        dt,
-        Validity::NonNullable,
-    )
-    .into_array();
-    let lower = ConstantArray::new(
-        Scalar::decimal(DecimalValue::I128(WIDE_LOWER), dt, Nullability::NonNullable),
-        len,
-    )
-    .into_array();
-    let upper = ConstantArray::new(
-        Scalar::decimal(DecimalValue::I128(WIDE_UPPER), dt, Nullability::NonNullable),
-        len,
-    )
-    .into_array();
-
-    bencher
-        .with_inputs(|| {
-            (
-                arr.clone(),
-                lower.clone(),
-                upper.clone(),
-                LEGACY_SESSION.create_execution_ctx(),
-            )
-        })
-        .bench_values(|(arr, lower, upper, mut ctx)| {
-            black_box(
-                arr.between(lower, upper, OPTIONS)
-                    .unwrap()
-                    .execute::<BoolArray>(&mut ctx)
-                    .unwrap(),
-            )
-        });
-}
-
-#[divan::bench(args = LENGTHS)]
-fn arrow_decimal128_wide(bencher: Bencher, len: usize) {
-    let arr = Decimal128Array::from_iter_values(wide_values(len))
-        .with_precision_and_scale(38, 2)
-        .unwrap();
-    let lower = ArrowScalar::new(
-        Decimal128Array::from_iter_values([WIDE_LOWER])
-            .with_precision_and_scale(38, 2)
-            .unwrap(),
-    );
-    let upper = ArrowScalar::new(
-        Decimal128Array::from_iter_values([WIDE_UPPER])
-            .with_precision_and_scale(38, 2)
-            .unwrap(),
-    );
-
-    bencher
-        .with_inputs(|| (arr.clone(), lower.clone(), upper.clone()))
-        .bench_values(|(arr, lower, upper)| {
-            let ge = cmp::gt_eq(&arr, &lower).unwrap();
-            let le = cmp::lt_eq(&arr, &upper).unwrap();
-            black_box(and(&ge, &le).unwrap())
         });
 }

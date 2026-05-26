@@ -41,7 +41,3 @@ harness = false
 [[bench]]
 name = "decimal_lt"
 harness = false
-
-[[bench]]
-name = "limb_simd"
-harness = false
