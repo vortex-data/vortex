@@ -102,7 +102,7 @@ name = "cast_primitive"
 harness = false
 
 [[bench]]
-name = "mask_zero_zip"
+name = "cast_checked"
 harness = false
 
 [[bench]]
