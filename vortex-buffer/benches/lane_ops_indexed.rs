@@ -244,6 +244,24 @@ fn indexed_nullable_fair(bencher: Bencher, n: usize) {
         });
 }
 
+/// CONTROL: arrow's **wrapping** add on two non-null columns. Same harness and inputs as
+/// `arrow_add_nonnull`, but `add_wrapping` has no per-element `?`, so it goes through arrow's
+/// infallible `binary` which the autovectorizer can SIMD. If this is fast while the checked
+/// `arrow_add_nonnull` is slow, the harness is fair and the `?` short-circuit is the cause.
+#[divan::bench(args = SIZES)]
+fn arrow_add_wrapping_nonnull(bencher: Bencher, n: usize) {
+    let f = fixture(n);
+    bencher
+        .with_inputs(|| (f.lhs_arrow_nonnull.clone(), f.rhs_arrow_nonnull.clone()))
+        .bench_refs(|(lhs, rhs)| {
+            arrow_arith::numeric::add_wrapping(
+                lhs.as_ref() as &dyn Datum,
+                rhs.as_ref() as &dyn Datum,
+            )
+            .unwrap()
+        });
+}
+
 /// No-validity comparison: `try_map` checked add over two non-null columns, timing only
 /// allocate + kernel (there is no validity to merge). Pairs with `arrow_add_nonnull`.
 #[divan::bench(args = SIZES)]
