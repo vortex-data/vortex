@@ -634,13 +634,9 @@ pub type vortex_buffer::ConstBuffer<T, A>::Error = vortex_error::VortexError
 
 pub fn vortex_buffer::ConstBuffer<T, A>::try_from(vortex_buffer::Buffer<T>) -> core::result::Result<Self, Self::Error>
 
-impl<T: core::cmp::PartialEq> core::cmp::PartialEq<alloc::vec::Vec<T>> for vortex_buffer::Buffer<T>
+impl<T: core::clone::Clone> core::clone::Clone for vortex_buffer::Buffer<T>
 
-pub fn vortex_buffer::Buffer<T>::eq(&self, &alloc::vec::Vec<T>) -> bool
-
-impl<T: core::cmp::PartialEq> core::cmp::PartialEq<vortex_buffer::Buffer<T>> for alloc::vec::Vec<T>
-
-pub fn alloc::vec::Vec<T>::eq(&self, &vortex_buffer::Buffer<T>) -> bool
+pub fn vortex_buffer::Buffer<T>::clone(&self) -> vortex_buffer::Buffer<T>
 
 impl<T: core::fmt::Debug> core::fmt::Debug for vortex_buffer::Buffer<T>
 
@@ -653,10 +649,6 @@ pub type vortex_buffer::Buffer<T>::IntoIter = vortex_buffer::BufferIterator<T>
 pub type vortex_buffer::Buffer<T>::Item = T
 
 pub fn vortex_buffer::Buffer<T>::into_iter(self) -> Self::IntoIter
-
-impl<T> core::clone::Clone for vortex_buffer::Buffer<T>
-
-pub fn vortex_buffer::Buffer<T>::clone(&self) -> Self
 
 impl<T> core::cmp::Eq for vortex_buffer::Buffer<T>
 
