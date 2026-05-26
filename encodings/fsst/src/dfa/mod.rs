@@ -126,6 +126,8 @@ mod prefix;
 #[cfg(test)]
 mod tests;
 
+use std::borrow::Cow;
+
 use flat_contains::FlatContainsDfa;
 use fsst::ESCAPE_CODE;
 use fsst::Symbol;
@@ -170,18 +172,28 @@ impl FsstMatcher {
         };
 
         let inner = match like_kind {
-            LikeKind::Prefix(b"") | LikeKind::Contains(b"") => MatcherInner::MatchAll,
+            LikeKind::Prefix(pattern) | LikeKind::Contains(pattern) if pattern.is_empty() => {
+                MatcherInner::MatchAll
+            }
             LikeKind::Prefix(prefix) => {
                 if prefix.len() > FlatPrefixDfa::MAX_PREFIX_LEN {
                     return Ok(None);
                 }
-                MatcherInner::Prefix(FlatPrefixDfa::new(symbols, symbol_lengths, prefix)?)
+                MatcherInner::Prefix(FlatPrefixDfa::new(
+                    symbols,
+                    symbol_lengths,
+                    prefix.as_ref(),
+                )?)
             }
             LikeKind::Contains(needle) => {
                 if needle.len() > FlatContainsDfa::MAX_NEEDLE_LEN {
                     return Ok(None);
                 }
-                MatcherInner::Contains(FlatContainsDfa::new(symbols, symbol_lengths, needle)?)
+                MatcherInner::Contains(FlatContainsDfa::new(
+                    symbols,
+                    symbol_lengths,
+                    needle.as_ref(),
+                )?)
             }
         };
 
@@ -201,34 +213,85 @@ impl FsstMatcher {
 /// The subset of LIKE patterns we can handle without decompression.
 enum LikeKind<'a> {
     /// `prefix%`
-    Prefix(&'a [u8]),
+    Prefix(Cow<'a, [u8]>),
     /// `%needle%`
-    Contains(&'a [u8]),
+    Contains(Cow<'a, [u8]>),
 }
 
 impl<'a> LikeKind<'a> {
     fn parse(pattern: &'a [u8]) -> Option<Self> {
-        // The fast-path matchers below do not understand SQL LIKE escape sequences (e.g. `\%`
-        // matching a literal `%`). If the pattern contains a backslash we fall back to the
-        // general implementation, which correctly interprets escapes.
-        if pattern.contains(&b'\\') {
+        Self::parse_prefix(pattern).or_else(|| Self::parse_contains(pattern))
+    }
+
+    fn parse_prefix(pattern: &'a [u8]) -> Option<Self> {
+        let mut literal = None;
+        let mut idx = 0;
+        while idx < pattern.len() {
+            match pattern[idx] {
+                b'\\' => {
+                    let escaped = pattern.get(idx + 1).copied().unwrap_or(b'\\');
+                    literal
+                        .get_or_insert_with(|| pattern[..idx].to_vec())
+                        .push(escaped);
+                    idx += if idx + 1 < pattern.len() { 2 } else { 1 };
+                }
+                b'%' => {
+                    if idx + 1 != pattern.len() {
+                        return None;
+                    }
+                    let prefix = match literal {
+                        Some(literal) => Cow::Owned(literal),
+                        None => Cow::Borrowed(&pattern[..idx]),
+                    };
+                    return Some(LikeKind::Prefix(prefix));
+                }
+                b'_' => return None,
+                byte => {
+                    if let Some(literal) = &mut literal {
+                        literal.push(byte);
+                    }
+                    idx += 1;
+                }
+            }
+        }
+        None
+    }
+
+    fn parse_contains(pattern: &'a [u8]) -> Option<Self> {
+        if !pattern.starts_with(b"%") {
             return None;
         }
 
-        // `prefix%` (including just `%` where prefix is empty)
-        if let Some(prefix) = pattern.strip_suffix(b"%")
-            && !prefix.contains(&b'%')
-            && !prefix.contains(&b'_')
-        {
-            return Some(LikeKind::Prefix(prefix));
+        let mut literal = None;
+        let mut idx = 1;
+        while idx < pattern.len() {
+            match pattern[idx] {
+                b'\\' => {
+                    let escaped = pattern.get(idx + 1).copied().unwrap_or(b'\\');
+                    literal
+                        .get_or_insert_with(|| pattern[1..idx].to_vec())
+                        .push(escaped);
+                    idx += if idx + 1 < pattern.len() { 2 } else { 1 };
+                }
+                b'%' => {
+                    if idx + 1 != pattern.len() {
+                        return None;
+                    }
+                    let needle = match literal {
+                        Some(literal) => Cow::Owned(literal),
+                        None => Cow::Borrowed(&pattern[1..idx]),
+                    };
+                    return Some(LikeKind::Contains(needle));
+                }
+                b'_' => return None,
+                byte => {
+                    if let Some(literal) = &mut literal {
+                        literal.push(byte);
+                    }
+                    idx += 1;
+                }
+            }
         }
-
-        // `%needle%`
-        let inner = pattern.strip_prefix(b"%")?.strip_suffix(b"%")?;
-        if !inner.contains(&b'%') && !inner.contains(&b'_') {
-            return Some(LikeKind::Contains(inner));
-        }
-
         None
     }
 }
