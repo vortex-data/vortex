@@ -358,15 +358,17 @@ where
 /// Null-lenient fallible map matching `arrow_arith::numeric` checked-arithmetic semantics.
 ///
 /// `f` is applied to **every** lane, so the arithmetic hot loop never reads `validity` and
-/// stays autovectorizable. A `None` result is recorded into a per-lane overflow bitmap, and
-/// failure is decided **per 64-lane chunk** by `overflow & validity`: an overflow only counts
-/// at a lane that is valid. This mirrors arrow, where `try_binary` skips null lanes entirely,
-/// so an overflow whose value lives at a null lane is ignored.
+/// stays autovectorizable. The hot loop only OR-reduces a single overflow flag (no positioned
+/// bitmap, no loop-carried bit-insert), so it vectorizes exactly like [`try_map`]. Only when
+/// an overflow is actually observed does a cold pass re-walk the data, gate the overflow by
+/// `validity`, and decide whether any *valid* lane failed. This mirrors arrow, where null
+/// lanes are skipped, so an overflow whose value lives at a null lane is ignored.
 ///
 /// `out[i]` receives `f(values[i]).unwrap_or_default()`. The value written at null lanes is
 /// irrelevant (it is masked by `validity`); on `Err` the contents of `out` must not be used.
 ///
-/// Returns `Err(lane)` for the lowest **valid** lane where `f` returned `None`.
+/// Returns `Err(lane)` for the lowest **valid** lane where `f` returned `None`. An overflow at
+/// a null lane is not an error.
 ///
 /// # Panics
 ///
@@ -392,25 +394,74 @@ where
     );
     assert_eq!(out.len(), len, "out must have the same length as values");
 
+    let chunks_count = len / 64;
+    let remainder = len % 64;
+
+    // Hot path: write every lane and OR-reduce a plain overflow flag. No validity, no
+    // positioned bitmap — identical shape to `try_map`, so this autovectorizes.
+    let mut any_overflow: u64 = 0;
+    for chunk_idx in 0..chunks_count {
+        let base = chunk_idx * 64;
+        for bit_idx in 0..64 {
+            let i = base + bit_idx;
+            // SAFETY: i < chunks_count * 64 <= len.
+            let v = unsafe { values.get_unchecked(i) };
+            let opt = f(v);
+            any_overflow |= opt.is_none() as u64;
+            // SAFETY: i < len.
+            unsafe { out.get_unchecked_mut(i).write(opt.unwrap_or_default()) };
+        }
+    }
+    if remainder != 0 {
+        let base = chunks_count * 64;
+        for bit_idx in 0..remainder {
+            let i = base + bit_idx;
+            // SAFETY: i < len.
+            let v = unsafe { values.get_unchecked(i) };
+            let opt = f(v);
+            any_overflow |= opt.is_none() as u64;
+            // SAFETY: i < len.
+            unsafe { out.get_unchecked_mut(i).write(opt.unwrap_or_default()) };
+        }
+    }
+
+    if any_overflow == 0 {
+        return Ok(());
+    }
+    // Cold: at least one lane overflowed. Re-walk and find the lowest *valid* failing lane;
+    // if every overflow sits at a null lane, it is not an error (arrow semantics).
+    attribute_nullable_failure(&values, validity, &mut f)
+}
+
+/// Cold path for [`try_map_nullable`]: with at least one overflow somewhere, gate the per-lane
+/// overflow flags by `validity` word-by-word and return the lowest valid failing lane, or `Ok`
+/// if all overflows landed on null lanes.
+#[cold]
+#[inline(never)]
+#[expect(clippy::many_single_char_names, reason = "tight numeric lane kernel")]
+fn attribute_nullable_failure<S, R, F>(
+    values: &S,
+    validity: &BitBuffer,
+    f: &mut F,
+) -> Result<(), usize>
+where
+    S: IndexedSource,
+    F: FnMut(S::Item) -> Option<R>,
+{
+    let len = values.len();
     let chunks = validity.chunks();
     let chunks_count = len / 64;
     let remainder = len % 64;
 
     for (chunk_idx, valid_word) in chunks.iter().enumerate() {
         let base = chunk_idx * 64;
-        // Mask-free, fixed-size-64 arithmetic loop: compute every lane and pack the
-        // per-lane overflow flag into a positioned bitmap. No validity read in here.
         let mut overflow_word: u64 = 0;
         for bit_idx in 0..64 {
             let i = base + bit_idx;
             // SAFETY: i < chunks_count * 64 <= len.
             let v = unsafe { values.get_unchecked(i) };
-            let opt = f(v);
-            overflow_word |= (opt.is_none() as u64) << bit_idx;
-            // SAFETY: i < len.
-            unsafe { out.get_unchecked_mut(i).write(opt.unwrap_or_default()) };
+            overflow_word |= (f(v).is_none() as u64) << bit_idx;
         }
-        // A single word-parallel AND decides failure: overflow only matters where valid.
         let bad = overflow_word & valid_word;
         if bad != 0 {
             return Err(base + bad.trailing_zeros() as usize);
@@ -425,10 +476,7 @@ where
             let i = base + bit_idx;
             // SAFETY: i < len.
             let v = unsafe { values.get_unchecked(i) };
-            let opt = f(v);
-            overflow_word |= (opt.is_none() as u64) << bit_idx;
-            // SAFETY: i < len.
-            unsafe { out.get_unchecked_mut(i).write(opt.unwrap_or_default()) };
+            overflow_word |= (f(v).is_none() as u64) << bit_idx;
         }
         let bad = overflow_word & valid_word;
         if bad != 0 {
