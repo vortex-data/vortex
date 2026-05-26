@@ -5,22 +5,21 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::fns::between::BetweenKernel;
 use vortex_array::scalar_fn::fns::between::BetweenOptions;
 use vortex_array::scalar_fn::fns::between::StrictComparison;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::DecimalByteParts;
 use crate::decimal_byte_parts::DecimalBytePartsArrayExt;
-use crate::decimal_byte_parts::LOWER_PTYPE;
 use crate::decimal_byte_parts::compute::compare::decimal_value_wrapper_to_primitive;
 
 impl BetweenKernel for DecimalByteParts {
@@ -29,7 +28,7 @@ impl BetweenKernel for DecimalByteParts {
         lower: &ArrayRef,
         upper: &ArrayRef,
         options: &BetweenOptions,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // We can only push the comparison down into the limbs when both bounds are constant.
         let (Some(lower_const), Some(upper_const)) = (lower.as_constant(), upper.as_constant())
@@ -65,6 +64,7 @@ impl BetweenKernel for DecimalByteParts {
                 upper_i128,
                 options,
                 nullability,
+                ctx,
             )?));
         }
 
@@ -99,74 +99,92 @@ impl BetweenKernel for DecimalByteParts {
     }
 }
 
-/// Evaluate `lower <= value <= upper` (respecting strictness) over the two-limb representation.
+/// Evaluate `lower <= value <= upper` (respecting strictness) over the two-limb representation in a
+/// single fused pass.
 ///
 /// With high limb `H` (signed i64) and low limb `L` (unsigned u64), the value `v = H<<64 | L`
 /// satisfies `v >= lower` iff `H > lo_h OR (H == lo_h AND L >=' lo_l)` and `v <= upper` iff
 /// `H < hi_h OR (H == hi_h AND L <=' hi_l)`, where `>='`/`<='` are strict when requested. Each
-/// limb comparison is a native-width integer compare that vectorizes far better than a 128-bit
-/// comparison.
+/// row resolves to native-width integer comparisons in one loop, which vectorizes far better than
+/// arrow's 128-bit comparison or a tree of generic array operations with intermediate allocations.
 fn two_limb_between(
     arr: &ArrayView<'_, DecimalByteParts>,
     lower: i128,
     upper: i128,
     options: &BetweenOptions,
     nullability: Nullability,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let len = arr.len();
-    let high = arr.msp().clone();
+    let high = arr.msp().clone().execute::<PrimitiveArray>(ctx)?;
     let low = arr
         .lower()
         .vortex_expect("two-limb path requires a lower limb")
-        .clone();
+        .clone()
+        .execute::<PrimitiveArray>(ctx)?;
 
-    let high_dtype = high.dtype().with_nullability(nullability);
-    let low_dtype = DType::Primitive(LOWER_PTYPE, nullability);
-
-    let high_const = |limb: i64| -> VortexResult<ArrayRef> {
-        Ok(ConstantArray::new(
-            Scalar::try_new(high_dtype.clone(), Some(ScalarValue::from(limb)))?,
-            len,
-        )
-        .into_array())
-    };
-    let low_const = |limb: u64| -> VortexResult<ArrayRef> {
-        Ok(ConstantArray::new(
-            Scalar::try_new(low_dtype.clone(), Some(ScalarValue::from(limb)))?,
-            len,
-        )
-        .into_array())
-    };
-
-    let lower_low_op = match options.lower_strict {
-        StrictComparison::Strict => Operator::Gt,
-        StrictComparison::NonStrict => Operator::Gte,
-    };
-    let upper_low_op = match options.upper_strict {
-        StrictComparison::Strict => Operator::Lt,
-        StrictComparison::NonStrict => Operator::Lte,
-    };
+    let validity = high.validity()?.union_nullability(nullability);
+    let high = high.as_slice::<i64>();
+    let low = low.as_slice::<u64>();
+    assert_eq!(high.len(), low.len(), "limb lengths must match");
 
     let (lower_high, lower_low) = split_i128(lower);
     let (upper_high, upper_low) = split_i128(upper);
 
-    // value >= lower
-    let ge_lower = {
-        let h_gt = high.binary(high_const(lower_high)?, Operator::Gt)?;
-        let h_eq = high.binary(high_const(lower_high)?, Operator::Eq)?;
-        let l_cmp = low.binary(low_const(lower_low)?, lower_low_op)?;
-        h_gt.binary(h_eq.binary(l_cmp, Operator::And)?, Operator::Or)?
+    let lower_limbs = (lower_high, lower_low);
+    let upper_limbs = (upper_high, upper_low);
+
+    // Pass the low-limb comparison as a monomorphized fn so the whole per-element body inlines.
+    let bits = match (options.lower_strict, options.upper_strict) {
+        (StrictComparison::Strict, StrictComparison::Strict) => {
+            collect_two_limb(high, low, lower_limbs, u64_gt, upper_limbs, u64_lt)
+        }
+        (StrictComparison::Strict, StrictComparison::NonStrict) => {
+            collect_two_limb(high, low, lower_limbs, u64_gt, upper_limbs, u64_le)
+        }
+        (StrictComparison::NonStrict, StrictComparison::Strict) => {
+            collect_two_limb(high, low, lower_limbs, u64_ge, upper_limbs, u64_lt)
+        }
+        (StrictComparison::NonStrict, StrictComparison::NonStrict) => {
+            collect_two_limb(high, low, lower_limbs, u64_ge, upper_limbs, u64_le)
+        }
     };
 
-    // value <= upper
-    let le_upper = {
-        let h_lt = high.binary(high_const(upper_high)?, Operator::Lt)?;
-        let h_eq = high.binary(high_const(upper_high)?, Operator::Eq)?;
-        let l_cmp = low.binary(low_const(upper_low)?, upper_low_op)?;
-        h_lt.binary(h_eq.binary(l_cmp, Operator::And)?, Operator::Or)?
-    };
+    Ok(BoolArray::new(bits, validity).into_array())
+}
 
-    ge_lower.binary(le_upper, Operator::And)
+/// The fused per-element loop. `lower_low_cmp`/`upper_low_cmp` apply the (possibly strict) low-limb
+/// comparison. Bitwise (non-short-circuiting) `&`/`|` keep the body branch-free for the vectorizer.
+fn collect_two_limb(
+    high: &[i64],
+    low: &[u64],
+    lower: (i64, u64),
+    lower_low_cmp: impl Fn(u64, u64) -> bool,
+    upper: (i64, u64),
+    upper_low_cmp: impl Fn(u64, u64) -> bool,
+) -> BitBuffer {
+    let (lower_high, lower_low) = lower;
+    let (upper_high, upper_low) = upper;
+    BitBuffer::collect_bool(high.len(), |idx| {
+        // SAFETY: collect_bool yields idx in 0..high.len(), and low.len() == high.len().
+        let h = unsafe { *high.get_unchecked(idx) };
+        let l = unsafe { *low.get_unchecked(idx) };
+        let ge_lower = (h > lower_high) | ((h == lower_high) & lower_low_cmp(l, lower_low));
+        let le_upper = (h < upper_high) | ((h == upper_high) & upper_low_cmp(l, upper_low));
+        ge_lower & le_upper
+    })
+}
+
+fn u64_ge(a: u64, b: u64) -> bool {
+    a >= b
+}
+fn u64_gt(a: u64, b: u64) -> bool {
+    a > b
+}
+fn u64_le(a: u64, b: u64) -> bool {
+    a <= b
+}
+fn u64_lt(a: u64, b: u64) -> bool {
+    a < b
 }
 
 /// Split an i128 into its signed high and unsigned low 64-bit limbs. The truncating casts are the
