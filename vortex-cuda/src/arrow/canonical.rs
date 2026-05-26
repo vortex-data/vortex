@@ -19,6 +19,7 @@ use vortex::array::arrays::varbinview::VarBinViewDataParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::validity::Validity;
 use vortex::buffer::BitBuffer;
+use vortex::buffer::BitBufferMut;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::DecimalType;
@@ -249,20 +250,17 @@ fn to_arrow_validity_byte_buffer(
         "Arrow Device export only supports bit offsets smaller than one byte"
     );
 
-    let len = logical_validity.len();
     let arrow_bitmap = if logical_validity.offset() == arrow_offset {
         logical_validity
     } else {
-        let physical_bits = BitBuffer::collect_bool(len + arrow_offset, |physical_index| {
-            physical_index >= arrow_offset && logical_validity.value(physical_index - arrow_offset)
-        });
-        let (_, _, bytes) = physical_bits.into_inner();
-        BitBuffer::new_with_offset(bytes, len, arrow_offset)
+        let mut padded_validity =
+            BitBufferMut::with_capacity(logical_validity.len() + arrow_offset);
+        padded_validity.append_n(false, arrow_offset);
+        padded_validity.append_buffer(&logical_validity);
+        padded_validity.freeze()
     };
 
-    let (bit_offset, bit_len, bytes) = arrow_bitmap.into_inner();
-    debug_assert_eq!(bit_offset, arrow_offset);
-    debug_assert_eq!(bit_len, len);
+    let (_, _, bytes) = arrow_bitmap.into_inner();
     Ok(bytes)
 }
 
