@@ -97,6 +97,10 @@ where
     bool: AsPrimitive<I>,
 {
     let mut sum = initial;
+    // TODO(perf): per-bit `zip(validity)` does not vectorize and mispredicts on null-bearing data.
+    // Apply the branch-free word-chunked validity walk (read the bitmap a u64/byte at a time, fold
+    // invalid lanes against 0) like the primitive `sum`. See
+    // docs/developer-guide/internals/validity-iteration.md.
     for (v, valid) in values.iter().zip_eq(validity) {
         let v: I = v.as_() * valid.as_();
 

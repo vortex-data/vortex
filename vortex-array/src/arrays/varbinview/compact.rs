@@ -78,6 +78,9 @@ impl VarBinViewArray {
             }
             Mask::AllFalse(_) => {}
             Mask::Values(v) => {
+                // TODO(perf): per-bit `zip` over validity is scalar. A word-chunked walk (or
+                // iterating only set bits via `set_indices()` when sparse) avoids the per-lane
+                // branch. See docs/developer-guide/internals/validity-iteration.md.
                 for (&view, is_valid) in self.views().iter().zip(v.bit_buffer().iter()) {
                     if is_valid && !view.is_inlined() {
                         f(view.as_view());

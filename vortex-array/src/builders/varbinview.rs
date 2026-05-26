@@ -347,6 +347,9 @@ impl ArrayBuilder for VarBinViewBuilder {
                             .push_n(BinaryView::empty_view(), array.len());
                     }
                     Mask::Values(v) => {
+                        // TODO(perf): per-bit `zip` over validity is scalar. A word-chunked walk
+                        // (or `set_indices()` when sparse) would avoid the per-lane branch. See
+                        // `docs/developer-guide/internals/validity-iteration.md`.
                         for (idx, (&view, is_valid)) in
                             array.views().iter().zip(v.bit_buffer().iter()).enumerate()
                         {

@@ -92,6 +92,11 @@ pub(crate) fn fill_forward_nulls<T: Copy + Default>(
             let mut last_valid = T::default();
             match values.try_into_mut() {
                 Ok(mut to_fill_mut) => {
+                    // TODO(perf): per-bit `zip` over validity is scalar. Forward-fill carries a
+                    // sequential dependency so it won't fully vectorize, but reading the bitmap a
+                    // word at a time (and skipping all-valid words, which need no fill) avoids the
+                    // per-lane bit extraction. See vortex-array
+                    // docs/developer-guide/internals/validity-iteration.md.
                     for (i, (v, is_valid)) in
                         to_fill_mut.iter_mut().zip(bit_buffer.iter()).enumerate()
                     {

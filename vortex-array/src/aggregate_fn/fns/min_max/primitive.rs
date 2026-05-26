@@ -43,6 +43,11 @@ where
         {
             Mask::AllTrue(_) => compute_min_max(array.as_slice::<T>().iter()),
             Mask::AllFalse(_) => None,
+            // TODO(perf): per-bit `zip + filter_map` is scalar and mispredicts on null-bearing
+            // data. Replace with a branch-free neutral-replacement walk via `BitBuffer::zip_lanes`
+            // (fold invalid lanes against `T::MAX`/`T::MIN`, decide via `vmin <= vmax`). Measured
+            // ~3x branch-misprediction reduction and ~1.8x speedup at 50% nulls. See
+            // `docs/developer-guide/internals/validity-iteration.md`.
             Mask::Values(v) => compute_min_max(
                 array
                     .as_slice::<T>()

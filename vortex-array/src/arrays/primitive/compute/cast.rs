@@ -143,6 +143,12 @@ where
         )?
         .freeze(),
         Mask::AllFalse(_) => BufferMut::<T>::zeroed(values.len()).freeze(),
+        // TODO(perf): per-bit `zip` with a per-lane `NumCast::from(v * factor)?` is scalar (early
+        // `?` + per-lane fallible op + per-lane validity branch). Fuse the conversion with a
+        // validity-aware min/max via `BitBuffer::zip_lanes` (or a word-chunked walk) and decide
+        // overflow once at the end from the bounds. Prototype: u32->u8 nullable goes from a scalar
+        // byte loop to `vpmovdb` + `vpminud`/`vpmaxud`; f64->i32 nullable ~2.4x at 50% nulls. See
+        // `docs/developer-guide/internals/validity-iteration.md`.
         Mask::Values(m) => BufferMut::try_from_trusted_len_iter(
             values.iter().zip(m.bit_buffer().iter()).map(|(&v, valid)| {
                 let factor = if valid { F::one() } else { F::zero() };

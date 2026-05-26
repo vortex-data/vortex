@@ -70,6 +70,10 @@ fn accumulate_primitive_all(inner: &mut SumState, p: &PrimitiveArray) -> VortexR
     }
 }
 
+// TODO(perf): per-bit `zip(validity.iter())` is scalar and mispredicts on null-bearing data.
+// Replace with the branch-free word-chunked walk (e.g. via `BitBuffer::zip_lanes` for floats and a
+// hand-rolled chunked loop for the checked integer arms). Measured ~1.67x on f64 sum and ~3x fewer
+// branch mispredictions at 50% nulls. See `docs/developer-guide/internals/validity-iteration.md`.
 fn accumulate_primitive_valid(
     inner: &mut SumState,
     p: &PrimitiveArray,

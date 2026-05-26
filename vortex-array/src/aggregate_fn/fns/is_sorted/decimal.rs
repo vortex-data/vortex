@@ -47,6 +47,9 @@ where
         }
         Mask::Values(mask_values) => {
             let values = array.buffer::<T>();
+            // TODO(perf): per-bit `zip` over the validity bitmap is scalar. Prefer a word-chunked
+            // walk (compare adjacent valid values branch-free). See
+            // docs/developer-guide/internals/validity-iteration.md.
             let iter = mask_values
                 .bit_buffer()
                 .iter()

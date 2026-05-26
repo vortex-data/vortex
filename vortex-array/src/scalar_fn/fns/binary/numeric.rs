@@ -16,6 +16,13 @@ use crate::scalar::NumericOperator;
 ///
 /// This is the entry point for numeric operations from the binary expression.
 /// Handles constant-constant directly, otherwise falls back to Arrow.
+///
+// TODO(perf): the array-array path falls back to Arrow. A native primitive kernel using the
+// "split" form would be a measured win (and beats Arrow's checked path): compute values densely
+// with `overflowing_add`/wrapping arithmetic over ALL lanes (vectorizes to e.g. `vpaddd`), produce
+// result validity as a separate word-level `lhs_nulls & rhs_nulls`, detect overflow branch-free
+// (`vpternlogd`) and only bail if a *valid* lane overflowed. A prototype measured ~4.3x over
+// Arrow's scalar valid-index gather. See docs/developer-guide/internals/validity-iteration.md.
 pub(crate) fn execute_numeric(
     lhs: &ArrayRef,
     rhs: &ArrayRef,

@@ -29,6 +29,32 @@ use crate::bit::select::bit_select;
 use crate::buffer;
 
 /// An immutable bitset stored as a packed byte buffer.
+///
+/// # Iterating values alongside a bitmap (validity, selection, …)
+///
+/// A very common pattern is walking a value slice while consulting a `BitBuffer` of the same
+/// length — e.g. a primitive array and its validity. How you traverse the bitmap dominates the
+/// performance of these kernels, so prefer the following (measured) guidance:
+///
+/// * **Do not** zip a per-bit `bool` iterator ([`BitBuffer::iter`]) with the values in a hot loop.
+///   It forces a scalar, bit-at-a-time traversal that the autovectorizer cannot lift, and it is
+///   several times slower on null-bearing data than the alternatives below.
+/// * **Do** consume the bitmap in word-sized groups via [`BitBuffer::chunks`], which yields
+///   offset-normalized `u64` words (so the same code is correct for sliced/bit-offset buffers).
+///   Process one word's worth of lanes per outer iteration and read the word *once*.
+/// * **Keep the per-lane work branch-free.** Gate with a select (e.g. fold invalid lanes against a
+///   neutral value, or zero them) rather than a data-dependent `if valid { … }` branch on the bit;
+///   a branch on the bitmap word serializes otherwise-vectorizable loops as soon as nulls appear.
+/// * Indexing the bitmap as `bits[i / 64] >> (i % 64)` inside the value loop defeats the
+///   vectorizer entirely — read the chunk *once* outside the inner lane loop.
+///
+/// A finer "one validity byte per 8 lanes" traversal can let the backend build the lane predicate
+/// from a broadcast + constant selector instead of a per-lane variable shift, and is a clear win
+/// when validity is already a flat `&[u8]`. Beware: re-deriving the byte from a `u64` chunk word
+/// (`(word >> b*8) as u8`) does *not* reliably reproduce that win and has measured *slower* than
+/// the plain word traversal in at least one kernel — benchmark before adopting it. On nightly,
+/// `core::simd::Mask::from_bitmask` turns a validity byte directly into a lane mask (a single
+/// `kmov` on AVX-512) and is the ideal primitive; stable Rust cannot match it without `std::arch`.
 #[derive(Debug, Clone, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct BitBuffer {
@@ -338,6 +364,35 @@ impl BitBuffer {
     /// Iterator over bits in the buffer
     pub fn iter(&self) -> BitIterator<'_> {
         BitIterator::new(self.buffer.as_slice(), self.offset, self.len)
+    }
+
+    /// Branch-free, word-chunked iteration over `values` paired with this bitmap's bits.
+    ///
+    /// Calls `f(value, is_valid)` for every lane, reading the bitmap one 64-bit word at a time
+    /// (offset-normalized, so it is correct for sliced buffers). This is the fast way to walk a
+    /// value slice alongside a validity mask: the closure **must** consume `is_valid` branch-free
+    /// (e.g. a select / fold against a neutral) so the loop vectorizes — see the type-level docs.
+    ///
+    /// Zero-cost: `#[inline(always)]`, so it folds into the (possibly multiversioned) caller and
+    /// compiles to the same code as the hand-written word loop.
+    ///
+    /// # Panics
+    /// Panics (in debug) if `values.len() != self.len()`.
+    #[inline(always)]
+    pub fn zip_lanes<T: Copy>(&self, values: &[T], mut f: impl FnMut(T, bool)) {
+        debug_assert_eq!(values.len(), self.len);
+        let chunks = self.chunks();
+        let mut base = 0usize;
+        for word in chunks.iter() {
+            for (j, &v) in values[base..base + 64].iter().enumerate() {
+                f(v, (word >> j) & 1 != 0);
+            }
+            base += 64;
+        }
+        let remainder = chunks.remainder_bits();
+        for (j, &v) in values[base..].iter().enumerate() {
+            f(v, (remainder >> j) & 1 != 0);
+        }
     }
 
     /// Iterator over set indices of the underlying buffer
