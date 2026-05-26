@@ -37,3 +37,7 @@ vortex-array = { path = "../../vortex-array", features = ["_test-harness"] }
 [[bench]]
 name = "decimal_between"
 harness = false
+
+[[bench]]
+name = "decimal_lt"
+harness = false
