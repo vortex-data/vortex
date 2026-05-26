@@ -119,18 +119,7 @@ where
         match self {
             Precision::Exact(v) => DFPrecision::Exact(v),
             Precision::Inexact(v) => DFPrecision::Inexact(v),
-        }
-    }
-}
-
-impl<T> PrecisionExt<T> for Option<Precision<T>>
-where
-    T: Debug + Clone + PartialEq + Eq + PartialOrd,
-{
-    fn to_df(self) -> DFPrecision<T> {
-        match self {
-            Some(v) => v.to_df(),
-            None => DFPrecision::Absent,
+            Precision::Absent => DFPrecision::Absent,
         }
     }
 }

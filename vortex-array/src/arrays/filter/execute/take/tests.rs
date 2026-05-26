@@ -338,6 +338,28 @@ fn test_take_execute_kernel_handles_nullable_primitive_filter_child() -> VortexR
 }
 
 #[test]
+fn test_take_execute_kernel_preserves_nullable_all_valid_fixed_width_child() -> VortexResult<()> {
+    let filter = FilterArray::new(
+        PrimitiveArray::new(buffer![10i32, 20, 30], Validity::AllValid).into_array(),
+        Mask::new_true(3),
+    )
+    .into_array();
+    let parent = DictArray::try_new(buffer![0u64, 1].into_array(), filter.clone())?.into_array();
+    let mut ctx = ExecutionCtx::new(VortexSession::empty());
+
+    let result = filter
+        .execute_parent(&parent, 1, &mut ctx)?
+        .expect("filter child should execute its take parent");
+
+    assert_eq!(result.dtype(), parent.dtype());
+    assert_arrays_eq!(
+        result.execute::<RecursiveCanonical>(&mut ctx)?.0,
+        PrimitiveArray::new(buffer![10i32, 20], Validity::AllValid).into_array()
+    );
+    Ok(())
+}
+
+#[test]
 fn test_take_execute_kernel_handles_nullable_decimal_filter_child() -> VortexResult<()> {
     let decimal_dtype = DecimalDType::new(19, 2);
     let filter = FilterArray::new(
@@ -429,6 +451,32 @@ fn test_take_execute_kernel_handles_string_filter_child() -> VortexResult<()> {
         VarBinViewArray::from_iter_str(["a", "b", "c", "d", "e"]).into_array(),
         VarBinViewArray::from_iter_str(["d", "a", "c"]).into_array(),
     )
+}
+
+#[test]
+fn test_take_execute_kernel_preserves_nullable_indices_dtype_fast_path() -> VortexResult<()> {
+    let filter = FilterArray::new(
+        VarBinViewArray::from_iter_str(["a", "b", "c"]).into_array(),
+        Mask::new_true(3),
+    )
+    .into_array();
+    let parent = DictArray::try_new(
+        PrimitiveArray::new(buffer![0u64, 1], Validity::AllValid).into_array(),
+        filter.clone(),
+    )?
+    .into_array();
+    let mut ctx = ExecutionCtx::new(VortexSession::empty());
+
+    let result = filter
+        .execute_parent(&parent, 1, &mut ctx)?
+        .expect("filter child should execute its nullable take parent");
+
+    assert_eq!(result.dtype(), parent.dtype());
+    assert_arrays_eq!(
+        result.execute::<RecursiveCanonical>(&mut ctx)?.0,
+        VarBinViewArray::from_iter_nullable_str([Some("a"), Some("b")]).into_array()
+    );
+    Ok(())
 }
 
 #[test]

@@ -38,45 +38,33 @@ impl WriteFlatBuffer for StatsSet {
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
-        let (min_precision, min) = self
-            .get(Stat::Min)
-            .map(|min| {
-                (
-                    if min.is_exact() {
-                        fba::Precision::Exact
-                    } else {
-                        fba::Precision::Inexact
-                    },
-                    Some(
-                        fbb.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(
-                            &min.into_inner(),
-                        ))),
-                    ),
-                )
-            })
-            .unwrap_or_else(|| (fba::Precision::Inexact, None));
+        let (min_precision, min) = match self.get(Stat::Min) {
+            Precision::Exact(min) => (
+                fba::Precision::Exact,
+                Some(fbb.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(&min)))),
+            ),
+            Precision::Inexact(min) => (
+                fba::Precision::Inexact,
+                Some(fbb.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(&min)))),
+            ),
+            Precision::Absent => (fba::Precision::Inexact, None),
+        };
 
-        let (max_precision, max) = self
-            .get(Stat::Max)
-            .map(|max| {
-                (
-                    if max.is_exact() {
-                        fba::Precision::Exact
-                    } else {
-                        fba::Precision::Inexact
-                    },
-                    Some(
-                        fbb.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(
-                            &max.into_inner(),
-                        ))),
-                    ),
-                )
-            })
-            .unwrap_or_else(|| (fba::Precision::Inexact, None));
+        let (max_precision, max) = match self.get(Stat::Max) {
+            Precision::Exact(max) => (
+                fba::Precision::Exact,
+                Some(fbb.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(&max)))),
+            ),
+            Precision::Inexact(max) => (
+                fba::Precision::Inexact,
+                Some(fbb.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(&max)))),
+            ),
+            Precision::Absent => (fba::Precision::Inexact, None),
+        };
 
         let sum = self
             .get(Stat::Sum)
-            .and_then(Precision::as_exact)
+            .as_exact()
             .map(|sum| fbb.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(&sum))));
 
         let stat_args = &fba::ArrayStatsArgs {
@@ -87,22 +75,22 @@ impl WriteFlatBuffer for StatsSet {
             sum,
             is_sorted: self
                 .get_as::<bool>(Stat::IsSorted, &DType::Bool(Nullability::NonNullable))
-                .and_then(Precision::as_exact),
+                .as_exact(),
             is_strict_sorted: self
                 .get_as::<bool>(Stat::IsStrictSorted, &DType::Bool(Nullability::NonNullable))
-                .and_then(Precision::as_exact),
+                .as_exact(),
             is_constant: self
                 .get_as::<bool>(Stat::IsConstant, &DType::Bool(Nullability::NonNullable))
-                .and_then(Precision::as_exact),
+                .as_exact(),
             null_count: self
                 .get_as::<u64>(Stat::NullCount, &PType::U64.into())
-                .and_then(Precision::as_exact),
+                .as_exact(),
             uncompressed_size_in_bytes: self
                 .get_as::<u64>(Stat::UncompressedSizeInBytes, &PType::U64.into())
-                .and_then(Precision::as_exact),
+                .as_exact(),
             nan_count: self
                 .get_as::<u64>(Stat::NaNCount, &PType::U64.into())
-                .and_then(Precision::as_exact),
+                .as_exact(),
         };
 
         Ok(fba::ArrayStats::create(fbb, stat_args))

@@ -25,6 +25,16 @@ use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::operators::Operator;
 
+/// Density threshold to decide whether to rebuild a sparse `ListViewArray`.
+///
+/// A `ListViewArray` can accumulate unreferenced bytes in its `elements` buffer after
+/// metadata-only operations like `take` and `filter`. When density (referenced fraction of `elements`)
+/// falls below this threshold, the benefits of a rebuild may outweigh its cost.
+///
+/// This is a somewhat arbitrary rule-of-thumb and may be suboptimal depending on different use cases and
+/// list element dtypes.
+pub const DEFAULT_REBUILD_DENSITY_THRESHOLD: f32 = 0.1;
+
 /// Modes for rebuilding a [`ListViewArray`].
 pub enum ListViewRebuildMode {
     /// Removes all unused data and flattens out all list data, such that the array is zero-copyable

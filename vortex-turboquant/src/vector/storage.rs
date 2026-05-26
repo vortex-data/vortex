@@ -17,9 +17,9 @@
 //! converted into zero vectors. The code bytes for invalid rows are physical placeholders only; the
 //! field-level validity records that those rows were not quantized.
 //!
-//! Parsing treats the outer struct validity as authoritative. Child validity may be wider than the
-//! struct validity, for example after a generic mask only updates the struct validity, but each
-//! child must be valid wherever the struct row is valid.
+//! Parsing treats the outer struct validity as authoritative. Child validity may be wider than
+//! the struct validity (for example after a generic mask only updates the struct validity), but
+//! each child must be valid wherever the struct row is valid.
 
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -48,14 +48,19 @@ pub(crate) const NORMS_FIELD: &str = "norms";
 /// Name of the stored quantized-code child.
 pub(crate) const CODES_FIELD: &str = "codes";
 
-/// Parsed TurboQuant storage arrays.
-///
-/// We use this as a helper struct for working with a TurboQuant extension array.
+/// Executed storage children of a TurboQuant extension array plus the authoritative outer
+/// struct validity. Every child is row-aligned to `len` and every child's validity covers
+/// `vector_validity`.
 pub(crate) struct TurboQuantParsedStorage {
+    /// Metadata recovered from the input extension dtype.
     pub(crate) metadata: TurboQuantMetadata,
+    /// Authoritative row validity for the quantized vectors, taken from the outer struct.
     pub(crate) vector_validity: Validity,
+    /// Per-row stored L2 norm of the original input vector, in `metadata.element_ptype`.
     pub(crate) norms: PrimitiveArray,
+    /// Flat `u8` per-row centroid indices, `num_vectors * padded_dim` entries long.
     pub(crate) codes: PrimitiveArray,
+    /// Row count.
     pub(crate) len: usize,
 }
 

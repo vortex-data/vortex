@@ -10,6 +10,7 @@ mod vector;
 #[cfg(test)]
 pub use dtype::FromLogicalType;
 pub use dtype::from_duckdb_table;
+pub use expr::can_push_expression;
 pub use expr::try_from_bound_expression;
 pub use scalar::*;
 pub use table_filter::try_from_table_filter;

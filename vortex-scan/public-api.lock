@@ -84,7 +84,7 @@ pub fn vortex_scan::ScanRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> co
 
 pub trait vortex_scan::DataSource: 'static + core::marker::Send + core::marker::Sync
 
-pub fn vortex_scan::DataSource::byte_size(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<u64>>
+pub fn vortex_scan::DataSource::byte_size(&self) -> vortex_array::expr::stats::precision::Precision<u64>
 
 pub fn vortex_scan::DataSource::deserialize_partition(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_scan::PartitionRef>
 
@@ -92,7 +92,7 @@ pub fn vortex_scan::DataSource::dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_scan::DataSource::field_statistics<'life0, 'life1, 'async_trait>(&'life0 self, &'life1 vortex_array::dtype::field::FieldPath) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_array::stats::stats_set::StatsSet>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
 
-pub fn vortex_scan::DataSource::row_count(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<u64>>
+pub fn vortex_scan::DataSource::row_count(&self) -> vortex_array::expr::stats::precision::Precision<u64>
 
 pub fn vortex_scan::DataSource::scan<'life0, 'async_trait>(&'life0 self, vortex_scan::ScanRequest) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_scan::DataSourceScanRef>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 
@@ -110,7 +110,7 @@ pub trait vortex_scan::DataSourceScan: 'static + core::marker::Send
 
 pub fn vortex_scan::DataSourceScan::dtype(&self) -> &vortex_array::dtype::DType
 
-pub fn vortex_scan::DataSourceScan::partition_count(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<usize>>
+pub fn vortex_scan::DataSourceScan::partition_count(&self) -> vortex_array::expr::stats::precision::Precision<usize>
 
 pub fn vortex_scan::DataSourceScan::partitions(alloc::boxed::Box<Self>) -> vortex_scan::PartitionStream
 
@@ -118,13 +118,13 @@ pub trait vortex_scan::Partition: 'static + core::marker::Send
 
 pub fn vortex_scan::Partition::as_any(&self) -> &dyn core::any::Any
 
-pub fn vortex_scan::Partition::byte_size(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<u64>>
+pub fn vortex_scan::Partition::byte_size(&self) -> vortex_array::expr::stats::precision::Precision<u64>
 
 pub fn vortex_scan::Partition::execute(alloc::boxed::Box<Self>) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_scan::Partition::index(&self) -> usize
 
-pub fn vortex_scan::Partition::row_count(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<u64>>
+pub fn vortex_scan::Partition::row_count(&self) -> vortex_array::expr::stats::precision::Precision<u64>
 
 pub fn vortex_scan::Partition::serialize(&self) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 

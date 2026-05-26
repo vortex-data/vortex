@@ -142,50 +142,40 @@ fn stat_array(
 ) -> VortexResult<ArrayRef> {
     let value = if aggregate_fn.is::<AllNull>() {
         let len = u64::try_from(len)?;
-        array
-            .statistics()
-            .get_as::<u64>(Stat::NullCount)
-            .and_then(|null_count| match null_count {
-                Precision::Exact(count) => Some(count == len),
-                Precision::Inexact(count) => (count < len).then_some(false),
-            })
-            .map(ScalarValue::Bool)
+        match array.statistics().get_as::<u64>(Stat::NullCount) {
+            Precision::Exact(count) => Some(count == len),
+            Precision::Inexact(count) => (count < len).then_some(false),
+            Precision::Absent => None,
+        }
+        .map(ScalarValue::Bool)
     } else if aggregate_fn.is::<AllNonNull>() {
-        array
-            .statistics()
-            .get_as::<u64>(Stat::NullCount)
-            .and_then(|null_count| match null_count {
-                Precision::Exact(count) => Some(count == 0),
-                Precision::Inexact(0) => Some(true),
-                Precision::Inexact(_) => None,
-            })
-            .map(ScalarValue::Bool)
+        match array.statistics().get_as::<u64>(Stat::NullCount) {
+            Precision::Exact(count) => Some(count == 0),
+            Precision::Inexact(0) => Some(true),
+            Precision::Inexact(_) | Precision::Absent => None,
+        }
+        .map(ScalarValue::Bool)
     } else if aggregate_fn.is::<AllNan>() {
         let len = u64::try_from(len)?;
-        array
-            .statistics()
-            .get_as::<u64>(Stat::NaNCount)
-            .and_then(|nan_count| match nan_count {
-                Precision::Exact(count) => Some(count == len),
-                Precision::Inexact(count) => (count < len).then_some(false),
-            })
-            .map(ScalarValue::Bool)
+        match array.statistics().get_as::<u64>(Stat::NaNCount) {
+            Precision::Exact(count) => Some(count == len),
+            Precision::Inexact(count) => (count < len).then_some(false),
+            Precision::Absent => None,
+        }
+        .map(ScalarValue::Bool)
     } else if aggregate_fn.is::<AllNonNan>() {
-        array
-            .statistics()
-            .get_as::<u64>(Stat::NaNCount)
-            .and_then(|nan_count| match nan_count {
-                Precision::Exact(count) => Some(count == 0),
-                Precision::Inexact(0) => Some(true),
-                Precision::Inexact(_) => None,
-            })
-            .map(ScalarValue::Bool)
+        match array.statistics().get_as::<u64>(Stat::NaNCount) {
+            Precision::Exact(count) => Some(count == 0),
+            Precision::Inexact(0) => Some(true),
+            Precision::Inexact(_) | Precision::Absent => None,
+        }
+        .map(ScalarValue::Bool)
     } else if let Some(stat) = Stat::from_aggregate_fn(aggregate_fn) {
         array
             .statistics()
             .with_typed_stats_set(|stats| stats.get(stat))
             // We don't mind whether the stat is approxed or not, since these are row-wise bounds.
-            .map(|stat| stat.into_inner())
+            .into_inner()
             .and_then(Scalar::into_value)
     } else {
         tracing::trace!(
