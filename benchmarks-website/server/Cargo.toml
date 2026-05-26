@@ -32,6 +32,7 @@ dashmap = { workspace = true }
 # track vortex-duckdb's bundled engine version (build.rs)
 duckdb = { version = "1.10502", features = ["bundled"] }
 flate2 = "1"
+futures = { workspace = true, features = ["std"] }
 maud = { version = "0.27", features = ["axum"] }
 parking_lot = { workspace = true }
 serde = { workspace = true, features = ["derive", "rc"] }
@@ -47,7 +48,10 @@ twox-hash = "2.1"
 vortex-utils = { workspace = true }
 
 [dev-dependencies]
-insta = { workspace = true }
+# `filters` enables `Settings::add_filter`, which we use in
+# `tests/common/mod.rs` to redact the build SHA from the HTML
+# snapshots so they don't churn on every commit.
+insta = { workspace = true, features = ["filters"] }
 reqwest = { workspace = true, features = ["json"] }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }

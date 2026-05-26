@@ -26,6 +26,7 @@ use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::operators::CompareOperator;
 use vortex::scan::selection::Selection;
 
+use super::expr::try_from_bound_expression_with_col_sub;
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
 use crate::duckdb::ExtractedValue;
 use crate::duckdb::TableFilterClass;
@@ -123,8 +124,10 @@ pub fn try_from_table_filter(
             )
         }
         TableFilterClass::ExpressionRef(expr) => {
-            // TODO(ngates): figure out which column ID DuckDB is using for the expression.
-            vortex_bail!("expression table filter is not supported: {}", expr);
+            match try_from_bound_expression_with_col_sub(expr, col)? {
+                Some(expression) => expression,
+                None => return Ok(None),
+            }
         }
         TableFilterClass::Bloom => {
             vortex_bail!("bloom filter table filter is not supported")

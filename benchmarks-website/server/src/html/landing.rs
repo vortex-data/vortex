@@ -41,15 +41,21 @@ pub(super) struct LandingGroup {
     pub(super) description: Option<String>,
     /// Optional v2-compatible summary card rendered above the chart grid.
     pub(super) summary: Option<Summary>,
-    /// Chart links for every chart in the group. Always present — we need
+    /// Chart links for every chart in the group. Always present - we need
     /// the slugs server-side so the chart-card shell can carry
     /// `data-chart-slug` for the lazy fetch.
     pub(super) chart_links: Vec<api::ChartLink>,
 }
 
-/// Render the landing-page body — one `<section>` per group, each wrapping a
-/// `<details>` disclosure. The `chart-data-N` script ids are globally
-/// indexed so `chart-init.js` can find every payload by integer.
+/// Render the landing-page body - one `<section>` per group, each wrapping a
+/// `<details>` disclosure. Each `<canvas>` carries a unique
+/// `data-chart-index` integer (used by `chart-init.js` to wire toolbar
+/// controls to canvases by id) and a `data-chart-slug` (used to resolve the
+/// per-chart payload via the enclosing `<section.group-details>`'s
+/// `data-group-shard-prefix`). The landing page emits NO inline JSON
+/// payloads - every chart hydrates from a versioned shard artifact on
+/// first intent/open. The `chart-data-N` inline-script id is permalink-page
+/// only and lives in `chart.rs`.
 pub(super) fn landing_body(groups: &[LandingGroup], universe: &api::FilterUniverse) -> Markup {
     if groups.is_empty() {
         return html! {
@@ -57,8 +63,9 @@ pub(super) fn landing_body(groups: &[LandingGroup], universe: &api::FilterUniver
         };
     }
     let total_charts: usize = groups.iter().map(|g| g.chart_links.len()).sum();
-    // Index every chart globally so `<canvas data-chart-index="N">` and
-    // `<script id="chart-data-N">` agree across groups.
+    // Give every chart a unique `data-chart-index` integer so chart-init.js
+    // can wire each canvas to its toolbar controls; the index is per-page
+    // unique, not a lookup key.
     let mut idx_iter = 0usize..total_charts;
     html! {
         @for group in groups.iter() {

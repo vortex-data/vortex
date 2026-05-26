@@ -20,7 +20,7 @@ use crate::api;
 
 /// Which scripts the page wants pulled in.
 pub(super) enum PageScripts {
-    /// Empty database — skip Chart.js entirely.
+    /// Empty database - skip Chart.js entirely.
     Empty,
     /// Any page with at least one chart-card. Pulls Chart.js + zoom plugin.
     Chart,
@@ -47,6 +47,8 @@ pub(super) fn render_page(
                 meta charset="utf-8";
                 meta name="viewport" content="width=device-width, initial-scale=1";
                 title { (title) }
+                (favicon_links())
+                (web_font_links())
                 (theme_bootstrap_script())
                 link rel="stylesheet" href=(style_href);
             }
@@ -54,6 +56,7 @@ pub(super) fn render_page(
                 (filter_state_script(filter))
                 (site_header(universe, filter))
                 main { (body) }
+                (site_footer())
                 @match scripts {
                     PageScripts::Empty => {
                         script src=(chart_init_src) defer {}
@@ -66,6 +69,71 @@ pub(super) fn render_page(
                 }
             }
         }
+    }
+}
+
+/// Bottom-of-page footer that surfaces the build's git SHA so operators
+/// (and curious visitors) can correlate what they're looking at to a
+/// specific commit. `VORTEX_BENCH_BUILD_SHA` is captured by `build.rs`
+/// (same source `/health` uses), so the footer and the health probe are
+/// always in lockstep.
+///
+/// When the binary was built outside a git checkout (shallow CI clone,
+/// source tarball) the SHA is the literal `"unknown"`; we render the
+/// label without a link in that case.
+fn site_footer() -> Markup {
+    let full_sha = env!("VORTEX_BENCH_BUILD_SHA");
+    let short_sha: &str = full_sha.get(..7).unwrap_or(full_sha);
+    let commit_url = format!("https://github.com/vortex-data/vortex/commit/{full_sha}");
+    html! {
+        footer.site-footer {
+            span.site-footer-label { "build " }
+            @if full_sha == "unknown" {
+                code.site-footer-sha { (short_sha) }
+            } @else {
+                a.site-footer-sha href=(commit_url) rel="noopener noreferrer" target="_blank" {
+                    code { (short_sha) }
+                }
+            }
+        }
+    }
+}
+
+/// External web-font links - Geist (sans + mono) from unpkg and Funnel
+/// Display from Google Fonts. Mirrors v2's `index.html` so the v3 site
+/// reads in the same typeface (Geist for body, Funnel Display for
+/// headings, Geist Mono for the monospaced metrics columns). The
+/// preconnect hints shave a round-trip off the first load.
+fn web_font_links() -> Markup {
+    html! {
+        link rel="preconnect" href="https://fonts.googleapis.com";
+        link rel="preconnect" href="https://fonts.gstatic.com" crossorigin;
+        link rel="stylesheet"
+            href="https://fonts.googleapis.com/css2?family=Funnel+Display:wght@300;400;500;600;700;800&display=swap";
+        link rel="stylesheet" href="https://unpkg.com/geist@1.3.0/dist/fonts/geist-sans/style.css";
+        link rel="stylesheet" href="https://unpkg.com/geist@1.3.0/dist/fonts/geist-mono/style.css";
+    }
+}
+
+/// Browser tab icon links. Two transparent square sigils - the black
+/// one for light-mode tabs, the white one for dark-mode tabs - picked
+/// via `prefers-color-scheme` media queries. A third unmediated link
+/// covers browsers that don't honour the media query (the dark version
+/// is used since GitHub-style developer audiences skew dark-mode); the
+/// `apple-touch-icon` is also the dark sigil so the iOS home-screen
+/// icon shows the sigil over iOS's default tile colour.
+///
+/// v2's `public/favicon-*.png` set is intentionally not used here:
+/// those assets have white backgrounds baked in, which render as a
+/// glaring white square on dark-mode tabs.
+fn favicon_links() -> Markup {
+    let icon_light = versioned_asset("/static/icon-light.png");
+    let icon_dark = versioned_asset("/static/icon-dark.png");
+    html! {
+        link rel="icon" type="image/png" media="(prefers-color-scheme: light)" href=(icon_light);
+        link rel="icon" type="image/png" media="(prefers-color-scheme: dark)" href=(icon_dark);
+        link rel="icon" type="image/png" href=(icon_dark);
+        link rel="apple-touch-icon" href=(icon_dark);
     }
 }
 
@@ -231,7 +299,9 @@ pub(super) fn error_page(status: StatusCode, message: &str) -> Response {
             head {
                 meta charset="utf-8";
                 meta name="viewport" content="width=device-width, initial-scale=1";
-                title { (status.as_u16()) " — bench.vortex.dev" }
+                title { (status.as_u16()) " - Vortex Benchmarks" }
+                (favicon_links())
+                (web_font_links())
                 (theme_bootstrap_script())
                 link rel="stylesheet" href=(style_href);
             }
@@ -240,6 +310,7 @@ pub(super) fn error_page(status: StatusCode, message: &str) -> Response {
                 main {
                     p.empty { (message) }
                 }
+                (site_footer())
             }
         }
     };

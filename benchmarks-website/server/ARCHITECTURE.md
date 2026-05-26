@@ -67,8 +67,13 @@ not consume read permits.
 Successful ingest invalidates `QueryCache` and schedules a read-model rebuild.
 The active generation remains live while rebuilding. Repeated rebuild requests
 coalesce, and a failed rebuild keeps serving the old generation. The server
-keeps the active generation plus the most recent previous generation so already
-loaded pages can continue resolving immutable shard URLs across a swap.
+keeps the active generation plus up to `RETAINED_PREVIOUS_GENERATIONS` previous
+generations (currently 8) in a bounded `VecDeque` so already loaded pages can
+continue resolving immutable shard URLs across a swap. The window is sized for
+the worst observed CI dual-write burst; under-sizing surfaces as 404s on
+`/api/artifacts/{generation}/.../shards/{i}` for stale tabs, which auto-recover
+on the next group reopen. See `RETAINED_PREVIOUS_GENERATIONS` in
+`src/read_model.rs`.
 
 ## Main Files
 

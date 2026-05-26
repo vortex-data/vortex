@@ -5,7 +5,7 @@
 //!
 //! These structs are the JSON the server emits on `/api/groups`,
 //! `/api/group/{slug}`, `/api/chart/{slug}`, and `/health`. Renaming or
-//! reordering fields is a wire-compat break — coordinate with
+//! reordering fields is a wire-compat break - coordinate with
 //! `chart-init.js` (and the emitter / migrator if the change is on the
 //! ingest side, see [`crate::records`]).
 
@@ -23,9 +23,13 @@ pub const DEFAULT_COMMIT_WINDOW: u32 = 100;
 /// Canonical group ordering, ported from the v2 site's hard-coded list at
 /// `origin/ct/vfvb:benchmarks-website/index.html`. Group names not in this
 /// list sort after every listed name in alphabetical order. The order is
-/// significant for the landing page render — every group is collapsed by
-/// default, and only the first group's chart payloads are inlined into the
-/// HTML so opening it skips a fetch round-trip.
+/// significant for the landing page render - every group is collapsed by
+/// default, and the disclosure list is rendered in this sequence. Chart
+/// payloads are NOT inlined into the landing HTML; every group hydrates
+/// from versioned shard artifacts under
+/// `/api/artifacts/{generation}/groups/{slug}/shards/{i}` on first
+/// intent/open, served from the precomputed read store (see
+/// `server/ARCHITECTURE.md` → "Hot Read Path").
 pub const GROUP_ORDER: &[&str] = &[
     "Random Access",
     "Compression",
@@ -201,7 +205,7 @@ pub struct NamedChartResponse {
     pub name: String,
     /// Slug for `/chart/{slug}`. Round-trips through [`crate::slug::ChartKey`].
     pub slug: String,
-    /// Inlined chart payload — same shape as `/api/chart/{slug}`.
+    /// Inlined chart payload - same shape as `/api/chart/{slug}`.
     #[serde(flatten)]
     pub chart: Arc<ChartResponse>,
 }
@@ -226,7 +230,7 @@ pub struct ChartResponse {
     /// nanoseconds, bytes, etc.). The client uses this together with the
     /// magnitude of the loaded values to pick a display unit (e.g. `ms` for
     /// time values around 1e6 ns) so the rendered axis stays readable. The
-    /// taxonomy is small on purpose — see [`UnitKind`].
+    /// taxonomy is small on purpose - see [`UnitKind`].
     pub unit_kind: UnitKind,
     /// Full-history placement of this payload's bounded `commits` window.
     pub history: ChartHistory,
@@ -258,8 +262,8 @@ pub struct ChartHistory {
 }
 
 /// Structured y-axis unit taxonomy carried on every [`ChartResponse`]. The
-/// client uses this — together with the magnitude of the values currently in
-/// view — to pick a display unit (e.g. `ms` for `time_ns` values around
+/// client uses this - together with the magnitude of the values currently in
+/// view - to pick a display unit (e.g. `ms` for `time_ns` values around
 /// 1e6) so the rendered axis stays readable. Stored values on the wire are
 /// always in the kind's *base* unit:
 ///
@@ -271,7 +275,7 @@ pub struct ChartHistory {
 /// | [`Self::Count`]    | dimensionless count   |
 /// | [`Self::ThroughputMbS`] | megabytes per second |
 ///
-/// Adding a variant is a wire-compat change — coordinate with the emitter,
+/// Adding a variant is a wire-compat change - coordinate with the emitter,
 /// migrator, and the client unit picker in `chart-init.js`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -344,7 +348,7 @@ pub struct CommitPoint {
     pub timestamp: String,
     /// First-line commit message (or the full message if no newline).
     pub message: String,
-    /// GitHub commit URL — used as the fallback when no `(#NNNN)` is present.
+    /// GitHub commit URL - used as the fallback when no `(#NNNN)` is present.
     pub url: String,
 }
 
@@ -358,25 +362,21 @@ pub struct HealthResponse {
     pub db_path: String,
     /// Schema version the server was compiled against.
     pub schema_version: i32,
+    /// Full 40-hex git SHA the binary was built from, or `"unknown"`
+    /// outside a git checkout. Matches the value the deploy timer
+    /// writes to `/var/lib/vortex-bench/last-deployed-sha` byte-for-byte;
+    /// operators can compare the two directly (no truncation) to
+    /// confirm the live process is the one the deploy timer last
+    /// rolled out.
+    pub build_sha: &'static str,
     /// Most recent `commits.timestamp`, or `None` if the table is empty.
     pub latest_commit_timestamp: Option<String>,
     /// Per-fact-table row counts for smoke tests.
-    pub row_counts: RowCounts,
-}
-
-/// Per-fact-table row counts surfaced by `/health`.
-#[derive(Debug, Serialize)]
-pub struct RowCounts {
-    /// `commits` dim table.
-    pub commits: i64,
-    /// `query_measurements` fact table.
-    pub query_measurements: i64,
-    /// `compression_times` fact table.
-    pub compression_times: i64,
-    /// `compression_sizes` fact table.
-    pub compression_sizes: i64,
-    /// `random_access_times` fact table.
-    pub random_access_times: i64,
-    /// `vector_search_runs` fact table.
-    pub vector_search_runs: i64,
+    /// Per-table row counts surfaced for smoke tests. Keys are table names
+    /// (`commits` plus one entry per [`crate::family::Family::table_name`]).
+    /// Serialized as a JSON object so the wire shape (`row_counts.commits`,
+    /// `row_counts.query_measurements`, etc.) is unchanged from the
+    /// fixed-struct version this map replaced; consumers that index in by
+    /// key keep working. `BTreeMap` preserves a stable key order in JSON.
+    pub row_counts: std::collections::BTreeMap<&'static str, i64>,
 }

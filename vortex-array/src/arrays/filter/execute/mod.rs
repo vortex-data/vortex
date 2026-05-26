@@ -31,12 +31,14 @@ use crate::validity::Validity;
 mod bitbuffer;
 mod bool;
 mod buffer;
+pub(crate) mod byte_compress;
 mod decimal;
 mod fixed_size_list;
 mod listview;
 mod primitive;
 mod slice;
 mod struct_;
+pub mod take;
 mod varbinview;
 
 /// A helper function that lazily filters a [`Validity`] with selection mask values.

@@ -132,7 +132,7 @@ impl StatsCatalog for FileStatsLayoutReader {
         let field_idx = self.struct_fields.find(field_name)?;
         let field_stats = self.file_stats.stats_sets().get(field_idx)?;
 
-        let stat_value = field_stats.get(stat)?.as_exact()?;
+        let stat_value = field_stats.get(stat).as_exact()?;
         let field_dtype = self.struct_fields.field_by_index(field_idx)?;
         let stat_dtype = stat.dtype(&field_dtype)?;
         let stat_scalar = Scalar::try_new(stat_dtype, Some(stat_value)).ok()?;

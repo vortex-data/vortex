@@ -25,6 +25,7 @@ use crate::bit::count_ones::count_ones;
 use crate::bit::get_bit_unchecked;
 use crate::bit::ops::bitwise_binary_op;
 use crate::bit::ops::bitwise_unary_op;
+use crate::bit::select::bit_select;
 use crate::buffer;
 
 /// An immutable bitset stored as a packed byte buffer.
@@ -317,6 +318,16 @@ impl BitBuffer {
     /// Get the number of set bits in the buffer.
     pub fn true_count(&self) -> usize {
         count_ones(self.buffer.as_slice(), self.offset, self.len)
+    }
+
+    /// Returns the position of the `nth` set bit (0-indexed).
+    ///
+    /// This is the "select" operation on a bitmap: given a rank `nth`, find
+    /// which logical bit position holds that rank.
+    ///
+    /// Returns `None` if `nth` is greater than or equal to the number of set bits.
+    pub fn select(&self, nth: usize) -> Option<usize> {
+        bit_select(self.buffer.as_slice(), self.offset, self.len, nth)
     }
 
     /// Get the number of unset bits in the buffer.

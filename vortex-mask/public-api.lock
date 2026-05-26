@@ -172,6 +172,10 @@ impl vortex_mask::MaskValues
 
 pub fn vortex_mask::MaskValues::bit_buffer(&self) -> &vortex_buffer::bit::buf::BitBuffer
 
+pub fn vortex_mask::MaskValues::cached_indices(&self) -> core::option::Option<&[usize]>
+
+pub fn vortex_mask::MaskValues::cached_slices(&self) -> core::option::Option<&[(usize, usize)]>
+
 pub fn vortex_mask::MaskValues::density(&self) -> f64
 
 pub fn vortex_mask::MaskValues::indices(&self) -> &[usize]

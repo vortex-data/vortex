@@ -32,11 +32,12 @@ use vortex_bench_server::db::measurement_id_compression_size;
 use vortex_bench_server::db::measurement_id_compression_time;
 use vortex_bench_server::db::measurement_id_query;
 use vortex_bench_server::db::measurement_id_random_access;
+use vortex_bench_server::family;
 use vortex_bench_server::records::CompressionSize;
 use vortex_bench_server::records::CompressionTime;
 use vortex_bench_server::records::QueryMeasurement;
 use vortex_bench_server::records::RandomAccessTime;
-use vortex_bench_server::schema::SCHEMA_DDL;
+use vortex_bench_server::schema::COMMITS_DDL;
 
 use self::accum::CompressionSizeAccum;
 use self::accum::CompressionTimeAccum;
@@ -95,6 +96,12 @@ pub struct MigrationSummary {
     /// `value_bytes` for compression_sizes' replace path) differed
     /// from the kept row's. Non-zero is a smell worth investigating.
     pub deduped_with_conflict: u64,
+    /// `file-sizes-*.json.gz` source files that failed to download /
+    /// decode / parse. Non-zero means the migrated DB has missing
+    /// compression-size history from at least one v2 source file; the
+    /// CLI fails by default in that case unless
+    /// `--allow-missing-file-sizes` is passed.
+    pub file_sizes_failed: u64,
 }
 
 impl MigrationSummary {
@@ -128,8 +135,15 @@ pub fn open_target_db(path: &Path) -> Result<Connection> {
     remove_if_exists(&wal)?;
     let conn =
         Connection::open(path).with_context(|| format!("opening DuckDB at {}", path.display()))?;
-    conn.execute_batch(SCHEMA_DDL)
-        .context("applying v3 schema DDL")?;
+    // Apply the v3 schema. Drives off the per-fact-table `family::Family`
+    // registry the same way `vortex_bench_server::db::open` does - adding
+    // a sixth fact table only needs a new const there, not an edit here.
+    conn.execute_batch(COMMITS_DDL)
+        .context("applying commits dim DDL")?;
+    for fam in family::FAMILIES {
+        conn.execute_batch(fam.schema_ddl)
+            .with_context(|| format!("applying {} DDL", fam.table_name))?;
+    }
     Ok(conn)
 }
 
@@ -184,6 +198,7 @@ pub fn run(source: &Source, target: &Path) -> Result<MigrationSummary> {
         info!(name = %name, "Migrating file-sizes");
         if let Err(e) = migrate_file_sizes(source, &name, &commits, &mut summary, &mut cs) {
             warn!("file-sizes file {name} failed: {e:#}");
+            summary.file_sizes_failed += 1;
         }
     }
 

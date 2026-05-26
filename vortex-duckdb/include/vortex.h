@@ -38,6 +38,8 @@ const char *vortex_version_rust(void);
  */
 const char *vortex_extension_version_rust(void);
 
+bool duckdb_vx_pushdown_expression(duckdb_vx_expr expr);
+
 #ifdef __cplusplus
 }
 #endif

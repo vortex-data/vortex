@@ -110,6 +110,23 @@ async fn happy_path_then_idempotent_reingest() -> Result<()> {
 }
 
 #[tokio::test]
+async fn accepts_payloads_above_axum_default_body_limit() -> Result<()> {
+    let server = Server::start().await?;
+    let client = reqwest::Client::new();
+    let mut envelope = fixture_envelope();
+    envelope["commit"]["message"] = json!("x".repeat(3 * 1024 * 1024));
+
+    let resp = client
+        .post(server.url("/api/ingest"))
+        .bearer_auth(TOKEN)
+        .json(&envelope)
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    Ok(())
+}
+
+#[tokio::test]
 async fn missing_bearer_is_unauthorized() -> Result<()> {
     let server = Server::start().await?;
     let client = reqwest::Client::new();

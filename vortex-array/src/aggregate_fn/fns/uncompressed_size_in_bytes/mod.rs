@@ -63,9 +63,7 @@ pub fn uncompressed_size_in_bytes(array: &ArrayRef, ctx: &mut ExecutionCtx) -> V
 }
 
 fn uncompressed_size_in_bytes_u64(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<u64> {
-    if let Some(Precision::Exact(size_scalar)) =
-        array.statistics().get(Stat::UncompressedSizeInBytes)
-    {
+    if let Precision::Exact(size_scalar) = array.statistics().get(Stat::UncompressedSizeInBytes) {
         return u64::try_from(&size_scalar)
             .map_err(|e| vortex_err!("Failed to convert uncompressed size stat to u64: {e}"));
     }
@@ -597,7 +595,7 @@ mod tests {
 
         assert_eq!(
             array.statistics().get(Stat::UncompressedSizeInBytes),
-            Some(Precision::exact(u64::try_from(size)?))
+            Precision::exact(u64::try_from(size)?)
         );
         Ok(())
     }

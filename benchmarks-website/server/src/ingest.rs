@@ -51,8 +51,11 @@ use crate::db::measurement_id_vector_search;
 use crate::db::{self};
 use crate::error::IngestError;
 use crate::records::CommitInfo;
+use crate::records::CompressionSize;
+use crate::records::CompressionTime;
 use crate::records::Envelope;
 use crate::records::QueryMeasurement;
+use crate::records::RandomAccessTime;
 use crate::records::Record;
 use crate::records::VectorSearchRun;
 use crate::schema::SCHEMA_VERSION;
@@ -221,7 +224,7 @@ fn upsert_commit(tx: &duckdb::Transaction<'_>, c: &CommitInfo) -> Result<()> {
 /// Per-record error split: validation failures carry a message that the
 /// caller turns into an [`IngestError::Record`] with the right index;
 /// anything else bubbles up as a 500.
-enum RecordError {
+pub(crate) enum RecordError {
     Validation(String),
     Internal(anyhow::Error),
 }
@@ -239,93 +242,10 @@ impl From<duckdb::Error> for RecordError {
 }
 
 fn apply_record(tx: &duckdb::Transaction<'_>, record: &Record) -> Result<bool, RecordError> {
-    match record {
-        Record::QueryMeasurement(r) => insert_query_measurement(tx, r),
-        Record::CompressionTime(r) => {
-            let mid = measurement_id_compression_time(r);
-            let was_update = exists(tx, "compression_times", mid)?;
-            tx.execute(
-                r#"
-                INSERT INTO compression_times (
-                    measurement_id, commit_sha, dataset, dataset_variant,
-                    format, op, value_ns, all_runtimes_ns, env_triple
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS BIGINT[]), ?)
-                ON CONFLICT (measurement_id) DO UPDATE SET
-                    commit_sha      = excluded.commit_sha,
-                    value_ns        = excluded.value_ns,
-                    all_runtimes_ns = excluded.all_runtimes_ns,
-                    env_triple      = excluded.env_triple
-                "#,
-                params![
-                    mid,
-                    r.commit_sha,
-                    r.dataset,
-                    r.dataset_variant,
-                    r.format,
-                    r.op,
-                    r.value_ns,
-                    runtimes_literal(&r.all_runtimes_ns),
-                    r.env_triple,
-                ],
-            )?;
-            Ok(was_update)
-        }
-        Record::CompressionSize(r) => {
-            let mid = measurement_id_compression_size(r);
-            let was_update = exists(tx, "compression_sizes", mid)?;
-            tx.execute(
-                r#"
-                INSERT INTO compression_sizes (
-                    measurement_id, commit_sha, dataset, dataset_variant,
-                    format, value_bytes
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT (measurement_id) DO UPDATE SET
-                    commit_sha   = excluded.commit_sha,
-                    value_bytes  = excluded.value_bytes
-                "#,
-                params![
-                    mid,
-                    r.commit_sha,
-                    r.dataset,
-                    r.dataset_variant,
-                    r.format,
-                    r.value_bytes,
-                ],
-            )?;
-            Ok(was_update)
-        }
-        Record::RandomAccessTime(r) => {
-            let mid = measurement_id_random_access(r);
-            let was_update = exists(tx, "random_access_times", mid)?;
-            tx.execute(
-                r#"
-                INSERT INTO random_access_times (
-                    measurement_id, commit_sha, dataset, format,
-                    value_ns, all_runtimes_ns, env_triple
-                ) VALUES (?, ?, ?, ?, ?, CAST(? AS BIGINT[]), ?)
-                ON CONFLICT (measurement_id) DO UPDATE SET
-                    commit_sha      = excluded.commit_sha,
-                    value_ns        = excluded.value_ns,
-                    all_runtimes_ns = excluded.all_runtimes_ns,
-                    env_triple      = excluded.env_triple
-                "#,
-                params![
-                    mid,
-                    r.commit_sha,
-                    r.dataset,
-                    r.format,
-                    r.value_ns,
-                    runtimes_literal(&r.all_runtimes_ns),
-                    r.env_triple,
-                ],
-            )?;
-            Ok(was_update)
-        }
-        Record::VectorSearchRun(r) => insert_vector_search(tx, r),
-    }
+    (crate::family::family_for_record(record).apply_record)(tx, record)
 }
 
-fn insert_query_measurement(
+pub(crate) fn insert_query_measurement(
     tx: &duckdb::Transaction<'_>,
     r: &QueryMeasurement,
 ) -> Result<bool, RecordError> {
@@ -383,7 +303,99 @@ fn insert_query_measurement(
     Ok(was_update)
 }
 
-fn insert_vector_search(
+pub(crate) fn insert_compression_time(
+    tx: &duckdb::Transaction<'_>,
+    r: &CompressionTime,
+) -> Result<bool, RecordError> {
+    let mid = measurement_id_compression_time(r);
+    let was_update = exists(tx, "compression_times", mid)?;
+    tx.execute(
+        r#"
+        INSERT INTO compression_times (
+            measurement_id, commit_sha, dataset, dataset_variant,
+            format, op, value_ns, all_runtimes_ns, env_triple
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS BIGINT[]), ?)
+        ON CONFLICT (measurement_id) DO UPDATE SET
+            commit_sha      = excluded.commit_sha,
+            value_ns        = excluded.value_ns,
+            all_runtimes_ns = excluded.all_runtimes_ns,
+            env_triple      = excluded.env_triple
+        "#,
+        params![
+            mid,
+            r.commit_sha,
+            r.dataset,
+            r.dataset_variant,
+            r.format,
+            r.op,
+            r.value_ns,
+            runtimes_literal(&r.all_runtimes_ns),
+            r.env_triple,
+        ],
+    )?;
+    Ok(was_update)
+}
+
+pub(crate) fn insert_compression_size(
+    tx: &duckdb::Transaction<'_>,
+    r: &CompressionSize,
+) -> Result<bool, RecordError> {
+    let mid = measurement_id_compression_size(r);
+    let was_update = exists(tx, "compression_sizes", mid)?;
+    tx.execute(
+        r#"
+        INSERT INTO compression_sizes (
+            measurement_id, commit_sha, dataset, dataset_variant,
+            format, value_bytes
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT (measurement_id) DO UPDATE SET
+            commit_sha   = excluded.commit_sha,
+            value_bytes  = excluded.value_bytes
+        "#,
+        params![
+            mid,
+            r.commit_sha,
+            r.dataset,
+            r.dataset_variant,
+            r.format,
+            r.value_bytes,
+        ],
+    )?;
+    Ok(was_update)
+}
+
+pub(crate) fn insert_random_access(
+    tx: &duckdb::Transaction<'_>,
+    r: &RandomAccessTime,
+) -> Result<bool, RecordError> {
+    let mid = measurement_id_random_access(r);
+    let was_update = exists(tx, "random_access_times", mid)?;
+    tx.execute(
+        r#"
+        INSERT INTO random_access_times (
+            measurement_id, commit_sha, dataset, format,
+            value_ns, all_runtimes_ns, env_triple
+        ) VALUES (?, ?, ?, ?, ?, CAST(? AS BIGINT[]), ?)
+        ON CONFLICT (measurement_id) DO UPDATE SET
+            commit_sha      = excluded.commit_sha,
+            value_ns        = excluded.value_ns,
+            all_runtimes_ns = excluded.all_runtimes_ns,
+            env_triple      = excluded.env_triple
+        "#,
+        params![
+            mid,
+            r.commit_sha,
+            r.dataset,
+            r.format,
+            r.value_ns,
+            runtimes_literal(&r.all_runtimes_ns),
+            r.env_triple,
+        ],
+    )?;
+    Ok(was_update)
+}
+
+pub(crate) fn insert_vector_search(
     tx: &duckdb::Transaction<'_>,
     r: &VectorSearchRun,
 ) -> Result<bool, RecordError> {

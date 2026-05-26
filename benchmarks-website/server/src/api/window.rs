@@ -4,7 +4,7 @@
 //! Server-side commit-window cap used by every chart query.
 //!
 //! Visual downsampling is the *client's* job (see
-//! `static/chart-init.js`) — this module only decides how many of the
+//! `static/chart-init.js`) - this module only decides how many of the
 //! most recent commits to load from DuckDB.
 
 use std::num::NonZeroU32;
@@ -12,6 +12,10 @@ use std::num::NonZeroU32;
 use serde::Deserialize;
 
 use super::dto::DEFAULT_COMMIT_WINDOW;
+
+/// Largest numeric `?n=` accepted before clamping. `?n=all` remains the
+/// explicit opt-in for full history.
+pub(crate) const MAX_NUMERIC_COMMIT_WINDOW: u32 = 1_000;
 
 /// Server-side cap on how many of the most recent commits a chart includes.
 ///
@@ -35,7 +39,7 @@ impl CommitWindow {
     /// Parse the `?n=...` query string parameter. `None` and malformed values
     /// fall back to [`CommitWindow::default`]. `"all"` (any case) means
     /// unbounded. Numeric values are floored to `1` so `?n=0` becomes
-    /// `?n=1`; there is no upper bound — large histories are kept as-is.
+    /// `?n=1`, and values above `MAX_NUMERIC_COMMIT_WINDOW` are clamped.
     /// Any further reduction in rendered point count happens client-side
     /// (see `static/chart-init.js` for the LTTB pass on the visible
     /// commit range).
@@ -50,7 +54,7 @@ impl CommitWindow {
         trimmed
             .parse::<u32>()
             .ok()
-            .map(|v| v.max(1))
+            .map(|v| v.clamp(1, MAX_NUMERIC_COMMIT_WINDOW))
             .and_then(NonZeroU32::new)
             .map(Self::Last)
             .unwrap_or_default()
@@ -142,14 +146,11 @@ mod tests {
     }
 
     #[test]
-    fn commit_window_parse_floors_zero_but_keeps_large_values() {
-        // Large values are kept as-is — full history is no longer clamped
-        // server-side. Visual downsampling happens client-side in
-        // `static/chart-init.js`, on the currently visible commit range.
+    fn commit_window_parse_floors_zero_and_clamps_large_values() {
         let CommitWindow::Last(n) = CommitWindow::parse(Some("99999")) else {
             panic!()
         };
-        assert_eq!(n.get(), 99_999);
+        assert_eq!(n.get(), 1_000);
 
         // 0 floors to 1 since the underlying type is `NonZeroU32`.
         let CommitWindow::Last(n) = CommitWindow::parse(Some("0")) else {

@@ -162,7 +162,7 @@ jobs:
             target: wasm32-unknown-unknown
             env:
               rustflags: "RUSTFLAGS='-A warnings --cfg getrandom_backend=\"unsupported\"'"
-            args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-cuda --exclude vortex-cub --exclude vortex-nvcomp --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd --exclude vortex-test-e2e-cuda --exclude vortex-sqllogictest"
+            args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-cuda --exclude vortex-cub --exclude vortex-nvcomp --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd --exclude vortex-test-e2e-cuda --exclude vortex-sqllogictest --exclude vortex-parquet-variant"
     steps:
       - uses: runs-on/action@v2
         if: github.repository == 'vortex-data/vortex'
@@ -255,7 +255,7 @@ jobs:
               await github.rest.checks.update({
                 ...context.repo,
                 check_run_id: Number(url.split('/').pop()),
-                output: { title: `${failed.join(', ')} — failing`, summary: '' },
+                output: { title: `${failed.join(', ')} - failing`, summary: '' },
               });
             }
             core.setFailed(`Lint failed: ${failed.join(', ')}`);
@@ -270,6 +270,7 @@ jobs:
         run: |
           git ls-files vortex-cuda vortex-cxx vortex-duckdb vortex-ffi \
             | grep -E '\.(cpp|hpp|cu|cuh|h)$' \
+            | grep -v 'arrow/reference/arrow_c_device\.h$' \
             | grep -v 'kernels/src/bit_unpack_.*\.cu$' \
             | grep -v 'kernels/src/bit_unpack_.*_lanes\.cuh$' \
             | xargs clang-format --dry-run --Werror --style=file
@@ -369,6 +370,19 @@ jobs:
         if: matrix.os != 'windows-x64'
         run: |
           cargo nextest run --cargo-profile ci --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude xtask --exclude vortex-sqllogictest
+      - name: vortex-bench-server admin snapshot tests (Linux only - network-dependent)
+        # The /api/admin/snapshot tests INSTALL+LOAD the vortex DuckDB
+        # core extension from extensions.duckdb.org on first call. They
+        # are #[ignore]'d by default so `cargo test` works in offline
+        # environments (sandboxed CI, local dev without network). This
+        # step runs them explicitly on the Linux runners, which DO have
+        # outbound network, so the entire backup contract is covered
+        # in CI before merge. macOS/arm64 also exercises them - same
+        # extension, same network. Windows skipped (bench-server is
+        # excluded from Windows test matrix above).
+        if: matrix.os == 'linux-x64' || matrix.os == 'linux-arm64' || matrix.os == 'macos-arm64'
+        run: |
+          cargo nextest run --cargo-profile ci --locked -p vortex-bench-server --test admin --run-ignored only
       - uses: ./.github/actions/check-rebuild
         if: matrix.os != 'windows-x64'
         with:
@@ -412,7 +426,7 @@ jobs:
     continue-on-error: ${{ matrix.checks == 'advisories' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
-      - uses: EmbarkStudios/cargo-deny-action@6c8f9facfa5047ec02d8485b6bf52b587b7777d1  # v2
+      - uses: EmbarkStudios/cargo-deny-action@a531616d8ce3b9177443e48a1159bc945a099823  # v2
         with:
           command: check ${{ matrix.checks }}
 

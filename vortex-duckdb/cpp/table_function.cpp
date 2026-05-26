@@ -15,6 +15,11 @@ DUCKDB_INCLUDES_BEGIN
 #include "duckdb/main/capi/capi_internal.hpp"
 #include "duckdb/main/connection.hpp"
 #include "duckdb/parser/parsed_data/create_table_function_info.hpp"
+#include "duckdb/planner/expression/bound_operator_expression.hpp"
+#include "duckdb/planner/expression/bound_comparison_expression.hpp"
+#include "duckdb/planner/expression/bound_between_expression.hpp"
+#include "duckdb/planner/expression/bound_conjunction_expression.hpp"
+#include "duckdb/planner/expression/bound_function_expression.hpp"
 DUCKDB_INCLUDES_END
 
 using namespace duckdb;
@@ -263,11 +268,22 @@ void function(ClientContext &, TableFunctionInput &input, DataChunk &output) {
     }
 }
 
-void c_pushdown_complex_filter(ClientContext &,
-                               LogicalGet &,
-                               FunctionData *bind_data,
-                               vector<unique_ptr<Expression>> &filters) {
-    auto &bind = bind_data->Cast<CTableBindData>();
+using FilterVec = vector<unique_ptr<Expression>>;
+
+/*
+ * Table filter pushdown is used for two tasks in duckdb:
+ *
+ * 1. Prune files based on filename or hive partitioning, see Parquet
+ * filter pushdown. We don't use this because we do own file-level pruning in
+ * FileStatsLayoutReader, and we don't support hive partitioning yet.
+ *
+ * 2. Avoid reading unused file data. Filter expressions are pushed to Vortex,
+ * converted to Vortex expressions and used during the scan.
+ * Duckdb pushes a subset of expressions i.e. equality operators, and also
+ * expressions which return true in pushdown_expression.
+ */
+void pushdown_complex_filter(const FunctionData &bind_data, FilterVec &filters) {
+    const auto &bind = bind_data.Cast<CTableBindData>();
     void *const ffi_bind = bind.ffi_data->DataPtr();
     duckdb_vx_error error_out = nullptr;
 
@@ -278,8 +294,6 @@ void c_pushdown_complex_filter(ClientContext &,
         if (error_out) {
             throw BinderException(IntoErrString(error_out));
         }
-
-        // If the pushdown complex filter returns true, we can remove the filter from the list.
         iter = pushed ? filters.erase(iter) : std::next(iter);
     }
 }
@@ -381,6 +395,9 @@ InsertionOrderPreservingMap<string> c_to_string(TableFunctionToStringInput &inpu
     return result;
 }
 
+// pushdown_expression misses FunctionData so we can't place it in vtab
+extern "C" bool duckdb_vx_pushdown_expression(duckdb_vx_expr expr);
+
 extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_database ffi_db, const duckdb_vx_tfunc_vtab_t *vtab) {
     D_ASSERT(ffi_db);
     D_ASSERT(vtab);
@@ -394,7 +411,12 @@ extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_database ffi_db, const d
     tf.filter_prune = true;
     tf.sampling_pushdown = false;
 
-    tf.pushdown_complex_filter = c_pushdown_complex_filter;
+    tf.pushdown_expression = [](auto &, const auto &, Expression &expression) {
+        return duckdb_vx_pushdown_expression(reinterpret_cast<duckdb_vx_expr>(&expression));
+    };
+    tf.pushdown_complex_filter = [](auto &, auto &, FunctionData *bind_data, FilterVec &filters) {
+        pushdown_complex_filter(*bind_data, filters);
+    };
     tf.cardinality = c_cardinality;
     tf.get_partition_info = get_partition_info;
     tf.get_partition_data = get_partition_data;
