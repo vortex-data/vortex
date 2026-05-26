@@ -76,7 +76,8 @@ fn export_canonical(
                     buffer, validity, ..
                 } = primitive.into_data_parts();
 
-                let (validity_buffer, null_count) = export_validity(validity, len, 0, ctx).await?;
+                let (validity_buffer, null_count) =
+                    export_arrow_validity_buffer(validity, len, 0, ctx).await?;
                 let buffer = ctx.ensure_on_device(buffer).await?;
 
                 export_fixed_size(buffer, len, 0, validity_buffer, null_count, ctx)
@@ -108,7 +109,8 @@ fn export_canonical(
                     "cannot export DecimalArray with values type {values_type}. must be i32 or wider."
                 );
 
-                let (validity_buffer, null_count) = export_validity(validity, len, 0, ctx).await?;
+                let (validity_buffer, null_count) =
+                    export_arrow_validity_buffer(validity, len, 0, ctx).await?;
                 let buffer = ctx.ensure_on_device(values).await?;
 
                 export_fixed_size(buffer, len, 0, validity_buffer, null_count, ctx)
@@ -128,7 +130,8 @@ fn export_canonical(
                     buffer, validity, ..
                 } = values.into_data_parts();
 
-                let (validity_buffer, null_count) = export_validity(validity, len, 0, ctx).await?;
+                let (validity_buffer, null_count) =
+                    export_arrow_validity_buffer(validity, len, 0, ctx).await?;
 
                 let buffer = ctx.ensure_on_device(buffer).await?;
                 export_fixed_size(buffer, len, 0, validity_buffer, null_count, ctx)
@@ -141,7 +144,7 @@ fn export_canonical(
                 } = bool_array.into_data().into_parts(len);
 
                 let (validity_buffer, null_count) =
-                    export_validity(validity, len, offset, ctx).await?;
+                    export_arrow_validity_buffer(validity, len, offset, ctx).await?;
 
                 let bits = ctx.ensure_on_device(bits).await?;
                 export_fixed_size(bits, len, offset, validity_buffer, null_count, ctx)
@@ -155,7 +158,8 @@ fn export_canonical(
                     ..
                 } = varbinview.into_data_parts();
 
-                let (validity_buffer, null_count) = export_validity(validity, len, 0, ctx).await?;
+                let (validity_buffer, null_count) =
+                    export_arrow_validity_buffer(validity, len, 0, ctx).await?;
 
                 let views = ctx.ensure_on_device(views).await?;
                 let mut buffers = Vec::with_capacity(data_buffers.len() + 3);
@@ -202,11 +206,10 @@ fn export_canonical(
     })
 }
 
-/// Export Vortex validity as an Arrow null bitmap device buffer.
+/// Export Vortex validity as an Arrow validity byte buffer.
 ///
-/// Returns `(null_bitmap, null_count)`, where `null_bitmap` is `None`
-/// when Arrow can omit the validity buffer because there are no nulls.
-async fn export_validity(
+/// Returns `None` for the buffer when Arrow can omit validity because all rows are valid.
+async fn export_arrow_validity_buffer(
     validity: Validity,
     len: usize,
     arrow_offset: usize,
@@ -264,7 +267,7 @@ async fn export_struct(
         validity, fields, ..
     } = array.into_data_parts();
 
-    let (validity_buffer, null_count) = export_validity(validity, len, 0, ctx).await?;
+    let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
 
     // We need the children to be held across await points.
     let mut children = Vec::with_capacity(fields.len());
