@@ -22,21 +22,14 @@ use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::fns::binary::CompareKernel;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::operators::Operator;
-use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::DecimalByteParts;
 use crate::decimal_byte_parts::DecimalBytePartsArrayExt;
 use crate::decimal_byte_parts::compute::compare::Sign::Positive;
-use crate::decimal_byte_parts::compute::two_limb::i128_eq;
-use crate::decimal_byte_parts::compute::two_limb::i128_ge;
-use crate::decimal_byte_parts::compute::two_limb::i128_gt;
-use crate::decimal_byte_parts::compute::two_limb::i128_le;
-use crate::decimal_byte_parts::compute::two_limb::i128_lt;
-use crate::decimal_byte_parts::compute::two_limb::i128_ne;
+use crate::decimal_byte_parts::compute::two_limb::compare_bits;
 use crate::decimal_byte_parts::compute::two_limb::materialize_limbs;
-use crate::decimal_byte_parts::compute::two_limb::reconstruct;
 
 impl CompareKernel for DecimalByteParts {
     fn compare(
@@ -108,9 +101,8 @@ impl CompareKernel for DecimalByteParts {
     }
 }
 
-/// Compare each reconstructed i128 value against the constant `rhs` in a single fused pass. See
-/// `two_limb::reconstruct`; a native i128 compare is cheaper than a manual lexicographic
-/// decomposition and reads each limb only once.
+/// Compare the two-limb array against the constant `rhs` in a single fused pass, dispatching to the
+/// AVX-512 limb kernel when available (see [`compare_bits`]).
 fn two_limb_compare(
     lhs: &ArrayView<'_, DecimalByteParts>,
     rhs: i128,
@@ -124,31 +116,8 @@ fn two_limb_compare(
     let low = low.as_slice::<u64>();
     assert_eq!(high.len(), low.len(), "limb lengths must match");
 
-    let bits = match operator {
-        CompareOperator::Eq => collect_compare(high, low, rhs, i128_eq),
-        CompareOperator::NotEq => collect_compare(high, low, rhs, i128_ne),
-        CompareOperator::Gt => collect_compare(high, low, rhs, i128_gt),
-        CompareOperator::Gte => collect_compare(high, low, rhs, i128_ge),
-        CompareOperator::Lt => collect_compare(high, low, rhs, i128_lt),
-        CompareOperator::Lte => collect_compare(high, low, rhs, i128_le),
-    };
-
+    let bits = compare_bits(high, low, rhs, operator);
     Ok(BoolArray::new(bits, validity).into_array())
-}
-
-fn collect_compare(
-    high: &[i64],
-    low: &[u64],
-    rhs: i128,
-    cmp: impl Fn(i128, i128) -> bool,
-) -> BitBuffer {
-    BitBuffer::collect_bool(high.len(), |idx| {
-        // SAFETY: collect_bool yields idx in 0..high.len(), and low.len() == high.len().
-        let hi = unsafe { *high.get_unchecked(idx) };
-        let lo = unsafe { *low.get_unchecked(idx) };
-        let value = reconstruct(hi, lo);
-        cmp(value, rhs)
-    })
 }
 
 // Used to represent the overflow direction when trying to

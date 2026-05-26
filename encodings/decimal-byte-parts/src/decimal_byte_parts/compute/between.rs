@@ -12,20 +12,14 @@ use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::between::BetweenKernel;
 use vortex_array::scalar_fn::fns::between::BetweenOptions;
-use vortex_array::scalar_fn::fns::between::StrictComparison;
-use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::DecimalByteParts;
 use crate::decimal_byte_parts::DecimalBytePartsArrayExt;
 use crate::decimal_byte_parts::compute::compare::decimal_value_wrapper_to_primitive;
-use crate::decimal_byte_parts::compute::two_limb::i128_ge;
-use crate::decimal_byte_parts::compute::two_limb::i128_gt;
-use crate::decimal_byte_parts::compute::two_limb::i128_le;
-use crate::decimal_byte_parts::compute::two_limb::i128_lt;
+use crate::decimal_byte_parts::compute::two_limb::between_bits;
 use crate::decimal_byte_parts::compute::two_limb::materialize_limbs;
-use crate::decimal_byte_parts::compute::two_limb::reconstruct;
 
 impl BetweenKernel for DecimalByteParts {
     fn between(
@@ -105,13 +99,7 @@ impl BetweenKernel for DecimalByteParts {
 }
 
 /// Evaluate `lower <= value <= upper` (respecting strictness) over the two-limb representation in a
-/// single fused pass.
-///
-/// With high limb `H` (signed i64) and low limb `L` (unsigned u64), the value `v = H<<64 | L`
-/// satisfies `v >= lower` iff `H > lo_h OR (H == lo_h AND L >=' lo_l)` and `v <= upper` iff
-/// `H < hi_h OR (H == hi_h AND L <=' hi_l)`, where `>='`/`<='` are strict when requested. Each
-/// row resolves to native-width integer comparisons in one loop, which vectorizes far better than
-/// arrow's 128-bit comparison or a tree of generic array operations with intermediate allocations.
+/// single fused pass, dispatching to the AVX-512 limb kernel when available (see [`between_bits`]).
 fn two_limb_between(
     arr: &ArrayView<'_, DecimalByteParts>,
     lower: i128,
@@ -126,44 +114,8 @@ fn two_limb_between(
     let low = low.as_slice::<u64>();
     assert_eq!(high.len(), low.len(), "limb lengths must match");
 
-    // Pass the comparison as a monomorphized fn so the whole per-element body inlines.
-    let bits = match (options.lower_strict, options.upper_strict) {
-        (StrictComparison::Strict, StrictComparison::Strict) => {
-            collect_two_limb(high, low, lower, i128_gt, upper, i128_lt)
-        }
-        (StrictComparison::Strict, StrictComparison::NonStrict) => {
-            collect_two_limb(high, low, lower, i128_gt, upper, i128_le)
-        }
-        (StrictComparison::NonStrict, StrictComparison::Strict) => {
-            collect_two_limb(high, low, lower, i128_ge, upper, i128_lt)
-        }
-        (StrictComparison::NonStrict, StrictComparison::NonStrict) => {
-            collect_two_limb(high, low, lower, i128_ge, upper, i128_le)
-        }
-    };
-
+    let bits = between_bits(high, low, lower, upper, options);
     Ok(BoolArray::new(bits, validity).into_array())
-}
-
-/// The fused per-element loop. Reconstruct the i128 from its signed-high / unsigned-low limbs and
-/// compare against the bounds. A native i128 comparison is ~2 instructions, cheaper than a manual
-/// lexicographic decomposition, and the single pass reads each limb once (arrow reads its i128
-/// array twice, once per `gt_eq`/`lt_eq`). Bitwise `&` keeps the body branch-free.
-fn collect_two_limb(
-    high: &[i64],
-    low: &[u64],
-    lower: i128,
-    lower_cmp: impl Fn(i128, i128) -> bool,
-    upper: i128,
-    upper_cmp: impl Fn(i128, i128) -> bool,
-) -> BitBuffer {
-    BitBuffer::collect_bool(high.len(), |idx| {
-        // SAFETY: collect_bool yields idx in 0..high.len(), and low.len() == high.len().
-        let hi = unsafe { *high.get_unchecked(idx) };
-        let lo = unsafe { *low.get_unchecked(idx) };
-        let value = reconstruct(hi, lo);
-        lower_cmp(value, lower) & upper_cmp(value, upper)
-    })
 }
 
 #[cfg(test)]

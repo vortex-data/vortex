@@ -26,6 +26,15 @@ mod tests {
     use crate::DecimalByteParts;
     use crate::DecimalBytePartsArray;
 
+    // 99 i128 values whose high (i64) limb varies in sign and whose low (u64) limb spans the full
+    // unsigned range, so limb tie-breaks and sign handling are covered across SIMD chunks.
+    #[allow(clippy::cast_possible_truncation)]
+    fn large_two_limb_values() -> Vec<i128> {
+        (0..99i128)
+            .map(|i| ((i - 50) << 64) | i128::from((i as u64).wrapping_mul(0x0123_4567_89ab_cdef)))
+            .collect()
+    }
+
     #[allow(clippy::cast_possible_truncation)]
     fn two_limb(values: &[i128], validity: Validity, dt: DecimalDType) -> DecimalBytePartsArray {
         let highs: Buffer<i64> = values.iter().map(|v| (v >> 64) as i64).collect();
@@ -93,6 +102,20 @@ mod tests {
     #[case::two_limb_nullable(two_limb(
         &[0, -1, (3i128 << 64) | 42, -(9i128 << 64) | 17, 5],
         Validity::Array(BoolArray::from_iter([true, false, true, true, false]).into_array()),
+        DecimalDType::new(38, 2),
+    ))]
+    // 99 values (not a multiple of 8) so the AVX-512 limb kernel's vectorized main loop *and* its
+    // scalar tail are both exercised when validating compare/between against canonical.
+    #[case::two_limb_large(two_limb(
+        &large_two_limb_values(),
+        Validity::NonNullable,
+        DecimalDType::new(38, 2),
+    ))]
+    #[case::two_limb_large_nullable(two_limb(
+        &large_two_limb_values(),
+        Validity::Array(
+            BoolArray::from_iter((0..99).map(|i| i % 3 != 0)).into_array(),
+        ),
         DecimalDType::new(38, 2),
     ))]
 
