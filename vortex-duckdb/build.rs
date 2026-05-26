@@ -355,6 +355,7 @@ fn cpp(duckdb_include_dir: &Path) {
         .flags(["-Wall", "-Wextra", "-Wpedantic"])
         .cpp(true)
         .include(duckdb_include_dir)
+        .include("include")
         .include("cpp/include")
         .files(SOURCE_FILES)
         .compile("vortex-duckdb-extras");

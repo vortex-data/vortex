@@ -39,7 +39,7 @@ else()
     )
 endif()
 
-include_directories(include ${DUCKDB_INCLUDE})
+include_directories(include ${DUCKDB_INCLUDE} ../include)
 
 # Auto-discover C++ source files
 file(GLOB CPP_SOURCES "*.cpp")
