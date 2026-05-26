@@ -115,6 +115,11 @@ def main() -> None:
             f"of .text across {n_crates} crates ({share} of binary){suffix}"
         )
 
+    # Nothing changed against develop: keep the comment to a single line.
+    if have_base and vortex_delta == 0:
+        print(summary)
+        return
+
     print("<details>")
     print(f"<summary>{summary}</summary>")
     print("")
