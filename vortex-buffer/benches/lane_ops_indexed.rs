@@ -29,6 +29,7 @@ use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_buffer::lane_ops_indexed::LaneZip;
+use vortex_buffer::lane_ops_indexed::map;
 use vortex_buffer::lane_ops_indexed::try_map;
 use vortex_buffer::lane_ops_indexed::try_map_nullable;
 use vortex_buffer::lane_ops_indexed::try_map_with_mask;
@@ -259,6 +260,27 @@ fn arrow_add_wrapping_nonnull(bencher: Bencher, n: usize) {
                 rhs.as_ref() as &dyn Datum,
             )
             .unwrap()
+        });
+}
+
+/// Like-for-like wrapping comparison against `arrow_add_wrapping_nonnull`: our infallible
+/// `map` doing `wrapping_add` over two non-null columns. Neither side does overflow work,
+/// so this isolates pure vectorized add throughput.
+#[divan::bench(args = SIZES)]
+fn indexed_map_wrapping_nonnull(bencher: Bencher, n: usize) {
+    let f = fixture(n);
+    bencher
+        .with_inputs(|| (f.lhs.clone(), f.rhs.clone()))
+        .bench_refs(|(lhs, rhs)| {
+            let mut out: Vec<MaybeUninit<u32>> = Vec::with_capacity(n);
+            // SAFETY: every lane is written before any read inside the kernel.
+            unsafe { out.set_len(n) };
+            map(
+                LaneZip::new(lhs.as_slice(), rhs.as_slice()),
+                out.as_mut_slice(),
+                |(a, b)| a.wrapping_add(b),
+            );
+            out
         });
 }
 

@@ -62,6 +62,8 @@ pub fn &[T]::is_empty(&self) -> bool
 
 pub fn &[T]::len(&self) -> usize
 
+pub fn vortex_buffer::lane_ops_indexed::map<S, R, F>(S, &mut [core::mem::maybe_uninit::MaybeUninit<R>], F) where S: vortex_buffer::lane_ops_indexed::IndexedSource, F: core::ops::function::FnMut(<S as vortex_buffer::lane_ops_indexed::IndexedSource>::Item) -> R
+
 pub fn vortex_buffer::lane_ops_indexed::map_to_bits<S, F>(S, &mut [u64], F) where S: vortex_buffer::lane_ops_indexed::IndexedSource, F: core::ops::function::FnMut(<S as vortex_buffer::lane_ops_indexed::IndexedSource>::Item) -> bool
 
 pub fn vortex_buffer::lane_ops_indexed::map_with_mask<S, R, F>(S, &vortex_buffer::BitBuffer, &mut [core::mem::maybe_uninit::MaybeUninit<R>], F) where S: vortex_buffer::lane_ops_indexed::IndexedSource, F: core::ops::function::FnMut(<S as vortex_buffer::lane_ops_indexed::IndexedSource>::Item, bool) -> R

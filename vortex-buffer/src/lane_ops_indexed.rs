@@ -259,6 +259,30 @@ where
     unreachable!("attribute_failure called without a failing lane")
 }
 
+/// Infallible, mask-free map: writes `out[i] = f(values[i])` for every lane.
+///
+/// The total (non-fallible) sibling of [`try_map`] and the building block for wrapping
+/// arithmetic and other transforms that cannot fail. The body has no branch and no
+/// validity read, so it autovectorizes to the tightest possible loop.
+///
+/// # Panics
+///
+/// Panics if `out.len() != values.len()`.
+#[inline]
+pub fn map<S, R, F>(values: S, out: &mut [MaybeUninit<R>], mut f: F)
+where
+    S: IndexedSource,
+    F: FnMut(S::Item) -> R,
+{
+    let len = values.len();
+    assert_eq!(out.len(), len, "out must have the same length as values");
+    for i in 0..len {
+        // SAFETY: i < len == values.len() == out.len().
+        let v = unsafe { values.get_unchecked(i) };
+        unsafe { out.get_unchecked_mut(i).write(f(v)) };
+    }
+}
+
 /// Fallible map with **no validity argument** — the throughput-oriented sibling of
 /// [`try_map_with_mask`].
 ///
@@ -960,6 +984,39 @@ mod tests {
             (scaled <= u32::MAX as u64).then_some(scaled as u32)
         });
         assert_eq!(res, Err(129));
+    }
+
+    #[test]
+    fn map_writes_every_lane() {
+        let values: Vec<u32> = (0..200).collect();
+        let mut out = vec![MaybeUninit::<u32>::uninit(); 200];
+        map(values.as_slice(), &mut out, |v| v.wrapping_mul(3));
+        let got = write_t(out);
+        assert_eq!(
+            got,
+            (0..200u32).map(|v| v.wrapping_mul(3)).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn map_wrapping_add_matches_scalar() {
+        let lhs: Vec<u32> = vec![u32::MAX, 5, 100, 0];
+        let rhs: Vec<u32> = vec![2, 7, 1, 0];
+        let mut out = vec![MaybeUninit::<u32>::uninit(); 4];
+        map(
+            LaneZip::new(lhs.as_slice(), rhs.as_slice()),
+            &mut out,
+            |(a, b)| a.wrapping_add(b),
+        );
+        let got = write_t(out);
+        assert_eq!(got, vec![1, 12, 101, 0]); // MAX + 2 wraps to 1
+    }
+
+    #[test]
+    fn map_empty() {
+        let values: Vec<u32> = vec![];
+        let mut out: Vec<MaybeUninit<u32>> = vec![];
+        map(values.as_slice(), &mut out, |v| v + 1);
     }
 
     #[test]
