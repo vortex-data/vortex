@@ -23,14 +23,12 @@ use vortex_array::dtype::Nullability;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
-use vortex_buffer::collect_bool_words;
+use vortex_buffer::pack_bools_into_words;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::unpack_iter::BitPacked as BitPackedIter;
-
-const BITS_PER_WORD: usize = u64::BITS as usize;
 
 /// Stream `predicate` over the unpacked values of a [`BitPackedArray`], one FastLanes
 /// block at a time, producing a [`BoolArray`].
@@ -45,8 +43,7 @@ where
     P: Fn(T) -> bool,
 {
     let len = array.len();
-    let num_words = len.div_ceil(BITS_PER_WORD);
-    let mut words: BufferMut<u64> = BufferMut::zeroed(num_words);
+    let mut words: BufferMut<u64> = BufferMut::zeroed(len.div_ceil(u64::BITS as usize));
 
     if len > 0 {
         let mut chunks = array.unpacked_chunks::<T>()?;
@@ -62,14 +59,14 @@ where
                 let mut p_cur: usize = 0;
                 chunks.for_each_unpacked_chunk(|block, range| {
                     p_cur = splice_patches::<T, I>(block, range.start, p_cur, p_idx, p_val, p_off);
-                    let (word_idx, bit_off) = (range.start / BITS_PER_WORD, range.start % BITS_PER_WORD);
-                    pack_predicate_block(&mut words[word_idx..], bit_off, block, &predicate);
+                    pack_bools_into_words(words, range.start, block.len(), |i| {
+                        predicate(block[i])
+                    });
                 });
             });
         } else {
             chunks.for_each_unpacked_chunk(|block, range| {
-                let (word_idx, bit_off) = (range.start / BITS_PER_WORD, range.start % BITS_PER_WORD);
-                pack_predicate_block(&mut words[word_idx..], bit_off, block, &predicate);
+                pack_bools_into_words(words, range.start, block.len(), |i| predicate(block[i]));
             });
         }
     }
@@ -109,28 +106,3 @@ where
     cursor
 }
 
-/// Fold `predicate` over `block`, packing the bools into `words` starting at
-/// `bit_off` within the first word. `words` must already be sliced to start at the
-/// first containing word.
-#[inline]
-fn pack_predicate_block<T, P>(words: &mut [u64], bit_off: usize, block: &[T], predicate: &P)
-where
-    T: Copy,
-    P: Fn(T) -> bool,
-{
-    if block.is_empty() {
-        return;
-    }
-
-    if bit_off == 0 {
-        collect_bool_words(words, block.len(), |i| predicate(block[i]));
-    } else {
-        // Unaligned start — array sliced at a non-word-aligned offset. Per-bit OR.
-        for (i, &value) in block.iter().enumerate() {
-            if predicate(value) {
-                let bit_pos = bit_off + i;
-                words[bit_pos / BITS_PER_WORD] |= 1u64 << (bit_pos % BITS_PER_WORD);
-            }
-        }
-    }
-}
