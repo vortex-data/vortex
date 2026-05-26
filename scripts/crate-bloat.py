@@ -96,24 +96,17 @@ def main() -> None:
     vortex_head = sum(h for _, _, h, _ in rows)
     vortex_base = sum(b for _, b, _, _ in rows)
     vortex_delta = vortex_head - vortex_base
-    n_crates = sum(1 for _, _, h, _ in rows if h > 0)
-    share = f"{vortex_head / total_text * 100:.0f}%" if total_text else "?"
 
     # Largest movers first, then largest crates.
     rows.sort(key=lambda r: (abs(r[3]), r[2]), reverse=True)
 
-    if have_base and vortex_delta != 0:
-        summary = (
-            f"Binary size ({args.target_name}, release vs develop): Vortex crates = "
-            f"{fmt_size(vortex_head)} of .text across {n_crates} crates "
-            f"({fmt_delta(vortex_delta)}, {fmt_pct(vortex_base, vortex_head)}, {share} of binary)"
-        )
+    if have_base:
+        if vortex_delta == 0:
+            summary = f"no code size change ({args.target_name})"
+        else:
+            summary = f"code size change {fmt_pct(vortex_base, vortex_head)} ({args.target_name})"
     else:
-        suffix = " vs develop: no change" if have_base else ""
-        summary = (
-            f"Binary size ({args.target_name}, release): Vortex crates = {fmt_size(vortex_head)} "
-            f"of .text across {n_crates} crates ({share} of binary){suffix}"
-        )
+        summary = f"code size {fmt_size(vortex_head)} ({args.target_name})"
 
     # Nothing changed against develop: keep the comment to a single line.
     if have_base and vortex_delta == 0:
