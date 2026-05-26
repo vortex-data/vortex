@@ -139,7 +139,7 @@ impl LayoutReader for ListReader {
         let elements_range = 0..elements_len;
         let elements_mask = MaskFuture::new_true(usize::try_from(elements_len)?);
 
-        let row_count = usize::try_from(row_range.end - row_range.start)?;
+        let row_count: usize = usize::try_from(row_range.end - row_range.start)?;
         // The offsets child has n+1 entries; reading row_range maps to offsets in
         // [row_range.start..row_range.end + 1).
         let offsets_range = row_range.start..row_range.end + 1;
