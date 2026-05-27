@@ -62,7 +62,3 @@ harness = false
 [[bench]]
 name = "add_checked"
 harness = false
-
-[[bench]]
-name = "pack_vs_unpack"
-harness = false
