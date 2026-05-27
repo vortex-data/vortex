@@ -173,6 +173,7 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::ListArray;
+    use vortex_array::arrays::StructArray;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
@@ -181,6 +182,7 @@ mod tests {
     use super::*;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::layouts::table::TableStrategy;
     use crate::segments::TestSegments;
     use crate::sequence::SequentialArrayStreamExt;
     use crate::test::SESSION;
@@ -288,6 +290,73 @@ mod tests {
 
         let err = write(&flat_list_strategy(), chunked).await.unwrap_err();
         insta::assert_snapshot!(err.to_string(), @"Other error: ListLayoutStrategy received more than a single chunk");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn list_of_struct_tree() -> VortexResult<()> {
+        let struct_array = StructArray::from_fields(
+            [
+                ("a", buffer![1i32, 2, 3, 4, 5].into_array()),
+                ("b", buffer![10i32, 20, 30, 40, 50].into_array()),
+            ]
+            .as_slice(),
+        )?
+        .into_array();
+        let list = ListArray::try_new(
+            struct_array,
+            buffer![0u32, 2, 5, 5].into_array(),
+            Validity::NonNullable,
+        )?
+        .into_array();
+
+        let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
+        let table_strategy: Arc<dyn LayoutStrategy> =
+            Arc::new(TableStrategy::new(Arc::clone(&flat), Arc::clone(&flat)));
+        let writer = ListLayoutStrategy::new(table_strategy, Arc::clone(&flat), Arc::clone(&flat));
+
+        let layout = write(&writer, list).await?;
+        insta::assert_snapshot!(layout.display_tree(), @"
+        vortex.list, dtype: list({a=i32, b=i32}), children: 2
+        ├── elements: vortex.struct, dtype: {a=i32, b=i32}, children: 2
+        │   ├── a: vortex.flat, dtype: i32, segment: 1
+        │   └── b: vortex.flat, dtype: i32, segment: 2
+        └── offsets: vortex.flat, dtype: u32, segment: 0
+        ");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn list_of_list_tree() -> VortexResult<()> {
+        let inner_list = ListArray::try_new(
+            buffer![1i32, 2, 3, 4, 5, 6].into_array(),
+            buffer![0u32, 2, 5, 5, 6].into_array(),
+            Validity::NonNullable,
+        )?
+        .into_array();
+        let list = ListArray::try_new(
+            inner_list,
+            buffer![0u32, 2, 4].into_array(),
+            Validity::NonNullable,
+        )?
+        .into_array();
+
+        let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
+        let inner_strategy: Arc<dyn LayoutStrategy> = Arc::new(ListLayoutStrategy::new(
+            Arc::clone(&flat),
+            Arc::clone(&flat),
+            Arc::clone(&flat),
+        ));
+        let writer = ListLayoutStrategy::new(inner_strategy, Arc::clone(&flat), Arc::clone(&flat));
+
+        let layout = write(&writer, list).await?;
+        insta::assert_snapshot!(layout.display_tree(), @"
+        vortex.list, dtype: list(list(i32)), children: 2
+        ├── elements: vortex.list, dtype: list(i32), children: 2
+        │   ├── elements: vortex.flat, dtype: i32, segment: 1
+        │   └── offsets: vortex.flat, dtype: u32, segment: 2
+        └── offsets: vortex.flat, dtype: u32, segment: 0
+        ");
         Ok(())
     }
 
