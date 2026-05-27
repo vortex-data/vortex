@@ -23,12 +23,8 @@ use rand::rngs::StdRng;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
-use vortex_buffer::lane_ops_indexed::map_no_validity;
-use vortex_buffer::lane_ops_indexed::map_with_mask;
-use vortex_buffer::lane_ops_indexed::map_with_mask_in_place;
-use vortex_buffer::lane_ops_indexed::try_map_no_validity;
-use vortex_buffer::lane_ops_indexed::try_map_with_mask;
-use vortex_buffer::lane_ops_indexed::try_map_with_mask_in_place;
+use vortex_buffer::lane_ops_indexed::IndexedSinkExt;
+use vortex_buffer::lane_ops_indexed::IndexedSourceExt;
 
 fn main() {
     divan::main();
@@ -129,11 +125,9 @@ fn map_no_validity_widen_u16_u32(bencher: Bencher, n: usize) {
     bencher
         .with_inputs(|| (f.values_u16.clone(), uninit_out::<u32>(n)))
         .bench_values(|(values, mut out)| {
-            map_no_validity(
-                values.as_slice(),
-                out.as_mut_slice(),
-                <u32 as From<u16>>::from,
-            );
+            values
+                .as_slice()
+                .map_no_validity(out.as_mut_slice(), <u32 as From<u16>>::from);
             out
         });
 }
@@ -145,7 +139,7 @@ fn map_with_mask_widen_u16_u32_zero_nulls(bencher: Bencher, n: usize) {
     bencher
         .with_inputs(|| (f.values_u16.clone(), f.mask.clone(), uninit_out::<u32>(n)))
         .bench_values(|(values, mask, mut out)| {
-            map_with_mask(values.as_slice(), &mask, out.as_mut_slice(), |v, valid| {
+            values.as_slice().map_with_mask(&mask, out.as_mut_slice(), |v, valid| {
                 <u32 as From<u16>>::from(v) * valid as u32
             });
             out
@@ -159,7 +153,7 @@ fn try_map_no_validity_narrow_u64_u32(bencher: Bencher, n: usize) {
     bencher
         .with_inputs(|| (f.values_u64.clone(), uninit_out::<u32>(n)))
         .bench_values(|(values, mut out)| {
-            try_map_no_validity(values.as_slice(), out.as_mut_slice(), |v| {
+            values.as_slice().try_map_no_validity(out.as_mut_slice(), |v| {
                 <u32 as NumCast>::from(v)
             })
             .unwrap();
@@ -178,7 +172,7 @@ fn try_map_with_mask_narrow_u64_u32_ignoring_valid(bencher: Bencher, n: usize) {
     bencher
         .with_inputs(|| (f.values_u64.clone(), f.mask.clone(), uninit_out::<u32>(n)))
         .bench_values(|(values, mask, mut out)| {
-            try_map_with_mask(values.as_slice(), &mask, out.as_mut_slice(), |v, _valid| {
+            values.as_slice().try_map_with_mask(&mask, out.as_mut_slice(), |v, _valid| {
                 <u32 as NumCast>::from(v)
             })
             .unwrap();
@@ -193,7 +187,7 @@ fn try_map_with_mask_narrow_u64_u32_lazy_validity(bencher: Bencher, n: usize) {
     bencher
         .with_inputs(|| (f.values_u64.clone(), f.mask.clone(), uninit_out::<u32>(n)))
         .bench_values(|(values, mask, mut out)| {
-            try_map_with_mask(values.as_slice(), &mask, out.as_mut_slice(), |v, valid| {
+            values.as_slice().try_map_with_mask(&mask, out.as_mut_slice(), |v, valid| {
                 <u32 as NumCast>::from(v).or_else(|| (!valid).then(u32::default))
             })
             .unwrap();
@@ -218,7 +212,7 @@ fn try_map_with_mask_narrow_u64_u32_value_only_filtered(bencher: Bencher, n: usi
             )
         })
         .bench_values(|(values, mask, mut out)| {
-            try_map_with_mask(values.as_slice(), &mask, out.as_mut_slice(), |v, _valid| {
+            values.as_slice().try_map_with_mask(&mask, out.as_mut_slice(), |v, _valid| {
                 <u32 as NumCast>::from(v)
             })
             .unwrap();
@@ -233,7 +227,7 @@ fn try_map_with_mask_widen_u16_u32_or_else(bencher: Bencher, n: usize) {
     bencher
         .with_inputs(|| (f.values_u16.clone(), f.mask.clone(), uninit_out::<u32>(n)))
         .bench_values(|(values, mask, mut out)| {
-            try_map_with_mask(values.as_slice(), &mask, out.as_mut_slice(), |v, valid| {
+            values.as_slice().try_map_with_mask(&mask, out.as_mut_slice(), |v, valid| {
                 Some(<u32 as From<u16>>::from(v)).or_else(|| (!valid).then(u32::default))
             })
             .unwrap();
@@ -248,7 +242,7 @@ fn try_map_with_mask_widen_u16_u32_maskless(bencher: Bencher, n: usize) {
     bencher
         .with_inputs(|| (f.values_u16.clone(), f.mask.clone(), uninit_out::<u32>(n)))
         .bench_values(|(values, mask, mut out)| {
-            try_map_with_mask(values.as_slice(), &mask, out.as_mut_slice(), |v, _valid| {
+            values.as_slice().try_map_with_mask(&mask, out.as_mut_slice(), |v, _valid| {
                 Some(<u32 as From<u16>>::from(v))
             })
             .unwrap();
@@ -263,7 +257,7 @@ fn map_with_mask_in_place_u32_zero_nulls(bencher: Bencher, n: usize) {
     bencher
         .with_inputs(|| (f.values_u32.as_slice().to_vec(), f.mask.clone()))
         .bench_values(|(mut values, mask)| {
-            map_with_mask_in_place(values.as_mut_slice(), &mask, |v, valid| v * valid as u32);
+            values.as_mut_slice().map_with_mask_in_place(&mask, |v, valid| v * valid as u32);
             values
         });
 }
@@ -275,7 +269,7 @@ fn try_map_with_mask_in_place_u32_checked_mul(bencher: Bencher, n: usize) {
     bencher
         .with_inputs(|| (f.values_u32_small.as_slice().to_vec(), f.mask.clone()))
         .bench_values(|(mut values, mask)| {
-            try_map_with_mask_in_place(values.as_mut_slice(), &mask, |v, _valid| v.checked_mul(2))
+            values.as_mut_slice().try_map_with_mask_in_place(&mask, |v, _valid| v.checked_mul(2))
                 .unwrap();
             values
         });

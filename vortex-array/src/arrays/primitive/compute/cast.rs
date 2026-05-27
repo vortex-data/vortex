@@ -5,13 +5,9 @@ use num_traits::AsPrimitive;
 use num_traits::NumCast;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_buffer::lane_ops_indexed::IndexedSinkExt;
+use vortex_buffer::lane_ops_indexed::IndexedSourceExt;
 use vortex_buffer::lane_ops_indexed::ReinterpretSink;
-use vortex_buffer::lane_ops_indexed::map_no_validity;
-use vortex_buffer::lane_ops_indexed::map_no_validity_in_place;
-use vortex_buffer::lane_ops_indexed::try_map_no_validity;
-use vortex_buffer::lane_ops_indexed::try_map_no_validity_in_place;
-use vortex_buffer::lane_ops_indexed::try_map_with_mask;
-use vortex_buffer::lane_ops_indexed::try_map_with_mask_in_place;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -174,10 +170,8 @@ where
         // (harmless: the result validity bitmap masks them downstream).
         return match owned {
             Some(mut buf) => {
-                map_no_validity_in_place(
-                    ReinterpretSink::<F, T>::new(buf.as_mut_slice()),
-                    |v: F| v.as_(),
-                );
+                ReinterpretSink::<F, T>::new(buf.as_mut_slice())
+                    .map_no_validity_in_place(|v: F| v.as_());
                 // SAFETY: same size + alignment for NativePType same-byte-width pairs;
                 // every F-slot was overwritten with a real `T` bit pattern.
                 let result: BufferMut<T> = unsafe { buf.transmute::<T>() };
@@ -185,7 +179,7 @@ where
             }
             None => {
                 let mut buffer = BufferMut::<T>::with_capacity(len);
-                map_no_validity(values, &mut buffer.spare_capacity_mut()[..len], |v| v.as_());
+                values.map_no_validity(&mut buffer.spare_capacity_mut()[..len], |v| v.as_());
                 // SAFETY: map_no_validity initializes every lane.
                 unsafe { buffer.set_len(len) };
                 Ok(PrimitiveArray::new(buffer.freeze(), new_validity).into_array())
@@ -197,11 +191,9 @@ where
 
     let buffer: Buffer<T> = match (&mask, owned) {
         (Mask::AllTrue(_), Some(mut buf)) => {
-            try_map_no_validity_in_place(
-                ReinterpretSink::<F, T>::new(buf.as_mut_slice()),
-                |v: F| <T as NumCast>::from(v),
-            )
-            .map_err(|_| overflow())?;
+            ReinterpretSink::<F, T>::new(buf.as_mut_slice())
+                .try_map_no_validity_in_place(|v: F| <T as NumCast>::from(v))
+                .map_err(|_| overflow())?;
             // SAFETY: same size + alignment for NativePType same-byte-width pairs;
             // every F-slot now holds a `T` bit pattern written by `ReinterpretSink`.
             let result: BufferMut<T> = unsafe { buf.transmute::<T>() };
@@ -209,10 +201,11 @@ where
         }
         (Mask::AllTrue(_), None) => {
             let mut buffer = BufferMut::<T>::with_capacity(len);
-            try_map_no_validity(values, &mut buffer.spare_capacity_mut()[..len], |v| {
-                <T as NumCast>::from(v)
-            })
-            .map_err(|_| overflow())?;
+            values
+                .try_map_no_validity(&mut buffer.spare_capacity_mut()[..len], |v| {
+                    <T as NumCast>::from(v)
+                })
+                .map_err(|_| overflow())?;
             // SAFETY: try_map_no_validity returned Ok, so it initialized every lane.
             unsafe { buffer.set_len(len) };
             buffer.freeze()
@@ -225,12 +218,11 @@ where
         }
         (Mask::AllFalse(_), None) => BufferMut::<T>::zeroed(len).freeze(),
         (Mask::Values(m), Some(mut buf)) => {
-            try_map_with_mask_in_place(
-                ReinterpretSink::<F, T>::new(buf.as_mut_slice()),
-                m.bit_buffer(),
-                |v: F, valid| <T as NumCast>::from(v).or_else(|| (!valid).then(T::zero)),
-            )
-            .map_err(|_| overflow())?;
+            ReinterpretSink::<F, T>::new(buf.as_mut_slice())
+                .try_map_with_mask_in_place(m.bit_buffer(), |v: F, valid| {
+                    <T as NumCast>::from(v).or_else(|| (!valid).then(T::zero))
+                })
+                .map_err(|_| overflow())?;
             // SAFETY: same size + alignment for NativePType same-byte-width pairs;
             // every F-slot now holds a `T` bit pattern written by `ReinterpretSink`.
             let result: BufferMut<T> = unsafe { buf.transmute::<T>() };
@@ -238,18 +230,19 @@ where
         }
         (Mask::Values(m), None) => {
             let mut buffer = BufferMut::<T>::with_capacity(len);
-            try_map_with_mask(
-                values,
-                m.bit_buffer(),
-                &mut buffer.spare_capacity_mut()[..len],
-                // Lazy validity: only consult `valid` on the failure branch. For widening /
-                // statically-infallible casts, `NumCast::from` is always `Some` so the
-                // `or_else` is provably dead — LLVM DCEs the validity path entirely, giving
-                // the same codegen as the maskless kernel. For narrowing, `valid` is only
-                // read at lanes that actually overflowed (a cold check on top of the cast).
-                |v, valid| <T as NumCast>::from(v).or_else(|| (!valid).then(T::zero)),
-            )
-            .map_err(|_| overflow())?;
+            values
+                .try_map_with_mask(
+                    m.bit_buffer(),
+                    &mut buffer.spare_capacity_mut()[..len],
+                    // Lazy validity: only consult `valid` on the failure branch. For widening /
+                    // statically-infallible casts, `NumCast::from` is always `Some` so the
+                    // `or_else` is provably dead — LLVM DCEs the validity path entirely,
+                    // giving the same codegen as the maskless kernel. For narrowing, `valid`
+                    // is only read at lanes that actually overflowed (a cold check on top of
+                    // the cast).
+                    |v, valid| <T as NumCast>::from(v).or_else(|| (!valid).then(T::zero)),
+                )
+                .map_err(|_| overflow())?;
             // SAFETY: try_map_with_mask returned Ok, so it initialized every lane.
             unsafe { buffer.set_len(len) };
             buffer.freeze()

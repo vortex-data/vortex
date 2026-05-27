@@ -20,8 +20,8 @@ use rand::prelude::*;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
+use vortex_buffer::lane_ops_indexed::IndexedSourceExt;
 use vortex_buffer::lane_ops_indexed::LaneZip;
-use vortex_buffer::lane_ops_indexed::try_map_with_mask;
 
 fn main() {
     assert_overflow_parity();
@@ -116,13 +116,11 @@ fn bitpack_value_only(bencher: Bencher, n: usize) {
         .bench_refs(|(lhs, rhs, lm, rm)| {
             let combined = lm as &BitBuffer & rm as &BitBuffer;
             let mut out = alloc_out(n);
-            try_map_with_mask(
-                LaneZip::new(lhs.as_slice(), rhs.as_slice()),
-                &combined,
-                out.as_mut_slice(),
-                |(a, b), _valid| a.checked_add(b),
-            )
-            .unwrap();
+            LaneZip::new(lhs.as_slice(), rhs.as_slice())
+                .try_map_with_mask(&combined, out.as_mut_slice(), |(a, b), _valid| {
+                    a.checked_add(b)
+                })
+                .unwrap();
             (combined, out)
         });
 }
@@ -146,8 +144,7 @@ fn assert_overflow_parity() {
     };
 
     let mut out: Vec<MaybeUninit<u32>> = (0..4).map(|_| MaybeUninit::uninit()).collect();
-    let r = try_map_with_mask(
-        LaneZip::new(lhs.as_slice(), rhs.as_slice()),
+    let r = LaneZip::new(lhs.as_slice(), rhs.as_slice()).try_map_with_mask(
         &mask,
         out.as_mut_slice(),
         |(a, b), _| a.checked_add(b),
@@ -171,8 +168,7 @@ fn assert_null_overflow_suppressed() {
     };
 
     let mut out = alloc_out(4);
-    let r = try_map_with_mask(
-        LaneZip::new(lhs.as_slice(), rhs.as_slice()),
+    let r = LaneZip::new(lhs.as_slice(), rhs.as_slice()).try_map_with_mask(
         &mask,
         out.as_mut_slice(),
         |(a, b), _| a.checked_add(b),
