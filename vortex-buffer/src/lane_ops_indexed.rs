@@ -290,7 +290,7 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
     /// **Null-lane failures are filtered automatically.** If a null lane's stored
     /// value causes `f(v, false)` to return `None`, the kernel does *not* propagate
     /// that as `Err`. The per-lane `is_none()` flags are bit-packed into a `u64` at
-    /// the lane's position, then ANDed with the chunk's validity bitmap — null-lane
+    /// the lane's position, then AND-combined with the chunk's validity bitmap — null-lane
     /// bits vanish. The closure may also explicitly suppress null-lane failures by
     /// branching on `valid` itself; both behaviors compose.
     ///
