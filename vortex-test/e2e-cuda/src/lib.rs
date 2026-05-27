@@ -68,17 +68,21 @@ pub unsafe extern "C" fn export_array(
 ) -> i32 {
     let mut ctx = CudaSession::create_execution_ctx(&SESSION).unwrap();
 
-    let primitive = PrimitiveArray::from_iter(0u32..5);
-    let decimal = DecimalArray::from_iter(0i128..5, DecimalDType::new(38, 2));
-    let strings = VarBinViewArray::from_iter_str([
-        "one",
-        "two",
-        "this string is long three",
-        "four",
-        "this string is long five",
+    let primitive = PrimitiveArray::from_option_iter([Some(0u32), None, Some(2), Some(3), None]);
+    let decimal = DecimalArray::from_option_iter(
+        [Some(0i128), Some(1), None, Some(3), Some(4)],
+        DecimalDType::new(38, 2),
+    );
+    let strings = VarBinViewArray::from_iter_nullable_str([
+        Some("one"),
+        None,
+        Some("this string is long three"),
+        Some("four"),
+        None,
     ]);
     let dates = TemporalArray::new_date(
-        PrimitiveArray::from_iter([100i32, 200, 300, 400, 500]).into_array(),
+        PrimitiveArray::from_option_iter([Some(100i32), None, Some(300), Some(400), None])
+            .into_array(),
         TimeUnit::Days,
     );
 
@@ -124,24 +128,24 @@ pub unsafe extern "C" fn validate_array(
     let array = make_array(array_data);
     let struct_array = array.as_struct();
 
-    let primitive = UInt32Array::from_iter(0..5);
-    let decimal = Decimal128Array::from_iter_values(0..5)
+    let primitive = UInt32Array::from_iter([Some(0), None, Some(2), Some(3), None]);
+    let decimal = Decimal128Array::from_iter([Some(0i128), Some(1), None, Some(3), Some(4)])
         .with_precision_and_scale(38, 2)
         .expect("with_precision_and_scale");
-    let string = StringArray::from_iter_values([
-        "one",
-        "two",
-        "this string is long three",
-        "four",
-        "this string is long five",
+    let string = StringArray::from_iter([
+        Some("one"),
+        None,
+        Some("this string is long three"),
+        Some("four"),
+        None,
     ]);
-    let date = Date32Array::from(vec![100i32, 200, 300, 400, 500]);
+    let date = Date32Array::from(vec![Some(100i32), None, Some(300), Some(400), None]);
 
     let expected_fields = Fields::from_iter([
-        Field::new("prims", primitive.data_type().clone(), false),
-        Field::new("decimals", decimal.data_type().clone(), false),
-        Field::new("strings", string.data_type().clone(), false),
-        Field::new("dates", date.data_type().clone(), false),
+        Field::new("prims", primitive.data_type().clone(), true),
+        Field::new("decimals", decimal.data_type().clone(), true),
+        Field::new("strings", string.data_type().clone(), true),
+        Field::new("dates", date.data_type().clone(), true),
     ]);
 
     assert_eq!(

@@ -217,10 +217,12 @@ async fn export_arrow_validity_buffer(
 ) -> VortexResult<(Option<BufferHandle>, i64)> {
     let mask = validity.execute_mask(len, ctx.execution_ctx())?;
     let null_count = i64::try_from(mask.false_count())?;
+    let validity_bits = len + arrow_offset;
+    let validity_bytes = validity_bits.div_ceil(8);
 
     let validity_buffer = match mask {
         Mask::AllTrue(_) => return Ok((None, 0)),
-        Mask::AllFalse(len) => ByteBuffer::zeroed((len + arrow_offset).div_ceil(8)),
+        Mask::AllFalse(_) => ByteBuffer::zeroed(validity_bytes),
         values @ Mask::Values(_) => values.into_bit_buffer().into_inner().2,
     };
     let validity = ctx
