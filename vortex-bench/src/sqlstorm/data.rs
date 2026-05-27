@@ -6,11 +6,173 @@
 //! `table_names` is the single source of truth for each origin's table list;
 //! both `table_specs` (used by `SqlstormBenchmark`) and
 //! `BenchmarkDataset::tables()` (used by the registration layer) delegate here.
+//!
+//! ## StackOverflow identifier case
+//!
+//! The upstream CSVs have no column header row; column names come from the DDL at
+//! `https://db.in.tum.de/~schmidt/data/stackoverflow_schema.sql`. That DDL uses
+//! camelCase column names (`OwnerUserId`, `CreationDate`, …) and capitalized table
+//! names (`Posts`, `Users`, …). The SQLStorm queries reference those names unquoted,
+//! which would break under DataFusion's default `enable_ident_normalization=true`
+//! (the parser lowercases identifiers while the Parquet schema preserves case →
+//! field-not-found).
+//!
+//! The conversion below lowercases every column at COPY time and the table names in
+//! `table_names(StackOverflow)` are already lowercase. Both engines then resolve the
+//! verbatim camelCase queries the same way: DataFusion lowercases the query
+//! identifiers and matches them against the lowercased Parquet schema, while DuckDB's
+//! case-insensitive unquoted identifier resolution makes the original case irrelevant.
 
+use std::fs;
+use std::path::Path;
+use std::path::PathBuf;
+use std::process::Command;
+
+use anyhow::Context;
+use anyhow::bail;
+use tracing::info;
 use url::Url;
 
+use crate::Format;
 use crate::TableSpec;
+use crate::datasets::data_downloads::download_data;
 use crate::sqlstorm::SqlstormOrigin;
+
+/// URL for the upstream StackOverflow DDL (creates 13 typed tables).
+const SCHEMA_URL: &str = "https://db.in.tum.de/~schmidt/data/stackoverflow_schema.sql";
+
+/// URL for the upstream StackOverflow `dba` data tarball (~1 GB gzip).
+const DATA_URL: &str = "https://db.in.tum.de/~schmidt/data/stackoverflow_dba.tar.gz";
+
+/// Upstream CamelCase CSV file-stem / table names, in the same order as
+/// `table_names(StackOverflow)`. Each entry maps to the corresponding lowercase
+/// table name and Parquet output shard.
+const UPSTREAM_TABLES: &[&str] = &[
+    "PostHistoryTypes",
+    "LinkTypes",
+    "PostTypes",
+    "CloseReasonTypes",
+    "VoteTypes",
+    "Users",
+    "Badges",
+    "Posts",
+    "Comments",
+    "PostHistory",
+    "PostLinks",
+    "Tags",
+    "Votes",
+];
+
+/// Column names (original DDL case) for each table in `UPSTREAM_TABLES` order.
+///
+/// These are derived from `stackoverflow_schema.sql` and are the authoritative
+/// source used to build the lowercased projections passed to DuckDB's `COPY`.
+const TABLE_COLUMNS: &[&[&str]] = &[
+    // PostHistoryTypes
+    &["Id", "Name"],
+    // LinkTypes
+    &["Id", "Name"],
+    // PostTypes
+    &["Id", "Name"],
+    // CloseReasonTypes
+    &["Id", "Name"],
+    // VoteTypes
+    &["Id", "Name"],
+    // Users
+    &[
+        "Id",
+        "Reputation",
+        "CreationDate",
+        "DisplayName",
+        "LastAccessDate",
+        "WebsiteUrl",
+        "Location",
+        "AboutMe",
+        "Views",
+        "UpVotes",
+        "DownVotes",
+        "ProfileImageUrl",
+        "AccountId",
+    ],
+    // Badges
+    &["Id", "UserId", "Name", "Date", "Class", "TagBased"],
+    // Posts
+    &[
+        "Id",
+        "PostTypeId",
+        "AcceptedAnswerId",
+        "ParentId",
+        "CreationDate",
+        "Score",
+        "ViewCount",
+        "Body",
+        "OwnerUserId",
+        "OwnerDisplayName",
+        "LastEditorUserId",
+        "LastEditorDisplayName",
+        "LastEditDate",
+        "LastActivityDate",
+        "Title",
+        "Tags",
+        "AnswerCount",
+        "CommentCount",
+        "FavoriteCount",
+        "ClosedDate",
+        "CommunityOwnedDate",
+        "ContentLicense",
+    ],
+    // Comments
+    &[
+        "Id",
+        "PostId",
+        "Score",
+        "Text",
+        "CreationDate",
+        "UserDisplayName",
+        "UserId",
+        "ContentLicense",
+    ],
+    // PostHistory
+    &[
+        "Id",
+        "PostHistoryTypeId",
+        "PostId",
+        "RevisionGUID",
+        "CreationDate",
+        "UserId",
+        "UserDisplayName",
+        "Comment",
+        "Text",
+        "ContentLicense",
+    ],
+    // PostLinks
+    &[
+        "Id",
+        "CreationDate",
+        "PostId",
+        "RelatedPostId",
+        "LinkTypeId",
+    ],
+    // Tags
+    &[
+        "Id",
+        "TagName",
+        "Count",
+        "ExcerptPostId",
+        "WikiPostId",
+        "IsModeratorOnly",
+        "IsRequired",
+    ],
+    // Votes
+    &[
+        "Id",
+        "PostId",
+        "VoteTypeId",
+        "UserId",
+        "CreationDate",
+        "BountyAmount",
+    ],
+];
 
 /// Table names per origin (single source of truth).
 ///
@@ -75,12 +237,226 @@ pub fn table_specs(origin: SqlstormOrigin) -> Vec<TableSpec> {
         .collect()
 }
 
-/// Download and convert StackOverflow `dba` data to Parquet. Implemented in a later task.
-pub async fn generate_stackoverflow(_data_url: &Url) -> anyhow::Result<()> {
-    anyhow::bail!("stackoverflow data-gen not yet implemented")
+/// Download and convert the StackOverflow `dba` (~1 GB) dataset to Parquet.
+///
+/// Only runs for `file://` data URLs (remote data directories are assumed to already
+/// contain the Parquet shards). The 13 typed Parquet files are written into
+/// `<base>/parquet/` with lowercase table and column names so that both DataFusion
+/// (which lowercases identifiers) and DuckDB (case-insensitive) can query them.
+pub async fn generate_stackoverflow(data_url: &Url) -> anyhow::Result<()> {
+    if data_url.scheme() != "file" {
+        return Ok(());
+    }
+
+    let base_dir = data_url.to_file_path().map_err(|_| {
+        anyhow::anyhow!(
+            "Failed to convert data URL to filesystem path — ensure data_url uses 'file://' scheme"
+        )
+    })?;
+
+    let parquet_dir = base_dir.join(Format::Parquet.name());
+    fs::create_dir_all(&parquet_dir)?;
+
+    // Idempotency: skip if all 13 Parquet shards are already present.
+    let lowercase_tables = table_names(SqlstormOrigin::StackOverflow);
+    if lowercase_tables
+        .iter()
+        .all(|t| parquet_dir.join(format!("{t}.parquet")).exists())
+    {
+        info!(
+            "stackoverflow: {} Parquet shards already present in {}",
+            lowercase_tables.len(),
+            parquet_dir.display(),
+        );
+        return Ok(());
+    }
+
+    // Download the schema DDL and the data tarball into the base directory.
+    let schema_path = download_data(base_dir.join("stackoverflow_schema.sql"), SCHEMA_URL).await?;
+
+    let tarball_path = download_data(base_dir.join("stackoverflow_dba.tar.gz"), DATA_URL).await?;
+
+    // Extract the tarball. The archive yields files named <UpstreamTable>.csv in the
+    // current working directory (or a subdirectory — the extraction target directory
+    // is passed as --directory so all contents land under `base_dir`).
+    let csv_dir = extract_tarball(&tarball_path, &base_dir)?;
+
+    // Build and run the single DuckDB COPY script:
+    //   1. Execute the schema DDL to create the 13 typed tables.
+    //   2. COPY each CSV into the corresponding typed table.
+    //   3. COPY each table → Parquet with a lowercase column projection.
+    let script = build_duckdb_script(&schema_path, &csv_dir, &parquet_dir)?;
+
+    let output = Command::new("duckdb").arg("-c").arg(&script).output()?;
+    if !output.status.success() {
+        bail!(
+            "duckdb stackoverflow COPY failed:\nstdout={}\nstderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
+
+    info!(
+        "stackoverflow base data generated in {} ({} Parquet shards)",
+        parquet_dir.display(),
+        lowercase_tables.len(),
+    );
+    Ok(())
 }
 
 /// Download and convert IMDB/JOB data to Parquet. Implemented in a later task.
 pub async fn generate_job(_data_url: &Url) -> anyhow::Result<()> {
     anyhow::bail!("job data-gen not yet implemented")
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Helpers
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/// Extract `tarball_path` (gzip-compressed tar) into `target_dir`.
+///
+/// Shells out to `tar -xzf <tarball> --directory <target_dir>` so that no
+/// additional Cargo dependencies are needed. Returns the directory where the
+/// extracted CSVs reside (which equals `target_dir` for flat archives, or the
+/// first subdirectory when the archive has a single top-level folder).
+fn extract_tarball(tarball_path: &Path, target_dir: &Path) -> anyhow::Result<PathBuf> {
+    info!(
+        "Extracting {} into {}",
+        tarball_path.display(),
+        target_dir.display()
+    );
+
+    let output = Command::new("tar")
+        .arg("-xzf")
+        .arg(tarball_path)
+        .arg("--directory")
+        .arg(target_dir)
+        .output()
+        .context("failed to spawn tar; ensure it is on PATH")?;
+
+    if !output.status.success() {
+        bail!(
+            "tar extraction failed:\nstdout={}\nstderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
+
+    // Look for the CSV files. They may be directly in `target_dir` or inside a
+    // single subdirectory if the archive has a top-level folder.
+    let csv_dir = locate_csv_dir(target_dir)?;
+    info!("CSVs located at {}", csv_dir.display());
+    Ok(csv_dir)
+}
+
+/// Locate the directory that contains the extracted CSV files.
+///
+/// Checks `target_dir` itself first. If no `.csv` files are found there, looks
+/// one level deeper (a single subdirectory, as some archives include a top-level
+/// folder). Returns an error if neither search finds the expected CSVs.
+fn locate_csv_dir(target_dir: &Path) -> anyhow::Result<PathBuf> {
+    // Check for CSVs directly in target_dir.
+    if has_csv(target_dir)? {
+        return Ok(target_dir.to_owned());
+    }
+
+    // Check for a single subdirectory containing the CSVs.
+    for entry in
+        fs::read_dir(target_dir).with_context(|| format!("reading {}", target_dir.display()))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() && has_csv(&path)? {
+            return Ok(path);
+        }
+    }
+
+    bail!(
+        "no CSV files found in {} after extraction; verify the tarball contents",
+        target_dir.display()
+    )
+}
+
+/// Returns `true` if `dir` contains at least one file ending in `.csv`.
+fn has_csv(dir: &Path) -> anyhow::Result<bool> {
+    for entry in
+        fs::read_dir(dir).with_context(|| format!("reading directory {}", dir.display()))?
+    {
+        let entry = entry?;
+        if entry
+            .path()
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("csv"))
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Build the DuckDB SQL script that:
+///
+/// 1. Inlines the schema DDL to create the 13 typed tables. (We inline the DDL text
+///    rather than use the `.read` dot-command, which `duckdb -c` does not accept.)
+/// 2. Loads each upstream CSV into its table with `COPY … FROM`.
+/// 3. Exports each table as a Parquet file with all column names lowercased.
+///
+/// The upstream CSVs have no header row, use comma as delimiter, and represent
+/// NULL as the empty string — matching the parameters in the upstream `copy.sql`.
+fn build_duckdb_script(
+    schema_path: &Path,
+    csv_dir: &Path,
+    parquet_dir: &Path,
+) -> anyhow::Result<String> {
+    let raw_schema = fs::read_to_string(schema_path)
+        .with_context(|| format!("reading schema DDL {}", schema_path.display()))?;
+    // DuckDB rejects `ALTER TABLE ... ADD FOREIGN KEY`; foreign keys are irrelevant to the
+    // CSV -> Parquet conversion, so drop those standalone statements. Inline column
+    // `references` clauses parse fine in DuckDB and are left intact.
+    let schema_sql: String = raw_schema
+        .lines()
+        .filter(|line| {
+            !line
+                .trim_start()
+                .to_ascii_lowercase()
+                .starts_with("alter table")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut script = format!("{schema_sql}\n");
+
+    let lowercase_tables = table_names(SqlstormOrigin::StackOverflow);
+
+    for (i, &upstream) in UPSTREAM_TABLES.iter().enumerate() {
+        let csv_path = csv_dir.join(format!("{upstream}.csv"));
+        script.push_str(&format!(
+            "COPY \"{upstream}\" FROM '{csv}' \
+             (DELIMITER ',', FORMAT csv, NULL '', HEADER false);\n",
+            csv = csv_path.display(),
+        ));
+
+        let columns = TABLE_COLUMNS[i];
+        let projection = build_projection(columns);
+        let lowercase = lowercase_tables[i];
+        let out_path = parquet_dir.join(format!("{lowercase}.parquet"));
+        script.push_str(&format!(
+            "COPY (SELECT {projection} FROM \"{upstream}\") \
+             TO '{out}' (FORMAT PARQUET);\n",
+            out = out_path.display(),
+        ));
+    }
+
+    Ok(script)
+}
+
+/// Build a DuckDB SELECT projection string that lowercases every column name.
+///
+/// Each column `"Col"` becomes `"Col" AS "col"`.
+fn build_projection(columns: &[&str]) -> String {
+    columns
+        .iter()
+        .map(|c| format!("\"{}\" AS \"{}\"", c, c.to_lowercase()))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
