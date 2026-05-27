@@ -171,9 +171,10 @@ impl LayoutReader for ListReader {
         &self,
         _row_range: &Range<u64>,
         _expr: &Expression,
-        _mask: Mask,
+        mask: Mask,
     ) -> VortexResult<MaskFuture> {
-        todo!()
+        // All stats based pruning should already be done upstream
+        Ok(MaskFuture::ready(mask))
     }
 
     fn filter_evaluation(
