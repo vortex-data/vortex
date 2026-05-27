@@ -64,6 +64,16 @@ fn test_like_kind_parse() {
     // Suffix and underscore patterns are not supported.
     assert!(LikeKind::parse(b"%suffix").is_none());
     assert!(LikeKind::parse(b"a_c").is_none());
+
+    // Patterns containing the SQL LIKE escape character must not be parsed by the fast path,
+    // because that path treats `%` and `_` literally and would misinterpret escapes. For
+    // example, `%\%` (the pattern produced by Spark's `endsWith("%")`) means "ends with `%`",
+    // not "contains `\`". The fast path should bail so the general implementation handles it.
+    assert!(LikeKind::parse(br"%\%").is_none());
+    assert!(LikeKind::parse(br"\%%").is_none());
+    assert!(LikeKind::parse(br"%\_%").is_none());
+    assert!(LikeKind::parse(br"\_%").is_none());
+    assert!(LikeKind::parse(br"%\\%").is_none());
 }
 
 /// No symbols — all bytes escaped. Simplest case to see the two tables.

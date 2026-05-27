@@ -15,23 +15,25 @@ use vortex::array::arrays::decimal::DecimalDataParts;
 use vortex::array::arrays::extension::ExtensionArrayExt;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::arrays::struct_::StructDataParts;
+use vortex::array::arrays::varbinview::VarBinViewDataParts;
 use vortex::array::buffer::BufferHandle;
+use vortex::array::validity::Validity;
+use vortex::buffer::Buffer;
+use vortex::buffer::ByteBuffer;
 use vortex::dtype::DecimalType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::extension::datetime::AnyTemporal;
+use vortex::mask::Mask;
 
 use crate::CudaExecutionCtx;
+use crate::arrow::ARROW_DEVICE_CUDA;
 use crate::arrow::ArrowArray;
 use crate::arrow::ArrowDeviceArray;
-use crate::arrow::DeviceType;
 use crate::arrow::ExportDeviceArray;
 use crate::arrow::PrivateData;
 use crate::arrow::SyncEvent;
-use crate::arrow::check_validity_empty;
-use crate::arrow::varbinview::BinaryParts;
-use crate::arrow::varbinview::copy_varbinview_to_varbin;
 use crate::executor::CudaArrayExt;
 
 /// An implementation of `ExportDeviceArray` that exports Vortex arrays to `ArrowDeviceArray` by
@@ -49,14 +51,14 @@ impl ExportDeviceArray for CanonicalDeviceArrayExport {
     ) -> VortexResult<ArrowDeviceArray> {
         let cuda_array = array.execute_cuda(ctx).await?;
 
-        let (arrow_array, _) = export_canonical(cuda_array, ctx).await?;
+        let (arrow_array, sync_event) = export_canonical(cuda_array, ctx).await?;
 
         Ok(ArrowDeviceArray {
             array: arrow_array,
-            sync_event: None,
             device_id: ctx.stream().context().ordinal() as i64,
-            device_type: DeviceType::Cuda,
-            _reserved: Default::default(),
+            device_type: ARROW_DEVICE_CUDA,
+            sync_event,
+            reserved: Default::default(),
         })
     }
 }
@@ -74,11 +76,11 @@ fn export_canonical(
                     buffer, validity, ..
                 } = primitive.into_data_parts();
 
-                check_validity_empty(&validity)?;
-
+                let (validity_buffer, null_count) =
+                    export_arrow_validity_buffer(validity, len, 0, ctx).await?;
                 let buffer = ctx.ensure_on_device(buffer).await?;
 
-                export_fixed_size(buffer, len, 0, ctx)
+                export_fixed_size(buffer, len, 0, validity_buffer, null_count, ctx)
             }
             Canonical::Null(null_array) => {
                 let len = null_array.len();
@@ -90,7 +92,7 @@ fn export_canonical(
                 array.release = Some(release_array);
 
                 // we don't need a sync event for Null since no data is copied.
-                Ok((array, None))
+                Ok((array, ptr::null_mut()))
             }
             Canonical::Decimal(decimal) => {
                 let len = decimal.len();
@@ -101,18 +103,17 @@ fn export_canonical(
                     ..
                 } = decimal.into_data_parts();
 
-                // verify that there is no null buffer
-                check_validity_empty(&validity)?;
-
                 // TODO(aduffy): GPU kernel for upcasting.
                 vortex_ensure!(
                     values_type >= DecimalType::I32,
                     "cannot export DecimalArray with values type {values_type}. must be i32 or wider."
                 );
 
+                let (validity_buffer, null_count) =
+                    export_arrow_validity_buffer(validity, len, 0, ctx).await?;
                 let buffer = ctx.ensure_on_device(values).await?;
 
-                export_fixed_size(buffer, len, 0, ctx)
+                export_fixed_size(buffer, len, 0, validity_buffer, null_count, ctx)
             }
             Canonical::Extension(extension) => {
                 if !extension.ext_dtype().is::<AnyTemporal>() {
@@ -129,10 +130,11 @@ fn export_canonical(
                     buffer, validity, ..
                 } = values.into_data_parts();
 
-                check_validity_empty(&validity)?;
+                let (validity_buffer, null_count) =
+                    export_arrow_validity_buffer(validity, len, 0, ctx).await?;
 
                 let buffer = ctx.ensure_on_device(buffer).await?;
-                export_fixed_size(buffer, len, 0, ctx)
+                export_fixed_size(buffer, len, 0, validity_buffer, null_count, ctx)
             }
             Canonical::Bool(bool_array) => {
                 let len = bool_array.len();
@@ -141,30 +143,54 @@ fn export_canonical(
                     bits, offset, len, ..
                 } = bool_array.into_data().into_parts(len);
 
-                check_validity_empty(&validity)?;
+                let (validity_buffer, null_count) =
+                    export_arrow_validity_buffer(validity, len, offset, ctx).await?;
 
-                export_fixed_size(bits, len, offset, ctx)
+                let bits = ctx.ensure_on_device(bits).await?;
+                export_fixed_size(bits, len, offset, validity_buffer, null_count, ctx)
             }
             Canonical::VarBinView(varbinview) => {
                 let len = varbinview.len();
-                check_validity_empty(&varbinview.validity()?)?;
+                let VarBinViewDataParts {
+                    views,
+                    buffers: data_buffers,
+                    validity,
+                    ..
+                } = varbinview.into_data_parts();
 
-                let BinaryParts { offsets, bytes } =
-                    copy_varbinview_to_varbin(varbinview, ctx).await?;
+                let (validity_buffer, null_count) =
+                    export_arrow_validity_buffer(validity, len, 0, ctx).await?;
 
-                let offsets = ctx.ensure_on_device(offsets).await?;
-                let bytes = ctx.ensure_on_device(bytes).await?;
+                let views = ctx.ensure_on_device(views).await?;
+                let mut buffers = Vec::with_capacity(data_buffers.len() + 3);
+                buffers.push(validity_buffer);
+                buffers.push(Some(views));
+                for buffer in data_buffers.iter() {
+                    buffers.push(Some(ctx.ensure_on_device(buffer.clone()).await?));
+                }
+                // Nanoarrow's Utf8View/BinaryView C layout stores the variadic data buffer sizes
+                // as the final buffer slot, after the null bitmap, views, and data buffers.
+                let variadic_buffer_sizes = data_buffers
+                    .iter()
+                    .map(|buffer| i64::try_from(buffer.len()))
+                    .collect::<Result<Vec<_>, _>>()?;
+                buffers.push(Some(
+                    ctx.ensure_on_device(BufferHandle::new_host(
+                        Buffer::from(variadic_buffer_sizes).into_byte_buffer(),
+                    ))
+                    .await?,
+                ));
 
-                let buffers = vec![None, Some(offsets), Some(bytes)];
+                let n_buffers = i64::try_from(buffers.len())?;
                 let mut private_data = PrivateData::new(buffers, vec![], ctx)?;
                 let sync_event = private_data.sync_event();
-                //
                 let arrow_array = ArrowArray {
                     length: len as i64,
-                    null_count: 0,
+                    null_count,
                     offset: 0,
-                    // 1 (optional) buffer for nulls, one buffer for the data
-                    n_buffers: 2,
+                    // Arrow Utf8View/BinaryView layout: optional null bitmap, views, data buffers,
+                    // and trailing variadic buffer sizes.
+                    n_buffers,
                     buffers: private_data.buffer_ptrs.as_mut_ptr(),
                     n_children: 0,
                     children: ptr::null_mut(),
@@ -175,11 +201,33 @@ fn export_canonical(
 
                 Ok((arrow_array, sync_event))
             }
-            // TODO(aduffy): implement VarBinView. cudf doesn't support it, so we need to
-            //  execute a kernel to translate from VarBinView -> VarBin.
-            c => todo!("support for exporting {} arrays", c.dtype()),
+            c => vortex_bail!("unsupported Arrow Device export for {} array", c.dtype()),
         }
     })
+}
+
+/// Export Vortex validity as an Arrow validity byte buffer.
+///
+/// Returns `None` for the buffer when Arrow can omit validity because all rows are valid.
+async fn export_arrow_validity_buffer(
+    validity: Validity,
+    len: usize,
+    arrow_offset: usize,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<(Option<BufferHandle>, i64)> {
+    let mask = validity.execute_mask(len, ctx.execution_ctx())?;
+    let null_count = i64::try_from(mask.false_count())?;
+
+    let validity_buffer = match mask {
+        Mask::AllTrue(_) => return Ok((None, 0)),
+        Mask::AllFalse(len) => ByteBuffer::zeroed((len + arrow_offset).div_ceil(8)),
+        values @ Mask::Values(_) => values.into_bit_buffer().into_inner().2,
+    };
+    let validity = ctx
+        .ensure_on_device(BufferHandle::new_host(validity_buffer))
+        .await?;
+
+    Ok((Some(validity), null_count))
 }
 
 async fn export_struct(
@@ -191,7 +239,7 @@ async fn export_struct(
         validity, fields, ..
     } = array.into_data_parts();
 
-    check_validity_empty(&validity)?;
+    let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
 
     // We need the children to be held across await points.
     let mut children = Vec::with_capacity(fields.len());
@@ -202,17 +250,17 @@ async fn export_struct(
         children.push(arrow_field);
     }
 
-    let mut private_data = PrivateData::new(vec![None], children, ctx)?;
+    let mut private_data = PrivateData::new(vec![validity_buffer], children, ctx)?;
     let sync_event: SyncEvent = private_data.sync_event();
 
     // Populate the ArrowArray with the child arrays.
     let mut arrow_struct = ArrowArray::empty();
     arrow_struct.length = len as i64;
+    arrow_struct.null_count = null_count;
     arrow_struct.n_children = fields.len() as i64;
     arrow_struct.children = private_data.children.as_mut_ptr();
 
-    // StructArray _can_ contain a validity buffer. In this case, we just write a null pointer
-    // for it.
+    // StructArray has one buffer slot for its optional validity bitmap.
     arrow_struct.n_buffers = 1;
     arrow_struct.buffers = private_data.buffer_ptrs.as_mut_ptr();
     arrow_struct.release = Some(release_array);
@@ -226,6 +274,8 @@ fn export_fixed_size(
     buffer: BufferHandle,
     len: usize,
     offset: usize,
+    validity: Option<BufferHandle>,
+    null_count: i64,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<(ArrowArray, SyncEvent)> {
     vortex_ensure!(
@@ -233,15 +283,13 @@ fn export_fixed_size(
         "buffer must already be copied to device before calling"
     );
 
-    // TODO(aduffy): currently the null buffer is always None, in the future we will need
-    //  to pass it.
-    let mut private_data = PrivateData::new(vec![None, Some(buffer)], vec![], ctx)?;
+    let mut private_data = PrivateData::new(vec![validity, Some(buffer)], vec![], ctx)?;
     let sync_event: SyncEvent = private_data.sync_event();
 
     // Return a copy of the CudaEvent
     let arrow_array = ArrowArray {
         length: len as i64,
-        null_count: 0,
+        null_count,
         offset: offset as i64,
         // 1 (optional) buffer for nulls, one buffer for the data
         n_buffers: 2,
@@ -261,14 +309,15 @@ unsafe extern "C" fn release_array(array: *mut ArrowArray) {
     //  code. This is necessary to ensure that the fields inside the CudaPrivateData
     //  get dropped to free native/GPU memory.
     unsafe {
+        if array.is_null() || (*array).release.is_none() {
+            return;
+        }
+
         let private_data_ptr = ptr::replace(&raw mut (*array).private_data, ptr::null_mut());
 
         if !private_data_ptr.is_null() {
             let mut private_data = Box::from_raw(private_data_ptr.cast::<PrivateData>());
-            let children = mem::take(&mut private_data.children);
-            for child in children {
-                release_array(child);
-            }
+            release_children(&mut private_data);
         }
 
         // update the release function to NULL to avoid any possibility of double-frees.
@@ -276,11 +325,32 @@ unsafe extern "C" fn release_array(array: *mut ArrowArray) {
     }
 }
 
+unsafe fn release_children(private_data: &mut PrivateData) {
+    unsafe {
+        let children = mem::take(&mut private_data.children);
+        for child in children {
+            if !child.is_null() {
+                if let Some(release) = (*child).release {
+                    release(child);
+                }
+                // Children are allocated with Box::into_raw in PrivateData::new, so the
+                // release callback must also reclaim the ArrowArray allocation itself.
+                drop(Box::from_raw(child));
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
+    use arrow_schema::Fields;
+    use arrow_schema::Schema;
     use rstest::rstest;
     use vortex::array::ArrayRef;
     use vortex::array::IntoArray;
+    use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::DecimalArray;
     use vortex::array::arrays::NullArray;
     use vortex::array::arrays::PrimitiveArray;
@@ -295,10 +365,84 @@ mod tests {
     use vortex::extension::datetime::TimeUnit;
     use vortex::session::VortexSession;
 
-    use super::release_array;
+    use crate::CudaExecutionCtx;
+    use crate::arrow::ARROW_DEVICE_CUDA;
+    use crate::arrow::ArrowArray;
+    use crate::arrow::ArrowDeviceArray;
     use crate::arrow::DeviceArrayExt;
-    use crate::arrow::DeviceType;
+    use crate::arrow::PrivateData;
     use crate::session::CudaSession;
+
+    unsafe fn release_exported_array(array: *mut ArrowArray) {
+        unsafe {
+            if let Some(release) = (*array).release {
+                release(array);
+            }
+        }
+    }
+
+    // Assert Arrow Device metadata that consumers use before reading buffers.
+    fn assert_device_metadata(
+        device_array: &ArrowDeviceArray,
+        expected_device_id: i64,
+        expect_sync_event: bool,
+    ) {
+        assert_eq!(device_array.device_id, expected_device_id);
+        assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
+        assert_eq!(device_array.reserved, [0, 0, 0]);
+        assert_eq!(device_array.sync_event.is_null(), !expect_sync_event);
+    }
+
+    // Assert an exported array has a device null bitmap in buffer slot 0.
+    fn assert_null_buffer(array: &ArrowArray, expected_null_count: i64) -> VortexResult<()> {
+        assert_eq!(array.null_count, expected_null_count);
+        let buffers =
+            unsafe { std::slice::from_raw_parts(array.buffers, usize::try_from(array.n_buffers)?) };
+        assert!(!buffers[0].is_null());
+        Ok(())
+    }
+
+    // Export a nullable array and assert its null-buffer metadata.
+    async fn assert_nullable_export(
+        array: ArrayRef,
+        expected_n_buffers: i64,
+        expected_null_count: i64,
+        ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<ArrowDeviceArray> {
+        let device_array = array.export_device_array(ctx).await?;
+        assert_eq!(device_array.array.n_buffers, expected_n_buffers);
+        assert_null_buffer(&device_array.array, expected_null_count)?;
+        Ok(device_array)
+    }
+
+    // Build a nested struct fixture with an out-of-line string-view value.
+    fn nested_struct_array() -> ArrayRef {
+        let nested = StructArray::new(
+            FieldNames::from_iter(["b", "c"]),
+            vec![
+                PrimitiveArray::from_iter(0i64..5).into_array(),
+                VarBinViewArray::from_iter_str([
+                    "one",
+                    "two",
+                    "this is a longer string for out-of-line storage",
+                    "four",
+                    "five",
+                ])
+                .into_array(),
+            ],
+            5,
+            Validity::NonNullable,
+        )
+        .into_array();
+
+        StructArray::new(
+            FieldNames::from_iter(["a", "nested"]),
+            vec![PrimitiveArray::from_iter(0u32..5).into_array(), nested],
+            5,
+            Validity::NonNullable,
+        )
+        .into_array()
+    }
 
     #[rstest]
     #[case::u8(PrimitiveArray::from_iter(0u8..10).into_array(), 10)]
@@ -325,9 +469,9 @@ mod tests {
         assert_eq!(device_array.array.n_buffers, 2);
         assert_eq!(device_array.array.n_children, 0);
         assert!(device_array.array.release.is_some());
-        assert!(matches!(device_array.device_type, DeviceType::Cuda));
+        assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
 
-        unsafe { release_array(&raw mut device_array.array) };
+        unsafe { release_exported_array(&raw mut device_array.array) };
         Ok(())
     }
 
@@ -341,9 +485,9 @@ mod tests {
 
         assert_eq!(device_array.array.length, 7);
         assert_eq!(device_array.array.null_count, 7);
-        assert!(matches!(device_array.device_type, DeviceType::Cuda));
+        assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
 
-        unsafe { release_array(&raw mut device_array.array) };
+        unsafe { release_exported_array(&raw mut device_array.array) };
         Ok(())
     }
 
@@ -360,9 +504,9 @@ mod tests {
         assert_eq!(device_array.array.n_buffers, 2);
         assert_eq!(device_array.array.n_children, 0);
         assert!(device_array.array.release.is_some());
-        assert!(matches!(device_array.device_type, DeviceType::Cuda));
+        assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
 
-        unsafe { release_array(&raw mut device_array.array) };
+        unsafe { release_exported_array(&raw mut device_array.array) };
         Ok(())
     }
 
@@ -383,9 +527,28 @@ mod tests {
         assert_eq!(device_array.array.n_buffers, 2);
         assert_eq!(device_array.array.n_children, 0);
         assert!(device_array.array.release.is_some());
-        assert!(matches!(device_array.device_type, DeviceType::Cuda));
+        assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
 
-        unsafe { release_array(&raw mut device_array.array) };
+        unsafe { release_exported_array(&raw mut device_array.array) };
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_export_bool() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let array = BoolArray::from_iter([true, false, true]).into_array();
+        let mut device_array = array.export_device_array(&mut ctx).await?;
+
+        assert_eq!(device_array.array.length, 3);
+        assert_eq!(device_array.array.null_count, 0);
+        assert_eq!(device_array.array.n_buffers, 2);
+        assert_eq!(device_array.array.n_children, 0);
+        assert!(device_array.array.release.is_some());
+        assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
+
+        unsafe { release_exported_array(&raw mut device_array.array) };
         Ok(())
     }
 
@@ -404,13 +567,336 @@ mod tests {
 
         assert_eq!(device_array.array.length, 3);
         assert_eq!(device_array.array.null_count, 0);
-        // VarBin export: null buffer + offsets + data
-        assert_eq!(device_array.array.n_buffers, 2);
+        // VarBinView export: null buffer + views + data buffers + variadic buffer sizes
+        assert_eq!(device_array.array.n_buffers, 4);
+        let n_buffers = usize::try_from(device_array.array.n_buffers)?;
+        let buffers = unsafe { std::slice::from_raw_parts(device_array.array.buffers, n_buffers) };
+        assert!(buffers[0].is_null());
+        assert!(!buffers[1].is_null());
+        assert!(!buffers[2].is_null());
+        assert!(!buffers[3].is_null());
         assert_eq!(device_array.array.n_children, 0);
         assert!(device_array.array.release.is_some());
-        assert!(matches!(device_array.device_type, DeviceType::Cuda));
+        assert!(!device_array.array.private_data.is_null());
+        assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
 
-        unsafe { release_array(&raw mut device_array.array) };
+        unsafe { release_exported_array(&raw mut device_array.array) };
+        Ok(())
+    }
+
+    // Check device metadata for data-bearing and metadata-only exports.
+    #[crate::test]
+    async fn test_export_device_metadata() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+        let expected_device_id = ctx.stream().context().ordinal() as i64;
+
+        let array = PrimitiveArray::from_iter(0u32..5).into_array();
+        let mut device_array = array.export_device_array(&mut ctx).await?;
+        assert_device_metadata(&device_array, expected_device_id, true);
+        assert!(!device_array.array.private_data.is_null());
+        unsafe { release_exported_array(&raw mut device_array.array) };
+
+        let array = NullArray::new(5).into_array();
+        let mut device_array = array.export_device_array(&mut ctx).await?;
+        assert_device_metadata(&device_array, expected_device_id, false);
+        assert!(device_array.array.private_data.is_null());
+        unsafe { release_exported_array(&raw mut device_array.array) };
+
+        Ok(())
+    }
+
+    // Check sliced arrays preserve the expected Arrow length/offset metadata.
+    #[crate::test]
+    async fn test_export_sliced_arrays() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let primitive = PrimitiveArray::from_iter(0u32..10)
+            .into_array()
+            .slice(3..8)?;
+        let mut device_array = primitive.export_device_array(&mut ctx).await?;
+        assert_eq!(device_array.array.length, 5);
+        assert_eq!(device_array.array.offset, 0);
+        assert_eq!(device_array.array.n_buffers, 2);
+        unsafe { release_exported_array(&raw mut device_array.array) };
+
+        let bools = BoolArray::from_iter([true, false, true, true, false, false, true, false])
+            .into_array()
+            .slice(1..6)?;
+        let mut device_array = bools.export_device_array(&mut ctx).await?;
+        assert_eq!(device_array.array.length, 5);
+        assert_eq!(device_array.array.offset, 1);
+        assert_eq!(device_array.array.n_buffers, 2);
+        unsafe { release_exported_array(&raw mut device_array.array) };
+
+        Ok(())
+    }
+
+    // Check nullable primitives export Arrow null bitmaps on device.
+    #[crate::test]
+    async fn test_export_nullable_primitive() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let mut primitive = assert_nullable_export(
+            PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array(),
+            2,
+            1,
+            &mut ctx,
+        )
+        .await?;
+        unsafe { release_exported_array(&raw mut primitive.array) };
+
+        let mut all_null_primitive = assert_nullable_export(
+            PrimitiveArray::from_option_iter([None::<i32>, None]).into_array(),
+            2,
+            2,
+            &mut ctx,
+        )
+        .await?;
+        unsafe { release_exported_array(&raw mut all_null_primitive.array) };
+
+        Ok(())
+    }
+
+    // Check nullable bool exports preserve Arrow offset metadata.
+    #[crate::test]
+    async fn test_export_nullable_bool() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let mut bools = assert_nullable_export(
+            BoolArray::from_iter([Some(true), None, Some(false), Some(true)])
+                .into_array()
+                .slice(1..4)?,
+            2,
+            1,
+            &mut ctx,
+        )
+        .await?;
+        assert_eq!(bools.array.offset, 1);
+        unsafe { release_exported_array(&raw mut bools.array) };
+
+        Ok(())
+    }
+
+    // Check synthesized all-null bool validity is large enough for Arrow offset-based reads.
+    #[crate::test]
+    async fn test_export_all_null_sliced_bool_validity_covers_arrow_offset() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let mut bools = assert_nullable_export(
+            BoolArray::from_iter([None; 10]).into_array().slice(7..9)?,
+            2,
+            2,
+            &mut ctx,
+        )
+        .await?;
+        assert_eq!(bools.array.offset, 7);
+
+        let private_data = unsafe { &*bools.array.private_data.cast::<PrivateData>() };
+        let null_buffer = private_data.buffers[0]
+            .as_ref()
+            .vortex_expect("null buffer should be present");
+        assert_eq!(null_buffer.len(), 2);
+
+        unsafe { release_exported_array(&raw mut bools.array) };
+
+        Ok(())
+    }
+
+    // Check nullable decimal exports include Arrow null bitmaps.
+    #[crate::test]
+    async fn test_export_nullable_decimal() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let mut decimal = assert_nullable_export(
+            DecimalArray::from_option_iter(
+                [Some(100i32), None, Some(300)],
+                DecimalDType::new(10, 2),
+            )
+            .into_array(),
+            2,
+            1,
+            &mut ctx,
+        )
+        .await?;
+        unsafe { release_exported_array(&raw mut decimal.array) };
+
+        Ok(())
+    }
+
+    // Check nullable temporal exports include Arrow null bitmaps.
+    #[crate::test]
+    async fn test_export_nullable_temporal() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let mut temporal = assert_nullable_export(
+            TemporalArray::new_date(
+                PrimitiveArray::from_option_iter([Some(100i32), None, Some(300)]).into_array(),
+                TimeUnit::Days,
+            )
+            .into_array(),
+            2,
+            1,
+            &mut ctx,
+        )
+        .await?;
+        unsafe { release_exported_array(&raw mut temporal.array) };
+
+        Ok(())
+    }
+
+    // Check nullable string-view exports include Arrow null bitmaps.
+    #[crate::test]
+    async fn test_export_nullable_varbinview() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let mut varbinview = assert_nullable_export(
+            VarBinViewArray::from_iter_nullable_str([
+                Some("one"),
+                None,
+                Some("this is a longer string for out-of-line storage"),
+            ])
+            .into_array(),
+            4,
+            1,
+            &mut ctx,
+        )
+        .await?;
+        unsafe { release_exported_array(&raw mut varbinview.array) };
+
+        Ok(())
+    }
+
+    // Check nullable struct exports include Arrow null bitmaps.
+    #[crate::test]
+    async fn test_export_nullable_struct() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let mut struct_array = assert_nullable_export(
+            StructArray::try_new(
+                FieldNames::from_iter(["a"]),
+                vec![PrimitiveArray::from_iter(0u32..3).into_array()],
+                3,
+                Validity::from_iter([true, false, true]),
+            )?
+            .into_array(),
+            1,
+            1,
+            &mut ctx,
+        )
+        .await?;
+        unsafe { release_exported_array(&raw mut struct_array.array) };
+
+        Ok(())
+    }
+
+    // Check nested struct children expose cuDF-compatible Arrow Device layouts.
+    #[crate::test]
+    async fn test_export_nested_struct_child_layout() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let mut device_array = nested_struct_array().export_device_array(&mut ctx).await?;
+
+        assert_eq!(device_array.array.n_buffers, 1);
+        assert_eq!(device_array.array.n_children, 2);
+        let children = unsafe {
+            std::slice::from_raw_parts(
+                device_array.array.children,
+                usize::try_from(device_array.array.n_children)?,
+            )
+        };
+
+        let primitive_child = unsafe { &*children[0] };
+        assert_eq!(primitive_child.n_buffers, 2);
+        assert_eq!(primitive_child.n_children, 0);
+
+        let nested_child = unsafe { &*children[1] };
+        assert_eq!(nested_child.n_buffers, 1);
+        assert_eq!(nested_child.n_children, 2);
+        let nested_children = unsafe {
+            std::slice::from_raw_parts(
+                nested_child.children,
+                usize::try_from(nested_child.n_children)?,
+            )
+        };
+
+        let nested_primitive_child = unsafe { &*nested_children[0] };
+        assert_eq!(nested_primitive_child.n_buffers, 2);
+        assert_eq!(nested_primitive_child.n_children, 0);
+
+        let string_child = unsafe { &*nested_children[1] };
+        assert_eq!(string_child.n_buffers, 4);
+        assert_eq!(string_child.n_children, 0);
+        let string_buffers = unsafe {
+            std::slice::from_raw_parts(
+                string_child.buffers,
+                usize::try_from(string_child.n_buffers)?,
+            )
+        };
+        assert!(string_buffers[0].is_null());
+        assert!(!string_buffers[1].is_null());
+        assert!(!string_buffers[2].is_null());
+        assert!(!string_buffers[3].is_null());
+
+        unsafe { release_exported_array(&raw mut device_array.array) };
+        Ok(())
+    }
+
+    // Check parent release recursively releases children and is safe to repeat.
+    #[crate::test]
+    async fn test_release_is_idempotent_and_releases_children() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let mut device_array = nested_struct_array().export_device_array(&mut ctx).await?;
+
+        assert!(device_array.array.release.is_some());
+        assert!(!device_array.array.private_data.is_null());
+        assert_eq!(device_array.array.n_children, 2);
+        let children = unsafe {
+            std::slice::from_raw_parts(
+                device_array.array.children,
+                usize::try_from(device_array.array.n_children)?,
+            )
+        };
+        assert!(children.iter().all(|child| !child.is_null()));
+        assert!(
+            children
+                .iter()
+                .all(|child| unsafe { (**child).release.is_some() })
+        );
+
+        let nested_child = children[1];
+        assert_eq!(unsafe { (*nested_child).n_children }, 2);
+        let nested_children = unsafe {
+            std::slice::from_raw_parts(
+                (*nested_child).children,
+                usize::try_from((*nested_child).n_children)?,
+            )
+        };
+        assert!(nested_children.iter().all(|child| !child.is_null()));
+        assert!(
+            nested_children
+                .iter()
+                .all(|child| unsafe { (**child).release.is_some() })
+        );
+
+        unsafe { release_exported_array(&raw mut device_array.array) };
+        assert!(device_array.array.release.is_none());
+        assert!(device_array.array.private_data.is_null());
+
+        unsafe { release_exported_array(&raw mut device_array.array) };
+        assert!(device_array.array.release.is_none());
+
         Ok(())
     }
 
@@ -437,9 +923,122 @@ mod tests {
         assert_eq!(device_array.array.n_buffers, 1);
         assert_eq!(device_array.array.n_children, 2);
         assert!(device_array.array.release.is_some());
-        assert!(matches!(device_array.device_type, DeviceType::Cuda));
+        assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
 
-        unsafe { release_array(&raw mut device_array.array) };
+        unsafe { release_exported_array(&raw mut device_array.array) };
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_export_struct_with_schema() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let array = StructArray::new(
+            FieldNames::from_iter(["a", "b", "c"]),
+            vec![
+                PrimitiveArray::from_iter(0u32..5).into_array(),
+                PrimitiveArray::from_iter(0i64..5).into_array(),
+                VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"])
+                    .into_array(),
+            ],
+            5,
+            Validity::NonNullable,
+        )
+        .into_array();
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+
+        let schema = Schema::try_from(&exported.schema)?;
+        assert_eq!(
+            schema,
+            Schema::new(vec![
+                Field::new("a", DataType::UInt32, false),
+                Field::new("b", DataType::Int64, false),
+                Field::new("c", DataType::Utf8View, false),
+            ])
+        );
+        assert_eq!(exported.array.array.length, 5);
+        assert_eq!(exported.array.array.n_buffers, 1);
+        assert_eq!(exported.array.array.n_children, 3);
+        assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    // Check nested struct device exports carry the matching Arrow schema.
+    #[crate::test]
+    async fn test_export_nested_struct_with_schema() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let mut exported = nested_struct_array()
+            .export_device_array_with_schema(&mut ctx)
+            .await?;
+
+        let schema = Schema::try_from(&exported.schema)?;
+        assert_eq!(
+            schema,
+            Schema::new(vec![
+                Field::new("a", DataType::UInt32, false),
+                Field::new(
+                    "nested",
+                    DataType::Struct(Fields::from(vec![
+                        Field::new("b", DataType::Int64, false),
+                        Field::new("c", DataType::Utf8View, false),
+                    ])),
+                    false,
+                ),
+            ])
+        );
+        assert_eq!(exported.array.array.length, 5);
+        assert_eq!(exported.array.array.n_children, 2);
+        assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_export_primitive_with_schema_is_column_shaped() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let array = PrimitiveArray::from_iter(0u32..5).into_array();
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+
+        let field = Field::try_from(&exported.schema)?;
+        assert_eq!(field, Field::new("", DataType::UInt32, false));
+        assert_eq!(exported.array.array.length, 5);
+        assert_eq!(exported.array.array.n_buffers, 2);
+        assert_eq!(exported.array.array.n_children, 0);
+        assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_export_varbinview_with_schema_uses_utf8_view_layout() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let array = VarBinViewArray::from_iter_str([
+            "one",
+            "two",
+            "this is a longer string for out-of-line storage",
+        ])
+        .into_array();
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+
+        let field = Field::try_from(&exported.schema)?;
+        assert_eq!(field, Field::new("", DataType::Utf8View, false));
+        assert_eq!(exported.array.array.length, 3);
+        assert_eq!(exported.array.array.n_buffers, 4);
+        assert_eq!(exported.array.array.n_children, 0);
+        assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
     }
 }

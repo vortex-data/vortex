@@ -58,7 +58,7 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
         Map<String, String> opts = Maps.newHashMap();
         opts.putAll(formatOptions);
         opts.putAll(options);
-        return new VortexScanBuilder(opts)
+        return new VortexScanBuilder(opts, partitionTransforms)
                 .addAllPaths(paths)
                 .addAllColumns(Arrays.asList(CatalogV2Util.structTypeToV2Columns(schema)));
     }

@@ -1,0 +1,39 @@
+cff-version: 1.2.0
+title: Vortex
+abstract: >-
+  Vortex is an extensible framework for compressed columnar data, spanning
+  in-memory arrays, on-disk file formats, over-the-wire protocols, and query
+  engine integrations. It decouples a logical type system from physical layout
+  and provides a pluggable system of cascading compression encodings that
+  operate directly on compressed data with zero-copy Apache Arrow
+  compatibility. These components compose into a default file format, and
+  Vortex integrates with engines including DataFusion, DuckDB, and Spark.
+type: software
+version: 0.72.0
+date-released: 2026-05-20
+url: "https://github.com/vortex-data/vortex"
+repository-code: "https://github.com/vortex-data/vortex"
+license: Apache-2.0
+authors:
+  - given-names: Nicholas
+    family-names: Gates
+    email: "nick@spiraldb.com"
+    affiliation: Spiral
+  - given-names: Robert
+    family-names: Kruszewski
+    email: "robert@spiraldb.com"
+    affiliation: Spiral
+  - given-names: Will
+    family-names: Manning
+    email: "will@spiraldb.com"
+    affiliation: Spiral
+keywords:
+  - columnar
+  - file-format
+  - compression
+  - arrow
+  - encodings
+  - object-storage
+message: >-
+  If you use Vortex in academic work, please cite it using the metadata in this
+  file.

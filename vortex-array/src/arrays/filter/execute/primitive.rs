@@ -8,8 +8,12 @@ use vortex_mask::MaskValues;
 
 use crate::arrays::PrimitiveArray;
 use crate::arrays::filter::execute::buffer;
+use crate::arrays::filter::execute::byte_compress;
 use crate::arrays::filter::execute::filter_validity;
+use crate::dtype::NativePType;
+use crate::dtype::PType;
 use crate::match_each_native_ptype;
+use crate::validity::Validity;
 
 pub fn filter_primitive(array: &PrimitiveArray, mask: &Arc<MaskValues>) -> PrimitiveArray {
     let validity = array
@@ -17,13 +21,34 @@ pub fn filter_primitive(array: &PrimitiveArray, mask: &Arc<MaskValues>) -> Primi
         .vortex_expect("primitive validity should be derivable");
     let filtered_validity = filter_validity(validity, mask);
 
-    match_each_native_ptype!(array.ptype(), |T| {
-        let filtered_buffer = buffer::filter_buffer(array.to_buffer::<T>(), mask.as_ref());
+    match array.ptype() {
+        // Byte-compress avoids materializing indices/slices and processes 8 elements per mask byte.
+        PType::U8 => filter_byte_compress::<u8>(array, filtered_validity, mask),
+        PType::I8 => filter_byte_compress::<i8>(array, filtered_validity, mask),
+        PType::U16 => filter_byte_compress::<u16>(array, filtered_validity, mask),
+        PType::I16 => filter_byte_compress::<i16>(array, filtered_validity, mask),
+        PType::U32 => filter_byte_compress::<u32>(array, filtered_validity, mask),
+        PType::I32 => filter_byte_compress::<i32>(array, filtered_validity, mask),
+        _ => match_each_native_ptype!(array.ptype(), |T| {
+            let filtered_buffer = buffer::filter_buffer(array.to_buffer::<T>(), mask.as_ref());
 
-        // SAFETY: We filter both the validity and the buffer with the same mask, so they must have
-        // the same length.
-        unsafe { PrimitiveArray::new_unchecked(filtered_buffer, filtered_validity) }
-    })
+            // SAFETY: We filter both the validity and the buffer with the same mask, so they must
+            // have the same length.
+            unsafe { PrimitiveArray::new_unchecked(filtered_buffer, filtered_validity) }
+        }),
+    }
+}
+
+fn filter_byte_compress<T: NativePType>(
+    array: &PrimitiveArray,
+    filtered_validity: Validity,
+    mask: &Arc<MaskValues>,
+) -> PrimitiveArray {
+    let filtered_buffer = byte_compress::filter_buffer(array.to_buffer::<T>(), mask.as_ref());
+
+    // SAFETY: We filter both the validity and the buffer with the same mask, so they must have the
+    // same length.
+    unsafe { PrimitiveArray::new_unchecked(filtered_buffer, filtered_validity) }
 }
 
 #[cfg(test)]
@@ -65,6 +90,9 @@ mod test {
     }
 
     #[rstest]
+    #[case(PrimitiveArray::from_iter([-2i8, -1, 0, 1, 2]))]
+    #[case(PrimitiveArray::from_iter([1u16, 2, 3, 4, 5]))]
+    #[case(PrimitiveArray::from_iter([-2i16, -1, 0, 1, 2]))]
     #[case(PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]))]
     #[case(PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None]))]
     #[case(PrimitiveArray::from_iter([42u64]))]

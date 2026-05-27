@@ -29,10 +29,12 @@ use crate::scalar::ScalarValue;
 
 /// Return the number of NaN values in an array.
 ///
+/// Null values are not NaN and are not counted.
+///
 /// See [`NanCount`] for details.
 pub fn nan_count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
     // Short-circuit using cached array statistics.
-    if let Some(Precision::Exact(nan_count_scalar)) = array.statistics().get(Stat::NaNCount) {
+    if let Precision::Exact(nan_count_scalar) = array.statistics().get(Stat::NaNCount) {
         return usize::try_from(&nan_count_scalar)
             .map_err(|e| vortex_err!("Failed to convert NaN count stat to usize: {e}"));
     }
@@ -72,7 +74,7 @@ pub fn nan_count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<usize
 /// Count the number of NaN values in an array.
 ///
 /// Only applies to floating-point primitive types. Returns a `u64` count.
-/// If the array is all-invalid, the NaN count is zero.
+/// Null values are not NaN, so if the array is all-invalid, the NaN count is zero.
 #[derive(Clone, Debug)]
 pub struct NanCount;
 

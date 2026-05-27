@@ -18,7 +18,7 @@ pub fn compress_patches(patches: Patches, ctx: &mut ExecutionCtx) -> VortexResul
         .indices()
         .clone()
         .execute::<PrimitiveArray>(ctx)?
-        .narrow()?
+        .narrow(ctx)?
         .into_array();
 
     // Check if the values are constant.
@@ -39,7 +39,7 @@ pub fn compress_patches(patches: Patches, ctx: &mut ExecutionCtx) -> VortexResul
             let offsets_primitive = offsets
                 .clone()
                 .execute::<PrimitiveArray>(ctx)?
-                .narrow()?
+                .narrow(ctx)?
                 .into_array();
             Ok::<ArrayRef, VortexError>(offsets_primitive)
         })

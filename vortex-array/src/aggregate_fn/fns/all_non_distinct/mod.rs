@@ -51,6 +51,7 @@ use crate::validity::Validity;
 /// Returns `true` if and only if:
 /// - Both arrays have the same dtype and length
 /// - At every position, both are null or both are non-null with the same value
+/// - The arrays are empty, vacuously
 ///
 /// This is a fused `bool_all(non_distinct(lhs, rhs))` aggregate that allows early
 /// termination via accumulator saturation as soon as a mismatch is found.
@@ -101,6 +102,8 @@ static NAMES: LazyLock<FieldNames> = LazyLock::new(|| FieldNames::from(["lhs", "
 /// into a single aggregate, enabling early termination via accumulator saturation: as soon
 /// as the first distinct pair is found, the accumulator is saturated and remaining batches
 /// are skipped.
+///
+/// Like other `all` aggregates, this is vacuously true for empty input.
 ///
 /// The input is a `Struct{lhs: T, rhs: T}` and the result is `Bool(NonNullable)`.
 #[derive(Clone, Debug)]

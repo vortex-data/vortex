@@ -46,14 +46,8 @@ static NAMES: LazyLock<FieldNames> = LazyLock::new(|| FieldNames::from(["min", "
 /// This will update the stats set of the array as a side effect.
 pub fn min_max(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<MinMaxResult>> {
     // Short-circuit using cached array statistics.
-    let cached_min = array
-        .statistics()
-        .get(Stat::Min)
-        .and_then(Precision::as_exact);
-    let cached_max = array
-        .statistics()
-        .get(Stat::Max)
-        .and_then(Precision::as_exact);
+    let cached_min = array.statistics().get(Stat::Min).as_exact();
+    let cached_max = array.statistics().get(Stat::Max).as_exact();
     if let Some((min, max)) = cached_min.zip(cached_max) {
         let non_nullable_dtype = array.dtype().as_nonnullable();
         return Ok(Some(MinMaxResult {
@@ -177,7 +171,7 @@ impl AggregateFnVTable for MinMax {
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        unimplemented!("MinMax is not yet serializable");
+        Ok(None)
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
@@ -325,6 +319,32 @@ mod tests {
             Some(MinMaxResult {
                 min: 1.into(),
                 max: 3.into()
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_prim_min_max_multiple_null_runs() -> VortexResult<()> {
+        // Several disjoint valid runs separated by nulls exercise the per-run fold; the extrema
+        // (min 1, max 9) fall in different runs.
+        let p = PrimitiveArray::from_option_iter([
+            Some(5i32),
+            Some(3),
+            None,
+            None,
+            Some(9),
+            None,
+            Some(1),
+            Some(7),
+        ])
+        .into_array();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        assert_eq!(
+            min_max(&p, &mut ctx)?,
+            Some(MinMaxResult {
+                min: 1.into(),
+                max: 9.into()
             })
         );
         Ok(())

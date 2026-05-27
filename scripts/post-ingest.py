@@ -13,9 +13,24 @@ Reads bare v3 records from a JSONL file produced by `vortex-bench --gh-json-v3`,
 fills the `commit` envelope by shelling out to `git show`, and POSTs the
 envelope to `<server>/api/ingest` with a bearer token.
 
-Standard library only -- urllib, json, subprocess. No retries, no spool, no
-outbox. See `benchmarks-website/planning/02-contracts.md` and
-`benchmarks-website/planning/components/emitter.md`.
+Standard library only -- urllib, json, subprocess. The default envelope size
+(60 MiB, just under the server's 64 MiB body limit) is sized so a single
+JSONL run normally posts in one envelope -- preserving the "per-file
+all-or-nothing" contract the server documents. If the JSONL is large enough
+that splitting kicks in, the script emits a warning and proceeds with the
+chunked semantics (per-chunk commit, mid-chunk failure leaves earlier chunks
+ingested; subsequent retries re-upsert via the server's ON CONFLICT
+idempotency on `measurement_id`).
+
+Wire-contract pointers (kept in sync as a coordinated change per
+`benchmarks-website/AGENTS.md`):
+
+- `benchmarks-website/server/src/records.rs` - envelope + per-record wire
+  shapes that the server deserializes.
+- `vortex-bench/src/v3.rs` - bare-record producer that writes the JSONL this
+  script wraps.
+- `benchmarks-website/server/src/schema.rs` - `SCHEMA_VERSION` source of
+  truth that the `SCHEMA_VERSION` constant below MUST equal at every bump.
 """
 
 from __future__ import annotations
@@ -30,7 +45,16 @@ import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 
+# MUST equal `benchmarks-website/server/src/schema.rs::SCHEMA_VERSION`.
+# Bumping this is a coordinated change across schema.rs, records.rs, v3.rs,
+# and this script. See `benchmarks-website/AGENTS.md` ("Wire shapes are a
+# coordinated change") for the full list of coupled sites.
 SCHEMA_VERSION = 1
+# Default sized to fit comfortably under the server's 64 MiB ingest body
+# limit while leaving headroom for HTTP and JSON framing overhead. The
+# point is to keep a normal JSONL run in one envelope so the documented
+# "per-file all-or-nothing" contract holds.
+DEFAULT_MAX_ENVELOPE_BYTES = 60 * 1024 * 1024
 
 
 def parse_args() -> argparse.Namespace:
@@ -78,6 +102,12 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=30.0,
         help="HTTP timeout in seconds (default: 30).",
+    )
+    parser.add_argument(
+        "--max-envelope-bytes",
+        type=int,
+        default=DEFAULT_MAX_ENVELOPE_BYTES,
+        help=(f"Maximum encoded JSON bytes per POST before splitting records (default: {DEFAULT_MAX_ENVELOPE_BYTES})."),
     )
     return parser.parse_args()
 
@@ -134,8 +164,90 @@ def build_commit(sha: str, repo_url: str, git_dir: Path | None) -> dict:
     }
 
 
-def post(server: str, envelope: dict, token: str, timeout: float) -> tuple[int, bytes]:
-    body = json.dumps(envelope).encode("utf-8")
+def build_envelope(run_meta: dict, commit: dict, records: list[dict]) -> dict:
+    return {
+        "run_meta": run_meta,
+        "commit": commit,
+        "records": records,
+    }
+
+
+def encode_envelope(envelope: dict) -> bytes:
+    return json.dumps(envelope, separators=(",", ":")).encode("utf-8")
+
+
+def chunk_envelopes(
+    run_meta: dict,
+    commit: dict,
+    records: list[dict],
+    max_envelope_bytes: int,
+) -> list[tuple[dict, bytes]]:
+    if max_envelope_bytes <= 0:
+        raise SystemExit("--max-envelope-bytes must be positive")
+    if not records:
+        envelope = build_envelope(run_meta, commit, [])
+        return [(envelope, encode_envelope(envelope))]
+
+    # Cost model: re-encoding the growing envelope per record was O(N^2) in
+    # the size of the JSONL on the CI hot path. Instead track each record's
+    # encoded size once (`json.dumps(record)`) and reason about the
+    # cumulative chunk size via that plus per-record separator overhead
+    # plus a one-time envelope shell. Cross-check at chunk flush time by
+    # encoding the actual chunk and `assert len(body) <= cap` so a
+    # misestimation surfaces here, not at the server.
+    shell = build_envelope(run_meta, commit, [])
+    shell_bytes = len(encode_envelope(shell))
+    # `,` between records inside the JSON array.
+    record_sep_bytes = 1
+
+    def encoded_size(records_chunk: list[dict]) -> int:
+        env = build_envelope(run_meta, commit, records_chunk)
+        return len(encode_envelope(env))
+
+    encoded_records: list[bytes] = [json.dumps(r, separators=(",", ":")).encode("utf-8") for r in records]
+
+    chunks: list[tuple[dict, bytes]] = []
+    batch: list[dict] = []
+    batch_payload_bytes = 0
+
+    def flush_batch() -> None:
+        env = build_envelope(run_meta, commit, batch)
+        body = encode_envelope(env)
+        assert len(body) <= max_envelope_bytes, (
+            f"chunk_envelopes invariant violated: {len(body)} > {max_envelope_bytes}"
+        )
+        chunks.append((env, body))
+
+    for i, record in enumerate(records):
+        record_bytes = len(encoded_records[i])
+        # First record in a fresh batch has no separator before it.
+        delta = record_bytes if not batch else record_bytes + record_sep_bytes
+        projected = shell_bytes + batch_payload_bytes + delta
+
+        if not batch and projected > max_envelope_bytes:
+            # First record in a fresh batch ALONE exceeds the cap. Refuse
+            # rather than ship an over-cap chunk that the server will 413.
+            raise SystemExit(
+                f"single record exceeds --max-envelope-bytes "
+                f"(record {i} encodes to {record_bytes} bytes; "
+                f"envelope shell adds {shell_bytes}; cap is {max_envelope_bytes}). "
+                f"Raise --max-envelope-bytes, or trim the record before posting."
+            )
+
+        if batch and projected > max_envelope_bytes:
+            flush_batch()
+            batch = [record]
+            batch_payload_bytes = record_bytes
+        else:
+            batch.append(record)
+            batch_payload_bytes += delta
+
+    if batch:
+        flush_batch()
+    return chunks
+
+
+def post(server: str, body: bytes, token: str, timeout: float) -> tuple[int, bytes]:
     url = f"{server.rstrip('/')}/api/ingest"
     request = urllib.request.Request(
         url,
@@ -166,28 +278,61 @@ def main() -> int:
 
     records = read_records(args.jsonl_path)
     commit = build_commit(args.commit_sha, args.repo_url, args.git_dir)
-
-    envelope = {
-        "run_meta": {
-            "benchmark_id": args.benchmark_id,
-            "schema_version": SCHEMA_VERSION,
-            "started_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        },
-        "commit": commit,
-        "records": records,
+    run_meta = {
+        "benchmark_id": args.benchmark_id,
+        "schema_version": SCHEMA_VERSION,
+        "started_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
 
-    status, body = post(args.server, envelope, token, args.timeout)
-    body_text = body.decode("utf-8", errors="replace")
-
-    if status >= 400:
+    chunks = chunk_envelopes(run_meta, commit, records, args.max_envelope_bytes)
+    if len(chunks) > 1:
         print(
-            f"error: POST {args.server}/api/ingest -> {status}\n{body_text}",
+            f"warning: JSONL exceeds --max-envelope-bytes ({args.max_envelope_bytes} B); "
+            f"splitting into {len(chunks)} envelopes. Each chunk commits independently on "
+            "the server, so a mid-stream failure leaves earlier chunks ingested. "
+            "Re-run on failure to re-upsert via measurement_id ON CONFLICT.",
             file=sys.stderr,
         )
-        return 1
+    inserted = 0
+    updated = 0
+    raw_bodies: list[str] = []
+    for idx, (envelope, body) in enumerate(chunks, start=1):
+        if len(chunks) > 1:
+            print(
+                f"POST chunk {idx}/{len(chunks)} records={len(envelope['records'])} bytes={len(body)}",
+                file=sys.stderr,
+            )
+        status, response = post(args.server, body, token, args.timeout)
+        body_text = response.decode("utf-8", errors="replace")
 
-    print(body_text)
+        if status >= 400:
+            print(
+                f"error: POST {args.server}/api/ingest chunk {idx}/{len(chunks)} -> {status}\n{body_text}",
+                file=sys.stderr,
+            )
+            return 1
+
+        try:
+            parsed = json.loads(body_text)
+            inserted += int(parsed.get("inserted", 0))
+            updated += int(parsed.get("updated", 0))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            raw_bodies.append(body_text)
+
+    if raw_bodies:
+        print("\n".join(raw_bodies))
+    else:
+        print(
+            json.dumps(
+                {
+                    "chunks": len(chunks),
+                    "records": len(records),
+                    "inserted": inserted,
+                    "updated": updated,
+                },
+                separators=(",", ":"),
+            )
+        )
     return 0
 
 

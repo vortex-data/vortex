@@ -18,17 +18,14 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::Deserialize;
 use serde::Serialize;
 
-const PREFIX_QUERY: &str = "qm";
-const PREFIX_COMPRESSION_TIME: &str = "ct";
-const PREFIX_COMPRESSION_SIZE: &str = "cs";
-const PREFIX_RANDOM_ACCESS: &str = "rat";
-const PREFIX_VECTOR_SEARCH: &str = "vsr";
+use crate::family;
 
-const PREFIX_QUERY_GROUP: &str = "qmg";
-const PREFIX_COMPRESSION_TIME_GROUP: &str = "ctg";
-const PREFIX_COMPRESSION_SIZE_GROUP: &str = "csg";
-const PREFIX_RANDOM_ACCESS_GROUP: &str = "rag";
-const PREFIX_VECTOR_SEARCH_GROUP: &str = "vsg";
+// Slug prefixes live on each [`family::Family`] declaration (the
+// `chart_slug_prefix` / `group_slug_prefix` fields). `ChartKey::prefix`
+// and `GroupKey::prefix` consult the registry rather than maintaining a
+// parallel const table here; the prior `PREFIX_QUERY = "qm"` etc.
+// constants were a second source of truth that a test had to assert
+// equal-to-the-Family-entries.
 
 /// The strongly-typed chart key parsed from a slug.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -67,13 +64,7 @@ pub enum ChartKey {
 
 impl ChartKey {
     fn prefix(&self) -> &'static str {
-        match self {
-            Self::QueryMeasurement { .. } => PREFIX_QUERY,
-            Self::CompressionTime { .. } => PREFIX_COMPRESSION_TIME,
-            Self::CompressionSize { .. } => PREFIX_COMPRESSION_SIZE,
-            Self::RandomAccess { .. } => PREFIX_RANDOM_ACCESS,
-            Self::VectorSearch { .. } => PREFIX_VECTOR_SEARCH,
-        }
+        family::family_for_chart_key(self).chart_slug_prefix
     }
 
     /// Render the slug for this chart key.
@@ -122,13 +113,7 @@ pub enum GroupKey {
 
 impl GroupKey {
     fn prefix(&self) -> &'static str {
-        match self {
-            Self::QueryGroup { .. } => PREFIX_QUERY_GROUP,
-            Self::CompressionTimeGroup => PREFIX_COMPRESSION_TIME_GROUP,
-            Self::CompressionSizeGroup => PREFIX_COMPRESSION_SIZE_GROUP,
-            Self::RandomAccessGroup => PREFIX_RANDOM_ACCESS_GROUP,
-            Self::VectorSearchGroup { .. } => PREFIX_VECTOR_SEARCH_GROUP,
-        }
+        family::family_for_group_key(self).group_slug_prefix
     }
 
     /// Render the slug for this group key.

@@ -24,23 +24,12 @@ use crate::debug::TruncatedDebug;
 use crate::trusted_len::TrustedLen;
 
 /// An immutable buffer of items of `T`.
+#[derive(Clone)]
 pub struct Buffer<T> {
     pub(crate) bytes: Bytes,
     pub(crate) length: usize,
     pub(crate) alignment: Alignment,
     pub(crate) _marker: PhantomData<T>,
-}
-
-impl<T> Clone for Buffer<T> {
-    #[inline]
-    fn clone(&self) -> Self {
-        Self {
-            bytes: self.bytes.clone(),
-            length: self.length,
-            alignment: self.alignment,
-            _marker: PhantomData,
-        }
-    }
 }
 
 impl<T> Default for Buffer<T> {
@@ -58,18 +47,6 @@ impl<T> PartialEq for Buffer<T> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.bytes == other.bytes
-    }
-}
-
-impl<T: PartialEq> PartialEq<Vec<T>> for Buffer<T> {
-    fn eq(&self, other: &Vec<T>) -> bool {
-        self.as_ref() == other.as_slice()
-    }
-}
-
-impl<T: PartialEq> PartialEq<Buffer<T>> for Vec<T> {
-    fn eq(&self, other: &Buffer<T>) -> bool {
-        self.as_slice() == other.as_ref()
     }
 }
 
@@ -806,7 +783,7 @@ mod test {
         let vec = vec![1, 2, 3, 4, 5];
         let buff = Buffer::from(vec.clone());
         assert!(buff.is_aligned(Alignment::of::<i32>()));
-        assert_eq!(vec, buff);
+        assert_eq!(vec, buff.as_ref());
     }
 
     #[test]

@@ -16,20 +16,20 @@ use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 
-use crate::copy::VortexCopyFunction;
 use crate::duckdb::Database;
 use crate::duckdb::DatabaseRef;
 use crate::duckdb::LogicalType;
 use crate::duckdb::Value;
-use crate::multi_file::VortexMultiFileScan;
-use crate::multi_file::VortexMultiFileScanList;
 
+mod column_statistics;
 mod convert;
-mod datasource;
 pub mod duckdb;
 mod exporter;
+mod ffi;
 mod filesystem;
 mod multi_file;
+mod projection;
+mod table_function;
 
 #[rustfmt::skip]
 #[path = "./cpp.rs"]
@@ -70,12 +70,8 @@ pub fn initialize(db: &DatabaseRef) -> VortexResult<()> {
         LogicalType::varchar(),
         Value::from("vortex"),
     )?;
-    db.register_table_function::<VortexMultiFileScan>(c"vortex_scan")?;
-    db.register_table_function::<VortexMultiFileScan>(c"read_vortex")?;
-    // Register list overloads for multi-glob scanning (e.g., read_vortex(['a.vortex', 'b.vortex']))
-    db.register_table_function::<VortexMultiFileScanList>(c"vortex_scan")?;
-    db.register_table_function::<VortexMultiFileScanList>(c"read_vortex")?;
-    db.register_copy_function::<VortexCopyFunction>(c"vortex", c"vortex")
+    db.register_table_functions()?;
+    db.register_copy_function()
 }
 
 /// Global symbol visibility in the Vortex extension:

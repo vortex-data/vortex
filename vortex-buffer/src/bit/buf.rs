@@ -21,10 +21,12 @@ use crate::bit::BitIndexIterator;
 use crate::bit::BitIterator;
 use crate::bit::BitSliceIterator;
 use crate::bit::UnalignedBitChunk;
+use crate::bit::collect_bool_word;
 use crate::bit::count_ones::count_ones;
 use crate::bit::get_bit_unchecked;
 use crate::bit::ops::bitwise_binary_op;
 use crate::bit::ops::bitwise_unary_op;
+use crate::bit::select::bit_select;
 use crate::buffer;
 
 /// An immutable bitset stored as a packed byte buffer.
@@ -179,12 +181,11 @@ impl BitBuffer {
         let chunks = self.chunks();
 
         for (chunk_idx, src_chunk) in chunks.iter().enumerate() {
-            let mut packed = 0u64;
-            for bit_idx in 0..64 {
+            let packed = collect_bool_word(64, |bit_idx| {
                 let i = bit_idx + chunk_idx * 64;
                 let bit_value = (src_chunk >> bit_idx) & 1 == 1;
-                packed |= (f(i, bit_value) as u64) << bit_idx;
-            }
+                f(i, bit_value)
+            });
 
             // SAFETY: Already allocated sufficient capacity
             unsafe { buffer.push_unchecked(packed) }
@@ -192,12 +193,11 @@ impl BitBuffer {
 
         if remainder != 0 {
             let src_chunk = chunks.remainder_bits();
-            let mut packed = 0u64;
-            for bit_idx in 0..remainder {
+            let packed = collect_bool_word(remainder, |bit_idx| {
                 let i = bit_idx + chunks_count * 64;
                 let bit_value = (src_chunk >> bit_idx) & 1 == 1;
-                packed |= (f(i, bit_value) as u64) << bit_idx;
-            }
+                f(i, bit_value)
+            });
 
             // SAFETY: Already allocated sufficient capacity
             unsafe { buffer.push_unchecked(packed) }
@@ -317,6 +317,16 @@ impl BitBuffer {
     /// Get the number of set bits in the buffer.
     pub fn true_count(&self) -> usize {
         count_ones(self.buffer.as_slice(), self.offset, self.len)
+    }
+
+    /// Returns the position of the `nth` set bit (0-indexed).
+    ///
+    /// This is the "select" operation on a bitmap: given a rank `nth`, find
+    /// which logical bit position holds that rank.
+    ///
+    /// Returns `None` if `nth` is greater than or equal to the number of set bits.
+    pub fn select(&self, nth: usize) -> Option<usize> {
+        bit_select(self.buffer.as_slice(), self.offset, self.len, nth)
     }
 
     /// Get the number of unset bits in the buffer.

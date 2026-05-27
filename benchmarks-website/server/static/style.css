@@ -23,15 +23,19 @@
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --bg: #050507;
-    --page-bg: #121219;
+    /* Elevation hierarchy mirrors v2: page background sits at the
+     * deeper colour, cards / dropdowns / toolbars rise to the lighter
+     * grey. The previous assignment had cards darker than the page,
+     * which read as overly contrasty dark voids on the landing grid. */
+    --bg: #121219;
+    --page-bg: #050507;
     --fg: #f5f5f7;
     --muted: #a0a0b0;
     --accent: #8a9cff;
     --accent-fg: #050507;
     --border: #30303a;
-    --card-bg: #050507;
-    --code-bg: #121219;
+    --card-bg: #121219;
+    --code-bg: #050507;
     --tooltip-bg: #1a1c22;
     --tooltip-fg: #f5f5f5;
     --good: #4ade80;
@@ -60,15 +64,17 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #050507;
-  --page-bg: #121219;
+  /* See the matching `@media (prefers-color-scheme: dark)` block above
+   * for the rationale on the --bg / --page-bg / --card-bg assignment. */
+  --bg: #121219;
+  --page-bg: #050507;
   --fg: #f5f5f7;
   --muted: #a0a0b0;
   --accent: #8a9cff;
   --accent-fg: #050507;
   --border: #30303a;
-  --card-bg: #050507;
-  --code-bg: #121219;
+  --card-bg: #121219;
+  --code-bg: #050507;
   --tooltip-bg: #1a1c22;
   --tooltip-fg: #f5f5f5;
   --good: #4ade80;
@@ -86,10 +92,29 @@ html, body {
   overflow-x: hidden;
   background: var(--page-bg);
   color: var(--fg);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+  /* Geist is loaded from unpkg by `html::render::web_font_links`; the
+   * fallback stack matches v2's `src/styles/index.css` so the site
+   * remains legible if the CDN is blocked. */
+  font-family: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "SF Pro Display", Roboto, sans-serif;
   font-size: 16px;
   line-height: 1.6;
+}
+
+/* All headings use Funnel Display, mirroring v2's
+ * `h1, h2, h3, h4, h5, h6` rule. Loaded from Google Fonts by
+ * `html::render::web_font_links`. */
+h1, h2, h3, h4, h5, h6 {
+  font-family: "Funnel Display", sans-serif;
+  letter-spacing: -0.02em;
+}
+
+/* Code blocks use Geist Mono, mirroring v2's `code, pre` rule. The
+ * fallback stack matches what the explicit-mono usages further down
+ * declare so a CDN-blocked client still gets a monospace font. */
+code, pre {
+  font-family: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo,
+    Consolas, monospace;
 }
 
 body {
@@ -131,6 +156,11 @@ a:hover { text-decoration: underline; }
 }
 
 .header-content {
+  /* Sticky-header inner background. v2 maps this to `--bg-secondary`,
+   * the elevated grey in dark mode (`#121219`); v3's `--bg` resolves
+   * to the same colour. Using `--code-bg` here flattened the header
+   * against the page in dark mode. */
+  background: var(--bg);
   position: relative;
   display: flex;
   align-items: center;
@@ -139,7 +169,6 @@ a:hover { text-decoration: underline; }
   width: 100%;
   height: 100%;
   padding: 0 2rem;
-  background: var(--code-bg);
 }
 
 .header-left,
@@ -218,8 +247,8 @@ a:hover { text-decoration: underline; }
   display: none;
   margin: 0 0 0 1.5rem;
   color: var(--fg);
-  font-size: 1.25rem;
-  font-weight: 600;
+  font-size: 1.5rem;
+  font-weight: 500;
   line-height: 1.2;
   white-space: nowrap;
 }
@@ -295,7 +324,7 @@ a:hover { text-decoration: underline; }
 
 .repo-link {
   padding: 0.5rem 1rem;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .github-logo {
@@ -353,7 +382,11 @@ main {
   list-style: none;
   cursor: pointer;
   display: block;
-  background: var(--code-bg);
+  /* Elevated surface - v2's `.benchmark-header` uses `--bg-secondary`
+   * (`#121219` in dark mode); `--card-bg` is the v3 alias for that
+   * elevated colour. Using `--code-bg` here flattened the disclosure
+   * bar against the page in dark mode. */
+  background: var(--card-bg);
   border-radius: 12px 12px 0 0;
   user-select: none;
 }
@@ -382,14 +415,18 @@ main {
 }
 .group-summary:hover .group-summary-row { background: var(--bg); }
 .group-name {
+  /* `.group-name` is a `<span>` in `landing.rs`, so it doesn't inherit
+   * from the `h1, h2, ..., h6` rule. v2's `.benchmark-title` applies
+   * Funnel Display explicitly; mirror that here. */
+  font-family: "Funnel Display", sans-serif;
   font-weight: 600;
   font-size: 1.35rem;
   line-height: 1.2;
-  letter-spacing: 0;
+  letter-spacing: -0.02em;
 }
 .group-count {
   color: var(--muted);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   font-size: 0.7rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -435,7 +472,7 @@ main {
  * Anchored to the icon's left edge (not centred on the icon) so the tooltip
  * grows rightward into the page. Group titles in our layout are left-
  * aligned in the disclosure header, so the icon is always close to the
- * viewport's left edge — `left: 50%; transform: translateX(-50%)` would
+ * viewport's left edge - `left: 50%; transform: translateX(-50%)` would
  * push half of a wide tooltip off the screen and clip it. Anchoring to the
  * left keeps the description fully visible.
  */
@@ -469,12 +506,18 @@ main {
 }
 .group-details > .chart-grid {
   padding: 1.25rem;
-  background: var(--bg);
+  /* Page-level surface behind the chart cards. v2's `.benchmark-graphs`
+   * uses `--bg-color` (`#050507` in dark mode); `--page-bg` is the v3
+   * alias for the page colour. Using `--bg` here made the grid behind
+   * cards appear lighter than the body, inverting v2's elevation. */
+  background: var(--page-bg);
 }
 
 .benchmark-scores-summary {
   border-bottom: 1px solid var(--border);
-  background: var(--code-bg);
+  /* Elevated surface, same role as v2's `.benchmark-scores-summary`
+   * which uses `--bg-secondary`. */
+  background: var(--card-bg);
   padding: 0.75rem 2rem;
   margin: 0;
 }
@@ -519,7 +562,7 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   margin: 0 0 0.5rem;
   color: var(--muted);
   font-size: 0.75rem;
-  font-weight: 650;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -542,7 +585,7 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   min-width: 2.25rem;
   color: var(--accent);
   font-size: 0.75rem;
-  font-weight: 650;
+  font-weight: 600;
   text-transform: uppercase;
   font-variant-numeric: tabular-nums;
 }
@@ -552,7 +595,7 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   flex: 1;
   overflow: hidden;
   color: var(--fg);
-  font-weight: 550;
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -567,9 +610,9 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
 
 .score-value,
 .score-runtime {
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   font-size: 0.8rem;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .score-value { color: var(--accent); }
@@ -584,7 +627,7 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
 }
 
 /* ----------------------------------------------------------------------
- * Global filter dropdown — lives inside the sticky header. The trigger is
+ * Global filter dropdown - lives inside the sticky header. The trigger is
  * a `.control-btn` styled like the expand/collapse buttons; the panel is
  * absolutely positioned beneath it and shows two rows of `.filter-chip`
  * buttons that toggle whole engines / formats across every chart at once.
@@ -670,7 +713,7 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   color: var(--accent-fg);
 }
 .filter-chip--all {
-  font-weight: 600;
+  font-weight: 500;
 }
 
 /* ----------------------------------------------------------------------
@@ -729,7 +772,7 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
 }
 
 /* ----------------------------------------------------------------------
- * Per-group toolbar — sits between the group's score summary and the
+ * Per-group toolbar - sits between the group's score summary and the
  * chart grid. Y-axis buttons on the left, a centered "Filter series"
  * dropdown trigger, and a Reset button on the right. The dropdown panel
  * holds engine/format macro chips and a series row populated by JS as
@@ -843,7 +886,7 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
 .chart-card-title {
   margin: 0 0 0.4rem;
   font-size: 0.95rem;
-  font-weight: 600;
+  font-weight: 500;
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
@@ -1226,4 +1269,43 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
   .chart-grid { grid-template-columns: 1fr; gap: 0.5rem; }
   .chart-wrap { height: 350px; }
   main > .chart-card:not(.chart-grid .chart-card) .chart-wrap { height: 420px; }
+}
+
+/* ----------------------------------------------------------------------
+ * Footer
+ * ----------------------------------------------------------------------
+ * Emitted by `html::render::site_footer` at the bottom of every page. The
+ * `build <sha>` text links the short SHA to the matching commit on
+ * GitHub so the rendered page is always traceable to a source revision.
+ * Kept small + muted so it sits below the content without competing.
+ */
+.site-footer {
+  padding: 1.5rem 2rem 2rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.site-footer-label {
+  color: var(--muted);
+}
+
+.site-footer-sha code {
+  font-family: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo,
+    Consolas, monospace;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+a.site-footer-sha {
+  color: var(--muted);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+a.site-footer-sha:hover,
+a.site-footer-sha:hover code {
+  color: var(--accent);
+  text-decoration: none;
 }

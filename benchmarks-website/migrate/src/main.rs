@@ -42,6 +42,15 @@ enum Command {
         /// `data.json.gz`, `commits.json`, and `file-sizes-*.json.gz`.
         #[arg(long, required_if_eq("source", "local"))]
         source_dir: Option<PathBuf>,
+        /// Continue past per-`file-sizes-*.json.gz` failures rather than
+        /// failing the migration. By default a single failed
+        /// `file-sizes-*` source is an error, because a "successful"
+        /// migrated DB with missing compression-size history is a worse
+        /// outcome than a loud failure that the operator can retry. Pass
+        /// this flag when you genuinely want partial coverage (e.g. one
+        /// known-bad source file you want to skip).
+        #[arg(long, default_value_t = false)]
+        allow_missing_file_sizes: bool,
     },
     /// Diff a migrated DuckDB against the live v2 `/api/metadata`
     /// endpoint. Exits 0 if every v2 group is present in v3, 1
@@ -83,6 +92,7 @@ fn run() -> Result<()> {
             output,
             source,
             source_dir,
+            allow_missing_file_sizes,
         } => {
             let source = match source {
                 SourceKind::PublicS3 => Source::PublicS3,
@@ -98,6 +108,13 @@ fn run() -> Result<()> {
                      stop and report unmatched prefixes (see summary above) \
                      before proceeding",
                     100.0 * summary.uncategorized_fraction()
+                );
+            }
+            if summary.file_sizes_failed > 0 && !allow_missing_file_sizes {
+                anyhow::bail!(
+                    "{} file-sizes-*.json.gz source file(s) failed (see warnings above); \
+                     re-run with --allow-missing-file-sizes if partial coverage is intended",
+                    summary.file_sizes_failed
                 );
             }
             Ok(())

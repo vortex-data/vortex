@@ -10,7 +10,10 @@ use parking_lot::Mutex;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::ListViewArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::listview::DEFAULT_REBUILD_DENSITY_THRESHOLD;
+use vortex::array::arrays::listview::ListViewArrayExt;
 use vortex::array::arrays::listview::ListViewDataParts;
+use vortex::array::arrays::listview::ListViewRebuildMode;
 use vortex::array::match_each_integer_ptype;
 use vortex::array::validity::Validity;
 use vortex::dtype::IntegerPType;
@@ -49,7 +52,18 @@ pub(crate) fn new_exporter(
     cache: &ConversionCache,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
+    // If the array is sufficiently sparse, rebuild. Otherwise the DuckDB vector will
+    // hold an elements buffer containing unreferenced data in memory indefinitely,
+    // and any compute pass over that buffer wastes work on data nothing references.
+    let density = array.upper_bound_density(ctx)?;
+    let array = if density < DEFAULT_REBUILD_DENSITY_THRESHOLD {
+        array.rebuild(ListViewRebuildMode::MakeZeroCopyToList)?
+    } else {
+        array
+    };
+
     let len = array.len();
+
     let ListViewDataParts {
         elements_dtype,
         elements,

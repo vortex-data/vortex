@@ -27,7 +27,6 @@ use arrow_array::cast::AsArray;
 use arrow_array::ffi::FFI_ArrowArray;
 use arrow_array::ffi::from_ffi;
 use arrow_array::make_array;
-use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Fields;
 use arrow_schema::ffi::FFI_ArrowSchema;
@@ -96,18 +95,10 @@ pub unsafe extern "C" fn export_array(
     )
     .into_array();
 
-    let data_type = DataType::Struct(Fields::from_iter([
-        Field::new("prims", DataType::UInt32, false),
-        Field::new("decimals", DataType::Decimal128(38, 2), false),
-        Field::new("strings", DataType::Utf8, false),
-        Field::new("dates", DataType::Date32, false),
-    ]));
-
-    *schema_ptr = FFI_ArrowSchema::try_from(data_type).expect("data_type to FFI_ArrowSchema");
-
-    match block_on(array.export_device_array(&mut ctx)) {
+    match block_on(array.export_device_array_with_schema(&mut ctx)) {
         Ok(exported) => {
-            *array_ptr = exported;
+            *schema_ptr = exported.schema;
+            *array_ptr = exported.array;
             0
         }
         Err(err) => {

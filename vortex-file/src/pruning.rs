@@ -60,7 +60,7 @@ pub fn extract_relevant_file_stats_as_struct_row(
                 stat,
                 Stat::Max | Stat::Min | Stat::NaNCount | Stat::NullCount
             ) {
-                let Some(stat_value) = typed_stats.get(*stat).and_then(|p| p.as_exact()) else {
+                let Some(stat_value) = typed_stats.get(*stat).as_exact() else {
                     vortex_bail!("missing stat {}, {} from stats set", field, stat)
                 };
                 columns.push((

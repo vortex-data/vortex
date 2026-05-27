@@ -139,6 +139,9 @@ impl ExpressionRef {
                         bind_info: out.bind_info,
                     })
                 }
+                cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_REF => {
+                    ExpressionClass::BoundRef
+                }
                 _ => {
                     return None;
                 }
@@ -155,6 +158,8 @@ pub enum ExpressionClass<'a> {
     BoundBetween(BoundBetween<'a>),
     BoundOperator(BoundOperator<'a>),
     BoundFunction(BoundFunction<'a>),
+    /// Column inside ExpressionFilter for expression pushed down to Vortex.
+    BoundRef,
 }
 
 pub struct BoundColumnRef {

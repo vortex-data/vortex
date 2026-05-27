@@ -21,23 +21,18 @@ use crate::slug::GroupKey;
 
 /// Collect every group + chart link derivable from the data. Used by both
 /// `GET /api/groups` and the HTML landing page.
+///
+/// Iterates the per-fact-table [`crate::family::FAMILIES`] registry rather
+/// than spelling out the five `collect_*_group(s)` calls inline - adding a
+/// sixth fact table only requires one new const in `family.rs`.
 pub(crate) fn collect_groups(conn: &Connection) -> Result<Vec<Group>> {
     let mut groups: Vec<Group> = Vec::new();
 
-    let qm_groups = collect_query_groups(conn).context("collect_query_groups")?;
-    groups.extend(qm_groups);
-
-    if let Some(g) = collect_compression_time_group(conn)? {
-        groups.push(g);
+    for family in crate::family::FAMILIES {
+        let family_groups = (family.collect_groups)(conn)
+            .with_context(|| format!("collect_groups for {}", family.table_name))?;
+        groups.extend(family_groups);
     }
-    if let Some(g) = collect_compression_size_group(conn)? {
-        groups.push(g);
-    }
-    if let Some(g) = collect_random_access_group(conn)? {
-        groups.push(g);
-    }
-    let vsr_groups = collect_vector_search_groups(conn)?;
-    groups.extend(vsr_groups);
 
     for group in &mut groups {
         let key = GroupKey::from_slug(&group.slug)
@@ -47,14 +42,14 @@ pub(crate) fn collect_groups(conn: &Connection) -> Result<Vec<Group>> {
     }
 
     // Apply canonical ordering. `sort_by_key` is stable, so groups whose
-    // names map to the same key (the `GROUP_ORDER.len()` bucket — i.e. not in
+    // names map to the same key (the `GROUP_ORDER.len()` bucket - i.e. not in
     // the canonical list) keep the order the discovery passes produced.
     groups.sort_by(|a, b| group_sort_key(&a.name).cmp(&group_sort_key(&b.name)));
 
     Ok(groups)
 }
 
-fn collect_query_groups(conn: &Connection) -> Result<Vec<Group>> {
+pub(crate) fn collect_query_groups(conn: &Connection) -> Result<Vec<Group>> {
     let mut stmt = conn.prepare(
         r#"
         SELECT dataset, dataset_variant, scale_factor, storage, query_idx
@@ -158,7 +153,7 @@ fn group_name_query(
         }
         return name;
     }
-    // Legacy fallback for unknown datasets — keeps the page rendering rather
+    // Legacy fallback for unknown datasets - keeps the page rendering rather
     // than silently dropping data.
     let mut name = dataset.to_string();
     if let Some(v) = dataset_variant {
@@ -175,7 +170,7 @@ fn group_name_query(
     name
 }
 
-fn collect_compression_time_group(conn: &Connection) -> Result<Option<Group>> {
+pub(crate) fn collect_compression_time_group(conn: &Connection) -> Result<Option<Group>> {
     let mut stmt = conn.prepare(
         r#"
         SELECT dataset, dataset_variant
@@ -221,7 +216,7 @@ fn collect_compression_time_group(conn: &Connection) -> Result<Option<Group>> {
     }
 }
 
-fn collect_compression_size_group(conn: &Connection) -> Result<Option<Group>> {
+pub(crate) fn collect_compression_size_group(conn: &Connection) -> Result<Option<Group>> {
     let mut stmt = conn.prepare(
         r#"
         SELECT dataset, dataset_variant
@@ -267,7 +262,7 @@ fn collect_compression_size_group(conn: &Connection) -> Result<Option<Group>> {
     }
 }
 
-fn collect_random_access_group(conn: &Connection) -> Result<Option<Group>> {
+pub(crate) fn collect_random_access_group(conn: &Connection) -> Result<Option<Group>> {
     let mut stmt = conn.prepare(
         r#"
         SELECT DISTINCT dataset
@@ -297,7 +292,7 @@ fn collect_random_access_group(conn: &Connection) -> Result<Option<Group>> {
     }
 }
 
-fn collect_vector_search_groups(conn: &Connection) -> Result<Vec<Group>> {
+pub(crate) fn collect_vector_search_groups(conn: &Connection) -> Result<Vec<Group>> {
     let mut stmt = conn.prepare(
         r#"
         SELECT dataset, layout, threshold

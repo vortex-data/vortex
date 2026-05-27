@@ -69,7 +69,7 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install nextest
-        uses: taiki-e/install-action@7be9fd86bd1707236395105d6e9329dd1511a7e1  # v2
+        uses: taiki-e/install-action@8f531eaecd1898bc3da7d104ad91bee98d1b97bd  # v2
         with:
           tool: nextest
       - name: Rust Tests

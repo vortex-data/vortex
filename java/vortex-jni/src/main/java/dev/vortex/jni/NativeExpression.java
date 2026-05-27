@@ -27,6 +27,13 @@ public final class NativeExpression {
 
     public static native long isNull(long childPointer);
 
+    public static native long isNotNull(long childPointer);
+
+    public static native long like(long childPointer, long patternPointer, boolean negated, boolean caseInsensitive);
+
+    public static native long between(
+            long valuePointer, long lowerPointer, long upperPointer, boolean lowerStrict, boolean upperStrict);
+
     public static native long literalBool(boolean value, boolean isNull);
 
     public static native long literalI8(byte value, boolean isNull);
@@ -42,6 +49,16 @@ public final class NativeExpression {
     public static native long literalF64(double value, boolean isNull);
 
     public static native long literalString(String value);
+
+    public static native long literalBinary(byte[] value);
+
+    public static native long literalDecimal(byte[] unscaledBigEndian, int precision, int scale, boolean isNull);
+
+    public static native long literalDate(long value, byte timeUnitTag, boolean isNull);
+
+    public static native long literalTimestamp(long value, byte timeUnitTag, String timezone, boolean isNull);
+
+    public static native long literalNull(byte dtypeTag);
 
     public static native void free(long pointer);
 }

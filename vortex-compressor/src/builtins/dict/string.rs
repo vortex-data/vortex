@@ -98,7 +98,7 @@ impl Scheme for StringDictScheme {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let dict = dict_encode(data.array())?;
+        let dict = dict_encode(data.array(), exec_ctx)?;
 
         // Values = child 0.
         let compressed_values =
@@ -109,7 +109,7 @@ impl Scheme for StringDictScheme {
             .codes()
             .clone()
             .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow()?
+            .narrow(exec_ctx)?
             .into_array();
         let compressed_codes =
             compressor.compress_child(&narrowed_codes, &compress_ctx, self.id(), 1, exec_ctx)?;
