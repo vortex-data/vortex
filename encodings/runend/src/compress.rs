@@ -96,6 +96,9 @@ pub fn runend_encode(
 }
 
 /// Run-end encode a `BoolArray`, returning a tuple of `(ends, values)`.
+///
+/// The `values` array is a [`BoolArray`] for ordinary inputs. For all-invalid inputs it is a
+/// single-row null [`ConstantArray`].
 pub fn runend_encode_bool(
     array: ArrayView<Bool>,
     ctx: &mut ExecutionCtx,
@@ -126,6 +129,18 @@ pub fn runend_encode_bool(
     };
 
     let bits = array.to_bit_buffer();
+    if bits.is_empty() {
+        let ends = PrimitiveArray::new(Buffer::<u64>::empty(), Validity::NonNullable)
+            .narrow(ctx)
+            .vortex_expect("Ends must succeed downcasting");
+        ends.statistics()
+            .set(Stat::IsStrictSorted, Precision::Exact(true.into()));
+        return (
+            ends,
+            BoolArray::new(BitBuffer::empty(), array.dtype().nullability().into()).into_array(),
+        );
+    }
+
     let (ends, values) = match validity {
         None => runend_encode_bools(&bits, array.dtype().nullability().into()),
         Some(validity) => runend_encode_nullable_bools(&bits, validity),
@@ -167,12 +182,10 @@ fn runend_encode_primitive<T: NativePType>(elements: &[T]) -> (Buffer<u64>, Buff
 }
 
 fn runend_encode_bools(elements: &BitBuffer, validity: Validity) -> (Buffer<u64>, BoolArray) {
+    debug_assert!(!elements.is_empty());
+
     let mut ends = BufferMut::empty();
     let mut values = BitBufferMut::with_capacity(elements.len());
-
-    if elements.is_empty() {
-        return (ends.freeze(), BoolArray::new(values.freeze(), validity));
-    }
 
     let mut prev = elements.value(0);
     let mut end = 1;
@@ -194,19 +207,11 @@ fn runend_encode_nullable_bools(
     elements: &BitBuffer,
     element_validity: BitBuffer,
 ) -> (Buffer<u64>, BoolArray) {
+    debug_assert!(!elements.is_empty());
+
     let mut ends = BufferMut::empty();
     let mut values = BitBufferMut::with_capacity(elements.len());
     let mut validity = BitBufferMut::with_capacity(elements.len());
-
-    if elements.is_empty() {
-        return (
-            ends.freeze(),
-            BoolArray::new(
-                values.freeze(),
-                Validity::Array(BoolArray::from(validity.freeze()).into_array()),
-            ),
-        );
-    }
 
     let mut prev = element_validity.value(0).then(|| elements.value(0));
     let mut end = 1;

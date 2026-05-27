@@ -48,10 +48,15 @@ impl Scheme for BoolRunEndScheme {
         2
     }
 
-    /// RunEnd ends (child 1) are monotonically increasing positions with all unique values.
-    /// Dict, RunEnd, RLE, and Sparse are all pointless on such data.
+    /// RunEnd bool values (child 0) cannot have adjacent equal runs by construction, so another
+    /// BoolRunEnd layer is pointless. RunEnd ends (child 1) are monotonically increasing positions
+    /// with all unique values. Dict, RunEnd, RLE, and Sparse are all pointless on such data.
     fn descendant_exclusions(&self) -> Vec<DescendantExclusion> {
         vec![
+            DescendantExclusion {
+                excluded: BoolRunEndScheme.id(),
+                children: ChildSelection::One(0),
+            },
             DescendantExclusion {
                 excluded: IntDictScheme.id(),
                 children: ChildSelection::One(1),

@@ -6,8 +6,10 @@
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::bool::BoolArrayExt;
+use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
+use vortex_mask::Mask;
 
 /// Array of booleans and relevant stats for compression.
 #[derive(Clone, Debug)]
@@ -113,12 +115,38 @@ impl BoolStats {
 }
 
 /// Count logical runs, treating null as a distinct value.
-fn bool_run_count(bits: &vortex_buffer::BitBuffer, validity: &vortex_mask::Mask) -> usize {
+fn bool_run_count(bits: &BitBuffer, validity: &Mask) -> usize {
+    if validity.all_true() {
+        return bool_value_run_count(bits.iter());
+    }
+
     let validity_bits = validity.to_bit_buffer();
-    let mut iter = bits
-        .iter()
-        .zip(validity_bits.iter())
-        .map(|(value, is_valid)| is_valid.then_some(value));
+    optional_bool_run_count(
+        bits.iter()
+            .zip(validity_bits.iter())
+            .map(|(value, is_valid)| is_valid.then_some(value)),
+    )
+}
+
+/// Count runs in an iterator of non-null bool values.
+fn bool_value_run_count(mut iter: impl Iterator<Item = bool>) -> usize {
+    let Some(mut previous) = iter.next() else {
+        return 0;
+    };
+
+    let mut runs = 1;
+    for value in iter {
+        if value != previous {
+            previous = value;
+            runs += 1;
+        }
+    }
+
+    runs
+}
+
+/// Count runs in an iterator of nullable bool values.
+fn optional_bool_run_count(mut iter: impl Iterator<Item = Option<bool>>) -> usize {
     let Some(mut previous) = iter.next() else {
         return 0;
     };
