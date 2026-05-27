@@ -40,9 +40,6 @@ import pandas as pd
 Z_SCORE_99 = 2.5758293035489004
 CONTROL_FORMAT = "parquet"
 FILE_SIZE_METRIC = "file_size"
-HELP_ANCHOR = "benchmark-report-help"
-VERDICT_HELP_TITLE = "Overall PR-level signal after subtracting baseline drift from Parquet controls."
-ENGINES_HELP_TITLE = "Per-engine attribution using each engine's own Parquet controls."
 
 
 @dataclass
@@ -644,11 +641,28 @@ def format_within_engine_summary(analyses: dict[str, dict[str, Any]]) -> str | N
     return " · ".join(summaries)
 
 
-def help_link(label: str, title: str) -> str:
-    """Render a bold label with a GitHub Markdown link-title hover helper."""
+def format_report_help() -> str:
+    """Render explanatory markdown for the benchmark report headline fields."""
 
-    escaped_title = title.replace('"', "&quot;")
-    return f'**{label}** [ⓘ](#{HELP_ANCHOR} "{escaped_title}")'
+    return "\n".join(
+        [
+            "<details>",
+            "<summary>How to read Verdict and Engines</summary>",
+            "",
+            "<br>",
+            "",
+            "- **Verdict**: Overall PR-level signal after subtracting baseline drift "
+            "estimated from Parquet control rows. It can be `Likely improvement`, "
+            "`Likely regression`, or `No clear signal`.",
+            "- **Engines**: Per-engine attribution. DataFusion is compared against "
+            "DataFusion/Parquet controls; DuckDB is compared against DuckDB/Parquet "
+            "controls. This answers whether each engine improved or regressed independently.",
+            "- **Confidence**: Based on directional consistency, share of rows above "
+            "the noise floor, and control-run noise.",
+            "",
+            "</details>",
+        ]
+    )
 
 
 ENGINE_ORDER = {
@@ -730,12 +744,10 @@ def main() -> None:
     summary_fields: list[str] = []
 
     if verdict is not None:
-        summary_fields.append(
-            f"{help_link('Verdict', VERDICT_HELP_TITLE)}: {verdict['status']} ({verdict['confidence']} confidence)"
-        )
+        summary_fields.append(f"**Verdict**: {verdict['status']} ({verdict['confidence']} confidence)")
         summary_fields.append(f"**Attributed Vortex impact**: {verdict['impact']}")
     if engine_summary is not None:
-        summary_fields.append(f"{help_link('Engines', ENGINES_HELP_TITLE)}: {engine_summary}")
+        summary_fields.append(f"**Engines**: {engine_summary}")
 
     if len(vortex_df) > 0:
         vortex_performance = format_performance(
@@ -763,6 +775,8 @@ def main() -> None:
         summary_fields.append(f"**Shifts**: {shifts}")
 
     print("<br>".join(summary_fields))
+    print("")
+    print(format_report_help())
     print("")
     print("---")
     print("")
