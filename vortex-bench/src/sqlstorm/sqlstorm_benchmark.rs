@@ -17,6 +17,8 @@ use crate::sqlstorm::SqlstormOrigin;
 use crate::sqlstorm::data;
 use crate::sqlstorm::row_counts;
 use crate::sqlstorm::sqlstorm_queries;
+use crate::tpcds::TpcDsBenchmark;
+use crate::tpch::benchmark::TpcHBenchmark;
 
 /// SQLStorm benchmark over one origin's vendored query sample.
 pub struct SqlstormBenchmark {
@@ -65,7 +67,16 @@ impl Benchmark for SqlstormBenchmark {
 
     async fn generate_base_data(&self) -> Result<()> {
         match self.origin {
-            SqlstormOrigin::TpcH | SqlstormOrigin::TpcDs => Ok(()),
+            SqlstormOrigin::TpcH => {
+                TpcHBenchmark::new("1.0".to_string(), None)?
+                    .generate_base_data()
+                    .await
+            }
+            SqlstormOrigin::TpcDs => {
+                TpcDsBenchmark::new("1.0".to_string(), None)?
+                    .generate_base_data()
+                    .await
+            }
             SqlstormOrigin::StackOverflow => data::generate_stackoverflow(&self.data_url).await,
             SqlstormOrigin::Job => data::generate_job(&self.data_url).await,
         }

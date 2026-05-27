@@ -44,6 +44,36 @@ const SCHEMA_URL: &str = "https://db.in.tum.de/~schmidt/data/stackoverflow_schem
 /// URL for the upstream StackOverflow `dba` data tarball (~1 GB gzip).
 const DATA_URL: &str = "https://db.in.tum.de/~schmidt/data/stackoverflow_dba.tar.gz";
 
+/// URL for the upstream JOB (IMDB) data tarball (zstd-compressed tar).
+const JOB_DATA_URL: &str = "https://db.in.tum.de/~schmidt/dbgen/job/imdb.tzst";
+
+/// DDL for the 21 JOB (IMDB) tables, derived from the upstream schema.
+///
+/// All column names are already lowercase; no projection-lowercasing is needed at export time.
+const JOB_DDL: &str = r#"
+CREATE TABLE "char_name" ("id" INTEGER, "name" VARCHAR, "imdb_index" VARCHAR, "imdb_id" INTEGER, "name_pcode_nf" VARCHAR, "surname_pcode" VARCHAR, "md5sum" VARCHAR);
+CREATE TABLE "company_name" ("id" INTEGER, "name" VARCHAR, "country_code" VARCHAR, "imdb_id" INTEGER, "name_pcode_nf" VARCHAR, "name_pcode_sf" VARCHAR, "md5sum" VARCHAR);
+CREATE TABLE "keyword" ("id" INTEGER, "keyword" VARCHAR, "phonetic_code" VARCHAR);
+CREATE TABLE "name" ("id" INTEGER, "name" VARCHAR, "imdb_index" VARCHAR, "imdb_id" INTEGER, "gender" VARCHAR, "name_pcode_cf" VARCHAR, "name_pcode_nf" VARCHAR, "surname_pcode" VARCHAR, "md5sum" VARCHAR);
+CREATE TABLE "comp_cast_type" ("id" INTEGER, "kind" VARCHAR);
+CREATE TABLE "company_type" ("id" INTEGER, "kind" VARCHAR);
+CREATE TABLE "info_type" ("id" INTEGER, "info" VARCHAR);
+CREATE TABLE "kind_type" ("id" INTEGER, "kind" VARCHAR);
+CREATE TABLE "link_type" ("id" INTEGER, "link" VARCHAR);
+CREATE TABLE "role_type" ("id" INTEGER, "role" VARCHAR);
+CREATE TABLE "title" ("id" INTEGER, "title" VARCHAR, "imdb_index" VARCHAR, "kind_id" INTEGER, "production_year" INTEGER, "imdb_id" INTEGER, "phonetic_code" VARCHAR, "episode_of_id" INTEGER, "season_nr" INTEGER, "episode_nr" INTEGER, "series_years" VARCHAR, "md5sum" VARCHAR);
+CREATE TABLE "aka_name" ("id" INTEGER, "person_id" INTEGER, "name" VARCHAR, "imdb_index" VARCHAR, "name_pcode_cf" VARCHAR, "name_pcode_nf" VARCHAR, "surname_pcode" VARCHAR, "md5sum" VARCHAR);
+CREATE TABLE "aka_title" ("id" INTEGER, "movie_id" INTEGER, "title" VARCHAR, "imdb_index" VARCHAR, "kind_id" INTEGER, "production_year" INTEGER, "phonetic_code" VARCHAR, "episode_of_id" INTEGER, "season_nr" INTEGER, "episode_nr" INTEGER, "note" VARCHAR, "md5sum" VARCHAR);
+CREATE TABLE "cast_info" ("id" INTEGER, "person_id" INTEGER, "movie_id" INTEGER, "person_role_id" INTEGER, "note" VARCHAR, "nr_order" INTEGER, "role_id" INTEGER);
+CREATE TABLE "complete_cast" ("id" INTEGER, "movie_id" INTEGER, "subject_id" INTEGER, "status_id" INTEGER);
+CREATE TABLE "movie_companies" ("id" INTEGER, "movie_id" INTEGER, "company_id" INTEGER, "company_type_id" INTEGER, "note" VARCHAR);
+CREATE TABLE "movie_info" ("id" INTEGER, "movie_id" INTEGER, "info_type_id" INTEGER, "info" VARCHAR, "note" VARCHAR);
+CREATE TABLE "movie_info_idx" ("id" INTEGER, "movie_id" INTEGER, "info_type_id" INTEGER, "info" VARCHAR, "note" VARCHAR);
+CREATE TABLE "movie_keyword" ("id" INTEGER, "movie_id" INTEGER, "keyword_id" INTEGER);
+CREATE TABLE "movie_link" ("id" INTEGER, "movie_id" INTEGER, "linked_movie_id" INTEGER, "link_type_id" INTEGER);
+CREATE TABLE "person_info" ("id" INTEGER, "person_id" INTEGER, "info_type_id" INTEGER, "info" VARCHAR, "note" VARCHAR);
+"#;
+
 /// Upstream CamelCase CSV file-stem / table names, in the same order as
 /// `table_names(StackOverflow)`. Each entry maps to the corresponding lowercase
 /// table name and Parquet output shard.
@@ -225,7 +255,29 @@ pub fn table_names(origin: SqlstormOrigin) -> &'static [&'static str] {
             "tags",
             "votes",
         ],
-        SqlstormOrigin::Job => &[],
+        SqlstormOrigin::Job => &[
+            "char_name",
+            "company_name",
+            "keyword",
+            "name",
+            "comp_cast_type",
+            "company_type",
+            "info_type",
+            "kind_type",
+            "link_type",
+            "role_type",
+            "title",
+            "aka_name",
+            "aka_title",
+            "cast_info",
+            "complete_cast",
+            "movie_companies",
+            "movie_info",
+            "movie_info_idx",
+            "movie_keyword",
+            "movie_link",
+            "person_info",
+        ],
     }
 }
 
@@ -304,9 +356,89 @@ pub async fn generate_stackoverflow(data_url: &Url) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Download and convert IMDB/JOB data to Parquet. Implemented in a later task.
-pub async fn generate_job(_data_url: &Url) -> anyhow::Result<()> {
-    anyhow::bail!("job data-gen not yet implemented")
+/// Download and convert the IMDB/JOB dataset to Parquet.
+///
+/// Only runs for `file://` data URLs (remote data directories are assumed to already
+/// contain the Parquet shards). The 21 Parquet files are written into `<base>/parquet/`.
+/// JOB columns are already lowercase in the upstream schema, so no projection-lowercasing
+/// is needed at export time.
+pub async fn generate_job(data_url: &Url) -> anyhow::Result<()> {
+    if data_url.scheme() != "file" {
+        return Ok(());
+    }
+
+    let base_dir = data_url.to_file_path().map_err(|_| {
+        anyhow::anyhow!(
+            "Failed to convert data URL to filesystem path — ensure data_url uses 'file://' scheme"
+        )
+    })?;
+
+    let parquet_dir = base_dir.join(Format::Parquet.name());
+    fs::create_dir_all(&parquet_dir)?;
+
+    // Idempotency: skip if all 21 Parquet shards are already present.
+    let tables = table_names(SqlstormOrigin::Job);
+    if tables
+        .iter()
+        .all(|t| parquet_dir.join(format!("{t}.parquet")).exists())
+    {
+        info!(
+            "job: {} Parquet shards already present in {}",
+            tables.len(),
+            parquet_dir.display(),
+        );
+        return Ok(());
+    }
+
+    // Download the zstd-compressed tarball into the base directory.
+    let tzst_path = download_data(base_dir.join("imdb.tzst"), JOB_DATA_URL).await?;
+
+    // Extract the .tzst archive: zstd decompresses to a tar stream, then tar extracts
+    // the CSVs into base_dir. `tar` alone cannot handle .tzst, so we pipe via shell.
+    info!(
+        "Extracting {} into {}",
+        tzst_path.display(),
+        base_dir.display()
+    );
+    let extract_cmd = format!(
+        "zstd -dc '{}' | tar -xf - -C '{}'",
+        tzst_path.display(),
+        base_dir.display()
+    );
+    let extract_output = Command::new("bash")
+        .arg("-c")
+        .arg(&extract_cmd)
+        .output()
+        .context("failed to spawn bash for zstd/tar extraction; ensure zstd and tar are on PATH")?;
+    if !extract_output.status.success() {
+        bail!(
+            "zstd/tar extraction failed:\nstdout={}\nstderr={}",
+            String::from_utf8_lossy(&extract_output.stdout),
+            String::from_utf8_lossy(&extract_output.stderr),
+        );
+    }
+
+    // Build and run the single DuckDB COPY script:
+    //   1. Execute the embedded DDL to create the 21 typed tables.
+    //   2. COPY each CSV into its table (backslash escape + ignore_errors for dirty rows).
+    //   3. COPY each table → Parquet (columns are already lowercase — no projection needed).
+    let script = build_job_duckdb_script(&base_dir, &parquet_dir, tables);
+
+    let output = Command::new("duckdb").arg("-c").arg(&script).output()?;
+    if !output.status.success() {
+        bail!(
+            "duckdb job COPY failed:\nstdout={}\nstderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
+
+    info!(
+        "job base data generated in {} ({} Parquet shards)",
+        parquet_dir.display(),
+        tables.len(),
+    );
+    Ok(())
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -448,6 +580,35 @@ fn build_duckdb_script(
     }
 
     Ok(script)
+}
+
+/// Build the DuckDB SQL script for the JOB (IMDB) dataset that:
+///
+/// 1. Inlines the embedded DDL to create the 21 typed tables.
+/// 2. Loads each upstream CSV with `COPY … FROM`, using `ESCAPE '\'` and
+///    `ignore_errors true` to handle backslash-escaped quotes and dirty rows.
+/// 3. Exports each table as a Parquet file (columns are already lowercase).
+fn build_job_duckdb_script(csv_dir: &Path, parquet_dir: &Path, tables: &[&str]) -> String {
+    let mut script = JOB_DDL.to_string();
+
+    for &table in tables {
+        let csv_path = csv_dir.join(format!("{table}.csv"));
+        script.push_str(&format!(
+            "COPY \"{table}\" FROM '{csv}' \
+             (FORMAT csv, DELIMITER ',', NULL '', HEADER false, ESCAPE '\\', QUOTE '\"', ignore_errors true);\n",
+            csv = csv_path.display(),
+        ));
+    }
+
+    for &table in tables {
+        let out_path = parquet_dir.join(format!("{table}.parquet"));
+        script.push_str(&format!(
+            "COPY (SELECT * FROM \"{table}\") TO '{out}' (FORMAT PARQUET);\n",
+            out = out_path.display(),
+        ));
+    }
+
+    script
 }
 
 /// Build a DuckDB SELECT projection string that lowercases every column name.
