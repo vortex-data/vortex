@@ -16,7 +16,6 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::between::BetweenOptions;
 use vortex_array::scalar_fn::fns::between::BetweenReduce;
 use vortex_array::scalar_fn::fns::between::StrictComparison;
-use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
 
 use crate::ALP;
@@ -242,25 +241,13 @@ mod tests {
             upper_strict: StrictComparison::Strict,
         };
 
-        assert_between(
-            &encoded,
-            f32::from_bits(0xffffff5e),
-            2.0,
-            &options,
-            true,
-        );
+        assert_between(&encoded, f32::from_bits(0xffffff5e), 2.0, &options, true);
         assert_between(&encoded, f32::NAN, 2.0, &options, false);
         assert_between(&encoded, f32::NEG_INFINITY, 2.0, &options, true);
         assert_between(&encoded, f32::INFINITY, 2.0, &options, false);
 
         assert_between(&encoded, 0.0, f32::NAN, &options, true);
-        assert_between(
-            &encoded,
-            0.0,
-            f32::from_bits(0xffffff5e),
-            &options,
-            false,
-        );
+        assert_between(&encoded, 0.0, f32::from_bits(0xffffff5e), &options, false);
         assert_between(&encoded, 0.0, f32::INFINITY, &options, true);
         assert_between(&encoded, 0.0, f32::NEG_INFINITY, &options, false);
     }
