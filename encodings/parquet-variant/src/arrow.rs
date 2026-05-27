@@ -20,7 +20,6 @@ use vortex_array::arrow::ArrowImport;
 use vortex_array::arrow::ArrowImportVTable;
 use vortex_array::arrow::ArrowSession;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::extension::ExtDTypeRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
@@ -39,14 +38,14 @@ impl ArrowExportVTable for ParquetVariant {
         *ARROW_PARQUET_VARIANT
     }
 
-    fn vortex_ext_id(&self) -> Id {
+    fn vortex_id(&self) -> Id {
         ParquetVariant.id()
     }
 
     fn to_arrow_field(
         &self,
         _name: &str,
-        _dtype: &ExtDTypeRef,
+        _dtype: &DType,
         _session: &ArrowSession,
     ) -> VortexResult<Option<Field>> {
         Ok(None)

@@ -45,8 +45,6 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::extension::ExtDType;
-use crate::dtype::extension::ExtDTypeRef;
-use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
 use crate::extension::uuid::Uuid;
 use crate::extension::uuid::UuidMetadata;
@@ -61,7 +59,7 @@ impl ArrowExportVTable for Uuid {
         *ARROW_UUID
     }
 
-    fn vortex_ext_id(&self) -> ExtId {
+    fn vortex_id(&self) -> Id {
         Uuid.id()
     }
 
@@ -69,7 +67,7 @@ impl ArrowExportVTable for Uuid {
     fn to_arrow_field(
         &self,
         name: &str,
-        dtype: &ExtDTypeRef,
+        dtype: &DType,
         _session: &ArrowSession,
     ) -> VortexResult<Option<Field>> {
         let mut field = Field::new(

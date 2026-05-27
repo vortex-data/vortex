@@ -29,8 +29,6 @@ use vortex_array::arrow::FromArrowArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::arrow::FromArrowType;
 use vortex_array::dtype::extension::ExtDType;
-use vortex_array::dtype::extension::ExtDTypeRef;
-use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::extension::EmptyMetadata;
 use vortex_error::VortexResult;
@@ -68,16 +66,20 @@ impl ArrowExportVTable for Vector {
         *ARROW_VECTOR
     }
 
-    fn vortex_ext_id(&self) -> ExtId {
+    fn vortex_id(&self) -> Id {
         Vector.id()
     }
 
     fn to_arrow_field(
         &self,
         name: &str,
-        dtype: &ExtDTypeRef,
+        dtype: &DType,
         session: &ArrowSession,
     ) -> VortexResult<Option<Field>> {
+        let DType::Extension(dtype) = dtype else {
+            return Ok(None);
+        };
+
         if !dtype.is::<Vector>() {
             return Ok(None);
         }

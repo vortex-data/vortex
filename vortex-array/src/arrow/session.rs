@@ -61,8 +61,6 @@ use crate::dtype::Nullability;
 use crate::dtype::StructFields;
 use crate::dtype::arrow::FromArrowType;
 use crate::dtype::arrow::to_data_type_naive;
-use crate::dtype::extension::ExtDTypeRef;
-use crate::dtype::extension::ExtId;
 use crate::extension::datetime::AnyTemporal;
 use crate::extension::uuid::Uuid;
 use crate::validity::Validity;
@@ -99,17 +97,17 @@ pub trait ArrowExportVTable: 'static + Send + Sync + Debug {
     /// The Arrow extension ID this plugin produces.
     fn arrow_ext_id(&self) -> Id;
 
-    /// The Vortex extension ID this plugin maps from. Used only for inference by
+    /// The Vortex array or extension ID this plugin maps from. Used only for inference by
     /// [`ArrowSession::to_arrow_field`] / [`ArrowSession::to_arrow_schema`]; never as a
     /// dispatch key for [`execute_arrow`][Self::execute_arrow].
-    fn vortex_ext_id(&self) -> ExtId;
+    fn vortex_id(&self) -> Id;
 
     /// Build the Arrow [`Field`] this plugin produces for the given Vortex extension
     /// `dtype`. Used during schema inference.
     fn to_arrow_field(
         &self,
         name: &str,
-        dtype: &ExtDTypeRef,
+        dtype: &DType,
         session: &ArrowSession,
     ) -> VortexResult<Option<Field>>;
 
@@ -158,7 +156,7 @@ pub type ArrowImportVTableRef = Arc<dyn ArrowImportVTable>;
 
 type ExportMap = HashMap<Id, Arc<[ArrowExportVTableRef]>>;
 type ImportMap = HashMap<Id, Arc<[ArrowImportVTableRef]>>;
-type ExportDTypeMap = HashMap<ExtId, Arc<[ArrowExportVTableRef]>>;
+type ExportDTypeMap = HashMap<Id, Arc<[ArrowExportVTableRef]>>;
 
 /// Session-scoped registry of Arrow extension plugins.
 ///
@@ -200,11 +198,7 @@ impl ArrowSession {
             exporter.arrow_ext_id(),
             ArrowExportVTableRef::clone(&exporter),
         );
-        Self::insert(
-            &self.exporters_by_vortex,
-            exporter.vortex_ext_id(),
-            exporter,
-        );
+        Self::insert(&self.exporters_by_vortex, exporter.vortex_id(), exporter);
     }
 
     /// Register an [`ArrowImportVTable`] under its source Arrow extension name.
@@ -235,7 +229,7 @@ impl ArrowSession {
             .unwrap_or_else(|| Arc::from([]))
     }
 
-    fn exporters_by_vortex(&self, id: &ExtId) -> Arc<[ArrowExportVTableRef]> {
+    fn exporters_by_vortex(&self, id: &Id) -> Arc<[ArrowExportVTableRef]> {
         self.exporters_by_vortex
             .load()
             .get(id)
@@ -287,7 +281,9 @@ impl ArrowSession {
             }
             DType::Extension(ext) if !ext.is::<AnyTemporal>() => {
                 for plugin in self.exporters_by_vortex(&ext.id()).iter() {
-                    if let Some(field) = plugin.to_arrow_field(name, ext, self)? {
+                    if let Some(field) =
+                        plugin.to_arrow_field(name, &DType::Extension(ext.clone()), self)?
+                    {
                         return Ok(field);
                     }
                 }
