@@ -20,23 +20,13 @@ use crate::array::TypedArrayRef;
 use crate::array_slots;
 use crate::arrays::Patched;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::patched::patch_lanes;
 use crate::dtype::DType;
-use crate::match_each_native_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::patches::Patches;
 use crate::validity::Validity;
 
 #[derive(Debug, Clone)]
 pub struct PatchedData {
-    /// Number of lanes that *would* be used if these patches were transposed into the
-    /// data-parallel GPU layout.
-    ///
-    /// The patches are stored untransposed; this value is retained only as metadata so the
-    /// transpose configuration can be recovered later.
-    // Kept so the data-parallel GPU transpose can be re-added in the future without a format change.
-    pub(super) n_lanes: usize,
-
     /// The absolute offset of the first in-view element, accounting for any slicing.
     ///
     /// Patch indices are stored as global positions, so the final position of a patch within the
@@ -67,8 +57,8 @@ impl Display for PatchedData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "n_lanes: {}, offset: {}, offset_within_chunk: {}",
-            self.n_lanes, self.offset, self.offset_within_chunk
+            "offset: {}, offset_within_chunk: {}",
+            self.offset, self.offset_within_chunk
         )
     }
 }
@@ -108,12 +98,6 @@ impl PatchedData {
 }
 
 pub trait PatchedArrayExt: PatchedArraySlotsExt {
-    /// The transpose count retained as metadata. See `PatchedData::n_lanes`.
-    #[inline]
-    fn n_lanes(&self) -> usize {
-        self.n_lanes
-    }
-
     /// The absolute offset of the first in-view element.
     #[inline]
     fn offset(&self) -> usize {
@@ -171,9 +155,6 @@ impl Patched {
             "PatchedArray cannot be built from Patches with nulls"
         );
 
-        let values_ptype = patches.dtype().as_ptype();
-        let n_lanes = match_each_native_ptype!(values_ptype, |V| { patch_lanes::<V>() });
-
         // Ensure the patches carry a chunk offset for every 1024-element chunk, computing them
         // when the source patches don't already provide them.
         let patches = match patches.chunk_offsets() {
@@ -194,12 +175,12 @@ impl Patched {
             }
         };
 
-        Ok(Self::wrap(inner, &patches, n_lanes))
+        Ok(Self::wrap(inner, &patches))
     }
 
     /// Wrap an `inner` array and untransposed `patches` (which must carry chunk offsets) into a
     /// [`Patched`] array.
-    pub(super) fn wrap(inner: ArrayRef, patches: &Patches, n_lanes: usize) -> Array<Patched> {
+    pub(super) fn wrap(inner: ArrayRef, patches: &Patches) -> Array<Patched> {
         let chunk_offsets = patches
             .chunk_offsets()
             .clone()
@@ -218,7 +199,6 @@ impl Patched {
                 dtype,
                 len,
                 slots,
-                n_lanes,
                 patches.offset(),
                 patches.offset_within_chunk().unwrap_or(0),
             )
@@ -229,7 +209,6 @@ impl Patched {
         dtype: DType,
         len: usize,
         slots: ArraySlots,
-        n_lanes: usize,
         offset: usize,
         offset_within_chunk: usize,
     ) -> Array<Patched> {
@@ -240,7 +219,6 @@ impl Patched {
                     dtype,
                     len,
                     PatchedData {
-                        n_lanes,
                         offset,
                         offset_within_chunk,
                     },

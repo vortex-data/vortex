@@ -2,70 +2,39 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::Canonical;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
-use crate::arrays::FilterArray;
 use crate::arrays::Patched;
-use crate::arrays::filter::FilterReduce;
+use crate::arrays::filter::FilterKernel;
 use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::patched::PatchedArraySlotsExt;
 
-impl FilterReduce for Patched {
-    fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
-        // Find the contiguous chunk range that the mask covers. We use this to slice the inner
-        // components, then wrap the rest up with another FilterArray.
-        //
-        // This is helpful when we have a very selective filter that is clustered to a small
-        // range.
-        //
-        // Chunk math is done relative to the position within the first chunk: the array's offset
-        // can be an arbitrary absolute value (after slicing) but only its remainder mod 1024
-        // shifts the chunk boundaries within this array's local coordinates.
-        let offset_within_chunk = array.offset() % 1024;
-        let (chunk_start, chunk_stop) = match mask.slices() {
-            AllOr::All | AllOr::None => {
-                // This is handled as the precondition to this method, see the FilterReduce
-                // documentation.
-                unreachable!("mask must be a MaskValues here")
-            }
-            AllOr::Some(slices) => {
-                let (first, _) = slices[0];
-                let (_, last) = slices[slices.len() - 1];
+impl FilterKernel for Patched {
+    fn filter(
+        array: ArrayView<'_, Self>,
+        mask: &Mask,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let filtered_inner = array
+            .inner()
+            .clone()
+            .filter(mask.clone())?
+            .execute::<Canonical>(ctx)?
+            .into_array();
 
-                (
-                    (offset_within_chunk + first) / 1024,
-                    (offset_within_chunk + last).div_ceil(1024),
-                )
-            }
-        };
+        let filtered_patches = array.patches().filter(mask, ctx)?;
 
-        let n_chunks = (offset_within_chunk + array.len()).div_ceil(1024);
-
-        // If all chunks already covered, there is nothing to do.
-        if chunk_start == 0 && chunk_stop == n_chunks {
-            return Ok(None);
+        match filtered_patches {
+            None => Ok(Some(filtered_inner)),
+            Some(patches) => Ok(Some(
+                Patched::from_array_and_patches(filtered_inner, &patches, ctx)?.into_array(),
+            )),
         }
-
-        // Convert chunk bounds back to local element indices, then slice the patched array down to
-        // the covered range.
-        let mask_start = (chunk_start * 1024).saturating_sub(offset_within_chunk);
-        let mask_end = (chunk_stop * 1024)
-            .saturating_sub(offset_within_chunk)
-            .min(array.len());
-
-        let inner = array.inner().slice(mask_start..mask_end)?;
-        let sliced = match array.patches().slice(mask_start..mask_end)? {
-            Some(patches) => Patched::wrap(inner, &patches, array.n_lanes()).into_array(),
-            None => inner,
-        };
-
-        let remainder = mask.slice(mask_start..mask_end);
-
-        Ok(Some(FilterArray::new(sliced, remainder).into_array()))
     }
 }
 

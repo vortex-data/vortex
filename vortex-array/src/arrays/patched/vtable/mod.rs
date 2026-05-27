@@ -70,10 +70,6 @@ pub struct PatchedMetadata {
     #[prost(uint32, tag = "1")]
     pub(crate) n_patches: u32,
 
-    /// The transpose count retained as metadata. See `PatchedData::n_lanes`.
-    #[prost(uint32, tag = "2")]
-    pub(crate) n_lanes: u32,
-
     /// The absolute offset of the first in-view element.
     #[prost(uint64, tag = "3")]
     pub(crate) offset: u64,
@@ -99,15 +95,12 @@ impl ArrayHash for PatchedData {
     fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
         self.offset.hash(state);
         self.offset_within_chunk.hash(state);
-        self.n_lanes.hash(state);
     }
 }
 
 impl ArrayEq for PatchedData {
     fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
-        self.offset == other.offset
-            && self.offset_within_chunk == other.offset_within_chunk
-            && self.n_lanes == other.n_lanes
+        self.offset == other.offset && self.offset_within_chunk == other.offset_within_chunk
     }
 }
 
@@ -160,7 +153,6 @@ impl VTable for Patched {
         Ok(Some(
             PatchedMetadata {
                 n_patches: u32::try_from(array.patch_indices().len())?,
-                n_lanes: u32::try_from(array.n_lanes())?,
                 offset: array.offset() as u64,
                 offset_within_chunk: array.offset_within_chunk() as u64,
                 chunk_offsets_len: array.chunk_offsets().len() as u64,
@@ -182,7 +174,6 @@ impl VTable for Patched {
     ) -> VortexResult<ArrayParts<Self>> {
         let metadata = PatchedMetadata::decode(metadata)?;
         let n_patches = metadata.n_patches as usize;
-        let n_lanes = metadata.n_lanes as usize;
         let offset = usize::try_from(metadata.offset)
             .map_err(|_| vortex_err!("patched offset does not fit in usize"))?;
         let offset_within_chunk = usize::try_from(metadata.offset_within_chunk)
@@ -199,7 +190,6 @@ impl VTable for Patched {
         let chunk_offsets = children.get(3, &chunk_offsets_dtype, chunk_offsets_len)?;
 
         let data = PatchedData {
-            n_lanes,
             offset,
             offset_within_chunk,
         };

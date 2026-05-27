@@ -38,11 +38,8 @@
 //! * `chunk_offsets`: an indexing buffer with one entry per 1024-element chunk, so that the
 //!   patches for chunk `c` are `patch_indices[chunk_offsets[c]..chunk_offsets[c + 1]]`
 //!
-//! `patch_indices` and `patch_values` are aligned and accessed together.
-//!
-//! The number of lanes that *would* be used if these patches were transposed into the
-//! data-parallel GPU layout is retained as `n_lanes` metadata, but no transpose is performed: the
-//! patches are stored untransposed.
+//! `patch_indices` and `patch_values` are aligned and accessed together. The patches are stored
+//! untransposed.
 
 mod array;
 mod compute;
@@ -53,20 +50,6 @@ use std::sync::LazyLock;
 
 pub use array::*;
 pub use vtable::*;
-
-/// Number of lanes that would be used at patch time for a value of type `V` if the patches were
-/// transposed into the data-parallel GPU layout.
-///
-/// This is *NOT* equal to the number of FastLanes lanes for the type `V`, rather this is going to
-/// correspond to how many "lanes" we would end up copying data on.
-///
-/// The patches themselves are stored untransposed; this value is retained only as metadata.
-pub(crate) const fn patch_lanes<V: Sized>() -> usize {
-    // For types 32-bits or smaller, we use a 32 lane configuration, and for 64-bit we use 16 lanes.
-    // This matches up with the number of lanes we use to execute copying results from bit-unpacking
-    // from shared to global memory.
-    if size_of::<V>() < 8 { 32 } else { 16 }
-}
 
 /// Flag indicating if experimental patched array support is enabled.
 ///
