@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Indexed-source variant of [`crate::lane_ops`].
+//! Elementwise lane kernels over indexed sources.
 //!
 //! Replaces `&[T]` with an [`IndexedSource`] trait: each lane read is
 //! `unsafe fn get_unchecked(i) -> Item`, independent across iterations. For `&[T]`
@@ -15,6 +15,8 @@
 //! The output is always a caller-provided `&mut` slice — these kernels never allocate.
 //! Both kernels handle a mask with a non-byte-aligned offset and with a logical `len`
 //! shorter than the underlying byte buffer, via [`BitBuffer::chunks`].
+
+#![allow(clippy::many_single_char_names)]
 
 use std::mem::MaybeUninit;
 
@@ -105,7 +107,11 @@ impl<A: IndexedSource, B: IndexedSource> LaneZip<A, B> {
     ///
     /// Panics if the two operands have different lengths.
     pub fn new(a: A, b: B) -> Self {
-        assert_eq!(a.len(), b.len(), "LaneZip operands must have the same length");
+        assert_eq!(
+            a.len(),
+            b.len(),
+            "LaneZip operands must have the same length"
+        );
         Self(a, b)
     }
 }
@@ -120,12 +126,7 @@ impl<A: IndexedSource, B: IndexedSource> IndexedSource for LaneZip<A, B> {
     #[inline]
     unsafe fn get_unchecked(&self, i: usize) -> (A::Item, B::Item) {
         // SAFETY: caller guarantees i < self.len(); `new` enforces matching lengths.
-        unsafe {
-            (
-                self.0.get_unchecked(i),
-                self.1.get_unchecked(i),
-            )
-        }
+        unsafe { (self.0.get_unchecked(i), self.1.get_unchecked(i)) }
     }
 }
 
@@ -140,12 +141,8 @@ impl<A: IndexedSource, B: IndexedSource> IndexedSource for LaneZip<A, B> {
 ///
 /// Panics if `values.len() != mask.len()` or `out.len() != values.len()`.
 #[inline]
-pub fn map_with_mask<S, R, F>(
-    values: S,
-    mask: &BitBuffer,
-    out: &mut [MaybeUninit<R>],
-    mut f: F,
-) where
+pub fn map_with_mask<S, R, F>(values: S, mask: &BitBuffer, out: &mut [MaybeUninit<R>], mut f: F)
+where
     S: IndexedSource,
     F: FnMut(S::Item, bool) -> R,
 {
@@ -481,12 +478,7 @@ where
 /// Cold attribution for the no-mask variant.
 #[cold]
 #[inline(never)]
-fn attribute_failure_no_mask<S, R, F>(
-    values: &S,
-    base: usize,
-    chunk_len: usize,
-    f: &mut F,
-) -> usize
+fn attribute_failure_no_mask<S, R, F>(values: &S, base: usize, chunk_len: usize, f: &mut F) -> usize
 where
     S: IndexedSource,
     F: FnMut(S::Item) -> Option<R>,
@@ -608,6 +600,7 @@ where
 ///
 /// Panics if `values.len() != mask.len()`.
 #[inline]
+#[allow(clippy::cast_possible_truncation)]
 pub fn try_map_with_mask_in_place<S, F>(
     mut values: S,
     mask: &BitBuffer,
@@ -780,6 +773,7 @@ where
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
 mod tests {
     use super::*;
     use crate::BitBufferMut;
@@ -800,12 +794,9 @@ mod tests {
             m.freeze()
         };
         let mut out = vec![MaybeUninit::<i32>::uninit(); 10];
-        map_with_mask(
-            values.as_slice(),
-            &mask,
-            &mut out,
-            |v, valid| if valid { v } else { -1 },
-        );
+        map_with_mask(values.as_slice(), &mask, &mut out, |v, valid| {
+            if valid { v } else { -1 }
+        });
         assert_eq!(write_t(out), vec![0, -1, 2, -1, 4, -1, 6, -1, 8, -1]);
     }
 
@@ -815,12 +806,9 @@ mod tests {
         let values: Vec<i32> = (0..130).collect();
         let mask = BitBuffer::new_set(130);
         let mut out = vec![MaybeUninit::<i32>::uninit(); 130];
-        map_with_mask(
-            values.as_slice(),
-            &mask,
-            &mut out,
-            |v, valid| if valid { v + 1 } else { 0 },
-        );
+        map_with_mask(values.as_slice(), &mask, &mut out, |v, valid| {
+            if valid { v + 1 } else { 0 }
+        });
         let got = write_t(out);
         assert_eq!(got.len(), 130);
         assert_eq!(got[0], 1);
@@ -839,12 +827,9 @@ mod tests {
 
         let values: Vec<u32> = (0..65).collect();
         let mut out = vec![MaybeUninit::<u32>::uninit(); 65];
-        map_with_mask(
-            values.as_slice(),
-            &sliced,
-            &mut out,
-            |v, valid| if valid { v } else { u32::MAX },
-        );
+        map_with_mask(values.as_slice(), &sliced, &mut out, |v, valid| {
+            if valid { v } else { u32::MAX }
+        });
         let got = write_t(out);
         assert_eq!(got, (0..65).collect::<Vec<u32>>());
     }
@@ -861,12 +846,9 @@ mod tests {
 
         let values: Vec<i16> = (0..130).map(|i| i as i16).collect();
         let mut out = vec![MaybeUninit::<i16>::uninit(); 130];
-        map_with_mask(
-            values.as_slice(),
-            &sliced,
-            &mut out,
-            |v, valid| if valid { v } else { -1 },
-        );
+        map_with_mask(values.as_slice(), &sliced, &mut out, |v, valid| {
+            if valid { v } else { -1 }
+        });
         let got = write_t(out);
         assert_eq!(got, (0..130).map(|i| i as i16).collect::<Vec<_>>());
     }
@@ -891,7 +873,9 @@ mod tests {
             m.freeze()
         };
         let mut out = vec![MaybeUninit::<i64>::uninit(); 100];
-        map_with_mask(values.as_slice(), &mask, &mut out, |v, valid| v * (valid as i64));
+        map_with_mask(values.as_slice(), &mask, &mut out, |v, valid| {
+            v * (valid as i64)
+        });
         let got = write_t(out);
         for (i, &x) in got.iter().enumerate() {
             if i % 3 == 0 {
@@ -907,7 +891,9 @@ mod tests {
         let values: Vec<i32> = (0..128).collect();
         let mask = BitBuffer::new_set(128);
         let mut out = vec![0u64; 2];
-        map_with_mask_to_bits(values.as_slice(), &mask, &mut out, |v, valid| valid && v % 2 == 0);
+        map_with_mask_to_bits(values.as_slice(), &mask, &mut out, |v, valid| {
+            valid && v % 2 == 0
+        });
         // Even numbers in [0, 128) set, odd unset.
         for word_idx in 0..2 {
             let word = out[word_idx];
@@ -926,7 +912,9 @@ mod tests {
         let mask = BitBuffer::new_set(130);
         let mut out = vec![0u64; 130usize.div_ceil(64)];
         assert_eq!(out.len(), 3);
-        map_with_mask_to_bits(values.as_slice(), &mask, &mut out, |v, valid| valid && v >= 64);
+        map_with_mask_to_bits(values.as_slice(), &mask, &mut out, |v, valid| {
+            valid && v >= 64
+        });
         // Bits 64..128 set in word 1; bits 128..130 set in word 2.
         assert_eq!(out[0], 0);
         assert_eq!(out[1], u64::MAX);
@@ -940,7 +928,9 @@ mod tests {
         assert_eq!(sliced.len(), 130);
         let values: Vec<u8> = (0..130).map(|i| (i % 4) as u8).collect();
         let mut out = vec![0u64; 130usize.div_ceil(64)];
-        map_with_mask_to_bits(values.as_slice(),&sliced, &mut out, |v, valid| valid && v == 0);
+        map_with_mask_to_bits(values.as_slice(), &sliced, &mut out, |v, valid| {
+            valid && v == 0
+        });
         for i in 0..130 {
             let word = out[i / 64];
             let bit = (word >> (i % 64)) & 1 == 1;
@@ -1008,13 +998,13 @@ mod tests {
             m.freeze()
         };
         let mut out = vec![MaybeUninit::<u32>::uninit(); 200];
-        let res = try_map_validity_filtered(
-            values.as_slice(),
-            &mask,
-            &mut out,
-            |v| (v <= u32::MAX as u64).then_some(v as u32),
+        let res = try_map_validity_filtered(values.as_slice(), &mask, &mut out, |v| {
+            (v <= u32::MAX as u64).then_some(v as u32)
+        });
+        assert!(
+            res.is_ok(),
+            "null-lane overflow should not propagate as Err"
         );
-        assert!(res.is_ok(), "null-lane overflow should not propagate as Err");
     }
 
     #[test]
@@ -1035,12 +1025,9 @@ mod tests {
             m.freeze()
         };
         let mut out = vec![MaybeUninit::<u32>::uninit(); 200];
-        let res = try_map_validity_filtered(
-            values.as_slice(),
-            &mask,
-            &mut out,
-            |v| (v <= u32::MAX as u64).then_some(v as u32),
-        );
+        let res = try_map_validity_filtered(values.as_slice(), &mask, &mut out, |v| {
+            (v <= u32::MAX as u64).then_some(v as u32)
+        });
         assert_eq!(res, Err(77));
     }
 
@@ -1194,6 +1181,124 @@ mod tests {
     }
 
     #[test]
+    fn map_with_mask_in_place_basic() {
+        let mut values: Vec<u32> = (0..130).collect();
+        let mask = {
+            let mut m = BitBufferMut::with_capacity(130);
+            for i in 0..130 {
+                m.append(i % 2 == 0);
+            }
+            m.freeze()
+        };
+        map_with_mask_in_place(values.as_mut_slice(), &mask, |v, valid| {
+            v.wrapping_mul(valid as u32)
+        });
+        let expected: Vec<u32> = (0..130u32)
+            .map(|v| if v % 2 == 0 { v } else { 0 })
+            .collect();
+        assert_eq!(values, expected);
+    }
+
+    #[test]
+    fn try_map_with_mask_in_place_all_ok() {
+        let mut values: Vec<u32> = (0..200).collect();
+        let mask = BitBuffer::new_set(200);
+        let res = try_map_with_mask_in_place(values.as_mut_slice(), &mask, |v, valid| {
+            let scaled = v.wrapping_mul(valid as u32);
+            scaled.checked_mul(2)
+        });
+        assert!(res.is_ok());
+        let expected: Vec<u32> = (0..200u32).map(|v| v * 2).collect();
+        assert_eq!(values, expected);
+    }
+
+    #[test]
+    fn try_map_with_mask_in_place_first_failing_chunk_wins() {
+        let mut values: Vec<u32> = (0..200).collect();
+        values[83] = u32::MAX;
+        values[150] = u32::MAX;
+        let mask = BitBuffer::new_set(200);
+        let res =
+            try_map_with_mask_in_place(values.as_mut_slice(), &mask, |v, _valid| v.checked_mul(2));
+        assert_eq!(res, Err(83));
+    }
+
+    #[test]
+    fn try_map_with_mask_in_place_within_chunk_reports_lowest() {
+        let mut values: Vec<u32> = (0..200).collect();
+        values[80] = u32::MAX;
+        values[100] = u32::MAX;
+        let mask = BitBuffer::new_set(200);
+        let res =
+            try_map_with_mask_in_place(values.as_mut_slice(), &mask, |v, _valid| v.checked_mul(2));
+        assert_eq!(res, Err(80));
+    }
+
+    #[test]
+    fn try_map_with_mask_in_place_single_failure_lane_exact() {
+        let mut values: Vec<u32> = (0..200).collect();
+        values[42] = u32::MAX;
+        let mask = BitBuffer::new_set(200);
+        let res =
+            try_map_with_mask_in_place(values.as_mut_slice(), &mask, |v, _valid| v.checked_mul(2));
+        assert_eq!(res, Err(42));
+    }
+
+    #[test]
+    fn try_map_with_mask_in_place_null_bypass() {
+        let mut values: Vec<u32> = (0..200).collect();
+        values[5] = u32::MAX;
+        let mask = {
+            let mut m = BitBufferMut::with_capacity(200);
+            for i in 0..200 {
+                m.append(i != 5);
+            }
+            m.freeze()
+        };
+        let res = try_map_with_mask_in_place(values.as_mut_slice(), &mask, |v, valid| {
+            v.wrapping_mul(valid as u32).checked_mul(2)
+        });
+        assert!(res.is_ok());
+        assert_eq!(values[5], 0);
+        assert_eq!(values[6], 12);
+    }
+
+    #[test]
+    fn try_map_with_mask_in_place_remainder_overflow() {
+        let mut values: Vec<u32> = (0..130).collect();
+        values[129] = u32::MAX;
+        let mask = BitBuffer::new_set(130);
+        let res =
+            try_map_with_mask_in_place(values.as_mut_slice(), &mask, |v, _valid| v.checked_mul(2));
+        assert_eq!(res, Err(129));
+    }
+
+    #[test]
+    fn try_map_with_mask_in_place_sliced_mask() {
+        let big = BitBuffer::new_set(256);
+        let mask = big.slice(13..143);
+        assert_eq!(mask.len(), 130);
+
+        let mut values: Vec<u32> = (0..130).collect();
+        values[77] = u32::MAX;
+        let res =
+            try_map_with_mask_in_place(values.as_mut_slice(), &mask, |v, _valid| v.checked_mul(2));
+        assert_eq!(res, Err(77));
+    }
+
+    #[test]
+    fn try_map_with_mask_in_place_partial_chunk_success() {
+        let mut values: Vec<u32> = (0..130).collect();
+        let mask = BitBuffer::new_set(130);
+        let res = try_map_with_mask_in_place(values.as_mut_slice(), &mask, |v, _valid| Some(v + 1));
+        assert!(res.is_ok());
+        assert_eq!(values[0], 1);
+        assert_eq!(values[63], 64);
+        assert_eq!(values[64], 65);
+        assert_eq!(values[129], 130);
+    }
+
+    #[test]
     fn map_to_bits_aligned() {
         let values: Vec<i32> = (0..128).collect();
         let mut out = vec![0u64; 2];
@@ -1252,7 +1357,9 @@ mod tests {
             m.freeze()
         };
         let mut out = vec![0u64; 70usize.div_ceil(64)];
-        map_with_mask_to_bits(values.as_slice(), &mask, &mut out, |v, valid| valid && v == 1);
+        map_with_mask_to_bits(values.as_slice(), &mask, &mut out, |v, valid| {
+            valid && v == 1
+        });
         for i in 0..70 {
             let bit = (out[i / 64] >> (i % 64)) & 1 == 1;
             assert_eq!(bit, i >= 32, "lane {i}");

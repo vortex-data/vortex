@@ -52,7 +52,6 @@ pub use buffer::*;
 pub use buffer_mut::*;
 pub use bytes::*;
 pub use r#const::*;
-pub use lane_ops::*;
 pub use string::*;
 mod alignment;
 #[cfg(feature = "arrow")]
@@ -63,12 +62,6 @@ mod buffer_mut;
 mod bytes;
 mod r#const;
 mod debug;
-mod lane_ops;
-/// Indexed-source variant of [`lane_ops`]: takes an `IndexedSource` trait whose
-/// implementations expose `unsafe fn get_unchecked(i) -> Item`. `&[T]` impls inline
-/// to the same indexed load as the slice kernel, but the trait also admits binary
-/// inputs via `LaneZip`. See `HISTORY.md` for the iterator-API investigation that
-/// led to this design.
 pub mod lane_ops_indexed;
 mod macros;
 #[cfg(feature = "memmap2")]

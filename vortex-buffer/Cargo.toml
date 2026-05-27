@@ -37,12 +37,6 @@ vortex-error = { workspace = true }
 workspace = true
 
 [dev-dependencies]
-# TEMP: arrow-* are only used by the cast_to / add_checked benches for cross-impl
-# performance comparisons. Drop them when the benches are removed.
-arrow-arith = { workspace = true }
-arrow-array = { workspace = true }
-arrow-cast = { workspace = true }
-arrow-schema = { workspace = true }
 divan = { workspace = true }
 num-traits = { workspace = true }
 rand = { workspace = true }
@@ -57,21 +51,5 @@ name = "vortex_bitbuffer"
 harness = false
 
 [[bench]]
-name = "cast_to"
-harness = false
-
-[[bench]]
 name = "cast_to_indexed"
-harness = false
-
-[[bench]]
-name = "cast_iter_all"
-harness = false
-
-[[bench]]
-name = "cast_in_place"
-harness = false
-
-[[bench]]
-name = "add_checked"
 harness = false
