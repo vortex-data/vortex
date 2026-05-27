@@ -171,7 +171,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
             }
 
             if let Some(result) = aggregate_fns
-                .find_groupped_kernel(elements.encoding_id(), self.aggregate_fn.id())
+                .find_grouped_kernel(elements.encoding_id(), self.aggregate_fn.id())
                 .and_then(|kernel| {
                     // SAFETY: we assume that elements execution is safe
                     let groups = unsafe {
@@ -261,7 +261,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
             }
 
             if let Some(result) = aggregate_fns
-                .find_groupped_kernel(elements.encoding_id(), self.aggregate_fn.id())
+                .find_grouped_kernel(elements.encoding_id(), self.aggregate_fn.id())
                 .and_then(|kernel| {
                     // SAFETY: we assume that elements execution is safe
                     let groups = unsafe {

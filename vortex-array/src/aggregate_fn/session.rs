@@ -148,7 +148,7 @@ impl AggregateFnSession {
         });
     }
 
-    pub fn find_groupped_kernel(
+    pub fn find_grouped_kernel(
         &self,
         array_id: impl Into<ArrayId>,
         agg_fn_id: impl Into<AggregateFnId>,
