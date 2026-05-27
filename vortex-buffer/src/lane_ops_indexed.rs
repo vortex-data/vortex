@@ -287,21 +287,6 @@ where
 /// The closure may also explicitly suppress null-lane failures by branching on
 /// `valid` itself; both behaviors compose.
 ///
-/// ## Hot loop
-///
-/// `fail_bits |= (opt.is_none() as u64) << bit_idx`. After unrolling, `bit_idx` is a
-/// compile-time constant per-iteration, so the shift folds. The closure receives
-/// `(value, valid)`; LLVM DCEs the per-lane `(src_chunk >> bit_idx) & 1` extract
-/// when the closure ignores `valid`, leaving a value-only SIMD body.
-///
-/// ## Attribution
-///
-/// `valid_failures = fail_bits & src_chunk` — non-zero only when at least one
-/// valid lane failed. `trailing_zeros()` gives the first failing valid lane.
-/// **No cold replay**: failure detection and lane attribution happen entirely in
-/// the hot loop. Worst-case bounded per chunk regardless of how many null lanes
-/// returned `None`.
-///
 /// On failure returns `Err(failing_lane_index)`. Lanes whose `f` returned `None`
 /// write `R::default()` into `out`, but the contents of `out` must not be relied
 /// upon when this function returns `Err`.
@@ -321,9 +306,6 @@ where
     R: Copy + Default,
     F: FnMut(S::Item, bool) -> Option<R>,
 {
-    /// Bit-packs `is_none()` into `fail_bits` at lane position; the post-loop
-    /// `& src_chunk` filter drops null-lane fails. Returns `Some(failing_idx)` if
-    /// any *valid* lane failed in `[base, base+count)`.
     #[inline(always)]
     fn chunk<S, R, F>(
         values: &S,
@@ -384,12 +366,6 @@ where
 /// Apply `f(value)` lane-by-lane with **no validity awareness at all** — every
 /// closure invocation is treated as "happened", regardless of whether the lane
 /// is null. Use this only when the input is known non-nullable.
-///
-/// For nullable inputs where the closure is infallible (no overflow / no error
-/// branch), prefer [`map_with_mask`]; for nullable inputs with a fallible
-/// closure, prefer [`try_map_with_mask`] — both correctly suppress
-/// null-lane logic. This kernel exists for the narrow "no validity exists"
-/// case (non-nullable column, internal pipelines, etc.).
 ///
 /// # Panics
 ///
