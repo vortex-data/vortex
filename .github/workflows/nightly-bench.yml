@@ -64,6 +64,86 @@ jobs:
               {"engine": "duckdb", "format": "vortex"}
             ],
             "scale_factor": "100.0"
+          },
+          {
+            "id": "sqlstorm-stackoverflow-nvme",
+            "subcommand": "sqlstorm",
+            "name": "SQLStorm (stackoverflow) on NVME",
+            "origin": "stackoverflow",
+            "data_formats": ["parquet", "vortex"],
+            "pr_targets": [
+              {"engine": "datafusion", "format": "parquet"},
+              {"engine": "datafusion", "format": "vortex"},
+              {"engine": "duckdb", "format": "parquet"},
+              {"engine": "duckdb", "format": "vortex"}
+            ],
+            "develop_targets": [
+              {"engine": "datafusion", "format": "parquet"},
+              {"engine": "datafusion", "format": "vortex"},
+              {"engine": "duckdb", "format": "parquet"},
+              {"engine": "duckdb", "format": "vortex"}
+            ],
+            "iterations": "3"
+          },
+          {
+            "id": "sqlstorm-job-nvme",
+            "subcommand": "sqlstorm",
+            "name": "SQLStorm (job) on NVME",
+            "origin": "job",
+            "data_formats": ["parquet", "vortex"],
+            "pr_targets": [
+              {"engine": "datafusion", "format": "parquet"},
+              {"engine": "datafusion", "format": "vortex"},
+              {"engine": "duckdb", "format": "parquet"},
+              {"engine": "duckdb", "format": "vortex"}
+            ],
+            "develop_targets": [
+              {"engine": "datafusion", "format": "parquet"},
+              {"engine": "datafusion", "format": "vortex"},
+              {"engine": "duckdb", "format": "parquet"},
+              {"engine": "duckdb", "format": "vortex"}
+            ],
+            "iterations": "3"
+          },
+          {
+            "id": "sqlstorm-tpch-nvme",
+            "subcommand": "sqlstorm",
+            "name": "SQLStorm (tpch) on NVME",
+            "origin": "tpch",
+            "data_formats": ["parquet", "vortex"],
+            "pr_targets": [
+              {"engine": "datafusion", "format": "parquet"},
+              {"engine": "datafusion", "format": "vortex"},
+              {"engine": "duckdb", "format": "parquet"},
+              {"engine": "duckdb", "format": "vortex"}
+            ],
+            "develop_targets": [
+              {"engine": "datafusion", "format": "parquet"},
+              {"engine": "datafusion", "format": "vortex"},
+              {"engine": "duckdb", "format": "parquet"},
+              {"engine": "duckdb", "format": "vortex"}
+            ],
+            "iterations": "3"
+          },
+          {
+            "id": "sqlstorm-tpcds-nvme",
+            "subcommand": "sqlstorm",
+            "name": "SQLStorm (tpcds) on NVME",
+            "origin": "tpcds",
+            "data_formats": ["parquet", "vortex"],
+            "pr_targets": [
+              {"engine": "datafusion", "format": "parquet"},
+              {"engine": "datafusion", "format": "vortex"},
+              {"engine": "duckdb", "format": "parquet"},
+              {"engine": "duckdb", "format": "vortex"}
+            ],
+            "develop_targets": [
+              {"engine": "datafusion", "format": "parquet"},
+              {"engine": "datafusion", "format": "vortex"},
+              {"engine": "duckdb", "format": "parquet"},
+              {"engine": "duckdb", "format": "vortex"}
+            ],
+            "iterations": "3"
           }
         ]
     strategy:

@@ -335,6 +335,7 @@ jobs:
         run: |
           uv run --project bench-orchestrator vx-bench prepare-data "${{ matrix.subcommand }}" \
             --formats-json '${{ toJSON(matrix.data_formats) }}' \
+            ${{ matrix.origin && format('--opt origin={0}', matrix.origin) || '' }} \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 
       - name: Setup AWS CLI
@@ -380,6 +381,7 @@ jobs:
             --no-build \
             --runner "ec2_${{ inputs.machine_type }}" \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
+            ${{ matrix.origin && format('--opt origin={0}', matrix.origin) || '' }} \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 
       - name: Run ${{ matrix.name }} benchmark (remote)
@@ -401,6 +403,7 @@ jobs:
             --runner "ec2_${{ inputs.machine_type }}" \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
             --opt remote-data-dir=${{ matrix.remote_storage }} \
+            ${{ matrix.origin && format('--opt origin={0}', matrix.origin) || '' }} \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
       - name: Compare results
         if: inputs.mode == 'pr'
