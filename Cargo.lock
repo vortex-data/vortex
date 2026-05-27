@@ -10186,6 +10186,7 @@ dependencies = [
  "bit-vec",
  "flatbuffers",
  "futures",
+ "insta",
  "itertools 0.14.0",
  "kanal",
  "moka",
