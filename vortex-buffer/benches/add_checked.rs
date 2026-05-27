@@ -29,7 +29,7 @@ fn main() {
     divan::main();
 }
 
-const SIZES: &[usize] = &[4_096, 65_536, 1_048_576, 2_097_152, 4_194_304];
+const SIZES: &[usize] = &[65_536];
 const LHS_VALID_RATE: f64 = 0.7;
 const RHS_VALID_RATE: f64 = 0.8;
 

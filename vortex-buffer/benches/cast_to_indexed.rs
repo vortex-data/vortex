@@ -30,7 +30,7 @@ fn main() {
     divan::main();
 }
 
-const SIZES: &[usize] = &[4_096, 65_536, 1_048_576];
+const SIZES: &[usize] = &[65_536];
 
 struct Fixture {
     values_u64: Buffer<u64>,

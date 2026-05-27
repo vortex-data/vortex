@@ -18,22 +18,16 @@ fn main() {
     divan::main();
 }
 
-const N: usize = 100_000;
-
 // Sizes used for the fallible-path benches below. Kept small enough to fit in L2 so
 // the kernel cost shows up clearly rather than being hidden by DRAM bandwidth.
 const SIZES: &[usize] = &[65_536];
 
-#[divan::bench]
-fn cast_u16_to_u32(bencher: Bencher) {
+#[divan::bench(args = SIZES)]
+fn cast_u16_to_u32(bencher: Bencher, n: usize) {
     let mut rng = StdRng::seed_from_u64(42);
-    #[expect(clippy::cast_possible_truncation)]
-    let arr = PrimitiveArray::from_option_iter((0..N).map(|i| {
-        if rng.random_bool(0.5) {
-            None
-        } else {
-            Some(i as u16)
-        }
+    let arr = PrimitiveArray::from_option_iter((0..n).map(|i| {
+        #[expect(clippy::cast_possible_truncation)]
+        rng.random_bool(0.5).then(|| i as u16)
     }))
     .into_array();
     // Pre-compute min/max so values_fit_in is a cache hit during the benchmark.
