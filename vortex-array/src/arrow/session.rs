@@ -125,7 +125,7 @@ pub trait ArrowExportVTable: 'static + Send + Sync + Debug {
     ) -> VortexResult<ArrowExport>;
 }
 
-/// Plugin layer for importing an Arrow extension-typed array into a Vortex extension array.
+/// Plugin layer for importing an Arrow extension-typed array into a Vortex array.
 ///
 /// Plugins are dispatched by `arrow_ext_id`.
 ///
@@ -140,7 +140,7 @@ pub trait ArrowImportVTable: 'static + Send + Sync + Debug {
     #[allow(clippy::wrong_self_convention)]
     fn from_arrow_field(&self, field: &Field) -> VortexResult<Option<DType>>;
 
-    /// Convert an Arrow array into a Vortex extension array of `dtype`.
+    /// Convert an Arrow array into a Vortex array of `dtype`.
     ///
     /// Returns ownership of `array` via [`ArrowImport::Unsupported`] when the plugin cannot
     /// handle the input.
@@ -148,7 +148,8 @@ pub trait ArrowImportVTable: 'static + Send + Sync + Debug {
     fn from_arrow_array(
         &self,
         array: ArrowArrayRef,
-        dtype: &ExtDTypeRef,
+        field: &Field,
+        dtype: &DType,
     ) -> VortexResult<ArrowImport>;
 }
 
@@ -490,16 +491,14 @@ impl ArrowSession {
             let importers = self.importers(&Id::new(extension_name));
             if !importers.is_empty() {
                 let dtype = self.from_arrow_field(field)?;
-                if let DType::Extension(ext_dtype) = dtype {
-                    let mut current = array;
-                    for plugin in importers.iter() {
-                        match plugin.from_arrow_array(current, &ext_dtype)? {
-                            ArrowImport::Imported(arr) => return Ok(arr),
-                            ArrowImport::Unsupported(arr) => current = arr,
-                        }
+                let mut current = array;
+                for plugin in importers.iter() {
+                    match plugin.from_arrow_array(current, field, &dtype)? {
+                        ArrowImport::Imported(arr) => return Ok(arr),
+                        ArrowImport::Unsupported(arr) => current = arr,
                     }
-                    return ArrayRef::from_arrow(current.as_ref(), field.is_nullable());
                 }
+                return ArrayRef::from_arrow(current.as_ref(), field.is_nullable());
             }
         }
         self.from_arrow_array_canonical(array, field)

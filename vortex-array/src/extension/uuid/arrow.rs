@@ -125,8 +125,12 @@ impl ArrowImportVTable for Uuid {
     fn from_arrow_array(
         &self,
         array: ArrowArrayRef,
-        dtype: &ExtDTypeRef,
+        _field: &Field,
+        dtype: &DType,
     ) -> VortexResult<ArrowImport> {
+        let DType::Extension(dtype) = dtype else {
+            return Ok(ArrowImport::Unsupported(array));
+        };
         if !matches!(array.data_type(), DataType::FixedSizeBinary(UUID_BYTE_LEN))
             || !dtype.is::<Uuid>()
         {
