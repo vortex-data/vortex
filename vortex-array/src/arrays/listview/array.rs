@@ -31,10 +31,12 @@ use crate::arrays::ListView;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::bool;
+use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::expr::stats::Stat;
 use crate::match_each_integer_ptype;
+use crate::match_each_unsigned_integer_ptype;
 use crate::validity::Validity;
 
 /// The `elements` data array, where each list scalar is a _slice_ of the `elements` array, and
@@ -241,10 +243,6 @@ impl ListViewData {
             sizes.len()
         );
 
-        // Check that the size type can fit within the offset type to prevent overflows.
-        let size_ptype = sizes.dtype().as_ptype();
-        let offset_ptype = offsets.dtype().as_ptype();
-
         // If a validity array is present, it must be the same length as the `ListViewArray`.
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(
@@ -260,10 +258,16 @@ impl ListViewData {
             let offsets_primitive = offsets.to_primitive();
             #[expect(deprecated)]
             let sizes_primitive = sizes.to_primitive();
+            // Offsets and sizes are non-negative; reinterpret to unsigned to dispatch over 4 widths
+            // each (4x4 instead of 8x8). This is a read-only validation, so result types are moot.
+            let offsets_primitive =
+                offsets_primitive.reinterpret_cast(offsets_primitive.ptype().to_unsigned());
+            let sizes_primitive =
+                sizes_primitive.reinterpret_cast(sizes_primitive.ptype().to_unsigned());
 
             // Validate the `offsets` and `sizes` arrays.
-            match_each_integer_ptype!(offset_ptype, |O| {
-                match_each_integer_ptype!(size_ptype, |S| {
+            match_each_unsigned_integer_ptype!(offsets_primitive.ptype(), |O| {
+                match_each_unsigned_integer_ptype!(sizes_primitive.ptype(), |S| {
                     let offsets_slice = offsets_primitive.as_slice::<O>();
                     let sizes_slice = sizes_primitive.as_slice::<S>();
 
@@ -445,8 +449,13 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
 
         let mut buf = BitBufferMut::new_unset(len);
 
-        match_each_integer_ptype!(offsets_primitive.ptype(), |O| {
-            match_each_integer_ptype!(sizes_primitive.ptype(), |S| {
+        // Offsets/sizes are non-negative; reinterpret to unsigned (4x4 instead of 8x8).
+        let offsets_primitive =
+            offsets_primitive.reinterpret_cast(offsets_primitive.ptype().to_unsigned());
+        let sizes_primitive =
+            sizes_primitive.reinterpret_cast(sizes_primitive.ptype().to_unsigned());
+        match_each_unsigned_integer_ptype!(offsets_primitive.ptype(), |O| {
+            match_each_unsigned_integer_ptype!(sizes_primitive.ptype(), |S| {
                 fill_referenced_mask::<O, S>(
                     &mut buf,
                     offsets_primitive.as_slice::<O>(),
@@ -721,11 +730,16 @@ fn validate_zctl(
     let sizes_dtype = sizes_primitive.dtype();
     let len = offsets_primitive.len();
 
+    // Offsets/sizes are non-negative; reinterpret to unsigned (4x4 instead of 8x8).
+    let offsets_unsigned =
+        offsets_primitive.reinterpret_cast(offsets_dtype.as_ptype().to_unsigned());
+    let sizes_unsigned = sizes_primitive.reinterpret_cast(sizes_dtype.as_ptype().to_unsigned());
+
     // Check that offset + size values are monotonic (no overlaps)
-    match_each_integer_ptype!(offsets_dtype.as_ptype(), |O| {
-        match_each_integer_ptype!(sizes_dtype.as_ptype(), |S| {
-            let offsets_slice = offsets_primitive.as_slice::<O>();
-            let sizes_slice = sizes_primitive.as_slice::<S>();
+    match_each_unsigned_integer_ptype!(offsets_unsigned.ptype(), |O| {
+        match_each_unsigned_integer_ptype!(sizes_unsigned.ptype(), |S| {
+            let offsets_slice = offsets_unsigned.as_slice::<O>();
+            let sizes_slice = sizes_unsigned.as_slice::<S>();
 
             validate_monotonic_ends(offsets_slice, sizes_slice, len)?;
         })
@@ -756,9 +770,9 @@ fn validate_zctl(
         }
     }
 
-    match_each_integer_ptype!(offsets_primitive.ptype(), |O| {
-        match_each_integer_ptype!(sizes_primitive.ptype(), |S| {
-            count_references::<O, S>(&mut element_references, offsets_primitive, sizes_primitive);
+    match_each_unsigned_integer_ptype!(offsets_unsigned.ptype(), |O| {
+        match_each_unsigned_integer_ptype!(sizes_unsigned.ptype(), |S| {
+            count_references::<O, S>(&mut element_references, offsets_unsigned, sizes_unsigned);
         })
     });
 
