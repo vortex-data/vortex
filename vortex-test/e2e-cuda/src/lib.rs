@@ -78,7 +78,8 @@ pub unsafe extern "C" fn export_array(
         "this string is long five",
     ]);
     let dates = TemporalArray::new_date(
-        PrimitiveArray::from_iter([100i32, 200, 300, 400, 500]).into_array(),
+        PrimitiveArray::from_option_iter([Some(100i32), None, Some(300), Some(400), None])
+            .into_array(),
         TimeUnit::Days,
     );
 
@@ -135,13 +136,13 @@ pub unsafe extern "C" fn validate_array(
         "four",
         "this string is long five",
     ]);
-    let date = Date32Array::from(vec![100i32, 200, 300, 400, 500]);
+    let date = Date32Array::from(vec![Some(100i32), None, Some(300), Some(400), None]);
 
     let expected_fields = Fields::from_iter([
         Field::new("prims", primitive.data_type().clone(), true),
         Field::new("decimals", decimal.data_type().clone(), false),
         Field::new("strings", string.data_type().clone(), false),
-        Field::new("dates", date.data_type().clone(), false),
+        Field::new("dates", date.data_type().clone(), true),
     ]);
 
     assert_eq!(
