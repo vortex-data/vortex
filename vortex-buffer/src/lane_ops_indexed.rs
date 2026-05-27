@@ -18,7 +18,10 @@
 
 #![allow(clippy::many_single_char_names)]
 
+use std::marker::PhantomData;
 use std::mem::MaybeUninit;
+use std::mem::align_of;
+use std::mem::size_of;
 
 use crate::BitBuffer;
 
@@ -75,22 +78,103 @@ impl<T: Copy> IndexedSource for &mut [T] {
 /// An [`IndexedSource`] that also supports unchecked indexed writes — the binding
 /// for in-place kernels.
 ///
+/// `Write` is the type written by `set_unchecked` and may differ from
+/// `IndexedSource::Item` (the read type). For the canonical `&mut [T]` impl
+/// both are `T`. The decoupling is what makes [`ReinterpretSink`] possible —
+/// a wrapper that reads `F` and writes `T` over the same backing memory when
+/// the two have identical size and alignment.
+///
 /// Implemented for `&mut [T]`; not implemented for [`LaneZip`] (you can't write a
 /// `(A, B)` pair back to two separate sources via a single index).
 pub trait IndexedSink: IndexedSource {
+    /// The per-lane write type. Equal to `<Self as IndexedSource>::Item` for
+    /// `&mut [T]`; different for [`ReinterpretSink`].
+    type Write: Copy;
+
     /// Write `value` into lane `i` without bounds checking.
     ///
     /// # Safety
     ///
     /// `i` must be strictly less than `self.len()`.
-    unsafe fn set_unchecked(&mut self, i: usize, value: Self::Item);
+    unsafe fn set_unchecked(&mut self, i: usize, value: Self::Write);
 }
 
 impl<T: Copy> IndexedSink for &mut [T] {
+    type Write = T;
     #[inline]
     unsafe fn set_unchecked(&mut self, i: usize, value: T) {
         // SAFETY: caller guarantees i < self.len().
         unsafe { *<[T]>::get_unchecked_mut(self, i) = value };
+    }
+}
+
+/// A sink that reads `F`-values and writes `T`-values over the same backing
+/// slice of `F`, reinterpreting each `T` as `F`-bits on write.
+///
+/// Requires `size_of::<F>() == size_of::<T>()` and `align_of::<F>() == align_of::<T>()`.
+/// Both hold for any pair of `NativePType` primitives with equal byte width
+/// (e.g. `u32` ↔ `f32`, `u64` ↔ `i64`, `f64` ↔ `u64`).
+///
+/// Use this when an in-place kernel needs to convert lanes between two
+/// types of identical width without allocating a second buffer. After the
+/// kernel completes every slot holds a valid `T`-bit pattern; the caller
+/// can recover a typed view via `BufferMut::transmute::<T>()`.
+pub struct ReinterpretSink<'a, F, T> {
+    slice: &'a mut [F],
+    _phantom: PhantomData<T>,
+}
+
+impl<'a, F, T> ReinterpretSink<'a, F, T> {
+    /// Construct a `ReinterpretSink` from `&mut [F]`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `size_of::<F>() != size_of::<T>()` or
+    /// `align_of::<F>() != align_of::<T>()`.
+    pub fn new(slice: &'a mut [F]) -> Self {
+        assert_eq!(
+            size_of::<F>(),
+            size_of::<T>(),
+            "ReinterpretSink requires F and T to have the same size",
+        );
+        assert_eq!(
+            align_of::<F>(),
+            align_of::<T>(),
+            "ReinterpretSink requires F and T to have the same alignment",
+        );
+        Self {
+            slice,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<F: Copy, T: Copy> IndexedSource for ReinterpretSink<'_, F, T> {
+    type Item = F;
+    #[inline]
+    fn len(&self) -> usize {
+        self.slice.len()
+    }
+    #[inline]
+    unsafe fn get_unchecked(&self, i: usize) -> F {
+        // SAFETY: caller guarantees i < self.slice.len(). Pointer arithmetic
+        // avoids method-resolution ambiguity between `<[F]>::get_unchecked` and
+        // `IndexedSource::get_unchecked`.
+        unsafe { *self.slice.as_ptr().add(i) }
+    }
+}
+
+impl<F: Copy, T: Copy> IndexedSink for ReinterpretSink<'_, F, T> {
+    type Write = T;
+    #[inline]
+    unsafe fn set_unchecked(&mut self, i: usize, value: T) {
+        // SAFETY: caller guarantees i < self.slice.len(); `new` enforces
+        // size_of::<F>() == size_of::<T>() and align_of::<F>() == align_of::<T>(),
+        // so the F-slot can hold a `T` without overflow or misalignment.
+        unsafe {
+            let ptr = self.slice.as_mut_ptr().add(i) as *mut T;
+            ptr.write(value);
+        }
     }
 }
 
@@ -183,8 +267,12 @@ where
     }
     if remainder != 0 {
         chunk(
-            &values, out, &mut f,
-            chunks.remainder_bits(), chunks_count * 64, remainder,
+            &values,
+            out,
+            &mut f,
+            chunks.remainder_bits(),
+            chunks_count * 64,
+            remainder,
         );
     }
 }
@@ -278,13 +366,17 @@ where
             return Err(idx);
         }
     }
-    if remainder != 0 {
-        if let Some(idx) = chunk(
-            &values, out, &mut f,
-            chunks.remainder_bits(), chunks_count * 64, remainder,
-        ) {
-            return Err(idx);
-        }
+    if remainder != 0
+        && let Some(idx) = chunk(
+            &values,
+            out,
+            &mut f,
+            chunks.remainder_bits(),
+            chunks_count * 64,
+            remainder,
+        )
+    {
+        return Err(idx);
     }
     Ok(())
 }
@@ -309,13 +401,8 @@ where
     F: FnMut(S::Item) -> R,
 {
     #[inline(always)]
-    fn chunk<S, R, F>(
-        values: &S,
-        out: &mut [MaybeUninit<R>],
-        f: &mut F,
-        base: usize,
-        count: usize,
-    ) where
+    fn chunk<S, R, F>(values: &S, out: &mut [MaybeUninit<R>], f: &mut F, base: usize, count: usize)
+    where
         S: IndexedSource,
         F: FnMut(S::Item) -> R,
     {
@@ -460,8 +547,119 @@ where
     cold_scan(values, base, chunk_len, |_bit_idx, v| f(v).is_none())
 }
 
+/// In-place variant of [`map_no_validity`]. Each lane is replaced with `f(values[i])`.
+/// The source `S` must be writable (an [`IndexedSink`]).
+///
+/// The closure reads `S::Item` and returns `S::Write`. For the common case
+/// `S = &mut [T]` both are `T`; for [`ReinterpretSink`] the read and write
+/// types can differ (e.g. read `f32`, write `u32`) over the same backing memory
+/// when sizes and alignments match.
+///
+/// As with [`map_no_validity`], use this only when the input is known
+/// non-nullable.
+#[inline]
+pub fn map_no_validity_in_place<S, F>(mut values: S, mut f: F)
+where
+    S: IndexedSink,
+    F: FnMut(S::Item) -> S::Write,
+{
+    #[inline(always)]
+    fn chunk<S, F>(values: &mut S, f: &mut F, base: usize, count: usize)
+    where
+        S: IndexedSink,
+        F: FnMut(S::Item) -> S::Write,
+    {
+        for bit_idx in 0..count {
+            let i = base + bit_idx;
+            // SAFETY: caller guarantees base + count <= len.
+            let v = unsafe { values.get_unchecked(i) };
+            let r = f(v);
+            // SAFETY: caller guarantees base + count <= len.
+            unsafe { values.set_unchecked(i, r) };
+        }
+    }
+
+    let len = values.len();
+    let chunks_count = len / 64;
+    let remainder = len % 64;
+
+    for chunk_idx in 0..chunks_count {
+        chunk(&mut values, &mut f, chunk_idx * 64, 64);
+    }
+    if remainder != 0 {
+        chunk(&mut values, &mut f, chunks_count * 64, remainder);
+    }
+}
+
+/// In-place variant of [`try_map_no_validity`]. Each lane is replaced with
+/// `f(values[i])`, or `S::Write::default()` when `f` returns `None`. On failure
+/// returns `Err(first_failing_lane)`; the buffer state on `Err` is unspecified.
+///
+/// As with [`try_map_no_validity`], use this only when the input is known
+/// non-nullable — a `None` from `f` is treated as a failure regardless of any
+/// upstream validity bitmap.
+///
+/// ## Error attribution
+///
+/// Per-lane `is_none()` flags are folded into `first_fail` via the same
+/// branchless `min` scheme as [`try_map_with_mask_in_place`]. Cold replay
+/// isn't viable here because the original input values have already been
+/// overwritten by the time we'd attribute the failure.
+#[inline]
+#[allow(clippy::cast_possible_truncation)]
+pub fn try_map_no_validity_in_place<S, F>(mut values: S, mut f: F) -> Result<(), usize>
+where
+    S: IndexedSink,
+    S::Write: Default,
+    F: FnMut(S::Item) -> Option<S::Write>,
+{
+    #[inline(always)]
+    #[allow(clippy::cast_possible_truncation)]
+    fn chunk<S, F>(values: &mut S, base: usize, count: usize, f: &mut F) -> Option<u32>
+    where
+        S: IndexedSink,
+        S::Write: Default,
+        F: FnMut(S::Item) -> Option<S::Write>,
+    {
+        let mut first_fail: u32 = u32::MAX;
+        for bit_idx in 0..count {
+            let i = base + bit_idx;
+            // SAFETY: caller guarantees base + count <= len.
+            let v = unsafe { values.get_unchecked(i) };
+            let opt = f(v);
+            let candidate = if opt.is_none() { i as u32 } else { u32::MAX };
+            first_fail = first_fail.min(candidate);
+            let r = opt.unwrap_or_default();
+            // SAFETY: caller guarantees base + count <= len.
+            unsafe { values.set_unchecked(i, r) };
+        }
+        (first_fail != u32::MAX).then_some(first_fail)
+    }
+
+    let len = values.len();
+    let chunks_count = len / 64;
+    let remainder = len % 64;
+
+    for chunk_idx in 0..chunks_count {
+        if let Some(failing) = chunk(&mut values, chunk_idx * 64, 64, &mut f) {
+            return Err(failing as usize);
+        }
+    }
+    if remainder != 0
+        && let Some(failing) = chunk(&mut values, chunks_count * 64, remainder, &mut f)
+    {
+        return Err(failing as usize);
+    }
+    Ok(())
+}
+
 /// In-place variant of [`map_with_mask`]. Each lane is replaced with
 /// `f(values[i], mask[i])`. The source `S` must be writable (an [`IndexedSink`]).
+///
+/// The closure reads `S::Item` and returns `S::Write`. For the common case
+/// `S = &mut [T]` both are `T`; for [`ReinterpretSink`] the read and write
+/// types can differ (e.g. read `f32`, write `u32`) over the same backing
+/// memory when sizes and alignments match.
 ///
 /// # Panics
 ///
@@ -470,18 +668,13 @@ where
 pub fn map_with_mask_in_place<S, F>(mut values: S, mask: &BitBuffer, mut f: F)
 where
     S: IndexedSink,
-    F: FnMut(S::Item, bool) -> S::Item,
+    F: FnMut(S::Item, bool) -> S::Write,
 {
     #[inline(always)]
-    fn chunk<S, F>(
-        values: &mut S,
-        f: &mut F,
-        src_chunk: u64,
-        base: usize,
-        count: usize,
-    ) where
+    fn chunk<S, F>(values: &mut S, f: &mut F, src_chunk: u64, base: usize, count: usize)
+    where
         S: IndexedSink,
-        F: FnMut(S::Item, bool) -> S::Item,
+        F: FnMut(S::Item, bool) -> S::Write,
     {
         for bit_idx in 0..count {
             let i = base + bit_idx;
@@ -505,8 +698,11 @@ where
     }
     if remainder != 0 {
         chunk(
-            &mut values, &mut f,
-            chunks.remainder_bits(), chunks_count * 64, remainder,
+            &mut values,
+            &mut f,
+            chunks.remainder_bits(),
+            chunks_count * 64,
+            remainder,
         );
     }
 }
@@ -547,8 +743,8 @@ pub fn try_map_with_mask_in_place<S, F>(
 ) -> Result<(), usize>
 where
     S: IndexedSink,
-    S::Item: Default,
-    F: FnMut(S::Item, bool) -> Option<S::Item>,
+    S::Write: Default,
+    F: FnMut(S::Item, bool) -> Option<S::Write>,
 {
     /// Returns `Some(first_failing_lane_index_as_u32)` if any lane in
     /// `[base, base+count)` failed (cast width-truncated since `i < 2^32` in any
@@ -565,8 +761,8 @@ where
     ) -> Option<u32>
     where
         S: IndexedSink,
-        S::Item: Default,
-        F: FnMut(S::Item, bool) -> Option<S::Item>,
+        S::Write: Default,
+        F: FnMut(S::Item, bool) -> Option<S::Write>,
     {
         let mut first_fail: u32 = u32::MAX;
         for bit_idx in 0..count {
@@ -595,137 +791,18 @@ where
             return Err(failing as usize);
         }
     }
-    if remainder != 0 {
-        if let Some(failing) = chunk(
+    if remainder != 0
+        && let Some(failing) = chunk(
             &mut values,
-            chunks.remainder_bits(), chunks_count * 64, remainder,
+            chunks.remainder_bits(),
+            chunks_count * 64,
+            remainder,
             &mut f,
-        ) {
-            return Err(failing as usize);
-        }
+        )
+    {
+        return Err(failing as usize);
     }
     Ok(())
-}
-
-/// Apply `f(value) -> bool` lane-by-lane, packing into `out` as `u64` words.
-///
-/// This is the validity-free sibling of [`map_with_mask_to_bits`]. Use it when the
-/// predicate is a pure function of the value (e.g. compare-to-constant on a primitive
-/// buffer) and combine the validity bitmap in a separate pass — splitting the work
-/// this way lets the value-compare loop autovectorize cleanly.
-///
-/// `out.len()` must equal `values.len().div_ceil(64)`. Trailing bits in the final word
-/// beyond `len % 64` are written as `0`.
-///
-/// # Panics
-///
-/// Panics if `out.len() != values.len().div_ceil(64)`.
-#[inline]
-pub fn map_to_bits<S, F>(values: S, out: &mut [u64], mut f: F)
-where
-    S: IndexedSource,
-    F: FnMut(S::Item) -> bool,
-{
-    #[inline(always)]
-    fn chunk<S, F>(values: &S, f: &mut F, base: usize, count: usize) -> u64
-    where
-        S: IndexedSource,
-        F: FnMut(S::Item) -> bool,
-    {
-        let mut packed = 0u64;
-        for bit_idx in 0..count {
-            let i = base + bit_idx;
-            // SAFETY: caller guarantees base + count <= len.
-            let v = unsafe { values.get_unchecked(i) };
-            packed |= (f(v) as u64) << bit_idx;
-        }
-        packed
-    }
-
-    let len = values.len();
-    assert_eq!(
-        out.len(),
-        len.div_ceil(64),
-        "out must have len.div_ceil(64) words",
-    );
-
-    let chunks_count = len / 64;
-    let remainder = len % 64;
-
-    for chunk_idx in 0..chunks_count {
-        let packed = chunk(&values, &mut f, chunk_idx * 64, 64);
-        // SAFETY: chunk_idx < chunks_count <= out.len().
-        unsafe { *out.get_unchecked_mut(chunk_idx) = packed };
-    }
-    if remainder != 0 {
-        let packed = chunk(&values, &mut f, chunks_count * 64, remainder);
-        // SAFETY: chunks_count < out.len() because remainder != 0.
-        unsafe { *out.get_unchecked_mut(chunks_count) = packed };
-    }
-}
-
-/// Apply `f(value, valid) -> bool` lane-by-lane, packing into `out` as `u64` words.
-///
-/// `out.len()` must equal `values.len().div_ceil(64)`. Trailing bits in the final word
-/// beyond `len % 64` are written as `0`.
-///
-/// # Panics
-///
-/// Panics if `values.len() != mask.len()` or `out.len() != values.len().div_ceil(64)`.
-#[inline]
-pub fn map_with_mask_to_bits<S, F>(values: S, mask: &BitBuffer, out: &mut [u64], mut f: F)
-where
-    S: IndexedSource,
-    F: FnMut(S::Item, bool) -> bool,
-{
-    #[inline(always)]
-    fn chunk<S, F>(
-        values: &S,
-        f: &mut F,
-        src_chunk: u64,
-        base: usize,
-        count: usize,
-    ) -> u64
-    where
-        S: IndexedSource,
-        F: FnMut(S::Item, bool) -> bool,
-    {
-        let mut packed = 0u64;
-        for bit_idx in 0..count {
-            let i = base + bit_idx;
-            let bit = (src_chunk >> bit_idx) & 1 == 1;
-            // SAFETY: caller guarantees base + count <= len.
-            let v = unsafe { values.get_unchecked(i) };
-            packed |= (f(v, bit) as u64) << bit_idx;
-        }
-        packed
-    }
-
-    let len = values.len();
-    assert_eq!(len, mask.len(), "values and mask must have the same length");
-    assert_eq!(
-        out.len(),
-        len.div_ceil(64),
-        "out must have len.div_ceil(64) words",
-    );
-
-    let chunks = mask.chunks();
-    let chunks_count = len / 64;
-    let remainder = len % 64;
-
-    for (chunk_idx, src_chunk) in chunks.iter().enumerate() {
-        let packed = chunk(&values, &mut f, src_chunk, chunk_idx * 64, 64);
-        // SAFETY: chunk_idx < chunks_count <= out.len().
-        unsafe { *out.get_unchecked_mut(chunk_idx) = packed };
-    }
-    if remainder != 0 {
-        let packed = chunk(
-            &values, &mut f,
-            chunks.remainder_bits(), chunks_count * 64, remainder,
-        );
-        // SAFETY: chunks_count < out.len() because remainder != 0.
-        unsafe { *out.get_unchecked_mut(chunks_count) = packed };
-    }
 }
 
 #[cfg(test)]
@@ -839,58 +916,6 @@ mod tests {
             } else {
                 assert_eq!(x, (i + 1) as i64);
             }
-        }
-    }
-
-    #[test]
-    fn map_with_mask_to_bits_aligned() {
-        let values: Vec<i32> = (0..128).collect();
-        let mask = BitBuffer::new_set(128);
-        let mut out = vec![0u64; 2];
-        map_with_mask_to_bits(values.as_slice(), &mask, &mut out, |v, valid| {
-            valid && v % 2 == 0
-        });
-        // Even numbers in [0, 128) set, odd unset.
-        for word_idx in 0..2 {
-            let word = out[word_idx];
-            for bit in 0..64 {
-                let i = word_idx * 64 + bit;
-                let expected = i % 2 == 0;
-                assert_eq!((word >> bit) & 1 == 1, expected, "lane {i}");
-            }
-        }
-    }
-
-    #[test]
-    fn map_with_mask_to_bits_partial_chunk() {
-        // 130 lanes — three u64 words, last word has only 2 valid bits.
-        let values: Vec<i32> = (0..130).collect();
-        let mask = BitBuffer::new_set(130);
-        let mut out = vec![0u64; 130usize.div_ceil(64)];
-        assert_eq!(out.len(), 3);
-        map_with_mask_to_bits(values.as_slice(), &mask, &mut out, |v, valid| {
-            valid && v >= 64
-        });
-        // Bits 64..128 set in word 1; bits 128..130 set in word 2.
-        assert_eq!(out[0], 0);
-        assert_eq!(out[1], u64::MAX);
-        assert_eq!(out[2], 0b11);
-    }
-
-    #[test]
-    fn map_with_mask_to_bits_offset() {
-        let big = BitBuffer::new_set(256);
-        let sliced = big.slice(13..143); // offset=13, len=130
-        assert_eq!(sliced.len(), 130);
-        let values: Vec<u8> = (0..130).map(|i| (i % 4) as u8).collect();
-        let mut out = vec![0u64; 130usize.div_ceil(64)];
-        map_with_mask_to_bits(values.as_slice(), &sliced, &mut out, |v, valid| {
-            valid && v == 0
-        });
-        for i in 0..130 {
-            let word = out[i / 64];
-            let bit = (word >> (i % 64)) & 1 == 1;
-            assert_eq!(bit, i % 4 == 0, "lane {i}");
         }
     }
 
@@ -1242,6 +1267,46 @@ mod tests {
     }
 
     #[test]
+    fn reinterpret_sink_same_width_f32_u32() {
+        // Read f32, write u32-bits in place. After transmuting the slice back to u32 we
+        // should see exactly the bit patterns the closure produced.
+        let mut buf: Vec<f32> = (0..130).map(|i| i as f32).collect();
+        let mask = BitBuffer::new_set(130);
+        try_map_with_mask_in_place(
+            ReinterpretSink::<f32, u32>::new(buf.as_mut_slice()),
+            &mask,
+            |f, _valid| Some(f.to_bits().wrapping_add(1)),
+        )
+        .unwrap();
+        // SAFETY: same size + alignment for f32 and u32; every slot now holds a u32 written by
+        // the closure.
+        let as_u32: &[u32] =
+            unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u32, buf.len()) };
+        for (i, &got) in as_u32.iter().enumerate() {
+            assert_eq!(got, (i as f32).to_bits().wrapping_add(1), "lane {i}");
+        }
+    }
+
+    #[test]
+    fn reinterpret_sink_failure_reports_lane() {
+        // Closure fails at a specific lane; the kernel must report that lane index.
+        let mut buf: Vec<f32> = (0..200).map(|i| i as f32).collect();
+        let mask = BitBuffer::new_set(200);
+        let res = try_map_with_mask_in_place(
+            ReinterpretSink::<f32, u32>::new(buf.as_mut_slice()),
+            &mask,
+            |f, _valid| {
+                if f as u32 == 137 {
+                    None
+                } else {
+                    Some(f as u32)
+                }
+            },
+        );
+        assert_eq!(res, Err(137));
+    }
+
+    #[test]
     fn try_map_with_mask_in_place_partial_chunk_success() {
         let mut values: Vec<u32> = (0..130).collect();
         let mask = BitBuffer::new_set(130);
@@ -1251,73 +1316,5 @@ mod tests {
         assert_eq!(values[63], 64);
         assert_eq!(values[64], 65);
         assert_eq!(values[129], 130);
-    }
-
-    #[test]
-    fn map_to_bits_aligned() {
-        let values: Vec<i32> = (0..128).collect();
-        let mut out = vec![0u64; 2];
-        map_to_bits(values.as_slice(), &mut out, |v| v % 2 == 0);
-        for word_idx in 0..2 {
-            for bit in 0..64 {
-                let i = word_idx * 64 + bit;
-                let expected = i % 2 == 0;
-                assert_eq!((out[word_idx] >> bit) & 1 == 1, expected, "lane {i}");
-            }
-        }
-    }
-
-    #[test]
-    fn map_to_bits_partial_chunk() {
-        let values: Vec<i32> = (0..130).collect();
-        let mut out = vec![0u64; 130usize.div_ceil(64)];
-        assert_eq!(out.len(), 3);
-        map_to_bits(values.as_slice(), &mut out, |v| v >= 64);
-        assert_eq!(out[0], 0);
-        assert_eq!(out[1], u64::MAX);
-        assert_eq!(out[2], 0b11);
-    }
-
-    #[test]
-    fn map_to_bits_empty() {
-        let values: Vec<i32> = vec![];
-        let mut out: Vec<u64> = vec![];
-        map_to_bits(values.as_slice(), &mut out, |v| v > 0);
-    }
-
-    #[test]
-    fn map_to_bits_matches_fused_with_all_valid_mask() {
-        // map_to_bits + AND with an all-true mask must equal map_with_mask_to_bits.
-        let values: Vec<i64> = (0..200).map(|i| i % 7).collect();
-        let mask = BitBuffer::new_set(200);
-
-        let mut a = vec![0u64; 200usize.div_ceil(64)];
-        map_with_mask_to_bits(values.as_slice(), &mask, &mut a, |v, valid| valid && v == 3);
-
-        let mut b = vec![0u64; 200usize.div_ceil(64)];
-        map_to_bits(values.as_slice(), &mut b, |v| v == 3);
-
-        assert_eq!(a, b);
-    }
-
-    #[test]
-    fn map_with_mask_to_bits_validity_kills_lane() {
-        // Even if predicate is true, null lanes should produce false.
-        let values: Vec<i32> = vec![1; 70];
-        let mask = {
-            let mut m = BitBufferMut::with_capacity(70);
-            for i in 0..70 {
-                m.append(i >= 32); // first 32 lanes are null
-            }
-            m.freeze()
-        };
-        let mut out = vec![0u64; 70usize.div_ceil(64)];
-        map_with_mask_to_bits(values.as_slice(), &mask, &mut out, |v, valid| {
-            valid && v == 1
-        });
-        for i in 0..70 {
-            let bit = (out[i / 64] >> (i % 64)) & 1 == 1;
-            assert_eq!(bit, i >= 32, "lane {i}");
-        }
     }
 }
