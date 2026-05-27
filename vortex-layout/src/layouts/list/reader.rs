@@ -118,9 +118,11 @@ fn calculate_elements_range(
 }
 
 /// Subtract `first` from every offset so the resulting offsets index into a sliced
-/// `elements[first..]` buffer starting at zero.
+/// `elements[first..]` buffer starting at zero. The constant array is cast to the offsets' dtype.
 fn rebase_offsets(offsets: ArrayRef, first: u64) -> VortexResult<ArrayRef> {
-    let constant = ConstantArray::new(first, offsets.len()).into_array();
+    let constant = ConstantArray::new(first, offsets.len())
+        .into_array()
+        .cast(offsets.dtype().clone())?;
     offsets.binary(constant, Operator::Sub)
 }
 
@@ -249,23 +251,22 @@ impl LayoutReader for ListReader {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
     use std::ops::Range;
 
+    use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::arrays::BoolArray;
-    use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::ListArray;
-    use vortex_array::dtype::FieldMask;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::Nullability::NonNullable;
     use vortex_buffer::buffer;
 
     use super::*;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
-    use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::list::writer::ListLayoutStrategy;
-    use crate::scan::split_by::SplitBy;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
@@ -291,85 +292,119 @@ mod tests {
         Ok((segments_ref, layout))
     }
 
-    fn collect_splits(reader: &dyn LayoutReader, row_range: Range<u64>) -> BTreeSet<u64> {
-        SplitBy::Layout
-            .splits(reader, &row_range, &[FieldMask::All])
+    fn materialize_u32_array(array: ArrayRef) -> Vec<u32> {
+        let mut ctx = SESSION.create_execution_ctx();
+        array
+            .execute::<PrimitiveArray>(&mut ctx)
             .unwrap()
+            .as_slice::<u32>()
+            .to_vec()
+    }
+
+    #[rstest]
+    #[case::full(buffer![0u32, 2, 5, 5].into_array(), 0..5)]
+    #[case::partial_slice(buffer![2u32, 5, 5, 8].into_array(), 2..8)]
+    #[case::single_offset_is_empty(buffer![7u32].into_array(), 7..7)]
+    #[case::u64_offsets(buffer![10u64, 12, 15, 15].into_array(), 10..15)]
+    fn test_calculate_elements_range(
+        #[case] offsets: ArrayRef,
+        #[case] expected: Range<u64>,
+    ) -> VortexResult<()> {
+        assert_eq!(calculate_elements_range(&offsets, &SESSION)?, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn calculate_elements_range_empty_offsets() -> VortexResult<()> {
+        let offsets = PrimitiveArray::empty::<u32>(NonNullable).into_array();
+        assert_eq!(calculate_elements_range(&offsets, &SESSION)?, 0..0);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::first_zero_is_identity(buffer![0u32, 2, 5, 5].into_array(), 0, vec![0, 2, 5, 5])]
+    #[case::subtracts_first(buffer![3u32, 5, 8].into_array(), 3, vec![0, 2, 5])]
+    fn test_rebase_offsets(
+        #[case] offsets: ArrayRef,
+        #[case] first: u64,
+        #[case] expected: Vec<u32>,
+    ) -> VortexResult<()> {
+        let rebased = rebase_offsets(offsets, first)?;
+        assert_eq!(materialize_u32_array(rebased), expected);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn splits_non_nullable_flat() -> VortexResult<()> {
-        // 5 lists in one flat ListLayout. Offsets is flat (single segment), no validity.
-        // Only the row_range endpoints should appear in the split set.
+    async fn fetch_offsets_includes_extra_endpoint() -> VortexResult<()> {
         let list = ListArray::try_new(
-            buffer![1i32, 2, 3, 4, 5, 6, 7].into_array(),
-            buffer![0u32, 2, 3, 3, 6, 7].into_array(),
+            buffer![1i32, 2, 3, 4, 5].into_array(),
+            buffer![0u32, 2, 4, 5].into_array(),
             Validity::NonNullable,
         )?
         .into_array();
 
         let (segments, layout) = write_layout(&flat_list_strategy(), list).await?;
         let reader = layout.new_reader("".into(), segments, &SESSION)?;
+        let reader = reader
+            .as_any()
+            .downcast_ref::<ListReader>()
+            .expect("ListReader");
 
-        assert_eq!(
-            collect_splits(reader.as_ref(), 0..5),
-            BTreeSet::from([0, 5])
-        );
-        assert_eq!(
-            collect_splits(reader.as_ref(), 1..4),
-            BTreeSet::from([1, 4])
-        );
+        // row_range 1..3 should pull 3 offsets (indices 1, 2, 3) — the +1 endpoint matters.
+        let offsets = reader.fetch_offsets(&(1..3))?.await?;
+        assert_eq!(materialize_u32_array(offsets), vec![2, 4, 5]);
+
+        // row_range 0..3 pulls all 4 offsets.
+        let offsets = reader.fetch_offsets(&(0..3))?.await?;
+        assert_eq!(materialize_u32_array(offsets), vec![0, 2, 4, 5]);
         Ok(())
     }
 
-    #[tokio::test]
-    async fn splits_nullable_flat_dedups_validity_and_offsets() -> VortexResult<()> {
-        // Nullable list with flat validity. Offsets and validity both end at list-row 3;
-        // BTreeSet deduplicates, so the split set still has only the endpoints.
-        let list = ListArray::try_new(
-            buffer![10i32, 20, 30, 40, 50].into_array(),
-            buffer![0u32, 2, 3, 5].into_array(),
-            Validity::Array(BoolArray::from_iter([true, false, true]).into_array()),
-        )?
-        .into_array();
+    fn create_basic_list_array(nullable: bool) -> ArrayRef {
+        let validity = if nullable {
+            Validity::Array(BoolArray::from_iter([true, false, true]).into_array())
+        } else {
+            Validity::NonNullable
+        };
 
-        let (segments, layout) = write_layout(&flat_list_strategy(), list).await?;
-        let reader = layout.new_reader("".into(), segments, &SESSION)?;
-
-        assert_eq!(
-            collect_splits(reader.as_ref(), 0..3),
-            BTreeSet::from([0, 3])
-        );
-        Ok(())
+        ListArray::try_new(
+            buffer![1i32, 2, 3, 4, 5].into_array(),
+            buffer![0u32, 2, 4, 5].into_array(),
+            validity,
+        )
+        .expect("array is valid")
+        .into_array()
     }
 
+    #[rstest]
+    #[case::full_range(0..3, false)]
+    #[case::partial_start(0..2, false)]
+    #[case::partial_end(1..3, false)]
+    #[case::middle_single(1..2, false)]
+    #[case::empty_range(1..1, false)]
+    #[case::full_range_null(0..3, true)]
+    #[case::partial_start_null(0..2, true)]
+    #[case::partial_end_null(1..3, true)]
+    #[case::middle_single_null(1..2, true)]
+    #[case::empty_range_null(1..1, true)]
     #[tokio::test]
-    async fn splits_chunked_wrap_exposes_chunk_boundaries() -> VortexResult<()> {
-        // Two list chunks under a ChunkedLayoutStrategy. The chunk boundary at list-row 2
-        // should appear as a split.
-        let chunk0 = ListArray::try_new(
-            buffer![1i32, 2, 3].into_array(),
-            buffer![0u32, 2, 3].into_array(),
-            Validity::NonNullable,
-        )?
-        .into_array();
-        let chunk1 = ListArray::try_new(
-            buffer![4i32, 5, 6, 7].into_array(),
-            buffer![0u32, 1, 4].into_array(),
-            Validity::NonNullable,
-        )?
-        .into_array();
-        let dtype = chunk0.dtype().clone();
-        let chunked = ChunkedArray::try_new(vec![chunk0, chunk1], dtype)?.into_array();
+    async fn projection_evaluation_round_trips(
+        #[case] row_range: Range<u64>,
+        #[case] nullable: bool,
+    ) -> VortexResult<()> {
+        let list = create_basic_list_array(nullable);
 
-        let strategy = ChunkedLayoutStrategy::new(flat_list_strategy());
-        let (segments, layout) = write_layout(&strategy, chunked).await?;
+        let len = usize::try_from(row_range.end - row_range.start)?;
+        let (segments, layout) = write_layout(&flat_list_strategy(), list.clone()).await?;
         let reader = layout.new_reader("".into(), segments, &SESSION)?;
 
-        assert_eq!(
-            collect_splits(reader.as_ref(), 0..4),
-            BTreeSet::from([0, 2, 4])
-        );
+        let result = reader
+            .projection_evaluation(&row_range, &root(), MaskFuture::new_true(len))?
+            .await?;
+
+        let expected =
+            list.slice(usize::try_from(row_range.start)?..usize::try_from(row_range.end)?)?;
+        assert_arrays_eq!(result, expected);
         Ok(())
     }
 }
