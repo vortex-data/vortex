@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::StreamExt;
+use futures::stream;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -36,17 +37,13 @@ use crate::sequence::SequentialStreamExt;
 ///  1. Canonicalizes the input chunk into a [`ListViewArray`].
 ///  2. Calls [`list_from_list_view`] to rebuild it into zero-copy-to-list form
 ///     (sorted, gapless, non-overlapping offsets) and produce a [`ListArray`].
-///  3. Writes the `elements`, `n+1` `offsets`, and (when nullable) `validity` columns into
+///  3. Writes the `elements`, `offsets`, and (when nullable) `validity` columns into
 ///     separately configurable downstream strategies, producing a single [`ListLayout`].
 ///
 /// # Chunking
 ///
 /// `ListLayoutStrategy` bails on empty or multi-chunk input, matching the convention used by
-/// [`FlatLayoutStrategy`](crate::layouts::flat::writer::FlatLayoutStrategy). To handle
-/// multi-chunk input, wrap with
-/// [`ChunkedLayoutStrategy`](crate::layouts::chunked::writer::ChunkedLayoutStrategy), which
-/// slices the input into one-chunk substreams and produces
-/// `ChunkedLayout(ListLayout × K)`.
+/// [`FlatLayoutStrategy`](crate::layouts::flat::writer::FlatLayoutStrategy).
 ///
 /// [`ListArray`]: vortex_array::arrays::ListArray
 pub struct ListLayoutStrategy {
@@ -83,10 +80,14 @@ impl LayoutStrategy for ListLayoutStrategy {
         if !dtype.is_list() {
             vortex_bail!("ListLayoutStrategy requires a List dtype, got {dtype}");
         }
-        let (sequence_id, array) = take_single_chunk(&mut stream).await?;
 
-        // Canonicalize to ListView, then rebuild into zero-copy-to-list form with `n+1`
-        // monotonic offsets.
+        // Writer wants exactly one chunk
+        let Some(chunk) = stream.next().await else {
+            vortex_bail!("ListLayoutStrategy needs a single chunk");
+        };
+        let (sequence_id, array) = chunk?;
+
+        // Canonicalize to ListView, then rebuild into zctl
         let mut exec_ctx = session.create_execution_ctx();
         let ListDataParts {
             elements,
@@ -95,46 +96,54 @@ impl LayoutStrategy for ListLayoutStrategy {
             ..
         } = list_from_list_view(array.execute::<ListViewArray>(&mut exec_ctx)?)?.into_data_parts();
 
-        // `offsets` is the Arrow-canonical `n+1` entries, so the list count is one less.
+        // There is one extra element in `offsets`
         let row_count = offsets.len().saturating_sub(1);
-        let validity_array = dtype
-            .is_nullable()
-            .then(|| {
+        let validity_array = if dtype.is_nullable() {
+            Some(
                 validity
-                    .execute_mask(row_count, &mut exec_ctx)
-                    .map(|m| m.into_array())
-            })
-            .transpose()?;
+                    .execute_mask(row_count, &mut exec_ctx)?
+                    .into_array(),
+            )
+        } else {
+            None
+        };
 
-        // Collect (strategy, array) pairs for each child to write. Validity is optional.
-        let mut child_writes: Vec<(Arc<dyn LayoutStrategy>, ArrayRef)> = vec![
-            (self.elements.clone(), elements),
-            (self.offsets.clone(), offsets),
-        ];
-        if let Some(arr) = validity_array {
-            child_writes.push((self.validity.clone(), arr));
+        // Spawn each child write onto the runtime so they run concurrently
+        let handle = session.handle();
+        let (elements_task, offsets_task, validity_task) = {
+            let mut sp = sequence_id.descend();
+            let mut spawn_layout_writer = |strategy: Arc<dyn LayoutStrategy>, array: ArrayRef| {
+                let stream = single_chunk_stream(array.dtype().clone(), sp.advance(), array);
+                let child_eof = eof.split_off();
+                let ctx = ctx.clone();
+                let segment_sink = segment_sink.clone();
+                let session = session.clone();
+                handle.spawn_nested(move |h| async move {
+                    let session = session.with_handle(h);
+                    strategy
+                        .write_stream(ctx, segment_sink, stream, child_eof, &session)
+                        .await
+                })
+            };
+            (
+                spawn_layout_writer(self.elements.clone(), elements),
+                spawn_layout_writer(self.offsets.clone(), offsets),
+                validity_array.map(|arr| spawn_layout_writer(self.validity.clone(), arr)),
+            )
+        };
+
+        // Should not have more than one chunk
+        if stream.next().await.is_some() {
+            vortex_bail!("ListLayoutStrategy received more than a single chunk");
         }
 
-        // Spawn one task per child writer.
-        let mut sp = sequence_id.descend();
-        let handle = session.handle();
-        let tasks = child_writes.into_iter().map(|(strategy, array)| {
-            spawn_layout_write(
-                &handle,
-                strategy,
-                ctx.clone(),
-                Arc::clone(&segment_sink),
-                session,
-                single_chunk_stream(array.dtype().clone(), sp.advance(), array),
-                eof.split_off(),
-            )
-        });
-        let mut layouts = futures::future::try_join_all(tasks).await?.into_iter();
-
-        // Same construction order as `child_writes`: elements, offsets, optional validity.
-        let elements_layout = layouts.next().expect("elements task");
-        let offsets_layout = layouts.next().expect("offsets task");
-        let validity_layout = layouts.next();
+        let (elements_layout, offsets_layout, validity_layout) =
+            futures::try_join!(elements_task, offsets_task, async move {
+                match validity_task {
+                    Some(t) => t.await.map(Some),
+                    None => Ok(None),
+                }
+            },)?;
 
         Ok(ListLayout::new(dtype, elements_layout, offsets_layout, validity_layout).into_layout())
     }
@@ -146,20 +155,6 @@ impl LayoutStrategy for ListLayoutStrategy {
     }
 }
 
-/// Pull the lone chunk out of a single-chunk stream, erroring on empty or multi-chunk input.
-async fn take_single_chunk(
-    stream: &mut SendableSequentialStream,
-) -> VortexResult<(SequenceId, ArrayRef)> {
-    let Some(chunk) = stream.next().await else {
-        vortex_bail!("ListLayoutStrategy needs a single chunk");
-    };
-    let chunk = chunk?;
-    if stream.next().await.is_some() {
-        vortex_bail!("ListLayoutStrategy received more than a single chunk");
-    }
-    Ok(chunk)
-}
-
 /// Wrap a single array as a one-shot [`SendableSequentialStream`] for handoff to a child writer.
 fn single_chunk_stream(
     dtype: DType,
@@ -168,30 +163,9 @@ fn single_chunk_stream(
 ) -> SendableSequentialStream {
     SequentialStreamAdapter::new(
         dtype,
-        futures::stream::once(async move { Ok((sequence_id, array)) }).boxed(),
+        stream::once(async move { Ok((sequence_id, array)) }).boxed(),
     )
     .sendable()
-}
-
-/// Spawn a child layout writer task onto the session handle.
-///
-/// Captures the strategy, ctx, sink, and a cloned session so the spawned future is `'static`.
-fn spawn_layout_write(
-    handle: &vortex_io::runtime::Handle,
-    strategy: Arc<dyn LayoutStrategy>,
-    ctx: ArrayContext,
-    sink: SegmentSinkRef,
-    session: &VortexSession,
-    stream: SendableSequentialStream,
-    eof: SequencePointer,
-) -> vortex_io::runtime::Task<VortexResult<LayoutRef>> {
-    let session = session.clone();
-    handle.spawn_nested(move |h| async move {
-        let session = session.with_handle(h);
-        strategy
-            .write_stream(ctx, sink, stream, eof, &session)
-            .await
-    })
 }
 
 #[cfg(test)]
