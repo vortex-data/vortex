@@ -334,32 +334,6 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn fetch_offsets_includes_extra_endpoint() -> VortexResult<()> {
-        let list = ListArray::try_new(
-            buffer![1i32, 2, 3, 4, 5].into_array(),
-            buffer![0u32, 2, 4, 5].into_array(),
-            Validity::NonNullable,
-        )?
-        .into_array();
-
-        let (segments, layout) = write_layout(&flat_list_strategy(), list).await?;
-        let reader = layout.new_reader("".into(), segments, &SESSION)?;
-        let reader = reader
-            .as_any()
-            .downcast_ref::<ListReader>()
-            .expect("ListReader");
-
-        // row_range 1..3 should pull 3 offsets (indices 1, 2, 3) — the +1 endpoint matters.
-        let offsets = reader.fetch_offsets(&(1..3))?.await?;
-        assert_eq!(materialize_u32_array(offsets), vec![2, 4, 5]);
-
-        // row_range 0..3 pulls all 4 offsets.
-        let offsets = reader.fetch_offsets(&(0..3))?.await?;
-        assert_eq!(materialize_u32_array(offsets), vec![0, 2, 4, 5]);
-        Ok(())
-    }
-
     fn create_basic_list_array(nullable: bool) -> ArrayRef {
         let validity = if nullable {
             Validity::Array(BoolArray::from_iter([true, false, true]).into_array())
@@ -374,6 +348,23 @@ mod tests {
         )
         .expect("array is valid")
         .into_array()
+    }
+
+    #[tokio::test]
+    async fn fetch_offsets_includes_extra_endpoint() -> VortexResult<()> {
+        let list = create_basic_list_array(false);
+
+        let (segments, layout) = write_layout(&flat_list_strategy(), list).await?;
+        let reader = layout.new_reader("".into(), segments, &SESSION)?;
+        let reader = reader
+            .as_any()
+            .downcast_ref::<ListReader>()
+            .expect("ListReader");
+
+        let offsets = reader.fetch_offsets(&(1..3))?.await?;
+        assert_eq!(materialize_u32_array(offsets), vec![2, 4, 5]);
+
+        Ok(())
     }
 
     #[rstest]
@@ -400,6 +391,22 @@ mod tests {
 
         let expected =
             list.slice(usize::try_from(row_range.start)?..usize::try_from(row_range.end)?)?;
+        assert_arrays_eq!(result, expected);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn projection_evaluation_applies_mask() -> VortexResult<()> {
+        let list = create_basic_list_array(false);
+        let (segments, layout) = write_layout(&flat_list_strategy(), list.clone()).await?;
+        let reader = layout.new_reader("".into(), segments, &SESSION)?;
+
+        let mask = Mask::from_iter([true, false, true]);
+        let result = reader
+            .projection_evaluation(&(0..3), &root(), MaskFuture::ready(mask.clone()))?
+            .await?;
+
+        let expected = list.filter(mask)?;
         assert_arrays_eq!(result, expected);
         Ok(())
     }
