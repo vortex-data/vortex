@@ -34,12 +34,7 @@ struct CTableBindData final : FunctionData {
 };
 
 unique_ptr<FunctionData> CTableBindData::Copy() const {
-    duckdb_vx_error error_out = nullptr;
-    const auto copied_ffi_data = duckdb_table_function_bind_data_clone(ffi_data->DataPtr(), &error_out);
-    if (error_out) {
-        throw BinderException(IntoErrString(error_out));
-    }
-
+    const auto copied_ffi_data = duckdb_table_function_bind_data_clone(ffi_data->DataPtr());
     auto ffi_data_p = unique_ptr<CData>(reinterpret_cast<CData *>(copied_ffi_data));
     return make_uniq<CTableBindData>(std::move(ffi_data_p), types);
 }

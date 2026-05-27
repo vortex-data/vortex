@@ -46,7 +46,7 @@ extern void duckdb_table_function_to_string(void *bind_data, duckdb_vx_string_ma
 
 extern
 bool duckdb_table_function_statistics(const void *bind_data,
-                                      uintptr_t column_index,
+                                      size_t column_index,
                                       duckdb_column_statistics *stats_out);
 
 extern double duckdb_table_function_scan_progress(void *global_state);
@@ -85,9 +85,28 @@ duckdb_vx_data duckdb_table_function_bind(duckdb_client_context ctx,
                                           duckdb_vx_tfunc_bind_result bind_result,
                                           duckdb_vx_error *error_out);
 
+extern duckdb_vx_data duckdb_table_function_bind_data_clone(const void *bind_data);
+
 extern
-duckdb_vx_data duckdb_table_function_bind_data_clone(const void *bind_data,
-                                                     duckdb_vx_error *error_out);
+duckdb_vx_data duckdb_copy_function_copy_to_bind(const char *const *column_names,
+                                                 size_t column_name_count,
+                                                 const duckdb_logical_type *column_types,
+                                                 size_t column_type_count,
+                                                 duckdb_vx_error *error_out);
+
+extern
+duckdb_vx_data duckdb_copy_function_copy_to_initialize_global(duckdb_client_context client_context,
+                                                              const void *bind_data,
+                                                              const char *file_path,
+                                                              duckdb_vx_error *error_out);
+
+extern
+void duckdb_copy_function_copy_to_sink(const void *bind_data,
+                                       void *global_data,
+                                       duckdb_data_chunk data_chunk,
+                                       duckdb_vx_error *error_out);
+
+extern void duckdb_copy_function_copy_to_finalize(void *global_data, duckdb_vx_error *error_out);
 
 #ifdef __cplusplus
 }  // extern "C"

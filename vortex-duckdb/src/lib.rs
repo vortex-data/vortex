@@ -16,7 +16,6 @@ use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 
-use crate::copy::VortexCopyFunction;
 use crate::duckdb::Database;
 use crate::duckdb::DatabaseRef;
 use crate::duckdb::LogicalType;
@@ -72,7 +71,7 @@ pub fn initialize(db: &DatabaseRef) -> VortexResult<()> {
         Value::from("vortex"),
     )?;
     db.register_table_functions()?;
-    db.register_copy_function::<VortexCopyFunction>(c"vortex", c"vortex")
+    db.register_copy_function()
 }
 
 /// Global symbol visibility in the Vortex extension:
