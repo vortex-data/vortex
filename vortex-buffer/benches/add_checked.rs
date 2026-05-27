@@ -513,8 +513,13 @@ fn premask_then_simd(bencher: Bencher, n: usize) {
         .bench_refs(|(lhs, rhs, lm, rm)| {
             let combined = lm as &BitBuffer & rm as &BitBuffer;
             let mut out = alloc_out(n);
-            handrolled_premask(lhs.as_slice(), rhs.as_slice(), &combined, out.as_mut_slice())
-                .unwrap();
+            handrolled_premask(
+                lhs.as_slice(),
+                rhs.as_slice(),
+                &combined,
+                out.as_mut_slice(),
+            )
+            .unwrap();
             (combined, out)
         });
 }

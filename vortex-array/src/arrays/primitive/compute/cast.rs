@@ -1,17 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::mem::align_of;
-use std::mem::size_of;
-
 use num_traits::AsPrimitive;
 use num_traits::NumCast;
-use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::lane_ops_indexed::ReinterpretSink;
 use vortex_buffer::lane_ops_indexed::map_no_validity;
+use vortex_buffer::lane_ops_indexed::map_no_validity_in_place;
 use vortex_buffer::lane_ops_indexed::try_map_no_validity;
+use vortex_buffer::lane_ops_indexed::try_map_no_validity_in_place;
 use vortex_buffer::lane_ops_indexed::try_map_with_mask;
 use vortex_buffer::lane_ops_indexed::try_map_with_mask_in_place;
 use vortex_error::VortexResult;
@@ -132,7 +130,6 @@ where
     F: NativePType + AsPrimitive<T>,
     T: NativePType,
 {
-    let values = array.as_slice::<F>();
     let overflow = || {
         vortex_err!(
             Compute: "Cannot cast {} to {} — value exceeds target range",
@@ -156,136 +153,110 @@ where
     let infallible = casts_losslessly_to(F::PTYPE, T::PTYPE)
         || cached_values_fit_in(array, &target_dtype) == Some(true);
 
-    // Same-bit-width in-place fast path: when F and T have the same byte width and the
-    // buffer is uniquely owned, mutate in place and transmute the wrapper. Saves the
-    // output allocation. Falls through to the out-of-place path when the buffer is shared
-    // (the common case under the current borrow-based kernel API).
+    let len = array.len();
+
+    // Same-bit-width in-place fast path: when F and T have the same byte width, try to take
+    // unique ownership of the buffer. If successful, each kernel call site below mutates in
+    // place via `ReinterpretSink` and transmutes the wrapper at the end, saving the output
+    // allocation. Falls back to the out-of-place path (borrowed slice + fresh buffer) when
+    // the buffer is shared — the common case under the current borrow-based kernel API.
     let same_bit_width = F::PTYPE.byte_width() == T::PTYPE.byte_width();
-    if same_bit_width
-        && let Ok(buffer_mut) = array.into_owned().try_into_buffer_mut::<F>()
-    {
-        return cast_buffer_in_place::<F, T>(buffer_mut, array, new_validity, ctx, infallible);
-    }
+    let owned: Option<BufferMut<F>> = if same_bit_width {
+        array.into_owned().try_into_buffer_mut::<F>().ok()
+    } else {
+        None
+    };
+    let values: &[F] = array.as_slice::<F>();
 
     if infallible {
-        let mut buffer = BufferMut::<T>::with_capacity(values.len());
-        // Truncating `as`-cast — safe here because stats prove every valid value fits.
-        // Null lanes' underlying garbage gets truncated/wrapped (harmless: the result
-        // validity bitmap masks them downstream).
-        map_no_validity(
-            values,
-            &mut buffer.spare_capacity_mut()[..values.len()],
-            |v| v.as_(),
-        );
-        // SAFETY: map_no_validity initializes every lane.
-        unsafe { buffer.set_len(values.len()) };
-        return Ok(PrimitiveArray::new(buffer.freeze(), new_validity).into_array());
+        // Truncating `as`-cast — safe here because static type analysis or cached stats prove
+        // every valid value fits. Null lanes' underlying garbage gets truncated/wrapped
+        // (harmless: the result validity bitmap masks them downstream).
+        return match owned {
+            Some(mut buf) => {
+                map_no_validity_in_place(
+                    ReinterpretSink::<F, T>::new(buf.as_mut_slice()),
+                    |v: F| v.as_(),
+                );
+                // SAFETY: same size + alignment for NativePType same-byte-width pairs;
+                // every F-slot was overwritten with a real `T` bit pattern.
+                let result: BufferMut<T> = unsafe { buf.transmute::<T>() };
+                Ok(PrimitiveArray::new(result.freeze(), new_validity).into_array())
+            }
+            None => {
+                let mut buffer = BufferMut::<T>::with_capacity(len);
+                map_no_validity(values, &mut buffer.spare_capacity_mut()[..len], |v| v.as_());
+                // SAFETY: map_no_validity initializes every lane.
+                unsafe { buffer.set_len(len) };
+                Ok(PrimitiveArray::new(buffer.freeze(), new_validity).into_array())
+            }
+        };
     }
 
-    let mask = array.validity()?.execute_mask(array.len(), ctx)?;
+    let mask = array.validity()?.execute_mask(len, ctx)?;
 
-    let buffer: Buffer<T> = match &mask {
-        Mask::AllTrue(_) => {
-            let mut buffer = BufferMut::<T>::with_capacity(values.len());
-            try_map_no_validity(
-                values,
-                &mut buffer.spare_capacity_mut()[..values.len()],
-                |v| <T as NumCast>::from(v),
+    let buffer: Buffer<T> = match (&mask, owned) {
+        (Mask::AllTrue(_), Some(mut buf)) => {
+            try_map_no_validity_in_place(
+                ReinterpretSink::<F, T>::new(buf.as_mut_slice()),
+                |v: F| <T as NumCast>::from(v),
             )
             .map_err(|_| overflow())?;
+            // SAFETY: same size + alignment for NativePType same-byte-width pairs;
+            // every F-slot now holds a `T` bit pattern written by `ReinterpretSink`.
+            let result: BufferMut<T> = unsafe { buf.transmute::<T>() };
+            result.freeze()
+        }
+        (Mask::AllTrue(_), None) => {
+            let mut buffer = BufferMut::<T>::with_capacity(len);
+            try_map_no_validity(values, &mut buffer.spare_capacity_mut()[..len], |v| {
+                <T as NumCast>::from(v)
+            })
+            .map_err(|_| overflow())?;
             // SAFETY: try_map_no_validity returned Ok, so it initialized every lane.
-            unsafe { buffer.set_len(values.len()) };
+            unsafe { buffer.set_len(len) };
             buffer.freeze()
         }
-        Mask::AllFalse(_) => BufferMut::<T>::zeroed(values.len()).freeze(),
-        Mask::Values(m) => {
-            let mut buffer = BufferMut::<T>::with_capacity(values.len());
+        (Mask::AllFalse(_), Some(buf)) => {
+            // SAFETY: same size + alignment by NativePType same-byte-width invariant.
+            let mut t_buf: BufferMut<T> = unsafe { buf.transmute::<T>() };
+            t_buf.as_mut_slice().fill(T::zero());
+            t_buf.freeze()
+        }
+        (Mask::AllFalse(_), None) => BufferMut::<T>::zeroed(len).freeze(),
+        (Mask::Values(m), Some(mut buf)) => {
+            try_map_with_mask_in_place(
+                ReinterpretSink::<F, T>::new(buf.as_mut_slice()),
+                m.bit_buffer(),
+                |v: F, valid| <T as NumCast>::from(v).or_else(|| (!valid).then(T::zero)),
+            )
+            .map_err(|_| overflow())?;
+            // SAFETY: same size + alignment for NativePType same-byte-width pairs;
+            // every F-slot now holds a `T` bit pattern written by `ReinterpretSink`.
+            let result: BufferMut<T> = unsafe { buf.transmute::<T>() };
+            result.freeze()
+        }
+        (Mask::Values(m), None) => {
+            let mut buffer = BufferMut::<T>::with_capacity(len);
             try_map_with_mask(
                 values,
                 m.bit_buffer(),
-                &mut buffer.spare_capacity_mut()[..values.len()],
-                // Lazy validity: only consult `valid` on the failure branch. For
-                // widening / statically-infallible casts, `NumCast::from` is always
-                // `Some` so the `or_else` is provably dead — LLVM DCEs the validity
-                // path entirely, giving the same codegen as the maskless kernel.
-                // For narrowing, `valid` is only read at lanes that actually
-                // overflowed (a cold check on top of the cast).
+                &mut buffer.spare_capacity_mut()[..len],
+                // Lazy validity: only consult `valid` on the failure branch. For widening /
+                // statically-infallible casts, `NumCast::from` is always `Some` so the
+                // `or_else` is provably dead — LLVM DCEs the validity path entirely, giving
+                // the same codegen as the maskless kernel. For narrowing, `valid` is only
+                // read at lanes that actually overflowed (a cold check on top of the cast).
                 |v, valid| <T as NumCast>::from(v).or_else(|| (!valid).then(T::zero)),
             )
             .map_err(|_| overflow())?;
             // SAFETY: try_map_with_mask returned Ok, so it initialized every lane.
-            unsafe { buffer.set_len(values.len()) };
+            unsafe { buffer.set_len(len) };
             buffer.freeze()
         }
     };
 
     Ok(PrimitiveArray::new(buffer, new_validity).into_array())
-}
-
-/// In-place cast of an owned `BufferMut<F>` to `BufferMut<T>` when `F` and `T` have the
-/// same byte width. Each slot is read as `F`, converted, and written back as `T`-bits
-/// using `BufferMut`'s transmute family. Avoids allocating a second output buffer.
-///
-/// The caller has already verified `F::PTYPE.byte_width() == T::PTYPE.byte_width()`.
-fn cast_buffer_in_place<F, T>(
-    buffer: BufferMut<F>,
-    array: ArrayView<'_, Primitive>,
-    new_validity: Validity,
-    ctx: &mut ExecutionCtx,
-    infallible: bool,
-) -> VortexResult<ArrayRef>
-where
-    F: NativePType + AsPrimitive<T>,
-    T: NativePType,
-{
-    debug_assert_eq!(size_of::<F>(), size_of::<T>());
-    debug_assert_eq!(align_of::<F>(), align_of::<T>());
-
-    if infallible {
-        // `map_each_in_place` does the BufferMut<F> → BufferMut<T> transmute internally
-        // (same size + alignment for primitives of equal byte width) and walks each slot
-        // with the closure.
-        let result: BufferMut<T> = buffer.map_each_in_place(|v: F| v.as_());
-        return Ok(PrimitiveArray::new(result.freeze(), new_validity).into_array());
-    }
-
-    let mask = array.validity()?.execute_mask(array.len(), ctx)?;
-    let overflow = || {
-        vortex_err!(
-            Compute: "Cannot cast {} to {} — value exceeds target range",
-            F::PTYPE, T::PTYPE,
-        )
-    };
-
-    // All-null short-circuit: zero out the buffer and skip the conversion loop entirely.
-    if matches!(mask, Mask::AllFalse(_)) {
-        // SAFETY: same size + alignment by NativePType same-byte-width invariant.
-        let mut t_buf: BufferMut<T> = unsafe { buffer.transmute::<T>() };
-        t_buf.as_mut_slice().fill(T::zero());
-        return Ok(PrimitiveArray::new(t_buf.freeze(), new_validity).into_array());
-    }
-
-    let bit_buffer = match &mask {
-        Mask::AllTrue(n) => BitBuffer::new_set(*n),
-        Mask::AllFalse(_) => unreachable!("handled above"),
-        Mask::Values(m) => m.bit_buffer().clone(),
-    };
-
-    let mut buffer = buffer;
-    try_map_with_mask_in_place(
-        ReinterpretSink::<F, T>::new(buffer.as_mut_slice()),
-        &bit_buffer,
-        |f_val: F, valid| -> Option<T> {
-            <T as NumCast>::from(f_val).or_else(|| (!valid).then(T::zero))
-        },
-    )
-    .map_err(|_| overflow())?;
-
-    // SAFETY: same size + alignment for NativePType same-byte-width pairs. Every F-slot
-    // now holds a valid T-bit pattern because `ReinterpretSink::set_unchecked` wrote a
-    // real `T` at every visited lane.
-    let result: BufferMut<T> = unsafe { buffer.transmute::<T>() };
-    Ok(PrimitiveArray::new(result.freeze(), new_validity).into_array())
 }
 
 fn reinterpret(
