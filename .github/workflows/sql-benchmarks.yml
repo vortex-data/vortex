@@ -294,7 +294,7 @@ jobs:
         with:
           name: bench-binaries
           path: |
-            target/release_debug/libduckdb.so
+            target/release_rebug/build/vortex-duckdb-*/out/duckdb-lib-v*/libduckdb.so
             target/release_debug/data-gen
             target/release_debug/datafusion-bench
             target/release_debug/duckdb-bench
