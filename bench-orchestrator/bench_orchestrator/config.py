@@ -50,6 +50,7 @@ class Benchmark(Enum):
     POLARSIGNALS = "polarsignals"
     PUBLIC_BI = "public-bi"
     STATPOPGEN = "statpopgen"
+    SQLSTORM = "sqlstorm"
 
 
 # Engine to supported formats mapping.
