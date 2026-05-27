@@ -78,6 +78,19 @@ def test_file_size_report_reads_shared_benchmark_rows() -> None:
     assert "| part-0.vortex | 10 | vortex-file-compressed | 100 B | 125 B | +25 B | +25.0% |" in report
 
 
+def test_report_help_links_explain_verdict_and_engines() -> None:
+    compare = load_compare_module()
+
+    assert (
+        compare.help_link("Verdict", compare.VERDICT_HELP_TITLE) == "**Verdict** [ⓘ](#benchmark-report-help "
+        '"Overall PR-level signal after subtracting baseline drift from Parquet controls.")'
+    )
+    assert (
+        compare.help_link("Engines", compare.ENGINES_HELP_TITLE) == "**Engines** [ⓘ](#benchmark-report-help "
+        '"Per-engine attribution using each engine\'s own Parquet controls.")'
+    )
+
+
 def test_capture_file_sizes_emits_shared_benchmark_rows(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     format_dir = data_dir / "tpch" / "10" / "vortex-file-compressed"
