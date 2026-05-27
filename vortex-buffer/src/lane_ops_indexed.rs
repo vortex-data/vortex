@@ -219,92 +219,35 @@ impl<A: IndexedSource, B: IndexedSource> IndexedSource for LaneZip<A, B> {
 /// All methods have default implementations and are inherited via the blanket
 /// `impl<S: IndexedSource> IndexedSourceExt for S` below. Bring the trait into
 /// scope (`use vortex_buffer::lane_ops_indexed::IndexedSourceExt;`) to call
-/// them with method syntax: `values.try_map_with_mask(&mask, &mut out, f)`.
+/// them with method syntax: `values.try_map_masked_into(&mask, &mut out, f)`.
 pub trait IndexedSourceExt: IndexedSource + Sized {
-    /// Apply `f(value, valid)` lane-by-lane, writing `out[i] = f(self[i], mask[i])`.
-    ///
-    /// All three inputs must have the same length. The output type `R` may differ from
-    /// the input type — this kernel is the building block for both same-type transforms
-    /// (fill_null) and cross-type ones (cast). The caller is responsible for marking
-    /// `out` initialized (e.g. by calling `BufferMut::set_len` after this returns).
-    ///
-    /// # Panics
-    ///
-    /// Panics if `self.len() != mask.len()` or `out.len() != self.len()`.
-    #[inline]
-    fn map_with_mask<R, F>(self, mask: &BitBuffer, out: &mut [MaybeUninit<R>], mut f: F)
-    where
-        F: FnMut(Self::Item, bool) -> R,
-    {
-        /// Per-chunk worker. Called twice (literal `64` for full chunks, `remainder`
-        /// for the tail). `#[inline(always)]` preserves the const-64 unroll at the
-        /// full-chunk call site via constant propagation through inlining.
-        #[inline(always)]
-        fn chunk<S, R, F>(
-            values: &S,
-            out: &mut [MaybeUninit<R>],
-            f: &mut F,
-            src_chunk: u64,
-            base: usize,
-            count: usize,
-        ) where
-            S: IndexedSource,
-            F: FnMut(S::Item, bool) -> R,
-        {
-            for bit_idx in 0..count {
-                let i = base + bit_idx;
-                let bit = (src_chunk >> bit_idx) & 1 == 1;
-                // SAFETY: caller guarantees base + count <= len.
-                let v = unsafe { values.get_unchecked(i) };
-                unsafe { out.get_unchecked_mut(i).write(f(v, bit)) };
-            }
-        }
-
-        let values = self;
-        let len = values.len();
-        assert_eq!(len, mask.len(), "values and mask must have the same length");
-        assert_eq!(out.len(), len, "out must have the same length as values");
-
-        let chunks = mask.chunks();
-        let chunks_count = len / 64;
-        let remainder = len % 64;
-
-        for (chunk_idx, src_chunk) in chunks.iter().enumerate() {
-            chunk(&values, out, &mut f, src_chunk, chunk_idx * 64, 64);
-        }
-        if remainder != 0 {
-            chunk(
-                &values,
-                out,
-                &mut f,
-                chunks.remainder_bits(),
-                chunks_count * 64,
-                remainder,
-            );
-        }
-    }
-
     /// Fallible variant of [`map_with_mask`]. `f` returns `Option<R>`; `None`
     /// indicates a per-lane failure (e.g. range overflow on a narrowing cast).
     ///
-    /// **Null-lane failures are filtered automatically.** If a null lane's stored
-    /// value causes `f(v, false)` to return `None`, the kernel does *not* propagate
-    /// that as `Err`. The per-lane `is_none()` flags are bit-packed into a `u64` at
-    /// the lane's position, then AND-combined with the chunk's validity bitmap — null-lane
-    /// bits vanish. The closure may also explicitly suppress null-lane failures by
-    /// branching on `valid` itself; both behaviors compose.
+    /// **Null-lane failures are filtered automatically.** The closure is called on
+    /// every lane regardless of validity; if a null lane's stored value causes `f(v)`
+    /// to return `None`, the kernel does *not* propagate that as `Err`. The per-lane
+    /// `is_none()` flags are bit-packed into a `u64` at the lane's position, then
+    /// AND-combined with the chunk's validity bitmap — null-lane bits vanish.
+    ///
+    /// The closure shape is the same as [`try_map_into`] (`FnMut(Item) -> Option<R>`);
+    /// the mask parameter is what makes this kernel mask-aware. Callers that need to
+    /// distinguish null lanes inside the closure (e.g. to short-circuit an expensive
+    /// computation) should construct their own per-lane validity check externally; for
+    /// the common case, the kernel's automatic filter is sufficient.
     ///
     /// On failure returns `Err(failing_lane_index)`. Lanes whose `f` returned `None`
     /// write `R::default()` into `out`, but the contents of `out` must not be relied
     /// upon when this function returns `Err`.
     ///
     /// [`map_with_mask`]: IndexedSourceExt::map_with_mask
+    /// [`try_map_into`]: IndexedSourceExt::try_map_into
     ///
     /// # Panics
     ///
     /// Panics if `self.len() != mask.len()` or `out.len() != self.len()`.
     #[inline]
-    fn try_map_with_mask<R, F>(
+    fn try_map_masked_into<R, F>(
         self,
         mask: &BitBuffer,
         out: &mut [MaybeUninit<R>],
@@ -312,7 +255,7 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
     ) -> Result<(), usize>
     where
         R: Copy + Default,
-        F: FnMut(Self::Item, bool) -> Option<R>,
+        F: FnMut(Self::Item) -> Option<R>,
     {
         #[inline(always)]
         fn chunk<S, R, F>(
@@ -326,15 +269,14 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
         where
             S: IndexedSource,
             R: Copy + Default,
-            F: FnMut(S::Item, bool) -> Option<R>,
+            F: FnMut(S::Item) -> Option<R>,
         {
             let mut fail_bits: u64 = 0;
             for bit_idx in 0..count {
                 let i = base + bit_idx;
-                let bit = (src_chunk >> bit_idx) & 1 == 1;
                 // SAFETY: caller guarantees base + count <= len.
                 let v = unsafe { values.get_unchecked(i) };
-                let opt = f(v, bit);
+                let opt = f(v);
                 fail_bits |= (opt.is_none() as u64) << bit_idx;
                 let r = opt.unwrap_or_default();
                 unsafe { out.get_unchecked_mut(i).write(r) };
@@ -380,7 +322,7 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
     ///
     /// Panics if `out.len() != self.len()`.
     #[inline]
-    fn map_no_validity<R, F>(self, out: &mut [MaybeUninit<R>], mut f: F)
+    fn map_into<R, F>(self, out: &mut [MaybeUninit<R>], mut f: F)
     where
         F: FnMut(Self::Item) -> R,
     {
@@ -423,7 +365,7 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
     ///
     /// # Use this only for non-nullable inputs.
     ///
-    /// For nullable inputs with a fallible closure, use [`try_map_with_mask`] —
+    /// For nullable inputs with a fallible closure, use [`try_map_masked_into`] —
     /// it has the same value-only closure shape (and the same perf win) but
     /// **correctly suppresses null-lane failures** via per-chunk
     /// `fail_bits & mask_chunk`.
@@ -435,13 +377,13 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
     ///
     /// On failure returns `Err(failing_lane_index)`.
     ///
-    /// [`try_map_with_mask`]: IndexedSourceExt::try_map_with_mask
+    /// [`try_map_masked_into`]: IndexedSourceExt::try_map_masked_into
     ///
     /// # Panics
     ///
     /// Panics if `out.len() != self.len()`.
     #[inline]
-    fn try_map_no_validity<R, F>(self, out: &mut [MaybeUninit<R>], mut f: F) -> Result<(), usize>
+    fn try_map_into<R, F>(self, out: &mut [MaybeUninit<R>], mut f: F) -> Result<(), usize>
     where
         R: Copy + Default,
         F: FnMut(Self::Item) -> Option<R>,
@@ -545,7 +487,7 @@ where
 /// (`use vortex_buffer::lane_ops_indexed::IndexedSinkExt;`) to call them with
 /// method syntax.
 pub trait IndexedSinkExt: IndexedSink + Sized {
-    /// In-place counterpart of [`IndexedSourceExt::map_no_validity`]. Each lane
+    /// In-place counterpart of [`IndexedSourceExt::map_into`]. Each lane
     /// is replaced with `f(self[i])`.
     ///
     /// The closure reads `Self::Item` and returns `Self::Write`. For the common
@@ -553,10 +495,10 @@ pub trait IndexedSinkExt: IndexedSink + Sized {
     /// write types can differ (e.g. read `f32`, write `u32`) over the same
     /// backing memory when sizes and alignments match.
     ///
-    /// As with [`IndexedSourceExt::map_no_validity`], use this only when the
+    /// As with [`IndexedSourceExt::map_into`], use this only when the
     /// input is known non-nullable.
     #[inline]
-    fn map_no_validity_in_place<F>(self, mut f: F)
+    fn map_into_in_place<F>(self, mut f: F)
     where
         F: FnMut(Self::Item) -> Self::Write,
     {
@@ -589,51 +531,46 @@ pub trait IndexedSinkExt: IndexedSink + Sized {
         }
     }
 
-    /// In-place counterpart of [`IndexedSourceExt::try_map_no_validity`]. Each
+    /// In-place counterpart of [`IndexedSourceExt::try_map_into`]. Each
     /// lane is replaced with `f(self[i])`, or `Self::Write::default()` when `f`
     /// returns `None`. On failure returns `Err(first_failing_lane)`; the buffer
     /// state on `Err` is unspecified.
     ///
-    /// As with [`IndexedSourceExt::try_map_no_validity`], use this only when the
-    /// input is known non-nullable — a `None` from `f` is treated as a failure
-    /// regardless of any upstream validity bitmap.
-    ///
     /// ## Error attribution
     ///
-    /// Per-lane `is_none()` flags are folded into `first_fail` via the same
-    /// branchless `min` scheme as [`try_map_with_mask_in_place`]. Cold replay
-    /// isn't viable here because the original input values have already been
-    /// overwritten by the time we'd attribute the failure.
+    /// Per-lane `is_none()` flags are bit-packed into a `u64` at the lane's
+    /// position — `fail_bits |= (opt.is_none() as u64) << bit_idx`. After the
+    /// 64-lane loop, `trailing_zeros()` of `fail_bits` recovers the first
+    /// failing lane index. `OR + shift` per lane is friendlier to the
+    /// autovectorizer than `min`/`csel` — see [`try_map_masked_in_place`] for
+    /// the same scheme over a masked variant.
     ///
-    /// [`try_map_with_mask_in_place`]: IndexedSinkExt::try_map_with_mask_in_place
+    /// [`try_map_masked_in_place`]: IndexedSinkExt::try_map_masked_in_place
     #[inline]
-    #[allow(clippy::cast_possible_truncation)]
-    fn try_map_no_validity_in_place<F>(self, mut f: F) -> Result<(), usize>
+    fn try_map_in_place<F>(self, mut f: F) -> Result<(), usize>
     where
         Self::Write: Default,
         F: FnMut(Self::Item) -> Option<Self::Write>,
     {
         #[inline(always)]
-        #[allow(clippy::cast_possible_truncation)]
-        fn chunk<S, F>(values: &mut S, base: usize, count: usize, f: &mut F) -> Option<u32>
+        fn chunk<S, F>(values: &mut S, base: usize, count: usize, f: &mut F) -> Option<usize>
         where
             S: IndexedSink,
             S::Write: Default,
             F: FnMut(S::Item) -> Option<S::Write>,
         {
-            let mut first_fail: u32 = u32::MAX;
+            let mut fail_bits: u64 = 0;
             for bit_idx in 0..count {
                 let i = base + bit_idx;
                 // SAFETY: caller guarantees base + count <= len.
                 let v = unsafe { values.get_unchecked(i) };
                 let opt = f(v);
-                let candidate = if opt.is_none() { i as u32 } else { u32::MAX };
-                first_fail = first_fail.min(candidate);
+                fail_bits |= (opt.is_none() as u64) << bit_idx;
                 let r = opt.unwrap_or_default();
                 // SAFETY: caller guarantees base + count <= len.
                 unsafe { values.set_unchecked(i, r) };
             }
-            (first_fail != u32::MAX).then_some(first_fail)
+            (fail_bits != 0).then_some(base + fail_bits.trailing_zeros() as usize)
         }
 
         let mut values = self;
@@ -643,85 +580,36 @@ pub trait IndexedSinkExt: IndexedSink + Sized {
 
         for chunk_idx in 0..chunks_count {
             if let Some(failing) = chunk(&mut values, chunk_idx * 64, 64, &mut f) {
-                return Err(failing as usize);
+                return Err(failing);
             }
         }
         if remainder != 0
             && let Some(failing) = chunk(&mut values, chunks_count * 64, remainder, &mut f)
         {
-            return Err(failing as usize);
+            return Err(failing);
         }
         Ok(())
     }
 
-    /// In-place counterpart of [`IndexedSourceExt::map_with_mask`]. Each lane
-    /// is replaced with `f(self[i], mask[i])`.
+    /// In-place counterpart of [`IndexedSourceExt::try_map_masked_into`]. Each
+    /// lane of `self` is replaced with `f(self[i])`, or `Self::Write::default()`
+    /// if `f` returned `None`. On failure returns `Err(first_failing_lane)`;
+    /// lanes before that point have been written, and lanes within the failing
+    /// chunk hold their unwrapped-or-default result. The buffer state on `Err`
+    /// is intentionally unspecified.
     ///
-    /// The closure reads `Self::Item` and returns `Self::Write`. For the common
-    /// case `Self = &mut [T]` both are `T`; for [`ReinterpretSink`] the read and
-    /// write types can differ (e.g. read `f32`, write `u32`) over the same
-    /// backing memory when sizes and alignments match.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `self.len() != mask.len()`.
-    #[inline]
-    fn map_with_mask_in_place<F>(self, mask: &BitBuffer, mut f: F)
-    where
-        F: FnMut(Self::Item, bool) -> Self::Write,
-    {
-        #[inline(always)]
-        fn chunk<S, F>(values: &mut S, f: &mut F, src_chunk: u64, base: usize, count: usize)
-        where
-            S: IndexedSink,
-            F: FnMut(S::Item, bool) -> S::Write,
-        {
-            for bit_idx in 0..count {
-                let i = base + bit_idx;
-                let bit = (src_chunk >> bit_idx) & 1 == 1;
-                // SAFETY: caller guarantees base + count <= len.
-                let v = unsafe { values.get_unchecked(i) };
-                let r = f(v, bit);
-                unsafe { values.set_unchecked(i, r) };
-            }
-        }
-
-        let mut values = self;
-        let len = values.len();
-        assert_eq!(len, mask.len(), "values and mask must have the same length");
-
-        let chunks = mask.chunks();
-        let chunks_count = len / 64;
-        let remainder = len % 64;
-
-        for (chunk_idx, src_chunk) in chunks.iter().enumerate() {
-            chunk(&mut values, &mut f, src_chunk, chunk_idx * 64, 64);
-        }
-        if remainder != 0 {
-            chunk(
-                &mut values,
-                &mut f,
-                chunks.remainder_bits(),
-                chunks_count * 64,
-                remainder,
-            );
-        }
-    }
-
-    /// In-place counterpart of [`IndexedSourceExt::try_map_with_mask`]. Each
-    /// lane of `self` is replaced with `f(self[i], mask[i])`, or
-    /// `Self::Write::default()` if `f` returned `None`. On failure returns
-    /// `Err(first_failing_lane)`; lanes before that point have been written,
-    /// and lanes within the failing chunk hold their unwrapped-or-default
-    /// result. The buffer state on `Err` is intentionally unspecified.
+    /// **Null-lane failures are filtered automatically** — same semantics as
+    /// [`try_map_masked_into`]. The closure has no `valid` parameter; the kernel
+    /// AND-combines `is_none()` with the chunk's validity bitmap before folding
+    /// it into the attribution accumulator.
     ///
     /// ## Error attribution
     ///
-    /// Per-lane `is_none()` flags are folded into `first_fail` via a branchless
-    /// `min` of `(if is_none { i as u32 } else { u32::MAX })`. After the 64-lane
-    /// loop, `first_fail` holds the smallest failing index in the chunk (or
-    /// `MAX` if no failure). Vectorizes to NEON `bsl.16b` + `umin.4s` on
-    /// AArch64. The cold replay scheme used by [`try_map_with_mask`] isn't
+    /// Per-lane `(is_none && valid)` flags are folded into `first_fail` via a
+    /// branchless `min` of `(if is_none && valid { i as u32 } else { u32::MAX })`.
+    /// After the 64-lane loop, `first_fail` holds the smallest valid failing index
+    /// in the chunk (or `MAX` if none). Vectorizes to NEON `bsl.16b` + `umin.4s`
+    /// on AArch64. The cold replay scheme used by [`try_map_masked_into`] isn't
     /// viable here because the original input values have already been
     /// overwritten by the time we would attribute the failure.
     ///
@@ -734,45 +622,47 @@ pub trait IndexedSinkExt: IndexedSink + Sized {
     /// in-place kernel wins back the gap by avoiding the second buffer's DRAM
     /// read+write traffic.
     ///
-    /// [`try_map_with_mask`]: IndexedSourceExt::try_map_with_mask
+    /// [`try_map_masked_into`]: IndexedSourceExt::try_map_masked_into
     ///
     /// # Panics
     ///
     /// Panics if `self.len() != mask.len()`.
     #[inline]
     #[allow(clippy::cast_possible_truncation)]
-    fn try_map_with_mask_in_place<F>(self, mask: &BitBuffer, mut f: F) -> Result<(), usize>
+    fn try_map_masked_in_place<F>(self, mask: &BitBuffer, mut f: F) -> Result<(), usize>
     where
         Self::Write: Default,
-        F: FnMut(Self::Item, bool) -> Option<Self::Write>,
+        F: FnMut(Self::Item) -> Option<Self::Write>,
     {
+        /// Bit-pack `is_none()` flags per lane, then AND with `src_chunk` post-loop to
+        /// drop null-lane failures — identical scheme to [`try_map_masked_into`]. The
+        /// per-lane attribution work is `OR + shift` (no `min`/`csel`), giving LLVM more
+        /// freedom to vectorize the value pipeline.
         #[inline(always)]
-        #[allow(clippy::cast_possible_truncation)]
         fn chunk<S, F>(
             values: &mut S,
             src_chunk: u64,
             base: usize,
             count: usize,
             f: &mut F,
-        ) -> Option<u32>
+        ) -> Option<usize>
         where
             S: IndexedSink,
             S::Write: Default,
-            F: FnMut(S::Item, bool) -> Option<S::Write>,
+            F: FnMut(S::Item) -> Option<S::Write>,
         {
-            let mut first_fail: u32 = u32::MAX;
+            let mut fail_bits: u64 = 0;
             for bit_idx in 0..count {
                 let i = base + bit_idx;
-                let bit = (src_chunk >> bit_idx) & 1 == 1;
                 // SAFETY: caller guarantees `base + count <= values.len()`.
                 let v = unsafe { values.get_unchecked(i) };
-                let opt = f(v, bit);
-                let candidate = if opt.is_none() { i as u32 } else { u32::MAX };
-                first_fail = first_fail.min(candidate);
+                let opt = f(v);
+                fail_bits |= (opt.is_none() as u64) << bit_idx;
                 let r = opt.unwrap_or_default();
                 unsafe { values.set_unchecked(i, r) };
             }
-            (first_fail != u32::MAX).then_some(first_fail)
+            let valid_failures = fail_bits & src_chunk;
+            (valid_failures != 0).then_some(base + valid_failures.trailing_zeros() as usize)
         }
 
         let mut values = self;
@@ -785,7 +675,7 @@ pub trait IndexedSinkExt: IndexedSink + Sized {
 
         for (chunk_idx, src_chunk) in chunks.iter().enumerate() {
             if let Some(failing) = chunk(&mut values, src_chunk, chunk_idx * 64, 64, &mut f) {
-                return Err(failing as usize);
+                return Err(failing);
             }
         }
         if remainder != 0
@@ -797,7 +687,7 @@ pub trait IndexedSinkExt: IndexedSink + Sized {
                 &mut f,
             )
         {
-            return Err(failing as usize);
+            return Err(failing);
         }
         Ok(())
     }
@@ -817,146 +707,33 @@ mod tests {
     }
 
     #[test]
-    fn map_with_mask_aligned() {
-        let values: Vec<i32> = (0..10).collect();
-        let mask = {
-            let mut m = BitBufferMut::with_capacity(10);
-            for i in 0..10 {
-                m.append(i % 2 == 0);
-            }
-            m.freeze()
-        };
-        let mut out = vec![MaybeUninit::<i32>::uninit(); 10];
-        values
-            .as_slice()
-            .map_with_mask(&mask, &mut out, |v, valid| if valid { v } else { -1 });
-        assert_eq!(write_t(out), vec![0, -1, 2, -1, 4, -1, 6, -1, 8, -1]);
-    }
-
-    #[test]
-    fn map_with_mask_partial_chunk() {
-        // 130 lanes — two full u64 words + a 2-bit remainder.
-        let values: Vec<i32> = (0..130).collect();
-        let mask = BitBuffer::new_set(130);
-        let mut out = vec![MaybeUninit::<i32>::uninit(); 130];
-        values
-            .as_slice()
-            .map_with_mask(&mask, &mut out, |v, valid| if valid { v + 1 } else { 0 });
-        let got = write_t(out);
-        assert_eq!(got.len(), 130);
-        assert_eq!(got[0], 1);
-        assert_eq!(got[63], 64);
-        assert_eq!(got[64], 65);
-        assert_eq!(got[129], 130);
-    }
-
-    #[test]
-    fn map_with_mask_offset_mask() {
-        // Build a 128-bit all-true mask, then slice off the first 5 bits to force offset=5.
-        let big = BitBuffer::new_set(128);
-        let sliced = big.slice(5..70); // logical len = 65, offset = 5
-        assert_eq!(sliced.len(), 65);
-        assert_eq!(sliced.offset(), 5);
-
-        let values: Vec<u32> = (0..65).collect();
-        let mut out = vec![MaybeUninit::<u32>::uninit(); 65];
-        values.as_slice().map_with_mask(
-            &sliced,
-            &mut out,
-            |v, valid| {
-                if valid { v } else { u32::MAX }
-            },
-        );
-        let got = write_t(out);
-        assert_eq!(got, (0..65).collect::<Vec<u32>>());
-    }
-
-    #[test]
-    fn map_with_mask_offset_past_word() {
-        // Slicing past a full word still works. `BitBuffer::slice` normalizes the
-        // logical offset to `offset % 8` and bumps the underlying byte pointer,
-        // so `offset()` won't equal 70 here — what we exercise is that the kernel
-        // walks the chunked u64 view (which BitChunks handles internally).
-        let big = BitBuffer::new_set(256);
-        let sliced = big.slice(70..200);
-        assert_eq!(sliced.len(), 130);
-
-        let values: Vec<i16> = (0..130).map(|i| i as i16).collect();
-        let mut out = vec![MaybeUninit::<i16>::uninit(); 130];
-        values
-            .as_slice()
-            .map_with_mask(&sliced, &mut out, |v, valid| if valid { v } else { -1 });
-        let got = write_t(out);
-        assert_eq!(got, (0..130).map(|i| i as i16).collect::<Vec<_>>());
-    }
-
-    #[test]
-    fn map_with_mask_empty() {
-        let values: Vec<i32> = vec![];
-        let mask = BitBuffer::new_unset(0);
-        let mut out: Vec<MaybeUninit<i32>> = vec![];
-        values.as_slice().map_with_mask(&mask, &mut out, |v, _| v);
-    }
-
-    #[test]
-    fn map_with_mask_null_to_zero_branchless() {
-        // The trick from primitive/compute/cast.rs:147 — multiply by valid as T.
-        let values: Vec<i64> = (1..=100).collect();
-        let mask = {
-            let mut m = BitBufferMut::with_capacity(100);
-            for i in 0..100 {
-                m.append(i % 3 != 0);
-            }
-            m.freeze()
-        };
-        let mut out = vec![MaybeUninit::<i64>::uninit(); 100];
-        values
-            .as_slice()
-            .map_with_mask(&mask, &mut out, |v, valid| v * (valid as i64));
-        let got = write_t(out);
-        for (i, &x) in got.iter().enumerate() {
-            if i % 3 == 0 {
-                assert_eq!(x, 0);
-            } else {
-                assert_eq!(x, (i + 1) as i64);
-            }
-        }
-    }
-
-    #[test]
-    fn try_map_with_mask_all_ok() {
+    fn try_map_masked_into_all_ok() {
         let values: Vec<u64> = (0..200).collect();
         let mask = BitBuffer::new_set(200);
         let mut out = vec![MaybeUninit::<u32>::uninit(); 200];
-        let res = values
-            .as_slice()
-            .try_map_with_mask(&mask, &mut out, |v, valid| {
-                let scaled = v * valid as u64;
-                (scaled <= u32::MAX as u64).then_some(scaled as u32)
-            });
+        let res = values.as_slice().try_map_masked_into(&mask, &mut out, |v| {
+            (v <= u32::MAX as u64).then_some(v as u32)
+        });
         assert!(res.is_ok());
         let got = write_t(out);
         assert_eq!(got, (0..200u32).collect::<Vec<_>>());
     }
 
     #[test]
-    fn try_map_with_mask_overflow_fails() {
+    fn try_map_masked_into_overflow_fails() {
         // Put an overflowing value at lane 137 — the kernel must report Err(137).
         let mut values: Vec<u64> = (0..200).collect();
         values[137] = (u32::MAX as u64) + 1;
         let mask = BitBuffer::new_set(200);
         let mut out = vec![MaybeUninit::<u32>::uninit(); 200];
-        let res = values
-            .as_slice()
-            .try_map_with_mask(&mask, &mut out, |v, valid| {
-                let scaled = v * valid as u64;
-                (scaled <= u32::MAX as u64).then_some(scaled as u32)
-            });
+        let res = values.as_slice().try_map_masked_into(&mask, &mut out, |v| {
+            (v <= u32::MAX as u64).then_some(v as u32)
+        });
         assert_eq!(res, Err(137));
     }
 
     #[test]
-    fn try_map_with_mask_overflow_reports_first_failing_lane() {
+    fn try_map_masked_into_overflow_reports_first_failing_lane() {
         // Multiple failing lanes — must report the lowest index.
         let mut values: Vec<u64> = (0..200).collect();
         values[50] = u64::MAX;
@@ -964,17 +741,14 @@ mod tests {
         values[137] = u64::MAX;
         let mask = BitBuffer::new_set(200);
         let mut out = vec![MaybeUninit::<u32>::uninit(); 200];
-        let res = values
-            .as_slice()
-            .try_map_with_mask(&mask, &mut out, |v, valid| {
-                let scaled = v * valid as u64;
-                (scaled <= u32::MAX as u64).then_some(scaled as u32)
-            });
+        let res = values.as_slice().try_map_masked_into(&mask, &mut out, |v| {
+            (v <= u32::MAX as u64).then_some(v as u32)
+        });
         assert_eq!(res, Err(50));
     }
 
     #[test]
-    fn try_map_with_mask_value_only_closure_filters_null_overflow() {
+    fn try_map_masked_into_value_only_closure_filters_null_overflow() {
         // `|v, _|` closure that ignores validity. A null lane with an overflowing
         // value MUST NOT cause Err — the kernel's cold-path mask filter rescues us.
         let mut values: Vec<u64> = (0..200).collect();
@@ -988,11 +762,9 @@ mod tests {
             m.freeze()
         };
         let mut out = vec![MaybeUninit::<u32>::uninit(); 200];
-        let res = values
-            .as_slice()
-            .try_map_with_mask(&mask, &mut out, |v, _valid| {
-                (v <= u32::MAX as u64).then_some(v as u32)
-            });
+        let res = values.as_slice().try_map_masked_into(&mask, &mut out, |v| {
+            (v <= u32::MAX as u64).then_some(v as u32)
+        });
         assert!(
             res.is_ok(),
             "null-lane overflow should be filtered by the cold path"
@@ -1000,7 +772,7 @@ mod tests {
     }
 
     #[test]
-    fn try_map_with_mask_value_only_closure_reports_first_valid_failure() {
+    fn try_map_masked_into_value_only_closure_reports_first_valid_failure() {
         // Valid lane overflow must propagate — and the reported index must be
         // the lowest VALID failing lane, even if earlier null lanes also "failed"
         // their unconditional cast.
@@ -1017,16 +789,14 @@ mod tests {
             m.freeze()
         };
         let mut out = vec![MaybeUninit::<u32>::uninit(); 200];
-        let res = values
-            .as_slice()
-            .try_map_with_mask(&mask, &mut out, |v, _valid| {
-                (v <= u32::MAX as u64).then_some(v as u32)
-            });
+        let res = values.as_slice().try_map_masked_into(&mask, &mut out, |v| {
+            (v <= u32::MAX as u64).then_some(v as u32)
+        });
         assert_eq!(res, Err(77));
     }
 
     #[test]
-    fn try_map_with_mask_null_lane_bypasses_check() {
+    fn try_map_masked_into_null_lane_bypasses_check() {
         // Null lanes are neutralized by `valid as u64` before the range check, so an
         // out-of-range value at a null lane must NOT trigger failure.
         let mut values: Vec<u64> = (0..200).collect();
@@ -1039,12 +809,9 @@ mod tests {
             m.freeze()
         };
         let mut out = vec![MaybeUninit::<u32>::uninit(); 200];
-        let res = values
-            .as_slice()
-            .try_map_with_mask(&mask, &mut out, |v, valid| {
-                let scaled = v * valid as u64;
-                (scaled <= u32::MAX as u64).then_some(scaled as u32)
-            });
+        let res = values.as_slice().try_map_masked_into(&mask, &mut out, |v| {
+            (v <= u32::MAX as u64).then_some(v as u32)
+        });
         assert!(res.is_ok());
         let got = write_t(out);
         assert_eq!(got[5], 0); // null-lane wrote default
@@ -1052,7 +819,7 @@ mod tests {
     }
 
     #[test]
-    fn try_map_with_mask_branchful_matches_branchless() {
+    fn try_map_masked_into_branchful_matches_branchless() {
         let mut values: Vec<u64> = (0..130).map(|i| i as u64 * 7).collect();
         values[2] = u64::MAX;
         values[65] = u32::MAX as u64;
@@ -1068,36 +835,26 @@ mod tests {
         let mut branchful = vec![MaybeUninit::<u32>::uninit(); 130];
         values
             .as_slice()
-            .try_map_with_mask(&mask, &mut branchless, |v, valid| {
-                let scaled = v * valid as u64;
-                (scaled <= u32::MAX as u64).then_some(scaled as u32)
+            .try_map_masked_into(&mask, &mut branchless, |v| {
+                (v <= u32::MAX as u64).then_some(v as u32)
             })
             .unwrap();
         values
             .as_slice()
-            .try_map_with_mask(&mask, &mut branchful, |v, valid| {
-                if valid {
-                    u32::try_from(v).ok()
-                } else {
-                    Some(0)
-                }
-            })
+            .try_map_masked_into(&mask, &mut branchful, |v| u32::try_from(v).ok())
             .unwrap();
 
         assert_eq!(write_t(branchful), write_t(branchless));
     }
 
     #[test]
-    fn try_map_with_mask_partial_chunk() {
+    fn try_map_masked_into_partial_chunk() {
         let values: Vec<u64> = (0..130).collect();
         let mask = BitBuffer::new_set(130);
         let mut out = vec![MaybeUninit::<u32>::uninit(); 130];
-        let res = values
-            .as_slice()
-            .try_map_with_mask(&mask, &mut out, |v, valid| {
-                let scaled = v * valid as u64;
-                (scaled <= u32::MAX as u64).then_some(scaled as u32)
-            });
+        let res = values.as_slice().try_map_masked_into(&mask, &mut out, |v| {
+            (v <= u32::MAX as u64).then_some(v as u32)
+        });
         assert!(res.is_ok());
         let got = write_t(out);
         assert_eq!(got.len(), 130);
@@ -1105,7 +862,7 @@ mod tests {
     }
 
     #[test]
-    fn try_map_with_mask_sliced_mask_unaligned_offset() {
+    fn try_map_masked_into_sliced_mask_unaligned_offset() {
         // The mask's first byte is not word-aligned: slice off 13 bits, so the
         // underlying BitChunks iterator must shift across byte boundaries on every
         // 64-bit chunk it yields.
@@ -1115,19 +872,16 @@ mod tests {
 
         let values: Vec<u64> = (0..130).collect();
         let mut out = vec![MaybeUninit::<u32>::uninit(); 130];
-        let res = values
-            .as_slice()
-            .try_map_with_mask(&mask, &mut out, |v, valid| {
-                let scaled = v * valid as u64;
-                (scaled <= u32::MAX as u64).then_some(scaled as u32)
-            });
+        let res = values.as_slice().try_map_masked_into(&mask, &mut out, |v| {
+            (v <= u32::MAX as u64).then_some(v as u32)
+        });
         assert!(res.is_ok());
         let got = write_t(out);
         assert_eq!(got, (0..130u32).collect::<Vec<_>>());
     }
 
     #[test]
-    fn try_map_with_mask_sliced_mask_with_overflow() {
+    fn try_map_masked_into_sliced_mask_with_overflow() {
         // Sliced mask + overflowing value — the cold attribution path must report
         // the correct lane index in the sliced (post-offset) coordinate space.
         let big = BitBuffer::new_set(256);
@@ -1137,17 +891,14 @@ mod tests {
         let mut values: Vec<u64> = (0..130).collect();
         values[77] = u64::MAX;
         let mut out = vec![MaybeUninit::<u32>::uninit(); 130];
-        let res = values
-            .as_slice()
-            .try_map_with_mask(&mask, &mut out, |v, valid| {
-                let scaled = v * valid as u64;
-                (scaled <= u32::MAX as u64).then_some(scaled as u32)
-            });
+        let res = values.as_slice().try_map_masked_into(&mask, &mut out, |v| {
+            (v <= u32::MAX as u64).then_some(v as u32)
+        });
         assert_eq!(res, Err(77));
     }
 
     #[test]
-    fn try_map_with_mask_sliced_mask_null_lanes() {
+    fn try_map_masked_into_sliced_mask_null_lanes() {
         // Mix sliced offset with a non-trivial validity pattern. Null lanes must
         // not contribute to fail_acc, even when their underlying value would overflow.
         let mut m = BitBufferMut::with_capacity(256);
@@ -1165,102 +916,74 @@ mod tests {
         // Stuff in an overflowing value; it must be neutralized by `* valid as u64`.
         values[2] = u64::MAX;
         let mut out = vec![MaybeUninit::<u32>::uninit(); 130];
-        let res = values
-            .as_slice()
-            .try_map_with_mask(&mask, &mut out, |v, valid| {
-                let scaled = v * valid as u64;
-                (scaled <= u32::MAX as u64).then_some(scaled as u32)
-            });
+        let res = values.as_slice().try_map_masked_into(&mask, &mut out, |v| {
+            (v <= u32::MAX as u64).then_some(v as u32)
+        });
         assert!(res.is_ok(), "null lane should bypass the range check");
     }
 
     #[test]
-    fn try_map_with_mask_overflow_in_remainder() {
+    fn try_map_masked_into_overflow_in_remainder() {
         // Overflow in the trailing partial chunk (not aligned to 64).
         let mut values: Vec<u64> = (0..130).collect();
         values[129] = (u32::MAX as u64) + 1;
         let mask = BitBuffer::new_set(130);
         let mut out = vec![MaybeUninit::<u32>::uninit(); 130];
-        let res = values
-            .as_slice()
-            .try_map_with_mask(&mask, &mut out, |v, valid| {
-                let scaled = v * valid as u64;
-                (scaled <= u32::MAX as u64).then_some(scaled as u32)
-            });
+        let res = values.as_slice().try_map_masked_into(&mask, &mut out, |v| {
+            (v <= u32::MAX as u64).then_some(v as u32)
+        });
         assert_eq!(res, Err(129));
     }
 
     #[test]
-    fn map_with_mask_in_place_basic() {
-        let mut values: Vec<u32> = (0..130).collect();
-        let mask = {
-            let mut m = BitBufferMut::with_capacity(130);
-            for i in 0..130 {
-                m.append(i % 2 == 0);
-            }
-            m.freeze()
-        };
-        values
-            .as_mut_slice()
-            .map_with_mask_in_place(&mask, |v, valid| v.wrapping_mul(valid as u32));
-        let expected: Vec<u32> = (0..130u32)
-            .map(|v| if v % 2 == 0 { v } else { 0 })
-            .collect();
-        assert_eq!(values, expected);
-    }
-
-    #[test]
-    fn try_map_with_mask_in_place_all_ok() {
+    fn try_map_masked_in_place_all_ok() {
         let mut values: Vec<u32> = (0..200).collect();
         let mask = BitBuffer::new_set(200);
         let res = values
             .as_mut_slice()
-            .try_map_with_mask_in_place(&mask, |v, valid| {
-                let scaled = v.wrapping_mul(valid as u32);
-                scaled.checked_mul(2)
-            });
+            .try_map_masked_in_place(&mask, |v| v.checked_mul(2));
         assert!(res.is_ok());
         let expected: Vec<u32> = (0..200u32).map(|v| v * 2).collect();
         assert_eq!(values, expected);
     }
 
     #[test]
-    fn try_map_with_mask_in_place_first_failing_chunk_wins() {
+    fn try_map_masked_in_place_first_failing_chunk_wins() {
         let mut values: Vec<u32> = (0..200).collect();
         values[83] = u32::MAX;
         values[150] = u32::MAX;
         let mask = BitBuffer::new_set(200);
         let res = values
             .as_mut_slice()
-            .try_map_with_mask_in_place(&mask, |v, _valid| v.checked_mul(2));
+            .try_map_masked_in_place(&mask, |v| v.checked_mul(2));
         assert_eq!(res, Err(83));
     }
 
     #[test]
-    fn try_map_with_mask_in_place_within_chunk_reports_lowest() {
+    fn try_map_masked_in_place_within_chunk_reports_lowest() {
         let mut values: Vec<u32> = (0..200).collect();
         values[80] = u32::MAX;
         values[100] = u32::MAX;
         let mask = BitBuffer::new_set(200);
         let res = values
             .as_mut_slice()
-            .try_map_with_mask_in_place(&mask, |v, _valid| v.checked_mul(2));
+            .try_map_masked_in_place(&mask, |v| v.checked_mul(2));
         assert_eq!(res, Err(80));
     }
 
     #[test]
-    fn try_map_with_mask_in_place_single_failure_lane_exact() {
+    fn try_map_masked_in_place_single_failure_lane_exact() {
         let mut values: Vec<u32> = (0..200).collect();
         values[42] = u32::MAX;
         let mask = BitBuffer::new_set(200);
         let res = values
             .as_mut_slice()
-            .try_map_with_mask_in_place(&mask, |v, _valid| v.checked_mul(2));
+            .try_map_masked_in_place(&mask, |v| v.checked_mul(2));
         assert_eq!(res, Err(42));
     }
 
     #[test]
-    fn try_map_with_mask_in_place_null_bypass() {
+    fn try_map_masked_in_place_null_bypass() {
         let mut values: Vec<u32> = (0..200).collect();
         values[5] = u32::MAX;
         let mask = {
@@ -1272,27 +995,26 @@ mod tests {
         };
         let res = values
             .as_mut_slice()
-            .try_map_with_mask_in_place(&mask, |v, valid| {
-                v.wrapping_mul(valid as u32).checked_mul(2)
-            });
-        assert!(res.is_ok());
+            .try_map_masked_in_place(&mask, |v| v.checked_mul(2));
+        assert!(res.is_ok(), "null-lane overflow should be filtered");
+        // Null lane was overwritten with default (0).
         assert_eq!(values[5], 0);
         assert_eq!(values[6], 12);
     }
 
     #[test]
-    fn try_map_with_mask_in_place_remainder_overflow() {
+    fn try_map_masked_in_place_remainder_overflow() {
         let mut values: Vec<u32> = (0..130).collect();
         values[129] = u32::MAX;
         let mask = BitBuffer::new_set(130);
         let res = values
             .as_mut_slice()
-            .try_map_with_mask_in_place(&mask, |v, _valid| v.checked_mul(2));
+            .try_map_masked_in_place(&mask, |v| v.checked_mul(2));
         assert_eq!(res, Err(129));
     }
 
     #[test]
-    fn try_map_with_mask_in_place_sliced_mask() {
+    fn try_map_masked_in_place_sliced_mask() {
         let big = BitBuffer::new_set(256);
         let mask = big.slice(13..143);
         assert_eq!(mask.len(), 130);
@@ -1301,7 +1023,7 @@ mod tests {
         values[77] = u32::MAX;
         let res = values
             .as_mut_slice()
-            .try_map_with_mask_in_place(&mask, |v, _valid| v.checked_mul(2));
+            .try_map_masked_in_place(&mask, |v| v.checked_mul(2));
         assert_eq!(res, Err(77));
     }
 
@@ -1312,7 +1034,7 @@ mod tests {
         let mut buf: Vec<f32> = (0..130).map(|i| i as f32).collect();
         let mask = BitBuffer::new_set(130);
         ReinterpretSink::<f32, u32>::new(buf.as_mut_slice())
-            .try_map_with_mask_in_place(&mask, |f, _valid| Some(f.to_bits().wrapping_add(1)))
+            .try_map_masked_in_place(&mask, |f| Some(f.to_bits().wrapping_add(1)))
             .unwrap();
         // SAFETY: same size + alignment for f32 and u32; every slot now holds a u32 written by
         // the closure.
@@ -1328,9 +1050,9 @@ mod tests {
         // Closure fails at a specific lane; the kernel must report that lane index.
         let mut buf: Vec<f32> = (0..200).map(|i| i as f32).collect();
         let mask = BitBuffer::new_set(200);
-        let res = ReinterpretSink::<f32, u32>::new(buf.as_mut_slice()).try_map_with_mask_in_place(
+        let res = ReinterpretSink::<f32, u32>::new(buf.as_mut_slice()).try_map_masked_in_place(
             &mask,
-            |f, _valid| {
+            |f| {
                 if f as u32 == 137 {
                     None
                 } else {
@@ -1342,12 +1064,12 @@ mod tests {
     }
 
     #[test]
-    fn try_map_with_mask_in_place_partial_chunk_success() {
+    fn try_map_masked_in_place_partial_chunk_success() {
         let mut values: Vec<u32> = (0..130).collect();
         let mask = BitBuffer::new_set(130);
         let res = values
             .as_mut_slice()
-            .try_map_with_mask_in_place(&mask, |v, _valid| Some(v + 1));
+            .try_map_masked_in_place(&mask, |v| Some(v + 1));
         assert!(res.is_ok());
         assert_eq!(values[0], 1);
         assert_eq!(values[63], 64);

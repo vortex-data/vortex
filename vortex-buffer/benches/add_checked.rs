@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Checked `u32 + u32 -> u32` over two nullable columns via [`try_map_with_mask`]
+//! Checked `u32 + u32 -> u32` over two nullable columns via [`try_map_masked_into`]
 //! with a value-only closure. Per-lane `is_none()` flags are bit-packed and
 //! AND-ed with the chunk validity word so null-lane overflow is filtered
 //! without the closure ever inspecting `valid`.
@@ -117,9 +117,7 @@ fn bitpack_value_only(bencher: Bencher, n: usize) {
             let combined = lm as &BitBuffer & rm as &BitBuffer;
             let mut out = alloc_out(n);
             LaneZip::new(lhs.as_slice(), rhs.as_slice())
-                .try_map_with_mask(&combined, out.as_mut_slice(), |(a, b), _valid| {
-                    a.checked_add(b)
-                })
+                .try_map_masked_into(&combined, out.as_mut_slice(), |(a, b)| a.checked_add(b))
                 .unwrap();
             (combined, out)
         });
@@ -144,10 +142,10 @@ fn assert_overflow_parity() {
     };
 
     let mut out: Vec<MaybeUninit<u32>> = (0..4).map(|_| MaybeUninit::uninit()).collect();
-    let r = LaneZip::new(lhs.as_slice(), rhs.as_slice()).try_map_with_mask(
+    let r = LaneZip::new(lhs.as_slice(), rhs.as_slice()).try_map_masked_into(
         &mask,
         out.as_mut_slice(),
-        |(a, b), _| a.checked_add(b),
+        |(a, b)| a.checked_add(b),
     );
     assert!(r.is_err(), "bitpack should Err on overflow");
 }
@@ -168,10 +166,10 @@ fn assert_null_overflow_suppressed() {
     };
 
     let mut out = alloc_out(4);
-    let r = LaneZip::new(lhs.as_slice(), rhs.as_slice()).try_map_with_mask(
+    let r = LaneZip::new(lhs.as_slice(), rhs.as_slice()).try_map_masked_into(
         &mask,
         out.as_mut_slice(),
-        |(a, b), _| a.checked_add(b),
+        |(a, b)| a.checked_add(b),
     );
     assert!(r.is_ok(), "bitpack: null-lane overflow leaked");
 }

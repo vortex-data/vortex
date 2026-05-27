@@ -108,9 +108,9 @@ impl CastKernel for Primitive {
 /// Cast values from `F` to `T`. Always routes through the fallible lane-op kernels with
 /// `NumCast::from`. The kernel branches once on the mask shape:
 ///
-/// - `Mask::AllTrue`  → [`try_map_no_validity`] — no per-lane validity work.
+/// - `Mask::AllTrue`  → [`try_map_into`] — no per-lane validity work.
 /// - `Mask::AllFalse` → bulk zero — the closure is never invoked.
-/// - `Mask::Values`   → [`try_map_with_mask`] — the closure neutralizes null lanes
+/// - `Mask::Values`   → [`try_map_masked_into`] — the closure neutralizes null lanes
 ///   via the `* valid as F` multiply trick so out-of-range null-lane values don't
 ///   trigger spurious errors.
 ///
@@ -170,8 +170,7 @@ where
         // (harmless: the result validity bitmap masks them downstream).
         return match owned {
             Some(mut buf) => {
-                ReinterpretSink::<F, T>::new(buf.as_mut_slice())
-                    .map_no_validity_in_place(|v: F| v.as_());
+                ReinterpretSink::<F, T>::new(buf.as_mut_slice()).map_into_in_place(|v: F| v.as_());
                 // SAFETY: same size + alignment for NativePType same-byte-width pairs;
                 // every F-slot was overwritten with a real `T` bit pattern.
                 let result: BufferMut<T> = unsafe { buf.transmute::<T>() };
@@ -179,8 +178,8 @@ where
             }
             None => {
                 let mut buffer = BufferMut::<T>::with_capacity(len);
-                values.map_no_validity(&mut buffer.spare_capacity_mut()[..len], |v| v.as_());
-                // SAFETY: map_no_validity initializes every lane.
+                values.map_into(&mut buffer.spare_capacity_mut()[..len], |v| v.as_());
+                // SAFETY: map_into initializes every lane.
                 unsafe { buffer.set_len(len) };
                 Ok(PrimitiveArray::new(buffer.freeze(), new_validity).into_array())
             }
@@ -192,7 +191,7 @@ where
     let buffer: Buffer<T> = match (&mask, owned) {
         (Mask::AllTrue(_), Some(mut buf)) => {
             ReinterpretSink::<F, T>::new(buf.as_mut_slice())
-                .try_map_no_validity_in_place(|v: F| <T as NumCast>::from(v))
+                .try_map_in_place(|v: F| <T as NumCast>::from(v))
                 .map_err(|_| overflow())?;
             // SAFETY: same size + alignment for NativePType same-byte-width pairs;
             // every F-slot now holds a `T` bit pattern written by `ReinterpretSink`.
@@ -202,11 +201,11 @@ where
         (Mask::AllTrue(_), None) => {
             let mut buffer = BufferMut::<T>::with_capacity(len);
             values
-                .try_map_no_validity(&mut buffer.spare_capacity_mut()[..len], |v| {
+                .try_map_into(&mut buffer.spare_capacity_mut()[..len], |v| {
                     <T as NumCast>::from(v)
                 })
                 .map_err(|_| overflow())?;
-            // SAFETY: try_map_no_validity returned Ok, so it initialized every lane.
+            // SAFETY: try_map_into returned Ok, so it initialized every lane.
             unsafe { buffer.set_len(len) };
             buffer.freeze()
         }
@@ -219,9 +218,7 @@ where
         (Mask::AllFalse(_), None) => BufferMut::<T>::zeroed(len).freeze(),
         (Mask::Values(m), Some(mut buf)) => {
             ReinterpretSink::<F, T>::new(buf.as_mut_slice())
-                .try_map_with_mask_in_place(m.bit_buffer(), |v: F, valid| {
-                    <T as NumCast>::from(v).or_else(|| (!valid).then(T::zero))
-                })
+                .try_map_masked_in_place(m.bit_buffer(), |v: F| <T as NumCast>::from(v))
                 .map_err(|_| overflow())?;
             // SAFETY: same size + alignment for NativePType same-byte-width pairs;
             // every F-slot now holds a `T` bit pattern written by `ReinterpretSink`.
@@ -230,20 +227,19 @@ where
         }
         (Mask::Values(m), None) => {
             let mut buffer = BufferMut::<T>::with_capacity(len);
+            // Null-lane failures (where the underlying garbage value can't be represented in
+            // `T`) are filtered automatically by `try_map_masked_into`'s post-loop
+            // `fail_bits & src_chunk` AND. The closure is value-only — LLVM proves it's
+            // statically infallible for widening casts and DCEs the fail-tracking, giving the
+            // same codegen as the maskless kernel.
             values
-                .try_map_with_mask(
+                .try_map_masked_into(
                     m.bit_buffer(),
                     &mut buffer.spare_capacity_mut()[..len],
-                    // Lazy validity: only consult `valid` on the failure branch. For widening /
-                    // statically-infallible casts, `NumCast::from` is always `Some` so the
-                    // `or_else` is provably dead — LLVM DCEs the validity path entirely,
-                    // giving the same codegen as the maskless kernel. For narrowing, `valid`
-                    // is only read at lanes that actually overflowed (a cold check on top of
-                    // the cast).
-                    |v, valid| <T as NumCast>::from(v).or_else(|| (!valid).then(T::zero)),
+                    |v| <T as NumCast>::from(v),
                 )
                 .map_err(|_| overflow())?;
-            // SAFETY: try_map_with_mask returned Ok, so it initialized every lane.
+            // SAFETY: try_map_masked_into returned Ok, so it initialized every lane.
             unsafe { buffer.set_len(len) };
             buffer.freeze()
         }

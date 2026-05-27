@@ -13,9 +13,8 @@ use arrow_array::UInt64Array;
 use arrow_buffer::NullBuffer;
 use arrow_buffer::ScalarBuffer;
 use arrow_cast::CastOptions;
-use arrow_cast::cast_with_options;
-use arrow_schema::DataType;
 use divan::Bencher;
+use num_traits::AsPrimitive;
 use num_traits::NumCast;
 use rand::SeedableRng;
 use rand::prelude::*;
@@ -25,6 +24,7 @@ use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_buffer::lane_ops_indexed::IndexedSinkExt;
 use vortex_buffer::lane_ops_indexed::IndexedSourceExt;
+use vortex_buffer::lane_ops_indexed::ReinterpretSink;
 
 fn main() {
     divan::main();
@@ -34,15 +34,11 @@ const SIZES: &[usize] = &[65_536];
 
 struct Fixture {
     values_u64: Buffer<u64>,
-    values_u64_invalid_overflows: Buffer<u64>,
-    values_u32: Buffer<u32>,
-    values_u32_small: Buffer<u32>,
     values_u16: Buffer<u16>,
+    /// Positive `i32` values (always representable as `u32`). Used by the
+    /// in-place-vs-out-of-place cast bench.
+    values_i32: Buffer<i32>,
     mask: BitBuffer,
-    /// `UInt64Array` baseline for arrow casts. Same values + validity as `values_u64` / `mask`.
-    arrow_u64: UInt64Array,
-    /// `UInt16Array` baseline. Same as `values_u16` / `mask`.
-    arrow_u16: UInt16Array,
 }
 
 fn fixture(n: usize) -> Fixture {
@@ -59,6 +55,14 @@ fn fixture(n: usize) -> Fixture {
         .copied()
         .map(|v| v as u16)
         .collect::<Buffer<u16>>();
+
+    // Positive i32 values (top bit cleared) — every value fits in u32.
+    #[expect(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+    let values_i32 = raw_values
+        .iter()
+        .copied()
+        .map(|v| (v as i32) & i32::MAX)
+        .collect::<Buffer<i32>>();
 
     #[expect(clippy::cast_possible_truncation)]
     let values_u32 = raw_values
@@ -94,20 +98,11 @@ fn fixture(n: usize) -> Fixture {
 
     Fixture {
         values_u64: raw_values.into(),
-        values_u64_invalid_overflows,
-        values_u32,
-        values_u32_small,
         values_u16,
+        values_i32,
         mask: BitBufferMut::from_iter(raw_valid).freeze(),
-        arrow_u64,
-        arrow_u16,
     }
 }
-
-const CAST_OPTS_CHECKED: CastOptions<'static> = CastOptions {
-    safe: false,
-    format_options: arrow_cast::display::FormatOptions::new(),
-};
 
 fn uninit_out<T>(n: usize) -> Vec<MaybeUninit<T>> {
     let mut out = Vec::with_capacity(n);
@@ -119,37 +114,7 @@ fn uninit_out<T>(n: usize) -> Vec<MaybeUninit<T>> {
 }
 
 #[divan::bench(args = SIZES)]
-fn map_no_validity_widen_u16_u32(bencher: Bencher, n: usize) {
-    let f = fixture(n);
-
-    bencher
-        .with_inputs(|| (f.values_u16.clone(), uninit_out::<u32>(n)))
-        .bench_values(|(values, mut out)| {
-            values
-                .as_slice()
-                .map_no_validity(out.as_mut_slice(), <u32 as From<u16>>::from);
-            out
-        });
-}
-
-#[divan::bench(args = SIZES)]
-fn map_with_mask_widen_u16_u32_zero_nulls(bencher: Bencher, n: usize) {
-    let f = fixture(n);
-
-    bencher
-        .with_inputs(|| (f.values_u16.clone(), f.mask.clone(), uninit_out::<u32>(n)))
-        .bench_values(|(values, mask, mut out)| {
-            values
-                .as_slice()
-                .map_with_mask(&mask, out.as_mut_slice(), |v, valid| {
-                    <u32 as From<u16>>::from(v) * valid as u32
-                });
-            out
-        });
-}
-
-#[divan::bench(args = SIZES)]
-fn try_map_no_validity_narrow_u64_u32(bencher: Bencher, n: usize) {
+fn try_map_into_narrow_u64_u32(bencher: Bencher, n: usize) {
     let f = fixture(n);
 
     bencher
@@ -157,79 +122,28 @@ fn try_map_no_validity_narrow_u64_u32(bencher: Bencher, n: usize) {
         .bench_values(|(values, mut out)| {
             values
                 .as_slice()
-                .try_map_no_validity(out.as_mut_slice(), <u32 as NumCast>::from)
+                .try_map_into(out.as_mut_slice(), <u32 as NumCast>::from)
                 .unwrap();
             out
         });
 }
 
-/// `try_map_with_mask` with a closure that **ignores `valid`**. Tests whether
-/// LLVM DCEs the per-lane `(src_chunk >> bit_idx) & 1` mask extract. Uses
-/// non-overflowing `values_u64` so the closure-ignores-valid spurious-failure
-/// case never triggers (would otherwise err on null-lane overflow).
 #[divan::bench(args = SIZES)]
-fn try_map_with_mask_narrow_u64_u32_ignoring_valid(bencher: Bencher, n: usize) {
+fn map_with_mask_narrow_u64_u32(bencher: Bencher, n: usize) {
     let f = fixture(n);
 
     bencher
-        .with_inputs(|| (f.values_u64.clone(), f.mask.clone(), uninit_out::<u32>(n)))
-        .bench_values(|(values, mask, mut out)| {
-            values
-                .as_slice()
-                .try_map_with_mask(&mask, out.as_mut_slice(), |v, _valid| {
-                    <u32 as NumCast>::from(v)
-                })
-                .unwrap();
+        .with_inputs(|| (f.values_u64.clone(), uninit_out::<u32>(n)))
+        .bench_values(|(values, mut out)| {
+            values.as_slice().map_into(&mut out, |v| v.as_());
             out
         });
 }
 
+/// `try_map_masked_into_widen_u16_u32` and `map_with_mask_widen_u16_u32` have the same runtime
+/// and showing for always true map operations `try_map_masked_into` is sufficient.
 #[divan::bench(args = SIZES)]
-fn try_map_with_mask_narrow_u64_u32_lazy_validity(bencher: Bencher, n: usize) {
-    let f = fixture(n);
-
-    bencher
-        .with_inputs(|| (f.values_u64.clone(), f.mask.clone(), uninit_out::<u32>(n)))
-        .bench_values(|(values, mask, mut out)| {
-            values
-                .as_slice()
-                .try_map_with_mask(&mask, out.as_mut_slice(), |v, valid| {
-                    <u32 as NumCast>::from(v).or_else(|| (!valid).then(u32::default))
-                })
-                .unwrap();
-            out
-        });
-}
-
-/// Migrated from the old `try_map_validity_filtered` bench: same inputs (null
-/// lanes contain overflowing values) and same correctness expectation (no Err),
-/// but now driven through the merged `try_map_with_mask` with a `|v, _|` closure.
-/// The hot loop is value-only via DCE; the cold path filters null-lane failures.
-#[divan::bench(args = SIZES)]
-fn try_map_with_mask_narrow_u64_u32_value_only_filtered(bencher: Bencher, n: usize) {
-    let f = fixture(n);
-
-    bencher
-        .with_inputs(|| {
-            (
-                f.values_u64_invalid_overflows.clone(),
-                f.mask.clone(),
-                uninit_out::<u32>(n),
-            )
-        })
-        .bench_values(|(values, mask, mut out)| {
-            values
-                .as_slice()
-                .try_map_with_mask(&mask, out.as_mut_slice(), |v, _valid| {
-                    <u32 as NumCast>::from(v)
-                })
-                .unwrap();
-            out
-        });
-}
-
-#[divan::bench(args = SIZES)]
-fn try_map_with_mask_widen_u16_u32_or_else(bencher: Bencher, n: usize) {
+fn try_map_masked_into_widen_u16_u32(bencher: Bencher, n: usize) {
     let f = fixture(n);
 
     bencher
@@ -237,78 +151,59 @@ fn try_map_with_mask_widen_u16_u32_or_else(bencher: Bencher, n: usize) {
         .bench_values(|(values, mask, mut out)| {
             values
                 .as_slice()
-                .try_map_with_mask(&mask, out.as_mut_slice(), |v, valid| {
-                    Some(<u32 as From<u16>>::from(v)).or_else(|| (!valid).then(u32::default))
-                })
+                .try_map_masked_into(&mask, out.as_mut_slice(), |v| <u32 as NumCast>::from(v))
                 .unwrap();
             out
         });
 }
 
 #[divan::bench(args = SIZES)]
-fn try_map_with_mask_widen_u16_u32_maskless(bencher: Bencher, n: usize) {
+fn map_with_mask_widen_u16_u32(bencher: Bencher, n: usize) {
     let f = fixture(n);
 
     bencher
-        .with_inputs(|| (f.values_u16.clone(), f.mask.clone(), uninit_out::<u32>(n)))
+        .with_inputs(|| (f.values_u16.clone(), uninit_out::<u32>(n)))
+        .bench_values(|(values, mut out)| {
+            values.as_slice().map_into(out.as_mut_slice(), |v| v.as_());
+            out
+        });
+}
+
+// -----------------------------------------------------------------------------
+// In-place vs out-of-place fallible cast i32 → u32 (same byte width).
+//
+// `try_map_masked_into_in_place` mutates the input via `ReinterpretSink` and
+// transmutes the wrapper — no output allocation. `try_map_masked_into` allocates
+// a fresh `BufferMut<u32>` and writes through it. Input values are all positive
+// `i32` so every lane succeeds; the two kernels do the same arithmetic, so any
+// delta is pure allocation + memory-traffic overhead.
+// -----------------------------------------------------------------------------
+
+#[divan::bench(args = SIZES)]
+fn try_map_masked_into_narrow_i32_u32(bencher: Bencher, n: usize) {
+    let f = fixture(n);
+
+    bencher
+        .with_inputs(|| (f.values_i32.clone(), f.mask.clone(), uninit_out::<u32>(n)))
         .bench_values(|(values, mask, mut out)| {
             values
                 .as_slice()
-                .try_map_with_mask(&mask, out.as_mut_slice(), |v, _valid| {
-                    Some(<u32 as From<u16>>::from(v))
-                })
+                .try_map_masked_into(&mask, out.as_mut_slice(), |v| <u32 as NumCast>::from(v))
                 .unwrap();
             out
         });
 }
 
 #[divan::bench(args = SIZES)]
-fn map_with_mask_in_place_u32_zero_nulls(bencher: Bencher, n: usize) {
+fn try_map_masked_into_in_place_narrow_i32_u32(bencher: Bencher, n: usize) {
     let f = fixture(n);
 
     bencher
-        .with_inputs(|| (f.values_u32.as_slice().to_vec(), f.mask.clone()))
+        .with_inputs(|| (f.values_i32.as_slice().to_vec(), f.mask.clone()))
         .bench_values(|(mut values, mask)| {
-            values
-                .as_mut_slice()
-                .map_with_mask_in_place(&mask, |v, valid| v * valid as u32);
-            values
-        });
-}
-
-#[divan::bench(args = SIZES)]
-fn try_map_with_mask_in_place_u32_checked_mul(bencher: Bencher, n: usize) {
-    let f = fixture(n);
-
-    bencher
-        .with_inputs(|| (f.values_u32_small.as_slice().to_vec(), f.mask.clone()))
-        .bench_values(|(mut values, mask)| {
-            values
-                .as_mut_slice()
-                .try_map_with_mask_in_place(&mask, |v, _valid| v.checked_mul(2))
+            ReinterpretSink::<i32, u32>::new(values.as_mut_slice())
+                .try_map_masked_in_place(&mask, |v| <u32 as NumCast>::from(v))
                 .unwrap();
             values
         });
-}
-
-// -----------------------------------------------------------------------------
-// Arrow-rs baselines. Two: one widening (u16 → u32, always succeeds) and one
-// narrowing (u64 → u32, can fail). Each pairs with the cast variants above of
-// matching direction.
-// -----------------------------------------------------------------------------
-
-#[divan::bench(args = SIZES)]
-fn arrow_cast_widen_u16_u32(bencher: Bencher, _n: usize) {
-    let f = fixture(_n);
-    bencher
-        .with_inputs(|| f.arrow_u16.clone())
-        .bench_refs(|arr| cast_with_options(arr, &DataType::UInt32, &CAST_OPTS_CHECKED).unwrap());
-}
-
-#[divan::bench(args = SIZES)]
-fn arrow_cast_narrow_u64_u32(bencher: Bencher, _n: usize) {
-    let f = fixture(_n);
-    bencher
-        .with_inputs(|| f.arrow_u64.clone())
-        .bench_refs(|arr| cast_with_options(arr, &DataType::UInt32, &CAST_OPTS_CHECKED).unwrap());
 }
