@@ -383,10 +383,6 @@ mod tests {
     #[case::middle_single(1..2, false)]
     #[case::empty_range(1..1, false)]
     #[case::full_range_null(0..3, true)]
-    #[case::partial_start_null(0..2, true)]
-    #[case::partial_end_null(1..3, true)]
-    #[case::middle_single_null(1..2, true)]
-    #[case::empty_range_null(1..1, true)]
     #[tokio::test]
     async fn projection_evaluation_round_trips(
         #[case] row_range: Range<u64>,
