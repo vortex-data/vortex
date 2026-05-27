@@ -22,52 +22,6 @@ use std::mem::MaybeUninit;
 
 use crate::BitBuffer;
 
-macro_rules! for_full_lanes {
-    ($base:expr, | $bit_idx:ident, $i:ident | $body:block) => {
-        for $bit_idx in 0..64 {
-            let $i = $base + $bit_idx;
-            $body
-        }
-    };
-}
-
-macro_rules! for_remainder_lanes {
-    ($base:expr, $remainder:expr, | $bit_idx:ident, $i:ident | $body:block) => {
-        for $bit_idx in 0..$remainder {
-            let $i = $base + $bit_idx;
-            $body
-        }
-    };
-}
-
-macro_rules! for_full_mask_lanes {
-    ($src_chunk:expr, $base:expr, | $bit_idx:ident, $i:ident, $valid:ident | $body:block) => {
-        for $bit_idx in 0..64 {
-            let $i = $base + $bit_idx;
-            let $valid = ($src_chunk >> $bit_idx) & 1 == 1;
-            $body
-        }
-    };
-}
-
-macro_rules! for_remainder_mask_lanes {
-    (
-        $src_chunk:expr,
-        $base:expr,
-        $remainder:expr, |
-        $bit_idx:ident,
-        $i:ident,
-        $valid:ident |
-        $body:block
-    ) => {
-        for $bit_idx in 0..$remainder {
-            let $i = $base + $bit_idx;
-            let $valid = ($src_chunk >> $bit_idx) & 1 == 1;
-            $body
-        }
-    };
-}
-
 /// A length-known source supporting unchecked indexed reads.
 ///
 /// Implemented for `&[T]` (with `T: Copy`) and for [`LaneZip`] over two `IndexedSource`s.
@@ -192,6 +146,30 @@ where
     S: IndexedSource,
     F: FnMut(S::Item, bool) -> R,
 {
+    /// Per-chunk worker. Called twice (literal `64` for full chunks, `remainder`
+    /// for the tail). `#[inline(always)]` preserves the const-64 unroll at the
+    /// full-chunk call site via constant propagation through inlining.
+    #[inline(always)]
+    fn chunk<S, R, F>(
+        values: &S,
+        out: &mut [MaybeUninit<R>],
+        f: &mut F,
+        src_chunk: u64,
+        base: usize,
+        count: usize,
+    ) where
+        S: IndexedSource,
+        F: FnMut(S::Item, bool) -> R,
+    {
+        for bit_idx in 0..count {
+            let i = base + bit_idx;
+            let bit = (src_chunk >> bit_idx) & 1 == 1;
+            // SAFETY: caller guarantees base + count <= len.
+            let v = unsafe { values.get_unchecked(i) };
+            unsafe { out.get_unchecked_mut(i).write(f(v, bit)) };
+        }
+    }
+
     let len = values.len();
     assert_eq!(len, mask.len(), "values and mask must have the same length");
     assert_eq!(out.len(), len, "out must have the same length as values");
@@ -201,25 +179,13 @@ where
     let remainder = len % 64;
 
     for (chunk_idx, src_chunk) in chunks.iter().enumerate() {
-        let base = chunk_idx * 64;
-        // Inner loop is fixed-size 64 with independent per-lane reads — no iterator
-        // state, no cross-iteration dependency, so the auto-vectorizer can fuse
-        // 64 indexed loads into vector loads.
-        for_full_mask_lanes!(src_chunk, base, |bit_idx, i, bit| {
-            // SAFETY: i < chunks_count * 64 <= len.
-            let v = unsafe { values.get_unchecked(i) };
-            unsafe { out.get_unchecked_mut(i).write(f(v, bit)) };
-        });
+        chunk(&values, out, &mut f, src_chunk, chunk_idx * 64, 64);
     }
-
     if remainder != 0 {
-        let src_chunk = chunks.remainder_bits();
-        let base = chunks_count * 64;
-        for_remainder_mask_lanes!(src_chunk, base, remainder, |bit_idx, i, bit| {
-            // SAFETY: i < len.
-            let v = unsafe { values.get_unchecked(i) };
-            unsafe { out.get_unchecked_mut(i).write(f(v, bit)) };
-        });
+        chunk(
+            &values, out, &mut f,
+            chunks.remainder_bits(), chunks_count * 64, remainder,
+        );
     }
 }
 
@@ -267,6 +233,38 @@ where
     R: Copy + Default,
     F: FnMut(S::Item, bool) -> Option<R>,
 {
+    /// Bit-packs `is_none()` into `fail_bits` at lane position; the post-loop
+    /// `& src_chunk` filter drops null-lane fails. Returns `Some(failing_idx)` if
+    /// any *valid* lane failed in `[base, base+count)`.
+    #[inline(always)]
+    fn chunk<S, R, F>(
+        values: &S,
+        out: &mut [MaybeUninit<R>],
+        f: &mut F,
+        src_chunk: u64,
+        base: usize,
+        count: usize,
+    ) -> Option<usize>
+    where
+        S: IndexedSource,
+        R: Copy + Default,
+        F: FnMut(S::Item, bool) -> Option<R>,
+    {
+        let mut fail_bits: u64 = 0;
+        for bit_idx in 0..count {
+            let i = base + bit_idx;
+            let bit = (src_chunk >> bit_idx) & 1 == 1;
+            // SAFETY: caller guarantees base + count <= len.
+            let v = unsafe { values.get_unchecked(i) };
+            let opt = f(v, bit);
+            fail_bits |= (opt.is_none() as u64) << bit_idx;
+            let r = opt.unwrap_or_default();
+            unsafe { out.get_unchecked_mut(i).write(r) };
+        }
+        let valid_failures = fail_bits & src_chunk;
+        (valid_failures != 0).then_some(base + valid_failures.trailing_zeros() as usize)
+    }
+
     let len = values.len();
     assert_eq!(len, mask.len(), "values and mask must have the same length");
     assert_eq!(out.len(), len, "out must have the same length as values");
@@ -276,49 +274,18 @@ where
     let remainder = len % 64;
 
     for (chunk_idx, src_chunk) in chunks.iter().enumerate() {
-        let base = chunk_idx * 64;
-        // Bit-pack per-lane fails into a u64 at lane-position. `bit_idx` is a
-        // compile-time constant after unrolling, so the shift folds. The
-        // `src_chunk` here is the validity bitmap for this chunk; the closure
-        // still gets `bit` per lane — LLVM DCEs the per-lane mask extract if
-        // the closure ignores it.
-        let mut fail_bits: u64 = 0;
-        for_full_mask_lanes!(src_chunk, base, |bit_idx, i, bit| {
-            // SAFETY: i < chunks_count * 64 <= len.
-            let v = unsafe { values.get_unchecked(i) };
-            let opt = f(v, bit);
-            fail_bits |= (opt.is_none() as u64) << bit_idx;
-            let r = opt.unwrap_or_default();
-            // SAFETY: i < len.
-            unsafe { out.get_unchecked_mut(i).write(r) };
-        });
-        // Drop null-lane failures: only failures at lanes the mask marks as
-        // valid count. Direct attribution via trailing_zeros — no cold replay.
-        let valid_failures = fail_bits & src_chunk;
-        if valid_failures != 0 {
-            return Err(base + valid_failures.trailing_zeros() as usize);
+        if let Some(idx) = chunk(&values, out, &mut f, src_chunk, chunk_idx * 64, 64) {
+            return Err(idx);
         }
     }
-
     if remainder != 0 {
-        let src_chunk = chunks.remainder_bits();
-        let base = chunks_count * 64;
-        let mut fail_bits: u64 = 0;
-        for_remainder_mask_lanes!(src_chunk, base, remainder, |bit_idx, i, bit| {
-            // SAFETY: i < len.
-            let v = unsafe { values.get_unchecked(i) };
-            let opt = f(v, bit);
-            fail_bits |= (opt.is_none() as u64) << bit_idx;
-            let r = opt.unwrap_or_default();
-            // SAFETY: i < len.
-            unsafe { out.get_unchecked_mut(i).write(r) };
-        });
-        let valid_failures = fail_bits & src_chunk;
-        if valid_failures != 0 {
-            return Err(base + valid_failures.trailing_zeros() as usize);
+        if let Some(idx) = chunk(
+            &values, out, &mut f,
+            chunks.remainder_bits(), chunks_count * 64, remainder,
+        ) {
+            return Err(idx);
         }
     }
-
     Ok(())
 }
 
@@ -341,6 +308,25 @@ where
     S: IndexedSource,
     F: FnMut(S::Item) -> R,
 {
+    #[inline(always)]
+    fn chunk<S, R, F>(
+        values: &S,
+        out: &mut [MaybeUninit<R>],
+        f: &mut F,
+        base: usize,
+        count: usize,
+    ) where
+        S: IndexedSource,
+        F: FnMut(S::Item) -> R,
+    {
+        for bit_idx in 0..count {
+            let i = base + bit_idx;
+            // SAFETY: caller guarantees base + count <= len.
+            let v = unsafe { values.get_unchecked(i) };
+            unsafe { out.get_unchecked_mut(i).write(f(v)) };
+        }
+    }
+
     let len = values.len();
     assert_eq!(out.len(), len, "out must have the same length as values");
 
@@ -348,21 +334,10 @@ where
     let remainder = len % 64;
 
     for chunk_idx in 0..chunks_count {
-        let base = chunk_idx * 64;
-        for_full_lanes!(base, |bit_idx, i| {
-            // SAFETY: i < chunks_count * 64 <= len.
-            let v = unsafe { values.get_unchecked(i) };
-            unsafe { out.get_unchecked_mut(i).write(f(v)) };
-        });
+        chunk(&values, out, &mut f, chunk_idx * 64, 64);
     }
-
     if remainder != 0 {
-        let base = chunks_count * 64;
-        for_remainder_lanes!(base, remainder, |bit_idx, i| {
-            // SAFETY: i < len.
-            let v = unsafe { values.get_unchecked(i) };
-            unsafe { out.get_unchecked_mut(i).write(f(v)) };
-        });
+        chunk(&values, out, &mut f, chunks_count * 64, remainder);
     }
 }
 
@@ -397,6 +372,35 @@ where
     R: Copy + Default,
     F: FnMut(S::Item) -> Option<R>,
 {
+    /// Returns `true` if any lane in `[base, base+count)` failed (OR-reduced);
+    /// the cold attribution path is called at the kernel level so it can be
+    /// inlined separately for full vs remainder.
+    #[inline(always)]
+    fn chunk<S, R, F>(
+        values: &S,
+        out: &mut [MaybeUninit<R>],
+        f: &mut F,
+        base: usize,
+        count: usize,
+    ) -> bool
+    where
+        S: IndexedSource,
+        R: Copy + Default,
+        F: FnMut(S::Item) -> Option<R>,
+    {
+        let mut fail_acc: u64 = 0;
+        for bit_idx in 0..count {
+            let i = base + bit_idx;
+            // SAFETY: caller guarantees base + count <= len.
+            let v = unsafe { values.get_unchecked(i) };
+            let opt = f(v);
+            fail_acc |= opt.is_none() as u64;
+            let r = opt.unwrap_or_default();
+            unsafe { out.get_unchecked_mut(i).write(r) };
+        }
+        fail_acc != 0
+    }
+
     let len = values.len();
     assert_eq!(out.len(), len, "out must have the same length as values");
 
@@ -405,38 +409,16 @@ where
 
     for chunk_idx in 0..chunks_count {
         let base = chunk_idx * 64;
-        let mut fail_acc: u64 = 0;
-        for_full_lanes!(base, |bit_idx, i| {
-            // SAFETY: i < chunks_count * 64 <= len.
-            let v = unsafe { values.get_unchecked(i) };
-            let opt = f(v);
-            fail_acc |= opt.is_none() as u64;
-            let r = opt.unwrap_or_default();
-            // SAFETY: i < len.
-            unsafe { out.get_unchecked_mut(i).write(r) };
-        });
-        if fail_acc != 0 {
+        if chunk(&values, out, &mut f, base, 64) {
             return Err(attribute_failure_no_mask(&values, base, 64, &mut f));
         }
     }
-
     if remainder != 0 {
         let base = chunks_count * 64;
-        let mut fail_acc: u64 = 0;
-        for_remainder_lanes!(base, remainder, |bit_idx, i| {
-            // SAFETY: i < len.
-            let v = unsafe { values.get_unchecked(i) };
-            let opt = f(v);
-            fail_acc |= opt.is_none() as u64;
-            let r = opt.unwrap_or_default();
-            // SAFETY: i < len.
-            unsafe { out.get_unchecked_mut(i).write(r) };
-        });
-        if fail_acc != 0 {
+        if chunk(&values, out, &mut f, base, remainder) {
             return Err(attribute_failure_no_mask(&values, base, remainder, &mut f));
         }
     }
-
     Ok(())
 }
 
@@ -490,6 +472,27 @@ where
     S: IndexedSink,
     F: FnMut(S::Item, bool) -> S::Item,
 {
+    #[inline(always)]
+    fn chunk<S, F>(
+        values: &mut S,
+        f: &mut F,
+        src_chunk: u64,
+        base: usize,
+        count: usize,
+    ) where
+        S: IndexedSink,
+        F: FnMut(S::Item, bool) -> S::Item,
+    {
+        for bit_idx in 0..count {
+            let i = base + bit_idx;
+            let bit = (src_chunk >> bit_idx) & 1 == 1;
+            // SAFETY: caller guarantees base + count <= len.
+            let v = unsafe { values.get_unchecked(i) };
+            let r = f(v, bit);
+            unsafe { values.set_unchecked(i, r) };
+        }
+    }
+
     let len = values.len();
     assert_eq!(len, mask.len(), "values and mask must have the same length");
 
@@ -498,26 +501,13 @@ where
     let remainder = len % 64;
 
     for (chunk_idx, src_chunk) in chunks.iter().enumerate() {
-        let base = chunk_idx * 64;
-        for_full_mask_lanes!(src_chunk, base, |bit_idx, i, bit| {
-            // SAFETY: i < chunks_count * 64 <= len.
-            let v = unsafe { values.get_unchecked(i) };
-            let r = f(v, bit);
-            // SAFETY: i < len.
-            unsafe { values.set_unchecked(i, r) };
-        });
+        chunk(&mut values, &mut f, src_chunk, chunk_idx * 64, 64);
     }
-
     if remainder != 0 {
-        let src_chunk = chunks.remainder_bits();
-        let base = chunks_count * 64;
-        for_remainder_mask_lanes!(src_chunk, base, remainder, |bit_idx, i, bit| {
-            // SAFETY: i < len.
-            let v = unsafe { values.get_unchecked(i) };
-            let r = f(v, bit);
-            // SAFETY: i < len.
-            unsafe { values.set_unchecked(i, r) };
-        });
+        chunk(
+            &mut values, &mut f,
+            chunks.remainder_bits(), chunks_count * 64, remainder,
+        );
     }
 }
 
@@ -560,6 +550,39 @@ where
     S::Item: Default,
     F: FnMut(S::Item, bool) -> Option<S::Item>,
 {
+    /// Returns `Some(first_failing_lane_index_as_u32)` if any lane in
+    /// `[base, base+count)` failed (cast width-truncated since `i < 2^32` in any
+    /// realistic batch), else `None`. `#[inline(always)]` so the literal `64` at the
+    /// full-chunk call site enables const-propagation through inlining.
+    #[inline(always)]
+    #[allow(clippy::cast_possible_truncation)]
+    fn chunk<S, F>(
+        values: &mut S,
+        src_chunk: u64,
+        base: usize,
+        count: usize,
+        f: &mut F,
+    ) -> Option<u32>
+    where
+        S: IndexedSink,
+        S::Item: Default,
+        F: FnMut(S::Item, bool) -> Option<S::Item>,
+    {
+        let mut first_fail: u32 = u32::MAX;
+        for bit_idx in 0..count {
+            let i = base + bit_idx;
+            let bit = (src_chunk >> bit_idx) & 1 == 1;
+            // SAFETY: caller guarantees `base + count <= values.len()`.
+            let v = unsafe { values.get_unchecked(i) };
+            let opt = f(v, bit);
+            let candidate = if opt.is_none() { i as u32 } else { u32::MAX };
+            first_fail = first_fail.min(candidate);
+            let r = opt.unwrap_or_default();
+            unsafe { values.set_unchecked(i, r) };
+        }
+        (first_fail != u32::MAX).then_some(first_fail)
+    }
+
     let len = values.len();
     assert_eq!(len, mask.len(), "values and mask must have the same length");
 
@@ -568,66 +591,20 @@ where
     let remainder = len % 64;
 
     for (chunk_idx, src_chunk) in chunks.iter().enumerate() {
-        // `count = 64` is a literal; `#[inline(always)]` on the helper inlines its body
-        // into this loop and the compiler propagates 64 into the inner `0..count` bound,
-        // unrolling exactly as `for_full_mask_lanes!` would.
-        if let Some(failing) = try_inplace_chunk(&mut values, src_chunk, chunk_idx * 64, 64, &mut f)
-        {
+        if let Some(failing) = chunk(&mut values, src_chunk, chunk_idx * 64, 64, &mut f) {
             return Err(failing as usize);
         }
     }
-
     if remainder != 0 {
-        // Runtime `count = remainder` — same shape as the prior remainder loop.
-        if let Some(failing) = try_inplace_chunk(
+        if let Some(failing) = chunk(
             &mut values,
-            chunks.remainder_bits(),
-            chunks_count * 64,
-            remainder,
+            chunks.remainder_bits(), chunks_count * 64, remainder,
             &mut f,
         ) {
             return Err(failing as usize);
         }
     }
-
     Ok(())
-}
-
-/// Per-chunk worker for [`try_map_with_mask_in_place`]. Body written once; the kernel
-/// calls this twice (with `count = 64` for full chunks, `count = remainder` for the
-/// tail). `#[inline(always)]` so the const-64 unroll for the full-chunk callers is
-/// preserved.
-///
-/// Returns `Some(first_failing_lane_index_as_u32)` if any lane in `[base, base+count)`
-/// failed (cast width-truncated since `i < 2^32` in any realistic batch), else `None`.
-#[inline(always)]
-#[allow(clippy::cast_possible_truncation)]
-fn try_inplace_chunk<S, F>(
-    values: &mut S,
-    src_chunk: u64,
-    base: usize,
-    count: usize,
-    f: &mut F,
-) -> Option<u32>
-where
-    S: IndexedSink,
-    S::Item: Default,
-    F: FnMut(S::Item, bool) -> Option<S::Item>,
-{
-    let mut first_fail: u32 = u32::MAX;
-    for bit_idx in 0..count {
-        let i = base + bit_idx;
-        let bit = (src_chunk >> bit_idx) & 1 == 1;
-        // SAFETY: caller guarantees `base + count <= values.len()`.
-        let v = unsafe { values.get_unchecked(i) };
-        let opt = f(v, bit);
-        let candidate = if opt.is_none() { i as u32 } else { u32::MAX };
-        first_fail = first_fail.min(candidate);
-        let r = opt.unwrap_or_default();
-        // SAFETY: same as above.
-        unsafe { values.set_unchecked(i, r) };
-    }
-    (first_fail != u32::MAX).then_some(first_fail)
 }
 
 /// Apply `f(value) -> bool` lane-by-lane, packing into `out` as `u64` words.
@@ -649,6 +626,22 @@ where
     S: IndexedSource,
     F: FnMut(S::Item) -> bool,
 {
+    #[inline(always)]
+    fn chunk<S, F>(values: &S, f: &mut F, base: usize, count: usize) -> u64
+    where
+        S: IndexedSource,
+        F: FnMut(S::Item) -> bool,
+    {
+        let mut packed = 0u64;
+        for bit_idx in 0..count {
+            let i = base + bit_idx;
+            // SAFETY: caller guarantees base + count <= len.
+            let v = unsafe { values.get_unchecked(i) };
+            packed |= (f(v) as u64) << bit_idx;
+        }
+        packed
+    }
+
     let len = values.len();
     assert_eq!(
         out.len(),
@@ -660,25 +653,12 @@ where
     let remainder = len % 64;
 
     for chunk_idx in 0..chunks_count {
-        let base = chunk_idx * 64;
-        let mut packed = 0u64;
-        for_full_lanes!(base, |bit_idx, i| {
-            // SAFETY: base + bit_idx < chunks_count * 64 <= len.
-            let v = unsafe { values.get_unchecked(i) };
-            packed |= (f(v) as u64) << bit_idx;
-        });
+        let packed = chunk(&values, &mut f, chunk_idx * 64, 64);
         // SAFETY: chunk_idx < chunks_count <= out.len().
         unsafe { *out.get_unchecked_mut(chunk_idx) = packed };
     }
-
     if remainder != 0 {
-        let base = chunks_count * 64;
-        let mut packed = 0u64;
-        for_remainder_lanes!(base, remainder, |bit_idx, i| {
-            // SAFETY: base + bit_idx < len.
-            let v = unsafe { values.get_unchecked(i) };
-            packed |= (f(v) as u64) << bit_idx;
-        });
+        let packed = chunk(&values, &mut f, chunks_count * 64, remainder);
         // SAFETY: chunks_count < out.len() because remainder != 0.
         unsafe { *out.get_unchecked_mut(chunks_count) = packed };
     }
@@ -698,6 +678,29 @@ where
     S: IndexedSource,
     F: FnMut(S::Item, bool) -> bool,
 {
+    #[inline(always)]
+    fn chunk<S, F>(
+        values: &S,
+        f: &mut F,
+        src_chunk: u64,
+        base: usize,
+        count: usize,
+    ) -> u64
+    where
+        S: IndexedSource,
+        F: FnMut(S::Item, bool) -> bool,
+    {
+        let mut packed = 0u64;
+        for bit_idx in 0..count {
+            let i = base + bit_idx;
+            let bit = (src_chunk >> bit_idx) & 1 == 1;
+            // SAFETY: caller guarantees base + count <= len.
+            let v = unsafe { values.get_unchecked(i) };
+            packed |= (f(v, bit) as u64) << bit_idx;
+        }
+        packed
+    }
+
     let len = values.len();
     assert_eq!(len, mask.len(), "values and mask must have the same length");
     assert_eq!(
@@ -711,26 +714,15 @@ where
     let remainder = len % 64;
 
     for (chunk_idx, src_chunk) in chunks.iter().enumerate() {
-        let base = chunk_idx * 64;
-        let mut packed = 0u64;
-        for_full_mask_lanes!(src_chunk, base, |bit_idx, i, bit| {
-            // SAFETY: i < chunks_count * 64 <= len.
-            let v = unsafe { values.get_unchecked(i) };
-            packed |= (f(v, bit) as u64) << bit_idx;
-        });
+        let packed = chunk(&values, &mut f, src_chunk, chunk_idx * 64, 64);
         // SAFETY: chunk_idx < chunks_count <= out.len().
         unsafe { *out.get_unchecked_mut(chunk_idx) = packed };
     }
-
     if remainder != 0 {
-        let src_chunk = chunks.remainder_bits();
-        let base = chunks_count * 64;
-        let mut packed = 0u64;
-        for_remainder_mask_lanes!(src_chunk, base, remainder, |bit_idx, i, bit| {
-            // SAFETY: i < len.
-            let v = unsafe { values.get_unchecked(i) };
-            packed |= (f(v, bit) as u64) << bit_idx;
-        });
+        let packed = chunk(
+            &values, &mut f,
+            chunks.remainder_bits(), chunks_count * 64, remainder,
+        );
         // SAFETY: chunks_count < out.len() because remainder != 0.
         unsafe { *out.get_unchecked_mut(chunks_count) = packed };
     }
