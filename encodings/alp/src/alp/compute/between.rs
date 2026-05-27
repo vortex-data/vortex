@@ -135,12 +135,14 @@ fn encode_upper_bound<T: ALPFloat>(
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::Nullability;
+    use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::fns::between::BetweenOptions;
     use vortex_array::scalar_fn::fns::between::StrictComparison;
 
@@ -158,7 +160,11 @@ mod tests {
     ) {
         let res =
             between_impl(arr.as_view(), lower, upper, Nullability::Nullable, options).unwrap();
-        assert_arrays_eq!(res, BoolArray::from_iter([Some(expected)]));
+        assert_arrays_eq!(
+            res,
+            ConstantArray::new(Scalar::bool(expected, res.dtype().nullability()), arr.len())
+                .into_array()
+        );
     }
 
     #[test]
