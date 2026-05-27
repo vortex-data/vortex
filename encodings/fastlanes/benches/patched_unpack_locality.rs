@@ -35,22 +35,9 @@ fn main() {
 
 /// (num_values, bit_width, patch_stride) — one patch every `patch_stride` elements.
 const CASES: &[(usize, u8, u32)] = &[
-    // 256 KiB output, fits in L2.
     (1 << 16, 9, 200),
     (1 << 16, 9, 20),
     (1 << 16, 9, 5),
-    // 1 MiB output, around L2.
-    (1 << 18, 9, 200),
-    (1 << 18, 9, 20),
-    (1 << 18, 9, 5),
-    // 4 MiB output, exceeds typical L2.
-    (1 << 20, 9, 200),
-    (1 << 20, 9, 20),
-    (1 << 20, 9, 5),
-    // 16 MiB output, far exceeds L2.
-    (1 << 22, 9, 200),
-    (1 << 22, 9, 20),
-    (1 << 22, 9, 5),
 ];
 
 struct Setup {
