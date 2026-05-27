@@ -99,10 +99,13 @@ impl Benchmark for SqlstormBenchmark {
 
     #[expect(clippy::expect_used)]
     fn pattern(&self, table_name: &str, format: Format) -> Option<Pattern> {
-        Some(
-            format!("{}.{}", table_name, format.ext())
-                .parse()
-                .expect("valid glob pattern"),
-        )
+        // Match each origin's on-disk layout: the reused TPC-H dataset shards large
+        // tables as `<table>_<n>.parquet` (mirroring `TpcHBenchmark`), while TPC-DS and
+        // our single-file StackOverflow/JOB exports use `<table>.<ext>`.
+        let glob = match self.origin {
+            SqlstormOrigin::TpcH => format!("{}_*.{}", table_name, format.ext()),
+            _ => format!("{}.{}", table_name, format.ext()),
+        };
+        Some(glob.parse().expect("valid glob pattern"))
     }
 }
