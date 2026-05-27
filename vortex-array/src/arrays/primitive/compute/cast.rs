@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use num_traits::AsPrimitive;
 use num_traits::NumCast;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -122,7 +123,7 @@ fn cast_values<F, T>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef>
 where
-    F: NativePType,
+    F: NativePType + AsPrimitive<T>,
     T: NativePType,
 {
     let values = array.as_slice::<F>();
@@ -133,14 +134,30 @@ where
         )
     };
 
-    // If this cast doesn't fail use the unchecked casting variant
+    // Returns `true` if every value of `from` is representable in `to` without loss.
+    //
+    // Equivalent to `from.least_supertype(to) == Some(to)`, i.e. the value domain of `from`
+    // is a subset of `to`'s. This is the static-only check — it does not consult any array
+    // statistics. Used to short-circuit checked casts when the conversion is infallible by
+    // type alone (widening uint→uint, signed→signed, u8→i16, i32→f64, etc.).
+    fn casts_losslessly_to(from: PType, to: PType) -> bool {
+        from.least_supertype(to) == Some(to)
+    }
+
+    // Skip the fallible kernel when the conversion is infallible by type alone (widening) or
+    // when cached min/max prove every value fits in `T`.
     let target_dtype = DType::Primitive(T::PTYPE, Nullability::NonNullable);
-    if cached_values_fit_in(array, &target_dtype) == Some(true) {
+    if casts_losslessly_to(F::PTYPE, T::PTYPE)
+        || cached_values_fit_in(array, &target_dtype) == Some(true)
+    {
         let mut buffer = BufferMut::<T>::with_capacity(values.len());
+        // Truncating `as`-cast — safe here because stats prove every valid value fits.
+        // Null lanes' underlying garbage gets truncated/wrapped (harmless: the result
+        // validity bitmap masks them downstream).
         map_no_validity(
             values,
             &mut buffer.spare_capacity_mut()[..values.len()],
-            v.as_(), // |v| <T as NumCast>::from(v).unwrap_or_default(),
+            |v| v.as_(),
         );
         // SAFETY: map_no_validity initializes every lane.
         unsafe { buffer.set_len(values.len()) };

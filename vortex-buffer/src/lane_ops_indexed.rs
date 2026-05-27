@@ -22,6 +22,52 @@ use std::mem::MaybeUninit;
 
 use crate::BitBuffer;
 
+macro_rules! for_full_lanes {
+    ($base:expr, | $bit_idx:ident, $i:ident | $body:block) => {
+        for $bit_idx in 0..64 {
+            let $i = $base + $bit_idx;
+            $body
+        }
+    };
+}
+
+macro_rules! for_remainder_lanes {
+    ($base:expr, $remainder:expr, | $bit_idx:ident, $i:ident | $body:block) => {
+        for $bit_idx in 0..$remainder {
+            let $i = $base + $bit_idx;
+            $body
+        }
+    };
+}
+
+macro_rules! for_full_mask_lanes {
+    ($src_chunk:expr, $base:expr, | $bit_idx:ident, $i:ident, $valid:ident | $body:block) => {
+        for $bit_idx in 0..64 {
+            let $i = $base + $bit_idx;
+            let $valid = ($src_chunk >> $bit_idx) & 1 == 1;
+            $body
+        }
+    };
+}
+
+macro_rules! for_remainder_mask_lanes {
+    (
+        $src_chunk:expr,
+        $base:expr,
+        $remainder:expr, |
+        $bit_idx:ident,
+        $i:ident,
+        $valid:ident |
+        $body:block
+    ) => {
+        for $bit_idx in 0..$remainder {
+            let $i = $base + $bit_idx;
+            let $valid = ($src_chunk >> $bit_idx) & 1 == 1;
+            $body
+        }
+    };
+}
+
 /// A length-known source supporting unchecked indexed reads.
 ///
 /// Implemented for `&[T]` (with `T: Copy`) and for [`LaneZip`] over two `IndexedSource`s.
@@ -159,40 +205,51 @@ where
         // Inner loop is fixed-size 64 with independent per-lane reads — no iterator
         // state, no cross-iteration dependency, so the auto-vectorizer can fuse
         // 64 indexed loads into vector loads.
-        for bit_idx in 0..64 {
-            let i = base + bit_idx;
-            let bit = (src_chunk >> bit_idx) & 1 == 1;
+        for_full_mask_lanes!(src_chunk, base, |bit_idx, i, bit| {
             // SAFETY: i < chunks_count * 64 <= len.
             let v = unsafe { values.get_unchecked(i) };
             unsafe { out.get_unchecked_mut(i).write(f(v, bit)) };
-        }
+        });
     }
 
     if remainder != 0 {
         let src_chunk = chunks.remainder_bits();
         let base = chunks_count * 64;
-        for bit_idx in 0..remainder {
-            let i = base + bit_idx;
-            let bit = (src_chunk >> bit_idx) & 1 == 1;
+        for_remainder_mask_lanes!(src_chunk, base, remainder, |bit_idx, i, bit| {
             // SAFETY: i < len.
             let v = unsafe { values.get_unchecked(i) };
             unsafe { out.get_unchecked_mut(i).write(f(v, bit)) };
-        }
+        });
     }
 }
 
 /// Fallible variant of [`map_with_mask`]. `f` returns `Option<R>`; `None` indicates a
 /// per-lane failure (e.g. range overflow on a narrowing cast).
 ///
-/// The kernel does not short-circuit on the first failure inside a chunk: it processes
-/// whole 64-lane chunks with `is_none()` flags OR-reduced into a single accumulator,
-/// then checks after each chunk. On failure, a cold scalar attribution pass replays the
-/// closure over that chunk to identify the first failing lane. The hot loop stays
-/// autovectorizable — the per-lane cost is one OR on top of the cast.
+/// **Null-lane failures are filtered automatically.** If a null lane's stored value
+/// causes `f(v, false)` to return `None`, the kernel does *not* propagate that as
+/// `Err` — the cold attribution pass skips lanes where the mask bit is `0`. The
+/// closure may also explicitly suppress null-lane failures by branching on `valid`
+/// itself; both behaviors compose, with the kernel's filter as a safety net.
 ///
-/// On failure returns `Err(failing_lane_index)`. Lanes whose `f` returned `None` write
-/// `R::default()` into `out`, but the contents of `out` must not be relied upon when
-/// this function returns `Err`.
+/// ## Hot loop
+///
+/// Per-lane `is_none()` flags are OR-reduced into a single `u64` (just bit 0).
+/// When the closure ignores `valid`, LLVM DCEs the per-lane mask extract
+/// `(src_chunk >> bit_idx) & 1` entirely — the inner loop becomes pure value
+/// computation with no mask traffic. When the closure uses `valid`, the bit is
+/// passed through and the closure threads validity normally.
+///
+/// ## Cold attribution
+///
+/// On `fail_acc != 0`, [`cold_first_valid_failure`] walks the chunk filtering by
+/// mask and returns either `Some(first_valid_failure_index)` or `None` (all
+/// failures were at null lanes — the kernel continues). Not autovectorized; runs
+/// at most once per failing chunk.
+///
+/// On failure returns `Err(failing_lane_index)`. Lanes whose `f` returned `None`
+/// write `R::default()` into `out`, but the contents of `out` must not be relied
+/// upon when this function returns `Err`.
 ///
 /// # Panics
 ///
@@ -219,11 +276,11 @@ where
 
     for (chunk_idx, src_chunk) in chunks.iter().enumerate() {
         let base = chunk_idx * 64;
-        // Per-chunk accumulator — does not escape the SIMD inner loop.
+        // Per-chunk accumulator — just bit 0. When the closure ignores `valid`,
+        // the per-lane `(src_chunk >> bit_idx) & 1` is dead code and LLVM removes
+        // it, leaving a value-only SIMD body.
         let mut fail_acc: u64 = 0;
-        for bit_idx in 0..64 {
-            let i = base + bit_idx;
-            let bit = (src_chunk >> bit_idx) & 1 == 1;
+        for_full_mask_lanes!(src_chunk, base, |bit_idx, i, bit| {
             // SAFETY: i < chunks_count * 64 <= len.
             let v = unsafe { values.get_unchecked(i) };
             let opt = f(v, bit);
@@ -231,9 +288,14 @@ where
             let r = opt.unwrap_or_default();
             // SAFETY: i < len.
             unsafe { out.get_unchecked_mut(i).write(r) };
-        }
+        });
         if fail_acc != 0 {
-            return Err(attribute_failure(&values, src_chunk, base, 64, &mut f));
+            if let Some(idx) =
+                cold_first_valid_failure(&values, src_chunk, base, 64, &mut f)
+            {
+                return Err(idx);
+            }
+            // All failures were at null lanes — continue (rescue).
         }
     }
 
@@ -241,9 +303,7 @@ where
         let src_chunk = chunks.remainder_bits();
         let base = chunks_count * 64;
         let mut fail_acc: u64 = 0;
-        for bit_idx in 0..remainder {
-            let i = base + bit_idx;
-            let bit = (src_chunk >> bit_idx) & 1 == 1;
+        for_remainder_mask_lanes!(src_chunk, base, remainder, |bit_idx, i, bit| {
             // SAFETY: i < len.
             let v = unsafe { values.get_unchecked(i) };
             let opt = f(v, bit);
@@ -251,11 +311,13 @@ where
             let r = opt.unwrap_or_default();
             // SAFETY: i < len.
             unsafe { out.get_unchecked_mut(i).write(r) };
-        }
+        });
         if fail_acc != 0 {
-            return Err(attribute_failure(
-                &values, src_chunk, base, remainder, &mut f,
-            ));
+            if let Some(idx) =
+                cold_first_valid_failure(&values, src_chunk, base, remainder, &mut f)
+            {
+                return Err(idx);
+            }
         }
     }
 
@@ -289,22 +351,20 @@ where
 
     for chunk_idx in 0..chunks_count {
         let base = chunk_idx * 64;
-        for bit_idx in 0..64 {
-            let i = base + bit_idx;
+        for_full_lanes!(base, |bit_idx, i| {
             // SAFETY: i < chunks_count * 64 <= len.
             let v = unsafe { values.get_unchecked(i) };
             unsafe { out.get_unchecked_mut(i).write(f(v)) };
-        }
+        });
     }
 
     if remainder != 0 {
         let base = chunks_count * 64;
-        for bit_idx in 0..remainder {
-            let i = base + bit_idx;
+        for_remainder_lanes!(base, remainder, |bit_idx, i| {
             // SAFETY: i < len.
             let v = unsafe { values.get_unchecked(i) };
             unsafe { out.get_unchecked_mut(i).write(f(v)) };
-        }
+        });
     }
 }
 
@@ -348,8 +408,7 @@ where
     for chunk_idx in 0..chunks_count {
         let base = chunk_idx * 64;
         let mut fail_acc: u64 = 0;
-        for bit_idx in 0..64 {
-            let i = base + bit_idx;
+        for_full_lanes!(base, |bit_idx, i| {
             // SAFETY: i < chunks_count * 64 <= len.
             let v = unsafe { values.get_unchecked(i) };
             let opt = f(v);
@@ -357,7 +416,7 @@ where
             let r = opt.unwrap_or_default();
             // SAFETY: i < len.
             unsafe { out.get_unchecked_mut(i).write(r) };
-        }
+        });
         if fail_acc != 0 {
             return Err(attribute_failure_no_mask(&values, base, 64, &mut f));
         }
@@ -366,8 +425,7 @@ where
     if remainder != 0 {
         let base = chunks_count * 64;
         let mut fail_acc: u64 = 0;
-        for bit_idx in 0..remainder {
-            let i = base + bit_idx;
+        for_remainder_lanes!(base, remainder, |bit_idx, i| {
             // SAFETY: i < len.
             let v = unsafe { values.get_unchecked(i) };
             let opt = f(v);
@@ -375,7 +433,7 @@ where
             let r = opt.unwrap_or_default();
             // SAFETY: i < len.
             unsafe { out.get_unchecked_mut(i).write(r) };
-        }
+        });
         if fail_acc != 0 {
             return Err(attribute_failure_no_mask(&values, base, remainder, &mut f));
         }
@@ -433,8 +491,7 @@ where
     for (chunk_idx, mask_chunk) in chunks.iter().enumerate() {
         let base = chunk_idx * 64;
         let mut fail_bits: u64 = 0;
-        for bit_idx in 0..64 {
-            let i = base + bit_idx;
+        for_full_lanes!(base, |bit_idx, i| {
             // SAFETY: i < chunks_count * 64 <= len.
             let v = unsafe { values.get_unchecked(i) };
             let opt = f(v);
@@ -444,7 +501,7 @@ where
             let r = opt.unwrap_or_default();
             // SAFETY: i < len.
             unsafe { out.get_unchecked_mut(i).write(r) };
-        }
+        });
         // Filter failures to those at VALID lanes only. Null-lane failures vanish.
         let valid_failures = fail_bits & mask_chunk;
         if valid_failures != 0 {
@@ -456,8 +513,7 @@ where
         let mask_chunk = chunks.remainder_bits();
         let base = chunks_count * 64;
         let mut fail_bits: u64 = 0;
-        for bit_idx in 0..remainder {
-            let i = base + bit_idx;
+        for_remainder_lanes!(base, remainder, |bit_idx, i| {
             // SAFETY: i < len.
             let v = unsafe { values.get_unchecked(i) };
             let opt = f(v);
@@ -465,7 +521,7 @@ where
             let r = opt.unwrap_or_default();
             // SAFETY: i < len.
             unsafe { out.get_unchecked_mut(i).write(r) };
-        }
+        });
         let valid_failures = fail_bits & mask_chunk;
         if valid_failures != 0 {
             return Err(base + valid_failures.trailing_zeros() as usize);
@@ -475,32 +531,47 @@ where
     Ok(())
 }
 
-/// Cold attribution for the no-mask variant.
+/// Shared cold scan: walks a chunk, returns the first lane index where
+/// `lane_fails(bit_idx, value)` returns `true`. Used by both
+/// [`attribute_failure`] and [`attribute_failure_no_mask`] via thin wrappers.
+///
+/// Caller guarantees `base + chunk_len <= values.len()`.
 #[cold]
 #[inline(never)]
-fn attribute_failure_no_mask<S, R, F>(values: &S, base: usize, chunk_len: usize, f: &mut F) -> usize
+fn cold_scan<S>(
+    values: &S,
+    base: usize,
+    chunk_len: usize,
+    mut lane_fails: impl FnMut(usize /* bit_idx */, S::Item) -> bool,
+) -> usize
 where
     S: IndexedSource,
-    F: FnMut(S::Item) -> Option<R>,
 {
     for bit_idx in 0..chunk_len {
         let i = base + bit_idx;
         // SAFETY: caller guarantees i < values.len().
         let v = unsafe { values.get_unchecked(i) };
-        if f(v).is_none() {
+        if lane_fails(bit_idx, v) {
             return i;
         }
     }
-    unreachable!("attribute_failure_no_mask called without a failing lane")
+    unreachable!("cold_scan called without a failing lane")
 }
 
-/// Cold path: identify the first lane in a chunk where `f` returned `None`.
-///
-/// Called only after the hot loop has detected that at least one lane failed.
-/// Walks the chunk scalar-style; not autovectorized, but that's fine — it only
-/// runs once per error and the error path is supposed to be exceptional.
-#[cold]
-#[inline(never)]
+/// Cold attribution for the no-mask variant. Replays `f` over the chunk to find
+/// the first lane that returns `None`.
+#[inline]
+fn attribute_failure_no_mask<S, R, F>(values: &S, base: usize, chunk_len: usize, f: &mut F) -> usize
+where
+    S: IndexedSource,
+    F: FnMut(S::Item) -> Option<R>,
+{
+    cold_scan(values, base, chunk_len, |_bit_idx, v| f(v).is_none())
+}
+
+/// Cold attribution for the mask variant. Replays `f` over the chunk, passing
+/// each lane's validity bit, and returns the first lane where `f` returned `None`.
+#[inline]
 fn attribute_failure<S, R, F>(
     values: &S,
     src_chunk: u64,
@@ -512,17 +583,9 @@ where
     S: IndexedSource,
     F: FnMut(S::Item, bool) -> Option<R>,
 {
-    for bit_idx in 0..chunk_len {
-        let i = base + bit_idx;
-        let bit = (src_chunk >> bit_idx) & 1 == 1;
-        // SAFETY: caller guarantees base + chunk_len <= values.len().
-        let v = unsafe { values.get_unchecked(i) };
-        if f(v, bit).is_none() {
-            return i;
-        }
-    }
-    // Unreachable: hot loop's OR-reduction said at least one lane in [base, base+chunk_len) failed.
-    unreachable!("attribute_failure called without a failing lane")
+    cold_scan(values, base, chunk_len, |bit_idx, v| {
+        f(v, (src_chunk >> bit_idx) & 1 == 1).is_none()
+    })
 }
 
 /// In-place variant of [`map_with_mask`]. Each lane is replaced with
@@ -546,29 +609,25 @@ where
 
     for (chunk_idx, src_chunk) in chunks.iter().enumerate() {
         let base = chunk_idx * 64;
-        for bit_idx in 0..64 {
-            let i = base + bit_idx;
-            let bit = (src_chunk >> bit_idx) & 1 == 1;
+        for_full_mask_lanes!(src_chunk, base, |bit_idx, i, bit| {
             // SAFETY: i < chunks_count * 64 <= len.
             let v = unsafe { values.get_unchecked(i) };
             let r = f(v, bit);
             // SAFETY: i < len.
             unsafe { values.set_unchecked(i, r) };
-        }
+        });
     }
 
     if remainder != 0 {
         let src_chunk = chunks.remainder_bits();
         let base = chunks_count * 64;
-        for bit_idx in 0..remainder {
-            let i = base + bit_idx;
-            let bit = (src_chunk >> bit_idx) & 1 == 1;
+        for_remainder_mask_lanes!(src_chunk, base, remainder, |bit_idx, i, bit| {
             // SAFETY: i < len.
             let v = unsafe { values.get_unchecked(i) };
             let r = f(v, bit);
             // SAFETY: i < len.
             unsafe { values.set_unchecked(i, r) };
-        }
+        });
     }
 }
 
@@ -619,47 +678,67 @@ where
     let remainder = len % 64;
 
     for (chunk_idx, src_chunk) in chunks.iter().enumerate() {
-        let base = chunk_idx * 64;
-        let mut first_fail: u32 = u32::MAX;
-        for bit_idx in 0..64 {
-            let i = base + bit_idx;
-            let bit = (src_chunk >> bit_idx) & 1 == 1;
-            // SAFETY: i < chunks_count * 64 <= len.
-            let v = unsafe { values.get_unchecked(i) };
-            let opt = f(v, bit);
-            let candidate = if opt.is_none() { i as u32 } else { u32::MAX };
-            first_fail = first_fail.min(candidate);
-            let r = opt.unwrap_or_default();
-            // SAFETY: i < len.
-            unsafe { values.set_unchecked(i, r) };
-        }
-        if first_fail != u32::MAX {
-            return Err(first_fail as usize);
+        // `count = 64` is a literal; `#[inline(always)]` on the helper inlines its body
+        // into this loop and the compiler propagates 64 into the inner `0..count` bound,
+        // unrolling exactly as `for_full_mask_lanes!` would.
+        if let Some(failing) =
+            try_inplace_chunk(&mut values, src_chunk, chunk_idx * 64, 64, &mut f)
+        {
+            return Err(failing as usize);
         }
     }
 
     if remainder != 0 {
-        let src_chunk = chunks.remainder_bits();
-        let base = chunks_count * 64;
-        let mut first_fail: u32 = u32::MAX;
-        for bit_idx in 0..remainder {
-            let i = base + bit_idx;
-            let bit = (src_chunk >> bit_idx) & 1 == 1;
-            // SAFETY: i < len.
-            let v = unsafe { values.get_unchecked(i) };
-            let opt = f(v, bit);
-            let candidate = if opt.is_none() { i as u32 } else { u32::MAX };
-            first_fail = first_fail.min(candidate);
-            let r = opt.unwrap_or_default();
-            // SAFETY: i < len.
-            unsafe { values.set_unchecked(i, r) };
-        }
-        if first_fail != u32::MAX {
-            return Err(first_fail as usize);
+        // Runtime `count = remainder` — same shape as the prior remainder loop.
+        if let Some(failing) = try_inplace_chunk(
+            &mut values,
+            chunks.remainder_bits(),
+            chunks_count * 64,
+            remainder,
+            &mut f,
+        ) {
+            return Err(failing as usize);
         }
     }
 
     Ok(())
+}
+
+/// Per-chunk worker for [`try_map_with_mask_in_place`]. Body written once; the kernel
+/// calls this twice (with `count = 64` for full chunks, `count = remainder` for the
+/// tail). `#[inline(always)]` so the const-64 unroll for the full-chunk callers is
+/// preserved.
+///
+/// Returns `Some(first_failing_lane_index_as_u32)` if any lane in `[base, base+count)`
+/// failed (cast width-truncated since `i < 2^32` in any realistic batch), else `None`.
+#[inline(always)]
+#[allow(clippy::cast_possible_truncation)]
+fn try_inplace_chunk<S, F>(
+    values: &mut S,
+    src_chunk: u64,
+    base: usize,
+    count: usize,
+    f: &mut F,
+) -> Option<u32>
+where
+    S: IndexedSink,
+    S::Item: Default,
+    F: FnMut(S::Item, bool) -> Option<S::Item>,
+{
+    let mut first_fail: u32 = u32::MAX;
+    for bit_idx in 0..count {
+        let i = base + bit_idx;
+        let bit = (src_chunk >> bit_idx) & 1 == 1;
+        // SAFETY: caller guarantees `base + count <= values.len()`.
+        let v = unsafe { values.get_unchecked(i) };
+        let opt = f(v, bit);
+        let candidate = if opt.is_none() { i as u32 } else { u32::MAX };
+        first_fail = first_fail.min(candidate);
+        let r = opt.unwrap_or_default();
+        // SAFETY: same as above.
+        unsafe { values.set_unchecked(i, r) };
+    }
+    (first_fail != u32::MAX).then_some(first_fail)
 }
 
 /// Apply `f(value) -> bool` lane-by-lane, packing into `out` as `u64` words.
@@ -694,11 +773,11 @@ where
     for chunk_idx in 0..chunks_count {
         let base = chunk_idx * 64;
         let mut packed = 0u64;
-        for bit_idx in 0..64 {
+        for_full_lanes!(base, |bit_idx, i| {
             // SAFETY: base + bit_idx < chunks_count * 64 <= len.
-            let v = unsafe { values.get_unchecked(base + bit_idx) };
+            let v = unsafe { values.get_unchecked(i) };
             packed |= (f(v) as u64) << bit_idx;
-        }
+        });
         // SAFETY: chunk_idx < chunks_count <= out.len().
         unsafe { *out.get_unchecked_mut(chunk_idx) = packed };
     }
@@ -706,11 +785,11 @@ where
     if remainder != 0 {
         let base = chunks_count * 64;
         let mut packed = 0u64;
-        for bit_idx in 0..remainder {
+        for_remainder_lanes!(base, remainder, |bit_idx, i| {
             // SAFETY: base + bit_idx < len.
-            let v = unsafe { values.get_unchecked(base + bit_idx) };
+            let v = unsafe { values.get_unchecked(i) };
             packed |= (f(v) as u64) << bit_idx;
-        }
+        });
         // SAFETY: chunks_count < out.len() because remainder != 0.
         unsafe { *out.get_unchecked_mut(chunks_count) = packed };
     }
@@ -745,13 +824,11 @@ where
     for (chunk_idx, src_chunk) in chunks.iter().enumerate() {
         let base = chunk_idx * 64;
         let mut packed = 0u64;
-        for bit_idx in 0..64 {
-            let i = base + bit_idx;
-            let bit = (src_chunk >> bit_idx) & 1 == 1;
+        for_full_mask_lanes!(src_chunk, base, |bit_idx, i, bit| {
             // SAFETY: i < chunks_count * 64 <= len.
             let v = unsafe { values.get_unchecked(i) };
             packed |= (f(v, bit) as u64) << bit_idx;
-        }
+        });
         // SAFETY: chunk_idx < chunks_count <= out.len().
         unsafe { *out.get_unchecked_mut(chunk_idx) = packed };
     }
@@ -760,13 +837,11 @@ where
         let src_chunk = chunks.remainder_bits();
         let base = chunks_count * 64;
         let mut packed = 0u64;
-        for bit_idx in 0..remainder {
-            let i = base + bit_idx;
-            let bit = (src_chunk >> bit_idx) & 1 == 1;
+        for_remainder_mask_lanes!(src_chunk, base, remainder, |bit_idx, i, bit| {
             // SAFETY: i < len.
             let v = unsafe { values.get_unchecked(i) };
             packed |= (f(v, bit) as u64) << bit_idx;
-        }
+        });
         // SAFETY: chunks_count < out.len() because remainder != 0.
         unsafe { *out.get_unchecked_mut(chunks_count) = packed };
     }

@@ -37,6 +37,10 @@ vortex-error = { workspace = true }
 workspace = true
 
 [dev-dependencies]
+# arrow-* are used by the cast_to_indexed bench to compare against arrow-rs.
+arrow-array = { workspace = true }
+arrow-cast = { workspace = true }
+arrow-schema = { workspace = true }
 divan = { workspace = true }
 num-traits = { workspace = true }
 rand = { workspace = true }
