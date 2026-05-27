@@ -3,3 +3,6 @@
 
 #[cfg(feature = "_test-harness")]
 pub mod conformance;
+
+mod checked_add;
+pub use checked_add::checked_add;

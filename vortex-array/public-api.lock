@@ -9976,6 +9976,8 @@ pub fn vortex_array::expr::Expression::zip(&self, vortex_array::expr::Expression
 
 pub mod vortex_array::compute
 
+pub fn vortex_array::compute::checked_add(&vortex_array::arrays::PrimitiveArray, &vortex_array::arrays::PrimitiveArray, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::PrimitiveArray>
+
 pub mod vortex_array::display
 
 pub enum vortex_array::display::DisplayOptions

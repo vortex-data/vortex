@@ -98,6 +98,10 @@ serde_test = { workspace = true }
 vortex-array = { path = ".", features = ["_test-harness", "table-display"] }
 
 [[bench]]
+name = "checked_add"
+harness = false
+
+[[bench]]
 name = "cast_primitive"
 harness = false
 
