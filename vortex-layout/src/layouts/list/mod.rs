@@ -124,16 +124,7 @@ impl VTable for List {
         children: &dyn LayoutChildren,
         _ctx: &ReadContext,
     ) -> VortexResult<Self::Layout> {
-        let expected_children = if dtype.is_nullable() {
-            NUM_CHILDREN_NULLABLE
-        } else {
-            NUM_CHILDREN_NON_NULLABLE
-        };
-        vortex_ensure!(
-            children.nchildren() == expected_children,
-            "ListLayout expects {expected_children} children, got {}",
-            children.nchildren(),
-        );
+        validate_children(dtype, children.nchildren())?;
 
         let elements_dtype = dtype
             .as_list_element_opt()
@@ -158,16 +149,8 @@ impl VTable for List {
     }
 
     fn with_children(layout: &mut Self::Layout, children: Vec<LayoutRef>) -> VortexResult<()> {
-        let expected = if layout.dtype.is_nullable() {
-            NUM_CHILDREN_NULLABLE
-        } else {
-            NUM_CHILDREN_NON_NULLABLE
-        };
-        vortex_ensure!(
-            children.len() == expected,
-            "ListLayout expects {expected} children, got {}",
-            children.len()
-        );
+        validate_children(layout.dtype(), children.len())?;
+
         let mut iter = children.into_iter();
         layout.elements = iter
             .next()
@@ -187,18 +170,27 @@ impl VTable for List {
     }
 }
 
+/// Validates expected number of children based on `dtype`
+#[inline]
+fn validate_children(dtype: &DType, n_children: usize) -> VortexResult<()> {
+    let mut expected = NUM_CHILDREN_NON_NULLABLE;
+
+    if dtype.is_nullable() {
+        expected += 1;
+    };
+
+    vortex_ensure!(
+        n_children == expected,
+        "ListLayout expects {expected} children, got {n_children}",
+    );
+
+    Ok(())
+}
+
 #[derive(Debug)]
 pub struct ListLayoutEncoding;
 
-/// Stores a list-typed column in Apache Arrow-compatible form: a flattened `elements` buffer
-/// plus an `offsets` buffer of length `n+1` (and optionally a `validity` bitmap of length `n`).
-///
-/// Mirrors the in-memory [`ListArray`](vortex_array::arrays::ListArray): offsets are monotonic
-/// and `list[i] = elements[offsets[i]..offsets[i+1]]`.
-///
-/// To write a [`ListViewArray`](vortex_array::arrays::ListViewArray) (the canonical encoding for
-/// [`DType::List`]) into a `ListLayout`, the writer rebuilds it into zero-copy-to-list form via
-/// [`list_from_list_view`](vortex_array::arrays::listview::list_from_list_view).
+/// Stores a list-typed array by shredding `elements`, `offsets`, and optional `validity` children.
 #[derive(Clone, Debug)]
 pub struct ListLayout {
     dtype: DType,
@@ -210,16 +202,13 @@ pub struct ListLayout {
 impl ListLayout {
     /// Construct a new `ListLayout` from its components.
     ///
-    /// # Invariants (caller's responsibility)
+    /// # Invariants
     ///
     /// - `dtype` must be a [`DType::List`].
     /// - `validity` must be `Some` iff `dtype.is_nullable()`.
     /// - `offsets.dtype()` must be a non-nullable integer.
     /// - `offsets.row_count()` is the Arrow-canonical `n+1` for `n` lists (or `0` for empty).
     /// - When present, `validity.row_count() == offsets.row_count().saturating_sub(1)`.
-    ///
-    /// The [`ListLayoutStrategy`](writer::ListLayoutStrategy) writer upholds these invariants by
-    /// construction.
     pub fn new(
         dtype: DType,
         elements: LayoutRef,
