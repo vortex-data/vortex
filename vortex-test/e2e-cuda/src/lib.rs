@@ -69,7 +69,10 @@ pub unsafe extern "C" fn export_array(
     let mut ctx = CudaSession::create_execution_ctx(&SESSION).unwrap();
 
     let primitive = PrimitiveArray::from_option_iter([Some(0u32), None, Some(2), Some(3), None]);
-    let decimal = DecimalArray::from_iter(0i128..5, DecimalDType::new(38, 2));
+    let decimal = DecimalArray::from_option_iter(
+        [Some(0i128), Some(1), None, Some(3), Some(4)],
+        DecimalDType::new(38, 2),
+    );
     let strings = VarBinViewArray::from_iter_str([
         "one",
         "two",
@@ -126,7 +129,7 @@ pub unsafe extern "C" fn validate_array(
     let struct_array = array.as_struct();
 
     let primitive = UInt32Array::from_iter([Some(0), None, Some(2), Some(3), None]);
-    let decimal = Decimal128Array::from_iter_values(0..5)
+    let decimal = Decimal128Array::from_iter([Some(0i128), Some(1), None, Some(3), Some(4)])
         .with_precision_and_scale(38, 2)
         .expect("with_precision_and_scale");
     let string = StringArray::from_iter_values([
@@ -140,7 +143,7 @@ pub unsafe extern "C" fn validate_array(
 
     let expected_fields = Fields::from_iter([
         Field::new("prims", primitive.data_type().clone(), true),
-        Field::new("decimals", decimal.data_type().clone(), false),
+        Field::new("decimals", decimal.data_type().clone(), true),
         Field::new("strings", string.data_type().clone(), false),
         Field::new("dates", date.data_type().clone(), true),
     ]);
