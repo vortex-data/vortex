@@ -24,10 +24,8 @@ use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_buffer::lane_ops_indexed::map_no_validity;
-use vortex_buffer::lane_ops_indexed::map_to_bits;
 use vortex_buffer::lane_ops_indexed::map_with_mask;
 use vortex_buffer::lane_ops_indexed::map_with_mask_in_place;
-use vortex_buffer::lane_ops_indexed::map_with_mask_to_bits;
 use vortex_buffer::lane_ops_indexed::try_map_no_validity;
 use vortex_buffer::lane_ops_indexed::try_map_with_mask;
 use vortex_buffer::lane_ops_indexed::try_map_with_mask_in_place;
@@ -37,7 +35,6 @@ fn main() {
 }
 
 const SIZES: &[usize] = &[4_096, 65_536, 1_048_576];
-const U32_THRESHOLD: u32 = u32::MAX / 2;
 
 struct Fixture {
     values_u64: Buffer<u64>,
@@ -281,40 +278,6 @@ fn try_map_with_mask_in_place_u32_checked_mul(bencher: Bencher, n: usize) {
             try_map_with_mask_in_place(values.as_mut_slice(), &mask, |v, _valid| v.checked_mul(2))
                 .unwrap();
             values
-        });
-}
-
-#[divan::bench(args = SIZES)]
-fn map_to_bits_u32_threshold(bencher: Bencher, n: usize) {
-    let f = fixture(n);
-
-    bencher
-        .with_inputs(|| (f.values_u32.clone(), vec![0; n.div_ceil(64)]))
-        .bench_values(|(values, mut out)| {
-            map_to_bits(values.as_slice(), out.as_mut_slice(), |v| {
-                v >= U32_THRESHOLD
-            });
-            out
-        });
-}
-
-#[divan::bench(args = SIZES)]
-fn map_with_mask_to_bits_u32_threshold(bencher: Bencher, n: usize) {
-    let f = fixture(n);
-
-    bencher
-        .with_inputs(|| {
-            (
-                f.values_u32.clone(),
-                f.mask.clone(),
-                vec![0; n.div_ceil(64)],
-            )
-        })
-        .bench_values(|(values, mask, mut out)| {
-            map_with_mask_to_bits(values.as_slice(), &mask, out.as_mut_slice(), |v, valid| {
-                valid && v >= U32_THRESHOLD
-            });
-            out
         });
 }
 
