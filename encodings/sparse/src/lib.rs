@@ -68,6 +68,51 @@ mod ops;
 mod rules;
 mod slice;
 
+use vortex_array::aggregate_fn::AggregateFnVTable as _;
+use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
+use vortex_array::aggregate_fn::fns::min_max::MinMax;
+use vortex_array::aggregate_fn::fns::nan_count::NanCount;
+use vortex_array::aggregate_fn::fns::null_count::NullCount;
+use vortex_array::aggregate_fn::fns::sum::Sum;
+use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
+use vortex_array::session::ArraySessionExt;
+
+/// Initialize Sparse encoding in the given session.
+///
+/// Registers the Sparse array vtable and its aggregate kernels (`IsConstant`, `Sum`,
+/// `MinMax`, `NullCount`, `NanCount`). Compare/between/fill_null pushdown is wired
+/// through `PARENT_KERNELS` (see `kernel.rs`) and does not require registration here.
+pub fn initialize(session: &VortexSession) {
+    session.arrays().register(Sparse);
+
+    let aggregate_fns = session.aggregate_fns();
+    aggregate_fns.register_aggregate_kernel(
+        Sparse.id(),
+        Some(IsConstant.id()),
+        &compute::is_constant::SparseIsConstantKernel,
+    );
+    aggregate_fns.register_aggregate_kernel(
+        Sparse.id(),
+        Some(Sum.id()),
+        &compute::sum::SparseSumKernel,
+    );
+    aggregate_fns.register_aggregate_kernel(
+        Sparse.id(),
+        Some(MinMax.id()),
+        &compute::min_max::SparseMinMaxKernel,
+    );
+    aggregate_fns.register_aggregate_kernel(
+        Sparse.id(),
+        Some(NullCount.id()),
+        &compute::null_count::SparseNullCountKernel,
+    );
+    aggregate_fns.register_aggregate_kernel(
+        Sparse.id(),
+        Some(NanCount.id()),
+        &compute::nan_count::SparseNanCountKernel,
+    );
+}
+
 /// A [`Sparse`]-encoded Vortex array.
 pub type SparseArray = Array<Sparse>;
 
