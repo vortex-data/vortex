@@ -6,16 +6,15 @@
 
 use std::fs;
 use std::path::Path;
+use std::str::FromStr;
 
 use clap::ValueEnum;
 
 pub mod data;
 pub mod row_counts;
-// TODO(Task 2): re-enable once sqlstorm_benchmark.rs exists
-// pub mod sqlstorm_benchmark;
+pub mod sqlstorm_benchmark;
 
-// TODO(Task 2): re-enable once sqlstorm_benchmark.rs exists
-// pub use sqlstorm_benchmark::SqlstormBenchmark;
+pub use sqlstorm_benchmark::SqlstormBenchmark;
 
 /// The four SQLStorm base datasets ("origins").
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -41,6 +40,17 @@ impl SqlstormOrigin {
         }
     }
 
+    /// Parse an origin from its `name()` string. Returns `None` for unknown names.
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "stackoverflow" => Some(SqlstormOrigin::StackOverflow),
+            "job" => Some(SqlstormOrigin::Job),
+            "tpch" => Some(SqlstormOrigin::TpcH),
+            "tpcds" => Some(SqlstormOrigin::TpcDs),
+            _ => None,
+        }
+    }
+
     /// All four origins in canonical order.
     pub fn all() -> [SqlstormOrigin; 4] {
         [
@@ -49,6 +59,18 @@ impl SqlstormOrigin {
             SqlstormOrigin::TpcH,
             SqlstormOrigin::TpcDs,
         ]
+    }
+}
+
+impl FromStr for SqlstormOrigin {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_name(s).ok_or_else(|| {
+            anyhow::anyhow!(
+                "unknown sqlstorm origin: {s:?}; valid values are stackoverflow, job, tpch, tpcds"
+            )
+        })
     }
 }
 

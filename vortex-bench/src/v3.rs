@@ -293,6 +293,7 @@ fn canonical_tpc_scale_factor(scale_factor: &str) -> String {
 /// | `Fineweb`                   | `fineweb`      | `None`              | `None`                                              | |
 /// | `GhArchive`                 | `gharchive`    | `None`              | `None`                                              | |
 /// | `PublicBi { name }`         | `public-bi`    | dataset name (e.g. `cms-provider`) | `None`               | Sub-dataset name lives in `dataset_variant`. |
+/// | `Sqlstorm { origin }`       | `sqlstorm`     | origin name (e.g. `tpch`)          | `None`               | Origin lives in `dataset_variant`. |
 pub fn benchmark_dataset_dims(d: &BenchmarkDataset) -> (String, Option<String>, Option<String>) {
     match d {
         BenchmarkDataset::TpcH { scale_factor } => (
@@ -321,6 +322,9 @@ pub fn benchmark_dataset_dims(d: &BenchmarkDataset) -> (String, Option<String>, 
         BenchmarkDataset::PolarSignals { .. } => ("polarsignals".to_string(), None, None),
         BenchmarkDataset::Fineweb => ("fineweb".to_string(), None, None),
         BenchmarkDataset::GhArchive => ("gharchive".to_string(), None, None),
+        BenchmarkDataset::Sqlstorm { origin } => {
+            ("sqlstorm".to_string(), Some(origin.clone()), None)
+        }
     }
 }
 
@@ -721,6 +725,14 @@ mod tests {
             assert_eq!(variant, None, "dataset_variant for {case:?}");
             assert_eq!(sf, None, "scale_factor for {case:?}");
         }
+
+        // Sqlstorm: origin goes in dataset_variant.
+        let (ds, variant, sf) = benchmark_dataset_dims(&BenchmarkDataset::Sqlstorm {
+            origin: "tpch".to_string(),
+        });
+        assert_eq!(ds, "sqlstorm");
+        assert_eq!(variant, Some("tpch".to_string()));
+        assert_eq!(sf, None);
     }
 
     #[test]

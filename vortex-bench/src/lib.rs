@@ -21,6 +21,8 @@ use public_bi::PublicBiBenchmark;
 use realnest::gharchive::GithubArchiveBenchmark;
 use serde::Deserialize;
 use serde::Serialize;
+use sqlstorm::SqlstormBenchmark;
+use sqlstorm::SqlstormOrigin;
 use statpopgen::StatPopGenBenchmark;
 use tpcds::TpcDsBenchmark;
 use tpch::benchmark::TpcHBenchmark;
@@ -246,6 +248,8 @@ impl CompactionStrategy {
 /// CLI argument for selecting which benchmark to run.
 #[derive(clap::ValueEnum, Clone, Copy)]
 pub enum BenchmarkArg {
+    #[clap(name = "sqlstorm")]
+    Sqlstorm,
     #[clap(name = "clickbench")]
     ClickBench,
     #[clap(name = "tpch")]
@@ -273,6 +277,14 @@ const REMOTE_DATA_KEY: &str = "remote-data-dir";
 /// Factory function to create a benchmark instance from CLI arguments.
 pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn Benchmark>> {
     match b {
+        BenchmarkArg::Sqlstorm => {
+            let origin = opts
+                .get_as::<SqlstormOrigin>("origin")
+                .unwrap_or(SqlstormOrigin::TpcH);
+            let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
+            let benchmark = SqlstormBenchmark::new(origin, remote_data_dir)?;
+            Ok(Box::new(benchmark) as _)
+        }
         BenchmarkArg::ClickBench => {
             let flavor = opts.get_as::<Flavor>("flavor").unwrap_or_default();
             let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);

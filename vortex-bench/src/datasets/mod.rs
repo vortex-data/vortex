@@ -11,6 +11,8 @@ use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
 
 use crate::clickbench::Flavor;
+use crate::sqlstorm::SqlstormOrigin;
+use crate::sqlstorm::data::table_names as sqlstorm_table_names;
 
 pub mod data_downloads;
 pub mod feature_vectors;
@@ -59,6 +61,8 @@ pub trait Dataset {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BenchmarkDataset {
+    #[serde(rename = "sqlstorm")]
+    Sqlstorm { origin: String },
     #[serde(rename = "tpch")]
     TpcH { scale_factor: String },
     #[serde(rename = "tpcds")]
@@ -80,6 +84,7 @@ pub enum BenchmarkDataset {
 impl BenchmarkDataset {
     pub fn name(&self) -> &str {
         match self {
+            BenchmarkDataset::Sqlstorm { .. } => "sqlstorm",
             BenchmarkDataset::TpcH { .. } => "tpch",
             BenchmarkDataset::TpcDS { .. } => "tpcds",
             BenchmarkDataset::ClickBench { .. } => "clickbench",
@@ -95,6 +100,7 @@ impl BenchmarkDataset {
 impl Display for BenchmarkDataset {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            BenchmarkDataset::Sqlstorm { origin } => write!(f, "sqlstorm({origin})"),
             BenchmarkDataset::TpcH { scale_factor } => write!(f, "tpch(sf={scale_factor})"),
             BenchmarkDataset::TpcDS { scale_factor } => write!(f, "tpcds(sf={scale_factor})"),
             BenchmarkDataset::ClickBench { flavor, .. } => match flavor {
@@ -115,6 +121,12 @@ impl Display for BenchmarkDataset {
 impl BenchmarkDataset {
     pub fn tables(&self) -> &[&'static str] {
         match self {
+            // `origin` is a free `String` (round-tripped through serde), so an unknown
+            // value yields no tables rather than erroring. In practice it is always one
+            // of the four `SqlstormOrigin` names written by `SqlstormBenchmark::dataset()`.
+            BenchmarkDataset::Sqlstorm { origin } => SqlstormOrigin::from_name(origin)
+                .map(sqlstorm_table_names)
+                .unwrap_or(&[]),
             BenchmarkDataset::TpcDS { .. } => &[
                 "call_center",
                 "catalog_sales",
