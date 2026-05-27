@@ -4,7 +4,6 @@ Nightly is required for:
 - `cargo fmt` (nightly formatting options)
 - `-Z` flags: sanitizers (`-Zsanitizer=address`), miri (`-Zmiri-*`), publish (`-Zpublish-timeout`)
 - `cargo-fuzz` (requires nightly)
-- `public-api` xtask (nightly rustdoc JSON)
 
 Everything else (build, clippy, tests, docs, benchmarks, packaging) should use stable.
 

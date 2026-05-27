@@ -2,12 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #include "duckdb_vx/data.hpp"
-#include "duckdb_vx/duckdb_diagnostics.h"
 #include "duckdb_vx/error.hpp"
 #include "duckdb_vx/table_function.h"
 #include "vortex.h"
 
-DUCKDB_INCLUDES_BEGIN
 #include "duckdb.h"
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/common/insertion_order_preserving_map.hpp"
@@ -16,7 +14,6 @@ DUCKDB_INCLUDES_BEGIN
 #include "duckdb/main/capi/capi_internal.hpp"
 #include "duckdb/main/connection.hpp"
 #include "duckdb/parser/parsed_data/create_table_function_info.hpp"
-DUCKDB_INCLUDES_END
 
 using namespace std::string_literals;
 using namespace duckdb;
@@ -37,12 +34,7 @@ struct CTableBindData final : FunctionData {
 };
 
 unique_ptr<FunctionData> CTableBindData::Copy() const {
-    duckdb_vx_error error_out = nullptr;
-    const auto copied_ffi_data = duckdb_table_function_bind_data_clone(ffi_data->DataPtr(), &error_out);
-    if (error_out) {
-        throw BinderException(IntoErrString(error_out));
-    }
-
+    const auto copied_ffi_data = duckdb_table_function_bind_data_clone(ffi_data->DataPtr());
     auto ffi_data_p = unique_ptr<CData>(reinterpret_cast<CData *>(copied_ffi_data));
     return make_uniq<CTableBindData>(std::move(ffi_data_p), types);
 }

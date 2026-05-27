@@ -294,40 +294,6 @@ jobs:
         run: |
           cargo hack --no-dev-deps --ignore-private clippy --profile ci --no-default-features -- -D warnings
 
-  public-api:
-    name: "Public API lock files"
-    timeout-minutes: 30
-    runs-on: >-
-      ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-xsmall/image=ubuntu24-full-x64-pre-v2/tag=public-api', github.run_id)
-          || 'ubuntu-latest' }}
-    steps:
-      - uses: runs-on/action@v2
-        if: github.repository == 'vortex-data/vortex'
-        with:
-          sccache: s3
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
-      - uses: ./.github/actions/setup-prebuild
-      - name: Install nightly for public-api
-        run: rustup toolchain install $NIGHTLY_TOOLCHAIN
-      - name: Regenerate public API lock files
-        run: cargo +$NIGHTLY_TOOLCHAIN run --profile ci -p xtask -- public-api
-      - name: Verify lock files are up to date
-        run: |
-          if ! git diff --quiet '**/public-api.lock'; then
-            git diff -U0 '**/public-api.lock'
-            echo ""
-            echo ""
-            echo "Changed files:"
-            git diff --name-only '**/public-api.lock'
-            echo ""
-            echo ""
-            echo "Public API lock files are out of date."
-            echo "Run './scripts/public-api.sh' locally to"
-            echo "regenerate them, then commit the changes."
-            exit 1
-          fi
-
   rust-test-other:
     name: "Rust tests (${{ matrix.os }})"
     timeout-minutes: 30

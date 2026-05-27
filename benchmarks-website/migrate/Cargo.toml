@@ -16,7 +16,7 @@ path = "src/main.rs"
 
 # Throwaway binary, not part of the vortex-* public API surface.
 # Errors use anyhow, and the crate is intentionally outside the
-# workspace public-api lockfile set.
+# workspace.
 
 [dependencies]
 anyhow = { workspace = true }
