@@ -21,7 +21,9 @@ impl SliceReduce for Patched {
 
         match array.patches().slice(range)? {
             // Patches remain in the sliced range: rewrap them around the sliced inner.
-            Some(patches) => Ok(Some(Patched::wrap(inner, &patches, array.n_lanes()).into_array())),
+            Some(patches) => Ok(Some(
+                Patched::wrap(inner, &patches, array.n_lanes()).into_array(),
+            )),
             // No patches overlap the slice, so the inner array already holds the final values.
             None => Ok(Some(inner)),
         }
