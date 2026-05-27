@@ -18,7 +18,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::Expression;
-use vortex_array::expr::is_root;
 use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::validity::Validity;
@@ -125,6 +124,16 @@ fn rebase_offsets(offsets: ArrayRef, first: u64) -> VortexResult<ArrayRef> {
     offsets.binary(constant, Operator::Sub)
 }
 
+fn create_validity(validity_array: Option<ArrayRef>, nullability: Nullability) -> Validity {
+    match validity_array {
+        Some(arr) => Validity::Array(arr),
+        None => match nullability {
+            Nullability::Nullable => Validity::AllValid,
+            Nullability::NonNullable => Validity::NonNullable,
+        },
+    }
+}
+
 impl LayoutReader for ListReader {
     fn name(&self) -> &Arc<str> {
         &self.name
@@ -220,16 +229,11 @@ impl LayoutReader for ListReader {
                 )?
                 .await?;
 
-            let validity = match validity_array {
-                Some(arr) => Validity::Array(arr),
-                None => match nullability {
-                    Nullability::Nullable => Validity::AllValid,
-                    Nullability::NonNullable => Validity::NonNullable,
-                },
-            };
-
+            // Create ListArray
+            let validity = create_validity(validity_array, nullability);
             let array = ListArray::try_new(elements, rebased_offsets, validity)?.into_array();
 
+            // Apply mask and expression
             let mask = mask.await?;
             let array = if !mask.all_true() {
                 array.filter(mask)?
