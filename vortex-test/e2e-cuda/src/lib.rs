@@ -73,12 +73,12 @@ pub unsafe extern "C" fn export_array(
         [Some(0i128), Some(1), None, Some(3), Some(4)],
         DecimalDType::new(38, 2),
     );
-    let strings = VarBinViewArray::from_iter_str([
-        "one",
-        "two",
-        "this string is long three",
-        "four",
-        "this string is long five",
+    let strings = VarBinViewArray::from_iter_nullable_str([
+        Some("one"),
+        None,
+        Some("this string is long three"),
+        Some("four"),
+        None,
     ]);
     let dates = TemporalArray::new_date(
         PrimitiveArray::from_option_iter([Some(100i32), None, Some(300), Some(400), None])
@@ -132,19 +132,19 @@ pub unsafe extern "C" fn validate_array(
     let decimal = Decimal128Array::from_iter([Some(0i128), Some(1), None, Some(3), Some(4)])
         .with_precision_and_scale(38, 2)
         .expect("with_precision_and_scale");
-    let string = StringArray::from_iter_values([
-        "one",
-        "two",
-        "this string is long three",
-        "four",
-        "this string is long five",
+    let string = StringArray::from_iter([
+        Some("one"),
+        None,
+        Some("this string is long three"),
+        Some("four"),
+        None,
     ]);
     let date = Date32Array::from(vec![Some(100i32), None, Some(300), Some(400), None]);
 
     let expected_fields = Fields::from_iter([
         Field::new("prims", primitive.data_type().clone(), true),
         Field::new("decimals", decimal.data_type().clone(), true),
-        Field::new("strings", string.data_type().clone(), false),
+        Field::new("strings", string.data_type().clone(), true),
         Field::new("dates", date.data_type().clone(), true),
     ]);
 
