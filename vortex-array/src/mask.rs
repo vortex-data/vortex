@@ -22,7 +22,32 @@ impl Executable for Mask {
     /// The array must have a non-nullable boolean dtype. Use [`MaskNullAsFalse`] to execute a
     /// nullable boolean array, coercing null elements to `false`.
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        execute_mask(array, ctx, NullHandling::Reject)
+        if !matches!(array.dtype(), DType::Bool(_)) {
+            vortex_bail!("Mask array must have boolean dtype, not {}", array.dtype());
+        }
+
+        if let Some(constant) = array.as_opt::<Constant>() {
+            let mask_value = constant.scalar().as_bool().value().unwrap_or(false);
+            return Ok(Mask::new(array.len(), mask_value));
+        }
+
+        let array_len = array.len();
+        Ok(match array.execute(ctx)? {
+            Columnar::Constant(s) => {
+                Mask::new(array_len, s.scalar().as_bool().value().unwrap_or(false))
+            }
+            Columnar::Canonical(a) => {
+                let bool = a.into_array().execute::<BoolArray>(ctx)?;
+                if bool.as_ref().dtype().is_nullable() {
+                    vortex_bail!(
+                        "Mask requires a non-nullable boolean array, not {}; \
+                         use MaskNullAsFalse to coerce nulls to false",
+                        bool.as_ref().dtype()
+                    );
+                }
+                Mask::from(bool.into_bit_buffer())
+            }
+        })
     }
 }
 
@@ -49,58 +74,28 @@ impl From<MaskNullAsFalse> for Mask {
 
 impl Executable for MaskNullAsFalse {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        execute_mask(array, ctx, NullHandling::AsFalse).map(Self)
-    }
-}
-
-/// How [`execute_mask`] treats null elements of a nullable boolean array.
-enum NullHandling {
-    /// Error if the boolean array is nullable.
-    Reject,
-    /// Treat null elements as `false`.
-    AsFalse,
-}
-
-fn execute_mask(
-    array: ArrayRef,
-    ctx: &mut ExecutionCtx,
-    null_handling: NullHandling,
-) -> VortexResult<Mask> {
-    if !matches!(array.dtype(), DType::Bool(_)) {
-        vortex_bail!("Mask array must have boolean dtype, not {}", array.dtype());
-    }
-
-    if let Some(constant) = array.as_opt::<Constant>() {
-        let mask_value = constant.scalar().as_bool().value().unwrap_or(false);
-        return Ok(Mask::new(array.len(), mask_value));
-    }
-
-    let array_len = array.len();
-    Ok(match array.execute(ctx)? {
-        Columnar::Constant(s) => {
-            Mask::new(array_len, s.scalar().as_bool().value().unwrap_or(false))
+        if !matches!(array.dtype(), DType::Bool(_)) {
+            vortex_bail!("Mask array must have boolean dtype, not {}", array.dtype());
         }
-        Columnar::Canonical(a) => {
-            let bool = a.into_array().execute::<BoolArray>(ctx)?;
-            match null_handling {
-                NullHandling::Reject => {
-                    if bool.as_ref().dtype().is_nullable() {
-                        vortex_bail!(
-                            "Mask requires a non-nullable boolean array, not {}; \
-                             use MaskNullAsFalse to coerce nulls to false",
-                            bool.as_ref().dtype()
-                        );
-                    }
-                    Mask::from(bool.into_bit_buffer())
-                }
-                NullHandling::AsFalse => {
-                    let validity = bool
-                        .as_ref()
-                        .validity()?
-                        .execute_mask(bool.as_ref().len(), ctx)?;
-                    validity.bitand(&Mask::from(bool.into_bit_buffer()))
-                }
+
+        if let Some(constant) = array.as_opt::<Constant>() {
+            let mask_value = constant.scalar().as_bool().value().unwrap_or(false);
+            return Ok(Self(Mask::new(array.len(), mask_value)));
+        }
+
+        let array_len = array.len();
+        Ok(Self(match array.execute(ctx)? {
+            Columnar::Constant(s) => {
+                Mask::new(array_len, s.scalar().as_bool().value().unwrap_or(false))
             }
-        }
-    })
+            Columnar::Canonical(a) => {
+                let bool = a.into_array().execute::<BoolArray>(ctx)?;
+                let validity = bool
+                    .as_ref()
+                    .validity()?
+                    .execute_mask(bool.as_ref().len(), ctx)?;
+                validity.bitand(&Mask::from(bool.into_bit_buffer()))
+            }
+        }))
+    }
 }
