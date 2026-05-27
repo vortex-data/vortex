@@ -3,13 +3,11 @@
 
 mod generate_fbs;
 mod generate_proto;
-mod public_api;
 
 use clap::Parser;
 
 use crate::generate_fbs::generate_fbs;
 use crate::generate_proto::generate_proto;
-use crate::public_api::public_api;
 
 #[derive(clap::Parser)]
 struct Xtask {
@@ -25,9 +23,6 @@ enum Commands {
     /// Subcommand to regenerate protobuf language bindings for the Rust project.
     #[command(name = "generate-proto")]
     GenerateProto,
-    /// Regenerate public-api.lock files for all published crates.
-    #[command(name = "public-api")]
-    PublicApi,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -35,7 +30,6 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::GenerateFlatbuffers => generate_fbs()?,
         Commands::GenerateProto => generate_proto()?,
-        Commands::PublicApi => public_api()?,
     }
     Ok(())
 }
