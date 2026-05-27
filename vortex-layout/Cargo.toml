@@ -25,6 +25,7 @@ async-trait = { workspace = true }
 bit-vec = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "executor"] }
+insta.workspace = true
 itertools = { workspace = true }
 kanal = { workspace = true }
 moka = { workspace = true, features = ["future"] }
@@ -55,6 +56,7 @@ vortex-utils = { workspace = true, features = ["dashmap"] }
 
 [dev-dependencies]
 futures = { workspace = true, features = ["executor"] }
+insta = { workspace = true }
 rstest = { workspace = true }
 temp-env = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }

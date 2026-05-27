@@ -170,241 +170,129 @@ fn single_chunk_stream(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use vortex_array::ArrayContext;
-    use vortex_array::ArrayRef;
-    use vortex_array::IntoArray;
-    use vortex_array::MaskFuture;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::ListArray;
-    use vortex_array::assert_arrays_eq;
-    use vortex_array::expr::root;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 
-    use crate::LayoutStrategy;
+    use super::*;
+    use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::layouts::list::writer::ListLayoutStrategy;
     use crate::segments::TestSegments;
-    use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
     use crate::test::SESSION;
 
-    async fn round_trip(list: ArrayRef) {
-        let segments = Arc::new(TestSegments::default());
+    fn flat_list_strategy() -> ListLayoutStrategy {
         let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
-        let writer =
-            ListLayoutStrategy::new(Arc::clone(&flat), Arc::clone(&flat), Arc::clone(&flat));
-
-        let (ptr, eof) = SequenceId::root().split();
-        let stream = list.clone().to_array_stream().sequenced(ptr);
-
-        let layout = writer
-            .write_stream(
-                ArrayContext::empty(),
-                Arc::<TestSegments>::clone(&segments),
-                stream,
-                eof,
-                &SESSION,
-            )
-            .await
-            .unwrap();
-
-        let reader = layout
-            .new_reader(Arc::from("test"), segments, &SESSION)
-            .unwrap();
-
-        let row_count = usize::try_from(layout.row_count()).unwrap();
-        let result = reader
-            .projection_evaluation(
-                &(0..layout.row_count()),
-                &root(),
-                MaskFuture::new_true(row_count),
-            )
-            .unwrap()
-            .await
-            .unwrap();
-
-        assert_arrays_eq!(result, list);
+        ListLayoutStrategy::new(Arc::clone(&flat), Arc::clone(&flat), Arc::clone(&flat))
     }
 
-    #[tokio::test]
-    async fn round_trip_non_nullable() {
-        let elements = buffer![1i32, 2, 3, 4, 5].into_array();
-        let offsets = buffer![0u32, 2, 5, 5].into_array(); // 3 lists: [1,2], [3,4,5], []
-        let list = ListArray::try_new(elements, offsets, Validity::NonNullable)
-            .unwrap()
-            .into_array();
-        round_trip(list).await;
-    }
-
-    #[tokio::test]
-    async fn round_trip_nullable() {
-        let elements = buffer![10i32, 20, 30, 40, 50].into_array();
-        let offsets = buffer![0u32, 2, 3, 5].into_array(); // 3 lists
-        let validity = Validity::Array(BoolArray::from_iter([true, false, true]).into_array());
-        let list = ListArray::try_new(elements, offsets, validity)
-            .unwrap()
-            .into_array();
-        round_trip(list).await;
-    }
-
-    /// Writes a list, then reads back only a sub-range to exercise projection over a slice.
-    async fn round_trip_subset(list: ArrayRef, row_range: std::ops::Range<u64>) {
+    async fn write<S: LayoutStrategy>(strategy: &S, array: ArrayRef) -> VortexResult<LayoutRef> {
         let segments = Arc::new(TestSegments::default());
-        let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
-        let writer =
-            ListLayoutStrategy::new(Arc::clone(&flat), Arc::clone(&flat), Arc::clone(&flat));
-
-        let (ptr, eof) = SequenceId::root().split();
-        let stream = list.clone().to_array_stream().sequenced(ptr);
-
-        let layout = writer
-            .write_stream(
-                ArrayContext::empty(),
-                Arc::<TestSegments>::clone(&segments),
-                stream,
-                eof,
-                &SESSION,
-            )
-            .await
-            .unwrap();
-
-        let reader = layout
-            .new_reader(Arc::from("test"), segments, &SESSION)
-            .unwrap();
-
-        let mask_len = usize::try_from(row_range.end - row_range.start).unwrap();
-        let result = reader
-            .projection_evaluation(&row_range, &root(), MaskFuture::new_true(mask_len))
-            .unwrap()
-            .await
-            .unwrap();
-
-        let expected = list
-            .slice(
-                usize::try_from(row_range.start).unwrap()..usize::try_from(row_range.end).unwrap(),
-            )
-            .unwrap();
-        assert_arrays_eq!(result, expected);
-    }
-
-    #[tokio::test]
-    async fn round_trip_subset_non_nullable() {
-        // 5 lists: [1,2], [3], [], [4,5,6], [7]
-        let elements = buffer![1i32, 2, 3, 4, 5, 6, 7].into_array();
-        let offsets = buffer![0u32, 2, 3, 3, 6, 7].into_array();
-        let list = ListArray::try_new(elements, offsets, Validity::NonNullable)
-            .unwrap()
-            .into_array();
-        // Read the middle three lists: [3], [], [4,5,6]
-        round_trip_subset(list, 1..4).await;
-    }
-
-    #[tokio::test]
-    async fn round_trip_subset_nullable() {
-        // 4 lists with validity [true, false, true, true]:
-        // [10,20], null, [30], [40,50,60]
-        let elements = buffer![10i32, 20, 30, 40, 50, 60].into_array();
-        let offsets = buffer![0u32, 2, 2, 3, 6].into_array();
-        let validity =
-            Validity::Array(BoolArray::from_iter([true, false, true, true]).into_array());
-        let list = ListArray::try_new(elements, offsets, validity)
-            .unwrap()
-            .into_array();
-        // Read lists 1..3: null, [30]
-        round_trip_subset(list, 1..3).await;
-    }
-
-    // -- tree shape visualization ---------------------------------------------------------
-    //
-    // These tests are mostly for development/inspection — they show what the resulting
-    // layout tree looks like for various input shapes. Run with `--nocapture` to see the
-    // pretty-printed trees:
-    //
-    //   cargo test -p vortex-layout layouts::list::writer::tests::tree -- --nocapture
-
-    use vortex_array::ArrayContext as _ArrayContextAlias;
-
-    /// Write `array` directly through `ListLayoutStrategy` (no ChunkedLayoutStrategy wrap)
-    /// and return the resulting top-level layout.
-    async fn write_through_list_strategy(array: ArrayRef) -> crate::LayoutRef {
-        let segments = Arc::new(TestSegments::default());
-        let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
-        let writer =
-            ListLayoutStrategy::new(Arc::clone(&flat), Arc::clone(&flat), Arc::clone(&flat));
         let (ptr, eof) = SequenceId::root().split();
         let stream = array.to_array_stream().sequenced(ptr);
-        writer
-            .write_stream(_ArrayContextAlias::empty(), segments, stream, eof, &SESSION)
+        strategy
+            .write_stream(ArrayContext::empty(), segments, stream, eof, &SESSION)
             .await
-            .unwrap()
     }
 
-    /// Wrap `ListLayoutStrategy` in `ChunkedLayoutStrategy` and write `array`. For a chunked
-    /// input, each chunk becomes one `ListLayout` under the outer `ChunkedLayout`.
-    async fn write_through_chunked_list_strategy(array: ArrayRef) -> crate::LayoutRef {
-        use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
+    fn i32_list_dtype(nullable: bool) -> DType {
+        DType::List(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            if nullable {
+                Nullability::Nullable
+            } else {
+                Nullability::NonNullable
+            },
+        )
+    }
+
+    fn create_basic_list(validity: Validity) -> ArrayRef {
+        ListArray::try_new(
+            buffer![1i32, 2, 3, 4, 5].into_array(),
+            buffer![0u32, 2, 5, 5].into_array(),
+            validity,
+        )
+        .unwrap()
+        .into_array()
+    }
+
+    #[tokio::test]
+    async fn basic_non_nullable_input() -> VortexResult<()> {
+        let list = create_basic_list(Validity::NonNullable);
+
+        let layout = write(&flat_list_strategy(), list).await?;
+        assert_eq!(layout.row_count(), 3);
+
+        insta::assert_snapshot!(layout.display_tree(), @"
+        vortex.list, dtype: list(i32), children: 2
+        ├── elements: vortex.flat, dtype: i32, segment: 0
+        └── offsets: vortex.flat, dtype: u32, segment: 1
+        ");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn basic_nullable_input() -> VortexResult<()> {
+        let list = create_basic_list(Validity::Array(
+            BoolArray::from_iter([true, false, true]).into_array(),
+        ));
+
+        let layout = write(&flat_list_strategy(), list).await?;
+        assert_eq!(layout.row_count(), 3);
+
+        insta::assert_snapshot!(layout.display_tree(), @"
+        vortex.list, dtype: list(i32)?, children: 3
+        ├── elements: vortex.flat, dtype: i32, segment: 0
+        ├── offsets: vortex.flat, dtype: u32, segment: 1
+        └── validity: vortex.flat, dtype: bool, segment: 2
+        ");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn empty_stream_errors() {
         let segments = Arc::new(TestSegments::default());
-        let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
-        let list_strategy =
-            ListLayoutStrategy::new(Arc::clone(&flat), Arc::clone(&flat), Arc::clone(&flat));
-        let writer = ChunkedLayoutStrategy::new(list_strategy);
-        let (ptr, eof) = SequenceId::root().split();
-        let stream = array.to_array_stream().sequenced(ptr);
-        writer
-            .write_stream(_ArrayContextAlias::empty(), segments, stream, eof, &SESSION)
+        let (_, eof) = SequenceId::root().split();
+        let empty = stream::empty::<VortexResult<(SequenceId, ArrayRef)>>().boxed();
+        let stream = SequentialStreamAdapter::new(i32_list_dtype(false), empty).sendable();
+
+        let err = flat_list_strategy()
+            .write_stream(ArrayContext::empty(), segments, stream, eof, &SESSION)
             .await
-            .unwrap()
+            .unwrap_err();
+        insta::assert_snapshot!(err.to_string(), @"Other error: ListLayoutStrategy needs a single chunk");
     }
 
     #[tokio::test]
-    async fn tree_shape_single_chunk_non_nullable() {
-        let elements = buffer![1i32, 2, 3, 4, 5].into_array();
-        let offsets = buffer![0u32, 2, 5, 5].into_array();
-        let list = ListArray::try_new(elements, offsets, Validity::NonNullable)
-            .unwrap()
-            .into_array();
+    async fn chunked_list_input_without_chunked_strategy_fails() -> VortexResult<()> {
+        let chunk0 = ListArray::try_new(
+            buffer![1i32, 2].into_array(),
+            buffer![0u32, 2].into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap()
+        .into_array();
+        let chunk1 = ListArray::try_new(
+            buffer![3i32, 4, 5].into_array(),
+            buffer![0u32, 3].into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap()
+        .into_array();
+        let chunked =
+            ChunkedArray::try_new(vec![chunk0, chunk1], i32_list_dtype(false))?.into_array();
 
-        let layout = write_through_list_strategy(list).await;
-        let tree = layout.display_tree().to_string();
-        eprintln!("--- single-chunk non-nullable ---\n{tree}");
-        // Top level is a single ListLayout with 2 children (elements, offsets).
-        assert!(tree.starts_with("vortex.list"));
-        assert!(tree.contains("elements"));
-        assert!(tree.contains("offsets"));
-        assert!(!tree.contains("validity"));
+        let err = write(&flat_list_strategy(), chunked).await.unwrap_err();
+        insta::assert_snapshot!(err.to_string(), @"Other error: ListLayoutStrategy received more than a single chunk");
+        Ok(())
     }
 
     #[tokio::test]
-    async fn tree_shape_single_chunk_nullable() {
-        let elements = buffer![10i32, 20, 30, 40, 50].into_array();
-        let offsets = buffer![0u32, 2, 3, 5].into_array();
-        let validity = Validity::Array(BoolArray::from_iter([true, false, true]).into_array());
-        let list = ListArray::try_new(elements, offsets, validity)
-            .unwrap()
-            .into_array();
-
-        let layout = write_through_list_strategy(list).await;
-        let tree = layout.display_tree().to_string();
-        eprintln!("--- single-chunk nullable ---\n{tree}");
-        // Top level is a single ListLayout with 3 children (elements, offsets, validity).
-        assert!(tree.starts_with("vortex.list"));
-        assert!(tree.contains("elements"));
-        assert!(tree.contains("offsets"));
-        assert!(tree.contains("validity"));
-    }
-
-    #[tokio::test]
-    async fn tree_shape_multi_chunk_via_chunked_strategy() {
-        use std::sync::Arc as StdArc;
-        use vortex_array::arrays::ChunkedArray;
-        use vortex_array::dtype::DType;
-        use vortex_array::dtype::Nullability;
-        use vortex_array::dtype::PType;
-
-        // Two list-array chunks fed through ChunkedArray -> ChunkedLayoutStrategy.
+    async fn chunked_list_input_with_chunked_strategy_succeeds() -> VortexResult<()> {
         let chunk0 = ListArray::try_new(
             buffer![1i32, 2, 3].into_array(),
             buffer![0u32, 2, 3].into_array(),
@@ -420,19 +308,20 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let list_dtype = DType::List(
-            StdArc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-            Nullability::NonNullable,
-        );
-        let chunked = ChunkedArray::try_new(vec![chunk0, chunk1], list_dtype)
-            .unwrap()
-            .into_array();
+        let chunked =
+            ChunkedArray::try_new(vec![chunk0, chunk1], i32_list_dtype(false))?.into_array();
 
-        let layout = write_through_chunked_list_strategy(chunked).await;
-        let tree = layout.display_tree().to_string();
-        eprintln!("--- multi-chunk via ChunkedLayoutStrategy ---\n{tree}");
-        // Top level is a ChunkedLayout containing two ListLayouts.
-        assert!(tree.starts_with("vortex.chunked"));
-        assert_eq!(tree.matches("vortex.list").count(), 2);
+        let layout = write(&ChunkedLayoutStrategy::new(flat_list_strategy()), chunked).await?;
+
+        insta::assert_snapshot!(layout.display_tree(), @"
+        vortex.chunked, dtype: list(i32), children: 2
+        ├── [0]: vortex.list, dtype: list(i32), children: 2
+        │   ├── elements: vortex.flat, dtype: i32, segment: 0
+        │   └── offsets: vortex.flat, dtype: u32, segment: 1
+        └── [1]: vortex.list, dtype: list(i32), children: 2
+            ├── elements: vortex.flat, dtype: i32, segment: 2
+            └── offsets: vortex.flat, dtype: u32, segment: 3
+        ");
+        Ok(())
     }
 }
