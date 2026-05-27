@@ -107,7 +107,9 @@ pub fn runend_encode_bool(
         Validity::NonNullable => None,
         Validity::AllValid => None,
         Validity::AllInvalid => {
-            let ends = PrimitiveArray::new(buffer![array.len() as u64], Validity::NonNullable);
+            let ends = PrimitiveArray::new(buffer![array.len() as u64], Validity::NonNullable)
+                .narrow(ctx)
+                .vortex_expect("Ends must succeed downcasting");
             ends.statistics()
                 .set(Stat::IsStrictSorted, Precision::Exact(true.into()));
             return (
@@ -516,6 +518,20 @@ mod tests {
     }
 
     #[test]
+    fn encode_bool() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let arr = BoolArray::from_iter([true, true, false, false, false, true]);
+        let (ends, values) = runend_encode_bool(arr.as_view(), &mut ctx);
+        let values = values.execute::<BoolArray>(&mut ctx)?;
+
+        let expected_ends = PrimitiveArray::from_iter(vec![2u8, 5, 6]);
+        assert_arrays_eq!(ends, expected_ends);
+        let expected_values = BoolArray::from_iter([true, false, true]);
+        assert_arrays_eq!(values, expected_values);
+        Ok(())
+    }
+
+    #[test]
     fn encode_bool_nullable() -> VortexResult<()> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = BoolArray::from_iter([
@@ -536,6 +552,32 @@ mod tests {
         let expected_values =
             BoolArray::from_iter([Some(true), None, Some(false), None, Some(true)]);
         assert_arrays_eq!(values, expected_values);
+        Ok(())
+    }
+
+    #[test]
+    fn encode_bool_all_null() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let arr = BoolArray::new(BitBuffer::new_unset(5), Validity::AllInvalid);
+        let (ends, values) = runend_encode_bool(arr.as_view(), &mut ctx);
+        let values = values.execute::<BoolArray>(&mut ctx)?;
+
+        let expected_ends = PrimitiveArray::from_iter(vec![5u8]);
+        assert_arrays_eq!(ends, expected_ends);
+        let expected_values = BoolArray::from_iter([Option::<bool>::None]);
+        assert_arrays_eq!(values, expected_values);
+        Ok(())
+    }
+
+    #[test]
+    fn encode_bool_empty() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let arr = BoolArray::from_iter(Vec::<bool>::new());
+        let (ends, values) = runend_encode_bool(arr.as_view(), &mut ctx);
+        let values = values.execute::<BoolArray>(&mut ctx)?;
+
+        assert!(ends.is_empty());
+        assert!(values.is_empty());
         Ok(())
     }
 

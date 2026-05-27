@@ -30,7 +30,9 @@ use crate::schemes::integer::SparseScheme;
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct BoolRunEndScheme;
 
-const BOOL_RUN_END_THRESHOLD: u32 = 8;
+// Cheap fast-skip: below this average run length, REE's ends array is unlikely to beat
+// bit-packed bool values. The exact byte estimate below remains the final gate.
+const BOOL_RUN_END_THRESHOLD: usize = 8;
 
 impl Scheme for BoolRunEndScheme {
     fn scheme_name(&self) -> &'static str {
@@ -76,18 +78,18 @@ impl Scheme for BoolRunEndScheme {
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         let stats = data.bool_stats(exec_ctx);
-        let run_count = stats.run_count();
+        let run_count = stats.run_count() as usize;
 
-        if run_count == 0 || stats.average_run_length() < BOOL_RUN_END_THRESHOLD {
+        if run_count == 0 || data.array_len() < run_count.saturating_mul(BOOL_RUN_END_THRESHOLD) {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
+        // The encoder only materializes run-value validity when there are actual null runs.
+        // Nullable bool arrays with no nulls use an all-valid values child.
+        let has_null_runs = stats.null_count() > 0;
         let before_nbytes = data.array().nbytes();
-        let after_nbytes = estimated_runend_bool_nbytes(
-            data.array_len(),
-            run_count as usize,
-            stats.null_count() > 0,
-        ) as u64;
+        let after_nbytes =
+            estimated_runend_bool_nbytes(data.array_len(), run_count, has_null_runs) as u64;
 
         if after_nbytes >= before_nbytes {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
