@@ -24,10 +24,8 @@ use cudarc::runtime::sys::cudaEvent_t;
 use vortex::array::ArrayRef;
 use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::buffer::BufferHandle;
-use vortex::array::validity::Validity;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
-use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 
 use crate::CudaBufferExt;
@@ -235,13 +233,4 @@ pub trait ExportDeviceArray: Debug + Send + Sync + 'static {
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<ArrowDeviceArray>;
-}
-
-/// Check that the validity buffer is empty and does not need to be copied over the device boundary.
-pub(crate) fn check_validity_empty(validity: &Validity) -> VortexResult<()> {
-    if let Validity::AllInvalid | Validity::Array(_) = validity {
-        vortex_bail!("Exporting array with non-trivial validity not supported yet")
-    }
-
-    Ok(())
 }
