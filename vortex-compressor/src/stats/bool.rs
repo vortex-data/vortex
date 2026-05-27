@@ -114,7 +114,7 @@ impl BoolStats {
     }
 }
 
-/// Count logical runs, treating null as a distinct value.
+/// Count bool/null runs.
 fn bool_run_count(bits: &BitBuffer, validity: &Mask) -> usize {
     if validity.all_true() {
         return bool_value_run_count(bits.iter());
@@ -128,7 +128,7 @@ fn bool_run_count(bits: &BitBuffer, validity: &Mask) -> usize {
     )
 }
 
-/// Count runs in an iterator of non-null bool values.
+/// Count bool runs.
 fn bool_value_run_count(mut iter: impl Iterator<Item = bool>) -> usize {
     let Some(mut previous) = iter.next() else {
         return 0;
@@ -145,7 +145,7 @@ fn bool_value_run_count(mut iter: impl Iterator<Item = bool>) -> usize {
     runs
 }
 
-/// Count runs in an iterator of nullable bool values.
+/// Count bool/null runs.
 fn optional_bool_run_count(mut iter: impl Iterator<Item = Option<bool>>) -> usize {
     let Some(mut previous) = iter.next() else {
         return 0;

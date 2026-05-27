@@ -30,8 +30,6 @@ use crate::schemes::integer::SparseScheme;
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct BoolRunEndScheme;
 
-// Cheap fast-skip: below this average run length, REE's ends array is unlikely to beat
-// bit-packed bool values. The exact byte estimate below remains the final gate.
 const BOOL_RUN_END_THRESHOLD: usize = 8;
 
 impl Scheme for BoolRunEndScheme {
@@ -43,14 +41,10 @@ impl Scheme for BoolRunEndScheme {
         matches!(canonical, Canonical::Bool(_))
     }
 
-    /// Children: values=0, ends=1.
     fn num_children(&self) -> usize {
         2
     }
 
-    /// RunEnd bool values (child 0) cannot have adjacent equal runs by construction, so another
-    /// BoolRunEnd layer is pointless. RunEnd ends (child 1) are monotonically increasing positions
-    /// with all unique values. Dict, RunEnd, RLE, and Sparse are all pointless on such data.
     fn descendant_exclusions(&self) -> Vec<DescendantExclusion> {
         vec![
             DescendantExclusion {
@@ -89,8 +83,6 @@ impl Scheme for BoolRunEndScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        // The encoder only materializes run-value validity when there are actual null runs.
-        // Nullable bool arrays with no nulls use an all-valid values child.
         let has_null_runs = stats.null_count() > 0;
         let before_nbytes = data.array().nbytes();
         let after_nbytes =
