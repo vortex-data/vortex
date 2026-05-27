@@ -3,11 +3,17 @@
 
 //! TurboQuant distortion measurement on real vector datasets.
 //!
-//! Reports per-vector normalized reconstruction error (`||x - x'||^2 / ||x||^2`) and pairwise
-//! cosine-similarity error (`|cos(x_i, x_j) - cos(x'_i, x'_j)|`) after a full encode and decode
-//! roundtrip through the [`vortex_tensor::encodings::turboquant`] scheme. This is the same
-//! TurboQuant implementation the search subcommand stores on disk via
+//! Reports per-vector NMSE (`||x - x'||^2 / ||x||^2 = ||unit(x) - unit(x')||^2`) and per-
+//! vector squared cosine-similarity error (`(cos(y_i, x_i) - cos(y_i, x'_i))^2`) against a
+//! set of independently sampled unit-norm probe vectors `y_i`, after a full encode and
+//! decode roundtrip through the [`vortex_tensor::encodings::turboquant`] scheme. This is
+//! the same TurboQuant implementation the search subcommand stores on disk via
 //! [`BtrBlocksCompressorBuilder::with_turboquant`](vortex_btrblocks::BtrBlocksCompressorBuilder).
+//!
+//! NMSE rather than raw SSE because TurboQuant internally normalizes each input to unit
+//! norm before quantizing (storing `||x||` separately), so the paper's Stage-1 bound
+//! `E[||unit(x) - unit(x')||^2] <= (sqrt(3) * pi / 2) * 4^(-b)` applies to NMSE directly;
+//! raw `||x - x'||^2` sits at `||x||^2` times that bound and isn't comparable across rows.
 
 use std::io::Write;
 
@@ -16,7 +22,8 @@ use anyhow::Result;
 use anyhow::bail;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use rand::seq::SliceRandom;
+use rand_distr::Distribution;
+use rand_distr::Normal;
 use tabled::settings::Style;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
@@ -25,21 +32,18 @@ use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::ExtensionArray;
 use vortex::array::arrays::FixedSizeListArray;
 use vortex::array::arrays::PrimitiveArray;
-use vortex::array::arrays::ScalarFnArray;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::extension::ExtensionArrayExt;
 use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex::array::arrays::struct_::StructArrayExt;
-use vortex::array::validity::Validity;
-use vortex::buffer::Buffer;
+use vortex::error::VortexExpect;
 use vortex_bench::conversions::parquet_to_vortex_chunks;
 use vortex_bench::vector_dataset;
 use vortex_bench::vector_dataset::TrainLayout;
 use vortex_bench::vector_dataset::VectorDataset;
 use vortex_tensor::encodings::turboquant::TurboQuantConfig;
 use vortex_tensor::encodings::turboquant::turboquant_encode;
-use vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity;
 
 use crate::SESSION;
 use crate::ingest::transform_chunk;
@@ -89,9 +93,10 @@ pub struct DistortionReport {
     pub rounds: u8,
     /// Number of base vectors sampled.
     pub samples: usize,
-    /// Per-vector normalized squared L2 reconstruction error.
+    /// Per-vector NMSE, `||x - x'||^2 / ||x||^2`, equal to `||unit(x) - unit(x')||^2`.
     pub reconstruction: DistortionStats,
-    /// Pairwise cosine-similarity error after decoding both sides.
+    /// Per-vector squared cosine-similarity error against a random unit-norm probe `y_i`,
+    /// `(cos(y_i, x_i) - cos(y_i, x'_i))^2`.
     pub decoded_cosine: DistortionStats,
 }
 
@@ -127,9 +132,9 @@ pub async fn run_distortion(config: &DistortionConfig) -> Result<DistortionRepor
         .clone();
 
     let n = config.samples.min(emb_full.len());
-    if n < 2 {
+    if n == 0 {
         bail!(
-            "distortion: need at least 2 sampled vectors for cosine pairs, got {n} (dataset {})",
+            "distortion: need at least one sampled vector, got 0 (dataset {})",
             dataset.name(),
         );
     }
@@ -143,30 +148,24 @@ pub async fn run_distortion(config: &DistortionConfig) -> Result<DistortionRepor
         seed: config.seed,
         num_rounds: config.rounds,
     };
-    let encoded = turboquant_encode(emb.clone(), &tq_config, &mut ctx)?;
+    let encoded = turboquant_encode(emb, &tq_config, &mut ctx)?;
     let decoded_ext: ExtensionArray = encoded.execute(&mut ctx)?;
     let decoded = decoded_ext.into_array();
     let decoded_flat = extract_flat_f32(&decoded, &mut ctx)?;
 
-    let reconstruction = stats(&reconstruction_errors(&original, &decoded_flat, dim, n));
+    let reconstruction = stats(&reconstruction_nmse(&original, &decoded_flat, dim, n));
 
-    let half = n / 2;
-    let mut shuffled: Vec<usize> = (0..n).collect();
-    shuffled.shuffle(&mut StdRng::seed_from_u64(config.seed));
-    let lhs_indices = indices_to_array(&shuffled[..half]);
-    let rhs_indices = indices_to_array(&shuffled[half..2 * half]);
-
-    let true_cosines = compute_cosines(
-        emb.take(lhs_indices.clone())?,
-        emb.take(rhs_indices.clone())?,
-        &mut ctx,
-    )?;
-    let decoded_cosines = compute_cosines(
-        decoded.take(lhs_indices)?,
-        decoded.take(rhs_indices)?,
-        &mut ctx,
-    )?;
-    let decoded_cosine = stats(&abs_diff(&true_cosines, &decoded_cosines));
+    // Sample independent unit-norm probe vectors `y_i` (one per row). The TurboQuant Stage-2
+    // bound `E[(<y, x> - <y, x'>)^2] <= sqrt(3) * pi^2 / d * 4^(-b)` holds for any fixed `y`,
+    // so drawing `y` from the unit sphere is a reasonable empirical sweep.
+    let probes = random_unit_vectors(n, dim, config.seed)?;
+    let decoded_cosine = stats(&squared_cosine_errors(
+        &original,
+        &decoded_flat,
+        &probes,
+        dim,
+        n,
+    ));
 
     Ok(DistortionReport {
         dataset,
@@ -189,20 +188,6 @@ fn extract_flat_f32(array: &ArrayRef, ctx: &mut ExecutionCtx) -> Result<Vec<f32>
     Ok(elements.as_slice::<f32>().to_vec())
 }
 
-/// Compute one cosine per row over two equal-length tensor-like arrays.
-fn compute_cosines(lhs: ArrayRef, rhs: ArrayRef, ctx: &mut ExecutionCtx) -> Result<Vec<f32>> {
-    let len = lhs.len();
-    let sfn: ScalarFnArray = CosineSimilarity::try_new_array(lhs, rhs, len)?;
-    let prim: PrimitiveArray = sfn.into_array().execute(ctx)?;
-    Ok(prim.as_slice::<f32>().to_vec())
-}
-
-/// Build a non-nullable `PrimitiveArray<u64>` of row indices for use with [`ArrayRef::take`].
-fn indices_to_array(indices: &[usize]) -> ArrayRef {
-    let buf: Buffer<u64> = indices.iter().map(|&i| i as u64).collect();
-    PrimitiveArray::new::<u64>(buf, Validity::NonNullable).into_array()
-}
-
 fn pairs_per_row(flat: &[f32], num_rows: usize) -> Result<usize> {
     if num_rows == 0 {
         bail!("distortion: cannot derive dim from zero rows");
@@ -216,38 +201,84 @@ fn pairs_per_row(flat: &[f32], num_rows: usize) -> Result<usize> {
     Ok(flat.len() / num_rows)
 }
 
-/// Per-vector normalized reconstruction squared error (NMSE). Rows whose original squared norm is
-/// below `1e-10` are dropped because their normalized error is numerically undefined.
-fn reconstruction_errors(
+/// Per-vector NMSE, `||x - x'||^2 / ||x||^2 = ||unit(x) - unit(x')||^2`. Zero-norm rows
+/// report `0.0` (encoder maps zero in to zero out, so the unit-norm residual is `0`).
+fn reconstruction_nmse(
     original: &[f32],
     reconstructed: &[f32],
     dim: usize,
     num_rows: usize,
 ) -> Vec<f32> {
-    let mut out = Vec::with_capacity(num_rows);
+    (0..num_rows)
+        .map(|row| {
+            let start = row * dim;
+            let end = start + dim;
+            let orig = &original[start..end];
+            let recon = &reconstructed[start..end];
+            let norm_sq: f32 = orig.iter().map(|&v| v * v).sum();
+            if norm_sq == 0.0 {
+                return 0.0;
+            }
+            let err_sq: f32 = orig
+                .iter()
+                .zip(recon.iter())
+                .map(|(&a, &b)| (a - b) * (a - b))
+                .sum();
+            err_sq / norm_sq
+        })
+        .collect()
+}
+
+/// Sample `num_rows` independent `dim`-D vectors with standard-normal entries and normalize each
+/// row to unit L2 norm. Used as probe vectors `y_i` for the squared cosine-similarity error.
+fn random_unit_vectors(num_rows: usize, dim: usize, seed: u64) -> Result<Vec<f32>> {
+    let mut rng = StdRng::seed_from_u64(seed);
+    let normal = Normal::new(0.0_f32, 1.0).context("constructing Normal(0, 1)")?;
+    let mut buf = vec![0.0_f32; num_rows * dim];
     for row in 0..num_rows {
         let start = row * dim;
         let end = start + dim;
-        let orig = &original[start..end];
-        let recon = &reconstructed[start..end];
-        let norm_sq: f32 = orig.iter().map(|&v| v * v).sum();
-        if norm_sq < 1e-10 {
-            continue;
+        for v in &mut buf[start..end] {
+            *v = normal.sample(&mut rng);
         }
-        let err_sq: f32 = orig
-            .iter()
-            .zip(recon.iter())
-            .map(|(&a, &b)| (a - b) * (a - b))
-            .sum();
-        out.push(err_sq / norm_sq);
+        let norm = buf[start..end].iter().map(|&v| v * v).sum::<f32>().sqrt();
+        if norm > 0.0 {
+            for v in &mut buf[start..end] {
+                *v /= norm;
+            }
+        }
     }
-    out
+    Ok(buf)
 }
 
-fn abs_diff(lhs: &[f32], rhs: &[f32]) -> Vec<f32> {
-    lhs.iter()
-        .zip(rhs.iter())
-        .map(|(&a, &b)| (a - b).abs())
+/// Cosine similarity of two equal-length vectors, returning `0.0` if either has zero norm.
+fn cosine(a: &[f32], b: &[f32]) -> f32 {
+    let dot: f32 = a.iter().zip(b.iter()).map(|(&x, &y)| x * y).sum();
+    let norm_a: f32 = a.iter().map(|&v| v * v).sum::<f32>().sqrt();
+    let norm_b: f32 = b.iter().map(|&v| v * v).sum::<f32>().sqrt();
+    let denom = norm_a * norm_b;
+    if denom == 0.0 { 0.0 } else { dot / denom }
+}
+
+/// Per-row squared cosine-similarity error against probe `y_i`,
+/// `(cos(y_i, x_i) - cos(y_i, x'_i))^2`.
+fn squared_cosine_errors(
+    original: &[f32],
+    reconstructed: &[f32],
+    probes: &[f32],
+    dim: usize,
+    num_rows: usize,
+) -> Vec<f32> {
+    (0..num_rows)
+        .map(|row| {
+            let start = row * dim;
+            let end = start + dim;
+            let xi = &original[start..end];
+            let xi_dec = &reconstructed[start..end];
+            let yi = &probes[start..end];
+            let diff = cosine(yi, xi) - cosine(yi, xi_dec);
+            diff * diff
+        })
         .collect()
 }
 
@@ -276,7 +307,11 @@ fn stats(samples: &[f32]) -> DistortionStats {
         0.5 * (sorted[mid - 1] + sorted[mid])
     };
 
-    let max = samples.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let max = samples
+        .iter()
+        .copied()
+        .reduce(f32::max)
+        .vortex_expect("samples is non-empty per the early return above");
 
     DistortionStats { mean, median, max }
 }
@@ -300,9 +335,9 @@ impl DistortionReport {
             ("reconstruction NMSE mean", self.reconstruction.mean),
             ("reconstruction NMSE median", self.reconstruction.median),
             ("reconstruction NMSE max", self.reconstruction.max),
-            ("decoded cosine err mean", self.decoded_cosine.mean),
-            ("decoded cosine err median", self.decoded_cosine.median),
-            ("decoded cosine err max", self.decoded_cosine.max),
+            ("decoded cosine sqerr mean", self.decoded_cosine.mean),
+            ("decoded cosine sqerr median", self.decoded_cosine.median),
+            ("decoded cosine sqerr max", self.decoded_cosine.max),
         ];
 
         let mut builder = tabled::builder::Builder::new();

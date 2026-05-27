@@ -11,7 +11,7 @@
 """Sweep bits-vs-distortion for TurboQuant and plot the curves.
 
 Calls `vector-search-bench distortion` for each (dataset, bits) combination, parses the
-table from stdout, and plots reconstruction NMSE and pairwise cosine-error curves with
+table from stdout, and plots reconstruction NMSE and squared cosine-error curves with
 mean/median/max shown on a log-scaled y-axis.
 
 Each `--dataset` value may optionally pin a train layout with a colon, e.g.
@@ -37,7 +37,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
-from matplotlib.ticker import MaxNLocator
+from matplotlib.ticker import MaxNLocator, NullLocator
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_BINARY = REPO_ROOT / "target" / "release" / "vector-search-bench"
@@ -46,9 +46,9 @@ METRIC_NAMES = [
     "reconstruction NMSE mean",
     "reconstruction NMSE median",
     "reconstruction NMSE max",
-    "decoded cosine err mean",
-    "decoded cosine err median",
-    "decoded cosine err max",
+    "decoded cosine sqerr mean",
+    "decoded cosine sqerr median",
+    "decoded cosine sqerr max",
 ]
 
 
@@ -143,15 +143,33 @@ def run_one(
     )
 
 
+# Refined small-b values from `main.tex` line 273-274 ("for b = 1, 2, 3, 4 we have
+# D_mse approx 0.36, 0.117, 0.03, 0.009"). Tighter than the general sqrt(3)*pi/2 * 4^(-b)
+# upper bound, which is what we fall back to for b >= 5.
+_NMSE_UPPER_REFINED = {1: 0.36, 2: 0.117, 3: 0.03, 4: 0.009}
+
+
 def nmse_bound_stage1(bits: int) -> float:
-    """Paper's NMSE upper bound for TurboQuant_mse (Stage 1).
+    """Paper's Stage-1 unit-norm reconstruction upper bound for TurboQuant_mse.
 
     From the Stage 1 theorem (`main.tex`, line 272): for a unit-norm vector `x` quantized
-    to `b` bits per coordinate, `E[||x - x'||^2] <= (sqrt(3)*pi/2) / 4^b`. Because `x` is
-    unit-norm, `||x - x'||^2` equals the normalized squared error `||x - x'||^2 / ||x||^2`,
-    so the bound applies to the `reconstruction NMSE mean` curve directly.
+    to `b` bits per coordinate, `E[||x - x'||^2] <= (sqrt(3)*pi/2) * 4^(-b)`. TurboQuant
+    internally normalizes each input before quantizing, so the bound applies to per-row
+    NMSE = `||x - x'||^2 / ||x||^2 = ||unit(x) - unit(x')||^2` directly. For small `b`
+    (1..=4) the paper gives tighter refined values; we splice those in.
     """
+    if bits in _NMSE_UPPER_REFINED:
+        return _NMSE_UPPER_REFINED[bits]
     return (math.sqrt(3.0) * math.pi / 2.0) / (4.0**bits)
+
+
+def nmse_lower_bound(bits: int) -> float:
+    """Paper's Shannon lower bound on Stage-1 unit-norm reconstruction.
+
+    From `main.tex` line 297: `D_mse(Q) >= 1/4^b` for any randomized `b`-bit quantizer.
+    Independent of dimension; applies to NMSE for the same reason as the upper bound.
+    """
+    return 1.0 / (4.0**bits)
 
 
 def compression_ratio(bits: int, dim: int) -> float:
@@ -168,18 +186,13 @@ def compression_ratio(bits: int, dim: int) -> float:
     return original_bytes / per_vector_bytes
 
 
-def cosine_bound(bits: int, dim: int) -> float:
-    """Paper's Stage-2 inner-product bound, rendered as an absolute-error envelope.
+def cosine_sqerr_lower_bound(bits: int, dim: int) -> float:
+    """Paper's Shannon lower bound on Stage-2 squared inner-product distortion.
 
-    From the Stage 2 theorem (`main.tex`, line 288): for unit y and an `x` quantized via
-    TurboQuant_prod (Stage 2, MSE + QJL residual), `E[|<y, x> - <y, x'>|^2] <=
-    sqrt(3)*pi^2/d * 4^(-b)`. Taking sqrt gives an upper envelope on the RMS error per
-    bit width, and by Jensen also on the mean abs error.
-
-    Caveat: Vortex currently implements only Stage 1 (no QJL residual correction). The
-    Stage 1 inner-product error is biased and can sit *above* this Stage-2 envelope.
+    From `main.tex` line 298: `D_prod(Q) >= ||y||^2 / d * 1/4^b` for any randomized
+    `b`-bit quantizer. With unit probes (`||y||^2 = 1`) this is `1 / (d * 4^b)`.
     """
-    return math.pi * (3.0**0.25) / math.sqrt(dim) / (2.0**bits)
+    return 1.0 / (dim * (4.0**bits))
 
 
 DATASET_PALETTE = [
@@ -224,7 +237,17 @@ def plot(runs: list[Run], args: argparse.Namespace) -> None:
         }
     )
 
-    fig, axes = plt.subplots(1, 3, figsize=(20, 6.5), constrained_layout=True)
+    # GridSpec with a dedicated bottom strip for the caption so the long text gets a real
+    # subplot rect: no clipping by `bbox_inches`, no overlap with axis labels, no reliance
+    # on matplotlib's `wrap=True` heuristic. Plot row gets the lion's share so the bottom
+    # caption strip doesn't dominate visually; legends are anchored above the axes via
+    # `bbox_to_anchor` (see `add_legends`), and constrained_layout reserves space for them
+    # inside the plot row.
+    fig = plt.figure(figsize=(22, 9.5), constrained_layout=True)
+    gs = fig.add_gridspec(2, 3, height_ratios=[12, 1])
+    axes = [fig.add_subplot(gs[0, i]) for i in range(3)]
+    caption_ax = fig.add_subplot(gs[1, :])
+    caption_ax.axis("off")
     fig.suptitle(
         f"TurboQuant distortion vs bits per coordinate"
         f"     (samples={args.samples:,}, seed={args.seed}, rounds={args.rounds})",
@@ -240,7 +263,7 @@ def plot(runs: list[Run], args: argparse.Namespace) -> None:
         by_dataset,
         dataset_colors,
         metric_prefix="reconstruction NMSE",
-        title="Reconstruction NMSE   (per vector, normalized squared error)",
+        title=r"Reconstruction NMSE   (per vector, $\|x - x^\prime\|^2 / \|x\|^2$)",
         ylabel=r"$\|x - x^\prime\|^2 / \|x\|^2$",
     )
     bits_axis = sorted({r.bits for r in runs})
@@ -252,14 +275,22 @@ def plot(runs: list[Run], args: argparse.Namespace) -> None:
         linewidth=1.6,
         zorder=0,
     )
+    axes[0].plot(
+        bits_axis,
+        [nmse_lower_bound(b) for b in bits_axis],
+        color="#222222",
+        linestyle=(0, (1, 2)),
+        linewidth=1.4,
+        zorder=0,
+    )
 
     plot_panel(
         axes[1],
         by_dataset,
         dataset_colors,
-        metric_prefix="decoded cosine err",
-        title=r"Pairwise cosine error   $|\cos(x_i, x_j) - \cos(x_i^\prime, x_j^\prime)|$",
-        ylabel="absolute error",
+        metric_prefix="decoded cosine sqerr",
+        title=r"Squared cosine error   $(\cos(y_i, x_i) - \cos(y_i, x_i^\prime))^2$",
+        ylabel="squared error",
     )
     for dataset, ds_runs in by_dataset.items():
         color = dataset_colors[dataset]
@@ -267,29 +298,34 @@ def plot(runs: list[Run], args: argparse.Namespace) -> None:
         bits = sorted({r.bits for r in ds_runs})
         axes[1].plot(
             bits,
-            [cosine_bound(b, d) for b in bits],
+            [cosine_sqerr_lower_bound(b, d) for b in bits],
             color=color,
-            linestyle=(0, (4, 2, 1, 2)),
-            linewidth=1.2,
-            alpha=0.6,
+            linestyle=(0, (1, 2)),
+            linewidth=1.0,
+            alpha=0.5,
             zorder=0,
         )
 
     plot_compression_panel(axes[2], by_dataset, dataset_colors)
 
     add_legends(fig, axes, dataset_colors, dataset_dims)
-    fig.text(
+    caption_ax.text(
         0.5,
-        -0.015,
-        "Cosine bound is the paper's Stage-2 (TurboQuant_prod, MSE + QJL residual) "
-        "envelope; Vortex currently ships Stage 1 only, so empirical curves may sit "
-        "above it.  Compression ratio is theoretical "
+        1.0,
+        "NMSE upper bound uses the paper's refined small-b values for b<=4 and the "
+        "smooth sqrt(3)*pi/2 * 4^(-b) general formula for b>=5.  Lower bounds are the "
+        "Shannon information-theoretic floor for any randomized b-bit quantizer.  "
+        "Vortex ships TurboQuant Stage 1 only, so no Stage-2 inner-product upper "
+        "bound is drawn on the cosine panel.  Probe vectors y_i are sampled iid "
+        "uniform on the unit sphere.  Compression ratio is theoretical "
         "(padded_dim * bits / 8 + 4 bytes per vector), excludes per-shard centroid "
         "tables and file metadata.",
         ha="center",
+        va="top",
         fontsize=9,
         color="#555555",
         wrap=True,
+        transform=caption_ax.transAxes,
     )
 
     if args.output:
@@ -334,6 +370,10 @@ def plot_panel(
     ax.grid(True, which="major", linewidth=0.7, alpha=0.45)
     ax.grid(True, which="minor", linewidth=0.4, alpha=0.22)
     ax.minorticks_on()
+    # Only the integer bit-widths should get an x-axis line; suppress the in-between
+    # minor ticks that `minorticks_on()` adds (the y-axis minors stay - they're useful
+    # on the log scale).
+    ax.xaxis.set_minor_locator(NullLocator())
 
 
 def plot_compression_panel(
@@ -367,9 +407,12 @@ def plot_compression_panel(
     ax.grid(True, which="major", linewidth=0.7, alpha=0.45)
     ax.grid(True, which="minor", linewidth=0.4, alpha=0.22)
     ax.minorticks_on()
+    ax.xaxis.set_minor_locator(NullLocator())
     ax.legend(
         title="dataset",
-        loc="upper right",
+        loc="lower center",
+        bbox_to_anchor=(0.5, 1.02),
+        ncol=2,
         fontsize=9,
         title_fontsize=10,
     )
@@ -412,38 +455,50 @@ def add_legends(
         )
         for _, label, linestyle, linewidth, marker in STAT_STYLES
     ]
-    nmse_bound_handle_s1 = Line2D(
+    nmse_upper_handle = Line2D(
         [],
         [],
         color="#222222",
         linestyle=(0, (4, 2, 1, 2)),
         linewidth=1.6,
-        label=r"paper bound:  $D_{\mathrm{mse}} \leq \frac{\sqrt{3}\,\pi}{2}\, 4^{-b}$",
+        label=(
+            r"upper bound:  "
+            r"$D_{\mathrm{mse}} \leq \frac{\sqrt{3}\,\pi}{2}\, 4^{-b}$  (refined for $b\!\leq\!4$)"
+        ),
     )
-    cosine_bound_handle = Line2D(
+    nmse_lower_handle = Line2D(
+        [],
+        [],
+        color="#222222",
+        linestyle=(0, (1, 2)),
+        linewidth=1.4,
+        label=r"lower bound:  $D_{\mathrm{mse}} \geq 4^{-b}$",
+    )
+    cosine_lower_handle = Line2D(
         [],
         [],
         color="#444444",
-        linestyle=(0, (4, 2, 1, 2)),
-        linewidth=1.2,
-        alpha=0.6,
-        label=(
-            r"paper Stage-2 bound:  "
-            r"$\sqrt{D_{\mathrm{prod}}} \leq \frac{\pi\,3^{1/4}}{\sqrt{d}}\, 2^{-b}$"
-        ),
+        linestyle=(0, (1, 2)),
+        linewidth=1.0,
+        alpha=0.5,
+        label=r"lower bound:  $D_{\mathrm{prod}} \geq \frac{1}{d}\, 4^{-b}$",
     )
 
     axes[0].legend(
-        handles=dataset_handles + [nmse_bound_handle_s1],
+        handles=dataset_handles + [nmse_upper_handle, nmse_lower_handle],
         title="dataset / bound",
-        loc="upper right",
+        loc="lower center",
+        bbox_to_anchor=(0.5, 1.02),
+        ncol=2,
         fontsize=10,
         title_fontsize=10,
     )
     axes[1].legend(
-        handles=stat_handles + [cosine_bound_handle],
+        handles=stat_handles + [cosine_lower_handle],
         title="statistic / bound",
-        loc="upper right",
+        loc="lower center",
+        bbox_to_anchor=(0.5, 1.02),
+        ncol=3,
         fontsize=10,
         title_fontsize=10,
     )
