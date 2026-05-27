@@ -37,7 +37,8 @@ vortex-error = { workspace = true }
 workspace = true
 
 [dev-dependencies]
-# arrow-* are used by the cast_to_indexed bench to compare against arrow-rs.
+# arrow-* are used by cast_to_indexed / add_checked benches to compare against arrow-rs.
+arrow-arith = { workspace = true }
 arrow-array = { workspace = true }
 arrow-cast = { workspace = true }
 arrow-schema = { workspace = true }
@@ -56,4 +57,8 @@ harness = false
 
 [[bench]]
 name = "cast_to_indexed"
+harness = false
+
+[[bench]]
+name = "add_checked"
 harness = false

@@ -29,7 +29,6 @@ use vortex_buffer::lane_ops_indexed::map_with_mask;
 use vortex_buffer::lane_ops_indexed::map_with_mask_in_place;
 use vortex_buffer::lane_ops_indexed::map_with_mask_to_bits;
 use vortex_buffer::lane_ops_indexed::try_map_no_validity;
-use vortex_buffer::lane_ops_indexed::try_map_validity_filtered;
 use vortex_buffer::lane_ops_indexed::try_map_with_mask;
 use vortex_buffer::lane_ops_indexed::try_map_with_mask_in_place;
 
@@ -205,8 +204,12 @@ fn try_map_with_mask_narrow_u64_u32_lazy_validity(bencher: Bencher, n: usize) {
         });
 }
 
+/// Migrated from the old `try_map_validity_filtered` bench: same inputs (null
+/// lanes contain overflowing values) and same correctness expectation (no Err),
+/// but now driven through the merged `try_map_with_mask` with a `|v, _|` closure.
+/// The hot loop is value-only via DCE; the cold path filters null-lane failures.
 #[divan::bench(args = SIZES)]
-fn try_map_validity_filtered_narrow_u64_u32(bencher: Bencher, n: usize) {
+fn try_map_with_mask_narrow_u64_u32_value_only_filtered(bencher: Bencher, n: usize) {
     let f = fixture(n);
 
     bencher
@@ -218,7 +221,7 @@ fn try_map_validity_filtered_narrow_u64_u32(bencher: Bencher, n: usize) {
             )
         })
         .bench_values(|(values, mask, mut out)| {
-            try_map_validity_filtered(values.as_slice(), &mask, out.as_mut_slice(), |v| {
+            try_map_with_mask(values.as_slice(), &mask, out.as_mut_slice(), |v, _valid| {
                 <u32 as NumCast>::from(v)
             })
             .unwrap();

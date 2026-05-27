@@ -228,24 +228,25 @@ where
 ///
 /// **Null-lane failures are filtered automatically.** If a null lane's stored value
 /// causes `f(v, false)` to return `None`, the kernel does *not* propagate that as
-/// `Err` — the cold attribution pass skips lanes where the mask bit is `0`. The
-/// closure may also explicitly suppress null-lane failures by branching on `valid`
-/// itself; both behaviors compose, with the kernel's filter as a safety net.
+/// `Err`. The per-lane `is_none()` flags are bit-packed into a `u64` at the lane's
+/// position, then ANDed with the chunk's validity bitmap — null-lane bits vanish.
+/// The closure may also explicitly suppress null-lane failures by branching on
+/// `valid` itself; both behaviors compose.
 ///
 /// ## Hot loop
 ///
-/// Per-lane `is_none()` flags are OR-reduced into a single `u64` (just bit 0).
-/// When the closure ignores `valid`, LLVM DCEs the per-lane mask extract
-/// `(src_chunk >> bit_idx) & 1` entirely — the inner loop becomes pure value
-/// computation with no mask traffic. When the closure uses `valid`, the bit is
-/// passed through and the closure threads validity normally.
+/// `fail_bits |= (opt.is_none() as u64) << bit_idx`. After unrolling, `bit_idx` is a
+/// compile-time constant per-iteration, so the shift folds. The closure receives
+/// `(value, valid)`; LLVM DCEs the per-lane `(src_chunk >> bit_idx) & 1` extract
+/// when the closure ignores `valid`, leaving a value-only SIMD body.
 ///
-/// ## Cold attribution
+/// ## Attribution
 ///
-/// On `fail_acc != 0`, [`cold_first_valid_failure`] walks the chunk filtering by
-/// mask and returns either `Some(first_valid_failure_index)` or `None` (all
-/// failures were at null lanes — the kernel continues). Not autovectorized; runs
-/// at most once per failing chunk.
+/// `valid_failures = fail_bits & src_chunk` — non-zero only when at least one
+/// valid lane failed. `trailing_zeros()` gives the first failing valid lane.
+/// **No cold replay**: failure detection and lane attribution happen entirely in
+/// the hot loop. Worst-case bounded per chunk regardless of how many null lanes
+/// returned `None`.
 ///
 /// On failure returns `Err(failing_lane_index)`. Lanes whose `f` returned `None`
 /// write `R::default()` into `out`, but the contents of `out` must not be relied
@@ -276,48 +277,45 @@ where
 
     for (chunk_idx, src_chunk) in chunks.iter().enumerate() {
         let base = chunk_idx * 64;
-        // Per-chunk accumulator — just bit 0. When the closure ignores `valid`,
-        // the per-lane `(src_chunk >> bit_idx) & 1` is dead code and LLVM removes
-        // it, leaving a value-only SIMD body.
-        let mut fail_acc: u64 = 0;
+        // Bit-pack per-lane fails into a u64 at lane-position. `bit_idx` is a
+        // compile-time constant after unrolling, so the shift folds. The
+        // `src_chunk` here is the validity bitmap for this chunk; the closure
+        // still gets `bit` per lane — LLVM DCEs the per-lane mask extract if
+        // the closure ignores it.
+        let mut fail_bits: u64 = 0;
         for_full_mask_lanes!(src_chunk, base, |bit_idx, i, bit| {
             // SAFETY: i < chunks_count * 64 <= len.
             let v = unsafe { values.get_unchecked(i) };
             let opt = f(v, bit);
-            fail_acc |= opt.is_none() as u64;
+            fail_bits |= (opt.is_none() as u64) << bit_idx;
             let r = opt.unwrap_or_default();
             // SAFETY: i < len.
             unsafe { out.get_unchecked_mut(i).write(r) };
         });
-        if fail_acc != 0 {
-            if let Some(idx) =
-                cold_first_valid_failure(&values, src_chunk, base, 64, &mut f)
-            {
-                return Err(idx);
-            }
-            // All failures were at null lanes — continue (rescue).
+        // Drop null-lane failures: only failures at lanes the mask marks as
+        // valid count. Direct attribution via trailing_zeros — no cold replay.
+        let valid_failures = fail_bits & src_chunk;
+        if valid_failures != 0 {
+            return Err(base + valid_failures.trailing_zeros() as usize);
         }
     }
 
     if remainder != 0 {
         let src_chunk = chunks.remainder_bits();
         let base = chunks_count * 64;
-        let mut fail_acc: u64 = 0;
+        let mut fail_bits: u64 = 0;
         for_remainder_mask_lanes!(src_chunk, base, remainder, |bit_idx, i, bit| {
             // SAFETY: i < len.
             let v = unsafe { values.get_unchecked(i) };
             let opt = f(v, bit);
-            fail_acc |= opt.is_none() as u64;
+            fail_bits |= (opt.is_none() as u64) << bit_idx;
             let r = opt.unwrap_or_default();
             // SAFETY: i < len.
             unsafe { out.get_unchecked_mut(i).write(r) };
         });
-        if fail_acc != 0 {
-            if let Some(idx) =
-                cold_first_valid_failure(&values, src_chunk, base, remainder, &mut f)
-            {
-                return Err(idx);
-            }
+        let valid_failures = fail_bits & src_chunk;
+        if valid_failures != 0 {
+            return Err(base + valid_failures.trailing_zeros() as usize);
         }
     }
 
@@ -330,7 +328,7 @@ where
 ///
 /// For nullable inputs where the closure is infallible (no overflow / no error
 /// branch), prefer [`map_with_mask`]; for nullable inputs with a fallible
-/// closure, prefer [`try_map_validity_filtered`] — both correctly suppress
+/// closure, prefer [`try_map_with_mask`] — both correctly suppress
 /// null-lane logic. This kernel exists for the narrow "no validity exists"
 /// case (non-nullable column, internal pipelines, etc.).
 ///
@@ -374,7 +372,7 @@ where
 /// # Use this only for non-nullable inputs.
 ///
 /// For nullable inputs with a fallible closure, use
-/// [`try_map_validity_filtered`] — it has the same value-only closure shape
+/// [`try_map_with_mask`] — it has the same value-only closure shape
 /// (and the same perf win) but **correctly suppresses null-lane failures**
 /// via per-chunk `fail_bits & mask_chunk`.
 ///
@@ -442,98 +440,9 @@ where
     Ok(())
 }
 
-/// Fallible value-only map with **chunk-level validity filtering**: closure is
-/// `|v| -> Option<R>`, no validity threaded through the inner loop. After each
-/// 64-lane chunk, per-lane failure bits are ANDed against the mask chunk, so
-/// failures at null lanes do **not** propagate as `Err`.
-///
-/// This is the correct shape for "checked cast that respects validity" — a null
-/// row whose stored value would overflow does **not** cause `Err`. It also
-/// preserves the perf win of the value-only closure: the hot loop has no per-lane
-/// mask extract, no `valid`-dependent branch.
-///
-/// ## Inner-loop trick
-///
-/// Per-lane fails are packed into a `u64` via `fail_bits |= (is_none as u64) << bit_idx`.
-/// The shift amount is loop-invariant after unrolling (since `bit_idx` is the
-/// compile-time loop counter), so the autovectorizer can issue 64 sequential
-/// value reads + closure applications + packed-bit ORs as a vector pipeline.
-///
-/// ## Attribution
-///
-/// On failure, `valid_failures = fail_bits & mask_chunk` is non-zero; the lowest
-/// set bit is the first failing valid lane. `trailing_zeros()` reads it out
-/// directly — no cold replay path, no second pass.
-///
-/// # Panics
-///
-/// Panics if `values.len() != mask.len()` or `out.len() != values.len()`.
-#[inline]
-pub fn try_map_validity_filtered<S, R, F>(
-    values: S,
-    mask: &BitBuffer,
-    out: &mut [MaybeUninit<R>],
-    mut f: F,
-) -> Result<(), usize>
-where
-    S: IndexedSource,
-    R: Copy + Default,
-    F: FnMut(S::Item) -> Option<R>,
-{
-    let len = values.len();
-    assert_eq!(len, mask.len(), "values and mask must have the same length");
-    assert_eq!(out.len(), len, "out must have the same length as values");
-
-    let chunks = mask.chunks();
-    let chunks_count = len / 64;
-    let remainder = len % 64;
-
-    for (chunk_idx, mask_chunk) in chunks.iter().enumerate() {
-        let base = chunk_idx * 64;
-        let mut fail_bits: u64 = 0;
-        for_full_lanes!(base, |bit_idx, i| {
-            // SAFETY: i < chunks_count * 64 <= len.
-            let v = unsafe { values.get_unchecked(i) };
-            let opt = f(v);
-            // Pack failure bit at the lane's position. After unrolling, `bit_idx`
-            // is a compile-time constant per-iteration, so the shift is folded.
-            fail_bits |= (opt.is_none() as u64) << bit_idx;
-            let r = opt.unwrap_or_default();
-            // SAFETY: i < len.
-            unsafe { out.get_unchecked_mut(i).write(r) };
-        });
-        // Filter failures to those at VALID lanes only. Null-lane failures vanish.
-        let valid_failures = fail_bits & mask_chunk;
-        if valid_failures != 0 {
-            return Err(base + valid_failures.trailing_zeros() as usize);
-        }
-    }
-
-    if remainder != 0 {
-        let mask_chunk = chunks.remainder_bits();
-        let base = chunks_count * 64;
-        let mut fail_bits: u64 = 0;
-        for_remainder_lanes!(base, remainder, |bit_idx, i| {
-            // SAFETY: i < len.
-            let v = unsafe { values.get_unchecked(i) };
-            let opt = f(v);
-            fail_bits |= (opt.is_none() as u64) << bit_idx;
-            let r = opt.unwrap_or_default();
-            // SAFETY: i < len.
-            unsafe { out.get_unchecked_mut(i).write(r) };
-        });
-        let valid_failures = fail_bits & mask_chunk;
-        if valid_failures != 0 {
-            return Err(base + valid_failures.trailing_zeros() as usize);
-        }
-    }
-
-    Ok(())
-}
-
 /// Shared cold scan: walks a chunk, returns the first lane index where
-/// `lane_fails(bit_idx, value)` returns `true`. Used by both
-/// [`attribute_failure`] and [`attribute_failure_no_mask`] via thin wrappers.
+/// `lane_fails(bit_idx, value)` returns `true`. Used by
+/// [`attribute_failure_no_mask`].
 ///
 /// Caller guarantees `base + chunk_len <= values.len()`.
 #[cold]
@@ -567,25 +476,6 @@ where
     F: FnMut(S::Item) -> Option<R>,
 {
     cold_scan(values, base, chunk_len, |_bit_idx, v| f(v).is_none())
-}
-
-/// Cold attribution for the mask variant. Replays `f` over the chunk, passing
-/// each lane's validity bit, and returns the first lane where `f` returned `None`.
-#[inline]
-fn attribute_failure<S, R, F>(
-    values: &S,
-    src_chunk: u64,
-    base: usize,
-    chunk_len: usize,
-    f: &mut F,
-) -> usize
-where
-    S: IndexedSource,
-    F: FnMut(S::Item, bool) -> Option<R>,
-{
-    cold_scan(values, base, chunk_len, |bit_idx, v| {
-        f(v, (src_chunk >> bit_idx) & 1 == 1).is_none()
-    })
 }
 
 /// In-place variant of [`map_with_mask`]. Each lane is replaced with
@@ -681,8 +571,7 @@ where
         // `count = 64` is a literal; `#[inline(always)]` on the helper inlines its body
         // into this loop and the compiler propagates 64 into the inner `0..count` bound,
         // unrolling exactly as `for_full_mask_lanes!` would.
-        if let Some(failing) =
-            try_inplace_chunk(&mut values, src_chunk, chunk_idx * 64, 64, &mut f)
+        if let Some(failing) = try_inplace_chunk(&mut values, src_chunk, chunk_idx * 64, 64, &mut f)
         {
             return Err(failing as usize);
         }
@@ -1058,10 +947,9 @@ mod tests {
     }
 
     #[test]
-    fn try_map_validity_filtered_null_lane_overflow_does_not_err() {
-        // Null lane with a value that would overflow MUST NOT cause Err.
-        // The closure is value-only — the mask filters the null-lane failure
-        // at the chunk boundary.
+    fn try_map_with_mask_value_only_closure_filters_null_overflow() {
+        // `|v, _|` closure that ignores validity. A null lane with an overflowing
+        // value MUST NOT cause Err — the kernel's cold-path mask filter rescues us.
         let mut values: Vec<u64> = (0..200).collect();
         values[5] = u64::MAX; // null lane with overflowing value
         values[42] = u64::MAX; // null lane with overflowing value
@@ -1073,17 +961,17 @@ mod tests {
             m.freeze()
         };
         let mut out = vec![MaybeUninit::<u32>::uninit(); 200];
-        let res = try_map_validity_filtered(values.as_slice(), &mask, &mut out, |v| {
+        let res = try_map_with_mask(values.as_slice(), &mask, &mut out, |v, _valid| {
             (v <= u32::MAX as u64).then_some(v as u32)
         });
         assert!(
             res.is_ok(),
-            "null-lane overflow should not propagate as Err"
+            "null-lane overflow should be filtered by the cold path"
         );
     }
 
     #[test]
-    fn try_map_validity_filtered_valid_overflow_does_err_with_first_index() {
+    fn try_map_with_mask_value_only_closure_reports_first_valid_failure() {
         // Valid lane overflow must propagate — and the reported index must be
         // the lowest VALID failing lane, even if earlier null lanes also "failed"
         // their unconditional cast.
@@ -1100,7 +988,7 @@ mod tests {
             m.freeze()
         };
         let mut out = vec![MaybeUninit::<u32>::uninit(); 200];
-        let res = try_map_validity_filtered(values.as_slice(), &mask, &mut out, |v| {
+        let res = try_map_with_mask(values.as_slice(), &mask, &mut out, |v, _valid| {
             (v <= u32::MAX as u64).then_some(v as u32)
         });
         assert_eq!(res, Err(77));
