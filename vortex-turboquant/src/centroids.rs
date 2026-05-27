@@ -31,7 +31,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 use crate::config::MAX_BIT_WIDTH;
 use crate::config::MIN_DIMENSION;
 
-// NB: Some of these numbers were arbitrarily chosen...
+// NB: All of these constants were chosen arbitrarily.
 
 /// The maximum iterations for Max-Lloyd algorithm when computing centroids.
 const MAX_ITERATIONS: usize = 200;
@@ -39,8 +39,10 @@ const MAX_ITERATIONS: usize = 200;
 /// The Max-Lloyd convergence threshold for stopping early when computing centroids.
 const CONVERGENCE_EPSILON: f64 = 1e-12;
 
-/// Number of numerical integration points for computing conditional expectations.
-const INTEGRATION_POINTS: usize = 1000;
+/// Number of trapezoids used for numerical integration when computing conditional expectations.
+///
+/// The trapezoidal rule evaluates the integrand at `INTEGRATION_TRAPEZOIDS + 1` points.
+const INTEGRATION_TRAPEZOIDS: usize = 1000;
 
 /// Global centroid cache keyed by (dimension, bit_width).
 static CENTROID_CACHE: LazyLock<DashMap<(u32, u8), Buffer<f32>>> = LazyLock::new(DashMap::default);
@@ -106,6 +108,14 @@ impl HalfIntExponent {
 /// The probability distribution function is:
 ///   `f(x) = C_d * (1 - x^2)^((d-3)/2)` on `[-1, 1]`
 /// where `C_d` is the normalizing constant.
+///
+/// Centroids are seeded uniformly on `[±sqrt(bit_width) * sigma]` (where `sigma` is the standard
+/// deviation of the normal distribution that hypershere dimension values take, and specifically
+/// `sigma = 1/sqrt(dimension)`) rather than across the full `[-1, 1]`, which strands most of the
+/// centroids in the near-zero-mass tails.
+///
+/// Note that the `sqrt(bit_width)` is mostly empirically derived, we do not have a theoretical
+/// basis for choosing this other than the fact that it seems to produce good results.
 fn max_lloyd_centroids(dimension: u32, bit_width: u8) -> Buffer<f32> {
     debug_assert!((1..=MAX_BIT_WIDTH).contains(&bit_width));
     let num_centroids = 1usize << bit_width;
@@ -113,9 +123,14 @@ fn max_lloyd_centroids(dimension: u32, bit_width: u8) -> Buffer<f32> {
     // For the marginal distribution on [-1, 1], we use the exponent (d-3)/2.
     let exponent = HalfIntExponent::from_numerator(dimension as i32 - 3);
 
-    // Initialize centroids uniformly on [-1, 1].
+    // The coordinate marginal concentrates around 0 with this standard deviation.
+    let sigma = 1.0 / f64::from(dimension).sqrt();
+    let init_half = (f64::from(bit_width).sqrt() * sigma).min(1.0);
+
+    // Initialize centroids uniformly on [-init_half, init_half], where the mass lives, so no cell
+    // starts in a zero-mass region and freezes.
     let mut centroids: Vec<f64> = (0..num_centroids)
-        .map(|idx| -1.0 + (2.0 * (idx as f64) + 1.0) / (num_centroids as f64))
+        .map(|idx| -init_half + (2.0 * (idx as f64) + 1.0) * init_half / (num_centroids as f64))
         .collect();
 
     let mut boundaries: Vec<f64> = vec![0.0; num_centroids + 1];
@@ -159,16 +174,16 @@ fn mean_between_centroids(lo: f64, hi: f64, exponent: HalfIntExponent) -> f64 {
         return (lo + hi) / 2.0;
     }
 
-    let dx = (hi - lo) / INTEGRATION_POINTS as f64;
+    let dx = (hi - lo) / INTEGRATION_TRAPEZOIDS as f64;
 
     let mut numerator = 0.0;
     let mut denominator = 0.0;
 
-    for step in 0..=INTEGRATION_POINTS {
+    for step in 0..=INTEGRATION_TRAPEZOIDS {
         let x_val = lo + (step as f64) * dx;
         let weight = pdf_unnormalized(x_val, exponent);
 
-        let trap_weight = if step == 0 || step == INTEGRATION_POINTS {
+        let trap_weight = if step == 0 || step == INTEGRATION_TRAPEZOIDS {
             0.5
         } else {
             1.0
