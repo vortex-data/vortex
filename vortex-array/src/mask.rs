@@ -12,9 +12,9 @@ use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
-use crate::arrays::Constant;
 use crate::columnar::Columnar;
 use crate::dtype::DType;
+use crate::dtype::Nullability;
 
 impl Executable for Mask {
     /// Executes a boolean array into a [`Mask`].
@@ -22,13 +22,11 @@ impl Executable for Mask {
     /// The array must have a non-nullable boolean dtype. Use [`MaskNullAsFalse`] to execute a
     /// nullable boolean array, coercing null elements to `false`.
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        if !matches!(array.dtype(), DType::Bool(_)) {
-            vortex_bail!("Mask array must have boolean dtype, not {}", array.dtype());
-        }
-
-        if let Some(constant) = array.as_opt::<Constant>() {
-            let mask_value = constant.scalar().as_bool().value().unwrap_or(false);
-            return Ok(Mask::new(array.len(), mask_value));
+        if !matches!(array.dtype(), DType::Bool(Nullability::NonNullable)) {
+            vortex_bail!(
+                "Mask array must have boolean(NonNullable) dtype, not {}",
+                array.dtype()
+            );
         }
 
         let array_len = array.len();
@@ -38,13 +36,6 @@ impl Executable for Mask {
             }
             Columnar::Canonical(a) => {
                 let bool = a.into_array().execute::<BoolArray>(ctx)?;
-                if bool.as_ref().dtype().is_nullable() {
-                    vortex_bail!(
-                        "Mask requires a non-nullable boolean array, not {}; \
-                         use MaskNullAsFalse to coerce nulls to false",
-                        bool.as_ref().dtype()
-                    );
-                }
                 Mask::from(bool.into_bit_buffer())
             }
         })
@@ -76,11 +67,6 @@ impl Executable for MaskNullAsFalse {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         if !matches!(array.dtype(), DType::Bool(_)) {
             vortex_bail!("Mask array must have boolean dtype, not {}", array.dtype());
-        }
-
-        if let Some(constant) = array.as_opt::<Constant>() {
-            let mask_value = constant.scalar().as_bool().value().unwrap_or(false);
-            return Ok(Self(Mask::new(array.len(), mask_value)));
         }
 
         let array_len = array.len();
