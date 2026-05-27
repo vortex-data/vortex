@@ -80,6 +80,10 @@ jobs:
     env:
       # Picked up by gradle-git-version
       GIT_VERSION: ${{ github.event.release.tag_name }}
+      # The cross-compiled release JNI libs are copied into resources/native/
+      # before any gradle task runs; skip the host-arch rebuild that would
+      # otherwise overwrite them with a debug amd64 .so on the publish runner.
+      VORTEX_SKIP_MAKE_TEST_FILES: "true"
     defaults:
       run:
         working-directory: ./java
