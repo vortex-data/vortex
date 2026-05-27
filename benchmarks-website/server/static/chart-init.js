@@ -2024,9 +2024,9 @@
     return s + "×";
   }
 
-  // Display rank (0 = top) of each point under a sort mode. Points keep their
-  // array index forever; only their rank (y-position) changes, so reordering
-  // animates as a vertical slide rather than bars morphing length in place.
+  // Display row (0 = top) of each point under a sort mode. Points keep their
+  // array index forever; only their row (y) changes, so a sort animates as a
+  // vertical slide rather than bars morphing length in place.
   function speedupRanks(points, mode) {
     var n = points.length;
     var rank = new Array(n);
@@ -2056,25 +2056,62 @@
     return id;
   }
 
-  // Mirror the hovered item onto the sibling chart(s) in the same grid (the
-  // other engine, or encode<->decode), so one query/dataset reads across both.
+  // x-axis caption. When the grid has losses, both directions are meaningful
+  // ("← B faster ... A faster →"); when it's all-wins (1x anchored at the left
+  // edge), there's no losing region, so only the winning direction is labelled.
+  function speedupAxisTitle(ed, aL, bL, hasLoss) {
+    var metric = ed.metric || "faster";
+    return hasLoss
+      ? "← " + bL + " " + metric + "      " + aL + " " + metric + " →"
+      : aL + " " + metric + " →";
+  }
+
+  // True if any panel sharing this figure's grid has a point below 1x.
+  function gridHasLoss(figure) {
+    var grid = figure.closest(".speedup-grid");
+    return speedupChartEntries.some(function (e) {
+      return e.chart && e.figure.closest(".speedup-grid") === grid &&
+        (e.points || []).some(function (p) { return p.speedup < 1; });
+    });
+  }
+
+  // Mirror the hovered item across every panel in the same grid (the other
+  // engine, or encode<->decode), so one query/dataset reads across both.
   // `query == null` clears. Rather than drive Chart.js's stateful hover (whose
   // style-restore is event-driven and leaves stale highlights on a fast swipe),
-  // we rebuild each sibling's whole backgroundColor array — every bar back to
-  // its win/loss colour, only the matched one gold — so nothing can accumulate.
+  // we rebuild each panel's whole backgroundColor array — every bar back to its
+  // win/loss colour, only the matched one gold — so nothing can accumulate.
+  //
+  // The active query is tracked on the GRID, not per-chart, and the hovered
+  // chart is repainted too (not just its siblings). That matters when the
+  // pointer jumps straight from one panel to the next without a clearing
+  // mouseout on the first: the new panel's repaint resets the mirror gold the
+  // old panel had painted onto it, so it can't get stuck on the mirror side.
+  // Guards against re-entrancy: our `chart.update("none")` makes Chart.js replay
+  // its last pointer event against the redrawn chart, which re-fires `onHover`
+  // with the bar still under the (now stale) cursor — re-applying the very
+  // highlight we just cleared. We ignore those nested calls so a clear sticks.
+  var propagatingHover = false;
   function propagateHover(entry, query) {
-    if (entry._linkedQuery === query) return;
-    entry._linkedQuery = query;
+    if (propagatingHover) return;
     var grid = entry.figure.closest(".speedup-grid");
-    var accent = cssVar("--accent"), bad = cssVar("--bad");
-    speedupChartEntries.forEach(function (other) {
-      if (other === entry || !other.chart || other.figure.closest(".speedup-grid") !== grid) return;
-      other.chart.data.datasets[0].backgroundColor = other.points.map(function (p) {
-        if (query != null && p.query === query) return HOVER_GOLD;
-        return p.speedup >= 1 ? accent : bad;
+    if (!grid) return;
+    if (grid.__benchHoverQuery === query) return;
+    grid.__benchHoverQuery = query;
+    var bar = cssVar("--bar"), bad = cssVar("--bad");
+    propagatingHover = true;
+    try {
+      speedupChartEntries.forEach(function (other) {
+        if (!other.chart || other.figure.closest(".speedup-grid") !== grid) return;
+        other.chart.data.datasets[0].backgroundColor = (other.points || []).map(function (p) {
+          if (query != null && p.query === query) return HOVER_GOLD;
+          return p.speedup >= 1 ? bar : bad;
+        });
+        other.chart.update("none");
       });
-      other.chart.update("none");
-    });
+    } finally {
+      propagatingHover = false;
+    }
   }
 
   // Per-query speedup points for the current A-vs-B selection (query order):
@@ -2091,29 +2128,30 @@
     return pts;
   }
 
-  // Recompute everything for the current selection + sort and animate. Both the
-  // bar lengths (x) and the ranks (y) can change, so a selection switch slides
-  // and rescales; a pure sort switch only slides.
+  // Recompute everything for the current selection + sort. Each point keeps a
+  // stable array index; its bar is a floating [0, log2(speedup)] range (x, so it
+  // always anchors at the 1x baseline) at row `rank` (y). A sort changes only
+  // the ranks, so an animated update slides the bars to their new rows.
   function renderSpeedup(entry) {
     var ed = entry.ed;
     var a = entry.aSel.value, b = entry.bSel.value;
     var points = speedupPoints(ed, a, b);
-    entry.points = points;
     var ranks = speedupRanks(points, entry.sortMode);
-    var accent = cssVar("--accent"), bad = cssVar("--bad");
+    entry.points = points;
+    var bar = cssVar("--bar"), bad = cssVar("--bad");
     var chart = entry.chart;
+    chart.options.scales.y.max = Math.max(0.5, points.length - 0.5);
     chart.data.datasets[0].data = points.map(function (p, i) {
-      return { x: Math.log2(p.speedup), y: ranks[i] };
+      return { x: [0, Math.log2(p.speedup)], y: ranks[i] };
     });
     chart.data.datasets[0].backgroundColor = points.map(function (p) {
-      return p.speedup >= 1 ? accent : bad;
+      return p.speedup >= 1 ? bar : bad;
     });
-    chart.options.scales.y.max = Math.max(0.5, points.length - 0.5);
     chart.options.scales.x.ticks.color = cssVar("--muted");
     var aL = labelOf(ed, a), bL = labelOf(ed, b);
     var metric = ed.metric || "faster", anti = SPEEDUP_ANTONYM[metric] || "slower";
     var title = chart.options.scales.x.title;
-    title.text = "← " + bL + " " + metric + "      " + aL + " " + metric + " →";
+    title.text = speedupAxisTitle(ed, aL, bL, gridHasLoss(entry.figure));
     title.color = cssVar("--faint");
     chart.update();
     // Headline reflects the chosen A vs B.
@@ -2127,10 +2165,26 @@
     if (entry.winsEl) entry.winsEl.textContent = aL + " wins " + wins + "/" + speeds.length;
   }
 
-  // Sort switch: only the ranks (y) change, so the bars slide in place.
+  // The one animation we keep: the sort slide. Only the ranks (y) change, so an
+  // animated update glides each bar to its new row (x/length stays put).
+  var SORT_ANIM = { duration: 600, easing: "easeInOutQuart" };
+
+  // Sort switch. Charts render with animation off (the entry/build animation
+  // parked floating bars at the axis floor), so we enable the slide just for
+  // this update and restore it once the slide has run — Chart.js reads the
+  // option per frame, so the reset must wait for the animation to finish, not
+  // happen synchronously (that cancels it). The sort always happens
+  // post-settle, where animated updates anchor correctly. Other updates in the
+  // window (hover, resize) pass mode "none" and stay instant regardless.
   function applySpeedupSort(entry, mode) {
+    if (!entry.chart) return;
     entry.sortMode = mode;
+    clearTimeout(entry._sortAnimTimer);
+    entry.chart.options.animation = SORT_ANIM;
     renderSpeedup(entry);
+    entry._sortAnimTimer = setTimeout(function () {
+      if (entry.chart) entry.chart.options.animation = false;
+    }, SORT_ANIM.duration + 80);
   }
 
   function buildSpeedupChart(figure) {
@@ -2166,6 +2220,9 @@
           backgroundColor: [],
           borderWidth: 0,
           barThickness: thickness,
+          // Data are floating [0, v] ranges plotted at an explicit y=rank (see
+          // renderSpeedup), so every bar anchors at the 1x baseline regardless
+          // of the axis min, and a sort animates as a vertical slide.
           // Hovered bar fills gold with a gold outline — reads clearly on both
           // the white (dark mode) and black (light mode) bars.
           hoverBackgroundColor: HOVER_GOLD,
@@ -2177,12 +2234,16 @@
         indexAxis: "y",
         responsive: true,
         maintainAspectRatio: false,
-        animation: { duration: 650, easing: "easeInOutQuart" },
+        // Animation off by default — the entry/build animation parks floating
+        // bars at the axis floor instead of the 1x baseline. The sort slide
+        // re-enables it for that one (post-settle) update; see applySpeedupSort.
+        animation: false,
         layout: { padding: { right: 10, left: 2 } },
         // Highlight the same item in the sibling chart(s) of this grid (the
         // other engine, or encode<->decode) so a query reads across both.
         onHover: function (e, els) {
-          propagateHover(entry, els.length ? entry.points[els[0].index].query : null);
+          var p = els.length ? entry.points[els[0].index] : null;
+          propagateHover(entry, p ? p.query : null);
         },
         scales: {
           x: {
@@ -2201,8 +2262,9 @@
             },
             title: { display: true, text: "", color: cssVar("--faint"), font: { family: MONO_FONT, size: 12 } },
           },
-          // Linear rank axis (0 = top). Bars carry their own y, so this only
-          // bounds the range; ticks/labels are off (the tooltip names queries).
+          // Linear rank axis (0 = top). Each bar carries its own y=rank, so this
+          // only bounds the range; ticks/labels are off (the tooltip names the
+          // query). A sort changes the ranks and the bars slide between rows.
           y: {
             type: "linear",
             reverse: true,
@@ -2239,6 +2301,11 @@
       },
     });
     speedupChartEntries.push(entry);
+    // Clear the grid highlight when the pointer leaves the canvas. Chart.js's
+    // synthetic "no active element" hover on mouseout is unreliable on a fast
+    // exit (the gold could stick), so we clear explicitly — `mouseleave` always
+    // fires. Moving to a sibling panel re-highlights on its next mousemove.
+    canvas.addEventListener("mouseleave", function () { propagateHover(entry, null); });
     // Keep A and B distinct: if a change collides, bump the other select.
     function onChange(changed) {
       if (aSel.value === bSel.value) {
@@ -2248,14 +2315,83 @@
         }
       }
       renderSpeedup(entry);
+      // A new comparison can change the range, so re-share the grid's scale.
+      syncGridScale(entry.figure.closest(".speedup-grid"));
     }
     aSel.addEventListener("change", function () { onChange(aSel); });
     bSel.addEventListener("change", function () { onChange(bSel); });
     renderSpeedup(entry);
   }
 
+  // Place the 1x baseline (log2 = 0) and share the x-scale across a grid's
+  // panels so equal speedups stay equal-length. Two cases:
+  //   - some panel has a loss: pin 1x at 1/3 from the left (axis [-L, 2L], so 0
+  //     sits at L/3L = 1/3) — left third for losses, right two-thirds for wins.
+  //   - every panel is all-wins: nothing lives left of 1x, so anchor 1x at the
+  //     left edge (axis [0, maxWin]) and give the full width to the wins.
+  // Floating [0, v] bars anchor at 0 either way. Recomputed on each selection,
+  // so switching the A/B comparison re-decides left-vs-1/3 as the data changes.
+  function syncGridScale(gridEl) {
+    if (!gridEl) return;
+    var entries = speedupChartEntries.filter(function (e) {
+      return e.chart && e.figure.closest(".speedup-grid") === gridEl;
+    });
+    if (!entries.length) return;
+    var maxWin = 0, maxLoss = 0;
+    entries.forEach(function (e) {
+      e.points.forEach(function (p) {
+        var v = Math.log2(p.speedup);
+        if (v > maxWin) maxWin = v;
+        if (-v > maxLoss) maxLoss = -v;
+      });
+    });
+    // Range-frame: the axis spans the data's actual loss/win extent (plus a
+    // little breathing room), so the 1x baseline lands PROPORTIONALLY rather
+    // than at a fixed third — left edge when there are no losses, ~centred when
+    // losses and wins are comparable (e.g. TPC-DS), left-of-centre when wins
+    // dominate. Auto-detects the baseline position from min/max.
+    var pad = Math.max((maxLoss + maxWin) * 0.06, 0.15);
+    var min = maxLoss > 0 ? -(maxLoss + pad) : 0;
+    var max = Math.max(maxWin, 0.5) + pad;
+    var hasLoss = maxLoss > 0;
+    entries.forEach(function (e) {
+      e.chart.options.scales.x.min = min;
+      e.chart.options.scales.x.max = max;
+      // Authoritative title now that every panel in the grid is built.
+      var aL = labelOf(e.ed, e.aSel.value), bL = labelOf(e.ed, e.bSel.value);
+      e.chart.options.scales.x.title.text = speedupAxisTitle(e.ed, aL, bL, hasLoss);
+      e.chart.update("none");
+    });
+  }
+
+  // Re-measure every visible speedup chart against its settled container width.
+  // Charts can build before the grid columns/fonts resolve, leaving bars
+  // misplaced until a resize; `update()` redraws but doesn't re-measure, so we
+  // call `resize()` explicitly. Hidden (0-width) charts are skipped — they
+  // resize when their scale-factor set is shown.
+  function resizeSpeedupCharts() {
+    speedupChartEntries.forEach(function (e) {
+      if (e.chart && e.chart.canvas && e.chart.canvas.clientWidth > 0) {
+        e.chart.resize();
+        // resize() early-returns when the size is unchanged, which leaves bars
+        // whose geometry was computed against an unsettled first layout (they
+        // anchor at the axis edge instead of the 1x baseline). A forced update
+        // recomputes every element against the now-settled chart area.
+        e.chart.update("none");
+      }
+    });
+  }
+
   function initSpeedupCharts() {
     document.querySelectorAll('[data-role="speedup-chart"]').forEach(buildSpeedupChart);
+    document.querySelectorAll(".speedup-grid").forEach(syncGridScale);
+    // Re-measure once layout settles (next frames) and again after web fonts
+    // load, in case either shifts the columns out from under the first render.
+    requestAnimationFrame(function () { requestAnimationFrame(resizeSpeedupCharts); });
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(resizeSpeedupCharts).catch(function () {});
+    }
+    window.addEventListener("load", resizeSpeedupCharts);
   }
 
   // Wire each section's Speedup/Query sort toggle. A click re-sorts every
@@ -2303,7 +2439,7 @@
         speedupChartEntries.forEach(function (en) {
           if (en.chart && en.chart.canvas && section.contains(en.chart.canvas)) {
             var sfDiv = en.chart.canvas.closest(".speedup-sf");
-            if (sfDiv && !sfDiv.hidden) en.chart.resize();
+            if (sfDiv && !sfDiv.hidden) { en.chart.resize(); en.chart.update("none"); }
           }
         });
       });
@@ -2311,11 +2447,11 @@
   }
 
   function recolorSpeedupCharts() {
-    var accent = cssVar("--accent"), bad = cssVar("--bad");
+    var bar = cssVar("--bar"), bad = cssVar("--bad");
     speedupChartEntries.forEach(function (e) {
       if (!e.chart) return;
-      e.chart.data.datasets[0].backgroundColor = e.points.map(function (p) {
-        return p.speedup >= 1 ? accent : bad;
+      e.chart.data.datasets[0].backgroundColor = (e.points || []).map(function (p) {
+        return p.speedup >= 1 ? bar : bad;
       });
       e.chart.options.scales.x.ticks.color = cssVar("--muted");
       e.chart.options.scales.x.title.color = cssVar("--faint");
@@ -2336,7 +2472,10 @@
         btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
         if (collapsed) return;
         speedupChartEntries.forEach(function (e) {
-          if (e.chart && e.chart.canvas && section.contains(e.chart.canvas)) e.chart.resize();
+          if (e.chart && e.chart.canvas && section.contains(e.chart.canvas)) {
+            e.chart.resize();
+            e.chart.update("none");
+          }
         });
       });
     });

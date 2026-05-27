@@ -4,15 +4,13 @@
 //! Landing-page "claim → why it matters → proof" body.
 //!
 //! The landing leads with four Vortex-vs-Parquet claims in a 2×2 grid. Each
-//! cell pairs a headline stat with a real bar chart of the most recent
-//! snapshot — the latest-commit value of each series in that workload's chart
-//! payload, labelled with its actual figure and captioned with the commit's
-//! date and message. The full catalogue lives behind "Show me everything"
-//! (`/current`); "Show me more" / "Source" deep-link to the matching section
-//! there (see [`super::anchor_for`]).
+//! cell pairs a headline number with a small blueprint schematic of the
+//! *workload* (the access pattern, not the result) and a "why it matters"
+//! paragraph, then links to the proof on the Current page.
 //!
-//! Taglines use Vortex's canonical published figures; the bars and the scans
-//! geomeans ([`ScanGeomeans`]) are live, from the latest commit.
+//! Every headline number is a **live benchmark-set geomean**, computed by the
+//! same synthesis the Current page renders ([`super::current::facet_geomeans`]),
+//! so a claim and its proof can never disagree. Nothing here is hardcoded.
 
 use maud::Markup;
 use maud::PreEscaped;
@@ -20,40 +18,41 @@ use maud::html;
 use serde_json::Value;
 
 use super::anchor_for;
+use super::current::FacetGeomean;
+use super::current::facet_geomeans;
 use crate::api::Group;
 use crate::api::Summary;
 use crate::api::UnitKind;
 use crate::read_model::ReadGeneration;
 use crate::slug::GroupKey;
 
-const RANDOM_ACCESS_WHY: &str = "Point lookups (reading specific rows by position) drive feature stores, vector search, and \
+const RANDOM_ACCESS_WHY: &str = "Point lookups — reading specific rows by position — drive feature stores, vector search, and \
      anything that serves individual records. Parquet packs rows into large row groups that must \
      be decoded almost whole to return a single value, so one row costs as much as thousands. \
-     Vortex addresses rows directly: a lookup Parquet answers in ~200 ms returns in ~1.5 ms.";
+     Vortex addresses rows directly.";
 
-const SCANS_WHY: &str = "Analytical queries like dashboards, reports, and the read side of ETL spend most of their \
-     time scanning columns off disk and decoding them, so scan throughput sets how fast they \
-     return. This number comes from TPC-H's scan-heavy queries, Q1 and Q6, which read almost an \
-     entire fact table while doing little compute, so it measures the format, not the query planner.";
+const ANALYTICS_WHY: &str = "Dashboards, reports, and the read side of ETL are mostly column scans and aggregations. \
+     ClickBench — ClickHouse's 43-query suite over real web-analytics data — is the field's \
+     standard test. Vortex is a drop-in: keep your engine, swap Parquet (or the engine's own \
+     native format) for a Vortex file, and the same queries return faster — on DataFusion and \
+     DuckDB alike.";
 
-const WRITES_WHY: &str = "Data is encoded once and read many times, but the encode step gates ingestion: how quickly \
+const WRITES_WHY: &str = "Data is encoded once and read many times, but the encode step gates ingestion — how quickly \
      new data becomes queryable. Parquet spends heavily in its row-group encoder; Vortex encodes \
-     the same data in about a fifth of the time, so pipelines clear backlogs and data goes live \
-     sooner.";
+     the same data faster, so pipelines clear backlogs and data goes live sooner.";
 
 const SIZE_WHY: &str = "Storage cost and the bytes a query must move both track file size, so a faster format that \
      bloated on disk would trade one bill for another. Vortex holds within a few percent of \
-     Parquet's compression ratio, so the speed above comes at no size penalty.";
+     Parquet's compression ratio — the speed above comes at no size penalty.";
 
 /// Render the landing body from the live read generation.
 pub(super) fn showcase_body(generation: &ReadGeneration) -> Markup {
     let groups = generation.groups();
 
     let random_access = group_by_summary(&groups, |s| matches!(s, Summary::RandomAccess { .. }));
-    let writes = group_by_summary(&groups, |s| matches!(s, Summary::Compression { .. }));
+    let compression = group_by_summary(&groups, |s| matches!(s, Summary::Compression { .. }));
     let size = group_by_summary(&groups, |s| matches!(s, Summary::CompressionSize { .. }));
-    let tpch_all = tpch_groups(&groups);
-    let tpch = tpch_all.first().map(|&(_, g)| g);
+    let clickbench = query_group(&groups, "clickbench");
 
     html! {
         section.showcase {
@@ -64,19 +63,10 @@ pub(super) fn showcase_body(generation: &ReadGeneration) -> Markup {
                 }
             }
             div.claims {
-                (claim(generation, "100×", "faster random access", RANDOM_ACCESS_WHY,
-                       random_access.and_then(first_chart_slug), None, more_href(random_access),
-                       source_label_for(random_access, "Random Access"), None))
-                (claim(generation, "10–20×", "faster scans", SCANS_WHY,
-                       tpch.and_then(|g| chart_slug_named(g, "Q1")), Some("datafusion"),
-                       more_href(tpch), Some("scan-heavy TPC-H · TPC-H · TPC-DS".to_string()),
-                       (!tpch_all.is_empty()).then(|| scans_figure(generation, &tpch_all))))
-                (claim(generation, "5×", "faster writes", WRITES_WHY,
-                       writes.and_then(first_chart_slug), Some("encode"), more_href(writes),
-                       source_label_for(writes, "Compression encode"), None))
-                (claim(generation, "≈1×", "the size of Parquet", SIZE_WHY,
-                       size.and_then(first_chart_slug), None, more_href(size),
-                       source_label_for(size, "Compression Size"), None))
+                (random_access_claim(generation, random_access))
+                (analytics_claim(generation, clickbench))
+                (writes_claim(generation, compression))
+                (size_claim(generation, size))
             }
             div.showcase-cta {
                 a.show-everything href="/current" {
@@ -88,207 +78,271 @@ pub(super) fn showcase_body(generation: &ReadGeneration) -> Markup {
     }
 }
 
-/// One claim cell: the stacked stat + snapshot bars on top, the "why it
-/// matters" spanning the full cell width below, then "show me more".
-#[expect(clippy::too_many_arguments)]
+// ---------------------------------------------------------------------------
+// Claims
+// ---------------------------------------------------------------------------
+
+/// "Random access" — geomean of the per-pattern Vortex-vs-Parquet speedup
+/// (a single no-facet chart, facet `""`).
+fn random_access_claim(generation: &ReadGeneration, group: Option<&Group>) -> Markup {
+    let facets = group
+        .map(|g| facet_geomeans(generation, &g.charts))
+        .unwrap_or_default();
+    let g = pick_facet(&facets, "");
+    let (hero, detail) = match &g {
+        Some(f) => (
+            mult(f.geomean),
+            detail_line(format!("Vortex wins {}/{}", f.wins, f.total)),
+        ),
+        None => ("—".to_string(), html! {}),
+    };
+    claim(
+        &hero,
+        "faster random access",
+        detail,
+        RANDOM_ACCESS_WHY,
+        workload_svg(Workload::RandomAccess),
+        more_href(group),
+    )
+}
+
+/// "Data analytics" — ClickBench, our home turf. One headline pooled across
+/// engines, with the per-engine breakdown beneath, to make the cross-engine
+/// drop-in story explicit.
+fn analytics_claim(generation: &ReadGeneration, group: Option<&Group>) -> Markup {
+    let facets = group
+        .map(|g| facet_geomeans(generation, &g.charts))
+        .unwrap_or_default();
+    let combined = pooled_geomean(&facets);
+    let hero = combined.map(mult).unwrap_or_else(|| "—".to_string());
+    let df = pick_facet(&facets, "datafusion");
+    let duck = pick_facet(&facets, "duckdb");
+    let detail = html! {
+        span.claim-detail {
+            "ClickBench"
+            @if let Some(f) = df { " · DataFusion " (mult(f.geomean)) }
+            @if let Some(f) = duck { " · DuckDB " (mult(f.geomean)) }
+        }
+    };
+    claim(
+        &hero,
+        "faster data analytics",
+        detail,
+        ANALYTICS_WHY,
+        workload_svg(Workload::Analytics),
+        more_href(group),
+    )
+}
+
+/// "Writes" — the compression encode facet's Vortex-vs-Parquet speedup.
+fn writes_claim(generation: &ReadGeneration, group: Option<&Group>) -> Markup {
+    let facets = group
+        .map(|g| facet_geomeans(generation, &g.charts))
+        .unwrap_or_default();
+    let g = pick_facet(&facets, "encode");
+    let (hero, detail) = match &g {
+        Some(f) => (
+            mult(f.geomean),
+            detail_line(format!(
+                "Compression encode · Vortex wins {}/{}",
+                f.wins, f.total
+            )),
+        ),
+        None => ("—".to_string(), html! {}),
+    };
+    claim(
+        &hero,
+        "faster writes",
+        detail,
+        WRITES_WHY,
+        workload_svg(Workload::Writes),
+        more_href(group),
+    )
+}
+
+/// "Size" — the compressed-size ratio. The synthesis ratio is `parquet/vortex`
+/// (smaller-is-better), so Vortex's footprint relative to Parquet is its
+/// reciprocal; we present that as "N× the size of Parquet".
+fn size_claim(generation: &ReadGeneration, group: Option<&Group>) -> Markup {
+    let facets = group
+        .map(|g| facet_geomeans(generation, &g.charts))
+        .unwrap_or_default();
+    let g = pick_facet(&facets, "");
+    let (hero, detail) = match &g {
+        Some(f) if f.geomean > 0.0 => (
+            mult(1.0 / f.geomean),
+            detail_line(format!("geomean across {} datasets", f.total)),
+        ),
+        _ => ("—".to_string(), html! {}),
+    };
+    claim(
+        &hero,
+        "the size of Parquet",
+        detail,
+        SIZE_WHY,
+        workload_svg(Workload::Size),
+        more_href(group),
+    )
+}
+
+/// One claim cell: the headline stat (number + label + detail + a "see the
+/// proof" link) beside a workload schematic, with the "why it matters" prose
+/// spanning the cell beneath.
 fn claim(
-    generation: &ReadGeneration,
-    metric: &str,
+    hero: &str,
     label: &str,
+    detail: Markup,
     why: &str,
-    chart_slug: Option<String>,
-    series_filter: Option<&str>,
-    more_href: Option<String>,
-    source: Option<String>,
-    figure_override: Option<Markup>,
+    figure: Markup,
+    proof_href: Option<String>,
 ) -> Markup {
     html! {
         article.claim {
             div.claim-head {
                 div.claim-stat {
-                    span.claim-metric { (metric) }
+                    span.claim-metric { (hero) }
                     span.claim-label { (label) }
-                }
-                div.claim-figure {
-                    @if let Some(fig) = &figure_override {
-                        (fig)
-                    } @else if let Some(slug) = &chart_slug {
-                        (snapshot_bars(generation, slug, series_filter))
-                    }
-                    @if let (Some(slug), Some(label)) = (&chart_slug, &source) {
-                        @let href = more_href.clone().unwrap_or_else(|| format!("/chart/{slug}"));
-                        div.claim-source {
-                            span.claim-source-label { "Source" }
-                            a.claim-source-val href=(href) { (label) }
+                    (detail)
+                    @if let Some(href) = &proof_href {
+                        a.claim-proof href=(href) {
+                            "See the proof"
+                            span.claim-proof-arrow aria-hidden="true" { " →" }
                         }
                     }
                 }
+                div.claim-figure { (figure) }
             }
             p.claim-why { (why) }
-            @if let Some(href) = &more_href {
-                a.claim-more href=(href) {
-                    "Show me more"
-                    span.claim-more-arrow aria-hidden="true" { " →" }
-                }
-            }
         }
     }
 }
 
-/// A bar chart of the most recent snapshot: the latest-commit value of each
-/// series in the chart payload, longest first, each bar labelled with its real
-/// figure and captioned with the commit's date + message. `series_filter`
-/// keeps only series whose name contains it (falling back to all if that would
-/// be empty), so the scans cell shows just datafusion and writes just encode.
-fn snapshot_bars(generation: &ReadGeneration, slug: &str, series_filter: Option<&str>) -> Markup {
-    let Some(payload) = generation.chart_payload(slug) else {
-        return html! {};
-    };
-    let mut bars: Vec<(&String, f64)> = payload
-        .series
-        .iter()
-        .filter(|(name, _)| series_filter.is_none_or(|f| name.contains(f)))
-        .filter_map(|(name, vals)| latest_value(vals).map(|v| (name, v)))
-        .collect();
-    if bars.is_empty() {
-        bars = payload
-            .series
-            .iter()
-            .filter_map(|(name, vals)| latest_value(vals).map(|v| (name, v)))
-            .collect();
-    }
-    if bars.is_empty() {
-        return html! {};
-    }
-    // Parquet/baseline on top, Vortex below — consistent across all claims,
-    // regardless of which is larger (Vortex can be bigger, e.g. on size).
-    bars.sort_by(|a, b| {
-        a.0.contains("vortex")
-            .cmp(&b.0.contains("vortex"))
-            .then(b.1.total_cmp(&a.1))
-    });
-    let items: Vec<BarItem> = bars
-        .into_iter()
-        .map(|(name, v)| BarItem::plain(series_label(name), v, name.contains("vortex")))
-        .collect();
-    bars_markup(&items, payload.unit_kind)
+/// A small muted detail line beneath the headline.
+fn detail_line(text: String) -> Markup {
+    html! { span.claim-detail { (text) } }
 }
 
-/// One bar in a [`bars_markup`] chart. `engine`/`format` are the series'
-/// classification tags; when present they're emitted as `data-engine` /
-/// `data-format` so the client's global filter can hide the row by engine or
-/// format (the Current page uses this). The showcase's own bars carry no tags
-/// (it has no filter), so they use [`BarItem::plain`].
-pub(super) struct BarItem {
-    /// Human label shown in the row's name column.
-    pub(super) label: String,
-    /// The bar's value, in the chart's base unit.
-    pub(super) value: f64,
-    /// Whether this is a Vortex series (gets the solid accent fill).
-    pub(super) is_vortex: bool,
-    /// Engine tag, e.g. `duckdb`; `None` when the series has no engine dimension.
-    pub(super) engine: Option<String>,
-    /// Format tag, e.g. `parquet`; `None` when the series has no format dimension.
-    pub(super) format: Option<String>,
-}
-
-impl BarItem {
-    /// A bar with no engine/format tags (not filterable).
-    pub(super) fn plain(label: String, value: f64, is_vortex: bool) -> Self {
-        Self {
-            label,
-            value,
-            is_vortex,
-            engine: None,
-            format: None,
-        }
+/// Format a multiplier: whole-number for big ratios (`80×`), two decimals for
+/// the close ones (`1.30×`).
+fn mult(v: f64) -> String {
+    if v >= 10.0 {
+        format!("{v:.0}×")
+    } else {
+        format!("{v:.2}×")
     }
 }
 
-/// Render labelled bars (Vortex solid, others muted), scaled to the largest
-/// value, each labelled with its formatted figure. Shared with the Current
-/// page ([`super::current`]), which renders one of these per group.
-pub(super) fn bars_markup(items: &[BarItem], unit: UnitKind) -> Markup {
-    if items.is_empty() {
-        return html! {};
-    }
-    let max = items
-        .iter()
-        .map(|b| b.value)
-        .fold(f64::MIN_POSITIVE, f64::max);
-    html! {
-        figure.claim-chart {
-            div.snapshot-bars {
-                @for item in items {
-                    @let pct = (item.value / max).clamp(0.03, 1.0) * 100.0;
-                    div.sbar-row
-                        data-engine=[item.engine.as_deref()]
-                        data-format=[item.format.as_deref()] {
-                        span.sbar-name { (item.label) }
-                        div.sbar-track {
-                            div.sbar-fill.sbar-fill--vortex[item.is_vortex]
-                                style=(PreEscaped(format!("width:{pct:.1}%"))) {}
-                        }
-                        span.sbar-val { (format_value(item.value, unit)) }
-                    }
-                }
-            }
-        }
-    }
+/// The facet with the given name from a precomputed list.
+fn pick_facet<'a>(facets: &'a [FacetGeomean], facet: &str) -> Option<&'a FacetGeomean> {
+    facets.iter().find(|f| f.facet == facet)
 }
 
-/// Scans bars from the scan-heavy geomean (Q1, Q6 at the largest SF): geomean
-/// parquet vs geomean vortex datafusion latency — the aggregate the "faster
-/// scans" claim is about, rather than a single (possibly unrepresentative) query.
-fn scan_geomean_bars(generation: &ReadGeneration, tpch: &Group) -> Markup {
-    let mut parquet = Vec::new();
-    let mut vortex = Vec::new();
-    for q in ["Q1", "Q6"] {
-        let Some(slug) = chart_slug_named(tpch, q) else {
-            continue;
-        };
-        let Some(payload) = generation.chart_payload(&slug) else {
-            continue;
-        };
-        if let Some(v) = payload
-            .series
-            .get("datafusion:parquet")
-            .and_then(latest_value)
-        {
-            parquet.push(v);
-        }
-        if let Some(v) = payload
-            .series
-            .get("datafusion:vortex-file-compressed")
-            .and_then(latest_value)
-        {
-            vortex.push(v);
-        }
-    }
-    match (geomean(&parquet), geomean(&vortex)) {
-        (Some(p), Some(v)) => bars_markup(
-            &[
-                BarItem::plain("Parquet".to_string(), p, false),
-                BarItem::plain("Vortex".to_string(), v, true),
-            ],
-            UnitKind::TimeNs,
-        ),
-        _ => html! {},
-    }
-}
-
-/// Geometric mean of the positive, finite values.
-fn geomean(values: &[f64]) -> Option<f64> {
-    let valid: Vec<f64> = values
-        .iter()
-        .copied()
-        .filter(|v| *v > 0.0 && v.is_finite())
-        .collect();
-    if valid.is_empty() {
+/// Geomean pooled across every facet's items: `exp(Σ nᵢ·ln gᵢ / Σ nᵢ)`, the
+/// geomean of all the underlying ratios regardless of which facet produced
+/// them. Used for ClickBench's single cross-engine headline.
+fn pooled_geomean(facets: &[FacetGeomean]) -> Option<f64> {
+    let total: usize = facets.iter().map(|f| f.total).sum();
+    if total == 0 {
         return None;
     }
-    Some((valid.iter().map(|v| v.ln()).sum::<f64>() / valid.len() as f64).exp())
+    let log_sum: f64 = facets.iter().map(|f| f.total as f64 * f.geomean.ln()).sum();
+    Some((log_sum / total as f64).exp())
 }
+
+// ---------------------------------------------------------------------------
+// Workload schematics — small monochrome "blueprint" SVGs of the access
+// pattern (not the result). Stroke/fill read CSS theme vars so they recolour
+// with the page. Shared viewBox keeps the four the same size (small multiples).
+// ---------------------------------------------------------------------------
+
+enum Workload {
+    RandomAccess,
+    Analytics,
+    Writes,
+    Size,
+}
+
+fn workload_svg(kind: Workload) -> Markup {
+    PreEscaped(
+        match kind {
+            Workload::RandomAccess => RANDOM_ACCESS_SVG,
+            Workload::Analytics => ANALYTICS_SVG,
+            Workload::Writes => WRITES_SVG,
+            Workload::Size => SIZE_SVG,
+        }
+        .to_string(),
+    )
+}
+
+/// A table grid with a few scattered cells lit — reading individual rows by
+/// position.
+const RANDOM_ACCESS_SVG: &str = r##"<svg class="workload-svg" viewBox="0 0 140 84" fill="none" role="img" aria-label="Reading scattered individual rows by position">
+<g stroke="var(--line-strong)" stroke-width="1">
+<rect x="12" y="10" width="96" height="64"/>
+<path d="M28 10V74M44 10V74M60 10V74M76 10V74M92 10V74"/>
+<path d="M12 26H108M12 42H108M12 58H108"/>
+</g>
+<g fill="var(--bar)">
+<rect x="29" y="11" width="14" height="14"/>
+<rect x="77" y="27" width="14" height="14"/>
+<rect x="13" y="43" width="14" height="14"/>
+<rect x="61" y="59" width="14" height="14"/>
+</g>
+</svg>"##;
+
+/// Whole columns scanned into an aggregate (Σ) — analytical reads.
+const ANALYTICS_SVG: &str = r##"<svg class="workload-svg" viewBox="0 0 140 84" fill="none" role="img" aria-label="Scanning whole columns into an aggregate">
+<g stroke="var(--line-strong)" stroke-width="1">
+<rect x="12" y="10" width="96" height="64"/>
+<path d="M28 10V74M44 10V74M60 10V74M76 10V74M92 10V74"/>
+<path d="M12 26H108M12 42H108M12 58H108"/>
+</g>
+<g fill="var(--bar)">
+<rect x="29" y="11" width="14" height="62"/>
+<rect x="77" y="11" width="14" height="62"/>
+</g>
+<g stroke="var(--muted)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+<path d="M108 42H117"/>
+<path d="M113 38l4 4l-4 4"/>
+</g>
+<text x="128" y="47" fill="var(--muted)" font-family="monospace" font-size="13" text-anchor="middle">&#931;</text>
+</svg>"##;
+
+/// Loose rows encoded into a packed columnar file — the write path.
+const WRITES_SVG: &str = r##"<svg class="workload-svg" viewBox="0 0 140 84" fill="none" role="img" aria-label="Encoding loose rows into a packed file">
+<g stroke="var(--bar)" stroke-width="2.5" stroke-linecap="round">
+<path d="M8 24H44"/>
+<path d="M8 36H38"/>
+<path d="M8 48H44"/>
+<path d="M8 60H34"/>
+</g>
+<g stroke="var(--muted)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+<path d="M52 42H72"/>
+<path d="M66 36l6 6l-6 6"/>
+</g>
+<rect x="84" y="12" width="48" height="60" stroke="var(--line-strong)" stroke-width="1"/>
+<g fill="var(--bar)">
+<rect x="86" y="14" width="44" height="12"/>
+<rect x="86" y="29" width="44" height="12"/>
+<rect x="86" y="44" width="44" height="12"/>
+<rect x="86" y="59" width="44" height="11"/>
+</g>
+</svg>"##;
+
+/// Data compressed onto disk: the raw extent (dashed) squeezed to a smaller
+/// file (solid) by inward arrows.
+const SIZE_SVG: &str = r##"<svg class="workload-svg" viewBox="0 0 140 84" fill="none" role="img" aria-label="Compressing data onto disk">
+<rect x="14" y="22" width="112" height="40" stroke="var(--line-strong)" stroke-width="1" stroke-dasharray="3 3"/>
+<rect x="44" y="22" width="52" height="40" fill="var(--bar)"/>
+<g stroke="var(--muted)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+<path d="M24 34l10 8l-10 8"/>
+<path d="M116 34l-10 8l10 8"/>
+</g>
+</svg>"##;
+
+// ---------------------------------------------------------------------------
+// Shared helpers (also used by the Current page)
+// ---------------------------------------------------------------------------
 
 /// Latest finite value in a series' value array (arrays run oldest-first).
 pub(super) fn latest_value(values: &Value) -> Option<f64> {
@@ -297,18 +351,6 @@ pub(super) fn latest_value(values: &Value) -> Option<f64> {
         .iter()
         .rev()
         .find_map(|v| v.as_f64().filter(|n| n.is_finite()))
-}
-
-/// Short, human series label. Collapses `engine:` prefixes and `:op` suffixes
-/// to the format, and renames the on-disk format strings.
-fn series_label(name: &str) -> String {
-    if name.contains("vortex") {
-        "Vortex".to_string()
-    } else if name.contains("parquet") {
-        "Parquet".to_string()
-    } else {
-        name.to_string()
-    }
 }
 
 pub(super) fn format_value(v: f64, unit: UnitKind) -> String {
@@ -348,7 +390,17 @@ fn format_bytes(bytes: f64) -> String {
 fn group_by_summary(groups: &[Group], pred: impl Fn(&Summary) -> bool) -> Option<&Group> {
     groups
         .iter()
-        .find(|g| g.summary.as_ref().is_some_and(|s| pred(s)))
+        .find(|g| g.summary.as_ref().is_some_and(&pred))
+}
+
+/// The query group for a dataset (e.g. `clickbench`), by its slug's group key.
+fn query_group<'a>(groups: &'a [Group], dataset: &str) -> Option<&'a Group> {
+    groups.iter().find(|g| {
+        matches!(
+            GroupKey::from_slug(&g.slug),
+            Ok(GroupKey::QueryGroup { dataset: d, .. }) if d == dataset
+        )
+    })
 }
 
 /// Deep link from a claim into the Current page's matching group section.
@@ -356,57 +408,4 @@ fn group_by_summary(groups: &[Group], pred: impl Fn(&Summary) -> bool) -> Option
 /// Current page emits, so the link scrolls to and `:target`-highlights it.
 fn more_href(group: Option<&Group>) -> Option<String> {
     group.map(|g| format!("/current#{}", anchor_for(&g.slug)))
-}
-
-fn first_chart_slug(group: &Group) -> Option<String> {
-    group.charts.first().map(|c| c.slug.clone())
-}
-
-/// Slug of a named chart in a group (e.g. `Q1`), falling back to the first chart.
-fn chart_slug_named(group: &Group, name: &str) -> Option<String> {
-    group
-        .charts
-        .iter()
-        .find(|c| c.name == name)
-        .or_else(|| group.charts.first())
-        .map(|c| c.slug.clone())
-}
-
-/// All TPC-H query groups with their scale factors, largest first.
-fn tpch_groups(groups: &[Group]) -> Vec<(f64, &Group)> {
-    let mut v: Vec<(f64, &Group)> = groups
-        .iter()
-        .filter_map(|g| match GroupKey::from_slug(&g.slug) {
-            Ok(GroupKey::QueryGroup {
-                dataset,
-                scale_factor: Some(sf),
-                ..
-            }) if dataset == "tpch" => Some((sf.parse::<f64>().unwrap_or(0.0), g)),
-            _ => None,
-        })
-        .collect();
-    v.sort_by(|a, b| b.0.total_cmp(&a.0));
-    v
-}
-
-/// Scans figure: the largest SF's scan-heavy geomean bars (Q1+Q6, datafusion
-/// Vortex vs Parquet). Smaller scale factors live on the Current/Historic pages.
-fn scans_figure(generation: &ReadGeneration, tpch: &[(f64, &Group)]) -> Markup {
-    let Some(&(_, largest)) = tpch.first() else {
-        return html! {};
-    };
-    scan_geomean_bars(generation, largest)
-}
-
-/// The "Source" label for a single-comparison claim, from its group's first
-/// chart (the dataset) and a benchmark label. [`claim`] renders it as a link
-/// to that chart.
-fn source_label_for(group: Option<&Group>, label: &str) -> Option<String> {
-    let group = group?;
-    let dataset = group
-        .charts
-        .first()
-        .map(|c| c.name.as_str())
-        .unwrap_or_default();
-    Some(format!("{label} · {dataset}"))
 }

@@ -23,8 +23,9 @@
   --faint: #5a5a5a;       /* tertiary / disabled */
   --line: #2a2a2a;        /* hairline borders */
   --line-strong: #3a3a3a; /* emphasised borders */
-  --accent: #f2f2f2;      /* monochrome "accent" = fg */
+  --accent: #f2f2f2;      /* monochrome "accent" = fg (UI chrome) */
   --accent-fg: #101010;   /* text on an accent fill */
+  --bar: #d4d4d4;         /* chart bar fill — off-white, softer than fg */
   --grid-dot: rgba(255, 255, 255, 0.05);
   --good: #8fd19e;        /* faster / better (desaturated to fit mono) */
   --bad: #e0a0a0;         /* slower / worse */
@@ -51,6 +52,7 @@
     --line-strong: #cccccc;
     --accent: #101010;
     --accent-fg: #ffffff;
+    --bar: #3d3d3d;
     --grid-dot: rgba(0, 0, 0, 0.06);
     --good: #1f7a3d;
     --bad: #b3261e;
@@ -72,6 +74,7 @@
   --line-strong: #cccccc;
   --accent: #101010;
   --accent-fg: #ffffff;
+  --bar: #3d3d3d;
   --grid-dot: rgba(0, 0, 0, 0.06);
   --good: #1f7a3d;
   --bad: #b3261e;
@@ -969,14 +972,38 @@ a.site-footer-sha:hover, a.site-footer-sha:hover code { color: var(--fg); text-d
 @media (min-width: 560px) {
   .claim-head { grid-template-columns: minmax(8rem, auto) minmax(0, 1fr); }
 }
-.claim-figure { min-width: 0; }
+.claim-figure { min-width: 0; display: flex; justify-content: center; align-items: flex-start; }
+/* Workload schematic: a small blueprint SVG of the access pattern. */
+.workload-svg { width: 100%; max-width: 200px; height: auto; overflow: visible; }
+@media (max-width: 559px) { .claim-figure { justify-content: flex-start; } .workload-svg { max-width: 180px; } }
 
-/* Stat stacks: the metric on its own line, the label beneath it. */
+/* Stat stacks: the metric, the label, a detail line, then the proof link. */
 .claim-stat {
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
 }
+.claim-detail {
+  margin-top: 0.5rem;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.claim-proof {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  margin-top: 0.7rem;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line-strong);
+  padding-bottom: 1px;
+}
+.claim-proof:hover { color: var(--fg); border-color: var(--fg); text-decoration: none; }
 .claim-metric {
   font-family: var(--mono);
   font-size: clamp(2.4rem, 6vw, 3.6rem);
@@ -1030,7 +1057,7 @@ a.site-footer-sha:hover, a.site-footer-sha:hover code { color: var(--fg); text-d
   background: var(--line-strong);
   transition: width 0.4s ease;
 }
-.sbar-fill--vortex { background: var(--accent); }
+.sbar-fill--vortex { background: var(--bar); }
 .sbar-val {
   font-family: var(--mono);
   font-size: 0.78rem;
@@ -1085,7 +1112,7 @@ a.site-footer-sha:hover, a.site-footer-sha:hover code { color: var(--fg); text-d
 .bar-track { position: relative; height: 1.5rem; }
 .bar-fill { height: 100%; min-width: 2px; transition: width 0.4s ease; }
 .bar-fill--parquet { background: var(--line-strong); }
-.bar-fill--vortex { background: var(--accent); }
+.bar-fill--vortex { background: var(--bar); }
 .bars-caption {
   margin-top: 0.6rem;
   font-family: var(--mono);

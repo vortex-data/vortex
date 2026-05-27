@@ -260,6 +260,65 @@ fn build_facets(generation: &ReadGeneration, chart_links: &[ChartLink]) -> (Vec<
     (facets, faceted_by_engine)
 }
 
+/// One facet's Overview headline: the geomean of the default Vortex-vs-Parquet
+/// ratios (`B / A`, so > 1 = Vortex wins), with its win count and item total,
+/// plus the unit's comparison verb. This is exactly the number the Current page
+/// headlines for the same facet, so the Overview claim and its proof can't
+/// disagree.
+pub(super) struct FacetGeomean {
+    /// The facet name: an engine (`datafusion`), an operation (`encode`), or
+    /// `""` for a no-facet group (random access, size).
+    pub(super) facet: String,
+    /// Geomean of the per-item `B / A` ratios.
+    pub(super) geomean: f64,
+    /// Items where Vortex won (ratio ≥ 1).
+    pub(super) wins: usize,
+    /// Items that measured both formats.
+    pub(super) total: usize,
+}
+
+/// Per-facet Overview geomeans for a group's charts — one per engine /
+/// operation / the single no-facet chart. Facets with no comparable items are
+/// skipped. Used by the Overview ([`super::showcase`]) to source each claim's
+/// number from the same synthesis the Current page renders.
+pub(super) fn facet_geomeans(
+    generation: &ReadGeneration,
+    chart_links: &[ChartLink],
+) -> Vec<FacetGeomean> {
+    let (facets, _) = build_facets(generation, chart_links);
+    facets
+        .iter()
+        .filter_map(|ed| {
+            let mut ratios = Vec::new();
+            let mut wins = 0;
+            for q in &ed.queries {
+                let (Some(&a), Some(&b)) =
+                    (q.values.get(&ed.default_a), q.values.get(&ed.default_b))
+                else {
+                    continue;
+                };
+                if a > 0.0 && b > 0.0 {
+                    let ratio = b / a;
+                    if ratio >= 1.0 {
+                        wins += 1;
+                    }
+                    ratios.push(ratio);
+                }
+            }
+            if ratios.is_empty() {
+                return None;
+            }
+            let geomean = (ratios.iter().map(|r| r.ln()).sum::<f64>() / ratios.len() as f64).exp();
+            Some(FacetGeomean {
+                facet: ed.facet.clone(),
+                geomean,
+                wins,
+                total: ratios.len(),
+            })
+        })
+        .collect()
+}
+
 /// Render a group as comparison charts. TPC suites (which carry scale-factor
 /// pills) get storage + scale-factor toggles that swap the visible charts in
 /// place; everything else is a single set of facet charts.
