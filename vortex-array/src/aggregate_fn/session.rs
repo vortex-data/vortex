@@ -8,7 +8,6 @@ use arc_swap::ArcSwap;
 use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::SessionVar;
-use vortex_session::registry::Registry;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::aggregate_fn::AggregateFnId;
@@ -43,16 +42,13 @@ use crate::arrays::dict::compute::is_constant::DictIsConstantKernel;
 use crate::arrays::dict::compute::is_sorted::DictIsSortedKernel;
 use crate::arrays::dict::compute::min_max::DictMinMaxKernel;
 
-/// Registry of aggregate function vtables.
-pub type AggregateFnRegistry = Registry<AggregateFnPluginRef>;
-
 /// Session state for aggregate function vtables.
 #[derive(Debug)]
 pub struct AggregateFnSession {
     registry: ArcSwap<HashMap<AggregateFnId, AggregateFnPluginRef>>,
 
-    pub(super) kernels: ArcSwap<HashMap<KernelKey, &'static dyn DynAggregateKernel>>,
-    pub(super) grouped_kernels: ArcSwap<HashMap<KernelKey, &'static dyn DynGroupedAggregateKernel>>,
+    kernels: ArcSwap<HashMap<KernelKey, &'static dyn DynAggregateKernel>>,
+    grouped_kernels: ArcSwap<HashMap<KernelKey, &'static dyn DynGroupedAggregateKernel>>,
 }
 
 impl SessionVar for AggregateFnSession {
@@ -106,7 +102,7 @@ impl Default for AggregateFnSession {
 }
 
 impl AggregateFnSession {
-    /// Returns the aggregate function registry.
+    /// Find plugin in the registry for the given id
     pub fn find_plugin(&self, id: &AggregateFnId) -> Option<AggregateFnPluginRef> {
         self.registry.load().get(id).cloned()
     }
@@ -123,6 +119,20 @@ impl AggregateFnSession {
         });
     }
 
+    pub fn find_aggregate_kernel(
+        &self,
+        array_id: impl Into<ArrayId>,
+        agg_fn_id: impl Into<AggregateFnId>,
+    ) -> Option<&'static dyn DynAggregateKernel> {
+        let loaded = self.kernels.load();
+        let id = array_id.into();
+        let fn_id = agg_fn_id.into();
+        loaded
+            .get(&(id, Some(fn_id)))
+            .or_else(|| loaded.get(&(id, None)))
+            .copied()
+    }
+
     /// Register an aggregate function kernel for a specific aggregate function and array type.
     pub fn register_aggregate_kernel(
         &self,
@@ -136,6 +146,20 @@ impl AggregateFnSession {
             existing.insert(id, kernel);
             existing
         });
+    }
+
+    pub fn find_groupped_kernel(
+        &self,
+        array_id: impl Into<ArrayId>,
+        agg_fn_id: impl Into<AggregateFnId>,
+    ) -> Option<&'static dyn DynGroupedAggregateKernel> {
+        let loaded = self.grouped_kernels.load();
+        let id = array_id.into();
+        let fn_id = agg_fn_id.into();
+        loaded
+            .get(&(id, Some(fn_id)))
+            .or_else(|| loaded.get(&(id, None)))
+            .copied()
     }
 }
 
