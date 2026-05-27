@@ -68,14 +68,17 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::Constant;
     use vortex_array::arrays::List;
+    use vortex_array::arrays::ListArray;
     use vortex_array::arrays::ListView;
     use vortex_array::arrays::ListViewArray;
+    use vortex_array::arrays::list::ListArrayExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_runend::RunEnd;
     use vortex_session::VortexSession;
 
     use crate::BtrBlocksCompressor;
@@ -189,6 +192,59 @@ mod tests {
         )?;
         assert!(!compressed.is::<Constant>());
         assert_arrays_eq!(compressed, array);
+        Ok(())
+    }
+
+    #[test]
+    fn test_bool_runend_compressed() -> VortexResult<()> {
+        let values = (0..4)
+            .flat_map(|i| {
+                let value = i % 2 == 0;
+                std::iter::repeat_n(value, 128)
+            })
+            .collect::<Vec<_>>();
+        let array = BoolArray::new(BitBuffer::from(values), Validity::NonNullable);
+        let btr = BtrBlocksCompressor::default();
+        let compressed = btr.compress(
+            &array.clone().into_array(),
+            &mut SESSION.create_execution_ctx(),
+        )?;
+
+        assert!(compressed.is::<RunEnd>());
+        assert_arrays_eq!(compressed, array);
+        Ok(())
+    }
+
+    #[test]
+    fn test_nested_bool_list_runend_compressed() -> VortexResult<()> {
+        let leaf_values = (0..4)
+            .flat_map(|i| {
+                let value = i % 2 == 0;
+                std::iter::repeat_n(value, 128)
+            })
+            .collect::<Vec<_>>();
+        let leaf = BoolArray::new(BitBuffer::from(leaf_values), Validity::NonNullable);
+        let inner = ListArray::try_new(
+            leaf.into_array(),
+            buffer![0u32, 128, 256, 384, 512].into_array(),
+            Validity::NonNullable,
+        )?;
+        let outer = ListArray::try_new(
+            inner.into_array(),
+            buffer![0u32, 2, 4].into_array(),
+            Validity::NonNullable,
+        )?;
+
+        let btr = BtrBlocksCompressor::default();
+        let compressed = btr.compress(
+            &outer.clone().into_array(),
+            &mut SESSION.create_execution_ctx(),
+        )?;
+
+        let outer_compressed = compressed.as_::<List>();
+        let inner_compressed = outer_compressed.elements().as_::<List>();
+        assert!(inner_compressed.elements().is::<RunEnd>());
+        assert_arrays_eq!(compressed, outer);
         Ok(())
     }
 }

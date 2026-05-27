@@ -131,6 +131,17 @@ impl ArrayAndStats {
             .vortex_expect("the array is guaranteed to already be canonical by construction")
     }
 
+    /// Returns the array as an [`ArrayView<Bool>`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the array is not a bool array.
+    pub fn array_as_bool(&self) -> ArrayView<'_, Bool> {
+        self.array
+            .as_opt::<Bool>()
+            .vortex_expect("the array is guaranteed to already be canonical by construction")
+    }
+
     /// Returns the array as an [`ArrayView<VarBinView>`].
     ///
     /// # Panics

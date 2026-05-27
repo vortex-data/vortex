@@ -39,7 +39,12 @@ pub mod compressor {
     pub use vortex_btrblocks::BtrBlocksCompressor;
     pub use vortex_btrblocks::BtrBlocksCompressorBuilder;
     pub use vortex_btrblocks::Scheme;
+    pub use vortex_btrblocks::SchemeExt;
     pub use vortex_btrblocks::SchemeId;
+
+    pub mod schemes {
+        pub use vortex_btrblocks::schemes::*;
+    }
 }
 
 pub mod dtype {

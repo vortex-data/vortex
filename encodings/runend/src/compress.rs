@@ -6,6 +6,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Bool;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Primitive;
@@ -94,6 +95,50 @@ pub fn runend_encode(
     (ends, values)
 }
 
+/// Run-end encode a `BoolArray`, returning a tuple of `(ends, values)`.
+pub fn runend_encode_bool(
+    array: ArrayView<Bool>,
+    ctx: &mut ExecutionCtx,
+) -> (PrimitiveArray, ArrayRef) {
+    let validity = match array
+        .validity()
+        .vortex_expect("run-end validity should be derivable")
+    {
+        Validity::NonNullable => None,
+        Validity::AllValid => None,
+        Validity::AllInvalid => {
+            let ends = PrimitiveArray::new(buffer![array.len() as u64], Validity::NonNullable);
+            ends.statistics()
+                .set(Stat::IsStrictSorted, Precision::Exact(true.into()));
+            return (
+                ends,
+                ConstantArray::new(Scalar::null(array.dtype().clone()), 1).into_array(),
+            );
+        }
+        Validity::Array(a) => {
+            let bool_array = a
+                .execute::<BoolArray>(ctx)
+                .vortex_expect("validity array must be convertible to bool");
+            Some(bool_array.to_bit_buffer())
+        }
+    };
+
+    let bits = array.to_bit_buffer();
+    let (ends, values) = match validity {
+        None => runend_encode_bools(&bits, array.dtype().nullability().into()),
+        Some(validity) => runend_encode_nullable_bools(&bits, validity),
+    };
+
+    let ends = PrimitiveArray::new(ends, Validity::NonNullable)
+        .narrow(ctx)
+        .vortex_expect("Ends must succeed downcasting");
+
+    ends.statistics()
+        .set(Stat::IsStrictSorted, Precision::Exact(true.into()));
+
+    (ends, values.into_array())
+}
+
 fn runend_encode_primitive<T: NativePType>(elements: &[T]) -> (Buffer<u64>, Buffer<T>) {
     let mut ends = BufferMut::empty();
     let mut values = BufferMut::empty();
@@ -117,6 +162,91 @@ fn runend_encode_primitive<T: NativePType>(elements: &[T]) -> (Buffer<u64>, Buff
     values.push(prev);
 
     (ends.freeze(), values.freeze())
+}
+
+fn runend_encode_bools(elements: &BitBuffer, validity: Validity) -> (Buffer<u64>, BoolArray) {
+    let mut ends = BufferMut::empty();
+    let mut values = BitBufferMut::with_capacity(elements.len());
+
+    if elements.is_empty() {
+        return (ends.freeze(), BoolArray::new(values.freeze(), validity));
+    }
+
+    let mut prev = elements.value(0);
+    let mut end = 1;
+    for value in elements.iter().skip(1) {
+        if value != prev {
+            ends.push(end);
+            values.append(prev);
+        }
+        prev = value;
+        end += 1;
+    }
+    ends.push(end);
+    values.append(prev);
+
+    (ends.freeze(), BoolArray::new(values.freeze(), validity))
+}
+
+fn runend_encode_nullable_bools(
+    elements: &BitBuffer,
+    element_validity: BitBuffer,
+) -> (Buffer<u64>, BoolArray) {
+    let mut ends = BufferMut::empty();
+    let mut values = BitBufferMut::with_capacity(elements.len());
+    let mut validity = BitBufferMut::with_capacity(elements.len());
+
+    if elements.is_empty() {
+        return (
+            ends.freeze(),
+            BoolArray::new(
+                values.freeze(),
+                Validity::Array(BoolArray::from(validity.freeze()).into_array()),
+            ),
+        );
+    }
+
+    let mut prev = element_validity.value(0).then(|| elements.value(0));
+    let mut end = 1;
+    for value in elements
+        .iter()
+        .zip(element_validity.iter())
+        .map(|(value, is_valid)| is_valid.then_some(value))
+        .skip(1)
+    {
+        if value != prev {
+            ends.push(end);
+            match prev {
+                None => {
+                    validity.append(false);
+                    values.append(false);
+                }
+                Some(previous) => {
+                    validity.append(true);
+                    values.append(previous);
+                }
+            }
+        }
+        prev = value;
+        end += 1;
+    }
+    ends.push(end);
+
+    match prev {
+        None => {
+            validity.append(false);
+            values.append(false);
+        }
+        Some(previous) => {
+            validity.append(true);
+            values.append(previous);
+        }
+    }
+
+    (
+        ends.freeze(),
+        BoolArray::new(values.freeze(), Validity::from(validity.freeze())),
+    )
 }
 
 fn runend_encode_nullable_primitive<T: NativePType>(
@@ -322,6 +452,7 @@ pub fn runend_decode_varbinview(
 mod tests {
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
@@ -331,6 +462,7 @@ mod tests {
 
     use crate::compress::runend_decode_primitive;
     use crate::compress::runend_encode;
+    use crate::compress::runend_encode_bool;
 
     #[test]
     fn encode() -> VortexResult<()> {
@@ -379,6 +511,30 @@ mod tests {
         let expected_ends = PrimitiveArray::from_iter(vec![5u64]);
         assert_arrays_eq!(ends, expected_ends);
         let expected_values = PrimitiveArray::from_option_iter(vec![Option::<i32>::None]);
+        assert_arrays_eq!(values, expected_values);
+        Ok(())
+    }
+
+    #[test]
+    fn encode_bool_nullable() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let arr = BoolArray::from_iter([
+            Some(true),
+            Some(true),
+            None,
+            None,
+            Some(false),
+            Some(false),
+            None,
+            Some(true),
+        ]);
+        let (ends, values) = runend_encode_bool(arr.as_view(), &mut ctx);
+        let values = values.execute::<BoolArray>(&mut ctx)?;
+
+        let expected_ends = PrimitiveArray::from_iter(vec![2u8, 4, 6, 7, 8]);
+        assert_arrays_eq!(ends, expected_ends);
+        let expected_values =
+            BoolArray::from_iter([Some(true), None, Some(false), None, Some(true)]);
         assert_arrays_eq!(values, expected_values);
         Ok(())
     }
