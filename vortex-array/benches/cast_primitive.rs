@@ -56,13 +56,9 @@ fn cast_u16_to_u32(bencher: Bencher) {
 #[divan::bench(args = SIZES)]
 fn cast_u32_to_u8(bencher: Bencher, n: usize) {
     let mut rng = StdRng::seed_from_u64(42);
-    #[expect(clippy::cast_possible_truncation)]
     let arr = PrimitiveArray::from_option_iter((0..n).map(|_| {
-        if rng.random_bool(0.7) {
-            Some(rng.random_range(0..u8::MAX) as u32)
-        } else {
-            None
-        }
+        rng.random_bool(0.7)
+            .then(|| rng.random_range(0..u8::MAX) as u32)
     }))
     .into_array();
     bencher.with_inputs(|| arr.clone()).bench_refs(|a| {
@@ -78,13 +74,9 @@ fn cast_u32_to_u8(bencher: Bencher, n: usize) {
 #[divan::bench(args = SIZES)]
 fn cast_i32_to_u32(bencher: Bencher, n: usize) {
     let mut rng = StdRng::seed_from_u64(42);
-    let arr = PrimitiveArray::from_option_iter((0..n).map(|_| {
-        if rng.random_bool(0.7) {
-            Some(rng.random_range(0..i32::MAX))
-        } else {
-            None
-        }
-    }))
+    let arr = PrimitiveArray::from_option_iter(
+        (0..n).map(|_| rng.random_bool(0.7).then(|| rng.random_range(0..i32::MAX))),
+    )
     .into_array();
     bencher.with_inputs(|| arr.clone()).bench_refs(|a| {
         #[expect(clippy::unwrap_used)]

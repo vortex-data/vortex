@@ -441,11 +441,7 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
     ///
     /// Panics if `out.len() != self.len()`.
     #[inline]
-    fn try_map_no_validity<R, F>(
-        self,
-        out: &mut [MaybeUninit<R>],
-        mut f: F,
-    ) -> Result<(), usize>
+    fn try_map_no_validity<R, F>(self, out: &mut [MaybeUninit<R>], mut f: F) -> Result<(), usize>
     where
         R: Copy + Default,
         F: FnMut(Self::Item) -> Option<R>,
@@ -745,11 +741,7 @@ pub trait IndexedSinkExt: IndexedSink + Sized {
     /// Panics if `self.len() != mask.len()`.
     #[inline]
     #[allow(clippy::cast_possible_truncation)]
-    fn try_map_with_mask_in_place<F>(
-        self,
-        mask: &BitBuffer,
-        mut f: F,
-    ) -> Result<(), usize>
+    fn try_map_with_mask_in_place<F>(self, mask: &BitBuffer, mut f: F) -> Result<(), usize>
     where
         Self::Write: Default,
         F: FnMut(Self::Item, bool) -> Option<Self::Write>,
@@ -835,9 +827,9 @@ mod tests {
             m.freeze()
         };
         let mut out = vec![MaybeUninit::<i32>::uninit(); 10];
-        values.as_slice().map_with_mask(&mask, &mut out, |v, valid| {
-            if valid { v } else { -1 }
-        });
+        values
+            .as_slice()
+            .map_with_mask(&mask, &mut out, |v, valid| if valid { v } else { -1 });
         assert_eq!(write_t(out), vec![0, -1, 2, -1, 4, -1, 6, -1, 8, -1]);
     }
 
@@ -847,9 +839,9 @@ mod tests {
         let values: Vec<i32> = (0..130).collect();
         let mask = BitBuffer::new_set(130);
         let mut out = vec![MaybeUninit::<i32>::uninit(); 130];
-        values.as_slice().map_with_mask(&mask, &mut out, |v, valid| {
-            if valid { v + 1 } else { 0 }
-        });
+        values
+            .as_slice()
+            .map_with_mask(&mask, &mut out, |v, valid| if valid { v + 1 } else { 0 });
         let got = write_t(out);
         assert_eq!(got.len(), 130);
         assert_eq!(got[0], 1);
@@ -868,9 +860,13 @@ mod tests {
 
         let values: Vec<u32> = (0..65).collect();
         let mut out = vec![MaybeUninit::<u32>::uninit(); 65];
-        values.as_slice().map_with_mask(&sliced, &mut out, |v, valid| {
-            if valid { v } else { u32::MAX }
-        });
+        values.as_slice().map_with_mask(
+            &sliced,
+            &mut out,
+            |v, valid| {
+                if valid { v } else { u32::MAX }
+            },
+        );
         let got = write_t(out);
         assert_eq!(got, (0..65).collect::<Vec<u32>>());
     }
@@ -887,9 +883,9 @@ mod tests {
 
         let values: Vec<i16> = (0..130).map(|i| i as i16).collect();
         let mut out = vec![MaybeUninit::<i16>::uninit(); 130];
-        values.as_slice().map_with_mask(&sliced, &mut out, |v, valid| {
-            if valid { v } else { -1 }
-        });
+        values
+            .as_slice()
+            .map_with_mask(&sliced, &mut out, |v, valid| if valid { v } else { -1 });
         let got = write_t(out);
         assert_eq!(got, (0..130).map(|i| i as i16).collect::<Vec<_>>());
     }
@@ -914,9 +910,9 @@ mod tests {
             m.freeze()
         };
         let mut out = vec![MaybeUninit::<i64>::uninit(); 100];
-        values.as_slice().map_with_mask(&mask, &mut out, |v, valid| {
-            v * (valid as i64)
-        });
+        values
+            .as_slice()
+            .map_with_mask(&mask, &mut out, |v, valid| v * (valid as i64));
         let got = write_t(out);
         for (i, &x) in got.iter().enumerate() {
             if i % 3 == 0 {
@@ -932,10 +928,12 @@ mod tests {
         let values: Vec<u64> = (0..200).collect();
         let mask = BitBuffer::new_set(200);
         let mut out = vec![MaybeUninit::<u32>::uninit(); 200];
-        let res = values.as_slice().try_map_with_mask(&mask, &mut out, |v, valid| {
-            let scaled = v * valid as u64;
-            (scaled <= u32::MAX as u64).then_some(scaled as u32)
-        });
+        let res = values
+            .as_slice()
+            .try_map_with_mask(&mask, &mut out, |v, valid| {
+                let scaled = v * valid as u64;
+                (scaled <= u32::MAX as u64).then_some(scaled as u32)
+            });
         assert!(res.is_ok());
         let got = write_t(out);
         assert_eq!(got, (0..200u32).collect::<Vec<_>>());
@@ -948,10 +946,12 @@ mod tests {
         values[137] = (u32::MAX as u64) + 1;
         let mask = BitBuffer::new_set(200);
         let mut out = vec![MaybeUninit::<u32>::uninit(); 200];
-        let res = values.as_slice().try_map_with_mask(&mask, &mut out, |v, valid| {
-            let scaled = v * valid as u64;
-            (scaled <= u32::MAX as u64).then_some(scaled as u32)
-        });
+        let res = values
+            .as_slice()
+            .try_map_with_mask(&mask, &mut out, |v, valid| {
+                let scaled = v * valid as u64;
+                (scaled <= u32::MAX as u64).then_some(scaled as u32)
+            });
         assert_eq!(res, Err(137));
     }
 
@@ -964,10 +964,12 @@ mod tests {
         values[137] = u64::MAX;
         let mask = BitBuffer::new_set(200);
         let mut out = vec![MaybeUninit::<u32>::uninit(); 200];
-        let res = values.as_slice().try_map_with_mask(&mask, &mut out, |v, valid| {
-            let scaled = v * valid as u64;
-            (scaled <= u32::MAX as u64).then_some(scaled as u32)
-        });
+        let res = values
+            .as_slice()
+            .try_map_with_mask(&mask, &mut out, |v, valid| {
+                let scaled = v * valid as u64;
+                (scaled <= u32::MAX as u64).then_some(scaled as u32)
+            });
         assert_eq!(res, Err(50));
     }
 
@@ -986,9 +988,11 @@ mod tests {
             m.freeze()
         };
         let mut out = vec![MaybeUninit::<u32>::uninit(); 200];
-        let res = values.as_slice().try_map_with_mask(&mask, &mut out, |v, _valid| {
-            (v <= u32::MAX as u64).then_some(v as u32)
-        });
+        let res = values
+            .as_slice()
+            .try_map_with_mask(&mask, &mut out, |v, _valid| {
+                (v <= u32::MAX as u64).then_some(v as u32)
+            });
         assert!(
             res.is_ok(),
             "null-lane overflow should be filtered by the cold path"
@@ -1013,9 +1017,11 @@ mod tests {
             m.freeze()
         };
         let mut out = vec![MaybeUninit::<u32>::uninit(); 200];
-        let res = values.as_slice().try_map_with_mask(&mask, &mut out, |v, _valid| {
-            (v <= u32::MAX as u64).then_some(v as u32)
-        });
+        let res = values
+            .as_slice()
+            .try_map_with_mask(&mask, &mut out, |v, _valid| {
+                (v <= u32::MAX as u64).then_some(v as u32)
+            });
         assert_eq!(res, Err(77));
     }
 
@@ -1033,10 +1039,12 @@ mod tests {
             m.freeze()
         };
         let mut out = vec![MaybeUninit::<u32>::uninit(); 200];
-        let res = values.as_slice().try_map_with_mask(&mask, &mut out, |v, valid| {
-            let scaled = v * valid as u64;
-            (scaled <= u32::MAX as u64).then_some(scaled as u32)
-        });
+        let res = values
+            .as_slice()
+            .try_map_with_mask(&mask, &mut out, |v, valid| {
+                let scaled = v * valid as u64;
+                (scaled <= u32::MAX as u64).then_some(scaled as u32)
+            });
         assert!(res.is_ok());
         let got = write_t(out);
         assert_eq!(got[5], 0); // null-lane wrote default
@@ -1058,19 +1066,23 @@ mod tests {
 
         let mut branchless = vec![MaybeUninit::<u32>::uninit(); 130];
         let mut branchful = vec![MaybeUninit::<u32>::uninit(); 130];
-        values.as_slice().try_map_with_mask(&mask, &mut branchless, |v, valid| {
-            let scaled = v * valid as u64;
-            (scaled <= u32::MAX as u64).then_some(scaled as u32)
-        })
-        .unwrap();
-        values.as_slice().try_map_with_mask(&mask, &mut branchful, |v, valid| {
-            if valid {
-                u32::try_from(v).ok()
-            } else {
-                Some(0)
-            }
-        })
-        .unwrap();
+        values
+            .as_slice()
+            .try_map_with_mask(&mask, &mut branchless, |v, valid| {
+                let scaled = v * valid as u64;
+                (scaled <= u32::MAX as u64).then_some(scaled as u32)
+            })
+            .unwrap();
+        values
+            .as_slice()
+            .try_map_with_mask(&mask, &mut branchful, |v, valid| {
+                if valid {
+                    u32::try_from(v).ok()
+                } else {
+                    Some(0)
+                }
+            })
+            .unwrap();
 
         assert_eq!(write_t(branchful), write_t(branchless));
     }
@@ -1080,10 +1092,12 @@ mod tests {
         let values: Vec<u64> = (0..130).collect();
         let mask = BitBuffer::new_set(130);
         let mut out = vec![MaybeUninit::<u32>::uninit(); 130];
-        let res = values.as_slice().try_map_with_mask(&mask, &mut out, |v, valid| {
-            let scaled = v * valid as u64;
-            (scaled <= u32::MAX as u64).then_some(scaled as u32)
-        });
+        let res = values
+            .as_slice()
+            .try_map_with_mask(&mask, &mut out, |v, valid| {
+                let scaled = v * valid as u64;
+                (scaled <= u32::MAX as u64).then_some(scaled as u32)
+            });
         assert!(res.is_ok());
         let got = write_t(out);
         assert_eq!(got.len(), 130);
@@ -1101,10 +1115,12 @@ mod tests {
 
         let values: Vec<u64> = (0..130).collect();
         let mut out = vec![MaybeUninit::<u32>::uninit(); 130];
-        let res = values.as_slice().try_map_with_mask(&mask, &mut out, |v, valid| {
-            let scaled = v * valid as u64;
-            (scaled <= u32::MAX as u64).then_some(scaled as u32)
-        });
+        let res = values
+            .as_slice()
+            .try_map_with_mask(&mask, &mut out, |v, valid| {
+                let scaled = v * valid as u64;
+                (scaled <= u32::MAX as u64).then_some(scaled as u32)
+            });
         assert!(res.is_ok());
         let got = write_t(out);
         assert_eq!(got, (0..130u32).collect::<Vec<_>>());
@@ -1121,10 +1137,12 @@ mod tests {
         let mut values: Vec<u64> = (0..130).collect();
         values[77] = u64::MAX;
         let mut out = vec![MaybeUninit::<u32>::uninit(); 130];
-        let res = values.as_slice().try_map_with_mask(&mask, &mut out, |v, valid| {
-            let scaled = v * valid as u64;
-            (scaled <= u32::MAX as u64).then_some(scaled as u32)
-        });
+        let res = values
+            .as_slice()
+            .try_map_with_mask(&mask, &mut out, |v, valid| {
+                let scaled = v * valid as u64;
+                (scaled <= u32::MAX as u64).then_some(scaled as u32)
+            });
         assert_eq!(res, Err(77));
     }
 
@@ -1147,10 +1165,12 @@ mod tests {
         // Stuff in an overflowing value; it must be neutralized by `* valid as u64`.
         values[2] = u64::MAX;
         let mut out = vec![MaybeUninit::<u32>::uninit(); 130];
-        let res = values.as_slice().try_map_with_mask(&mask, &mut out, |v, valid| {
-            let scaled = v * valid as u64;
-            (scaled <= u32::MAX as u64).then_some(scaled as u32)
-        });
+        let res = values
+            .as_slice()
+            .try_map_with_mask(&mask, &mut out, |v, valid| {
+                let scaled = v * valid as u64;
+                (scaled <= u32::MAX as u64).then_some(scaled as u32)
+            });
         assert!(res.is_ok(), "null lane should bypass the range check");
     }
 
@@ -1161,10 +1181,12 @@ mod tests {
         values[129] = (u32::MAX as u64) + 1;
         let mask = BitBuffer::new_set(130);
         let mut out = vec![MaybeUninit::<u32>::uninit(); 130];
-        let res = values.as_slice().try_map_with_mask(&mask, &mut out, |v, valid| {
-            let scaled = v * valid as u64;
-            (scaled <= u32::MAX as u64).then_some(scaled as u32)
-        });
+        let res = values
+            .as_slice()
+            .try_map_with_mask(&mask, &mut out, |v, valid| {
+                let scaled = v * valid as u64;
+                (scaled <= u32::MAX as u64).then_some(scaled as u32)
+            });
         assert_eq!(res, Err(129));
     }
 
@@ -1178,9 +1200,9 @@ mod tests {
             }
             m.freeze()
         };
-        values.as_mut_slice().map_with_mask_in_place(&mask, |v, valid| {
-            v.wrapping_mul(valid as u32)
-        });
+        values
+            .as_mut_slice()
+            .map_with_mask_in_place(&mask, |v, valid| v.wrapping_mul(valid as u32));
         let expected: Vec<u32> = (0..130u32)
             .map(|v| if v % 2 == 0 { v } else { 0 })
             .collect();
@@ -1191,10 +1213,12 @@ mod tests {
     fn try_map_with_mask_in_place_all_ok() {
         let mut values: Vec<u32> = (0..200).collect();
         let mask = BitBuffer::new_set(200);
-        let res = values.as_mut_slice().try_map_with_mask_in_place(&mask, |v, valid| {
-            let scaled = v.wrapping_mul(valid as u32);
-            scaled.checked_mul(2)
-        });
+        let res = values
+            .as_mut_slice()
+            .try_map_with_mask_in_place(&mask, |v, valid| {
+                let scaled = v.wrapping_mul(valid as u32);
+                scaled.checked_mul(2)
+            });
         assert!(res.is_ok());
         let expected: Vec<u32> = (0..200u32).map(|v| v * 2).collect();
         assert_eq!(values, expected);
@@ -1206,8 +1230,9 @@ mod tests {
         values[83] = u32::MAX;
         values[150] = u32::MAX;
         let mask = BitBuffer::new_set(200);
-        let res =
-            values.as_mut_slice().try_map_with_mask_in_place(&mask, |v, _valid| v.checked_mul(2));
+        let res = values
+            .as_mut_slice()
+            .try_map_with_mask_in_place(&mask, |v, _valid| v.checked_mul(2));
         assert_eq!(res, Err(83));
     }
 
@@ -1217,8 +1242,9 @@ mod tests {
         values[80] = u32::MAX;
         values[100] = u32::MAX;
         let mask = BitBuffer::new_set(200);
-        let res =
-            values.as_mut_slice().try_map_with_mask_in_place(&mask, |v, _valid| v.checked_mul(2));
+        let res = values
+            .as_mut_slice()
+            .try_map_with_mask_in_place(&mask, |v, _valid| v.checked_mul(2));
         assert_eq!(res, Err(80));
     }
 
@@ -1227,8 +1253,9 @@ mod tests {
         let mut values: Vec<u32> = (0..200).collect();
         values[42] = u32::MAX;
         let mask = BitBuffer::new_set(200);
-        let res =
-            values.as_mut_slice().try_map_with_mask_in_place(&mask, |v, _valid| v.checked_mul(2));
+        let res = values
+            .as_mut_slice()
+            .try_map_with_mask_in_place(&mask, |v, _valid| v.checked_mul(2));
         assert_eq!(res, Err(42));
     }
 
@@ -1243,9 +1270,11 @@ mod tests {
             }
             m.freeze()
         };
-        let res = values.as_mut_slice().try_map_with_mask_in_place(&mask, |v, valid| {
-            v.wrapping_mul(valid as u32).checked_mul(2)
-        });
+        let res = values
+            .as_mut_slice()
+            .try_map_with_mask_in_place(&mask, |v, valid| {
+                v.wrapping_mul(valid as u32).checked_mul(2)
+            });
         assert!(res.is_ok());
         assert_eq!(values[5], 0);
         assert_eq!(values[6], 12);
@@ -1256,8 +1285,9 @@ mod tests {
         let mut values: Vec<u32> = (0..130).collect();
         values[129] = u32::MAX;
         let mask = BitBuffer::new_set(130);
-        let res =
-            values.as_mut_slice().try_map_with_mask_in_place(&mask, |v, _valid| v.checked_mul(2));
+        let res = values
+            .as_mut_slice()
+            .try_map_with_mask_in_place(&mask, |v, _valid| v.checked_mul(2));
         assert_eq!(res, Err(129));
     }
 
@@ -1269,8 +1299,9 @@ mod tests {
 
         let mut values: Vec<u32> = (0..130).collect();
         values[77] = u32::MAX;
-        let res =
-            values.as_mut_slice().try_map_with_mask_in_place(&mask, |v, _valid| v.checked_mul(2));
+        let res = values
+            .as_mut_slice()
+            .try_map_with_mask_in_place(&mask, |v, _valid| v.checked_mul(2));
         assert_eq!(res, Err(77));
     }
 
@@ -1297,17 +1328,16 @@ mod tests {
         // Closure fails at a specific lane; the kernel must report that lane index.
         let mut buf: Vec<f32> = (0..200).map(|i| i as f32).collect();
         let mask = BitBuffer::new_set(200);
-        let res =
-            ReinterpretSink::<f32, u32>::new(buf.as_mut_slice()).try_map_with_mask_in_place(
-                &mask,
-                |f, _valid| {
-                    if f as u32 == 137 {
-                        None
-                    } else {
-                        Some(f as u32)
-                    }
-                },
-            );
+        let res = ReinterpretSink::<f32, u32>::new(buf.as_mut_slice()).try_map_with_mask_in_place(
+            &mask,
+            |f, _valid| {
+                if f as u32 == 137 {
+                    None
+                } else {
+                    Some(f as u32)
+                }
+            },
+        );
         assert_eq!(res, Err(137));
     }
 
@@ -1315,7 +1345,9 @@ mod tests {
     fn try_map_with_mask_in_place_partial_chunk_success() {
         let mut values: Vec<u32> = (0..130).collect();
         let mask = BitBuffer::new_set(130);
-        let res = values.as_mut_slice().try_map_with_mask_in_place(&mask, |v, _valid| Some(v + 1));
+        let res = values
+            .as_mut_slice()
+            .try_map_with_mask_in_place(&mask, |v, _valid| Some(v + 1));
         assert!(res.is_ok());
         assert_eq!(values[0], 1);
         assert_eq!(values[63], 64);
