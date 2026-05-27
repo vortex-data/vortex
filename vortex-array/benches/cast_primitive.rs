@@ -20,6 +20,10 @@ fn main() {
 
 const N: usize = 100_000;
 
+// Sizes used for the fallible-path benches below. Kept small enough to fit in L2 so
+// the kernel cost shows up clearly rather than being hidden by DRAM bandwidth.
+const SIZES: &[usize] = &[65_536];
+
 #[divan::bench]
 fn cast_u16_to_u32(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(42);
@@ -39,6 +43,49 @@ fn cast_u16_to_u32(bencher: Bencher) {
             &mut LEGACY_SESSION.create_execution_ctx(),
         )
         .ok();
+    bencher.with_inputs(|| arr.clone()).bench_refs(|a| {
+        #[expect(clippy::unwrap_used)]
+        a.cast(DType::Primitive(PType::U32, Nullability::Nullable))
+            .unwrap()
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+    });
+}
+
+/// Narrowing fallible cast that goes through `try_map_with_mask`. Inputs are bounded
+/// so every value fits, isolating the kernel's per-lane checked-cast overhead.
+#[divan::bench(args = SIZES)]
+fn cast_u32_to_u8(bencher: Bencher, n: usize) {
+    let mut rng = StdRng::seed_from_u64(42);
+    #[expect(clippy::cast_possible_truncation)]
+    let arr = PrimitiveArray::from_option_iter((0..n).map(|_| {
+        if rng.random_bool(0.7) {
+            Some(rng.random_range(0..u8::MAX) as u32)
+        } else {
+            None
+        }
+    }))
+    .into_array();
+    bencher.with_inputs(|| arr.clone()).bench_refs(|a| {
+        #[expect(clippy::unwrap_used)]
+        a.cast(DType::Primitive(PType::U8, Nullability::Nullable))
+            .unwrap()
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+    });
+}
+
+/// Sign-change cast i32 → u32. Values are non-negative so the kernel succeeds
+/// but still pays the per-lane `try_from` check.
+#[divan::bench(args = SIZES)]
+fn cast_i32_to_u32(bencher: Bencher, n: usize) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let arr = PrimitiveArray::from_option_iter((0..n).map(|_| {
+        if rng.random_bool(0.7) {
+            Some(rng.random_range(0..i32::MAX))
+        } else {
+            None
+        }
+    }))
+    .into_array();
     bencher.with_inputs(|| arr.clone()).bench_refs(|a| {
         #[expect(clippy::unwrap_used)]
         a.cast(DType::Primitive(PType::U32, Nullability::Nullable))

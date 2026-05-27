@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use num_traits::AsPrimitive;
 use num_traits::NumCast;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_buffer::try_map_with_mask;
+use vortex_buffer::lane_ops_indexed::try_map_no_validity;
+use vortex_buffer::lane_ops_indexed::try_map_with_mask;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -103,32 +103,28 @@ impl CastKernel for Primitive {
     }
 }
 
-/// Cast values from `F` to `T`. For infallible casts this is a pure pass; for fallible casts
-/// each valid value goes through a checked `NumCast::from` and the kernel bails if any of them
-/// overflow `T`. Invalid positions use the wrapping `as` cast since their values are masked out.
+/// Cast values from `F` to `T`. Always routes through the fallible lane-op kernels with
+/// `NumCast::from`. The kernel branches once on the mask shape:
+///
+/// - `Mask::AllTrue`  → [`try_map_no_validity`] — no per-lane validity work.
+/// - `Mask::AllFalse` → bulk zero — the closure is never invoked.
+/// - `Mask::Values`   → [`try_map_with_mask`] — the closure neutralizes null lanes
+///   via the `* valid as F` multiply trick so out-of-range null-lane values don't
+///   trigger spurious errors.
+///
+/// For statically-infallible casts (e.g. widening) LLVM proves `NumCast::from` always
+/// returns `Some` and strips the fail-tracking machinery, generating the same bare
+/// `ushll` widen loop the old hand-written `as_()` fast path produced.
 fn cast_values<F, T>(
     array: ArrayView<'_, Primitive>,
     new_validity: Validity,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef>
 where
-    F: NativePType + AsPrimitive<T>,
+    F: NativePType,
     T: NativePType,
 {
     let values = array.as_slice::<F>();
-
-    // Fast path: statically infallible, or cached min/max prove every valid value fits in `T`.
-    // The cached check never triggers a stats computation — if the bounds aren't already known
-    // we fall through to the per-lane loop below.
-    if values_always_fit(F::PTYPE, T::PTYPE) || values_fit_in(array, T::PTYPE, ctx, false) {
-        return Ok(PrimitiveArray::new(cast::<F, T>(values), new_validity).into_array());
-    }
-
-    // TODO(joe): if the values source and target have the same bit-width we can
-    // mutate in place.
-
-    // Fallible: invalid lanes are pre-multiplied to zero so the checked cast always succeeds for
-    // them; valid lanes go through `NumCast::from` and the whole cast bails on the first overflow.
     let mask = array.validity()?.execute_mask(array.len(), ctx)?;
     let overflow = || {
         vortex_err!(
@@ -136,13 +132,20 @@ where
             F::PTYPE, T::PTYPE,
         )
     };
+
     let buffer: Buffer<T> = match &mask {
-        Mask::AllTrue(_) => BufferMut::try_from_trusted_len_iter(
-            values
-                .iter()
-                .map(|&v| <T as NumCast>::from(v).ok_or_else(overflow)),
-        )?
-        .freeze(),
+        Mask::AllTrue(_) => {
+            let mut buffer = BufferMut::<T>::with_capacity(values.len());
+            try_map_no_validity(
+                values,
+                &mut buffer.spare_capacity_mut()[..values.len()],
+                |v| <T as NumCast>::from(v),
+            )
+            .map_err(|_| overflow())?;
+            // SAFETY: try_map_no_validity returned Ok, so it initialized every lane.
+            unsafe { buffer.set_len(values.len()) };
+            buffer.freeze()
+        }
         Mask::AllFalse(_) => BufferMut::<T>::zeroed(values.len()).freeze(),
         Mask::Values(m) => {
             let mut buffer = BufferMut::<T>::with_capacity(values.len());
@@ -150,9 +153,15 @@ where
                 values,
                 m.bit_buffer(),
                 &mut buffer.spare_capacity_mut()[..values.len()],
+                // Lazy validity: only consult `valid` on the failure branch. For
+                // widening / statically-infallible casts, `NumCast::from` is always
+                // `Some` so the `or_else` is provably dead — LLVM DCEs the validity
+                // path entirely, giving the same codegen as the maskless kernel.
+                // For narrowing, `valid` is only read at lanes that actually
+                // overflowed (a cold check on top of the cast).
                 |v, valid| {
-                    let factor = if valid { F::one() } else { F::zero() };
-                    <T as NumCast>::from(v * factor)
+                    <T as NumCast>::from(v)
+                        .or_else(|| (!valid).then(T::zero))
                 },
             )
             .map_err(|_| overflow())?;
@@ -163,12 +172,6 @@ where
     };
 
     Ok(PrimitiveArray::new(buffer, new_validity).into_array())
-}
-
-/// Out-of-range values at invalid positions are truncated/wrapped by `as`, which is fine because
-/// they are masked out by validity.
-fn cast<F: NativePType + AsPrimitive<T>, T: NativePType>(array: &[F]) -> Buffer<T> {
-    BufferMut::from_trusted_len_iter(array.iter().map(|&src| src.as_())).freeze()
 }
 
 fn reinterpret(
@@ -186,23 +189,6 @@ fn reinterpret(
         )
     }
     .into_array()
-}
-
-/// Returns `true` if every value of `src` is guaranteed representable in `target` without
-/// overflow. Precision may be lost (e.g. large integers cast to `f32`), but the cast can never
-/// produce an out-of-range result.
-fn values_always_fit(src: PType, target: PType) -> bool {
-    if src == target {
-        return true;
-    }
-    if src.is_int() && target.is_int() {
-        return target.byte_width() > src.byte_width()
-            && (src.is_unsigned_int() || target.is_signed_int());
-    }
-    if src.is_float() && target.is_float() {
-        return target.byte_width() > src.byte_width();
-    }
-    src.is_int() && matches!(target, PType::F32 | PType::F64)
 }
 
 /// Returns `true` if all valid values in `array` are representable as `target_ptype`.
