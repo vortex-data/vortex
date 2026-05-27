@@ -14,6 +14,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
 use vortex_array::expr::stats::Stat;
+use vortex_array::mask::MaskNullAsFalse;
 use vortex_array::scalar_fn::internal::row_count::contains_row_count;
 use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
 use vortex_array::validity::Validity;
@@ -99,12 +100,14 @@ impl ZoneMap {
         let applied = self.array.clone().into_array().apply(predicate)?;
 
         if num_zones == 0 || !contains_row_count(&applied) {
-            return applied.execute::<Mask>(&mut ctx);
+            return Ok(applied.execute::<MaskNullAsFalse>(&mut ctx)?.into_mask());
         }
 
         let row_count_array = row_count_array(self.zone_len, self.row_count, num_zones)?;
         let substituted = substitute_row_count(applied, &row_count_array)?;
-        substituted.execute::<Mask>(&mut ctx)
+        Ok(substituted
+            .execute::<MaskNullAsFalse>(&mut ctx)?
+            .into_mask())
     }
 }
 

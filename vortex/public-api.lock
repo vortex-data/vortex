@@ -112,6 +112,8 @@ pub mod vortex::mask
 
 pub use vortex::mask::<<vortex_mask::*>>
 
+pub use vortex::mask::MaskNullAsFalse
+
 pub mod vortex::metrics
 
 pub use vortex::metrics::<<vortex_metrics::*>>

@@ -14734,6 +14734,20 @@ pub fn vortex_array::scalar_fn::fns::zip::ZipExecuteAdaptor<V>::execute_parent(&
 
 pub mod vortex_array::mask
 
+pub struct vortex_array::mask::MaskNullAsFalse(_)
+
+impl vortex_array::mask::MaskNullAsFalse
+
+pub fn vortex_array::mask::MaskNullAsFalse::into_mask(self) -> vortex_mask::Mask
+
+impl core::convert::From<vortex_array::mask::MaskNullAsFalse> for vortex_mask::Mask
+
+pub fn vortex_mask::Mask::from(vortex_array::mask::MaskNullAsFalse) -> Self
+
+impl vortex_array::Executable for vortex_array::mask::MaskNullAsFalse
+
+pub fn vortex_array::mask::MaskNullAsFalse::execute(vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
+
 pub mod vortex_array::matcher
 
 pub struct vortex_array::matcher::AnyArray
@@ -26325,6 +26339,10 @@ pub fn vortex_array::arrays::VariantArray::execute(vortex_array::ArrayRef, &mut 
 impl vortex_array::Executable for vortex_array::arrays::null::NullArray
 
 pub fn vortex_array::arrays::null::NullArray::execute(vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
+
+impl vortex_array::Executable for vortex_array::mask::MaskNullAsFalse
+
+pub fn vortex_array::mask::MaskNullAsFalse::execute(vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::Executable for vortex_buffer::bit::buf::BitBuffer
 
