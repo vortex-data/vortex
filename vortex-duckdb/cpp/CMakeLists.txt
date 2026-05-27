@@ -3,9 +3,8 @@
 
 # This CMake project is only used for IDE support (CLion, etc.).
 # See build.rs for the actual build definition.
-#
 # Prerequisites: Run `cargo build -p vortex-duckdb` first to download DuckDB
-# source and create the symlink at ../duckdb.
+# source
 #
 # If your editor relies on a compilation database to enable LSP functionality,
 # you can generate it by running `cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON` or
@@ -23,9 +22,8 @@ if (NOT CMAKE_BUILD_TYPE)
 endif()
 
 # Enable compiler warnings (matching build.rs flags).
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Werror")
 
-# Find DuckDB include directory via the symlink created by build.rs.
 # The symlink points to target/duckdb-source-vX.Y.Z which contains duckdb-X.Y.Z/
 file(GLOB DUCKDB_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/../duckdb/duckdb-*")
 if(DUCKDB_DIRS)
@@ -35,11 +33,12 @@ if(DUCKDB_DIRS)
 else()
     message(FATAL_ERROR
         "DuckDB source not found at ../duckdb/duckdb-*\n"
-        "Run 'cargo build -p vortex-duckdb' first to download DuckDB and create the symlink."
+        "Run 'cargo build -p vortex-duckdb' first to download DuckDB"
     )
 endif()
 
-include_directories(include ${DUCKDB_INCLUDE} ../include)
+include_directories(include ../include)
+include_directories(SYSTEM ${DUCKDB_INCLUDE})
 
 # Auto-discover C++ source files
 file(GLOB CPP_SOURCES "*.cpp")

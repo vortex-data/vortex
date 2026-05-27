@@ -375,7 +375,8 @@ use_debug = "deny"
 
 [profile.release]
 codegen-units = 1
-# Turn LTO off, as it breaks when vortex-duckdb-ext is linked.
+# Our general performance should not be dependent on LTO since crates that use
+# Vortex may choose not to have LTO.
 lto = "off"
 
 [profile.release_debug]

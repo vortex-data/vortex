@@ -353,9 +353,11 @@ fn c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
 fn cpp(duckdb_include_dir: &Path) {
     cc::Build::new()
         .std("c++20")
-        .flags(["-Wall", "-Wextra", "-Wpedantic"])
+        .flags(["-Wall", "-Wextra", "-Wpedantic", "-Werror"])
         .cpp(true)
-        .include(duckdb_include_dir)
+        // We don't want compiler warnings inside duckdb headers, pass as flags
+        .flag("-isystem")
+        .flag(duckdb_include_dir)
         .include("include")
         .include("cpp/include")
         .files(SOURCE_FILES)
