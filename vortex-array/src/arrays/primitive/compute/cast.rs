@@ -4,6 +4,7 @@
 use num_traits::NumCast;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_buffer::lane_ops_indexed::map_no_validity;
 use vortex_buffer::lane_ops_indexed::try_map_no_validity;
 use vortex_buffer::lane_ops_indexed::try_map_with_mask;
 use vortex_error::VortexResult;
@@ -125,13 +126,28 @@ where
     T: NativePType,
 {
     let values = array.as_slice::<F>();
-    let mask = array.validity()?.execute_mask(array.len(), ctx)?;
     let overflow = || {
         vortex_err!(
             Compute: "Cannot cast {} to {} — value exceeds target range",
             F::PTYPE, T::PTYPE,
         )
     };
+
+    // If this cast doesn't fail use the unchecked casting variant
+    let target_dtype = DType::Primitive(T::PTYPE, Nullability::NonNullable);
+    if cached_values_fit_in(array, &target_dtype) == Some(true) {
+        let mut buffer = BufferMut::<T>::with_capacity(values.len());
+        map_no_validity(
+            values,
+            &mut buffer.spare_capacity_mut()[..values.len()],
+            v.as_(), // |v| <T as NumCast>::from(v).unwrap_or_default(),
+        );
+        // SAFETY: map_no_validity initializes every lane.
+        unsafe { buffer.set_len(values.len()) };
+        return Ok(PrimitiveArray::new(buffer.freeze(), new_validity).into_array());
+    }
+
+    let mask = array.validity()?.execute_mask(array.len(), ctx)?;
 
     let buffer: Buffer<T> = match &mask {
         Mask::AllTrue(_) => {
@@ -159,10 +175,7 @@ where
                 // path entirely, giving the same codegen as the maskless kernel.
                 // For narrowing, `valid` is only read at lanes that actually
                 // overflowed (a cold check on top of the cast).
-                |v, valid| {
-                    <T as NumCast>::from(v)
-                        .or_else(|| (!valid).then(T::zero))
-                },
+                |v, valid| <T as NumCast>::from(v).or_else(|| (!valid).then(T::zero)),
             )
             .map_err(|_| overflow())?;
             // SAFETY: try_map_with_mask returned Ok, so it initialized every lane.
