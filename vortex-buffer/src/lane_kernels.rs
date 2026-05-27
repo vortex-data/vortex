@@ -16,8 +16,6 @@
 //! Both kernels handle a mask with a non-byte-aligned offset and with a logical `len`
 //! shorter than the underlying byte buffer, via [`BitBuffer::chunks`].
 
-#![allow(clippy::many_single_char_names)]
-
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 use std::mem::align_of;
@@ -273,13 +271,13 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
         {
             let mut fail_bits: u64 = 0;
             for bit_idx in 0..count {
-                let i = base + bit_idx;
+                let idx = base + bit_idx;
                 // SAFETY: caller guarantees base + count <= len.
-                let v = unsafe { values.get_unchecked(i) };
-                let opt = f(v);
+                let val = unsafe { values.get_unchecked(idx) };
+                let opt = f(val);
                 fail_bits |= (opt.is_none() as u64) << bit_idx;
-                let r = opt.unwrap_or_default();
-                unsafe { out.get_unchecked_mut(i).write(r) };
+                let result = opt.unwrap_or_default();
+                unsafe { out.get_unchecked_mut(idx).write(result) };
             }
             let valid_failures = fail_bits & src_chunk;
             (valid_failures != 0).then_some(base + valid_failures.trailing_zeros() as usize)
@@ -338,10 +336,10 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
             F: FnMut(S::Item) -> R,
         {
             for bit_idx in 0..count {
-                let i = base + bit_idx;
+                let idx = base + bit_idx;
                 // SAFETY: caller guarantees base + count <= len.
-                let v = unsafe { values.get_unchecked(i) };
-                unsafe { out.get_unchecked_mut(i).write(f(v)) };
+                let val = unsafe { values.get_unchecked(idx) };
+                unsafe { out.get_unchecked_mut(idx).write(f(val)) };
             }
         }
 
@@ -406,13 +404,13 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
         {
             let mut fail_acc: u64 = 0;
             for bit_idx in 0..count {
-                let i = base + bit_idx;
+                let idx = base + bit_idx;
                 // SAFETY: caller guarantees base + count <= len.
-                let v = unsafe { values.get_unchecked(i) };
-                let opt = f(v);
+                let val = unsafe { values.get_unchecked(idx) };
+                let opt = f(val);
                 fail_acc |= opt.is_none() as u64;
-                let r = opt.unwrap_or_default();
-                unsafe { out.get_unchecked_mut(i).write(r) };
+                let result = opt.unwrap_or_default();
+                unsafe { out.get_unchecked_mut(idx).write(result) };
             }
             fail_acc != 0
         }
@@ -459,11 +457,11 @@ where
     S: IndexedSource,
 {
     for bit_idx in 0..chunk_len {
-        let i = base + bit_idx;
-        // SAFETY: caller guarantees i < values.len().
-        let v = unsafe { values.get_unchecked(i) };
-        if lane_fails(bit_idx, v) {
-            return i;
+        let idx = base + bit_idx;
+        // SAFETY: caller guarantees idx < values.len().
+        let val = unsafe { values.get_unchecked(idx) };
+        if lane_fails(bit_idx, val) {
+            return idx;
         }
     }
     unreachable!("cold_scan called without a failing lane")
@@ -477,7 +475,7 @@ where
     S: IndexedSource,
     F: FnMut(S::Item) -> Option<R>,
 {
-    cold_scan(values, base, chunk_len, |_bit_idx, v| f(v).is_none())
+    cold_scan(values, base, chunk_len, |_bit_idx, val| f(val).is_none())
 }
 
 /// Extension trait providing in-place lane-kernel methods on any [`IndexedSink`].
@@ -509,12 +507,12 @@ pub trait IndexedSinkExt: IndexedSink + Sized {
             F: FnMut(S::Item) -> S::Write,
         {
             for bit_idx in 0..count {
-                let i = base + bit_idx;
+                let idx = base + bit_idx;
                 // SAFETY: caller guarantees base + count <= len.
-                let v = unsafe { values.get_unchecked(i) };
-                let r = f(v);
+                let val = unsafe { values.get_unchecked(idx) };
+                let result = f(val);
                 // SAFETY: caller guarantees base + count <= len.
-                unsafe { values.set_unchecked(i, r) };
+                unsafe { values.set_unchecked(idx, result) };
             }
         }
 
@@ -561,14 +559,14 @@ pub trait IndexedSinkExt: IndexedSink + Sized {
         {
             let mut fail_bits: u64 = 0;
             for bit_idx in 0..count {
-                let i = base + bit_idx;
+                let idx = base + bit_idx;
                 // SAFETY: caller guarantees base + count <= len.
-                let v = unsafe { values.get_unchecked(i) };
-                let opt = f(v);
+                let val = unsafe { values.get_unchecked(idx) };
+                let opt = f(val);
                 fail_bits |= (opt.is_none() as u64) << bit_idx;
-                let r = opt.unwrap_or_default();
+                let result = opt.unwrap_or_default();
                 // SAFETY: caller guarantees base + count <= len.
-                unsafe { values.set_unchecked(i, r) };
+                unsafe { values.set_unchecked(idx, result) };
             }
             (fail_bits != 0).then_some(base + fail_bits.trailing_zeros() as usize)
         }
@@ -628,7 +626,6 @@ pub trait IndexedSinkExt: IndexedSink + Sized {
     ///
     /// Panics if `self.len() != mask.len()`.
     #[inline]
-    #[allow(clippy::cast_possible_truncation)]
     fn try_map_masked_in_place<F>(self, mask: &BitBuffer, mut f: F) -> Result<(), usize>
     where
         Self::Write: Default,
@@ -653,13 +650,13 @@ pub trait IndexedSinkExt: IndexedSink + Sized {
         {
             let mut fail_bits: u64 = 0;
             for bit_idx in 0..count {
-                let i = base + bit_idx;
+                let idx = base + bit_idx;
                 // SAFETY: caller guarantees `base + count <= values.len()`.
-                let v = unsafe { values.get_unchecked(i) };
-                let opt = f(v);
+                let val = unsafe { values.get_unchecked(idx) };
+                let opt = f(val);
                 fail_bits |= (opt.is_none() as u64) << bit_idx;
-                let r = opt.unwrap_or_default();
-                unsafe { values.set_unchecked(i, r) };
+                let result = opt.unwrap_or_default();
+                unsafe { values.set_unchecked(idx, result) };
             }
             let valid_failures = fail_bits & src_chunk;
             (valid_failures != 0).then_some(base + valid_failures.trailing_zeros() as usize)
