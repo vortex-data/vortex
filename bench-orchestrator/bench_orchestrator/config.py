@@ -42,6 +42,7 @@ class Format(Enum):
 class Benchmark(Enum):
     """Available benchmark suites."""
 
+    APPIAN = "appian"
     TPCH = "tpch"
     TPCDS = "tpcds"
     CLICKBENCH = "clickbench"
