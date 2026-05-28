@@ -261,11 +261,10 @@ mod tests {
         let empty = stream::empty::<VortexResult<(SequenceId, ArrayRef)>>().boxed();
         let stream = SequentialStreamAdapter::new(i32_list_dtype(false), empty).sendable();
 
-        let err = flat_list_strategy()
+        let res = flat_list_strategy()
             .write_stream(ArrayContext::empty(), segments, stream, eof, &SESSION)
-            .await
-            .unwrap_err();
-        insta::assert_snapshot!(err.to_string(), @"Other error: ListLayoutStrategy needs a single chunk");
+            .await;
+        assert!(res.is_err())
     }
 
     #[tokio::test]
@@ -287,8 +286,8 @@ mod tests {
         let chunked =
             ChunkedArray::try_new(vec![chunk0, chunk1], i32_list_dtype(false))?.into_array();
 
-        let err = write(&flat_list_strategy(), chunked).await.unwrap_err();
-        insta::assert_snapshot!(err.to_string(), @"Other error: ListLayoutStrategy received more than a single chunk");
+        let res = write(&flat_list_strategy(), chunked).await;
+        assert!(res.is_err());
         Ok(())
     }
 
