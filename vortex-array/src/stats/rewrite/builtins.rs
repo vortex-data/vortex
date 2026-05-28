@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::aggregate_fn::AggregateFnRef;
@@ -13,10 +11,6 @@ use crate::aggregate_fn::EmptyOptions as AggregateEmptyOptions;
 use crate::aggregate_fn::fns::all_non_nan::AllNonNan;
 use crate::aggregate_fn::fns::all_non_null::AllNonNull;
 use crate::aggregate_fn::fns::all_null::AllNull;
-use crate::aggregate_fn::fns::bounded_max::BoundedMax;
-use crate::aggregate_fn::fns::bounded_max::BoundedMaxOptions;
-use crate::aggregate_fn::fns::bounded_min::BoundedMin;
-use crate::aggregate_fn::fns::bounded_min::BoundedMinOptions;
 use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::expr::and;
@@ -56,17 +50,9 @@ use crate::stats::rewrite::StatsRewriteCtx;
 use crate::stats::rewrite::StatsRewriteRule;
 use crate::stats::session::StatsSession;
 
-const DEFAULT_BOUNDED_STAT_MAX_BYTES: usize = 64;
-
-fn default_bounded_stat_max_bytes() -> NonZeroUsize {
-    NonZeroUsize::new(DEFAULT_BOUNDED_STAT_MAX_BYTES)
-        .vortex_expect("default bounded stat max bytes is non-zero")
-}
-
 /// Register built-in stats rewrite rules.
 pub(crate) fn register_builtins(session: &StatsSession) {
     session.register_rewrite(BinaryStatsRewrite);
-    session.register_rewrite(BoundedBinaryStatsRewrite);
     session.register_rewrite(BetweenStatsRewrite);
     session.register_rewrite(IsNullLegacyStatsRewrite);
     session.register_rewrite(IsNullAllNonNullStatsRewrite);
@@ -142,50 +128,6 @@ impl StatsRewriteRule for BinaryStatsRewrite {
                 _ => None,
             },
             Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => None,
-        })
-    }
-}
-
-#[derive(Debug)]
-struct BoundedBinaryStatsRewrite;
-
-impl StatsRewriteRule for BoundedBinaryStatsRewrite {
-    fn scalar_fn_id(&self) -> ScalarFnId {
-        Binary.id()
-    }
-
-    fn falsify(
-        &self,
-        expr: &Expression,
-        ctx: &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<Expression>> {
-        let operator = expr.as_::<Binary>();
-        let lhs = expr.child(0);
-        let rhs = expr.child(1);
-
-        if !supports_bounded_rewrite(&ctx.return_dtype(lhs)?)
-            || !supports_bounded_rewrite(&ctx.return_dtype(rhs)?)
-        {
-            return Ok(None);
-        }
-
-        Ok(match operator {
-            Operator::Eq => {
-                let left = gt(bounded_min(lhs), bounded_max(rhs));
-                let right = gt(bounded_min(rhs), bounded_max(lhs));
-                Some(or(left, right))
-            }
-            Operator::Gt => Some(lt_eq(bounded_max(lhs), bounded_min(rhs))),
-            Operator::Gte => Some(lt(bounded_max(lhs), bounded_min(rhs))),
-            Operator::Lt => Some(gt_eq(bounded_min(lhs), bounded_max(rhs))),
-            Operator::Lte => Some(gt(bounded_min(lhs), bounded_max(rhs))),
-            Operator::NotEq
-            | Operator::And
-            | Operator::Or
-            | Operator::Add
-            | Operator::Sub
-            | Operator::Mul
-            | Operator::Div => None,
         })
     }
 }
@@ -484,40 +426,6 @@ fn max(expr: &Expression) -> Option<Expression> {
     stat_expr(expr, Stat::Max)
 }
 
-fn bounded_min(expr: &Expression) -> Expression {
-    if let Some(literal) = expr.as_opt::<Literal>() {
-        return lit(literal.clone());
-    }
-
-    if let Some(dtype) = expr.as_opt::<Cast>() {
-        return cast(bounded_min(expr.child(0)), dtype.clone());
-    }
-
-    stat_fn(
-        expr.clone(),
-        BoundedMin.bind(BoundedMinOptions {
-            max_bytes: default_bounded_stat_max_bytes(),
-        }),
-    )
-}
-
-fn bounded_max(expr: &Expression) -> Expression {
-    if let Some(literal) = expr.as_opt::<Literal>() {
-        return lit(literal.clone());
-    }
-
-    if let Some(dtype) = expr.as_opt::<Cast>() {
-        return cast(bounded_max(expr.child(0)), dtype.clone());
-    }
-
-    stat_fn(
-        expr.clone(),
-        BoundedMax.bind(BoundedMaxOptions {
-            max_bytes: default_bounded_stat_max_bytes(),
-        }),
-    )
-}
-
 fn null_count(expr: &Expression) -> Option<Expression> {
     stat_expr(expr, Stat::NullCount)
 }
@@ -564,10 +472,6 @@ fn all_non_nan_stat(
 
 fn has_nans(dtype: &DType) -> bool {
     matches!(dtype, DType::Primitive(ptype, _) if ptype.is_float())
-}
-
-fn supports_bounded_rewrite(dtype: &DType) -> bool {
-    matches!(dtype, DType::Binary(_) | DType::Utf8(_))
 }
 
 fn stat_expr(expr: &Expression, stat: Stat) -> Option<Expression> {
@@ -665,8 +569,6 @@ mod tests {
     use super::StatOptions;
     use super::all_non_null;
     use super::all_null;
-    use super::bounded_max;
-    use super::bounded_min;
     use crate::aggregate_fn::AggregateFnRef;
     use crate::aggregate_fn::AggregateFnVTableExt;
     use crate::aggregate_fn::EmptyOptions as AggregateEmptyOptions;
@@ -762,14 +664,8 @@ mod tests {
         assert_eq!(
             falsify(&expr)?,
             Some(or(
-                or(
-                    gt(stat(col("s"), Stat::Min), stat(col("t"), Stat::Max)),
-                    gt(stat(col("t"), Stat::Min), stat(col("s"), Stat::Max)),
-                ),
-                or(
-                    gt(bounded_min(&col("s")), bounded_max(&col("t"))),
-                    gt(bounded_min(&col("t")), bounded_max(&col("s"))),
-                ),
+                gt(stat(col("s"), Stat::Min), stat(col("t"), Stat::Max)),
+                gt(stat(col("t"), Stat::Min), stat(col("s"), Stat::Max)),
             ))
         );
         Ok(())
