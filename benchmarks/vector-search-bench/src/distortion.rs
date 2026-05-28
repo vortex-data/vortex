@@ -3,12 +3,10 @@
 
 //! TurboQuant distortion measurement on real vector datasets.
 //!
-//! Reports per-vector NMSE (`||x - x'||^2 / ||x||^2 = ||unit(x) - unit(x')||^2`) and per-
-//! vector squared cosine-similarity error (`(cos(y_i, x_i) - cos(y_i, x'_i))^2`) against a
-//! set of independently sampled unit-norm probe vectors `y_i`, after a full encode and
-//! decode roundtrip through the [`vortex_tensor::encodings::turboquant`] scheme. This is
-//! the same TurboQuant implementation the search subcommand stores on disk via
-//! [`BtrBlocksCompressorBuilder::with_turboquant`](vortex_btrblocks::BtrBlocksCompressorBuilder).
+//! Reports the normalized mean square error (`||x - x'||^2 / ||x||^2`) and the squared
+//! cosine-similarity error (`(cos(y_i, x_i) - cos(y_i, x'_i))^2`) against a set of independently
+//! sampled unit-norm probe vectors `y_i`, after a full encode and decode roundtrip through the
+//! [`vortex_tensor::encodings::turboquant`] scheme.
 //!
 //! NMSE rather than raw SSE because TurboQuant internally normalizes each input to unit
 //! norm before quantizing (storing `||x||` separately), so the paper's Stage-1 bound
@@ -93,9 +91,9 @@ pub struct DistortionReport {
     pub rounds: u8,
     /// Number of base vectors sampled.
     pub samples: usize,
-    /// Per-vector NMSE, `||x - x'||^2 / ||x||^2`, equal to `||unit(x) - unit(x')||^2`.
+    /// Normalized squared reconstruction error per row, `||x - x'||^2 / ||x||^2`.
     pub reconstruction: DistortionStats,
-    /// Per-vector squared cosine-similarity error against a random unit-norm probe `y_i`,
+    /// Squared cosine-similarity error per row against a random unit-norm probe `y_i`,
     /// `(cos(y_i, x_i) - cos(y_i, x'_i))^2`.
     pub decoded_cosine: DistortionStats,
 }
@@ -201,8 +199,9 @@ fn pairs_per_row(flat: &[f32], num_rows: usize) -> Result<usize> {
     Ok(flat.len() / num_rows)
 }
 
-/// Per-vector NMSE, `||x - x'||^2 / ||x||^2 = ||unit(x) - unit(x')||^2`. Zero-norm rows
-/// report `0.0` (encoder maps zero in to zero out, so the unit-norm residual is `0`).
+/// Normalized squared reconstruction error per row, `||x - x'||^2 / ||x||^2`. Zero-norm
+/// rows are dropped from the sample because NMSE is undefined when `||x|| = 0`, and our
+/// vector datasets are not expected to contain zero vectors.
 fn reconstruction_nmse(
     original: &[f32],
     reconstructed: &[f32],
@@ -210,21 +209,21 @@ fn reconstruction_nmse(
     num_rows: usize,
 ) -> Vec<f32> {
     (0..num_rows)
-        .map(|row| {
+        .filter_map(|row| {
             let start = row * dim;
             let end = start + dim;
             let orig = &original[start..end];
             let recon = &reconstructed[start..end];
             let norm_sq: f32 = orig.iter().map(|&v| v * v).sum();
             if norm_sq == 0.0 {
-                return 0.0;
+                return None;
             }
             let err_sq: f32 = orig
                 .iter()
                 .zip(recon.iter())
                 .map(|(&a, &b)| (a - b) * (a - b))
                 .sum();
-            err_sq / norm_sq
+            Some(err_sq / norm_sq)
         })
         .collect()
 }
@@ -252,6 +251,8 @@ fn random_unit_vectors(num_rows: usize, dim: usize, seed: u64) -> Result<Vec<f32
 }
 
 /// Cosine similarity of two equal-length vectors, returning `0.0` if either has zero norm.
+/// A zero-norm decoded vector represents genuine quantizer failure, so the caller still
+/// gets a defined per-row error that reflects the lost direction.
 fn cosine(a: &[f32], b: &[f32]) -> f32 {
     let dot: f32 = a.iter().zip(b.iter()).map(|(&x, &y)| x * y).sum();
     let norm_a: f32 = a.iter().map(|&v| v * v).sum::<f32>().sqrt();
@@ -261,7 +262,8 @@ fn cosine(a: &[f32], b: &[f32]) -> f32 {
 }
 
 /// Per-row squared cosine-similarity error against probe `y_i`,
-/// `(cos(y_i, x_i) - cos(y_i, x'_i))^2`.
+/// `(cos(y_i, x_i) - cos(y_i, x'_i))^2`. Rows whose original `x_i` has zero norm are
+/// dropped, matching [`reconstruction_nmse`].
 fn squared_cosine_errors(
     original: &[f32],
     reconstructed: &[f32],
@@ -270,14 +272,17 @@ fn squared_cosine_errors(
     num_rows: usize,
 ) -> Vec<f32> {
     (0..num_rows)
-        .map(|row| {
+        .filter_map(|row| {
             let start = row * dim;
             let end = start + dim;
             let xi = &original[start..end];
             let xi_dec = &reconstructed[start..end];
             let yi = &probes[start..end];
+            if xi.iter().map(|&v| v * v).sum::<f32>() == 0.0 {
+                return None;
+            }
             let diff = cosine(yi, xi) - cosine(yi, xi_dec);
-            diff * diff
+            Some(diff * diff)
         })
         .collect()
 }
