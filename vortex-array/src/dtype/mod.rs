@@ -18,6 +18,7 @@ mod f16;
 mod field;
 mod field_mask;
 mod field_names;
+mod macros;
 mod native_dtype;
 mod nullability;
 mod ptype;

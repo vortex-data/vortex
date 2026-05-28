@@ -87,6 +87,37 @@ impl DecimalDType {
             .unwrap_or_else(|e| vortex_panic!(e, "Failed to create DecimalDType"))
     }
 
+    /// `const fn` constructor for a `DecimalDType`.
+    ///
+    /// Enforces the same constraints as [`Self::try_new`] but is usable in `const` contexts
+    /// (e.g. inside `const { ... }` blocks), which means invalid `(precision, scale)` pairs
+    /// are rejected at compile time.
+    ///
+    /// # Panics
+    ///
+    /// Panics (at compile time when called in a `const` context) if `precision` is zero,
+    /// `precision` exceeds [`MAX_PRECISION`], `scale` exceeds [`MAX_SCALE`], or `scale` is
+    /// positive and greater than `precision`.
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "scale > 0 guarantees its value fits in u8"
+    )]
+    pub const fn new_const(precision: u8, scale: i8) -> Self {
+        assert!(precision > 0, "decimal precision must be non-zero");
+        assert!(
+            precision <= MAX_PRECISION,
+            "decimal precision exceeds MAX_PRECISION"
+        );
+        assert!(scale <= MAX_SCALE, "decimal scale exceeds MAX_SCALE");
+        assert!(
+            scale <= 0 || (scale as u8) <= precision,
+            "decimal scale is greater than precision"
+        );
+        // SAFETY: `precision > 0` was asserted above.
+        let precision = unsafe { NonZero::new_unchecked(precision) };
+        Self { precision, scale }
+    }
+
     /// The precision is the number of significant figures that the decimal tracks.
     pub fn precision(&self) -> u8 {
         self.precision.get()
