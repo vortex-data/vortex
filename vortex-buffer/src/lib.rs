@@ -62,7 +62,6 @@ mod buffer_mut;
 mod bytes;
 mod r#const;
 mod debug;
-pub mod lane_kernels;
 mod macros;
 #[cfg(feature = "memmap2")]
 mod memmap2;

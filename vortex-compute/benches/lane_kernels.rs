@@ -8,11 +8,27 @@
 //! fail-tracking scheme:
 //!   - propagates valid-lane overflow as `Err`, and
 //!   - suppresses null-lane overflow without the closure ever inspecting `valid`.
+//!
+//! Each Vortex kernel bench has a sibling `arrow_*` baseline bench using the
+//! equivalent arrow-rs kernel over the same data shape, so the divan report
+//! lines up side-by-side.
 
 #![expect(clippy::unwrap_used)]
+#![expect(clippy::clone_on_ref_ptr)]
 
 use std::mem::MaybeUninit;
+use std::sync::Arc;
 
+use arrow_arith::numeric::add;
+use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_array::Int32Array;
+use arrow_array::UInt16Array;
+use arrow_array::UInt32Array;
+use arrow_array::UInt64Array;
+use arrow_buffer::NullBuffer;
+use arrow_cast::CastOptions;
+use arrow_cast::cast_with_options;
+use arrow_schema::DataType;
 use divan::Bencher;
 use num_traits::AsPrimitive;
 use num_traits::NumCast;
@@ -22,10 +38,10 @@ use rand::rngs::StdRng;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
-use vortex_buffer::lane_kernels::IndexedSinkExt;
-use vortex_buffer::lane_kernels::IndexedSourceExt;
-use vortex_buffer::lane_kernels::LaneZip;
-use vortex_buffer::lane_kernels::ReinterpretSink;
+use vortex_compute::lane_kernels::IndexedSinkExt;
+use vortex_compute::lane_kernels::IndexedSourceExt;
+use vortex_compute::lane_kernels::LaneZip;
+use vortex_compute::lane_kernels::ReinterpretSink;
 
 fn main() {
     assert_overflow_parity();
@@ -46,6 +62,9 @@ struct CastFixture {
     /// in-place-vs-out-of-place cast bench.
     values_i32: Buffer<i32>,
     mask: BitBuffer,
+    /// Validity as a plain `Vec<bool>` — the source of truth used to build both
+    /// the Vortex `BitBuffer` mask and the arrow `NullBuffer`.
+    valid: Vec<bool>,
 }
 
 fn cast_fixture(n: usize) -> CastFixture {
@@ -75,7 +94,8 @@ fn cast_fixture(n: usize) -> CastFixture {
         values_u64: raw_values.into(),
         values_u16,
         values_i32,
-        mask: BitBufferMut::from_iter(raw_valid).freeze(),
+        mask: BitBufferMut::from_iter(raw_valid.iter().copied()).freeze(),
+        valid: raw_valid,
     }
 }
 
@@ -105,6 +125,20 @@ fn try_map_into_narrow_u64_u32(bencher: Bencher, n: usize) {
                 .unwrap();
             out
         });
+}
+
+#[divan::bench(args = SIZES)]
+fn arrow_narrow_u64_u32(bencher: Bencher, n: usize) {
+    let f = cast_fixture(n);
+    let arr: ArrowArrayRef = Arc::new(UInt64Array::from(f.values_u64.as_slice().to_vec()));
+    let opts = CastOptions {
+        safe: false,
+        ..CastOptions::default()
+    };
+
+    bencher
+        .with_inputs(|| arr.clone())
+        .bench_values(|arr| cast_with_options(&arr, &DataType::UInt32, &opts).unwrap());
 }
 
 #[divan::bench(args = SIZES)]
@@ -145,8 +179,21 @@ fn map_with_mask_widen_u16_u32(bencher: Bencher, n: usize) {
         .with_inputs(|| (f.values_u16.clone(), uninit_out::<u32>(n)))
         .bench_values(|(values, mut out)| {
             values.as_slice().map_into(out.as_mut_slice(), |v| v.as_());
-            out
         });
+}
+
+#[divan::bench(args = SIZES)]
+fn arrow_widen_u16_u32(bencher: Bencher, n: usize) {
+    let f = cast_fixture(n);
+    let nulls = NullBuffer::from(f.valid.clone());
+    let arr: ArrowArrayRef = Arc::new(UInt16Array::new(
+        f.values_u16.as_slice().to_vec().into(),
+        Some(nulls),
+    ));
+
+    bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
+        cast_with_options(&arr, &DataType::UInt32, &CastOptions::default()).unwrap()
+    });
 }
 
 // -----------------------------------------------------------------------------
@@ -188,6 +235,24 @@ fn try_map_masked_in_place_narrow_i32_u32(bencher: Bencher, n: usize) {
         });
 }
 
+#[divan::bench(args = SIZES)]
+fn arrow_narrow_i32_u32(bencher: Bencher, n: usize) {
+    let f = cast_fixture(n);
+    let nulls = NullBuffer::from(f.valid.clone());
+    let arr: ArrowArrayRef = Arc::new(Int32Array::new(
+        f.values_i32.as_slice().to_vec().into(),
+        Some(nulls),
+    ));
+    let opts = CastOptions {
+        safe: false,
+        ..CastOptions::default()
+    };
+
+    bencher
+        .with_inputs(|| arr.clone())
+        .bench_values(|arr| cast_with_options(&arr, &DataType::UInt32, &opts).unwrap());
+}
+
 // -----------------------------------------------------------------------------
 // LaneZip binary kernel: checked `u32 + u32 -> u32` over two nullable columns.
 //
@@ -208,6 +273,10 @@ struct AddFixture {
     rhs: Buffer<u32>,
     lhs_mask: BitBuffer,
     rhs_mask: BitBuffer,
+    /// Plain `Vec<bool>` mirrors of the validity masks — used to build the arrow
+    /// `NullBuffer`s for the baseline bench.
+    lhs_valid: Vec<bool>,
+    rhs_valid: Vec<bool>,
 }
 
 fn add_fixture(n: usize) -> AddFixture {
@@ -242,14 +311,16 @@ fn add_fixture(n: usize) -> AddFixture {
         })
         .collect();
 
-    let lhs_mask = BitBufferMut::from_iter(lhs_valid).freeze();
-    let rhs_mask = BitBufferMut::from_iter(rhs_valid).freeze();
+    let lhs_mask = BitBufferMut::from_iter(lhs_valid.iter().copied()).freeze();
+    let rhs_mask = BitBufferMut::from_iter(rhs_valid.iter().copied()).freeze();
 
     AddFixture {
         lhs,
         rhs,
         lhs_mask,
         rhs_mask,
+        lhs_valid,
+        rhs_valid,
     }
 }
 
@@ -273,6 +344,23 @@ fn lanezip_checked_add_u32(bencher: Bencher, n: usize) {
                 .unwrap();
             (combined, out)
         });
+}
+
+#[divan::bench(args = SIZES)]
+fn arrow_checked_add_u32(bencher: Bencher, n: usize) {
+    let f = add_fixture(n);
+    let lhs_arr: ArrowArrayRef = Arc::new(UInt32Array::new(
+        f.lhs.as_slice().to_vec().into(),
+        Some(NullBuffer::from(f.lhs_valid.clone())),
+    ));
+    let rhs_arr: ArrowArrayRef = Arc::new(UInt32Array::new(
+        f.rhs.as_slice().to_vec().into(),
+        Some(NullBuffer::from(f.rhs_valid.clone())),
+    ));
+
+    bencher
+        .with_inputs(|| (lhs_arr.clone(), rhs_arr.clone()))
+        .bench_values(|(lhs, rhs)| add(&lhs, &rhs).unwrap());
 }
 
 // -----------------------------------------------------------------------------
