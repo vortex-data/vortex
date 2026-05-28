@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::any::TypeId;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -20,6 +19,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
+use vortex_session::registry::Id;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::children::LayoutChildren;
@@ -256,27 +256,25 @@ impl LazyReaderChildren {
 
 /// Per-reader-tree dependency context, threaded through [`crate::VTable::new_reader`].
 ///
-/// Holds a typed-data registry keyed by [`TypeId`]. Ancestors publish values via
-/// [`Self::with`]; descendants retrieve them via [`Self::get`]. This is a *read-only*
-/// channel from the ancestor's perspective — descendants can only consume what their
-/// ancestors chose to publish,
+/// Holds an [`Id`]-keyed registry of `Arc<dyn Any>` values. Ancestors publish via
+/// [`Self::with`]; descendants retrieve via [`Self::get`]. This is a *read-only* channel
+/// from the descendant's perspective — they can only consume what an ancestor chose to
+/// publish.
 ///
-/// [`Self::with`] returns a derived context that copies the existing map and adds (or
-/// replaces) one entry. The original is unchanged, allowing concurrent reader-tree
-/// constructions to each derive their own context without races. When the same `T` is
-/// published at multiple ancestors, the innermost (most-recently-published) wins.
 ///
-/// Contexts are cheap to clone (shared via `Arc`), so they can be captured by lazy
-/// children helpers and survive any single stack frame.
+/// [`Self::with`] returns a derived context that copies the existing map and inserts or
+/// replaces one entry — original unchanged, so concurrent reader-tree constructions each
+/// derive their own context without races. Contexts are cheap to clone via internal `Arc`
+/// and can be captured by lazy children helpers.
 #[derive(Clone, Default)]
 pub struct LayoutReaderContext {
-    values: Arc<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
+    values: Arc<HashMap<Id, Arc<dyn Any + Send + Sync>>>,
 }
 
 impl std::fmt::Debug for LayoutReaderContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LayoutReaderContext")
-            .field("type_ids", &self.values.keys().collect::<Vec<_>>())
+            .field("ids", &self.values.keys().collect::<Vec<_>>())
             .finish()
     }
 }
@@ -287,23 +285,24 @@ impl LayoutReaderContext {
         Self::default()
     }
 
-    /// Returns a new context that publishes `value` under its concrete type.
+    /// Returns a new context that publishes `value` under `id`.
     ///
-    /// The original context is unchanged. If a value of the same type was already
-    /// published, the new one replaces it in the returned context.
-    pub fn with<T: Any + Send + Sync>(&self, value: Arc<T>) -> Self {
+    /// The original context is unchanged. If a value was already published under the
+    /// same `id`, the new one replaces it in the returned context — so two ancestors
+    /// using the same well-known static id give descendants "nearest ancestor wins".
+    pub fn with<T: Any + Send + Sync>(&self, id: Id, value: Arc<T>) -> Self {
         let mut values = HashMap::clone(&self.values);
-        values.insert(TypeId::of::<T>(), value);
+        values.insert(id, value);
         Self {
             values: Arc::new(values),
         }
     }
 
-    /// Returns the most-recently-published value of type `T`, or `None` if no ancestor
-    /// published one.
-    pub fn get<T: Any + Send + Sync>(&self) -> Option<Arc<T>> {
+    /// Returns the value published under `id`, downcast to `T`. Returns `None` if no
+    /// ancestor published under that id, or if the published value is not a `T`.
+    pub fn get<T: Any + Send + Sync>(&self, id: Id) -> Option<Arc<T>> {
         self.values
-            .get(&TypeId::of::<T>())
+            .get(&id)
             .and_then(|v| Arc::clone(v).downcast::<T>().ok())
     }
 }

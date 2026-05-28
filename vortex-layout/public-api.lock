@@ -1708,11 +1708,11 @@ pub struct vortex_layout::LayoutReaderContext
 
 impl vortex_layout::LayoutReaderContext
 
-pub fn vortex_layout::LayoutReaderContext::get<T: core::any::Any + core::marker::Send + core::marker::Sync>(&self) -> core::option::Option<alloc::sync::Arc<T>>
+pub fn vortex_layout::LayoutReaderContext::get<T: core::any::Any + core::marker::Send + core::marker::Sync>(&self, vortex_session::registry::Id) -> core::option::Option<alloc::sync::Arc<T>>
 
 pub fn vortex_layout::LayoutReaderContext::new() -> Self
 
-pub fn vortex_layout::LayoutReaderContext::with<T: core::any::Any + core::marker::Send + core::marker::Sync>(&self, alloc::sync::Arc<T>) -> Self
+pub fn vortex_layout::LayoutReaderContext::with<T: core::any::Any + core::marker::Send + core::marker::Sync>(&self, vortex_session::registry::Id, alloc::sync::Arc<T>) -> Self
 
 impl core::clone::Clone for vortex_layout::LayoutReaderContext
 
