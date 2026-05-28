@@ -7,12 +7,15 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::try_join;
+use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ListArray;
+use vortex_array::arrays::Primitive;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
@@ -21,6 +24,7 @@ use vortex_array::expr::Expression;
 use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::validity::Validity;
+use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -136,6 +140,119 @@ fn create_validity(validity_array: Option<ArrayRef>, nullability: Nullability) -
     }
 }
 
+/// Plan for fetching only the elements needed to materialize the kept list rows under a sparse
+/// row mask, plus the offsets array we'll hand to `ListArray::try_new` for those kept rows.
+///
+/// When the row mask is sparse, the alternative (read full row_range, build full list, then
+/// `array.filter(mask)`) wastes IO on elements that get thrown away. This plan tells the reader:
+///
+/// - which contiguous span of the elements buffer to fetch (`elements_range`),
+/// - which positions inside that span belong to a kept row (`element_mask`),
+/// - the offsets for the kept-row output, rebased to start at zero (`new_offsets`).
+struct ScatterGather {
+    /// Tightest absolute elements range covering all kept rows. Empty range when no rows kept.
+    elements_range: Range<u64>,
+    /// `element_mask.len() == elements_range.end - elements_range.start`. A bit is set iff its
+    /// position in the elements buffer belongs to a kept list row.
+    element_mask: Mask,
+    /// Cumulative kept-list lengths starting at zero. `new_offsets.len() == kept_count + 1`.
+    new_offsets: ArrayRef,
+    /// Number of true bits in the input row mask. Read by unit tests only.
+    #[cfg_attr(not(test), allow(dead_code))]
+    kept_count: usize,
+}
+
+/// Walk the row mask and the (canonicalized) offsets to plan the elements fetch + output offsets
+/// for the sparse-mask path of `projection_evaluation`. Single linear pass; no IO.
+///
+/// `offsets` is the offsets array we fetched for the full `row_range` (length n+1). `mask` is
+/// the row-space mask (length n). Returns a plan suitable for handing the elements child a
+/// bounded range + element-level mask, then constructing a kept-only `ListArray`.
+// `usize::try_from` / `u64::try_from` are required by the macro arms whose `O` may be `u64` /
+// `i64` (potentially fallible on 32-bit targets) but also expand to arms where `O` is `u8`,
+// `u16`, etc. (where the conversion is trivially infallible). Suppress the resulting
+// `unnecessary_fallible_conversions` lint from the latter arms — the uniform fallible form
+// keeps the inner body identical across all expansions.
+#[allow(clippy::unnecessary_fallible_conversions)]
+fn compute_scatter_gather(
+    offsets: &ArrayRef,
+    mask: &Mask,
+    session: &VortexSession,
+) -> VortexResult<ScatterGather> {
+    let kept_count = mask.true_count();
+    let mut exec_ctx = session.create_execution_ctx();
+    let prim_offsets = offsets.clone().execute::<PrimitiveArray>(&mut exec_ctx)?;
+    let ptype = prim_offsets.ptype();
+
+    if kept_count == 0 {
+        // Empty result: no elements to fetch, new_offsets is a single zero.
+        let new_offsets = vortex_array::match_each_integer_ptype!(ptype, |O| {
+            Array::<Primitive>::new::<O>(
+                Buffer::<O>::from(vec![O::default()]),
+                Validity::NonNullable,
+            )
+            .into_array()
+        });
+        return Ok(ScatterGather {
+            elements_range: 0..0,
+            element_mask: Mask::new_false(0),
+            new_offsets,
+            kept_count: 0,
+        });
+    }
+
+    // Within each macro arm, `O` is a concrete primitive integer type. Offsets are non-negative
+    // by construction; we materialize spans in `usize` so the element-mask construction is
+    // straightforward.
+    vortex_array::match_each_integer_ptype!(ptype, |O| {
+        let off = prim_offsets.as_slice::<O>();
+
+        let mut spans: Vec<(usize, usize)> = Vec::with_capacity(kept_count);
+        let mut new_off: Vec<O> = Vec::with_capacity(kept_count + 1);
+        new_off.push(O::default());
+        let mut cumulative: O = O::default();
+
+        // `mask.indices()` returns the set bit positions for `Values` masks; `AllTrue` is rare
+        // here (caller checks density) but we handle it via fallback iteration.
+        let indices_owned: Vec<usize> = match mask.indices() {
+            vortex_mask::AllOr::All => (0..mask.len()).collect(),
+            vortex_mask::AllOr::None => Vec::new(),
+            vortex_mask::AllOr::Some(idxs) => idxs.to_vec(),
+        };
+        for &i in &indices_owned {
+            let s = off[i];
+            let e = off[i + 1];
+            spans.push((usize::try_from(s)?, usize::try_from(e)?));
+            cumulative += e - s;
+            new_off.push(cumulative);
+        }
+
+        let range_start = spans[0].0;
+        let range_end = spans[spans.len() - 1].1;
+
+        // Element-level mask: same length as the bounded elements range, true bits at positions
+        // that lie inside any kept span. `Mask::from_slices` rejects zero-width spans, so drop
+        // empty-list rows here.
+        let element_slices: Vec<(usize, usize)> = spans
+            .iter()
+            .filter(|(s, e)| s < e)
+            .map(|(s, e)| (s - range_start, e - range_start))
+            .collect();
+        let element_mask = Mask::from_slices(range_end - range_start, element_slices);
+
+        let new_offsets =
+            Array::<Primitive>::new::<O>(Buffer::<O>::from(new_off), Validity::NonNullable)
+                .into_array();
+
+        Ok(ScatterGather {
+            elements_range: u64::try_from(range_start)?..u64::try_from(range_end)?,
+            element_mask,
+            new_offsets,
+            kept_count,
+        })
+    })
+}
+
 impl LayoutReader for ListReader {
     fn name(&self) -> &Arc<str> {
         &self.name
@@ -193,66 +310,86 @@ impl LayoutReader for ListReader {
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         let offsets_fut = self.fetch_offsets(row_range)?;
-        // Read validity at full `row_range` length (all-true mask), not the caller's mask.
-        // The three children (validity, offsets, elements) must produce compositionally
-        // consistent outputs that `ListArray::try_new` can assemble. A list-row mask cannot
-        // be pushed down independently to each child — filtering validity to `popcount(mask)`
-        // rows would mismatch full-length offsets/elements, breaking the resulting array. The
-        // final `array.filter(mask)` below applies the mask via list-aware filter semantics
-        // (re-derives offsets, concatenates kept elements).
-        let validity_row_count = usize::try_from(row_range.end - row_range.start)?;
-        let validity_fut = self
-            .validity
-            .as_ref()
-            .map(|v| {
-                v.projection_evaluation(row_range, &root(), MaskFuture::new_true(validity_row_count))
-            })
-            .transpose()?;
 
         let elements_reader = Arc::clone(&self.elements);
+        let validity_reader = self.validity.clone();
         let session = self.session.clone();
         let nullability = self.layout.dtype().nullability();
         let expr = expr.clone();
+        let row_range = row_range.clone();
 
         Ok(async move {
-            // Fetch offsets and validity in parallel. Elements waits until we know
-            // exactly which slice of the elements buffer it actually needs.
-            let (offsets, validity_array) = try_join!(offsets_fut, async move {
-                match validity_fut {
-                    Some(fut) => fut.await.map(Some),
-                    None => Ok(None),
-                }
-            },)?;
+            // Resolve offsets and the caller's mask in parallel. We need both before we can
+            // decide between the two paths below.
+            let (offsets, mask) = try_join!(offsets_fut, mask)?;
 
-            // Bound the elements read using offsets[0] and offsets[-1]
-            let elements_range = calculate_elements_range(&offsets, &session)?;
+            // Path A: all-true mask — fetch the full bounded elements range, build a ListArray
+            // covering the entire row_range. The three children must be compositionally
+            // consistent here, so validity is read at full `row_range` length with an all-true
+            // mask too.
+            //
+            // Path B: sparse mask — scatter-gather. Bound the elements fetch to the tightest
+            // range covering the kept rows and pass an element-level mask so the elements child
+            // only materializes positions belonging to a kept row. Validity is fetched at
+            // `kept_count` length by pushing the caller mask down directly.
+            if mask.all_true() {
+                let elements_range = calculate_elements_range(&offsets, &session)?;
+                let rebased_offsets = rebase_offsets(offsets, elements_range.start)?;
+                let elements_len = elements_range.end - elements_range.start;
+                let validity_row_count = usize::try_from(row_range.end - row_range.start)?;
 
-            // Rebase the offsets so they start at zero
-            let rebased_offsets = rebase_offsets(offsets, elements_range.start)?;
-
-            // Fetch only the elements we actually need.
-            let elements_len = elements_range.end - elements_range.start;
-            let elements = elements_reader
-                .projection_evaluation(
+                let validity_fut = validity_reader
+                    .as_ref()
+                    .map(|v| {
+                        v.projection_evaluation(
+                            &row_range,
+                            &root(),
+                            MaskFuture::new_true(validity_row_count),
+                        )
+                    })
+                    .transpose()?;
+                let elements_fut = elements_reader.projection_evaluation(
                     &elements_range,
                     &root(),
                     MaskFuture::new_true(usize::try_from(elements_len)?),
-                )?
-                .await?;
+                )?;
 
-            // Create ListArray
-            let validity = create_validity(validity_array, nullability);
-            let array = ListArray::try_new(elements, rebased_offsets, validity)?.into_array();
+                let (elements, validity_array) = try_join!(elements_fut, async move {
+                    match validity_fut {
+                        Some(fut) => fut.await.map(Some),
+                        None => Ok(None),
+                    }
+                })?;
 
-            // Apply mask and expression
-            let mask = mask.await?;
-            let array = if !mask.all_true() {
-                array.filter(mask)?
+                let validity = create_validity(validity_array, nullability);
+                let array = ListArray::try_new(elements, rebased_offsets, validity)?.into_array();
+                array.apply(&expr)
             } else {
-                array
-            };
+                let sg = compute_scatter_gather(&offsets, &mask, &session)?;
 
-            array.apply(&expr)
+                let validity_fut = validity_reader
+                    .as_ref()
+                    .map(|v| {
+                        v.projection_evaluation(&row_range, &root(), MaskFuture::ready(mask))
+                    })
+                    .transpose()?;
+                let elements_fut = elements_reader.projection_evaluation(
+                    &sg.elements_range,
+                    &root(),
+                    MaskFuture::ready(sg.element_mask),
+                )?;
+
+                let (elements, validity_array) = try_join!(elements_fut, async move {
+                    match validity_fut {
+                        Some(fut) => fut.await.map(Some),
+                        None => Ok(None),
+                    }
+                })?;
+
+                let validity = create_validity(validity_array, nullability);
+                let array = ListArray::try_new(elements, sg.new_offsets, validity)?.into_array();
+                array.apply(&expr)
+            }
         }
         .boxed())
     }
@@ -343,6 +480,131 @@ mod tests {
         Ok(())
     }
 
+    // ---- compute_scatter_gather --------------------------------------------------------------
+
+    /// Run `compute_scatter_gather` and unwrap the three derived fields plus the kept count.
+    /// Returns the raw `new_offsets` ArrayRef so callers with non-u32 offsets can materialize
+    /// the ptype themselves.
+    fn run_scatter_gather(
+        offsets: ArrayRef,
+        mask: Mask,
+    ) -> VortexResult<(Range<u64>, Vec<bool>, ArrayRef, usize)> {
+        let sg = compute_scatter_gather(&offsets, &mask, &SESSION)?;
+        let element_mask_bits: Vec<bool> = (0..sg.element_mask.len())
+            .map(|i| sg.element_mask.value(i))
+            .collect();
+        Ok((
+            sg.elements_range,
+            element_mask_bits,
+            sg.new_offsets,
+            sg.kept_count,
+        ))
+    }
+
+    /// Source layout for these tests: 5 lists with offsets `[0, 2, 5, 5, 8, 10]`, i.e.
+    /// lengths `[2, 3, 0, 3, 2]`. Element positions for list i are `offsets[i]..offsets[i+1]`.
+    fn five_list_offsets() -> ArrayRef {
+        buffer![0u32, 2, 5, 5, 8, 10].into_array()
+    }
+
+    #[test]
+    fn scatter_gather_single_middle_row() -> VortexResult<()> {
+        // Keep only list 1 (positions 2..5).
+        let mask = Mask::from_iter([false, true, false, false, false]);
+        let (range, elem_mask, new_off, kept) = run_scatter_gather(five_list_offsets(), mask)?;
+        assert_eq!(range, 2..5);
+        assert_eq!(elem_mask, vec![true; 3]); // entire bounded range is the kept span
+        assert_eq!(materialize_u32_array(new_off), vec![0, 3]);
+        assert_eq!(kept, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn scatter_gather_two_adjacent_rows() -> VortexResult<()> {
+        // Keep lists 1 and 2 (positions 2..5 and 5..5 — second is empty).
+        let mask = Mask::from_iter([false, true, true, false, false]);
+        let (range, elem_mask, new_off, kept) = run_scatter_gather(five_list_offsets(), mask)?;
+        assert_eq!(range, 2..5);
+        assert_eq!(elem_mask, vec![true; 3]);
+        assert_eq!(materialize_u32_array(new_off), vec![0, 3, 3]); // second kept row has length 0
+        assert_eq!(kept, 2);
+        Ok(())
+    }
+
+    #[test]
+    fn scatter_gather_two_far_apart_rows() -> VortexResult<()> {
+        // Keep lists 0 and 3 (positions 0..2 and 5..8). Element mask must skip position 2..5.
+        let mask = Mask::from_iter([true, false, false, true, false]);
+        let (range, elem_mask, new_off, kept) = run_scatter_gather(five_list_offsets(), mask)?;
+        assert_eq!(range, 0..8);
+        // positions 0..2 and 5..8 set, 2..5 unset.
+        assert_eq!(
+            elem_mask,
+            vec![true, true, false, false, false, true, true, true]
+        );
+        assert_eq!(materialize_u32_array(new_off), vec![0, 2, 5]); // lengths 2 and 3
+        assert_eq!(kept, 2);
+        Ok(())
+    }
+
+    #[test]
+    fn scatter_gather_at_boundaries() -> VortexResult<()> {
+        // Keep first and last list (positions 0..2 and 8..10).
+        let mask = Mask::from_iter([true, false, false, false, true]);
+        let (range, elem_mask, new_off, kept) = run_scatter_gather(five_list_offsets(), mask)?;
+        assert_eq!(range, 0..10);
+        let mut expected = vec![false; 10];
+        expected[0] = true;
+        expected[1] = true;
+        expected[8] = true;
+        expected[9] = true;
+        assert_eq!(elem_mask, expected);
+        assert_eq!(materialize_u32_array(new_off), vec![0, 2, 4]);
+        assert_eq!(kept, 2);
+        Ok(())
+    }
+
+    #[test]
+    fn scatter_gather_empty_mask_returns_empty_plan() -> VortexResult<()> {
+        let mask = Mask::new_false(5);
+        let (range, elem_mask, new_off, kept) = run_scatter_gather(five_list_offsets(), mask)?;
+        assert_eq!(range, 0..0);
+        assert!(elem_mask.is_empty());
+        // single zero, ready to be a 0-row ListArray's offsets (offsets.len() - 1 == 0 rows)
+        assert_eq!(materialize_u32_array(new_off), vec![0]);
+        assert_eq!(kept, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn scatter_gather_kept_row_is_empty_list() -> VortexResult<()> {
+        // Keep only list 2, which has length 0 (offsets[2] == offsets[3] == 5).
+        let mask = Mask::from_iter([false, false, true, false, false]);
+        let (range, elem_mask, new_off, kept) = run_scatter_gather(five_list_offsets(), mask)?;
+        assert_eq!(range, 5..5);
+        assert!(elem_mask.is_empty());
+        assert_eq!(materialize_u32_array(new_off), vec![0, 0]);
+        assert_eq!(kept, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn scatter_gather_u64_offsets() -> VortexResult<()> {
+        // Verify the ptype-dispatch path works for u64 offsets, not just u32.
+        let offsets = buffer![0u64, 3, 7, 7, 12].into_array();
+        let mask = Mask::from_iter([false, true, false, true]);
+        let (range, elem_mask, new_off, kept) = run_scatter_gather(offsets, mask)?;
+        assert_eq!(range, 3..12);
+        // positions 3..7 (4 bits) and 7..12 (5 bits) — middle "gap" at 7..7 is zero-width.
+        assert_eq!(elem_mask, vec![true; 9]);
+        // Walk the new_offsets slice as u64.
+        let mut ctx = SESSION.create_execution_ctx();
+        let new_off_prim = new_off.execute::<PrimitiveArray>(&mut ctx)?;
+        assert_eq!(new_off_prim.as_slice::<u64>(), &[0u64, 4, 9]);
+        assert_eq!(kept, 2);
+        Ok(())
+    }
+
     fn create_basic_list_array(nullable: bool) -> ArrayRef {
         let validity = if nullable {
             Validity::Array(BoolArray::from_iter([true, false, true]).into_array())
@@ -413,6 +675,53 @@ mod tests {
         let mask = Mask::from_iter([true, false, true]);
         let result = reader
             .projection_evaluation(&(0..3), &root(), MaskFuture::ready(mask.clone()))?
+            .await?;
+
+        let expected = list.filter(mask)?;
+        assert_arrays_eq!(result, expected);
+        Ok(())
+    }
+
+    /// Build a list with 5 rows and lengths [2, 3, 0, 3, 2]. Mirrors `five_list_offsets()`.
+    fn create_wider_list_array(nullable: bool) -> ArrayRef {
+        let validity = if nullable {
+            Validity::Array(BoolArray::from_iter([true, true, false, true, true]).into_array())
+        } else {
+            Validity::NonNullable
+        };
+        ListArray::try_new(
+            buffer![10i32, 11, 20, 21, 22, 30, 31, 32, 40, 41].into_array(),
+            buffer![0u32, 2, 5, 5, 8, 10].into_array(),
+            validity,
+        )
+        .expect("array is valid")
+        .into_array()
+    }
+
+    #[rstest]
+    // Single bit set far from start — exercises sparse path with tight elements range.
+    #[case::single_middle(Mask::from_iter([false, false, false, true, false]), false)]
+    // Two far-apart rows — element_mask has a gap between kept spans.
+    #[case::two_far_apart(Mask::from_iter([true, false, false, true, false]), false)]
+    // Boundary rows — first and last list.
+    #[case::boundaries(Mask::from_iter([true, false, false, false, true]), false)]
+    // Kept row is the empty list (zero-width span).
+    #[case::kept_empty_row(Mask::from_iter([false, false, true, false, false]), false)]
+    // Sparse with nullable elements/validity child — exercises validity push-down.
+    #[case::sparse_nullable(Mask::from_iter([true, false, true, false, true]), true)]
+    // No rows kept — degenerate empty output.
+    #[case::all_false(Mask::new_false(5), false)]
+    #[tokio::test]
+    async fn projection_evaluation_sparse_mask_round_trips(
+        #[case] mask: Mask,
+        #[case] nullable: bool,
+    ) -> VortexResult<()> {
+        let list = create_wider_list_array(nullable);
+        let (segments, layout) = write_layout(&flat_list_strategy(), list.clone()).await?;
+        let reader = layout.new_reader("".into(), segments, &SESSION)?;
+
+        let result = reader
+            .projection_evaluation(&(0..5), &root(), MaskFuture::ready(mask.clone()))?
             .await?;
 
         let expected = list.filter(mask)?;
