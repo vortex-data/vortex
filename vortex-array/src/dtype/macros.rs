@@ -343,4 +343,40 @@ mod tests {
         let ext: ExtDTypeRef = Date::new(TimeUnit::Days, NonNullable).erased();
         assert_eq!(dtype!(extension(ext.clone())), DType::Extension(ext));
     }
+
+    #[test]
+    fn deeply_nested_collections() {
+        // Nullable list of FSL[8] of nullable list of nullable decimal(18, 4).
+        let expected = DType::List(
+            Arc::new(DType::FixedSizeList(
+                Arc::new(DType::List(
+                    Arc::new(DType::Decimal(DecimalDType::new(18, 4), Nullable)),
+                    Nullable,
+                )),
+                8,
+                NonNullable,
+            )),
+            Nullable,
+        );
+        assert_eq!(
+            dtype!(list(fixed_size_list(list(decimal(18, 4)?)?)[8])?),
+            expected,
+        );
+    }
+
+    #[test]
+    fn schema_like_struct() {
+        // Mixed-type struct with each field built by the macro, including a nested
+        // struct field whose inner StructFields is itself constructed via dtype!.
+        let inner = StructFields::from_iter([("mean", dtype!(f64?)), ("count", dtype!(u32))]);
+        let outer = StructFields::from_iter([
+            ("id", dtype!(i64)),
+            ("label", dtype!(utf8?)),
+            ("values", dtype!(list(f32)?)),
+            ("codes", dtype!(fixed_size_list(u8?)[4])),
+            ("metrics", dtype!(struct(inner)?)),
+        ]);
+        let dt = dtype!(struct(outer.clone())?);
+        assert_eq!(dt, DType::Struct(outer, Nullable));
+    }
 }
