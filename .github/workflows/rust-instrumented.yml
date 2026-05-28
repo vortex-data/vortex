@@ -53,7 +53,10 @@ jobs:
           cargo nextest run --locked --workspace --all-features --no-fail-fast
       - name: Generate coverage report
         run: |
+          set -euo pipefail
+          LLVM_TOOLS_BIN="$(dirname "$(rustup which llvm-profdata)")"
           grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
+            --llvm-path "${LLVM_TOOLS_BIN}" \
             --threads $(nproc) \
             --ignore '../*' --ignore '/*' --ignore 'fuzz/*' --ignore 'vortex-bench/*' \
             --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*' --ignore 'vortex-error/*' \
@@ -62,6 +65,7 @@ jobs:
             --ignore 'vortex-ffi/examples/*' --ignore '*/arbitrary/*' --ignore '*/arbitrary.rs' --ignore 'vortex-cxx/*' \
             --ignore benchmarks/* --ignore 'vortex-test/*' \
             -o ${{ env.GRCOV_OUTPUT_FILE }}
+          test -s ${{ env.GRCOV_OUTPUT_FILE }}
       - name: Codecov
         uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354  # v6
         with:
