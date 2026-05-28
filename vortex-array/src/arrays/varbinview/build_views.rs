@@ -9,6 +9,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 
 pub use crate::arrays::varbinview::BinaryView;
+use crate::arrays::varbinview::Ref;
 use crate::dtype::NativePType;
 
 /// Convert an offsets buffer to a buffer of element lengths.
@@ -32,6 +33,43 @@ pub fn build_views<P: NativePType + AsPrimitive<usize>>(
     lens: &[P],
 ) -> (Vec<ByteBuffer>, Buffer<BinaryView>) {
     let mut views = BufferMut::<BinaryView>::with_capacity(lens.len());
+
+    // Common case: the whole decoded heap fits within a single buffer, so no rollover can occur
+    // (`bytes.len()` is the total decoded size and therefore an upper bound on every offset). This
+    // lets the hot loop drop the per-element rollover branch and construct reference views inline,
+    // avoiding the out-of-line `BinaryView::make_view` call for the common long-string case.
+    if bytes.len() <= max_buffer_len {
+        let data = bytes.as_slice();
+        let mut offset = 0usize;
+        for &len in lens {
+            let len = len.as_();
+            let value = &data[offset..offset + len];
+            let view = if len > BinaryView::MAX_INLINED_SIZE {
+                let mut prefix = [0u8; 4];
+                prefix.copy_from_slice(&value[..4]);
+                BinaryView {
+                    _ref: Ref {
+                        size: len.as_(),
+                        prefix,
+                        buffer_index: start_buf_index,
+                        offset: offset.as_(),
+                    },
+                }
+            } else {
+                BinaryView::make_view(value, start_buf_index, offset.as_())
+            };
+            // SAFETY: we reserved capacity for exactly `lens.len()` views above.
+            unsafe { views.push_unchecked(view) };
+            offset += len;
+        }
+
+        let buffers = if bytes.is_empty() {
+            Vec::new()
+        } else {
+            vec![bytes.freeze()]
+        };
+        return (buffers, views.freeze());
+    }
 
     let mut buffers = Vec::new();
     let mut buf_index = start_buf_index;
