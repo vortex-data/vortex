@@ -10,12 +10,15 @@ use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::List;
+use vortex_array::arrays::ListView;
 use vortex_array::arrays::list::ListDataParts;
 use vortex_array::arrays::listview::list_from_list_view;
 use vortex_array::dtype::DType;
+use vortex_array::matcher::Matcher;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_panic;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 
@@ -87,14 +90,23 @@ impl LayoutStrategy for ListLayoutStrategy {
         };
         let (sequence_id, array) = chunk?;
 
-        // Canonicalize to ListView, then rebuild into zctl
+        // Run the execution loop until we have a List or ListView; skip work when the input is
+        // already in one of those forms. If the input is already a ListArray we extract its
+        // parts directly; if it's a ListViewArray we rebuild via `list_from_list_view`.
         let mut exec_ctx = session.create_execution_ctx();
+        let canonical = array.execute_until::<AnyList>(&mut exec_ctx)?;
         let ListDataParts {
             elements,
             offsets,
             validity,
             ..
-        } = list_from_list_view(array.execute::<ListViewArray>(&mut exec_ctx)?)?.into_data_parts();
+        } = if let Some(list) = canonical.as_opt::<List>() {
+            list.into_owned().into_data_parts()
+        } else if let Some(view) = canonical.as_opt::<ListView>() {
+            list_from_list_view(view.into_owned())?.into_data_parts()
+        } else {
+            unreachable!("AnyList matcher guarantees List or ListView");
+        };
 
         // There is one extra element in `offsets`
         let row_count = offsets.len().saturating_sub(1);
@@ -165,6 +177,19 @@ fn single_chunk_stream(
         stream::once(async move { Ok((sequence_id, array)) }).boxed(),
     )
     .sendable()
+}
+
+/// Matcher for `Array<List>` or `Array<ListView>`. Used to short-circuit the execution loop
+/// when the input is already in (or directly produces) a list form, avoiding a redundant
+/// `ListView` round-trip when the writer already has the parts it needs.
+struct AnyList;
+
+impl Matcher for AnyList {
+    type Match<'a> = ();
+
+    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
+        (array.as_opt::<List>().is_some() || array.as_opt::<ListView>().is_some()).then_some(())
+    }
 }
 
 #[cfg(test)]
