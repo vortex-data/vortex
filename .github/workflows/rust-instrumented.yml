@@ -47,14 +47,33 @@ jobs:
           sccache: s3
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - uses: ./.github/actions/setup-prebuild
+      - name: Ensure llvm-tools are installed
+        run: |
+          rustup component add llvm-tools || \
+            rustup component add llvm-tools-preview
+
+          # Verify llvm-profdata is accessible (grcov needs it for coverage merging)
+          RUST_SYSROOT="$(rustc --print sysroot)"
+          RUST_HOST="$(rustc --print host-tuple)"
+          LLVM_TOOLS_BIN="${RUST_SYSROOT}/lib/rustlib/${RUST_HOST}/bin"
+          LLVM_PROFDATA="${LLVM_TOOLS_BIN}/llvm-profdata"
+          if [ ! -f "$LLVM_PROFDATA" ]; then
+            echo "ERROR: llvm-profdata not found at $LLVM_PROFDATA"
+            echo "Listing bin directory:"
+            ls -la "$LLVM_TOOLS_BIN" || echo "Directory does not exist"
+            exit 1
+          fi
+          echo "Found llvm-profdata at $LLVM_PROFDATA"
+
       - name: Rust Tests
         if: ${{ matrix.suite == 'tests' }}
         run: |
           cargo nextest run --locked --workspace --all-features --no-fail-fast
       - name: Generate coverage report
         run: |
-          set -euo pipefail
-          LLVM_TOOLS_BIN="$(dirname "$(rustup which llvm-profdata)")"
+          RUST_SYSROOT="$(rustc --print sysroot)"
+          RUST_HOST="$(rustc --print host-tuple)"
+          LLVM_TOOLS_BIN="${RUST_SYSROOT}/lib/rustlib/${RUST_HOST}/bin"
           grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
             --llvm-path "${LLVM_TOOLS_BIN}" \
             --threads $(nproc) \
