@@ -9,13 +9,14 @@
 //!
 //! ## StackOverflow identifier case
 //!
-//! The upstream CSVs have no column header row; column names come from the DDL at
-//! `https://db.in.tum.de/~schmidt/data/stackoverflow_schema.sql`. That DDL uses
-//! camelCase column names (`OwnerUserId`, `CreationDate`, …) and capitalized table
-//! names (`Posts`, `Users`, …). The SQLStorm queries reference those names unquoted,
-//! which would break under DataFusion's default `enable_ident_normalization=true`
-//! (the parser lowercases identifiers while the Parquet schema preserves case →
-//! field-not-found).
+//! The upstream CSVs have no column header row; column names come from the DDL
+//! at `https://db.in.tum.de/~schmidt/data/stackoverflow_schema.sql`, transcribed
+//! into the [`STACKOVERFLOW_DDL`] const so data-gen has no schema download to do.
+//! That DDL uses camelCase column names (`OwnerUserId`, `CreationDate`, …) and
+//! capitalized table names (`Posts`, `Users`, …). The SQLStorm queries reference
+//! those names unquoted, which would break under DataFusion's default
+//! `enable_ident_normalization=true` (the parser lowercases identifiers while
+//! the Parquet schema preserves case → field-not-found).
 //!
 //! The conversion below lowercases every column at COPY time and the table names in
 //! `table_names(StackOverflow)` are already lowercase. Both engines then resolve the
@@ -38,14 +39,35 @@ use crate::TableSpec;
 use crate::datasets::data_downloads::download_data;
 use crate::sqlstorm::SqlstormOrigin;
 
-/// URL for the upstream StackOverflow DDL (creates 13 typed tables).
-const SCHEMA_URL: &str = "https://db.in.tum.de/~schmidt/data/stackoverflow_schema.sql";
-
 /// URL for the upstream StackOverflow `dba` data tarball (~1 GB gzip).
 const DATA_URL: &str = "https://db.in.tum.de/~schmidt/data/stackoverflow_dba.tar.gz";
 
 /// URL for the upstream JOB (IMDB) data tarball (zstd-compressed tar).
 const JOB_DATA_URL: &str = "https://db.in.tum.de/~schmidt/dbgen/job/imdb.tzst";
+
+/// DDL for the 13 StackOverflow tables, transcribed from the upstream
+/// `https://db.in.tum.de/~schmidt/data/stackoverflow_schema.sql`. Inlined (rather
+/// than fetched at data-gen time) so that data-gen has one fewer network dep and
+/// we don't need a line filter to strip `ALTER TABLE ... ADD FOREIGN KEY`
+/// statements that the upstream DDL ships and DuckDB rejects. Types and `NOT
+/// NULL` constraints are preserved verbatim; inline `references` clauses and
+/// `primary key` declarations are stripped because they are not enforced by
+/// COPY and would only add noise.
+const STACKOVERFLOW_DDL: &str = r#"
+CREATE TABLE "PostHistoryTypes" ("Id" SMALLINT NOT NULL, "Name" VARCHAR(50) NOT NULL);
+CREATE TABLE "LinkTypes" ("Id" SMALLINT NOT NULL, "Name" VARCHAR(50) NOT NULL);
+CREATE TABLE "PostTypes" ("Id" SMALLINT NOT NULL, "Name" VARCHAR(50) NOT NULL);
+CREATE TABLE "CloseReasonTypes" ("Id" SMALLINT NOT NULL, "Name" VARCHAR(50) NOT NULL);
+CREATE TABLE "VoteTypes" ("Id" SMALLINT NOT NULL, "Name" VARCHAR(50) NOT NULL);
+CREATE TABLE "Users" ("Id" INTEGER NOT NULL, "Reputation" INTEGER NOT NULL, "CreationDate" TIMESTAMP NOT NULL, "DisplayName" VARCHAR(40), "LastAccessDate" TIMESTAMP NOT NULL, "WebsiteUrl" VARCHAR(200), "Location" VARCHAR(300), "AboutMe" TEXT, "Views" INTEGER, "UpVotes" INTEGER, "DownVotes" INTEGER, "ProfileImageUrl" VARCHAR(200), "AccountId" INTEGER);
+CREATE TABLE "Badges" ("Id" INTEGER NOT NULL, "UserId" INTEGER NOT NULL, "Name" VARCHAR(50) NOT NULL, "Date" TIMESTAMP NOT NULL, "Class" SMALLINT NOT NULL, "TagBased" BOOLEAN NOT NULL);
+CREATE TABLE "Posts" ("Id" INTEGER NOT NULL, "PostTypeId" SMALLINT, "AcceptedAnswerId" INTEGER, "ParentId" INTEGER, "CreationDate" TIMESTAMP, "Score" INTEGER, "ViewCount" INTEGER, "Body" TEXT, "OwnerUserId" INTEGER, "OwnerDisplayName" VARCHAR(40), "LastEditorUserId" INTEGER, "LastEditorDisplayName" VARCHAR(40), "LastEditDate" TIMESTAMP, "LastActivityDate" TIMESTAMP, "Title" VARCHAR(300), "Tags" VARCHAR(4000), "AnswerCount" INTEGER, "CommentCount" INTEGER, "FavoriteCount" INTEGER, "ClosedDate" TIMESTAMP, "CommunityOwnedDate" TIMESTAMP, "ContentLicense" VARCHAR(30));
+CREATE TABLE "Comments" ("Id" INTEGER NOT NULL, "PostId" INTEGER NOT NULL, "Score" INTEGER, "Text" VARCHAR(2000) NOT NULL, "CreationDate" TIMESTAMP NOT NULL, "UserDisplayName" VARCHAR(40), "UserId" INTEGER, "ContentLicense" VARCHAR(30));
+CREATE TABLE "PostHistory" ("Id" INTEGER NOT NULL, "PostHistoryTypeId" SMALLINT, "PostId" INTEGER, "RevisionGUID" VARCHAR(36), "CreationDate" TIMESTAMP, "UserId" INTEGER, "UserDisplayName" VARCHAR(40), "Comment" VARCHAR(800), "Text" TEXT, "ContentLicense" VARCHAR(30));
+CREATE TABLE "PostLinks" ("Id" BIGINT NOT NULL, "CreationDate" TIMESTAMP NOT NULL, "PostId" INTEGER NOT NULL, "RelatedPostId" INTEGER NOT NULL, "LinkTypeId" SMALLINT NOT NULL);
+CREATE TABLE "Tags" ("Id" INTEGER NOT NULL, "TagName" VARCHAR(35), "Count" INTEGER NOT NULL, "ExcerptPostId" INTEGER, "WikiPostId" INTEGER, "IsModeratorOnly" BOOLEAN, "IsRequired" BOOLEAN);
+CREATE TABLE "Votes" ("Id" INTEGER NOT NULL, "PostId" INTEGER NOT NULL, "VoteTypeId" SMALLINT NOT NULL, "UserId" INTEGER, "CreationDate" TIMESTAMP, "BountyAmount" INTEGER);
+"#;
 
 /// DDL for the 21 JOB (IMDB) tables, derived from the upstream schema.
 ///
@@ -324,9 +346,6 @@ pub async fn generate_stackoverflow(data_url: &Url) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // Download the schema DDL and the data tarball into the base directory.
-    let schema_path = download_data(base_dir.join("stackoverflow_schema.sql"), SCHEMA_URL).await?;
-
     let tarball_path = download_data(base_dir.join("stackoverflow_dba.tar.gz"), DATA_URL).await?;
 
     // Extract the tarball. The archive yields files named <UpstreamTable>.csv in the
@@ -335,10 +354,10 @@ pub async fn generate_stackoverflow(data_url: &Url) -> anyhow::Result<()> {
     let csv_dir = extract_tarball(&tarball_path, &base_dir)?;
 
     // Build and run the single DuckDB COPY script:
-    //   1. Execute the schema DDL to create the 13 typed tables.
+    //   1. Execute the inlined STACKOVERFLOW_DDL to create the 13 typed tables.
     //   2. COPY each CSV into the corresponding typed table.
     //   3. COPY each table → Parquet with a lowercase column projection.
-    let script = build_duckdb_script(&schema_path, &csv_dir, &parquet_dir)?;
+    let script = build_duckdb_script(&csv_dir, &parquet_dir);
 
     let output = Command::new("duckdb").arg("-c").arg(&script).output()?;
     if !output.status.success() {
@@ -419,11 +438,17 @@ pub async fn generate_job(data_url: &Url) -> anyhow::Result<()> {
         );
     }
 
+    // Locate the extracted CSVs. The pinned `imdb.tzst` lands them flat in
+    // `base_dir`, but `locate_csv_dir` also handles a wrapping subdirectory so we
+    // don't silently break if the upstream archive ever changes layout. Same
+    // contract `generate_stackoverflow` already uses.
+    let csv_dir = locate_csv_dir(&base_dir)?;
+
     // Build and run the single DuckDB COPY script:
     //   1. Execute the embedded DDL to create the 21 typed tables.
     //   2. COPY each CSV into its table (backslash escape + ignore_errors for dirty rows).
     //   3. COPY each table → Parquet (columns are already lowercase — no projection needed).
-    let script = build_job_duckdb_script(&base_dir, &parquet_dir, tables);
+    let script = build_job_duckdb_script(&csv_dir, &parquet_dir, tables);
 
     let output = Command::new("duckdb").arg("-c").arg(&script).output()?;
     if !output.status.success() {
@@ -530,34 +555,16 @@ fn has_csv(dir: &Path) -> anyhow::Result<bool> {
 
 /// Build the DuckDB SQL script that:
 ///
-/// 1. Inlines the schema DDL to create the 13 typed tables. (We inline the DDL text
-///    rather than use the `.read` dot-command, which `duckdb -c` does not accept.)
+/// 1. Inlines [`STACKOVERFLOW_DDL`] to create the 13 typed tables. (We inline the
+///    DDL text rather than use the `.read` dot-command, which `duckdb -c` does
+///    not accept.)
 /// 2. Loads each upstream CSV into its table with `COPY … FROM`.
 /// 3. Exports each table as a Parquet file with all column names lowercased.
 ///
 /// The upstream CSVs have no header row, use comma as delimiter, and represent
 /// NULL as the empty string — matching the parameters in the upstream `copy.sql`.
-fn build_duckdb_script(
-    schema_path: &Path,
-    csv_dir: &Path,
-    parquet_dir: &Path,
-) -> anyhow::Result<String> {
-    let raw_schema = fs::read_to_string(schema_path)
-        .with_context(|| format!("reading schema DDL {}", schema_path.display()))?;
-    // DuckDB rejects `ALTER TABLE ... ADD FOREIGN KEY`; foreign keys are irrelevant to the
-    // CSV -> Parquet conversion, so drop those standalone statements. Inline column
-    // `references` clauses parse fine in DuckDB and are left intact.
-    let schema_sql: String = raw_schema
-        .lines()
-        .filter(|line| {
-            !line
-                .trim_start()
-                .to_ascii_lowercase()
-                .starts_with("alter table")
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    let mut script = format!("{schema_sql}\n");
+fn build_duckdb_script(csv_dir: &Path, parquet_dir: &Path) -> String {
+    let mut script = STACKOVERFLOW_DDL.to_string();
 
     let lowercase_tables = table_names(SqlstormOrigin::StackOverflow);
 
@@ -580,7 +587,7 @@ fn build_duckdb_script(
         ));
     }
 
-    Ok(script)
+    script
 }
 
 /// Build the DuckDB SQL script for the JOB (IMDB) dataset that:
