@@ -14,6 +14,7 @@ import math
 import re
 import sys
 from dataclasses import dataclass
+from io import StringIO
 from typing import Any
 
 import numpy as np
@@ -38,6 +39,7 @@ import pandas as pd
 # cutoff that is closer to a 99% two-sided interval before calling a change real.
 Z_SCORE_99 = 2.5758293035489004
 CONTROL_FORMAT = "parquet"
+FILE_SIZE_METRIC = "file_size"
 
 
 @dataclass
@@ -61,6 +63,18 @@ def extract_dataset_key(df: pd.DataFrame) -> pd.DataFrame:
             lambda x: str(sorted(x.items())) if pd.notna(x) and isinstance(x, dict) else pd.NA
         )
     return df
+
+
+def split_file_size_rows(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Split shared-stream file-size rows from benchmark timing rows."""
+
+    if df.empty:
+        return df.copy(), df.copy()
+
+    metric = df["metric"] if "metric" in df.columns else pd.Series(pd.NA, index=df.index)
+    file_size = df["file_size"] if "file_size" in df.columns else pd.Series(pd.NA, index=df.index)
+    mask = metric.eq(FILE_SIZE_METRIC) | file_size.notna()
+    return df[mask].copy(), df[~mask].copy()
 
 
 def extract_target_fields(name: str) -> pd.Series:
@@ -360,6 +374,151 @@ def format_integer_value(value: float) -> str:
     return str(int(value))
 
 
+def format_size(size_bytes: int) -> str:
+    """Format bytes as a human-readable size."""
+
+    if size_bytes >= 1024**3:
+        return f"{size_bytes / (1024**3):.2f} GB"
+    if size_bytes >= 1024**2:
+        return f"{size_bytes / (1024**2):.2f} MB"
+    if size_bytes >= 1024:
+        return f"{size_bytes / 1024:.2f} KB"
+    return f"{size_bytes} B"
+
+
+def format_size_change(change_bytes: int) -> str:
+    """Format a byte change with a sign."""
+
+    sign = "+" if change_bytes > 0 else ""
+    return f"{sign}{format_size(abs(change_bytes))}"
+
+
+def format_pct_change(pct: float) -> str:
+    """Format a percentage change with a sign."""
+
+    sign = "+" if pct > 0 else ""
+    return f"{sign}{pct:.1f}%"
+
+
+def extract_file_size_data(df: pd.DataFrame) -> dict[tuple[str, str, str, str], int]:
+    """Extract file-size rows keyed by benchmark, scale factor, format, and file."""
+
+    data = {}
+    if df.empty:
+        return data
+
+    for _, row in df.iterrows():
+        metadata = row.get("file_size")
+        if not isinstance(metadata, dict):
+            continue
+
+        key = (
+            str(metadata.get("benchmark", "")),
+            str(metadata.get("scale_factor", "1.0")),
+            str(metadata.get("format", "")),
+            str(metadata.get("file", "")),
+        )
+        value = row.get("value")
+        if pd.isna(value):
+            continue
+        data[key] = int(value)
+
+    return data
+
+
+def format_file_size_report(base_rows: pd.DataFrame, pr_rows: pd.DataFrame) -> str:
+    """Render a shared-comment file-size comparison report."""
+
+    pr_data = extract_file_size_data(pr_rows)
+    if not pr_data:
+        return ""
+
+    base_data = extract_file_size_data(base_rows)
+    if not base_data:
+        return "_No baseline file sizes found for base commit._"
+
+    comparisons = []
+    format_totals: dict[str, dict[str, int]] = {}
+
+    for key in sorted(set(base_data) | set(pr_data)):
+        _benchmark, scale_factor, file_format, file_name = key
+        base_size = base_data.get(key, 0)
+        pr_size = pr_data.get(key, 0)
+
+        totals = format_totals.setdefault(file_format, {"base": 0, "pr": 0})
+        totals["base"] += base_size
+        totals["pr"] += pr_size
+
+        change = pr_size - base_size
+        if change == 0:
+            continue
+
+        if base_size > 0:
+            pct_change = (pr_size / base_size - 1) * 100
+        elif pr_size > 0:
+            pct_change = float("inf")
+        else:
+            pct_change = 0.0
+
+        comparisons.append(
+            {
+                "file": file_name,
+                "scale_factor": scale_factor,
+                "format": file_format,
+                "base_size": base_size,
+                "pr_size": pr_size,
+                "change": change,
+                "pct_change": pct_change,
+            }
+        )
+
+    if not comparisons:
+        return "_No file size changes detected._"
+
+    comparisons.sort(key=lambda comparison: comparison["pct_change"], reverse=True)
+
+    total_base = sum(totals["base"] for totals in format_totals.values())
+    total_pr = sum(totals["pr"] for totals in format_totals.values())
+    overall_pct_str = "new" if total_base == 0 else format_pct_change((total_pr / total_base - 1) * 100)
+    increases = sum(1 for comparison in comparisons if comparison["change"] > 0)
+    decreases = sum(1 for comparison in comparisons if comparison["change"] < 0)
+
+    output = StringIO()
+    print("<details>", file=output)
+    print(
+        f"<summary>File Size Changes ({len(comparisons)} files changed, "
+        f"{overall_pct_str} overall, {increases}↑ {decreases}↓)</summary>",
+        file=output,
+    )
+    print("", file=output)
+    print("<br>", file=output)
+    print("", file=output)
+    print("| File | Scale | Format | Base | HEAD | Change | % |", file=output)
+    print("|------|-------|--------|------|------|--------|---|", file=output)
+
+    for comparison in comparisons:
+        pct_str = "new" if comparison["pct_change"] == float("inf") else format_pct_change(comparison["pct_change"])
+        base_str = format_size(comparison["base_size"]) if comparison["base_size"] > 0 else "-"
+        print(
+            f"| {comparison['file']} | {comparison['scale_factor']} | {comparison['format']} | {base_str} | "
+            f"{format_size(comparison['pr_size'])} | {format_size_change(comparison['change'])} | {pct_str} |",
+            file=output,
+        )
+
+    print("", file=output)
+    print("**Totals:**", file=output)
+    for file_format in sorted(format_totals):
+        totals = format_totals[file_format]
+        base_total = totals["base"]
+        pr_total = totals["pr"]
+        pct_str = "" if base_total == 0 else f" ({format_pct_change((pr_total / base_total - 1) * 100)})"
+        print(f"- {file_format}: {format_size(base_total)} → {format_size(pr_total)}{pct_str}", file=output)
+
+    print("", file=output)
+    print("</details>", file=output)
+    return output.getvalue().rstrip()
+
+
 def format_name_with_highlight(
     name: str, ratio: float, improvement_threshold: float, regression_threshold: float
 ) -> str:
@@ -445,6 +604,67 @@ def build_verdict(statistical_analysis: dict[str, Any]) -> dict[str, str] | None
     }
 
 
+def build_within_engine_statistical_analyses(df: pd.DataFrame, threshold_pct: int) -> dict[str, dict[str, Any]]:
+    """Build an attribution model per engine, using that engine's own parquet rows as controls."""
+
+    analyses = {}
+    matched = df[df["engine"].notna() & (df["engine"] != "unknown")]
+    for engine, engine_df in matched.groupby("engine", sort=False):
+        if engine_df["file_format"].eq(CONTROL_FORMAT).sum() == 0:
+            continue
+        if (~engine_df["file_format"].eq(CONTROL_FORMAT)).sum() == 0:
+            continue
+        analysis = build_statistical_analysis(engine_df.copy(), threshold_pct)
+        if analysis is not None:
+            analyses[str(engine)] = analysis
+    return analyses
+
+
+def format_within_engine_summary(analyses: dict[str, dict[str, Any]]) -> str | None:
+    """Render a compact summary of per-engine attributed changes."""
+
+    summaries = []
+    for engine in sorted(analyses, key=lambda value: (ENGINE_ORDER.get(value, len(ENGINE_ORDER)), value)):
+        verdict = build_verdict(analyses[engine])
+        if verdict is None:
+            continue
+        display_name = {
+            "datafusion": "DataFusion",
+            "duckdb": "DuckDB",
+        }.get(engine, engine)
+        summaries.append(
+            f"{display_name} {verdict['status']} ({verdict['impact']}, {verdict['confidence']} confidence)"
+        )
+
+    if not summaries:
+        return None
+    return " · ".join(summaries)
+
+
+def format_report_help() -> str:
+    """Render explanatory markdown for the benchmark report headline fields."""
+
+    return "\n".join(
+        [
+            "<details>",
+            "<summary>How to read Verdict and Engines</summary>",
+            "",
+            "<br>",
+            "",
+            "- **Verdict**: Overall PR-level signal after subtracting baseline drift "
+            "estimated from Parquet control rows. It can be `Likely improvement`, "
+            "`Likely regression`, or `No clear signal`.",
+            "- **Engines**: Per-engine attribution. DataFusion is compared against "
+            "DataFusion/Parquet controls; DuckDB is compared against DuckDB/Parquet "
+            "controls. This answers whether each engine improved or regressed independently.",
+            "- **Confidence**: Based on directional consistency, share of rows above "
+            "the noise floor, and control-run noise.",
+            "",
+            "</details>",
+        ]
+    )
+
+
 ENGINE_ORDER = {
     "vortex": 0,
     "datafusion": 1,
@@ -490,6 +710,9 @@ def main() -> None:
     base_commit_id = next(iter(base_commit_id))
     pr_commit_id = next(iter(pr_commit_id))
 
+    base_file_sizes, base = split_file_size_rows(base)
+    pr_file_sizes, pr = split_file_size_rows(pr)
+
     if "storage" not in base:
         base["storage"] = pd.NA
     if "storage" not in pr:
@@ -515,12 +738,16 @@ def main() -> None:
 
     statistical_analysis = build_statistical_analysis(df3, threshold_pct)
     verdict = build_verdict(statistical_analysis) if statistical_analysis is not None else None
+    engine_analyses = build_within_engine_statistical_analyses(df3, threshold_pct)
+    engine_summary = format_within_engine_summary(engine_analyses)
 
     summary_fields: list[str] = []
 
     if verdict is not None:
         summary_fields.append(f"**Verdict**: {verdict['status']} ({verdict['confidence']} confidence)")
         summary_fields.append(f"**Attributed Vortex impact**: {verdict['impact']}")
+    if engine_summary is not None:
+        summary_fields.append(f"**Engines**: {engine_summary}")
 
     if len(vortex_df) > 0:
         vortex_performance = format_performance(
@@ -548,6 +775,8 @@ def main() -> None:
         summary_fields.append(f"**Shifts**: {shifts}")
 
     print("<br>".join(summary_fields))
+    print("")
+    print(format_report_help())
     print("")
     print("---")
     print("")
@@ -608,6 +837,13 @@ def main() -> None:
         )
         print("")
         print("</details>")
+
+    file_size_report = format_file_size_report(base_file_sizes, pr_file_sizes)
+    if file_size_report:
+        print("")
+        print("---")
+        print("")
+        print(file_size_report)
 
     if statistical_analysis is not None and not alpha_rows.empty:
         print("<details>")
