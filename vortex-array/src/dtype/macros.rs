@@ -85,141 +85,92 @@
 /// ```
 #[macro_export]
 macro_rules! dtype {
-    // -------- Null --------
+    // Special cases that don't fit the "type + optional ?" shape:
+    //   - `null` has no nullability;
+    //   - `extension(ext)` carries its own nullability inside the ExtDTypeRef.
     (null) => {
         $crate::dtype::DType::Null
     };
-
-    // -------- Bool --------
-    (bool) => {
-        $crate::dtype::DType::Bool($crate::dtype::Nullability::NonNullable)
-    };
-    (bool?) => {
-        $crate::dtype::DType::Bool($crate::dtype::Nullability::Nullable)
-    };
-
-    // -------- Primitive: non-nullable --------
-    (u8)  => { $crate::__dtype_primitive!(U8,  NonNullable) };
-    (u16) => { $crate::__dtype_primitive!(U16, NonNullable) };
-    (u32) => { $crate::__dtype_primitive!(U32, NonNullable) };
-    (u64) => { $crate::__dtype_primitive!(U64, NonNullable) };
-    (i8)  => { $crate::__dtype_primitive!(I8,  NonNullable) };
-    (i16) => { $crate::__dtype_primitive!(I16, NonNullable) };
-    (i32) => { $crate::__dtype_primitive!(I32, NonNullable) };
-    (i64) => { $crate::__dtype_primitive!(I64, NonNullable) };
-    (f16) => { $crate::__dtype_primitive!(F16, NonNullable) };
-    (f32) => { $crate::__dtype_primitive!(F32, NonNullable) };
-    (f64) => { $crate::__dtype_primitive!(F64, NonNullable) };
-
-    // -------- Primitive: nullable --------
-    (u8?)  => { $crate::__dtype_primitive!(U8,  Nullable) };
-    (u16?) => { $crate::__dtype_primitive!(U16, Nullable) };
-    (u32?) => { $crate::__dtype_primitive!(U32, Nullable) };
-    (u64?) => { $crate::__dtype_primitive!(U64, Nullable) };
-    (i8?)  => { $crate::__dtype_primitive!(I8,  Nullable) };
-    (i16?) => { $crate::__dtype_primitive!(I16, Nullable) };
-    (i32?) => { $crate::__dtype_primitive!(I32, Nullable) };
-    (i64?) => { $crate::__dtype_primitive!(I64, Nullable) };
-    (f16?) => { $crate::__dtype_primitive!(F16, Nullable) };
-    (f32?) => { $crate::__dtype_primitive!(F32, Nullable) };
-    (f64?) => { $crate::__dtype_primitive!(F64, Nullable) };
-
-    // -------- Utf8 --------
-    (utf8) => {
-        $crate::dtype::DType::Utf8($crate::dtype::Nullability::NonNullable)
-    };
-    (utf8?) => {
-        $crate::dtype::DType::Utf8($crate::dtype::Nullability::Nullable)
-    };
-
-    // -------- Binary --------
-    (binary) => {
-        $crate::dtype::DType::Binary($crate::dtype::Nullability::NonNullable)
-    };
-    (binary?) => {
-        $crate::dtype::DType::Binary($crate::dtype::Nullability::Nullable)
-    };
-
-    // -------- Union --------
-    (union) => {
-        $crate::dtype::DType::Union($crate::dtype::Nullability::NonNullable)
-    };
-    (union?) => {
-        $crate::dtype::DType::Union($crate::dtype::Nullability::Nullable)
-    };
-
-    // -------- Variant --------
-    (variant) => {
-        $crate::dtype::DType::Variant($crate::dtype::Nullability::NonNullable)
-    };
-    (variant?) => {
-        $crate::dtype::DType::Variant($crate::dtype::Nullability::Nullable)
-    };
-
-    // -------- Decimal: compile-time validated via const block --------
-    (decimal($p:expr, $s:expr)) => {
-        $crate::dtype::DType::Decimal(
-            const { $crate::dtype::DecimalDType::new_const($p, $s) },
-            $crate::dtype::Nullability::NonNullable,
-        )
-    };
-    (decimal($p:expr, $s:expr)?) => {
-        $crate::dtype::DType::Decimal(
-            const { $crate::dtype::DecimalDType::new_const($p, $s) },
-            $crate::dtype::Nullability::Nullable,
-        )
-    };
-
-    // -------- List --------
-    (list($($inner:tt)+)) => {
-        $crate::dtype::DType::List(
-            ::std::sync::Arc::new($crate::dtype!($($inner)+)),
-            $crate::dtype::Nullability::NonNullable,
-        )
-    };
-    (list($($inner:tt)+)?) => {
-        $crate::dtype::DType::List(
-            ::std::sync::Arc::new($crate::dtype!($($inner)+)),
-            $crate::dtype::Nullability::Nullable,
-        )
-    };
-
-    // -------- FixedSizeList: matches the Display format `fixed_size_list(elem)[N]` --------
-    (fixed_size_list($($inner:tt)+)[$size:expr]) => {
-        $crate::dtype::DType::FixedSizeList(
-            ::std::sync::Arc::new($crate::dtype!($($inner)+)),
-            $size,
-            $crate::dtype::Nullability::NonNullable,
-        )
-    };
-    (fixed_size_list($($inner:tt)+)[$size:expr]?) => {
-        $crate::dtype::DType::FixedSizeList(
-            ::std::sync::Arc::new($crate::dtype!($($inner)+)),
-            $size,
-            $crate::dtype::Nullability::Nullable,
-        )
-    };
-
-    // -------- Struct: pass-through StructFields expression --------
-    (struct($fields:expr)) => {
-        $crate::dtype::DType::Struct($fields, $crate::dtype::Nullability::NonNullable)
-    };
-    (struct($fields:expr)?) => {
-        $crate::dtype::DType::Struct($fields, $crate::dtype::Nullability::Nullable)
-    };
-
-    // -------- Extension: pass-through ExtDTypeRef (carries its own nullability) --------
     (extension($ext:expr)) => {
         $crate::dtype::DType::Extension($ext)
     };
+
+    // Everything else: forward to the muncher to peel an optional trailing `?` and
+    // dispatch with the resolved nullability. We can't write `($($t:tt)+ ?) => ...`
+    // directly because `?` is reserved repetition metasyntax in macro patterns; a
+    // hand-rolled muncher walks tokens one at a time and inspects the tail itself.
+    ($($tokens:tt)+) => {
+        $crate::__dtype_munch!([] $($tokens)+)
+    };
 }
 
-/// Internal helper for the [`dtype!`] macro: emit `DType::Primitive(PType::$p, Nullability::$null)`.
+/// Internal tt-muncher for [`dtype!`]: walks tokens into an accumulator one at a time,
+/// then dispatches to [`__dtype_build!`] based on whether the input ends with `?`.
 #[doc(hidden)]
 #[macro_export]
-macro_rules! __dtype_primitive {
-    ($p:ident, $null:ident) => {
-        $crate::dtype::DType::Primitive($crate::dtype::PType::$p, $crate::dtype::Nullability::$null)
+macro_rules! __dtype_munch {
+    // Trailing `?` after a non-empty accumulator: nullable.
+    ([$($acc:tt)+] ?) => {
+        $crate::__dtype_build!($crate::dtype::Nullability::Nullable, $($acc)+)
+    };
+    // End of input with a non-empty accumulator: non-nullable.
+    ([$($acc:tt)+]) => {
+        $crate::__dtype_build!($crate::dtype::Nullability::NonNullable, $($acc)+)
+    };
+    // Step: shift one token from the input into the accumulator.
+    ([$($acc:tt)*] $next:tt $($rest:tt)*) => {
+        $crate::__dtype_munch!([$($acc)* $next] $($rest)*)
+    };
+}
+
+/// Internal builder for [`dtype!`]: takes a pre-resolved [`Nullability`](crate::dtype::Nullability)
+/// expression followed by the type DSL.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __dtype_build {
+    ($null:expr, bool) => {
+        $crate::dtype::DType::Bool($null)
+    };
+    ($null:expr, utf8) => {
+        $crate::dtype::DType::Utf8($null)
+    };
+    ($null:expr, binary) => {
+        $crate::dtype::DType::Binary($null)
+    };
+    ($null:expr, union) => {
+        $crate::dtype::DType::Union($null)
+    };
+    ($null:expr, variant) => {
+        $crate::dtype::DType::Variant($null)
+    };
+    ($null:expr, decimal($p:expr, $s:expr)) => {
+        $crate::dtype::DType::Decimal(
+            const { $crate::dtype::DecimalDType::new_const($p, $s) },
+            $null,
+        )
+    };
+    ($null:expr, list($($inner:tt)+)) => {
+        $crate::dtype::DType::List(
+            ::std::sync::Arc::new($crate::dtype!($($inner)+)),
+            $null,
+        )
+    };
+    ($null:expr, fixed_size_list($($inner:tt)+)[$size:expr]) => {
+        $crate::dtype::DType::FixedSizeList(
+            ::std::sync::Arc::new($crate::dtype!($($inner)+)),
+            $size,
+            $null,
+        )
+    };
+    ($null:expr, struct($fields:expr)) => {
+        $crate::dtype::DType::Struct($fields, $null)
+    };
+    // Primitive catch-all: maps lowercase `u8`/`i32`/`f64`/... to `PType::U8`/`I32`/`F64`/...
+    // via `paste!`. Must come last so the named variants above take priority.
+    ($null:expr, $p:ident) => {
+        $crate::paste::paste! {
+            $crate::dtype::DType::Primitive($crate::dtype::PType::[<$p:upper>], $null)
+        }
     };
 }
 

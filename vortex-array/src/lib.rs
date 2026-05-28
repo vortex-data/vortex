@@ -22,6 +22,8 @@ pub use executor::*;
 pub use hash::*;
 pub use mask_future::*;
 pub use metadata::*;
+#[doc(hidden)]
+pub use paste;
 pub use smallvec;
 pub use vortex_array_macros::array_slots;
 use vortex_session::VortexSession;
