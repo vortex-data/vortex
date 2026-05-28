@@ -41,8 +41,6 @@ pub const VALIDITY_CHILD_INDEX: usize = 2;
 
 /// Number of children when the list dtype is non-nullable.
 pub const NUM_CHILDREN_NON_NULLABLE: usize = 2;
-/// Number of children when the list dtype is nullable.
-pub const NUM_CHILDREN_NULLABLE: usize = 3;
 
 vtable!(List);
 
@@ -76,11 +74,12 @@ impl VTable for List {
     }
 
     fn nchildren(layout: &Self::Layout) -> usize {
+        let mut n = NUM_CHILDREN_NON_NULLABLE;
         if layout.dtype.is_nullable() {
-            NUM_CHILDREN_NULLABLE
-        } else {
-            NUM_CHILDREN_NON_NULLABLE
+            n += 1;
         }
+
+        n
     }
 
     fn child(layout: &Self::Layout, idx: usize) -> VortexResult<LayoutRef> {
