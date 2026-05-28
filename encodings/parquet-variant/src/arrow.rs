@@ -8,7 +8,6 @@ use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::cast::AsArray;
 use arrow_schema::DataType;
 use arrow_schema::Field;
-use arrow_schema::Fields;
 use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
 use parquet_variant_compute::VariantArray as ArrowVariantArray;
 use vortex_array::ArrayRef;
@@ -22,6 +21,7 @@ use vortex_array::arrow::ArrowImportVTable;
 use vortex_array::arrow::ArrowSession;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
@@ -42,12 +42,9 @@ impl ArrowExportVTable for ParquetVariant {
         ParquetVariant.id()
     }
 
-    // The current API doesn't see the array at this point.
-    // which is what we actually need to know exactly what the arrow
-    // storage type is.
     fn to_arrow_field(
         &self,
-        name: &str,
+        _name: &str,
         dtype: &DType,
         _session: &ArrowSession,
     ) -> VortexResult<Option<Field>> {
@@ -55,23 +52,7 @@ impl ArrowExportVTable for ParquetVariant {
             return Ok(None);
         }
 
-        Ok(Some(
-            Field::new(
-                name,
-                DataType::Struct(Fields::from(vec![
-                    Arc::new(Field::new("metadata", DataType::BinaryView, false)),
-                    Arc::new(Field::new("value", DataType::BinaryView, false)),
-                ])),
-                dtype.is_nullable(),
-            )
-            .with_metadata(
-                [(
-                    EXTENSION_TYPE_NAME_KEY.to_string(),
-                    PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
-                )]
-                .into(),
-            ),
-        ))
+        vortex_bail!(InvalidArgument: "ParquetVariant array can't infer its Arrow storage schema from dtype");
     }
 
     fn execute_arrow(
@@ -149,6 +130,7 @@ mod tests {
     use arrow_array::ArrayRef as ArrowArrayRef;
     use arrow_array::StructArray;
     use arrow_array::cast::AsArray;
+    use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
     use parquet_variant::Variant as PqVariant;
@@ -159,7 +141,6 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::VarBinViewArray;
-    use vortex_array::arrow::ArrowExportVTable;
     use vortex_array::arrow::ArrowSessionExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
@@ -168,7 +149,6 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
-    use vortex_error::vortex_err;
     use vortex_session::VortexSession;
 
     use super::PARQUET_VARIANT_ARROW_EXTENSION_NAME;
@@ -260,9 +240,24 @@ mod tests {
             .into_array();
         let expected = array.clone();
 
-        let field = ParquetVariant
-            .to_arrow_field("variant", array.dtype(), &session.arrow())?
-            .ok_or_else(|| vortex_err!("expected ParquetVariant Arrow field"))?;
+        let field = Field::new(
+            "variant",
+            DataType::Struct(
+                vec![
+                    Field::new("metadata", DataType::Binary, false),
+                    Field::new("value", DataType::Binary, false),
+                ]
+                .into(),
+            ),
+            false,
+        )
+        .with_metadata(
+            [(
+                EXTENSION_TYPE_NAME_KEY.to_string(),
+                PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
+            )]
+            .into(),
+        );
         let mut ctx = session.create_execution_ctx();
         let exported = session
             .arrow()
@@ -294,9 +289,24 @@ mod tests {
                 .into_array();
         let expected = array.clone();
 
-        let field = ParquetVariant
-            .to_arrow_field("variant", array.dtype(), &session.arrow())?
-            .ok_or_else(|| vortex_err!("expected ParquetVariant Arrow field"))?;
+        let field = Field::new(
+            "variant",
+            DataType::Struct(
+                vec![
+                    Field::new("metadata", DataType::Binary, false),
+                    Field::new("typed_value", DataType::Int32, false),
+                ]
+                .into(),
+            ),
+            false,
+        )
+        .with_metadata(
+            [(
+                EXTENSION_TYPE_NAME_KEY.to_string(),
+                PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
+            )]
+            .into(),
+        );
         let mut ctx = session.create_execution_ctx();
         let exported = session
             .arrow()
