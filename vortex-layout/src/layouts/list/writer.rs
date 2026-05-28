@@ -18,7 +18,6 @@ use vortex_array::dtype::DType;
 use vortex_array::matcher::Matcher;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_panic;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 

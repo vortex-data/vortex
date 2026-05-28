@@ -193,12 +193,20 @@ impl LayoutReader for ListReader {
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         let offsets_fut = self.fetch_offsets(row_range)?;
-        // Validity shares the list's row space, so the caller's mask is the right shape to
-        // push down. Children get to fold it into their reads however they like.
+        // Read validity at full `row_range` length (all-true mask), not the caller's mask.
+        // The three children (validity, offsets, elements) must produce compositionally
+        // consistent outputs that `ListArray::try_new` can assemble. A list-row mask cannot
+        // be pushed down independently to each child — filtering validity to `popcount(mask)`
+        // rows would mismatch full-length offsets/elements, breaking the resulting array. The
+        // final `array.filter(mask)` below applies the mask via list-aware filter semantics
+        // (re-derives offsets, concatenates kept elements).
+        let validity_row_count = usize::try_from(row_range.end - row_range.start)?;
         let validity_fut = self
             .validity
             .as_ref()
-            .map(|v| v.projection_evaluation(row_range, &root(), mask.clone()))
+            .map(|v| {
+                v.projection_evaluation(row_range, &root(), MaskFuture::new_true(validity_row_count))
+            })
             .transpose()?;
 
         let elements_reader = Arc::clone(&self.elements);
