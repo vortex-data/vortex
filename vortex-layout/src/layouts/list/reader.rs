@@ -201,7 +201,7 @@ impl LayoutReader for ListReader {
             .map(|v| v.projection_evaluation(row_range, &root(), mask.clone()))
             .transpose()?;
 
-        let elements_reader = self.elements.clone();
+        let elements_reader = Arc::clone(&self.elements);
         let session = self.session.clone();
         let nullability = self.layout.dtype().nullability();
         let expr = expr.clone();

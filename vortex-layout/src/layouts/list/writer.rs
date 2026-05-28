@@ -98,15 +98,14 @@ impl LayoutStrategy for ListLayoutStrategy {
 
         // There is one extra element in `offsets`
         let row_count = offsets.len().saturating_sub(1);
-        let validity_array = if dtype.is_nullable() {
-            Some(
+        let validity_array = dtype
+            .is_nullable()
+            .then(|| {
                 validity
-                    .execute_mask(row_count, &mut exec_ctx)?
-                    .into_array(),
-            )
-        } else {
-            None
-        };
+                    .execute_mask(row_count, &mut exec_ctx)
+                    .map(|m| m.into_array())
+            })
+            .transpose()?;
 
         // Spawn each child write onto the runtime so they run concurrently
         let handle = session.handle();
@@ -116,7 +115,7 @@ impl LayoutStrategy for ListLayoutStrategy {
                 let stream = single_chunk_stream(array.dtype().clone(), sp.advance(), array);
                 let child_eof = eof.split_off();
                 let ctx = ctx.clone();
-                let segment_sink = segment_sink.clone();
+                let segment_sink = Arc::clone(&segment_sink);
                 let session = session.clone();
                 handle.spawn_nested(move |h| async move {
                     let session = session.with_handle(h);
@@ -126,9 +125,9 @@ impl LayoutStrategy for ListLayoutStrategy {
                 })
             };
             (
-                spawn_layout_writer(self.elements.clone(), elements),
-                spawn_layout_writer(self.offsets.clone(), offsets),
-                validity_array.map(|arr| spawn_layout_writer(self.validity.clone(), arr)),
+                spawn_layout_writer(Arc::clone(&self.elements), elements),
+                spawn_layout_writer(Arc::clone(&self.offsets), offsets),
+                validity_array.map(|arr| spawn_layout_writer(Arc::clone(&self.validity), arr)),
             )
         };
 
