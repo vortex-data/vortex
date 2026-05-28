@@ -77,6 +77,12 @@ pub mod flatbuffers {
     pub use vortex_flatbuffers::array::*;
 }
 
+// Re-exported for use by the `dtype!` macro's primitive catch-all arm, which expands to
+// `$crate::paste::paste!`. This re-export is part of the macro's expansion contract, so
+// removing or renaming it would silently break downstream callers of `dtype!`.
+#[doc(hidden)]
+pub use paste;
+
 // TODO(ngates): canonicalize doesn't currently take a session, therefore we cannot invoke execute
 //  from the new array encodings to support back-compat for legacy encodings. So we hold a session
 //  here...
