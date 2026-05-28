@@ -48,6 +48,8 @@ impl ArrowExportVTable for ParquetVariant {
         dtype: &DType,
         _session: &ArrowSession,
     ) -> VortexResult<Option<Field>> {
+        // TODO(#8135): This is wrong and won't work for shredded arrays.
+        // We need to be able to access array metadata to accurately provide Arrow schemas.
         if !dtype.is_variant() {
             return Ok(None);
         }
