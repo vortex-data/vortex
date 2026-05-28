@@ -315,28 +315,67 @@ impl LayoutReader for ListReader {
         let validity_reader = self.validity.clone();
         let session = self.session.clone();
         let nullability = self.layout.dtype().nullability();
+        let layout_row_count = self.layout.row_count();
+        let elements_row_count = self.elements.row_count();
         let expr = expr.clone();
         let row_range = row_range.clone();
 
         Ok(async move {
-            // Resolve offsets and the caller's mask in parallel. We need both before we can
-            // decide between the two paths below.
-            let (offsets, mask) = try_join!(offsets_fut, mask)?;
+            // Await the caller mask first so we can decide the read shape. Offsets is already
+            // in flight from above and overlaps this wait. For statically-resolved masks
+            // (`MaskFuture::new_true`, `MaskFuture::ready` of an already-known mask — the
+            // common case for both full scans and filter pushdown) the await is free.
+            let mask = mask.await?;
+            let validity_row_count = usize::try_from(row_range.end - row_range.start)?;
+            let is_whole_chunk =
+                row_range.start == 0 && row_range.end == layout_row_count;
 
-            // Path A: all-true mask — fetch the full bounded elements range, build a ListArray
-            // covering the entire row_range. The three children must be compositionally
-            // consistent here, so validity is read at full `row_range` length with an all-true
-            // mask too.
+            // Path A1: whole-chunk read with all-true mask. The elements bound is the whole
+            // elements buffer (`0..elements.row_count()`) and `offsets[0] == 0` by construction
+            // within a chunk, so we don't need to read offsets to know the bound and we don't
+            // need to rebase. Fire elements + validity in parallel with the already-in-flight
+            // offsets — a single `try_join!` over all three children.
             //
-            // Path B: sparse mask — scatter-gather. Bound the elements fetch to the tightest
-            // range covering the kept rows and pass an element-level mask so the elements child
-            // only materializes positions belonging to a kept row. Validity is fetched at
-            // `kept_count` length by pushing the caller mask down directly.
-            if mask.all_true() {
+            // Path A2: partial range, all-true mask. The elements bound is
+            // `offsets[a]..offsets[b]` so we have to await offsets before firing elements.
+            //
+            // Path B: sparse mask. Bound the elements fetch to the tightest range covering the
+            // kept rows and pass an element-level mask so the elements child only materializes
+            // kept-row positions. Validity is fetched at `kept_count` length by pushing the
+            // caller mask down directly.
+            if mask.all_true() && is_whole_chunk {
+                let elements_fut = elements_reader.projection_evaluation(
+                    &(0..elements_row_count),
+                    &root(),
+                    MaskFuture::new_true(usize::try_from(elements_row_count)?),
+                )?;
+                let validity_fut = validity_reader
+                    .as_ref()
+                    .map(|v| {
+                        v.projection_evaluation(
+                            &row_range,
+                            &root(),
+                            MaskFuture::new_true(validity_row_count),
+                        )
+                    })
+                    .transpose()?;
+
+                let (offsets, elements, validity_array) =
+                    try_join!(offsets_fut, elements_fut, async move {
+                        match validity_fut {
+                            Some(fut) => fut.await.map(Some),
+                            None => Ok(None),
+                        }
+                    })?;
+
+                let validity = create_validity(validity_array, nullability);
+                let array = ListArray::try_new(elements, offsets, validity)?.into_array();
+                array.apply(&expr)
+            } else if mask.all_true() {
+                let offsets = offsets_fut.await?;
                 let elements_range = calculate_elements_range(&offsets, &session)?;
                 let rebased_offsets = rebase_offsets(offsets, elements_range.start)?;
                 let elements_len = elements_range.end - elements_range.start;
-                let validity_row_count = usize::try_from(row_range.end - row_range.start)?;
 
                 let validity_fut = validity_reader
                     .as_ref()
@@ -365,6 +404,7 @@ impl LayoutReader for ListReader {
                 let array = ListArray::try_new(elements, rebased_offsets, validity)?.into_array();
                 array.apply(&expr)
             } else {
+                let offsets = offsets_fut.await?;
                 let sg = compute_scatter_gather(&offsets, &mask, &session)?;
 
                 let validity_fut = validity_reader
