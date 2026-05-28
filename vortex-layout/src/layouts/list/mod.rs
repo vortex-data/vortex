@@ -134,11 +134,10 @@ impl VTable for List {
         let offsets_dtype = DType::Primitive(metadata.offsets_ptype(), Nullability::NonNullable);
         let offsets = children.child(OFFSETS_CHILD_INDEX, &offsets_dtype)?;
 
-        let validity = if dtype.is_nullable() {
-            Some(children.child(VALIDITY_CHILD_INDEX, &DType::Bool(Nullability::NonNullable))?)
-        } else {
-            None
-        };
+        let validity = dtype
+            .is_nullable()
+            .then(|| children.child(VALIDITY_CHILD_INDEX, &DType::Bool(Nullability::NonNullable)))
+            .transpose()?;
 
         Ok(ListLayout {
             dtype: dtype.clone(),
@@ -158,14 +157,14 @@ impl VTable for List {
         layout.offsets = iter
             .next()
             .ok_or_else(|| vortex_err!("missing offsets child"))?;
-        layout.validity = if layout.dtype.is_nullable() {
-            Some(
+        layout.validity = layout
+            .dtype
+            .is_nullable()
+            .then(|| {
                 iter.next()
-                    .ok_or_else(|| vortex_err!("missing validity child"))?,
-            )
-        } else {
-            None
-        };
+                    .ok_or_else(|| vortex_err!("missing validity child"))
+            })
+            .transpose()?;
         Ok(())
     }
 }
