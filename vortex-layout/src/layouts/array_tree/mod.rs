@@ -123,10 +123,15 @@ impl ArrayTreeLayout {
     /// }
     /// ```
     ///
-    /// The List<> element types are exactly the canonical per-tree schemas defined by
-    /// [`vortex_array::serde::NODES_COLUMNS_DTYPE`] / [`vortex_array::serde::BUFFER_COLUMNS_DTYPE`],
-    /// so slicing one row's nodes (resp. buffers) yields a [`StructArray`] matching the inner
+    /// The List<> element types are produced by
+    /// [`vortex_array::serde::nodes_columns_dtype`] / [`vortex_array::serde::BUFFER_COLUMNS_DTYPE`].
+    /// Slicing one row's nodes (resp. buffers) yields a [`StructArray`] matching the inner
     /// shape of a [`ColumnarArrayTree`].
+    ///
+    /// The `nodes` schema is parameterized by the stat menu the layout tracks; today this
+    /// defaults to [`vortex_array::serde::DEFAULT_STATS`] (the historical 11-stat set), but
+    /// future writers can pick a different menu and the schema field names carry that menu
+    /// across the wire.
     pub fn array_trees_dtype() -> DType {
         let nn = Nullability::NonNullable;
         DType::Struct(
@@ -148,8 +153,9 @@ impl ArrayTreeLayout {
     }
 
     /// Derive a [`LayoutReaderContext`] that publishes an [`ArrayTreesSource`] backed by this
-    /// layout's auxiliary `array_trees` child. Descendant [`ArrayTreeFlatLayout`] readers
-    /// pull the source via `ctx.get::<ArrayTreesSource>()` to resolve their compact trees.
+    /// layout's auxiliary `array_trees` child under [`ARRAY_TREES_SOURCE_ID`]. Descendant
+    /// [`ArrayTreeFlatLayout`] readers pull the source by the same id to resolve their
+    /// compact trees.
     ///
     /// Used by:
     /// - The normal [`crate::VTable::new_reader`] dispatch on `ArrayTreeLayout` (production path).
@@ -273,8 +279,8 @@ impl VTable for ArrayTree {
 /// the cached map.
 ///
 /// Published by [`ArrayTreeLayout::derive_reader_ctx`] into the [`LayoutReaderContext`]
-/// passed to descendants; pulled by [`ArrayTreeFlatLayout`]'s reader via
-/// `ctx.get::<ArrayTreesSource>()`.
+/// passed to descendants under [`ARRAY_TREES_SOURCE_ID`]; pulled by
+/// [`ArrayTreeFlatLayout`]'s reader by the same id.
 pub struct ArrayTreesSource {
     reader: LayoutReaderRef,
     /// Session used to create execution contexts when canonicalizing the consolidated array
