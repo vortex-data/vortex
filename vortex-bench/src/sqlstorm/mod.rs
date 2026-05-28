@@ -1,31 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! SQLStorm benchmark: a TPC-DS-shaped suite over a vendored, confirmed-working
-//! sample of SQLStorm queries (25 per origin). See the design doc for rationale.
+//! SQLStorm benchmark: a TPC-DS-shaped suite over a vendored set of 125 SQLStorm
+//! queries per origin (500 total), curated as the intersection of queries that
+//! succeed on DuckDB and DataFusion against the source data. See the design doc
+//! for rationale.
 
 use std::fs;
 use std::path::Path;
 use std::str::FromStr;
 
-use clap::ValueEnum;
-
 pub mod data;
-pub mod row_counts;
 pub mod sqlstorm_benchmark;
 
 pub use sqlstorm_benchmark::SqlstormBenchmark;
 
 /// The four SQLStorm base datasets ("origins").
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SqlstormOrigin {
-    #[clap(name = "stackoverflow")]
     StackOverflow,
-    #[clap(name = "job")]
     Job,
-    #[clap(name = "tpch")]
     TpcH,
-    #[clap(name = "tpcds")]
     TpcDs,
 }
 
@@ -49,16 +44,6 @@ impl SqlstormOrigin {
             "tpcds" => Some(SqlstormOrigin::TpcDs),
             _ => None,
         }
-    }
-
-    /// All four origins in canonical order.
-    pub fn all() -> [SqlstormOrigin; 4] {
-        [
-            SqlstormOrigin::StackOverflow,
-            SqlstormOrigin::Job,
-            SqlstormOrigin::TpcH,
-            SqlstormOrigin::TpcDs,
-        ]
     }
 }
 

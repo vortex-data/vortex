@@ -15,7 +15,6 @@ use crate::IdempotentPath;
 use crate::TableSpec;
 use crate::sqlstorm::SqlstormOrigin;
 use crate::sqlstorm::data;
-use crate::sqlstorm::row_counts;
 use crate::sqlstorm::sqlstorm_queries;
 use crate::tpcds::TpcDsBenchmark;
 use crate::tpch::benchmark::TpcHBenchmark;
@@ -80,10 +79,6 @@ impl Benchmark for SqlstormBenchmark {
             SqlstormOrigin::StackOverflow => data::generate_stackoverflow(&self.data_url).await,
             SqlstormOrigin::Job => data::generate_job(&self.data_url).await,
         }
-    }
-
-    fn expected_row_counts(&self) -> Option<Vec<usize>> {
-        row_counts::expected_row_counts(self.origin)
     }
 
     fn dataset(&self) -> BenchmarkDataset {

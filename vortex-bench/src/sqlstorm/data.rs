@@ -207,8 +207,9 @@ const TABLE_COLUMNS: &[&[&str]] = &[
 /// Table names per origin (single source of truth).
 ///
 /// TPC-H and TPC-DS mirror the corresponding benchmark's table lists.
-/// StackOverflow lists the 13 tables from `stackoverflow.dbschema.json`.
-/// JOB (IMDB) is populated in a later task.
+/// StackOverflow lists the 13 tables defined by the upstream
+/// `stackoverflow_schema.sql` DDL (see `SCHEMA_URL`).
+/// JOB lists the 21 tables defined by `JOB_DDL`.
 pub fn table_names(origin: SqlstormOrigin) -> &'static [&'static str] {
     match origin {
         SqlstormOrigin::TpcH => &[
