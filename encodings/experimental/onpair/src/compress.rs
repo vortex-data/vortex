@@ -65,7 +65,8 @@ where
 
     let column = onpair::compress(&flat, &offsets, config)
         .map_err(|e| vortex_err!("OnPair compress failed: {e}"))?;
-    let (bits, dict_bytes, dict_offsets, codes, codes_offsets) = parts_to_children(&column)?;
+    let (bits, dict_bytes, dict_offsets, codes, codes_offsets) =
+        parts_to_children(&column, &offsets)?;
 
     let uncompressed_lengths = uncompressed_lengths.into_array();
     let validity = match dtype.nullability() {
@@ -87,8 +88,13 @@ where
 
 /// Lift a compressed [`Column`] into Vortex children + the dict buffer.
 /// Returns `(bits, dict_bytes_buffer, dict_offsets_child, codes_child, codes_offsets_child)`.
+///
+/// `row_byte_offsets` are the per-row decoded byte boundaries that were handed
+/// to [`onpair::compress`]; they let us recover the per-row *code* boundaries
+/// (the `codes_offsets` child), which the `onpair` crate no longer returns.
 fn parts_to_children(
-    column: &Column<u64>,
+    column: &Column,
+    row_byte_offsets: &[u64],
 ) -> VortexResult<(u32, BufferHandle, ArrayRef, ArrayRef, ArrayRef)> {
     let bits = column.bits;
     // Pad the dictionary blob with MAX_TOKEN_SIZE zero bytes so the
@@ -106,21 +112,47 @@ fn parts_to_children(
     let dict_bytes =
         BufferHandle::new_host(ByteBuffer::from(padded).aligned(vortex_buffer::Alignment::new(8)));
 
-    let dict_offsets = Buffer::<u32>::copy_from(column.dict_offsets.as_slice()).into_array();
     // The crate emits already-unpacked token codes (one `u16` per token), so
     // they map straight onto the `codes` slot child.
     let codes = Buffer::<u16>::copy_from(column.codes.as_slice()).into_array();
-    // Per-row boundaries are `u64`; the array stores them as `u32`. Token
-    // counts comfortably fit `u32` for any single chunk.
-    let codes_offsets: Vec<u32> = column
-        .code_boundaries
-        .iter()
-        .map(|&b| {
-            u32::try_from(b).map_err(|_| vortex_err!("OnPair: code boundary {b} does not fit u32"))
-        })
-        .collect::<VortexResult<_>>()?;
+    // Recover the per-row code boundaries. `onpair::compress` no longer returns
+    // them, but its tokenizer never lets a token span a row boundary, so a
+    // row's codes decode to exactly its byte span. Walk `codes`, summing each
+    // token's byte length (`dict_offsets[c+1] - dict_offsets[c]`), and close a
+    // row when the accumulated decoded length reaches that row's byte offset.
+    let codes_offsets = build_codes_offsets(&column.codes, &column.dict_offsets, row_byte_offsets)?;
+
+    let dict_offsets = Buffer::<u32>::copy_from(column.dict_offsets.as_slice()).into_array();
     let codes_offsets = Buffer::<u32>::copy_from(codes_offsets).into_array();
     Ok((bits, dict_bytes, dict_offsets, codes, codes_offsets))
+}
+
+/// Reconstruct the per-row `codes_offsets` from the flat `codes`, the
+/// dictionary `dict_offsets` (token byte lengths) and the per-row decoded byte
+/// boundaries. Returns `nrows + 1` cumulative code counts (`u32`).
+fn build_codes_offsets(
+    codes: &[u16],
+    dict_offsets: &[u32],
+    row_byte_offsets: &[u64],
+) -> VortexResult<Vec<u32>> {
+    let nrows = row_byte_offsets.len() - 1;
+    let mut codes_offsets = Vec::with_capacity(nrows + 1);
+    codes_offsets.push(0u32);
+    let mut decoded_bytes: u64 = 0;
+    let mut code_idx: usize = 0;
+    for r in 0..nrows {
+        let target = row_byte_offsets[r + 1];
+        while decoded_bytes < target {
+            let code = codes[code_idx] as usize;
+            decoded_bytes += u64::from(dict_offsets[code + 1] - dict_offsets[code]);
+            code_idx += 1;
+        }
+        codes_offsets.push(
+            u32::try_from(code_idx)
+                .map_err(|_| vortex_err!("OnPair: code boundary {code_idx} does not fit u32"))?,
+        );
+    }
+    Ok(codes_offsets)
 }
 
 /// Compress a byte-string accessor (typically a `VarBinArray` or

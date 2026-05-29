@@ -4,11 +4,11 @@
 //! Decode-path microbenchmarks for the OnPair Vortex array.
 //!
 //! * `decompress_into` — the upstream `onpair::decompress_into` decoder hot
-//!   loop, fed by a pre-materialised [`OwnedDecodeInputs`]. Measures the
-//!   inner loop only (no `collect`, no allocation).
+//!   loop, fed by pre-materialised [`DecodeInputs`]. Measures the inner loop
+//!   only (no child `execute`, no allocation).
 //! * `canonicalize_to_varbinview` — the full Vortex
-//!   `OnPair → VarBinViewArray` path callers actually hit. Includes
-//!   `OwnedDecodeInputs::collect`, the build_views step, allocation, etc.
+//!   `OnPair → VarBinViewArray` path callers actually hit. Includes child
+//!   `execute`, the build_views step, allocation, etc.
 //!
 //! Each bench sweeps four corpus shapes against two row counts to surface
 //! cache-pressure cliffs and per-row decode cost.
@@ -24,22 +24,59 @@
     clippy::expect_used
 )]
 
+use std::mem::MaybeUninit;
 use std::sync::LazyLock;
 
 use divan::Bencher;
+use onpair::Parts;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::filter::FilterKernel;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::session::ArraySession;
+use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_mask::Mask;
 use vortex_onpair::DEFAULT_DICT12_CONFIG;
 use vortex_onpair::OnPair;
 use vortex_onpair::OnPairArray;
-use vortex_onpair::decode::OwnedDecodeInputs;
+use vortex_onpair::OnPairArraySlotsExt;
+
+/// Host-resident decode inputs, materialised once so the decode-loop benchmark
+/// measures only `onpair::decompress_into` (not child `execute`/allocation).
+struct DecodeInputs {
+    dict_bytes: ByteBuffer,
+    dict_offsets: Buffer<u32>,
+    codes: Buffer<u16>,
+    bits: u32,
+}
+
+impl DecodeInputs {
+    fn as_parts(&self) -> Parts<'_> {
+        Parts {
+            dict_bytes: self.dict_bytes.as_slice(),
+            dict_offsets: self.dict_offsets.as_slice(),
+            bits: self.bits,
+            codes: self.codes.as_slice(),
+        }
+    }
+
+    fn decompressed_len(&self) -> usize {
+        onpair::decompressed_len(self.as_parts())
+    }
+
+    fn decompress_into(&self, out: &mut [MaybeUninit<u8>]) -> usize {
+        onpair::decompress_into(self.as_parts(), out)
+    }
+}
 use vortex_onpair::onpair_compress;
 use vortex_session::VortexSession;
 
@@ -124,10 +161,24 @@ fn compress(n: usize, shape: Shape) -> OnPairArray {
         .unwrap_or_else(|e| panic!("onpair_compress failed: {e}"))
 }
 
-fn materialise(arr: &OnPairArray) -> (OwnedDecodeInputs, usize) {
+/// Canonicalise a slot child to the decoder's native primitive width.
+fn widen<T: NativePType>(arr: &ArrayRef, ctx: &mut ExecutionCtx) -> Buffer<T> {
+    arr.cast(DType::Primitive(T::PTYPE, arr.dtype().nullability()))
+        .expect("cast")
+        .execute::<PrimitiveArray>(ctx)
+        .expect("execute")
+        .into_buffer::<T>()
+}
+
+fn materialise(arr: &OnPairArray) -> (DecodeInputs, usize) {
     let mut ctx = SESSION.create_execution_ctx();
-    let inputs = OwnedDecodeInputs::collect(arr.as_view(), &mut ctx)
-        .unwrap_or_else(|e| panic!("collect: {e}"));
+    let view = arr.as_view();
+    let inputs = DecodeInputs {
+        dict_bytes: view.dict_bytes().clone(),
+        dict_offsets: widen::<u32>(view.dict_offsets(), &mut ctx),
+        codes: widen::<u16>(view.codes(), &mut ctx),
+        bits: view.bits(),
+    };
     let total = inputs.decompressed_len();
     (inputs, total)
 }
@@ -140,8 +191,8 @@ const CASES: &[(Shape, usize)] = &[
     (Shape::HighCard, 100_000),
 ];
 
-/// Raw decode loop time, excluding `OwnedDecodeInputs::collect` and the
-/// output allocation. Hits `onpair::decompress_into` directly.
+/// Raw decode loop time, excluding child `execute` and the output allocation.
+/// Hits `onpair::decompress_into` directly.
 #[divan::bench(args = CASES)]
 fn decompress_into_bench(bencher: Bencher, case: (Shape, usize)) {
     let (shape, n) = case;

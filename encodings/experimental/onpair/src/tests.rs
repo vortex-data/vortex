@@ -134,6 +134,52 @@ fn test_onpair_scalar_at() {
     assert_eq!(v.as_bytes(), b"https://www.test.org/page");
 }
 
+/// `scalar_at` must decode only the requested row's code window — fetching
+/// its two `codes_offsets` boundaries via point lookup, not by materialising
+/// the whole `codes_offsets`/`codes` children. Verify correctness at several
+/// indices (including the last row) on a full array, and on a *sliced* array
+/// where `codes_offsets` is itself a narrowed view and the row index is
+/// relative to the slice.
+#[cfg_attr(miri, ignore)]
+#[test]
+fn test_onpair_scalar_at_window() -> vortex_error::VortexResult<()> {
+    let n = 2_000usize;
+    let strings: Vec<String> = (0..n)
+        .map(|i| format!("https://www.example.com/items/{i:08}/page?q={i}"))
+        .collect();
+    let varbin = VarBinArray::from_iter(
+        strings.iter().map(|s| Some(s.as_bytes())),
+        DType::Utf8(Nullability::NonNullable),
+    );
+    let arr =
+        onpair_compress(&varbin, varbin.len(), varbin.dtype(), DEFAULT_DICT12_CONFIG)?.into_array();
+
+    let mut ctx = SESSION.create_execution_ctx();
+    for &i in &[0usize, 1, 999, 1000, n - 1] {
+        let got = arr.execute_scalar(i, &mut ctx)?;
+        assert_eq!(
+            got.as_utf8().value().unwrap().as_bytes(),
+            strings[i].as_bytes(),
+            "full array row {i}"
+        );
+    }
+
+    // Sliced array: `codes_offsets` is narrowed (first boundary > 0), so the
+    // point lookup must resolve indices relative to the slice.
+    let (start, end) = (700usize, 1300usize);
+    let sliced = arr.slice(start..end)?;
+    assert!(sliced.is::<OnPair>(), "slice dropped OnPair encoding");
+    for &j in &[0usize, 1, 300, end - start - 1] {
+        let got = sliced.execute_scalar(j, &mut ctx)?;
+        assert_eq!(
+            got.as_utf8().value().unwrap().as_bytes(),
+            strings[start + j].as_bytes(),
+            "sliced row {j}"
+        );
+    }
+    Ok(())
+}
+
 /// The hot decode loop is 4×-unrolled with a scalar tail. Anything that
 /// lands in the tail (1-3 leftover tokens, or zero total tokens) must
 /// produce the same bytes as the unrolled body. Hit every row-count
@@ -385,4 +431,55 @@ fn test_onpair_filter_with_narrowed_codes_offsets_u8() {
         .unwrap()
         .expect("OnPair filter must return Some");
     assert_eq!(filtered.len(), n / 2);
+}
+
+/// Regression: canonicalising a *sliced* OnPair array. `slice` keeps the full
+/// `codes` child and only narrows `codes_offsets`, so a sliced array has a
+/// non-contiguous code window (`code_start > 0` and/or `code_end <
+/// codes.len()`). `onpair_decode_views` must decode exactly that window;
+/// decoding the whole `codes` stream — as a boundary-agnostic whole-column
+/// decoder would — yields the wrong bytes (and over-runs the output) for any
+/// partial slice. `filter` never produces this shape (it rebuilds `codes`
+/// contiguously), so the existing filter tests do not cover it.
+#[cfg_attr(miri, ignore)]
+#[test]
+fn test_onpair_slice_canonicalize() -> vortex_error::VortexResult<()> {
+    let n = 5_000usize;
+    let strings: Vec<String> = (0..n)
+        .map(|i| format!("https://www.example.com/items/{i:08}"))
+        .collect();
+    let varbin = VarBinArray::from_iter(
+        strings.iter().map(|s| Some(s.as_bytes())),
+        DType::Utf8(Nullability::NonNullable),
+    );
+    let arr =
+        onpair_compress(&varbin, varbin.len(), varbin.dtype(), DEFAULT_DICT12_CONFIG)?.into_array();
+
+    // interior (start>0, end<n), LIMIT-like (start=0, end<n), tail (start>0,
+    // end=n), and a near-full window.
+    for (start, end) in [(1234usize, 1240usize), (0, 7), (4993, n), (1, n - 1)] {
+        let sliced = arr.clone().slice(start..end)?;
+        assert_eq!(sliced.len(), end - start);
+        assert!(
+            sliced.is::<OnPair>(),
+            "slice dropped OnPair encoding: got {}",
+            sliced.encoding_id()
+        );
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let canonical = sliced.execute::<VarBinViewArray>(&mut ctx)?;
+        canonical.with_iterator(|iter| {
+            let got: Vec<Option<Vec<u8>>> = iter.map(|b| b.map(|s| s.to_vec())).collect();
+            assert_eq!(got.len(), end - start, "window {start}..{end} length");
+            for (i, want) in strings[start..end].iter().enumerate() {
+                assert_eq!(
+                    got[i].as_deref(),
+                    Some(want.as_bytes()),
+                    "window {start}..{end} row {i}"
+                );
+            }
+            Ok::<_, vortex_error::VortexError>(())
+        })?;
+    }
+    Ok(())
 }
