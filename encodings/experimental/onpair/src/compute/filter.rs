@@ -31,7 +31,6 @@ use crate::OnPairArrayExt;
 use crate::OnPairArraySlotsExt;
 
 impl FilterKernel for OnPair {
-    #[expect(clippy::cognitive_complexity, clippy::cast_possible_truncation)]
     fn filter(
         array: ArrayView<'_, Self>,
         mask: &Mask,
