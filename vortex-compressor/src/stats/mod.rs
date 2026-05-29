@@ -8,7 +8,7 @@ mod cache;
 mod float;
 mod integer;
 mod options;
-mod string;
+mod varbinview;
 
 pub use bool::BoolStats;
 pub use cache::ArrayAndStats;
@@ -21,4 +21,4 @@ pub use integer::ErasedStats as IntegerErasedStats;
 pub use integer::IntegerStats;
 pub use integer::TypedStats as IntegerTypedStats;
 pub use options::GenerateStatsOptions;
-pub use string::StringStats;
+pub use varbinview::StringStats;
