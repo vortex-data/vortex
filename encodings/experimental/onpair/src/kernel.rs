@@ -6,6 +6,6 @@ use vortex_array::kernel::ParentKernelSet;
 
 use crate::OnPair;
 
-// TODO: implement TakeExecute for OnPair
+// TODO: implement ListExecute & TakeExecute for OnPair
 pub(super) const PARENT_KERNELS: ParentKernelSet<OnPair> =
     ParentKernelSet::new(&[ParentKernelSet::lift(&FilterExecuteAdaptor(OnPair))]);

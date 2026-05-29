@@ -194,8 +194,6 @@ pub fn vortex_onpair::OnPairSlotsView<'a>::to_owned(&self) -> vortex_onpair::OnP
 
 pub const vortex_onpair::DEFAULT_DICT12_CONFIG: onpair::config::Config
 
-pub const vortex_onpair::MAX_TOKEN_SIZE: usize
-
 pub trait vortex_onpair::OnPairArrayExt: vortex_onpair::OnPairArraySlotsExt
 
 pub fn vortex_onpair::OnPairArrayExt::array_validity(&self) -> vortex_array::validity::Validity
