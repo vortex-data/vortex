@@ -70,6 +70,8 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     &decimal::DecimalScheme,
     // Temporal schemes.
     &temporal::TemporalScheme,
+    // Binary schemes
+    &binary::BinaryDictScheme,
 ];
 
 /// Builder for creating configured [`BtrBlocksCompressor`] instances.

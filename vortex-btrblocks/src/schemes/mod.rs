@@ -5,11 +5,10 @@
 
 pub mod binary;
 pub mod bool;
+pub mod decimal;
 pub mod float;
 pub mod integer;
 pub mod string;
-
-pub mod decimal;
 pub mod temporal;
 
 pub(crate) mod patches;
