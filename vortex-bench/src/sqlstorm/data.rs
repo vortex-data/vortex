@@ -24,7 +24,7 @@
 //! resolve the queries' CamelCase column references against the lowercased
 //! schema. Table names in the DDL stay CamelCase so that each
 //! `COPY "Posts" FROM 'Posts.csv'` reads naturally; the lowercase output
-//! shard name is the second element of each entry in [`OriginData::tables`].
+//! shard name is the second element of each entry in `OriginData::tables`.
 
 use std::fs;
 use std::path::Path;
@@ -182,7 +182,7 @@ CREATE TABLE "person_info" ("id" INTEGER, "person_id" INTEGER, "info_type_id" IN
 };
 
 /// Table names per origin, in the same order as the corresponding
-/// [`OriginData::tables`] output column. Single source of truth shared by
+/// `OriginData::tables` output column. Single source of truth shared by
 /// [`table_specs`] (used by `SqlstormBenchmark`) and
 /// `BenchmarkDataset::tables()` (the registration layer).
 pub fn table_names(origin: SqlstormOrigin) -> &'static [&'static str] {
