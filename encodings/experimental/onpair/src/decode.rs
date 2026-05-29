@@ -22,7 +22,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 
 use crate::OnPair;
-use crate::OnPairArrayExt;
+use crate::OnPairArraySlotsExt;
 
 /// Materialised, host-resident copies of every read path's input.
 ///

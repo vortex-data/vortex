@@ -17,6 +17,7 @@ use vortex_error::VortexResult;
 
 use crate::OnPair;
 use crate::OnPairArrayExt;
+use crate::OnPairArraySlotsExt;
 
 impl SliceReduce for OnPair {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {

@@ -3,3 +3,4 @@
 
 mod cast;
 mod filter;
+mod slice;

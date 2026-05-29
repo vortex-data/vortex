@@ -3,15 +3,13 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
-use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::dtype::DType;
-use vortex_array::scalar_fn::fns::cast::CastKernel;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::OnPair;
-use crate::OnPairArrayExt;
+use crate::OnPairArraySlotsExt;
 
 /// Cast between `Utf8` and `Binary` (or adjust nullability) without touching
 /// any of the encoded payload — we only rewrap into a new outer DType.
@@ -41,15 +39,5 @@ impl CastReduce for OnPair {
             }
             .into_array(),
         ))
-    }
-}
-
-impl CastKernel for OnPair {
-    fn cast(
-        array: ArrayView<'_, Self>,
-        dtype: &DType,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        <Self as CastReduce>::cast(array, dtype)
     }
 }

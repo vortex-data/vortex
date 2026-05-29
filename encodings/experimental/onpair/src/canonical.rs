@@ -22,7 +22,7 @@ use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 
 use crate::OnPair;
-use crate::OnPairArrayExt;
+use crate::OnPairArraySlotsExt;
 use crate::decode::OwnedDecodeInputs;
 
 pub(super) fn canonicalize_onpair(

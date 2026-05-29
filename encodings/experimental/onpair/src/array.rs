@@ -13,14 +13,13 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
-use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
-use vortex_array::TypedArrayRef;
+use vortex_array::array_slots;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::VarBinViewBuilder;
@@ -28,7 +27,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -58,20 +56,12 @@ pub type OnPairArray = Array<OnPair>;
 /// * Buffer 0 — `dict_bytes`: the dictionary blob built by the OnPair trainer,
 ///   padded with [`MAX_TOKEN_SIZE`][crate::MAX_TOKEN_SIZE] trailing zero
 ///   bytes so the over-copy decoder can read 16 bytes past the last token.
-/// * Slot 0 — `dict_offsets`: `PrimitiveArray<u32>`, len `dict_size + 1`.
-/// * Slot 1 — `codes`: `PrimitiveArray<u16>`. Each value only uses its low
-///   `bits` bits; downstream `FastLanes::BitPacking` losslessly shrinks
-///   the child to exactly `bits`-bit codes on disk.
-/// * Slot 2 — `codes_offsets`: `PrimitiveArray<u32>`, len `num_rows + 1`.
-///   FoR / RunEnd / etc. apply naturally via the cascading compressor.
-/// * Slot 3 — `uncompressed_lengths`: integer `PrimitiveArray`, len
-///   `num_rows`. Used to size the canonical output buffer.
-/// * Slot 4 — optional validity child.
+/// * Slots — see [`OnPairSlots`].
 ///
-/// All three integer slot children flow through the standard
-/// `compress_child` pipeline (see `vortex-btrblocks::schemes::string::
-/// OnPairScheme`), so any encoding registered with the compressor can
-/// re-encode them — exactly the same shape as FSST's `codes` `VarBinArray`.
+/// The four integer slot children flow through the standard `compress_child`
+/// pipeline (see `vortex-btrblocks::schemes::string::OnPairScheme`), so any
+/// encoding registered with the compressor can re-encode them — exactly the
+/// same shape as FSST's `codes` `VarBinArray`.
 #[derive(Clone, prost::Message)]
 pub struct OnPairMetadata {
     /// Width of the per-row primitive `uncompressed_lengths` child.
@@ -82,8 +72,9 @@ pub struct OnPairMetadata {
     #[prost(uint32, tag = "2")]
     pub bits: u32,
     /// Number of dictionary tokens. `dict_offsets` has length `dict_size + 1`.
-    #[prost(uint64, tag = "3")]
-    pub dict_size: u64,
+    /// Bounded by `2^bits ≤ 2^16 = 65_536`, so `u32` is comfortably wide.
+    #[prost(uint32, tag = "3")]
+    pub dict_size: u32,
     /// Total number of tokens across all rows. `codes` has this length;
     /// `codes_offsets.last() == total_tokens`.
     #[prost(uint64, tag = "4")]
@@ -108,20 +99,24 @@ impl OnPairMetadata {
     }
 }
 
-/// Slot indices on the outer [`Array`].
-pub(crate) const DICT_OFFSETS_SLOT: usize = 0;
-pub(crate) const CODES_SLOT: usize = 1;
-pub(crate) const CODES_OFFSETS_SLOT: usize = 2;
-pub(crate) const UNCOMPRESSED_LENGTHS_SLOT: usize = 3;
-pub(crate) const VALIDITY_SLOT: usize = 4;
-pub(crate) const NUM_SLOTS: usize = 5;
-pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] = [
-    "dict_offsets",
-    "codes",
-    "codes_offsets",
-    "uncompressed_lengths",
-    "validity",
-];
+#[array_slots(OnPair)]
+pub struct OnPairSlots {
+    /// `PrimitiveArray<u32>`, length `dict_size + 1`. Cascading compressor may
+    /// narrow the ptype to U16/U8.
+    pub dict_offsets: ArrayRef,
+    /// `PrimitiveArray<u16>`. Each value only uses its low `bits` bits;
+    /// downstream `FastLanes::BitPacking` losslessly shrinks the child to
+    /// exactly `bits`-bit codes on disk.
+    pub codes: ArrayRef,
+    /// `PrimitiveArray<u32>`, length `num_rows + 1`. FoR / RunEnd / etc. apply
+    /// naturally via the cascading compressor.
+    pub codes_offsets: ArrayRef,
+    /// Integer `PrimitiveArray`, length `num_rows`. Used to size the canonical
+    /// output buffer.
+    pub uncompressed_lengths: ArrayRef,
+    /// Optional validity child for the outer string column.
+    pub validity: Option<ArrayRef>,
+}
 
 /// Inner data for an OnPair-encoded array.
 ///
@@ -232,13 +227,14 @@ impl OnPair {
         )?;
         let len = uncompressed_lengths.len();
         let data = OnPairData::new(dict_bytes, bits, len);
-        let slots: ArraySlots = smallvec![
-            Some(dict_offsets),
-            Some(codes),
-            Some(codes_offsets),
-            Some(uncompressed_lengths),
-            validity_to_child(&validity, len),
-        ];
+        let slots = OnPairSlots {
+            dict_offsets,
+            codes,
+            codes_offsets,
+            uncompressed_lengths,
+            validity: validity_to_child(&validity, len),
+        }
+        .into_slots();
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(OnPair, dtype, len, data).with_slots(slots))
         })
@@ -257,13 +253,14 @@ impl OnPair {
     ) -> OnPairArray {
         let len = uncompressed_lengths.len();
         let data = OnPairData::new(dict_bytes, bits, len);
-        let slots: ArraySlots = smallvec![
-            Some(dict_offsets),
-            Some(codes),
-            Some(codes_offsets),
-            Some(uncompressed_lengths),
-            validity_to_child(&validity, len),
-        ];
+        let slots = OnPairSlots {
+            dict_offsets,
+            codes,
+            codes_offsets,
+            uncompressed_lengths,
+            validity: validity_to_child(&validity, len),
+        }
+        .into_slots();
         unsafe {
             Array::from_parts_unchecked(ArrayParts::new(OnPair, dtype, len, data).with_slots(slots))
         }
@@ -323,27 +320,16 @@ impl VTable for OnPair {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let dict_offsets = slots[DICT_OFFSETS_SLOT]
-            .as_ref()
-            .ok_or_else(|| vortex_err!("OnPairArray dict_offsets slot missing"))?;
-        let codes = slots[CODES_SLOT]
-            .as_ref()
-            .ok_or_else(|| vortex_err!("OnPairArray codes slot missing"))?;
-        let codes_offsets = slots[CODES_OFFSETS_SLOT]
-            .as_ref()
-            .ok_or_else(|| vortex_err!("OnPairArray codes_offsets slot missing"))?;
-        let uncompressed_lengths = slots[UNCOMPRESSED_LENGTHS_SLOT]
-            .as_ref()
-            .ok_or_else(|| vortex_err!("OnPairArray uncompressed_lengths slot missing"))?;
+        let s = OnPairSlotsView::from_slots(slots);
         validate_parts(
             dtype,
-            dict_offsets,
-            codes,
-            codes_offsets,
-            uncompressed_lengths,
+            s.dict_offsets,
+            s.codes,
+            s.codes_offsets,
+            s.uncompressed_lengths,
             data.bits,
         )?;
-        if uncompressed_lengths.len() != len {
+        if s.uncompressed_lengths.len() != len {
             vortex_bail!(InvalidArgument: "uncompressed_lengths must have same len as outer array");
         }
         if data.len != len {
@@ -374,7 +360,8 @@ impl VTable for OnPair {
         array: ArrayView<'_, Self>,
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
-        let dict_size = array.dict_offsets().len().saturating_sub(1) as u64;
+        let dict_size = u32::try_from(array.dict_offsets().len().saturating_sub(1))
+            .map_err(|_| vortex_err!("OnPair dict_size exceeds u32"))?;
         let total_tokens = array.codes().len() as u64;
         Ok(Some(
             OnPairMetadata {
@@ -408,8 +395,7 @@ impl VTable for OnPair {
         // Slot children. We pass `usize::MAX` for slots whose length we
         // don't know up front (`dict_offsets` and `codes`). `codes_offsets`
         // has known length `len + 1`.
-        let dict_offsets_len = usize::try_from(metadata.dict_size + 1)
-            .map_err(|_| vortex_err!("dict_size {} overflows usize", metadata.dict_size))?;
+        let dict_offsets_len = metadata.dict_size as usize + 1;
         let total_tokens = usize::try_from(metadata.total_tokens)
             .map_err(|_| vortex_err!("total_tokens {} overflows usize", metadata.total_tokens))?;
         // The cascading compressor may have narrowed any of these integer
@@ -453,18 +439,19 @@ impl VTable for OnPair {
         };
 
         let data = OnPairData::new(buffers[0].clone(), metadata.bits, len);
-        let slots: ArraySlots = smallvec![
-            Some(dict_offsets),
-            Some(codes),
-            Some(codes_offsets),
-            Some(uncompressed_lengths),
-            validity_to_child(&validity, len),
-        ];
+        let slots = OnPairSlots {
+            dict_offsets,
+            codes,
+            codes_offsets,
+            uncompressed_lengths,
+            validity: validity_to_child(&validity, len),
+        }
+        .into_slots();
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        OnPairSlots::NAMES[idx].to_string()
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -521,41 +508,20 @@ impl VTable for OnPair {
 impl ValidityVTable<OnPair> for OnPair {
     fn validity(array: ArrayView<'_, OnPair>) -> VortexResult<Validity> {
         Ok(child_to_validity(
-            array.slots()[VALIDITY_SLOT].as_ref(),
+            array.slots()[OnPairSlots::VALIDITY].as_ref(),
             array.dtype().nullability(),
         ))
     }
 }
 
-/// Convenience extension trait. Slot accessors live here; methods reachable
-/// through `OnPairData` flow via the `ArrayView -> Deref` chain.
-pub trait OnPairArrayExt: TypedArrayRef<OnPair> {
-    fn dict_offsets(&self) -> &ArrayRef {
-        self.as_ref().slots()[DICT_OFFSETS_SLOT]
-            .as_ref()
-            .unwrap_or_else(|| vortex_panic!("OnPairArray dict_offsets slot missing"))
-    }
-    fn codes(&self) -> &ArrayRef {
-        self.as_ref().slots()[CODES_SLOT]
-            .as_ref()
-            .unwrap_or_else(|| vortex_panic!("OnPairArray codes slot missing"))
-    }
-    fn codes_offsets(&self) -> &ArrayRef {
-        self.as_ref().slots()[CODES_OFFSETS_SLOT]
-            .as_ref()
-            .unwrap_or_else(|| vortex_panic!("OnPairArray codes_offsets slot missing"))
-    }
-    fn uncompressed_lengths(&self) -> &ArrayRef {
-        self.as_ref().slots()[UNCOMPRESSED_LENGTHS_SLOT]
-            .as_ref()
-            .unwrap_or_else(|| vortex_panic!("OnPairArray uncompressed_lengths slot missing"))
-    }
+/// Convenience methods on top of the macro-generated [`OnPairArraySlotsExt`].
+pub trait OnPairArrayExt: OnPairArraySlotsExt {
     fn array_validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[VALIDITY_SLOT].as_ref(),
+            self.as_ref().slots()[OnPairSlots::VALIDITY].as_ref(),
             self.as_ref().dtype().nullability(),
         )
     }
 }
 
-impl<T: TypedArrayRef<OnPair>> OnPairArrayExt for T {}
+impl<T: OnPairArraySlotsExt> OnPairArrayExt for T {}

@@ -23,6 +23,7 @@ use vortex_session::VortexSession;
 
 use crate::OnPair;
 use crate::OnPairArrayExt;
+use crate::OnPairArraySlotsExt;
 use crate::OnPairMetadata;
 use crate::compress::DEFAULT_DICT12_CONFIG;
 use crate::compress::onpair_compress;

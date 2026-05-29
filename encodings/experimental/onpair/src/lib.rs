@@ -18,7 +18,6 @@ pub mod decode;
 mod kernel;
 mod ops;
 mod rules;
-mod slice;
 #[cfg(test)]
 mod tests;
 

@@ -27,6 +27,7 @@ use vortex_mask::Mask;
 
 use crate::OnPair;
 use crate::OnPairArrayExt;
+use crate::OnPairArraySlotsExt;
 
 impl FilterKernel for OnPair {
     #[expect(clippy::cognitive_complexity, clippy::cast_possible_truncation)]
