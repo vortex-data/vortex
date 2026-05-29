@@ -51,27 +51,34 @@ pub(crate) fn onpair_decode_views(
 
     let inputs = FullDecodeInputs::collect(array, ctx)?;
 
+    // The total decoded byte length equals the sum of the per-row uncompressed
+    // lengths, which we already hold. This avoids the redundant
+    // `onpair::decompressed_len` pass that re-walks every token in the `codes`
+    // stream (one random `dict_offsets` lookup per token) purely to recompute a
+    // size we know. Only the sum is dispatched over the integer ptype; the
+    // decode and allocation below are ptype-independent and stay out of the
+    // match to avoid monomorphising them per width.
+    let total_size: usize = match_each_integer_ptype!(lengths.ptype(), |P| {
+        lengths
+            .as_slice::<P>()
+            .iter()
+            .map(|&l| AsPrimitive::<usize>::as_(l))
+            .sum()
+    });
+
+    let mut out_bytes = ByteBufferMut::with_capacity(total_size + DECOMPRESS_BUFFER_PADDING);
+    let written = inputs.decompress_into(out_bytes.spare_capacity_mut());
+    debug_assert_eq!(written, total_size);
+    // SAFETY: `decompress_into` initialised exactly `written` bytes of the
+    // spare capacity reserved above.
+    unsafe { out_bytes.set_len(written) };
+
     match_each_integer_ptype!(lengths.ptype(), |P| {
-        let lens = lengths.as_slice::<P>();
-        // The total decoded byte length equals the sum of the per-row
-        // uncompressed lengths, which we already hold. This avoids the
-        // redundant `onpair::decompressed_len` pass that re-walks every token
-        // in the `codes` stream (one random `dict_offsets` lookup per token)
-        // purely to recompute a size we know.
-        let total_size: usize = lens.iter().map(|&l| AsPrimitive::<usize>::as_(l)).sum();
-
-        let mut out_bytes = ByteBufferMut::with_capacity(total_size + DECOMPRESS_BUFFER_PADDING);
-        let written = inputs.decompress_into(out_bytes.spare_capacity_mut());
-        debug_assert_eq!(written, total_size);
-        // SAFETY: `decompress_into` initialised exactly `written` bytes of the
-        // spare capacity reserved above.
-        unsafe { out_bytes.set_len(written) };
-
         Ok(build_views(
             start_buf_index,
             MAX_BUFFER_LEN,
             out_bytes,
-            lens,
+            lengths.as_slice::<P>(),
         ))
     })
 }
