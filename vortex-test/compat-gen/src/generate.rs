@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::path::Path;
+use std::time::Instant;
 
 use base16ct::HexDisplay;
 use serde::Serialize;
@@ -42,17 +43,30 @@ pub fn write_fixtures(output_dir: &Path, exclude: &[String]) -> VortexResult<Vec
     std::fs::create_dir_all(output_dir)
         .map_err(|e| vortex_err!("failed to create output dir: {e}"))?;
 
+    let generation_start = Instant::now();
     eprintln!("generating {} fixtures...", fixtures.len());
 
     let mut infos = Vec::new();
-    for fixture in &fixtures {
+    for (idx, fixture) in fixtures.iter().enumerate() {
+        let fixture_start = Instant::now();
+        eprintln!(
+            "  generating {}/{} {}...",
+            idx + 1,
+            fixtures.len(),
+            fixture.name()
+        );
         let entries = fixture.write(output_dir)?;
         for entry in entries {
             let path = output_dir.join(&entry.name);
             let file_bytes = std::fs::read(&path)
                 .map_err(|e| vortex_err!("failed to read back {}: {e}", path.display()))?;
             let sha256 = format!("{:x}", HexDisplay(&Sha256::digest(&file_bytes)));
-            eprintln!("  wrote {}", entry.name);
+            eprintln!(
+                "  wrote {} in {:.3}s ({} bytes)",
+                entry.name,
+                fixture_start.elapsed().as_secs_f64(),
+                file_bytes.len()
+            );
             infos.push(FixtureInfo {
                 name: entry.name,
                 description: entry.description,
@@ -60,6 +74,10 @@ pub fn write_fixtures(output_dir: &Path, exclude: &[String]) -> VortexResult<Vec
             });
         }
     }
+    eprintln!(
+        "generated fixtures in {:.3}s",
+        generation_start.elapsed().as_secs_f64()
+    );
 
     Ok(infos)
 }

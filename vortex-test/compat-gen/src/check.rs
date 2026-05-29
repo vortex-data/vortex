@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::path::Path;
+use std::time::Instant;
 
 use clap::ValueEnum;
 use serde::Serialize;
@@ -63,13 +64,42 @@ pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
     // Generate fresh fixtures into a temp directory.
     let tmp_dir = tempfile::tempdir().map_err(|e| vortex_err!("failed to create temp dir: {e}"))?;
 
-    eprintln!("generating fresh fixtures for comparison...");
-    for fixture in &fixtures {
-        fixture.write(tmp_dir.path())?;
+    let generation_start = Instant::now();
+    eprintln!(
+        "generating {} fresh fixtures for comparison in {}...",
+        fixtures.len(),
+        tmp_dir.path().display()
+    );
+    for (idx, fixture) in fixtures.iter().enumerate() {
+        let fixture_start = Instant::now();
+        eprintln!(
+            "  generating {}/{} {}...",
+            idx + 1,
+            fixtures.len(),
+            fixture.name()
+        );
+        let entries = fixture.write(tmp_dir.path())?;
+        let written = entries
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        eprintln!(
+            "  generated {}/{} {} in {:.3}s: {}",
+            idx + 1,
+            fixtures.len(),
+            fixture.name(),
+            fixture_start.elapsed().as_secs_f64(),
+            written
+        );
     }
+    eprintln!(
+        "generated fresh fixtures in {:.3}s",
+        generation_start.elapsed().as_secs_f64()
+    );
 
     // Collect .vortex files in the check directory.
-    let dir_files: Vec<String> = std::fs::read_dir(dir)
+    let mut dir_files: Vec<String> = std::fs::read_dir(dir)
         .map_err(|e| vortex_err!("failed to read dir {}: {e}", dir.display()))?
         .filter_map(|entry| {
             let entry = entry.ok()?;
@@ -77,9 +107,10 @@ pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
             name.ends_with(".vortex").then_some(name)
         })
         .collect();
+    dir_files.sort();
 
     // Collect all fixture names (each fixture may produce multiple files).
-    let fresh_files: Vec<String> = std::fs::read_dir(tmp_dir.path())
+    let mut fresh_files: Vec<String> = std::fs::read_dir(tmp_dir.path())
         .map_err(|e| vortex_err!("failed to read tmp dir: {e}"))?
         .filter_map(|entry| {
             let entry = entry.ok()?;
@@ -87,6 +118,7 @@ pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
             name.ends_with(".vortex").then_some(name)
         })
         .collect();
+    fresh_files.sort();
 
     let mut result = CheckResult {
         passed: Vec::new(),
@@ -131,9 +163,12 @@ pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
             continue;
         }
 
+        let check_start = Instant::now();
         eprintln!("  checking {fresh_name}...");
 
         // Read the stored file.
+        let read_stored_start = Instant::now();
+        eprintln!("    reading stored file...");
         let stored_bytes = match std::fs::read(&stored_path) {
             Ok(b) => ByteBuffer::from(b),
             Err(e) => {
@@ -144,9 +179,16 @@ pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
                 continue;
             }
         };
+        eprintln!(
+            "    read stored file in {:.3}s ({} bytes)",
+            read_stored_start.elapsed().as_secs_f64(),
+            stored_bytes.len()
+        );
 
         // Read the fresh file.
         let fresh_path = tmp_dir.path().join(fresh_name);
+        let read_fresh_start = Instant::now();
+        eprintln!("    reading fresh file...");
         let fresh_bytes = match std::fs::read(&fresh_path) {
             Ok(b) => ByteBuffer::from(b),
             Err(e) => {
@@ -157,9 +199,16 @@ pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
                 continue;
             }
         };
+        eprintln!(
+            "    read fresh file in {:.3}s ({} bytes)",
+            read_fresh_start.elapsed().as_secs_f64(),
+            fresh_bytes.len()
+        );
 
         // Validate the full layout tree of the stored file (reads every segment
         // including zone maps, dictionaries, etc.).
+        let layout_start = Instant::now();
+        eprintln!("    validating stored layout tree...");
         if let Err(e) = adapter::read_layout_tree(stored_bytes.clone()) {
             result.failed.push(FailedFixture {
                 name: fresh_name.clone(),
@@ -167,8 +216,14 @@ pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
             });
             continue;
         }
+        eprintln!(
+            "    validated stored layout tree in {:.3}s",
+            layout_start.elapsed().as_secs_f64()
+        );
 
         // Scan data arrays from both files and compare.
+        let decode_stored_start = Instant::now();
+        eprintln!("    decoding stored file...");
         let stored_array = match adapter::read_file(stored_bytes) {
             Ok(a) => a,
             Err(e) => {
@@ -179,6 +234,13 @@ pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
                 continue;
             }
         };
+        eprintln!(
+            "    decoded stored file in {:.3}s",
+            decode_stored_start.elapsed().as_secs_f64()
+        );
+
+        let decode_fresh_start = Instant::now();
+        eprintln!("    decoding fresh file...");
         let fresh_array = match adapter::read_file(fresh_bytes) {
             Ok(a) => a,
             Err(e) => {
@@ -189,9 +251,22 @@ pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
                 continue;
             }
         };
+        eprintln!(
+            "    decoded fresh file in {:.3}s",
+            decode_fresh_start.elapsed().as_secs_f64()
+        );
 
+        let compare_start = Instant::now();
+        eprintln!("    comparing arrays...");
         assert_arrays_eq!(stored_array, fresh_array);
-        eprintln!("  pass {fresh_name}");
+        eprintln!(
+            "    compared arrays in {:.3}s",
+            compare_start.elapsed().as_secs_f64()
+        );
+        eprintln!(
+            "  pass {fresh_name} in {:.3}s",
+            check_start.elapsed().as_secs_f64()
+        );
         result.passed.push(fresh_name.clone());
     }
 
