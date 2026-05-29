@@ -301,6 +301,10 @@ impl fmt::Debug for BinaryView {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "test values are bounded well within the target types"
+)]
 mod tests {
     use super::*;
 

@@ -104,11 +104,166 @@ pub fn build_views<P: NativePType + AsPrimitive<usize>>(
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::ByteBufferMut;
 
     use crate::arrays::varbinview::BinaryView;
     use crate::arrays::varbinview::build_views::build_views;
+
+    /// Concatenate `values` into a single byte heap and return it alongside the per-element lengths,
+    /// matching the `(bytes, lens)` inputs that `build_views` consumes.
+    fn flatten(values: &[&[u8]]) -> (ByteBufferMut, Vec<u32>) {
+        let mut bytes = ByteBufferMut::empty();
+        let mut lens = Vec::with_capacity(values.len());
+        for v in values {
+            bytes.extend_from_slice(v);
+            lens.push(u32::try_from(v.len()).unwrap());
+        }
+        (bytes, lens)
+    }
+
+    /// Reconstruct the logical value behind each view by dereferencing it through the output
+    /// buffers. The first buffer corresponds to `start_buf_index`, so buffer indices are rebased by
+    /// that amount. This is the core correctness invariant: regardless of which code path built the
+    /// views, every view must point back at its original bytes.
+    fn reconstruct(
+        buffers: &[ByteBuffer],
+        views: &[BinaryView],
+        start_buf_index: u32,
+    ) -> Vec<Vec<u8>> {
+        views
+            .iter()
+            .map(|view| {
+                if view.is_inlined() {
+                    view.as_inlined().value().to_vec()
+                } else {
+                    let r = view.as_view();
+                    let buf = &buffers[(r.buffer_index - start_buf_index) as usize];
+                    buf[r.as_range()].to_vec()
+                }
+            })
+            .collect()
+    }
+
+    /// The single-buffer fast path (`bytes.len() <= max_buffer_len`) must reproduce every input
+    /// value exactly, emit a single output buffer holding the untouched heap, and reference only
+    /// `start_buf_index`. We cover a spread of value sets that mix inlined (<= 12 bytes) and
+    /// reference (> 12 bytes) lengths, including the 12/13 byte inline boundary, empty values, and a
+    /// fully-inlined set.
+    #[rstest]
+    #[case::mixed(&[b"a".as_slice(), b"this is a long reference value", b"short", b"another long value here!!"])]
+    #[case::inline_boundary(&[&[b'x'; 12] as &[u8], &[b'y'; 13], &[b'z'; 12], &[b'w'; 13]])]
+    #[case::all_inlined(&[b"".as_slice(), b"a", b"bb", b"ccc", b"dddddddddddd"])]
+    #[case::all_reference(&[&[b'a'; 100] as &[u8], &[b'b'; 50], &[b'c'; 4096]])]
+    #[case::empty_values_interleaved(&[b"".as_slice(), b"a long value that is referenced", b"", b"", b"trailing long reference value"])]
+    #[case::single_long(&[&[7u8; 1 << 16] as &[u8]])]
+    fn fast_path_roundtrip(#[case] values: &[&[u8]]) {
+        let (bytes, lens) = flatten(values);
+        let total = bytes.len();
+        let start_buf_index = 3;
+
+        // `max_buffer_len` strictly greater than the heap forces the single-buffer fast path.
+        let (buffers, views) = build_views(start_buf_index, total + 1, bytes, &lens);
+
+        assert_eq!(views.len(), values.len());
+        if total == 0 {
+            assert!(buffers.is_empty(), "empty heap must not allocate a buffer");
+        } else {
+            assert_eq!(buffers.len(), 1, "whole heap must stay in one buffer");
+            // The fast path freezes the input heap unchanged.
+            let concatenated: Vec<u8> = values.concat();
+            assert_eq!(buffers[0].as_slice(), concatenated.as_slice());
+        }
+        for view in views.iter() {
+            if !view.is_inlined() {
+                assert_eq!(view.as_view().buffer_index, start_buf_index);
+            }
+        }
+
+        let expected: Vec<Vec<u8>> = values.iter().map(|v| v.to_vec()).collect();
+        assert_eq!(reconstruct(&buffers, &views, start_buf_index), expected);
+    }
+
+    /// The fast path is taken when `bytes.len() <= max_buffer_len`, so equality at the boundary must
+    /// still produce a single buffer (not roll over to the slow path).
+    #[test]
+    fn fast_path_taken_at_exact_boundary() {
+        let (bytes, lens) =
+            flatten(&[b"this value is definitely long", b"and so is this one here"]);
+        let total = bytes.len();
+
+        let (buffers, views) = build_views(0, total, bytes, &lens);
+
+        assert_eq!(
+            buffers.len(),
+            1,
+            "len == max_buffer_len must stay on fast path"
+        );
+        assert_eq!(views.len(), 2);
+    }
+
+    /// For the same logical data, the fast path (single buffer) and the slow rollover path must
+    /// reconstruct identical values. Driving the slow path with a small `max_buffer_len` forces
+    /// buffer splitting while leaving the recovered values unchanged.
+    #[test]
+    fn fast_and_slow_paths_agree() {
+        let values: &[&[u8]] = &[
+            b"first long reference value",
+            b"tiny",
+            b"second long reference value!!",
+            b"third looooong reference value",
+        ];
+        let expected: Vec<Vec<u8>> = values.iter().map(|v| v.to_vec()).collect();
+
+        let (fast_bytes, lens) = flatten(values);
+        let total = fast_bytes.len();
+        let (fast_buffers, fast_views) = build_views(0, total + 1, fast_bytes, &lens);
+        assert_eq!(fast_buffers.len(), 1);
+        assert_eq!(reconstruct(&fast_buffers, &fast_views, 0), expected);
+
+        // Force the rollover path: a small cap (>= the longest value) that the total heap exceeds.
+        let longest = values.iter().map(|v| v.len()).max().unwrap();
+        let (slow_bytes, _) = flatten(values);
+        let (slow_buffers, slow_views) = build_views(0, longest, slow_bytes, &lens);
+        assert!(
+            slow_buffers.len() > 1,
+            "small cap should split into many buffers"
+        );
+        assert_eq!(reconstruct(&slow_buffers, &slow_views, 0), expected);
+
+        // Same logical contents regardless of how the heap was partitioned.
+        assert_eq!(
+            reconstruct(&fast_buffers, &fast_views, 0),
+            reconstruct(&slow_buffers, &slow_views, 0)
+        );
+    }
+
+    /// Empty input must yield no buffers and no views, exercising the `bytes.is_empty()` branch.
+    #[test]
+    fn fast_path_empty_input() {
+        let lens: Vec<u32> = Vec::new();
+        let (buffers, views) = build_views(0, 1024, ByteBufferMut::empty(), &lens);
+        assert!(buffers.is_empty());
+        assert!(views.is_empty());
+    }
+
+    /// The fast path must produce views byte-identical to the value-inspecting `make_view`, which is
+    /// what the slow path uses. This pins the inline/reference decision and field layout.
+    #[test]
+    fn fast_path_matches_make_view() {
+        let values: &[&[u8]] = &[b"inline", b"this is a long reference value", b""];
+        let (bytes, lens) = flatten(values);
+        let total = bytes.len();
+        let (_buffers, views) = build_views(0, total + 1, bytes, &lens);
+
+        let expected = [
+            BinaryView::make_view(b"inline", 0, 0),
+            BinaryView::make_view(b"this is a long reference value", 0, 6),
+            BinaryView::make_view(b"", 0, 36),
+        ];
+        assert_eq!(views.as_slice(), &expected);
+    }
 
     #[test]
     fn test_to_canonical_large() {
