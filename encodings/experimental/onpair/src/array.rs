@@ -126,6 +126,18 @@ pub struct OnPairSlots {
 /// Vortex slot child so it can be re-encoded by the cascading compressor.
 #[derive(Clone)]
 pub struct OnPairData {
+    /// The dictionary blob (buffer 0).
+    ///
+    /// INVARIANT: this buffer must be over-padded past its logical end
+    /// (`dict_offsets.last()`) by the decoder's fixed token read width,
+    /// [`MAX_TOKEN_SIZE`][crate::MAX_TOKEN_SIZE]. The over-copy decoder reads
+    /// every dictionary entry with one fixed-width load and then advances the
+    /// cursor by the token's true length, so the load for the final, shortest
+    /// token over-reads past the logical end of the dictionary. This is the
+    /// same over-read the decoder accounts for on the final few codes; the
+    /// trailing padding absorbs it so that any entry can be read in bounds.
+    /// `onpair_compress` establishes this padding (see `parts_to_children`);
+    /// the over-copy decoder lives in the `onpair` crate.
     dict_bytes: BufferHandle,
     bits: u32,
     len: usize,
