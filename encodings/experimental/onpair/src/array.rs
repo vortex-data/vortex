@@ -54,7 +54,7 @@ pub type OnPairArray = Array<OnPair>;
 /// On disk the layout is FSST-shape:
 ///
 /// * Buffer 0 — `dict_bytes`: the dictionary blob built by the OnPair trainer,
-///   padded with [`MAX_TOKEN_SIZE`][crate::MAX_TOKEN_SIZE] trailing zero
+///   padded with [`MAX_TOKEN_SIZE`][onpair::MAX_TOKEN_SIZE] trailing zero
 ///   bytes so the over-copy decoder can read 16 bytes past the last token.
 /// * Slots — see [`OnPairSlots`].
 ///
