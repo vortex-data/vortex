@@ -9,5 +9,6 @@ use crate::delta::vtable::Delta;
 
 pub(crate) static RULES: ParentRuleSet<Delta> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&SliceReduceAdaptor(Delta)),
-    ParentRuleSet::lift(&CastReduceAdaptor(Delta)),
+    // TODO(joe): fixme, this is incorrect..
+    // ParentRuleSet::lift(&CastReduceAdaptor(Delta)),
 ]);
