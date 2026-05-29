@@ -73,14 +73,14 @@ pub struct OriginData {
     extra_copy_opts: &'static str,
 }
 
-/// StackOverflow `dba` data (~1 GB gzip). Schema transcribed from
+/// StackOverflow `math` data (~12 GB gzip). Schema transcribed from
 /// `https://db.in.tum.de/~schmidt/data/stackoverflow_schema.sql` with
 /// `ALTER TABLE … ADD FOREIGN KEY` lines (which DuckDB rejects) dropped,
 /// inline `primary key` / `references` clauses elided (not enforced by
 /// COPY, just noise), and column names lowercased.
 pub const STACKOVERFLOW: OriginData = OriginData {
-    url: "https://db.in.tum.de/~schmidt/data/stackoverflow_dba.tar.gz",
-    archive_name: "stackoverflow_dba.tar.gz",
+    url: "https://db.in.tum.de/~schmidt/data/stackoverflow_math.tar.gz",
+    archive_name: "stackoverflow_math.tar.gz",
     archive: Archive::TarGz,
     log_name: "stackoverflow",
     ddl: r#"
@@ -448,6 +448,17 @@ mod tests {
                 cfg.log_name,
             );
         }
+    }
+
+    /// StackOverflow is pinned to the `math` (12 GB) tier, not `dba`.
+    #[test]
+    fn stackoverflow_uses_math_tier() {
+        assert!(
+            STACKOVERFLOW.url.ends_with("stackoverflow_math.tar.gz"),
+            "url={}",
+            STACKOVERFLOW.url
+        );
+        assert_eq!(STACKOVERFLOW.archive_name, "stackoverflow_math.tar.gz");
     }
 
     /// Every upstream name in `tables` must have a matching `CREATE TABLE "<name>"`

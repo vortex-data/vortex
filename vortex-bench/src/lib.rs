@@ -279,7 +279,7 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
     match b {
         BenchmarkArg::Sqlstorm => {
             // SQLStorm has no scale factor: each origin runs at a single fixed
-            // size (TPC-H/TPC-DS at SF10, StackOverflow `dba`, JOB fixed), so
+            // size (TPC-H/TPC-DS at SF10, StackOverflow `math`, JOB fixed), so
             // `scale-factor` is intentionally not read here. See
             // `vortex-bench/sqlstorm/README.md` ("Data size").
             let origin = opts
