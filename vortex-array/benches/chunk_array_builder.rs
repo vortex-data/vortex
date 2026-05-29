@@ -18,6 +18,7 @@ use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_array::session::ArraySession;
 use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
@@ -102,6 +103,18 @@ fn chunked_varbinview_into_canonical(bencher: Bencher, (len, chunk_count): (usiz
         .bench_refs(|(chunk, ctx)| (**chunk).clone().execute::<Canonical>(ctx))
 }
 
+/// Canonicalizing chunked `VarBinView` where every value is outlined (> 12 bytes), so the chunk
+/// data buffers dominate the size. This is the regime where avoiding a data-buffer copy (e.g. via
+/// a dedicated buffer "swizzle") could pay off, versus rewriting only the 16-byte views.
+#[divan::bench(args = BENCH_ARGS)]
+fn chunked_varbinview_long_into_canonical(bencher: Bencher, (len, chunk_count): (usize, usize)) {
+    let chunks = make_long_string_chunks(len, chunk_count);
+
+    bencher
+        .with_inputs(|| (&chunks, SESSION.create_execution_ctx()))
+        .bench_refs(|(chunk, ctx)| (**chunk).clone().execute::<Canonical>(ctx))
+}
+
 #[divan::bench(args = BENCH_ARGS)]
 fn chunked_varbinview_opt_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunks = make_string_chunks(true, len, chunk_count);
@@ -169,7 +182,6 @@ fn chunked_constant_utf8_append_to_builder(
 }
 
 fn make_constant_utf8_chunks(value: &str, len: usize, chunk_count: usize) -> ArrayRef {
-    use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
 
     (0..chunk_count)
@@ -218,6 +230,27 @@ fn make_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {
 
     (0..chunk_count)
         .map(|_| BoolArray::from_iter((0..len).map(|_| rng.random_bool(0.5))).into_array())
+        .collect::<ChunkedArray>()
+        .into_array()
+}
+
+/// Chunks of `VarBinView` where every value is 64 bytes (always outlined into data buffers).
+fn make_long_string_chunks(len: usize, chunk_count: usize) -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(123);
+
+    (0..chunk_count)
+        .map(|_| {
+            let mut builder =
+                VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::NonNullable), len);
+            (0..len).for_each(|_| {
+                builder.append_value(
+                    (0..64)
+                        .map(|_| rng.random_range(b'a'..=b'z'))
+                        .collect::<Vec<u8>>(),
+                )
+            });
+            builder.finish()
+        })
         .collect::<ChunkedArray>()
         .into_array()
 }
