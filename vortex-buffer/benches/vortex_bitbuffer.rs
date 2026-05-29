@@ -210,6 +210,17 @@ fn bitwise_and_arrow_buffer(bencher: Bencher, length: usize) {
         .bench_refs(|(a, b)| &a.0 & &b.0);
 }
 
+/// Owned-LHS AND: the left operand is a fresh, uniquely-owned `BitBuffer` each iteration, so
+/// `bitwise_binary_op_lhs_owned` takes the in-place (zero-allocation) fast path. Compare against
+/// `bitwise_and_vortex_buffer` (reference-LHS, which always allocates a result buffer).
+#[divan::bench(args = INPUT_SIZE)]
+fn bitand_owned_lhs_vortex_buffer(bencher: Bencher, length: usize) {
+    let b = BitBuffer::from_iter((0..length).map(|i| i % 3 == 0));
+    bencher
+        .with_inputs(|| BitBuffer::from_iter((0..length).map(|i| i % 2 == 0)))
+        .bench_values(|a| a & &b);
+}
+
 #[divan::bench(args = INPUT_SIZE)]
 fn bitwise_or_vortex_buffer(bencher: Bencher, length: usize) {
     let a = BitBuffer::from_iter((0..length).map(|i| i % 2 == 0));

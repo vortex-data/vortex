@@ -376,9 +376,17 @@ impl BitBufferMut {
             return;
         }
 
-        let new_len_bytes = (self.offset + len).div_ceil(8);
+        let end_bit = self.offset + len;
+        let new_len_bytes = end_bit.div_ceil(8);
         self.buffer.truncate(new_len_bytes);
         self.len = len;
+
+        // Clear stale bits in the final partial byte so the "bits beyond len are zero" invariant
+        // holds. `append_false` (and `append_buffer`) rely on it to avoid a read-modify-write.
+        if !end_bit.is_multiple_of(8) {
+            let keep = (1u8 << (end_bit % 8)) - 1;
+            self.buffer.as_mut_slice()[new_len_bytes - 1] &= keep;
+        }
     }
 
     /// Append a new boolean into the bit buffer, incrementing the length.
@@ -628,68 +636,10 @@ impl FromIterator<bool> for BitBufferMut {
             }
         }
 
-        // Batch remaining items in 64-bit words instead of appending one bit at a time.
-        'outer: loop {
-            let mut packed = 0u64;
-            for bit_idx in 0..64 {
-                let Some(v) = iter.next() else {
-                    // Flush partial word.
-                    if bit_idx > 0 {
-                        let old_len = buf.len;
-                        let new_len = old_len + bit_idx;
-                        let required_bytes = (buf.offset + new_len).div_ceil(8);
-                        if required_bytes > buf.buffer.len() {
-                            buf.buffer.push_n(0x00, required_bytes - buf.buffer.len());
-                        }
-                        // Write the packed bits into the buffer at the current bit position.
-                        let byte_start = (buf.offset + old_len) / 8;
-                        let bit_start = (buf.offset + old_len) % 8;
-                        if bit_start == 0 {
-                            let bytes = packed.to_le_bytes();
-                            let bytes_needed = bit_idx.div_ceil(8);
-                            buf.buffer.as_mut_slice()[byte_start..byte_start + bytes_needed]
-                                .copy_from_slice(&bytes[..bytes_needed]);
-                        } else {
-                            // Unaligned: set bits individually from packed word.
-                            let ptr = buf.buffer.as_mut_ptr();
-                            for j in 0..bit_idx {
-                                if (packed >> j) & 1 == 1 {
-                                    unsafe {
-                                        set_bit_unchecked(ptr, buf.offset + old_len + j);
-                                    }
-                                }
-                            }
-                        }
-                        buf.len = new_len;
-                    }
-                    break 'outer;
-                };
-                packed |= (v as u64) << bit_idx;
-            }
-
-            // Flush full 64-bit word.
-            let old_len = buf.len;
-            let new_len = old_len + 64;
-            let required_bytes = (buf.offset + new_len).div_ceil(8);
-            if required_bytes > buf.buffer.len() {
-                buf.buffer.push_n(0x00, required_bytes - buf.buffer.len());
-            }
-            let byte_start = (buf.offset + old_len) / 8;
-            let bit_start = (buf.offset + old_len) % 8;
-            if bit_start == 0 {
-                buf.buffer.as_mut_slice()[byte_start..byte_start + 8]
-                    .copy_from_slice(&packed.to_le_bytes());
-            } else {
-                let ptr = buf.buffer.as_mut_ptr();
-                for j in 0..64usize {
-                    if (packed >> j) & 1 == 1 {
-                        unsafe {
-                            set_bit_unchecked(ptr, buf.offset + old_len + j);
-                        }
-                    }
-                }
-            }
-            buf.len = new_len;
+        // Append any remaining items one at a time, as we do not know how many more there are.
+        // (`append` is already a single branch + bit set, see `append_true`/`append_false`.)
+        for v in iter {
+            buf.append(v);
         }
 
         buf
@@ -733,6 +683,24 @@ mod tests {
         assert_eq!(bools.true_count(), 2);
         assert!(bools.value(0));
         assert!(bools.value(9));
+    }
+
+    #[test]
+    fn append_false_after_truncate_reads_back_false() {
+        // `truncate` leaves stale bits in the final partial byte; a subsequent `append_false`
+        // must still read back as false. Regression test for the `append_false` fast path.
+        let mut bools = BitBufferMut::new_set(16);
+        bools.truncate(12);
+        bools.append_false();
+        bools.append_true();
+
+        let bools = bools.freeze();
+        assert_eq!(bools.len(), 14);
+        assert!(
+            !bools.value(12),
+            "appended false must read back false after truncate"
+        );
+        assert!(bools.value(13));
     }
 
     #[test]

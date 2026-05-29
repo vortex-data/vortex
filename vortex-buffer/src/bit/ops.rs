@@ -7,47 +7,74 @@ use crate::Buffer;
 use crate::ByteBufferMut;
 use crate::trusted_len::TrustedLenExt;
 
+/// Read up to 8 bytes as a little-endian `u64`, zero-padding the high bytes when fewer than 8 are
+/// supplied. Using [`u64::from_le_bytes`] keeps the bit-numbering identical on little- and
+/// big-endian targets; for a full 8-byte slice it lowers to a single word load.
+#[inline]
+fn read_u64_le(bytes: &[u8]) -> u64 {
+    debug_assert!(bytes.len() <= 8);
+    let mut buf = [0u8; 8];
+    buf[..bytes.len()].copy_from_slice(bytes);
+    u64::from_le_bytes(buf)
+}
+
+/// Apply `op` to each little-endian `u64` word of `data` in place.
+///
+/// `data` is processed as a sequence of unaligned `u64` words, with the trailing `data.len() % 8`
+/// bytes handled as one final partial word (see [`read_u64_le`]).
+#[inline]
+fn map_u64_words_in_place<F: FnMut(u64) -> u64>(data: &mut [u8], mut op: F) {
+    let mut chunks = data.chunks_exact_mut(8);
+    for chunk in chunks.by_ref() {
+        chunk.copy_from_slice(&op(read_u64_le(chunk)).to_le_bytes());
+    }
+    let rem = chunks.into_remainder();
+    if !rem.is_empty() {
+        let word = op(read_u64_le(rem)).to_le_bytes();
+        rem.copy_from_slice(&word[..rem.len()]);
+    }
+}
+
+/// Combine each little-endian `u64` word of `dst` with the matching word of `src` via `op`,
+/// writing the result back into `dst`. Processes `dst.len().min(src.len())` bytes; see
+/// [`map_u64_words_in_place`] for the partial-word handling.
+#[inline]
+fn zip_u64_words_in_place<F: FnMut(u64, u64) -> u64>(dst: &mut [u8], src: &[u8], mut op: F) {
+    let n = dst.len().min(src.len());
+    let mut dst_chunks = dst[..n].chunks_exact_mut(8);
+    let mut src_chunks = src[..n].chunks_exact(8);
+    for (d, s) in dst_chunks.by_ref().zip(src_chunks.by_ref()) {
+        let word = op(read_u64_le(d), read_u64_le(s));
+        d.copy_from_slice(&word.to_le_bytes());
+    }
+    // Both slices have length `n`, so their remainders are the same length.
+    let dst_rem = dst_chunks.into_remainder();
+    if !dst_rem.is_empty() {
+        let word = op(read_u64_le(dst_rem), read_u64_le(src_chunks.remainder())).to_le_bytes();
+        dst_rem.copy_from_slice(&word[..dst_rem.len()]);
+    }
+}
+
 /// Apply a unary operation to a [`BitBuffer`], always allocating a new output buffer.
 #[inline]
 pub(super) fn bitwise_unary_op_copy<F: FnMut(u64) -> u64>(
     buffer: &BitBuffer,
     mut op: F,
 ) -> BitBuffer {
-    let len = buffer.len();
-    let offset = buffer.offset();
     let src = buffer.inner().as_slice();
-
     let mut dst = ByteBufferMut::with_capacity(src.len());
-    let u64_len = src.len() / 8;
-    let remainder = src.len() % 8;
 
-    let mut src_ptr = src.as_ptr() as *const u64;
-    let mut dst_ptr = dst.spare_capacity_mut().as_mut_ptr() as *mut u64;
-    for _ in 0..u64_len {
-        let value = unsafe { src_ptr.read_unaligned() };
-        unsafe { dst_ptr.write_unaligned(op(value)) };
-        src_ptr = unsafe { src_ptr.add(1) };
-        dst_ptr = unsafe { dst_ptr.add(1) };
+    let mut chunks = src.chunks_exact(8);
+    for chunk in chunks.by_ref() {
+        dst.extend_from_slice(&op(read_u64_le(chunk)).to_le_bytes());
+    }
+    let rem = chunks.remainder();
+    if !rem.is_empty() {
+        let word = op(read_u64_le(rem)).to_le_bytes();
+        dst.extend_from_slice(&word[..rem.len()]);
     }
 
-    if remainder > 0 {
-        let mut remainder_u64 = 0u64;
-        let src_bytes = src_ptr as *const u8;
-        let dst_bytes = dst_ptr as *mut u8;
-        for i in 0..remainder {
-            let byte = unsafe { src_bytes.add(i).read() };
-            remainder_u64 |= (byte as u64) << (i * 8);
-        }
-        let remainder_u64 = op(remainder_u64);
-        for i in 0..remainder {
-            let byte = ((remainder_u64 >> (i * 8)) & 0xFF) as u8;
-            unsafe { dst_bytes.add(i).write(byte) };
-        }
-    }
-
-    // SAFETY: we wrote exactly src.len() bytes into the spare capacity.
-    unsafe { dst.set_len(src.len()) };
-    BitBuffer::new_with_offset(dst.freeze(), len, offset)
+    BitBuffer::new_with_offset(dst.freeze(), buffer.len(), buffer.offset())
 }
 
 /// Apply a unary operation to an owned [`BitBuffer`], mutating in-place when possible.
@@ -66,36 +93,8 @@ pub(super) fn bitwise_unary_op<F: FnMut(u64) -> u64>(buffer: BitBuffer, op: F) -
 }
 
 #[inline]
-pub(super) fn bitwise_unary_op_mut<F: FnMut(u64) -> u64>(buffer: &mut BitBufferMut, mut op: F) {
-    let slice_mut = buffer.as_mut_slice();
-
-    // The number of complete u64 words in the buffer (unaligned)
-    let u64_len = slice_mut.len() / 8;
-    let remainder = slice_mut.len() % 8;
-
-    // Create a pointer to the *unaligned* u64 words
-    let mut ptr = slice_mut.as_mut_ptr() as *mut u64;
-    for _ in 0..u64_len {
-        let value = unsafe { ptr.read_unaligned() };
-        let value = op(value);
-        unsafe { ptr.write_unaligned(value) };
-        ptr = unsafe { ptr.add(1) };
-    }
-
-    // Read remainder into a u64;
-    let mut remainder_u64 = 0u64;
-    let ptr = ptr as *mut u8;
-    for i in 0..remainder {
-        let byte = unsafe { ptr.add(i).read() };
-        remainder_u64 |= (byte as u64) << (i * 8);
-    }
-    let remainder_u64 = op(remainder_u64);
-
-    // Write back remainder
-    for i in 0..remainder {
-        let byte = ((remainder_u64 >> (i * 8)) & 0xFF) as u8;
-        unsafe { ptr.add(i).write(byte) };
-    }
+pub(super) fn bitwise_unary_op_mut<F: FnMut(u64) -> u64>(buffer: &mut BitBufferMut, op: F) {
+    map_u64_words_in_place(buffer.as_mut_slice(), op);
 }
 
 /// Apply a binary operation with an owned left operand, mutating in-place when possible.
@@ -106,43 +105,20 @@ pub(super) fn bitwise_unary_op_mut<F: FnMut(u64) -> u64>(buffer: &mut BitBufferM
 pub(super) fn bitwise_binary_op_lhs_owned<F: FnMut(u64, u64) -> u64>(
     left: BitBuffer,
     right: &BitBuffer,
-    mut op: F,
+    op: F,
 ) -> BitBuffer {
     assert_eq!(left.len(), right.len());
 
+    // The in-place path combines the operands word-for-word, which only lines up the logical bits
+    // when both share the same bit-to-byte alignment. When the offsets differ, fall back to the
+    // offset-aware allocating path (`bitwise_binary_op`) rather than corrupting the result.
+    if left.offset() != right.offset() {
+        return bitwise_binary_op(&left, right, op);
+    }
+
     match left.try_into_mut() {
         Ok(mut buf) => {
-            let right_slice = right.inner().as_slice();
-            let left_slice = buf.as_mut_slice();
-
-            let u64_len = left_slice.len().min(right_slice.len()) / 8;
-            let remainder = left_slice.len().min(right_slice.len()) % 8;
-
-            let mut l_ptr = left_slice.as_mut_ptr() as *mut u64;
-            let mut r_ptr = right_slice.as_ptr() as *const u64;
-            for _ in 0..u64_len {
-                let lv = unsafe { l_ptr.read_unaligned() };
-                let rv = unsafe { r_ptr.read_unaligned() };
-                unsafe { l_ptr.write_unaligned(op(lv, rv)) };
-                l_ptr = unsafe { l_ptr.add(1) };
-                r_ptr = unsafe { r_ptr.add(1) };
-            }
-
-            if remainder > 0 {
-                let l_bytes = l_ptr as *mut u8;
-                let r_bytes = r_ptr as *const u8;
-                let mut l_u64 = 0u64;
-                let mut r_u64 = 0u64;
-                for i in 0..remainder {
-                    l_u64 |= (unsafe { l_bytes.add(i).read() } as u64) << (i * 8);
-                    r_u64 |= (unsafe { r_bytes.add(i).read() } as u64) << (i * 8);
-                }
-                let result = op(l_u64, r_u64);
-                for i in 0..remainder {
-                    unsafe { l_bytes.add(i).write(((result >> (i * 8)) & 0xFF) as u8) };
-                }
-            }
-
+            zip_u64_words_in_place(buf.as_mut_slice(), right.inner().as_slice(), op);
             buf.freeze()
         }
         Err(left) => bitwise_binary_op(&left, right, op),
@@ -191,6 +167,8 @@ pub(super) fn bitwise_binary_op<F: FnMut(u64, u64) -> u64>(
 mod tests {
     use std::ops::Not;
 
+    use rstest::rstest;
+
     use super::*;
     use crate::bitbuffer;
     use crate::buffer;
@@ -200,6 +178,58 @@ mod tests {
         let buffer = BitBuffer::new(buffer![0b10101010u8], 4);
         let result = bitwise_unary_op(buffer, |x| !x);
         assert_eq!(result, bitbuffer![true, false, true, false]);
+    }
+
+    #[test]
+    fn test_lhs_owned_offset_mismatch_regression() {
+        use crate::buffer_mut;
+
+        // `left` has bit offset 3 and uniquely-owned backing storage, so the in-place fast
+        // path is taken. Byte 0b1111_1000 → logical bits [3..8) = [1,1,1,1,1].
+        let left = BitBufferMut::from_buffer(buffer_mut![0b1111_1000u8], 3, 5).freeze();
+        // `right` has bit offset 0. Byte 0b0001_1111 → logical bits [0..5) = [1,1,1,1,1].
+        let right = BitBuffer::new(buffer![0b0001_1111u8], 5);
+
+        // AND of two all-true ranges must be all-true. The naive byte-wise in-place path
+        // ignores the differing offsets and yields the wrong answer.
+        let got = bitwise_binary_op_lhs_owned(left, &right, |a, b| a & b);
+        assert_eq!(got.true_count(), 5);
+        assert_eq!(got, bitbuffer![true, true, true, true, true]);
+    }
+
+    /// The owned-LHS path (in-place when uniquely owned and the offsets match) must produce the
+    /// same logical result as the always-correct allocating [`bitwise_binary_op`], for every
+    /// combination of operand offsets and lengths.
+    #[rstest]
+    #[case::aligned(0, 0)]
+    #[case::equal_nonzero(3, 3)]
+    #[case::equal_seven(7, 7)]
+    #[case::mismatch_lo(0, 3)]
+    #[case::mismatch_hi(5, 2)]
+    fn lhs_owned_matches_reference(#[case] left_offset: usize, #[case] right_offset: usize) {
+        // Deterministic byte pattern, so the owned and borrowed inputs are bit-identical.
+        #[allow(clippy::cast_possible_truncation)]
+        let make = |offset: usize, len: usize, salt: u8| -> BitBuffer {
+            let bytes: ByteBufferMut = (0..(offset + len).div_ceil(8).max(1))
+                .map(|i| (i as u8).wrapping_mul(31).wrapping_add(salt))
+                .collect();
+            BitBufferMut::from_buffer(bytes, offset, len).freeze()
+        };
+        let ops: [fn(u64, u64) -> u64; 4] =
+            [|a, b| a & b, |a, b| a | b, |a, b| a ^ b, |a, b| a & !b];
+
+        for len in [1usize, 5, 8, 63, 64, 65, 129, 200] {
+            let right = make(right_offset, len, 0x5A);
+            for op in ops {
+                // A fresh, uniquely-owned LHS triggers the in-place path when offsets match.
+                let got = bitwise_binary_op_lhs_owned(make(left_offset, len, 0xC3), &right, op);
+                let expected = bitwise_binary_op(&make(left_offset, len, 0xC3), &right, op);
+                assert_eq!(
+                    got, expected,
+                    "loff={left_offset} roff={right_offset} len={len}"
+                );
+            }
+        }
     }
 
     #[test]

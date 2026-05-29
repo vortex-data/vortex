@@ -325,7 +325,8 @@ impl LayoutReader for CudaFlatReader {
                 array = array.slice(row_range.clone())?;
             }
 
-            let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
+            let mask_density = mask.density();
+            let array_mask = if mask_density < EXPR_EVAL_THRESHOLD {
                 let array = array.apply(&expr)?;
                 let array = array.filter(mask.clone())?;
                 let mut ctx = session.create_execution_ctx();
@@ -342,7 +343,7 @@ impl LayoutReader for CudaFlatReader {
                 "CudaFlat mask evaluation {} - {} (mask = {}) => {}",
                 name,
                 expr,
-                mask.density(),
+                mask_density,
                 array_mask.density(),
             );
 
