@@ -3,18 +3,41 @@
 
 //! Compression scheme for JSON data into binary variant representation
 
+use std::sync::Arc;
+
+use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_array::StructArray as ArrowStructArray;
+use arrow_schema::DataType;
+use arrow_schema::Field;
+use vortex_array::Array;
+use vortex_array::ArrayId;
+use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::Canonical;
+use vortex_array::EmptyArrayData;
 use vortex_array::ExecutionCtx;
+use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::VariantArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
+use vortex_array::arrays::variant::VariantArrayExt;
 use vortex_array::arrow::ArrowSessionExt;
+use vortex_array::arrow::FromArrowArray;
+use vortex_array::arrow::to_arrow_null_buffer;
+use vortex_array::buffer::BufferHandle;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::extension::EmptyMetadata;
 use vortex_array::scalar::ScalarValue;
+use vortex_array::serde::ArrayChildren;
+use vortex_array::validity::Validity;
+use vortex_array::vtable::NotSupported;
+use vortex_array::vtable::VTable;
+use vortex_array::vtable::ValidityVTable;
 use vortex_compressor::ctx::CompressorContext;
 use vortex_compressor::estimate::CompressionEstimate;
 use vortex_compressor::estimate::DeferredEstimate;
@@ -24,8 +47,12 @@ use vortex_compressor::stats::ArrayAndStats;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_parquet_variant::ParquetVariant;
 use vortex_parquet_variant::ParquetVariantArrayExt;
+use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::CascadingCompressor;
 
@@ -39,6 +66,12 @@ mod parquet_variant_children {
     pub const METADATA: usize = 0;
     /// The raw Parquet Variant value child.
     pub const VALUE: usize = 1;
+}
+
+mod variant_to_json_children {
+    pub const VARIANT: usize = 0;
+    pub const NUM_SLOTS: usize = 1;
+    pub const SLOT_NAMES: [&str; NUM_SLOTS] = ["variant"];
 }
 
 /// JSON logical type backed by UTF-8 string storage.
@@ -80,6 +113,227 @@ impl ExtVTable for Json {
         };
         Ok(value.as_str())
     }
+}
+
+/// Array that exposes a Variant array as JSON strings.
+#[derive(Debug, Clone)]
+pub struct VariantToJson;
+
+/// A [`VariantToJson`]-encoded array.
+pub type VariantToJsonArray = Array<VariantToJson>;
+
+impl VariantToJson {
+    /// Creates a JSON wrapper around a Variant-typed array.
+    pub fn try_new(variant: ArrayRef) -> VortexResult<VariantToJsonArray> {
+        vortex_ensure!(
+            variant.dtype().is_variant(),
+            "VariantToJson expects a Variant array, got {}",
+            variant.dtype()
+        );
+
+        let storage_dtype = DType::Utf8(variant.dtype().nullability());
+        let dtype =
+            DType::Extension(ExtDType::<Json>::try_new(EmptyMetadata, storage_dtype)?.erased());
+        let len = variant.len();
+
+        Array::try_from_parts(
+            ArrayParts::new(VariantToJson, dtype, len, EmptyArrayData)
+                .with_slots(vec![Some(variant)].into()),
+        )
+    }
+}
+
+impl VTable for VariantToJson {
+    type TypedArrayData = EmptyArrayData;
+    type OperationsVTable = NotSupported;
+    type ValidityVTable = Self;
+
+    fn id(&self) -> ArrayId {
+        static ID: CachedId = CachedId::new("vortex.variant_to_json");
+        *ID
+    }
+
+    fn validate(
+        &self,
+        _data: &Self::TypedArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == variant_to_json_children::NUM_SLOTS,
+            "VariantToJsonArray expects {} slots, got {}",
+            variant_to_json_children::NUM_SLOTS,
+            slots.len()
+        );
+        let variant = slots[variant_to_json_children::VARIANT]
+            .as_ref()
+            .ok_or_else(|| vortex_err!("VariantToJsonArray variant slot must be present"))?;
+
+        let DType::Extension(ext_dtype) = dtype else {
+            vortex_bail!("VariantToJsonArray dtype must be a JSON extension, got {dtype}");
+        };
+        vortex_ensure!(
+            ext_dtype.is::<Json>(),
+            "VariantToJsonArray dtype must be a JSON extension, got {dtype}"
+        );
+        vortex_ensure!(
+            variant.dtype() == &DType::Variant(dtype.nullability()),
+            "VariantToJsonArray child dtype {} does not match JSON dtype nullability {}",
+            variant.dtype(),
+            dtype
+        );
+        vortex_ensure!(
+            variant.len() == len,
+            "VariantToJsonArray child length {} does not match outer length {}",
+            variant.len(),
+            len
+        );
+
+        Ok(())
+    }
+
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
+        0
+    }
+
+    fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
+        vortex_panic!("VariantToJsonArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
+        None
+    }
+
+    fn serialize(
+        _array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(Vec::new()))
+    }
+
+    fn deserialize(
+        &self,
+        dtype: &DType,
+        len: usize,
+        metadata: &[u8],
+        buffers: &[BufferHandle],
+        children: &dyn ArrayChildren,
+        _session: &VortexSession,
+    ) -> VortexResult<ArrayParts<Self>> {
+        vortex_ensure!(
+            metadata.is_empty(),
+            "VariantToJsonArray metadata must be empty"
+        );
+        vortex_ensure!(
+            buffers.is_empty(),
+            "VariantToJsonArray expects 0 buffers, got {}",
+            buffers.len()
+        );
+        vortex_ensure!(
+            children.len() == variant_to_json_children::NUM_SLOTS,
+            "VariantToJsonArray expects {} children, got {}",
+            variant_to_json_children::NUM_SLOTS,
+            children.len()
+        );
+
+        let variant_dtype = DType::Variant(dtype.nullability());
+        let variant = children.get(variant_to_json_children::VARIANT, &variant_dtype, len)?;
+
+        Ok(
+            ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData)
+                .with_slots(vec![Some(variant)].into()),
+        )
+    }
+
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        match variant_to_json_children::SLOT_NAMES.get(idx) {
+            Some(name) => (*name).to_string(),
+            None => vortex_panic!("VariantToJsonArray slot_name index {idx} out of bounds"),
+        }
+    }
+
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let variant = array.as_ref().slots()[variant_to_json_children::VARIANT]
+            .as_ref()
+            .ok_or_else(|| vortex_err!("VariantToJsonArray variant slot must be present"))?;
+        let variant = variant.clone().execute::<VariantArray>(ctx)?;
+        vortex_ensure!(
+            variant.shredded().is_none(),
+            "VariantToJsonArray can only export unshredded Parquet Variant storage to JSON"
+        );
+
+        let parquet_variant = variant
+            .core_storage()
+            .as_opt::<ParquetVariant>()
+            .ok_or_else(|| {
+                vortex_err!(
+                    "VariantToJsonArray requires Parquet Variant core storage, got {}",
+                    variant.core_storage().encoding_id()
+                )
+            })?;
+        let arrow_variant = parquet_variant_to_json_arrow(parquet_variant, ctx)?;
+        let arrow_json = parquet_variant_compute::variant_to_json(&arrow_variant)?;
+        let storage = ArrayRef::from_arrow(&arrow_json, array.dtype().is_nullable())?;
+
+        Ok(ExecutionResult::done(
+            ExtensionArray::try_new_from_vtable(Json, EmptyMetadata, storage)?.into_array(),
+        ))
+    }
+}
+
+impl ValidityVTable<VariantToJson> for VariantToJson {
+    fn validity(array: ArrayView<'_, VariantToJson>) -> VortexResult<Validity> {
+        array.slots()[variant_to_json_children::VARIANT]
+            .as_ref()
+            .ok_or_else(|| vortex_err!("VariantToJsonArray variant slot must be present"))?
+            .validity()
+    }
+}
+
+fn parquet_variant_to_json_arrow(
+    parquet_variant: ArrayView<'_, ParquetVariant>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrowArrayRef> {
+    vortex_ensure!(
+        parquet_variant.typed_value_array().is_none(),
+        "VariantToJsonArray can only export unshredded Parquet Variant storage to JSON"
+    );
+    let value = parquet_variant
+        .value_array()
+        .ok_or_else(|| vortex_err!("VariantToJsonArray requires Parquet Variant value storage"))?;
+
+    let metadata_arrow = {
+        let target = Field::new("", DataType::Binary, false);
+        let session = ctx.session().clone();
+        session.arrow().execute_arrow(
+            parquet_variant.metadata_array().clone(),
+            Some(&target),
+            ctx,
+        )?
+    };
+    let value_arrow = {
+        let target = Field::new("", DataType::Binary, value.dtype().is_nullable());
+        let session = ctx.session().clone();
+        session
+            .arrow()
+            .execute_arrow(value.clone(), Some(&target), ctx)?
+    };
+    let fields = vec![
+        Arc::new(Field::new("metadata", DataType::Binary, false)),
+        Arc::new(Field::new(
+            "value",
+            DataType::Binary,
+            value.dtype().is_nullable(),
+        )),
+    ];
+    let nulls = to_arrow_null_buffer(parquet_variant.validity()?, parquet_variant.len(), ctx)?;
+
+    Ok(Arc::new(ArrowStructArray::try_new(
+        fields.into(),
+        vec![metadata_arrow, value_arrow],
+        nulls,
+    )?))
 }
 
 impl Scheme for JsonToVariantScheme {
@@ -172,6 +426,7 @@ mod tests {
     use rand::rngs::StdRng;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::accessor::ArrayAccessor;
     use vortex_array::arrays::Extension;
     use vortex_array::arrays::ExtensionArray;
     use vortex_array::arrays::VarBinView;
@@ -184,7 +439,6 @@ mod tests {
     use vortex_compressor::builtins::StringDictScheme;
     use vortex_fsst::FSST;
     use vortex_session::VortexSession;
-    use vortex_zstd::Zstd;
 
     use super::*;
     use crate::schemes::binary::BinaryFSSTScheme;
@@ -195,7 +449,6 @@ mod tests {
     use crate::schemes::integer::SparseScheme;
     use crate::schemes::integer::ZigZagScheme;
     use crate::schemes::string::FSSTScheme;
-    use crate::schemes::string::ZstdScheme;
 
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
@@ -273,6 +526,53 @@ mod tests {
         let storage =
             VarBinViewArray::from_iter_str(values.iter().map(String::as_str)).into_array();
         Ok(ExtensionArray::try_new_from_vtable(Json, EmptyMetadata, storage)?.into_array())
+    }
+
+    #[test]
+    fn variant_to_json_canonicalizes_to_json_extension() -> VortexResult<()> {
+        let values = vec![
+            "0".to_string(),
+            r#"{"a":32}"#.to_string(),
+            r#""hello""#.to_string(),
+            "null".to_string(),
+        ];
+        let source = json_array(&values)?;
+        let source_ext = source.as_::<Extension>();
+        let storage = source_ext.storage_array().clone();
+
+        let mut exec_ctx = SESSION.create_execution_ctx();
+        let arrow_array = {
+            let session = exec_ctx.session().clone();
+            session
+                .arrow()
+                .execute_arrow(storage, None, &mut exec_ctx)?
+        };
+        let arrow_variant = parquet_variant_compute::json_to_variant(&arrow_array)?;
+        let variant = ParquetVariant::from_arrow_variant(&arrow_variant)?;
+
+        let wrapped = VariantToJson::try_new(variant)?;
+        assert_eq!(wrapped.dtype(), source.dtype());
+
+        let json = wrapped
+            .into_array()
+            .execute::<ExtensionArray>(&mut exec_ctx)?;
+        assert!(json.ext_dtype().is::<Json>());
+        let json_storage = json
+            .storage_array()
+            .clone()
+            .execute::<VarBinViewArray>(&mut exec_ctx)?;
+        let actual = json_storage.with_iterator(|iter| {
+            iter.map(|value| value.map(<[u8]>::to_vec))
+                .collect::<Vec<_>>()
+        });
+        let expected = values
+            .iter()
+            .map(|value| Some(value.as_bytes().to_vec()))
+            .collect::<Vec<_>>();
+
+        assert_eq!(actual, expected);
+
+        Ok(())
     }
 
     fn parquet_variant_child_compressor() -> CascadingCompressor {
@@ -356,7 +656,7 @@ mod tests {
         let variant_compressor = parquet_variant_child_compressor();
         let mut exec_ctx = SESSION.create_execution_ctx();
         let compressed = variant_compressor.compress(&array, &mut exec_ctx)?;
-        let parquet_variant = compressed.clone().downcast::<ParquetVariant>();
+        let parquet_variant = compressed.downcast::<ParquetVariant>();
 
         assert!(
             !parquet_variant.metadata_array().is::<VarBinView>(),
