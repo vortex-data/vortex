@@ -22,6 +22,7 @@ use vortex_scan::DataSource;
 use vortex_session::VortexSession;
 
 use crate::OpenOptionsSessionExt;
+use crate::VortexFile;
 use crate::VortexOpenOptions;
 use crate::v2::FileStatsLayoutReader;
 
@@ -203,7 +204,7 @@ async fn open_file(
     file: &FileListing,
     session: &VortexSession,
     open_options_fn: &(dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync),
-) -> VortexResult<crate::VortexFile> {
+) -> VortexResult<VortexFile> {
     tracing::trace!(path = %file.path, "opening vortex file");
 
     // Open the reader first so we can use its URI as the cache key.
@@ -239,13 +240,13 @@ async fn open_file(
 
 /// Creates a layout reader from a VortexFile, wrapping with `FileStatsLayoutReader` when
 /// file-level statistics are available.
-fn layout_reader_with_stats(file: &crate::VortexFile) -> VortexResult<LayoutReaderRef> {
+fn layout_reader_with_stats(file: &VortexFile) -> VortexResult<LayoutReaderRef> {
     let mut reader = file.layout_reader()?;
     if let Some(stats) = file.file_stats().cloned() {
         reader = Arc::new(FileStatsLayoutReader::new(
             reader,
             stats,
-            file.session.clone(),
+            file.session().clone(),
         ));
     }
     Ok(reader)

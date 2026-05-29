@@ -46,14 +46,27 @@ use crate::v2::FileStatsLayoutReader;
 #[derive(Clone)]
 pub struct VortexFile {
     /// The footer of the Vortex file, containing metadata and layout information.
-    pub(crate) footer: Footer,
+    footer: Footer,
     /// The segment source used to read segments from this file.
-    pub(crate) segment_source: Arc<dyn SegmentSource>,
-    /// The Vortex session used to open this file
-    pub(crate) session: VortexSession,
+    segment_source: Arc<dyn SegmentSource>,
+    /// The Vortex session used to open this file.
+    session: VortexSession,
 }
 
 impl VortexFile {
+    /// Creates a new `VortexFile` from the given footer, segment source, and session.
+    pub fn new(
+        footer: Footer,
+        segment_source: Arc<dyn SegmentSource>,
+        session: VortexSession,
+    ) -> Self {
+        Self {
+            footer,
+            segment_source,
+            session,
+        }
+    }
+
     /// Returns a reference to the file's footer, which contains metadata and layout information.
     pub fn footer(&self) -> &Footer {
         &self.footer
@@ -82,6 +95,11 @@ impl VortexFile {
     /// is dropped.
     pub fn segment_source(&self) -> Arc<dyn SegmentSource> {
         Arc::clone(&self.segment_source)
+    }
+
+    /// Returns a reference to the Vortex session used to open this file.
+    pub fn session(&self) -> &VortexSession {
+        &self.session
     }
 
     /// Create a new layout reader for the file.
