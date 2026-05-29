@@ -6,16 +6,16 @@
 
 use std::mem::MaybeUninit;
 
+use num_traits::AsPrimitive;
 use onpair::Parts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
-use vortex_array::dtype::Nullability;
+use vortex_array::match_each_integer_ptype;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 
@@ -33,21 +33,49 @@ pub struct OwnedDecodeInputs {
 
 impl OwnedDecodeInputs {
     pub fn collect(array: ArrayView<'_, OnPair>, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        /// Cast `arr` to `Primitive(T::PTYPE, _)` then execute to Primitive
-        fn cast_and_collect<T: NativePType>(
+        // Canonicalise each child to a PrimitiveArray first (decoding any
+        // cascading encoding the compressor chose — Delta, FastLanes bit-pack,
+        // narrowing — to absolute primitive values), then widen element-wise
+        // to the decoder's native width. Going through `cast(dtype).execute()`
+        // is unsafe here: the `Delta` cast kernel preserves the Delta wrapping
+        // and only widens the inner bases/deltas, but the fastlanes
+        // bases-per-chunk layout is keyed on LANES (e.g. u8 → 64, u32 → 16),
+        // so the widened Delta decodes against misaligned bases and produces
+        // non-monotonic offsets.
+        fn collect_widened<T: NativePType>(
             arr: &ArrayRef,
             ctx: &mut ExecutionCtx,
-        ) -> VortexResult<Buffer<T>> {
-            let dtype = DType::Primitive(T::PTYPE, Nullability::NonNullable);
-            let prim = arr.cast(dtype)?.execute::<PrimitiveArray>(ctx)?;
-            Ok(prim.into_buffer::<T>())
+        ) -> VortexResult<Buffer<T>>
+        where
+            u8: AsPrimitive<T>,
+            i8: AsPrimitive<T>,
+            u16: AsPrimitive<T>,
+            i16: AsPrimitive<T>,
+            u32: AsPrimitive<T>,
+            i32: AsPrimitive<T>,
+            u64: AsPrimitive<T>,
+            i64: AsPrimitive<T>,
+        {
+            let prim = arr.clone().execute::<PrimitiveArray>(ctx)?;
+            if prim.ptype() == T::PTYPE {
+                return Ok(prim.into_buffer::<T>());
+            }
+            Ok(match_each_integer_ptype!(prim.ptype(), |P| {
+                let slice = prim.as_slice::<P>();
+                let mut out = BufferMut::<T>::with_capacity(slice.len());
+                for &v in slice {
+                    // SAFETY: capacity reserved above.
+                    unsafe { out.push_unchecked(v.as_()) };
+                }
+                out.freeze()
+            }))
         }
 
         Ok(Self {
             dict_bytes: array.dict_bytes().clone(),
-            dict_offsets: cast_and_collect::<u32>(array.dict_offsets(), ctx)?,
-            codes: cast_and_collect::<u16>(array.codes(), ctx)?,
-            code_boundaries: cast_and_collect::<u32>(array.codes_offsets(), ctx)?,
+            dict_offsets: collect_widened::<u32>(array.dict_offsets(), ctx)?,
+            codes: collect_widened::<u16>(array.codes(), ctx)?,
+            code_boundaries: collect_widened::<u32>(array.codes_offsets(), ctx)?,
             bits: array.bits(),
         })
     }

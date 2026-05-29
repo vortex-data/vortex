@@ -125,6 +125,38 @@ fn nullable_roundtrip_via_default_compressor() {
         .unwrap();
 }
 
+/// Larger corpus that exercises the offsets-narrowing / delta-encoding paths
+/// the cascading compressor enables past 2048 entries. The decoder must
+/// reconstruct absolute u32 offsets from whatever encoded shape the
+/// compressor chose for each child.
+#[test]
+fn large_unique_short_strings_roundtrip() {
+    let n = 1 << 13; // 8192 rows, all unique, short.
+    let strings: Vec<String> = (0..n).map(|i| format!("k{i:05x}")).collect();
+    let array = VarBinViewArray::from_iter(
+        strings.iter().map(|s| Some(s.as_str())),
+        DType::Utf8(Nullability::NonNullable),
+    )
+    .into_array();
+
+    let compressed = BtrBlocksCompressor::default()
+        .compress(&array, &mut SESSION.create_execution_ctx())
+        .expect("compress");
+
+    let decoded = compressed
+        .execute::<VarBinViewArray>(&mut SESSION.create_execution_ctx())
+        .expect("decompress");
+    assert_eq!(decoded.len(), n);
+    decoded
+        .with_iterator(|iter| {
+            for (i, got) in iter.enumerate() {
+                assert_eq!(got, Some(strings[i].as_bytes()), "row {i}");
+            }
+            Ok::<_, vortex_error::VortexError>(())
+        })
+        .unwrap();
+}
+
 #[test]
 fn empty_and_short_string_roundtrip() {
     // Edge cases: empty strings interleaved with short ones.
