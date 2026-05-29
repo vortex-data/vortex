@@ -183,3 +183,46 @@ fn empty_and_short_string_roundtrip() {
         })
         .unwrap();
 }
+
+/// Regression for the Euro2016 compress-bench panic
+/// (`onpair::decompress`: "dictionary offsets must be nondecreasing").
+///
+/// A large, high-cardinality corpus fills the OnPair dictionary toward its
+/// 4096-entry cap, so the cascading compressor narrows `dict_offsets` to `u16`
+/// and Delta-encodes it across multiple FastLanes chunks (len > 1024). The old
+/// decode path widened it via `arr.cast(u32).execute()`, but the `Delta` cast
+/// kernel preserves the Delta wrapping and only widens the inner bases/deltas
+/// in place — and the transposed bases layout is keyed on `T::LANES`, which
+/// differs between `u16` and `u32`. Decoding the widened Delta against the
+/// misaligned layout yields non-monotonic offsets and trips the upstream
+/// assert. The fix canonicalises each child to a `PrimitiveArray` first, then
+/// widens element-wise.
+#[test]
+fn delta_dict_offsets_roundtrip() {
+    let n = 1usize << 16;
+    // Hex-encoded index plus a hashed suffix: every row is unique with enough
+    // shared structure to route through OnPair while filling the dictionary.
+    let strings: Vec<String> = (0..n)
+        .map(|i| format!("{i:016x}-{:08x}", i.wrapping_mul(2654435761)))
+        .collect();
+    let array = VarBinViewArray::from_iter(
+        strings.iter().map(|s| Some(s.as_str())),
+        DType::Utf8(Nullability::NonNullable),
+    )
+    .into_array();
+    let compressed = BtrBlocksCompressor::default()
+        .compress(&array, &mut SESSION.create_execution_ctx())
+        .expect("compress");
+    let decoded = compressed
+        .execute::<VarBinViewArray>(&mut SESSION.create_execution_ctx())
+        .expect("decompress");
+    assert_eq!(decoded.len(), n);
+    decoded
+        .with_iterator(|iter| {
+            for (i, got) in iter.enumerate() {
+                assert_eq!(got, Some(strings[i].as_bytes()), "row {i}");
+            }
+            Ok::<_, vortex_error::VortexError>(())
+        })
+        .unwrap();
+}
