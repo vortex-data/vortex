@@ -345,6 +345,9 @@ unsafe fn release_children(private_data: &mut PrivateData) {
 
 #[cfg(test)]
 mod tests {
+    use std::mem::size_of;
+    use std::sync::Arc;
+
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::Fields;
@@ -359,9 +362,14 @@ mod tests {
     use vortex::array::arrays::StructArray;
     use vortex::array::arrays::TemporalArray;
     use vortex::array::arrays::VarBinViewArray;
+    use vortex::array::arrays::varbinview::BinaryView;
     use vortex::array::validity::Validity;
+    use vortex::buffer::Buffer;
+    use vortex::buffer::ByteBuffer;
+    use vortex::dtype::DType;
     use vortex::dtype::DecimalDType;
     use vortex::dtype::FieldNames;
+    use vortex::dtype::Nullability;
     use vortex::dtype::half::f16;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
@@ -416,6 +424,96 @@ mod tests {
         assert_eq!(device_array.array.n_buffers, expected_n_buffers);
         assert_null_buffer(&device_array.array, expected_null_count)?;
         Ok(device_array)
+    }
+
+    // Assert common Utf8View/BinaryView export metadata and buffers.
+    fn assert_varbinview_shape(
+        array: &ArrowArray,
+        expected_len: i64,
+        expected_null_count: i64,
+    ) -> VortexResult<()> {
+        assert_eq!(array.length, expected_len);
+        assert_eq!(array.null_count, expected_null_count);
+        assert_eq!(array.offset, 0);
+        assert_eq!(array.n_children, 0);
+        assert!(array.release.is_some());
+        assert!(!array.private_data.is_null());
+        assert!(array.n_buffers >= 3);
+
+        let n_buffers = usize::try_from(array.n_buffers)?;
+        let buffers = unsafe { std::slice::from_raw_parts(array.buffers, n_buffers) };
+        assert_eq!(buffers[0].is_null(), expected_null_count == 0);
+        assert!(buffers[1..].iter().all(|buffer| !buffer.is_null()));
+
+        let private_data = unsafe { &*array.private_data.cast::<PrivateData>() };
+        assert_eq!(
+            private_data.buffers[1]
+                .as_ref()
+                .vortex_expect("views buffer should be present")
+                .len(),
+            usize::try_from(expected_len)? * size_of::<BinaryView>()
+        );
+        assert_eq!(
+            private_data.buffers[n_buffers - 1]
+                .as_ref()
+                .vortex_expect("variadic buffer sizes should be present")
+                .len(),
+            (n_buffers - 3) * size_of::<i64>()
+        );
+
+        Ok(())
+    }
+
+    // Assert exact variadic buffer count and data-buffer lengths.
+    fn assert_varbinview_layout(
+        array: &ArrowArray,
+        expected_len: i64,
+        expected_null_count: i64,
+        expected_data_buffer_lengths: &[usize],
+    ) -> VortexResult<()> {
+        assert_varbinview_shape(array, expected_len, expected_null_count)?;
+
+        let expected_n_buffers = expected_data_buffer_lengths.len() + 3;
+        assert_eq!(usize::try_from(array.n_buffers)?, expected_n_buffers);
+
+        let private_data = unsafe { &*array.private_data.cast::<PrivateData>() };
+        for (buffer, expected_len) in private_data.buffers
+            [2..2 + expected_data_buffer_lengths.len()]
+            .iter()
+            .zip(expected_data_buffer_lengths)
+        {
+            assert_eq!(
+                buffer
+                    .as_ref()
+                    .vortex_expect("variadic data buffer should be present")
+                    .len(),
+                *expected_len
+            );
+        }
+        Ok(())
+    }
+
+    // Build a VarBinView fixture with out-of-line values in separate data buffers.
+    fn multi_buffer_varbinview(dtype: DType) -> (ArrayRef, [usize; 2]) {
+        let first = ByteBuffer::copy_from("first value stored out-of-line".as_bytes());
+        let second = ByteBuffer::copy_from("second value stored out-of-line".as_bytes());
+        let buffer_lengths = [first.len(), second.len()];
+        let views = Buffer::from_iter([
+            BinaryView::make_view(b"inline", 0, 0),
+            BinaryView::make_view(&first, 0, 0),
+            BinaryView::make_view(&second, 1, 0),
+        ]);
+
+        let array = VarBinViewArray::try_new(
+            views,
+            Arc::from([first, second]),
+            dtype,
+            Validity::NonNullable,
+        )
+        .vortex_expect("valid multi-buffer VarBinViewArray")
+        .into_array();
+
+        (array, buffer_lengths)
     }
 
     // Build a nested struct fixture with an out-of-line string-view value.
@@ -578,30 +676,68 @@ mod tests {
         let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
-        let array = VarBinViewArray::from_iter_str([
-            "hello",
-            "world",
-            "this is a longer string for out-of-line storage",
-        ])
-        .into_array();
+        let out_of_line = "this is a longer string for out-of-line storage";
+        let array = VarBinViewArray::from_iter_str(["hello", "world", out_of_line]).into_array();
         let mut device_array = array.export_device_array(&mut ctx).await?;
 
-        assert_eq!(device_array.array.length, 3);
-        assert_eq!(device_array.array.null_count, 0);
-        // VarBinView export: null buffer + views + data buffers + variadic buffer sizes
-        assert_eq!(device_array.array.n_buffers, 4);
-        let n_buffers = usize::try_from(device_array.array.n_buffers)?;
-        let buffers = unsafe { std::slice::from_raw_parts(device_array.array.buffers, n_buffers) };
-        assert!(buffers[0].is_null());
-        assert!(!buffers[1].is_null());
-        assert!(!buffers[2].is_null());
-        assert!(!buffers[3].is_null());
-        assert_eq!(device_array.array.n_children, 0);
-        assert!(device_array.array.release.is_some());
-        assert!(!device_array.array.private_data.is_null());
+        assert_varbinview_layout(&device_array.array, 3, 0, &[out_of_line.len()])?;
         assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
 
         unsafe { release_exported_array(&raw mut device_array.array) };
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_export_binaryview_inline_outline_values() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let out_of_line = b"this binary payload is longer than twelve bytes";
+        let array = VarBinViewArray::from_iter_nullable_bin([
+            Some(b"" as &[u8]),
+            Some(b"\x00\xff\xfe"),
+            None,
+            Some(b"short"),
+            Some(out_of_line),
+        ])
+        .into_array();
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+
+        let field = Field::try_from(&exported.schema)?;
+        assert_eq!(field, Field::new("", DataType::BinaryView, true));
+        assert_varbinview_layout(&exported.array.array, 5, 1, &[out_of_line.len()])?;
+        assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::utf8(
+        multi_buffer_varbinview(DType::Utf8(Nullability::NonNullable)),
+        DataType::Utf8View
+    )]
+    #[case::binary(
+        multi_buffer_varbinview(DType::Binary(Nullability::NonNullable)),
+        DataType::BinaryView
+    )]
+    #[crate::test]
+    async fn test_export_varbinview_multiple_variadic_buffers(
+        #[case] fixture: (ArrayRef, [usize; 2]),
+        #[case] expected_data_type: DataType,
+    ) -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let (array, expected_data_buffer_lengths) = fixture;
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+
+        let field = Field::try_from(&exported.schema)?;
+        assert_eq!(field, Field::new("", expected_data_type, false));
+        assert_varbinview_layout(&exported.array.array, 3, 0, &expected_data_buffer_lengths)?;
+        assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
     }
 
@@ -650,6 +786,44 @@ mod tests {
         assert_eq!(device_array.array.offset, 1);
         assert_eq!(device_array.array.n_buffers, 2);
         unsafe { release_exported_array(&raw mut device_array.array) };
+
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_export_sliced_varbinview_arrays() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let utf8 = VarBinViewArray::from_iter_str([
+            "skip this out-of-line value before the slice",
+            "hello",
+            "こんにちは",
+            "this out-of-line value remains in the slice",
+        ])
+        .into_array()
+        .slice(1..4)?;
+        let mut exported = utf8.export_device_array_with_schema(&mut ctx).await?;
+        let field = Field::try_from(&exported.schema)?;
+        assert_eq!(field, Field::new("", DataType::Utf8View, false));
+        assert_varbinview_shape(&exported.array.array, 3, 0)?;
+        assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+
+        let binary = VarBinViewArray::from_iter_nullable_bin([
+            Some(b"skip this out-of-line value before the slice" as &[u8]),
+            None,
+            Some(b"\x00\xff"),
+            Some(b"this out-of-line binary value remains in the slice"),
+        ])
+        .into_array()
+        .slice(1..4)?;
+        let mut exported = binary.export_device_array_with_schema(&mut ctx).await?;
+        let field = Field::try_from(&exported.schema)?;
+        assert_eq!(field, Field::new("", DataType::BinaryView, true));
+        assert_varbinview_shape(&exported.array.array, 3, 1)?;
+        assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+        unsafe { release_exported_array(&raw mut exported.array.array) };
 
         Ok(())
     }
@@ -1044,19 +1218,20 @@ mod tests {
         let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
-        let array = VarBinViewArray::from_iter_str([
-            "one",
-            "two",
-            "this is a longer string for out-of-line storage",
-        ])
-        .into_array();
+        let japanese = "こんにちは";
+        let long_emoji = "🦀 and 🚀 make this string out-of-line";
+        let array = VarBinViewArray::from_iter_str(["", "hello", "é", "🦀", japanese, long_emoji])
+            .into_array();
         let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
 
         let field = Field::try_from(&exported.schema)?;
         assert_eq!(field, Field::new("", DataType::Utf8View, false));
-        assert_eq!(exported.array.array.length, 3);
-        assert_eq!(exported.array.array.n_buffers, 4);
-        assert_eq!(exported.array.array.n_children, 0);
+        assert_varbinview_layout(
+            &exported.array.array,
+            6,
+            0,
+            &[japanese.len() + long_emoji.len()],
+        )?;
         assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
