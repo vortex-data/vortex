@@ -167,10 +167,8 @@ fn referenced_bounds_zero_copy_with_slack() -> VortexResult<()> {
 }
 
 #[test]
-fn referenced_bounds_non_zero_copy_uses_stats() -> VortexResult<()> {
+fn referenced_bounds_non_zero_copy() -> VortexResult<()> {
     let mut ctx = test_execution_ctx();
-    // Out-of-order offsets -> not zero-copy-to-list, so bounds come from min/max stats.
-    // Views [5, 7) and [2, 4): min offset 2, max end 7 -> referenced [2, 7).
     let elements = buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
     let offsets = buffer![5u32, 2].into_array();
     let sizes = buffer![2u32, 2].into_array();

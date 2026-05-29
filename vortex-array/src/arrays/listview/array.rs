@@ -541,7 +541,7 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
     /// The array must contain at least one list (`len() > 0`).
     fn referenced_element_bounds(&self, ctx: &mut ExecutionCtx) -> VortexResult<(usize, usize)> {
         let n_lists = self.as_ref().len();
-        assert!(
+        vortex_ensure!(
             n_lists > 0,
             "referenced_element_bounds requires a non-empty array"
         );

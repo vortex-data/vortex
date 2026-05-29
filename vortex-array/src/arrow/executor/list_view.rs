@@ -36,7 +36,7 @@ pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
     // consumers hold an elements buffer containing unreferenced data in memory indefinitely, and
     // any compute pass over that buffer wastes work on data nothing references.
     let array = if array.is_zero_copy_to_list() {
-        // A zero-copy-to-list array has no overlaps and no interior gaps, so the only unreferenced
+        // A zctl array has no overlaps and no interior gaps, so the only unreferenced
         // elements are leading and trailing. Trimming them is much cheaper than a full rebuild.
         // Compute the referenced bounds once and reuse them for both the decision and the trim.
         let n_elts = array.elements().len();
