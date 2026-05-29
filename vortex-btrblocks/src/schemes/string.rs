@@ -34,9 +34,10 @@ use crate::SchemeExt;
 
 /// FSST (Fast Static Symbol Table) compression.
 ///
-/// One of the two string-fragmentation schemes in the default [`ALL_SCHEMES`]
-/// (alongside [`OnPairScheme`]); the sample-based selector keeps whichever is
-/// smaller per column. FSST compresses faster, OnPair usually wins on ratio.
+/// One of the two string-fragmentation schemes in the default
+/// [`crate::ALL_SCHEMES`] (alongside `OnPairScheme`); the sample-based selector
+/// keeps whichever is smaller per column. FSST compresses faster, OnPair
+/// usually wins on ratio.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct FSSTScheme;
 

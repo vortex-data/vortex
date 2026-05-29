@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 //
-//! Pure-Rust decoder for an [`OnPair`][crate::OnPair] array.
+//! Pure-Rust decoder for an [`OnPair`] array.
 //!
 //! The decode loop is intentionally simple — one `u16` code load, one
 //! `u64` table load, one fixed 16-byte over-copy `memcpy` — so the
