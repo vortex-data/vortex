@@ -191,7 +191,7 @@ impl BtrBlocksCompressorBuilder {
             string::StringDictScheme.id(),
             string::FSSTScheme.id(),
             binary::BinaryDictScheme.id(),
-        ]);
+        ];
         #[cfg(feature = "unstable_encodings")]
         excluded.push(string::OnPairScheme.id());
         let builder = self.exclude_schemes(excluded);

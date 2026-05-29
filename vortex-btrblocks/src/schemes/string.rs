@@ -318,7 +318,6 @@ mod onpair {
     use vortex_onpair::OnPairArraySlotsExt;
     use vortex_onpair::onpair_compress;
 
-    use super::is_utf8_string;
     use crate::ArrayAndStats;
     use crate::CascadingCompressor;
     use crate::CompressorContext;
@@ -344,7 +343,7 @@ mod onpair {
         }
 
         fn matches(&self, canonical: &Canonical) -> bool {
-            is_utf8_string(canonical)
+            canonical.dtype().is_utf8()
         }
 
         /// 4 primitive slot children flow through the cascading compressor:
@@ -372,7 +371,7 @@ mod onpair {
             compress_ctx: CompressorContext,
             exec_ctx: &mut ExecutionCtx,
         ) -> VortexResult<ArrayRef> {
-            let utf8 = data.array_as_utf8().into_owned();
+            let utf8 = data.array_as_varbinview().into_owned();
             let onpair_array =
                 onpair_compress(&utf8, utf8.len(), utf8.dtype(), DEFAULT_DICT12_CONFIG)?;
 
