@@ -247,8 +247,9 @@ async fn benchmark_random_access(
 
     loop {
         let start = Instant::now();
-        let _row_count = accessor.take(indices).await?;
+        let arr = accessor.take(indices).await?;
         runs.push(start.elapsed());
+        drop(arr);
 
         if overall_start.elapsed() >= time_limit {
             break;

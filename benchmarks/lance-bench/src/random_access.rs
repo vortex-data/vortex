@@ -18,6 +18,7 @@ use vortex_bench::datasets::nested_structs;
 use vortex_bench::datasets::taxi_data;
 use vortex_bench::idempotent_async;
 use vortex_bench::random_access::RandomAccessor;
+use vortex_bench::random_access::RandomAccessorRet;
 use vortex_bench::random_access::data_path;
 
 /// Convert a parquet file to lance format.
@@ -112,8 +113,9 @@ impl RandomAccessor for LanceRandomAccessor {
         &self.name
     }
 
-    async fn take(&self, indices: &[u64]) -> anyhow::Result<usize> {
-        let result = self.dataset.take(indices, self.projection.clone()).await?;
-        Ok(result.num_rows())
+    async fn take(&self, indices: &[u64]) -> anyhow::Result<RandomAccessorRet> {
+        Ok(RandomAccessorRet::RecordBatch(
+            self.dataset.take(indices, self.projection.clone()).await?,
+        ))
     }
 }
