@@ -163,14 +163,14 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         let mut elements = groups.elements().clone();
         let groups_validity = groups.validity()?;
         let session = ctx.session().clone();
-        let aggs = session.aggregate_fns();
 
         for _ in 0..max_iterations() {
             if elements.is::<AnyCanonical>() {
                 break;
             }
 
-            if let Some(result) = aggs
+            if let Some(result) = session
+                .aggregate_fns()
                 .find_grouped_kernel(elements.encoding_id(), self.aggregate_fn.id())
                 .and_then(|kernel| {
                     // SAFETY: we assume that elements execution is safe
@@ -194,8 +194,6 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
             // Execute one step and try again
             elements = elements.execute(ctx)?;
         }
-
-        drop(aggs);
 
         // Otherwise, we iterate the offsets and sizes and accumulate each group one by one.
         let elements = elements.execute::<Columnar>(ctx)?.into_array();
@@ -255,14 +253,14 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         let mut elements = groups.elements().clone();
         let groups_validity = groups.validity()?;
         let session = ctx.session().clone();
-        let aggs = session.aggregate_fns();
 
         for _ in 0..64 {
             if elements.is::<AnyCanonical>() {
                 break;
             }
 
-            if let Some(result) = aggs
+            if let Some(result) = session
+                .aggregate_fns()
                 .find_grouped_kernel(elements.encoding_id(), self.aggregate_fn.id())
                 .and_then(|kernel| {
                     // SAFETY: we assume that elements execution is safe
@@ -287,8 +285,6 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
             // Execute one step and try again
             elements = elements.execute(ctx)?;
         }
-
-        drop(aggs);
 
         // Otherwise, we iterate the offsets and sizes and accumulate each group one by one.
         let elements = elements.execute::<Columnar>(ctx)?.into_array();
