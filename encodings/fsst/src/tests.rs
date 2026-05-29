@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use rand::SeedableRng;
-use rand::rngs::StdRng;
-use rand::seq::IndexedRandom;
+use fsst::CompressorBuilder;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
@@ -118,11 +116,20 @@ fn test_fsst_array_ops() {
 /// [`VarBinBuilder<i32>`] for the FSST output and panicked in
 /// [`VarBinBuilder::append_value`] once cumulative compressed bytes crossed the boundary.
 ///
-/// The input is built with [`VarBinBuilder<i64>`] so the input itself does not panic, which
-/// confirms the overflow is on the FSST output side. After the fix the test must succeed
-/// with the row count preserved.
+/// We force the output past [`i32::MAX`] with an empty FSST compressor: it has no symbols, so
+/// every input byte is emitted as a two-byte escape and the compressed output is
+/// deterministically `2 *` the input size. This crosses the boundary with ~1.1 GiB of input
+/// rather than the ~2.5 GiB of incompressible data a trained compressor would require, which
+/// roughly halves the compression work and removes random-data generation entirely while
+/// exercising the same output-offset path. The escape factor is the worst case FSST can
+/// produce (`2 * len + 7`), so this is also the cheapest way to reach the boundary.
 ///
-/// Allocates ~2.5 GiB for the input and ~2.5 GiB for the FSST output (~5 GiB total), so it
+/// The input offsets stay below [`i32::MAX`], so the input build never overflows; only the FSST
+/// output crosses the boundary, isolating the regression to the output side. The test asserts
+/// the actual compressed byte size exceeds [`i32::MAX`] so it cannot silently stop covering the
+/// regression if FSST's escape behavior ever changes.
+///
+/// Allocates ~1.1 GiB for the input and ~2.25 GiB for the FSST output (~3.4 GiB total), so it
 /// is gated to CI runs and skipped when `VORTEX_SKIP_SLOW_TESTS` is set. To run it locally:
 ///
 /// ```text
@@ -133,33 +140,26 @@ fn test_fsst_array_ops() {
 #[test_with::env(CI)]
 #[test_with::no_env(VORTEX_SKIP_SLOW_TESTS)]
 fn fsst_compress_offsets_overflow_i32() {
-    // High-entropy ASCII strings sliced from a random pool. FSST is a symbol-table
-    // compressor; pseudo-random data with no recurring byte sequences resists compression,
-    // so the compressed output stays close to input size and crosses the i32 boundary.
     const STRING_LEN: usize = 64 * 1024;
-    const TOTAL_BYTES: usize = (1usize << 31) + (512 << 20); // ~2.5 GiB
-    const N: usize = TOTAL_BYTES / STRING_LEN;
-    const POOL_LEN: usize = 64 * 1024 * 1024;
+    // An empty compressor escapes every byte, so each 64 KiB string compresses to exactly
+    // 128 KiB of output. Target ~2.25 GiB of output (2^31 + 256 MiB margin) so cumulative
+    // compressed bytes comfortably exceed i32::MAX.
+    const TOTAL_OUTPUT_BYTES: usize = (1usize << 31) + (256 << 20);
+    const N: usize = TOTAL_OUTPUT_BYTES / (2 * STRING_LEN);
 
-    // Printable ASCII alphabet so the result is valid UTF-8.
-    const ALPHABET: &[u8; 95] =
-        b" !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
-
-    let mut rng = StdRng::seed_from_u64(0xC0DE_C011_B711);
-    let pool: Vec<u8> = (0..POOL_LEN)
-        .map(|_| *ALPHABET.choose(&mut rng).unwrap())
-        .collect();
+    // The content is irrelevant because the empty compressor escapes every byte; `b'a'` keeps
+    // the input valid UTF-8. A single reused buffer avoids per-row allocation.
+    let string = vec![b'a'; STRING_LEN];
 
     println!("building large VarBinArray");
     let mut builder = VarBinBuilder::<i64>::with_capacity(N);
-    for i in 0..N {
-        let off = i.wrapping_mul(31337) % (POOL_LEN - STRING_LEN);
-        builder.append_value(&pool[off..off + STRING_LEN]);
+    for _ in 0..N {
+        builder.append_value(&string);
     }
     let array = builder.finish(DType::Utf8(Nullability::NonNullable));
 
-    println!("training FSST compressor");
-    let compressor = fsst_train_compressor(&array);
+    // Empty symbol table -> every byte is escaped -> 2x expansion.
+    let compressor = CompressorBuilder::default().build();
     let len = array.len();
     let dtype = array.dtype().clone();
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
@@ -167,4 +167,11 @@ fn fsst_compress_offsets_overflow_i32() {
     println!("compressing to FSST");
     let compressed = fsst_compress(array, len, &dtype, &compressor, &mut ctx);
     assert_eq!(compressed.len(), len);
+
+    // The regression is only exercised if cumulative compressed bytes truly exceed i32::MAX.
+    let compressed_bytes = compressed.codes_bytes().len();
+    assert!(
+        compressed_bytes > i32::MAX as usize,
+        "compressed output ({compressed_bytes} bytes) must exceed i32::MAX to require i64 offsets",
+    );
 }
