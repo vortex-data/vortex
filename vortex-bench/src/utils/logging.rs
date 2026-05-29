@@ -5,10 +5,12 @@ use std::fs::File;
 use std::io::IsTerminal;
 
 use clap::ValueEnum;
+use tracing::Level;
 use tracing::level_filters::LevelFilter;
 use tracing_perfetto::PerfettoLayer;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::Layer;
+use tracing_subscriber::filter::filter_fn;
 use tracing_subscriber::prelude::*;
 
 /// Format for the primary stderr log sink.
@@ -46,6 +48,14 @@ pub fn setup_logging_and_tracing_with_format(
 ) -> anyhow::Result<()> {
     let filter = default_env_filter(verbose);
 
+    // Lance crates emit chatty INFO-level logs (dataset open/commit details, fragment reads, ...)
+    // that drown out benchmark output. Drop everything below WARN from the `lance` family unless
+    // the user opts in via `--verbose` or `RUST_LOG`.
+    let suppress_lance = !verbose && std::env::var(EnvFilter::DEFAULT_ENV).is_err();
+    let lance_filter = filter_fn(move |meta| {
+        !(suppress_lance && *meta.level() > Level::WARN && is_lance_target(meta.target()))
+    });
+
     let perfetto_layer = perfetto
         .then(|| {
             Ok::<_, anyhow::Error>(
@@ -74,29 +84,13 @@ pub fn setup_logging_and_tracing_with_format(
 
     tracing_subscriber::registry()
         .with(filter)
+        .with(lance_filter)
         .with(perfetto_layer)
         .with(fmt_layer)
         .init();
 
     Ok(())
 }
-
-/// Lance crates emit chatty `INFO`-level logs (dataset open/commit details, fragment reads, etc.)
-/// that drown out benchmark output. We quiet the whole `lance` crate family to `WARN` by default.
-/// Targets are module paths, so hyphenated crate names appear with underscores.
-const QUIET_LANCE_TARGETS: &[&str] = &[
-    "lance",
-    "lance_arrow",
-    "lance_core",
-    "lance_datafusion",
-    "lance_datagen",
-    "lance_encoding",
-    "lance_file",
-    "lance_index",
-    "lance_io",
-    "lance_linalg",
-    "lance_table",
-];
 
 pub fn default_env_filter(is_verbose: bool) -> EnvFilter {
     match EnvFilter::try_from_default_env() {
@@ -108,23 +102,48 @@ pub fn default_env_filter(is_verbose: bool) -> EnvFilter {
                 LevelFilter::INFO
             };
 
-            let mut filter = EnvFilter::builder()
+            EnvFilter::builder()
                 .with_default_directive(default_level.into())
-                .from_env_lossy();
+                .from_env_lossy()
+        }
+    }
+}
 
-            // Only silence Lance when the user has not explicitly opted into verbose output;
-            // `--verbose` (or `RUST_LOG`) should still surface everything.
-            if !is_verbose {
-                for target in QUIET_LANCE_TARGETS {
-                    filter = filter.add_directive(
-                        format!("{target}=warn")
-                            .parse()
-                            .expect("hardcoded lance log directive is valid"),
-                    );
-                }
-            }
+/// True for log targets emitted by any crate in the `lance` family (`lance`, `lance_core`,
+/// `lance_io`, ...). Targets are module paths, so the crate name is the leading path segment.
+fn is_lance_target(target: &str) -> bool {
+    target == "lance" || target.starts_with("lance::") || target.starts_with("lance_")
+}
 
-            filter
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lance_targets_match_the_crate_family() {
+        for target in [
+            "lance",
+            "lance::dataset",
+            "lance_core::utils",
+            "lance_io",
+            "lance_encoding::decoder",
+        ] {
+            assert!(is_lance_target(target), "expected match for {target}");
+        }
+        for target in ["lancelot", "vortex_array", "datafusion", "arrow::array"] {
+            assert!(!is_lance_target(target), "unexpected match for {target}");
+        }
+    }
+
+    #[test]
+    fn level_ordering_drops_only_below_warn() {
+        // The suppression predicate keeps an event when its level is *not* greater than WARN.
+        // Guard against the `tracing::Level` ordering inverting underneath us.
+        for level in [Level::WARN, Level::ERROR] {
+            assert!(level <= Level::WARN, "{level} should be kept");
+        }
+        for level in [Level::INFO, Level::DEBUG, Level::TRACE] {
+            assert!(level > Level::WARN, "{level} should be dropped");
         }
     }
 }
