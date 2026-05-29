@@ -3,10 +3,9 @@
 //
 //! Decode-path microbenchmarks for the OnPair Vortex array.
 //!
-//! * `decode_rows_unchecked` — the production decoder hot loop (combined
-//!   `(offset << 16) | length` table, fixed 16-byte over-copy, 4× unrolled).
-//!   Measured by hand-driving `DecodeView::decode_rows_unchecked` straight
-//!   into a `Vec<u8>` so the time reflects the inner loop only.
+//! * `decompress_into` — the upstream `onpair::decompress_into` decoder hot
+//!   loop, fed by a pre-materialised [`OwnedDecodeInputs`]. Measures the
+//!   inner loop only (no `collect`, no allocation).
 //! * `canonicalize_to_varbinview` — the full Vortex
 //!   `OnPair → VarBinViewArray` path callers actually hit. Includes
 //!   `OwnedDecodeInputs::collect`, the build_views step, allocation, etc.
@@ -37,8 +36,10 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::session::ArraySession;
 use vortex_mask::Mask;
+use onpair::DECOMPRESS_BUFFER_PADDING;
+use onpair::decompress_into;
+use onpair::decompressed_len;
 use vortex_onpair::DEFAULT_DICT12_CONFIG;
-use vortex_onpair::MAX_TOKEN_SIZE;
 use vortex_onpair::OnPair;
 use vortex_onpair::OnPairArray;
 use vortex_onpair::decode::OwnedDecodeInputs;
@@ -126,18 +127,12 @@ fn compress(n: usize, shape: Shape) -> OnPairArray {
         .unwrap_or_else(|e| panic!("onpair_compress failed: {e}"))
 }
 
-fn materialise(arr: &OnPairArray) -> (OwnedDecodeInputs, usize, usize) {
+fn materialise(arr: &OnPairArray) -> (OwnedDecodeInputs, usize) {
     let mut ctx = SESSION.create_execution_ctx();
     let inputs = OwnedDecodeInputs::collect(arr.as_view(), &mut ctx)
         .unwrap_or_else(|e| panic!("collect: {e}"));
-    let n = arr.len();
-    let total: usize = inputs
-        .codes
-        .as_slice()
-        .iter()
-        .map(|&c| (inputs.dict_table.as_slice()[c as usize] & 0xffff) as usize)
-        .sum();
-    (inputs, n, total)
+    let total = decompressed_len(inputs.as_parts());
+    (inputs, total)
 }
 
 const CASES: &[(Shape, usize)] = &[
@@ -149,19 +144,16 @@ const CASES: &[(Shape, usize)] = &[
 ];
 
 /// Raw decode loop time, excluding `OwnedDecodeInputs::collect` and the
-/// output allocation. Hits `DecodeView::decode_rows_unchecked` directly.
+/// output allocation. Hits `onpair::decompress_into` directly.
 #[divan::bench(args = CASES)]
-fn decode_rows_unchecked(bencher: Bencher, case: (Shape, usize)) {
+fn decompress_into_bench(bencher: Bencher, case: (Shape, usize)) {
     let (shape, n) = case;
     let arr = compress(n, shape);
-    let (inputs, n_rows, total) = materialise(&arr);
+    let (inputs, total) = materialise(&arr);
     bencher.bench_local(|| {
-        let mut out: Vec<u8> = Vec::with_capacity(total + MAX_TOKEN_SIZE);
-        let dv = inputs.view();
-        unsafe {
-            let written = dv.decode_rows_unchecked(0, n_rows, out.as_mut_ptr());
-            out.set_len(written);
-        }
+        let mut out: Vec<u8> = Vec::with_capacity(total + DECOMPRESS_BUFFER_PADDING);
+        let written = decompress_into(inputs.as_parts(), out.spare_capacity_mut());
+        unsafe { out.set_len(written) };
         divan::black_box(out);
     });
 }

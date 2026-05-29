@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 //
-//! Convert an [`OnPairArray`] to its canonical `VarBinViewArray` by running
-//! the pure-Rust dictionary-lookup decoder over every row.
+//! Convert an [`OnPairArray`] to its canonical `VarBinViewArray` by handing
+//! the materialised parts to `onpair::decompress_into`.
 
 use std::sync::Arc;
 
+use onpair::DECOMPRESS_BUFFER_PADDING;
+use onpair::decompress_into;
+use onpair::decompressed_len;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -42,37 +45,21 @@ pub(crate) fn onpair_decode_views(
     start_buf_index: u32,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<(Vec<ByteBuffer>, Buffer<BinaryView>)> {
-    let n = array.array().len();
     let lengths = array
         .uncompressed_lengths()
         .clone()
         .execute::<PrimitiveArray>(ctx)?;
 
-    #[expect(clippy::cast_possible_truncation)]
-    let total_size: usize = match_each_integer_ptype!(lengths.ptype(), |P| {
-        lengths.as_slice::<P>().iter().map(|x| *x as usize).sum()
-    });
-
     let inputs = OwnedDecodeInputs::collect(array, ctx)?;
-    let dv = inputs.view();
-    // Decode directly into the canonical output buffer's spare capacity —
-    // no temporary `Vec<u8>` + `extend_from_slice` round-trip. Total size
-    // is already known from `uncompressed_lengths`, so we can size the
-    // buffer once with the over-copy slack and call into the unchecked
-    // single-pass decoder.
-    let mut out_bytes = ByteBufferMut::with_capacity(total_size + crate::MAX_TOKEN_SIZE);
-    // SAFETY:
-    // * `out_bytes` reserved at least `total_size + MAX_TOKEN_SIZE` bytes
-    //   above; `decode_rows_unchecked` may over-copy up to MAX_TOKEN_SIZE
-    //   bytes past the true end, all within reserved capacity.
-    // * Caller has verified the array's invariants in `OnPair::try_new`,
-    //   so every code is a valid index and `dict_bytes` is padded.
-    unsafe {
-        let dst = out_bytes.spare_capacity_mut().as_mut_ptr().cast::<u8>();
-        let written = dv.decode_rows_unchecked(0, n, dst);
-        debug_assert_eq!(written, total_size);
-        out_bytes.set_len(written);
-    }
+    let parts = inputs.as_parts();
+    let total_size = decompressed_len(parts);
+
+    let mut out_bytes = ByteBufferMut::with_capacity(total_size + DECOMPRESS_BUFFER_PADDING);
+    let written = decompress_into(parts, out_bytes.spare_capacity_mut());
+    debug_assert_eq!(written, total_size);
+    // SAFETY: `decompress_into` initialised exactly `written` bytes of the
+    // spare capacity reserved above.
+    unsafe { out_bytes.set_len(written) };
 
     match_each_integer_ptype!(lengths.ptype(), |P| {
         Ok(build_views(

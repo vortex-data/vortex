@@ -9907,6 +9907,7 @@ version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
  "memchr",
+ "num-traits",
  "onpair",
  "prost 0.14.3",
  "rstest",
