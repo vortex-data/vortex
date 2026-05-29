@@ -130,7 +130,7 @@ pub struct OnPairData {
     ///
     /// INVARIANT: this buffer must be over-padded past its logical end
     /// (`dict_offsets.last()`) by the decoder's fixed token read width,
-    /// [`MAX_TOKEN_SIZE`][crate::MAX_TOKEN_SIZE]. The over-copy decoder reads
+    /// [`MAX_TOKEN_SIZE`][onpair::MAX_TOKEN_SIZE]. The over-copy decoder reads
     /// every dictionary entry with one fixed-width load and then advances the
     /// cursor by the token's true length, so the load for the final, shortest
     /// token over-reads past the logical end of the dictionary. This is the

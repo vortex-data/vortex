@@ -66,7 +66,7 @@ where
     let column = onpair::compress(&flat, &offsets, config)
         .map_err(|e| vortex_err!("OnPair compress failed: {e}"))?;
     let (bits, dict_bytes, dict_offsets, codes, codes_offsets) =
-        parts_to_children(&column, &offsets)?;
+        parts_to_children(column, &offsets)?;
 
     let uncompressed_lengths = uncompressed_lengths.into_array();
     let validity = match dtype.nullability() {
@@ -93,16 +93,16 @@ where
 /// to [`onpair::compress`]; they let us recover the per-row *code* boundaries
 /// (the `codes_offsets` child), which the `onpair` crate no longer returns.
 fn parts_to_children(
-    column: &Column,
+    column: Column,
     row_byte_offsets: &[u64],
 ) -> VortexResult<(u32, BufferHandle, ArrayRef, ArrayRef, ArrayRef)> {
     let bits = column.bits;
     // Pad the dictionary blob with MAX_TOKEN_SIZE zero bytes so the
     // over-copy decoder can issue a fixed 16-byte load for every token
     // without risking an OOB read on the last entry.
-    let mut padded = Vec::with_capacity(column.dict_bytes.len() + crate::MAX_TOKEN_SIZE);
+    let mut padded = Vec::with_capacity(column.dict_bytes.len() + onpair::MAX_TOKEN_SIZE);
     padded.extend_from_slice(&column.dict_bytes);
-    padded.resize(column.dict_bytes.len() + crate::MAX_TOKEN_SIZE, 0);
+    padded.resize(column.dict_bytes.len() + onpair::MAX_TOKEN_SIZE, 0);
     // Align dict_bytes to 8 bytes so the segment that ultimately holds the
     // OnPair tree starts at an 8-aligned in-memory address. Without this
     // anchor, the per-buffer padding the serializer inserts is only
@@ -112,9 +112,6 @@ fn parts_to_children(
     let dict_bytes =
         BufferHandle::new_host(ByteBuffer::from(padded).aligned(vortex_buffer::Alignment::new(8)));
 
-    // The crate emits already-unpacked token codes (one `u16` per token), so
-    // they map straight onto the `codes` slot child.
-    let codes = Buffer::<u16>::copy_from(column.codes.as_slice()).into_array();
     // Recover the per-row code boundaries. `onpair::compress` no longer returns
     // them, but its tokenizer never lets a token span a row boundary, so a
     // row's codes decode to exactly its byte span. Walk `codes`, summing each
@@ -122,14 +119,19 @@ fn parts_to_children(
     // row when the accumulated decoded length reaches that row's byte offset.
     let codes_offsets = build_codes_offsets(&column.codes, &column.dict_offsets, row_byte_offsets)?;
 
-    let dict_offsets = Buffer::<u32>::copy_from(column.dict_offsets.as_slice()).into_array();
-    let codes_offsets = Buffer::<u32>::copy_from(codes_offsets).into_array();
+    // `column` owns its `codes`/`dict_offsets` vectors (and the crate emits
+    // already-unpacked `u16` token codes), so move them straight onto the slot
+    // children instead of copying.
+    let codes = Buffer::from(column.codes).into_array();
+    let dict_offsets = Buffer::from(column.dict_offsets).into_array();
+    let codes_offsets = Buffer::from(codes_offsets).into_array();
     Ok((bits, dict_bytes, dict_offsets, codes, codes_offsets))
 }
 
 /// Reconstruct the per-row `codes_offsets` from the flat `codes`, the
 /// dictionary `dict_offsets` (token byte lengths) and the per-row decoded byte
 /// boundaries. Returns `nrows + 1` cumulative code counts (`u32`).
+// TODO(joe): can we compute this while compressing the array, yes but a worse API.
 fn build_codes_offsets(
     codes: &[u16],
     dict_offsets: &[u32],

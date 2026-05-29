@@ -9,6 +9,7 @@ use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use crate::OnPair;
 use crate::OnPairArraySlotsExt;
@@ -39,7 +40,14 @@ impl OperationsVTable<OnPair> for OnPair {
             codes: codes.as_slice(),
         };
 
-        let len = onpair::decompressed_len(parts);
+        // The per-row decoded length is recorded in the `uncompressed_lengths`
+        // child, so read it directly instead of asking the decoder to compute it.
+        let len = array
+            .uncompressed_lengths()
+            .execute_scalar(index, ctx)?
+            .as_primitive()
+            .as_::<usize>()
+            .ok_or_else(|| vortex_err!("OnPair uncompressed_lengths[{index}] is null"))?;
         let mut buf: Vec<u8> = Vec::with_capacity(len);
         let written = onpair::decompress_into(parts, buf.spare_capacity_mut());
         debug_assert_eq!(written, len);
