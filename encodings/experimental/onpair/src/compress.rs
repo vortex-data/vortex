@@ -88,10 +88,6 @@ where
 
 /// Lift a compressed [`Column`] into Vortex children + the dict buffer.
 /// Returns `(bits, dict_bytes_buffer, dict_offsets_child, codes_child, codes_offsets_child)`.
-///
-/// `row_byte_offsets` are the per-row decoded byte boundaries that were handed
-/// to [`onpair::compress`]; they let us recover the per-row *code* boundaries
-/// (the `codes_offsets` child), which the `onpair` crate no longer returns.
 fn parts_to_children(
     column: Column,
     row_byte_offsets: &[u64],
@@ -112,11 +108,12 @@ fn parts_to_children(
     let dict_bytes =
         BufferHandle::new_host(ByteBuffer::from(padded).aligned(vortex_buffer::Alignment::new(8)));
 
-    // Recover the per-row code boundaries. `onpair::compress` no longer returns
-    // them, but its tokenizer never lets a token span a row boundary, so a
-    // row's codes decode to exactly its byte span. Walk `codes`, summing each
-    // token's byte length (`dict_offsets[c+1] - dict_offsets[c]`), and close a
-    // row when the accumulated decoded length reaches that row's byte offset.
+    // Recover the per-row code boundaries. The resolved `onpair` crate does not
+    // return them from `compress`, but its tokenizer never lets a token span a
+    // row boundary, so a row's codes decode to exactly its byte span. Walk
+    // `codes`, summing each token's byte length (`dict_offsets[c+1] -
+    // dict_offsets[c]`), and close a row when the accumulated decoded length
+    // reaches that row's byte offset.
     let codes_offsets = build_codes_offsets(&column.codes, &column.dict_offsets, row_byte_offsets)?;
 
     // `column` owns its `codes`/`dict_offsets` vectors (and the crate emits
