@@ -51,10 +51,6 @@ use crate::rules::RULES;
 /// An [`OnPair`]-encoded Vortex array.
 pub type OnPairArray = Array<OnPair>;
 
-/// Default bits-per-token preset used by [`crate::onpair_compress`]: 12-bit
-/// codes, dictionary capped at 4 096 entries.
-pub const DEFAULT_BITS: u32 = 12;
-
 /// Wire-format metadata persisted alongside the OnPair buffer + slot children.
 ///
 /// On disk the layout is FSST-shape:

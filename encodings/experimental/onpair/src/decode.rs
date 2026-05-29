@@ -191,8 +191,7 @@ impl<'a> DecodeView<'a> {
 
     /// Single-pass over-copy decode of a token window into raw `dst`.
     ///
-    /// Mirrors OnPair C++ `decode_all<Bits = 16>` (and `decompress`)
-    /// exactly: each iteration loads one `u16` code, one `u64` dict-table
+    /// Each iteration loads one `u16` code, one `u64` dict-table
     /// entry, issues a fixed [`MAX_TOKEN_SIZE`][crate::MAX_TOKEN_SIZE]
     /// `copy_nonoverlapping` (which LLVM lowers to a single unaligned
     /// 128-bit SIMD store on x86_64 / aarch64), and advances the cursor by

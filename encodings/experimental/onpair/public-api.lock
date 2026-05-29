@@ -220,8 +220,6 @@ pub fn vortex_onpair::OnPairMetadata::clear(&mut self)
 
 pub fn vortex_onpair::OnPairMetadata::encoded_len(&self) -> usize
 
-pub const vortex_onpair::DEFAULT_BITS: u32
-
 pub const vortex_onpair::DEFAULT_DICT12_CONFIG: onpair::Config
 
 pub const vortex_onpair::MAX_TOKEN_SIZE: usize
@@ -249,8 +247,6 @@ pub fn T::codes_offsets(&self) -> &vortex_array::array::erased::ArrayRef
 pub fn T::dict_offsets(&self) -> &vortex_array::array::erased::ArrayRef
 
 pub fn T::uncompressed_lengths(&self) -> &vortex_array::array::erased::ArrayRef
-
-pub fn vortex_onpair::config_with_bits(u32) -> onpair::Config
 
 pub fn vortex_onpair::onpair_compress<A: vortex_array::accessor::ArrayAccessor<[u8]>>(A, usize, &vortex_array::dtype::DType, onpair::Config) -> vortex_error::VortexResult<vortex_onpair::OnPairArray>
 

@@ -29,15 +29,7 @@ use crate::OnPairArray;
 /// Default OnPair training configuration: 12-bit codes ("dict-12").
 pub const DEFAULT_DICT12_CONFIG: Config = onpair::DEFAULT_CONFIG;
 
-/// Build a training config with a custom bit width.
-pub fn config_with_bits(bits: u32) -> Config {
-    Config {
-        bits,
-        ..onpair::DEFAULT_CONFIG
-    }
-}
-
-/// Compress an iterable of optional byte strings via the OnPair C++ library.
+/// Compress an iterable of optional byte strings via the OnPair encoder.
 pub fn onpair_compress_iter<'a, I>(
     iter: I,
     len: usize,

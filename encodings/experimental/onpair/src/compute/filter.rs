@@ -11,7 +11,7 @@
 //! FSST-shape filter: keep `dict_bytes` + `dict_offsets` **identical**
 //! to the input; rebuild only `codes`, `codes_offsets`,
 //! `uncompressed_lengths`, and validity by walking the mask. No decode,
-//! no retrain, no C++ call on the read path.
+//! no retrain on the read path.
 
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
