@@ -4,7 +4,6 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_session::SessionExt;
 
 use crate::ArrayRef;
 use crate::Columnar;
@@ -12,7 +11,6 @@ use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
-use crate::aggregate_fn::session::AggregateFnSession;
 use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::columnar::AnyColumnar;
 use crate::dtype::DType;
