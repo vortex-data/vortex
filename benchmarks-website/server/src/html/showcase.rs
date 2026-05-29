@@ -393,14 +393,42 @@ fn group_by_summary(groups: &[Group], pred: impl Fn(&Summary) -> bool) -> Option
         .find(|g| g.summary.as_ref().is_some_and(&pred))
 }
 
-/// The query group for a dataset (e.g. `clickbench`), by its slug's group key.
+/// The cluster representative for a dataset's query group (e.g. `clickbench`,
+/// `tpch`, `tpcds`). Matches the (storage, SF) selection `collect_landing_groups`
+/// uses — NVMe-preferred, largest SF first — so showcase deep links land on the
+/// exact section id `/latest` emits.
 fn query_group<'a>(groups: &'a [Group], dataset: &str) -> Option<&'a Group> {
-    groups.iter().find(|g| {
-        matches!(
-            GroupKey::from_slug(&g.slug),
-            Ok(GroupKey::QueryGroup { dataset: d, .. }) if d == dataset
-        )
-    })
+    let storage_rank = |s: &str| -> usize {
+        match s {
+            "nvme" => 0,
+            "s3" => 1,
+            _ => 2,
+        }
+    };
+    let mut best: Option<(usize, f64, &Group)> = None;
+    for g in groups {
+        let Ok(GroupKey::QueryGroup {
+            dataset: d,
+            scale_factor,
+            storage,
+            ..
+        }) = GroupKey::from_slug(&g.slug)
+        else {
+            continue;
+        };
+        if d != dataset {
+            continue;
+        }
+        let sf = scale_factor
+            .as_deref()
+            .and_then(|s| s.parse::<f64>().ok())
+            .unwrap_or(0.0);
+        let sr = storage_rank(&storage);
+        if best.is_none_or(|(bsr, bsf, _)| sr < bsr || (sr == bsr && sf > bsf)) {
+            best = Some((sr, sf, g));
+        }
+    }
+    best.map(|(_, _, g)| g)
 }
 
 /// Deep link from a claim into the Current page's matching group section.

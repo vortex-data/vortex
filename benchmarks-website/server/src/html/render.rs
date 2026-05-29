@@ -279,6 +279,60 @@ fn github_icon() -> Markup {
     }
 }
 
+/// Per-chart control overlay: a small top-right button strip with a full
+/// screen toggle and (when `zoomable`) a reset-zoom button. The reset button
+/// ships hidden — `chart-init.js` reveals it on the chartjs-plugin-zoom
+/// `onZoom` callback and hides it again on reset. JS finds the buttons by
+/// `data-role="chart-fullscreen"` / `data-role="chart-reset-zoom"` within the
+/// nearest figure container.
+pub(super) fn chart_controls(zoomable: bool) -> Markup {
+    html! {
+        div.chart-controls data-role="chart-controls" {
+            button.chart-control-btn type="button"
+                data-role="chart-fullscreen"
+                aria-label="Toggle full screen"
+                title="Full screen" {
+                (expand_icon())
+            }
+            @if zoomable {
+                button.chart-control-btn.chart-control-btn--hidden type="button"
+                    data-role="chart-reset-zoom"
+                    aria-label="Reset zoom"
+                    title="Reset zoom" {
+                    (reset_icon())
+                }
+            }
+        }
+    }
+}
+
+/// Outward-facing-corners glyph for the full-screen toggle. Swaps to an
+/// inward-facing version in fullscreen mode via a CSS variant.
+fn expand_icon() -> Markup {
+    html! {
+        svg.btn-icon viewBox="0 0 24 24" width="14" height="14" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round"
+            stroke-linejoin="round" aria-hidden="true" {
+            path d="M8 3H5a2 2 0 0 0-2 2v3" {}
+            path d="M21 8V5a2 2 0 0 0-2-2h-3" {}
+            path d="M3 16v3a2 2 0 0 0 2 2h3" {}
+            path d="M16 21h3a2 2 0 0 0 2-2v-3" {}
+        }
+    }
+}
+
+/// Counter-clockwise arrow with a sweep — reset-zoom glyph.
+fn reset_icon() -> Markup {
+    html! {
+        svg.btn-icon viewBox="0 0 24 24" width="14" height="14" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round"
+            stroke-linejoin="round" aria-hidden="true" {
+            path d="M3 12a9 9 0 1 0 3-6.7" {}
+            path d="M3 4v5h5" {}
+        }
+    }
+}
+
 /// Funnel icon used by the global filter dropdown trigger.
 pub(super) fn filter_icon() -> Markup {
     html! {

@@ -36,6 +36,7 @@ use serde::Serialize;
 use super::anchor_for;
 use super::landing::LandingGroup;
 use super::landing::ScalePill;
+use super::render::chart_controls;
 use super::render::escape_json_for_script;
 use super::showcase::format_value;
 use super::showcase::latest_value;
@@ -371,10 +372,13 @@ struct HistoryLine {
 /// One commit on the headline chart's x-axis.
 #[derive(Serialize, Clone)]
 struct HistoryCommit {
-    /// Short SHA, shown on the axis.
+    /// Short SHA, surfaced in the tooltip title.
     sha: String,
     /// First-line message, for the tooltip.
     msg: String,
+    /// ISO timestamp of the commit. Drives the date label on the x-axis tick
+    /// callback (see `chart-init.js::formatAxisDate`).
+    timestamp: String,
 }
 
 /// Inline payload for the Previous-Versions headline line chart: every
@@ -430,6 +434,7 @@ fn build_history(generation: &ReadGeneration, chart_links: &[ChartLink]) -> Opti
     let mut order: Vec<String> = Vec::new(); // full shas, oldest first, deduped
     let mut labels: BTreeMap<String, String> = BTreeMap::new(); // sha -> message
     let mut shorts: BTreeMap<String, String> = BTreeMap::new(); // sha -> short sha
+    let mut times: BTreeMap<String, String> = BTreeMap::new(); // sha -> ISO timestamp
     let mut seen: BTreeSet<String> = BTreeSet::new();
     let mut engine_facets: BTreeSet<String> = BTreeSet::new(); // facets that are query engines
     let mut unit = UnitKind::TimeNs;
@@ -444,6 +449,7 @@ fn build_history(generation: &ReadGeneration, chart_links: &[ChartLink]) -> Opti
                 order.push(c.sha.clone());
                 shorts.insert(c.sha.clone(), c.sha.chars().take(7).collect());
                 labels.insert(c.sha.clone(), c.message.clone());
+                times.insert(c.sha.clone(), c.timestamp.clone());
             }
         }
         // Per facet, every format's series name.
@@ -521,6 +527,7 @@ fn build_history(generation: &ReadGeneration, chart_links: &[ChartLink]) -> Opti
         .map(|sha| HistoryCommit {
             sha: shorts.get(sha).cloned().unwrap_or_default(),
             msg: labels.get(sha).cloned().unwrap_or_default(),
+            timestamp: times.get(sha).cloned().unwrap_or_default(),
         })
         .collect();
     let lines = keys
@@ -564,8 +571,8 @@ fn build_history(generation: &ReadGeneration, chart_links: &[ChartLink]) -> Opti
     })
 }
 
-/// The Previous-Versions headline for a group. TPC suites (which carry
-/// scale-factor pills) get an in-place SF toggle that swaps the headline chart;
+/// The Previous-Versions headline for a group. TPC suites (which carry storage
+/// and scale-factor pills) get in-place toggles that swap the headline chart;
 /// everything else is a single chart. Empty when there's no comparable history.
 pub(super) fn history_section(generation: &ReadGeneration, group: &LandingGroup) -> Markup {
     if group.scale_pills.len() < 2 {
@@ -575,12 +582,15 @@ pub(super) fn history_section(generation: &ReadGeneration, group: &LandingGroup)
     html! {
         div.history-fanout {
             div.history-controls {
+                (storage_toggle_pills(&group.scale_pills))
                 (sf_toggle_pills(&group.scale_pills))
             }
             div.history-sf-sets {
                 @for pill in &group.scale_pills {
-                    @let value = pill.label.trim_start_matches("SF");
-                    div.speedup-sf data-sf=(value) hidden[!pill.current] {
+                    div.speedup-sf
+                        data-sf=(pill.sf_value)
+                        data-storage=(pill.storage_value)
+                        hidden[!pill.current] {
                         @if let Some(sf_group) = all.iter().find(|g| g.slug == pill.slug) {
                             (history_headline(generation, &sf_group.charts))
                         }
@@ -591,18 +601,65 @@ pub(super) fn history_section(generation: &ReadGeneration, group: &LandingGroup)
     }
 }
 
-/// Scale-factor toggle buttons for the Previous-Versions headline, reusing the
-/// Current page's `dim-toggle` styling and `chart-init.js`'s `sf-toggle` swap.
-fn sf_toggle_pills(pills: &[ScalePill]) -> Markup {
+/// Scale-factor toggle buttons for a TPC suite. One button per distinct SF in
+/// `pills`, ordered by first appearance (the cluster sorts pills smallest →
+/// largest). Active is the SF carried by the current pill.
+pub(super) fn sf_toggle_pills(pills: &[ScalePill]) -> Markup {
+    let current_sf = pills
+        .iter()
+        .find(|p| p.current)
+        .map(|p| p.sf_value.as_str())
+        .unwrap_or_default();
+    let mut seen: BTreeSet<&str> = BTreeSet::new();
+    let mut row: Vec<&ScalePill> = Vec::new();
+    for p in pills {
+        if seen.insert(p.sf_value.as_str()) {
+            row.push(p);
+        }
+    }
     html! {
         div.dim-toggle data-role="sf-toggle" role="group" aria-label="Scale factor" {
-            @for pill in pills {
-                @let value = pill.label.trim_start_matches("SF");
-                button.dim-btn.dim-btn--active[pill.current]
+            @for p in &row {
+                @let active = p.sf_value == current_sf;
+                button.dim-btn.dim-btn--active[active]
                     type="button"
-                    data-sf=(value)
-                    aria-pressed=(pill.current) {
-                    (pill.label)
+                    data-sf=(p.sf_value)
+                    aria-pressed=(active) {
+                    (p.sf_label)
+                }
+            }
+        }
+    }
+}
+
+/// Storage toggle buttons for a TPC suite. Renders one button per tier that
+/// actually has data, in canonical order (NVMe before S3). The row collapses
+/// entirely when only one tier is present, since a single-button toggle is no
+/// choice at all (TPC-DS is NVMe-only today, so it shows no storage row).
+pub(super) fn storage_toggle_pills(pills: &[ScalePill]) -> Markup {
+    let current_storage = pills
+        .iter()
+        .find(|p| p.current)
+        .map(|p| p.storage_value.as_str())
+        .unwrap_or_default();
+    let present: BTreeSet<&str> = pills.iter().map(|p| p.storage_value.as_str()).collect();
+    let row: Vec<&&str> = super::TPC_STORAGE_TIERS
+        .iter()
+        .filter(|t| present.contains(*t))
+        .collect();
+    if row.len() < 2 {
+        return html! {};
+    }
+    html! {
+        div.dim-toggle data-role="storage-toggle" role="group" aria-label="Storage" {
+            @for tier in &row {
+                @let active = **tier == current_storage;
+                @let label = super::storage_label(tier);
+                button.dim-btn.dim-btn--active[active]
+                    type="button"
+                    data-storage=(tier)
+                    aria-pressed=(active) {
+                    (label)
                 }
             }
         }
@@ -616,7 +673,7 @@ fn sf_toggle_pills(pills: &[ScalePill]) -> Markup {
 /// any line has a non-empty facet (op for compression-time), split per facet
 /// (Encode | Decode); else render one chart. Each sub-chart re-labels its
 /// lines by format only (the sub-title carries the engine/op).
-fn history_headline(generation: &ReadGeneration, chart_links: &[ChartLink]) -> Markup {
+pub(super) fn history_headline(generation: &ReadGeneration, chart_links: &[ChartLink]) -> Markup {
     let Some(data) = build_history(generation, chart_links) else {
         return html! {};
     };
@@ -630,6 +687,7 @@ fn history_headline(generation: &ReadGeneration, chart_links: &[ChartLink]) -> M
         return html! {
             figure.history-figure data-role="history-chart" {
                 div.history-chart-wrap {
+                    (chart_controls(true))
                     canvas data-role="history-canvas" {}
                 }
                 script type="application/json" data-role="history-data" {
@@ -660,6 +718,7 @@ fn history_headline(generation: &ReadGeneration, chart_links: &[ChartLink]) -> M
                 figure.history-figure data-role="history-chart" {
                     h4.history-facet-title { (pretty_split_label(key)) }
                     div.history-chart-wrap {
+                        (chart_controls(true))
                         canvas data-role="history-canvas" {}
                     }
                     script type="application/json" data-role="history-data" {
@@ -702,32 +761,25 @@ fn speedup_section(generation: &ReadGeneration, group: &LandingGroup) -> Markup 
     }
 }
 
-/// One scale factor's pre-built charts for a fan-out section.
+/// One (storage, scale-factor) panel's pre-built charts for a fan-out section.
 struct SfSet {
-    /// Display label, e.g. `SF10`.
-    label: String,
-    /// Numeric scale factor used as the toggle's data attribute, e.g. `10`.
-    value: String,
-    /// Whether this is the scale factor shown initially (the largest).
+    /// Scale-factor raw value, e.g. `10`. Drives `data-sf` and toggle matching.
+    sf_value: String,
+    /// Storage raw value, e.g. `nvme`. Drives `data-storage` and toggle matching.
+    storage_value: String,
+    /// Whether this is the (storage, SF) combination shown initially.
     current: bool,
     facets: Vec<EngineData>,
 }
 
-/// A TPC suite as one section with a scale-factor toggle that swaps the visible
-/// charts in place (no navigation). The heading keeps the storage label but
-/// drops the `(SF=N)` parenthetical — the SF toggle (in the collapsible body)
-/// owns that dimension. Each scale factor's charts are pre-rendered and hidden
-/// until selected (`chart-init.js` resizes them on show).
+/// A TPC suite as one section with storage and scale-factor toggles that swap
+/// the visible charts in place (no navigation). The heading drops both the
+/// `(NVMe|S3)` and `(SF=N)` parentheticals — the toggles own those dimensions.
+/// Each (storage, SF) panel is pre-rendered and hidden until selected
+/// (`chart-init.js` resizes it on show).
 fn query_fanout_section(generation: &ReadGeneration, group: &LandingGroup) -> Markup {
     let all = generation.groups();
-    // Keep the storage label in the heading ("TPC-H (NVMe)") but drop the
-    // "(SF=N)" suffix — the SF toggle owns that. Storage is a real grouping
-    // dimension (one cluster per storage), so it belongs in the title.
-    let heading = group
-        .name
-        .rsplit_once(" (SF=")
-        .map(|(h, _)| h.to_string())
-        .unwrap_or_else(|| group.name.clone());
+    let heading = strip_tpc_parentheticals(&group.name);
     let mut sets: Vec<SfSet> = Vec::new();
     for pill in &group.scale_pills {
         let Some(sf_group) = all.iter().find(|g| g.slug == pill.slug) else {
@@ -738,8 +790,8 @@ fn query_fanout_section(generation: &ReadGeneration, group: &LandingGroup) -> Ma
             continue;
         }
         sets.push(SfSet {
-            label: pill.label.clone(),
-            value: pill.label.trim_start_matches("SF").to_string(),
+            sf_value: pill.sf_value.clone(),
+            storage_value: pill.storage_value.clone(),
             current: pill.current,
             facets,
         });
@@ -751,18 +803,25 @@ fn query_fanout_section(generation: &ReadGeneration, group: &LandingGroup) -> Ma
     html! {
         section.current-group id=(anchor_for(&group.slug)) {
             header.current-group-head {
-                // Strip the "at SF=N (~XGB)" clause from the folded-in blurb —
-                // the SF toggle owns that dimension now.
-                (collapsible_name(&heading, group.description.as_deref().map(|d| d.split(" at SF=").next().unwrap_or(d))))
+                // The toggles in the body own storage and SF, so the folded-in
+                // blurb drops both the "(NVMe|S3)" segment of the description
+                // and the "at SF=N (~XGB)" clause.
+                (collapsible_name(&heading, group.description.as_deref().map(strip_tpc_blurb_dims)))
                 (speedup_sort_control("Query #"))
             }
-            // The scale-factor toggle lives in the collapsible body (above the
-            // charts) so it folds away with them, rather than in the header.
+            // Toggles live in the collapsible body so they fold away with the
+            // charts. Storage row first, then SF — same order as on /historic.
             div.current-group-body {
-                (sf_toggle(&sets))
+                div.history-controls {
+                    (storage_toggle_pills(&group.scale_pills))
+                    (sf_toggle_pills(&group.scale_pills))
+                }
                 div.speedup-sf-sets {
                     @for set in &sets {
-                        div.speedup-sf data-sf=(set.value) hidden[!set.current] {
+                        div.speedup-sf
+                            data-sf=(set.sf_value)
+                            data-storage=(set.storage_value)
+                            hidden[!set.current] {
                             div.speedup-grid {
                                 @for ed in &set.facets {
                                     (speedup_figure(ed))
@@ -776,21 +835,32 @@ fn query_fanout_section(generation: &ReadGeneration, group: &LandingGroup) -> Ma
     }
 }
 
-/// Scale-factor toggle buttons; `chart-init.js` swaps the matching
-/// `.speedup-sf` set on click.
-fn sf_toggle(sets: &[SfSet]) -> Markup {
-    html! {
-        div.dim-toggle data-role="sf-toggle" role="group" aria-label="Scale factor" {
-            @for set in sets {
-                button.dim-btn.dim-btn--active[set.current]
-                    type="button"
-                    data-sf=(set.value)
-                    aria-pressed=(set.current) {
-                    (set.label)
-                }
-            }
+/// Drop the trailing `(NVMe|S3)` and `(SF=N)` parentheticals from a TPC group
+/// name. Both are now in-section toggles, so the heading reads as the bare
+/// suite (`TPC-H`, `TPC-DS`).
+pub(super) fn strip_tpc_parentheticals(name: &str) -> String {
+    let mut s = name;
+    if let Some((head, _)) = s.rsplit_once(" (SF=") {
+        s = head;
+    }
+    for tier in [" (NVMe)", " (S3)"] {
+        if let Some(stripped) = s.strip_suffix(tier) {
+            return stripped.to_string();
         }
     }
+    s.to_string()
+}
+
+/// Strip the storage parenthetical and the `at SF=N (~XGB)` tail from a TPC
+/// description so the folded-in blurb reads cleanly under the merged heading.
+fn strip_tpc_blurb_dims(d: &str) -> &str {
+    let trimmed = d.split(" at SF=").next().unwrap_or(d);
+    for tier in [" (NVMe)", " (S3)"] {
+        if let Some(stripped) = trimmed.strip_suffix(tier) {
+            return stripped;
+        }
+    }
+    trimmed
 }
 
 /// The group heading, rendered as a collapse toggle: clicking it expands or
@@ -852,6 +922,7 @@ fn speedup_figure(ed: &EngineData) -> Markup {
                 span.speedup-wins data-role="speedup-wins" {}
             }
             div.speedup-chart-wrap style=(format!("height:{height}px")) {
+                (chart_controls(false))
                 canvas data-role="speedup-canvas" {}
             }
             script type="application/json" data-role="speedup-data" {

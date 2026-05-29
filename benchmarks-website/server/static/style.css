@@ -476,11 +476,14 @@ main { width: 100%; max-width: none; margin: 0; padding: 2rem; }
   text-transform: uppercase;
   color: var(--muted);
 }
-/* Storage + scale-factor toggles above the headline chart (TPC suites). */
+/* Storage + scale-factor toggles above the headline chart (TPC suites).
+   A slightly larger gap separates the two `.dim-toggle` groups from each
+   other than separates the buttons within a group, so the storage row reads
+   as a distinct selector rather than a continuation of the SF row. */
 .history-controls {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: 0.9rem;
   align-items: center;
   margin: 1rem 1.5rem 0;
 }
@@ -493,6 +496,12 @@ main { width: 100%; max-width: none; margin: 0; padding: 2rem; }
 }
 
 .group-disclosure:not([open]) ~ .chart-grid { display: none; }
+/* TPC clusters wrap per-(storage, SF) chart-grids inside .history-fanout
+ * panels, so the disclosure-closed rule above (which only catches a direct
+ * sibling) needs a parallel rule for the deeper grids. The headline figure
+ * and toggle row stay visible above the closed disclosure, matching the
+ * single-pill / non-TPC layout. */
+.group-disclosure:not([open]) ~ .history-fanout .chart-grid { display: none; }
 
 body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   display: grid !important;
@@ -792,6 +801,82 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap { height: 680px; }
  * IntersectionObserver, not content-visibility — the latter zero-sizes the
  * canvas and breaks Chart.js responsive sizing.) */
 .chart-card[data-robust] .chart-wrap { height: 250px; }
+
+/* ----------------------------------------------------------------------
+ * Per-chart controls (fullscreen + reset-zoom)
+ * ---------------------------------------------------------------------- */
+.chart-controls {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  display: inline-flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.12s ease-out;
+  pointer-events: none;
+}
+/* Reveal the controls on hover or when any descendant has keyboard focus, so
+ * keyboard users can reach the buttons without a mouse hover. */
+.chart-wrap:hover .chart-controls,
+.history-chart-wrap:hover .chart-controls,
+.speedup-chart-wrap:hover .chart-controls,
+.chart-controls:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+.chart-control-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  color: var(--muted);
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+.chart-control-btn:hover { color: var(--fg); border-color: var(--line-strong); }
+.chart-control-btn:focus-visible { outline: 2px solid var(--fg); outline-offset: 1px; }
+.chart-control-btn--hidden { display: none; }
+
+/* Fullscreen mode: the chart figure becomes the only visible content. The
+ * Fullscreen API takes the figure out of the page flow so we don't need to
+ * position it ourselves — we just dial up the inner sizes and paint a solid
+ * backdrop. Applies to every chart container so the same rule covers
+ * chart-card, history-figure, and speedup figures. */
+.chart-card.chart-fullscreen,
+.history-figure.chart-fullscreen,
+.speedup.chart-fullscreen {
+  background: var(--surface);
+  padding: 1.5rem 2rem;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+.chart-card.chart-fullscreen .chart-wrap,
+.history-figure.chart-fullscreen .history-chart-wrap,
+.speedup.chart-fullscreen .speedup-chart-wrap {
+  flex: 1 1 auto;
+  /* `!important` overrides the inline `height` Rust emits on speedup wraps. */
+  height: auto !important;
+  min-height: 0;
+}
+.chart-card.chart-fullscreen .chart-controls,
+.history-figure.chart-fullscreen .chart-controls,
+.speedup.chart-fullscreen .chart-controls {
+  opacity: 1;
+  pointer-events: auto;
+}
+/* Backdrop for the Fullscreen API — without this, browsers default to black. */
+.chart-card.chart-fullscreen::backdrop,
+.history-figure.chart-fullscreen::backdrop,
+.speedup.chart-fullscreen::backdrop { background: var(--bg); }
 
 /* ----------------------------------------------------------------------
  * Range scrollbar strip

@@ -337,6 +337,21 @@
     return ts.slice(0, 10);
   }
 
+  // Compact "MMM D" date for axis ticks (e.g. "May 28"). The full ISO date
+  // lives in the tooltip, so the axis can stay sparse. Returns "" for
+  // missing/malformed timestamps so the tick simply disappears rather than
+  // showing a fallback that misleads about the commit's position in time.
+  var MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  function formatAxisDate(ts) {
+    if (typeof ts !== "string" || ts.length < 10) return "";
+    var parts = ts.slice(0, 10).split("-");
+    if (parts.length !== 3) return "";
+    var month = MONTH_NAMES[parseInt(parts[1], 10) - 1];
+    var day = parseInt(parts[2], 10);
+    if (!month || !isFinite(day)) return "";
+    return month + " " + day;
+  }
+
   function truncate(s, max) {
     if (typeof s !== "string") return "";
     return s.length > max ? s.slice(0, max - 1) + "…" : s;
@@ -1309,7 +1324,23 @@
         responsive: true, maintainAspectRatio: false, animation: false,
         interaction: { mode: "index", intersect: false },
         scales: {
-          x: { grid: { color: cssVar("--line"), drawTicks: false }, ticks: { maxTicksLimit: 7, color: cssVar("--muted") } },
+          x: {
+            grid: { color: cssVar("--line"), drawTicks: false },
+            // Labels stay SHA-indexed (positions are 1:1 with commits) but
+            // the tick callback renders a date from the parallel commits
+            // array, so the axis reads "May 28" instead of "8de1f30". The
+            // tooltip still surfaces the SHA + full date.
+            ticks: {
+              maxTicksLimit: 7,
+              autoSkip: true,
+              maxRotation: 0,
+              color: cssVar("--muted"),
+              callback: function (_val, idx) {
+                var c = (payload.commits || [])[idx];
+                return c ? formatAxisDate(c.timestamp) : "";
+              },
+            },
+          },
           y: { min: ymin, max: ymax, grid: { color: cssVar("--line"), drawTicks: false },
                ticks: { color: cssVar("--muted") },
                title: { display: true, text: unit.axisLabel, color: cssVar("--faint") } },
@@ -1334,11 +1365,24 @@
             callbacks: { label: function (ctx) {
               return formatLabel(ctx.dataset._fmt) + ": " + ctx.parsed.y.toFixed(unit.decimals || 0) + " " + (unit.suffix || "");
             } } },
+          // Drag-rectangle zoom on the x axis. The reset button (top-right of
+          // each card) restores the full range — see `wireChartControls`.
+          zoom: {
+            zoom: {
+              wheel: { enabled: false },
+              pinch: { enabled: false },
+              drag: { enabled: true, backgroundColor: "rgba(37, 99, 235, 0.10)" },
+              mode: "x",
+              onZoom: function (ctx) { notifyZoomState(ctx.chart, true); },
+            },
+            limits: { x: { min: 0, max: Math.max(0, labels.length - 1), minRange: 4 } },
+          },
         },
       },
     });
     canvas.__bench_chart = chart;
     canvas.__bench_robust = true;
+    wireChartControls(card, chart, { zoomable: true });
     return chart;
   }
 
@@ -2087,8 +2131,31 @@
   }
 
   function groupIsOpen(group) {
+    // TPC clusters split into per-(storage, SF) `.speedup-sf` panels; each
+    // panel carries its own shard prefix and is its own hydration target. A
+    // panel is "open" when its outer disclosure is open AND it isn't hidden
+    // by the storage/SF toggle.
+    if (group.classList && group.classList.contains("speedup-sf")) {
+      if (group.hidden) return false;
+      var disclosure = group.closest("details.group-disclosure");
+      return !disclosure || disclosure.open;
+    }
     var details = group.querySelector("details.group-disclosure");
     return !details || details.open;
+  }
+
+  // Hydration targets inside a disclosure: panel(s) for TPC clusters (one per
+  // pill, but only the currently visible one is fetched eagerly), the section
+  // itself otherwise.
+  function hydrationTargetsFor(disclosure) {
+    var section = disclosure && disclosure.closest(".group-details");
+    if (!section) return [];
+    var panels = section.querySelectorAll(".speedup-sf[data-group-shard-prefix]");
+    return panels.length ? Array.prototype.slice.call(panels) : [section];
+  }
+
+  function visibleHydrationTargetsFor(disclosure) {
+    return hydrationTargetsFor(disclosure).filter(function (t) { return !t.hidden; });
   }
 
   function queueRemainingGroupShards(group, priority) {
@@ -2119,17 +2186,24 @@
 
   function hydrateOpenGroup(disclosure) {
     if (!disclosure || !disclosure.open) return;
-    var group = disclosure.closest(".group-details");
-    if (!group) return;
-    var priority = priorityForGroupOpen(group);
-    hydrateGroupShardZero(group, true, priority + 20).then(function () {
-      queueRemainingGroupShards(group, priority + 10);
-      queueGroupFullHistory(group, priority);
+    visibleHydrationTargetsFor(disclosure).forEach(function (target) {
+      var priority = priorityForGroupOpen(target);
+      hydrateGroupShardZero(target, true, priority + 20).then(function () {
+        queueRemainingGroupShards(target, priority + 10);
+        queueGroupFullHistory(target, priority);
+      });
     });
   }
 
   function prefetchGroupOnIntent(group) {
-    fetchGroupShard(group, 0, 0);
+    // Intent-trigger fires on the outer section, but the hydration target may
+    // be a panel inside it for TPC clusters — fetch shard 0 for whichever
+    // panel(s) are currently visible.
+    var disclosure = group.querySelector("details.group-disclosure");
+    var targets = disclosure
+      ? visibleHydrationTargetsFor(disclosure)
+      : [group];
+    targets.forEach(function (t) { fetchGroupShard(t, 0, 0); });
   }
 
   // -----------------------------------------------------------------------
@@ -2512,6 +2586,7 @@
         },
       },
     });
+    wireChartControls(figure, entry.chart, { zoomable: false });
     speedupChartEntries.push(entry);
     // Clear the grid highlight when the pointer leaves the canvas. Chart.js's
     // synthetic "no active element" hover on mouseout is unreliable on a fast
@@ -2627,41 +2702,135 @@
     });
   }
 
-  // Theme flip: recolour bars + axis from the current points (no data rebuild,
-  // so no animation).
-  // Scale-factor toggle on a TPC section: show the chosen `.speedup-sf` set and
-  // hide the others, then resize the now-visible charts (they were 0-sized
-  // while hidden).
-  function initSfToggles() {
-    document.querySelectorAll('[data-role="sf-toggle"]').forEach(function (group) {
-      group.addEventListener("click", function (e) {
-        var btn = e.target.closest("[data-sf]");
-        if (!btn || btn.disabled || !group.contains(btn)) return;
-        var sf = btn.getAttribute("data-sf");
-        // Latest Commit sections are `.current-group`; Previous Versions groups
-        // are `.group-details`.
-        var section = group.closest(".current-group") || group.closest(".group-details");
-        if (!section) return;
-        group.querySelectorAll("[data-sf]").forEach(function (b) {
-          var on = b === btn;
-          b.classList.toggle("dim-btn--active", on);
-          b.setAttribute("aria-pressed", on ? "true" : "false");
-        });
-        section.querySelectorAll(".speedup-sf").forEach(function (div) {
-          div.hidden = div.getAttribute("data-sf") !== sf;
-        });
-        // Charts hidden while their pane was 0-width need a resize on reveal.
-        function reflow(entries) {
-          entries.forEach(function (en) {
-            if (!en.chart || !en.chart.canvas || !section.contains(en.chart.canvas)) return;
-            var sfDiv = en.chart.canvas.closest(".speedup-sf");
-            if (sfDiv && !sfDiv.hidden) { en.chart.resize(); en.chart.update("none"); }
+  // ---- Per-chart controls: fullscreen toggle + reset-zoom -----------------
+  // Each chart figure (`chart-card[data-robust]`, `history-figure`, `speedup`)
+  // emits a top-right `.chart-controls` overlay via `render::chart_controls`.
+  // This wires the buttons:
+  //   - Fullscreen: requestFullscreen on the figure, resize on transition.
+  //   - Reset zoom: chart.resetZoom() (chartjs-plugin-zoom).
+  // `notifyZoomState` is the bridge from the plugin's onZoom callback to the
+  // figure's reset-button visibility.
+  function wireChartControls(figure, chart, opts) {
+    if (!figure || !chart) return;
+    opts = opts || {};
+    var fsBtn = figure.querySelector('[data-role="chart-fullscreen"]');
+    if (fsBtn && !fsBtn.__bench_bound) {
+      fsBtn.__bench_bound = true;
+      fsBtn.addEventListener("click", function () {
+        if (document.fullscreenElement === figure) {
+          if (document.exitFullscreen) document.exitFullscreen();
+        } else if (figure.requestFullscreen) {
+          figure.requestFullscreen().catch(function () { /* user gesture lost; no-op */ });
+        }
+      });
+    }
+    // Resize the chart whenever fullscreen state flips. Bound once per
+    // figure; `__bench_fs_chart` tracks which chart this figure currently
+    // owns so a payload-replace rebuild (constructRobustChart) sees the new
+    // chart on the next fullscreen event.
+    figure.__bench_fs_chart = chart;
+    if (!figure.__bench_fs_bound) {
+      figure.__bench_fs_bound = true;
+      figure.addEventListener("fullscreenchange", function () {
+        figure.classList.toggle("chart-fullscreen", document.fullscreenElement === figure);
+        if (figure.__bench_fs_chart) {
+          // Two passes — one immediate, one after the browser paints the
+          // resized container — so the canvas backing store catches up.
+          figure.__bench_fs_chart.resize();
+          requestAnimationFrame(function () {
+            if (figure.__bench_fs_chart) figure.__bench_fs_chart.resize();
           });
         }
-        reflow(speedupChartEntries); // Latest Commit distributions
-        reflow(historyChartEntries); // Previous Versions headline lines
       });
-    });
+    }
+
+    if (opts.zoomable) {
+      var resetBtn = figure.querySelector('[data-role="chart-reset-zoom"]');
+      if (resetBtn && !resetBtn.__bench_bound) {
+        resetBtn.__bench_bound = true;
+        resetBtn.addEventListener("click", function () {
+          if (figure.__bench_fs_chart && figure.__bench_fs_chart.resetZoom) {
+            figure.__bench_fs_chart.resetZoom();
+          }
+          notifyZoomState(figure.__bench_fs_chart, false);
+        });
+      }
+      // chartjs-plugin-zoom does not fire `onZoom` for resetZoom() — the
+      // direct setter above already hid the button, so we don't need a
+      // second source of truth.
+    }
+  }
+
+  // Surface the chart's zoom state to its figure's reset-zoom button. Called
+  // by the plugin's `onZoom` callback and by the reset-button click handler.
+  function notifyZoomState(chart, zoomed) {
+    if (!chart || !chart.canvas) return;
+    var figure = chart.canvas.closest(".chart-card, .history-figure");
+    if (!figure) return;
+    var btn = figure.querySelector('[data-role="chart-reset-zoom"]');
+    if (btn) btn.classList.toggle("chart-control-btn--hidden", !zoomed);
+  }
+
+  // Theme flip: recolour bars + axis from the current points (no data rebuild,
+  // so no animation).
+  // TPC dim toggles: storage (NVMe/S3) and scale factor act on the same section
+  // and a `.speedup-sf` panel is visible only when both axes match. After a
+  // click we recompute the active axis values, hide/show panels accordingly,
+  // and resize any chart that just became visible (Chart.js renders 0-sized
+  // when its container is `display:none`-equivalent via `hidden`).
+  function initSfToggles() {
+    function sectionOf(node) {
+      return node.closest(".current-group") || node.closest(".group-details");
+    }
+    function activeValue(section, role, attr) {
+      var group = section.querySelector('[data-role="' + role + '"]');
+      if (!group) return null;
+      var active = group.querySelector(".dim-btn--active[" + attr + "]");
+      return active ? active.getAttribute(attr) : null;
+    }
+    function applyVisibility(section) {
+      var sf = activeValue(section, "sf-toggle", "data-sf");
+      var storage = activeValue(section, "storage-toggle", "data-storage");
+      section.querySelectorAll(".speedup-sf").forEach(function (div) {
+        var sfOk = sf == null || div.getAttribute("data-sf") === sf;
+        var storageOk = storage == null
+          || !div.hasAttribute("data-storage")
+          || div.getAttribute("data-storage") === storage;
+        div.hidden = !(sfOk && storageOk);
+      });
+      function reflow(entries) {
+        entries.forEach(function (en) {
+          if (!en.chart || !en.chart.canvas || !section.contains(en.chart.canvas)) return;
+          var sfDiv = en.chart.canvas.closest(".speedup-sf");
+          if (sfDiv && !sfDiv.hidden) { en.chart.resize(); en.chart.update("none"); }
+        });
+      }
+      reflow(speedupChartEntries); // Latest Commit distributions
+      reflow(historyChartEntries); // Previous Versions headline lines
+      // Previous Versions per-panel chart-grid: each `.speedup-sf` panel here
+      // is its own hydration target (carries `data-group-shard-prefix`).
+      // Hydrate the newly-visible panel(s) so the per-query cards arrive when
+      // the user switches storage or SF.
+      var disclosure = section.querySelector("details.group-disclosure");
+      if (disclosure && disclosure.open) hydrateOpenGroup(disclosure);
+    }
+    function bind(role, attr) {
+      document.querySelectorAll('[data-role="' + role + '"]').forEach(function (group) {
+        group.addEventListener("click", function (e) {
+          var btn = e.target.closest("[" + attr + "]");
+          if (!btn || btn.disabled || !group.contains(btn)) return;
+          group.querySelectorAll("[" + attr + "]").forEach(function (b) {
+            var on = b === btn;
+            b.classList.toggle("dim-btn--active", on);
+            b.setAttribute("aria-pressed", on ? "true" : "false");
+          });
+          var section = sectionOf(group);
+          if (section) applyVisibility(section);
+        });
+      });
+    }
+    bind("sf-toggle", "data-sf");
+    bind("storage-toggle", "data-storage");
   }
 
   function recolorSpeedupCharts() {
@@ -2770,7 +2939,18 @@
           x: {
             grid: { display: false },
             border: { display: false },
-            ticks: { color: cssVar("--muted"), font: { family: MONO_FONT, size: 11 }, maxRotation: 0, autoSkip: true },
+            // Same date-from-commits axis as the per-card history charts.
+            ticks: {
+              color: cssVar("--muted"),
+              font: { family: MONO_FONT, size: 11 },
+              maxRotation: 0,
+              autoSkip: true,
+              maxTicksLimit: 7,
+              callback: function (_val, idx) {
+                var c = data.commits[idx];
+                return c ? formatAxisDate(c.timestamp) : "";
+              },
+            },
           },
           y: {
             min: yMin,
@@ -2792,8 +2972,9 @@
         plugins: {
           legend: {
             display: data.lines.length > 1,
-            position: "top",
-            align: "end",
+            // Bottom-aligned so the chart-controls overlay can own the top-right
+            // corner uncontested; matches the per-card history chart layout.
+            position: "bottom",
             labels: {
               color: cssVar("--muted"), font: { family: MONO_FONT, size: 11 },
               boxWidth: 18, boxHeight: 0,
@@ -2835,9 +3016,22 @@
               },
             },
           },
+          // Drag-rectangle zoom mirrors the per-card history treatment so
+          // headline and detail share the same gesture vocabulary.
+          zoom: {
+            zoom: {
+              wheel: { enabled: false },
+              pinch: { enabled: false },
+              drag: { enabled: true, backgroundColor: "rgba(37, 99, 235, 0.10)" },
+              mode: "x",
+              onZoom: function (ctx) { notifyZoomState(ctx.chart, true); },
+            },
+            limits: { x: { min: 0, max: Math.max(0, labels.length - 1), minRange: 4 } },
+          },
         },
       },
     });
+    wireChartControls(figure, entry.chart, { zoomable: true });
     historyChartEntries.push(entry);
   }
 

@@ -265,16 +265,25 @@ fn collect_landing_groups(
     groups: &[Group],
     open_slug: Option<&str>,
 ) -> Vec<LandingGroup> {
-    // TPC query suites fan out one group per scale factor. Cluster them by
-    // (dataset, variant, storage) and render the largest SF by default, with a
-    // selector linking to the smaller ones. Everything else passes through.
-    type ClusterKey = (String, Option<String>, String);
+    // TPC query suites fan out one group per (storage, scale factor) pair.
+    // Cluster them by (dataset, dataset_variant) so storage and scale factor
+    // are both in-place toggles in one section. Default storage is NVMe when
+    // present (the published headline), falling back to whatever the data has;
+    // default SF is the largest available for that storage. Everything else
+    // passes through.
+    type ClusterKey = (String, Option<String>);
+    struct Variant<'a> {
+        sf_str: String,
+        sf_num: f64,
+        storage: String,
+        group: &'a Group,
+    }
     enum Slot<'a> {
         Standalone(&'a Group),
         Cluster(ClusterKey),
     }
     let mut slots: Vec<Slot> = Vec::new();
-    let mut clusters: HashMap<ClusterKey, Vec<(f64, &Group)>> = HashMap::new();
+    let mut clusters: HashMap<ClusterKey, Vec<Variant>> = HashMap::new();
     for group in groups {
         match GroupKey::from_slug(&group.slug) {
             Ok(GroupKey::QueryGroup {
@@ -283,12 +292,17 @@ fn collect_landing_groups(
                 scale_factor: Some(sf),
                 storage,
             }) => {
-                let key = (dataset, dataset_variant, storage);
+                let key = (dataset, dataset_variant);
                 let entry = clusters.entry(key.clone()).or_default();
                 if entry.is_empty() {
                     slots.push(Slot::Cluster(key.clone()));
                 }
-                entry.push((sf.parse::<f64>().unwrap_or(0.0), group));
+                entry.push(Variant {
+                    sf_num: sf.parse::<f64>().unwrap_or(0.0),
+                    sf_str: sf,
+                    storage,
+                    group,
+                });
             }
             _ => slots.push(Slot::Standalone(group)),
         }
@@ -341,15 +355,49 @@ fn collect_landing_groups(
         match slot {
             Slot::Standalone(group) => out.push(mk(group, Vec::new())),
             Slot::Cluster(key) => {
-                let mut variants = clusters.remove(&key).expect("cluster present");
-                variants.sort_by(|a, b| a.0.total_cmp(&b.0));
-                let rep = variants.last().expect("non-empty cluster").1;
-                let pills = variants
+                let variants = clusters.remove(&key).expect("cluster present");
+                // Default storage: NVMe when present, else first storage seen.
+                let default_storage = if variants.iter().any(|v| v.storage == "nvme") {
+                    "nvme".to_string()
+                } else {
+                    variants.first().expect("non-empty cluster").storage.clone()
+                };
+                // Default SF: largest available under the default storage.
+                let default_sf = variants
                     .iter()
-                    .map(|(sf, g)| ScalePill {
-                        label: format!("SF{}", fmt_scale(*sf)),
-                        slug: g.slug.clone(),
-                        current: g.slug == rep.slug,
+                    .filter(|v| v.storage == default_storage)
+                    .map(|v| v.sf_num)
+                    .fold(f64::NEG_INFINITY, f64::max);
+                let rep = variants
+                    .iter()
+                    .find(|v| v.storage == default_storage && v.sf_num == default_sf)
+                    .expect("default (storage, sf) present")
+                    .group;
+                // Pills are sorted by (storage, sf) for stable button order — the
+                // storage row reads NVMe first (when present), the SF row reads
+                // smallest → largest. UI derives distinct rows from these values.
+                let mut sorted: Vec<&Variant> = variants.iter().collect();
+                sorted.sort_by(|a, b| {
+                    storage_order(&a.storage)
+                        .cmp(&storage_order(&b.storage))
+                        .then_with(|| a.sf_num.total_cmp(&b.sf_num))
+                });
+                let pills = sorted
+                    .iter()
+                    .map(|v| ScalePill {
+                        sf_label: format!("SF{}", fmt_scale(v.sf_num)),
+                        sf_value: v.sf_str.clone(),
+                        storage_value: v.storage.clone(),
+                        slug: v.group.slug.clone(),
+                        name: v.group.name.clone(),
+                        shard_prefix: format!(
+                            "/api/artifacts/{}/groups/{}/shards/",
+                            generation.id(),
+                            v.group.slug
+                        ),
+                        shard_count: generation.group_shard_count(&v.group.slug),
+                        chart_links: v.group.charts.clone(),
+                        current: v.group.slug == rep.slug,
                     })
                     .collect();
                 out.push(mk(rep, pills));
@@ -388,6 +436,33 @@ fn fmt_scale(sf: f64) -> String {
         format!("{sf}")
     }
 }
+
+/// Display label for a storage slug. Unknown values pass through unchanged so a
+/// new tier shows up identifiably while waiting for a label here.
+pub(super) fn storage_label(storage: &str) -> &str {
+    match storage {
+        "nvme" => "NVMe",
+        "s3" => "S3",
+        other => other,
+    }
+}
+
+/// Sort priority for storage tiers in the TPC toggle row. NVMe leads (the
+/// published headline tier), S3 follows, and unknowns sort to the end in their
+/// own arrival order.
+fn storage_order(storage: &str) -> usize {
+    match storage {
+        "nvme" => 0,
+        "s3" => 1,
+        _ => 2,
+    }
+}
+
+/// Canonical storage tiers a TPC suite *could* report against — used to render
+/// the storage toggle row at full width even when the current corpus only has
+/// data for one tier (e.g. TPC-DS is NVMe-only today). The disabled-button
+/// state communicates the missing-data case without hiding the dimension.
+pub(super) const TPC_STORAGE_TIERS: &[&str] = &["nvme", "s3"];
 
 async fn chart_page(
     State(state): State<AppState>,

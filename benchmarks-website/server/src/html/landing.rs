@@ -10,7 +10,12 @@
 use maud::Markup;
 use maud::html;
 
+use super::current::history_headline;
 use super::current::history_section;
+use super::current::sf_toggle_pills;
+use super::current::storage_toggle_pills;
+use super::current::strip_tpc_parentheticals;
+use super::render::chart_controls;
 use super::render::filter_icon;
 use crate::api;
 use crate::api::Summary;
@@ -47,8 +52,10 @@ pub(super) struct LandingGroup {
     /// the slugs server-side so the chart-card shell can carry
     /// `data-chart-slug` for the lazy fetch.
     pub(super) chart_links: Vec<api::ChartLink>,
-    /// Scale-factor selector for TPC query suites: the largest SF is current,
-    /// the rest link to their group pages. Empty for non-TPC and single-SF groups.
+    /// (storage, scale-factor) panels for TPC query suites. One pill per real
+    /// (storage, sf) combination present in the data; the default-shown pill is
+    /// (preferred storage, largest SF). Empty for non-TPC groups and clusters
+    /// with only one combination.
     pub(super) scale_pills: Vec<ScalePill>,
     /// Distinct engines that actually have data in this query group's charts
     /// (e.g. `["datafusion", "duckdb"]` for ClickBench/TPC-H, `["duckdb"]` for
@@ -59,13 +66,34 @@ pub(super) struct LandingGroup {
     pub(super) engines: Vec<String>,
 }
 
-/// One scale-factor option in a TPC suite's selector.
+/// One (storage, scale-factor) option in a TPC suite's selector. Each pill
+/// names one real combination present in the data — the UI derives the storage
+/// and scale-factor button rows by collecting distinct values across pills.
 pub(super) struct ScalePill {
-    /// Display label, e.g. `SF10`.
-    pub(super) label: String,
-    /// `/group/{slug}` target (ignored when `current`).
+    /// Scale-factor display label, e.g. `SF10`.
+    pub(super) sf_label: String,
+    /// Scale-factor raw value used as `data-sf`, e.g. `10`.
+    pub(super) sf_value: String,
+    /// Storage raw value used as `data-storage`, e.g. `nvme` / `s3`. The
+    /// display label is derived at render time via `super::storage_label` so it
+    /// stays in sync with the canonical-tiers list.
+    pub(super) storage_value: String,
+    /// Underlying group slug for this (storage, sf) panel.
     pub(super) slug: String,
-    /// Whether this is the SF shown by default (the largest available).
+    /// Underlying group display name (carried for `data-group-name` on the
+    /// panel so the JS hydration log treats each panel as a named group).
+    pub(super) name: String,
+    /// Versioned shard URL prefix for this panel's group; the JS appends the
+    /// shard index. The outer disclosure no longer carries a shard prefix for
+    /// TPC clusters — each panel hydrates from its own group's artifacts.
+    pub(super) shard_prefix: String,
+    /// Number of materialized shards for this panel's group.
+    pub(super) shard_count: usize,
+    /// Chart links for the panel's group, used to render the per-query grid
+    /// inside the panel.
+    pub(super) chart_links: Vec<api::ChartLink>,
+    /// Whether this is the combination shown by default — exactly one pill per
+    /// group is current.
     pub(super) current: bool,
 }
 
@@ -102,22 +130,31 @@ pub(super) fn landing_body(
         engine: Option<&'static str>,
         op: Option<&'static str>,
     }
-    let mut next_idx = 0usize;
-    let mut group_cards: Vec<Vec<CardSpec>> = Vec::with_capacity(groups.len());
-    for g in groups.iter() {
-        // For query groups, the engine split honours `g.engines` (computed
-        // server-side from the data) so a single-engine group like statpopgen
-        // (duckdb-only) doesn't emit an empty DataFusion card that would
-        // reflow the layout. Fall back to both engines if the engine set is
-        // empty (defensive — happens only when the first chart payload was
-        // unavailable at shell render).
+    // Non-TPC groups carry one flat list of cards; TPC clusters carry one list
+    // per (storage, SF) pill so the panel toggle can swap both headline and
+    // per-query grid together.
+    enum GroupLayout<'a> {
+        Flat(Vec<CardSpec<'a>>),
+        PerPanel(Vec<Vec<CardSpec<'a>>>),
+    }
+    // For query groups, the engine split honours `engines` (computed
+    // server-side from the data) so a single-engine group like statpopgen
+    // (duckdb-only) doesn't emit an empty DataFusion card that would
+    // reflow the layout. Falls back to both engines if the engine set is
+    // empty (defensive — happens only when the first chart payload was
+    // unavailable at shell render).
+    fn build_cards<'a>(
+        links: &'a [api::ChartLink],
+        engines: &[String],
+        next_idx: &mut usize,
+    ) -> Vec<CardSpec<'a>> {
         let mut cards = Vec::new();
-        for link in &g.chart_links {
+        for link in links {
             let splits: Vec<(Option<&'static str>, Option<&'static str>)> =
                 if link.slug.starts_with("qm.") {
                     let mut v: Vec<(Option<&'static str>, Option<&'static str>)> = Vec::new();
                     for &eng in &["datafusion", "duckdb"] {
-                        if g.engines.iter().any(|e| e == eng) {
+                        if engines.iter().any(|e| e == eng) {
                             v.push((Some(eng), None));
                         }
                     }
@@ -134,14 +171,34 @@ pub(super) fn landing_body(
             for (engine, op) in &splits {
                 cards.push(CardSpec {
                     link,
-                    idx: next_idx,
+                    idx: *next_idx,
                     engine: *engine,
                     op: *op,
                 });
-                next_idx += 1;
+                *next_idx += 1;
             }
         }
-        group_cards.push(cards);
+        cards
+    }
+    let mut next_idx = 0usize;
+    let mut layouts: Vec<GroupLayout> = Vec::with_capacity(groups.len());
+    for g in groups.iter() {
+        // Anything with fewer than two (storage, SF) combinations renders
+        // flat — there's no toggle to own a dimension, so the heading keeps
+        // its parentheticals and the chart-grid is the rep's.
+        if g.scale_pills.len() < 2 {
+            layouts.push(GroupLayout::Flat(build_cards(
+                &g.chart_links,
+                &g.engines,
+                &mut next_idx,
+            )));
+        } else {
+            let mut panels: Vec<Vec<CardSpec>> = Vec::with_capacity(g.scale_pills.len());
+            for pill in &g.scale_pills {
+                panels.push(build_cards(&pill.chart_links, &g.engines, &mut next_idx));
+            }
+            layouts.push(GroupLayout::PerPanel(panels));
+        }
     }
     html! {
         header.current-intro {
@@ -163,17 +220,36 @@ pub(super) fn landing_body(
                 }
             }
         }
-        @for (group, cards) in groups.iter().zip(group_cards.iter()) {
+        @for (group, layout) in groups.iter().zip(layouts.iter()) {
+            // For non-TPC groups the outer section carries the (single) shard
+            // prefix; for TPC clusters the shard prefix moves to each panel so
+            // the toggle swaps both headline and per-query grid in lockstep
+            // (panel attrs include `data-group-shard-prefix`, `-count`,
+            // `-slug`, `-name`, `-artifact-generation`). The outer section
+            // keeps `data-group-slug` for anchoring and `data-artifact-generation`
+            // so chart-init.js can still log a generation, but drops the shard
+            // prefix to make `groupShardUrl` look at the panels instead.
+            @let is_per_panel = matches!(layout, GroupLayout::PerPanel(_));
             section.group-details
                 data-group-name=(group.name)
                 data-group-slug=(group.slug)
                 data-artifact-generation=(group.generation)
-                data-group-shard-count=(group.shard_count)
-                data-group-shard-prefix=(group.shard_prefix) {
+                data-group-shard-count=[if is_per_panel { None } else { Some(group.shard_count) }]
+                data-group-shard-prefix=[if is_per_panel { None } else { Some(group.shard_prefix.as_str()) }] {
                 details.group-disclosure open[group.open] {
                     summary.group-summary {
                         span.group-summary-row {
-                            span.group-name { (group.name) }
+                            // Per-panel TPC clusters move the storage and SF
+                            // parentheticals onto the toggle buttons, so the
+                            // disclosure label drops them. Everything else
+                            // (including 1-pill TPC stragglers without a real
+                            // dimension to switch) keeps the original name.
+                            @let display_name = if is_per_panel {
+                                strip_tpc_parentheticals(&group.name)
+                            } else {
+                                group.name.clone()
+                            };
+                            span.group-name { (display_name) }
                             (group_description_icon(group.description.as_deref()))
                             span.group-count {
                                 (group.chart_links.len()) " chart" @if group.chart_links.len() != 1 { "s" }
@@ -181,12 +257,45 @@ pub(super) fn landing_body(
                         }
                     }
                 }
-                (history_section(generation, group))
-                (per_group_toolbar(universe))
-                div.chart-grid {
-                    @for c in cards.iter() {
-                        (chart_card(c.link, c.idx, c.engine, c.op))
-                    }
+                @match layout {
+                    GroupLayout::Flat(cards) => {
+                        (history_section(generation, group))
+                        (per_group_toolbar(universe))
+                        div.chart-grid {
+                            @for c in cards {
+                                (chart_card(c.link, c.idx, c.engine, c.op))
+                            }
+                        }
+                    },
+                    GroupLayout::PerPanel(panel_cards) => {
+                        div.history-fanout {
+                            div.history-controls {
+                                (storage_toggle_pills(&group.scale_pills))
+                                (sf_toggle_pills(&group.scale_pills))
+                            }
+                            div.history-sf-sets {
+                                @for (pill, cards) in group.scale_pills.iter().zip(panel_cards.iter()) {
+                                    section.speedup-sf
+                                        data-sf=(pill.sf_value)
+                                        data-storage=(pill.storage_value)
+                                        data-group-slug=(pill.slug)
+                                        data-group-name=(pill.name)
+                                        data-artifact-generation=(group.generation)
+                                        data-group-shard-prefix=(pill.shard_prefix)
+                                        data-group-shard-count=(pill.shard_count)
+                                        hidden[!pill.current] {
+                                        (history_headline(generation, &pill.chart_links))
+                                        div.chart-grid {
+                                            @for c in cards {
+                                                (chart_card(c.link, c.idx, c.engine, c.op))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        (per_group_toolbar(universe))
+                    },
                 }
             }
         }
@@ -301,30 +410,6 @@ fn group_macro_row(label: &str, dim: &str, universe: &[String]) -> Markup {
 ///
 /// Returns an empty markup fragment when `description` is `None` so groups
 /// without a canonical blurb (e.g. vector-search groups) render unchanged.
-/// Render the scale-factor selector in a TPC group header: the current
-/// (largest) SF is a highlighted label, the others link to their group pages.
-/// Empty when there's nothing to switch between.
-// Retired on Previous Versions: the headline now carries an in-place SF toggle
-// (see `current::history_section`) instead of pills that link away to
-// per-SF group pages. Kept for potential reuse.
-#[allow(dead_code)]
-pub(super) fn scale_pills_markup(pills: &[ScalePill]) -> Markup {
-    if pills.len() < 2 {
-        return html! {};
-    }
-    html! {
-        span.group-scale-pills aria-label="Scale factor" {
-            @for pill in pills {
-                @if pill.current {
-                    span.scale-pill.scale-pill--current { (pill.label) }
-                } @else {
-                    a.scale-pill href=(format!("/group/{}", pill.slug)) { (pill.label) }
-                }
-            }
-        }
-    }
-}
-
 pub(super) fn group_description_icon(description: Option<&str>) -> Markup {
     let Some(text) = description else {
         return html! {};
@@ -367,6 +452,7 @@ fn chart_card(link: &api::ChartLink, idx: usize, engine: Option<&str>, op: Optio
             }
             div.chart-tooltip-host {}
             div.chart-wrap {
+                (chart_controls(true))
                 canvas data-chart-index=(idx) {}
             }
         }
