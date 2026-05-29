@@ -2,13 +2,27 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! TurboQuant decode scalar function.
+//!
+//! Reverses the per-row, per-block encode pipeline in [`crate::vector::quantize`]. For each
+//! block `i` of each valid input row, the decoder:
+//!
+//! 1. Reads that block's per-row codes and gathers the matching centroid values from a
+//!    `2^bit_width`-entry centroid table built for width `block_sizes[i]`.
+//! 2. Applies the inverse SORF of width `block_sizes[i]` seeded with the same
+//!    `derive_block_seed(metadata.seed, i)` the encoder used.
+//! 3. Multiplies the rotated coordinates by the per-row block norm stored in that block's
+//!    `norms` column.
+//! 4. Writes the result into a row-aligned scratch buffer of width `sum(block_sizes)` at offsets
+//!    `[offset_i .. offset_i + block_sizes[i])`, the same offsets the encoder sliced from.
+//!
+//! Once every block is reconstructed for a row, the first `dimensions` coordinates of the
+//! scratch buffer are copied into the output `Vector`, dropping any overspilling coordinates
+//! the encoder zero-padded.
 
 use std::fmt;
 use std::fmt::Formatter;
 use std::sync::Arc;
 
-use num_traits::Float;
-use num_traits::FromPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -16,7 +30,6 @@ use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::expr::Expression;
@@ -29,19 +42,18 @@ use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_array::validity::Validity;
-use vortex_buffer::BufferMut;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_tensor::vector::Vector;
 
-use crate::centroids::compute_or_get_centroids;
-use crate::sorf::SorfMatrix;
+use crate::centroids::compute_or_get_codebook;
+use crate::sorf::splitmix64::derive_block_seed;
+use crate::sorf::transform::SorfMatrix;
+use crate::vector::dequantize::DecodeInputs;
+use crate::vector::dequantize::decode_typed;
 use crate::vector::storage::parse_storage;
-use crate::vector::tq_padded_dim;
 use crate::vtable::TurboQuantMetadata;
 use crate::vtable::tq_metadata;
 
@@ -153,31 +165,58 @@ impl ScalarFnVTable for TQDecode {
 
 /// Decode a `TurboQuant` extension array back into a `Vector` extension array.
 ///
-/// The decoded directions are inverse-transformed, truncated to the original dimension, and
-/// multiplied by the stored row norms. The conversion is lossy and does not roundtrip with
-/// [`TQEncode`](crate::TQEncode).
+/// Decodes each block by looking up centroid values from per-block codes, applying the inverse
+/// SORF transform, and scaling by the stored per-row norm.
+///
+/// Results are assembled into a scratch buffer of width `sum(block_sizes)`, then truncated to the
+/// first `dimensions` coordinates to produce the output `Vector`.
 pub(crate) fn decode_vector(input: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
     let parsed = parse_storage(input, ctx)?;
-    let metadata = parsed.metadata;
     if parsed.len == 0 {
-        return build_empty_vector(metadata, parsed.vector_validity);
+        return build_empty_vector(parsed.metadata, parsed.vector_validity);
     }
 
-    let padded_dim = tq_padded_dim(metadata.dimensions)?;
-    let transform = SorfMatrix::try_new(padded_dim, metadata.num_rounds as usize, metadata.seed)?;
-    let padded_dim = u32::try_from(padded_dim)
-        .map_err(|_| vortex_err!("TurboQuant padded dimension does not fit u32"))?;
+    let metadata = parsed.metadata;
+    let block_sizes: Vec<usize> = metadata
+        .block_sizes
+        .iter()
+        .map(|&b| {
+            usize::try_from(b).map_err(|_| vortex_err!("TurboQuant block {b} does not fit usize"))
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+    let total_width: usize = block_sizes.iter().sum();
 
-    let centroids = compute_or_get_centroids(padded_dim, metadata.bit_width)?;
+    let mut transforms = Vec::with_capacity(block_sizes.len());
+    let mut centroids = Vec::with_capacity(block_sizes.len());
+
+    for (index, (&block, &block_u32)) in block_sizes
+        .iter()
+        .zip(metadata.block_sizes.iter())
+        .enumerate()
+    {
+        let seed_i = derive_block_seed(metadata.seed, index);
+
+        transforms.push(SorfMatrix::try_new(
+            block,
+            metadata.num_rounds as usize,
+            seed_i,
+        )?);
+        centroids.push(
+            compute_or_get_codebook(block_u32, metadata.bit_width)?
+                .centroids
+                .clone(),
+        );
+    }
 
     match_each_float_ptype!(metadata.element_ptype, |T| {
         decode_typed::<T>(
             DecodeInputs {
                 metadata: &metadata,
-                sorf_matrix: &transform,
-                centroids: &centroids,
-                norms: &parsed.norms,
-                codes: &parsed.codes,
+                block_sizes: &block_sizes,
+                total_width,
+                sorf_matrices: &transforms,
+                centroid_tables: &centroids,
+                block_storages: &parsed.blocks,
             },
             parsed.vector_validity,
             parsed.len,
@@ -201,117 +240,4 @@ fn build_empty_vector(
 
         Vector::try_new_vector_array(fsl.into_array())
     })
-}
-
-/// Borrowed bundle of the per-array decode inputs passed to the typed inner loop.
-///
-/// Packaged as a struct rather than positional arguments because `decode_typed` runs through
-/// [`vortex_array::match_each_float_ptype!`] which expands once per supported element ptype.
-/// Each expansion takes the same set of inputs, and the struct keeps the call site short.
-struct DecodeInputs<'a> {
-    /// TurboQuant metadata recovered from the input extension dtype.
-    metadata: &'a TurboQuantMetadata,
-    /// SORF transform reconstructed from `metadata.seed` and `metadata.num_rounds`.
-    sorf_matrix: &'a SorfMatrix,
-    /// Centroid codebook for `(padded_dim, bit_width)`, in f32.
-    centroids: &'a [f32],
-    /// Per-row stored L2 norm of the original input vector, in the element ptype.
-    norms: &'a PrimitiveArray,
-    /// Flat per-row centroid indices, `num_vectors * padded_dim` bytes.
-    codes: &'a PrimitiveArray,
-}
-
-fn decode_typed<T>(
-    decode: DecodeInputs<'_>,
-    vector_validity: Validity,
-    num_vectors: usize,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef>
-where
-    T: NativePType + Float + FromPrimitive,
-{
-    let metadata = decode.metadata;
-    let dimensions = usize::try_from(metadata.dimensions)
-        .vortex_expect("dimensions stays representable as usize");
-    let padded_dim = decode.sorf_matrix.padded_dim();
-    let centroids = decode.centroids;
-    let norms = decode.norms.as_slice::<T>();
-    let codes = decode.codes.as_slice::<u8>();
-    let mask = vector_validity.execute_mask(num_vectors, ctx)?;
-
-    let output_len = num_vectors
-        .checked_mul(dimensions)
-        .ok_or_else(|| vortex_err!("TurboQuant decoded vector length overflow"))?;
-    let mut output = BufferMut::<T>::with_capacity(output_len);
-
-    let mut decoded = vec![0.0f32; padded_dim];
-    let mut inverse = vec![0.0f32; padded_dim];
-
-    let mut decode_row = |output: &mut BufferMut<T>, i: usize| {
-        let code_row = &codes[i * padded_dim..][..padded_dim];
-
-        for (dst, &code) in decoded.iter_mut().zip(code_row.iter()) {
-            *dst = *centroids
-                .get(usize::from(code))
-                .vortex_expect("TurboQuant code exceeds centroid count");
-        }
-
-        decode.sorf_matrix.inverse_transform(&decoded, &mut inverse);
-
-        let norm = norms[i];
-        for &value in inverse.iter().take(dimensions) {
-            // `T::from_f32` is infallible for the supported float ptypes (`f16`, `f32`,
-            // `f64`): values outside `f16` range saturate to `±inf` rather than returning
-            // `None`.
-            let value = T::from_f32(value)
-                .vortex_expect("from_f32 is infallible for supported float types");
-
-            // SAFETY: total pushes across all match arms equal `output_len`.
-            unsafe { output.push_unchecked(value * norm) };
-        }
-    };
-
-    match &mask {
-        Mask::AllFalse(_) => {
-            // SAFETY: `output` was allocated with capacity `output_len`, and this push writes
-            // exactly `output_len` zero placeholders.
-            unsafe { output.push_n_unchecked(T::zero(), output_len) };
-        }
-        Mask::AllTrue(_) => {
-            for i in 0..num_vectors {
-                decode_row(&mut output, i);
-            }
-        }
-        Mask::Values(values_mask) => {
-            let mut cursor = 0;
-
-            for &(start, end) in values_mask.slices() {
-                if start > cursor {
-                    // SAFETY: total pushes across all arms equal `output_len`.
-                    unsafe { output.push_n_unchecked(T::zero(), (start - cursor) * dimensions) };
-                }
-
-                for i in start..end {
-                    decode_row(&mut output, i);
-                }
-
-                cursor = end;
-            }
-
-            if cursor < num_vectors {
-                // SAFETY: total pushes across all arms equal `output_len`.
-                unsafe { output.push_n_unchecked(T::zero(), (num_vectors - cursor) * dimensions) };
-            }
-        }
-    }
-
-    let elements = PrimitiveArray::new::<T>(output.freeze(), Validity::NonNullable);
-    let fsl = FixedSizeListArray::try_new(
-        elements.into_array(),
-        metadata.dimensions,
-        vector_validity,
-        num_vectors,
-    )?;
-
-    Vector::try_new_vector_array(fsl.into_array())
 }

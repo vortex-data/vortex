@@ -20,6 +20,7 @@ workspace = true
 half = { workspace = true }
 num-traits = { workspace = true }
 prost = { workspace = true }
+tracing = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
@@ -32,6 +33,7 @@ vortex-utils = { workspace = true, features = ["dashmap"] }
 divan = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
+tracing-test = "0.2"
 vortex-file = { workspace = true }
 vortex-io = { workspace = true }
 vortex-layout = { workspace = true }

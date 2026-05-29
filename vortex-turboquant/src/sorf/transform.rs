@@ -38,8 +38,9 @@
 //! time using only in-place 2-element butterfly operations. No row of the full n x n Hadamard
 //! matrix is ever materialized.
 //!
-//! For dimensions that are not powers of 2, the input is zero-padded to the next power of 2 before
-//! the transform and truncated afterward.
+//! The transform operates on an exact power-of-two width. In the block-decomposed pipeline the
+//! block sizer guarantees power-of-two block widths, so any zero-padding of an overspilling block
+//! happens at the block-slicing layer (the encoder), not inside this transform.
 //!
 //! # Sign representation
 //!
@@ -71,7 +72,11 @@ pub(crate) struct SorfMatrix {
     /// The number of sign-diagonal + WHT rounds.
     num_rounds: usize,
 
-    /// The padded dimension (next power of 2 >= dimension).
+    /// The block width the transform operates on, always an exact power of two.
+    ///
+    /// In the block-decomposed pipeline the block sizer guarantees power-of-two widths, so no
+    /// padding happens here; the `padded_` prefix is retained only because this width historically
+    /// padded the input up to the next power of two.
     padded_dim: usize,
 
     /// Normalization factor: `padded_dim^(-num_rounds/2)`, applied once at the end.
@@ -116,17 +121,9 @@ impl SorfMatrix {
         })
     }
 
-    /// Returns the padded dimension (next power of 2 >= dim).
-    ///
-    /// All `transform`/`inverse_transform` buffers must be this length.
-    pub(crate) fn padded_dim(&self) -> usize {
-        self.padded_dim
-    }
-
     /// Apply the forward orthogonal transform: `output = R(input)`.
     ///
-    /// Both `input` and `output` must have length [`padded_dim()`](Self::padded_dim). The caller is
-    /// responsible for zero-padding input beyond `dim` positions.
+    /// Both `input` and `output` must have length equal to the matrix's padded dimension.
     pub(crate) fn transform(&self, input: &[f32], output: &mut [f32]) {
         debug_assert_eq!(input.len(), self.padded_dim);
         debug_assert_eq!(output.len(), self.padded_dim);
@@ -137,7 +134,7 @@ impl SorfMatrix {
 
     /// Apply the inverse orthogonal transform: `output = R⁻¹(input)`.
     ///
-    /// Both `input` and `output` must have length `padded_dim()`.
+    /// Both `input` and `output` must have length equal to the matrix's padded dimension.
     pub(crate) fn inverse_transform(&self, input: &[f32], output: &mut [f32]) {
         debug_assert_eq!(input.len(), self.padded_dim);
         debug_assert_eq!(output.len(), self.padded_dim);
@@ -263,7 +260,7 @@ mod tests {
     }
 
     fn rounds_to_usize(num_rounds: u8) -> usize {
-        usize::from(num_rounds)
+        num_rounds as usize
     }
 
     #[test]
@@ -273,14 +270,13 @@ mod tests {
         let seed = 42u64;
         let transform1 = SorfMatrix::try_new(padded_dim, num_rounds, seed)?;
         let transform2 = SorfMatrix::try_new(padded_dim, num_rounds, seed)?;
-        let pd = transform1.padded_dim();
 
-        let mut input = vec![0.0f32; pd];
+        let mut input = vec![0.0f32; padded_dim];
         for i in 0..padded_dim {
             input[i] = i as f32;
         }
-        let mut out1 = vec![0.0f32; pd];
-        let mut out2 = vec![0.0f32; pd];
+        let mut out1 = vec![0.0f32; padded_dim];
+        let mut out2 = vec![0.0f32; padded_dim];
 
         transform1.transform(&input, &mut out1);
         transform2.transform(&input, &mut out2);
@@ -343,8 +339,8 @@ mod tests {
     fn roundtrip_exact(#[case] dim: u32, #[case] num_rounds: u8) -> VortexResult<()> {
         let dim = dim_to_usize(dim);
         let num_rounds = rounds_to_usize(num_rounds);
-        let transform = SorfMatrix::try_new(dim.next_power_of_two(), num_rounds, 42u64)?;
-        let padded_dim = transform.padded_dim();
+        let padded_dim = dim.next_power_of_two();
+        let transform = SorfMatrix::try_new(padded_dim, num_rounds, 42u64)?;
 
         let mut input = vec![0.0f32; padded_dim];
         for i in 0..dim {
@@ -381,8 +377,8 @@ mod tests {
     fn preserves_norm(#[case] dim: u32, #[case] num_rounds: u8) -> VortexResult<()> {
         let dim = dim_to_usize(dim);
         let num_rounds = rounds_to_usize(num_rounds);
-        let transform = SorfMatrix::try_new(dim.next_power_of_two(), num_rounds, 7u64)?;
-        let padded_dim = transform.padded_dim();
+        let padded_dim = dim.next_power_of_two();
+        let transform = SorfMatrix::try_new(padded_dim, num_rounds, 7u64)?;
 
         let mut input = vec![0.0f32; padded_dim];
         for i in 0..dim {

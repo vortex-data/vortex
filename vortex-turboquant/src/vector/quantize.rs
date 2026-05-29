@@ -1,161 +1,297 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Core TurboQuant quantization helpers.
+//! Block-aware TurboQuant encode pipeline.
 //!
-//! Quantization consumes the TurboQuant-local normalized `Vector` child. Valid rows are transformed
-//! and mapped to scalar centroid indices. Invalid rows remain in the full-length output but are
-//! skipped: their physical code bytes are placeholders guarded by the `codes` row validity.
+//! Each block of an input vector array is encoded independently: per-row L2 norm, per-row SORF
+//! transform sized to the block, and per-row scalar quantization against the block's centroid
+//! table. The output is one [`Block`] per block in `block_sizes`, each row-aligned to the
+//! input row count and carrying the input's row validity.
 //!
-//! This matters because TurboQuant's scalar codebook is optimized for coordinates of transformed
-//! unit-norm vectors. The codebook does not generally contain an exact zero centroid, and a
-//! physical code byte of `0` means "centroid 0", not "zero coordinate". Null vectors therefore
-//! should not be converted to zero vectors and fed through the quantizer.
+//! # Block slicing
+//!
+//! Block `i` covers input coordinates `[offset_i .. offset_i + block_sizes[i])`, where
+//! `offset_i = sum(block_sizes[..i])`. When a block extends past `dimensions` its tail is
+//! zero-padded; a block whose `offset_i >= dimensions` is entirely padding. Such overspilling
+//! block lists are valid, not rejected; `resolve_block_sizes` emits a `tracing::warn!` only for a
+//! block lying entirely past `dimensions` or a sum exceeding `2 * dimensions`.
+//!
+//! # Per-block algorithm
+//!
+//! For each block `i` of each valid input row, the encoder:
+//!
+//! 1. Slices the block out of the input, zero-padding any range that extends past `dimensions`.
+//! 2. Computes the block's L2 norm and writes it into that block's `norms` column.
+//! 3. Divides the slice by that norm to produce a unit-norm block.
+//! 4. Applies a SORF transform of width `block_sizes[i]` seeded with
+//!    `derive_block_seed(config.seed(), i)`, so every block has its own distinct rotation even
+//!    when two blocks share the same width.
+//! 5. Scalar-quantizes the rotated coordinates against a `2^bit_width`-entry centroid table built
+//!    for width `block_sizes[i]` and writes the codes into that block's `codes` column.
+//!
+//! # Null and zero-norm rows
+//!
+//! Per-row null and zero-norm handling mirrors the previous single-block pipeline: a null row
+//! writes zero placeholders into every block's `norms` and `codes`, and a valid row whose block
+//! slice has zero norm writes zeros into that block's children only.
 
 use half::f16;
+use num_traits::Float;
+use num_traits::FromPrimitive;
+use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
+use vortex_array::match_each_float_ptype;
+use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
+use vortex_tensor::vector::AnyVector;
 
-use super::tq_padded_dim;
-use crate::TurboQuantConfig;
-use crate::centroids::compute_centroid_boundaries;
-use crate::centroids::compute_or_get_centroids;
+use crate::centroids::compute_or_get_codebook;
 use crate::centroids::find_nearest_centroid;
-use crate::sorf::SorfMatrix;
+use crate::sorf::splitmix64::derive_block_seed;
+use crate::sorf::transform::SorfMatrix;
+use crate::vector::storage::Block;
 
-/// Shared intermediate results from the quantization loop.
-pub(crate) struct QuantizationResult {
-    pub(crate) all_indices: Buffer<u8>,
-    pub(crate) padded_dim: usize,
+/// Per-block precomputed runtime state shared across rows.
+///
+/// Built once per encode call and reused for every row of the input array.
+pub(crate) struct BlockRuntimeState {
+    /// One [`SorfMatrix`] per block, sized to its block width and seeded from [`derive_block_seed`]
+    /// `(global_seed, block_index)`.
+    matrices: Vec<SorfMatrix>,
+    /// Precomputed centroid boundaries used by [`find_nearest_centroid`], one cheap-to-clone
+    /// reference-counted [`Buffer`] per block.
+    boundaries: Vec<Buffer<f32>>,
 }
 
-pub(crate) fn empty_quantization(padded_dim: usize) -> QuantizationResult {
-    QuantizationResult {
-        all_indices: Buffer::empty(),
-        padded_dim,
-    }
-}
+/// Build the per-block SORF transforms and centroid tables for a given config and resolved block
+/// list. Inexpensive when the centroid cache is warm.
+pub(crate) fn prepare_block_state(
+    seed: u64,
+    num_rounds: u8,
+    bit_width: u8,
+    block_sizes: &[u32],
+) -> VortexResult<BlockRuntimeState> {
+    let mut matrices = Vec::with_capacity(block_sizes.len());
+    let mut boundaries = Vec::with_capacity(block_sizes.len());
 
-/// Core quantization: transform and quantize already-normalized rows.
-///
-/// # Safety
-///
-/// The input `fsl` must contain unit-norm vectors (already L2-normalized) for every valid row.
-/// Invalid rows are left row-aligned in the output but are not transformed or quantized. The
-/// transform and centroid lookup happen in f32.
-pub(crate) unsafe fn turboquant_quantize_core(
-    fsl: &FixedSizeListArray,
-    config: &TurboQuantConfig,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<QuantizationResult> {
-    let dimension = fsl.list_size();
-    let num_vectors = fsl.len();
-    let padded_dim = tq_padded_dim(dimension)?;
+    for (index, &block) in block_sizes.iter().enumerate() {
+        let block_usize = usize::try_from(block)
+            .map_err(|_| vortex_err!("TurboQuant block {block} does not fit usize"))?;
 
-    let sorf_transform =
-        SorfMatrix::try_new(padded_dim, config.num_rounds() as usize, config.seed())?;
-    debug_assert_eq!(sorf_transform.padded_dim(), padded_dim);
-    let padded_dim_u32 = u32::try_from(padded_dim)
-        .map_err(|_| vortex_err!("TurboQuant padded dimension does not fit u32"))?;
+        // Each block gets a distinct SORF rotation derived from the global seed and its index.
+        let seed_i = derive_block_seed(seed, index);
 
-    let elements_prim: PrimitiveArray = fsl.elements().clone().execute(ctx)?;
-    let f32_elements = cast_to_f32(elements_prim)?;
-    let validity = fsl.validity()?;
-    let mask = validity.execute_mask(num_vectors, ctx)?;
+        matrices.push(SorfMatrix::try_new(
+            block_usize,
+            num_rounds as usize,
+            seed_i,
+        )?);
 
-    let centroids = compute_or_get_centroids(padded_dim_u32, config.bit_width())?;
-    let boundaries = compute_centroid_boundaries(&centroids);
-
-    let codes_len = num_vectors
-        .checked_mul(padded_dim)
-        .ok_or_else(|| vortex_err!("TurboQuant codes length overflow"))?;
-    let mut all_indices = BufferMut::<u8>::with_capacity(codes_len);
-
-    let mut padded = vec![0.0f32; padded_dim];
-    let mut transformed = vec![0.0f32; padded_dim];
-
-    // Pad, SORF-transform, and quantize a single row, pushing `padded_dim` codes into
-    // `all_indices`. Captures the read-only inputs and the scratch buffers so each call site
-    // only needs to pass `all_indices` and the row index.
-    //
-    // NB: `all_indices` cannot be captured here: the `Values` arm interleaves the closure call
-    // with direct `all_indices.push_n_unchecked` calls.
-    let f32_slice = f32_elements.as_slice();
-    let dimension = dimension as usize;
-    let mut quantize_row = |all_indices: &mut BufferMut<u8>, row: usize| {
-        // Reuse `padded` and `transformed` from the outer scope.
-        padded[..dimension].copy_from_slice(&f32_slice[row * dimension..][..dimension]);
-        padded[dimension..].fill(0.0);
-        sorf_transform.transform(&padded, &mut transformed);
-
-        for &value in &transformed {
-            // SAFETY: total pushes across all match arms equal `codes_len`.
-            unsafe { all_indices.push_unchecked(find_nearest_centroid(value, &boundaries)) };
-        }
-    };
-
-    // The total number of pushes is always exactly `num_vectors * padded_dim == codes_len`
-    // across every arm below, which is the invariant the per-row `unsafe` blocks rely on.
-    match &mask {
-        Mask::AllFalse(_) => {
-            // Every row is invalid: bulk-fill placeholder zero codes.
-            //
-            // SAFETY: `all_indices` was allocated with capacity `codes_len`, and this push
-            // writes exactly `codes_len` zero codes.
-            unsafe { all_indices.push_n_unchecked(0, codes_len) };
-        }
-        Mask::AllTrue(_) => {
-            for row in 0..num_vectors {
-                quantize_row(&mut all_indices, row);
-            }
-        }
-        Mask::Values(values_mask) => {
-            let mut cursor = 0;
-
-            for &(start, end) in values_mask.slices() {
-                if start > cursor {
-                    // SAFETY: total pushes across all arms equal `codes_len`.
-                    unsafe { all_indices.push_n_unchecked(0, (start - cursor) * padded_dim) };
-                }
-
-                for row in start..end {
-                    quantize_row(&mut all_indices, row);
-                }
-
-                cursor = end;
-            }
-
-            if cursor < num_vectors {
-                // SAFETY: total pushes across all arms equal `codes_len`.
-                unsafe { all_indices.push_n_unchecked(0, (num_vectors - cursor) * padded_dim) };
-            }
-        }
+        boundaries.push(
+            compute_or_get_codebook(block, bit_width)?
+                .boundaries
+                .clone(),
+        );
     }
 
-    Ok(QuantizationResult {
-        all_indices: all_indices.freeze(),
-        padded_dim,
+    Ok(BlockRuntimeState {
+        matrices,
+        boundaries,
     })
+}
+
+/// Encode every block of `input` (the original `Vector` extension array that is not pre-normalized)
+/// into its own `(norms, codes)` row-aligned pair.
+///
+/// Returns one [`Block`] per block in `block_sizes`, each carrying `num_vectors` rows.
+pub(crate) fn turboquant_encode_blocks(
+    input: ArrayRef,
+    block_sizes: &[u32],
+    state: &BlockRuntimeState,
+    vector_validity: Validity,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Vec<Block>> {
+    let num_vectors = input.len();
+    let vector_metadata = input
+        .dtype()
+        .as_extension_opt()
+        .and_then(|ext_dtype| ext_dtype.metadata_opt::<AnyVector>())
+        .ok_or_else(|| vortex_err!("TurboQuant encode expects a Vector extension array"))?;
+
+    let dimensions = usize::try_from(vector_metadata.dimensions())
+        .map_err(|_| vortex_err!("TurboQuant dimensions does not fit usize"))?;
+    let element_ptype = vector_metadata.element_ptype();
+
+    let extension: ExtensionArray = input.execute(ctx)?;
+    let storage: FixedSizeListArray = extension.storage_array().clone().execute(ctx)?;
+    let elements: PrimitiveArray = storage.elements().clone().execute(ctx)?;
+    let mask = vector_validity.execute_mask(num_vectors, ctx)?;
+
+    // TODO(connor): It would be more "correct" to compute norms **before** casting to f32.
+    let f32_input = cast_to_f32(elements)?;
+    let f32_slice = f32_input.as_slice();
+
+    // `encode_blocks_typed` is monomorphized per float ptype although its hot loop runs in f32, and
+    // only the output norm column depends on `T`.
+    let block_arrays = match_each_float_ptype!(element_ptype, |T| {
+        encode_blocks_typed::<T>(
+            f32_slice,
+            dimensions,
+            num_vectors,
+            &mask,
+            block_sizes,
+            state,
+            vector_validity.clone(),
+        )?
+    });
+
+    Ok(block_arrays)
+}
+
+// TODO(connor): Clean up this function!
+fn encode_blocks_typed<T>(
+    input: &[f32],
+    dimensions: usize,
+    num_vectors: usize,
+    mask: &Mask,
+    block_sizes: &[u32],
+    state: &BlockRuntimeState,
+    vector_validity: Validity,
+) -> VortexResult<Vec<Block>>
+where
+    T: NativePType + Float + FromPrimitive,
+{
+    let block_widths: Vec<usize> = block_sizes
+        .iter()
+        .map(|&b| {
+            usize::try_from(b).map_err(|_| vortex_err!("TurboQuant block {b} does not fit usize"))
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+
+    // `total_block_width` sizes the per-block scratch and the offset-invariant assert below; the
+    // `sum >= dimensions` rule itself is enforced upstream by `validate_block_sum` (via
+    // `resolve_block_sizes`), so it is not re-checked here.
+    let total_block_width: usize = block_widths.iter().sum();
+
+    // Per-block output buffers. `norms_out[b]` collects `num_vectors` block-norm values;
+    // `codes_out[b]` collects `num_vectors * block_sizes[b]` u8 codes.
+    let mut norms_out: Vec<BufferMut<T>> = block_sizes
+        .iter()
+        .map(|_| BufferMut::<T>::with_capacity(num_vectors))
+        .collect();
+    let mut codes_out: Vec<BufferMut<u8>> = block_widths
+        .iter()
+        .map(|&b| {
+            let len = num_vectors
+                .checked_mul(b)
+                .ok_or_else(|| vortex_err!("TurboQuant codes length overflow"))?;
+            Ok::<_, vortex_error::VortexError>(BufferMut::<u8>::with_capacity(len))
+        })
+        .collect::<VortexResult<_>>()?;
+
+    // Per-block scratch buffers reused across rows.
+    let mut padded_scratch: Vec<Vec<f32>> = block_widths.iter().map(|&b| vec![0.0f32; b]).collect();
+    let mut transformed_scratch: Vec<Vec<f32>> =
+        block_widths.iter().map(|&b| vec![0.0f32; b]).collect();
+
+    for row in 0..num_vectors {
+        let is_valid = mask.value(row);
+        let row_input = &input[row * dimensions..][..dimensions];
+        let mut offset = 0usize;
+        for (block_index, &block) in block_widths.iter().enumerate() {
+            if !is_valid {
+                // SAFETY: norms_out[block_index] reserved `num_vectors` capacity at start.
+                unsafe { norms_out[block_index].push_unchecked(T::zero()) };
+                // SAFETY: codes_out[block_index] reserved `num_vectors * block` capacity.
+                unsafe { codes_out[block_index].push_n_unchecked(0u8, block) };
+                offset += block;
+                continue;
+            }
+            // Copy the row's block slice into the scratch buffer, zero-padding the final block
+            // when `offset + block > dimensions`.
+            let take = block.min(dimensions.saturating_sub(offset));
+            if take > 0 {
+                padded_scratch[block_index][..take]
+                    .copy_from_slice(&row_input[offset..offset + take]);
+            }
+            if take < block {
+                padded_scratch[block_index][take..].fill(0.0);
+            }
+            // Computed in f32 to match the SORF transform precision. For f64 inputs this is an
+            // intentional precision downgrade relative to the legacy per-input-ptype `L2Norm`,
+            // accepted as part of the block-decomposition wire-format break.
+            let norm_sq: f32 = padded_scratch[block_index]
+                .iter()
+                .map(|&v| v * v)
+                .sum::<f32>();
+            let norm_f32 = norm_sq.sqrt();
+            let norm_value = T::from_f32(norm_f32)
+                .vortex_expect("from_f32 is infallible for supported float types");
+            // Reject a non-finite stored norm (an input magnitude out of the element type's range)
+            // rather than emit an array the decoder cannot reconstruct.
+            if !norm_value.is_finite() {
+                vortex_bail!(
+                    "TurboQuant block norm is not finite; an input magnitude is out of range"
+                );
+            }
+            // SAFETY: capacity reserved above.
+            unsafe { norms_out[block_index].push_unchecked(norm_value) };
+
+            if norm_f32 == 0.0 {
+                // SAFETY: capacity reserved above.
+                unsafe { codes_out[block_index].push_n_unchecked(0u8, block) };
+                offset += block;
+                continue;
+            }
+
+            // Normalize in place by the block norm.
+            for value in padded_scratch[block_index].iter_mut() {
+                *value /= norm_f32;
+            }
+            state.matrices[block_index].transform(
+                &padded_scratch[block_index],
+                &mut transformed_scratch[block_index],
+            );
+
+            let boundaries = &state.boundaries[block_index];
+            for &value in &transformed_scratch[block_index] {
+                let code = find_nearest_centroid(value, boundaries);
+                // SAFETY: capacity reserved above.
+                unsafe { codes_out[block_index].push_unchecked(code) };
+            }
+            offset += block;
+        }
+        debug_assert_eq!(offset, total_block_width);
+    }
+
+    let mut result = Vec::with_capacity(block_sizes.len());
+    for block_index in 0..block_sizes.len() {
+        let norms_buf = std::mem::take(&mut norms_out[block_index]).freeze();
+        let codes_buf = std::mem::take(&mut codes_out[block_index]).freeze();
+        let norms = PrimitiveArray::new::<T>(norms_buf, vector_validity.clone());
+        let codes = PrimitiveArray::new::<u8>(codes_buf, Validity::NonNullable);
+        result.push(Block { norms, codes });
+    }
+    Ok(result)
 }
 
 /// Cast a float [`PrimitiveArray`] to a `Buffer<f32>`.
 ///
-/// Several operations in this crate (SORF transform, TurboQuant quantization) work exclusively
-/// in f32. This function handles the cast from any float ptype:
-///
-/// - f16: losslessly widened to f32.
-/// - f32: zero-copy buffer extraction.
-/// - f64: truncated to f32 precision. Values outside f32 range become +/- infinity. This is
-///   acceptable because callers of this function operate in f32 and document this constraint.
+/// All in-loop arithmetic happens in f32 for SORF compatibility; the input element ptype is
+/// lossily widened or narrowed once at the start.
 fn cast_to_f32(prim: PrimitiveArray) -> VortexResult<Buffer<f32>> {
     match prim.ptype() {
         PType::F16 => Ok(prim

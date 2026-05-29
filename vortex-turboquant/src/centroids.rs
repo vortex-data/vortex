@@ -13,15 +13,17 @@
 //! The Max-Lloyd algorithm finds optimal quantization centroids that minimize MSE for this
 //! distribution.
 //!
-//! Centroids are not stored in TurboQuant arrays. They are deterministically derived from
-//! `(block_size, bit_width)` and cached process-locally. Each block of a block-decomposed
-//! TurboQuant array uses its own centroid table sized to that block's width.
+//! Centroids and their decision boundaries are not stored in TurboQuant arrays. They are
+//! deterministically derived from `(block_size, bit_width)` and cached together process-locally as
+//! a [`Codebook`]. Each block of a block-decomposed TurboQuant array uses its own codebook sized to
+//! that block's width.
 //!
 //! The centroid model follows the random orthogonal transform marginal used by the TurboQuant
 //! paper. This encoder applies a SORF-style structured transform instead of a dense random Gaussian
 //! or orthogonal matrix, so paper-level error bounds should not be treated as verified for this
 //! implementation without separate empirical validation.
 
+use std::sync::Arc;
 use std::sync::LazyLock;
 
 use vortex_buffer::Buffer;
@@ -45,18 +47,33 @@ const CONVERGENCE_EPSILON: f64 = 1e-12;
 /// The trapezoidal rule evaluates the integrand at `INTEGRATION_TRAPEZOIDS + 1` points.
 const INTEGRATION_TRAPEZOIDS: usize = 1000;
 
-/// Global centroid cache keyed by `(block_size, bit_width)`.
-static CENTROID_CACHE: LazyLock<DashMap<(u32, u8), Buffer<f32>>> = LazyLock::new(DashMap::default);
+/// Global codebook cache keyed by `(block_size, bit_width)`.
+static CODEBOOK_CACHE: LazyLock<DashMap<(u32, u8), Arc<Codebook>>> =
+    LazyLock::new(DashMap::default);
 
-/// Get or compute cached centroids for the given block size and bit width.
+/// A cached scalar-quantization codebook for one `(block_size, bit_width)`.
 ///
-/// Returns `2^bit_width` centroids sorted in ascending order, representing optimal scalar
-/// quantization levels for the coordinate distribution after a random orthogonal transform in
-/// `block_size`-dimensional space.
-pub(crate) fn compute_or_get_centroids(
+/// Centroids and boundaries are stored together because the boundaries are a pure function of the
+/// centroids and share the same key. Decode reads one side while encode reads the other, and a
+/// cache hit hands back a single [`Arc`] regardless of which side the caller needs.
+pub(crate) struct Codebook {
+    /// `2^bit_width` centroids sorted in ascending order. Decode maps each code to its centroid.
+    pub(crate) centroids: Buffer<f32>,
+    /// Decision boundaries (`centroids.len() - 1` midpoints) consumed by [`find_nearest_centroid`]
+    /// when encode maps each coordinate to its nearest centroid.
+    pub(crate) boundaries: Buffer<f32>,
+}
+
+/// Get or compute the cached [`Codebook`] for the given block size and bit width.
+///
+/// The centroids are `2^bit_width` MSE-optimal quantization levels (sorted ascending) for the
+/// coordinate distribution after a random orthogonal transform in `block_size`-dimensional space;
+/// the boundaries are their midpoints. Both are cached behind one [`Arc`] so a cache hit is a single
+/// reference-count bump.
+pub(crate) fn compute_or_get_codebook(
     block_size: u32,
     bit_width: u8,
-) -> VortexResult<Buffer<f32>> {
+) -> VortexResult<Arc<Codebook>> {
     vortex_ensure!(
         (1..=MAX_BIT_WIDTH).contains(&bit_width),
         "TurboQuant bit_width must be 1-{}, got {bit_width}",
@@ -67,18 +84,23 @@ pub(crate) fn compute_or_get_centroids(
         "TurboQuant block size must be >= {MIN_BLOCK_SIZE}, got {block_size}"
     );
 
-    if let Some(centroids) = CENTROID_CACHE.get(&(block_size, bit_width)) {
-        return Ok(centroids.clone());
+    if let Some(codebook) = CODEBOOK_CACHE.get(&(block_size, bit_width)) {
+        return Ok(Arc::clone(codebook.value()));
     }
 
     let centroids = max_lloyd_centroids(block_size, bit_width);
-    CENTROID_CACHE.insert((block_size, bit_width), centroids.clone());
+    let boundaries = compute_centroid_boundaries(&centroids);
+    let codebook = Arc::new(Codebook {
+        centroids,
+        boundaries,
+    });
+    CODEBOOK_CACHE.insert((block_size, bit_width), Arc::clone(&codebook));
 
-    Ok(centroids)
+    Ok(codebook)
 }
 
 // TODO(connor): It would potentially be more performant if this was modelled as const generic
-// parameters to functions.
+// parameters to functions. Probably not worth the complexity.
 /// Half-integer exponent: represents `int_part + (if has_half { 0.5 } else { 0.0 })`.
 ///
 /// The marginal distribution exponent `(d-3)/2` is always an integer (when `d` is odd) or a
@@ -129,8 +151,8 @@ fn max_lloyd_centroids(block_size: u32, bit_width: u8) -> Buffer<f32> {
     let exponent = HalfUIntExponent::from_numerator(block_size - 3);
 
     // The coordinate marginal concentrates around 0 with this standard deviation.
-    let sigma = 1.0 / f64::from(block_size).sqrt();
-    let init_half = (f64::from(bit_width).sqrt() * sigma).min(1.0);
+    let sigma = 1.0 / (block_size as f64).sqrt();
+    let init_half = ((bit_width as f64).sqrt() * sigma).min(1.0);
 
     // Initialize centroids uniformly on [-init_half, init_half], where the mass lives, so no cell
     // starts in a zero-mass region and freezes.
@@ -175,6 +197,8 @@ fn max_lloyd_centroids(block_size: u32, bit_width: u8) -> Buffer<f32> {
 ///
 /// Since there is no closed form for the integrals, we compute this numerically.
 fn mean_between_centroids(lo: f64, hi: f64, exponent: HalfUIntExponent) -> f64 {
+    // If hi and lo are **very** close to each other, don't bother finding the "correct" conditional
+    // mean, as the midpoint is probably sufficient.
     if (hi - lo).abs() < 1e-15 {
         return (lo + hi) / 2.0;
     }
@@ -233,7 +257,7 @@ fn pdf_unnormalized(x_val: f64, exponent: HalfUIntExponent) -> f64 {
 /// For `k` centroids, returns `k-1` boundaries. A value below `boundaries[0]` maps to centroid 0, a
 /// value in `[boundaries[i-1], boundaries[i])` maps to centroid `i`, and a
 /// value `>= boundaries[k-2]` maps to centroid `k-1`.
-pub(crate) fn compute_centroid_boundaries(centroids: &[f32]) -> Vec<f32> {
+fn compute_centroid_boundaries(centroids: &[f32]) -> Buffer<f32> {
     centroids.windows(2).map(|w| (w[0] + w[1]) * 0.5).collect()
 }
 
@@ -279,8 +303,8 @@ mod tests {
         #[case] bits: u8,
         #[case] expected: usize,
     ) -> VortexResult<()> {
-        let centroids = compute_or_get_centroids(dim, bits)?;
-        assert_eq!(centroids.len(), expected);
+        let codebook = compute_or_get_codebook(dim, bits)?;
+        assert_eq!(codebook.centroids.len(), expected);
         Ok(())
     }
 
@@ -291,12 +315,12 @@ mod tests {
     #[case(128, 4)]
     #[case(768, 2)]
     fn centroids_are_sorted(#[case] dim: u32, #[case] bits: u8) -> VortexResult<()> {
-        let centroids = compute_or_get_centroids(dim, bits)?;
-        for window in centroids.windows(2) {
+        let codebook = compute_or_get_codebook(dim, bits)?;
+        for window in codebook.centroids.windows(2) {
             assert!(
                 window[0] < window[1],
                 "centroids not sorted: {:?}",
-                centroids
+                codebook.centroids
             );
         }
         Ok(())
@@ -308,7 +332,8 @@ mod tests {
     #[case(256, 2)]
     #[case(768, 2)]
     fn centroids_are_symmetric(#[case] dim: u32, #[case] bits: u8) -> VortexResult<()> {
-        let centroids = compute_or_get_centroids(dim, bits)?;
+        let codebook = compute_or_get_codebook(dim, bits)?;
+        let centroids = &codebook.centroids;
         let count = centroids.len();
         for idx in 0..count / 2 {
             let diff = (centroids[idx] + centroids[count - 1 - idx]).abs();
@@ -327,8 +352,8 @@ mod tests {
     #[case(128, 1)]
     #[case(128, 4)]
     fn centroids_within_bounds(#[case] dim: u32, #[case] bits: u8) -> VortexResult<()> {
-        let centroids = compute_or_get_centroids(dim, bits)?;
-        for &val in centroids.iter() {
+        let codebook = compute_or_get_codebook(dim, bits)?;
+        for &val in codebook.centroids.iter() {
             assert!(
                 (-1.0..=1.0).contains(&val),
                 "centroid out of [-1, 1]: {val}",
@@ -338,42 +363,46 @@ mod tests {
     }
 
     #[test]
-    fn centroids_cached() -> VortexResult<()> {
-        let c1 = compute_or_get_centroids(128, 2)?;
-        let c2 = compute_or_get_centroids(128, 2)?;
-        assert_eq!(c1, c2);
+    fn codebook_cached() -> VortexResult<()> {
+        let cb1 = compute_or_get_codebook(128, 2)?;
+        let cb2 = compute_or_get_codebook(128, 2)?;
+        // The cache returns the same reference-counted codebook instance.
+        assert!(Arc::ptr_eq(&cb1, &cb2));
+        // There is exactly one fewer boundary than centroids: a midpoint between adjacent levels.
+        assert_eq!(cb1.boundaries.len(), cb1.centroids.len() - 1);
         Ok(())
     }
 
     #[test]
     fn find_nearest_basic() -> VortexResult<()> {
-        let centroids = compute_or_get_centroids(128, 2)?;
-        let boundaries = compute_centroid_boundaries(&centroids);
-        assert_eq!(find_nearest_centroid(-1.0, &boundaries), 0);
+        let codebook = compute_or_get_codebook(128, 2)?;
+        let centroids = &codebook.centroids;
+        let boundaries = &codebook.boundaries;
+        assert_eq!(find_nearest_centroid(-1.0, boundaries), 0);
 
         #[expect(clippy::cast_possible_truncation)]
         let last_idx = (centroids.len() - 1) as u8;
-        assert_eq!(find_nearest_centroid(1.0, &boundaries), last_idx);
+        assert_eq!(find_nearest_centroid(1.0, boundaries), last_idx);
         for (idx, &cv) in centroids.iter().enumerate() {
             #[expect(clippy::cast_possible_truncation)]
             let expected = idx as u8;
-            assert_eq!(find_nearest_centroid(cv, &boundaries), expected);
+            assert_eq!(find_nearest_centroid(cv, boundaries), expected);
         }
         Ok(())
     }
 
     #[test]
     fn rejects_invalid_params() {
-        assert!(compute_or_get_centroids(128, 0).is_err());
-        assert!(compute_or_get_centroids(128, 9).is_err());
-        assert!(compute_or_get_centroids(1, 2).is_err());
-        assert!(compute_or_get_centroids(63, 2).is_err());
+        assert!(compute_or_get_codebook(128, 0).is_err());
+        assert!(compute_or_get_codebook(128, 9).is_err());
+        assert!(compute_or_get_codebook(1, 2).is_err());
+        assert!(compute_or_get_codebook(63, 2).is_err());
     }
 
     #[test]
-    fn centroids_available_for_min_dimension() -> VortexResult<()> {
-        let centroids = compute_or_get_centroids(64, 2)?;
-        assert_eq!(centroids.len(), 4);
+    fn codebook_available_for_min_dimension() -> VortexResult<()> {
+        let codebook = compute_or_get_codebook(64, 2)?;
+        assert_eq!(codebook.centroids.len(), 4);
         Ok(())
     }
 }
