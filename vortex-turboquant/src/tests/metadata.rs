@@ -17,9 +17,7 @@ use vortex_error::vortex_err;
 
 use crate::TurboQuant;
 use crate::TurboQuantMetadata;
-use crate::vector::storage::CODES_FIELD;
-use crate::vector::storage::NORMS_FIELD;
-use crate::vector::tq_padded_dim;
+use crate::vtable::tq_storage_dtype;
 
 #[derive(Clone, PartialEq, Message)]
 struct MetadataWire {
@@ -33,47 +31,63 @@ struct MetadataWire {
     seed: u64,
     #[prost(uint32, tag = "5")]
     num_rounds: u32,
-}
-
-fn tq_storage_dtype(
-    metadata: &TurboQuantMetadata,
-    row_nullability: Nullability,
-) -> VortexResult<DType> {
-    let padded_dim = u32::try_from(tq_padded_dim(metadata.dimensions)?)
-        .map_err(|_| vortex_err!("TurboQuant padded dimension does not fit u32"))?;
-    Ok(DType::Struct(
-        StructFields::new(
-            FieldNames::from([NORMS_FIELD, CODES_FIELD]),
-            vec![
-                DType::Primitive(metadata.element_ptype, row_nullability),
-                DType::FixedSizeList(
-                    Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
-                    padded_dim,
-                    row_nullability,
-                ),
-            ],
-        ),
-        row_nullability,
-    ))
+    #[prost(uint32, repeated, tag = "6")]
+    block_sizes: Vec<u32>,
 }
 
 #[rstest]
-#[case::f16(PType::F16)]
-#[case::f32(PType::F32)]
-#[case::f64(PType::F64)]
-fn metadata_serialization_roundtrips(#[case] element_ptype: PType) -> VortexResult<()> {
+#[case::f16(PType::F16, vec![128])]
+#[case::f32(PType::F32, vec![128])]
+#[case::f64(PType::F64, vec![128])]
+#[case::two_block(PType::F32, vec![512, 256])]
+#[case::four_block(PType::F32, vec![512, 256, 64, 64])]
+fn metadata_serialization_roundtrips(
+    #[case] element_ptype: PType,
+    #[case] block_sizes: Vec<u32>,
+) -> VortexResult<()> {
+    let dimensions = block_sizes.iter().sum::<u32>();
     let metadata = TurboQuantMetadata {
         element_ptype,
-        dimensions: 128,
+        dimensions,
         bit_width: 4,
         seed: 7,
         num_rounds: 3,
+        block_sizes,
     };
 
     let encoded = TurboQuant.serialize_metadata(&metadata)?;
     let decoded = TurboQuant.deserialize_metadata(&encoded)?;
 
     assert_eq!(decoded, metadata);
+    Ok(())
+}
+
+/// A pre-block / corrupt array whose on-the-wire `block_sizes` is empty (legacy) or sums below
+/// `dimensions` must be rejected by `deserialize_metadata` with a clean error, never a panic. This
+/// pins the documented on-disk format break. Built by corrupting a valid serialization so the test
+/// does not depend on the `PType` wire discriminant.
+#[rstest]
+#[case::empty_legacy(vec![])]
+#[case::sum_below_dimensions(vec![64])]
+fn deserialize_rejects_malformed_block_sizes(#[case] block_sizes: Vec<u32>) -> VortexResult<()> {
+    let valid = TurboQuantMetadata {
+        element_ptype: PType::F32,
+        dimensions: 128,
+        bit_width: 4,
+        seed: 7,
+        num_rounds: 3,
+        block_sizes: vec![128],
+    };
+    let encoded = TurboQuant.serialize_metadata(&valid)?;
+    let mut wire = MetadataWire::decode(encoded.as_slice())
+        .map_err(|e| vortex_err!("decode MetadataWire: {e}"))?;
+    wire.block_sizes = block_sizes;
+
+    assert!(
+        TurboQuant
+            .deserialize_metadata(&wire.encode_to_vec())
+            .is_err()
+    );
     Ok(())
 }
 
@@ -85,6 +99,7 @@ fn metadata_serialization_uses_ptype_discriminants() -> VortexResult<()> {
         bit_width: 4,
         seed: 7,
         num_rounds: 3,
+        block_sizes: vec![128],
     };
 
     let encoded = TurboQuant.serialize_metadata(&metadata)?;
@@ -92,6 +107,7 @@ fn metadata_serialization_uses_ptype_discriminants() -> VortexResult<()> {
 
     assert_eq!(wire.element_ptype, PType::F32 as i32);
     assert_eq!(wire.dimensions, 128);
+    assert_eq!(wire.block_sizes, vec![128u32]);
     Ok(())
 }
 
@@ -103,11 +119,13 @@ fn metadata_display_matches_field_order() {
         bit_width: 4,
         seed: 7,
         num_rounds: 3,
+        block_sizes: vec![128],
     };
 
     assert_eq!(
         metadata.to_string(),
-        "element_ptype: f32, dimensions: 128, bit_width: 4, seed: 7, num_rounds: 3"
+        "element_ptype: f32, dimensions: 128, bit_width: 4, seed: 7, num_rounds: 3, \
+         block_sizes: [128]"
     );
 }
 
@@ -115,16 +133,15 @@ fn metadata_display_matches_field_order() {
 fn dtype_validation_accepts_expected_storage() -> VortexResult<()> {
     let metadata = TurboQuantMetadata {
         element_ptype: PType::F32,
-        dimensions: 129,
+        dimensions: 768,
         bit_width: 2,
         seed: 42,
         num_rounds: 3,
+        block_sizes: vec![512, 256],
     };
+    let storage = tq_storage_dtype(&metadata, Nullability::Nullable)?;
 
-    ExtDType::<TurboQuant>::try_new(
-        metadata,
-        tq_storage_dtype(&metadata, Nullability::Nullable)?,
-    )?;
+    ExtDType::<TurboQuant>::try_new(metadata, storage)?;
     Ok(())
 }
 
@@ -132,16 +149,15 @@ fn dtype_validation_accepts_expected_storage() -> VortexResult<()> {
 fn dtype_validation_accepts_nonnullable_storage() -> VortexResult<()> {
     let metadata = TurboQuantMetadata {
         element_ptype: PType::F32,
-        dimensions: 129,
+        dimensions: 768,
         bit_width: 2,
         seed: 42,
         num_rounds: 3,
+        block_sizes: vec![512, 256],
     };
+    let storage = tq_storage_dtype(&metadata, Nullability::NonNullable)?;
 
-    ExtDType::<TurboQuant>::try_new(
-        metadata,
-        tq_storage_dtype(&metadata, Nullability::NonNullable)?,
-    )?;
+    ExtDType::<TurboQuant>::try_new(metadata, storage)?;
     Ok(())
 }
 
@@ -153,16 +169,18 @@ fn dtype_validation_rejects_malformed_storage() {
         bit_width: 2,
         seed: 42,
         num_rounds: 3,
+        block_sizes: vec![128],
     };
+    // Outer struct fields do not match the expected `block_0` schema.
     let storage = DType::Struct(
         StructFields::new(
             FieldNames::from(["norms", "codes"]),
             vec![
                 DType::Primitive(PType::F32, Nullability::Nullable),
                 DType::FixedSizeList(
-                    DType::Primitive(PType::U8, Nullability::Nullable).into(),
+                    Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
                     128,
-                    Nullability::NonNullable,
+                    Nullability::Nullable,
                 ),
             ],
         ),

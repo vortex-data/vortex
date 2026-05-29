@@ -39,6 +39,7 @@ fn file_roundtrip_with_initialize_session() -> VortexResult<()> {
 
     let metadata = tq_metadata(read.dtype())?;
     assert_eq!(metadata.dimensions, 128);
+    assert_eq!(metadata.block_sizes, vec![128]);
     let decoded = execute_tq_decode_from_metadata(read, &mut ctx)?;
     let validity = vector_validity(decoded, &mut ctx)?.execute_mask(2, &mut ctx)?;
     assert!(validity.value(0));
@@ -52,7 +53,7 @@ fn file_roundtrip_lazy_decode_scalar_fn_with_initialize_session() -> VortexResul
     let session = file_session(&runtime);
     let mut ctx = session.create_execution_ctx();
     let input = f32_vector_array(128, 2, 0.25, Validity::from_iter([true, false]))?;
-    let config = TurboQuantConfig::try_new(3, 42, 3)?;
+    let config = TurboQuantConfig::try_new(3, 42, 3, None)?;
     let encoded = execute_tq_encode(input, &config, &mut ctx)?;
     let decoded = TQDecode::try_new_array(encoded)?.into_array();
 
@@ -67,6 +68,33 @@ fn file_roundtrip_lazy_decode_scalar_fn_with_initialize_session() -> VortexResul
     assert!(read.dtype().as_extension().is::<Vector>());
 
     let validity = vector_validity(read, &mut ctx)?.execute_mask(2, &mut ctx)?;
+    assert!(validity.value(0));
+    assert!(!validity.value(1));
+    Ok(())
+}
+
+#[test]
+fn file_roundtrip_multi_block() -> VortexResult<()> {
+    let runtime = SingleThreadRuntime::default();
+    let session = file_session(&runtime);
+    let mut ctx = session.create_execution_ctx();
+    let input = f32_vector_array(768, 2, 0.25, Validity::from_iter([true, false]))?;
+    let config = TurboQuantConfig::try_new(3, 42, 3, Some(vec![512, 256]))?;
+    let encoded = execute_tq_encode(input, &config, &mut ctx)?;
+
+    let mut file_bytes = Vec::new();
+    VortexWriteOptions::new(session.clone())
+        .blocking(&runtime)
+        .write(&mut file_bytes, encoded.to_array_iterator())?;
+
+    let file = session.open_options().open_buffer(file_bytes)?;
+    let read = runtime.block_on(async { file.scan()?.into_array_stream()?.read_all().await })?;
+
+    let metadata = tq_metadata(read.dtype())?;
+    assert_eq!(metadata.dimensions, 768);
+    assert_eq!(metadata.block_sizes, vec![512, 256]);
+    let decoded = execute_tq_decode_from_metadata(read, &mut ctx)?;
+    let validity = vector_validity(decoded, &mut ctx)?.execute_mask(2, &mut ctx)?;
     assert!(validity.value(0));
     assert!(!validity.value(1));
     Ok(())

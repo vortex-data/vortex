@@ -37,11 +37,11 @@ use crate::TQEncode;
 use crate::TurboQuantConfig;
 use crate::initialize;
 
+mod blocks;
 mod encode_decode;
 mod file;
 mod malformed;
 mod metadata;
-mod parity;
 mod scalar_fns;
 
 fn test_session() -> VortexSession {

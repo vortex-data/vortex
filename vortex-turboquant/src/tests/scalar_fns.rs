@@ -20,7 +20,7 @@ use crate::vtable::tq_metadata;
 #[test]
 fn scalar_fn_ids_and_options_roundtrip() -> VortexResult<()> {
     let session = test_session();
-    let config = TurboQuantConfig::try_new(4, 7, 2)?;
+    let config = TurboQuantConfig::try_new(4, 7, 2, None)?;
 
     assert_eq!(TQEncode.id().as_ref(), "vortex.turboquant.encode");
     assert_eq!(TQDecode.id().as_ref(), "vortex.turboquant.decode");
@@ -42,12 +42,13 @@ fn scalar_fn_arrays_encode_and_decode_vectors() -> VortexResult<()> {
     let session = test_session();
     let mut ctx = session.create_execution_ctx();
     let input = f32_vector_array(128, 2, 0.25, Validity::from_iter([true, false]))?;
-    let config = TurboQuantConfig::try_new(3, 42, 3)?;
+    let config = TurboQuantConfig::try_new(3, 42, 3, None)?;
 
     let encoded_lazy = TQEncode::try_new_array(input, &config)?;
     let encoded_metadata = tq_metadata(encoded_lazy.dtype())?;
     assert_eq!(encoded_metadata.dimensions, 128);
     assert_eq!(encoded_metadata.bit_width, config.bit_width());
+    assert_eq!(encoded_metadata.block_sizes, vec![128]);
     assert!(encoded_lazy.dtype().as_extension().is::<TurboQuant>());
 
     let encoded = encoded_lazy.into_array().execute(&mut ctx)?;

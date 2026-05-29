@@ -4,9 +4,9 @@
 //! Benchmarks for `turboquant_encode` and `turboquant_decode` across different validity-mask
 //! shapes.
 //!
-//! The four mask shapes (`AllTrue`, `AllFalse`, dense `Values`, sparse `Values`) exercise the
-//! variant-specialized paths added in the mask refactor in `vector/normalize.rs`,
-//! `vector/quantize.rs`, and `scalar_fns/decode.rs`.
+//! The four mask shapes (`AllTrue`, `AllFalse`, dense `Values`, sparse `Values`) exercise both
+//! the encoder's per-row mask dispatch in `vector/quantize.rs` and the variant-specialized mask
+//! arms in `scalar_fns/decode.rs`.
 
 #![expect(clippy::unwrap_used)]
 
@@ -118,7 +118,7 @@ fn decode(encoded: ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
 
 fn config() -> TurboQuantConfig {
     // 4 bits, 4 SORF rounds, fixed seed: representative defaults from the test fixtures.
-    TurboQuantConfig::try_new(4, 0xDEADBEEF, 4).unwrap()
+    TurboQuantConfig::try_new(4, 0xDEADBEEF, 4, None).unwrap()
 }
 
 #[divan::bench(args = MASK_SHAPES)]
