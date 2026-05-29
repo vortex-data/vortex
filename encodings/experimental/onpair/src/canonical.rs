@@ -7,7 +7,6 @@
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
-use onpair::DECOMPRESS_BUFFER_PADDING;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -22,10 +21,11 @@ use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
 use crate::OnPair;
 use crate::OnPairArraySlotsExt;
-use crate::decode::FullDecodeInputs;
+use crate::decode::OwnedDecodeInputs;
 
 pub(super) fn canonicalize_onpair(
     array: ArrayView<'_, OnPair>,
@@ -49,7 +49,7 @@ pub(crate) fn onpair_decode_views(
         .clone()
         .execute::<PrimitiveArray>(ctx)?;
 
-    let inputs = FullDecodeInputs::collect(array, ctx)?;
+    let inputs = OwnedDecodeInputs::collect(array, ctx)?;
 
     let total_size: usize = match_each_integer_ptype!(lengths.ptype(), |P| {
         lengths
@@ -59,8 +59,22 @@ pub(crate) fn onpair_decode_views(
             .sum()
     });
 
-    let mut out_bytes = ByteBufferMut::with_capacity(total_size + DECOMPRESS_BUFFER_PADDING);
-    let written = inputs.decompress_into(out_bytes.spare_capacity_mut());
+    let code_start = inputs.code_boundaries.first().copied().unwrap_or_default() as usize;
+    let code_end = inputs.code_boundaries.last().copied().unwrap_or_default() as usize;
+    vortex_ensure!(
+        code_start <= code_end,
+        "OnPair codes_offsets must be nondecreasing"
+    );
+    vortex_ensure!(
+        code_end <= inputs.codes.len(),
+        "OnPair codes_offsets end {} exceeds codes len {}",
+        code_end,
+        inputs.codes.len()
+    );
+
+    let mut out_bytes = ByteBufferMut::with_capacity(total_size);
+    let written =
+        inputs.decompress_code_range_into(code_start..code_end, out_bytes.spare_capacity_mut());
     debug_assert_eq!(written, total_size);
     // SAFETY: `decompress_into` initialised exactly `written` bytes of the
     // spare capacity reserved above.

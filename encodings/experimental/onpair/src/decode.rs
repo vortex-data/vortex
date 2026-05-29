@@ -5,6 +5,7 @@
 //! decompression API.
 
 use std::mem::MaybeUninit;
+use std::ops::Range;
 
 use onpair::Parts;
 use vortex_array::ArrayRef;
@@ -72,6 +73,26 @@ impl OwnedDecodeInputs {
         onpair::decompress_into(self.as_parts(), out)
     }
 
+    /// Decode a contiguous code window into `out`. Returns the number of
+    /// initialised bytes.
+    #[inline]
+    pub fn decompress_code_range_into(
+        &self,
+        range: Range<usize>,
+        out: &mut [MaybeUninit<u8>],
+    ) -> usize {
+        onpair::decompress_into(
+            Parts::<u32> {
+                dict_bytes: self.dict_bytes.as_slice(),
+                dict_offsets: self.dict_offsets.as_slice(),
+                bits: self.bits,
+                codes: &self.codes.as_slice()[range],
+                code_boundaries: &[],
+            },
+            out,
+        )
+    }
+
     /// Decode a single row into `out`. Returns the number of initialised
     /// bytes.
     #[inline]
@@ -86,51 +107,6 @@ impl OwnedDecodeInputs {
             bits: self.bits,
             codes: self.codes.as_slice(),
             code_boundaries: self.code_boundaries.as_slice(),
-        }
-    }
-}
-
-/// Inputs for whole-column decompression.
-///
-/// Unlike [`OwnedDecodeInputs`], this deliberately omits the per-row
-/// `code_boundaries` (`codes_offsets`) child: the contiguous
-/// [`onpair::decompress_into`] decoder walks the flat `codes` stream directly
-/// and never consults the per-row boundaries. Materialising that child for a
-/// full canonicalisation is pure overhead — for a narrowed/bit-packed
-/// `codes_offsets` it also forces an extra child `execute`.
-pub struct FullDecodeInputs {
-    dict_bytes: ByteBuffer,
-    dict_offsets: Buffer<u32>,
-    codes: Buffer<u16>,
-    bits: u32,
-}
-
-impl FullDecodeInputs {
-    pub fn collect(array: ArrayView<'_, OnPair>, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        Ok(Self {
-            dict_bytes: array.dict_bytes().clone(),
-            dict_offsets: collect_widened::<u32>(array.dict_offsets(), ctx)?,
-            codes: collect_widened::<u16>(array.codes(), ctx)?,
-            bits: array.bits(),
-        })
-    }
-
-    /// Decode every row contiguously into `out`. Returns the number of
-    /// initialised bytes.
-    #[inline]
-    pub fn decompress_into(&self, out: &mut [MaybeUninit<u8>]) -> usize {
-        onpair::decompress_into(self.as_parts(), out)
-    }
-
-    fn as_parts(&self) -> Parts<'_, u32> {
-        Parts {
-            dict_bytes: self.dict_bytes.as_slice(),
-            dict_offsets: self.dict_offsets.as_slice(),
-            bits: self.bits,
-            codes: self.codes.as_slice(),
-            // `decompress_into` never reads the per-row boundaries; an empty
-            // slice keeps the `Parts` well-typed without materialising them.
-            code_boundaries: &[],
         }
     }
 }

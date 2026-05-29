@@ -27,7 +27,6 @@
 use std::sync::LazyLock;
 
 use divan::Bencher;
-use onpair::DECOMPRESS_BUFFER_PADDING;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::VarBinArray;
@@ -149,7 +148,7 @@ fn decompress_into_bench(bencher: Bencher, case: (Shape, usize)) {
     let arr = compress(n, shape);
     let (inputs, total) = materialise(&arr);
     bencher.bench_local(|| {
-        let mut out: Vec<u8> = Vec::with_capacity(total + DECOMPRESS_BUFFER_PADDING);
+        let mut out: Vec<u8> = Vec::with_capacity(total);
         let written = inputs.decompress_into(out.spare_capacity_mut());
         unsafe { out.set_len(written) };
         divan::black_box(out);
