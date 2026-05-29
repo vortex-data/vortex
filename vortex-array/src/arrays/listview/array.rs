@@ -576,26 +576,6 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
 
         Ok((start, end))
     }
-
-    /// Proportion of `elements` that is unreferenced leading or trailing slack, in `[0.0, 1.0]`.
-    ///
-    /// This is the fraction of the `elements` buffer that a
-    /// [`TrimElements`](super::ListViewRebuildMode::TrimElements) rebuild would reclaim. It is
-    /// exact and `O(1)` for zero-copy-to-list arrays and otherwise computes min/max statistics
-    /// over the offsets (see [`referenced_element_bounds`](Self::referenced_element_bounds)).
-    ///
-    /// Returns `0.0` when `elements` is empty or the array has no lists.
-    fn prop_tail_unreferenced(&self, ctx: &mut ExecutionCtx) -> VortexResult<f32> {
-        let n_elts = self.elements().len();
-        if n_elts == 0 || self.as_ref().is_empty() {
-            return Ok(0.0);
-        }
-
-        let (start, end) = self.referenced_element_bounds(ctx)?;
-        let referenced = end - start;
-
-        Ok((n_elts - referenced) as f32 / n_elts as f32)
-    }
 }
 impl<T: TypedArrayRef<ListView>> ListViewArrayExt for T {}
 
