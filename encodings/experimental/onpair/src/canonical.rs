@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use num_traits::AsPrimitive;
 use onpair::DECOMPRESS_BUFFER_PADDING;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -24,7 +25,7 @@ use vortex_error::VortexResult;
 
 use crate::OnPair;
 use crate::OnPairArraySlotsExt;
-use crate::decode::OwnedDecodeInputs;
+use crate::decode::FullDecodeInputs;
 
 pub(super) fn canonicalize_onpair(
     array: ArrayView<'_, OnPair>,
@@ -48,8 +49,15 @@ pub(crate) fn onpair_decode_views(
         .clone()
         .execute::<PrimitiveArray>(ctx)?;
 
-    let inputs = OwnedDecodeInputs::collect(array, ctx)?;
-    let total_size = inputs.decompressed_len();
+    let inputs = FullDecodeInputs::collect(array, ctx)?;
+
+    let total_size: usize = match_each_integer_ptype!(lengths.ptype(), |P| {
+        lengths
+            .as_slice::<P>()
+            .iter()
+            .map(|&l| AsPrimitive::<usize>::as_(l))
+            .sum()
+    });
 
     let mut out_bytes = ByteBufferMut::with_capacity(total_size + DECOMPRESS_BUFFER_PADDING);
     let written = inputs.decompress_into(out_bytes.spare_capacity_mut());
