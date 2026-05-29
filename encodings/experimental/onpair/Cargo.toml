@@ -31,10 +31,20 @@ vortex-session = { workspace = true }
 _test-harness = ["vortex-array/_test-harness"]
 
 [dev-dependencies]
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
 divan = { workspace = true }
+parquet = { workspace = true }
 rstest = { workspace = true }
+tpchgen = { workspace = true }
+tpchgen-arrow = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-fsst = { workspace = true }
 
 [[bench]]
 name = "decode"
+harness = false
+
+[[bench]]
+name = "real_data"
 harness = false

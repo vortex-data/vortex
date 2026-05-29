@@ -9905,15 +9905,21 @@ dependencies = [
 name = "vortex-onpair"
 version = "0.1.0"
 dependencies = [
+ "arrow-array",
+ "arrow-schema",
  "codspeed-divan-compat",
  "memchr",
  "num-traits",
  "onpair",
+ "parquet",
  "prost 0.14.3",
  "rstest",
+ "tpchgen",
+ "tpchgen-arrow",
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
+ "vortex-fsst",
  "vortex-mask",
  "vortex-session",
 ]

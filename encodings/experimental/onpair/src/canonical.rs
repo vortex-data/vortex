@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use num_traits::AsPrimitive;
 use onpair::DECOMPRESS_BUFFER_PADDING;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -24,7 +25,7 @@ use vortex_error::VortexResult;
 
 use crate::OnPair;
 use crate::OnPairArraySlotsExt;
-use crate::decode::OwnedDecodeInputs;
+use crate::decode::FullDecodeInputs;
 
 pub(super) fn canonicalize_onpair(
     array: ArrayView<'_, OnPair>,
@@ -48,22 +49,29 @@ pub(crate) fn onpair_decode_views(
         .clone()
         .execute::<PrimitiveArray>(ctx)?;
 
-    let inputs = OwnedDecodeInputs::collect(array, ctx)?;
-    let total_size = inputs.decompressed_len();
-
-    let mut out_bytes = ByteBufferMut::with_capacity(total_size + DECOMPRESS_BUFFER_PADDING);
-    let written = inputs.decompress_into(out_bytes.spare_capacity_mut());
-    debug_assert_eq!(written, total_size);
-    // SAFETY: `decompress_into` initialised exactly `written` bytes of the
-    // spare capacity reserved above.
-    unsafe { out_bytes.set_len(written) };
+    let inputs = FullDecodeInputs::collect(array, ctx)?;
 
     match_each_integer_ptype!(lengths.ptype(), |P| {
+        let lens = lengths.as_slice::<P>();
+        // The total decoded byte length equals the sum of the per-row
+        // uncompressed lengths, which we already hold. This avoids the
+        // redundant `onpair::decompressed_len` pass that re-walks every token
+        // in the `codes` stream (one random `dict_offsets` lookup per token)
+        // purely to recompute a size we know.
+        let total_size: usize = lens.iter().map(|&l| AsPrimitive::<usize>::as_(l)).sum();
+
+        let mut out_bytes = ByteBufferMut::with_capacity(total_size + DECOMPRESS_BUFFER_PADDING);
+        let written = inputs.decompress_into(out_bytes.spare_capacity_mut());
+        debug_assert_eq!(written, total_size);
+        // SAFETY: `decompress_into` initialised exactly `written` bytes of the
+        // spare capacity reserved above.
+        unsafe { out_bytes.set_len(written) };
+
         Ok(build_views(
             start_buf_index,
             MAX_BUFFER_LEN,
             out_bytes,
-            lengths.as_slice::<P>(),
+            lens,
         ))
     })
 }
