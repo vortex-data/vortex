@@ -185,6 +185,42 @@ mod tests {
         assert_eq!(reconstruct(&buffers, &views, start_buf_index), expected);
     }
 
+    /// Offsets and sizes are written into the `u32` `Ref` fields via `as_` truncation, so we must
+    /// confirm they stay correct once the running offset grows well past the 16-bit range (i.e. is
+    /// not narrowed to a smaller width). A ~9 MiB heap pushes offsets above 2^23 while remaining far
+    /// below `MAX_BUFFER_LEN`; each value encodes its index in its first bytes so a misplaced offset
+    /// would reconstruct the wrong bytes.
+    #[test]
+    fn fast_path_large_offsets() {
+        const N: usize = 9000;
+        const LEN: usize = 1000;
+        // The final offset is (N - 1) * LEN, which must exceed 2^23 to be a meaningful check.
+        const _: () = assert!((N - 1) * LEN > (1 << 23));
+
+        let values: Vec<Vec<u8>> = (0..N)
+            .map(|i| {
+                let mut v = vec![0u8; LEN];
+                v[..4].copy_from_slice(&u32::try_from(i).unwrap().to_le_bytes());
+                v
+            })
+            .collect();
+        let refs: Vec<&[u8]> = values.iter().map(|v| v.as_slice()).collect();
+
+        let (bytes, lens) = flatten(&refs);
+        let total = bytes.len();
+
+        let (buffers, views) = build_views(0, total + 1, bytes, &lens);
+
+        assert_eq!(buffers.len(), 1);
+        // The recorded offset must equal the cumulative byte position, exactly, for every view.
+        for (i, view) in views.iter().enumerate() {
+            let r = view.as_view();
+            assert_eq!(r.offset as usize, i * LEN, "wrong offset for view {i}");
+            assert_eq!(r.size as usize, LEN);
+        }
+        assert_eq!(reconstruct(&buffers, &views, 0), values);
+    }
+
     /// The fast path is taken when `bytes.len() <= max_buffer_len`, so equality at the boundary must
     /// still produce a single buffer (not roll over to the slow path).
     #[test]
