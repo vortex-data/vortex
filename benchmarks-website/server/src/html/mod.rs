@@ -100,11 +100,12 @@ use crate::slug::GroupKey;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(showcase))
+        .route("/latest", get(current))
+        .route("/historic", get(explorer))
+        // Earlier route names — kept as aliases so old links and bookmarks
+        // (e.g. the v3-redesign deep-links shared internally) still resolve.
         .route("/current", get(current))
         .route("/raw", get(explorer))
-        // `/historic` and `/all` predate the Raw-data rename; keep them as
-        // aliases so old links and bookmarks still resolve.
-        .route("/historic", get(explorer))
         .route("/all", get(explorer))
         .route("/chart/{slug}", get(chart_page))
         .route("/group/{slug}", get(group_page))
@@ -220,7 +221,7 @@ async fn current(State(state): State<AppState>, Query(ui): Query<UiQuery>) -> Re
         "Current snapshot",
         current_body(&generation, &landing_groups),
         PageScripts::Chart,
-        NavPage::Current,
+        NavPage::Latest,
         Some(universe.as_ref()),
         &filter,
     )
@@ -248,9 +249,9 @@ async fn explorer(State(state): State<AppState>, Query(ui): Query<UiQuery>) -> R
     render_page(
         "Vortex Benchmarks",
         "Vortex benchmarks (v3 alpha)",
-        landing_body(&landing_groups, universe.as_ref()),
+        landing_body(&generation, &landing_groups, universe.as_ref()),
         scripts,
-        NavPage::RawData,
+        NavPage::Historic,
         Some(universe.as_ref()),
         &filter,
     )
@@ -293,6 +294,30 @@ fn collect_landing_groups(
         }
     }
 
+    // Distinct engines in this group's data (query-measurement groups only).
+    // Pulled from the first chart's payload's `series_meta` — much cheaper than
+    // a SQL DISTINCT, and accurate because all charts in a query group share
+    // the same (dataset, sf, storage) dim tuple and therefore the same engine
+    // set. Non-query groups get an empty list.
+    let group_engines = |group: &Group| -> Vec<String> {
+        if !group.slug.starts_with("qmg.") {
+            return Vec::new();
+        }
+        let Some(chart) = group
+            .charts
+            .first()
+            .and_then(|c| generation.chart_payload(&c.slug))
+        else {
+            return Vec::new();
+        };
+        let mut s: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        for meta in chart.series_meta.values() {
+            if let Some(e) = &meta.engine {
+                s.insert(e.clone());
+            }
+        }
+        s.into_iter().collect()
+    };
     let mk = |group: &Group, scale_pills: Vec<ScalePill>| LandingGroup {
         name: group.name.clone(),
         slug: group.slug.clone(),
@@ -308,6 +333,7 @@ fn collect_landing_groups(
         summary: group.summary.clone(),
         chart_links: group.charts.clone(),
         scale_pills,
+        engines: group_engines(group),
     };
 
     let mut out = Vec::with_capacity(slots.len());
@@ -330,6 +356,12 @@ fn collect_landing_groups(
             }
         }
     }
+    // Both rendered pages (Current and Previous Versions) list workloads
+    // alphabetically by display name. TPC clusters sort by their representative
+    // name ("TPC-H (NVMe) (SF=1000)"), which keeps the same relative order as
+    // the stripped headings ("TPC-H (NVMe)"). The `/api/groups` GROUP_ORDER is
+    // unaffected; this only orders the page sections.
+    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     out
 }
 
@@ -421,7 +453,7 @@ async fn chart_page(
         &subtitle,
         chart_body(&chart, &slug, &payload_json, &window),
         PageScripts::Chart,
-        NavPage::RawData,
+        NavPage::Historic,
         universe.as_deref(),
         &filter,
     )
@@ -455,9 +487,9 @@ async fn group_page(
     render_page(
         &title,
         &subtitle,
-        landing_body(&group_shell, universe.as_ref()),
+        landing_body(&generation, &group_shell, universe.as_ref()),
         PageScripts::Chart,
-        NavPage::RawData,
+        NavPage::Historic,
         Some(universe.as_ref()),
         &filter,
     )

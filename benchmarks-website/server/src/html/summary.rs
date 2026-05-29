@@ -15,6 +15,10 @@ use crate::api::Summary;
 
 /// Render the summary card for a group, or empty markup if `summary` is
 /// `None` or every variant's content list is empty.
+// Retired: the v2 ratio-to-fastest card (no 1× baseline) was replaced on
+// Previous Versions by the synthesis headline chart. Kept until the whole v2
+// summary chain is removed.
+#[allow(dead_code)]
 pub(super) fn summary_markup(summary: Option<&Summary>) -> Markup {
     let Some(summary) = summary else {
         return html! {};
@@ -136,6 +140,7 @@ pub(super) fn summary_markup(summary: Option<&Summary>) -> Markup {
     }
 }
 
+#[allow(dead_code)] // only used by the retired summary_markup; see above.
 fn format_time_ns(ns: f64) -> String {
     let abs = ns.abs();
     if abs >= 1_000_000_000.0 {

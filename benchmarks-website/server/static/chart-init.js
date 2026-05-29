@@ -265,15 +265,68 @@
     return filter.hiddenSeries.indexOf(label) === -1;
   }
 
-  // -----------------------------------------------------------------------
-  // Palette + helpers
-  // -----------------------------------------------------------------------
-  var palette = [
-    "#2563eb", "#dc2626", "#16a34a", "#ea580c", "#7c3aed",
-    "#0891b2", "#ca8a04", "#db2777", "#65a30d", "#475569",
-  ];
-
-  function colorFor(i) { return palette[i % palette.length]; }
+  // ---- Series lexicon (shared by every multi-series chart) ----------------
+  // COLOUR encodes the file format (Vortex is the white hero); line STYLE
+  // (dash) encodes the query engine. Keeps engine vs format readable across
+  // charts and as more datapoints/formats arrive.
+  function formatColorVar(format) {
+    switch (format) {
+      case "vortex-file-compressed": return "--fmt-vortex";
+      case "vortex-compact": return "--fmt-vortex-compact";
+      case "parquet": return "--fmt-parquet";
+      case "arrow": return "--fmt-arrow";
+      case "duckdb": return "--fmt-duckdb";
+      case "lance": return "--fmt-lance";
+      default: return "--fmt-other";
+    }
+  }
+  function formatColor(format) { return cssVar(formatColorVar(format)); }
+  function engineDash(engine) {
+    switch (engine) {
+      case "duckdb": return [];        // solid
+      case "datafusion": return [6, 4]; // dashed
+      default: return [2, 3];          // dotted (future engines)
+    }
+  }
+  // Dash cycle for engine-less facets/ops (compression encode/decode), assigned
+  // first-seen so same-colour series in one chart stay distinguishable.
+  var FALLBACK_DASHES = [[], [5, 4], [2, 3], [8, 3, 2, 3]];
+  // Human label for a format id (mirrors the server's `format_label`).
+  function formatLabel(fmt) {
+    switch (fmt) {
+      case "vortex-file-compressed": return "Vortex";
+      case "vortex-compact": return "Vortex-compact";
+      case "parquet": return "Parquet";
+      case "arrow": return "Arrow";
+      case "duckdb": return "DuckDB";
+      case "lance": return "Lance";
+      default: return fmt;
+    }
+  }
+  // ---- Robust history estimators ------------------------------------------
+  // Per-commit run noise + harness spikes make the raw per-query lines a
+  // sawtooth. A centered rolling median is spike-immune (ignores up to half the
+  // window) and edge-preserving (keeps genuine step changes crisp), and a
+  // rolling quantile band shows the typical operating range. Nulls (commits a
+  // series didn't run) are skipped inside the window. ROBUST_WINDOW is the one
+  // knob; p25/p75 the band.
+  var ROBUST_WINDOW = 15;
+  function rollingMedian(v, w) {
+    var h = w >> 1;
+    return v.map(function (_, i) {
+      var s = v.slice(Math.max(0, i - h), Math.min(v.length, i + h + 1))
+        .filter(function (x) { return x != null; }).sort(function (a, b) { return a - b; });
+      return s.length ? s[s.length >> 1] : null;
+    });
+  }
+  function rollingQuantile(v, w, q) {
+    var h = w >> 1;
+    return v.map(function (_, i) {
+      var s = v.slice(Math.max(0, i - h), Math.min(v.length, i + h + 1))
+        .filter(function (x) { return x != null; }).sort(function (a, b) { return a - b; });
+      return s.length ? s[Math.min(s.length - 1, Math.max(0, Math.round(q * (s.length - 1))))] : null;
+    });
+  }
 
   function shortSha(sha) {
     return typeof sha === "string" ? sha.slice(0, 7) : String(sha);
@@ -816,6 +869,11 @@
     var meta = payload.series_meta || {};
     var n = (payload.commits || []).length;
     var names = Object.keys(raw).sort();
+    // Lexicon: colour = format, dash = engine. Series with no engine
+    // (compression encode/decode) reuse the dash dimension for the op (the
+    // `:`-suffix, matching the server's facet), assigned first-seen so two
+    // same-format ops in one card stay distinguishable.
+    var opDash = {}, odi = 0;
     return names.map(function (name, i) {
       var seriesMeta = meta[name] || {};
       var rawValues = Array.isArray(raw[name]) ? raw[name] : [];
@@ -830,12 +888,27 @@
       // itself bridges to the next available data point.
       var data = new Array(n);
       for (var j = 0; j < n; j++) data[j] = null;
+      var color = formatColor(seriesMeta.format);
+      var dash;
+      if (seriesMeta.engine) {
+        dash = engineDash(seriesMeta.engine);
+      } else {
+        var ci = name.lastIndexOf(":");
+        var op = ci >= 0 ? name.slice(ci + 1) : "";
+        if (op) {
+          if (!(op in opDash)) opDash[op] = FALLBACK_DASHES[odi++ % FALLBACK_DASHES.length];
+          dash = opDash[op];
+        } else {
+          dash = [];
+        }
+      }
       return {
         label: name,
         data: data,
         rawData: rawValues,
-        borderColor: colorFor(i),
-        backgroundColor: colorFor(i) + "20",
+        borderColor: color,
+        backgroundColor: color + "20",
+        borderDash: dash,
         borderWidth: 1.5,
         spanGaps: true,
         tension: 0,
@@ -1056,6 +1129,14 @@
     payload = normalizeChartPayload(payload);
     canvas.__bench_payload = payload;
     canvas.__bench_payload_window = FETCH_N;
+    // Robust band cards rebuild through the robust builder — the full payload
+    // is exactly what the band needs. Never swap in the raw all-series
+    // datasets (that would clobber the bands with the old pan/zoom lines).
+    if (card.hasAttribute("data-robust")) {
+      if (chart) { chart.destroy(); canvas.__bench_chart = null; }
+      constructRobustChart(card, canvas, payload);
+      return;
+    }
     if (!chart) return;
     // Re-pick the display unit against the now-wider window. The first
     // payload was the latest-100 slice; the refetch may surface older
@@ -1165,6 +1246,102 @@
   // by this function (and read elsewhere) is documented at the top of
   // this file under "Canvas state contract".
   // -----------------------------------------------------------------------
+  // A robust band history card: one median + p25–p75 ribbon per format. Some
+  // chart kinds carry an incomparable secondary dimension that can't share an
+  // axis — `data-engine` filters to one engine (df/duck), `data-op` filters to
+  // one op (encode/decode, from the series-name suffix, mirroring the server's
+  // `facet_of`). Static overview — no pan/zoom; the median+band is the unit.
+  function constructRobustChart(card, canvas, payload) {
+    var engineFilter = card.getAttribute("data-engine");
+    var opFilter = card.getAttribute("data-op");
+    var meta = payload.series_meta || {};
+    var raw = payload.series || {};
+    var names = Object.keys(raw).filter(function (n) {
+      var m = meta[n] || {};
+      if (engineFilter && m.engine !== engineFilter) return false;
+      if (opFilter) {
+        var i = n.lastIndexOf(":");
+        if (i < 0 || n.slice(i + 1) !== opFilter) return false;
+      }
+      return true;
+    }).sort();
+    if (!names.length) { card.hidden = true; return null; }
+
+    var unit = pickDisplayUnit(payload.unit_kind, collectAllValues(payload));
+    var mul = unit.multiplier || 1;
+    var labels = (payload.commits || []).map(labelForCommit);
+    var datasets = [];
+    var loAll = [], hiAll = [];
+    names.forEach(function (n) {
+      var fmt = (meta[n] || {}).format;
+      var color = formatColor(fmt);
+      var arr = (raw[n] || []).map(function (x) { return x == null ? null : x * mul; });
+      var med = rollingMedian(arr, ROBUST_WINDOW);
+      var lo = rollingQuantile(arr, ROBUST_WINDOW, 0.25);
+      var hi = rollingQuantile(arr, ROBUST_WINDOW, 0.75);
+      lo.forEach(function (x) { if (x != null) loAll.push(x); });
+      hi.forEach(function (x) { if (x != null) hiAll.push(x); });
+      // Raw per-commit points behind the band — same idea as the headline:
+      // reveals where the data actually fell so the band/line aren't blackbox
+      // smoothing. The y-range is clipped to the band's robust span below, so
+      // residual spikes simply don't draw; raw dots show only within the
+      // typical range, faint enough that the band still dominates.
+      datasets.push({
+        data: arr, borderColor: "transparent", backgroundColor: color + "44",
+        pointRadius: 1.5, pointHoverRadius: 1.5, pointBorderWidth: 0,
+        showLine: false, spanGaps: false, _raw: true,
+      });
+      datasets.push({ data: lo, borderColor: "transparent", pointRadius: 0, fill: false, tension: 0.3, spanGaps: true });
+      datasets.push({ data: hi, borderColor: "transparent", pointRadius: 0, fill: "-1", backgroundColor: color + "26", tension: 0.3, spanGaps: true });
+      datasets.push({ label: formatLabel(fmt), data: med, borderColor: color, backgroundColor: color, borderWidth: 1.8, pointRadius: 0, pointHoverRadius: 3, fill: false, tension: 0.3, spanGaps: true, _fmt: fmt });
+    });
+    // Robust y-range: 2nd/98th percentile of the band bounds (× pad), so a
+    // residual spike that survived into a band edge can't blow out the scale.
+    loAll.sort(function (a, b) { return a - b; });
+    hiAll.sort(function (a, b) { return a - b; });
+    var ymin = loAll.length ? loAll[Math.floor(loAll.length * 0.02)] * 0.9 : undefined;
+    var ymax = hiAll.length ? hiAll[Math.floor(hiAll.length * 0.98)] * 1.12 : undefined;
+
+    var chart = new Chart(canvas, {
+      type: "line",
+      data: { labels: labels, datasets: datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        interaction: { mode: "index", intersect: false },
+        scales: {
+          x: { grid: { color: cssVar("--line"), drawTicks: false }, ticks: { maxTicksLimit: 7, color: cssVar("--muted") } },
+          y: { min: ymin, max: ymax, grid: { color: cssVar("--line"), drawTicks: false },
+               ticks: { color: cssVar("--muted") },
+               title: { display: true, text: unit.axisLabel, color: cssVar("--faint") } },
+        },
+        plugins: {
+          legend: { display: true, position: "bottom",
+            labels: { boxWidth: 18, boxHeight: 2, color: cssVar("--muted"), font: { size: 10 },
+                      filter: function (item) { return !!item.text; } },
+            // Toggle a format's median + its three preceding datasets (raw
+            // dots, lower band, upper band) together.
+            onClick: function (e, item, legend) {
+              var ch = legend.chart;
+              var i = item.datasetIndex;
+              var visible = ch.isDatasetVisible(i);
+              [i, i - 1, i - 2, i - 3].forEach(function (k) {
+                if (k >= 0) ch.setDatasetVisibility(k, !visible);
+              });
+              ch.update();
+            },
+          },
+          tooltip: { displayColors: true, filter: function (it) { return it.dataset._fmt !== undefined; },
+            callbacks: { label: function (ctx) {
+              return formatLabel(ctx.dataset._fmt) + ": " + ctx.parsed.y.toFixed(unit.decimals || 0) + " " + (unit.suffix || "");
+            } } },
+        },
+      },
+    });
+    canvas.__bench_chart = chart;
+    canvas.__bench_robust = true;
+    return chart;
+  }
+
   function constructChart(card) {
     var idx = card.getAttribute("data-chart-index");
     var canvas = card.querySelector('canvas[data-chart-index="' + idx + '"]');
@@ -1174,6 +1351,10 @@
     var payload = normalizeChartPayload(canvas.__bench_payload || readInlinePayload(idx));
     if (!payload) return null;
     canvas.__bench_payload = payload;
+    // Robust band history cards (Previous Versions) render a dedicated chart
+    // instead of the raw pan/zoom explorer line. The per-card filter
+    // (engine/op) is on the card itself.
+    if (card.hasAttribute("data-robust")) return constructRobustChart(card, canvas, payload);
     // Latest-100 payloads are normalized onto the full x-axis. `history`
     // tells us whether old indices are virtual placeholders or real data.
     if (canvas.__bench_full_loaded === undefined) {
@@ -1842,17 +2023,23 @@
 
   function applyGroupShard(group, shard) {
     if (!shard || !Array.isArray(shard.charts)) return;
+    var cards = groupCards(group);
     shard.charts.forEach(function (payload) {
       if (!payload || !payload.slug) return;
-      var card = cardBySlug(group, payload.slug);
-      var canvas = card && card.querySelector("canvas");
-      if (!canvas) return;
-      if (!canvas.__bench_full_loaded) {
-        canvas.__bench_payload = normalizeChartPayload(payload);
-        canvas.__bench_payload_window = CHART_FETCH_N;
-      }
-      showCardLoading(card, false);
-      if (groupIsOpen(group)) fetchAndConstruct(card);
+      var norm = normalizeChartPayload(payload);
+      // A query slug can back more than one card (e.g. a DataFusion card and a
+      // DuckDB card per query); hand the payload to every card that owns it.
+      cards.forEach(function (card) {
+        if (card.getAttribute("data-chart-slug") !== payload.slug) return;
+        var canvas = card.querySelector("canvas");
+        if (!canvas) return;
+        if (!canvas.__bench_full_loaded) {
+          canvas.__bench_payload = norm;
+          canvas.__bench_payload_window = CHART_FETCH_N;
+        }
+        showCardLoading(card, false);
+        if (groupIsOpen(group)) fetchAndConstruct(card);
+      });
     });
   }
 
@@ -2187,6 +2374,30 @@
     }, SORT_ANIM.duration + 80);
   }
 
+  // The pre-layout barThickness estimate can leave a sub-pixel gap between the
+  // rows of a dense chart (ClickBench's 43 queries), which reads as faint
+  // black/white stripes between bars. After each layout, size bars to the
+  // measured row spacing (+1px so adjacent bars overlap slightly and the
+  // distribution reads as one continuous mass). Idempotent — re-runs only when
+  // the spacing actually changes (resize, reveal), and the corrective update is
+  // deferred a frame so it never recurses inside the current update.
+  var fitSpeedupBarsPlugin = {
+    id: "fitSpeedupBars",
+    afterUpdate: function (chart) {
+      var y = chart.scales && chart.scales.y;
+      var ds = chart.data.datasets[0];
+      var n = ds && ds.data ? ds.data.length : 0;
+      if (!y || n < 2) return;
+      var perRow = Math.abs(y.getPixelForValue(1) - y.getPixelForValue(0));
+      if (!isFinite(perRow) || perRow <= 0) return;
+      var t = Math.max(3, Math.round(perRow) + 1);
+      if (ds.barThickness !== t) {
+        ds.barThickness = t;
+        requestAnimationFrame(function () { if (chart.canvas) chart.update("none"); });
+      }
+    },
+  };
+
   function buildSpeedupChart(figure) {
     if (typeof Chart === "undefined") return;
     var canvas = figure.querySelector('[data-role="speedup-canvas"]');
@@ -2214,6 +2425,7 @@
     };
     entry.chart = new Chart(canvas, {
       type: "bar",
+      plugins: [fitSpeedupBarsPlugin],
       data: {
         datasets: [{
           data: [],
@@ -2426,7 +2638,9 @@
         var btn = e.target.closest("[data-sf]");
         if (!btn || btn.disabled || !group.contains(btn)) return;
         var sf = btn.getAttribute("data-sf");
-        var section = group.closest(".current-group");
+        // Latest Commit sections are `.current-group`; Previous Versions groups
+        // are `.group-details`.
+        var section = group.closest(".current-group") || group.closest(".group-details");
         if (!section) return;
         group.querySelectorAll("[data-sf]").forEach(function (b) {
           var on = b === btn;
@@ -2436,12 +2650,16 @@
         section.querySelectorAll(".speedup-sf").forEach(function (div) {
           div.hidden = div.getAttribute("data-sf") !== sf;
         });
-        speedupChartEntries.forEach(function (en) {
-          if (en.chart && en.chart.canvas && section.contains(en.chart.canvas)) {
+        // Charts hidden while their pane was 0-width need a resize on reveal.
+        function reflow(entries) {
+          entries.forEach(function (en) {
+            if (!en.chart || !en.chart.canvas || !section.contains(en.chart.canvas)) return;
             var sfDiv = en.chart.canvas.closest(".speedup-sf");
             if (sfDiv && !sfDiv.hidden) { en.chart.resize(); en.chart.update("none"); }
-          }
-        });
+          });
+        }
+        reflow(speedupChartEntries); // Latest Commit distributions
+        reflow(historyChartEntries); // Previous Versions headline lines
       });
     });
   }
@@ -2456,6 +2674,217 @@
       e.chart.options.scales.x.ticks.color = cssVar("--muted");
       e.chart.options.scales.x.title.color = cssVar("--faint");
       e.chart.update();
+    });
+  }
+
+  // ---- Previous Versions: synthesis-over-time headline charts -------------
+  // One line per format-vs-Parquet trajectory across versions, emphasised at
+  // the 1x baseline; its latest point equals the Current headline. Same lexicon
+  // as every multi-series chart: COLOUR = format, DASH = engine, with
+  // engine-less facets falling back to FALLBACK_DASHES.
+  var historyChartEntries = [];
+
+  function buildHistoryChart(figure) {
+    if (typeof Chart === "undefined") return;
+    var canvas = figure.querySelector('[data-role="history-canvas"]');
+    var dataNode = figure.querySelector('[data-role="history-data"]');
+    if (!canvas || !dataNode) return;
+    var data;
+    try { data = JSON.parse(dataNode.textContent); } catch (e) { return; }
+    if (!data || !data.commits || !data.commits.length || !data.lines || !data.lines.length) return;
+    var labels = data.commits.map(function (c) { return c.sha; });
+    // Same robust treatment as the per-card history charts: each line becomes
+    // a centred rolling median + p25–p75 ribbon in log2 space (ratios are
+    // multiplicative, so log-space windows give geometric stats). Four
+    // datasets per line — raw(faint dots, behind)/lower(transparent)/upper
+    // (fill:-1, low-alpha)/median(labelled). The raw dots reveal where the
+    // points actually fell so the band/line aren't blackbox smoothing. Lines
+    // are solid: each headline is single-engine/single-op after the
+    // server-side split, so the lexicon's engine-dash would be redundant.
+    var datasets = [];
+    data.lines.forEach(function (ln) {
+      var cvar = formatColorVar(ln.format), color = cssVar(cvar);
+      var logs = ln.speedups.map(function (s) { return s == null ? null : Math.log2(s); });
+      var medLog = rollingMedian(logs, ROBUST_WINDOW);
+      var loLog = rollingQuantile(logs, ROBUST_WINDOW, 0.25);
+      var hiLog = rollingQuantile(logs, ROBUST_WINDOW, 0.75);
+      datasets.push({
+        data: logs,
+        borderColor: "transparent",
+        backgroundColor: color + "44",
+        pointRadius: 1.5,
+        pointHoverRadius: 1.5,
+        pointBorderWidth: 0,
+        showLine: false,
+        spanGaps: false,
+        _raw: true,
+        _aux_fmt: ln.format,
+        _aux_alpha: "44",
+      });
+      datasets.push({
+        data: loLog, borderColor: "transparent", pointRadius: 0, fill: false,
+        tension: 0.25, spanGaps: true,
+      });
+      datasets.push({
+        data: hiLog, borderColor: "transparent", pointRadius: 0, fill: "-1",
+        backgroundColor: color + "26", tension: 0.25, spanGaps: true,
+        _aux_fmt: ln.format, _aux_alpha: "26",
+      });
+      datasets.push({
+        label: ln.label,
+        data: medLog,
+        _cvar: cvar,
+        _fmt: ln.format,
+        borderColor: color,
+        backgroundColor: color,
+        borderWidth: 2,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        tension: 0.25,
+        spanGaps: true,
+      });
+    });
+    // Always keep the 1x baseline (log2 = 0) in view, padded against the band
+    // bounds so the anchor the methodology talks about is visible. Raw points
+    // are excluded — a single spike would otherwise blow out the scale and
+    // hide the band trend.
+    var ys = [0];
+    datasets.forEach(function (ds) {
+      if (!ds.data || ds._raw) return;
+      ds.data.forEach(function (y) { if (y != null && isFinite(y)) ys.push(y); });
+    });
+    var lo = Math.min.apply(null, ys), hi = Math.max.apply(null, ys);
+    var pad = Math.max((hi - lo) * 0.15, 0.12);
+    var yMin = lo - pad, yMax = hi + pad;
+    var entry = { chart: null };
+    entry.chart = new Chart(canvas, {
+      type: "line",
+      data: { labels: labels, datasets: datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: { mode: "index", intersect: false },
+        layout: { padding: { top: 4, right: 8 } },
+        scales: {
+          x: {
+            grid: { display: false },
+            border: { display: false },
+            ticks: { color: cssVar("--muted"), font: { family: MONO_FONT, size: 11 }, maxRotation: 0, autoSkip: true },
+          },
+          y: {
+            min: yMin,
+            max: yMax,
+            // Emphasise the 1x (log2 = 0) baseline; read theme vars live so a
+            // theme flip recolours without a rebuild.
+            grid: {
+              color: function (ctx) { return ctx.tick && ctx.tick.value === 0 ? cssVar("--fg") : cssVar("--line"); },
+              lineWidth: function (ctx) { return ctx.tick && ctx.tick.value === 0 ? 1.5 : 1; },
+            },
+            border: { display: false },
+            ticks: {
+              color: cssVar("--muted"),
+              font: { family: MONO_FONT, size: 11 },
+              callback: function (v) { return fmtSpeedupTick(v); },
+            },
+          },
+        },
+        plugins: {
+          legend: {
+            display: data.lines.length > 1,
+            position: "top",
+            align: "end",
+            labels: {
+              color: cssVar("--muted"), font: { family: MONO_FONT, size: 11 },
+              boxWidth: 18, boxHeight: 0,
+              // Only labelled (median) datasets appear in the legend; bands have
+              // no label and are hidden via this filter.
+              filter: function (item) { return !!item.text; },
+            },
+            // Clicking a legend entry toggles the median + the three datasets
+            // immediately preceding it (raw, lower band, upper band) — i.e.,
+            // everything that belongs to this format's line.
+            onClick: function (e, item, legend) {
+              var ch = legend.chart;
+              var i = item.datasetIndex;
+              var visible = ch.isDatasetVisible(i);
+              [i, i - 1, i - 2, i - 3].forEach(function (k) {
+                if (k >= 0) ch.setDatasetVisibility(k, !visible);
+              });
+              ch.update();
+            },
+          },
+          tooltip: {
+            displayColors: true,
+            bodyFont: { family: MONO_FONT, size: 12 },
+            titleFont: { family: MONO_FONT, size: 12 },
+            // Skip the band datasets in the tooltip — only the median lines.
+            filter: function (it) { return it.dataset._fmt !== undefined; },
+            callbacks: {
+              title: function (items) {
+                var c = (items.length && data.commits[items[0].dataIndex]) || {};
+                return c.sha ? c.sha + (c.msg ? " · " + c.msg.slice(0, 44) : "") : "";
+              },
+              label: function (ctx) {
+                var v = ctx.parsed.y;
+                if (v == null || !isFinite(v)) return ctx.dataset.label + ": —";
+                var lin = Math.pow(2, v);
+                var metric = data.metric || "faster", anti = SPEEDUP_ANTONYM[metric] || "slower";
+                var rel = lin >= 1 ? lin.toFixed(2) + "× " + metric : (1 / lin).toFixed(2) + "× " + anti;
+                return ctx.dataset.label + ": " + rel;
+              },
+            },
+          },
+        },
+      },
+    });
+    historyChartEntries.push(entry);
+  }
+
+  function initHistoryCharts() {
+    document.querySelectorAll('[data-role="history-chart"]').forEach(buildHistoryChart);
+  }
+
+  function recolorHistoryCharts() {
+    historyChartEntries.forEach(function (e) {
+      if (!e.chart) return;
+      e.chart.data.datasets.forEach(function (ds) {
+        if (ds._cvar) {
+          // Median: standard format-colour recolour.
+          var color = cssVar(ds._cvar);
+          ds.borderColor = color;
+          ds.backgroundColor = color;
+          ds.pointBackgroundColor = color;
+        } else if (ds._aux_fmt) {
+          // Band fill or raw-point dots: refresh from the format's fresh
+          // CSS var, preserving the dataset's recorded alpha suffix.
+          ds.backgroundColor = cssVar(formatColorVar(ds._aux_fmt)) + (ds._aux_alpha || "26");
+        }
+      });
+      e.chart.options.scales.x.ticks.color = cssVar("--muted");
+      e.chart.options.scales.y.ticks.color = cssVar("--muted");
+      e.chart.options.plugins.legend.labels.color = cssVar("--muted");
+      e.chart.update("none");
+    });
+  }
+
+  // Explorer (per-benchmark) line charts bake their format colour at build time
+  // via formatColor(); --fmt-vortex flips with the theme, so recompute each
+  // dataset's colour from its stored format on a theme change. Other formats
+  // resolve to theme-independent vars, so this is a no-op for them.
+  function recolorExplorerCharts() {
+    document.querySelectorAll("canvas").forEach(function (canvas) {
+      var chart = canvas.__bench_chart;
+      if (!chart || !chart.data || !chart.data.datasets) return;
+      var touched = false;
+      chart.data.datasets.forEach(function (ds) {
+        if (!ds.benchMeta) return;
+        var color = formatColor(ds.benchMeta.format);
+        ds.borderColor = color;
+        ds.backgroundColor = color + "20";
+        touched = true;
+      });
+      if (touched) chart.update("none");
     });
   }
 
@@ -2943,6 +3372,8 @@
     // Canvas fills are baked at draw time, so the Current charts need a
     // re-render to pick up the flipped palette.
     recolorSpeedupCharts();
+    recolorHistoryCharts();
+    recolorExplorerCharts();
   }
 
   function updateThemeButtons() {
@@ -3089,6 +3520,8 @@
     // Build the Current page's speedup charts (no-op elsewhere).
     initSpeedupCharts();
     initSpeedupSortControls();
+    // Build the Previous Versions headline charts (no-op elsewhere).
+    initHistoryCharts();
     initSfToggles();
     initCurrentCollapse();
     initGroupToolbars();

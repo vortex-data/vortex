@@ -34,27 +34,30 @@ pub fn group_description(name: &str) -> Option<String> {
 /// match the wording style v2 set.
 fn static_description(name: &str) -> Option<&'static str> {
     match name {
-        "Random Access" => {
-            Some("Tests performance of selecting arbitrary row indices from a file on NVMe storage")
-        }
+        "Random Access" => Some(
+            "Point lookups — selecting specific rows by position from an NVMe file. \
+             What feature stores, vector retrieval, and per-record serving actually do.",
+        ),
         "Compression Speed" => Some(
-            "Measures encoding and decoding throughput (MB/s) for Vortex files and Parquet \
-             files (with zstd page compression)",
+            "Encode and decode throughput (MB/s) for Vortex vs Parquet (zstd page \
+             compression). Encode gates ingestion; decode gates every scan after.",
         ),
         "Compression Size" => Some(
-            "Compares compressed file sizes and compression ratios across different encoding \
-             strategies",
+            "Compressed file size per format across a fixed set of datasets. A faster \
+             format that bloats on disk just trades one bill for another.",
         ),
         "Clickbench" => Some(
-            "ClickHouse's analytical benchmark suite testing real-world query patterns on web \
-             analytics data",
+            "ClickHouse's 43-query analytical suite over real web-analytics data — the \
+             field's standard test for single-table scans, filters, and aggregations.",
         ),
-        "Statistical and Population Genetics" => {
-            Some("A suite of Statistical and Population genetics queries using the gnomAD dataset")
-        }
+        "Statistical and Population Genetics" => Some(
+            "Population-genetics queries over the gnomAD dataset — DuckDB-only, exercising \
+             the deeply-nested array operations real genomics pipelines run on.",
+        ),
         "PolarSignals Profiling" => Some(
-            "Profiling data benchmark modeled on PolarSignals/Parca, exercising scan-layer \
-             performance with projection and filter pushdown on deeply nested schemas",
+            "Scan-layer benchmark modeled on PolarSignals/Parca: projection and filter \
+             pushdown over deeply-nested profile schemas — the shape continuous-profiling \
+             backends actually read.",
         ),
         _ => None,
     }
@@ -94,29 +97,36 @@ fn parse_sf(s: &str) -> Option<String> {
     }
 }
 
-/// Render the v2-compatible TPC blurb. Storage label comes from the parsed
-/// group name; scale-bytes annotation only renders for TPC-H (TPC-DS in v2
-/// did not annotate scale bytes).
+/// Render a TPC blurb. Storage label comes from the parsed group name; the
+/// dataset size annotation only renders for TPC-H (its scale-factor → bytes
+/// mapping is canonical; TPC-DS schemas vary too much per query to annotate).
 fn format_tpc(suite: &str, storage: &str, sf: &str) -> String {
     let storage_phrase = match storage {
-        "nvme" => "on local NVMe storage",
-        "s3" => "against S3 storage",
-        _ => "on local NVMe storage",
+        "nvme" => "on local NVMe",
+        "s3" => "against S3",
+        _ => "on local NVMe",
     };
     let bytes = match sf {
-        "1" => Some("1GB"),
-        "10" => Some("10GB"),
-        "100" => Some("100GB"),
-        "1000" => Some("1TB"),
+        "1" => Some("1 GB"),
+        "10" => Some("10 GB"),
+        "100" => Some("100 GB"),
+        "1000" => Some("1 TB"),
         _ => None,
     };
     match (suite, bytes) {
-        ("TPC-H", Some(b)) => {
-            format!("TPC-H benchmark queries {storage_phrase} at SF={sf} (~{b} of data)",)
-        }
-        ("TPC-H", None) => format!("TPC-H benchmark queries {storage_phrase} at SF={sf}"),
-        ("TPC-DS", _) => format!("TPC-DS benchmark queries {storage_phrase} at SF={sf}"),
-        _ => format!("{suite} benchmark queries {storage_phrase} at SF={sf}"),
+        ("TPC-H", Some(b)) => format!(
+            "TPC-H — 22 analytical queries against the canonical OLAP star schema — \
+             at scale factor {sf} (~{b}), {storage_phrase}."
+        ),
+        ("TPC-H", None) => format!(
+            "TPC-H — 22 analytical queries against the canonical OLAP star schema — \
+             at scale factor {sf}, {storage_phrase}."
+        ),
+        ("TPC-DS", _) => format!(
+            "TPC-DS — the broader 99-query analytical suite (larger schemas, skewed \
+             distributions) — at scale factor {sf}, {storage_phrase}."
+        ),
+        _ => format!("{suite} benchmark queries at scale factor {sf}, {storage_phrase}."),
     }
 }
 
@@ -125,77 +135,42 @@ mod tests {
     use super::*;
 
     #[test]
-    fn static_descriptions_match_v2() {
-        assert_eq!(
-            group_description("Random Access").as_deref(),
-            Some(
-                "Tests performance of selecting arbitrary row indices from a file on NVMe storage"
-            ),
-        );
-        assert_eq!(
-            group_description("Compression Speed").as_deref(),
-            Some(
-                "Measures encoding and decoding throughput (MB/s) for Vortex files and Parquet \
-                 files (with zstd page compression)",
-            ),
-        );
-        assert_eq!(
-            group_description("Compression Size").as_deref(),
-            Some(
-                "Compares compressed file sizes and compression ratios across different encoding \
-                 strategies",
-            ),
-        );
-        assert_eq!(
-            group_description("Clickbench").as_deref(),
-            Some(
-                "ClickHouse's analytical benchmark suite testing real-world query patterns on \
-                 web analytics data",
-            ),
-        );
-        assert_eq!(
-            group_description("Statistical and Population Genetics").as_deref(),
-            Some("A suite of Statistical and Population genetics queries using the gnomAD dataset",),
-        );
-        assert_eq!(
-            group_description("PolarSignals Profiling").as_deref(),
-            Some(
-                "Profiling data benchmark modeled on PolarSignals/Parca, exercising scan-layer \
-                 performance with projection and filter pushdown on deeply nested schemas",
-            ),
-        );
+    fn static_descriptions_present_for_known_groups() {
+        for name in [
+            "Random Access",
+            "Compression Speed",
+            "Compression Size",
+            "Clickbench",
+            "Statistical and Population Genetics",
+            "PolarSignals Profiling",
+        ] {
+            let d = group_description(name).expect("description present");
+            assert!(!d.is_empty(), "{name}: description is empty");
+        }
     }
 
     #[test]
     fn tpch_descriptions_carry_scale_bytes() {
-        assert_eq!(
-            group_description("TPC-H (NVMe) (SF=1)").as_deref(),
-            Some("TPC-H benchmark queries on local NVMe storage at SF=1 (~1GB of data)"),
-        );
-        assert_eq!(
-            group_description("TPC-H (S3) (SF=10)").as_deref(),
-            Some("TPC-H benchmark queries against S3 storage at SF=10 (~10GB of data)"),
-        );
-        assert_eq!(
-            group_description("TPC-H (NVMe) (SF=100)").as_deref(),
-            Some("TPC-H benchmark queries on local NVMe storage at SF=100 (~100GB of data)"),
-        );
-        assert_eq!(
-            group_description("TPC-H (S3) (SF=1000)").as_deref(),
-            Some("TPC-H benchmark queries against S3 storage at SF=1000 (~1TB of data)"),
-        );
+        // Each TPC-H blurb names the suite shape (22 analytical queries, OLAP) and
+        // annotates the dataset size for the SF.
+        let d = group_description("TPC-H (NVMe) (SF=1)").expect("present");
+        assert!(d.contains("22 analytical queries"), "shape: {d}");
+        assert!(d.contains("(~1 GB)"), "size: {d}");
+        assert!(d.contains("on local NVMe"), "storage: {d}");
+
+        let d = group_description("TPC-H (S3) (SF=1000)").expect("present");
+        assert!(d.contains("(~1 TB)"), "size: {d}");
+        assert!(d.contains("against S3"), "storage: {d}");
     }
 
     #[test]
     fn tpcds_descriptions_omit_scale_bytes() {
-        assert_eq!(
-            group_description("TPC-DS (NVMe) (SF=1)").as_deref(),
-            Some("TPC-DS benchmark queries on local NVMe storage at SF=1"),
-        );
-        assert_eq!(
-            group_description("TPC-DS (NVMe) (SF=10)").as_deref(),
-            Some("TPC-DS benchmark queries on local NVMe storage at SF=10"),
-        );
+        // TPC-DS blurbs name the suite shape (99 queries, broader/skewed) but do
+        // not annotate scale-bytes (mapping isn't canonical the way TPC-H's is).
+        let d = group_description("TPC-DS (NVMe) (SF=1)").expect("present");
+        assert!(d.contains("99-query"), "shape: {d}");
+        assert!(d.contains("on local NVMe"), "storage: {d}");
+        assert!(!d.contains("GB") && !d.contains("TB"), "no bytes: {d}");
     }
 
     #[test]

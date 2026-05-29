@@ -69,7 +69,7 @@ pub(super) fn showcase_body(generation: &ReadGeneration) -> Markup {
                 (size_claim(generation, size))
             }
             div.showcase-cta {
-                a.show-everything href="/current" {
+                a.show-everything href="/latest" {
                     "Show me everything"
                     span.show-everything-arrow aria-hidden="true" { " →" }
                 }
@@ -407,5 +407,5 @@ fn query_group<'a>(groups: &'a [Group], dataset: &str) -> Option<&'a Group> {
 /// [`anchor_for`] keeps the fragment in lockstep with the section id the
 /// Current page emits, so the link scrolls to and `:target`-highlights it.
 fn more_href(group: Option<&Group>) -> Option<String> {
-    group.map(|g| format!("/current#{}", anchor_for(&g.slug)))
+    group.map(|g| format!("/latest#{}", anchor_for(&g.slug)))
 }

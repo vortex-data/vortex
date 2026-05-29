@@ -31,11 +31,10 @@ pub(super) enum PageScripts {
 pub(super) enum NavPage {
     /// `/` - the showcase.
     Overview,
-    /// `/current` - the synthesized Vortex-vs-Parquet comparisons.
-    Current,
-    /// `/raw` (and `/historic`, `/all`) - the as-collected experiment charts
-    /// and their drift over time.
-    RawData,
+    /// `/latest` (and `/current`) - the synthesized Vortex-vs-Parquet snapshot.
+    Latest,
+    /// `/historic` (and `/raw`, `/all`) - the same metric plotted across commits.
+    Historic,
     /// Permalink / error pages - no nav item highlighted.
     Other,
 }
@@ -167,7 +166,7 @@ fn site_header(nav: NavPage) -> Markup {
     let white_logo = versioned_asset("/Vortex_White_NoBG.png");
     // Expand/Collapse All act on both data tabs: the explorer's disclosures
     // (Previous Versions) and the speedup sections (Latest Commit).
-    let show_group_controls = matches!(nav, NavPage::Current | NavPage::RawData);
+    let show_group_controls = matches!(nav, NavPage::Latest | NavPage::Historic);
     html! {
         header.sticky-header {
             div.header-content {
@@ -256,8 +255,8 @@ fn site_nav(active: NavPage) -> Markup {
     html! {
         nav.site-nav aria-label="Primary" {
             (link("/", "Overview", NavPage::Overview))
-            (link("/current", "Latest Commit", NavPage::Current))
-            (link("/raw", "Previous Versions", NavPage::RawData))
+            (link("/latest", "Latest Commit", NavPage::Latest))
+            (link("/historic", "Historic Data", NavPage::Historic))
         }
     }
 }

@@ -26,6 +26,17 @@
   --accent: #f2f2f2;      /* monochrome "accent" = fg (UI chrome) */
   --accent-fg: #101010;   /* text on an accent fill */
   --bar: #d4d4d4;         /* chart bar fill — off-white, softer than fg */
+  /* Series lexicon — COLOUR = file format (Vortex is the white hero), used by
+   * every multi-series chart. Line STYLE encodes the query engine (see
+   * chart-init.js engineDash). Mid-tone hues read on both dark and light, so
+   * only --fmt-vortex is theme-aware (it tracks the ink colour). */
+  --fmt-vortex: #f2f2f2;         /* white hero (dark); overridden in light */
+  --fmt-vortex-compact: #4fb3c4; /* teal */
+  --fmt-parquet: #7e96c8;        /* periwinkle */
+  --fmt-arrow: #c9805a;          /* terracotta */
+  --fmt-duckdb: #d6b94a;         /* gold */
+  --fmt-lance: #a98ee0;          /* violet */
+  --fmt-other: #8a8a8a;          /* fallback */
   --grid-dot: rgba(255, 255, 255, 0.05);
   --good: #8fd19e;        /* faster / better (desaturated to fit mono) */
   --bad: #e0a0a0;         /* slower / worse */
@@ -53,6 +64,7 @@
     --accent: #101010;
     --accent-fg: #ffffff;
     --bar: #3d3d3d;
+    --fmt-vortex: #101010;
     --grid-dot: rgba(0, 0, 0, 0.06);
     --good: #1f7a3d;
     --bad: #b3261e;
@@ -75,6 +87,7 @@
   --accent: #101010;
   --accent-fg: #ffffff;
   --bar: #3d3d3d;
+  --fmt-vortex: #101010;
   --grid-dot: rgba(0, 0, 0, 0.06);
   --good: #1f7a3d;
   --bad: #b3261e;
@@ -434,6 +447,44 @@ main { width: 100%; max-width: none; margin: 0; padding: 2rem; }
   background: var(--bg);
 }
 
+/* Previous Versions headline chart: the baseline synthesis trend, shown above
+ * the (expandable) per-query history grid. */
+.history-figure {
+  margin: 0;
+  padding: 1.25rem 1.5rem 1.5rem;
+  background: var(--bg);
+}
+.history-chart-wrap { position: relative; height: 220px; }
+/* Multi-headline grid: when a group's headline splits per engine (qm) or per op
+ * (ct) — mirrors the per-card 2-col layout. Single-headline cases bypass this. */
+.history-headline-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+}
+@media (min-width: 1200px) {
+  .history-headline-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.history-headline-grid .history-figure { padding: 1rem 1.5rem 1.25rem; }
+.history-headline-grid .history-chart-wrap { height: 200px; }
+.history-facet-title {
+  margin: 0 0 0.6rem;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+/* Storage + scale-factor toggles above the headline chart (TPC suites). */
+.history-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 1rem 1.5rem 0;
+}
+
 .benchmark-scores-summary {
   border-bottom: 1px solid var(--line);
   background: var(--surface);
@@ -735,6 +786,12 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   .chart-wrap { height: 450px; }
 }
 main > .chart-card:not(.chart-grid .chart-card) .chart-wrap { height: 680px; }
+
+/* Robust per-engine history cards: a band overview reads fine at a compact
+ * height, so more queries fit per screen. (Deferral is handled by the
+ * IntersectionObserver, not content-visibility — the latter zero-sizes the
+ * canvas and breaks Chart.js responsive sizing.) */
+.chart-card[data-robust] .chart-wrap { height: 250px; }
 
 /* ----------------------------------------------------------------------
  * Range scrollbar strip
@@ -1268,7 +1325,18 @@ a.scale-pill:hover { border-color: var(--fg); color: var(--fg); text-decoration:
   font-weight: 500;
   line-height: 1.18;
 }
-.current-lead { margin: 0; max-width: 60ch; color: var(--muted); font-size: 0.98rem; }
+.methodology-text { margin: 0; max-width: 64ch; color: var(--muted); font-size: 0.98rem; line-height: 1.6; }
+.methodology-text strong { color: var(--fg); font-weight: 600; }
+/* Methodology block: a labelled "how to read these" at the top of the page. */
+.methodology { display: flex; flex-direction: column; gap: 0.7rem; }
+.methodology-label {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--faint);
+}
 
 /* One group. The id is a deep-link target; scroll-margin clears the sticky
  * header and :target gives a brief accent wash so the jump is legible. */
@@ -1323,18 +1391,25 @@ a.scale-pill:hover { border-color: var(--fg); color: var(--fg); text-decoration:
 .current-collapse-caret::before { content: "▾"; }
 .current-group--collapsed .current-collapse-caret { transform: rotate(-90deg); }
 .current-group--collapsed .speedup-grid,
-.current-group--collapsed .current-group-blurb { display: none; }
+.current-group--collapsed .current-group-body { display: none; }
 
-/* Short editorial blurb inside a section's collapsible body. One line at
- * desktop width; wraps naturally only when the viewport is genuinely narrow. */
-.current-group-blurb {
-  margin: 0 0 1.5rem;
+/* Fan-out body: the scale-factor toggle sits above the charts (so it folds away
+ * with them on collapse), spaced off the chart grid below. */
+.current-group-body .dim-toggle { margin-bottom: 1rem; }
+
+/* One-line description folded into the heading after the title, set off by a
+ * middot. Muted and lighter than the title so the workload name stays dominant;
+ * wraps with the heading on narrow viewports. */
+.current-group-desc {
   color: var(--muted);
-  font-size: 0.95rem;
-  line-height: 1.6;
+  font-size: 0.9rem;
+  font-weight: 400;
 }
-.current-group-rawlink { color: var(--muted); border-bottom: 1px solid var(--line-strong); white-space: nowrap; }
-.current-group-rawlink:hover { color: var(--fg); border-color: var(--fg); text-decoration: none; }
+.current-group-desc::before {
+  content: "·";
+  margin: 0 0.5em;
+  color: var(--faint);
+}
 
 /* "As of <sha> · <date>" snapshot stamp under the lead. */
 .current-stamp {
@@ -1437,8 +1512,8 @@ a.scale-pill:hover { border-color: var(--fg); color: var(--fg); text-decoration:
 .speedup-sort-btn:hover { color: var(--fg); border-color: var(--fg); }
 .speedup-sort-btn--active { background: var(--surface-2); border-color: var(--line-strong); color: var(--fg); }
 
-/* Storage / scale-factor dimension toggles in a TPC section head. Swap the
- * visible charts in place rather than navigating. */
+/* Scale-factor toggle: a row of pill buttons that swap the visible charts in
+ * place rather than navigating. */
 .dim-toggle { display: inline-flex; align-items: center; gap: 0.3rem; }
 .dim-btn {
   padding: 0.3rem 0.7rem;
@@ -1456,3 +1531,4 @@ a.scale-pill:hover { border-color: var(--fg); color: var(--fg); text-decoration:
 .dim-btn:hover:not(:disabled) { color: var(--fg); border-color: var(--fg); }
 .dim-btn--active { background: var(--surface-2); border-color: var(--line-strong); color: var(--fg); }
 .dim-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+

@@ -10,12 +10,11 @@
 use maud::Markup;
 use maud::html;
 
+use super::current::history_section;
 use super::render::filter_icon;
-use super::summary::summary_markup;
-use super::toolbar::per_chart_toolbar;
-use super::toolbar::range_strip;
 use crate::api;
 use crate::api::Summary;
+use crate::read_model::ReadGeneration;
 
 /// One group's worth of data for the landing page.
 ///
@@ -39,7 +38,10 @@ pub(super) struct LandingGroup {
     /// Optional editorial blurb rendered as a hover tooltip on the
     /// disclosure title's info-icon.
     pub(super) description: Option<String>,
-    /// Optional v2-compatible summary card rendered above the chart grid.
+    /// Optional v2-compatible summary card. Retired on Previous Versions in
+    /// favour of the synthesis headline chart; kept on the struct until the v2
+    /// summary chain is removed.
+    #[allow(dead_code)]
     pub(super) summary: Option<Summary>,
     /// Chart links for every chart in the group. Always present - we need
     /// the slugs server-side so the chart-card shell can carry
@@ -48,6 +50,13 @@ pub(super) struct LandingGroup {
     /// Scale-factor selector for TPC query suites: the largest SF is current,
     /// the rest link to their group pages. Empty for non-TPC and single-SF groups.
     pub(super) scale_pills: Vec<ScalePill>,
+    /// Distinct engines that actually have data in this query group's charts
+    /// (e.g. `["datafusion", "duckdb"]` for ClickBench/TPC-H, `["duckdb"]` for
+    /// statpopgen, `["datafusion"]` for polarsignals). Empty for non-query
+    /// families. Drives which per-engine cards the chart grid emits so a
+    /// single-engine group doesn't render hidden placeholders that reflow the
+    /// layout.
+    pub(super) engines: Vec<String>,
 }
 
 /// One scale-factor option in a TPC suite's selector.
@@ -69,19 +78,92 @@ pub(super) struct ScalePill {
 /// payloads - every chart hydrates from a versioned shard artifact on
 /// first intent/open. The `chart-data-N` inline-script id is permalink-page
 /// only and lives in `chart.rs`.
-pub(super) fn landing_body(groups: &[LandingGroup], universe: &api::FilterUniverse) -> Markup {
+pub(super) fn landing_body(
+    generation: &ReadGeneration,
+    groups: &[LandingGroup],
+    universe: &api::FilterUniverse,
+) -> Markup {
     if groups.is_empty() {
         return html! {
             p.empty { "No data ingested yet." }
         };
     }
-    let total_charts: usize = groups.iter().map(|g| g.chart_links.len()).sum();
-    // Give every chart a unique `data-chart-index` integer so chart-init.js
-    // can wire each canvas to its toolbar controls; the index is per-page
-    // unique, not a lookup key.
-    let mut idx_iter = 0usize..total_charts;
+    // One robust card per chart, except for chart kinds that carry an
+    // incomparable secondary dimension — query charts (`qm.`) split per engine
+    // (DataFusion | DuckDB), compression-time charts (`ct.`) split per op
+    // (Encode | Decode). Cards are emitted interleaved so the 2-col grid puts
+    // the two facets side by side per chart (df-left/duck-right; encode-left/
+    // decode-right), and a 1-col breakpoint interleaves them. RA (`rat.`) and
+    // compression-size (`cs.`) charts get one card each. Every canvas gets a
+    // unique per-page `data-chart-index`.
+    struct CardSpec<'a> {
+        link: &'a api::ChartLink,
+        idx: usize,
+        engine: Option<&'static str>,
+        op: Option<&'static str>,
+    }
+    let mut next_idx = 0usize;
+    let mut group_cards: Vec<Vec<CardSpec>> = Vec::with_capacity(groups.len());
+    for g in groups.iter() {
+        // For query groups, the engine split honours `g.engines` (computed
+        // server-side from the data) so a single-engine group like statpopgen
+        // (duckdb-only) doesn't emit an empty DataFusion card that would
+        // reflow the layout. Fall back to both engines if the engine set is
+        // empty (defensive — happens only when the first chart payload was
+        // unavailable at shell render).
+        let mut cards = Vec::new();
+        for link in &g.chart_links {
+            let splits: Vec<(Option<&'static str>, Option<&'static str>)> =
+                if link.slug.starts_with("qm.") {
+                    let mut v: Vec<(Option<&'static str>, Option<&'static str>)> = Vec::new();
+                    for &eng in &["datafusion", "duckdb"] {
+                        if g.engines.iter().any(|e| e == eng) {
+                            v.push((Some(eng), None));
+                        }
+                    }
+                    if v.is_empty() {
+                        v.push((Some("datafusion"), None));
+                        v.push((Some("duckdb"), None));
+                    }
+                    v
+                } else if link.slug.starts_with("ct.") {
+                    vec![(None, Some("encode")), (None, Some("decode"))]
+                } else {
+                    vec![(None, None)]
+                };
+            for (engine, op) in &splits {
+                cards.push(CardSpec {
+                    link,
+                    idx: next_idx,
+                    engine: *engine,
+                    op: *op,
+                });
+                next_idx += 1;
+            }
+        }
+        group_cards.push(cards);
+    }
     html! {
-        @for group in groups.iter() {
+        header.current-intro {
+            h2.current-headline { "Vortex vs Parquet, across versions." }
+            div.methodology {
+                p.methodology-text {
+                    "Each group's headline plots one number across develop: the "
+                    strong { "geometric mean of its per-item Vortex/Parquet ratios" }
+                    " at each commit. Expand a group to see the per-item charts beneath — "
+                    "same time axis, plotted in "
+                    strong { "raw measurement units" }
+                    " (ms, MB/s, MiB) instead of ratios. Every line, headline or per-item, "
+                    "is a centred rolling median with a p25–p75 ribbon and the raw "
+                    "per-commit points faint behind it, so harness spikes and run-to-run "
+                    "jitter show up as ribbon width rather than as kinks in the trend. The "
+                    "rightmost point of every headline matches the "
+                    a href="/latest" { "Latest Commit" }
+                    " headline."
+                }
+            }
+        }
+        @for (group, cards) in groups.iter().zip(group_cards.iter()) {
             section.group-details
                 data-group-name=(group.name)
                 data-group-slug=(group.slug)
@@ -96,16 +178,14 @@ pub(super) fn landing_body(groups: &[LandingGroup], universe: &api::FilterUniver
                             span.group-count {
                                 (group.chart_links.len()) " chart" @if group.chart_links.len() != 1 { "s" }
                             }
-                            (scale_pills_markup(&group.scale_pills))
                         }
                     }
                 }
-                (summary_markup(group.summary.as_ref()))
+                (history_section(generation, group))
                 (per_group_toolbar(universe))
                 div.chart-grid {
-                    @for link in &group.chart_links {
-                        @let idx = idx_iter.next().expect("indices match charts");
-                        (chart_card(link, idx))
+                    @for c in cards.iter() {
+                        (chart_card(c.link, c.idx, c.engine, c.op))
                     }
                 }
             }
@@ -224,6 +304,10 @@ fn group_macro_row(label: &str, dim: &str, universe: &[String]) -> Markup {
 /// Render the scale-factor selector in a TPC group header: the current
 /// (largest) SF is a highlighted label, the others link to their group pages.
 /// Empty when there's nothing to switch between.
+// Retired on Previous Versions: the headline now carries an in-place SF toggle
+// (see `current::history_section`) instead of pills that link away to
+// per-SF group pages. Kept for potential reuse.
+#[allow(dead_code)]
 pub(super) fn scale_pills_markup(pills: &[ScalePill]) -> Markup {
     if pills.len() < 2 {
         return html! {};
@@ -258,20 +342,33 @@ pub(super) fn group_description_icon(description: Option<&str>) -> Markup {
 
 /// Render one chart-card shell. The payload arrives later from the group's
 /// materialized shard artifact.
-fn chart_card(link: &api::ChartLink, idx: usize) -> Markup {
+fn chart_card(link: &api::ChartLink, idx: usize, engine: Option<&str>, op: Option<&str>) -> Markup {
     let permalink = format!("/chart/{}", link.slug);
+    // Robust cards label the facet (engine or op) and drop the pan/zoom-only
+    // chrome (toolbar, downsample badge, range strip) — they render a static
+    // robust band chart instead. The `data-robust` flag drives the JS branch;
+    // `data-engine` / `data-op` carry the per-card series filter.
+    let suffix = match (engine, op) {
+        (Some("datafusion"), _) => Some("DataFusion"),
+        (Some("duckdb"), _) => Some("DuckDB"),
+        (_, Some("encode")) => Some("Encode"),
+        (_, Some("decode")) => Some("Decode"),
+        _ => None,
+    };
+    let title = match suffix {
+        Some(s) => format!("{} · {s}", link.name),
+        None => link.name.clone(),
+    };
     html! {
-        section.chart-card data-chart-index=(idx) data-chart-slug=(link.slug) {
+        section.chart-card data-robust data-chart-index=(idx) data-chart-slug=(link.slug)
+            data-engine=[engine] data-op=[op] {
             h3.chart-card-title {
-                a href=(permalink) { (link.name) }
-                (downsample_badge_slot())
+                a href=(permalink) { (title) }
             }
-            (per_chart_toolbar(idx))
             div.chart-tooltip-host {}
             div.chart-wrap {
                 canvas data-chart-index=(idx) {}
             }
-            (range_strip(idx))
         }
     }
 }

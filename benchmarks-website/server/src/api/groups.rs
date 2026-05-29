@@ -123,6 +123,8 @@ pub(crate) fn collect_query_groups(conn: &Connection) -> Result<Vec<Group>> {
 /// - `tpch` + storage + scale_factor → `TPC-H (NVMe) (SF=1)`
 /// - `tpcds` + storage + scale_factor → `TPC-DS (NVMe) (SF=1)`
 /// - `clickbench` → `Clickbench`
+/// - `statpopgen` → `Statistical and Population Genetics`
+/// - `polarsignals` → `PolarSignals Profiling`
 /// - anything else → fall back to the legacy `dataset[/variant] sf=N [storage]`
 ///   shape so unknown datasets still get a deterministic name.
 ///
@@ -144,6 +146,8 @@ fn group_name_query(
         ("tpch", Some(s), Some(sf)) => Some(format!("TPC-H ({s}) (SF={sf})")),
         ("tpcds", Some(s), Some(sf)) => Some(format!("TPC-DS ({s}) (SF={sf})")),
         ("clickbench", ..) => Some("Clickbench".to_string()),
+        ("statpopgen", ..) => Some("Statistical and Population Genetics".to_string()),
+        ("polarsignals", ..) => Some("PolarSignals Profiling".to_string()),
         _ => None,
     };
     if let Some(mut name) = base {

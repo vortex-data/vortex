@@ -26,6 +26,7 @@
 //! land on - and `:target`-highlight - the right section.
 
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 use maud::Markup;
 use maud::PreEscaped;
@@ -34,6 +35,7 @@ use serde::Serialize;
 
 use super::anchor_for;
 use super::landing::LandingGroup;
+use super::landing::ScalePill;
 use super::render::escape_json_for_script;
 use super::showcase::format_value;
 use super::showcase::latest_value;
@@ -57,13 +59,16 @@ pub(super) fn current_body(generation: &ReadGeneration, groups: &[LandingGroup])
         section.current {
             header.current-intro {
                 h2.current-headline { "Vortex vs Parquet, head to head." }
-                p.current-lead {
-                    "Each chart pits two formats against each other: every bar is one query, "
-                    "dataset, or access pattern, plotted as the ratio between them — so you see "
-                    "where the win holds and where it doesn't, not just the average. Pick a "
-                    "different pair with the dropdowns; the full per-commit history lives under "
-                    a href="/raw" { "Previous Versions" }
-                    "."
+                div.methodology {
+                    p.methodology-text {
+                        "Each chart distils one benchmark suite into a single "
+                        strong { "Vortex / Parquet ratio" }
+                        " at the latest develop commit — geometric mean over the suite's items (queries, datasets, access patterns). "
+                        strong { "1× is parity; above 1× means Vortex wins" }
+                        " (faster for time, smaller for size). Swap either side with the dropdowns; "
+                        a href="/historic" { "Historic Data" }
+                        " plots the same number at every commit."
+                    }
                 }
                 (snapshot_stamp(generation, groups))
             }
@@ -163,6 +168,29 @@ fn format_label(id: &str) -> &str {
         "arrow" => "Arrow",
         "duckdb" => "DuckDB",
         "lance" => "Lance",
+        other => other,
+    }
+}
+
+/// Headline-split key for one line: engine when set, else facet (the op for
+/// compression-time, `""` for single-chart kinds).
+fn history_split_key(l: &HistoryLine) -> &str {
+    if !l.engine.is_empty() {
+        &l.engine
+    } else {
+        &l.facet
+    }
+}
+
+/// Pretty label for a headline-split key (engine or op). The headline charts
+/// split per engine for query suites and per op for compression-time, mirroring
+/// the per-card layout — this turns the raw key into the chart's sub-title.
+fn pretty_split_label(key: &str) -> &str {
+    match key {
+        "datafusion" => "DataFusion",
+        "duckdb" => "DuckDB",
+        "encode" => "Encode",
+        "decode" => "Decode",
         other => other,
     }
 }
@@ -319,6 +347,330 @@ pub(super) fn facet_geomeans(
         .collect()
 }
 
+// ---------------------------------------------------------------------------
+// Synthesis over time (Previous Versions headline chart)
+// ---------------------------------------------------------------------------
+
+/// One line on the headline chart: a format's geomean speedup vs Parquet under
+/// one facet, at each commit (`null` where that commit has no data).
+#[derive(Serialize, Clone)]
+struct HistoryLine {
+    /// Legend label, e.g. `"DataFusion · Vortex"` / `"Encode"` / `"Vortex"`.
+    label: String,
+    /// Facet (engine / op / `""`).
+    facet: String,
+    /// Query engine if this facet is one (`datafusion` / `duckdb`), else `""`.
+    /// The client maps it to a line dash pattern (engine lexicon).
+    engine: String,
+    /// Format id (the thing compared to Parquet); the client maps it to a colour.
+    format: String,
+    /// Geomean `parquet / format` per commit (> 1 = the format beats Parquet).
+    speedups: Vec<Option<f64>>,
+}
+
+/// One commit on the headline chart's x-axis.
+#[derive(Serialize, Clone)]
+struct HistoryCommit {
+    /// Short SHA, shown on the axis.
+    sha: String,
+    /// First-line message, for the tooltip.
+    msg: String,
+}
+
+/// Inline payload for the Previous-Versions headline line chart: every
+/// `engine:format` measured against Parquet, as a geomean computed at each
+/// commit so it can be plotted as a trajectory. Parquet is the implicit 1×
+/// baseline (not drawn).
+#[derive(Serialize)]
+struct HistoryData {
+    /// Comparison verb from the unit (`"faster"` / `"smaller"`).
+    metric: &'static str,
+    /// x-axis, oldest commit first.
+    commits: Vec<HistoryCommit>,
+    /// One line per `(facet, non-Parquet format)`.
+    lines: Vec<HistoryLine>,
+}
+
+/// Pretty label for a facet name.
+fn facet_label(facet: &str) -> String {
+    match facet {
+        "datafusion" => "DataFusion".to_string(),
+        "duckdb" => "DuckDB".to_string(),
+        "encode" => "Encode".to_string(),
+        "decode" => "Decode".to_string(),
+        other => other.to_string(),
+    }
+}
+
+/// Geometric mean of positive, finite values.
+fn geomean_of(ratios: &[f64]) -> Option<f64> {
+    let valid: Vec<f64> = ratios
+        .iter()
+        .copied()
+        .filter(|r| *r > 0.0 && r.is_finite())
+        .collect();
+    if valid.is_empty() {
+        return None;
+    }
+    Some((valid.iter().map(|r| r.ln()).sum::<f64>() / valid.len() as f64).exp())
+}
+
+/// Compute, for every `(facet, non-Parquet format)`, the per-commit geomean of
+/// `parquet / format` across a group's charts — each becomes one headline line.
+/// Mirrors [`facet_geomeans`] but over the full per-commit series arrays (not
+/// just the latest), and over every format rather than just Vortex. Parquet is
+/// the baseline; its 1× line is implicit. The newest point of the
+/// Vortex line equals the Latest-Commit headline.
+fn build_history(generation: &ReadGeneration, chart_links: &[ChartLink]) -> Option<HistoryData> {
+    use std::collections::BTreeMap;
+    use std::collections::BTreeSet;
+
+    // (facet, format) -> full-sha -> per-item parquet/format ratios at that commit
+    let mut acc: BTreeMap<(String, String), BTreeMap<String, Vec<f64>>> = BTreeMap::new();
+    let mut order: Vec<String> = Vec::new(); // full shas, oldest first, deduped
+    let mut labels: BTreeMap<String, String> = BTreeMap::new(); // sha -> message
+    let mut shorts: BTreeMap<String, String> = BTreeMap::new(); // sha -> short sha
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    let mut engine_facets: BTreeSet<String> = BTreeSet::new(); // facets that are query engines
+    let mut unit = UnitKind::TimeNs;
+
+    for link in chart_links {
+        let Some(payload) = generation.chart_payload(&link.slug) else {
+            continue;
+        };
+        unit = payload.unit_kind;
+        for c in &payload.commits {
+            if seen.insert(c.sha.clone()) {
+                order.push(c.sha.clone());
+                shorts.insert(c.sha.clone(), c.sha.chars().take(7).collect());
+                labels.insert(c.sha.clone(), c.message.clone());
+            }
+        }
+        // Per facet, every format's series name.
+        let mut by_facet: BTreeMap<String, BTreeMap<String, &str>> = BTreeMap::new();
+        for (name, tag) in &payload.series_meta {
+            let Some(fmt) = tag.format.as_deref() else {
+                continue;
+            };
+            let facet = facet_of(name, tag.engine.as_deref());
+            if tag.engine.is_some() {
+                engine_facets.insert(facet.clone());
+            }
+            by_facet
+                .entry(facet)
+                .or_default()
+                .insert(fmt.to_string(), name.as_str());
+        }
+        for (facet, formats) in &by_facet {
+            let Some(pname) = formats.get(PARQUET_FORMAT) else {
+                continue; // no baseline in this facet
+            };
+            let Some(parr) = payload.series.get(*pname).and_then(|v| v.as_array()) else {
+                continue;
+            };
+            for (fmt, sname) in formats {
+                if fmt == PARQUET_FORMAT {
+                    continue;
+                }
+                let Some(sarr) = payload.series.get(*sname).and_then(|v| v.as_array()) else {
+                    continue;
+                };
+                for (i, c) in payload.commits.iter().enumerate() {
+                    let (Some(pv), Some(sv)) = (
+                        parr.get(i).and_then(|x| x.as_f64()),
+                        sarr.get(i).and_then(|x| x.as_f64()),
+                    ) else {
+                        continue;
+                    };
+                    if pv > 0.0 && sv > 0.0 {
+                        acc.entry((facet.clone(), fmt.clone()))
+                            .or_default()
+                            .entry(c.sha.clone())
+                            .or_default()
+                            .push(pv / sv);
+                    }
+                }
+            }
+        }
+    }
+
+    if acc.is_empty() || order.is_empty() {
+        return None;
+    }
+    // Label rule: prefix the facet only when faceted, append the format only
+    // when more than one non-Parquet format is present (so compression reads
+    // "Encode"/"Decode", random access reads "Vortex", ClickBench reads
+    // "DataFusion · Vortex").
+    let faceted = acc.keys().any(|(f, _)| !f.is_empty());
+    let multi_format = acc
+        .keys()
+        .map(|(_, fmt)| fmt)
+        .collect::<BTreeSet<_>>()
+        .len()
+        > 1;
+    // Order lines by format (Vortex first) then facet, so colour assignment is stable.
+    let mut keys: Vec<(String, String)> = acc.keys().cloned().collect();
+    keys.sort_by(|a, b| {
+        format_order(&a.1)
+            .cmp(&format_order(&b.1))
+            .then_with(|| a.0.cmp(&b.0))
+    });
+
+    let commits = order
+        .iter()
+        .map(|sha| HistoryCommit {
+            sha: shorts.get(sha).cloned().unwrap_or_default(),
+            msg: labels.get(sha).cloned().unwrap_or_default(),
+        })
+        .collect();
+    let lines = keys
+        .into_iter()
+        .map(|(facet, fmt)| {
+            let mut parts: Vec<String> = Vec::new();
+            if faceted && !facet.is_empty() {
+                parts.push(facet_label(&facet));
+            }
+            if multi_format {
+                parts.push(format_label(&fmt).to_string());
+            }
+            let label = if parts.is_empty() {
+                format_label(&fmt).to_string()
+            } else {
+                parts.join(" · ")
+            };
+            let by_sha = &acc[&(facet.clone(), fmt.clone())];
+            let speedups = order
+                .iter()
+                .map(|sha| by_sha.get(sha).and_then(|r| geomean_of(r)))
+                .collect();
+            let engine = if engine_facets.contains(&facet) {
+                facet.clone()
+            } else {
+                String::new()
+            };
+            HistoryLine {
+                label,
+                facet,
+                engine,
+                format: fmt,
+                speedups,
+            }
+        })
+        .collect();
+    Some(HistoryData {
+        metric: metric_for(unit),
+        commits,
+        lines,
+    })
+}
+
+/// The Previous-Versions headline for a group. TPC suites (which carry
+/// scale-factor pills) get an in-place SF toggle that swaps the headline chart;
+/// everything else is a single chart. Empty when there's no comparable history.
+pub(super) fn history_section(generation: &ReadGeneration, group: &LandingGroup) -> Markup {
+    if group.scale_pills.len() < 2 {
+        return history_headline(generation, &group.chart_links);
+    }
+    let all = generation.groups();
+    html! {
+        div.history-fanout {
+            div.history-controls {
+                (sf_toggle_pills(&group.scale_pills))
+            }
+            div.history-sf-sets {
+                @for pill in &group.scale_pills {
+                    @let value = pill.label.trim_start_matches("SF");
+                    div.speedup-sf data-sf=(value) hidden[!pill.current] {
+                        @if let Some(sf_group) = all.iter().find(|g| g.slug == pill.slug) {
+                            (history_headline(generation, &sf_group.charts))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Scale-factor toggle buttons for the Previous-Versions headline, reusing the
+/// Current page's `dim-toggle` styling and `chart-init.js`'s `sf-toggle` swap.
+fn sf_toggle_pills(pills: &[ScalePill]) -> Markup {
+    html! {
+        div.dim-toggle data-role="sf-toggle" role="group" aria-label="Scale factor" {
+            @for pill in pills {
+                @let value = pill.label.trim_start_matches("SF");
+                button.dim-btn.dim-btn--active[pill.current]
+                    type="button"
+                    data-sf=(value)
+                    aria-pressed=(pill.current) {
+                    (pill.label)
+                }
+            }
+        }
+    }
+}
+
+/// One group's headline chart: one geomean-speedup line per facet over the
+/// version timeline (1× baseline). Empty when there's no comparable history.
+/// Headline synthesis chart for one group. Mirrors the per-card split rule:
+/// if any line has an engine, split per engine (DataFusion | DuckDB); else if
+/// any line has a non-empty facet (op for compression-time), split per facet
+/// (Encode | Decode); else render one chart. Each sub-chart re-labels its
+/// lines by format only (the sub-title carries the engine/op).
+fn history_headline(generation: &ReadGeneration, chart_links: &[ChartLink]) -> Markup {
+    let Some(data) = build_history(generation, chart_links) else {
+        return html! {};
+    };
+    let keys: BTreeSet<String> = data
+        .lines
+        .iter()
+        .map(|l| history_split_key(l).to_string())
+        .collect();
+    if keys.len() <= 1 {
+        let json = serde_json::to_string(&data).unwrap_or_default();
+        return html! {
+            figure.history-figure data-role="history-chart" {
+                div.history-chart-wrap {
+                    canvas data-role="history-canvas" {}
+                }
+                script type="application/json" data-role="history-data" {
+                    (PreEscaped(escape_json_for_script(&json)))
+                }
+            }
+        };
+    }
+    html! {
+        div.history-headline-grid {
+            @for key in &keys {
+                @let sub_lines: Vec<HistoryLine> = data.lines.iter()
+                    .filter(|l| history_split_key(l) == key.as_str())
+                    .map(|l| HistoryLine {
+                        label: format_label(&l.format).to_string(),
+                        facet: l.facet.clone(),
+                        engine: l.engine.clone(),
+                        format: l.format.clone(),
+                        speedups: l.speedups.clone(),
+                    })
+                    .collect();
+                @let sub = HistoryData {
+                    metric: data.metric,
+                    commits: data.commits.clone(),
+                    lines: sub_lines,
+                };
+                @let sub_json = serde_json::to_string(&sub).unwrap_or_default();
+                figure.history-figure data-role="history-chart" {
+                    h4.history-facet-title { (pretty_split_label(key)) }
+                    div.history-chart-wrap {
+                        canvas data-role="history-canvas" {}
+                    }
+                    script type="application/json" data-role="history-data" {
+                        (PreEscaped(escape_json_for_script(&sub_json)))
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Render a group as comparison charts. TPC suites (which carry scale-factor
 /// pills) get storage + scale-factor toggles that swap the visible charts in
 /// place; everything else is a single set of facet charts.
@@ -338,10 +690,9 @@ fn speedup_section(generation: &ReadGeneration, group: &LandingGroup) -> Markup 
     html! {
         section.current-group id=(anchor_for(&group.slug)) {
             header.current-group-head {
-                (collapsible_name(&group.name))
+                (collapsible_name(&group.name, group.description.as_deref()))
                 (speedup_sort_control(order_noun))
             }
-            (group_blurb(&group.slug, group.description.as_deref()))
             div.speedup-grid {
                 @for ed in &facets {
                     (speedup_figure(ed))
@@ -362,19 +713,21 @@ struct SfSet {
     facets: Vec<EngineData>,
 }
 
-/// A TPC suite as one section with a storage toggle and a scale-factor toggle
-/// that swap the visible charts in place (no navigation). The heading drops the
-/// `(NVMe) (SF=N)` parenthetical the group name carries — those dimensions are
-/// the toggles now. Each scale factor's charts are pre-rendered and hidden until
-/// selected (`chart-init.js` resizes them on show).
+/// A TPC suite as one section with a scale-factor toggle that swaps the visible
+/// charts in place (no navigation). The heading keeps the storage label but
+/// drops the `(SF=N)` parenthetical — the SF toggle (in the collapsible body)
+/// owns that dimension. Each scale factor's charts are pre-rendered and hidden
+/// until selected (`chart-init.js` resizes them on show).
 fn query_fanout_section(generation: &ReadGeneration, group: &LandingGroup) -> Markup {
     let all = generation.groups();
-    let dataset = group
+    // Keep the storage label in the heading ("TPC-H (NVMe)") but drop the
+    // "(SF=N)" suffix — the SF toggle owns that. Storage is a real grouping
+    // dimension (one cluster per storage), so it belongs in the title.
+    let heading = group
         .name
-        .split(" (")
-        .next()
-        .unwrap_or(&group.name)
-        .to_string();
+        .rsplit_once(" (SF=")
+        .map(|(h, _)| h.to_string())
+        .unwrap_or_else(|| group.name.clone());
     let mut sets: Vec<SfSet> = Vec::new();
     for pill in &group.scale_pills {
         let Some(sf_group) = all.iter().find(|g| g.slug == pill.slug) else {
@@ -398,19 +751,22 @@ fn query_fanout_section(generation: &ReadGeneration, group: &LandingGroup) -> Ma
     html! {
         section.current-group id=(anchor_for(&group.slug)) {
             header.current-group-head {
-                (collapsible_name(&dataset))
-                (storage_toggle())
-                (sf_toggle(&sets))
+                // Strip the "at SF=N (~XGB)" clause from the folded-in blurb —
+                // the SF toggle owns that dimension now.
+                (collapsible_name(&heading, group.description.as_deref().map(|d| d.split(" at SF=").next().unwrap_or(d))))
                 (speedup_sort_control("Query #"))
             }
-            // Strip the "at SF=N (~XGB)" clause — the SF toggle owns that now.
-            (group_blurb(&group.slug, group.description.as_deref().map(|d| d.split(" at SF=").next().unwrap_or(d))))
-            div.speedup-sf-sets {
-                @for set in &sets {
-                    div.speedup-sf data-sf=(set.value) hidden[!set.current] {
-                        div.speedup-grid {
-                            @for ed in &set.facets {
-                                (speedup_figure(ed))
+            // The scale-factor toggle lives in the collapsible body (above the
+            // charts) so it folds away with them, rather than in the header.
+            div.current-group-body {
+                (sf_toggle(&sets))
+                div.speedup-sf-sets {
+                    @for set in &sets {
+                        div.speedup-sf data-sf=(set.value) hidden[!set.current] {
+                            div.speedup-grid {
+                                @for ed in &set.facets {
+                                    (speedup_figure(ed))
+                                }
                             }
                         }
                     }
@@ -420,22 +776,8 @@ fn query_fanout_section(generation: &ReadGeneration, group: &LandingGroup) -> Ma
     }
 }
 
-/// Storage toggle (NVMe / S3). S3 is disabled until those runs are ingested,
-/// but shown so the dimension reads cleanly rather than living in a paren.
-fn storage_toggle() -> Markup {
-    html! {
-        div.dim-toggle data-role="storage-toggle" role="group" aria-label="Storage" {
-            button.dim-btn.dim-btn--active type="button" data-storage="nvme" aria-pressed="true" {
-                "NVMe"
-            }
-            button.dim-btn type="button" data-storage="s3" disabled aria-pressed="false" {
-                "S3"
-            }
-        }
-    }
-}
-
-/// Scale-factor toggle; `chart-init.js` swaps the matching `.speedup-sf` set.
+/// Scale-factor toggle buttons; `chart-init.js` swaps the matching
+/// `.speedup-sf` set on click.
 fn sf_toggle(sets: &[SfSet]) -> Markup {
     html! {
         div.dim-toggle data-role="sf-toggle" role="group" aria-label="Scale factor" {
@@ -451,29 +793,13 @@ fn sf_toggle(sets: &[SfSet]) -> Markup {
     }
 }
 
-/// A short editorial blurb plus a link into the Raw-data view. Rendered inside
-/// the collapsible body so it folds away with the charts. Empty when there's no
-/// description. `slug` targets the Raw-data link; `description` is passed in so
-/// fan-out sections can strip the scale-factor clause (the SF toggle owns that).
-fn group_blurb(slug: &str, description: Option<&str>) -> Markup {
-    let Some(description) = description else {
-        return html! {};
-    };
-    html! {
-        p.current-group-blurb {
-            (description) ". "
-            a.current-group-rawlink href=(format!("/group/{slug}")) {
-                "Detailed charts in Raw data →"
-            }
-        }
-    }
-}
-
 /// The group heading, rendered as a collapse toggle: clicking it expands or
 /// collapses the section's charts (`chart-init.js`'s `initCurrentCollapse`).
 /// Sits alongside (not wrapping) the count link and sort control, so those stay
-/// independently clickable.
-fn collapsible_name(name: &str) -> Markup {
+/// independently clickable. The one-line description (when present) is folded in
+/// after the title, separated by a middot, so it reads as part of the heading
+/// rather than a separate paragraph.
+fn collapsible_name(name: &str, blurb: Option<&str>) -> Markup {
     html! {
         h2.current-group-name {
             button.current-collapse-btn
@@ -482,6 +808,9 @@ fn collapsible_name(name: &str) -> Markup {
                 aria-expanded="true" {
                 span.current-collapse-caret aria-hidden="true" {}
                 (name)
+            }
+            @if let Some(blurb) = blurb {
+                span.current-group-desc { (blurb) }
             }
         }
     }
