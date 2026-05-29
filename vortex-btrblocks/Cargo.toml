@@ -49,7 +49,11 @@ vortex-session = { workspace = true }
 
 [features]
 # This feature enabled unstable encodings for which we don't guarantee stability.
-unstable_encodings = ["dep:vortex-tensor", "dep:vortex-onpair", "vortex-zstd?/unstable_encodings"]
+unstable_encodings = [
+    "dep:vortex-tensor",
+    "dep:vortex-onpair",
+    "vortex-zstd?/unstable_encodings",
+]
 pco = ["dep:pco", "dep:vortex-pco"]
 zstd = ["dep:vortex-zstd"]
 
