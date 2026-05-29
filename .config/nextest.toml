@@ -1,3 +1,9 @@
 [[profile.default.overrides]]
 filter = 'test(compress_large_int)'
 priority = 100
+
+# Long-running (~3 min) regression that pushes cumulative FSST output past i32::MAX. Dispatch it
+# first so its latency overlaps with the rest of the suite instead of trailing at the end.
+[[profile.default.overrides]]
+filter = 'test(fsst_compress_offsets_overflow_i32)'
+priority = 100
