@@ -278,6 +278,10 @@ const REMOTE_DATA_KEY: &str = "remote-data-dir";
 pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn Benchmark>> {
     match b {
         BenchmarkArg::Sqlstorm => {
+            // SQLStorm has no scale factor: each origin runs at a single fixed
+            // size (TPC-H/TPC-DS at SF1, StackOverflow `dba`, JOB fixed), so
+            // `scale-factor` is intentionally not read here. See
+            // `vortex-bench/sqlstorm/README.md` ("Data size").
             let origin = opts
                 .get_as::<SqlstormOrigin>("origin")
                 .unwrap_or(SqlstormOrigin::TpcH);

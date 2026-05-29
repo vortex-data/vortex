@@ -30,6 +30,28 @@ that pass DuckDB and DataFusion against the source data; that is why a
 small, confirmed-working sample lives in-tree and the full ~62k SQLStorm
 corpus does not.
 
+## Data size (fixed scale)
+
+**There is no SQLStorm scale factor.** Each origin runs at a single fixed
+size, and `vx-bench run sqlstorm` does **not** read `--opt scale-factor` —
+passing one is silently ignored (it is not an error and changes nothing):
+
+| Origin | Fixed size |
+| --- | --- |
+| `tpch` | SF 1 (reuses vortex-bench's TPC-H dataset) |
+| `tpcds` | SF 1 (reuses vortex-bench's TPC-DS dataset) |
+| `stackoverflow` | the `dba` dataset, ~1 GB |
+| `job` | the full IMDB/JOB snapshot (a single fixed real dataset) |
+
+This mirrors upstream: SQLStorm has no uniform scale knob either. OLAPBench
+(the canonical runner) selects size *per origin* — StackOverflow ships at
+0 / 1 GB (`dba`) / 12 GB (`math`) / 222 GB, TPC-H/TPC-DS scale via their own
+generators, and JOB is fixed. Query *validity* is scale-independent; only row
+counts change with size. Scaling an origin up therefore means pointing it at a
+larger upstream dataset (a different StackOverflow tarball, or a higher TPC
+scale-factor directory), not passing a scale factor — that wiring does not
+exist today.
+
 ## Refreshing the vendored set
 
 Swaps happen by hand against the pinned SHA above: clone the SQLStorm
