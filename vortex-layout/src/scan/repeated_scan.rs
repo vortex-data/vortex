@@ -17,6 +17,7 @@ use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorAdapter;
 use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::session::RuntimeSessionExt;
@@ -122,15 +123,17 @@ impl<A: 'static + Send> RepeatedScan<A> {
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
-        let ctx = Arc::new(TaskContext {
-            selection: self.selection.clone(),
-            filter: self.filter.clone().map(|f| Arc::new(FilterExpr::new(f))),
-            reader: Arc::clone(&self.layout_reader),
-            projection: self.projection.clone(),
-            mapper: Arc::clone(&self.map_fn),
-        });
-
+        let selection_range: Option<Range<u64>> = match &self.selection {
+            Selection::IncludeByIndex(buf) if !buf.is_empty() => {
+                Some(buf[0]..buf[buf.len() - 1] + 1)
+            }
+            Selection::IncludeRoaring(roaring) if !roaring.is_empty() => {
+                Some(roaring.min().vortex_expect("empty")..roaring.max().vortex_expect("empty") + 1)
+            }
+            _ => None,
+        };
         let row_range = intersect_ranges(self.row_range.as_ref(), row_range);
+        let row_range = intersect_ranges(row_range.as_ref(), selection_range);
 
         let ranges = match &self.splits {
             Splits::Natural(btree_set) => {
@@ -167,17 +170,23 @@ impl<A: 'static + Send> RepeatedScan<A> {
 
         let mut limit = self.limit;
         let mut tasks = Vec::new();
+        let ctx = Arc::new(TaskContext {
+            filter: self.filter.clone().map(|f| Arc::new(FilterExpr::new(f))),
+            reader: Arc::clone(&self.layout_reader),
+            projection: self.projection.clone(),
+            mapper: Arc::clone(&self.map_fn),
+        });
 
         for range in ranges {
-            if range.start >= range.end {
+            let row_mask = self.selection.row_mask(&range);
+            if row_mask.mask().all_false() {
                 continue;
             }
 
+            tasks.push(split_exec(Arc::clone(&ctx), row_mask, limit.as_mut())?);
             if limit.is_some_and(|l| l == 0) {
                 break;
             }
-
-            tasks.push(split_exec(Arc::clone(&ctx), range, limit.as_mut())?);
         }
 
         Ok(tasks)
