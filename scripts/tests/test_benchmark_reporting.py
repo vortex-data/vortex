@@ -52,16 +52,27 @@ def test_within_engine_analysis_uses_each_engines_own_parquet_control() -> None:
 
 
 def file_size_record(commit: str, size: int) -> dict[str, object]:
+    return file_size_record_for(commit, size, "tpch", "10", "vortex-file-compressed", "part-0.vortex")
+
+
+def file_size_record_for(
+    commit: str,
+    size: int,
+    benchmark: str,
+    scale_factor: str,
+    file_format: str,
+    file_name: str,
+) -> dict[str, object]:
     return {
         "metric": "file_size",
         "unit": "bytes",
         "value": size,
         "commit_id": commit,
         "file_size": {
-            "benchmark": "tpch",
-            "scale_factor": "10",
-            "format": "vortex-file-compressed",
-            "file": "part-0.vortex",
+            "benchmark": benchmark,
+            "scale_factor": scale_factor,
+            "format": file_format,
+            "file": file_name,
         },
     }
 
@@ -76,6 +87,29 @@ def test_file_size_report_reads_shared_benchmark_rows() -> None:
 
     assert "<summary>File Size Changes (1 files changed, +25.0% overall, 1↑ 0↓)</summary>" in report
     assert "| part-0.vortex | 10 | vortex-file-compressed | 100 B | 125 B | +25 B | +25.0% |" in report
+
+
+def test_file_size_report_ignores_baseline_rows_outside_pr_scope() -> None:
+    compare = load_compare_module()
+
+    report = compare.format_file_size_report(
+        pd.DataFrame(
+            [
+                file_size_record_for("base-sha", 100, "tpch", "10.0", "vortex-file-compressed", "part-0.vortex"),
+                file_size_record_for("base-sha", 200, "tpch", "1.0", "vortex-file-compressed", "part-0.vortex"),
+                file_size_record_for("base-sha", 300, "clickbench", "1.0", "vortex-compact", "hits_0.vortex"),
+            ]
+        ),
+        pd.DataFrame(
+            [
+                file_size_record_for("pr-sha", 125, "tpch", "10.0", "vortex-file-compressed", "part-0.vortex"),
+            ]
+        ),
+    )
+
+    assert "<summary>File Size Changes (1 files changed, +25.0% overall, 1↑ 0↓)</summary>" in report
+    assert "hits_0.vortex" not in report
+    assert "| part-0.vortex | 1.0 |" not in report
 
 
 def test_capture_file_sizes_emits_shared_benchmark_rows(tmp_path: Path) -> None:
