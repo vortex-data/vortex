@@ -218,30 +218,29 @@ impl CascadingCompressor {
                 self.choose_and_compress(Canonical::VarBinView(varbinview), compress_ctx, exec_ctx)
             }
             Canonical::Extension(ext_array) => {
-                let before_nbytes = ext_array.as_ref().nbytes();
-
                 // Try scheme-based compression first.
-                let result = self.choose_and_compress(
+                let scheme_compressed = self.choose_and_compress(
                     Canonical::Extension(ext_array.clone()),
                     compress_ctx,
                     exec_ctx,
                 )?;
-                if result.nbytes() < before_nbytes {
-                    return Ok(result);
-                }
-
                 // TODO(connor): HACK TO SUPPORT L2 DENORMALIZATION!!!
-                if result.is::<AnyScalarFn>() {
-                    return Ok(result);
+                if scheme_compressed.is::<AnyScalarFn>() {
+                    return Ok(scheme_compressed);
                 }
 
-                // Otherwise, fall back to compressing the underlying storage array.
+                // Also compress the underlying storage array. Some extension schemes can beat the
+                // extension storage but still lose to ordinary storage compression.
                 let compressed_storage = self.compress(ext_array.storage_array(), exec_ctx)?;
-
-                Ok(
+                let storage_compressed =
                     ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage)
-                        .into_array(),
-                )
+                        .into_array();
+
+                if scheme_compressed.nbytes() < storage_compressed.nbytes() {
+                    Ok(scheme_compressed)
+                } else {
+                    Ok(storage_compressed)
+                }
             }
             Canonical::Variant(variant_array) => {
                 let core_storage =
