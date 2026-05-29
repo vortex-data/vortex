@@ -10,6 +10,7 @@ use crate::CascadingCompressor;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::SchemeId;
+use crate::schemes::binary;
 use crate::schemes::bool;
 use crate::schemes::decimal;
 use crate::schemes::float;
@@ -60,6 +61,11 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     &string::OnPairScheme,
     &string::StringConstantScheme,
     &string::NullDominatedSparseScheme,
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    // Binary schemes.
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    &binary::BinaryDictScheme,
+    &binary::BinaryConstantScheme,
     // Decimal schemes.
     &decimal::DecimalScheme,
     // Temporal schemes.
@@ -184,7 +190,8 @@ impl BtrBlocksCompressorBuilder {
             float::NullDominatedSparseScheme.id(),
             string::StringDictScheme.id(),
             string::FSSTScheme.id(),
-        ];
+            binary::BinaryDictScheme.id(),
+        ]);
         #[cfg(feature = "unstable_encodings")]
         excluded.push(string::OnPairScheme.id());
         let builder = self.exclude_schemes(excluded);

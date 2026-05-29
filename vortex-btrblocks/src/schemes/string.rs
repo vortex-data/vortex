@@ -63,7 +63,6 @@ pub struct ZstdBuffersScheme;
 // Re-export builtin schemes from vortex-compressor.
 pub use vortex_compressor::builtins::StringConstantScheme;
 pub use vortex_compressor::builtins::StringDictScheme;
-pub use vortex_compressor::builtins::is_utf8_string;
 pub use vortex_compressor::stats::StringStats;
 
 impl Scheme for FSSTScheme {
@@ -72,7 +71,7 @@ impl Scheme for FSSTScheme {
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        is_utf8_string(canonical)
+        canonical.dtype().is_utf8()
     }
 
     /// Children: lengths=0, code_offsets=1.
@@ -96,7 +95,7 @@ impl Scheme for FSSTScheme {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let utf8 = data.array_as_utf8().into_owned();
+        let utf8 = data.array_as_varbinview().into_owned();
         let compressor_fsst = fsst_train_compressor(&utf8);
         let fsst = fsst_compress(&utf8, utf8.len(), utf8.dtype(), &compressor_fsst, exec_ctx);
 
@@ -152,7 +151,7 @@ impl Scheme for NullDominatedSparseScheme {
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        is_utf8_string(canonical)
+        canonical.dtype().is_utf8()
     }
 
     /// Children: indices=0.
@@ -181,7 +180,7 @@ impl Scheme for NullDominatedSparseScheme {
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         let len = data.array_len() as f64;
-        let stats = data.string_stats(exec_ctx);
+        let stats = data.varbinview_stats(exec_ctx);
         let value_count = stats.value_count();
 
         // All-null arrays should be compressed as constant instead anyways.
@@ -244,7 +243,7 @@ impl Scheme for ZstdScheme {
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        is_utf8_string(canonical)
+        canonical.dtype().is_utf8()
     }
 
     fn expected_compression_ratio(
@@ -263,7 +262,7 @@ impl Scheme for ZstdScheme {
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let compacted = data.array_as_utf8().into_owned().compact_buffers()?;
+        let compacted = data.array_as_varbinview().into_owned().compact_buffers()?;
         Ok(
             vortex_zstd::Zstd::from_var_bin_view_without_dict(&compacted, 3, 8192, exec_ctx)?
                 .into_array(),
@@ -278,7 +277,7 @@ impl Scheme for ZstdBuffersScheme {
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        is_utf8_string(canonical)
+        canonical.dtype().is_utf8()
     }
 
     fn expected_compression_ratio(
