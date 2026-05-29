@@ -9,7 +9,6 @@ use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 
 pub use crate::arrays::varbinview::BinaryView;
-use crate::arrays::varbinview::Ref;
 use crate::dtype::NativePType;
 
 /// Convert an offsets buffer to a buffer of element lengths.
@@ -41,27 +40,28 @@ pub fn build_views<P: NativePType + AsPrimitive<usize>>(
     if bytes.len() <= max_buffer_len {
         let data = bytes.as_slice();
         let mut offset = 0usize;
-        for &len in lens {
+        // Write directly into the reserved spare capacity rather than `push_unchecked`. The latter
+        // advances the backing buffer's length on every call, which the optimizer cannot prove is
+        // loop-invariant, so it reloads and rewrites the output cursor through the stack each
+        // iteration. Writing into the spare slice keeps the cursor in a register and the length is
+        // set once after the loop.
+        let spare = views.spare_capacity_mut();
+        for (slot, &len) in spare.iter_mut().zip(lens) {
             let len = len.as_();
             let value = &data[offset..offset + len];
             let view = if len > BinaryView::MAX_INLINED_SIZE {
                 let mut prefix = [0u8; 4];
                 prefix.copy_from_slice(&value[..4]);
-                BinaryView {
-                    _ref: Ref {
-                        size: len.as_(),
-                        prefix,
-                        buffer_index: start_buf_index,
-                        offset: offset.as_(),
-                    },
-                }
+                BinaryView::new_ref(len.as_(), prefix, start_buf_index, offset.as_())
             } else {
                 BinaryView::make_view(value, start_buf_index, offset.as_())
             };
-            // SAFETY: we reserved capacity for exactly `lens.len()` views above.
-            unsafe { views.push_unchecked(view) };
+            slot.write(view);
             offset += len;
         }
+        // SAFETY: the loop initialized exactly `lens.len()` contiguous views (`spare` has at least
+        //  `lens.len()` slots, and `zip` stops at the shorter operand).
+        unsafe { views.set_len(lens.len()) };
 
         let buffers = if bytes.is_empty() {
             Vec::new()

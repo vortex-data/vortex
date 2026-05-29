@@ -170,6 +170,27 @@ impl BinaryView {
         Self { le_bytes: [0; 16] }
     }
 
+    /// Create a reference view directly from its components, without inspecting the value.
+    ///
+    /// `size` must be greater than [`MAX_INLINED_SIZE`], and `prefix` must hold the first four
+    /// bytes of the value. This is the fast path for bulk view construction where the caller has
+    /// already established that the value is too long to inline; it assembles the 16-byte view as a
+    /// single `u128` so the compiler can emit one wide store per view.
+    ///
+    /// [`MAX_INLINED_SIZE`]: Self::MAX_INLINED_SIZE
+    #[inline]
+    pub fn new_ref(size: u32, prefix: [u8; 4], buffer_index: u32, offset: u32) -> Self {
+        debug_assert!(size as usize > Self::MAX_INLINED_SIZE);
+        // Matches the little-endian field order of `Ref` (size, prefix, buffer_index, offset),
+        // consistent with `le_bytes` and the `From<u128>`/`as_u128` representation.
+        Self::from(
+            u128::from(size)
+                | (u128::from(u32::from_le_bytes(prefix)) << 32)
+                | (u128::from(buffer_index) << 64)
+                | (u128::from(offset) << 96),
+        )
+    }
+
     /// Create a new inlined binary view
     ///
     /// # Panics
@@ -276,5 +297,29 @@ impl fmt::Debug for BinaryView {
             s.field("ref", &self.as_view());
         }
         s.finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_ref_matches_make_view() {
+        // `new_ref` assembles the reference view as a `u128`; it must be byte-identical to the
+        // value-inspecting `make_view` for any value longer than the inline limit.
+        for &len in &[13usize, 20, 255, 4096] {
+            let value: Vec<u8> = (0..len).map(|i| (i % 251) as u8).collect();
+            let prefix = [value[0], value[1], value[2], value[3]];
+            let made = BinaryView::make_view(&value, 7, 42);
+            let built = BinaryView::new_ref(len as u32, prefix, 7, 42);
+            assert_eq!(made.as_u128(), built.as_u128(), "mismatch at len {len}");
+            assert!(!built.is_inlined());
+            let r = built.as_view();
+            assert_eq!(r.size, len as u32);
+            assert_eq!(r.prefix, prefix);
+            assert_eq!(r.buffer_index, 7);
+            assert_eq!(r.offset, 42);
+        }
     }
 }
