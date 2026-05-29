@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! String compression statistics.
+//! Variable-length byte/string compression statistics.
 
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::VarBinViewArray;
@@ -12,10 +12,10 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use super::GenerateStatsOptions;
 
-/// Array of variable-length byte arrays, and relevant stats for compression.
+/// Array of variable-length byte/string values, and relevant stats for compression.
 #[derive(Clone, Debug)]
 pub struct StringStats {
-    /// The estimated number of distinct strings, or `None` if not computed.
+    /// The estimated number of distinct values, or `None` if not computed.
     /// This _must_ be non-zero.
     estimated_distinct_count: Option<u32>,
     /// The number of non-null values.
@@ -24,10 +24,10 @@ pub struct StringStats {
     null_count: u32,
 }
 
-/// Estimate the number of distinct strings in the var bin view array.
-fn estimate_distinct_count(strings: &VarBinViewArray) -> VortexResult<u32> {
-    let views = strings.views();
-    // Iterate the views. Two strings which are equal must have the same first 8-bytes.
+/// Estimate the number of distinct values in the var bin view array.
+fn estimate_distinct_count(varbinview: &VarBinViewArray) -> VortexResult<u32> {
+    let views = varbinview.views();
+    // Iterate the views. Two values which are equal must have the same first 8-bytes.
     // NOTE: there are cases where this performs pessimally, e.g. when we have strings that all
     // share a 4-byte prefix and have the same length.
     let mut distinct = HashSet::with_capacity(views.len() / 2);
@@ -84,7 +84,7 @@ impl StringStats {
             .vortex_expect("StringStats::generate_opts should not fail")
     }
 
-    /// Returns the estimated number of distinct strings, or `None` if not computed.
+    /// Returns the estimated number of distinct values, or `None` if not computed.
     ///
     /// This estimation is always going to be less than or equal to the actual distinct count.
     pub fn estimated_distinct_count(&self) -> Option<u32> {

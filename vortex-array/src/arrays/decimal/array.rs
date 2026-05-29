@@ -28,6 +28,7 @@ use crate::array::validity_to_child;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::buffer::BufferHandle;
 use crate::dtype::BigCast;
 use crate::dtype::DType;
@@ -37,7 +38,7 @@ use crate::dtype::IntegerPType;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
 use crate::match_each_decimal_value_type;
-use crate::match_each_integer_ptype;
+use crate::match_each_unsigned_integer_ptype;
 use crate::patches::Patches;
 use crate::validity::Validity;
 
@@ -556,8 +557,12 @@ impl Array<Decimal> {
         assert_eq!(self.decimal_dtype(), patch_values.decimal_dtype());
 
         let data = self.into_data();
-        let data = match_each_integer_ptype!(patch_indices.ptype(), |I| {
-            let patch_indices = patch_indices.as_slice::<I>();
+        // Patch indices are non-negative; reinterpret to unsigned so this dispatches over 4 widths
+        // instead of 8 (the decimal value-type dimensions are unaffected).
+        let patch_indices_unsigned =
+            patch_indices.reinterpret_cast(patch_indices.ptype().to_unsigned());
+        let data = match_each_unsigned_integer_ptype!(patch_indices_unsigned.ptype(), |I| {
+            let patch_indices = patch_indices_unsigned.as_slice::<I>();
             match_each_decimal_value_type!(patch_values.values_type(), |PatchDVT| {
                 let patch_values = patch_values.buffer::<PatchDVT>();
                 match_each_decimal_value_type!(data.values_type(), |ValuesDVT| {

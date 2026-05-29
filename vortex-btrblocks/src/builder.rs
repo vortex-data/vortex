@@ -10,6 +10,7 @@ use crate::CascadingCompressor;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::SchemeId;
+use crate::schemes::binary;
 use crate::schemes::bool;
 use crate::schemes::decimal;
 use crate::schemes::float;
@@ -56,6 +57,11 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     &string::FSSTScheme,
     &string::StringConstantScheme,
     &string::NullDominatedSparseScheme,
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    // Binary schemes.
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    &binary::BinaryDictScheme,
+    &binary::BinaryConstantScheme,
     // Decimal schemes.
     &decimal::DecimalScheme,
     // Temporal schemes.
@@ -175,6 +181,7 @@ impl BtrBlocksCompressorBuilder {
             float::NullDominatedSparseScheme.id(),
             string::StringDictScheme.id(),
             string::FSSTScheme.id(),
+            binary::BinaryDictScheme.id(),
         ]);
 
         #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]

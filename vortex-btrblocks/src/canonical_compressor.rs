@@ -67,10 +67,14 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::Constant;
+    use vortex_array::arrays::Dict;
     use vortex_array::arrays::List;
     use vortex_array::arrays::ListView;
     use vortex_array::arrays::ListViewArray;
+    use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
     use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
@@ -188,6 +192,37 @@ mod tests {
             &mut SESSION.create_execution_ctx(),
         )?;
         assert!(!compressed.is::<Constant>());
+        assert_arrays_eq!(compressed, array);
+        Ok(())
+    }
+
+    #[test]
+    fn test_binary_constant_compressed() -> VortexResult<()> {
+        let values = vec![Some(b"constant-bytes".as_slice()); 100];
+        let array = VarBinViewArray::from_iter(values, DType::Binary(Nullability::NonNullable));
+        let btr = BtrBlocksCompressor::default();
+        let compressed = btr.compress(
+            &array.clone().into_array(),
+            &mut SESSION.create_execution_ctx(),
+        )?;
+        assert!(compressed.is::<Constant>());
+        assert_arrays_eq!(compressed, array);
+        Ok(())
+    }
+
+    #[test]
+    fn test_binary_dict_compressed() -> VortexResult<()> {
+        let distinct_values: [&[u8]; 3] = [b"alpha", b"beta", b"gamma"];
+        let values = (0..1000)
+            .map(|idx| Some(distinct_values[idx % distinct_values.len()]))
+            .collect::<Vec<_>>();
+        let array = VarBinViewArray::from_iter(values, DType::Binary(Nullability::NonNullable));
+        let btr = BtrBlocksCompressor::default();
+        let compressed = btr.compress(
+            &array.clone().into_array(),
+            &mut SESSION.create_execution_ctx(),
+        )?;
+        assert!(compressed.is::<Dict>());
         assert_arrays_eq!(compressed, array);
         Ok(())
     }

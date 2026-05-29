@@ -16,12 +16,26 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
 use crate::arrays::dict::TakeExecute;
+use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::arrays::varbin::VarBinArrayExt;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
+use crate::dtype::PType;
 use crate::executor::ExecutionCtx;
-use crate::match_each_integer_ptype;
+use crate::match_each_unsigned_integer_ptype;
 use crate::validity::Validity;
+
+/// The widened offset type used for a taken `VarBinArray`: offsets are widened to at least 32 bits
+/// (to avoid overflow) while preserving signedness, so a signed result stays Arrow-compatible.
+fn taken_offset_ptype(offsets_ptype: PType) -> PType {
+    match offsets_ptype {
+        PType::U8 | PType::U16 | PType::U32 => PType::U32,
+        PType::U64 => PType::U64,
+        PType::I8 | PType::I16 | PType::I32 => PType::I32,
+        PType::I64 => PType::I64,
+        _ => unreachable!("invalid PType for offsets"),
+    }
+}
 
 impl TakeExecute for VarBin {
     fn take(
@@ -45,9 +59,15 @@ impl TakeExecute for VarBin {
             .validity()?
             .execute_mask(indices.as_ref().len(), ctx)?;
 
-        let array = match_each_integer_ptype!(indices.ptype(), |I| {
-            // On take, offsets get widened to either 32- or 64-bit based on the original type,
-            // to avoid overflow issues.
+        // Offsets and indices are non-negative; read them through their unsigned reinterpretations
+        // so we only monomorphize over the 4 unsigned widths each (4x4 instead of 8x8). On take,
+        // offsets get widened to either 32- or 64-bit (to avoid overflow); the built output offsets
+        // are reinterpreted back to `out_offset_ptype` to preserve the result's offset signedness.
+        let out_offset_ptype = taken_offset_ptype(offsets.ptype());
+        let offsets = offsets.reinterpret_cast(offsets.ptype().to_unsigned());
+        let indices = indices.reinterpret_cast(indices.ptype().to_unsigned());
+
+        let array = match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
             match offsets.ptype() {
                 PType::U8 => take::<I, u8, u32>(
                     dtype,
@@ -56,6 +76,7 @@ impl TakeExecute for VarBin {
                     indices.as_slice::<I>(),
                     array_validity,
                     indices_validity,
+                    out_offset_ptype,
                 ),
                 PType::U16 => take::<I, u16, u32>(
                     dtype,
@@ -64,6 +85,7 @@ impl TakeExecute for VarBin {
                     indices.as_slice::<I>(),
                     array_validity,
                     indices_validity,
+                    out_offset_ptype,
                 ),
                 PType::U32 => take::<I, u32, u32>(
                     dtype,
@@ -72,6 +94,7 @@ impl TakeExecute for VarBin {
                     indices.as_slice::<I>(),
                     array_validity,
                     indices_validity,
+                    out_offset_ptype,
                 ),
                 PType::U64 => take::<I, u64, u64>(
                     dtype,
@@ -80,38 +103,7 @@ impl TakeExecute for VarBin {
                     indices.as_slice::<I>(),
                     array_validity,
                     indices_validity,
-                ),
-                PType::I8 => take::<I, i8, i32>(
-                    dtype,
-                    offsets.as_slice::<i8>(),
-                    data.as_slice(),
-                    indices.as_slice::<I>(),
-                    array_validity,
-                    indices_validity,
-                ),
-                PType::I16 => take::<I, i16, i32>(
-                    dtype,
-                    offsets.as_slice::<i16>(),
-                    data.as_slice(),
-                    indices.as_slice::<I>(),
-                    array_validity,
-                    indices_validity,
-                ),
-                PType::I32 => take::<I, i32, i32>(
-                    dtype,
-                    offsets.as_slice::<i32>(),
-                    data.as_slice(),
-                    indices.as_slice::<I>(),
-                    array_validity,
-                    indices_validity,
-                ),
-                PType::I64 => take::<I, i64, i64>(
-                    dtype,
-                    offsets.as_slice::<i64>(),
-                    data.as_slice(),
-                    indices.as_slice::<I>(),
-                    array_validity,
-                    indices_validity,
+                    out_offset_ptype,
                 ),
                 _ => unreachable!("invalid PType for offsets"),
             }
@@ -128,6 +120,7 @@ fn take<Index: IntegerPType, Offset: IntegerPType, NewOffset: IntegerPType>(
     indices: &[Index],
     validity_mask: Mask,
     indices_validity_mask: Mask,
+    out_offset_ptype: PType,
 ) -> VortexResult<VarBinArray> {
     if !validity_mask.all_true() || !indices_validity_mask.all_true() {
         return Ok(take_nullable::<Index, Offset, NewOffset>(
@@ -137,6 +130,7 @@ fn take<Index: IntegerPType, Offset: IntegerPType, NewOffset: IntegerPType>(
             indices,
             validity_mask,
             indices_validity_mask,
+            out_offset_ptype,
         ));
     }
 
@@ -172,11 +166,16 @@ fn take<Index: IntegerPType, Offset: IntegerPType, NewOffset: IntegerPType>(
 
     let array_validity = Validity::from(dtype.nullability());
 
+    // Built unsigned; reinterpret back to the signedness-preserving result offset type.
+    let new_offsets = PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable)
+        .reinterpret_cast(out_offset_ptype)
+        .into_array();
+
     // Safety:
     // All variants of VarBinArray are satisfied here.
     unsafe {
         Ok(VarBinArray::new_unchecked(
-            PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable).into_array(),
+            new_offsets,
             new_data.freeze(),
             dtype,
             array_validity,
@@ -191,6 +190,7 @@ fn take_nullable<Index: IntegerPType, Offset: IntegerPType, NewOffset: IntegerPT
     indices: &[Index],
     data_validity: Mask,
     indices_validity: Mask,
+    out_offset_ptype: PType,
 ) -> VarBinArray {
     let mut new_offsets = BufferMut::<NewOffset>::with_capacity(indices.len() + 1);
     new_offsets.push(NewOffset::zero());
@@ -239,16 +239,14 @@ fn take_nullable<Index: IntegerPType, Offset: IntegerPType, NewOffset: IntegerPT
 
     let array_validity = Validity::from(validity_buffer.freeze());
 
+    // Built unsigned; reinterpret back to the signedness-preserving result offset type.
+    let new_offsets = PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable)
+        .reinterpret_cast(out_offset_ptype)
+        .into_array();
+
     // Safety:
     // All variants of VarBinArray are satisfied here.
-    unsafe {
-        VarBinArray::new_unchecked(
-            PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable).into_array(),
-            new_data.freeze(),
-            dtype,
-            array_validity,
-        )
-    }
+    unsafe { VarBinArray::new_unchecked(new_offsets, new_data.freeze(), dtype, array_validity) }
 }
 
 #[cfg(test)]

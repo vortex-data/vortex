@@ -179,7 +179,7 @@ int main(int argc, char *argv[]) {
 
     // A scan is a single traversal of a data source.
     // Here we request a scan without any filters, projections, or limiting.
-    vx_scan_options scan_options = {.max_threads = threads};
+    vx_scan_options scan_options = {0};
     vx_estimate partition_estimate;
     vx_scan *scan = vx_data_source_scan(data_source, &scan_options, &partition_estimate, &error);
     if (scan == NULL) {

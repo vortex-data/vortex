@@ -14,7 +14,9 @@ use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::listview::ListViewArrayExt;
+use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -22,8 +24,25 @@ use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_integer_ptype;
+use crate::match_each_unsigned_integer_ptype;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::operators::Operator;
+use crate::validity::Validity;
+
+/// The widened offset type used for a rebuilt, zero-copy-to-list array.
+///
+/// Offsets are widened to at least 32 bits (Arrow only permits 32/64-bit list offsets) while
+/// preserving signedness, since a signed result keeps the array zero-copyable to Arrow's
+/// `ListArray`.
+fn rebuilt_offset_ptype(offsets_ptype: PType) -> PType {
+    match offsets_ptype {
+        PType::U8 | PType::U16 | PType::U32 => PType::U32,
+        PType::U64 => PType::U64,
+        PType::I8 | PType::I16 | PType::I32 => PType::I32,
+        PType::I64 => PType::I64,
+        _ => unreachable!("invalid offsets PType"),
+    }
+}
 
 /// Density threshold to decide whether to rebuild a sparse `ListViewArray`.
 ///
@@ -106,16 +125,12 @@ impl ListViewArray {
         // `ListArray`), we rebuild the offsets as 32-bit or 64-bit integer types.
         // TODO(connor)[ListView]: This is true for `sizes` as well, we should do this conversion
         // for sizes as well.
-        match_each_integer_ptype!(sizes_ptype, |S| {
-            match offsets_ptype {
+        match_each_unsigned_integer_ptype!(sizes_ptype.to_unsigned(), |S| {
+            match offsets_ptype.to_unsigned() {
                 PType::U8 => self.naive_rebuild::<u8, u32, S>(),
                 PType::U16 => self.naive_rebuild::<u16, u32, S>(),
                 PType::U32 => self.naive_rebuild::<u32, u32, S>(),
                 PType::U64 => self.naive_rebuild::<u64, u64, S>(),
-                PType::I8 => self.naive_rebuild::<i8, i32, S>(),
-                PType::I16 => self.naive_rebuild::<i16, i32, S>(),
-                PType::I32 => self.naive_rebuild::<i32, i32, S>(),
-                PType::I64 => self.naive_rebuild::<i64, i64, S>(),
                 _ => unreachable!("invalid offsets PType"),
             }
         })
@@ -129,6 +144,8 @@ impl ListViewArray {
     ) -> VortexResult<ListViewArray> {
         #[expect(deprecated)]
         let sizes_canonical = self.sizes().to_primitive();
+        let sizes_canonical =
+            sizes_canonical.reinterpret_cast(sizes_canonical.ptype().to_unsigned());
         let total: u64 = sizes_canonical
             .as_slice::<S>()
             .iter()
@@ -161,11 +178,18 @@ impl ListViewArray {
     fn rebuild_with_take<O: IntegerPType, NewOffset: IntegerPType, S: IntegerPType>(
         &self,
     ) -> VortexResult<ListViewArray> {
+        let new_offset_ptype = rebuilt_offset_ptype(self.offsets().dtype().as_ptype());
+        let size_ptype = self.sizes().dtype().as_ptype();
+
         #[expect(deprecated)]
         let offsets_canonical = self.offsets().to_primitive();
+        let offsets_canonical =
+            offsets_canonical.reinterpret_cast(offsets_canonical.ptype().to_unsigned());
         let offsets_slice = offsets_canonical.as_slice::<O>();
         #[expect(deprecated)]
         let sizes_canonical = self.sizes().to_primitive();
+        let sizes_canonical =
+            sizes_canonical.reinterpret_cast(sizes_canonical.ptype().to_unsigned());
         let sizes_slice = sizes_canonical.as_slice::<S>();
 
         let len = offsets_slice.len();
@@ -194,8 +218,13 @@ impl ListViewArray {
         }
 
         let elements = self.elements().take(take_indices.into_array())?;
-        let offsets = new_offsets.into_array();
-        let sizes = new_sizes.into_array();
+        // Built unsigned; reinterpret back to the signed-preserving result types.
+        let offsets = PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable)
+            .reinterpret_cast(new_offset_ptype)
+            .into_array();
+        let sizes = PrimitiveArray::new(new_sizes.freeze(), Validity::NonNullable)
+            .reinterpret_cast(size_ptype)
+            .into_array();
 
         // SAFETY: same invariants as `rebuild_list_by_list` — offsets are sequential and
         // non-overlapping, all (offset, size) pairs reference valid elements, and the validity
@@ -216,11 +245,18 @@ impl ListViewArray {
             .as_list_element_opt()
             .vortex_expect("somehow had a canonical list that was not a list");
 
+        let new_offset_ptype = rebuilt_offset_ptype(self.offsets().dtype().as_ptype());
+        let size_ptype = self.sizes().dtype().as_ptype();
+
         #[expect(deprecated)]
         let offsets_canonical = self.offsets().to_primitive();
+        let offsets_canonical =
+            offsets_canonical.reinterpret_cast(offsets_canonical.ptype().to_unsigned());
         let offsets_slice = offsets_canonical.as_slice::<O>();
         #[expect(deprecated)]
         let sizes_canonical = self.sizes().to_primitive();
+        let sizes_canonical =
+            sizes_canonical.reinterpret_cast(sizes_canonical.ptype().to_unsigned());
         let sizes_slice = sizes_canonical.as_slice::<S>();
 
         let len = offsets_slice.len();
@@ -268,8 +304,13 @@ impl ListViewArray {
             n_elements += num_traits::cast(size).vortex_expect("Cast failed");
         }
 
-        let offsets = new_offsets.into_array();
-        let sizes = new_sizes.into_array();
+        // Built unsigned; reinterpret back to the signed-preserving result types.
+        let offsets = PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable)
+            .reinterpret_cast(new_offset_ptype)
+            .into_array();
+        let sizes = PrimitiveArray::new(new_sizes.freeze(), Validity::NonNullable)
+            .reinterpret_cast(size_ptype)
+            .into_array();
         let elements = new_elements_builder.finish();
 
         debug_assert_eq!(
@@ -622,6 +663,36 @@ mod tests {
             trimmed.list_elements_at(1)?,
             PrimitiveArray::from_iter([30i32, 40])
         );
+        Ok(())
+    }
+
+    /// Rebuild with signed offsets/sizes: exercises the unsigned-reinterpret read path and asserts
+    /// the result offset/size dtypes preserve signedness (widened to >=32-bit for offsets).
+    #[test]
+    fn test_rebuild_preserves_signed_offset_and_size_types() -> VortexResult<()> {
+        use crate::dtype::PType;
+
+        // Overlapping lists force an actual rebuild rather than the zero-copy fast path.
+        let elements = PrimitiveArray::from_iter(vec![1i32, 2, 3]).into_array();
+        let offsets = PrimitiveArray::from_iter(vec![0i32, 1]).into_array();
+        let sizes = PrimitiveArray::from_iter(vec![3i16, 2]).into_array();
+
+        let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
+        let rebuilt = listview.rebuild(ListViewRebuildMode::MakeZeroCopyToList)?;
+
+        // Values: [1,2,3] and [2,3].
+        assert_arrays_eq!(
+            rebuilt.list_elements_at(0)?,
+            PrimitiveArray::from_iter([1i32, 2, 3])
+        );
+        assert_arrays_eq!(
+            rebuilt.list_elements_at(1)?,
+            PrimitiveArray::from_iter([2i32, 3])
+        );
+
+        // Signed input -> signed result (offsets widened to i32, sizes kept i16).
+        assert_eq!(rebuilt.offsets().dtype().as_ptype(), PType::I32);
+        assert_eq!(rebuilt.sizes().dtype().as_ptype(), PType::I16);
         Ok(())
     }
 

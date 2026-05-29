@@ -23,8 +23,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::CascadingCompressor;
-use crate::builtins::IntDictScheme;
-use crate::builtins::is_integer_primitive;
 use crate::ctx::CompressorContext;
 use crate::estimate::CompressionEstimate;
 use crate::estimate::EstimateVerdict;
@@ -35,13 +33,17 @@ use crate::stats::GenerateStatsOptions;
 use crate::stats::IntegerErasedStats;
 use crate::stats::IntegerStats;
 
+/// Dictionary encoding for low-cardinality integer values.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct IntDictScheme;
+
 impl Scheme for IntDictScheme {
     fn scheme_name(&self) -> &'static str {
         "vortex.int.dict"
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        is_integer_primitive(canonical)
+        canonical.dtype().is_int()
     }
 
     fn stats_options(&self) -> GenerateStatsOptions {
