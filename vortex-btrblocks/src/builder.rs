@@ -65,13 +65,12 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     // Binary schemes.
     ////////////////////////////////////////////////////////////////////////////////////////////////
     &binary::BinaryDictScheme,
+    &binary::BinaryFSSTScheme,
     &binary::BinaryConstantScheme,
     // Decimal schemes.
     &decimal::DecimalScheme,
     // Temporal schemes.
     &temporal::TemporalScheme,
-    // Binary schemes
-    &binary::BinaryDictScheme,
 ];
 
 /// Builder for creating configured [`BtrBlocksCompressor`] instances.
@@ -195,6 +194,7 @@ impl BtrBlocksCompressorBuilder {
             string::StringDictScheme.id(),
             string::FSSTScheme.id(),
             binary::BinaryDictScheme.id(),
+            binary::BinaryFSSTScheme.id(),
         ];
         #[cfg(feature = "unstable_encodings")]
         excluded.push(string::OnPairScheme.id());
