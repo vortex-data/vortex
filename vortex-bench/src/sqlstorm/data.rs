@@ -78,6 +78,14 @@ pub struct OriginData {
 /// `ALTER TABLE … ADD FOREIGN KEY` lines (which DuckDB rejects) dropped,
 /// inline `primary key` / `references` clauses elided (not enforced by
 /// COPY, just noise), and column names lowercased.
+///
+/// The `math` tier's large free-text columns (`Posts.body`, `PostHistory.text`,
+/// …) contain rows whose embedded quotes don't strictly comply with RFC-4180,
+/// which makes DuckDB's CSV dialect sniffer fail outright. `extra_copy_opts`
+/// therefore disables auto-detection and pins the dialect explicitly (RFC-4180
+/// doubled-quote escaping), with `strict_mode false` + `ignore_errors true` to
+/// tolerate the non-compliant minority of rows. (The smaller `dba` tier happened
+/// to be sniffable, so the original empty options worked there.)
 pub const STACKOVERFLOW: OriginData = OriginData {
     url: "https://db.in.tum.de/~schmidt/data/stackoverflow_math.tar.gz",
     archive_name: "stackoverflow_math.tar.gz",
@@ -113,7 +121,7 @@ CREATE TABLE "Votes" ("id" INTEGER NOT NULL, "postid" INTEGER NOT NULL, "votetyp
         ("Tags", "tags"),
         ("Votes", "votes"),
     ],
-    extra_copy_opts: "",
+    extra_copy_opts: "AUTO_DETECT false, QUOTE '\"', ESCAPE '\"', strict_mode false, ignore_errors true",
 };
 
 /// IMDB/JOB data (zstd-compressed tar). Columns are already lowercase
