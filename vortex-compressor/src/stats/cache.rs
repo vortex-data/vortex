@@ -135,11 +135,20 @@ impl ArrayAndStats {
     ///
     /// # Panics
     ///
-    /// Panics if the array is not a UTF-8 string array.
-    pub fn array_as_utf8(&self) -> ArrayView<'_, VarBinView> {
+    /// Panics if the array is not a varbinview array.
+    pub fn array_as_varbinview(&self) -> ArrayView<'_, VarBinView> {
         self.array
             .as_opt::<VarBinView>()
             .vortex_expect("the array is guaranteed to already be canonical by construction")
+    }
+
+    /// Returns the array as an [`ArrayView<VarBinView>`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the array is not a varbinview array.
+    pub fn array_as_utf8(&self) -> ArrayView<'_, VarBinView> {
+        self.array_as_varbinview()
     }
 
     /// Consumes the bundle and returns the array.
@@ -190,8 +199,8 @@ impl ArrayAndStats {
         })
     }
 
-    /// Returns string stats, generating them lazily on first access.
-    pub fn string_stats(&self, ctx: &mut ExecutionCtx) -> Arc<StringStats> {
+    /// Returns varbinview stats, generating them lazily on first access.
+    pub fn varbinview_stats(&self, ctx: &mut ExecutionCtx) -> Arc<StringStats> {
         let array = self.array.clone();
         let opts = self.opts;
         self.cache.get_or_insert_with::<StringStats>(|| {

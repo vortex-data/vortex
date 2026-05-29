@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Constant encoding for float arrays.
+//! Constant encoding for binary arrays.
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
@@ -18,17 +18,17 @@ use crate::estimate::EstimateVerdict;
 use crate::scheme::Scheme;
 use crate::stats::ArrayAndStats;
 
-/// Constant encoding for float arrays with a single distinct value.
+/// Constant encoding for binary arrays with a single distinct value.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct FloatConstantScheme;
+pub struct BinaryConstantScheme;
 
-impl Scheme for FloatConstantScheme {
+impl Scheme for BinaryConstantScheme {
     fn scheme_name(&self) -> &'static str {
-        "vortex.float.constant"
+        "vortex.binary.constant"
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        canonical.dtype().is_float()
+        canonical.dtype().is_binary()
     }
 
     fn expected_compression_ratio(
@@ -44,17 +44,7 @@ impl Scheme for FloatConstantScheme {
         }
 
         let array_len = data.array().len();
-        let stats = data.float_stats(exec_ctx);
-
-        // Note that we only compute distinct counts if other schemes have requested it.
-        if let Some(distinct_count) = stats.distinct_count() {
-            if distinct_count > 1 {
-                return CompressionEstimate::Verdict(EstimateVerdict::Skip);
-            } else {
-                debug_assert_eq!(distinct_count, 1);
-                return CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse);
-            }
-        }
+        let stats = data.varbinview_stats(exec_ctx);
 
         // We want to use `Constant` if there are only nulls in the array.
         if stats.value_count() == 0 {
@@ -62,11 +52,15 @@ impl Scheme for FloatConstantScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse);
         }
 
-        // TODO(connor): Can we be smart here with the max and min like with integers?
+        // Since the estimated distinct count is always going to be less than or equal to the actual
+        // distinct count, if this is not equal to 1 the actual is definitely not equal to 1.
+        if stats.estimated_distinct_count().is_some_and(|c| c > 1) {
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+        }
 
         // Otherwise our best bet is to actually check if the array is constant.
-        // This is an expensive check, but in practice the distinct count is known because we often
-        // include dictionary encoding in our set of schemes, so we rarely call this.
+        // This is an expensive check, but the alternative of not compressing a constant array is
+        // far less preferable.
         CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
             |_compressor, data, _best_so_far, _ctx, exec_ctx| {
                 if is_constant(data.array(), exec_ctx)? {

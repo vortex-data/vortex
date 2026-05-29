@@ -55,7 +55,6 @@ pub struct ZstdBuffersScheme;
 // Re-export builtin schemes from vortex-compressor.
 pub use vortex_compressor::builtins::StringConstantScheme;
 pub use vortex_compressor::builtins::StringDictScheme;
-pub use vortex_compressor::builtins::is_utf8_string;
 pub use vortex_compressor::stats::StringStats;
 
 impl Scheme for FSSTScheme {
@@ -64,7 +63,7 @@ impl Scheme for FSSTScheme {
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        is_utf8_string(canonical)
+        canonical.dtype().is_utf8()
     }
 
     /// Children: lengths=0, code_offsets=1.
@@ -144,7 +143,7 @@ impl Scheme for NullDominatedSparseScheme {
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        is_utf8_string(canonical)
+        canonical.dtype().is_utf8()
     }
 
     /// Children: indices=0.
@@ -173,7 +172,7 @@ impl Scheme for NullDominatedSparseScheme {
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         let len = data.array_len() as f64;
-        let stats = data.string_stats(exec_ctx);
+        let stats = data.varbinview_stats(exec_ctx);
         let value_count = stats.value_count();
 
         // All-null arrays should be compressed as constant instead anyways.
@@ -236,7 +235,7 @@ impl Scheme for ZstdScheme {
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        is_utf8_string(canonical)
+        canonical.dtype().is_utf8()
     }
 
     fn expected_compression_ratio(
@@ -270,7 +269,7 @@ impl Scheme for ZstdBuffersScheme {
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        is_utf8_string(canonical)
+        canonical.dtype().is_utf8()
     }
 
     fn expected_compression_ratio(
