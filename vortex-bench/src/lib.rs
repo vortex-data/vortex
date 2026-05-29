@@ -269,7 +269,7 @@ pub enum BenchmarkArg {
 }
 
 /// Default scale factor for TPC-related benchmarks
-pub(crate) const DEFAULT_SCALE_FACTOR: &str = "1.0";
+const DEFAULT_SCALE_FACTOR: &str = "1.0";
 
 const SCALE_FACTOR_KEY: &str = "scale-factor";
 const REMOTE_DATA_KEY: &str = "remote-data-dir";
@@ -279,7 +279,7 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
     match b {
         BenchmarkArg::Sqlstorm => {
             // SQLStorm has no scale factor: each origin runs at a single fixed
-            // size (TPC-H/TPC-DS at SF1, StackOverflow `dba`, JOB fixed), so
+            // size (TPC-H/TPC-DS at SF10, StackOverflow `dba`, JOB fixed), so
             // `scale-factor` is intentionally not read here. See
             // `vortex-bench/sqlstorm/README.md` ("Data size").
             let origin = opts
