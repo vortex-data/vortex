@@ -5724,6 +5724,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cfe21416a02c693fb9f980befcb230ecc70b0b3d1cc4abf88b9675c4c1457f0c"
 
 [[package]]
+name = "onpair"
+version = "0.0.1"
+dependencies = [
+ "hashbrown 0.16.1",
+ "rand 0.9.4",
+]
+
+[[package]]
 name = "oorandom"
 version = "11.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9340,6 +9348,7 @@ dependencies = [
  "vortex-fastlanes",
  "vortex-fsst",
  "vortex-mask",
+ "vortex-onpair",
  "vortex-pco",
  "vortex-runend",
  "vortex-sequence",
@@ -9682,6 +9691,7 @@ dependencies = [
  "vortex-layout",
  "vortex-mask",
  "vortex-metrics",
+ "vortex-onpair",
  "vortex-pco",
  "vortex-runend",
  "vortex-scan",
@@ -9887,6 +9897,22 @@ dependencies = [
  "reqwest 0.13.4",
  "tar",
  "vortex-cuda-macros",
+]
+
+[[package]]
+name = "vortex-onpair"
+version = "0.1.0"
+dependencies = [
+ "codspeed-divan-compat",
+ "memchr",
+ "onpair",
+ "prost 0.14.3",
+ "rstest",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-mask",
+ "vortex-session",
 ]
 
 [[package]]

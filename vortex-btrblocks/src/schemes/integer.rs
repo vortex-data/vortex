@@ -903,7 +903,7 @@ pub(crate) fn rle_compress(
 }
 
 #[cfg(feature = "unstable_encodings")]
-fn try_compress_delta(
+pub(crate) fn try_compress_delta(
     compressor: &CascadingCompressor,
     child: &ArrayRef,
     parent_ctx: &CompressorContext,
