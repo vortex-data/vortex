@@ -81,6 +81,23 @@ pub fn setup_logging_and_tracing_with_format(
     Ok(())
 }
 
+/// Lance crates emit chatty `INFO`-level logs (dataset open/commit details, fragment reads, etc.)
+/// that drown out benchmark output. We quiet the whole `lance` crate family to `WARN` by default.
+/// Targets are module paths, so hyphenated crate names appear with underscores.
+const QUIET_LANCE_TARGETS: &[&str] = &[
+    "lance",
+    "lance_arrow",
+    "lance_core",
+    "lance_datafusion",
+    "lance_datagen",
+    "lance_encoding",
+    "lance_file",
+    "lance_index",
+    "lance_io",
+    "lance_linalg",
+    "lance_table",
+];
+
 pub fn default_env_filter(is_verbose: bool) -> EnvFilter {
     match EnvFilter::try_from_default_env() {
         Ok(filter) => filter,
@@ -91,9 +108,23 @@ pub fn default_env_filter(is_verbose: bool) -> EnvFilter {
                 LevelFilter::INFO
             };
 
-            EnvFilter::builder()
+            let mut filter = EnvFilter::builder()
                 .with_default_directive(default_level.into())
-                .from_env_lossy()
+                .from_env_lossy();
+
+            // Only silence Lance when the user has not explicitly opted into verbose output;
+            // `--verbose` (or `RUST_LOG`) should still surface everything.
+            if !is_verbose {
+                for target in QUIET_LANCE_TARGETS {
+                    filter = filter.add_directive(
+                        format!("{target}=warn")
+                            .parse()
+                            .expect("hardcoded lance log directive is valid"),
+                    );
+                }
+            }
+
+            filter
         }
     }
 }
