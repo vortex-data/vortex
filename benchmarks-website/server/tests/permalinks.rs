@@ -25,7 +25,7 @@ use self::common::seed_long_history;
 #[tokio::test]
 async fn permalink_pages_default_to_latest_100_and_opt_into_full_history() -> Result<()> {
     let server = Server::start().await?;
-    seed_long_history(&server, 200).await?;
+    seed_long_history(&server, 101).await?;
 
     let chart_slug = pick_chart_slug(&server, |s| s == "Random Access").await?;
     let group_slug = pick_group_slug(&server, |s| s == "Random Access").await?;
@@ -61,7 +61,7 @@ async fn permalink_pages_default_to_latest_100_and_opt_into_full_history() -> Re
             .as_array()
             .context("all commits is array")?
             .len(),
-        200,
+        101,
         "/chart?n=all should inline the full raw history",
     );
 
