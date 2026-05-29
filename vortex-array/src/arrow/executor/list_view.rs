@@ -14,7 +14,7 @@ use crate::ExecutionCtx;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::listview::DEFAULT_REBUILD_DENSITY_THRESHOLD;
-use crate::arrays::listview::DEFAULT_TRIM_WASTE_THRESHOLD;
+use crate::arrays::listview::DEFAULT_TRIM_ELEMENTS_THRESHOLD;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewDataParts;
 use crate::arrays::listview::ListViewRebuildMode;
@@ -45,8 +45,9 @@ pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
         } else {
             let (start, end) = array.referenced_element_bounds(ctx)?;
             let waste = (n_elts - (end - start)) as f32 / n_elts as f32;
-            if waste > DEFAULT_TRIM_WASTE_THRESHOLD {
-                array.trim_elements(start, end)?
+            if waste > DEFAULT_TRIM_ELEMENTS_THRESHOLD {
+                // SAFETY: we calculated valid start and end bounds
+                unsafe { array.trim_elements(start, end)? }
             } else {
                 array
             }

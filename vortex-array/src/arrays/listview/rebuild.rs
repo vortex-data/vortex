@@ -60,7 +60,7 @@ pub const DEFAULT_REBUILD_DENSITY_THRESHOLD: f32 = 0.1;
 /// a more aggressive threshold than [`DEFAULT_REBUILD_DENSITY_THRESHOLD`].
 ///
 /// When the unreferenced (leading + trailing) fraction of `elements` exceeds this threshold, we trim.
-pub const DEFAULT_TRIM_WASTE_THRESHOLD: f32 = 0.05;
+pub const DEFAULT_TRIM_ELEMENTS_THRESHOLD: f32 = 0.05;
 
 /// Modes for rebuilding a [`ListViewArray`].
 pub enum ListViewRebuildMode {
@@ -346,23 +346,24 @@ impl ListViewArray {
 
     /// Rebuilds a [`ListViewArray`] by trimming any unused / unreferenced leading and trailing
     /// elements, which is defined as a contiguous run of values in the `elements` array that are
-    /// not referecened by any views in the corresponding [`ListViewArray`].
+    /// not referenced by any views in the corresponding [`ListViewArray`].
     fn rebuild_trim_elements(&self) -> VortexResult<ListViewArray> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let (start, end) = self.referenced_element_bounds(&mut ctx)?;
-        self.trim_elements(start, end)
+
+        // SAFETY: we calculated valid start and end bounds
+        unsafe { self.trim_elements(start, end) }
     }
 
-    /// Trims `elements` to the referenced half-open range `[start, end)`, adjusting every offset
+    /// Unsafely trims `elements` to the referenced half-open range `[start, end)`, adjusting every offset
     /// down by `start`. The result preserves the original `is_zero_copy_to_list` flag.
     ///
-    /// `start` and `end` MUST be the referenced-element bounds from
-    /// [`referenced_element_bounds`](ListViewArrayExt::referenced_element_bounds); any other range
-    /// yields a logically corrupt array. Prefer `rebuild(`[`TrimElements`]`)` unless the bounds are
-    /// already known, in which case this entry point avoids recomputing them.
+    /// # SAFETY
     ///
-    /// [`TrimElements`]: ListViewRebuildMode::TrimElements
-    pub(crate) fn trim_elements(&self, start: usize, end: usize) -> VortexResult<ListViewArray> {
+    /// `start` must be the minimum value of `offsets`, and end should be the maximum value of `offsets[i] + size[i]`
+    /// over all indices `i` of offsets. Otherwise, `offsets` and `sizes` may hold references to elements that no longer exist
+    /// and the array will be corrupted.
+    pub unsafe fn trim_elements(&self, start: usize, end: usize) -> VortexResult<ListViewArray> {
         let adjusted_offsets = match_each_integer_ptype!(self.offsets().dtype().as_ptype(), |O| {
             let offset = <O as FromPrimitive>::from_usize(start)
                 .vortex_expect("unable to convert the min offset `start` into a `usize`");
