@@ -54,7 +54,7 @@ pub type OnPairArray = Array<OnPair>;
 /// On disk the layout is FSST-shape:
 ///
 /// * Buffer 0 — `dict_bytes`: the dictionary blob built by the OnPair trainer,
-///   padded with [`MAX_TOKEN_SIZE`][onpair::MAX_TOKEN_SIZE] trailing zero
+///   padded with `onpair::MAX_TOKEN_SIZE` trailing zero
 ///   bytes so the over-copy decoder can read 16 bytes past the last token.
 /// * Slots — see [`OnPairSlots`].
 ///
@@ -130,7 +130,7 @@ pub struct OnPairData {
     ///
     /// INVARIANT: this buffer must be over-padded past its logical end
     /// (`dict_offsets.last()`) by the decoder's fixed token read width,
-    /// [`MAX_TOKEN_SIZE`][onpair::MAX_TOKEN_SIZE]. The over-copy decoder reads
+    /// `onpair::MAX_TOKEN_SIZE`. The over-copy decoder reads
     /// every dictionary entry with one fixed-width load and then advances the
     /// cursor by the token's true length, so the load for the final, shortest
     /// token over-reads past the logical end of the dictionary. This is the
