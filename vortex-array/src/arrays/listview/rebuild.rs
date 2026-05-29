@@ -75,6 +75,9 @@ pub enum ListViewRebuildMode {
 
     /// Removes any leading or trailing elements that are unused / not referenced by any views in
     /// the [`ListViewArray`].
+    ///
+    /// If the referenced `[start, end)` bounds are already known, prefer calling
+    /// [`trim_elements`](ListViewArray::trim_elements) directly to avoid recomputing them.
     TrimElements,
 
     /// Equivalent to `MakeZeroCopyToList` plus `TrimElements`.
@@ -347,7 +350,19 @@ impl ListViewArray {
     fn rebuild_trim_elements(&self) -> VortexResult<ListViewArray> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let (start, end) = self.referenced_element_bounds(&mut ctx)?;
+        self.trim_elements(start, end)
+    }
 
+    /// Trims `elements` to the referenced half-open range `[start, end)`, adjusting every offset
+    /// down by `start`. The result preserves the original `is_zero_copy_to_list` flag.
+    ///
+    /// `start` and `end` MUST be the referenced-element bounds from
+    /// [`referenced_element_bounds`](ListViewArrayExt::referenced_element_bounds); any other range
+    /// yields a logically corrupt array. Prefer `rebuild(`[`TrimElements`]`)` unless the bounds are
+    /// already known, in which case this entry point avoids recomputing them.
+    ///
+    /// [`TrimElements`]: ListViewRebuildMode::TrimElements
+    pub(crate) fn trim_elements(&self, start: usize, end: usize) -> VortexResult<ListViewArray> {
         let adjusted_offsets = match_each_integer_ptype!(self.offsets().dtype().as_ptype(), |O| {
             let offset = <O as FromPrimitive>::from_usize(start)
                 .vortex_expect("unable to convert the min offset `start` into a `usize`");

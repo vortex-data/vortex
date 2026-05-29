@@ -37,12 +37,19 @@ pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
     // any compute pass over that buffer wastes work on data nothing references.
     let array = if array.is_zero_copy_to_list() {
         // A zero-copy-to-list array has no overlaps and no interior gaps, so the only unreferenced
-        // elements are leading and trailing. Trimming them is much cheaper than a full rebuild, so
-        // detect the waste in O(1) and trim only when it is significant.
-        if array.prop_tail_unreferenced(ctx)? > DEFAULT_TRIM_WASTE_THRESHOLD {
-            array.rebuild(ListViewRebuildMode::TrimElements)?
-        } else {
+        // elements are leading and trailing. Trimming them is much cheaper than a full rebuild.
+        // Compute the referenced bounds once and reuse them for both the decision and the trim.
+        let n_elts = array.elements().len();
+        if n_elts == 0 || array.is_empty() {
             array
+        } else {
+            let (start, end) = array.referenced_element_bounds(ctx)?;
+            let waste = (n_elts - (end - start)) as f32 / n_elts as f32;
+            if waste > DEFAULT_TRIM_WASTE_THRESHOLD {
+                array.trim_elements(start, end)?
+            } else {
+                array
+            }
         }
     } else if array.upper_bound_density(ctx)? < DEFAULT_REBUILD_DENSITY_THRESHOLD {
         // Overlaps, gaps, or garbage may be present, so a full rebuild is needed to reclaim waste.
