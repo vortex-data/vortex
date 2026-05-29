@@ -87,7 +87,7 @@ impl Scheme for FSSTScheme {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let utf8 = data.array_as_utf8().into_owned();
+        let utf8 = data.array_as_varbinview().into_owned();
         let compressor_fsst = fsst_train_compressor(&utf8);
         let fsst = fsst_compress(&utf8, utf8.len(), utf8.dtype(), &compressor_fsst, exec_ctx);
 
@@ -254,7 +254,7 @@ impl Scheme for ZstdScheme {
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let compacted = data.array_as_utf8().into_owned().compact_buffers()?;
+        let compacted = data.array_as_varbinview().into_owned().compact_buffers()?;
         Ok(
             vortex_zstd::Zstd::from_var_bin_view_without_dict(&compacted, 3, 8192, exec_ctx)?
                 .into_array(),

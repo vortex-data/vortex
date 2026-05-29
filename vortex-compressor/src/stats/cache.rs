@@ -76,14 +76,14 @@ impl StatsCache {
 /// original array are not reused.
 ///
 /// Built-in stats are accessed via typed methods ([`integer_stats`], [`float_stats`],
-/// [`string_stats`]) which generate stats lazily on first access using the stored
+/// [`varbinview_stats`]) which generate stats lazily on first access using the stored
 /// [`GenerateStatsOptions`].
 ///
 /// Extension schemes can use [`get_or_insert_with`] for custom stats types.
 ///
 /// [`integer_stats`]: ArrayAndStats::integer_stats
 /// [`float_stats`]: ArrayAndStats::float_stats
-/// [`string_stats`]: ArrayAndStats::string_stats
+/// [`varbinview_stats`]: ArrayAndStats::varbinview_stats
 /// [`get_or_insert_with`]: ArrayAndStats::get_or_insert_with
 pub struct ArrayAndStats {
     /// The array. This is always in canonical form.
@@ -140,15 +140,6 @@ impl ArrayAndStats {
         self.array
             .as_opt::<VarBinView>()
             .vortex_expect("the array is guaranteed to already be canonical by construction")
-    }
-
-    /// Returns the array as an [`ArrayView<VarBinView>`].
-    ///
-    /// # Panics
-    ///
-    /// Panics if the array is not a varbinview array.
-    pub fn array_as_utf8(&self) -> ArrayView<'_, VarBinView> {
-        self.array_as_varbinview()
     }
 
     /// Consumes the bundle and returns the array.
