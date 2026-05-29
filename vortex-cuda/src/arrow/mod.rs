@@ -9,6 +9,7 @@
 //! More documentation at <https://arrow.apache.org/docs/format/CDeviceDataInterface.html>
 
 mod canonical;
+mod list_view;
 
 use std::ffi::c_void;
 use std::fmt::Debug;

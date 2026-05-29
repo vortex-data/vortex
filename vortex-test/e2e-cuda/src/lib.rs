@@ -35,6 +35,8 @@ use vortex::array::ArrayRef as VortexArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::DecimalArray;
+use vortex::array::arrays::FixedSizeListArray;
+use vortex::array::arrays::ListArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::TemporalArray;
@@ -94,6 +96,26 @@ fn primitive_array() -> Result<VortexArrayRef, String> {
     })
 }
 
+fn list_array() -> VortexArrayRef {
+    ListArray::try_new(
+        PrimitiveArray::from_iter([10i32, 11, 12, 13, 14]).into_array(),
+        PrimitiveArray::from_iter([0i32, 2, 2, 5, 5, 5]).into_array(),
+        Validity::from_iter([true, false, true, true, false]),
+    )
+    .expect("list array")
+    .into_array()
+}
+
+fn fixed_size_list_array() -> VortexArrayRef {
+    FixedSizeListArray::new(
+        PrimitiveArray::from_iter(20i32..30).into_array(),
+        2,
+        Validity::from_iter([true, false, true, true, false]),
+        5,
+    )
+    .into_array()
+}
+
 /// # Safety
 /// called by C++ code.
 #[unsafe(no_mangle)]
@@ -128,12 +150,21 @@ pub unsafe extern "C" fn export_array(
     );
 
     let array = StructArray::new(
-        FieldNames::from_iter(["prims", "decimals", "strings", "dates"]),
+        FieldNames::from_iter([
+            "prims",
+            "decimals",
+            "strings",
+            "dates",
+            "lists",
+            "fixed_lists",
+        ]),
         vec![
             primitive,
             decimal.into_array(),
             strings.into_array(),
             dates.into_array(),
+            list_array(),
+            fixed_size_list_array(),
         ],
         5,
         Validity::NonNullable,
@@ -188,12 +219,26 @@ pub unsafe extern "C" fn validate_array(
         None,
     ]);
     let date = Date32Array::from(vec![Some(100i32), None, Some(300), Some(400), None]);
+    let list = SESSION
+        .arrow()
+        .execute_arrow(list_array(), None, &mut SESSION.create_execution_ctx())
+        .expect("expected list Arrow array");
+    let fixed_size_list = SESSION
+        .arrow()
+        .execute_arrow(
+            fixed_size_list_array(),
+            None,
+            &mut SESSION.create_execution_ctx(),
+        )
+        .expect("expected fixed-size-list Arrow array");
 
     let expected_fields = Fields::from_iter([
         Field::new("prims", primitive.data_type().clone(), true),
         Field::new("decimals", decimal.data_type().clone(), true),
         Field::new("strings", string.data_type().clone(), true),
         Field::new("dates", date.data_type().clone(), true),
+        Field::new("lists", list.data_type().clone(), true),
+        Field::new("fixed_lists", fixed_size_list.data_type().clone(), true),
     ]);
 
     assert_eq!(
@@ -208,6 +253,8 @@ pub unsafe extern "C" fn validate_array(
         Arc::new(decimal),
         Arc::new(string),
         Arc::new(date),
+        list,
+        fixed_size_list,
     ];
 
     for (expected, actual) in expected_fields.iter().zip(struct_array.columns()) {
