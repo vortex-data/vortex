@@ -3,7 +3,7 @@
 
 //! Data acquisition and table specs for SQLStorm StackOverflow / JOB origins.
 //!
-//! TPC-H and TPC-DS reuse vortex-bench's existing datasets, so only the two
+//! TPC-H and TPC-DS delegate to their own benchmark generators, so only the two
 //! non-TPC origins have a download → extract → DuckDB-convert pipeline. Both
 //! origins share the same driver ([`generate_origin`]); each is parameterized
 //! by an [`OriginData`] recipe.

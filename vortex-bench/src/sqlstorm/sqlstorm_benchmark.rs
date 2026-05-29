@@ -132,8 +132,9 @@ mod tests {
     use crate::utils::file::data_dir;
 
     /// Default-data-dir resolution must match the layout the CI harness
-    /// expects: TPC-H / TPC-DS reuse the existing per-dataset SF directories;
-    /// StackOverflow and JOB land under a shared `sqlstorm/<origin>/` parent
+    /// expects: TPC-H / TPC-DS use dedicated per-dataset SF directories
+    /// (at `SQLSTORM_TPC_SCALE_FACTOR`); StackOverflow and JOB land under a
+    /// shared `sqlstorm/<origin>/` parent
     /// that mirrors the in-tree vendored-queries layout
     /// (`vortex-bench/sqlstorm/<origin>/`). The nightly matrix in
     /// `.github/workflows/nightly-bench.yml` is the consumer of this contract.
