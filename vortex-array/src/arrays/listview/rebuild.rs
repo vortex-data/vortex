@@ -54,6 +54,16 @@ fn rebuilt_offset_ptype(offsets_ptype: PType) -> PType {
 /// list element dtypes.
 pub const DEFAULT_REBUILD_DENSITY_THRESHOLD: f32 = 0.1;
 
+/// Waste threshold to decide whether to trim a zero-copy-to-list `ListViewArray`.
+///
+/// A zero-copy-to-list array has no overlaps and no interior gaps, so its only unreferenced bytes
+/// are leading and trailing elements. Trimming those is much cheaper than a full rebuild (a lazy
+/// `elements` slice plus an `O(num_lists)` offset adjustment, with no element data copy), so we use
+/// a more aggressive threshold than [`DEFAULT_REBUILD_DENSITY_THRESHOLD`].
+///
+/// When the unreferenced (leading + trailing) fraction of `elements` exceeds this threshold, we trim.
+pub const DEFAULT_TRIM_WASTE_THRESHOLD: f32 = 0.05;
+
 /// Modes for rebuilding a [`ListViewArray`].
 pub enum ListViewRebuildMode {
     /// Removes all unused data and flattens out all list data, such that the array is zero-copyable

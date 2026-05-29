@@ -522,6 +522,30 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
 
         Ok(estimate)
     }
+
+    /// Proportion of `elements` that lies before the first referenced element or after the last,
+    /// in `[0.0, 1.0]`. Computed in `O(1)` from the first and last views.
+    ///
+    /// This is the fraction of the `elements` buffer that a
+    /// [`TrimElements`](super::ListViewRebuildMode::TrimElements) rebuild would reclaim, but it is
+    /// only correct for **zero-copy-to-list** arrays. There, views are sorted and non-overlapping
+    /// with no interior gaps, so every unreferenced element is leading or trailing and the
+    /// referenced range is exactly `[first_offset, last_offset + last_size)`.
+    ///
+    /// Returns `0.0` when `elements` is empty or the array has no lists.
+    fn proportion_tail_unreferenced(&self) -> f32 {
+        let n_elts = self.elements().len();
+        let n_lists = self.as_ref().len();
+        if n_elts == 0 || n_lists == 0 {
+            return 0.0;
+        }
+
+        let start = self.offset_at(0);
+        let end = self.offset_at(n_lists - 1) + self.size_at(n_lists - 1);
+        let referenced = end - start;
+
+        (n_elts - referenced) as f32 / n_elts as f32
+    }
 }
 impl<T: TypedArrayRef<ListView>> ListViewArrayExt for T {}
 

@@ -4,6 +4,7 @@
 //! Tests for `compute_referenced_elements_mask`, `compute_density`, and
 //! `estimate_density` on `ListViewArray`.
 
+use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -14,13 +15,16 @@ use super::common::create_large_listview;
 use super::common::create_overlapping_listview;
 use super::common::create_sparse_overlapping_listview;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::VortexSessionExecute;
+use crate::arrays::ListViewArray;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::tests::common::create_empty_elements_listview;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::scalar::ScalarValue;
 use crate::session::ArraySession;
+use crate::validity::Validity;
 
 const EPS: f32 = 1e-6;
 
@@ -136,4 +140,30 @@ fn referenced_mask_set_bits_match_views() -> VortexResult<()> {
     assert!(bb.value(18));
     assert!(bb.value(19));
     Ok(())
+}
+
+#[test]
+fn tail_unreferenced_zero_when_fully_referenced() {
+    // create_basic_listview references all 10 elements with no leading/trailing slack.
+    let lv = create_basic_listview();
+    assert!(lv.proportion_tail_unreferenced().abs() < EPS);
+}
+
+#[test]
+fn tail_unreferenced_counts_leading_and_trailing() {
+    // 10 elements, views cover [2, 6): 2 leading + 4 trailing unreferenced -> 0.6.
+    let elements = buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
+    let offsets = buffer![2u32, 4].into_array();
+    let sizes = buffer![2u32, 2].into_array();
+    let lv = unsafe {
+        ListViewArray::new_unchecked(elements, offsets, sizes, Validity::NonNullable)
+            .with_zero_copy_to_list(true)
+    };
+    assert!((lv.proportion_tail_unreferenced() - 0.6).abs() < EPS);
+}
+
+#[test]
+fn tail_unreferenced_zero_for_empty_elements() {
+    let lv = create_empty_elements_listview();
+    assert_eq!(lv.proportion_tail_unreferenced(), 0.0);
 }
