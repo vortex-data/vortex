@@ -40,9 +40,28 @@ impl SplitMix64 {
     }
 }
 
+/// Derive the per-block SORF seed from the global TurboQuant seed and the block index.
+///
+/// The derivation offsets `global_seed` by `block_index * SPLITMIX64_INCREMENT` (matching the
+/// additive part of one splitmix64 step) and then applies the splitmix64 mixing tail (the two
+/// `MUL1` / `MUL2` rounds plus the final xor-shift). `block_index = 0` is therefore the mixing
+/// tail applied directly to `global_seed`, not `global_seed` itself.
+///
+/// This function is part of the wire contract and MUST NOT change once shipped: the per-block
+/// sign mask stream depends on this output exactly.
+pub(crate) fn derive_block_seed(global_seed: u64, block_index: usize) -> u64 {
+    // `usize::MAX <= u64::MAX` on every target this crate supports, so the cast is lossless.
+    let block_index = block_index as u64;
+    let mut state = global_seed.wrapping_add(block_index.wrapping_mul(SPLITMIX64_INCREMENT));
+    state = (state ^ (state >> 30)).wrapping_mul(SPLITMIX64_MUL1);
+    state = (state ^ (state >> 27)).wrapping_mul(SPLITMIX64_MUL2);
+    state ^ (state >> 31)
+}
+
 #[cfg(test)]
 mod tests {
     use super::SplitMix64;
+    use super::derive_block_seed;
 
     const SPLITMIX64_SEED0_GOLDEN: [u64; 4] = [
         0xE220_A839_7B1D_CDAF,
@@ -74,5 +93,36 @@ mod tests {
             .map(|_| rng.next_u64())
             .collect();
         assert_eq!(actual, SPLITMIX64_SEED42_GOLDEN);
+    }
+
+    /// Golden values for `derive_block_seed(42, 0..4)` computed by hand from the splitmix64
+    /// reference (additive offset of `block_index * INCREMENT`, followed by the two MUL rounds
+    /// and the final xor-shift). These pin the wire contract.
+    ///
+    /// Indices 1, 2, and 3 align with `SPLITMIX64_SEED42_GOLDEN[0..3]` because `SplitMix64`'s
+    /// `next_u64` increments before mixing: its `k`-th output is `mix(seed + (k + 1) * INCREMENT)`,
+    /// while `derive_block_seed(seed, k)` is `mix(seed + k * INCREMENT)`. Index 0 is the mixing
+    /// tail applied directly to `42`, which has no counterpart in the existing stream golden.
+    const DERIVED_SEED_42_GOLDEN: [u64; 4] = [
+        0xA759_EA27_D472_7622,
+        0xBDD7_3226_2FEB_6E95,
+        0x28EF_E333_B266_F103,
+        0x4752_6757_130F_9F52,
+    ];
+
+    #[test]
+    fn derive_block_seed_matches_splitmix64_stream_at_zero_indices() {
+        let actual: Vec<u64> = (0..DERIVED_SEED_42_GOLDEN.len())
+            .map(|i| derive_block_seed(42, i))
+            .collect();
+        assert_eq!(actual, DERIVED_SEED_42_GOLDEN);
+    }
+
+    #[test]
+    fn derive_block_seed_distinct_for_consecutive_indices() {
+        let mut seeds: Vec<u64> = (0..16).map(|i| derive_block_seed(0xDEAD_BEEF, i)).collect();
+        seeds.sort_unstable();
+        seeds.dedup();
+        assert_eq!(seeds.len(), 16, "derive_block_seed produced duplicates");
     }
 }

@@ -14,7 +14,8 @@
 //! distribution.
 //!
 //! Centroids are not stored in TurboQuant arrays. They are deterministically derived from
-//! `(padded_dim, bit_width)` and cached process-locally.
+//! `(block_size, bit_width)` and cached process-locally. Each block of a block-decomposed
+//! TurboQuant array uses its own centroid table sized to that block's width.
 //!
 //! The centroid model follows the random orthogonal transform marginal used by the TurboQuant
 //! paper. This encoder applies a SORF-style structured transform instead of a dense random Gaussian
@@ -29,7 +30,7 @@ use vortex_error::vortex_ensure;
 use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::config::MAX_BIT_WIDTH;
-use crate::config::MIN_DIMENSION;
+use crate::config::MIN_BLOCK_SIZE;
 
 // NB: All of these constants were chosen arbitrarily.
 
@@ -44,32 +45,34 @@ const CONVERGENCE_EPSILON: f64 = 1e-12;
 /// The trapezoidal rule evaluates the integrand at `INTEGRATION_TRAPEZOIDS + 1` points.
 const INTEGRATION_TRAPEZOIDS: usize = 1000;
 
-/// Global centroid cache keyed by (dimension, bit_width).
+/// Global centroid cache keyed by `(block_size, bit_width)`.
 static CENTROID_CACHE: LazyLock<DashMap<(u32, u8), Buffer<f32>>> = LazyLock::new(DashMap::default);
 
-/// Get or compute cached centroids for the given dimension and bit width.
+/// Get or compute cached centroids for the given block size and bit width.
 ///
 /// Returns `2^bit_width` centroids sorted in ascending order, representing optimal scalar
 /// quantization levels for the coordinate distribution after a random orthogonal transform in
-/// `dimension`-dimensional space.
-pub(crate) fn compute_or_get_centroids(dimension: u32, bit_width: u8) -> VortexResult<Buffer<f32>> {
+/// `block_size`-dimensional space.
+pub(crate) fn compute_or_get_centroids(
+    block_size: u32,
+    bit_width: u8,
+) -> VortexResult<Buffer<f32>> {
     vortex_ensure!(
         (1..=MAX_BIT_WIDTH).contains(&bit_width),
         "TurboQuant bit_width must be 1-{}, got {bit_width}",
         MAX_BIT_WIDTH
     );
     vortex_ensure!(
-        dimension >= MIN_DIMENSION,
-        "TurboQuant dimension must be >= {}, got {dimension}",
-        MIN_DIMENSION
+        block_size >= MIN_BLOCK_SIZE,
+        "TurboQuant block size must be >= {MIN_BLOCK_SIZE}, got {block_size}"
     );
 
-    if let Some(centroids) = CENTROID_CACHE.get(&(dimension, bit_width)) {
+    if let Some(centroids) = CENTROID_CACHE.get(&(block_size, bit_width)) {
         return Ok(centroids.clone());
     }
 
-    let centroids = max_lloyd_centroids(dimension, bit_width);
-    CENTROID_CACHE.insert((dimension, bit_width), centroids.clone());
+    let centroids = max_lloyd_centroids(block_size, bit_width);
+    CENTROID_CACHE.insert((block_size, bit_width), centroids.clone());
 
     Ok(centroids)
 }
@@ -83,19 +86,18 @@ pub(crate) fn compute_or_get_centroids(dimension: u32, bit_width: u8) -> VortexR
 ///
 /// This type makes that invariant explicit and avoids floating-point comparison in the hot path.
 #[derive(Clone, Copy, Debug)]
-struct HalfIntExponent {
-    int_part: i32,
+struct HalfUIntExponent {
+    int_part: u32,
     has_half: bool,
 }
 
-impl HalfIntExponent {
-    /// Compute `(numerator) / 2` as a half-integer exponent.
+impl HalfUIntExponent {
+    /// Compute `numerator / 2` as a half-integer exponent.
     ///
-    /// `numerator` is `d - 3` where `d` is the dimension (>= 2), so it can be negative.
-    fn from_numerator(numerator: i32) -> Self {
-        // Use Euclidean division to get floor division toward negative infinity.
-        let int_part = numerator.div_euclid(2);
-        let has_half = numerator.rem_euclid(2) != 0;
+    /// `numerator` is `d - 3` where `d` is the block size.
+    fn from_numerator(numerator: u32) -> Self {
+        let int_part = numerator / 2;
+        let has_half = !numerator.is_multiple_of(2);
         Self { int_part, has_half }
     }
 }
@@ -111,20 +113,23 @@ impl HalfIntExponent {
 ///
 /// Centroids are seeded uniformly on `[±sqrt(bit_width) * sigma]` (where `sigma` is the standard
 /// deviation of the normal distribution that hypershere dimension values take, and specifically
-/// `sigma = 1/sqrt(dimension)`) rather than across the full `[-1, 1]`, which strands most of the
+/// `sigma = 1/sqrt(block_size)`) rather than across the full `[-1, 1]`, which strands most of the
 /// centroids in the near-zero-mass tails.
 ///
 /// Note that the `sqrt(bit_width)` is mostly empirically derived, we do not have a theoretical
 /// basis for choosing this other than the fact that it seems to produce good results.
-fn max_lloyd_centroids(dimension: u32, bit_width: u8) -> Buffer<f32> {
+fn max_lloyd_centroids(block_size: u32, bit_width: u8) -> Buffer<f32> {
     debug_assert!((1..=MAX_BIT_WIDTH).contains(&bit_width));
+    // Callers validate `block_size >= MIN_BLOCK_SIZE`; asserted here so the `block_size - 3`
+    // below cannot underflow if a future caller forgets.
+    debug_assert!(block_size >= MIN_BLOCK_SIZE);
     let num_centroids = 1usize << bit_width;
 
     // For the marginal distribution on [-1, 1], we use the exponent (d-3)/2.
-    let exponent = HalfIntExponent::from_numerator(dimension as i32 - 3);
+    let exponent = HalfUIntExponent::from_numerator(block_size - 3);
 
     // The coordinate marginal concentrates around 0 with this standard deviation.
-    let sigma = 1.0 / f64::from(dimension).sqrt();
+    let sigma = 1.0 / f64::from(block_size).sqrt();
     let init_half = (f64::from(bit_width).sqrt() * sigma).min(1.0);
 
     // Initialize centroids uniformly on [-init_half, init_half], where the mass lives, so no cell
@@ -169,7 +174,7 @@ fn max_lloyd_centroids(dimension: u32, bit_width: u8) -> Buffer<f32> {
 /// Returns `E[X | lo <= X <= hi]` where X has PDF proportional to `(1 - x^2)^exponent` on [-1, 1].
 ///
 /// Since there is no closed form for the integrals, we compute this numerically.
-fn mean_between_centroids(lo: f64, hi: f64, exponent: HalfIntExponent) -> f64 {
+fn mean_between_centroids(lo: f64, hi: f64, exponent: HalfUIntExponent) -> f64 {
     if (hi - lo).abs() < 1e-15 {
         return (lo + hi) / 2.0;
     }
@@ -205,15 +210,21 @@ fn mean_between_centroids(lo: f64, hi: f64, exponent: HalfIntExponent) -> f64 {
 /// Uses `powi` + `sqrt` instead of `powf` for the half-integer exponents that arise from `(d-3)/2`.
 /// This is significantly faster than the general `powf` which goes through
 /// `exp(exponent * ln(base))`.
-fn pdf_unnormalized(x_val: f64, exponent: HalfIntExponent) -> f64 {
+fn pdf_unnormalized(x_val: f64, exponent: HalfUIntExponent) -> f64 {
     let base = (1.0 - x_val * x_val).max(0.0);
+
+    #[expect(
+        clippy::cast_possible_wrap,
+        reason = "exponent is half a block size and fits i32"
+    )]
+    let int_exp = exponent.int_part as i32;
 
     if exponent.has_half {
         // Half-integer exponent: base^(int_part) * sqrt(base).
-        base.powi(exponent.int_part) * base.sqrt()
+        base.powi(int_exp) * base.sqrt()
     } else {
         // Integer exponent: use powi directly.
-        base.powi(exponent.int_part)
+        base.powi(int_exp)
     }
 }
 
@@ -356,6 +367,13 @@ mod tests {
         assert!(compute_or_get_centroids(128, 0).is_err());
         assert!(compute_or_get_centroids(128, 9).is_err());
         assert!(compute_or_get_centroids(1, 2).is_err());
-        assert!(compute_or_get_centroids(127, 2).is_err());
+        assert!(compute_or_get_centroids(63, 2).is_err());
+    }
+
+    #[test]
+    fn centroids_available_for_min_dimension() -> VortexResult<()> {
+        let centroids = compute_or_get_centroids(64, 2)?;
+        assert_eq!(centroids.len(), 4);
+        Ok(())
     }
 }
