@@ -109,6 +109,7 @@ mod tests {
     use vortex_buffer::ByteBufferMut;
 
     use crate::arrays::varbinview::BinaryView;
+    use crate::arrays::varbinview::build_views::MAX_BUFFER_LEN;
     use crate::arrays::varbinview::build_views::build_views;
 
     /// Concatenate `values` into a single byte heap and return it alongside the per-element lengths,
@@ -299,6 +300,77 @@ mod tests {
             BinaryView::make_view(b"", 0, 36),
         ];
         assert_eq!(views.as_slice(), &expected);
+    }
+
+    // TODO(someone): ideally CI would run this in release mode as well, since debug builds make the
+    // ~2.25 GiB allocation and fill loop substantially slower.
+    /// Slow regression for the single-buffer fast-path guard. The fast path is only valid when the
+    /// whole heap fits in one buffer (`bytes.len() <= max_buffer_len`); once the heap exceeds
+    /// [`MAX_BUFFER_LEN`] (`i32::MAX`, ~2.0 GiB) `build_views` must roll the heap into multiple
+    /// buffers, resetting the per-buffer offset, so no view references an offset past the
+    /// `i32`-bounded buffer limit.
+    ///
+    /// We build a heap just past `i32::MAX` and assert it rolls over into more than one buffer, that
+    /// no buffer exceeds `MAX_BUFFER_LEN`, and that values straddling the rollover boundary (where
+    /// the second buffer's offsets restart from zero) reconstruct exactly. If the guard regressed and
+    /// the fast path swallowed the whole heap, it would emit a single >2 GiB buffer with offsets past
+    /// `i32::MAX`, which the buffer-count and buffer-size assertions catch.
+    ///
+    /// Allocates ~2.25 GiB, so it is gated to CI and skipped when `VORTEX_SKIP_SLOW_TESTS` is set:
+    ///
+    /// ```text
+    /// CI=1 cargo test --release -p vortex-array build_views_offsets_overflow
+    /// ```
+    ///
+    /// [`MAX_BUFFER_LEN`]: super::MAX_BUFFER_LEN
+    #[test_with::env(CI)]
+    #[test_with::no_env(VORTEX_SKIP_SLOW_TESTS)]
+    fn build_views_offsets_overflow_i32() {
+        const STRING_LEN: usize = 64 * 1024;
+        // Comfortably past MAX_BUFFER_LEN (`i32::MAX` ~= 2.0 GiB) so the heap must roll over.
+        const TOTAL_BYTES: usize = (1usize << 31) + (256 << 20); // ~2.25 GiB
+        const N: usize = TOTAL_BYTES / STRING_LEN;
+
+        // Each value's first 8 bytes encode its row index, so a misrouted offset is detectable.
+        let nth_string = |i: usize| {
+            let mut s = vec![b'x'; STRING_LEN];
+            s[..8].copy_from_slice(&(i as u64).to_le_bytes());
+            s
+        };
+
+        let mut bytes = ByteBufferMut::with_capacity(N * STRING_LEN);
+        let mut value = vec![b'x'; STRING_LEN];
+        for i in 0..N {
+            value[..8].copy_from_slice(&(i as u64).to_le_bytes());
+            bytes.extend_from_slice(&value);
+        }
+
+        let lens = vec![u32::try_from(STRING_LEN).unwrap(); N];
+        let (buffers, views) = build_views(0, MAX_BUFFER_LEN, bytes, &lens);
+
+        assert_eq!(views.len(), N);
+        assert!(
+            buffers.len() >= 2,
+            "heap exceeding MAX_BUFFER_LEN must roll over into multiple buffers, got {}",
+            buffers.len()
+        );
+        for (i, b) in buffers.iter().enumerate() {
+            assert!(
+                b.len() <= MAX_BUFFER_LEN,
+                "buffer {i} of {} bytes exceeds MAX_BUFFER_LEN",
+                b.len()
+            );
+        }
+
+        // The boundary row is the first whose offset would cross MAX_BUFFER_LEN on the fast path.
+        let boundary = MAX_BUFFER_LEN / STRING_LEN;
+        for i in [0, boundary - 1, boundary, boundary + 1, N / 2, N - 1] {
+            let view = &views[i];
+            let r = view.as_view();
+            let got = &buffers[r.buffer_index as usize][r.as_range()];
+            assert_eq!(got, nth_string(i).as_slice(), "value mismatch at row {i}");
+            assert_eq!(r.size as usize, STRING_LEN);
+        }
     }
 
     #[test]

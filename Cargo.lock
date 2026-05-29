@@ -9195,6 +9195,7 @@ dependencies = [
  "static_assertions",
  "tabled",
  "termtree",
+ "test-with",
  "tracing",
  "uuid",
  "vortex-array",
