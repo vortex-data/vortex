@@ -22,6 +22,7 @@ use crate::LEGACY_SESSION;
 #[expect(deprecated)]
 use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
+use crate::aggregate_fn::fns::min_max::min_max;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -32,11 +33,14 @@ use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::bool;
 use crate::arrays::primitive::PrimitiveArrayExt;
+use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
+use crate::dtype::PType;
 use crate::expr::stats::Stat;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
+use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
 
 /// The `elements` data array, where each list scalar is a _slice_ of the `elements` array, and
@@ -523,28 +527,74 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
         Ok(estimate)
     }
 
-    /// Proportion of `elements` that lies before the first referenced element or after the last,
-    /// in `[0.0, 1.0]`. Computed in `O(1)` from the first and last views.
+    /// Returns the half-open range `[start, end)` of `elements` indices referenced by any view:
+    /// the minimum offset and the maximum `offset + size`. Elements outside this range are
+    /// unreferenced leading or trailing slack that a
+    /// [`TrimElements`](super::ListViewRebuildMode::TrimElements) rebuild would reclaim.
     ///
-    /// This is the fraction of the `elements` buffer that a
-    /// [`TrimElements`](super::ListViewRebuildMode::TrimElements) rebuild would reclaim, but it is
-    /// only correct for **zero-copy-to-list** arrays. There, views are sorted and non-overlapping
-    /// with no interior gaps, so every unreferenced element is leading or trailing and the
-    /// referenced range is exactly `[first_offset, last_offset + last_size)`.
+    /// For **zero-copy-to-list** arrays this is `O(1)`: views are sorted and non-overlapping with
+    /// no interior gaps, so the bounds are exactly `[first_offset, last_offset + last_size)`.
+    /// Otherwise it computes min/max statistics over `offsets` and `offsets + sizes`.
     ///
-    /// Returns `0.0` when `elements` is empty or the array has no lists.
-    fn proportion_tail_unreferenced(&self) -> f32 {
-        let n_elts = self.elements().len();
+    /// # Preconditions
+    ///
+    /// The array must contain at least one list (`len() > 0`).
+    fn referenced_element_bounds(&self, ctx: &mut ExecutionCtx) -> VortexResult<(usize, usize)> {
         let n_lists = self.as_ref().len();
-        if n_elts == 0 || n_lists == 0 {
-            return 0.0;
+        assert!(
+            n_lists > 0,
+            "referenced_element_bounds requires a non-empty array"
+        );
+
+        if self.is_zero_copy_to_list() {
+            let start = self.offset_at(0);
+            let end = self.offset_at(n_lists - 1) + self.size_at(n_lists - 1);
+            return Ok((start, end));
         }
 
-        let start = self.offset_at(0);
-        let end = self.offset_at(n_lists - 1) + self.size_at(n_lists - 1);
+        let start = self
+            .offsets()
+            .statistics()
+            .compute_min::<usize>(ctx)
+            .vortex_expect("offsets must report a usize min statistic");
+
+        // Cast offsets and sizes to the widest integer type so that `offset + size` cannot overflow
+        // the narrower input width.
+        let wide_dtype = DType::from(if self.offsets().dtype().as_ptype().is_unsigned_int() {
+            PType::U64
+        } else {
+            PType::I64
+        });
+        let offsets = self.offsets().cast(wide_dtype.clone())?;
+        let sizes = self.sizes().cast(wide_dtype)?;
+        let end = min_max(&offsets.binary(sizes, Operator::Add)?, ctx)?
+            .vortex_expect("non-empty array must report a min/max")
+            .max
+            .as_primitive()
+            .as_::<usize>()
+            .vortex_expect("max `offset + size` must fit in a usize");
+
+        Ok((start, end))
+    }
+
+    /// Proportion of `elements` that is unreferenced leading or trailing slack, in `[0.0, 1.0]`.
+    ///
+    /// This is the fraction of the `elements` buffer that a
+    /// [`TrimElements`](super::ListViewRebuildMode::TrimElements) rebuild would reclaim. It is
+    /// exact and `O(1)` for zero-copy-to-list arrays and otherwise computes min/max statistics
+    /// over the offsets (see [`referenced_element_bounds`](Self::referenced_element_bounds)).
+    ///
+    /// Returns `0.0` when `elements` is empty or the array has no lists.
+    fn prop_tail_unreferenced(&self, ctx: &mut ExecutionCtx) -> VortexResult<f32> {
+        let n_elts = self.elements().len();
+        if n_elts == 0 || self.as_ref().is_empty() {
+            return Ok(0.0);
+        }
+
+        let (start, end) = self.referenced_element_bounds(ctx)?;
         let referenced = end - start;
 
-        (n_elts - referenced) as f32 / n_elts as f32
+        Ok((n_elts - referenced) as f32 / n_elts as f32)
     }
 }
 impl<T: TypedArrayRef<ListView>> ListViewArrayExt for T {}

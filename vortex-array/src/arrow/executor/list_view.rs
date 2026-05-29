@@ -39,7 +39,7 @@ pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
         // A zero-copy-to-list array has no overlaps and no interior gaps, so the only unreferenced
         // elements are leading and trailing. Trimming them is much cheaper than a full rebuild, so
         // detect the waste in O(1) and trim only when it is significant.
-        if array.proportion_tail_unreferenced() > DEFAULT_TRIM_WASTE_THRESHOLD {
+        if array.prop_tail_unreferenced(ctx)? > DEFAULT_TRIM_WASTE_THRESHOLD {
             array.rebuild(ListViewRebuildMode::TrimElements)?
         } else {
             array

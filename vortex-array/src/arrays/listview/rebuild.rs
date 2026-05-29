@@ -11,7 +11,6 @@ use crate::LEGACY_SESSION;
 #[expect(deprecated)]
 use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
-use crate::aggregate_fn::fns::min_max::min_max;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
@@ -19,7 +18,6 @@ use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
-use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -347,55 +345,8 @@ impl ListViewArray {
     /// elements, which is defined as a contiguous run of values in the `elements` array that are
     /// not referecened by any views in the corresponding [`ListViewArray`].
     fn rebuild_trim_elements(&self) -> VortexResult<ListViewArray> {
-        let start = if self.is_zero_copy_to_list() {
-            // If offsets are sorted, then the minimum offset is the first offset.
-            // Note that even if the first view is null, offsets must always be valid, so it is
-            // completely fine for us to use this as a lower-bounded start of the `elements`.
-            self.offset_at(0)
-        } else {
-            let mut ctx = LEGACY_SESSION.create_execution_ctx();
-            self.offsets()
-                .statistics()
-                .compute_min(&mut ctx)
-                .vortex_expect(
-                    "[ListViewArray::rebuild]: `offsets` must report min statistic that is a `usize`",
-                )
-        };
-
-        let end = if self.is_zero_copy_to_list() {
-            // If offsets are sorted and there are no overlaps (views are always "increasing"), we
-            // can just grab the last offset and last size.
-            let last_offset = self.offset_at(self.len() - 1);
-            let last_size = self.size_at(self.len() - 1);
-            last_offset + last_size
-        } else {
-            // Cast offsets and sizes to the widest integer type to prevent
-            // overflow when computing offsets + sizes. The end offset may not
-            // fit in the integer width otherwise.
-            let wide_dtype = DType::from(if self.offsets().dtype().as_ptype().is_unsigned_int() {
-                PType::U64
-            } else {
-                PType::I64
-            });
-            let offsets = self.offsets().cast(wide_dtype.clone())?;
-            let sizes = self.sizes().cast(wide_dtype)?;
-
-            let mut ctx = LEGACY_SESSION.create_execution_ctx();
-            let min_max = min_max(
-                &offsets
-                    .binary(sizes, Operator::Add)
-                    .vortex_expect("`offsets + sizes` somehow overflowed"),
-                &mut ctx,
-            )
-            .vortex_expect("Something went wrong while computing min and max")
-            .vortex_expect("We checked that the array was not empty in the top-level `rebuild`");
-
-            min_max
-                .max
-                .as_primitive()
-                .as_::<usize>()
-                .vortex_expect("unable to interpret the max `offset + size` as a `usize`")
-        };
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let (start, end) = self.referenced_element_bounds(&mut ctx)?;
 
         let adjusted_offsets = match_each_integer_ptype!(self.offsets().dtype().as_ptype(), |O| {
             let offset = <O as FromPrimitive>::from_usize(start)

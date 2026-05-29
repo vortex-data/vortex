@@ -143,14 +143,17 @@ fn referenced_mask_set_bits_match_views() -> VortexResult<()> {
 }
 
 #[test]
-fn tail_unreferenced_zero_when_fully_referenced() {
+fn tail_unreferenced_zero_when_fully_referenced() -> VortexResult<()> {
+    let mut ctx = test_execution_ctx();
     // create_basic_listview references all 10 elements with no leading/trailing slack.
     let lv = create_basic_listview();
-    assert!(lv.proportion_tail_unreferenced().abs() < EPS);
+    assert!(lv.prop_tail_unreferenced(&mut ctx)?.abs() < EPS);
+    Ok(())
 }
 
 #[test]
-fn tail_unreferenced_counts_leading_and_trailing() {
+fn tail_unreferenced_counts_leading_and_trailing_zero_copy() -> VortexResult<()> {
+    let mut ctx = test_execution_ctx();
     // 10 elements, views cover [2, 6): 2 leading + 4 trailing unreferenced -> 0.6.
     let elements = buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
     let offsets = buffer![2u32, 4].into_array();
@@ -159,11 +162,28 @@ fn tail_unreferenced_counts_leading_and_trailing() {
         ListViewArray::new_unchecked(elements, offsets, sizes, Validity::NonNullable)
             .with_zero_copy_to_list(true)
     };
-    assert!((lv.proportion_tail_unreferenced() - 0.6).abs() < EPS);
+    assert!((lv.prop_tail_unreferenced(&mut ctx)? - 0.6).abs() < EPS);
+    Ok(())
 }
 
 #[test]
-fn tail_unreferenced_zero_for_empty_elements() {
+fn tail_unreferenced_non_zero_copy_uses_stats() -> VortexResult<()> {
+    let mut ctx = test_execution_ctx();
+    // Out-of-order offsets -> not zero-copy-to-list, so bounds come from min/max stats.
+    // 10 elements, views [5,7) and [2,4): min offset 2, max end 7 -> referenced [2, 7) -> 0.5.
+    let elements = buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
+    let offsets = buffer![5u32, 2].into_array();
+    let sizes = buffer![2u32, 2].into_array();
+    let lv = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
+    assert!(!lv.is_zero_copy_to_list());
+    assert!((lv.prop_tail_unreferenced(&mut ctx)? - 0.5).abs() < EPS);
+    Ok(())
+}
+
+#[test]
+fn tail_unreferenced_zero_for_empty_elements() -> VortexResult<()> {
+    let mut ctx = test_execution_ctx();
     let lv = create_empty_elements_listview();
-    assert_eq!(lv.proportion_tail_unreferenced(), 0.0);
+    assert_eq!(lv.prop_tail_unreferenced(&mut ctx)?, 0.0);
+    Ok(())
 }
