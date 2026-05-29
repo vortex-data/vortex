@@ -269,7 +269,7 @@ pub enum BenchmarkArg {
 }
 
 /// Default scale factor for TPC-related benchmarks
-const DEFAULT_SCALE_FACTOR: &str = "1.0";
+pub(crate) const DEFAULT_SCALE_FACTOR: &str = "1.0";
 
 const SCALE_FACTOR_KEY: &str = "scale-factor";
 const REMOTE_DATA_KEY: &str = "remote-data-dir";

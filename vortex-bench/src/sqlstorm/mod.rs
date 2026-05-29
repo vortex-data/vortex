@@ -3,8 +3,9 @@
 
 //! SQLStorm benchmark: a TPC-DS-shaped suite over a vendored set of 125 SQLStorm
 //! queries per origin (500 total), curated as the intersection of queries that
-//! succeed on DuckDB and DataFusion against the source data. See the design doc
-//! for rationale.
+//! succeed on DuckDB and DataFusion against the source data. See
+//! `vortex-bench/sqlstorm/README.md` for layout, refresh procedure, and the
+//! pinned upstream SHA.
 
 use std::fs;
 use std::path::Path;

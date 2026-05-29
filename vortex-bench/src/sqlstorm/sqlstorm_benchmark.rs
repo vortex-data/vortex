@@ -10,6 +10,7 @@ use url::Url;
 
 use crate::Benchmark;
 use crate::BenchmarkDataset;
+use crate::DEFAULT_SCALE_FACTOR;
 use crate::Format;
 use crate::IdempotentPath;
 use crate::TableSpec;
@@ -36,9 +37,10 @@ impl SqlstormBenchmark {
 
     /// Resolve the base data URL for `origin`.
     ///
-    /// TPC-H and TPC-DS reuse the existing local datasets at the default scale-factor
-    /// directory (`DEFAULT_SCALE_FACTOR` = `"1.0"` in `lib.rs`, so both live under
-    /// `<dataset>/1.0`). StackOverflow and JOB get their own `sqlstorm-<origin>` directories.
+    /// TPC-H and TPC-DS reuse the existing local datasets at the default
+    /// scale-factor directory (`<dataset>/<DEFAULT_SCALE_FACTOR>`). StackOverflow
+    /// and JOB live under `sqlstorm/<origin>/`, mirroring the vendored-queries
+    /// layout in `vortex-bench/sqlstorm/<origin>/`.
     fn create_data_url(remote_data_dir: Option<&str>, origin: SqlstormOrigin) -> Result<Url> {
         if let Some(remote) = remote_data_dir {
             let mut url = Url::parse(remote)?;
@@ -48,10 +50,11 @@ impl SqlstormBenchmark {
             return Ok(url);
         }
         let dir = match origin {
-            SqlstormOrigin::TpcH => "tpch".to_data_path().join("1.0"),
-            SqlstormOrigin::TpcDs => "tpcds".to_data_path().join("1.0"),
-            SqlstormOrigin::StackOverflow => "sqlstorm-stackoverflow".to_data_path(),
-            SqlstormOrigin::Job => "sqlstorm-job".to_data_path(),
+            SqlstormOrigin::TpcH => "tpch".to_data_path().join(DEFAULT_SCALE_FACTOR),
+            SqlstormOrigin::TpcDs => "tpcds".to_data_path().join(DEFAULT_SCALE_FACTOR),
+            SqlstormOrigin::StackOverflow | SqlstormOrigin::Job => {
+                "sqlstorm".to_data_path().join(origin.name())
+            }
         };
         Url::from_directory_path(&dir)
             .map_err(|_| anyhow!("Failed to create URL from directory path: {:?}", dir))
@@ -67,17 +70,19 @@ impl Benchmark for SqlstormBenchmark {
     async fn generate_base_data(&self) -> Result<()> {
         match self.origin {
             SqlstormOrigin::TpcH => {
-                TpcHBenchmark::new("1.0".to_string(), None)?
+                TpcHBenchmark::new(DEFAULT_SCALE_FACTOR.to_string(), None)?
                     .generate_base_data()
                     .await
             }
             SqlstormOrigin::TpcDs => {
-                TpcDsBenchmark::new("1.0".to_string(), None)?
+                TpcDsBenchmark::new(DEFAULT_SCALE_FACTOR.to_string(), None)?
                     .generate_base_data()
                     .await
             }
-            SqlstormOrigin::StackOverflow => data::generate_stackoverflow(&self.data_url).await,
-            SqlstormOrigin::Job => data::generate_job(&self.data_url).await,
+            SqlstormOrigin::StackOverflow => {
+                data::generate_origin(&self.data_url, &data::STACKOVERFLOW).await
+            }
+            SqlstormOrigin::Job => data::generate_origin(&self.data_url, &data::JOB).await,
         }
     }
 
@@ -113,5 +118,62 @@ impl Benchmark for SqlstormBenchmark {
             _ => format!("{}.{}", table_name, format.ext()),
         };
         Some(glob.parse().expect("valid glob pattern"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::file::data_dir;
+
+    /// Default-data-dir resolution must match the layout the CI harness
+    /// expects: TPC-H / TPC-DS reuse the existing per-dataset SF directories;
+    /// StackOverflow and JOB land under a shared `sqlstorm/<origin>/` parent
+    /// that mirrors the in-tree vendored-queries layout
+    /// (`vortex-bench/sqlstorm/<origin>/`). The nightly matrix in
+    /// `.github/workflows/nightly-bench.yml` is the consumer of this contract.
+    #[test]
+    fn data_url_layout_per_origin() -> Result<()> {
+        let cases = [
+            (SqlstormOrigin::TpcH, data_dir().join("tpch").join("1.0")),
+            (SqlstormOrigin::TpcDs, data_dir().join("tpcds").join("1.0")),
+            (
+                SqlstormOrigin::StackOverflow,
+                data_dir().join("sqlstorm").join("stackoverflow"),
+            ),
+            (SqlstormOrigin::Job, data_dir().join("sqlstorm").join("job")),
+        ];
+        for (origin, expected) in cases {
+            let bench = SqlstormBenchmark::new(origin, None)?;
+            let got = bench
+                .data_url()
+                .to_file_path()
+                .map_err(|_| anyhow!("data_url not a file URL for {origin:?}"))?;
+            assert_eq!(got, expected, "data_url mismatch for {origin:?}");
+        }
+        Ok(())
+    }
+
+    /// Remote `--opt remote-data-dir=…` overrides take precedence over the
+    /// local layout for every origin and end up trailing-slash-terminated
+    /// (the runner builds `<base>/<format>/` paths off this URL).
+    #[test]
+    fn remote_data_dir_overrides_all_origins() -> Result<()> {
+        for origin in [
+            SqlstormOrigin::TpcH,
+            SqlstormOrigin::TpcDs,
+            SqlstormOrigin::StackOverflow,
+            SqlstormOrigin::Job,
+        ] {
+            let bench = SqlstormBenchmark::new(
+                origin,
+                Some("s3://vortex-bench-dev-eu/parquet".to_string()),
+            )?;
+            assert_eq!(
+                bench.data_url().as_str(),
+                "s3://vortex-bench-dev-eu/parquet/"
+            );
+        }
+        Ok(())
     }
 }
