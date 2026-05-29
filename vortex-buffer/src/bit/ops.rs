@@ -4,7 +4,6 @@
 use crate::BitBuffer;
 use crate::BitBufferMut;
 use crate::Buffer;
-use crate::ByteBufferMut;
 use crate::trusted_len::TrustedLenExt;
 
 /// Read up to 8 bytes as a little-endian `u64`, zero-padding the high bytes when fewer than 8 are
@@ -20,18 +19,17 @@ fn read_u64_le(bytes: &[u8]) -> u64 {
 
 /// Apply `op` to each little-endian `u64` word of `data` in place.
 ///
-/// `data` is processed as a sequence of unaligned `u64` words, with the trailing `data.len() % 8`
-/// bytes handled as one final partial word (see [`read_u64_le`]).
+/// `data` is split into full `u64` words via [`slice::as_chunks`], with the trailing
+/// `data.len() % 8` bytes handled as one final partial word (see [`read_u64_le`]).
 #[inline]
 fn map_u64_words_in_place<F: FnMut(u64) -> u64>(data: &mut [u8], mut op: F) {
-    let mut chunks = data.chunks_exact_mut(8);
-    for chunk in chunks.by_ref() {
-        chunk.copy_from_slice(&op(read_u64_le(chunk)).to_le_bytes());
+    let (words, tail) = data.as_chunks_mut::<8>();
+    for word in words {
+        *word = op(u64::from_le_bytes(*word)).to_le_bytes();
     }
-    let rem = chunks.into_remainder();
-    if !rem.is_empty() {
-        let word = op(read_u64_le(rem)).to_le_bytes();
-        rem.copy_from_slice(&word[..rem.len()]);
+    if !tail.is_empty() {
+        let word = op(read_u64_le(tail)).to_le_bytes();
+        tail.copy_from_slice(&word[..tail.len()]);
     }
 }
 
@@ -41,40 +39,24 @@ fn map_u64_words_in_place<F: FnMut(u64) -> u64>(data: &mut [u8], mut op: F) {
 #[inline]
 fn zip_u64_words_in_place<F: FnMut(u64, u64) -> u64>(dst: &mut [u8], src: &[u8], mut op: F) {
     let n = dst.len().min(src.len());
-    let mut dst_chunks = dst[..n].chunks_exact_mut(8);
-    let mut src_chunks = src[..n].chunks_exact(8);
-    for (d, s) in dst_chunks.by_ref().zip(src_chunks.by_ref()) {
-        let word = op(read_u64_le(d), read_u64_le(s));
-        d.copy_from_slice(&word.to_le_bytes());
+    let (dst_words, dst_tail) = dst[..n].as_chunks_mut::<8>();
+    let (src_words, src_tail) = src[..n].as_chunks::<8>();
+    for (d, s) in dst_words.iter_mut().zip(src_words) {
+        *d = op(u64::from_le_bytes(*d), u64::from_le_bytes(*s)).to_le_bytes();
     }
-    // Both slices have length `n`, so their remainders are the same length.
-    let dst_rem = dst_chunks.into_remainder();
-    if !dst_rem.is_empty() {
-        let word = op(read_u64_le(dst_rem), read_u64_le(src_chunks.remainder())).to_le_bytes();
-        dst_rem.copy_from_slice(&word[..dst_rem.len()]);
+    // Both slices were truncated to `n`, so their tails are the same length.
+    if !dst_tail.is_empty() {
+        let word = op(read_u64_le(dst_tail), read_u64_le(src_tail)).to_le_bytes();
+        dst_tail.copy_from_slice(&word[..dst_tail.len()]);
     }
 }
 
 /// Apply a unary operation to a [`BitBuffer`], always allocating a new output buffer.
 #[inline]
-pub(super) fn bitwise_unary_op_copy<F: FnMut(u64) -> u64>(
-    buffer: &BitBuffer,
-    mut op: F,
-) -> BitBuffer {
-    let src = buffer.inner().as_slice();
-    let mut dst = ByteBufferMut::with_capacity(src.len());
-
-    let mut chunks = src.chunks_exact(8);
-    for chunk in chunks.by_ref() {
-        dst.extend_from_slice(&op(read_u64_le(chunk)).to_le_bytes());
-    }
-    let rem = chunks.remainder();
-    if !rem.is_empty() {
-        let word = op(read_u64_le(rem)).to_le_bytes();
-        dst.extend_from_slice(&word[..rem.len()]);
-    }
-
-    BitBuffer::new_with_offset(dst.freeze(), buffer.len(), buffer.offset())
+pub(super) fn bitwise_unary_op_copy<F: FnMut(u64) -> u64>(buffer: &BitBuffer, op: F) -> BitBuffer {
+    let mut buf = BitBufferMut::copy_from(buffer);
+    map_u64_words_in_place(buf.as_mut_slice(), op);
+    buf.freeze()
 }
 
 /// Apply a unary operation to an owned [`BitBuffer`], mutating in-place when possible.
@@ -170,6 +152,7 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
+    use crate::ByteBufferMut;
     use crate::bitbuffer;
     use crate::buffer;
 
