@@ -1,5 +1,13 @@
 pub mod vortex_onpair
 
+pub use vortex_onpair::Bits
+
+pub use vortex_onpair::Config
+
+pub use vortex_onpair::OnPairError
+
+pub use vortex_onpair::Threshold
+
 pub struct vortex_onpair::OnPair
 
 impl vortex_onpair::OnPair

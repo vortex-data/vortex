@@ -23,3 +23,7 @@ mod tests;
 
 pub use array::*;
 pub use compress::*;
+pub use onpair::Bits;
+pub use onpair::Config;
+pub use onpair::Error as OnPairError;
+pub use onpair::Threshold;
