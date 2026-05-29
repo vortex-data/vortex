@@ -565,68 +565,6 @@ typedef struct {
 } vx_estimate;
 
 /**
- * Options supplied for opening a file.
- */
-typedef struct {
-    /**
-     * URI for opening the file.
-     * This must be a valid URI, even for files (file:///path/to/file)
-     */
-    const char *uri;
-    /**
-     * Additional configuration for the file source (e.g. "s3.accessKey").
-     * This may be null, in which case it is treated as empty.
-     */
-    const char *const *property_keys;
-    /**
-     * Additional configuration values for the file source (e.g. S3 credentials).
-     */
-    const char *const *property_vals;
-    /**
-     * Number of properties in `property_keys` and `property_vals`.
-     */
-    int property_len;
-} vx_file_open_options;
-
-/**
- * Scan options provided by an FFI client calling the `vx_file_scan` function.
- */
-typedef struct {
-    /**
-     * Column names to project out in the scan. These must be null-terminated C strings.
-     */
-    const char *projection_expression;
-    /**
-     * Number of columns in `projection`.
-     */
-    unsigned int projection_expr_len;
-    /**
-     * Serialized expressions for pushdown
-     */
-    const char *filter_expression;
-    /**
-     * The len in bytes of the filter expression
-     */
-    unsigned int filter_expression_len;
-    /**
-     * Splits the file into chunks of this size, if zero then we use the write layout.
-     */
-    int split_by_row_count;
-    /**
-     * First row of a range to scan.
-     */
-    unsigned long row_range_start;
-    /**
-     * Last row of a range to scan.
-     */
-    unsigned long row_range_end;
-    /**
-     * The row offset of the file in a multi-file scan.
-     */
-    unsigned long row_offset;
-} vx_file_scan_options;
-
-/**
  * Scan row selection.
  * "idx" is copied while calling vx_data_source_scan and can be freed after.
  */
@@ -670,11 +608,6 @@ typedef struct {
      * Maximum number of rows to return. 0 means no limit.
      */
     uint64_t limit;
-    /**
-     * Upper limit for parallelism. 0 means no limit.
-     * Scan will return at most "max_threads" partitions.
-     */
-    uint64_t max_threads;
     /**
      * If true, return in storage order.
      */
@@ -1293,43 +1226,10 @@ const vx_file *vx_file_clone(const vx_file *ptr);
  */
 void vx_file_free(const vx_file *ptr);
 
-/**
- * Open a file at the given path on the file system.
- */
-const vx_file *
-vx_file_open_reader(const vx_session *session, const vx_file_open_options *options, vx_error **error_out);
-
 void vx_file_write_array(const vx_session *session,
                          const char *path,
                          const vx_array *array,
                          vx_error **error_out);
-
-uint64_t vx_file_row_count(const vx_file *file);
-
-/**
- * Return the DType of the file.
- *
- * The returned pointer is valid as long as the file is valid.
- * Do NOT free the returned dtype pointer - it shares the lifetime of the file.
- */
-const vx_dtype *vx_file_dtype(const vx_file *file);
-
-/**
- * Can we prune the whole file using file stats and an expression
- */
-bool vx_file_can_prune(const vx_session *session,
-                       const vx_file *file,
-                       const char *filter_expression,
-                       unsigned int filter_expression_len,
-                       vx_error **error_out);
-
-/**
- * Build a new `vx_array_iterator` that returns a series of `vx_array`s from a scan over a `vx_layout_reader`.
- */
-vx_array_iterator *vx_file_scan(const vx_session *session,
-                                const vx_file *file,
-                                const vx_file_scan_options *opts,
-                                vx_error **error_out);
 
 /**
  * Set the stderr logger to output at the specified level.

@@ -292,6 +292,7 @@ fn canonical_tpc_scale_factor(scale_factor: &str) -> String {
 /// | `PolarSignals { n_rows: _ }`| `polarsignals` | `None`              | `None`                                              | Same as StatPopGen. |
 /// | `Fineweb`                   | `fineweb`      | `None`              | `None`                                              | |
 /// | `GhArchive`                 | `gharchive`    | `None`              | `None`                                              | |
+/// | `Appian`                    | `appian`       | `None`              | `None`                                              | Static dataset; no scale factor. |
 /// | `PublicBi { name }`         | `public-bi`    | dataset name (e.g. `cms-provider`) | `None`               | Sub-dataset name lives in `dataset_variant`. |
 /// | `Sqlstorm { origin }`       | `sqlstorm`     | origin name (e.g. `tpch`)          | `None`               | Origin lives in `dataset_variant`. |
 pub fn benchmark_dataset_dims(d: &BenchmarkDataset) -> (String, Option<String>, Option<String>) {
@@ -325,6 +326,7 @@ pub fn benchmark_dataset_dims(d: &BenchmarkDataset) -> (String, Option<String>, 
         BenchmarkDataset::Sqlstorm { origin } => {
             ("sqlstorm".to_string(), Some(origin.clone()), None)
         }
+        BenchmarkDataset::Appian => ("appian".to_string(), None, None),
     }
 }
 
@@ -719,6 +721,7 @@ mod tests {
             ),
             (BenchmarkDataset::Fineweb, "fineweb"),
             (BenchmarkDataset::GhArchive, "gharchive"),
+            (BenchmarkDataset::Appian, "appian"),
         ] {
             let (ds, variant, sf) = benchmark_dataset_dims(&case);
             assert_eq!(ds, expected, "dataset for {case:?}");

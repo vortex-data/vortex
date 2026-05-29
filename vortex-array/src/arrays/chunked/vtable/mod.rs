@@ -240,8 +240,9 @@ impl VTable for Chunked {
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         match array.dtype() {
-            // Struct, List, and Variant need child swizzling that the builder path cannot express.
-            DType::Struct(..) | DType::List(..) | DType::Variant(..) => {
+            // Struct, List, FixedSizeList, and Variant need child swizzling that the builder path
+            // cannot express.
+            DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) | DType::Variant(..) => {
                 // TODO(joe)[#7674]: iterative execution here too
                 Ok(ExecutionResult::done(_canonicalize(array.as_view(), ctx)?))
             }

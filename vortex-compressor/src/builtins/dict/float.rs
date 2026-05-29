@@ -24,9 +24,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::CascadingCompressor;
-use crate::builtins::FloatDictScheme;
 use crate::builtins::IntDictScheme;
-use crate::builtins::is_float_primitive;
 use crate::ctx::CompressorContext;
 use crate::estimate::CompressionEstimate;
 use crate::estimate::DeferredEstimate;
@@ -40,13 +38,17 @@ use crate::stats::FloatErasedStats;
 use crate::stats::FloatStats;
 use crate::stats::GenerateStatsOptions;
 
+/// Dictionary encoding for low-cardinality float values.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct FloatDictScheme;
+
 impl Scheme for FloatDictScheme {
     fn scheme_name(&self) -> &'static str {
         "vortex.float.dict"
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        is_float_primitive(canonical)
+        canonical.dtype().is_float()
     }
 
     fn stats_options(&self) -> GenerateStatsOptions {

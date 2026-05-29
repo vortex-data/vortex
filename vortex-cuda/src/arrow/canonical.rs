@@ -217,10 +217,12 @@ async fn export_arrow_validity_buffer(
 ) -> VortexResult<(Option<BufferHandle>, i64)> {
     let mask = validity.execute_mask(len, ctx.execution_ctx())?;
     let null_count = i64::try_from(mask.false_count())?;
+    let validity_bits = len + arrow_offset;
+    let validity_bytes = validity_bits.div_ceil(8);
 
     let validity_buffer = match mask {
         Mask::AllTrue(_) => return Ok((None, 0)),
-        Mask::AllFalse(len) => ByteBuffer::zeroed((len + arrow_offset).div_ceil(8)),
+        Mask::AllFalse(_) => ByteBuffer::zeroed(validity_bytes),
         values @ Mask::Values(_) => values.into_bit_buffer().into_inner().2,
     };
     let validity = ctx
@@ -360,6 +362,7 @@ mod tests {
     use vortex::array::validity::Validity;
     use vortex::dtype::DecimalDType;
     use vortex::dtype::FieldNames;
+    use vortex::dtype::half::f16;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::extension::datetime::TimeUnit;
@@ -445,33 +448,51 @@ mod tests {
     }
 
     #[rstest]
-    #[case::u8(PrimitiveArray::from_iter(0u8..10).into_array(), 10)]
-    #[case::u16(PrimitiveArray::from_iter(0u16..10).into_array(), 10)]
-    #[case::u32(PrimitiveArray::from_iter(0u32..10).into_array(), 10)]
-    #[case::u64(PrimitiveArray::from_iter(0u64..10).into_array(), 10)]
-    #[case::i32(PrimitiveArray::from_iter(0i32..10).into_array(), 10)]
-    #[case::i64(PrimitiveArray::from_iter(0i64..10).into_array(), 10)]
-    #[case::f32(PrimitiveArray::from_iter([1.0f32, 2.0, 3.0]).into_array(), 3)]
-    #[case::f64(PrimitiveArray::from_iter([1.0f64, 2.0, 3.0]).into_array(), 3)]
+    #[case::u8(PrimitiveArray::from_iter(0u8..10).into_array(), 10, DataType::UInt8)]
+    #[case::u16(PrimitiveArray::from_iter(0u16..10).into_array(), 10, DataType::UInt16)]
+    #[case::u32(PrimitiveArray::from_iter(0u32..10).into_array(), 10, DataType::UInt32)]
+    #[case::u64(PrimitiveArray::from_iter(0u64..10).into_array(), 10, DataType::UInt64)]
+    #[case::i8(PrimitiveArray::from_iter(0i8..10).into_array(), 10, DataType::Int8)]
+    #[case::i16(PrimitiveArray::from_iter(0i16..10).into_array(), 10, DataType::Int16)]
+    #[case::i32(PrimitiveArray::from_iter(0i32..10).into_array(), 10, DataType::Int32)]
+    #[case::i64(PrimitiveArray::from_iter(0i64..10).into_array(), 10, DataType::Int64)]
+    #[case::f16(
+        PrimitiveArray::from_iter([f16::from_f32(1.0), f16::from_f32(2.0)]).into_array(),
+        2,
+        DataType::Float16
+    )]
+    #[case::f32(
+        PrimitiveArray::from_iter([1.0f32, 2.0, 3.0]).into_array(),
+        3,
+        DataType::Float32
+    )]
+    #[case::f64(
+        PrimitiveArray::from_iter([1.0f64, 2.0, 3.0]).into_array(),
+        3,
+        DataType::Float64
+    )]
     #[crate::test]
     async fn test_export_primitive(
         #[case] array: ArrayRef,
         #[case] expected_len: i64,
+        #[case] expected_data_type: DataType,
     ) -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
-        let mut device_array = array.export_device_array(&mut ctx).await?;
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
 
-        assert_eq!(device_array.array.length, expected_len);
-        assert_eq!(device_array.array.null_count, 0);
-        assert_eq!(device_array.array.offset, 0);
-        assert_eq!(device_array.array.n_buffers, 2);
-        assert_eq!(device_array.array.n_children, 0);
-        assert!(device_array.array.release.is_some());
-        assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
+        let field = Field::try_from(&exported.schema)?;
+        assert_eq!(field, Field::new("", expected_data_type, false));
+        assert_eq!(exported.array.array.length, expected_len);
+        assert_eq!(exported.array.array.null_count, 0);
+        assert_eq!(exported.array.array.offset, 0);
+        assert_eq!(exported.array.array.n_buffers, 2);
+        assert_eq!(exported.array.array.n_children, 0);
+        assert!(exported.array.array.release.is_some());
+        assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
 
-        unsafe { release_exported_array(&raw mut device_array.array) };
+        unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
     }
 

@@ -10,6 +10,7 @@ use std::str::FromStr;
 use std::sync::LazyLock;
 
 use anyhow::bail;
+use appian::AppianBenchmark;
 use clap::ValueEnum;
 use clickbench::ClickBenchBenchmark;
 use clickbench::Flavor;
@@ -35,6 +36,7 @@ use vortex::file::VortexWriteOptions;
 use vortex::file::WriteStrategyBuilder;
 use vortex::utils::aliases::hash_map::HashMap;
 
+pub mod appian;
 pub mod benchmark;
 pub mod clickbench;
 pub mod compress;
@@ -250,6 +252,8 @@ impl CompactionStrategy {
 pub enum BenchmarkArg {
     #[clap(name = "sqlstorm")]
     Sqlstorm,
+    #[clap(name = "appian")]
+    Appian,
     #[clap(name = "clickbench")]
     ClickBench,
     #[clap(name = "tpch")]
@@ -287,6 +291,11 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
                 .unwrap_or(SqlstormOrigin::TpcH);
             let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
             let benchmark = SqlstormBenchmark::new(origin, remote_data_dir)?;
+            Ok(Box::new(benchmark) as _)
+        }
+        BenchmarkArg::Appian => {
+            let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
+            let benchmark = AppianBenchmark::with_remote_data_dir(remote_data_dir)?;
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::ClickBench => {

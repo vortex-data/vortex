@@ -7,7 +7,10 @@ import com.google.common.base.Preconditions;
 import dev.vortex.VortexCleaner;
 import dev.vortex.jni.NativeExpression;
 import java.math.BigInteger;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.Arrays;
+import java.util.UUID;
 
 /**
  * A Vortex expression node backed by a native pointer.
@@ -18,6 +21,9 @@ import java.util.Arrays;
  * ownership — the resulting expression is an independent copy on the native side.
  */
 public final class Expression {
+    /** Number of bytes in a UUID's big-endian representation. */
+    private static final int UUID_BYTE_LEN = 16;
+
     private final long pointer;
 
     private Expression(long pointer) {
@@ -196,6 +202,44 @@ public final class Expression {
     /** Null Timestamp literal. See {@link #literalTimestamp(long, TimeUnit, String)} for parameter semantics. */
     public static Expression nullLiteralTimestamp(TimeUnit unit, String timezone) {
         return new Expression(NativeExpression.literalTimestamp(0L, unit.tag(), timezone, true));
+    }
+
+    /**
+     * Create a UUID literal, enabling predicate pushdown over UUID columns. The value is stored as its 16-byte
+     * big-endian (network order) representation, matching Vortex's UUID extension type and Arrow's canonical UUID type.
+     */
+    public static Expression literal(UUID value) {
+        Preconditions.checkArgument(value != null, "use nullLiteralUuid() for a null UUID literal");
+        return literalUuid(uuidToBigEndianBytes(value));
+    }
+
+    /**
+     * Create a UUID literal from its 16-byte big-endian (network order) representation, for example the bytes of
+     * Arrow's canonical UUID type or a {@link UUID} serialized most-significant-bits first.
+     *
+     * @param bigEndianBytes exactly 16 bytes; use {@link #nullLiteralUuid()} for a null literal
+     */
+    public static Expression literalUuid(byte[] bigEndianBytes) {
+        Preconditions.checkArgument(bigEndianBytes != null, "use nullLiteralUuid() for a null UUID literal");
+        Preconditions.checkArgument(
+                bigEndianBytes.length == UUID_BYTE_LEN,
+                "UUID literal must be exactly %s bytes, got %s",
+                UUID_BYTE_LEN,
+                bigEndianBytes.length);
+        return new Expression(NativeExpression.literalUuid(bigEndianBytes, false));
+    }
+
+    /** Create a null UUID literal. */
+    public static Expression nullLiteralUuid() {
+        return new Expression(NativeExpression.literalUuid(new byte[UUID_BYTE_LEN], true));
+    }
+
+    private static byte[] uuidToBigEndianBytes(UUID value) {
+        return ByteBuffer.allocate(UUID_BYTE_LEN)
+                .order(ByteOrder.BIG_ENDIAN)
+                .putLong(value.getMostSignificantBits())
+                .putLong(value.getLeastSignificantBits())
+                .array();
     }
 
     /** Create a typed null literal of the given primitive {@link DType}. */

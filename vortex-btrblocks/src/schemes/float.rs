@@ -61,7 +61,6 @@ pub struct PcoScheme;
 // Re-export builtin schemes from vortex-compressor.
 pub use vortex_compressor::builtins::FloatConstantScheme;
 pub use vortex_compressor::builtins::FloatDictScheme;
-pub use vortex_compressor::builtins::is_float_primitive;
 pub use vortex_compressor::stats::FloatStats;
 
 /// RLE scheme for float arrays.
@@ -74,7 +73,7 @@ impl Scheme for ALPScheme {
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        is_float_primitive(canonical)
+        canonical.dtype().is_float()
     }
 
     /// Children: encoded_ints=0.
@@ -152,7 +151,7 @@ impl Scheme for ALPRDScheme {
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        is_float_primitive(canonical)
+        canonical.dtype().is_float()
     }
 
     fn expected_compression_ratio(
@@ -212,7 +211,7 @@ impl Scheme for NullDominatedSparseScheme {
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        is_float_primitive(canonical)
+        canonical.dtype().is_float()
     }
 
     /// Children: indices=0.
@@ -297,7 +296,7 @@ impl Scheme for PcoScheme {
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        is_float_primitive(canonical)
+        canonical.dtype().is_float()
     }
 
     fn expected_compression_ratio(
@@ -332,7 +331,7 @@ impl Scheme for FloatRLEScheme {
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        is_float_primitive(canonical)
+        canonical.dtype().is_float()
     }
 
     /// Children: values=0, indices=1, offsets=2.
