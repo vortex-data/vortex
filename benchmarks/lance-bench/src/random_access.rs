@@ -82,6 +82,7 @@ pub async fn nested_structs_lance() -> anyhow::Result<PathBuf> {
 pub struct LanceRandomAccessor {
     name: String,
     dataset: Dataset,
+    projection: ProjectionRequest,
 }
 
 impl LanceRandomAccessor {
@@ -92,9 +93,11 @@ impl LanceRandomAccessor {
                 .ok_or_else(|| anyhow!("Invalid dataset path"))?,
         )
         .await?;
+        let projection = ProjectionRequest::from_schema(dataset.schema().clone());
         Ok(Self {
             name: name.into(),
             dataset,
+            projection,
         })
     }
 }
@@ -110,8 +113,7 @@ impl RandomAccessor for LanceRandomAccessor {
     }
 
     async fn take(&self, indices: &[u64]) -> anyhow::Result<usize> {
-        let projection = ProjectionRequest::from_schema(self.dataset.schema().clone());
-        let result = self.dataset.take(indices, projection).await?;
+        let result = self.dataset.take(indices, self.projection.clone()).await?;
         Ok(result.num_rows())
     }
 }

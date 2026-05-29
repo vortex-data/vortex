@@ -434,6 +434,8 @@ def format_file_size_report(base_rows: pd.DataFrame, pr_rows: pd.DataFrame) -> s
         return ""
 
     base_data = extract_file_size_data(base_rows)
+    pr_scopes = {(benchmark, scale_factor) for benchmark, scale_factor, _file_format, _file_name in pr_data}
+    base_data = {key: value for key, value in base_data.items() if key[:2] in pr_scopes}
     if not base_data:
         return "_No baseline file sizes found for base commit._"
 
