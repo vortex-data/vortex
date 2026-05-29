@@ -5,7 +5,6 @@ mod arrays;
 
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Instant;
 
 use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
@@ -84,48 +83,11 @@ impl Fixture for FlatLayoutAdapter {
     }
 
     fn write(&self, dir: &Path) -> VortexResult<Vec<FixtureEntry>> {
-        let fixture_start = Instant::now();
-        eprintln!("    building array...");
-        let build_start = Instant::now();
         let array = self.0.build()?;
-        eprintln!(
-            "    built array in {:.3}s (len {}, dtype {})",
-            build_start.elapsed().as_secs_f64(),
-            array.len(),
-            array.dtype()
-        );
-
-        let encodings_start = Instant::now();
-        eprintln!("    checking expected encodings...");
         check_expected_encodings(&array, self.0.as_ref())?;
-        eprintln!(
-            "    checked expected encodings in {:.3}s",
-            encodings_start.elapsed().as_secs_f64()
-        );
-
-        let stats_start = Instant::now();
-        eprintln!("    computing all stats...");
         compute_all_stats(&array)?;
-        eprintln!(
-            "    computed all stats in {:.3}s",
-            stats_start.elapsed().as_secs_f64()
-        );
-
         let path = dir.join(self.name());
-        let path_display = path.display();
-        let write_start = Instant::now();
-        eprintln!("    writing {path_display}...");
         adapter::write_file(&path, array)?;
-        let bytes = path.metadata().map(|m| m.len()).unwrap_or(0);
-        eprintln!(
-            "    wrote {path_display} in {:.3}s ({} bytes)",
-            write_start.elapsed().as_secs_f64(),
-            bytes
-        );
-        eprintln!(
-            "    fixture write completed in {:.3}s",
-            fixture_start.elapsed().as_secs_f64()
-        );
         Ok(vec![FixtureEntry {
             name: self.name().to_string(),
             description: self.description().to_string(),
@@ -170,41 +132,17 @@ impl Fixture for DatasetFixtureAdapter {
     }
 
     fn write(&self, dir: &Path) -> VortexResult<Vec<FixtureEntry>> {
-        let fixture_start = Instant::now();
-        eprintln!("    building dataset...");
-        let build_start = Instant::now();
         let array = self.inner.build()?;
-        eprintln!(
-            "    built dataset in {:.3}s (len {}, dtype {})",
-            build_start.elapsed().as_secs_f64(),
-            array.len(),
-            array.dtype()
-        );
-
         let path = dir.join(self.name());
-        let path_display = path.display();
-        let write_start = Instant::now();
         if self.compact {
-            eprintln!("    writing compact compressed fixture to {path_display}...");
             let strategy = WriteStrategyBuilder::default()
                 .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
                 .build();
             adapter::write_compressed(&path, array, strategy)?;
         } else {
-            eprintln!("    writing regular compressed fixture to {path_display}...");
             let strategy = WriteStrategyBuilder::default().build();
             adapter::write_compressed(&path, array, strategy)?;
         }
-        let bytes = path.metadata().map(|m| m.len()).unwrap_or(0);
-        eprintln!(
-            "    wrote {path_display} in {:.3}s ({} bytes)",
-            write_start.elapsed().as_secs_f64(),
-            bytes
-        );
-        eprintln!(
-            "    fixture write completed in {:.3}s",
-            fixture_start.elapsed().as_secs_f64()
-        );
         Ok(vec![FixtureEntry {
             name: self.name().to_string(),
             description: self.description().to_string(),

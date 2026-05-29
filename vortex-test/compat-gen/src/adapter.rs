@@ -8,7 +8,6 @@
 
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Instant;
 
 use futures::stream;
 use tokio::runtime::Runtime;
@@ -24,7 +23,6 @@ use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::LayoutStrategy;
 use vortex::layout::layouts::flat::Flat;
 use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
-use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
@@ -45,40 +43,9 @@ fn runtime() -> VortexResult<Runtime> {
 pub fn compute_all_stats(array: &ArrayRef) -> VortexResult<()> {
     let all_stats: Vec<Stat> = Stat::all().collect();
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
-    for (idx, node) in array.depth_first_traversal().enumerate() {
-        eprintln!(
-            "      stats node {}: encoding {}, len {}, dtype {}",
-            idx + 1,
-            node.encoding_id(),
-            node.len(),
-            node.dtype()
-        );
-        for &stat in &all_stats {
-            let stat_start = Instant::now();
-            eprintln!("        computing {stat}...");
-            match node.statistics().compute_stat(stat, &mut ctx)? {
-                Some(scalar) => {
-                    if let Some(value) = scalar.into_value() {
-                        node.statistics().set(stat, Precision::exact(value));
-                        eprintln!(
-                            "        computed {stat} in {:.3}s",
-                            stat_start.elapsed().as_secs_f64()
-                        );
-                    } else {
-                        eprintln!(
-                            "        skipped {stat} in {:.3}s (no scalar value)",
-                            stat_start.elapsed().as_secs_f64()
-                        );
-                    }
-                }
-                None => {
-                    eprintln!(
-                        "        skipped {stat} in {:.3}s (unsupported)",
-                        stat_start.elapsed().as_secs_f64()
-                    );
-                }
-            }
-        }
+    for node in array.depth_first_traversal() {
+        let computed = node.statistics().compute_all(&all_stats, &mut ctx)?;
+        node.statistics().set_iter(computed.into_iter());
     }
     Ok(())
 }

@@ -178,16 +178,15 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
         //    Iteration 0 re-checks the initial encoding — a redundant HashMap miss, the price of
         //    keeping the loop body uniform. Terminates on `AnyColumnar` (Canonical or Constant)
         //    since the vtable's `accumulate(&Columnar)` handles both cases directly.
+        let aggs = session.aggregate_fns();
         let mut batch = batch.clone();
         for _ in 0..max_iterations() {
             if batch.is::<AnyColumnar>() {
                 break;
             }
 
-            let kernel = session
-                .aggregate_fns()
-                .find_aggregate_kernel(batch.encoding_id(), self.aggregate_fn.id());
-            if let Some(kernel) = kernel
+            if let Some(kernel) =
+                aggs.find_aggregate_kernel(batch.encoding_id(), self.aggregate_fn.id())
                 && let Some(result) = kernel.aggregate(&self.aggregate_fn, &batch, ctx)?
             {
                 vortex_ensure!(
@@ -202,6 +201,8 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
 
             batch = batch.execute(ctx)?;
         }
+
+        drop(aggs);
 
         // 4. Otherwise, execute the batch until it is columnar and accumulate it into the state.
         let columnar = batch.execute::<Columnar>(ctx)?;
