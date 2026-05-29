@@ -128,16 +128,16 @@ pub struct OnPairSlots {
 pub struct OnPairData {
     /// The dictionary blob (buffer 0).
     ///
-    /// INVARIANT: this buffer must be over-padded so that at least
-    /// [`MAX_TOKEN_SIZE`][crate::MAX_TOKEN_SIZE] (16) bytes are allocated past
-    /// the logical end of the dictionary (`dict_offsets.last()`). The decoder
-    /// reads every dictionary entry with a fixed 16-byte (128-bit) load and
-    /// then advances by the token's true length, so without this slack the
-    /// load for the final, shortest token would run off the end of the
-    /// allocation into unallocated memory. The padding lets *any* dict entry —
-    /// including the last one — be read as a single 16-byte load that stays
-    /// in bounds. `onpair_compress` establishes this padding (see
-    /// `parts_to_children`); the over-copy decoder lives in the `onpair` crate.
+    /// INVARIANT: this buffer must be over-padded past its logical end
+    /// (`dict_offsets.last()`) by the decoder's fixed token read width,
+    /// [`MAX_TOKEN_SIZE`][crate::MAX_TOKEN_SIZE]. The over-copy decoder reads
+    /// every dictionary entry with one fixed-width load and then advances the
+    /// cursor by the token's true length, so the load for the final, shortest
+    /// token over-reads past the logical end of the dictionary. This is the
+    /// same over-read the decoder accounts for on the final few codes; the
+    /// trailing padding absorbs it so that any entry can be read in bounds.
+    /// `onpair_compress` establishes this padding (see `parts_to_children`);
+    /// the over-copy decoder lives in the `onpair` crate.
     dict_bytes: BufferHandle,
     bits: u32,
     len: usize,
