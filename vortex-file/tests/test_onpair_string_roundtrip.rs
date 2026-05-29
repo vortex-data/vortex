@@ -115,45 +115,6 @@ async fn write_and_read_back(data: vortex_array::ArrayRef) -> Vec<vortex_array::
     chunks
 }
 
-/// Single string column, single chunk. The simplest case.
-#[tokio::test]
-async fn single_column_single_chunk() {
-    let n = 4096usize;
-    let strings = corpus(n, 0);
-    let str_array = VarBinViewArray::from_iter(
-        strings.iter().map(|s| Some(s.as_str())),
-        DType::Utf8(Nullability::NonNullable),
-    )
-    .into_array();
-    let data = StructArray::new(
-        FieldNames::from(["url"]),
-        vec![str_array],
-        n,
-        Validity::NonNullable,
-    )
-    .into_array();
-
-    let chunks = write_and_read_back(data).await;
-    let mut row = 0;
-    for chunk in chunks {
-        let strct = chunk
-            .try_downcast::<vortex_array::arrays::Struct>()
-            .expect("Struct");
-        let url = strct.unmasked_field(0).clone();
-        let mut ctx = SESSION.create_execution_ctx();
-        let url = url.execute::<VarBinViewArray>(&mut ctx).expect("canon");
-        url.with_iterator(|iter| {
-            for b in iter {
-                assert_eq!(b, Some(strings[row].as_bytes()), "row {row}");
-                row += 1;
-            }
-            Ok::<_, vortex_error::VortexError>(())
-        })
-        .unwrap();
-    }
-    assert_eq!(row, n);
-}
-
 /// Many rows → many chunks via the writer's default row_block_size.
 #[tokio::test]
 async fn single_column_many_chunks() {

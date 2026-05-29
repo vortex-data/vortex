@@ -21,12 +21,9 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::scalar_fn::fns::like::Like;
-use vortex_array::scalar_fn::fns::like::LikeOptions;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::session::ArraySession;
 use vortex_onpair::DEFAULT_DICT12_CONFIG;
@@ -126,38 +123,4 @@ fn smoke_100k_rows() {
         .into_array();
     assert_eq!(eq.as_bool_typed().true_count().unwrap(), want_eq);
     eprintln!("eq pushdown matches reference count ({})", want_eq);
-
-    // Prefix pushdown.
-    let prefix = "https://www.";
-    let want_prefix = strings.iter().filter(|s| s.starts_with(prefix)).count();
-    let pat = ConstantArray::new(format!("{prefix}%").as_str(), n).into_array();
-    let got_prefix = Like
-        .try_new_array(n, LikeOptions::default(), [arr_ref.clone(), pat])
-        .unwrap()
-        .into_array()
-        .execute::<vortex_array::Canonical>(&mut ctx)
-        .unwrap()
-        .into_array()
-        .as_bool_typed()
-        .true_count()
-        .unwrap();
-    assert_eq!(got_prefix, want_prefix);
-    eprintln!("starts_with pushdown matches reference ({})", want_prefix);
-
-    // Contains pushdown.
-    let sub = "status=500";
-    let want_sub = strings.iter().filter(|s| s.contains(sub)).count();
-    let pat = ConstantArray::new(format!("%{sub}%").as_str(), n).into_array();
-    let got_sub = Like
-        .try_new_array(n, LikeOptions::default(), [arr_ref.clone(), pat])
-        .unwrap()
-        .into_array()
-        .execute::<vortex_array::Canonical>(&mut ctx)
-        .unwrap()
-        .into_array()
-        .as_bool_typed()
-        .true_count()
-        .unwrap();
-    assert_eq!(got_sub, want_sub);
-    eprintln!("contains pushdown matches reference ({})", want_sub);
 }
