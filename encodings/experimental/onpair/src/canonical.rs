@@ -7,8 +7,6 @@
 use std::sync::Arc;
 
 use onpair::DECOMPRESS_BUFFER_PADDING;
-use onpair::decompress_into;
-use onpair::decompressed_len;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -51,11 +49,10 @@ pub(crate) fn onpair_decode_views(
         .execute::<PrimitiveArray>(ctx)?;
 
     let inputs = OwnedDecodeInputs::collect(array, ctx)?;
-    let parts = inputs.as_parts();
-    let total_size = decompressed_len(parts);
+    let total_size = inputs.decompressed_len();
 
     let mut out_bytes = ByteBufferMut::with_capacity(total_size + DECOMPRESS_BUFFER_PADDING);
-    let written = decompress_into(parts, out_bytes.spare_capacity_mut());
+    let written = inputs.decompress_into(out_bytes.spare_capacity_mut());
     debug_assert_eq!(written, total_size);
     // SAFETY: `decompress_into` initialised exactly `written` bytes of the
     // spare capacity reserved above.

@@ -2,8 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use onpair::DECOMPRESS_BUFFER_PADDING;
-use onpair::decompress_row_into;
-use onpair::decompressed_row_len;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::varbin::varbin_scalar;
@@ -22,10 +20,9 @@ impl OperationsVTable<OnPair> for OnPair {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let inputs = OwnedDecodeInputs::collect(array, ctx)?;
-        let parts = inputs.as_parts();
-        let len = decompressed_row_len(parts, index);
+        let len = inputs.decompressed_row_len(index);
         let mut buf: Vec<u8> = Vec::with_capacity(len + DECOMPRESS_BUFFER_PADDING);
-        let written = decompress_row_into(parts, index, buf.spare_capacity_mut());
+        let written = inputs.decompress_row_into(index, buf.spare_capacity_mut());
         debug_assert_eq!(written, len);
         // SAFETY: `decompress_row_into` initialised `written` bytes of the
         // spare capacity reserved above.

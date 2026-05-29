@@ -27,6 +27,7 @@
 use std::sync::LazyLock;
 
 use divan::Bencher;
+use onpair::DECOMPRESS_BUFFER_PADDING;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::VarBinArray;
@@ -36,9 +37,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::session::ArraySession;
 use vortex_mask::Mask;
-use onpair::DECOMPRESS_BUFFER_PADDING;
-use onpair::decompress_into;
-use onpair::decompressed_len;
 use vortex_onpair::DEFAULT_DICT12_CONFIG;
 use vortex_onpair::OnPair;
 use vortex_onpair::OnPairArray;
@@ -131,7 +129,7 @@ fn materialise(arr: &OnPairArray) -> (OwnedDecodeInputs, usize) {
     let mut ctx = SESSION.create_execution_ctx();
     let inputs = OwnedDecodeInputs::collect(arr.as_view(), &mut ctx)
         .unwrap_or_else(|e| panic!("collect: {e}"));
-    let total = decompressed_len(inputs.as_parts());
+    let total = inputs.decompressed_len();
     (inputs, total)
 }
 
@@ -152,7 +150,7 @@ fn decompress_into_bench(bencher: Bencher, case: (Shape, usize)) {
     let (inputs, total) = materialise(&arr);
     bencher.bench_local(|| {
         let mut out: Vec<u8> = Vec::with_capacity(total + DECOMPRESS_BUFFER_PADDING);
-        let written = decompress_into(inputs.as_parts(), out.spare_capacity_mut());
+        let written = inputs.decompress_into(out.spare_capacity_mut());
         unsafe { out.set_len(written) };
         divan::black_box(out);
     });
