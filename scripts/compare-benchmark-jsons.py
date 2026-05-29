@@ -433,7 +433,14 @@ def format_file_size_report(base_rows: pd.DataFrame, pr_rows: pd.DataFrame) -> s
     if not pr_data:
         return ""
 
-    base_data = extract_file_size_data(base_rows)
+    # The PR's results.json only contains file sizes for the benchmark this
+    # comment is about, but the base data downloaded for the develop commit
+    # carries every benchmark's file sizes. Restrict base to the PR's
+    # benchmarks so unrelated files don't appear as "-100%" deletions.
+    pr_benchmarks = {key[0] for key in pr_data}
+    base_data = {
+        key: size for key, size in extract_file_size_data(base_rows).items() if key[0] in pr_benchmarks
+    }
     if not base_data:
         return "_No baseline file sizes found for base commit._"
 
