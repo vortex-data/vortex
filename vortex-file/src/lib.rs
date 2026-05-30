@@ -115,6 +115,7 @@ use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::session::ArraySessionExt;
 use vortex_bytebool::ByteBool;
 use vortex_fsst::FSST;
+use vortex_fsst::FSSTView;
 use vortex_pco::Pco;
 use vortex_session::VortexSession;
 use vortex_zigzag::ZigZag;
@@ -162,6 +163,7 @@ pub fn register_default_encodings(session: &VortexSession) {
         arrays.register(ByteBool);
         arrays.register(Dict);
         arrays.register(FSST);
+        arrays.register(FSSTView);
         arrays.register(Pco);
         arrays.register(ZigZag);
         #[cfg(feature = "zstd")]
