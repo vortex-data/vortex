@@ -20,6 +20,8 @@ use vortex_session::VortexSession;
 use crate::DEFAULT_DICT12_CONFIG;
 use crate::OnPairView;
 use crate::OnPairViewArray;
+use crate::OnPairViewDecodeMode;
+use crate::canonicalize_with;
 use crate::onpair_compress;
 
 static SESSION: LazyLock<VortexSession> =
@@ -74,6 +76,70 @@ fn as_view(array: ArrayRef) -> Array<OnPairView> {
     array
         .try_downcast::<OnPairView>()
         .unwrap_or_else(|_| panic!("result is an OnPairView"))
+}
+
+fn decoded_mode(
+    array: &Array<OnPairView>,
+    mode: OnPairViewDecodeMode,
+) -> VortexResult<Vec<String>> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let canonical =
+        canonicalize_with(array.as_view(), mode, &mut ctx)?.execute::<VarBinViewArray>(&mut ctx)?;
+    Ok((0..canonical.len())
+        .map(|i| String::from_utf8(canonical.bytes_at(i).as_slice().to_vec()).expect("utf8"))
+        .collect())
+}
+
+/// All three decode strategies must agree, whatever the window layout.
+#[test]
+fn decode_modes_agree() -> VortexResult<()> {
+    let (strings, view) = build()?;
+
+    // Gappy: a filter leaves sorted windows with holes (span-decodable, carries
+    // dead values). Reordered: a shuffling take is *not* span-decodable, so
+    // SpanWithDead must fall back to gather and still be correct.
+    let mask = Mask::from_iter((0..strings.len()).map(|i| i % 4 == 0));
+    let filtered = as_view(
+        <OnPairView as FilterKernel>::filter(
+            view.as_view(),
+            &mask,
+            &mut SESSION.create_execution_ctx(),
+        )?
+        .expect("Some"),
+    );
+    let filtered_expected: Vec<String> = strings
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| i % 4 == 0)
+        .map(|(_, s)| s.clone())
+        .collect();
+
+    let shuffled = as_view(
+        view.into_array()
+            .take(vortex_buffer::buffer![7u64, 1, 7, 90, 3, 0].into_array())?,
+    );
+    let shuffled_expected: Vec<String> = [7usize, 1, 7, 90, 3, 0]
+        .iter()
+        .map(|&i| strings[i].clone())
+        .collect();
+
+    for mode in [
+        OnPairViewDecodeMode::Auto,
+        OnPairViewDecodeMode::SpanWithDead,
+        OnPairViewDecodeMode::Gather,
+    ] {
+        assert_eq!(
+            decoded_mode(&filtered, mode)?,
+            filtered_expected,
+            "{mode:?} filtered"
+        );
+        assert_eq!(
+            decoded_mode(&shuffled, mode)?,
+            shuffled_expected,
+            "{mode:?} shuffled"
+        );
+    }
+    Ok(())
 }
 
 #[test]

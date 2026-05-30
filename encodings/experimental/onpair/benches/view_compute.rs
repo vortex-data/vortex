@@ -49,6 +49,8 @@ use vortex_onpair::OnPair;
 use vortex_onpair::OnPairArray;
 use vortex_onpair::OnPairView;
 use vortex_onpair::OnPairViewArray;
+use vortex_onpair::OnPairViewDecodeMode;
+use vortex_onpair::canonicalize_with;
 use vortex_onpair::onpair_compress;
 use vortex_onpair::onpair_take_compact;
 use vortex_session::VortexSession;
@@ -344,6 +346,58 @@ fn view_canonicalize(bencher: Bencher, case: (Corpus, Scenario)) {
         .bench_local_values(|arr| {
             let mut ctx = SESSION.create_execution_ctx();
             divan::black_box(canonicalize(arr, &mut ctx));
+        });
+}
+
+// ─── Span-decode vs gather sweep over gap density ────────────────────────
+//
+// A filter keeping `p`% of rows (in clustered runs) leaves a span whose live
+// fraction is ~`p`%. Decoding the span carries the dead gap bytes; gathering
+// avoids them at the cost of random reads. This sweep finds the crossover.
+
+const KEEP_PCT: &[(Corpus, u32)] = &[
+    (Corpus::ManyShort, 95),
+    (Corpus::ManyShort, 75),
+    (Corpus::ManyShort, 50),
+    (Corpus::ManyShort, 25),
+    (Corpus::ManyShort, 10),
+    (Corpus::ManyShort, 2),
+    (Corpus::FewLong, 50),
+    (Corpus::FewLong, 10),
+];
+
+fn filtered_view(c: Corpus, keep_pct: u32) -> OnPairViewArray {
+    let base = base(c);
+    let n = base.view.len();
+    let mask = Mask::from_iter((0..n).map(|i| (i as u32 % 100) < keep_pct));
+    let mut ctx = SESSION.create_execution_ctx();
+    view_filter(&base.view, &mask, &mut ctx)
+}
+
+#[divan::bench(args = KEEP_PCT)]
+fn canon_span(bencher: Bencher, case: (Corpus, u32)) {
+    let (c, keep) = case;
+    bencher
+        .with_inputs(|| filtered_view(c, keep))
+        .bench_local_values(|view| {
+            let mut ctx = SESSION.create_execution_ctx();
+            divan::black_box(
+                canonicalize_with(view.as_view(), OnPairViewDecodeMode::SpanWithDead, &mut ctx)
+                    .unwrap(),
+            );
+        });
+}
+
+#[divan::bench(args = KEEP_PCT)]
+fn canon_gather(bencher: Bencher, case: (Corpus, u32)) {
+    let (c, keep) = case;
+    bencher
+        .with_inputs(|| filtered_view(c, keep))
+        .bench_local_values(|view| {
+            let mut ctx = SESSION.create_execution_ctx();
+            divan::black_box(
+                canonicalize_with(view.as_view(), OnPairViewDecodeMode::Gather, &mut ctx).unwrap(),
+            );
         });
 }
 
