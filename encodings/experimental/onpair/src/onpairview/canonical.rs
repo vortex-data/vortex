@@ -32,24 +32,23 @@
 //!    overlapping* (after a shuffling/duplicating `take`): a span decode can't
 //!    reproduce row order then, so we always gather.
 //!
-//! `Auto` picks span-decode while the live fraction of the span is at least
-//! [`SPAN_DECODE_DENSITY_THRESHOLD`] and gathers below it. The decision is an
-//! `O(num_rows)` scan of the small per-row children, never `O(num_tokens)`.
+//! The choice is an `O(num_rows)` scan ([`analyze`]) of the small per-row
+//! children, never `O(num_tokens)`.
 //!
-//! # What the benchmark says about "dead values"
+//! # Why `Auto` always gathers
 //!
 //! The intuition was that small gaps are fine — a span decode carrying a few
-//! dead bytes avoids the random-access gather. The `view_compute` sweep shows
-//! that for this decoder it does **not** pay off: gather is faster at *every*
-//! gap density tested (5.3× at 2 % live, still 1.13× at 95 % live), and the
-//! margin never closes. Two `O(span)` costs sink the span path whenever gaps
-//! exist — decoding the dead tokens, and the prefix-sum over the span needed to
-//! locate each row's start — and both are work the gather (which is `O(live)`)
-//! simply doesn't do. The span path only ties/wins at *zero* gaps, where it
-//! degenerates to a direct decode that skips the gather's copy entirely. So the
-//! default threshold is `1.0`: take the no-copy direct decode iff fully
-//! contiguous, otherwise gather. The threshold is left configurable, and
-//! `SpanWithDead` remains selectable, for further experimentation.
+//! dead bytes avoids the random-access gather. The `view_compute` sweep shows it
+//! does **not** pay off: gather is faster at *every* gap density (5.3× at 2 %
+//! live, still 1.13× at 95 %), and the margin never closes. Two `O(span)` costs
+//! sink the span path whenever gaps exist — decoding the dead tokens, and the
+//! `byte_at` prefix-sum over the span used to locate each row's start. And even
+//! at *zero* gaps the span path is no better: the gather path's contiguous
+//! branch slices the same span with **no `byte_at`** and lets `build_views`
+//! derive offsets in `O(rows)`, whereas `decode_span_with_dead` always pays the
+//! `O(span-tokens)` prefix. So `decode_span_with_dead` is never the best choice;
+//! `Auto` always takes the gather path (which direct-slices contiguous data),
+//! and `SpanWithDead` exists only as an opt-in for experiments.
 
 use std::sync::Arc;
 
@@ -79,26 +78,21 @@ use crate::OnPairViewArrayExt;
 use crate::OnPairViewArraySlotsExt;
 use crate::decode::collect_widened;
 
-/// Minimum live fraction of the span (`Σ sizes / (max_end − min_offset)`) for
-/// `Auto` to decode in place rather than gather.
-///
-/// Defaults to `1.0` — i.e. take the direct, no-copy span decode only when the
-/// windows are fully contiguous, and gather whenever there is any gap. The
-/// `view_compute` sweep shows gather beating the dead-carrying span decode at
-/// every gap density (the span path pays two `O(span)` costs — decoding dead
-/// tokens and a prefix-sum over the span — that gather avoids). Kept
-/// configurable for experimentation.
-pub const SPAN_DECODE_DENSITY_THRESHOLD: f32 = 1.0;
-
 /// Which decode strategy to use when canonicalising an [`OnPairViewArray`].
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum OnPairViewDecodeMode {
-    /// Pick span-decode vs gather from the span density.
+    /// The gather path: direct-slice the span when the windows are contiguous
+    /// (no copy, `build_views` derives offsets in `O(rows)`), gather the live
+    /// windows otherwise. This dominates the span-with-dead path at every gap
+    /// density, so it is the default.
     Auto,
-    /// Force the span decode (no gather); falls back to gather only if the
-    /// windows are reordered/overlapping and a span decode is impossible.
+    /// Opt-in: decode the whole `codes[base..end]` span — including dead gap
+    /// tokens — and point each view into it (dead values in the output buffer).
+    /// Kept for experimentation; the `view_compute` sweep shows it loses to
+    /// `Auto` at every density. Falls back to gather when the windows are
+    /// reordered/overlapping (a span decode can't reproduce row order then).
     SpanWithDead,
-    /// Force the gather/compact decode.
+    /// Force the gather/compact decode (identical to `Auto` today).
     Gather,
 }
 
@@ -142,16 +136,6 @@ struct Layout {
 impl Layout {
     fn span_tokens(&self) -> usize {
         self.end - self.base
-    }
-
-    /// Live fraction of the span: `1.0` when contiguous, →`0` as gaps grow.
-    fn density(&self) -> f32 {
-        let span = self.span_tokens();
-        if span == 0 {
-            1.0
-        } else {
-            self.live_tokens as f32 / span as f32
-        }
     }
 }
 
@@ -214,12 +198,11 @@ pub(crate) fn onpairview_decode_views(
 
     let dict_offsets = collect_widened::<u32>(array.dict_offsets(), ctx)?;
 
-    let use_span = layout.span_decodable
-        && match mode {
-            OnPairViewDecodeMode::Gather => false,
-            OnPairViewDecodeMode::SpanWithDead => true,
-            OnPairViewDecodeMode::Auto => layout.density() >= SPAN_DECODE_DENSITY_THRESHOLD,
-        };
+    // `decode_span_with_dead` is dominated by the gather path at *every* gap
+    // density — even at zero gaps it pays an O(span-tokens) `byte_at` prefix that
+    // the gather path's direct-slice contiguous branch (O(rows) via build_views)
+    // avoids. So `Auto` always gathers; the span path is opt-in for experiments.
+    let use_span = layout.span_decodable && mode == OnPairViewDecodeMode::SpanWithDead;
 
     // Span output exceeding a single buffer returns `None`; fall through to gather.
     if use_span
