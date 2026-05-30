@@ -563,6 +563,32 @@ fn export_view_to_varbin(bencher: Bencher, args: FilterArg) {
         });
 }
 
+/// Cost of converting the VarBin produced by `view->VarBin` *into* a VarBinView, isolated. Add this
+/// to `export_view_to_varbin` to compare against `export_view_to_varbinview` (going straight to a
+/// view): is "decode to VarBin, then convert" cheaper than "decode straight to VarBinView"?
+#[divan::bench(args = filter_args())]
+fn convert_varbin_to_varbinview(bencher: Bencher, args: FilterArg) {
+    let varbin = generate(args.shape);
+    let fsst = compress(&varbin, &mut LEGACY_SESSION.create_execution_ctx());
+    let mask = make_mask(fsst.len(), args.keep);
+    // Pre-build the VarBin (the `view->VarBin` export output) outside the timed loop.
+    let view = {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        export_view(&fsst, &mask, &mut ctx)
+    };
+    let vbin = canonicalize_fsstview_to_varbin(
+        view.as_view(),
+        FsstViewCompaction::Auto,
+        &mut LEGACY_SESSION.create_execution_ctx(),
+    )
+    .unwrap();
+    bencher
+        .with_inputs(|| (&vbin, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(vbin, ctx)| {
+            black_box((*vbin).clone().execute::<VarBinViewArray>(ctx).unwrap())
+        });
+}
+
 // =============================== arg plumbing ==================================================
 
 #[derive(Clone, Copy)]
