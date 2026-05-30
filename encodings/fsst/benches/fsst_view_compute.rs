@@ -47,7 +47,9 @@ use vortex_array::dtype::Nullability;
 use vortex_fsst::FSST;
 use vortex_fsst::FSSTArray;
 use vortex_fsst::FSSTView;
+use vortex_fsst::FSSTViewArray;
 use vortex_fsst::FsstViewCompaction;
+use vortex_fsst::canonicalize_fsstview_to_varbin;
 use vortex_fsst::canonicalize_fsstview_with;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
@@ -478,6 +480,85 @@ fn chain_pipeline_view(bencher: Bencher, shape: Shape) {
             }
             black_box(
                 canonicalize_fsstview_with(cur.as_view(), FsstViewCompaction::Auto, ctx).unwrap(),
+            )
+        });
+}
+
+// =============================== SINGLE FILTER + EXPORT (2x2) ==================================
+//
+// A single filter, then export to a canonical string array. The matrix is
+// {fsst, fsstview} x {VarBinView, VarBin}:
+//  - fsst path:     filter rewrites the compressed heap (VarBin filter on codes), then decode.
+//  - fsstview path: filter is metadata-only, then decode (coalesced gather + bulk) at export.
+//  - VarBinView export: build a 16-byte view per element.
+//  - VarBin export:     build len+1 cumulative offsets over the contiguous decoded bytes.
+
+fn export_view(array: &FSSTArray, mask: &Mask, ctx: &mut ExecutionCtx) -> FSSTViewArray {
+    view_filter(array, mask, ctx)
+        .try_downcast::<FSSTView>()
+        .ok()
+        .unwrap()
+}
+
+#[divan::bench(args = filter_args())]
+fn export_fsst_to_varbinview(bencher: Bencher, args: FilterArg) {
+    let varbin = generate(args.shape);
+    let fsst = compress(&varbin, &mut LEGACY_SESSION.create_execution_ctx());
+    let mask = make_mask(fsst.len(), args.keep);
+    bencher
+        .with_inputs(|| (&fsst, &mask, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(fsst, mask, ctx)| {
+            let filtered = fsst_filter(fsst, mask, ctx);
+            black_box(fsst_to_canonical(&filtered, ctx))
+        });
+}
+
+#[divan::bench(args = filter_args())]
+fn export_fsst_to_varbin(bencher: Bencher, args: FilterArg) {
+    let varbin = generate(args.shape);
+    let fsst = compress(&varbin, &mut LEGACY_SESSION.create_execution_ctx());
+    let mask = make_mask(fsst.len(), args.keep);
+    bencher
+        .with_inputs(|| (&fsst, &mask, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(fsst, mask, ctx)| {
+            // Filter stays in FSST; reach VarBin by reinterpreting the (now contiguous) codes as a
+            // view and exporting offsets+bytes.
+            let filtered = fsst_filter(fsst, mask, ctx);
+            let view = fsstview_from_fsst(&filtered, ctx).unwrap();
+            black_box(
+                canonicalize_fsstview_to_varbin(view.as_view(), FsstViewCompaction::Auto, ctx)
+                    .unwrap(),
+            )
+        });
+}
+
+#[divan::bench(args = filter_args())]
+fn export_view_to_varbinview(bencher: Bencher, args: FilterArg) {
+    let varbin = generate(args.shape);
+    let fsst = compress(&varbin, &mut LEGACY_SESSION.create_execution_ctx());
+    let mask = make_mask(fsst.len(), args.keep);
+    bencher
+        .with_inputs(|| (&fsst, &mask, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(fsst, mask, ctx)| {
+            let view = export_view(fsst, mask, ctx);
+            black_box(
+                canonicalize_fsstview_with(view.as_view(), FsstViewCompaction::Auto, ctx).unwrap(),
+            )
+        });
+}
+
+#[divan::bench(args = filter_args())]
+fn export_view_to_varbin(bencher: Bencher, args: FilterArg) {
+    let varbin = generate(args.shape);
+    let fsst = compress(&varbin, &mut LEGACY_SESSION.create_execution_ctx());
+    let mask = make_mask(fsst.len(), args.keep);
+    bencher
+        .with_inputs(|| (&fsst, &mask, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(fsst, mask, ctx)| {
+            let view = export_view(fsst, mask, ctx);
+            black_box(
+                canonicalize_fsstview_to_varbin(view.as_view(), FsstViewCompaction::Auto, ctx)
+                    .unwrap(),
             )
         });
 }

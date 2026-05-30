@@ -49,10 +49,12 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use vortex_array::arrays::varbinview::build_views::build_views;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::match_each_integer_ptype;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -305,6 +307,80 @@ pub fn canonicalize_fsstview_with(
         VarBinViewArray::new_unchecked(
             views,
             Arc::from(buffers),
+            array.dtype().clone(),
+            array.fsstview_validity(),
+        )
+        .into_array()
+    })
+}
+
+/// Canonicalize an [`FSSTView`] to a [`VarBinArray`] (offsets + contiguous bytes) instead of a
+/// [`VarBinViewArray`].
+///
+/// Shares the decode path with [`canonicalize_fsstview_with`]: the strategies that produce an
+/// element-ordered output (`Direct`/`GatherBulk`/`PerElement`) are reused as-is; the only
+/// difference is the finisher, which builds `len + 1` cumulative offsets from the uncompressed
+/// lengths rather than per-element views. `RunCoalesce` is not applicable (its output is heap-
+/// ordered, not element-ordered) and is treated as `GatherBulk`.
+///
+/// Exposed for benchmarking the export target (VarBin vs VarBinView). `Auto` resolves to `Direct`
+/// when contiguous, else `GatherBulk`.
+pub fn canonicalize_fsstview_to_varbin(
+    array: ArrayView<'_, FSSTView>,
+    strategy: FsstViewCompaction,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let offsets = load_usize(array.codes_offsets(), ctx)?;
+    let sizes = load_usize(array.codes_sizes(), ctx)?;
+
+    let ulen_prim = array
+        .uncompressed_lengths()
+        .clone()
+        .execute::<PrimitiveArray>(ctx)?;
+    #[expect(clippy::cast_possible_truncation)]
+    let ulens: Vec<usize> = match_each_integer_ptype!(ulen_prim.ptype(), |P| {
+        ulen_prim
+            .as_slice::<P>()
+            .iter()
+            .map(|x| *x as usize)
+            .collect()
+    });
+    let total_size: usize = ulens.iter().sum();
+    let live: usize = sizes.iter().sum();
+
+    let heap_buffer = array.codes_bytes();
+    let heap = heap_buffer.as_slice();
+    let decompressor = array.decompressor();
+
+    let contiguous = is_contiguous(&offsets, &sizes);
+    let uncompressed = match strategy {
+        FsstViewCompaction::PerElement => {
+            decompress_per_element(&decompressor, heap, &offsets, &sizes, &ulens, total_size)
+        }
+        // Direct (or Auto) on a contiguous layout decodes the live range in place, no gather.
+        FsstViewCompaction::Direct | FsstViewCompaction::Auto if contiguous => {
+            let start = offsets.first().copied().unwrap_or(0);
+            decompress_direct(&decompressor, heap, start, live, total_size)
+        }
+        // Everything else uses the element-ordered (coalesced) gather + one bulk decode.
+        _ => decompress_gather(&decompressor, heap, &offsets, &sizes, live, total_size),
+    };
+
+    // Build `len + 1` cumulative offsets from the uncompressed lengths.
+    let mut varbin_offsets = BufferMut::<i64>::with_capacity(ulens.len() + 1);
+    let mut acc = 0i64;
+    varbin_offsets.push(acc);
+    for &ulen in &ulens {
+        acc += ulen as i64;
+        varbin_offsets.push(acc);
+    }
+
+    let bytes = BufferHandle::new_host(uncompressed.freeze());
+    // SAFETY: offsets are monotonic and end at the byte length; bytes are valid binary/UTF-8.
+    Ok(unsafe {
+        VarBinArray::new_unchecked_from_handle(
+            varbin_offsets.into_array(),
+            bytes,
             array.dtype().clone(),
             array.fsstview_validity(),
         )

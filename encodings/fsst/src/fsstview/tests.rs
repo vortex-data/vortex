@@ -24,6 +24,7 @@ use crate::FSSTArray;
 use crate::FSSTView;
 use crate::FSSTViewArray;
 use crate::FsstViewCompaction;
+use crate::canonicalize_fsstview_to_varbin;
 use crate::canonicalize_fsstview_with;
 use crate::fsst_compress;
 use crate::fsst_filter_to_view;
@@ -428,5 +429,41 @@ fn byte_stats_report() -> VortexResult<()> {
             s.logical_uncompressed,
         );
     }
+    Ok(())
+}
+
+/// The VarBin exporter must agree with the canonical VarBin filter, across all element-ordered
+/// strategies, for a gapped filter over nullable data.
+#[rstest]
+#[case(FsstViewCompaction::Auto)]
+#[case(FsstViewCompaction::GatherBulk)]
+#[case(FsstViewCompaction::PerElement)]
+fn varbin_export_matches_canonical(#[case] strategy: FsstViewCompaction) -> VortexResult<()> {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let strings: Vec<Option<&str>> = vec![
+        Some("alpha"),
+        None,
+        Some("bravo bravo"),
+        Some("charlie"),
+        Some("delta delta delta"),
+        None,
+        Some("echo"),
+        Some("foxtrot foxtrot"),
+    ];
+    let fsst = make_fsst(&strings, Nullability::Nullable, &mut ctx);
+    let keep = [true, false, true, true, false, false, true, true];
+    let mask = Mask::from_iter(keep);
+    let view = fsst_filter_to_view(&fsst, &mask, &mut ctx)?;
+
+    let got = canonicalize_fsstview_to_varbin(view.as_view(), strategy, &mut ctx)?;
+    // Compare as VarBinView so the offsets-vs-views layout difference doesn't matter.
+    let got_view = got.execute::<VarBinViewArray>(&mut ctx)?;
+
+    let expected =
+        VarBinArray::from_iter(strings.iter().copied(), DType::Utf8(Nullability::Nullable))
+            .into_array()
+            .filter(mask)?
+            .execute::<VarBinViewArray>(&mut ctx)?;
+    assert_arrays_eq!(got_view.into_array(), expected.into_array());
     Ok(())
 }
