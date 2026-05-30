@@ -188,11 +188,15 @@ pub fn fsstview_from_fsst(fsst: &FSSTArray, ctx: &mut ExecutionCtx) -> VortexRes
     let offsets = codes.offsets().clone().execute::<PrimitiveArray>(ctx)?;
     let len = offsets.len().saturating_sub(1);
 
+    // `sizes[i] = offsets[i + 1] - offsets[i]`, built from adjacent windows. `push_unchecked` (with
+    // the capacity reserved up front) avoids the per-element capacity recheck that `push` does and
+    // lets the loop vectorize — this conversion is otherwise dominated by the size derivation.
     let codes_sizes = match_each_integer_ptype!(offsets.ptype(), |O| {
         let offsets = offsets.as_slice::<O>();
         let mut sizes = BufferMut::<O>::with_capacity(len);
-        for i in 0..len {
-            sizes.push(offsets[i + 1] - offsets[i]);
+        for w in offsets.windows(2) {
+            // SAFETY: `len` slots were reserved above and we push exactly `len` of them.
+            unsafe { sizes.push_unchecked(w[1] - w[0]) };
         }
         sizes.into_array()
     });
