@@ -265,15 +265,13 @@ pub fn canonicalize_fsstview_with(
         .uncompressed_lengths()
         .clone()
         .execute::<PrimitiveArray>(ctx)?;
+    // `total_size` is needed by every path; compute it directly from the typed slice. The widened
+    // `ulens: Vec<usize>` is only needed by the run/per-element decoders, so defer it until the
+    // strategy is chosen (Direct/GatherBulk don't need it at all).
     #[expect(clippy::cast_possible_truncation)]
-    let ulens: Vec<usize> = match_each_integer_ptype!(ulen_prim.ptype(), |P| {
-        ulen_prim
-            .as_slice::<P>()
-            .iter()
-            .map(|x| *x as usize)
-            .collect()
+    let total_size: usize = match_each_integer_ptype!(ulen_prim.ptype(), |P| {
+        ulen_prim.as_slice::<P>().iter().map(|x| *x as usize).sum()
     });
-    let total_size: usize = ulens.iter().sum();
     let live: usize = sizes.iter().sum();
 
     let heap_buffer = array.codes_bytes();
@@ -307,6 +305,7 @@ pub fn canonicalize_fsstview_with(
     };
 
     if chosen == FsstViewCompaction::RunDecode {
+        let ulens = widen_ulens(&ulen_prim);
         let uncompressed =
             decompress_run_decode(&decompressor, heap, &offsets, &sizes, &ulens, total_size);
         let (buffers, views) = match_each_integer_ptype!(ulen_prim.ptype(), |P| {
@@ -327,6 +326,7 @@ pub fn canonicalize_fsstview_with(
     // RunCoalesce builds its own (buffers, views) — decompression order is decoupled from element
     // order, so it can't go through `build_views` (which assumes element-order contiguous output).
     if chosen == FsstViewCompaction::RunCoalesce {
+        let ulens = widen_ulens(&ulen_prim);
         let (buffers, views) =
             decompress_run_coalesce(&decompressor, heap, &offsets, &sizes, &ulens, total_size);
         // SAFETY: FSST validates the bytes for binary/UTF-8; the views point at valid ranges.
@@ -350,7 +350,10 @@ pub fn canonicalize_fsstview_with(
             decompress_gather(&decompressor, heap, &offsets, &sizes, live, total_size)
         }
         // `Auto`/`RunCoalesce` are resolved above.
-        _ => decompress_per_element(&decompressor, heap, &offsets, &sizes, &ulens, total_size),
+        _ => {
+            let ulens = widen_ulens(&ulen_prim);
+            decompress_per_element(&decompressor, heap, &offsets, &sizes, &ulens, total_size)
+        }
     };
 
     let (buffers, views) = match_each_integer_ptype!(ulen_prim.ptype(), |P| {
@@ -392,15 +395,23 @@ pub fn canonicalize_fsstview_to_varbin(
         .uncompressed_lengths()
         .clone()
         .execute::<PrimitiveArray>(ctx)?;
-    #[expect(clippy::cast_possible_truncation)]
-    let ulens: Vec<usize> = match_each_integer_ptype!(ulen_prim.ptype(), |P| {
-        ulen_prim
-            .as_slice::<P>()
-            .iter()
-            .map(|x| *x as usize)
-            .collect()
+    let len = ulen_prim.len();
+
+    // Build `len + 1` cumulative offsets directly from the typed lengths slice (no widened Vec),
+    // and pick up `total_size` as the final running sum. `push_unchecked` (capacity reserved) keeps
+    // this vectorized.
+    let mut varbin_offsets = BufferMut::<i64>::with_capacity(len + 1);
+    #[expect(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+    let total_size: usize = match_each_integer_ptype!(ulen_prim.ptype(), |P| {
+        let mut acc: usize = 0;
+        // SAFETY: `len + 1` slots reserved; we push exactly that many.
+        unsafe { varbin_offsets.push_unchecked(0) };
+        for &ulen in ulen_prim.as_slice::<P>() {
+            acc += ulen as usize;
+            unsafe { varbin_offsets.push_unchecked(acc as i64) };
+        }
+        acc
     });
-    let total_size: usize = ulens.iter().sum();
     let live: usize = sizes.iter().sum();
 
     let heap_buffer = array.codes_bytes();
@@ -410,6 +421,7 @@ pub fn canonicalize_fsstview_to_varbin(
     let contiguous = is_contiguous(&offsets, &sizes);
     let uncompressed = match strategy {
         FsstViewCompaction::PerElement => {
+            let ulens = widen_ulens(&ulen_prim);
             decompress_per_element(&decompressor, heap, &offsets, &sizes, &ulens, total_size)
         }
         // Direct (or Auto) on a contiguous layout decodes the live range in place, no gather.
@@ -420,15 +432,6 @@ pub fn canonicalize_fsstview_to_varbin(
         // Everything else uses the element-ordered (coalesced) gather + one bulk decode.
         _ => decompress_gather(&decompressor, heap, &offsets, &sizes, live, total_size),
     };
-
-    // Build `len + 1` cumulative offsets from the uncompressed lengths.
-    let mut varbin_offsets = BufferMut::<i64>::with_capacity(ulens.len() + 1);
-    let mut acc = 0i64;
-    varbin_offsets.push(acc);
-    for &ulen in &ulens {
-        acc += ulen as i64;
-        varbin_offsets.push(acc);
-    }
 
     let bytes = BufferHandle::new_host(uncompressed.freeze());
     // SAFETY: offsets are monotonic and end at the byte length; bytes are valid binary/UTF-8.
@@ -450,6 +453,20 @@ fn load_usize(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Vec<usiz
         prim.as_slice::<P>().iter().map(|x| *x as usize).collect()
     });
     Ok(out)
+}
+
+/// Widen an already-executed uncompressed-lengths primitive array into `Vec<usize>`. Only the
+/// run/per-element decoders need this; `Direct`/`GatherBulk` work without it.
+fn widen_ulens(ulen_prim: &PrimitiveArray) -> Vec<usize> {
+    #[expect(clippy::cast_possible_truncation)]
+    let out: Vec<usize> = match_each_integer_ptype!(ulen_prim.ptype(), |P| {
+        ulen_prim
+            .as_slice::<P>()
+            .iter()
+            .map(|x| *x as usize)
+            .collect()
+    });
+    out
 }
 
 /// Returns true if the live codes occupy a single contiguous, in-order run of the heap.
