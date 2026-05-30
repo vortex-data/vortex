@@ -379,6 +379,69 @@ fn combo_pipeline_view(bencher: Bencher, shape: Shape) {
         });
 }
 
+// =============================== CHAIN =========================================================
+
+/// Number of ops in the chain benchmark.
+const CHAIN_LEN: usize = 5;
+
+/// A chain of `CHAIN_LEN` alternating filter/take ops ending in a canonicalization.
+///
+/// This is where the view model is meant to dominate: each fsst op re-compacts the byte heap,
+/// so the cost compounds with chain length, whereas the view converts to offsets+sizes *once*
+/// and every subsequent op is metadata-only, deferring the single gather+decode to the final
+/// canonicalize. We keep every op only mildly selective (filter keeps 80%, take is a shuffle)
+/// so there's still substantial data at the end — i.e. the heap rewrites the fsst path pays are
+/// real work, not optimized away to nothing.
+#[divan::bench(args = SHAPES)]
+fn chain_pipeline_fsst(bencher: Bencher, shape: Shape) {
+    let varbin = generate(shape);
+    let fsst = compress(&varbin, &mut LEGACY_SESSION.create_execution_ctx());
+    bencher
+        .with_inputs(|| (&fsst, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(fsst, ctx)| {
+            let mut cur = (*fsst).clone();
+            for op in 0..CHAIN_LEN {
+                if op % 2 == 0 {
+                    let mask = make_mask(cur.len(), 0.80);
+                    cur = fsst_filter(&cur, &mask, ctx);
+                } else {
+                    let indices = make_indices(cur.len(), TakeKind::Shuffle);
+                    cur = fsst_take(&cur, &indices, ctx);
+                }
+            }
+            black_box(fsst_to_canonical(&cur, ctx))
+        });
+}
+
+#[divan::bench(args = SHAPES)]
+fn chain_pipeline_view(bencher: Bencher, shape: Shape) {
+    let varbin = generate(shape);
+    let fsst = compress(&varbin, &mut LEGACY_SESSION.create_execution_ctx());
+    bencher
+        .with_inputs(|| (&fsst, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(fsst, ctx)| {
+            // Convert to the view once, then chain metadata-only ops, canonicalize once at the end.
+            let mut cur = fsstview_from_fsst(fsst, ctx).unwrap();
+            for op in 0..CHAIN_LEN {
+                let next = if op % 2 == 0 {
+                    let mask = make_mask(cur.len(), 0.80);
+                    <FSSTView as FilterKernel>::filter(cur.as_view(), &mask, ctx)
+                        .unwrap()
+                        .unwrap()
+                } else {
+                    let indices = make_indices(cur.len(), TakeKind::Shuffle);
+                    <FSSTView as TakeExecute>::take(cur.as_view(), &indices, ctx)
+                        .unwrap()
+                        .unwrap()
+                };
+                cur = next.try_downcast::<FSSTView>().ok().unwrap();
+            }
+            black_box(
+                canonicalize_fsstview_with(cur.as_view(), FsstViewCompaction::Auto, ctx).unwrap(),
+            )
+        });
+}
+
 // =============================== arg plumbing ==================================================
 
 #[derive(Clone, Copy)]

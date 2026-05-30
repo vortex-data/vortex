@@ -29,6 +29,7 @@ use vortex_array::vtable::ValidityVTable;
 use vortex_array::vtable::child_to_validity;
 use vortex_array::vtable::validity_to_child;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -178,25 +179,25 @@ impl FSSTView {
 
 /// Convert a plain [`FSSTArray`] into an [`FSSTViewArray`], sharing the symbol table and the
 /// compressed byte heap (zero-copy) and deriving `sizes[i] = offsets[i + 1] - offsets[i]`.
+///
+/// The `offsets` (length `len + 1`) are reused for the view's `codes_offsets` by a zero-copy
+/// slice of their first `len` elements; only the `sizes` array is freshly allocated.
 pub fn fsstview_from_fsst(fsst: &FSSTArray, ctx: &mut ExecutionCtx) -> VortexResult<FSSTViewArray> {
     let codes = fsst.codes();
     let validity = codes.validity()?;
     let offsets = codes.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+    let len = offsets.len().saturating_sub(1);
 
-    let (codes_offsets, codes_sizes) = match_each_integer_ptype!(offsets.ptype(), |O| {
+    let codes_sizes = match_each_integer_ptype!(offsets.ptype(), |O| {
         let offsets = offsets.as_slice::<O>();
-        let len = offsets.len().saturating_sub(1);
-        let mut starts = Vec::with_capacity(len);
-        let mut sizes = Vec::with_capacity(len);
+        let mut sizes = BufferMut::<O>::with_capacity(len);
         for i in 0..len {
-            starts.push(offsets[i]);
             sizes.push(offsets[i + 1] - offsets[i]);
         }
-        (
-            PrimitiveArray::from_iter(starts).into_array(),
-            PrimitiveArray::from_iter(sizes).into_array(),
-        )
+        sizes.into_array()
     });
+    // `codes_offsets` is the first `len` offsets — a zero-copy slice of the existing buffer.
+    let codes_offsets = offsets.into_array().slice(0..len)?;
 
     FSSTView::try_new(
         fsst.dtype().clone(),
