@@ -13,6 +13,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 
 use crate::OnPair;
 use crate::OnPairArray;
@@ -46,7 +47,7 @@ pub fn onpair_take_compact(
     let mut new_lengths: BufferMut<i32> = BufferMut::with_capacity(idx.len());
 
     for &row in idx.as_slice() {
-        let row = row as usize;
+        let row = usize::try_from(row).map_err(|_| vortex_err!("take index does not fit usize"))?;
         let start = cumulative[row] as usize;
         let end = cumulative[row + 1] as usize;
         vortex_ensure!(
@@ -55,7 +56,10 @@ pub fn onpair_take_compact(
             all_codes.len()
         );
         new_codes.extend_from_slice(&all_codes.as_slice()[start..end]);
-        new_offsets.push(new_codes.len() as u32);
+        new_offsets.push(
+            u32::try_from(new_codes.len())
+                .map_err(|_| vortex_err!("OnPair compacted codes length exceeds u32"))?,
+        );
         new_lengths.push(lengths[row]);
     }
 

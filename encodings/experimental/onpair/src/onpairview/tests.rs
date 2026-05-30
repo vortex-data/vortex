@@ -10,7 +10,6 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::filter::FilterKernel;
-use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::session::ArraySession;
@@ -74,14 +73,13 @@ fn roundtrip() -> VortexResult<()> {
 fn as_view(array: ArrayRef) -> Array<OnPairView> {
     array
         .try_downcast::<OnPairView>()
-        .ok()
-        .expect("result is an OnPairView")
+        .unwrap_or_else(|_| panic!("result is an OnPairView"))
 }
 
 #[test]
 fn slice_preserves_codes_buffer() -> VortexResult<()> {
     let (strings, view) = build()?;
-    let sliced = as_view(view.clone().into_array().slice(10..40)?);
+    let sliced = as_view(view.into_array().slice(10..40)?);
     assert_eq!(decoded(&sliced)?, strings[10..40].to_vec());
     Ok(())
 }
@@ -116,7 +114,7 @@ fn filter_shares_codes_buffer() -> VortexResult<()> {
 fn take_reorders() -> VortexResult<()> {
     let (strings, view) = build()?;
     let indices = vortex_buffer::buffer![5u64, 0, 0, 119, 60].into_array();
-    let taken = as_view(view.clone().into_array().take(indices)?);
+    let taken = as_view(view.into_array().take(indices)?);
     let expected: Vec<String> = [5usize, 0, 0, 119, 60]
         .iter()
         .map(|&i| strings[i].clone())
