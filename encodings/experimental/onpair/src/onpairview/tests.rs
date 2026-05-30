@@ -21,6 +21,7 @@ use crate::DEFAULT_DICT12_CONFIG;
 use crate::OnPairView;
 use crate::OnPairViewArray;
 use crate::OnPairViewDecodeMode;
+use crate::canonicalize_to_varbin;
 use crate::canonicalize_with;
 use crate::onpair_compress;
 
@@ -139,6 +140,37 @@ fn decode_modes_agree() -> VortexResult<()> {
             "{mode:?} shuffled"
         );
     }
+    Ok(())
+}
+
+/// Exporting a (gappy, filtered) OnPairView to `VarBin` must match the
+/// `VarBinView` export.
+#[test]
+fn export_to_varbin_matches() -> VortexResult<()> {
+    let (strings, view) = build()?;
+    let mask = Mask::from_iter((0..strings.len()).map(|i| i % 3 == 0));
+    let filtered = as_view(
+        <OnPairView as FilterKernel>::filter(
+            view.as_view(),
+            &mask,
+            &mut SESSION.create_execution_ctx(),
+        )?
+        .expect("Some"),
+    );
+    let expected: Vec<String> = strings
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| i % 3 == 0)
+        .map(|(_, s)| s.clone())
+        .collect();
+
+    let mut ctx = SESSION.create_execution_ctx();
+    let varbin = canonicalize_to_varbin(filtered.as_view(), &mut ctx)?
+        .execute::<VarBinViewArray>(&mut ctx)?;
+    let decoded: Vec<String> = (0..varbin.len())
+        .map(|i| String::from_utf8(varbin.bytes_at(i).as_slice().to_vec()).expect("utf8"))
+        .collect();
+    assert_eq!(decoded, expected);
     Ok(())
 }
 

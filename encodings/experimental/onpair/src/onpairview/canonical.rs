@@ -60,6 +60,7 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::varbinview::build_views::BinaryView;
 use vortex_array::arrays::varbinview::build_views::MAX_BUFFER_LEN;
@@ -246,6 +247,7 @@ pub(crate) fn onpairview_decode_views(
         offsets.as_slice(),
         sizes.as_slice(),
         &lengths,
+        &layout,
         live_bytes,
         &dict_offsets,
         start_buf_index,
@@ -319,32 +321,40 @@ fn decode_span_with_dead(
     Ok(Some((vec![out], views.freeze())))
 }
 
-/// Strategy 2/3: gather the live windows into a fresh contiguous token buffer and
-/// decode only those.
-#[allow(clippy::too_many_arguments)]
-fn decode_gather(
+/// Decode the live windows into a single **compact** byte buffer in row order
+/// (no dead values). Used by both the gather VarBinView path and the VarBin
+/// export.
+///
+/// When the windows are already contiguous we slice `codes[base..end]` and
+/// decode it directly (no gather copy, and we never materialise the whole
+/// `codes` child); otherwise we gather the live windows first.
+fn decode_compact_bytes(
     array: ArrayView<'_, OnPairView>,
     offsets: &[u32],
     sizes: &[u32],
-    lengths: &PrimitiveArray,
+    layout: &Layout,
     live_bytes: usize,
     dict_offsets: &Buffer<u32>,
-    start_buf_index: u32,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<(Vec<ByteBuffer>, Buffer<BinaryView>)> {
-    let all_codes = array.collect_codes(ctx)?;
-    let live_tokens: usize = sizes.iter().map(|&s| s as usize).sum();
-    let mut gathered: Vec<u16> = Vec::with_capacity(live_tokens);
-    for (&offset, &size) in offsets.iter().zip(sizes) {
-        let offset = offset as usize;
-        let end = offset + size as usize;
-        vortex_ensure!(
-            end <= all_codes.len(),
-            "OnPairView window [{offset}, {end}) exceeds codes len {}",
-            all_codes.len()
-        );
-        gathered.extend_from_slice(&all_codes.as_slice()[offset..end]);
-    }
+) -> VortexResult<ByteBufferMut> {
+    let contiguous = layout.span_decodable && layout.live_tokens == layout.span_tokens();
+    let codes: Buffer<u16> = if contiguous {
+        collect_widened::<u16>(&array.codes().slice(layout.base..layout.end)?, ctx)?
+    } else {
+        let all_codes = array.collect_codes(ctx)?;
+        let mut gathered: Vec<u16> = Vec::with_capacity(layout.live_tokens);
+        for (&offset, &size) in offsets.iter().zip(sizes) {
+            let offset = offset as usize;
+            let end = offset + size as usize;
+            vortex_ensure!(
+                end <= all_codes.len(),
+                "OnPairView window [{offset}, {end}) exceeds codes len {}",
+                all_codes.len()
+            );
+            gathered.extend_from_slice(&all_codes.as_slice()[offset..end]);
+        }
+        Buffer::from(gathered)
+    };
 
     let mut out = ByteBufferMut::with_capacity(live_bytes);
     let written = onpair::decompress_into(
@@ -352,14 +362,31 @@ fn decode_gather(
             dict_bytes: array.dict_bytes().as_slice(),
             dict_offsets: dict_offsets.as_slice(),
             bits: array.bits(),
-            codes: &gathered,
+            codes: codes.as_slice(),
         },
         out.spare_capacity_mut(),
     );
     debug_assert_eq!(written, live_bytes);
     // SAFETY: `decompress_into` initialised exactly `written` bytes.
     unsafe { out.set_len(written) };
+    Ok(out)
+}
 
+/// Strategy 2/3: decode the live windows compactly and split into `VarBinView`
+/// views sequentially.
+#[allow(clippy::too_many_arguments)]
+fn decode_gather(
+    array: ArrayView<'_, OnPairView>,
+    offsets: &[u32],
+    sizes: &[u32],
+    lengths: &PrimitiveArray,
+    layout: &Layout,
+    live_bytes: usize,
+    dict_offsets: &Buffer<u32>,
+    start_buf_index: u32,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(Vec<ByteBuffer>, Buffer<BinaryView>)> {
+    let out = decode_compact_bytes(array, offsets, sizes, layout, live_bytes, dict_offsets, ctx)?;
     match_each_integer_ptype!(lengths.ptype(), |P| {
         Ok(build_views(
             start_buf_index,
@@ -368,4 +395,64 @@ fn decode_gather(
             lengths.as_slice::<P>(),
         ))
     })
+}
+
+/// Canonicalise an [`OnPairViewArray`](crate::OnPairViewArray) to a
+/// **`VarBinArray`** (contiguous `bytes` + `offsets`) instead of a
+/// `VarBinViewArray`.
+///
+/// Unlike a `VarBinView`, a `VarBin` cannot hold dead values, so this always
+/// produces the compact form: the live windows are decoded into one contiguous
+/// buffer (directly when contiguous, gathered otherwise) and `offsets` are the
+/// running sum of the per-row lengths.
+pub fn canonicalize_to_varbin(
+    array: ArrayView<'_, OnPairView>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let lengths = array
+        .uncompressed_lengths()
+        .clone()
+        .execute::<PrimitiveArray>(ctx)?;
+    let live_bytes: usize = match_each_integer_ptype!(lengths.ptype(), |P| {
+        lengths
+            .as_slice::<P>()
+            .iter()
+            .map(|&l| AsPrimitive::<usize>::as_(l))
+            .sum()
+    });
+
+    let offsets = array.collect_offsets(ctx)?;
+    let sizes = array.collect_sizes(ctx)?;
+    let layout = analyze(offsets.as_slice(), sizes.as_slice());
+    let dict_offsets = collect_widened::<u32>(array.dict_offsets(), ctx)?;
+
+    let bytes = decode_compact_bytes(
+        array,
+        offsets.as_slice(),
+        sizes.as_slice(),
+        &layout,
+        live_bytes,
+        &dict_offsets,
+        ctx,
+    )?;
+
+    // Running-sum `offsets` (length `rows + 1`) over the per-row lengths.
+    let mut varbin_offsets: BufferMut<i64> = BufferMut::with_capacity(lengths.len() + 1);
+    varbin_offsets.push(0);
+    let mut acc: i64 = 0;
+    match_each_integer_ptype!(lengths.ptype(), |P| {
+        for &len in lengths.as_slice::<P>() {
+            acc += AsPrimitive::<i64>::as_(len);
+            varbin_offsets.push(acc);
+        }
+    });
+
+    let validity = array.array().validity()?;
+    Ok(VarBinArray::try_new(
+        varbin_offsets.into_array(),
+        bytes.freeze(),
+        array.dtype().clone(),
+        validity,
+    )?
+    .into_array())
 }

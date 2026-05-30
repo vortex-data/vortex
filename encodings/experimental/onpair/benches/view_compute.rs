@@ -50,6 +50,7 @@ use vortex_onpair::OnPairArray;
 use vortex_onpair::OnPairView;
 use vortex_onpair::OnPairViewArray;
 use vortex_onpair::OnPairViewDecodeMode;
+use vortex_onpair::canonicalize_to_varbin;
 use vortex_onpair::canonicalize_with;
 use vortex_onpair::onpair_compress;
 use vortex_onpair::onpair_take_compact;
@@ -398,6 +399,44 @@ fn canon_gather(bencher: Bencher, case: (Corpus, u32)) {
             divan::black_box(
                 canonicalize_with(view.as_view(), OnPairViewDecodeMode::Gather, &mut ctx).unwrap(),
             );
+        });
+}
+
+// ─── Filter → export to VarBinView vs VarBin ─────────────────────────────
+//
+// After a metadata-only filter, materialise the surviving rows as a
+// `VarBinViewArray` (the canonical, may carry dead values) vs a `VarBinArray`
+// (always compact). Both share the same decode; VarBinView writes 16-byte
+// views, VarBin writes running-sum offsets.
+
+const EXPORT: &[(Corpus, u32)] = &[
+    (Corpus::ManyShort, 90),
+    (Corpus::ManyShort, 10),
+    (Corpus::FewLong, 90),
+    (Corpus::FewLong, 10),
+];
+
+#[divan::bench(args = EXPORT)]
+fn filter_export_varbinview(bencher: Bencher, case: (Corpus, u32)) {
+    let (c, keep) = case;
+    bencher
+        .with_inputs(|| filtered_view(c, keep))
+        .bench_local_values(|view| {
+            let mut ctx = SESSION.create_execution_ctx();
+            divan::black_box(
+                canonicalize_with(view.as_view(), OnPairViewDecodeMode::Auto, &mut ctx).unwrap(),
+            );
+        });
+}
+
+#[divan::bench(args = EXPORT)]
+fn filter_export_varbin(bencher: Bencher, case: (Corpus, u32)) {
+    let (c, keep) = case;
+    bencher
+        .with_inputs(|| filtered_view(c, keep))
+        .bench_local_values(|view| {
+            let mut ctx = SESSION.create_execution_ctx();
+            divan::black_box(canonicalize_to_varbin(view.as_view(), &mut ctx).unwrap());
         });
 }
 
