@@ -50,8 +50,14 @@ impl TakeExecute for OnPairView {
 }
 
 /// Take a non-nullable integer child and refill any nulls with zero.
+///
+/// `take` only introduces nulls when `indices` is nullable; with non-nullable
+/// indices the result is already non-nullable and we skip the refill pass.
 fn take_int_filled(child: &ArrayRef, indices: &ArrayRef) -> VortexResult<ArrayRef> {
     let taken = child.clone().take(indices.clone())?;
+    if !taken.dtype().is_nullable() {
+        return Ok(taken);
+    }
     Ok(match_each_integer_ptype!(taken.dtype().as_ptype(), |P| {
         taken.fill_null(Scalar::primitive(P::zero(), Nullability::NonNullable))?
     }))
