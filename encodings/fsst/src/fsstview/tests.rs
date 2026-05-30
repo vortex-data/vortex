@@ -6,6 +6,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::assert_arrays_eq;
@@ -17,9 +18,14 @@ use vortex_array::dtype::Nullability;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::FSSTArray;
 use crate::FSSTView;
 use crate::FSSTViewArray;
+use crate::FsstViewCompaction;
+use crate::canonicalize_fsstview_with;
 use crate::fsst_compress;
+use crate::fsst_filter_to_view;
+use crate::fsst_take_to_view;
 use crate::fsst_train_compressor;
 use crate::fsstview_from_fsst;
 
@@ -99,7 +105,7 @@ fn take_matches_canonical() -> VortexResult<()> {
     let view = make_fsstview(&SAMPLE, Nullability::NonNullable, &mut ctx);
 
     // Reorders and duplicates, which is fine for offsets+sizes addressing.
-    let indices = vortex_array::arrays::PrimitiveArray::from_iter([5u64, 0, 0, 3, 1]).into_array();
+    let indices = PrimitiveArray::from_iter([5u64, 0, 0, 3, 1]).into_array();
 
     let taken = view.into_array().take(indices.clone())?;
     let result = taken.execute::<VarBinViewArray>(&mut ctx)?;
@@ -175,4 +181,93 @@ fn consistency(#[case] strings: &[Option<&str>], #[case] nullability: Nullabilit
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let view = make_fsstview(strings, nullability, &mut ctx);
     test_array_consistency(&view.into_array());
+}
+
+fn make_fsst(
+    strings: &[Option<&str>],
+    nullability: Nullability,
+    ctx: &mut ExecutionCtx,
+) -> FSSTArray {
+    let varbin = VarBinArray::from_iter(strings.iter().copied(), DType::Utf8(nullability));
+    let compressor = fsst_train_compressor(&varbin);
+    fsst_compress(&varbin, varbin.len(), varbin.dtype(), &compressor, ctx)
+}
+
+/// `fsst_filter_to_view` must agree with filtering the canonical VarBin, and must not touch the
+/// codes bytes (the produced view shares the original heap).
+#[test]
+fn fsst_filter_to_view_matches_canonical() -> VortexResult<()> {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let fsst = make_fsst(&SAMPLE_NULLABLE, Nullability::Nullable, &mut ctx);
+    let mask = Mask::from_iter([true, false, true, false, true, true]);
+
+    let view = fsst_filter_to_view(&fsst, &mask, &mut ctx)?;
+    let result = view.into_array().execute::<VarBinViewArray>(&mut ctx)?;
+
+    let expected = VarBinArray::from_iter(
+        SAMPLE_NULLABLE.iter().copied(),
+        DType::Utf8(Nullability::Nullable),
+    )
+    .into_array()
+    .filter(mask)?
+    .execute::<VarBinViewArray>(&mut ctx)?;
+    assert_arrays_eq!(result.into_array(), expected.into_array());
+    Ok(())
+}
+
+#[test]
+fn fsst_take_to_view_matches_canonical() -> VortexResult<()> {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let fsst = make_fsst(&SAMPLE, Nullability::NonNullable, &mut ctx);
+    let indices = PrimitiveArray::from_iter([5u64, 0, 0, 3, 1]).into_array();
+
+    let view = fsst_take_to_view(&fsst, &indices, &mut ctx)?;
+    let result = view.into_array().execute::<VarBinViewArray>(&mut ctx)?;
+
+    let expected = VarBinArray::from_iter(
+        SAMPLE.iter().copied(),
+        DType::Utf8(Nullability::NonNullable),
+    )
+    .into_array()
+    .take(indices)?
+    .execute::<VarBinViewArray>(&mut ctx)?;
+    assert_arrays_eq!(result.into_array(), expected.into_array());
+    Ok(())
+}
+
+/// All three explicit compaction strategies must produce identical canonical output, both for a
+/// contiguous (sliced) view and a scattered (taken) one.
+#[rstest]
+#[case(FsstViewCompaction::Auto)]
+#[case(FsstViewCompaction::Direct)]
+#[case(FsstViewCompaction::GatherBulk)]
+#[case(FsstViewCompaction::PerElement)]
+fn compaction_strategies_agree(#[case] strategy: FsstViewCompaction) -> VortexResult<()> {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let fsst = make_fsst(&SAMPLE, Nullability::NonNullable, &mut ctx);
+
+    // Scattered view via a take (reorders + duplicates -> non-contiguous codes).
+    let indices = PrimitiveArray::from_iter([5u64, 0, 0, 3, 1, 2]).into_array();
+    let scattered = fsst_take_to_view(&fsst, &indices, &mut ctx)?;
+    let got = canonicalize_fsstview_with(scattered.as_view(), strategy, &mut ctx)?;
+    let expected = VarBinArray::from_iter(
+        SAMPLE.iter().copied(),
+        DType::Utf8(Nullability::NonNullable),
+    )
+    .into_array()
+    .take(indices)?
+    .execute::<VarBinViewArray>(&mut ctx)?;
+    assert_arrays_eq!(got, expected.into_array());
+
+    // Contiguous view (untouched) — exercises the Direct fast path.
+    let contiguous = fsstview_from_fsst(&fsst, &mut ctx)?;
+    let got = canonicalize_fsstview_with(contiguous.as_view(), strategy, &mut ctx)?;
+    let expected = VarBinArray::from_iter(
+        SAMPLE.iter().copied(),
+        DType::Utf8(Nullability::NonNullable),
+    )
+    .into_array()
+    .execute::<VarBinViewArray>(&mut ctx)?;
+    assert_arrays_eq!(got, expected.into_array());
+    Ok(())
 }

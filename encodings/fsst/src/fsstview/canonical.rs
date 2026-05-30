@@ -1,8 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Canonicalization of [`FSSTView`] into a [`VarBinViewArray`].
+//!
+//! After metadata-only `filter`/`take`, an [`FSSTView`]'s byte heap is the *original* heap and
+//! the live codes are scattered (gaps after a filter, reordering/duplication after a take). To
+//! canonicalize we must produce one contiguous decompressed buffer in element order. There are
+//! three ways to get there, with different cost profiles — see [`FsstViewCompaction`]:
+//!
+//! - [`Direct`][FsstViewCompaction::Direct]: the live codes are still contiguous and in order
+//!   (e.g. an untouched view or one that was only sliced). We bulk-decompress that single
+//!   contiguous range with no copy. Fastest, but only valid when contiguous.
+//! - [`GatherBulk`][FsstViewCompaction::GatherBulk] ("compact"): copy the scattered live codes
+//!   into a contiguous buffer, then a *single* bulk decompress. Pays a copy of the live
+//!   compressed bytes but the one bulk call amortizes the FSST 8-wide fast path across all
+//!   element boundaries.
+//! - [`PerElement`][FsstViewCompaction::PerElement] ("no compact"): decompress each element's
+//!   slice directly into its place in the output. No copy, but one decompress call per element.
+//!
+//! The compaction question, concretely: **compacting (`GatherBulk`) beats `PerElement` when the
+//! strings are short and numerous** — per-call overhead then dominates `PerElement` while the
+//! gather copy is cheap and unlocks bulk SIMD. **`PerElement` wins when the strings are long and
+//! few** — the gather copy dominates and per-call overhead is negligible. Density decides whether
+//! `Direct` is even available; average element size decides `GatherBulk` vs `PerElement`.
+
 use std::sync::Arc;
 
+use fsst::Decompressor;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -19,75 +43,95 @@ use super::array::FSSTView;
 use super::array::FSSTViewArrayExt;
 use super::array::FSSTViewArraySlotsExt;
 
-/// Canonicalize an [`FSSTView`] array into a [`VarBinViewArray`].
+/// Strategy for materializing the decompressed bytes when canonicalizing an [`FSSTView`].
 ///
-/// Because `filter`/`take`/`slice` leave the compressed byte heap untouched, the live codes of
-/// element `i` are the (possibly out-of-order, possibly overlapping) slice
-/// `codes_bytes[offset_i .. offset_i + size_i]`. We first gather them into element order, then
-/// bulk-decompress in a single pass and build the binary views from the uncompressed lengths.
+/// See the [module docs][self] for the full trade-off analysis.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FsstViewCompaction {
+    /// Pick a strategy automatically based on contiguity and average element size.
+    Auto,
+    /// Bulk-decompress the contiguous live range with no copy. Falls back to `GatherBulk` if the
+    /// view's codes are not contiguous and in order.
+    Direct,
+    /// Compact the scattered live codes into a contiguous buffer, then a single bulk decompress.
+    GatherBulk,
+    /// Decompress each element's code slice directly into place, without compacting.
+    PerElement,
+}
+
+/// Average compressed bytes/element below which compaction (`GatherBulk`) is preferred over
+/// `PerElement`. Heuristic; see module docs. Validated by the `fsst_view_compute` benchmark.
+const SHORT_STRING_THRESHOLD: usize = 32;
+
 pub(super) fn canonicalize_fsstview(
     array: ArrayView<'_, FSSTView>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let len = array.len();
-    let bytes = array.codes_bytes();
+    canonicalize_fsstview_with(array, FsstViewCompaction::Auto, ctx)
+}
 
-    let offsets = array
-        .codes_offsets()
-        .clone()
-        .execute::<PrimitiveArray>(ctx)?;
-    let sizes = array.codes_sizes().clone().execute::<PrimitiveArray>(ctx)?;
-    let uncompressed_lengths = array
+/// Canonicalize an [`FSSTView`] to a [`VarBinViewArray`] using an explicit compaction strategy.
+///
+/// Exposed (rather than only the dispatch-driven [`canonicalize_fsstview`]) so benchmarks can
+/// measure each strategy directly. Production code goes through [`FsstViewCompaction::Auto`].
+pub fn canonicalize_fsstview_with(
+    array: ArrayView<'_, FSSTView>,
+    strategy: FsstViewCompaction,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let offsets = load_usize(array.codes_offsets(), ctx)?;
+    let sizes = load_usize(array.codes_sizes(), ctx)?;
+
+    let ulen_prim = array
         .uncompressed_lengths()
         .clone()
         .execute::<PrimitiveArray>(ctx)?;
-
     #[expect(clippy::cast_possible_truncation)]
-    let offsets: Vec<usize> = match_each_integer_ptype!(offsets.ptype(), |O| {
-        offsets
-            .as_slice::<O>()
-            .iter()
-            .map(|o| *o as usize)
-            .collect()
-    });
-    #[expect(clippy::cast_possible_truncation)]
-    let sizes: Vec<usize> = match_each_integer_ptype!(sizes.ptype(), |S| {
-        sizes.as_slice::<S>().iter().map(|s| *s as usize).collect()
-    });
-
-    // Gather the live compressed bytes into element order.
-    let total_compressed: usize = sizes.iter().sum();
-    let mut compressed = ByteBufferMut::with_capacity(total_compressed);
-    for i in 0..len {
-        compressed.extend_from_slice(&bytes[offsets[i]..offsets[i] + sizes[i]]);
-    }
-
-    #[expect(clippy::cast_possible_truncation)]
-    let total_size: usize = match_each_integer_ptype!(uncompressed_lengths.ptype(), |P| {
-        uncompressed_lengths
+    let ulens: Vec<usize> = match_each_integer_ptype!(ulen_prim.ptype(), |P| {
+        ulen_prim
             .as_slice::<P>()
             .iter()
             .map(|x| *x as usize)
-            .sum()
+            .collect()
     });
+    let total_size: usize = ulens.iter().sum();
+    let live: usize = sizes.iter().sum();
 
-    // Bulk-decompress the gathered heap. We reserve 7 extra bytes because the FSST decoder may
-    // overrun the output by up to a word.
+    let heap_buffer = array.codes_bytes();
+    let heap = heap_buffer.as_slice();
     let decompressor = array.decompressor();
-    let mut uncompressed_bytes = ByteBufferMut::with_capacity(total_size + 7);
-    let written = decompressor.decompress_into(
-        compressed.as_slice(),
-        uncompressed_bytes.spare_capacity_mut(),
-    );
-    unsafe { uncompressed_bytes.set_len(written) };
 
-    let (buffers, views) = match_each_integer_ptype!(uncompressed_lengths.ptype(), |P| {
-        build_views(
-            0,
-            MAX_BUFFER_LEN,
-            uncompressed_bytes,
-            uncompressed_lengths.as_slice::<P>(),
-        )
+    let contiguous = is_contiguous(&offsets, &sizes);
+    let chosen = match strategy {
+        FsstViewCompaction::Auto => {
+            if contiguous {
+                FsstViewCompaction::Direct
+            } else if !offsets.is_empty() && live / offsets.len() < SHORT_STRING_THRESHOLD {
+                FsstViewCompaction::GatherBulk
+            } else {
+                FsstViewCompaction::PerElement
+            }
+        }
+        // `Direct` is only valid for a contiguous layout; fall back to a compacting decode.
+        FsstViewCompaction::Direct if !contiguous => FsstViewCompaction::GatherBulk,
+        other => other,
+    };
+
+    let uncompressed = match chosen {
+        FsstViewCompaction::Direct => {
+            let start = offsets.first().copied().unwrap_or(0);
+            decompress_direct(&decompressor, heap, start, live, total_size)
+        }
+        FsstViewCompaction::GatherBulk => {
+            decompress_gather(&decompressor, heap, &offsets, &sizes, live, total_size)
+        }
+        FsstViewCompaction::PerElement | FsstViewCompaction::Auto => {
+            decompress_per_element(&decompressor, heap, &offsets, &sizes, &ulens, total_size)
+        }
+    };
+
+    let (buffers, views) = match_each_integer_ptype!(ulen_prim.ptype(), |P| {
+        build_views(0, MAX_BUFFER_LEN, uncompressed, ulen_prim.as_slice::<P>())
     });
 
     // SAFETY: FSST validates the bytes for binary/UTF-8; the views point at valid ranges.
@@ -100,4 +144,86 @@ pub(super) fn canonicalize_fsstview(
         )
         .into_array()
     })
+}
+
+fn load_usize(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Vec<usize>> {
+    let prim = array.clone().execute::<PrimitiveArray>(ctx)?;
+    #[expect(clippy::cast_possible_truncation)]
+    let out: Vec<usize> = match_each_integer_ptype!(prim.ptype(), |P| {
+        prim.as_slice::<P>().iter().map(|x| *x as usize).collect()
+    });
+    Ok(out)
+}
+
+/// Returns true if the live codes occupy a single contiguous, in-order run of the heap.
+fn is_contiguous(offsets: &[usize], sizes: &[usize]) -> bool {
+    let Some(&first) = offsets.first() else {
+        return true;
+    };
+    let mut pos = first;
+    for (&offset, &size) in offsets.iter().zip(sizes) {
+        if offset != pos {
+            return false;
+        }
+        pos += size;
+    }
+    true
+}
+
+/// Decompress a single contiguous run of the heap in one bulk call (no copy).
+fn decompress_direct(
+    decompressor: &Decompressor<'_>,
+    heap: &[u8],
+    start: usize,
+    live: usize,
+    total_size: usize,
+) -> ByteBufferMut {
+    let mut out = ByteBufferMut::with_capacity(total_size + 7);
+    let written =
+        decompressor.decompress_into(&heap[start..start + live], out.spare_capacity_mut());
+    unsafe { out.set_len(written) };
+    out
+}
+
+/// Compact the scattered live codes into a contiguous buffer, then a single bulk decompress.
+fn decompress_gather(
+    decompressor: &Decompressor<'_>,
+    heap: &[u8],
+    offsets: &[usize],
+    sizes: &[usize],
+    live: usize,
+    total_size: usize,
+) -> ByteBufferMut {
+    let mut compressed = ByteBufferMut::with_capacity(live);
+    for (&offset, &size) in offsets.iter().zip(sizes) {
+        compressed.extend_from_slice(&heap[offset..offset + size]);
+    }
+    let mut out = ByteBufferMut::with_capacity(total_size + 7);
+    let written = decompressor.decompress_into(compressed.as_slice(), out.spare_capacity_mut());
+    unsafe { out.set_len(written) };
+    out
+}
+
+/// Decompress each element's code slice directly into its place in the output (no compaction).
+fn decompress_per_element(
+    decompressor: &Decompressor<'_>,
+    heap: &[u8],
+    offsets: &[usize],
+    sizes: &[usize],
+    ulens: &[usize],
+    total_size: usize,
+) -> ByteBufferMut {
+    let mut out = ByteBufferMut::with_capacity(total_size + 7);
+    {
+        let spare = out.spare_capacity_mut();
+        let mut uoff = 0;
+        for ((&offset, &size), &ulen) in offsets.iter().zip(sizes).zip(ulens) {
+            if size > 0 {
+                decompressor.decompress_into(&heap[offset..offset + size], &mut spare[uoff..]);
+            }
+            uoff += ulen;
+        }
+    }
+    unsafe { out.set_len(total_size) };
+    out
 }

@@ -19,6 +19,7 @@
 mod array;
 mod canonical;
 mod compute;
+mod from_fsst;
 mod kernel;
 mod ops;
 mod rules;
@@ -27,3 +28,7 @@ mod slice;
 mod tests;
 
 pub use array::*;
+pub use canonical::FsstViewCompaction;
+pub use canonical::canonicalize_fsstview_with;
+pub use from_fsst::fsst_filter_to_view;
+pub use from_fsst::fsst_take_to_view;
