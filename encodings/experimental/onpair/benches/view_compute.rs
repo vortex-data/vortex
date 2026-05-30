@@ -440,6 +440,71 @@ fn filter_export_varbin(bencher: Bencher, case: (Corpus, u32)) {
         });
 }
 
+// ─── Pipeline: compact-every-op vs compact-once-at-the-end ───────────────
+//
+// The crux comparison. Both pipelines apply the *same* chain of N filters
+// (each keeping ~70 % of the current rows) and then materialise the survivors
+// as a VarBinViewArray. The only difference:
+//   * OnPair rebuilds (compacts) the codes stream at every filter -> N compactions.
+//   * OnPairView filters metadata only, then compacts once, at the final export.
+// Everything else is identical, so the gap is exactly "compact N times" vs
+// "compact once".
+
+const PIPELINE: &[(Corpus, usize)] = &[
+    (Corpus::ManyShort, 1),
+    (Corpus::ManyShort, 2),
+    (Corpus::ManyShort, 4),
+    (Corpus::ManyShort, 8),
+    (Corpus::FewLong, 1),
+    (Corpus::FewLong, 4),
+    (Corpus::FewLong, 8),
+];
+
+/// Positional "keep ~70 %" mask for the current length.
+fn keep70(len: usize) -> Mask {
+    Mask::from_iter((0..len).map(|i| i % 10 < 7))
+}
+
+#[divan::bench(args = PIPELINE)]
+fn onpair_pipeline(bencher: Bencher, case: (Corpus, usize)) {
+    let (c, n) = case;
+    let base = base(c);
+    bencher.bench_local(|| {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Compact at every filter.
+        let mut arr = base.onpair.clone();
+        for _ in 0..n {
+            let mask = keep70(arr.len());
+            arr = onpair_filter(&arr, &mask, &mut ctx);
+        }
+        // Final materialisation.
+        divan::black_box(
+            arr.into_array()
+                .execute::<VarBinViewArray>(&mut ctx)
+                .unwrap(),
+        );
+    });
+}
+
+#[divan::bench(args = PIPELINE)]
+fn view_pipeline(bencher: Bencher, case: (Corpus, usize)) {
+    let (c, n) = case;
+    let base = base(c);
+    bencher.bench_local(|| {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Metadata-only filters.
+        let mut arr = base.view.clone();
+        for _ in 0..n {
+            let mask = keep70(arr.len());
+            arr = view_filter(&arr, &mask, &mut ctx);
+        }
+        // Compact once, at the final export.
+        divan::black_box(
+            canonicalize_with(arr.as_view(), OnPairViewDecodeMode::Auto, &mut ctx).unwrap(),
+        );
+    });
+}
+
 fn main() {
     divan::main();
 }
