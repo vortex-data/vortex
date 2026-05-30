@@ -98,6 +98,127 @@ pub(super) fn canonicalize_fsstview(
     canonicalize_fsstview_with(array, FsstViewCompaction::Auto, ctx)
 }
 
+/// Byte accounting for an [`FSSTView`], in **both compressed (code) space and uncompressed
+/// (decoded) space**, for reasoning about gather/coalesce trade-offs and dead-byte waste.
+///
+/// All figures are in bytes. The "span" figures describe what a *gap-merged* decode (decoding each
+/// run's full heap extent, dead bytes included) would touch; the difference from the live figures
+/// is the waste such a strategy would carry.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FsstViewByteStats {
+    /// Number of (logical) elements in the view.
+    pub elements: usize,
+    /// Distinct heap runs the live elements form (maximal heap-adjacent groups of distinct spans).
+    pub runs: usize,
+    /// Distinct (deduplicated) live code spans referenced by the view.
+    pub distinct_spans: usize,
+    /// Compressed bytes the live distinct spans occupy (what `GatherBulk` copies / decodes).
+    pub live_compressed: usize,
+    /// Compressed bytes spanned by the runs *including* dead gaps between survivors (what a
+    /// gap-merged decode would feed the decoder). `span_compressed - live_compressed` is the
+    /// compressed waste of merging across gaps.
+    pub span_compressed: usize,
+    /// Uncompressed bytes the live elements decode to (the canonical output size; deduped spans
+    /// counted once).
+    pub live_uncompressed: usize,
+    /// Total uncompressed output size with duplicates expanded (the `VarBinView`'s logical size).
+    pub logical_uncompressed: usize,
+    /// Total compressed heap size backing the view (the original, shared code buffer).
+    pub heap_compressed: usize,
+}
+
+impl FsstViewByteStats {
+    /// Fraction of the spanned compressed bytes that are dead (would be wasted by a gap-merged
+    /// decode). `0.0` means the live spans are perfectly contiguous within each run.
+    pub fn compressed_waste_ratio(&self) -> f64 {
+        if self.span_compressed == 0 {
+            0.0
+        } else {
+            (self.span_compressed - self.live_compressed) as f64 / self.span_compressed as f64
+        }
+    }
+}
+
+/// Compute [`FsstViewByteStats`] for a view (diagnostics; not on the hot path).
+pub fn fsstview_byte_stats(
+    array: ArrayView<'_, FSSTView>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<FsstViewByteStats> {
+    let offsets = load_usize(array.codes_offsets(), ctx)?;
+    let sizes = load_usize(array.codes_sizes(), ctx)?;
+    let ulen_prim = array
+        .uncompressed_lengths()
+        .clone()
+        .execute::<PrimitiveArray>(ctx)?;
+    #[expect(clippy::cast_possible_truncation)]
+    let ulens: Vec<usize> = match_each_integer_ptype!(ulen_prim.ptype(), |P| {
+        ulen_prim
+            .as_slice::<P>()
+            .iter()
+            .map(|x| *x as usize)
+            .collect()
+    });
+
+    let elements = offsets.len();
+    let logical_uncompressed: usize = ulens.iter().sum();
+    let heap_compressed = array.codes_bytes().len();
+
+    // Walk distinct spans in heap order, accumulating live/run/span figures.
+    let mut order: Vec<usize> = (0..elements).filter(|&i| sizes[i] > 0).collect();
+    order.sort_unstable_by_key(|&i| (offsets[i], sizes[i]));
+
+    let mut runs = 0usize;
+    let mut distinct_spans = 0usize;
+    let mut live_compressed = 0usize;
+    let mut live_uncompressed = 0usize;
+    let mut span_compressed = 0usize;
+    let mut run_end: Option<usize> = None;
+    let mut run_start = 0usize;
+    let mut prev_span: Option<(usize, usize)> = None;
+    for &i in &order {
+        let span = (offsets[i], sizes[i]);
+        let is_dup = prev_span == Some(span);
+        prev_span = Some(span);
+        if is_dup {
+            continue; // duplicate of the previous distinct span
+        }
+        distinct_spans += 1;
+        live_compressed += sizes[i];
+        live_uncompressed += ulens[i];
+        match run_end {
+            Some(end) if offsets[i] == end => {
+                run_end = Some(end + sizes[i]);
+            }
+            Some(end) => {
+                // Close the previous run, open a new one.
+                span_compressed += end - run_start;
+                runs += 1;
+                run_start = offsets[i];
+                run_end = Some(offsets[i] + sizes[i]);
+            }
+            None => {
+                run_start = offsets[i];
+                run_end = Some(offsets[i] + sizes[i]);
+            }
+        }
+    }
+    if let Some(end) = run_end {
+        span_compressed += end - run_start;
+        runs += 1;
+    }
+
+    Ok(FsstViewByteStats {
+        elements,
+        runs,
+        distinct_spans,
+        live_compressed,
+        span_compressed,
+        live_uncompressed,
+        logical_uncompressed,
+        heap_compressed,
+    })
+}
+
 /// Canonicalize an [`FSSTView`] to a [`VarBinViewArray`] using an explicit compaction strategy.
 ///
 /// Exposed (rather than only the dispatch-driven [`canonicalize_fsstview`]) so benchmarks can
