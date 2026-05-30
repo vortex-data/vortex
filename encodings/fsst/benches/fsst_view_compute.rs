@@ -155,6 +155,7 @@ fn compaction_name(strategy: FsstViewCompaction) -> &'static str {
         FsstViewCompaction::Direct => "direct",
         FsstViewCompaction::GatherBulk => "gather_bulk",
         FsstViewCompaction::PerElement => "per_element",
+        FsstViewCompaction::RunCoalesce => "run_coalesce",
     }
 }
 
@@ -549,6 +550,7 @@ const COMPACTIONS: &[FsstViewCompaction] = &[
     FsstViewCompaction::Auto,
     FsstViewCompaction::GatherBulk,
     FsstViewCompaction::PerElement,
+    FsstViewCompaction::RunCoalesce,
 ];
 
 fn take_view_pipeline_args() -> Vec<TakeViewArg> {

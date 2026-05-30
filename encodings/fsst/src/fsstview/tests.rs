@@ -9,6 +9,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::assert_arrays_eq;
 use vortex_array::compute::conformance::consistency::test_array_consistency;
 use vortex_array::compute::conformance::filter::test_filter_conformance;
@@ -235,13 +236,14 @@ fn fsst_take_to_view_matches_canonical() -> VortexResult<()> {
     Ok(())
 }
 
-/// All three explicit compaction strategies must produce identical canonical output, both for a
+/// All explicit compaction strategies must produce identical canonical output, both for a
 /// contiguous (sliced) view and a scattered (taken) one.
 #[rstest]
 #[case(FsstViewCompaction::Auto)]
 #[case(FsstViewCompaction::Direct)]
 #[case(FsstViewCompaction::GatherBulk)]
 #[case(FsstViewCompaction::PerElement)]
+#[case(FsstViewCompaction::RunCoalesce)]
 fn compaction_strategies_agree(#[case] strategy: FsstViewCompaction) -> VortexResult<()> {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let fsst = make_fsst(&SAMPLE, Nullability::NonNullable, &mut ctx);
@@ -268,6 +270,60 @@ fn compaction_strategies_agree(#[case] strategy: FsstViewCompaction) -> VortexRe
     )
     .into_array()
     .execute::<VarBinViewArray>(&mut ctx)?;
+    assert_arrays_eq!(got, expected.into_array());
+    Ok(())
+}
+
+/// Adversarial coverage for `RunCoalesce`: a filter that punches gaps into the heap (so survivors
+/// form multiple runs), then a shuffle take (reorders runs), over nullable data. Every strategy
+/// must still agree with the canonical VarBin result.
+#[rstest]
+#[case(FsstViewCompaction::Auto)]
+#[case(FsstViewCompaction::GatherBulk)]
+#[case(FsstViewCompaction::RunCoalesce)]
+#[case(FsstViewCompaction::PerElement)]
+fn run_coalesce_gaps_and_shuffle(#[case] strategy: FsstViewCompaction) -> VortexResult<()> {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    // 12 distinct-ish strings, nullable.
+    let strings: Vec<Option<&str>> = vec![
+        Some("alpha"),
+        None,
+        Some("bravo bravo"),
+        Some("charlie"),
+        Some("delta delta delta"),
+        None,
+        Some("echo"),
+        Some("foxtrot foxtrot"),
+        Some("golf"),
+        Some("hotel hotel hotel"),
+        None,
+        Some("india"),
+    ];
+    let fsst = make_fsst(&strings, Nullability::Nullable, &mut ctx);
+
+    // Filter to keep a gapped subset (drops 1,2,5,8,10 -> remaining survivors aren't all adjacent).
+    let keep = [
+        true, false, false, true, true, false, true, true, false, true, false, true,
+    ];
+    let mask = Mask::from_iter(keep);
+    let filtered = fsst_filter_to_view(&fsst, &mask, &mut ctx)?;
+
+    // Then a shuffle+dup take over the filtered length (7 survivors).
+    let indices = PrimitiveArray::from_iter([6u64, 0, 3, 3, 5, 1, 2, 4]).into_array();
+    let view = <FSSTView as TakeExecute>::take(filtered.as_view(), &indices, &mut ctx)?
+        .unwrap()
+        .try_downcast::<FSSTView>()
+        .ok()
+        .unwrap();
+
+    let got = canonicalize_fsstview_with(view.as_view(), strategy, &mut ctx)?;
+
+    let expected =
+        VarBinArray::from_iter(strings.iter().copied(), DType::Utf8(Nullability::Nullable))
+            .into_array()
+            .filter(mask)?
+            .take(indices)?
+            .execute::<VarBinViewArray>(&mut ctx)?;
     assert_arrays_eq!(got, expected.into_array());
     Ok(())
 }
