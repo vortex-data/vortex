@@ -158,11 +158,10 @@ impl Layout {
 fn analyze(offsets: &[u32], sizes: &[u32]) -> Layout {
     debug_assert_eq!(offsets.len(), sizes.len());
     let mut span_decodable = true;
-    let mut base = 0usize;
+    let mut base = usize::MAX;
     let mut end = 0usize;
     let mut live_tokens = 0usize;
     let mut prev_end = 0usize;
-    let mut started = false;
 
     for (&offset, &size) in offsets.iter().zip(sizes) {
         let size = size as usize;
@@ -174,23 +173,18 @@ fn analyze(offsets: &[u32], sizes: &[u32]) -> Layout {
         }
         let offset = offset as usize;
         let window_end = offset + size;
-        if !started {
-            base = offset;
-            end = window_end;
-        } else {
-            if offset < prev_end {
-                span_decodable = false;
-            }
-            base = base.min(offset);
-            end = end.max(window_end);
-        }
+        // Branchless: stays true only while every window starts at or after the
+        // previous window's end (sorted, non-overlapping).
+        span_decodable &= offset >= prev_end;
+        base = base.min(offset);
+        end = end.max(window_end);
         prev_end = window_end;
-        started = true;
     }
 
     Layout {
+        // No non-empty windows ⇒ trivially contiguous over an empty span.
         span_decodable,
-        base,
+        base: if base == usize::MAX { 0 } else { base },
         end,
         live_tokens,
     }
