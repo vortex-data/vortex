@@ -352,6 +352,11 @@ fn decompress_direct(
 }
 
 /// Compact the scattered live codes into a contiguous buffer, then a single bulk decompress.
+///
+/// The gather coalesces consecutive heap-adjacent spans into a single `extend_from_slice`: for an
+/// order-preserving `filter`, surviving neighbours are still contiguous in the heap, so a run of
+/// `k` survivors is copied in one memcpy instead of `k`. This collapses the per-span copy overhead
+/// (which dominates for short codes) to per-run, while a shuffle (no adjacency) is unaffected.
 fn decompress_gather(
     decompressor: &Decompressor<'_>,
     heap: &[u8],
@@ -361,8 +366,25 @@ fn decompress_gather(
     total_size: usize,
 ) -> ByteBufferMut {
     let mut compressed = ByteBufferMut::with_capacity(live);
+    // Accumulate a contiguous `[run_start, run_end)` heap range and flush it as one copy.
+    let mut run_start = 0usize;
+    let mut run_end = 0usize;
     for (&offset, &size) in offsets.iter().zip(sizes) {
-        compressed.extend_from_slice(&heap[offset..offset + size]);
+        if size == 0 {
+            continue;
+        }
+        if offset == run_end && run_end != run_start {
+            run_end += size; // extend the current run (heap-adjacent)
+        } else {
+            if run_end != run_start {
+                compressed.extend_from_slice(&heap[run_start..run_end]);
+            }
+            run_start = offset;
+            run_end = offset + size;
+        }
+    }
+    if run_end != run_start {
+        compressed.extend_from_slice(&heap[run_start..run_end]);
     }
     let mut out = ByteBufferMut::with_capacity(total_size + 7);
     let written = decompressor.decompress_into(compressed.as_slice(), out.spare_capacity_mut());
