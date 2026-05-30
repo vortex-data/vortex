@@ -448,11 +448,18 @@ pub fn canonicalize_to_varbin(
     });
 
     let validity = array.array().validity()?;
-    Ok(VarBinArray::try_new(
-        varbin_offsets.into_array(),
-        bytes.freeze(),
-        array.dtype().clone(),
-        validity,
-    )?
+    // SAFETY: `varbin_offsets` is a running sum of non-negative lengths, so it is
+    // non-nullable, starts at 0, is monotonically non-decreasing, and its last
+    // entry equals `bytes.len()`; the bytes were just decoded from a valid
+    // `Utf8`/`Binary` column. So the `VarBinArray` invariants hold without the
+    // (offset-scanning) validation `try_new` would run.
+    Ok(unsafe {
+        VarBinArray::new_unchecked(
+            varbin_offsets.into_array(),
+            bytes.freeze(),
+            array.dtype().clone(),
+            validity,
+        )
+    }
     .into_array())
 }
