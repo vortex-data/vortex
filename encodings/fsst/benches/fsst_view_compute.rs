@@ -17,9 +17,13 @@
 //! trade-off is visible directly.
 //!
 //! Two ~2 MiB (uncompressed) inputs are used: one with **many short** strings and one with
-//! **fewer long** strings. The expectation: the fsstview hop is far cheaper in both cases (no
-//! heap rewrite); for the final canonicalization, `GatherBulk` (compact) wins on the short-string
-//! input while `PerElement` (no compact) wins on the long-string input.
+//! **fewer long** strings.
+//!
+//! Observed (medians): the fsstview hop is far cheaper in both cases (no heap rewrite) — e.g.
+//! `take many_short/shuffle` is ~650 µs vs ~2.84 ms for fsst. For the final canonicalization,
+//! `GatherBulk` (compact) beats `PerElement` (no compact) across the whole range, short *and*
+//! long strings, because it pays FSST's slow decode-tail once instead of once per element; that's
+//! why `Auto` compacts whenever the codes aren't contiguous.
 
 #![expect(clippy::unwrap_used)]
 

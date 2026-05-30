@@ -18,11 +18,20 @@
 //! - [`PerElement`][FsstViewCompaction::PerElement] ("no compact"): decompress each element's
 //!   slice directly into its place in the output. No copy, but one decompress call per element.
 //!
-//! The compaction question, concretely: **compacting (`GatherBulk`) beats `PerElement` when the
-//! strings are short and numerous** — per-call overhead then dominates `PerElement` while the
-//! gather copy is cheap and unlocks bulk SIMD. **`PerElement` wins when the strings are long and
-//! few** — the gather copy dominates and per-call overhead is negligible. Density decides whether
-//! `Direct` is even available; average element size decides `GatherBulk` vs `PerElement`.
+//! The compaction question, concretely. The `fsst_view_compute` benchmark (two ~2 MiB inputs,
+//! ~12-byte and ~256-byte strings) shows **`GatherBulk` beats `PerElement` across the whole
+//! tested range, for both short and long strings**. The reason: FSST's decoder has a fast 8-wide
+//! body and a slow byte-by-byte tail. `PerElement` pays that tail *once per element* (N tails),
+//! while `GatherBulk` decodes the whole heap in one call and pays the tail *once*. That saving
+//! dominates the cost of the gather memcpy even at 256-byte strings (with ~8 K elements). For
+//! example `take few_long/shuffle` canonicalizes in ~459 µs with `GatherBulk` vs ~623 µs with
+//! `PerElement`.
+//!
+//! `PerElement` only wins in the opposite extreme — *very few, very long* strings — where N is
+//! tiny (few tails saved) but the gather memcpy of the entire live heap is large. That regime is
+//! outside what real string columns hit, so [`FsstViewCompaction::Auto`] never picks it: it uses
+//! `Direct` when the live codes are still contiguous (untouched/sliced view) and `GatherBulk`
+//! otherwise. `PerElement` is kept selectable so the trade-off stays measurable.
 
 use std::sync::Arc;
 
@@ -48,7 +57,8 @@ use super::array::FSSTViewArraySlotsExt;
 /// See the [module docs][self] for the full trade-off analysis.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FsstViewCompaction {
-    /// Pick a strategy automatically based on contiguity and average element size.
+    /// Pick a strategy automatically: `Direct` when the live codes are contiguous, else
+    /// `GatherBulk`. Never picks `PerElement` (see module docs).
     Auto,
     /// Bulk-decompress the contiguous live range with no copy. Falls back to `GatherBulk` if the
     /// view's codes are not contiguous and in order.
@@ -58,10 +68,6 @@ pub enum FsstViewCompaction {
     /// Decompress each element's code slice directly into place, without compacting.
     PerElement,
 }
-
-/// Average compressed bytes/element below which compaction (`GatherBulk`) is preferred over
-/// `PerElement`. Heuristic; see module docs. Validated by the `fsst_view_compute` benchmark.
-const SHORT_STRING_THRESHOLD: usize = 32;
 
 pub(super) fn canonicalize_fsstview(
     array: ArrayView<'_, FSSTView>,
@@ -103,13 +109,14 @@ pub fn canonicalize_fsstview_with(
 
     let contiguous = is_contiguous(&offsets, &sizes);
     let chosen = match strategy {
+        // Direct when the live codes are still one contiguous run, else compact-and-bulk.
+        // `GatherBulk` beats `PerElement` across the whole practical range (see module docs), so
+        // `Auto` never selects `PerElement`.
         FsstViewCompaction::Auto => {
             if contiguous {
                 FsstViewCompaction::Direct
-            } else if !offsets.is_empty() && live / offsets.len() < SHORT_STRING_THRESHOLD {
-                FsstViewCompaction::GatherBulk
             } else {
-                FsstViewCompaction::PerElement
+                FsstViewCompaction::GatherBulk
             }
         }
         // `Direct` is only valid for a contiguous layout; fall back to a compacting decode.
@@ -125,6 +132,7 @@ pub fn canonicalize_fsstview_with(
         FsstViewCompaction::GatherBulk => {
             decompress_gather(&decompressor, heap, &offsets, &sizes, live, total_size)
         }
+        // `Auto` is always resolved to a concrete strategy above.
         FsstViewCompaction::PerElement | FsstViewCompaction::Auto => {
             decompress_per_element(&decompressor, heap, &offsets, &sizes, &ulens, total_size)
         }
