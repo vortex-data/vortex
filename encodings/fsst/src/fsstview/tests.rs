@@ -331,6 +331,48 @@ fn run_coalesce_gaps_and_shuffle(#[case] strategy: FsstViewCompaction) -> Vortex
     Ok(())
 }
 
+/// `RunDecode` ("export all in place") must agree with the canonical result on a *monotonic*
+/// gapped view (a filter, which keeps offsets increasing). Covers nulls, empty strings, and a
+/// trailing run, across the strategies that accept monotonic input.
+#[rstest]
+#[case(FsstViewCompaction::Auto)]
+#[case(FsstViewCompaction::RunDecode)]
+#[case(FsstViewCompaction::GatherBulk)]
+#[case(FsstViewCompaction::Direct)]
+fn run_decode_monotonic_filter(#[case] strategy: FsstViewCompaction) -> VortexResult<()> {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let strings: Vec<Option<&str>> = vec![
+        Some("alpha"),
+        Some(""),
+        None,
+        Some("bravo bravo"),
+        Some("charlie"),
+        None,
+        Some("delta delta delta"),
+        Some("echo"),
+        Some(""),
+        Some("foxtrot foxtrot"),
+        Some("golf golf"),
+    ];
+    let fsst = make_fsst(&strings, Nullability::Nullable, &mut ctx);
+    // Keep a gapped-but-ordered subset (multiple runs, including an adjacent pair and a trailing
+    // run) so RunDecode exercises >1 run and the GatherBulk fallback is also valid.
+    let keep = [
+        true, true, false, true, false, false, true, true, true, false, true,
+    ];
+    let mask = Mask::from_iter(keep);
+    let view = fsst_filter_to_view(&fsst, &mask, &mut ctx)?;
+
+    let got = canonicalize_fsstview_with(view.as_view(), strategy, &mut ctx)?;
+    let expected =
+        VarBinArray::from_iter(strings.iter().copied(), DType::Utf8(Nullability::Nullable))
+            .into_array()
+            .filter(mask)?
+            .execute::<VarBinViewArray>(&mut ctx)?;
+    assert_arrays_eq!(got, expected.into_array());
+    Ok(())
+}
+
 /// Build a ~`target`-uncompressed-byte FSSTView of random short URL-ish strings.
 fn make_big_view(target: usize, avg_len: usize, ctx: &mut ExecutionCtx) -> FSSTViewArray {
     use rand::RngExt;

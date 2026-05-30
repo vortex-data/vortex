@@ -40,6 +40,24 @@
 //! So [`FsstViewCompaction::Auto`] uses `Direct` when the live codes are contiguous
 //! (untouched/sliced view) and `GatherBulk` otherwise. `PerElement` and `RunCoalesce` are kept
 //! selectable so the trade-off stays measurable, but `Auto` never picks them.
+//!
+//! ## Export heuristic: "export all in place" vs "compact codes"
+//!
+//! `GatherBulk` always copies the live codes contiguous before decoding. But after a `filter`, a
+//! sorted-index `take`, or a `slice`, the survivors' offsets stay **monotonic** — so we can skip
+//! the gather entirely and decode each contiguous heap run *directly into* the (element-ordered)
+//! output: [`RunDecode`][FsstViewCompaction::RunDecode]. Unlike `RunCoalesce`, the output is in
+//! element order, so the view-build stays sequential. The cost is one decode call per run, so it
+//! wins while survivors form few runs (clustered / range selections) and loses once they fragment
+//! into many tiny runs (a uniform-random filter), where one bulk decode (`GatherBulk`) is cheaper.
+//!
+//! `Auto` therefore decides between *exporting all in place* and *compacting codes then exporting*
+//! by **run count**: `RunDecode` when `runs <= len / RUN_DECODE_MAX_RUN_FRACTION` (and the layout
+//! is monotonic), else `GatherBulk`. The `db_*`/`canon_only` benches calibrate this: on
+//! `many_short` it's RunDecode ~313 µs (clustered) / ~345 µs (range) vs GatherBulk ~333 / ~370 µs,
+//! and GatherBulk ~561 µs vs RunDecode ~657 µs on uniform-random. Crucially this lives entirely in
+//! the export — the conversion and the metadata-only `filter`/`take` stay separate so a *chain* of
+//! them still composes; only the final canonicalize compacts (or not).
 
 use std::sync::Arc;
 
@@ -91,6 +109,16 @@ pub enum FsstViewCompaction {
     /// random access just moves to view-build time, where it's more expensive. Retained for
     /// measurement only — `Auto` never selects it.
     RunCoalesce,
+    /// "Export all in place": when survivors are in heap order (offsets monotonically increasing,
+    /// as after any `filter`, a sorted-index `take`, or a `slice`), decode each maximal contiguous
+    /// heap run *directly* into the element-ordered output, with **no gather copy**. The output is
+    /// element-ordered, so the view-build stays sequential (unlike `RunCoalesce`). Cost is one
+    /// decode call per run; it beats `GatherBulk` when survivors form few runs (clustered/range
+    /// selections), and degrades toward per-element decode when survivors are scattered (a
+    /// uniform-random filter), which is when `GatherBulk`'s single bulk decode wins instead.
+    ///
+    /// Requires monotonic offsets; falls back to `GatherBulk` otherwise (e.g. a shuffle take).
+    RunDecode,
 }
 
 pub(super) fn canonicalize_fsstview(
@@ -252,22 +280,49 @@ pub fn canonicalize_fsstview_with(
     let heap = heap_buffer.as_slice();
     let decompressor = array.decompressor();
 
-    let contiguous = is_contiguous(&offsets, &sizes);
+    // Analyse the survivor layout once: a single contiguous run (Direct), monotonic-but-gapped
+    // (RunDecode candidate), or out of heap order (must gather).
+    let layout = analyze_layout(&offsets, &sizes);
     let chosen = match strategy {
-        // Direct when the live codes are still one contiguous run, else compact-and-bulk.
-        // `GatherBulk` beats both `PerElement` and `RunCoalesce` across the whole practical range
-        // (see module docs), so `Auto` picks neither.
-        FsstViewCompaction::Auto => {
-            if contiguous {
-                FsstViewCompaction::Direct
-            } else {
-                FsstViewCompaction::GatherBulk
+        // The export heuristic. With monotonic offsets we can "export all in place" by decoding
+        // each contiguous run with no gather copy; this wins while the runs are few. Once survivors
+        // fragment into many tiny runs (a uniform-random filter), the per-run decode-tail overhead
+        // dominates and compacting the codes into one bulk decode (`GatherBulk`) wins instead.
+        // Non-monotonic layouts (a shuffle take) can't run-decode, so they always gather.
+        FsstViewCompaction::Auto => match layout {
+            Layout::Contiguous => FsstViewCompaction::Direct,
+            Layout::Monotonic { runs } if runs <= offsets.len() / RUN_DECODE_MAX_RUN_FRACTION => {
+                FsstViewCompaction::RunDecode
             }
+            _ => FsstViewCompaction::GatherBulk,
+        },
+        // `Direct`/`RunDecode` require a (contiguous / monotonic) layout; fall back to gather.
+        FsstViewCompaction::Direct if !matches!(layout, Layout::Contiguous) => {
+            FsstViewCompaction::GatherBulk
         }
-        // `Direct` is only valid for a contiguous layout; fall back to a compacting decode.
-        FsstViewCompaction::Direct if !contiguous => FsstViewCompaction::GatherBulk,
+        FsstViewCompaction::RunDecode if matches!(layout, Layout::Scattered) => {
+            FsstViewCompaction::GatherBulk
+        }
         other => other,
     };
+
+    if chosen == FsstViewCompaction::RunDecode {
+        let uncompressed =
+            decompress_run_decode(&decompressor, heap, &offsets, &sizes, &ulens, total_size);
+        let (buffers, views) = match_each_integer_ptype!(ulen_prim.ptype(), |P| {
+            build_views(0, MAX_BUFFER_LEN, uncompressed, ulen_prim.as_slice::<P>())
+        });
+        // SAFETY: FSST validates the bytes for binary/UTF-8; the views point at valid ranges.
+        return Ok(unsafe {
+            VarBinViewArray::new_unchecked(
+                views,
+                Arc::from(buffers),
+                array.dtype().clone(),
+                array.fsstview_validity(),
+            )
+            .into_array()
+        });
+    }
 
     // RunCoalesce builds its own (buffers, views) — decompression order is decoupled from element
     // order, so it can't go through `build_views` (which assumes element-order contiguous output).
@@ -410,6 +465,99 @@ fn is_contiguous(offsets: &[usize], sizes: &[usize]) -> bool {
         pos += size;
     }
     true
+}
+
+/// `Auto` prefers `RunDecode` (export all in place) over `GatherBulk` (compact codes) while the
+/// number of contiguous runs is at most `len / RUN_DECODE_MAX_RUN_FRACTION` — i.e. while survivors
+/// average more than this many elements per run. Calibrated by the `db_*` benchmarks: clustered
+/// and range selections sit well under this, uniform-random filters well over it.
+const RUN_DECODE_MAX_RUN_FRACTION: usize = 4;
+
+/// The survivor layout in the heap, used to pick an export strategy.
+enum Layout {
+    /// Survivors are one contiguous in-order run (untouched / sliced view) — `Direct`.
+    Contiguous,
+    /// Offsets are strictly increasing but gapped: survivors form `runs` contiguous blocks.
+    /// Eligible for `RunDecode` (decode each run in place, no gather).
+    Monotonic { runs: usize },
+    /// Offsets are out of heap order (e.g. a shuffle take) — must gather.
+    Scattered,
+}
+
+/// Classify the survivor layout in a single O(n) pass: are offsets monotonic, and how many
+/// maximal contiguous runs do the (non-empty) survivors form?
+fn analyze_layout(offsets: &[usize], sizes: &[usize]) -> Layout {
+    let mut runs = 0usize;
+    let mut gapped = false;
+    let mut prev_end: Option<usize> = None;
+    for (&offset, &size) in offsets.iter().zip(sizes) {
+        if size == 0 {
+            continue; // empty/null elements don't affect run structure
+        }
+        match prev_end {
+            None => runs = 1,
+            Some(end) if offset == end => {} // continues the current run
+            Some(end) if offset > end => {
+                runs += 1;
+                gapped = true;
+            }
+            Some(_) => return Layout::Scattered, // offset < end: out of order
+        }
+        prev_end = Some(offset + size);
+    }
+    if !gapped {
+        Layout::Contiguous
+    } else {
+        Layout::Monotonic { runs }
+    }
+}
+
+/// "Export all in place": decode each maximal contiguous heap run directly into the element-ordered
+/// output, with no gather copy. Requires monotonic offsets (the caller guarantees this).
+fn decompress_run_decode(
+    decompressor: &Decompressor<'_>,
+    heap: &[u8],
+    offsets: &[usize],
+    sizes: &[usize],
+    ulens: &[usize],
+    total_size: usize,
+) -> ByteBufferMut {
+    let mut out = ByteBufferMut::with_capacity(total_size + 7);
+    {
+        let spare = out.spare_capacity_mut();
+        // Walk elements in order, batching heap-adjacent survivors into one decode call. `out_pos`
+        // tracks where the current run's decoded bytes begin in the (element-ordered) output.
+        let mut out_pos = 0usize;
+        let mut i = 0usize;
+        while i < offsets.len() {
+            if sizes[i] == 0 {
+                i += 1;
+                continue;
+            }
+            let run_heap_start = offsets[i];
+            let mut run_heap_end = run_heap_start;
+            let mut run_uncompressed = 0usize;
+            let mut j = i;
+            while j < offsets.len() {
+                if sizes[j] == 0 {
+                    j += 1;
+                    continue;
+                }
+                if offsets[j] != run_heap_end {
+                    break;
+                }
+                run_heap_end += sizes[j];
+                run_uncompressed += ulens[j];
+                j += 1;
+            }
+            decompressor
+                .decompress_into(&heap[run_heap_start..run_heap_end], &mut spare[out_pos..]);
+            out_pos += run_uncompressed;
+            i = j;
+        }
+    }
+    unsafe { out.set_len(total_size) };
+    out
 }
 
 /// Decompress a single contiguous run of the heap in one bulk call (no copy).

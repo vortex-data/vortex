@@ -131,6 +131,67 @@ fn make_mask(len: usize, keep_fraction: f64) -> Mask {
     Mask::from_iter((0..len).map(|_| rng.random_bool(keep_fraction)))
 }
 
+/// How a WHERE-clause selection is distributed over the rows — the shape that, in practice, drives
+/// run length far more than raw selectivity does. Real query masks are rarely uniform-random.
+#[derive(Clone, Copy, Debug)]
+enum Selectivity {
+    /// Uniform-random `keep` fraction (the worst case for run length: ~no adjacency).
+    Uniform(f64),
+    /// One contiguous range of `keep` fraction — a sorted range scan (`WHERE k BETWEEN a AND b`).
+    /// Survivors are a single run.
+    Range(f64),
+    /// `bursts` contiguous blocks totalling ~`keep` — clustered hits (e.g. a low-cardinality
+    /// predicate over data sorted by a correlated key). Survivors form a few medium runs.
+    Clustered { keep: f64, bursts: usize },
+}
+
+impl Selectivity {
+    fn name(self) -> &'static str {
+        match self {
+            Selectivity::Uniform(k) if k <= 0.2 => "uniform_10pct",
+            Selectivity::Uniform(_) => "uniform_90pct",
+            Selectivity::Range(_) => "range_scan_10pct",
+            Selectivity::Clustered { .. } => "clustered_10pct",
+        }
+    }
+
+    fn make(self, len: usize) -> Mask {
+        match self {
+            Selectivity::Uniform(keep) => make_mask(len, keep),
+            Selectivity::Range(keep) => {
+                #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let take = (len as f64 * keep) as usize;
+                let start = (len - take) / 2; // a range in the middle of the column
+                Mask::from_iter((0..len).map(|i| i >= start && i < start + take))
+            }
+            Selectivity::Clustered { keep, bursts } => {
+                let mut rng = StdRng::seed_from_u64(9);
+                #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let total = (len as f64 * keep) as usize;
+                let burst_len = (total / bursts).max(1);
+                let mut keep_set = vec![false; len];
+                for _ in 0..bursts {
+                    let start = rng.random_range(0..len.saturating_sub(burst_len).max(1));
+                    for j in start..(start + burst_len).min(len) {
+                        keep_set[j] = true;
+                    }
+                }
+                Mask::from_iter(keep_set)
+            }
+        }
+    }
+}
+
+/// The selection shapes exercised by the "database-style" filter benches.
+const SELECTIVITIES: &[Selectivity] = &[
+    Selectivity::Uniform(0.10),
+    Selectivity::Range(0.10),
+    Selectivity::Clustered {
+        keep: 0.10,
+        bursts: 32,
+    },
+];
+
 #[derive(Clone, Copy, Debug)]
 enum TakeKind {
     /// A full shuffle (permutation of all rows) — same length, reordered.
@@ -158,6 +219,7 @@ fn compaction_name(strategy: FsstViewCompaction) -> &'static str {
         FsstViewCompaction::GatherBulk => "gather_bulk",
         FsstViewCompaction::PerElement => "per_element",
         FsstViewCompaction::RunCoalesce => "run_coalesce",
+        FsstViewCompaction::RunDecode => "run_decode",
     }
 }
 
@@ -500,6 +562,29 @@ fn export_view(array: &FSSTArray, mask: &Mask, ctx: &mut ExecutionCtx) -> FSSTVi
         .unwrap()
 }
 
+/// Canonicalize a *pre-filtered* view (filter hoisted out of the loop), parameterized by the
+/// selection shape and the explicit compaction strategy. This isolates the export decode so
+/// `RunDecode` ("export all in place") can be compared head-to-head against `GatherBulk` ("compact
+/// codes") on each survivor layout.
+#[divan::bench(args = canon_args())]
+fn canon_only(bencher: Bencher, args: CanonArg) {
+    let varbin = generate(args.shape);
+    let fsst = compress(&varbin, &mut LEGACY_SESSION.create_execution_ctx());
+    let mask = args.sel.make(fsst.len());
+    let view = {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        view_filter(&fsst, &mask, &mut ctx)
+            .try_downcast::<FSSTView>()
+            .ok()
+            .unwrap()
+    };
+    bencher
+        .with_inputs(|| (&view, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(view, ctx)| {
+            black_box(canonicalize_fsstview_with(view.as_view(), args.strategy, ctx).unwrap())
+        });
+}
+
 #[divan::bench(args = filter_args())]
 fn export_fsst_to_varbinview(bencher: Bencher, args: FilterArg) {
     let varbin = generate(args.shape);
@@ -589,7 +674,151 @@ fn convert_varbin_to_varbinview(bencher: Bencher, args: FilterArg) {
         });
 }
 
+// =============================== DATABASE-STYLE FILTER + EXPORT ================================
+//
+// Real query masks are rarely uniform-random: a sorted range scan selects one contiguous run, and
+// a clustered/correlated predicate selects a handful of bursts. Run length (not raw selectivity)
+// is what drives the coalesced gather and the FSST->view conversion overhead, so these shapes are
+// where the view encoding's behaviour actually diverges from the uniform-random case. Each bench
+// filters then exports to a VarBinView; we compare fsst vs fsstview directly.
+
+#[divan::bench(args = db_filter_args())]
+fn db_filter_fsst_to_varbinview(bencher: Bencher, args: DbFilterArg) {
+    let varbin = generate(args.shape);
+    let fsst = compress(&varbin, &mut LEGACY_SESSION.create_execution_ctx());
+    let mask = args.sel.make(fsst.len());
+    bencher
+        .with_inputs(|| (&fsst, &mask, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(fsst, mask, ctx)| {
+            let filtered = fsst_filter(fsst, mask, ctx);
+            black_box(fsst_to_canonical(&filtered, ctx))
+        });
+}
+
+#[divan::bench(args = db_filter_args())]
+fn db_filter_view_to_varbinview(bencher: Bencher, args: DbFilterArg) {
+    let varbin = generate(args.shape);
+    let fsst = compress(&varbin, &mut LEGACY_SESSION.create_execution_ctx());
+    let mask = args.sel.make(fsst.len());
+    bencher
+        .with_inputs(|| (&fsst, &mask, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(fsst, mask, ctx)| {
+            let view = view_filter(fsst, mask, ctx)
+                .try_downcast::<FSSTView>()
+                .ok()
+                .unwrap();
+            black_box(
+                canonicalize_fsstview_with(view.as_view(), FsstViewCompaction::Auto, ctx).unwrap(),
+            )
+        });
+}
+
+/// An index lookup / sorted-key join: take with **sorted** indices selecting ~30% of rows. Unlike
+/// a shuffle this preserves heap order, so survivors coalesce into runs — the common DB take shape
+/// (e.g. fetching rows by a sorted RID list).
+fn make_sorted_take(len: usize, keep: f64) -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(13);
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let n = (len as f64 * keep) as usize;
+    let mut idx: Vec<u64> = (0..n).map(|_| rng.random_range(0..len as u64)).collect();
+    idx.sort_unstable();
+    PrimitiveArray::from_iter(idx).into_array()
+}
+
+#[divan::bench(args = SHAPES)]
+fn db_indexlookup_fsst_to_varbinview(bencher: Bencher, shape: Shape) {
+    let varbin = generate(shape);
+    let fsst = compress(&varbin, &mut LEGACY_SESSION.create_execution_ctx());
+    let indices = make_sorted_take(fsst.len(), 0.30);
+    bencher
+        .with_inputs(|| (&fsst, &indices, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(fsst, indices, ctx)| {
+            let taken = fsst_take(fsst, indices, ctx);
+            black_box(fsst_to_canonical(&taken, ctx))
+        });
+}
+
+#[divan::bench(args = SHAPES)]
+fn db_indexlookup_view_to_varbinview(bencher: Bencher, shape: Shape) {
+    let varbin = generate(shape);
+    let fsst = compress(&varbin, &mut LEGACY_SESSION.create_execution_ctx());
+    let indices = make_sorted_take(fsst.len(), 0.30);
+    bencher
+        .with_inputs(|| (&fsst, &indices, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(fsst, indices, ctx)| {
+            let view = view_take(fsst, indices, ctx)
+                .try_downcast::<FSSTView>()
+                .ok()
+                .unwrap();
+            black_box(
+                canonicalize_fsstview_with(view.as_view(), FsstViewCompaction::Auto, ctx).unwrap(),
+            )
+        });
+}
+
 // =============================== arg plumbing ==================================================
+
+#[derive(Clone, Copy)]
+struct DbFilterArg {
+    shape: Shape,
+    sel: Selectivity,
+}
+
+impl std::fmt::Display for DbFilterArg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.shape.name(), self.sel.name())
+    }
+}
+
+fn db_filter_args() -> Vec<DbFilterArg> {
+    let mut v = Vec::new();
+    for &shape in SHAPES {
+        for &sel in SELECTIVITIES {
+            v.push(DbFilterArg { shape, sel });
+        }
+    }
+    v
+}
+
+#[derive(Clone, Copy)]
+struct CanonArg {
+    shape: Shape,
+    sel: Selectivity,
+    strategy: FsstViewCompaction,
+}
+
+impl std::fmt::Display for CanonArg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}/{}/{}",
+            self.shape.name(),
+            self.sel.name(),
+            compaction_name(self.strategy)
+        )
+    }
+}
+
+fn canon_args() -> Vec<CanonArg> {
+    let strategies = [
+        FsstViewCompaction::Auto,
+        FsstViewCompaction::GatherBulk,
+        FsstViewCompaction::RunDecode,
+    ];
+    let mut v = Vec::new();
+    for &shape in SHAPES {
+        for &sel in SELECTIVITIES {
+            for strategy in strategies {
+                v.push(CanonArg {
+                    shape,
+                    sel,
+                    strategy,
+                });
+            }
+        }
+    }
+    v
+}
 
 #[derive(Clone, Copy)]
 struct FilterArg {
