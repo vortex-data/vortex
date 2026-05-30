@@ -74,6 +74,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::OnPairView;
+use crate::OnPairViewArray;
 use crate::OnPairViewArrayExt;
 use crate::OnPairViewArraySlotsExt;
 use crate::decode::collect_widened;
@@ -320,9 +321,56 @@ fn decode_span_with_dead(
     Ok(Some((vec![out], views.freeze())))
 }
 
-/// Decode the live windows into a single **compact** byte buffer in row order
-/// (no dead values). Used by both the gather VarBinView path and the VarBin
-/// export.
+/// Rebuild a (possibly sparse / reordered) [`OnPairViewArray`] into a **compact**
+/// one whose windows are contiguous and in row order.
+///
+/// This is the OnPairView analog of [`ListView::rebuild`] and the remedy for the
+/// retained-`codes` cost: metadata-only `filter`/`take` keep the full original
+/// `codes` buffer alive and leave the live windows scattered, which makes every
+/// subsequent export pay a gather. `compact` pays that gather **once**, dropping
+/// dead/unreferenced tokens, so the result reclaims the codes memory and every
+/// later export/`scalar_at` decodes the contiguous span directly. Worth doing
+/// before a repeated-read workload or when holding a heavily-filtered view.
+///
+/// `codes_sizes` is unchanged (each row keeps its length); only `codes` and
+/// `codes_offsets` are rebuilt.
+///
+/// [`ListView::rebuild`]: vortex_array::arrays::ListViewArray
+pub fn compact(
+    array: ArrayView<'_, OnPairView>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<OnPairViewArray> {
+    let offsets = array.collect_offsets(ctx)?;
+    let sizes = array.collect_sizes(ctx)?;
+    let layout = analyze(offsets.as_slice(), sizes.as_slice());
+
+    let span = collect_widened::<u16>(&array.codes().slice(layout.base..layout.end)?, ctx)?;
+
+    let mut new_codes: Vec<u16> = Vec::with_capacity(layout.live_tokens);
+    let mut new_offsets: BufferMut<u32> = BufferMut::with_capacity(offsets.len());
+    let mut acc: u32 = 0;
+    for (&offset, &size) in offsets.as_slice().iter().zip(sizes.as_slice()) {
+        new_offsets.push(acc);
+        if size > 0 {
+            let start = offset as usize - layout.base;
+            new_codes.extend_from_slice(&span.as_slice()[start..start + size as usize]);
+        }
+        acc += size;
+    }
+
+    OnPairView::try_new(
+        array.dtype().clone(),
+        array.dict_bytes_handle().clone(),
+        array.dict_offsets().clone(),
+        Buffer::from(new_codes).into_array(),
+        new_offsets.into_array(),
+        // Sizes are preserved verbatim; only offsets/codes are rebuilt.
+        array.codes_sizes().clone(),
+        array.uncompressed_lengths().clone(),
+        array.array_validity(),
+        array.bits(),
+    )
+}
 ///
 /// We only ever materialise the referenced span `codes[base..end]` — never the
 /// whole `codes` child — so a sub-range view (after a `slice` or a block `take`)

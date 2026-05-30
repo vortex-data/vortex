@@ -52,6 +52,7 @@ use vortex_onpair::OnPairViewArray;
 use vortex_onpair::OnPairViewDecodeMode;
 use vortex_onpair::canonicalize_to_varbin;
 use vortex_onpair::canonicalize_with;
+use vortex_onpair::compact;
 use vortex_onpair::onpair_compress;
 use vortex_onpair::onpair_take_compact;
 use vortex_session::VortexSession;
@@ -503,6 +504,58 @@ fn view_pipeline(bencher: Bencher, case: (Corpus, usize)) {
             canonicalize_with(arr.as_view(), OnPairViewDecodeMode::Auto, &mut ctx).unwrap(),
         );
     });
+}
+
+// ─── compact() amortisation on a sparse view ─────────────────────────────
+//
+// A sparse view retains the full codes, so each export gathers. `compact`
+// pays one gather to shrink codes; afterwards exports are direct. Compare:
+// export-without-compact, the compact cost, and export-after-compact.
+
+const SPARSE: &[(Corpus, u32)] = &[
+    (Corpus::ManyShort, 2),
+    (Corpus::ManyShort, 10),
+    (Corpus::FewLong, 10),
+];
+
+#[divan::bench(args = SPARSE)]
+fn sparse_export_gather(bencher: Bencher, case: (Corpus, u32)) {
+    let (c, keep) = case;
+    bencher
+        .with_inputs(|| filtered_view(c, keep))
+        .bench_local_values(|view| {
+            let mut ctx = SESSION.create_execution_ctx();
+            divan::black_box(
+                canonicalize_with(view.as_view(), OnPairViewDecodeMode::Auto, &mut ctx).unwrap(),
+            );
+        });
+}
+
+#[divan::bench(args = SPARSE)]
+fn sparse_compact(bencher: Bencher, case: (Corpus, u32)) {
+    let (c, keep) = case;
+    bencher
+        .with_inputs(|| filtered_view(c, keep))
+        .bench_local_values(|view| {
+            let mut ctx = SESSION.create_execution_ctx();
+            divan::black_box(compact(view.as_view(), &mut ctx).unwrap());
+        });
+}
+
+#[divan::bench(args = SPARSE)]
+fn sparse_export_after_compact(bencher: Bencher, case: (Corpus, u32)) {
+    let (c, keep) = case;
+    bencher
+        .with_inputs(|| {
+            let mut ctx = SESSION.create_execution_ctx();
+            compact(filtered_view(c, keep).as_view(), &mut ctx).unwrap()
+        })
+        .bench_local_values(|view| {
+            let mut ctx = SESSION.create_execution_ctx();
+            divan::black_box(
+                canonicalize_with(view.as_view(), OnPairViewDecodeMode::Auto, &mut ctx).unwrap(),
+            );
+        });
 }
 
 fn main() {

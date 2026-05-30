@@ -174,6 +174,47 @@ fn export_to_varbin_matches() -> VortexResult<()> {
     Ok(())
 }
 
+/// `compact` preserves values, drops dead tokens, and yields a contiguous array.
+#[test]
+fn compact_rebuilds_contiguous() -> VortexResult<()> {
+    use crate::OnPairViewArrayExt;
+    use crate::OnPairViewArraySlotsExt;
+    use crate::compact;
+
+    let (strings, view) = build()?;
+    // Shuffle + drop so the result is sparse, reordered, and retains the full codes.
+    let taken = as_view(
+        view.into_array()
+            .take(vortex_buffer::buffer![9u64, 2, 100, 2, 50].into_array())?,
+    );
+    let expected: Vec<String> = [9usize, 2, 100, 2, 50]
+        .iter()
+        .map(|&i| strings[i].clone())
+        .collect();
+
+    let mut ctx = SESSION.create_execution_ctx();
+    let compacted = compact(taken.as_view(), &mut ctx)?;
+
+    // Values unchanged.
+    assert_eq!(decoded(&compacted)?, expected);
+    // Dead/duplicate tokens dropped: compacted codes hold only the live tokens
+    // (sum of sizes), so they are no larger than the retained original codes.
+    let live_tokens: usize = taken
+        .collect_sizes(&mut ctx)?
+        .as_slice()
+        .iter()
+        .map(|&s| s as usize)
+        .sum();
+    assert_eq!(compacted.codes().len(), live_tokens);
+    // Decode modes now agree trivially because the array is contiguous; the
+    // SpanWithDead path carries zero dead bytes.
+    assert_eq!(
+        decoded_mode(&compacted, OnPairViewDecodeMode::SpanWithDead)?,
+        expected
+    );
+    Ok(())
+}
+
 #[test]
 fn slice_preserves_codes_buffer() -> VortexResult<()> {
     let (strings, view) = build()?;

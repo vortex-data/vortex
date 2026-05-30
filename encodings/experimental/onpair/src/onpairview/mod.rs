@@ -18,3 +18,4 @@ pub use canonical::OnPairViewDecodeMode;
 pub use canonical::SPAN_DECODE_DENSITY_THRESHOLD;
 pub use canonical::canonicalize_to_varbin;
 pub use canonical::canonicalize_with;
+pub use canonical::compact;
