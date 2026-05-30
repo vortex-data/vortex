@@ -251,6 +251,24 @@ fn filter_step_view(bencher: Bencher, args: FilterArg) {
         .bench_refs(|(fsst, mask, ctx)| black_box(view_filter(fsst, mask, ctx)));
 }
 
+/// Metadata-only filter measured in isolation (conversion hoisted out). See `take_op_only_view`.
+#[divan::bench(args = filter_args())]
+fn filter_op_only_view(bencher: Bencher, args: FilterArg) {
+    let varbin = generate(args.shape);
+    let fsst = compress(&varbin, &mut LEGACY_SESSION.create_execution_ctx());
+    let view = fsstview_from_fsst(&fsst, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+    let mask = make_mask(view.len(), args.keep);
+    bencher
+        .with_inputs(|| (&view, &mask, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(view, mask, ctx)| {
+            black_box(
+                <FSSTView as FilterKernel>::filter(view.as_view(), mask, ctx)
+                    .unwrap()
+                    .unwrap(),
+            )
+        });
+}
+
 /// Full pipeline: filter (compacting into another FSSTArray) then canonicalize to VarBinView.
 #[divan::bench(args = filter_args())]
 fn filter_pipeline_fsst(bencher: Bencher, args: FilterArg) {
@@ -304,6 +322,27 @@ fn take_step_view(bencher: Bencher, args: TakeArg) {
     bencher
         .with_inputs(|| (&fsst, &indices, LEGACY_SESSION.create_execution_ctx()))
         .bench_refs(|(fsst, indices, ctx)| black_box(view_take(fsst, indices, ctx)));
+}
+
+/// The metadata-only take measured *in isolation*: the FSST→view conversion is hoisted out of the
+/// timed loop (a chain converts once), so this is the apples-to-apples "is the view op itself as
+/// cheap as a ListView op" comparison. The `*_step_view` bench above instead folds the one-time
+/// conversion into every op, which only the first op of a chain actually pays.
+#[divan::bench(args = take_args())]
+fn take_op_only_view(bencher: Bencher, args: TakeArg) {
+    let varbin = generate(args.shape);
+    let fsst = compress(&varbin, &mut LEGACY_SESSION.create_execution_ctx());
+    let view = fsstview_from_fsst(&fsst, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+    let indices = make_indices(view.len(), args.kind);
+    bencher
+        .with_inputs(|| (&view, &indices, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(view, indices, ctx)| {
+            black_box(
+                <FSSTView as TakeExecute>::take(view.as_view(), indices, ctx)
+                    .unwrap()
+                    .unwrap(),
+            )
+        });
 }
 
 #[divan::bench(args = take_args())]
