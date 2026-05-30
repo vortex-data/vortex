@@ -14,8 +14,10 @@ mod array;
 mod canonical;
 mod compress;
 mod compute;
+mod convert;
 mod decode;
 mod kernel;
+mod onpairview;
 mod ops;
 mod rules;
 #[cfg(test)]
@@ -23,7 +25,9 @@ mod tests;
 
 pub use array::*;
 pub use compress::*;
+pub use convert::*;
 pub use onpair::Bits;
 pub use onpair::Config;
 pub use onpair::Error as OnPairError;
 pub use onpair::Threshold;
+pub use onpairview::*;
