@@ -71,7 +71,6 @@ use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::OnPairView;
@@ -325,9 +324,10 @@ fn decode_span_with_dead(
 /// (no dead values). Used by both the gather VarBinView path and the VarBin
 /// export.
 ///
-/// When the windows are already contiguous we slice `codes[base..end]` and
-/// decode it directly (no gather copy, and we never materialise the whole
-/// `codes` child); otherwise we gather the live windows first.
+/// We only ever materialise the referenced span `codes[base..end]` — never the
+/// whole `codes` child — so a sub-range view (after a `slice` or a block `take`)
+/// touches only its own codes. When the windows are contiguous the span *is* the
+/// answer (no gather copy); otherwise we gather the live windows within the span.
 fn decode_compact_bytes(
     array: ArrayView<'_, OnPairView>,
     offsets: &[u32],
@@ -337,21 +337,20 @@ fn decode_compact_bytes(
     dict_offsets: &Buffer<u32>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ByteBufferMut> {
+    let span = collect_widened::<u16>(&array.codes().slice(layout.base..layout.end)?, ctx)?;
     let contiguous = layout.span_decodable && layout.live_tokens == layout.span_tokens();
     let codes: Buffer<u16> = if contiguous {
-        collect_widened::<u16>(&array.codes().slice(layout.base..layout.end)?, ctx)?
+        span
     } else {
-        let all_codes = array.collect_codes(ctx)?;
         let mut gathered: Vec<u16> = Vec::with_capacity(layout.live_tokens);
         for (&offset, &size) in offsets.iter().zip(sizes) {
-            let offset = offset as usize;
-            let end = offset + size as usize;
-            vortex_ensure!(
-                end <= all_codes.len(),
-                "OnPairView window [{offset}, {end}) exceeds codes len {}",
-                all_codes.len()
-            );
-            gathered.extend_from_slice(&all_codes.as_slice()[offset..end]);
+            let size = size as usize;
+            if size == 0 {
+                continue;
+            }
+            // `base` is the min start over non-empty windows, so `offset >= base`.
+            let start = offset as usize - layout.base;
+            gathered.extend_from_slice(&span.as_slice()[start..start + size]);
         }
         Buffer::from(gathered)
     };

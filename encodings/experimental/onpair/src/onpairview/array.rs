@@ -469,11 +469,6 @@ pub trait OnPairViewArrayExt: OnPairViewArraySlotsExt {
         )
     }
 
-    /// Materialise the whole token stream widened to `u16` (the decoder width).
-    fn collect_codes(&self, ctx: &mut ExecutionCtx) -> VortexResult<Buffer<u16>> {
-        collect_widened::<u16>(self.codes(), ctx)
-    }
-
     /// Materialise the per-row `codes_offsets` as a host `u32` buffer.
     fn collect_offsets(&self, ctx: &mut ExecutionCtx) -> VortexResult<Buffer<u32>> {
         collect_widened::<u32>(self.codes_offsets(), ctx)
