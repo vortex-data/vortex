@@ -1,26 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 //
-//! Filter at **ListView speed**.
+//! Filter at **ListView speed** — metadata only.
 //!
-//! [`OnPair`](crate::OnPair)'s filter wraps `codes` + `codes_offsets` in a
-//! [`ListArray`](vortex_array::arrays::ListArray) and delegates to the `List`
-//! filter, which **rebuilds the surviving `codes` token stream** into a fresh
-//! contiguous buffer. `OnPairView` instead wraps `codes` + `codes_offsets` +
-//! `codes_sizes` in a [`ListViewArray`](vortex_array::arrays::ListViewArray) and
-//! delegates to the `ListView` filter, which only filters the per-row
-//! `offsets`/`sizes` and **reuses the `codes` buffer verbatim**. The shared
-//! dictionary blob and `dict_offsets` are likewise untouched. The only arrays
-//! materialised are the tiny per-row children.
+//! [`OnPair`](crate::OnPair)'s filter rebuilds the surviving `codes` token
+//! stream. `OnPairView` instead filters just the per-row `codes_offsets` and
+//! `codes_sizes` (and `uncompressed_lengths` + validity) with the same mask and
+//! **reuses the shared `codes` buffer and dictionary verbatim** — exactly the
+//! `ListView` filter, but applied directly to our children so we skip building a
+//! `ListViewArray` and re-dispatching through canonicalisation.
 
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::filter::FilterKernel;
-use vortex_array::arrays::listview::ListViewArrayExt;
-use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -32,26 +26,12 @@ impl FilterKernel for OnPairView {
     fn filter(
         array: ArrayView<'_, Self>,
         mask: &Mask,
-        ctx: &mut ExecutionCtx,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        // View the per-row token windows as a ListView and let the metadata-only
-        // ListView filter do the work — it shares the `codes` (`elements`)
-        // buffer and only filters the per-row `offsets`/`sizes`.
-        let list_view = unsafe {
-            ListViewArray::new_unchecked(
-                array.codes().clone(),
-                array.codes_offsets().clone(),
-                array.codes_sizes().clone(),
-                Validity::NonNullable,
-            )
-        };
-        let filtered = list_view
-            .into_array()
-            .filter(mask.clone())?
-            .execute::<ListViewArray>(ctx)?;
-
-        // `uncompressed_lengths` + validity are short integer/bit arrays, so the
-        // primitive filter cost is negligible next to the (avoided) codes copy.
+        // Filter the per-row children directly. `codes` and the dictionary are
+        // untouched, so this never reads the token payload.
+        let codes_offsets = array.codes_offsets().clone().filter(mask.clone())?;
+        let codes_sizes = array.codes_sizes().clone().filter(mask.clone())?;
         let uncompressed_lengths = array.uncompressed_lengths().clone().filter(mask.clone())?;
         let validity = array.array_validity().filter(mask)?;
 
@@ -61,10 +41,9 @@ impl FilterKernel for OnPairView {
                     array.dtype().clone(),
                     array.dict_bytes_handle().clone(),
                     array.dict_offsets().clone(),
-                    // `elements` is the *same* shared `codes` buffer.
-                    filtered.elements().clone(),
-                    filtered.offsets().clone(),
-                    filtered.sizes().clone(),
+                    array.codes().clone(),
+                    codes_offsets,
+                    codes_sizes,
                     uncompressed_lengths,
                     validity,
                     array.bits(),
