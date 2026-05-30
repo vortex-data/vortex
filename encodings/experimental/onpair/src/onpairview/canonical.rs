@@ -324,13 +324,20 @@ fn decode_span_with_dead(
 /// Rebuild a (possibly sparse / reordered) [`OnPairViewArray`] into a **compact**
 /// one whose windows are contiguous and in row order.
 ///
-/// This is the OnPairView analog of [`ListView::rebuild`] and the remedy for the
-/// retained-`codes` cost: metadata-only `filter`/`take` keep the full original
-/// `codes` buffer alive and leave the live windows scattered, which makes every
-/// subsequent export pay a gather. `compact` pays that gather **once**, dropping
-/// dead/unreferenced tokens, so the result reclaims the codes memory and every
-/// later export/`scalar_at` decodes the contiguous span directly. Worth doing
-/// before a repeated-read workload or when holding a heavily-filtered view.
+/// This is the OnPairView analog of [`ListView::rebuild`]: metadata-only
+/// `filter`/`take` keep the full original `codes` buffer alive and leave the live
+/// windows scattered. `compact` rebuilds the contiguous live codes once, dropping
+/// dead/unreferenced tokens.
+///
+/// Its primary benefit is **memory reclamation** — a heavily-filtered view that
+/// references 1 % of its codes otherwise pins the whole buffer. The export-speed
+/// benefit is more modest than it looks: export is decode-bound (it decodes the
+/// live tokens and builds one view per surviving row regardless of layout), so
+/// compaction only saves the span materialisation + gather copy. The
+/// `view_compute` sweep puts the break-even at ~3 exports for a very selective
+/// view (rows ≪ codes) and much higher — or never — once many rows survive and
+/// the decode dominates. So compact to reclaim memory, or ahead of a
+/// many-reads workload over a selective view; not for a one-shot export.
 ///
 /// `codes_sizes` is unchanged (each row keeps its length); only `codes` and
 /// `codes_offsets` are rebuilt.
