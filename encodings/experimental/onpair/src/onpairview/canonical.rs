@@ -384,14 +384,11 @@ fn compact_span_codes(
 }
 
 /// Decode the live windows into a single **compact** byte buffer in row order
-/// (no dead values), feeding the export's view builder.
+/// (no dead values), feeding the export's gather path.
 ///
 /// We only ever materialise the referenced span `codes[base..end]` — never the
-/// whole `codes` child. When the windows are **sorted** (the `filter` case) we
-/// stream: coalesce maximal contiguous runs and decode each **directly from the
-/// span** into the output at a running cursor — no gather buffer, the decoder
-/// reads each live token once in place. Reordered/overlapping windows (after a
-/// shuffling `take`) can't be coalesced in row order, so those gather first.
+/// whole `codes` child — so a sub-range view (after a `slice` or a block `take`)
+/// touches only its own codes.
 fn decode_compact_bytes(
     array: ArrayView<'_, OnPairView>,
     offsets: &[u32],
@@ -402,65 +399,14 @@ fn decode_compact_bytes(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ByteBufferMut> {
     let span = collect_widened::<u16>(&array.codes().slice(layout.base..layout.end)?, ctx)?;
-    let dict_bytes = array.dict_bytes().as_slice();
-    let dict_offsets = dict_offsets.as_slice();
-    let bits = array.bits();
+    let codes = compact_span_codes(span, offsets, sizes, layout);
 
     let mut out = ByteBufferMut::with_capacity(live_bytes);
-
-    if layout.span_decodable {
-        // Single pass over the codes: decode contiguous runs straight from the
-        // span, back-to-back, with no intermediate gather buffer.
-        let span = span.as_slice();
-        let mut cursor = 0usize;
-        let mut i = 0usize;
-        while i < offsets.len() {
-            if sizes[i] == 0 {
-                i += 1;
-                continue;
-            }
-            let run_start = offsets[i] as usize - layout.base;
-            let mut run_end = run_start + sizes[i] as usize;
-            i += 1;
-            // Extend the run while the next non-empty window abuts this one.
-            while i < offsets.len() {
-                let size = sizes[i] as usize;
-                if size == 0 {
-                    i += 1;
-                    continue;
-                }
-                if offsets[i] as usize - layout.base == run_end {
-                    run_end += size;
-                    i += 1;
-                } else {
-                    break;
-                }
-            }
-            let written = onpair::decompress_into(
-                Parts {
-                    dict_bytes,
-                    dict_offsets,
-                    bits,
-                    codes: &span[run_start..run_end],
-                },
-                &mut out.spare_capacity_mut()[cursor..],
-            );
-            cursor += written;
-        }
-        debug_assert_eq!(cursor, live_bytes);
-        // SAFETY: the runs cover every live token exactly once, initialising
-        // `cursor == live_bytes` bytes of the spare capacity reserved above.
-        unsafe { out.set_len(cursor) };
-        return Ok(out);
-    }
-
-    // Reordered/overlapping: gather the live windows into row order, decode once.
-    let codes = compact_span_codes(span, offsets, sizes, layout);
     let written = onpair::decompress_into(
         Parts {
-            dict_bytes,
-            dict_offsets,
-            bits,
+            dict_bytes: array.dict_bytes().as_slice(),
+            dict_offsets: dict_offsets.as_slice(),
+            bits: array.bits(),
             codes: codes.as_slice(),
         },
         out.spare_capacity_mut(),
