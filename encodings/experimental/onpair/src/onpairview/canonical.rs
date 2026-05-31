@@ -330,15 +330,14 @@ pub fn compact(
 
     let span = collect_widened::<u16>(&array.codes().slice(layout.base..layout.end)?, ctx)?;
 
-    let mut new_codes: Vec<u16> = Vec::with_capacity(layout.live_tokens);
-    let mut new_offsets: BufferMut<u32> = BufferMut::with_capacity(offsets.len());
+    // Same gather as the export uses; the result is the dense `codes` child.
+    let new_codes = compact_span_codes(span, offsets.as_slice(), sizes.as_slice(), &layout);
+
+    // Contiguous offsets: each row keeps its size, laid out back-to-back.
+    let mut new_offsets: BufferMut<u32> = BufferMut::with_capacity(sizes.len());
     let mut acc: u32 = 0;
-    for (&offset, &size) in offsets.as_slice().iter().zip(sizes.as_slice()) {
+    for &size in sizes.as_slice() {
         new_offsets.push(acc);
-        if size > 0 {
-            let start = offset as usize - layout.base;
-            new_codes.extend_from_slice(&span.as_slice()[start..start + size as usize]);
-        }
         acc += size;
     }
 
@@ -346,7 +345,7 @@ pub fn compact(
         array.dtype().clone(),
         array.dict_bytes_handle().clone(),
         array.dict_offsets().clone(),
-        Buffer::from(new_codes).into_array(),
+        new_codes.into_array(),
         new_offsets.into_array(),
         // Sizes are preserved verbatim; only offsets/codes are rebuilt.
         array.codes_sizes().clone(),
@@ -355,11 +354,41 @@ pub fn compact(
         array.bits(),
     )
 }
+/// Reduce the referenced span to the contiguous, row-ordered live codes.
+///
+/// Shared by [`compact`] and the export's [`decode_compact_bytes`] — both need
+/// exactly this. When the windows are already contiguous the span *is* the
+/// compact codes (returned without copying); otherwise gather the live windows
+/// within the span in row order. Takes `span` by value so the contiguous path is
+/// zero-copy.
+fn compact_span_codes(
+    span: Buffer<u16>,
+    offsets: &[u32],
+    sizes: &[u32],
+    layout: &Layout,
+) -> Buffer<u16> {
+    if layout.span_decodable && layout.live_tokens == layout.span_tokens() {
+        return span;
+    }
+    let mut gathered: Vec<u16> = Vec::with_capacity(layout.live_tokens);
+    for (&offset, &size) in offsets.iter().zip(sizes) {
+        let size = size as usize;
+        if size == 0 {
+            continue;
+        }
+        // `base` is the min start over non-empty windows, so `offset >= base`.
+        let start = offset as usize - layout.base;
+        gathered.extend_from_slice(&span.as_slice()[start..start + size]);
+    }
+    Buffer::from(gathered)
+}
+
+/// Decode the live windows into a single **compact** byte buffer in row order
+/// (no dead values), feeding the export's gather path.
 ///
 /// We only ever materialise the referenced span `codes[base..end]` — never the
 /// whole `codes` child — so a sub-range view (after a `slice` or a block `take`)
-/// touches only its own codes. When the windows are contiguous the span *is* the
-/// answer (no gather copy); otherwise we gather the live windows within the span.
+/// touches only its own codes.
 fn decode_compact_bytes(
     array: ArrayView<'_, OnPairView>,
     offsets: &[u32],
@@ -370,22 +399,7 @@ fn decode_compact_bytes(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ByteBufferMut> {
     let span = collect_widened::<u16>(&array.codes().slice(layout.base..layout.end)?, ctx)?;
-    let contiguous = layout.span_decodable && layout.live_tokens == layout.span_tokens();
-    let codes: Buffer<u16> = if contiguous {
-        span
-    } else {
-        let mut gathered: Vec<u16> = Vec::with_capacity(layout.live_tokens);
-        for (&offset, &size) in offsets.iter().zip(sizes) {
-            let size = size as usize;
-            if size == 0 {
-                continue;
-            }
-            // `base` is the min start over non-empty windows, so `offset >= base`.
-            let start = offset as usize - layout.base;
-            gathered.extend_from_slice(&span.as_slice()[start..start + size]);
-        }
-        Buffer::from(gathered)
-    };
+    let codes = compact_span_codes(span, offsets, sizes, layout);
 
     let mut out = ByteBufferMut::with_capacity(live_bytes);
     let written = onpair::decompress_into(
