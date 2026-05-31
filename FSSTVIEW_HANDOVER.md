@@ -15,7 +15,7 @@ offsets — which **eliminated the conversion floor** that previously made the v
 
 - **Branch:** `claude/fsstview-conversion-floor-kRAeg` (built on the original
   `claude/fsstview-array-listview-TdW45`).
-- **Status:** merge-ready. 107 tests pass, `clippy --all-targets --all-features` clean,
+- **Status:** merge-ready. 104 tests pass, `clippy --all-targets --all-features` clean,
   `cargo +nightly fmt` clean, `vortex-file` builds, doc tests pass.
 - **No PR opened yet** (was waiting on explicit request).
 - **Scope:** additive, contained in `encodings/fsst/` plus 2 registration lines in `vortex-file`.
@@ -56,19 +56,15 @@ decode from the survivor layout:
 
 ## Benchmarks & results
 
-Three benches in `encodings/fsst/benches/` (full write-up in `benches/README.md`). All numbers are
+Two benches in `encodings/fsst/benches/` (full write-up in `benches/README.md`). All numbers are
 divan **medians**, 100 samples, single shared machine — directional, relative ordering stable.
 
-1. **`fsst_view_compute`** — synthetic, no external data. ~2 MiB strings, ManyShort (~12 B) /
-   FewLong (~256 B). Single filter and a 5-op chain → VarBinView.
+1. **`fsst_view_compute`** — synthetic, no external data, **runs in CI**. ~2 MiB strings, ManyShort
+   (~12 B) / FewLong (~256 B). Single filter and a 5-op chain → VarBinView. The chain is where the
+   view's advantage compounds (each `fsst` op re-rewrites the heap; the view stays metadata-only):
    - chain FewLong: fsst 371 µs → view **268 µs** (1.4×); chain ManyShort 4.99 ms → **4.12 ms**.
 
-2. **`fsst_view_fineweb`** — real FineWeb `url` (200k × ~72 B) and `text` (40k × ~3 KB) columns.
-   - single_filter text: 5.81 ms → **4.38 ms** (1.3×)
-   - chain text: 44.2 ms → **5.16 ms** (**8.6×**) ← headline
-   - chain url: 6.23 ms → **3.95 ms** (1.6×)
-
-3. **`fsst_view_fineweb_queries`** — the real `vortex-bench` query predicates (`dump = ...`,
+2. **`fsst_view_fineweb_queries`** — the real `vortex-bench` query predicates (`dump = ...`,
    `date LIKE '2020-10-%'`, `url/text LIKE '%google%'`, `'% vortex %'`, espn filters), evaluated
    in DuckDB to authentic per-row masks, then materialize the column → VarBinView. Numbers below
    are a same-machine before/after (old `sizes` representation → new `ends` representation):
@@ -79,24 +75,21 @@ divan **medians**, 100 samples, single shared machine — directional, relative 
    - text/espn_and (0.08%): fsst 284 µs vs view **271 µs** (was view 407 µs — flips to a view win)
 
 With the `ends` representation the view now **wins or ties every query** in the matrix: the bulk /
-clustered / long-`text` cases still win by skipping the per-op heap rewrite (up to 1.68× here, 8.6×
-on the chain bench), and the tiny highly selective predicates that used to lose to the conversion
-floor now match `fsst` to within noise. Full table in `benches/README.md`.
+clustered / long-`text` cases still win by skipping the per-op heap rewrite (up to 1.68× here), and
+the tiny highly selective predicates that used to lose to the conversion floor now match `fsst` to
+within noise. Full table in `benches/README.md`.
 
-### Reproducing the FineWeb benches
+### Reproducing the FineWeb queries bench
 
-The ~2 GB sample is **not** downloaded by the benches. Extract columns + query masks once:
+The ~2 GB sample is **not** downloaded by the bench. Extract columns + query masks once:
 
 ```bash
 pip install duckdb
 python3 encodings/fsst/benches/fineweb_queries_extract.py     # writes /tmp/fw_*.bin
 FINEWEB_DIR=/tmp cargo bench -p vortex-fsst --bench fsst_view_fineweb_queries
-# for the column bench:
-FINEWEB_URL=/tmp/fw_url.bin FINEWEB_TEXT=/tmp/fw_text.bin \
-  cargo bench -p vortex-fsst --bench fsst_view_fineweb
 ```
 
-Benches no-op (CI-safe) when the env vars are unset.
+The bench no-ops (CI-safe) when `FINEWEB_DIR` is unset.
 
 ## Conversion floor — resolved
 
@@ -129,7 +122,7 @@ be layered on the file layer's compression if desired.
 ## Verification commands
 
 ```bash
-cargo nextest run -p vortex-fsst          # (or cargo test -p vortex-fsst) — 107 pass
+cargo nextest run -p vortex-fsst          # (or cargo test -p vortex-fsst) — 104 pass
 cargo clippy -p vortex-fsst --all-targets --all-features
 cargo clippy -p vortex-file
 cargo +nightly fmt --all

@@ -61,10 +61,6 @@ name = "fsst_view_compute"
 harness = false
 
 [[bench]]
-name = "fsst_view_fineweb"
-harness = false
-
-[[bench]]
 name = "fsst_view_fineweb_queries"
 harness = false
 

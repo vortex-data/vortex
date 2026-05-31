@@ -153,15 +153,13 @@ fn decode_element_ordered(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Decoded> {
     let offsets = load_usize(array.codes_offsets(), ctx)?;
-    // `codes_ends[i]` is element `i`'s end in the heap; derive the per-element size here (over the
-    // survivors only — never the discarded rows). Downstream layout analysis and decode work on
-    // `sizes` exactly as before.
-    let ends = load_usize(array.codes_ends(), ctx)?;
-    let sizes: Vec<usize> = offsets
-        .iter()
-        .zip(&ends)
-        .map(|(&offset, &end)| end - offset)
-        .collect();
+    // Derive each survivor's size in place from its end offset (`codes_ends[i] - codes_offsets[i]`),
+    // reusing the widened `ends` buffer as `sizes` so we don't allocate a third index array.
+    // Downstream layout analysis and decode work on `sizes` exactly as before.
+    let mut sizes = load_usize(array.codes_ends(), ctx)?;
+    for (size, &offset) in sizes.iter_mut().zip(&offsets) {
+        *size -= offset;
+    }
 
     let ulen_prim = array
         .uncompressed_lengths()
@@ -173,7 +171,6 @@ fn decode_element_ordered(
     let total_size: usize = match_each_integer_ptype!(ulen_prim.ptype(), |P| {
         ulen_prim.as_slice::<P>().iter().map(|x| *x as usize).sum()
     });
-    let live: usize = sizes.iter().sum();
 
     let heap_buffer = array.codes_bytes();
     let heap = heap_buffer.as_slice();
@@ -201,6 +198,9 @@ fn decode_element_ordered(
     let uncompressed = match chosen {
         FsstViewCompaction::Direct => {
             let start = offsets.first().copied().unwrap_or(0);
+            // `live` (total compressed bytes) is only needed by the bulk-decode paths, not by
+            // `RunDecode`, so it is summed here rather than unconditionally up front.
+            let live: usize = sizes.iter().sum();
             decompress_direct(&decompressor, heap, start, live, total_size)
         }
         FsstViewCompaction::RunDecode => {
@@ -208,7 +208,10 @@ fn decode_element_ordered(
             decompress_run_decode(&decompressor, heap, &offsets, &sizes, &ulens, total_size)
         }
         // `Auto` is resolved above; `GatherBulk` is the catch-all.
-        _ => decompress_gather(&decompressor, heap, &offsets, &sizes, live, total_size),
+        _ => {
+            let live: usize = sizes.iter().sum();
+            decompress_gather(&decompressor, heap, &offsets, &sizes, live, total_size)
+        }
     };
 
     Ok(Decoded {

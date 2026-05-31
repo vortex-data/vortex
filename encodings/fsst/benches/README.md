@@ -37,24 +37,7 @@ workloads, each ending in a `VarBinViewArray`:
 Takeaway: the gap widens with chain length, because each `fsst` op re-rewrites the heap while
 the view stays metadata-only and defers the single decode.
 
-## 2. `fsst_view_fineweb` — real columns
-
-Two real columns from the HuggingFace FineWeb 10BT sample: `url` (200 k rows, ~72 B avg) and
-`text` (40 k rows, ~3 KB avg). The ~2 GB sample is not downloaded; columns are extracted once
-with DuckDB into length-prefixed dumps (see the bench module docs). No-ops unless `FINEWEB_URL`
-/ `FINEWEB_TEXT` point at the files. Same two workloads as above.
-
-| workload | column | fsst | view | speedup |
-| --- | --- | --- | --- | --- |
-| single_filter | url | 1.02 ms | 0.84 ms | 1.2× |
-| single_filter | text | 5.81 ms | 4.38 ms | 1.3× |
-| chain (5 ops) | url | 6.23 ms | 3.95 ms | 1.6× |
-| chain (5 ops) | text | 44.2 ms | **5.16 ms** | **8.6×** |
-
-Takeaway: on real data the view wins every case, and decisively for chained ops over long
-strings — `fsst` rewrites the ~hundreds-of-MB code heap on every op; the view decodes once.
-
-## 3. `fsst_view_fineweb_queries` — real query predicates
+## 2. `fsst_view_fineweb_queries` — real query predicates
 
 The actual `vortex-bench` FineWeb queries are `SELECT * FROM fineweb WHERE <predicate>`. Each
 predicate is evaluated once in DuckDB against the real sample to produce an authentic per-row

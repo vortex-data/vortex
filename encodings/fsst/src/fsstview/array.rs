@@ -206,16 +206,23 @@ pub fn fsstview_from_fsst(fsst: &FSSTArray, ctx: &mut ExecutionCtx) -> VortexRes
     let codes_offsets = offsets.slice(0..len)?;
     let codes_ends = offsets.slice(1..len + 1)?;
 
-    FSSTView::try_new(
-        fsst.dtype().clone(),
-        fsst.symbols().clone(),
-        fsst.symbol_lengths().clone(),
-        fsst.codes_bytes_handle().clone(),
-        codes_offsets,
-        codes_ends,
-        fsst.uncompressed_lengths().clone(),
-        validity,
-    )
+    // SAFETY: every `FSSTView` invariant is already guaranteed by the source `FSSTArray`: the dtype
+    // is Binary/Utf8, the offsets are non-nullable integers (so are the two zero-copy slices of
+    // them, which share `len`), the uncompressed lengths are non-nullable integers of the same
+    // length, and the validity nullability matches the dtype. Re-validating here would only repeat
+    // those checks on the hot conversion path.
+    Ok(unsafe {
+        FSSTView::new_unchecked(
+            fsst.dtype().clone(),
+            fsst.symbols().clone(),
+            fsst.symbol_lengths().clone(),
+            fsst.codes_bytes_handle().clone(),
+            codes_offsets,
+            codes_ends,
+            fsst.uncompressed_lengths().clone(),
+            validity,
+        )
+    })
 }
 
 fn make_slots(
