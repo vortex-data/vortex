@@ -60,5 +60,9 @@ required-features = ["_test-harness"]
 name = "fsst_view_compute"
 harness = false
 
+[[bench]]
+name = "fsst_view_fineweb"
+harness = false
+
 [package.metadata.cargo-machete]
 ignored = ["fsst-rs"]
