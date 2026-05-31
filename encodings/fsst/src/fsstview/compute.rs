@@ -3,7 +3,7 @@
 
 //! Metadata-only `filter` and `take` for [`FSSTView`].
 //!
-//! Both operations rewrite only the small `offsets`/`sizes`/`uncompressed_lengths`/`validity`
+//! Both operations rewrite only the small `offsets`/`ends`/`uncompressed_lengths`/`validity`
 //! arrays and reuse the compressed byte heap (and symbol table) untouched. This is the core
 //! "ListView speed" win over plain [`FSST`][crate::FSST], whose `filter`/`take` delegate to
 //! `VarBin` and therefore rewrite the entire compressed heap.
@@ -32,10 +32,10 @@ impl FilterKernel for FSSTView {
         // Filter only the addressing arrays; the byte heap and symbol table are reused as-is.
         let validity = array.fsstview_validity().filter(mask)?;
         let codes_offsets = array.codes_offsets().filter(mask.clone())?;
-        let codes_sizes = array.codes_sizes().filter(mask.clone())?;
+        let codes_ends = array.codes_ends().filter(mask.clone())?;
         let uncompressed_lengths = array.uncompressed_lengths().filter(mask.clone())?;
 
-        // SAFETY: filter preserves all `FSSTView` invariants — offsets/sizes/lengths stay
+        // SAFETY: filter preserves all `FSSTView` invariants — offsets/ends/lengths stay
         // non-nullable and equal-length, and validity tracks nullness separately.
         Ok(Some(
             unsafe {
@@ -45,7 +45,7 @@ impl FilterKernel for FSSTView {
                     array.symbol_lengths().clone(),
                     array.codes_bytes_handle().clone(),
                     codes_offsets,
-                    codes_sizes,
+                    codes_ends,
                     uncompressed_lengths,
                     validity,
                 )
@@ -74,7 +74,7 @@ impl TakeExecute for FSSTView {
         // zero — nullness itself is tracked separately by `validity`.
         let fill = indices.dtype().is_nullable();
         let codes_offsets = take_child(array.codes_offsets(), indices, fill)?;
-        let codes_sizes = take_child(array.codes_sizes(), indices, fill)?;
+        let codes_ends = take_child(array.codes_ends(), indices, fill)?;
         let uncompressed_lengths = take_child(array.uncompressed_lengths(), indices, fill)?;
 
         // SAFETY: take preserves all `FSSTView` invariants (see `filter`).
@@ -86,7 +86,7 @@ impl TakeExecute for FSSTView {
                     array.symbol_lengths().clone(),
                     array.codes_bytes_handle().clone(),
                     codes_offsets,
-                    codes_sizes,
+                    codes_ends,
                     uncompressed_lengths,
                     validity,
                 )

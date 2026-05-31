@@ -20,9 +20,9 @@ impl OperationsVTable<FSSTView> for FSSTView {
     ) -> VortexResult<Scalar> {
         // Preconditions (see `OperationsVTable`): `index` is in bounds and non-null.
         let offset: usize = (&array.codes_offsets().execute_scalar(index, ctx)?).try_into()?;
-        let size: usize = (&array.codes_sizes().execute_scalar(index, ctx)?).try_into()?;
+        let end: usize = (&array.codes_ends().execute_scalar(index, ctx)?).try_into()?;
 
-        let compressed = &array.codes_bytes()[offset..offset + size];
+        let compressed = &array.codes_bytes()[offset..end];
         let decoded = ByteBuffer::from(array.decompressor().decompress(compressed));
         Ok(varbin_scalar(decoded, array.dtype()))
     }

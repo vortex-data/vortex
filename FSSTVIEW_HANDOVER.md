@@ -3,12 +3,18 @@
 ## TL;DR
 
 Added a new **`FSSTView`** array encoding to Vortex: a ListView-style FSST that addresses its
-compressed codes with separate `offsets` + `sizes` arrays instead of one monotonic offsets array.
-This makes `filter` / `take` / `slice` **metadata-only** (rewrite only small index arrays, reuse
-the compressed byte heap), where plain `FSST` rewrites the whole compressed code heap per op. The
-decode cost moves to a single canonicalization at the end.
+compressed codes with separate per-element `offsets` + `ends` arrays instead of one monotonic
+offsets array. This makes `filter` / `take` / `slice` **metadata-only** (rewrite only small index
+arrays, reuse the compressed byte heap), where plain `FSST` rewrites the whole compressed code heap
+per op. The decode cost moves to a single canonicalization at the end.
 
-- **Branch:** `claude/fsstview-array-listview-TdW45` (17 commits ahead of `develop`, pushed).
+Storing the per-element **end offset** (rather than the size) makes the `FSST` → `FSSTView`
+conversion allocation-free — both addressing arrays are zero-copy slices of the FSST's existing
+offsets — which **eliminated the conversion floor** that previously made the view 9–16× slower than
+`fsst` on tiny highly selective `url` predicates (see "Conversion floor — resolved" below).
+
+- **Branch:** `claude/fsstview-conversion-floor-kRAeg` (built on the original
+  `claude/fsstview-array-listview-TdW45`).
 - **Status:** merge-ready. 107 tests pass, `clippy --all-targets --all-features` clean,
   `cargo +nightly fmt` clean, `vortex-file` builds, doc tests pass.
 - **No PR opened yet** (was waiting on explicit request).
@@ -20,7 +26,7 @@ New encoding `vortex.fsstview` in `encodings/fsst/src/fsstview/`:
 
 | file | role |
 | --- | --- |
-| `array.rs` | encoding struct, `#[array_slots]` children (uncompressed_lengths, codes_offsets, codes_sizes, codes_validity), VTable, serde, `fsstview_from_fsst` conversion |
+| `array.rs` | encoding struct, `#[array_slots]` children (uncompressed_lengths, codes_offsets, codes_ends, codes_validity), VTable, serde, allocation-free `fsstview_from_fsst` conversion |
 | `compute.rs` | metadata-only `FilterKernel` + `TakeExecute` |
 | `ops.rs` | `scalar_at` |
 | `slice.rs` | metadata-only `SliceReduce` |
@@ -64,15 +70,18 @@ divan **medians**, 100 samples, single shared machine — directional, relative 
 
 3. **`fsst_view_fineweb_queries`** — the real `vortex-bench` query predicates (`dump = ...`,
    `date LIKE '2020-10-%'`, `url/text LIKE '%google%'`, `'% vortex %'`, espn filters), evaluated
-   in DuckDB to authentic per-row masks, then materialize the column → VarBinView.
-   - text/date_prefix (12%): 63.4 ms → **43.9 ms** (1.4×)
-   - text/dump_eq (7%): 40.9 ms → **26.0 ms** (1.6×)
-   - url/vortex (0.04%): fsst **8 µs** vs view 140 µs
+   in DuckDB to authentic per-row masks, then materialize the column → VarBinView. Numbers below
+   are a same-machine before/after (old `sizes` representation → new `ends` representation):
+   - text/date_prefix (12%): fsst 69.3 ms vs view **41.4 ms** (1.67×; was 41.0 ms — held)
+   - text/dump_eq (7%): fsst 42.6 ms vs view **25.3 ms** (1.68×; was 25.3 ms — held)
+   - url/vortex (0.04%): fsst 8.6 µs vs view **9.1 µs** (was view 140 µs — floor removed)
+   - url/espn_and (0.08%): fsst 14.5 µs vs view **14.9 µs** (was view 146 µs)
+   - text/espn_and (0.08%): fsst 284 µs vs view **271 µs** (was view 407 µs — flips to a view win)
 
-**Two regimes:** the view wins everywhere the work is non-trivial (long `text` column, chained
-ops, bulk selections) — up to 8.6×. It loses only on tiny highly-selective predicates over the
-short `url` column, where it pays a fixed ~130 µs floor (the conversion walks all 200k offsets to
-build `sizes` even though <0.2% survive). Those cases are all sub-millisecond.
+With the `ends` representation the view now **wins or ties every query** in the matrix: the bulk /
+clustered / long-`text` cases still win by skipping the per-op heap rewrite (up to 1.68× here, 8.6×
+on the chain bench), and the tiny highly selective predicates that used to lose to the conversion
+floor now match `fsst` to within noise. Full table in `benches/README.md`.
 
 ### Reproducing the FineWeb benches
 
@@ -89,20 +98,33 @@ FINEWEB_URL=/tmp/fw_url.bin FINEWEB_TEXT=/tmp/fw_text.bin \
 
 Benches no-op (CI-safe) when the env vars are unset.
 
-## Known limitation / next step
+## Conversion floor — resolved
 
-The view's one weakness is the **fixed conversion cost on highly selective filters**:
-`fsstview_from_fsst` derives the full `sizes` array (`offsets[i+1] - offsets[i]` over all rows)
-even when a predicate keeps <1% of rows. Confirmed with samply + cachegrind: the conversion is the
-top wall-clock cost on the `url`-selective queries (~130 µs floor), and the loop is already
-SIMD-vectorized and memory-bandwidth-bound (it streams `len * 8` bytes for i64 offsets/sizes).
+The view's one previous weakness was a **fixed conversion cost on highly selective filters**: the
+original `fsstview_from_fsst` derived a full `sizes` array (`offsets[i+1] - offsets[i]` over all
+rows) even when a predicate kept <1% of rows. Samply + cachegrind had pinned this as the top
+wall-clock cost (~130–150 µs floor) on the `url`-selective queries — a memory-bandwidth-bound loop
+streaming `len * 8` bytes.
 
-Possible follow-ups, **not done** (would need care + their own benchmarks):
-- Defer / lazily represent `sizes` so a selective filter doesn't materialize it for discarded rows.
-- Store `sizes` in the narrowest int width (values are small; offsets are i64), cutting the
-  conversion's memory traffic.
+**Fix (this branch): store the end offset, not the size.** `codes_sizes` was replaced by
+`codes_ends`, where `codes_ends[i] = codes_offsets[i] + size[i]`. Because a freshly converted heap
+is contiguous (element `i` occupies `offsets[i]..offsets[i+1]`), **both** addressing arrays are now
+zero-copy slices of the FSST's existing monotonic offsets buffer
+(`codes_offsets = offsets[0..len]`, `codes_ends = offsets[1..len+1]`). The conversion allocates and
+copies nothing; no per-row `sizes` array is materialized, so a selective `filter`/`take` never pays
+to derive sizes for the rows it discards. The per-element size is recovered as
+`codes_ends[i] - codes_offsets[i]` only at canonicalize / `scalar_at`, over the survivors only.
 
-Both touch the representation that `filter`/`take` operate on, so they are not drop-in.
+This keeps `filter`/`take`/`slice` metadata-only and composable across a chain (they carry
+`codes_ends` alongside `codes_offsets`); the conversion is **not** fused into the filter. Measured
+result (same-machine before/after, `fsst_view_fineweb_queries`): `url/vortex` 140 µs → **9.1 µs**,
+`url/espn_and` 146 µs → **14.9 µs**, and the previously winning clustered cases (`text/dump_eq`,
+`text/date_prefix`) held flat. The view now wins or ties every query in the matrix.
+
+The alternative follow-up (store `sizes` in the narrowest int width) was considered and rejected:
+it only halves the *write* traffic, leaving the unavoidable full read of the offsets — whereas the
+`ends` representation removes the whole O(rows) pass. Narrowing widths is orthogonal and can still
+be layered on the file layer's compression if desired.
 
 ## Verification commands
 

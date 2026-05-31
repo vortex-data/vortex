@@ -4,9 +4,9 @@
 //! Metadata-only `filter`/`take` that go straight from an [`FSSTArray`] to an [`FSSTViewArray`].
 //!
 //! These are the "first hop" of the view pipeline. They never touch the compressed byte heap:
-//! the [`FSSTArray`] is reinterpreted as an [`FSSTViewArray`] (sharing symbols + codes bytes,
-//! deriving `sizes` from the consecutive offsets) and then the selection is applied to the small
-//! `offsets`/`sizes`/`lengths`/`validity` arrays only.
+//! the [`FSSTArray`] is reinterpreted as an [`FSSTViewArray`] (sharing symbols + codes bytes, and
+//! addressing the codes with zero-copy slices of the existing offsets) and then the selection is
+//! applied to the small `offsets`/`ends`/`lengths`/`validity` arrays only.
 
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;

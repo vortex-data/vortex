@@ -25,7 +25,7 @@ impl SliceReduce for FSSTView {
                     array.symbol_lengths().clone(),
                     array.codes_bytes_handle().clone(),
                     array.codes_offsets().slice(range.clone())?,
-                    array.codes_sizes().slice(range.clone())?,
+                    array.codes_ends().slice(range.clone())?,
                     array.uncompressed_lengths().slice(range.clone())?,
                     array.fsstview_validity().slice(range)?,
                 )

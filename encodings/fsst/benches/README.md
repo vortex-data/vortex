@@ -66,27 +66,61 @@ Mask shapes vary by predicate (over 200 k rows): `dump_eq` 7 %/177 runs and `dat
 12 %/178 runs are clustered; `google_or` 2 %/4046 runs is scattered; `vortex`/`espn` are
 ~0.04–0.09 % and tiny.
 
-| query (selectivity) | column | fsst | view | winner |
-| --- | --- | --- | --- | --- |
-| date_prefix (12 %) | text | 63.4 ms | 43.9 ms | view 1.4× |
-| dump_eq (7 %) | text | 40.9 ms | 26.0 ms | view 1.6× |
-| google_or (2 %) | text | 26.8 ms | 21.4 ms | view 1.25× |
-| dump_eq (7 %) | url | 1.13 ms | 0.94 ms | view 1.2× |
-| date_prefix (12 %) | url | 1.67 ms | 1.36 ms | view 1.2× |
-| google_or (2 %) | url | 407 µs | 468 µs | fsst |
-| google_and (0.19 %) | url | 30 µs | 164 µs | fsst |
-| vortex (0.04 %) | url | 8 µs | 140 µs | fsst |
+The `view (before)` column is the original representation, which derived a full `sizes` array in
+`fsstview_from_fsst` (one i64 per row, materialized over **all** 200 k rows regardless of
+selectivity). The `view` column stores the per-element **end offset** instead — a zero-copy slice
+of the FSST's existing monotonic offsets — so the conversion allocates nothing and a selective
+predicate never pays to derive sizes for the rows it discards (see "Conversion is allocation-free"
+below). `fsst` is unchanged by this work; its small run-to-run drift is machine noise (the two
+measurement runs were back-to-back on a shared machine).
 
-Takeaway — two regimes:
+| query (selectivity) | column | fsst | view (before) | view | winner |
+| --- | --- | --- | --- | --- | --- |
+| date_prefix (12 %) | text | 69.3 ms | 41.0 ms | **41.4 ms** | view 1.67× |
+| dump_eq (7 %) | text | 42.6 ms | 25.3 ms | **25.3 ms** | view 1.68× |
+| google_or (2 %) | text | 23.9 ms | 23.7 ms | **19.8 ms** | view 1.2× |
+| google_and (0.19 %) | text | 708 µs | 782 µs | **642 µs** | view |
+| vortex (0.04 %) | text | 529 µs | 606 µs | **456 µs** | view |
+| espn_and (0.08 %) | text | 284 µs | 407 µs | **271 µs** | view |
+| espn_or (0.09 %) | text | 650 µs* | 418 µs | **281 µs** | view |
+| date_prefix (12 %) | url | 1.68 ms | 1.39 ms | **1.25 ms** | view 1.34× |
+| dump_eq (7 %) | url | 1.11 ms | 944 µs | **881 µs** | view 1.25× |
+| google_or (2 %) | url | 398 µs | 478 µs | **331 µs** | view 1.2× |
+| google_and (0.19 %) | url | 30.2 µs | 173 µs | **28.7 µs** | view |
+| espn_and (0.08 %) | url | 14.5 µs | 146 µs | **14.9 µs** | ~tie |
+| espn_or (0.09 %) | url | 16.4 µs | 152 µs | **16.0 µs** | ~tie |
+| vortex (0.04 %) | url | 8.6 µs | 140 µs | **9.1 µs** | ~tie |
 
-- **Bulk-ish selections, and anything on the long `text` column → view wins (1.25–1.6×)** by
-  skipping the per-op heap rewrite. These are the queries that take tens of milliseconds.
-- **Tiny, highly selective predicates on the short `url` column → fsst wins.** `fsst`'s filter
-  rewrites an almost-empty heap (cheap), while the view pays a fixed ~130 µs floor:
-  `fsstview_from_fsst` walks all 200 k offsets to derive the `sizes` array even though the
-  predicate keeps <0.2 % of rows. Both are sub-millisecond there, so it rarely matters, but it
-  is the view's one real weakness — converting the whole column ahead of a very selective
-  filter is wasted work.
+(divan medians. `*` `text/espn_or` `fsst` was noisy that run — fastest 283 µs, mean 578 µs.)
+
+Takeaway:
+
+- **The conversion floor is gone.** Every highly selective `url` predicate that previously trailed
+  `fsst` by 9–16× — it paid a fixed ~140 µs to walk all 200 k offsets building `sizes` even when
+  <0.2 % of rows survived — now matches `fsst` to within noise (`url/vortex` 140 µs → **9.1 µs**,
+  `url/espn_and` 146 µs → **14.9 µs**). The same floor that quietly taxed the *short selective
+  `text`* predicates (`text/vortex`, `text/espn_*`, `text/google_and`) is also gone, flipping each
+  of those from an `fsst` win to a `view` win.
+- **The winning cases do not regress.** The clustered/bulk selections the view was already built
+  for hold or improve: `text/dump_eq` and `text/date_prefix` stay at ~1.67–1.68× (the decode, not
+  the conversion, dominates them), while `url/date_prefix`, `url/dump_eq`, and both `google_or`
+  columns get a touch faster because the conversion no longer allocates.
+
+With the floor removed the view now wins or ties **every** query in this matrix.
+
+## Conversion is allocation-free
+
+`FSSTView` stores the per-element **end offset** (`codes_ends[i] = offset[i] + size[i]`) rather
+than the size. A freshly converted heap is contiguous, so element `i` occupies
+`offsets[i]..offsets[i + 1]`, which means **both** addressing arrays are zero-copy slices of the
+FSST's existing monotonic offsets buffer: `codes_offsets = offsets[0..len]` and
+`codes_ends = offsets[1..len + 1]`. `fsstview_from_fsst` therefore allocates and copies nothing —
+in particular it never materializes a per-row `sizes` array, so a selective `filter`/`take` that
+keeps a handful of rows no longer pays an O(rows) cost to derive sizes for the rows it discards.
+The per-element size is recovered as `codes_ends[i] - codes_offsets[i]` only where it is needed
+(canonicalize / `scalar_at`), over the survivors only. `filter`/`take`/`slice` stay metadata-only
+and compose across a chain exactly as before — they now carry `codes_ends` alongside
+`codes_offsets` instead of `codes_sizes`.
 
 ## How `Auto` chooses the decode
 

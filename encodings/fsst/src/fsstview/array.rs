@@ -20,7 +20,6 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::match_each_integer_ptype;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
@@ -29,7 +28,6 @@ use vortex_array::vtable::ValidityVTable;
 use vortex_array::vtable::child_to_validity;
 use vortex_array::vtable::validity_to_child;
 use vortex_buffer::Buffer;
-use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -60,7 +58,7 @@ pub struct FSSTView;
 /// Declared with the [`array_slots`] proc macro, which generates the slot-index constants
 /// (`FSSTViewSlots::CODES_OFFSETS`, ...), the borrowed [`FSSTViewSlotsView`] struct, and the
 /// typed accessor trait [`FSSTViewArraySlotsExt`] (`.uncompressed_lengths()`,
-/// `.codes_offsets()`, `.codes_sizes()`, `.codes_validity()`).
+/// `.codes_offsets()`, `.codes_ends()`, `.codes_validity()`).
 #[array_slots(FSSTView)]
 pub struct FSSTViewSlots {
     /// Length of each original (uncompressed) value. Non-nullable integer.
@@ -68,9 +66,17 @@ pub struct FSSTViewSlots {
     /// Start offset of each element's compressed bytecodes within the code heap. Non-nullable
     /// integer. Unlike `FSST`, these are **not** required to be monotonic or contiguous.
     pub codes_offsets: ArrayRef,
-    /// Length in bytes of each element's compressed bytecodes within the code heap. Non-nullable
-    /// integer.
-    pub codes_sizes: ArrayRef,
+    /// End offset of each element's compressed bytecodes within the code heap, i.e.
+    /// `offset + size`. Non-nullable integer. Element `i`'s bytecodes are
+    /// `codes_bytes[codes_offsets[i] .. codes_ends[i]]`.
+    ///
+    /// Storing the end offset (rather than the size) keeps the [`FSSTArray`] → [`FSSTView`]
+    /// conversion allocation-free: for a freshly converted array the heap is contiguous, so
+    /// `codes_ends` is a zero-copy slice of the monotonic offsets (`offsets[1..len + 1]`), exactly
+    /// as `codes_offsets` is `offsets[0..len]`. The per-element size is derived as
+    /// `codes_ends[i] - codes_offsets[i]` only where it is needed (canonicalize / `scalar_at`),
+    /// never materialized for rows a selective `filter`/`take` discards.
+    pub codes_ends: ArrayRef,
     /// Optional validity bitmap for the codes. Absent when the array is non-nullable.
     pub codes_validity: Option<ArrayRef>,
 }
@@ -82,7 +88,7 @@ pub struct FSSTViewMetadata {
     #[prost(enumeration = "PType", tag = "2")]
     codes_offsets_ptype: i32,
     #[prost(enumeration = "PType", tag = "3")]
-    codes_sizes_ptype: i32,
+    codes_ends_ptype: i32,
 }
 
 impl FSSTViewMetadata {
@@ -96,17 +102,18 @@ impl FSSTViewMetadata {
             .map_err(|_| vortex_err!("Invalid PType {}", self.codes_offsets_ptype))
     }
 
-    fn get_codes_sizes_ptype(&self) -> VortexResult<PType> {
-        PType::try_from(self.codes_sizes_ptype)
-            .map_err(|_| vortex_err!("Invalid PType {}", self.codes_sizes_ptype))
+    fn get_codes_ends_ptype(&self) -> VortexResult<PType> {
+        PType::try_from(self.codes_ends_ptype)
+            .map_err(|_| vortex_err!("Invalid PType {}", self.codes_ends_ptype))
     }
 }
 
 impl FSSTView {
     /// Build an [`FSSTViewArray`] from its decomposed components.
     ///
-    /// `codes_offsets[i]` and `codes_sizes[i]` address element `i`'s compressed bytecodes inside
-    /// `codes_bytes`. The offsets do not need to be sorted, contiguous, or non-overlapping.
+    /// `codes_offsets[i]` and `codes_ends[i]` address element `i`'s compressed bytecodes inside
+    /// `codes_bytes` as the range `codes_offsets[i]..codes_ends[i]`. The offsets do not need to be
+    /// sorted, contiguous, or non-overlapping.
     #[allow(clippy::too_many_arguments)]
     pub fn try_new(
         dtype: DType,
@@ -114,7 +121,7 @@ impl FSSTView {
         symbol_lengths: Buffer<u8>,
         codes_bytes: BufferHandle,
         codes_offsets: ArrayRef,
-        codes_sizes: ArrayRef,
+        codes_ends: ArrayRef,
         uncompressed_lengths: ArrayRef,
         validity: Validity,
     ) -> VortexResult<FSSTViewArray> {
@@ -123,7 +130,7 @@ impl FSSTView {
             &symbols,
             &symbol_lengths,
             &codes_offsets,
-            &codes_sizes,
+            &codes_ends,
             &uncompressed_lengths,
             &validity,
             &dtype,
@@ -133,7 +140,7 @@ impl FSSTView {
         let slots = make_slots(
             uncompressed_lengths,
             codes_offsets,
-            codes_sizes,
+            codes_ends,
             &validity,
             len,
         );
@@ -156,7 +163,7 @@ impl FSSTView {
         symbol_lengths: Buffer<u8>,
         codes_bytes: BufferHandle,
         codes_offsets: ArrayRef,
-        codes_sizes: ArrayRef,
+        codes_ends: ArrayRef,
         uncompressed_lengths: ArrayRef,
         validity: Validity,
     ) -> FSSTViewArray {
@@ -165,7 +172,7 @@ impl FSSTView {
         let slots = make_slots(
             uncompressed_lengths,
             codes_offsets,
-            codes_sizes,
+            codes_ends,
             &validity,
             len,
         );
@@ -178,30 +185,26 @@ impl FSSTView {
 }
 
 /// Convert a plain [`FSSTArray`] into an [`FSSTViewArray`], sharing the symbol table and the
-/// compressed byte heap (zero-copy) and deriving `sizes[i] = offsets[i + 1] - offsets[i]`.
+/// compressed byte heap (zero-copy) and addressing the codes with the FSST's existing monotonic
+/// offsets.
 ///
-/// The `offsets` (length `len + 1`) are reused for the view's `codes_offsets` by a zero-copy
-/// slice of their first `len` elements; only the `sizes` array is freshly allocated.
+/// A freshly converted view's heap is contiguous, so element `i` occupies `offsets[i]..offsets[i +
+/// 1]`. Both addressing arrays are therefore **zero-copy slices of the same `offsets` buffer**:
+/// `codes_offsets = offsets[0..len]` and `codes_ends = offsets[1..len + 1]`. Nothing is allocated
+/// or copied — in particular the per-element size (`codes_ends[i] - codes_offsets[i]`) is never
+/// materialized here, so a subsequent selective `filter`/`take` does not pay to derive sizes for
+/// the rows it discards. This removes the conversion floor a very selective predicate used to hit.
 pub fn fsstview_from_fsst(fsst: &FSSTArray, ctx: &mut ExecutionCtx) -> VortexResult<FSSTViewArray> {
     let codes = fsst.codes();
     let validity = codes.validity()?;
     let offsets = codes.offsets().clone().execute::<PrimitiveArray>(ctx)?;
     let len = offsets.len().saturating_sub(1);
 
-    // `sizes[i] = offsets[i + 1] - offsets[i]`, built from adjacent windows. `push_unchecked` (with
-    // the capacity reserved up front) avoids the per-element capacity recheck that `push` does and
-    // lets the loop vectorize — this conversion is otherwise dominated by the size derivation.
-    let codes_sizes = match_each_integer_ptype!(offsets.ptype(), |O| {
-        let offsets = offsets.as_slice::<O>();
-        let mut sizes = BufferMut::<O>::with_capacity(len);
-        for w in offsets.windows(2) {
-            // SAFETY: `len` slots were reserved above and we push exactly `len` of them.
-            unsafe { sizes.push_unchecked(w[1] - w[0]) };
-        }
-        sizes.into_array()
-    });
-    // `codes_offsets` is the first `len` offsets — a zero-copy slice of the existing buffer.
-    let codes_offsets = offsets.into_array().slice(0..len)?;
+    // Both addressing arrays are zero-copy slices of the `len + 1` monotonic offsets: element `i`'s
+    // codes are `offsets[i]..offsets[i + 1]`, so `codes_ends` is simply the offsets shifted by one.
+    let offsets = offsets.into_array();
+    let codes_offsets = offsets.slice(0..len)?;
+    let codes_ends = offsets.slice(1..len + 1)?;
 
     FSSTView::try_new(
         fsst.dtype().clone(),
@@ -209,7 +212,7 @@ pub fn fsstview_from_fsst(fsst: &FSSTArray, ctx: &mut ExecutionCtx) -> VortexRes
         fsst.symbol_lengths().clone(),
         fsst.codes_bytes_handle().clone(),
         codes_offsets,
-        codes_sizes,
+        codes_ends,
         fsst.uncompressed_lengths().clone(),
         validity,
     )
@@ -218,14 +221,14 @@ pub fn fsstview_from_fsst(fsst: &FSSTArray, ctx: &mut ExecutionCtx) -> VortexRes
 fn make_slots(
     uncompressed_lengths: ArrayRef,
     codes_offsets: ArrayRef,
-    codes_sizes: ArrayRef,
+    codes_ends: ArrayRef,
     validity: &Validity,
     len: usize,
 ) -> ArraySlots {
     smallvec![
         Some(uncompressed_lengths),
         Some(codes_offsets),
-        Some(codes_sizes),
+        Some(codes_ends),
         validity_to_child(validity, len),
     ]
 }
@@ -235,7 +238,7 @@ fn validate_fsstview(
     symbols: &Buffer<Symbol>,
     symbol_lengths: &Buffer<u8>,
     codes_offsets: &ArrayRef,
-    codes_sizes: &ArrayRef,
+    codes_ends: &ArrayRef,
     uncompressed_lengths: &ArrayRef,
     validity: &Validity,
     dtype: &DType,
@@ -254,8 +257,8 @@ fn validate_fsstview(
     if codes_offsets.len() != len {
         vortex_bail!(InvalidArgument: "codes_offsets must have same len as outer array");
     }
-    if codes_sizes.len() != len {
-        vortex_bail!(InvalidArgument: "codes_sizes must have same len as outer array");
+    if codes_ends.len() != len {
+        vortex_bail!(InvalidArgument: "codes_ends must have same len as outer array");
     }
     if uncompressed_lengths.len() != len {
         vortex_bail!(InvalidArgument: "uncompressed_lengths must have same len as outer array");
@@ -263,8 +266,8 @@ fn validate_fsstview(
     if !codes_offsets.dtype().is_int() || codes_offsets.dtype().is_nullable() {
         vortex_bail!(InvalidArgument: "codes_offsets must be non-nullable integer, found {}", codes_offsets.dtype());
     }
-    if !codes_sizes.dtype().is_int() || codes_sizes.dtype().is_nullable() {
-        vortex_bail!(InvalidArgument: "codes_sizes must be non-nullable integer, found {}", codes_sizes.dtype());
+    if !codes_ends.dtype().is_int() || codes_ends.dtype().is_nullable() {
+        vortex_bail!(InvalidArgument: "codes_ends must be non-nullable integer, found {}", codes_ends.dtype());
     }
     if !uncompressed_lengths.dtype().is_int() || uncompressed_lengths.dtype().is_nullable() {
         vortex_bail!(InvalidArgument: "uncompressed_lengths must be non-nullable integer, found {}", uncompressed_lengths.dtype());
@@ -311,7 +314,7 @@ impl VTable for FSSTView {
             data.symbols(),
             data.symbol_lengths(),
             view.codes_offsets,
-            view.codes_sizes,
+            view.codes_ends,
             view.uncompressed_lengths,
             &validity,
             dtype,
@@ -350,7 +353,7 @@ impl VTable for FSSTView {
                 uncompressed_lengths_ptype: PType::try_from(array.uncompressed_lengths().dtype())?
                     as i32,
                 codes_offsets_ptype: PType::try_from(array.codes_offsets().dtype())? as i32,
-                codes_sizes_ptype: PType::try_from(array.codes_sizes().dtype())? as i32,
+                codes_ends_ptype: PType::try_from(array.codes_ends().dtype())? as i32,
             }
             .encode_to_vec(),
         ))
@@ -392,9 +395,9 @@ impl VTable for FSSTView {
             ),
             len,
         )?;
-        let codes_sizes = children.get(
+        let codes_ends = children.get(
             2,
-            &DType::Primitive(metadata.get_codes_sizes_ptype()?, Nullability::NonNullable),
+            &DType::Primitive(metadata.get_codes_ends_ptype()?, Nullability::NonNullable),
             len,
         )?;
 
@@ -410,7 +413,7 @@ impl VTable for FSSTView {
             &symbols,
             &symbol_lengths,
             &codes_offsets,
-            &codes_sizes,
+            &codes_ends,
             &uncompressed_lengths,
             &validity,
             dtype,
@@ -421,7 +424,7 @@ impl VTable for FSSTView {
         let slots = make_slots(
             uncompressed_lengths,
             codes_offsets,
-            codes_sizes,
+            codes_ends,
             &validity,
             len,
         );

@@ -153,7 +153,15 @@ fn decode_element_ordered(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Decoded> {
     let offsets = load_usize(array.codes_offsets(), ctx)?;
-    let sizes = load_usize(array.codes_sizes(), ctx)?;
+    // `codes_ends[i]` is element `i`'s end in the heap; derive the per-element size here (over the
+    // survivors only — never the discarded rows). Downstream layout analysis and decode work on
+    // `sizes` exactly as before.
+    let ends = load_usize(array.codes_ends(), ctx)?;
+    let sizes: Vec<usize> = offsets
+        .iter()
+        .zip(&ends)
+        .map(|(&offset, &end)| end - offset)
+        .collect();
 
     let ulen_prim = array
         .uncompressed_lengths()
