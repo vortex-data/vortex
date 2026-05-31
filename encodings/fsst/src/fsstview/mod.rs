@@ -28,10 +28,8 @@ mod slice;
 mod tests;
 
 pub use array::*;
-pub use canonical::FsstViewByteStats;
 pub use canonical::FsstViewCompaction;
 pub use canonical::canonicalize_fsstview_to_varbin;
 pub use canonical::canonicalize_fsstview_with;
-pub use canonical::fsstview_byte_stats;
 pub use from_fsst::fsst_filter_to_view;
 pub use from_fsst::fsst_take_to_view;

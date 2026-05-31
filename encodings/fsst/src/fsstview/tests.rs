@@ -10,7 +10,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::dict::TakeExecute;
-use vortex_array::arrays::filter::FilterKernel;
 use vortex_array::assert_arrays_eq;
 use vortex_array::compute::conformance::consistency::test_array_consistency;
 use vortex_array::compute::conformance::filter::test_filter_conformance;
@@ -30,7 +29,6 @@ use crate::fsst_compress;
 use crate::fsst_filter_to_view;
 use crate::fsst_take_to_view;
 use crate::fsst_train_compressor;
-use crate::fsstview_byte_stats;
 use crate::fsstview_from_fsst;
 
 fn make_fsstview(
@@ -245,8 +243,7 @@ fn fsst_take_to_view_matches_canonical() -> VortexResult<()> {
 #[case(FsstViewCompaction::Auto)]
 #[case(FsstViewCompaction::Direct)]
 #[case(FsstViewCompaction::GatherBulk)]
-#[case(FsstViewCompaction::PerElement)]
-#[case(FsstViewCompaction::RunCoalesce)]
+#[case(FsstViewCompaction::RunDecode)]
 fn compaction_strategies_agree(#[case] strategy: FsstViewCompaction) -> VortexResult<()> {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let fsst = make_fsst(&SAMPLE, Nullability::NonNullable, &mut ctx);
@@ -277,15 +274,13 @@ fn compaction_strategies_agree(#[case] strategy: FsstViewCompaction) -> VortexRe
     Ok(())
 }
 
-/// Adversarial coverage for `RunCoalesce`: a filter that punches gaps into the heap (so survivors
-/// form multiple runs), then a shuffle take (reorders runs), over nullable data. Every strategy
-/// must still agree with the canonical VarBin result.
+/// Adversarial coverage: a filter that punches gaps into the heap (so survivors form multiple
+/// runs), then a shuffle take (reorders runs, forcing `GatherBulk`), over nullable data. Every
+/// strategy must still agree with the canonical result.
 #[rstest]
 #[case(FsstViewCompaction::Auto)]
 #[case(FsstViewCompaction::GatherBulk)]
-#[case(FsstViewCompaction::RunCoalesce)]
-#[case(FsstViewCompaction::PerElement)]
-fn run_coalesce_gaps_and_shuffle(#[case] strategy: FsstViewCompaction) -> VortexResult<()> {
+fn gaps_and_shuffle_agree(#[case] strategy: FsstViewCompaction) -> VortexResult<()> {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     // 12 distinct-ish strings, nullable.
     let strings: Vec<Option<&str>> = vec![
@@ -373,113 +368,12 @@ fn run_decode_monotonic_filter(#[case] strategy: FsstViewCompaction) -> VortexRe
     Ok(())
 }
 
-/// Build a ~`target`-uncompressed-byte FSSTView of random short URL-ish strings.
-fn make_big_view(target: usize, avg_len: usize, ctx: &mut ExecutionCtx) -> FSSTViewArray {
-    use rand::RngExt;
-    use rand::SeedableRng;
-    use rand::rngs::StdRng;
-    let mut rng = StdRng::seed_from_u64(1);
-    let words = [
-        "https://", "example", "vortex", ".com/", "path", "value", "data", "alpha",
-    ];
-    let count = target / avg_len;
-    let strings: Vec<Box<[u8]>> = (0..count)
-        .map(|_| {
-            let mut s = String::new();
-            while s.len() < avg_len {
-                s.push_str(words[rng.random_range(0..words.len())]);
-            }
-            s.truncate(avg_len);
-            s.into_bytes().into_boxed_slice()
-        })
-        .collect();
-    let varbin = VarBinArray::from_iter(
-        strings.into_iter().map(Some),
-        DType::Utf8(Nullability::NonNullable),
-    );
-    let compressor = fsst_train_compressor(&varbin);
-    let fsst = fsst_compress(&varbin, varbin.len(), varbin.dtype(), &compressor, ctx);
-    fsstview_from_fsst(&fsst, ctx).expect("fsstview_from_fsst")
-}
-
-/// Reports the byte accounting (compressed and uncompressed) and the dead-byte waste a gap-merged
-/// decode would carry, for representative selective filter / shuffle take / dense take. Run with
-/// `cargo test -p vortex-fsst byte_stats_report -- --nocapture` to see the numbers.
-#[test]
-fn byte_stats_report() -> VortexResult<()> {
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
-    let base = make_big_view(1 << 20, 16, &mut ctx);
-    let n = base.len();
-
-    // Selective filter (keep ~10%): many small gaps -> high compressed waste if merged.
-    let mut rng_keep = {
-        use rand::SeedableRng;
-        rand::rngs::StdRng::seed_from_u64(3)
-    };
-    let mask = {
-        use rand::RngExt;
-        Mask::from_iter((0..n).map(|_| rng_keep.random_bool(0.10)))
-    };
-    let filtered = <FSSTView as FilterKernel>::filter(base.as_view(), &mask, &mut ctx)?
-        .unwrap()
-        .try_downcast::<FSSTView>()
-        .ok()
-        .unwrap();
-
-    // Shuffle take: same elements, reordered -> one run, zero waste.
-    let mut perm: Vec<u64> = (0..n as u64).collect();
-    {
-        use rand::RngExt;
-        use rand::SeedableRng;
-        let mut r = rand::rngs::StdRng::seed_from_u64(4);
-        for i in (1..perm.len()).rev() {
-            perm.swap(i, r.random_range(0..=i));
-        }
-    }
-    let shuffled = <FSSTView as TakeExecute>::take(
-        base.as_view(),
-        &PrimitiveArray::from_iter(perm).into_array(),
-        &mut ctx,
-    )?
-    .unwrap()
-    .try_downcast::<FSSTView>()
-    .ok()
-    .unwrap();
-
-    for (label, view) in [("filter_10pct", &filtered), ("shuffle_take", &shuffled)] {
-        let s = fsstview_byte_stats(view.as_view(), &mut ctx)?;
-        // Waste if we instead merged *everything* into a single decode of the whole heap extent
-        // (the most aggressive gap-merge): all heap bytes minus the live ones are dead.
-        let full_merge_waste = if s.heap_compressed == 0 {
-            0.0
-        } else {
-            (s.heap_compressed - s.live_compressed) as f64 / s.heap_compressed as f64
-        };
-        println!(
-            "{label}: elements={} runs={} distinct={} \
-             | compressed: live={}B span={}B heap={}B run_waste={:.1}% full_merge_waste={:.1}% \
-             | uncompressed: live={}B logical={}B",
-            s.elements,
-            s.runs,
-            s.distinct_spans,
-            s.live_compressed,
-            s.span_compressed,
-            s.heap_compressed,
-            s.compressed_waste_ratio() * 100.0,
-            full_merge_waste * 100.0,
-            s.live_uncompressed,
-            s.logical_uncompressed,
-        );
-    }
-    Ok(())
-}
-
-/// The VarBin exporter must agree with the canonical VarBin filter, across all element-ordered
-/// strategies, for a gapped filter over nullable data.
+/// The VarBin exporter must agree with the canonical VarBin filter, across the export strategies,
+/// for a gapped filter over nullable data.
 #[rstest]
 #[case(FsstViewCompaction::Auto)]
 #[case(FsstViewCompaction::GatherBulk)]
-#[case(FsstViewCompaction::PerElement)]
+#[case(FsstViewCompaction::RunDecode)]
 fn varbin_export_matches_canonical(#[case] strategy: FsstViewCompaction) -> VortexResult<()> {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let strings: Vec<Option<&str>> = vec![
