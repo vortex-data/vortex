@@ -120,6 +120,47 @@ pub fn canonicalize_with(
     })
 }
 
+/// EXPERIMENTAL: canonicalise by **tiling** the decode + view build.
+///
+/// Process rows in tiles of ~`tile_tokens` codes: gather the tile's codes into a
+/// small reused scratch, decode it into a tile-sized byte buffer, and build that
+/// tile's `VarBinView`s immediately — so the decoded bytes are still hot in L1/L2
+/// when `make_view` reads them, and (for all-inline tiles) the bytes never
+/// outlive the tile. Each tile that contains a non-inline (>12 byte) string
+/// contributes one output buffer; all-inline tiles contribute none. Exposed for
+/// the `view_compute` tile-size sweep.
+pub fn canonicalize_tiled(
+    array: ArrayView<'_, OnPairView>,
+    tile_tokens: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let lengths = array
+        .uncompressed_lengths()
+        .clone()
+        .execute::<PrimitiveArray>(ctx)?;
+    let offsets = array.collect_offsets(ctx)?;
+    let sizes = array.collect_sizes(ctx)?;
+    let layout = analyze(offsets.as_slice(), sizes.as_slice());
+    let dict_offsets = collect_widened::<u32>(array.dict_offsets(), ctx)?;
+
+    let (buffers, views) = decode_tiled(
+        array,
+        offsets.as_slice(),
+        sizes.as_slice(),
+        &lengths,
+        &layout,
+        &dict_offsets,
+        0,
+        tile_tokens.max(1),
+        ctx,
+    )?;
+    let validity = array.array().validity()?;
+    Ok(unsafe {
+        VarBinViewArray::new_unchecked(views, Arc::from(buffers), array.dtype().clone(), validity)
+            .into_array()
+    })
+}
+
 /// Layout summary of the per-row windows, from one `O(num_rows)` scan.
 struct Layout {
     /// True if the non-empty windows are sorted ascending and non-overlapping,
@@ -440,6 +481,97 @@ fn decode_gather(
             lengths.as_slice::<P>(),
         ))
     })
+}
+
+/// EXPERIMENTAL tiled decode + view build. See [`canonicalize_tiled`].
+#[allow(clippy::too_many_arguments, clippy::cognitive_complexity)]
+fn decode_tiled(
+    array: ArrayView<'_, OnPairView>,
+    offsets: &[u32],
+    sizes: &[u32],
+    lengths: &PrimitiveArray,
+    layout: &Layout,
+    dict_offsets: &Buffer<u32>,
+    start_buf_index: u32,
+    tile_tokens: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(Vec<ByteBuffer>, Buffer<BinaryView>)> {
+    let span = collect_widened::<u16>(&array.codes().slice(layout.base..layout.end)?, ctx)?;
+    let span = span.as_slice();
+    let dict_bytes = array.dict_bytes().as_slice();
+    let dict_off = dict_offsets.as_slice();
+    let bits = array.bits();
+
+    let rows = offsets.len();
+    let mut views = BufferMut::<BinaryView>::with_capacity(rows);
+    let mut buffers: Vec<ByteBuffer> = Vec::new();
+    let mut codes_scratch: Vec<u16> = Vec::with_capacity(tile_tokens + 64);
+
+    match_each_integer_ptype!(lengths.ptype(), |P| {
+        let lens = lengths.as_slice::<P>();
+        let mut r = 0usize;
+        while r < rows {
+            // Grow a tile to ~`tile_tokens` codes, aligned to whole rows.
+            let tile_start = r;
+            let mut tile_tok = 0usize;
+            let mut tile_bytes = 0usize;
+            while r < rows && tile_tok < tile_tokens {
+                tile_tok += sizes[r] as usize;
+                tile_bytes += AsPrimitive::<usize>::as_(lens[r]);
+                r += 1;
+            }
+
+            // Gather the tile's codes into the reused scratch.
+            codes_scratch.clear();
+            let mut any_ref = false;
+            for k in tile_start..r {
+                let size = sizes[k] as usize;
+                if size > 0 {
+                    let st = offsets[k] as usize - layout.base;
+                    codes_scratch.extend_from_slice(&span[st..st + size]);
+                }
+                if AsPrimitive::<usize>::as_(lens[k]) > BinaryView::MAX_INLINED_SIZE {
+                    any_ref = true;
+                }
+            }
+
+            // Decode the tile into a tile-sized buffer (hot in cache).
+            let mut tbuf = ByteBufferMut::with_capacity(tile_bytes);
+            let written = onpair::decompress_into(
+                Parts {
+                    dict_bytes,
+                    dict_offsets: dict_off,
+                    bits,
+                    codes: &codes_scratch,
+                },
+                tbuf.spare_capacity_mut(),
+            );
+            debug_assert_eq!(written, tile_bytes);
+            // SAFETY: `decompress_into` initialised exactly `written` bytes.
+            unsafe { tbuf.set_len(written) };
+            let tbuf = tbuf.freeze();
+
+            // Build this tile's views from the still-hot bytes.
+            let buf_index = start_buf_index
+                + u32::try_from(buffers.len()).map_err(|_| vortex_err!("too many tiles"))?;
+            let mut off = 0usize;
+            for k in tile_start..r {
+                let len = AsPrimitive::<usize>::as_(lens[k]);
+                views.push(BinaryView::make_view(
+                    &tbuf[off..off + len],
+                    buf_index,
+                    u32::try_from(off).map_err(|_| vortex_err!("tile offset exceeds u32"))?,
+                ));
+                off += len;
+            }
+            // Only keep the buffer if a non-inline view references it.
+            if any_ref {
+                buffers.push(tbuf);
+            }
+        }
+    });
+
+    Ok((buffers, views.freeze()))
 }
 
 /// Canonicalise an [`OnPairViewArray`](crate::OnPairViewArray) to a

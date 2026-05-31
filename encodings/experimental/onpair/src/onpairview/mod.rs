@@ -15,6 +15,7 @@ mod tests;
 
 pub use array::*;
 pub use canonical::OnPairViewDecodeMode;
+pub use canonical::canonicalize_tiled;
 pub use canonical::canonicalize_to_varbin;
 pub use canonical::canonicalize_with;
 pub use canonical::compact;

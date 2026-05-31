@@ -50,6 +50,7 @@ use vortex_onpair::OnPairArray;
 use vortex_onpair::OnPairView;
 use vortex_onpair::OnPairViewArray;
 use vortex_onpair::OnPairViewDecodeMode;
+use vortex_onpair::canonicalize_tiled;
 use vortex_onpair::canonicalize_to_varbin;
 use vortex_onpair::canonicalize_with;
 use vortex_onpair::compact;
@@ -555,6 +556,70 @@ fn sparse_export_after_compact(bencher: Bencher, case: (Corpus, u32)) {
             divan::black_box(
                 canonicalize_with(view.as_view(), OnPairViewDecodeMode::Auto, &mut ctx).unwrap(),
             );
+        });
+}
+
+// ─── Tiled decode+build vs whole-decode+build_views ──────────────────────
+//
+// Sweep the tile size (codes per tile) to find any L1/L2 sweet spot. `tiled`
+// decodes a tile and builds its views before moving on (bytes hot in cache,
+// no full decoded buffer for all-inline data); the baseline decodes everything
+// then calls build_views once.
+
+const TILES: &[(Corpus, usize)] = &[
+    (Corpus::ManyShort, 1024),
+    (Corpus::ManyShort, 2048),
+    (Corpus::ManyShort, 4096),
+    (Corpus::ManyShort, 8192),
+    (Corpus::ManyShort, 16384),
+    (Corpus::ManyShort, 32768),
+    (Corpus::FewLong, 4096),
+    (Corpus::FewLong, 16384),
+];
+
+const CORPORA: &[Corpus] = &[Corpus::ManyShort, Corpus::FewLong];
+
+#[divan::bench(args = CORPORA)]
+fn contiguous_baseline(bencher: Bencher, c: Corpus) {
+    let base = base(c);
+    bencher.bench_local(|| {
+        let mut ctx = SESSION.create_execution_ctx();
+        divan::black_box(
+            canonicalize_with(base.view.as_view(), OnPairViewDecodeMode::Auto, &mut ctx).unwrap(),
+        );
+    });
+}
+
+#[divan::bench(args = TILES)]
+fn contiguous_tiled(bencher: Bencher, case: (Corpus, usize)) {
+    let (c, tile) = case;
+    let base = base(c);
+    bencher.bench_local(|| {
+        let mut ctx = SESSION.create_execution_ctx();
+        divan::black_box(canonicalize_tiled(base.view.as_view(), tile, &mut ctx).unwrap());
+    });
+}
+
+#[divan::bench(args = CORPORA)]
+fn filtered_baseline(bencher: Bencher, c: Corpus) {
+    bencher
+        .with_inputs(|| filtered_view(c, 90))
+        .bench_local_values(|v| {
+            let mut ctx = SESSION.create_execution_ctx();
+            divan::black_box(
+                canonicalize_with(v.as_view(), OnPairViewDecodeMode::Auto, &mut ctx).unwrap(),
+            );
+        });
+}
+
+#[divan::bench(args = TILES)]
+fn filtered_tiled(bencher: Bencher, case: (Corpus, usize)) {
+    let (c, tile) = case;
+    bencher
+        .with_inputs(|| filtered_view(c, 90))
+        .bench_local_values(|v| {
+            let mut ctx = SESSION.create_execution_ctx();
+            divan::black_box(canonicalize_tiled(v.as_view(), tile, &mut ctx).unwrap());
         });
 }
 
