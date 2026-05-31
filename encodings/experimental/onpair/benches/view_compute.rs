@@ -49,9 +49,8 @@ use vortex_onpair::OnPair;
 use vortex_onpair::OnPairArray;
 use vortex_onpair::OnPairView;
 use vortex_onpair::OnPairViewArray;
-use vortex_onpair::OnPairViewDecodeMode;
+use vortex_onpair::canonicalize;
 use vortex_onpair::canonicalize_to_varbin;
-use vortex_onpair::canonicalize_with;
 use vortex_onpair::compact;
 use vortex_onpair::onpair_compress;
 use vortex_onpair::onpair_take_compact;
@@ -278,7 +277,7 @@ fn run_view(
     }
 }
 
-fn canonicalize(arr: ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> VarBinViewArray {
+fn execute_to_view(arr: ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> VarBinViewArray {
     arr.execute::<VarBinViewArray>(ctx).unwrap()
 }
 
@@ -332,7 +331,7 @@ fn onpair_canonicalize(bencher: Bencher, case: (Corpus, Scenario)) {
         })
         .bench_local_values(|arr| {
             let mut ctx = SESSION.create_execution_ctx();
-            divan::black_box(canonicalize(arr, &mut ctx));
+            divan::black_box(execute_to_view(arr, &mut ctx));
         });
 }
 
@@ -347,7 +346,7 @@ fn view_canonicalize(bencher: Bencher, case: (Corpus, Scenario)) {
         })
         .bench_local_values(|arr| {
             let mut ctx = SESSION.create_execution_ctx();
-            divan::black_box(canonicalize(arr, &mut ctx));
+            divan::black_box(execute_to_view(arr, &mut ctx));
         });
 }
 
@@ -382,7 +381,7 @@ fn filter_export_varbinview(bencher: Bencher, case: (Corpus, u32)) {
         .with_inputs(|| filtered_view(c, keep))
         .bench_local_values(|view| {
             let mut ctx = SESSION.create_execution_ctx();
-            divan::black_box(vortex_onpair::canonicalize(view.as_view(), &mut ctx).unwrap());
+            divan::black_box(canonicalize(view.as_view(), &mut ctx).unwrap());
         });
 }
 
@@ -456,7 +455,7 @@ fn view_pipeline(bencher: Bencher, case: (Corpus, usize)) {
             arr = view_filter(&arr, &mask, &mut ctx);
         }
         // Compact once, at the final export.
-        divan::black_box(vortex_onpair::canonicalize(arr.as_view(), &mut ctx).unwrap());
+        divan::black_box(canonicalize(arr.as_view(), &mut ctx).unwrap());
     });
 }
 
@@ -479,7 +478,7 @@ fn sparse_export_gather(bencher: Bencher, case: (Corpus, u32)) {
         .with_inputs(|| filtered_view(c, keep))
         .bench_local_values(|view| {
             let mut ctx = SESSION.create_execution_ctx();
-            divan::black_box(vortex_onpair::canonicalize(view.as_view(), &mut ctx).unwrap());
+            divan::black_box(canonicalize(view.as_view(), &mut ctx).unwrap());
         });
 }
 
@@ -504,7 +503,7 @@ fn sparse_export_after_compact(bencher: Bencher, case: (Corpus, u32)) {
         })
         .bench_local_values(|view| {
             let mut ctx = SESSION.create_execution_ctx();
-            divan::black_box(vortex_onpair::canonicalize(view.as_view(), &mut ctx).unwrap());
+            divan::black_box(canonicalize(view.as_view(), &mut ctx).unwrap());
         });
 }
 

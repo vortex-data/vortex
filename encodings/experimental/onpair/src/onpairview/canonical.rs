@@ -38,13 +38,11 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::arrays::varbinview::build_views::BinaryView;
 use vortex_array::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use vortex_array::arrays::varbinview::build_views::build_views;
 use vortex_array::match_each_integer_ptype;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 
@@ -53,13 +51,6 @@ use crate::OnPairViewArray;
 use crate::OnPairViewArrayExt;
 use crate::OnPairViewArraySlotsExt;
 use crate::decode::collect_widened;
-
-pub(super) fn canonicalize_onpairview(
-    array: ArrayView<'_, OnPairView>,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    canonicalize(array, ctx)
-}
 
 /// Canonicalise an [`OnPairViewArray`](crate::OnPairViewArray) to a
 /// `VarBinViewArray` by gathering the live token windows and decoding once.
@@ -70,7 +61,10 @@ pub fn canonicalize(
     array: ArrayView<'_, OnPairView>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let (buffers, views) = onpairview_decode_views(array, 0, ctx)?;
+    let (bytes, lengths) = decode_live(array, ctx)?;
+    let (buffers, views) = match_each_integer_ptype!(lengths.ptype(), |P| {
+        build_views(0, MAX_BUFFER_LEN, bytes, lengths.as_slice::<P>())
+    });
     let validity = array.array().validity()?;
     Ok(unsafe {
         VarBinViewArray::new_unchecked(views, Arc::from(buffers), array.dtype().clone(), validity)
@@ -132,11 +126,19 @@ fn analyze(offsets: &[u32], sizes: &[u32]) -> Layout {
     }
 }
 
-pub(crate) fn onpairview_decode_views(
+/// Decode the live windows into a single **compact** byte buffer in row order
+/// (no dead values), returning it alongside the per-row `uncompressed_lengths`
+/// that split it into rows. The shared core of both [`canonicalize`] (which wraps
+/// the bytes in `VarBinView` views) and [`canonicalize_to_varbin`] (which wraps
+/// them in running-sum offsets).
+///
+/// We only ever materialise the referenced span `codes[base..end]` — never the
+/// whole `codes` child — so a sub-range view (after a `slice` or block `take`)
+/// touches only its own codes.
+fn decode_live(
     array: ArrayView<'_, OnPairView>,
-    start_buf_index: u32,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<(Vec<ByteBuffer>, Buffer<BinaryView>)> {
+) -> VortexResult<(ByteBufferMut, PrimitiveArray)> {
     let lengths = array
         .uncompressed_lengths()
         .clone()
@@ -152,20 +154,25 @@ pub(crate) fn onpairview_decode_views(
     let offsets = array.collect_offsets(ctx)?;
     let sizes = array.collect_sizes(ctx)?;
     let layout = analyze(offsets.as_slice(), sizes.as_slice());
-
     let dict_offsets = collect_widened::<u32>(array.dict_offsets(), ctx)?;
 
-    decode_gather(
-        array,
-        offsets.as_slice(),
-        sizes.as_slice(),
-        &lengths,
-        &layout,
-        live_bytes,
-        &dict_offsets,
-        start_buf_index,
-        ctx,
-    )
+    let span = collect_widened::<u16>(&array.codes().slice(layout.base..layout.end)?, ctx)?;
+    let codes = compact_span_codes(span, offsets.as_slice(), sizes.as_slice(), &layout);
+
+    let mut bytes = ByteBufferMut::with_capacity(live_bytes);
+    let written = onpair::decompress_into(
+        Parts {
+            dict_bytes: array.dict_bytes().as_slice(),
+            dict_offsets: dict_offsets.as_slice(),
+            bits: array.bits(),
+            codes: codes.as_slice(),
+        },
+        bytes.spare_capacity_mut(),
+    );
+    debug_assert_eq!(written, live_bytes);
+    // SAFETY: `decompress_into` initialised exactly `written` bytes.
+    unsafe { bytes.set_len(written) };
+    Ok((bytes, lengths))
 }
 
 /// Rebuild a (possibly sparse / reordered) [`OnPairViewArray`] into a **compact**
@@ -226,7 +233,7 @@ pub fn compact(
 }
 /// Reduce the referenced span to the contiguous, row-ordered live codes.
 ///
-/// Shared by [`compact`] and the export's [`decode_compact_bytes`] — both need
+/// Shared by [`compact`] and the export's [`decode_live`] — both need
 /// exactly this. When the windows are already contiguous the span *is* the
 /// compact codes (returned without copying); otherwise gather the live windows
 /// within the span in row order. Takes `span` by value so the contiguous path is
@@ -253,65 +260,6 @@ fn compact_span_codes(
     Buffer::from(gathered)
 }
 
-/// Decode the live windows into a single **compact** byte buffer in row order
-/// (no dead values), feeding the export's gather path.
-///
-/// We only ever materialise the referenced span `codes[base..end]` — never the
-/// whole `codes` child — so a sub-range view (after a `slice` or a block `take`)
-/// touches only its own codes.
-fn decode_compact_bytes(
-    array: ArrayView<'_, OnPairView>,
-    offsets: &[u32],
-    sizes: &[u32],
-    layout: &Layout,
-    live_bytes: usize,
-    dict_offsets: &Buffer<u32>,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ByteBufferMut> {
-    let span = collect_widened::<u16>(&array.codes().slice(layout.base..layout.end)?, ctx)?;
-    let codes = compact_span_codes(span, offsets, sizes, layout);
-
-    let mut out = ByteBufferMut::with_capacity(live_bytes);
-    let written = onpair::decompress_into(
-        Parts {
-            dict_bytes: array.dict_bytes().as_slice(),
-            dict_offsets: dict_offsets.as_slice(),
-            bits: array.bits(),
-            codes: codes.as_slice(),
-        },
-        out.spare_capacity_mut(),
-    );
-    debug_assert_eq!(written, live_bytes);
-    // SAFETY: `decompress_into` initialised exactly `written` bytes.
-    unsafe { out.set_len(written) };
-    Ok(out)
-}
-
-/// Strategy 2/3: decode the live windows compactly and split into `VarBinView`
-/// views sequentially.
-#[allow(clippy::too_many_arguments)]
-fn decode_gather(
-    array: ArrayView<'_, OnPairView>,
-    offsets: &[u32],
-    sizes: &[u32],
-    lengths: &PrimitiveArray,
-    layout: &Layout,
-    live_bytes: usize,
-    dict_offsets: &Buffer<u32>,
-    start_buf_index: u32,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<(Vec<ByteBuffer>, Buffer<BinaryView>)> {
-    let out = decode_compact_bytes(array, offsets, sizes, layout, live_bytes, dict_offsets, ctx)?;
-    match_each_integer_ptype!(lengths.ptype(), |P| {
-        Ok(build_views(
-            start_buf_index,
-            MAX_BUFFER_LEN,
-            out,
-            lengths.as_slice::<P>(),
-        ))
-    })
-}
-
 /// Canonicalise an [`OnPairViewArray`](crate::OnPairViewArray) to a
 /// **`VarBinArray`** (contiguous `bytes` + `offsets`) instead of a
 /// `VarBinViewArray`.
@@ -324,32 +272,7 @@ pub fn canonicalize_to_varbin(
     array: ArrayView<'_, OnPairView>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let lengths = array
-        .uncompressed_lengths()
-        .clone()
-        .execute::<PrimitiveArray>(ctx)?;
-    let live_bytes: usize = match_each_integer_ptype!(lengths.ptype(), |P| {
-        lengths
-            .as_slice::<P>()
-            .iter()
-            .map(|&l| AsPrimitive::<usize>::as_(l))
-            .sum()
-    });
-
-    let offsets = array.collect_offsets(ctx)?;
-    let sizes = array.collect_sizes(ctx)?;
-    let layout = analyze(offsets.as_slice(), sizes.as_slice());
-    let dict_offsets = collect_widened::<u32>(array.dict_offsets(), ctx)?;
-
-    let bytes = decode_compact_bytes(
-        array,
-        offsets.as_slice(),
-        sizes.as_slice(),
-        &layout,
-        live_bytes,
-        &dict_offsets,
-        ctx,
-    )?;
+    let (bytes, lengths) = decode_live(array, ctx)?;
 
     // Running-sum `offsets` (length `rows + 1`) over the per-row lengths.
     let mut varbin_offsets: BufferMut<i64> = BufferMut::with_capacity(lengths.len() + 1);

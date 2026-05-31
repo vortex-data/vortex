@@ -36,7 +36,7 @@ use crate::OnPairArrayExt;
 use crate::OnPairArraySlotsExt;
 use crate::OnPairData;
 use crate::decode::collect_widened;
-use crate::onpairview::canonical::canonicalize_onpairview;
+use crate::onpairview::canonical::canonicalize;
 use crate::onpairview::kernel::PARENT_KERNELS;
 use crate::onpairview::rules::RULES;
 
@@ -414,7 +414,7 @@ impl VTable for OnPairView {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        canonicalize_onpairview(array.as_view(), ctx).map(ExecutionResult::done)
+        canonicalize(array.as_view(), ctx).map(ExecutionResult::done)
     }
 
     fn append_to_builder(
