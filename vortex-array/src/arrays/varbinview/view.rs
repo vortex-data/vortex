@@ -104,6 +104,10 @@ impl BinaryView {
     /// `--emit asm` — the inline fill drops from 108 instructions with an indirect
     /// jump to ~40 with only well-predicted length compares.
     #[inline(never)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "len <= MAX_INLINED_SIZE (12) in this branch"
+    )]
     pub fn make_view(value: &[u8], block: u32, offset: u32) -> Self {
         let len = value.len();
         if len <= Self::MAX_INLINED_SIZE {
