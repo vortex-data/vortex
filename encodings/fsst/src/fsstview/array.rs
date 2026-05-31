@@ -31,7 +31,6 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -89,23 +88,6 @@ pub struct FSSTViewMetadata {
     codes_offsets_ptype: i32,
     #[prost(enumeration = "PType", tag = "3")]
     codes_ends_ptype: i32,
-}
-
-impl FSSTViewMetadata {
-    fn get_uncompressed_lengths_ptype(&self) -> VortexResult<PType> {
-        PType::try_from(self.uncompressed_lengths_ptype)
-            .map_err(|_| vortex_err!("Invalid PType {}", self.uncompressed_lengths_ptype))
-    }
-
-    fn get_codes_offsets_ptype(&self) -> VortexResult<PType> {
-        PType::try_from(self.codes_offsets_ptype)
-            .map_err(|_| vortex_err!("Invalid PType {}", self.codes_offsets_ptype))
-    }
-
-    fn get_codes_ends_ptype(&self) -> VortexResult<PType> {
-        PType::try_from(self.codes_ends_ptype)
-            .map_err(|_| vortex_err!("Invalid PType {}", self.codes_ends_ptype))
-    }
 }
 
 impl FSSTView {
@@ -389,7 +371,7 @@ impl VTable for FSSTView {
         let uncompressed_lengths = children.get(
             0,
             &DType::Primitive(
-                metadata.get_uncompressed_lengths_ptype()?,
+                PType::try_from(metadata.uncompressed_lengths_ptype)?,
                 Nullability::NonNullable,
             ),
             len,
@@ -397,14 +379,17 @@ impl VTable for FSSTView {
         let codes_offsets = children.get(
             1,
             &DType::Primitive(
-                metadata.get_codes_offsets_ptype()?,
+                PType::try_from(metadata.codes_offsets_ptype)?,
                 Nullability::NonNullable,
             ),
             len,
         )?;
         let codes_ends = children.get(
             2,
-            &DType::Primitive(metadata.get_codes_ends_ptype()?, Nullability::NonNullable),
+            &DType::Primitive(
+                PType::try_from(metadata.codes_ends_ptype)?,
+                Nullability::NonNullable,
+            ),
             len,
         )?;
 

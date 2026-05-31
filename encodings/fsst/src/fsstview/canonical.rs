@@ -165,8 +165,8 @@ fn decode_element_ordered(
         .uncompressed_lengths()
         .clone()
         .execute::<PrimitiveArray>(ctx)?;
-    // `total_size` is needed by every path; sum it from the typed slice. The widened
-    // `ulens: Vec<usize>` is only needed by `RunDecode`, so defer it.
+    // Total decoded length, used by every path to size the output buffer. Summed straight from the
+    // typed slice — no need to widen the uncompressed lengths into a `Vec<usize>`.
     #[expect(clippy::cast_possible_truncation)]
     let total_size: usize = match_each_integer_ptype!(ulen_prim.ptype(), |P| {
         ulen_prim.as_slice::<P>().iter().map(|x| *x as usize).sum()
