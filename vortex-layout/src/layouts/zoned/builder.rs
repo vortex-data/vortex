@@ -147,8 +147,26 @@ impl StatsAccumulator {
 
             // Different stats need different aggregations
             match stat {
-                // For stats that are associative, we can just compute them over the stat column
-                Stat::Min | Stat::Max | Stat::Sum => {
+                // Min/Max are associative, so we aggregate them over the per-chunk stat column.
+                // For variable-width (utf8/binary) types these are *bounded* aggregates: a chunk's
+                // bound is null when its value could not be represented within
+                // `max_variable_length_statistics_size` (an all-0xFF prefix for Max), i.e. the
+                // bound is unknown. A plain Min/Max aggregate would silently skip that null and
+                // emit a bound derived from the remaining chunks, under-estimating Max /
+                // over-estimating Min and pruning rows that actually match
+                // (https://github.com/vortex-data/vortex/issues/8166). Treat a null bound as
+                // "no aggregate stat" for these types instead.
+                Stat::Min | Stat::Max => {
+                    let bound_unknown = matches!(array.dtype(), DType::Utf8(_) | DType::Binary(_))
+                        && !array.all_valid(ctx)?;
+                    if !bound_unknown
+                        && let Some(s) = array.statistics().compute_stat(stat, ctx)?
+                        && let Some(v) = s.into_value()
+                    {
+                        stats_set.set(stat, Precision::exact(v))
+                    }
+                }
+                Stat::Sum => {
                     if let Some(s) = array.statistics().compute_stat(stat, ctx)?
                         && let Some(v) = s.into_value()
                     {
