@@ -2,53 +2,30 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 //
 //! Canonicalise an [`OnPairViewArray`](crate::OnPairViewArray) to a
-//! `VarBinViewArray`, choosing between three decode strategies.
+//! `VarBinViewArray` by gathering the live token windows and decoding once.
 //!
 //! The [`onpair::decompress_into`] decoder walks a *contiguous* `codes` slice
 //! sequentially and emits the decoded bytes; the per-row split is recovered
-//! afterwards. So how we feed it depends on how the per-row windows are laid out
+//! afterwards. So we feed it the row-ordered concatenation of the live windows
 //! over the shared `codes` buffer (a freshly converted array is contiguous; a
 //! `filter` leaves gaps; a reordering `take` scrambles the order):
 //!
-//! 1. **Span decode (no random access, may carry dead bytes).** When the windows
-//!    are sorted and non-overlapping (contiguous, or contiguous-with-gaps after a
-//!    `filter`), the *span* `codes[min_offset .. max_end]` already holds every
-//!    live token in row order — plus, in the gap case, some dead tokens. We
-//!    decode that whole span in **one sequential pass** and build `VarBinView`
-//!    views that point at each row's byte range inside it
-//!    ([`BinaryView::make_view`] takes an arbitrary buffer offset). The decoded
-//!    gap bytes are never referenced — *dead values* in the output buffer. This
-//!    is cache-friendly (no gather) and, when there are no gaps, optimal.
-//!
-//! 2. **Gather / compact.** When the windows are sorted but *sparse* (a very
-//!    selective `filter` leaves large gaps), decoding the span would waste most
-//!    of the work — and most of the output buffer — on dead bytes. Instead we
-//!    gather the live windows into a fresh contiguous token buffer (random reads
-//!    over `codes`) and decode only those. This is the same compaction the
-//!    [`ListView`](vortex_array::arrays::ListViewArray) exporter performs before
-//!    handing Arrow a sparse array.
-//!
-//! 3. **Gather is also the fallback** when the windows are *reordered or
-//!    overlapping* (after a shuffling/duplicating `take`): a span decode can't
-//!    reproduce row order then, so we always gather.
+//! * **Contiguous** windows (a fresh array, or a `slice`): the referenced span
+//!   `codes[base..end]` already *is* the row-ordered live codes, so we decode it
+//!   directly with no copy and let [`build_views`] derive each row's view in
+//!   `O(rows)`.
+//! * **Sparse or reordered** windows (after `filter`/`take`): we gather the live
+//!   windows into a fresh contiguous token buffer (random reads over `codes`)
+//!   and decode only those — the same compaction the
+//!   [`ListView`](vortex_array::arrays::ListViewArray) exporter performs.
 //!
 //! The choice is an `O(num_rows)` scan ([`analyze`]) of the small per-row
 //! children, never `O(num_tokens)`.
 //!
-//! # Why `Auto` always gathers
-//!
-//! The intuition was that small gaps are fine — a span decode carrying a few
-//! dead bytes avoids the random-access gather. The `view_compute` sweep shows it
-//! does **not** pay off: gather is faster at *every* gap density (5.3× at 2 %
-//! live, still 1.13× at 95 %), and the margin never closes. Two `O(span)` costs
-//! sink the span path whenever gaps exist — decoding the dead tokens, and the
-//! `byte_at` prefix-sum over the span used to locate each row's start. And even
-//! at *zero* gaps the span path is no better: the gather path's contiguous
-//! branch slices the same span with **no `byte_at`** and lets `build_views`
-//! derive offsets in `O(rows)`, whereas `decode_span_with_dead` always pays the
-//! `O(span-tokens)` prefix. So `decode_span_with_dead` is never the best choice;
-//! `Auto` always takes the gather path (which direct-slices contiguous data),
-//! and `SpanWithDead` exists only as an opt-in for experiments.
+//! A decode-the-whole-span-including-dead-gap-bytes strategy was measured and
+//! removed: it loses to gather at *every* gap density (two `O(span)` costs sink
+//! it — decoding dead tokens and a `byte_at` prefix-sum over the span), and even
+//! at zero gaps it is no better than the contiguous direct-slice above.
 
 use std::sync::Arc;
 
@@ -70,7 +47,6 @@ use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 
 use crate::OnPairView;
 use crate::OnPairViewArray;
@@ -78,41 +54,23 @@ use crate::OnPairViewArrayExt;
 use crate::OnPairViewArraySlotsExt;
 use crate::decode::collect_widened;
 
-/// Which decode strategy to use when canonicalising an [`OnPairViewArray`].
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum OnPairViewDecodeMode {
-    /// The gather path: direct-slice the span when the windows are contiguous
-    /// (no copy, `build_views` derives offsets in `O(rows)`), gather the live
-    /// windows otherwise. This dominates the span-with-dead path at every gap
-    /// density, so it is the default.
-    Auto,
-    /// Opt-in: decode the whole `codes[base..end]` span — including dead gap
-    /// tokens — and point each view into it (dead values in the output buffer).
-    /// Kept for experimentation; the `view_compute` sweep shows it loses to
-    /// `Auto` at every density. Falls back to gather when the windows are
-    /// reordered/overlapping (a span decode can't reproduce row order then).
-    SpanWithDead,
-    /// Force the gather/compact decode (identical to `Auto` today).
-    Gather,
-}
-
 pub(super) fn canonicalize_onpairview(
     array: ArrayView<'_, OnPairView>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    canonicalize_with(array, OnPairViewDecodeMode::Auto, ctx)
+    canonicalize(array, ctx)
 }
 
-/// Canonicalise to a `VarBinViewArray` using an explicit [`OnPairViewDecodeMode`].
+/// Canonicalise an [`OnPairViewArray`](crate::OnPairViewArray) to a
+/// `VarBinViewArray` by gathering the live token windows and decoding once.
 ///
-/// Exposed so callers (and benchmarks) can force a strategy; the VTable's
-/// `execute` always uses [`OnPairViewDecodeMode::Auto`].
-pub fn canonicalize_with(
+/// Exposed so callers (and benchmarks) can export without round-tripping through
+/// the VTable's `execute`, which calls straight into this.
+pub fn canonicalize(
     array: ArrayView<'_, OnPairView>,
-    mode: OnPairViewDecodeMode,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let (buffers, views) = onpairview_decode_views(array, 0, mode, ctx)?;
+    let (buffers, views) = onpairview_decode_views(array, 0, ctx)?;
     let validity = array.array().validity()?;
     Ok(unsafe {
         VarBinViewArray::new_unchecked(views, Arc::from(buffers), array.dtype().clone(), validity)
@@ -177,7 +135,6 @@ fn analyze(offsets: &[u32], sizes: &[u32]) -> Layout {
 pub(crate) fn onpairview_decode_views(
     array: ArrayView<'_, OnPairView>,
     start_buf_index: u32,
-    mode: OnPairViewDecodeMode,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<(Vec<ByteBuffer>, Buffer<BinaryView>)> {
     let lengths = array
@@ -198,27 +155,6 @@ pub(crate) fn onpairview_decode_views(
 
     let dict_offsets = collect_widened::<u32>(array.dict_offsets(), ctx)?;
 
-    // `decode_span_with_dead` is dominated by the gather path at *every* gap
-    // density — even at zero gaps it pays an O(span-tokens) `byte_at` prefix that
-    // the gather path's direct-slice contiguous branch (O(rows) via build_views)
-    // avoids. So `Auto` always gathers; the span path is opt-in for experiments.
-    let use_span = layout.span_decodable && mode == OnPairViewDecodeMode::SpanWithDead;
-
-    // Span output exceeding a single buffer returns `None`; fall through to gather.
-    if use_span
-        && let Some(result) = decode_span_with_dead(
-            array,
-            &layout,
-            offsets.as_slice(),
-            &lengths,
-            &dict_offsets,
-            start_buf_index,
-            ctx,
-        )?
-    {
-        return Ok(result);
-    }
-
     decode_gather(
         array,
         offsets.as_slice(),
@@ -230,72 +166,6 @@ pub(crate) fn onpairview_decode_views(
         start_buf_index,
         ctx,
     )
-}
-
-/// Strategy 1: decode the contiguous span `codes[base..end]` once and point each
-/// row's view into it. Returns `None` if the decoded span would exceed a single
-/// `VarBinView` buffer (caller then gathers).
-#[allow(clippy::too_many_arguments)]
-fn decode_span_with_dead(
-    array: ArrayView<'_, OnPairView>,
-    layout: &Layout,
-    offsets: &[u32],
-    lengths: &PrimitiveArray,
-    dict_offsets: &Buffer<u32>,
-    start_buf_index: u32,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<(Vec<ByteBuffer>, Buffer<BinaryView>)>> {
-    let span_codes = collect_widened::<u16>(&array.codes().slice(layout.base..layout.end)?, ctx)?;
-
-    // Prefix-sum of decoded bytes at each token boundary within the span, so we
-    // can locate any row's start in the decoded output.
-    let span_len = span_codes.len();
-    let mut byte_at: Vec<usize> = Vec::with_capacity(span_len + 1);
-    byte_at.push(0);
-    let mut acc: usize = 0;
-    for &code in span_codes.as_slice() {
-        let code = code as usize;
-        acc += (dict_offsets[code + 1] - dict_offsets[code]) as usize;
-        byte_at.push(acc);
-    }
-    let decoded_span_bytes = acc;
-    if decoded_span_bytes > MAX_BUFFER_LEN {
-        return Ok(None);
-    }
-
-    let mut out = ByteBufferMut::with_capacity(decoded_span_bytes);
-    let written = onpair::decompress_into(
-        Parts {
-            dict_bytes: array.dict_bytes().as_slice(),
-            dict_offsets: dict_offsets.as_slice(),
-            bits: array.bits(),
-            codes: span_codes.as_slice(),
-        },
-        out.spare_capacity_mut(),
-    );
-    debug_assert_eq!(written, decoded_span_bytes);
-    // SAFETY: `decompress_into` initialised exactly `written` bytes.
-    unsafe { out.set_len(written) };
-    let out = out.freeze();
-
-    let mut views = BufferMut::<BinaryView>::with_capacity(offsets.len());
-    match_each_integer_ptype!(lengths.ptype(), |P| {
-        for (i, &offset) in offsets.iter().enumerate() {
-            let len: usize = AsPrimitive::<usize>::as_(lengths.as_slice::<P>()[i]);
-            if len == 0 {
-                views.push(BinaryView::make_view(&[], start_buf_index, 0));
-                continue;
-            }
-            let start = byte_at[offset as usize - layout.base];
-            views.push(BinaryView::make_view(
-                &out[start..start + len],
-                start_buf_index,
-                u32::try_from(start).map_err(|_| vortex_err!("span offset exceeds u32"))?,
-            ));
-        }
-    });
-
-    Ok(Some((vec![out], views.freeze())))
 }
 
 /// Rebuild a (possibly sparse / reordered) [`OnPairViewArray`] into a **compact**
