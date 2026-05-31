@@ -6,6 +6,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -16,9 +17,12 @@ use vortex_array::compute::conformance::filter::test_filter_conformance;
 use vortex_array::compute::conformance::take::test_take_conformance;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::match_each_integer_ptype;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
+use super::array::FSSTViewArraySlotsExt;
 use crate::FSSTArray;
 use crate::FSSTView;
 use crate::FSSTViewArray;
@@ -75,6 +79,43 @@ fn canonicalizes_to_same_values() -> VortexResult<()> {
     .into_array()
     .execute::<VarBinViewArray>(&mut ctx)?;
     assert_arrays_eq!(canonical.into_array(), expected.into_array());
+    Ok(())
+}
+
+/// The conversion-floor fix depends on `codes_offsets`/`codes_ends` being **zero-copy** slices of
+/// the FSST's single monotonic offsets buffer (`offsets[0..len]` and `offsets[1..len + 1]`) —
+/// nothing copied, no per-element `sizes` array materialized. Verify it structurally: a freshly
+/// converted view's `codes_ends` must begin exactly one element past `codes_offsets` *in the same
+/// allocation*. A regression to a size-materializing conversion would break this even though the
+/// decoded values would still agree (so the value/agreement tests would not catch it). The bench
+/// that measures the resulting floor (`fsst_view_fineweb_queries`) is gated out of CI.
+#[test]
+fn conversion_shares_offsets_buffer_zero_copy() -> VortexResult<()> {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let fsst = make_fsst(&SAMPLE, Nullability::NonNullable, &mut ctx);
+
+    let view = fsstview_from_fsst(&fsst, &mut ctx)?;
+    let offsets = view
+        .codes_offsets()
+        .clone()
+        .try_downcast::<Primitive>()
+        .map_err(|_| vortex_err!("codes_offsets should be a primitive slice"))?;
+    let ends = view
+        .codes_ends()
+        .clone()
+        .try_downcast::<Primitive>()
+        .map_err(|_| vortex_err!("codes_ends should be a primitive slice"))?;
+
+    assert_eq!(offsets.ptype(), ends.ptype());
+    match_each_integer_ptype!(offsets.ptype(), |P| {
+        let off = offsets.as_slice::<P>();
+        let end = ends.as_slice::<P>();
+        assert_eq!(
+            end.as_ptr(),
+            off.as_ptr().wrapping_add(1),
+            "codes_ends must be codes_offsets shifted by one within the same buffer (zero-copy)"
+        );
+    });
     Ok(())
 }
 

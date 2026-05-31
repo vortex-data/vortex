@@ -15,7 +15,7 @@ offsets — which **eliminated the conversion floor** that previously made the v
 
 - **Branch:** `claude/fsstview-conversion-floor-kRAeg` (built on the original
   `claude/fsstview-array-listview-TdW45`).
-- **Status:** merge-ready. 104 tests pass, `clippy --all-targets --all-features` clean,
+- **Status:** merge-ready. 105 tests pass, `clippy --all-targets --all-features` clean,
   `cargo +nightly fmt` clean, `vortex-file` builds, doc tests pass.
 - **No PR opened yet** (was waiting on explicit request).
 - **Scope:** additive, contained in `encodings/fsst/` plus 2 registration lines in `vortex-file`.
@@ -33,7 +33,7 @@ New encoding `vortex.fsstview` in `encodings/fsst/src/fsstview/`:
 | `from_fsst.rs` | `fsst_filter_to_view` / `fsst_take_to_view` helpers |
 | `canonical.rs` | decode → `VarBinViewArray` / `VarBinArray`, with the `Auto` export strategy |
 | `kernel.rs` / `rules.rs` | parent kernel + rule registration |
-| `tests.rs` | conformance + agreement + nullable/gapped/RunDecode coverage |
+| `tests.rs` | conformance + agreement + nullable/gapped/RunDecode coverage + zero-copy conversion guard |
 
 Registered in `vortex-file/src/lib.rs` (`register_default_encodings`). Public API:
 `FSSTView`, `FSSTViewArray`, `FsstViewCompaction`, `canonicalize_fsstview_with`,
@@ -114,6 +114,12 @@ result (same-machine before/after, `fsst_view_fineweb_queries`): `url/vortex` 14
 `url/espn_and` 146 µs → **14.9 µs**, and the previously winning clustered cases (`text/dump_eq`,
 `text/date_prefix`) held flat. The view now wins or ties every query in the matrix.
 
+A regression guard (`conversion_shares_offsets_buffer_zero_copy` in `tests.rs`) asserts the
+structural invariant the fix relies on: a freshly converted view's `codes_ends` slice begins exactly
+one element past `codes_offsets` in the *same allocation*. This catches a silent revert to a
+size-materializing conversion — which the value/agreement tests would not, since the decoded values
+would still match — without depending on the FineWeb bench (gated out of CI).
+
 The alternative follow-up (store `sizes` in the narrowest int width) was considered and rejected:
 it only halves the *write* traffic, leaving the unavoidable full read of the offsets — whereas the
 `ends` representation removes the whole O(rows) pass. Narrowing widths is orthogonal and can still
@@ -122,7 +128,7 @@ be layered on the file layer's compression if desired.
 ## Verification commands
 
 ```bash
-cargo nextest run -p vortex-fsst          # (or cargo test -p vortex-fsst) — 104 pass
+cargo nextest run -p vortex-fsst          # (or cargo test -p vortex-fsst) — 105 pass
 cargo clippy -p vortex-fsst --all-targets --all-features
 cargo clippy -p vortex-file
 cargo +nightly fmt --all
