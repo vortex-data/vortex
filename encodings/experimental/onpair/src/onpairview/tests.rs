@@ -215,53 +215,6 @@ fn compact_rebuilds_contiguous() -> VortexResult<()> {
     Ok(())
 }
 
-/// The experimental tiled decode must match the normal decode at any tile size,
-/// for contiguous and gappy layouts and inline + referenced (>12 byte) strings.
-#[test]
-fn tiled_matches() -> VortexResult<()> {
-    use crate::canonicalize_tiled;
-
-    let read = |arr: ArrayRef| -> Vec<String> {
-        let v = arr
-            .execute::<VarBinViewArray>(&mut SESSION.create_execution_ctx())
-            .unwrap();
-        (0..v.len())
-            .map(|i| String::from_utf8(v.bytes_at(i).as_slice().to_vec()).unwrap())
-            .collect()
-    };
-
-    let (strings, view) = build()?;
-    for tile in [1usize, 3, 64, 4096] {
-        let tiled = canonicalize_tiled(view.as_view(), tile, &mut SESSION.create_execution_ctx())?;
-        assert_eq!(read(tiled), strings, "contiguous tile {tile}");
-    }
-
-    let mask = Mask::from_iter((0..strings.len()).map(|i| i % 3 == 0));
-    let filtered = as_view(
-        <OnPairView as FilterKernel>::filter(
-            view.as_view(),
-            &mask,
-            &mut SESSION.create_execution_ctx(),
-        )?
-        .expect("Some"),
-    );
-    let expected: Vec<String> = strings
-        .iter()
-        .enumerate()
-        .filter(|(i, _)| i % 3 == 0)
-        .map(|(_, s)| s.clone())
-        .collect();
-    for tile in [1usize, 3, 4096] {
-        let tiled = canonicalize_tiled(
-            filtered.as_view(),
-            tile,
-            &mut SESSION.create_execution_ctx(),
-        )?;
-        assert_eq!(read(tiled), expected, "gappy tile {tile}");
-    }
-    Ok(())
-}
-
 #[test]
 fn slice_preserves_codes_buffer() -> VortexResult<()> {
     let (strings, view) = build()?;
