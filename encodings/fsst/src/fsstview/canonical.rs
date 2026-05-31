@@ -204,8 +204,7 @@ fn decode_element_ordered(
             decompress_direct(&decompressor, heap, start, live, total_size)
         }
         FsstViewCompaction::RunDecode => {
-            let ulens = widen_ulens(&ulen_prim);
-            decompress_run_decode(&decompressor, heap, &offsets, &sizes, &ulens, total_size)
+            decompress_run_decode(&decompressor, heap, &offsets, &sizes, total_size)
         }
         // `Auto` is resolved above; `GatherBulk` is the catch-all.
         _ => {
@@ -245,20 +244,6 @@ fn cumulative_offsets(ulen_prim: &PrimitiveArray) -> ArrayRef {
         }
     });
     offsets.into_array()
-}
-
-/// Widen an already-executed uncompressed-lengths primitive array into `Vec<usize>`. Only
-/// `RunDecode` needs this; `Direct`/`GatherBulk` work without it.
-fn widen_ulens(ulen_prim: &PrimitiveArray) -> Vec<usize> {
-    #[expect(clippy::cast_possible_truncation)]
-    let out: Vec<usize> = match_each_integer_ptype!(ulen_prim.ptype(), |P| {
-        ulen_prim
-            .as_slice::<P>()
-            .iter()
-            .map(|x| *x as usize)
-            .collect()
-    });
-    out
 }
 
 /// The survivor layout in the heap, used to pick an export strategy.
@@ -307,7 +292,6 @@ fn decompress_run_decode(
     heap: &[u8],
     offsets: &[usize],
     sizes: &[usize],
-    ulens: &[usize],
     total_size: usize,
 ) -> ByteBufferMut {
     let mut out = ByteBufferMut::with_capacity(total_size + 7);
@@ -324,7 +308,6 @@ fn decompress_run_decode(
             }
             let run_heap_start = offsets[i];
             let mut run_heap_end = run_heap_start;
-            let mut run_uncompressed = 0usize;
             let mut j = i;
             while j < offsets.len() {
                 if sizes[j] == 0 {
@@ -335,14 +318,20 @@ fn decompress_run_decode(
                     break;
                 }
                 run_heap_end += sizes[j];
-                run_uncompressed += ulens[j];
                 j += 1;
             }
-            decompressor
+            // `decompress_into` returns the exact decoded byte count for this run, which equals the
+            // run's total uncompressed length; advance by it instead of precomputing per-element
+            // uncompressed lengths.
+            let written = decompressor
                 .decompress_into(&heap[run_heap_start..run_heap_end], &mut spare[out_pos..]);
-            out_pos += run_uncompressed;
+            out_pos += written;
             i = j;
         }
+        debug_assert_eq!(
+            out_pos, total_size,
+            "run-decode must fill exactly total_size bytes"
+        );
     }
     unsafe { out.set_len(total_size) };
     out
