@@ -24,7 +24,6 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use arc_swap::ArcSwap;
 use arrow_array::Array as _;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::RecordBatch;
@@ -44,11 +43,11 @@ use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::SessionVar;
 use vortex_session::registry::Id;
-use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arc_swap_map::ArcSwapMap;
 use crate::arrays::StructArray;
 use crate::arrow::FromArrowArray;
 use crate::arrow::convert::nulls;
@@ -61,6 +60,7 @@ use crate::dtype::Nullability;
 use crate::dtype::StructFields;
 use crate::dtype::arrow::FromArrowType;
 use crate::dtype::arrow::to_data_type_naive;
+use crate::dtype::extension::ExtId;
 use crate::extension::datetime::AnyTemporal;
 use crate::extension::uuid::Uuid;
 use crate::validity::Validity;
@@ -154,10 +154,6 @@ pub trait ArrowImportVTable: 'static + Send + Sync + Debug {
 pub type ArrowExportVTableRef = Arc<dyn ArrowExportVTable>;
 pub type ArrowImportVTableRef = Arc<dyn ArrowImportVTable>;
 
-type ExportMap = HashMap<Id, Arc<[ArrowExportVTableRef]>>;
-type ImportMap = HashMap<Id, Arc<[ArrowImportVTableRef]>>;
-type ExportDTypeMap = HashMap<Id, Arc<[ArrowExportVTableRef]>>;
-
 /// Session-scoped registry of Arrow extension plugins.
 ///
 /// Exporters are stored in two indices: one keyed by Arrow extension Id (used for
@@ -169,17 +165,17 @@ type ExportDTypeMap = HashMap<Id, Arc<[ArrowExportVTableRef]>>;
 /// need plugins.
 #[derive(Debug)]
 pub struct ArrowSession {
-    exporters: ArcSwap<ExportMap>,
-    exporters_by_vortex: ArcSwap<ExportDTypeMap>,
-    importers: ArcSwap<ImportMap>,
+    exporters: ArcSwapMap<Id, Arc<[ArrowExportVTableRef]>>,
+    exporters_by_vortex: ArcSwapMap<ExtId, Arc<[ArrowExportVTableRef]>>,
+    importers: ArcSwapMap<Id, Arc<[ArrowImportVTableRef]>>,
 }
 
 impl Default for ArrowSession {
     fn default() -> Self {
         let session = Self {
-            exporters: ArcSwap::from_pointee(ExportMap::default()),
-            exporters_by_vortex: ArcSwap::from_pointee(ExportDTypeMap::default()),
-            importers: ArcSwap::from_pointee(ImportMap::default()),
+            exporters: ArcSwapMap::default(),
+            exporters_by_vortex: ArcSwapMap::default(),
+            importers: ArcSwapMap::default(),
         };
 
         session.register_exporter(Arc::new(Uuid));
@@ -193,56 +189,31 @@ impl ArrowSession {
     /// Register an [`ArrowExportVTable`] under its target Arrow extension Id (for dispatch)
     /// and its source Vortex extension Id (for schema inference).
     pub fn register_exporter(&self, exporter: ArrowExportVTableRef) {
-        Self::insert(
-            &self.exporters,
+        self.exporters.push(
             exporter.arrow_ext_id(),
             ArrowExportVTableRef::clone(&exporter),
         );
-        Self::insert(&self.exporters_by_vortex, exporter.vortex_id(), exporter);
+        self.exporters_by_vortex
+            .push(exporter.vortex_id(), exporter);
     }
 
     /// Register an [`ArrowImportVTable`] under its source Arrow extension name.
     pub fn register_importer(&self, importer: ArrowImportVTableRef) {
-        Self::insert(&self.importers, importer.arrow_ext_id(), importer);
-    }
-
-    fn insert<K, T>(slot: &ArcSwap<HashMap<K, Arc<[T]>>>, key: K, value: T)
-    where
-        K: Clone + Eq + std::hash::Hash,
-        T: Clone,
-    {
-        slot.rcu(move |map| {
-            let mut next = (**map).clone();
-            let entry = next.entry(key.clone()).or_insert_with(|| Arc::from([]));
-            let mut extended: Vec<T> = entry.iter().cloned().collect();
-            extended.push(value.clone());
-            *entry = Arc::from(extended);
-            next
-        });
+        self.importers.push(importer.arrow_ext_id(), importer);
     }
 
     fn exporters(&self, id: &Id) -> Arc<[ArrowExportVTableRef]> {
-        self.exporters
-            .load()
-            .get(id)
-            .cloned()
-            .unwrap_or_else(|| Arc::from([]))
+        self.exporters.get(id).unwrap_or_else(|| Arc::from([]))
     }
 
     fn exporters_by_vortex(&self, id: &Id) -> Arc<[ArrowExportVTableRef]> {
         self.exporters_by_vortex
-            .load()
             .get(id)
-            .cloned()
             .unwrap_or_else(|| Arc::from([]))
     }
 
     fn importers(&self, id: &Id) -> Arc<[ArrowImportVTableRef]> {
-        self.importers
-            .load()
-            .get(id)
-            .cloned()
-            .unwrap_or_else(|| Arc::from([]))
+        self.importers.get(id).unwrap_or_else(|| Arc::from([]))
     }
 
     /// Build the Arrow [`Field`] for a Vortex [`DType`].
