@@ -660,6 +660,35 @@ mod tests {
         Ok(())
     }
 
+    /// Regression test for <https://github.com/vortex-data/vortex/issues/8145>.
+    ///
+    /// A chunked array whose first chunk is an *empty* constant array — as produced by
+    /// `fill_null` on an empty all-null chunk — returned `max = u32::MAX` because
+    /// `ChunkedArrayAggregate` accumulated the empty chunk, folding its fill scalar into the
+    /// running min/max. Empty chunks are now skipped during chunked aggregation.
+    #[test]
+    fn test_chunked_with_empty_constant_chunk() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
+        let empty = ConstantArray::new(Scalar::primitive(u32::MAX, Nullability::NonNullable), 0)
+            .into_array();
+        let chunk1 = PrimitiveArray::new(buffer![7631471u32], Validity::NonNullable).into_array();
+        let chunk2 = PrimitiveArray::new(buffer![0u32], Validity::NonNullable).into_array();
+        let chunked = ChunkedArray::try_new(
+            vec![empty, chunk1, chunk2],
+            DType::Primitive(PType::U32, Nullability::NonNullable),
+        )?;
+
+        assert_eq!(
+            min_max(&chunked.into_array(), &mut ctx)?,
+            Some(MinMaxResult {
+                min: Scalar::primitive(0u32, Nullability::NonNullable),
+                max: Scalar::primitive(7631471u32, Nullability::NonNullable),
+            })
+        );
+        Ok(())
+    }
+
     #[test]
     fn test_varbin_all_nulls() -> VortexResult<()> {
         let array = VarBinArray::from_iter(
