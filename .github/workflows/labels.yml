@@ -1,76 +1,144 @@
 name: PR Labels
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+# We use pull_request_target (not pull_request) for two reasons:
+#   1. Fork PRs get a writable token here, so we can apply the label.
+#   2. We re-run on "edited", so title/description edits re-evaluate the label.
+# This is safe because we never check out or execute PR code; we only read the
+# PR title, body, and labels as data and compare them against a fixed allowlist.
 on:
-  pull_request:
-    # Trigger on these PR activities
-    types: [opened, reopened, synchronize, labeled, unlabeled]
+  pull_request_target:
+    types: [opened, reopened, synchronize, edited, labeled, unlabeled]
+
+permissions:
+  contents: read
 
 jobs:
-  check_changelog_label:
-    name: Validate Changelog Label
+  changelog_label:
+    # NOTE: this name is intentionally different from the commit status context
+    # ("Validate Changelog Label") below, which is the check branch protection
+    # should require. The status is posted against the PR head SHA so that it
+    # lands on the commit branch protection actually evaluates.
+    name: Changelog Label
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      pull-requests: read  # Grant permission to read PR information
+      pull-requests: write  # add the inferred changelog label
+      statuses: write  # report the result against the PR head commit
     steps:
-      - name: Get PR Labels from API
-        id: get_labels_api
-        uses: octokit/request-action@b91aabaa861c777dcdb14e2387e30eddf04619ae  # v3.0.0  # Use an action to make API requests
+      - name: Infer, apply, and validate changelog label
+        uses: actions/github-script@450193c5abd4cdb17ba9f3ffcfe8f635c4bb6c2a  # v7.0.1
         with:
-          route: GET /repos/{owner}/{repo}/issues/{pull_number}/labels
-          owner: ${{ github.repository_owner }}
-          repo: ${{ github.event.repository.name }}
-          pull_number: ${{ github.event.pull_request.number }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Automatically provided token
+          script: |
+            const CHANGELOG_LABELS = [
+              "changelog/break",
+              "changelog/deprecation",
+              "changelog/feature",
+              "changelog/performance",
+              "changelog/fix",
+              "changelog/docs",
+              "changelog/chore",
+              "changelog/skip",
+            ];
+            // Conventional-commit type -> changelog label. A "!" marker on the
+            // type or a "BREAKING CHANGE" footer always maps to changelog/break.
+            // changelog/deprecation and changelog/skip have no conventional-
+            // commit equivalent and stay manual.
+            const TYPE_TO_LABEL = {
+              feat: "changelog/feature",
+              fix: "changelog/fix",
+              perf: "changelog/performance",
+              docs: "changelog/docs",
+              chore: "changelog/chore",
+              ci: "changelog/chore",
+              build: "changelog/chore",
+              refactor: "changelog/chore",
+              test: "changelog/chore",
+              style: "changelog/chore",
+              revert: "changelog/chore",
+            };
+            const STATUS_CONTEXT = "Validate Changelog Label";
 
-      - name: Extract and Check Labels
-        env:
-          API_RESPONSE: ${{ steps.get_labels_api.outputs.data }}
-        run: |
-          REQUIRED_LABELS=(
-            "changelog/break"
-            "changelog/deprecation"
-            "changelog/feature"
-            "changelog/performance"
-            "changelog/fix"
-            "changelog/docs"
-            "changelog/chore"
-            "changelog/skip"
-          )
-          REQUIRED_LABELS_JSON=$(jq -n '$ARGS.positional' --args "${REQUIRED_LABELS[@]}")
-          echo "Required Labels: $REQUIRED_LABELS_JSON"
+            const pr = context.payload.pull_request;
+            const { owner, repo } = context.repo;
+            const sha = pr.head.sha;
 
-          # Parse the response from the API call
-          # The API returns an array of label objects, we need just the 'name' property
-          echo "API Response: $API_RESPONSE"
+            const report = (state, description) =>
+              github.rest.repos.createCommitStatus({
+                owner,
+                repo,
+                sha,
+                state,
+                context: STATUS_CONTEXT,
+                description: description.slice(0, 140),
+              });
 
-          # Extract only the label names into a JSON array
-          CURRENT_PR_LABELS_JSON=$(echo "$API_RESPONSE" | jq '[.[] | .name]')
-          echo "Current PR Labels from API: $CURRENT_PR_LABELS_JSON"
+            function inferLabel(title, body) {
+              const m = /^\s*([a-zA-Z]+)(\([^)]*\))?(!)?:/.exec(title || "");
+              const breaking = /(^|\n)BREAKING[ -]CHANGE/.test(body || "");
+              if (!m) return breaking ? "changelog/break" : null;
+              if (m[3] === "!" || breaking) return "changelog/break";
+              return TYPE_TO_LABEL[m[1].toLowerCase()] || null;
+            }
 
-          # Count how many changelog labels are present
-          found_labels=()
-          for label in "${REQUIRED_LABELS[@]}"; do
-            if echo "$CURRENT_PR_LABELS_JSON" | jq -e --arg label "$label" 'contains([$label])' > /dev/null; then
-              echo "Found changelog label: $label"
-              found_labels+=("$label")
-            fi
-          done
+            try {
+              // Read the freshest labels from the API; the webhook payload can
+              // be stale on labeled/unlabeled/edited events.
+              const { data: currentLabels } =
+                await github.rest.issues.listLabelsOnIssue({
+                  owner,
+                  repo,
+                  issue_number: pr.number,
+                });
+              let present = currentLabels
+                .map((l) => l.name)
+                .filter((n) => CHANGELOG_LABELS.includes(n));
 
-          label_count=${#found_labels[@]}
-          echo "Total changelog labels found: $label_count"
+              // Only auto-apply when there is no changelog label yet, so we
+              // never override a maintainer's manual choice.
+              if (present.length === 0) {
+                const inferred = inferLabel(pr.title, pr.body);
+                if (inferred) {
+                  await github.rest.issues.addLabels({
+                    owner,
+                    repo,
+                    issue_number: pr.number,
+                    labels: [inferred],
+                  });
+                  core.info(`Applied ${inferred} (inferred from title).`);
+                  present = [inferred];
+                }
+              }
 
-          if [ "$label_count" -eq 0 ]; then
-            echo "::error file=.github/workflows/pr-labels.yml::Pull Request is missing a required changelog label. Please add exactly one of: ${REQUIRED_LABELS[*]}."
-            exit 1
-          elif [ "$label_count" -gt 1 ]; then
-            echo "::error file=.github/workflows/pr-labels.yml::Pull Request has multiple changelog labels (${found_labels[*]}). Please keep only one."
-            exit 1
-          else
-            echo "Pull Request has exactly one changelog label: ${found_labels[0]}"
-          fi
+              if (present.length === 1) {
+                core.info(`Changelog label OK: ${present[0]}`);
+                await report("success", `Changelog label: ${present[0]}`);
+                return;
+              }
+
+              if (present.length > 1) {
+                const msg = `Multiple changelog labels (${present.join(
+                  ", ",
+                )}). Keep exactly one.`;
+                core.warning(msg);
+                await report("failure", msg);
+                return;
+              }
+
+              const msg =
+                "Missing changelog label. Use a conventional-commit title " +
+                "(feat/fix/perf/docs/chore/ci/build/refactor/test/style, or " +
+                "add ! for a break) or add one changelog/* label manually.";
+              core.warning(msg);
+              await report("failure", msg);
+            } catch (error) {
+              // On an unexpected error, fail loudly and leave the required
+              // status red rather than silently passing.
+              core.setFailed(error.message);
+              await report("error", `Workflow error: ${error.message}`).catch(
+                () => {},
+              );
+            }
