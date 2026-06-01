@@ -77,7 +77,60 @@ The script prints the exact `gh variable set` commands; copy them from its outpu
 | `RDS_BENCH_DB_NAME` | `vortex_bench` | All Postgres connections |
 | `GH_BENCH_SCHEMA_ROLE_ARN` | the OIDC role ARN | `.github/workflows/schema-deploy.yml` |
 
-No secrets are needed — IAM auth is the credential. The master password is RDS-managed and never used after initial provisioning.
+No secrets are needed — IAM auth is the credential. The master password is RDS-managed; it is used only for the one-time bootstrap apply (see "Schema deploys + one-time bootstrap" below), never for steady-state CI.
+
+## Schema deploys + one-time bootstrap
+
+Schema migrations under `migrations/` are applied by
+`.github/workflows/schema-deploy.yml` (wired in PR-1.4). The workflow is
+`workflow_dispatch` only: an operator triggers it manually from the GitHub
+Actions UI, optionally with `dry_run: true` to report drift via
+`migrate-schema.py status` without applying. That manual trigger is the deploy
+gate; a `schema-deploy` GitHub Environment with required-reviewer approval is
+the stronger gate but needs repo-admin to create and is tracked as deferred
+hardening.
+
+Steady-state deploys connect through the RDS Proxy as the `migrator` role using
+a short-lived IAM auth token (generated client-side via
+`aws rds generate-db-auth-token`, signed from the OIDC-assumed
+`GitHubBenchmarkSchemaRole` credentials; no password, no IAM permission beyond
+`rds-db:connect`). TLS is `verify-full` against Amazon's published RDS root CA
+bundle.
+
+### One-time bootstrap (operator, as master)
+
+CI can only IAM-auth as `migrator`, and `migrator` does not exist until
+migration `002` creates it. So the FIRST apply must be run once by the RDS
+master user, out-of-band. Two endpoint details matter:
+
+- The RDS Proxy is configured `IAMAuth=REQUIRED`, so it rejects password auth.
+  The master bootstrap must connect to the **instance** endpoint directly (from
+  `aws rds describe-db-instances --db-instance-identifier vortex-bench-prod
+  --query 'DBInstances[0].Endpoint.Address'`), NOT the proxy endpoint in
+  `RDS_BENCH_ENDPOINT`.
+- The master username is the one `provision.sh` set on the instance; retrieve
+  the RDS-managed master password from Secrets Manager.
+
+```sh
+export PGHOST=<instance-endpoint>           # NOT the proxy endpoint
+export PGPORT=5432
+export PGDATABASE=<RDS_BENCH_DB_NAME>
+export PGUSER=<master-username>
+export PGPASSWORD=<master-password-from-secrets-manager>
+export PGSSLMODE=require
+uv run --no-project scripts/migrate-schema.py apply
+```
+
+This applies `001` (schema), `002` (creates the `migrator` role + binds it to
+`rds_iam`), and `003` (grants `migrator` SELECT + INSERT on the
+`_applied_migrations` ledger). After the bootstrap, every subsequent migration
+is applied by the `schema-deploy` workflow as `migrator` through the proxy; the
+master password is not needed again.
+
+Because the bootstrap runs as master, the schema objects and the ledger are
+master-owned; `003` grants `migrator` the ledger access it needs to record and
+read applied migrations. Privileges on the six data tables for the ingest write
+path are granted separately in PR-2.1 alongside the ingest-role design.
 
 ## Acceptance criteria for PR-1.1
 

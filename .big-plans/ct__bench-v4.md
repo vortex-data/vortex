@@ -9,20 +9,20 @@ planning_sub_flow: null
 current_phase: "Phase 1: RDS + schema + hash port"
 phase_index: 1
 current_pr: null
-pr_index: 4
+pr_index: 5
 outstanding_must_fix: 0
-deferred_items_total: 13
-last_user_touchpoint: 2026-05-29T09:44:00Z
-last_user_touchpoint_what: "PR-1.3 complete (confidence: high, deferred: 1)"
+deferred_items_total: 14
+last_user_touchpoint: 2026-05-29T10:26:00Z
+last_user_touchpoint_what: "PR-1.4 complete (confidence: high, deferred: 1)"
 subagent_invocations_this_pr: 0
-subagent_invocations_total: 11
+subagent_invocations_total: 13
 review_cycles_this_pr: 0
 phase_entry_sha: d8f12ebbb
 phase_end_cycle: 0
 phase_end_reject_cycles: 0
 last_phase_end_verdict: null
 current_pr_is_ci_reopen: null
-last_commit: ab59ef00f
+last_commit: 7d8f437dc
 last_cycle_commits: []
 ```
 
@@ -454,6 +454,18 @@ cargo run -p <ingest-crate> -- --envelope <recent-envelope.jsonl> --dry-run
 - **Surprises during implementation**:
   - None material. The composite-index design deliberately follows the read-path chart-query filter columns (`api/charts.rs`) rather than the `measurement_id` hash field order in Table B — the hash tuple leads with `commit_sha` but every chart query filters on the dim columns and joins `commits` on `commit_sha`, so a dim-leading index is what serves the read path; PK uniqueness over the full hash tuple is already enforced by `measurement_id`.
 
+### PR-1.4: Wire schema-deploy.yml (apply-as-migrator) + ledger grant  (2 code commits + 2 fix commits + 2 gauntlet cycles, ending at 5fc9ad5be)
+
+- **Scope shipped**: `.github/workflows/schema-deploy.yml` rewritten from the PR-1.1 OIDC-probe skeleton into the real apply workflow (workflow_dispatch-only with a `dry_run` input; OIDC -> `GitHubBenchmarkSchemaRole`; client-side IAM auth-token; RDS global CA bundle download; `PGSSLMODE=verify-full`; `uv run --no-project scripts/migrate-schema.py apply` then `status` as the `migrator` role through the RDS Proxy). `migrations/003_migrator_ledger_grant.sql` (minimal idempotent `GRANT SELECT, INSERT ON public._applied_migrations TO migrator` so CI's migrator-role apply can record/read the ledger against a master-owned bootstrap; no DELETE/UPDATE = append-only least-privilege). `scripts/test_migrate_schema.py` updated for the 3-migration set + a discriminating ledger-grant test (SELECT/INSERT present, DELETE+UPDATE absent). `benchmarks-website/infra/README.md` gains a "Schema deploys + one-time bootstrap" section (master bootstrap must hit the INSTANCE endpoint since the proxy is `IAMAuth=REQUIRED`) and a corrected master-password claim.
+- **Acceptance criteria**: workflow runs `migrate-schema.py apply` as the OIDC `migrator` role (plan PR-1.4 row) — wired and yamllint --strict clean; manual-approval gate intentionally deferred (operator lacks repo-admin to create environments; workflow_dispatch IS the gate). Tests: **29/29 pass** against `postgres:16-alpine`; `py_compile` OK, `ruff` clean, `git diff --check` clean.
+- **Tests added**: 1 (ledger-grant privileges); 1 existing test extended (UPDATE-absent assertion).
+- **Review**: 2-vote (preset=pr-2, fresh+correctness, Claude executor). **Cycle 1 REJECT (3 must-fix)** — the workflow `Write` had silently failed (pre-existing skeleton not Read first), so the "wire" commit touched only the README while the workflow stayed a placeholder-echo skeleton, the `push:` trigger remained, and docs described a nonexistent workflow. Caught by BOTH lenses independently. **Fix**: landed the real workflow (resolving all 3 facets at once) + tightened the test. **Cycle 2 ACCEPT** (zero must-fix; both lenses); fix-commit attention block confirmed no regressions (token leak-safe, PEP 723 deps resolve, CA path consistent). 1 should-fix deferred, 3 nits dismissed.
+- **Confidence**: high (the namesake-deliverable bug was the exact failure gauntlet exists to catch; cycle-2 reviewers verified the wired workflow as new code — token handling, `uv run --no-project` PEP 723 resolution against sibling workflows, verify-full, dry_run parsing all confirmed correct).
+- **Deferred items**: 1 should-fix (uv Python auto-provisioning without an explicit pin -> matches repo convention, revisit in a CI-hardening pass; see Deferred work).
+- **Surprises during implementation**:
+  - The cycle-1 reject was a process bug, not a design bug: a `Write` tool call was rejected ("file not Read first") for the pre-existing skeleton and the rejection was missed inside a batch of parallel calls. This is precisely the Edit/Write-without-Read failure mode the spec's NEW-C "verify the staged diff actually changed before committing" discipline guards against. The recovery applied the discipline literally (Read -> Write -> `git diff --cached --quiet` check -> commit).
+  - The plan named `web/ops/README.md` for the IAM-role doc, but `web/` does not exist until PR-4.1; the docs went to `benchmarks-website/infra/README.md` (the correct home today). Recorded as an intentional plan deviation.
+
 ## Deferred work
 
 | Source | File:line | Severity | Description | Deferral rationale |
@@ -472,6 +484,7 @@ cargo run -p <ingest-crate> -- --envelope <recent-envelope.jsonl> --dry-run
 | PR-1.2 cycle-2 gauntlet | `scripts/migrate-schema.py` ledger schema (fingerprint) | should-fix | Applied migrations are not fingerprinted; an author editing `001_initial_schema.sql` after it has been applied to RDS sees `status` report clean both locally (against a freshly-applied testcontainer) and in CI (against RDS with the old file's effects). README forbids edit-after-apply but the runner has zero enforcement. | Substantive change: add a `sha256` column to `_applied_migrations`, record at apply time, compare on-disk hash vs ledger in `status`, report a third drift class `[~]` with non-zero exit. Track for a follow-up PR (PR-1.2.1 or fold into PR-1.4 wiring). |
 | PR-1.2 cycle-2 gauntlet | `scripts/test_migrate_schema.py` (no CI runner) | should-fix | The pytest suite skips silently when Docker is unavailable (`_docker_available()` probe), and no CI workflow currently runs the suite with Docker enabled. PR-1.2 acceptance ("Unit test: applies a fresh schema to testcontainers Postgres ...") is verified only by local dev runs; CI would be green even if the runner regressed. | PR-1.4 wires the schema-deploy workflow with real apply; pair it with a `pytest-on-PR` job that fails loud when `_docker_available` returns False in CI. Track for PR-1.4. |
 | PR-1.3 cycle-1 gauntlet | `migrations/002_iam_db_user.sql:37` (migrator table privileges) | should-fix | `migrator` is granted only `CREATE, USAGE ON SCHEMA public`, no table-level DML on the six tables `001` creates. Under the documented bootstrap order (first `apply` runs as RDS master, which owns `001`'s tables), the PR-2.x ingest write path connecting AS `migrator` would hit `permission denied`. | Forward-looking; the ingest write path is PR-2.x scope and the plan references a separate future `GitHubBenchmarkIngestRole`. Resolve the role-ownership model in PR-2.1 (dedicated ingest role with `GRANT SELECT,INSERT,UPDATE,DELETE` + `ALTER DEFAULT PRIVILEGES`, or explicit table grants to `migrator`), pinned by a connect-AS-ingest-role round-trip test. Fixing now would be premature and a least-privilege smell on the schema-deploy role. |
+| PR-1.4 cycle-2 gauntlet | `.github/workflows/schema-deploy.yml:50` (uv Python provisioning) | should-fix | The `Install uv` step relies on `uv` auto-provisioning a Python 3.11+ interpreter for the PEP 723 `requires-python` script with no explicit pin. Works with current `uv` and matches the sibling `docs.yml` pattern, but is a latent CI fragility if the shared `spiraldb/actions` setup-uv ever pins an older `uv` or disables managed-Python downloads. | Matches established repo convention (`docs.yml` / `bench-pr.yml` use the identical `setup-uv` + `uv run --no-project` pattern with no explicit Python pin); failure mode is loud + operator-visible (workflow_dispatch-only), not silent. Adding `uv python install 3.12` would deviate speculatively. Revisit if the shared setup-uv action's Python-provisioning behavior changes, or fold a repo-wide pin into a future CI-hardening pass. |
 
 ## Accepted tradeoffs / r1 traps
 

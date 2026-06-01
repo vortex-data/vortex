@@ -586,16 +586,17 @@ def test_apply_uses_public_schema_under_custom_search_path(
 
 
 def test_real_migrations_apply_cleanly(conn: psycopg.Connection) -> None:
-    """The real PR-1.3 migrations (`001` + `002`) apply against vanilla Postgres
-    and are recorded in the ledger in order."""
+    """The real Phase-1 migrations (`001` + `002` + `003`) apply against vanilla
+    Postgres and are recorded in the ledger in order."""
     applied = runner.apply(conn, REPO_MIGRATIONS_DIR)
 
-    assert applied == 2
+    assert applied == 3
     with conn.cursor() as cur:
         cur.execute("SELECT filename FROM public._applied_migrations ORDER BY filename")
         assert [row[0] for row in cur.fetchall()] == [
             "001_initial_schema.sql",
             "002_iam_db_user.sql",
+            "003_migrator_ledger_grant.sql",
         ]
 
 
@@ -604,7 +605,7 @@ def test_real_migrations_idempotent(conn: psycopg.Connection) -> None:
     first = runner.apply(conn, REPO_MIGRATIONS_DIR)
     second = runner.apply(conn, REPO_MIGRATIONS_DIR)
 
-    assert first == 2
+    assert first == 3
     assert second == 0
 
 
@@ -712,3 +713,34 @@ def test_real_migrations_create_migrator_role(conn: psycopg.Connection) -> None:
         row = cur.fetchone()
         assert row is not None, "migrator role was not created"
         assert row[0] is True, "migrator role must be able to log in"
+
+
+def test_real_migrations_grant_migrator_ledger_access(conn: psycopg.Connection) -> None:
+    """`003_migrator_ledger_grant.sql` gives `migrator` exactly SELECT + INSERT on
+    the append-only `public._applied_migrations` ledger. CI runs `apply` AS
+    `migrator`, so without these grants the apply path cannot record applied
+    migrations against a master-owned ledger. DELETE/UPDATE are intentionally NOT
+    granted (the ledger is append-only; least-privilege)."""
+    runner.apply(conn, REPO_MIGRATIONS_DIR)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT has_table_privilege('migrator', 'public._applied_migrations', 'SELECT')"
+        )
+        assert cur.fetchone()[0] is True, "migrator needs SELECT for `status`"
+        cur.execute(
+            "SELECT has_table_privilege('migrator', 'public._applied_migrations', 'INSERT')"
+        )
+        assert cur.fetchone()[0] is True, "migrator needs INSERT to record applied migrations"
+        cur.execute(
+            "SELECT has_table_privilege('migrator', 'public._applied_migrations', 'DELETE')"
+        )
+        assert cur.fetchone()[0] is False, (
+            "migrator must NOT have DELETE on the append-only ledger (least-privilege)"
+        )
+        cur.execute(
+            "SELECT has_table_privilege('migrator', 'public._applied_migrations', 'UPDATE')"
+        )
+        assert cur.fetchone()[0] is False, (
+            "migrator must NOT have UPDATE on the append-only ledger (least-privilege)"
+        )

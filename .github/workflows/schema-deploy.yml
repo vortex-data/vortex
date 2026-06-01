@@ -2,34 +2,41 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 #
 # Apply Postgres schema migrations from `migrations/*.sql` to the
-# benchmarks-website RDS instance via the `scripts/migrate-schema.py`
-# runner (created in PR-1.2; this workflow is wired to actually invoke
-# it in PR-1.4).
+# benchmarks-website RDS instance via the `scripts/migrate-schema.py` runner.
+# Connects through the RDS Proxy as the `migrator` IAM-auth role using a
+# short-lived token generated client-side from the OIDC-assumed
+# `GitHubBenchmarkSchemaRole` credentials.
 #
-# PR-1.1 establishes the OIDC plumbing: this skeleton runs but does
-# nothing useful yet beyond proving the GitHub-OIDC -> IAM role
-# assumption + AWS-region setup works end-to-end. PR-1.4 replaces the
-# placeholder step with the real `python scripts/migrate-schema.py
-# apply` invocation.
+# Trigger is `workflow_dispatch` only: schema changes to the production database
+# are applied manually by an operator clicking "Run workflow", never
+# automatically on push. That manual step IS the deploy gate. A `schema-deploy`
+# GitHub Environment with manual-approval protection rules is the stronger gate
+# but needs repo-admin to create; it is tracked as deferred hardening (see the
+# plan's Deferred work).
+#
+# Bootstrap: CI can only IAM-auth as `migrator` (the OIDC role has no master
+# credential), so the FIRST apply must be run once by the RDS master user
+# out-of-band to create the `migrator` role (002) and grant it ledger access
+# (003). Every subsequent apply runs here as `migrator`. See
+# `benchmarks-website/infra/README.md`.
 
 name: schema-deploy
 
 on:
-  push:
-    branches: ["develop", "ct/bench-v4"]
-    paths:
-      - "migrations/**"
-      - "scripts/migrate-schema.py"
-      - ".github/workflows/schema-deploy.yml"
-  workflow_dispatch: { }
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run `status` only (report drift, apply nothing)"
+        type: boolean
+        default: false
 
 permissions:
   id-token: write
   contents: read
 
-# Gates the run on a manual approval in GitHub UI. Configure the
-# 'schema-deploy' environment in repo settings -> Environments to
-# require approval from a named approver list before the job proceeds.
+# Serialize deploys so two operators cannot race `apply` against the same
+# database. `cancel-in-progress: false` lets an in-flight apply finish rather
+# than leaving a migration set half-applied.
 concurrency:
   group: schema-deploy
   cancel-in-progress: false
@@ -37,15 +44,12 @@ concurrency:
 jobs:
   apply:
     runs-on: ubuntu-latest
-    # NOTE: a `schema-deploy` GitHub Environment with manual-approval
-    # protection rules is the proper gate but requires repo-admin
-    # access to create. Until that's set up, the gate is purely the
-    # OIDC role's trust-policy sub-claim restricting role assumption
-    # to pushes on `develop` and `ct/bench-v4`. Re-add `environment:
-    # schema-deploy` here once the environment is created.
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
 
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885  # v6
@@ -53,33 +57,43 @@ jobs:
           role-to-assume: ${{ vars.GH_BENCH_SCHEMA_ROLE_ARN }}
           aws-region: ${{ vars.RDS_BENCH_REGION }}
 
-      - name: Verify identity (PR-1.1 acceptance probe)
-        # GitHubBenchmarkSchemaRole's inline policy grants only
-        # rds-db:connect; it has no rds:DescribeDBProxies / rds:Describe*
-        # so we can't probe RDS state from inside this assumed-role context.
-        # `sts get-caller-identity` requires no extra IAM perms and proves
-        # the OIDC -> AssumeRoleWithWebIdentity -> role assumption worked.
-        # Provisioning state is verified out-of-band by the operator
-        # running `aws rds describe-db-*` from their own SSO profile per
-        # benchmarks-website/infra/README.md.
-        run: aws sts get-caller-identity
-        env:
-          AWS_REGION: ${{ vars.RDS_BENCH_REGION }}
+      - name: Download RDS CA bundle
+        # `sslmode=verify-full` validates the proxy certificate chain and
+        # hostname against Amazon's published root CAs.
+        run: |
+          set -Eeuo pipefail
+          curl -fsSL https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
+            -o "${RUNNER_TEMP}/rds-global-bundle.pem"
 
-      # PR-1.4 replaces the step below with the real migration apply.
-      # The intent is documented inline so a reader of this skeleton
-      # can see what the wired-up workflow will do:
-      #
-      #   - name: Install Python dependencies
-      #     run: pip install --require-hashes -r scripts/requirements.txt
-      #
-      #   - name: Apply pending migrations
-      #     env:
-      #       PGHOST:   ${{ vars.RDS_BENCH_ENDPOINT }}
-      #       PGDATABASE: ${{ vars.RDS_BENCH_DB_NAME }}
-      #       PGUSER:   migrator
-      #       AWS_REGION: ${{ vars.RDS_BENCH_REGION }}
-      #     run: python scripts/migrate-schema.py apply
-      #
-      - name: Placeholder for migration apply (wired in PR-1.4)
-        run: echo "PR-1.4 wires this step. PR-1.1 only proves the OIDC + IAM path."
+      - name: Apply migrations and verify status
+        # The IAM auth token is generated client-side (SigV4 signing, no API
+        # call, no IAM permission beyond the role's `rds-db:connect`) and lives
+        # only for the duration of this step. `set -x` is deliberately NOT used
+        # so the token never lands in the workflow log. PGPASSWORD is assigned
+        # on its own line (not `export PGPASSWORD=$(...)`) so a failure of the
+        # token command is not masked by the `export` builtin's exit status
+        # under `set -e`.
+        env:
+          PGHOST: ${{ vars.RDS_BENCH_ENDPOINT }}
+          PGPORT: "5432"
+          PGDATABASE: ${{ vars.RDS_BENCH_DB_NAME }}
+          PGUSER: migrator
+          PGSSLMODE: verify-full
+          AWS_REGION: ${{ vars.RDS_BENCH_REGION }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -Eeuo pipefail
+          PGPASSWORD="$(aws rds generate-db-auth-token \
+            --hostname "${PGHOST}" \
+            --port "${PGPORT}" \
+            --region "${AWS_REGION}" \
+            --username "${PGUSER}")"
+          export PGPASSWORD
+          export PGSSLROOTCERT="${RUNNER_TEMP}/rds-global-bundle.pem"
+          if [ "${DRY_RUN}" = "true" ]; then
+            echo "dry_run: reporting status only, applying nothing"
+            uv run --no-project scripts/migrate-schema.py status
+          else
+            uv run --no-project scripts/migrate-schema.py apply
+            uv run --no-project scripts/migrate-schema.py status
+          fi
