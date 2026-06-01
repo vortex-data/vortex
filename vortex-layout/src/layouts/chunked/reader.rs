@@ -43,7 +43,7 @@ pub struct ChunkedReader {
     chunk_offsets: Vec<u64>,
 }
 
-static UNKNOWN: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("unknown layout"));
+static UNKNOWN: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("chunked-child"));
 
 impl ChunkedReader {
     pub fn new(
