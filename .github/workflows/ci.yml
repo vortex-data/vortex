@@ -163,6 +163,11 @@ jobs:
             env:
               rustflags: "RUSTFLAGS='-A warnings --cfg getrandom_backend=\"unsupported\"'"
             args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-cuda --exclude vortex-cub --exclude vortex-nvcomp --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd --exclude vortex-test-e2e-cuda --exclude vortex-sqllogictest --exclude vortex-parquet-variant"
+          - name: "x86_64 musl with default features"
+            runner: amd64-medium
+            target: x86_64-unknown-linux-musl
+            # CUDA crates have no musl target, exclude them like the wasm build does.
+            args: "--target x86_64-unknown-linux-musl --all-targets --exclude vortex-cuda --exclude vortex-cub --exclude vortex-nvcomp --exclude vortex-test-e2e-cuda"
     steps:
       - uses: runs-on/action@v2
         if: github.repository == 'vortex-data/vortex'
@@ -173,7 +178,16 @@ jobs:
       - name: Install wasm32 target
         if: ${{ matrix.config.target == 'wasm32-unknown-unknown' }}
         run: rustup target add wasm32-unknown-unknown
+      - name: Install musl target
+        if: ${{ matrix.config.target == 'x86_64-unknown-linux-musl' }}
+        run: |
+          rustup target add x86_64-unknown-linux-musl
+          sudo apt-get update && sudo apt-get install -y musl-tools
       - uses: ./.github/actions/check-rebuild
+        env:
+          # Use the musl C toolchain for cross-compiled C deps and linking.
+          CC_x86_64_unknown_linux_musl: musl-gcc
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
         with:
           command: "${{matrix.config.env.rustflags}} cargo hack build --profile ci --locked ${{matrix.config.args}} --ignore-private"
       - name: "Make sure no files changed after build"
