@@ -9,20 +9,20 @@ planning_sub_flow: null
 current_phase: "Phase 1: RDS + schema + hash port"
 phase_index: 1
 current_pr: null
-pr_index: 6
+pr_index: 7
 outstanding_must_fix: 0
-deferred_items_total: 15
-last_user_touchpoint: 2026-05-29T11:20:00Z
-last_user_touchpoint_what: "PR-1.5 complete (confidence: high, deferred: 1) -- last PR in Phase 1; at phase boundary"
+deferred_items_total: 25
+last_user_touchpoint: 2026-06-01T19:07:56Z
+last_user_touchpoint_what: "Phase 1 ACCEPTED (phase-end cycle 2; 2 code must-fix fixed in cb68db1c6), then LIVE-VERIFIED against real AWS on 2026-06-01 (see section 'Phase 1 live verification (2026-06-01)' below). Operator is PAUSED at the Phase-1->2 boundary (Step 3.4). Resume: status=phase-boundary + verdict=accept routes Step 0.4 straight back to Step 3.4 (proceed-to-Phase-2 / re-plan / amend choice) WITHOUT re-running the phase-end review. LIVE STATE (do NOT redo): prod DB vortex-bench-prod ALREADY HAS the schema applied (migrations 001+002+003 bootstrapped as master over verify-full; migrator role + rds_iam + ledger grants present; IAM-token auth as migrator confirmed working). GitHub repo vars reconciled to match schema-deploy.yml: RDS_BENCH_INSTANCE_ENDPOINT set, stale RDS_BENCH_ENDPOINT proxy var deleted. Remaining Phase-1 operator gate is NARROW: only the live schema-deploy.yml OIDC workflow run is unexercised, BLOCKED until ct/bench-v4 merges to develop (workflow_dispatch needs the file on the default branch); everything downstream of the OIDC token is proven. AWS access for verification: local CLI profile bench-prod (IAM user connor-aws-cli, account 245040174862); see memories project_bench_aws_access + project_bench_phase1_live_state. Also: re-unlock 1Password if op-ssh-sign locks again."
 subagent_invocations_this_pr: 0
-subagent_invocations_total: 14
+subagent_invocations_total: 22
 review_cycles_this_pr: 0
-phase_entry_sha: d8f12ebbb
-phase_end_cycle: 0
+phase_entry_sha: ae3e0494f
+phase_end_cycle: 2
 phase_end_reject_cycles: 0
-last_phase_end_verdict: null
+last_phase_end_verdict: accept
 current_pr_is_ci_reopen: null
-last_commit: 51212d7a3
+last_commit: cb68db1c6
 last_cycle_commits: []
 ```
 
@@ -120,15 +120,17 @@ Cutover style follows the v2→v3 template that just shipped: dual-write for ~1 
 |---|---|---|
 | Branching / merge target | Per-phase child branches → squash-merge into `ct/bench-v4`; final `ct/bench-v4` → `develop` once at end | User pick (Q1). Per-phase GH PRs give review granularity at GitHub level without per-logical-PR overhead. Mechanics: big-plans state machine runs on the phase's child branch; phase-end Step 3.5 Proceed opens child→ct/bench-v4 PR and awaits squash-merge before the next phase's child branch is spawned. |
 | Postgres flavor | **RDS Postgres on `db.t4g.micro`** in AWS account `245040174862`, region `us-east-1`, single-AZ | User pick (Q2). ~$13/mo floor + storage + IO. Latest Postgres (no Aurora version lag). Always-on (no cold-start). IAM auth native. Aurora's storage/replication/throughput benefits are unused at this scale. Account `245040174862` is the existing bench-S3 / `GitHubBenchmarkRole` account; CI already authenticates to it via OIDC. Operator uses an SSO `bench` profile to act against it (`aws sso login --profile bench`). Cross-account implication for Phase 3: v3 EC2 (DuckDB source) lives in personal account `375504701696/us-east-2`; the one-shot load needs operator creds for both accounts (or DuckDB snapshot via cross-account S3 bucket policy). See Risks #10. |
-| Connection pooler | **RDS Proxy** (front of RDS) with IAM-auth pass-through | Locked by Q2. Raises effective connection ceiling from ~100 (direct) to several thousand. Single pooler covers both CI writers and Vercel reader. |
+| Connection pooler | **RDS Proxy for the Vercel read service only**; CI writers connect directly to the public RDS instance endpoint with IAM | Locked by Q2, **amended 2026-05-29 (Phase-1 re-plan)**. RDS Proxy endpoints are VPC-internal (not publicly reachable), so off-VPC GitHub-hosted CI runners cannot use the proxy. The proxy's pooling value is for Vercel's serverless read concurrency (Phase 4); the ~14 CI writers per push connect directly to the public instance endpoint with IAM tokens (the instance was provisioned `--publicly-accessible` with IAM auth + verify-full TLS). The original "single pooler covers both CI writers and Vercel reader" claim was wrong; corrected by the Phase-1 phase-end gauntlet (RDS-Proxy-unreachable-from-off-VPC finding). |
 | Ingest writer language | **Pure Python** — extend `scripts/post-ingest.py`; port xxhash64 to Python with golden-vector tests against the existing Rust source-of-truth | User pick (Q4). Avoids adding sqlx + aws-sdk-rds Rust deps. Hash port is bounded by tests; Rust impl in `server/src/db.rs` stays the source of truth. Uses `psycopg[binary]` + `boto3.client('rds').generate_db_auth_token`. |
 | Postgres schema deploy tool | **In-house `scripts/migrate-schema.py`** (~30-50 LOC) + plain SQL files under `migrations/` | User pick (Q5a). Tracks via `_applied_migrations` table; applies pending `00N_name.sql` in name order; CI workflow invokes with OIDC + IAM. Zero new tools / languages. |
+| Schema-deploy authorization + execution-safety model | **PR merge IS the deploy gate** (no manual-approval `environment:` gate). `schema-deploy.yml` triggers `apply` on push to the deploy branch under `paths: migrations/**`; keep `dry_run`/`status` as the pre-apply preview and the testcontainer CI test as the per-PR safety check. **No** GitHub Environment / required-reviewer gate. | User decision 2026-05-29 (supersedes the original `environment: schema-deploy` manual-approval mandate). Two axes were conflated: *authorization* ("do we want this change?") is fully answered by reviewed-PR-merge; a human clicking "Approve" on an Environment only re-confirms authorization already given at merge, and does NOT verify the migration will apply cleanly. *Execution safety* ("will the DDL succeed against prod's current state?") is the real risk, and it is addressed by **testing the migration**, not by a manual gate. The testcontainer-against-empty-schema test (shipped) gates additive DDL (CREATE TABLE/INDEX, ADD COLUMN) at PR time, so a migration that cannot apply cannot merge. This also resolves the repo-admin blocker (creating an Environment needs admin; deciding the gate is the wrong tool removes the dependency). Tradeoffs knowingly forgone: deploy-timing decoupling (merge-now/apply-in-window) and segregation-of-duties (different approver than author); neither is material for a small-team benchmark site; revisit only on a compliance need. RDS has **no Neon-style instant copy-on-write branching**; the data-affecting-migration safety layer is a PITR-snapshot-restore-to-throwaway-instance CI step, added only when a migration mutates existing data (type change, NOT NULL on an existing column, backfill); out of scope for the additive Phase 1/early migrations. (Aurora fast-clone is the true Neon analog but requires reversing the `db.t4g.micro` Key decision; not worth it at this scale.) |
 | One-shot historical data load | **Retarget `benchmarks-website/migrate/`** (existing Rust crate) for DuckDB→Postgres bulk load | Q5b — natural reuse. The crate already reads DuckDB via the `duckdb` crate and reuses `vortex_bench_server::db::measurement_id_*`. Add a `--postgres-target` mode + a Postgres bulk-insert path. Deleted post-cutover per AGENTS.md throwaway-migrator pattern. |
-| CI network reach | **Public + IAM** — RDS Proxy public endpoint, security group `0.0.0.0/0` because IAM is the gate, sslmode=verify-full | User pick (Q6). All 14 current writers continue to work. Matches the existing CI-to-AWS-S3 operational model. |
+| CI network reach | **Public + IAM** — public RDS **instance** endpoint (the proxy is VPC-internal, not public), security group `0.0.0.0/0` because IAM is the gate, sslmode=verify-full | User pick (Q6), **amended 2026-05-29 (Phase-1 re-plan)**: the reachable endpoint is the RDS **instance** (publicly-accessible + IAM), not the proxy (which cannot be public). Every direct Postgres connection is IAM-gated; public-read of benchmark data is served by the Vercel HTTP layer, not by direct DB reads. All 14 CI writers connect to the instance endpoint with OIDC→IAM tokens. Matches the existing CI-to-AWS-S3 operational posture. |
 | Cutover style | **Short dual-write window** (CI writes to BOTH v3 EC2 AND Postgres) for ~3-7 days of soak; then drop v3-write; then DNS flip from v2 directly to v4; then decommission v3 | User pick (Q7). v3 EC2 is a stepping stone that never goes live (DNS stays on v2 until the v4 flip). Dual-write gives benchmark-data-loss safety net during the v4 verification window. |
 | Read service framework | **Next.js 15 + App Router + React Server Components + `unstable_cache` + `revalidateTag`** at `benchmarks-website/web/` | User pick (Q8). Server components fetch directly from Postgres; per-chart cache tags invalidated from the Python writer's CLI via a Vercel revalidation endpoint. Latest stable Next.js. Pages Router avoided. |
 | Operator SQL replacement | **`scripts/psql-bench.sh`** — tiny helper that runs `aws rds generate-db-auth-token` and pipes into psql with IAM creds | User pick (Q9). Replaces `/api/admin/sql`. No bearer tokens, no Lambda. Documented in benchmarks-website/web/README.md. RDS PITR (35-day) replaces `/api/admin/snapshot`. |
-| Composite index definition strategy | Net-new in initial schema migration (`migrations/001_initial_schema.sql`). Indexes on `(dim_tuple..., commit_timestamp DESC)` per-fact-table to serve both LIMIT-N and full-history read modes. | Forward-looking — none exist today. Designed alongside the schema in Phase 1. |
+| Composite index definition strategy | Net-new in `migrations/001_initial_schema.sql`. **As-shipped: dim-leading composite indexes following the read-path chart-query filter columns** (per `api/charts.rs`), NOT the hash field order. | **Amended 2026-05-29 (Phase-1 re-plan)** to match what PR-1.3 shipped: the original `(dim_tuple..., commit_timestamp DESC)` framing was superseded — every chart query filters on the dim columns and joins `commits` on `commit_sha`, so a dim-leading index serves the read path; PK uniqueness over the full hash tuple is already enforced by `measurement_id`. (PR-1.3 surprise, ratified here; an index-column-definition test is folded into PR-1.6.) |
+| CI-write endpoint (re-plan 2026-05-29) | **Public RDS instance endpoint + direct IAM** for all CI writers (schema-deploy + Phase-2 ingest); RDS Proxy is Vercel-reads-only | Phase-1 phase-end gauntlet found the RDS Proxy is VPC-internal (unreachable from off-VPC GitHub runners). The instance was already provisioned `--publicly-accessible` with IAM auth, so CI writers connect to it directly with OIDC→IAM tokens + verify-full TLS. This **moots** the "register a migrator credential in the proxy auth config" finding for the CI write path (proxy auth config becomes a Phase-4 concern for the Vercel read role). Supersedes the proxy-for-CI assumption in the original pooler/Q6 decisions. |
 | v3 EC2 final disposition | **Decommissioned at end of Phase 5** (single deletion PR removes `benchmarks-website/server/`, `benchmarks-website/ops/`, `benchmarks-website/migrate/`, top-level v2 files, `publish-benchmarks-website.yml`, `INGEST_BEARER_TOKEN`/`ADMIN_BEARER_TOKEN` secrets). EC2 instance terminated by hand after PR merges. | v3 never goes live; Q7 cutover model goes v2→v4 directly. |
 
 ## Project-specific BANS
@@ -177,13 +179,13 @@ Cutover style follows the v2→v3 template that just shipped: dual-write for ~1 
 
 | Phase | Name | Scope (one line) | Exit criteria (machine-checkable) | PR count | Review-count |
 |---|---|---|---|---|---|
-| 1 | RDS + schema + hash port | Provision RDS, write schema-deploy script + initial DDL, port xxhash64 to Python with golden vectors | `aws rds describe-db-instances --db-instance-identifier vortex-bench-prod` returns `available`; `python scripts/migrate-schema.py status` clean; `pytest scripts/test_post_ingest_hash.py` all green; Rust golden-vector test in `vortex-bench-server` matches Python output bit-exactly | 5 | 3-vote |
+| 1 | RDS + schema + hash port | Provision RDS, write schema-deploy script + initial DDL, port xxhash64 to Python with golden vectors; **(re-plan) repoint CI writes to the public instance endpoint + sweep cycle-1 must-fixes** | `aws rds describe-db-instances --db-instance-identifier vortex-bench-prod` returns `available`; `python scripts/migrate-schema.py status` clean; `pytest scripts/test_measurement_id.py` all green; Rust golden-vector test in `vortex-bench-server` matches Python output bit-exactly; **`schema-deploy.yml` applies live as the OIDC migrator against the public instance endpoint (verify-full TLS) and `status` reports clean** | 6 | 3-vote |
 | 2 | Python writer + dual-write CI | Extend post-ingest.py with `--postgres` mode + IAM-auth; flip 3 CI workflows to dual-write; verification harness | `bench.yml` PR CI green with `--postgres` flag set; verification harness reports `only_in_postgres = []` and `only_in_duckdb = []` after a test run | 4 | 3-vote |
 | 3 | Historical data load (DuckDB → Postgres) | Extend `benchmarks-website/migrate/` with `--postgres-target`; run one-shot load; verify | `migrate --postgres-target --verify` reports `matched_rows == duckdb_rows AND only_in_postgres == []` against a live DuckDB snapshot | 3 | 3-vote |
 | 4 | Next.js read service on Vercel | Scaffold `benchmarks-website/web/`; connection lib + `unstable_cache`; port all read endpoints; deploy to Vercel preview; revalidation API + token-plumbing from Python writer | `vercel deploy --target=preview` produces URL serving all chart slugs; `curl preview-url/api/groups | jq '.[].slug' \| sort` matches the family registry; preview lighthouse score ≥ 90 | 6 | 3-vote |
 | 5 | Cutover + decommission | Drop v3-write from CI; DNS flip v2 → v4; delete v2 frontend + server/ + ops/ + migrate/ + publish-benchmarks-website.yml + bearer-token secrets | `git grep -n INGEST_BEARER_TOKEN` returns 0; `gh workflow list` does not include `publish-benchmarks-website`; production DNS resolves to Vercel; v3 EC2 terminated | 3 | 4-vote (final) |
 
-Total: **5 phases, 21 PRs**.
+Total: **5 phases, 22 PRs**.
 
 ### PR enumeration
 
@@ -192,8 +194,9 @@ Total: **5 phases, 21 PRs**.
 | PR-1.1 | 1 | Provision RDS Postgres `db.t4g.micro` + RDS Proxy + GitHub OIDC schema role via aws-cli script; document in `benchmarks-website/infra/README.md`; capture endpoint via post-run `gh variable set RDS_BENCH_ENDPOINT` | `benchmarks-website/infra/provision.sh`, `benchmarks-website/infra/README.md`, `.github/workflows/schema-deploy.yml` (skeleton) | `aws rds describe-db-instances --db-instance-identifier vortex-bench-prod` returns `available` + `iam_database_authentication_enabled: true`; `aws rds describe-db-proxies --db-proxy-name vortex-bench-proxy` returns `Endpoint`. |
 | PR-1.2 | 1 | Write `scripts/migrate-schema.py` (~80-180 LOC; original ~30-50 estimate was for the bare runner — status/drift, autocommit txn discipline, typed exceptions, and recovery commentary brought it closer to ~180) — applies `migrations/*.sql` in name order, tracks via `_applied_migrations` table, idempotent | `scripts/migrate-schema.py`, `scripts/test_migrate_schema.py`, `migrations/` (dir created + README), `pyproject.toml` (psycopg + testcontainers dev deps) | Unit test: applies a fresh schema to testcontainers Postgres, re-runs idempotently (0 rows changed second time), inserts and re-applies a v2 migration in order. `apply` survives a failing later migration without losing earlier ones (subprocess test). `status` exits non-zero on drift and does not DDL. |
 | PR-1.3 | 1 | Write `migrations/001_initial_schema.sql` (the 6 tables + composite indexes per Table B); `migrations/002_iam_db_user.sql` (CREATE ROLE for IAM auth) | `migrations/001_initial_schema.sql`, `migrations/002_iam_db_user.sql`, `scripts/test_migrate_schema.py` (extended) | `python scripts/migrate-schema.py --target=$RDS_DSN apply` succeeds; `\dt` shows the 6 tables; `\di` shows the composite indexes; `\du` shows the IAM-auth role with `rds_iam` group. |
-| PR-1.4 | 1 | Wire `.github/workflows/schema-deploy.yml` — OIDC → `GitHubBenchmarkSchemaRole` → `python scripts/migrate-schema.py apply` against RDS Proxy; gated by `environment: schema-deploy` (manual approval) | `.github/workflows/schema-deploy.yml`, IAM role doc in `web/ops/README.md` | Workflow runs to completion on `develop` push touching `migrations/`; manual-approval gate fires; `migrate-schema.py status` reports clean post-apply. |
-| PR-1.5 | 1 | Port xxhash64 to Python in `scripts/_measurement_id.py`; mirror per-table tag + write_str/write_opt_str/write_i32/write_f64 encoding; golden-vector test against Rust source-of-truth (new test in `vortex-bench-server`) | `scripts/_measurement_id.py`, `scripts/test_measurement_id.py`, `benchmarks-website/server/src/db.rs` (golden-vector test added) | `pytest scripts/test_measurement_id.py` all green; for 100 fixture (commit, dim-tuple) inputs the Python output matches the Rust output bit-exactly. |
+| PR-1.4 | 1 | Wire `.github/workflows/schema-deploy.yml` — OIDC → `GitHubBenchmarkSchemaRole` → `python scripts/migrate-schema.py apply` against RDS Proxy. ~~gated by `environment: schema-deploy` (manual approval)~~ SUPERSEDED by the 2026-05-29 deploy-model Key decision: **no `environment:` gate; PR merge is the deploy gate**. As-shipped (PR-1.4 complete): `workflow_dispatch`-only + `dry_run`; the merge-trigger switch is tracked in Deferred work. | `.github/workflows/schema-deploy.yml`, IAM role doc in `benchmarks-website/infra/README.md` (plan originally said `web/ops/README.md`; `web/` does not exist until PR-4.1) | `migrate-schema.py apply` runs as the OIDC `migrator` role against RDS Proxy; `status` reports clean post-apply. (Original "manual-approval gate fires" criterion dropped per the deploy-model decision.) |
+| PR-1.5 | 1 | Port xxhash64 to Python in `scripts/_measurement_id.py`; mirror per-table tag + write_str/write_opt_str/write_i32/write_f64 encoding; golden-vector test against Rust source-of-truth | `scripts/_measurement_id.py`, `scripts/test_measurement_id.py`, `benchmarks-website/server/tests/measurement_id_golden.rs` (golden generator/asserter) | `pytest scripts/test_measurement_id.py` all green; for **63** committed golden vectors (all 5 fact tables + i32 MIN/MAX + empty/`Some("")` strings + multibyte UTF-8 — amended 2026-05-29 from the original "100 fixture inputs" estimate; the 63 exhaustively cover every table + boundary class) the Python output matches the Rust output bit-exactly. |
+| PR-1.6 | 1 | **(re-plan)** Repoint CI writes to the public RDS instance endpoint + sweep the cycle-1 phase-end must-fixes/should-fixes: capture+export the instance-endpoint repo var (`RDS_BENCH_INSTANCE_ENDPOINT`) in `provision.sh`; point `schema-deploy.yml` `PGHOST` at it; set `PGSSLMODE=verify-full` in the README bootstrap; fix the `provision.sh:19` account comment + promote the hardcoded `proxy_role_name`; add `003` to `migrations/README`; tighten the stale schema-deploy env-gate comment; doc the CI=instance / proxy=Vercel split; add an index-column-definition test | `benchmarks-website/infra/provision.sh`, `.github/workflows/schema-deploy.yml`, `benchmarks-website/infra/README.md`, `migrations/README.md`, `scripts/test_migrate_schema.py` | `yamllint --strict` clean; `schema-deploy.yml` `PGHOST` resolves to the instance-endpoint repo var (not the proxy); README bootstrap uses verify-full; `git grep -n 375504701696 benchmarks-website/infra/provision.sh` returns 0; index-column-definition test green; **operator runs the live OIDC apply against the instance endpoint and `status` reports clean**. |
 | PR-2.1 | 2 | Extend `scripts/post-ingest.py` with `--postgres $RDS_DSN` mode: parse JSONL, compute measurement_id via `_measurement_id.py`, generate IAM token via boto3, INSERT … ON CONFLICT against Postgres | `scripts/post-ingest.py`, `scripts/test_post_ingest_postgres.py`, `pyproject.toml` (psycopg, boto3) | Integration test (testcontainers Postgres): POST a v3 envelope, verify N rows inserted; POST same envelope, verify 0 inserted + N updated; verify all measurement_id values match. |
 | PR-2.2 | 2 | Flip `.github/workflows/bench.yml`, `sql-benchmarks.yml`, `v3-commit-metadata.yml` to dual-write — invoke `post-ingest.py` once with `--server` (v3) then once with `--postgres` (v4); both must succeed | The 3 workflow files; `scripts/post-ingest.py` (minor `--mode` flag) | All 3 workflows green on a test PR push; CloudWatch RDS metrics show ~14 writes per push from the matrix. |
 | PR-2.3 | 2 | Verification harness: `scripts/verify-substrates.py` that connects to both DuckDB EC2 (via /api/admin/sql) and Postgres, runs the same SELECT shapes, asserts row-for-row equivalence | `scripts/verify-substrates.py`, `scripts/test_verify_substrates.py` | Tool reports `only_in_postgres=[]` and `only_in_duckdb=[]` and `mismatched_rows=[]` on a seeded fixture in both substrates. |
@@ -261,7 +264,7 @@ Every bump touches all rows in this table in one PR (or CI ingest 400/409s).
 | `vortex-bench/src/v3.rs` | (struct field default + tests) | Rust |
 | `scripts/post-ingest.py` | `SCHEMA_VERSION = 1` (line 52) | Python literal |
 | `scripts/post-ingest.py` (extended) | `SCHEMA_VERSION = 1` (existing line 52) | Python `const int` |
-| `scripts/_measurement_id.py` (new, PR-1.5) | Imports SCHEMA_VERSION from `post-ingest.py` | Python re-export to keep one site |
+| ~~`scripts/_measurement_id.py`~~ | (removed 2026-05-29) | The shipped hash port does NOT import or re-export `SCHEMA_VERSION` (no need for it, and `post-ingest.py` is not cleanly importable without `importlib`). `_measurement_id.py` is NOT a lockstep site; the Python writer's lockstep site is `scripts/post-ingest.py:52` (above). |
 | `benchmarks-website/web/lib/schema-version.ts` (new, PR-4.2 or 4.3) | `export const SCHEMA_VERSION = 1` | TypeScript const — read-path version-gate (returns 4xx if envelope mismatch surfaces in any out-of-band write) |
 | `benchmarks-website/migrate/src/lib.rs` (existing) | `pub const SCHEMA_VERSION` | Rust constant referenced by the v3→v4 one-shot migrator |
 
@@ -399,7 +402,7 @@ cargo run -p <ingest-crate> -- --envelope <recent-envelope.jsonl> --dry-run
 - **Acceptance criteria — verified by operator**:
   - `aws rds describe-db-instances --db-instance-identifier vortex-bench-prod` returns `available` + `IAMDatabaseAuthenticationEnabled: true` ✓
   - `aws rds describe-db-proxies --db-proxy-name vortex-bench-proxy` returns `available` + Endpoint `vortex-bench-proxy.proxy-c4f8qygk4xdp.us-east-1.rds.amazonaws.com` ✓
-- **Repo vars set** (verified): `RDS_BENCH_ENDPOINT`, `RDS_BENCH_REGION`, `RDS_BENCH_DB_NAME`, `GH_BENCH_SCHEMA_ROLE_ARN`.
+- **Repo vars set** (verified at PR-1.1): `RDS_BENCH_ENDPOINT`, `RDS_BENCH_REGION`, `RDS_BENCH_DB_NAME`, `GH_BENCH_SCHEMA_ROLE_ARN`. **Superseded by PR-1.6**: CI was repointed to the public instance endpoint, `RDS_BENCH_INSTANCE_ENDPOINT` was added as the CI var, and `RDS_BENCH_ENDPOINT` (proxy) was dropped as a GitHub variable — the proxy endpoint is now a Vercel-config value (PR-4.2), not a GitHub variable. **CORRECTION (2026-06-01 live verification):** these repo-var changes (add `RDS_BENCH_INSTANCE_ENDPOINT`, drop `RDS_BENCH_ENDPOINT`) describe the intended end state but were NOT actually applied to the live GitHub repo by PR-1.6; they were reconciled in-session on 2026-06-01. See section "Phase 1 live verification (2026-06-01)".
 - **Resource identities** (for downstream PRs to reference):
   - RDS instance: `vortex-bench-prod` (resource-id `db-4VPTDACTRQHOS24WEIR3TNC2M4`)
   - Master secret: `arn:aws:secretsmanager:us-east-1:245040174862:secret:rds!db-23f1d9f9-ce44-4dc9-ac97-d3a5afaef690-egkQgW` (RDS-managed)
@@ -466,6 +469,1023 @@ cargo run -p <ingest-crate> -- --envelope <recent-envelope.jsonl> --dry-run
   - The cycle-1 reject was a process bug, not a design bug: a `Write` tool call was rejected ("file not Read first") for the pre-existing skeleton and the rejection was missed inside a batch of parallel calls. This is precisely the Edit/Write-without-Read failure mode the spec's NEW-C "verify the staged diff actually changed before committing" discipline guards against. The recovery applied the discipline literally (Read -> Write -> `git diff --cached --quiet` check -> commit).
   - The plan named `web/ops/README.md` for the IAM-role doc, but `web/` does not exist until PR-4.1; the docs went to `benchmarks-website/infra/README.md` (the correct home today). Recorded as an intentional plan deviation.
 
+### PR-1.5: xxhash64 measurement_id Python port + cross-language golden vectors  (1 impl commit + 1 fix commit + 1 gauntlet cycle, ending at b912d4b6a)
+
+- **Scope shipped**: `scripts/_measurement_id.py` (byte-for-byte Python port of the server-internal xxhash64 `measurement_id_*` functions from `benchmarks-website/server/src/db.rs`: per-table tag + `0x00` separator, LE-u64 length-prefixed `write_str`, `write_opt_str` tag bytes, LE `write_i32`, IEEE-754 `write_f64` bits, `u64 -> i64` bitcast); `benchmarks-website/server/tests/measurement_id_golden.rs` (Rust source-of-truth golden-vector generator + always-assert test; regenerates the committed JSON under `REGEN_GOLDEN_VECTORS`); `scripts/measurement_id_golden.json` (63 committed golden vectors covering all 5 fact tables + `i32` MIN/MAX + empty / `Some("")` strings + multibyte UTF-8); `scripts/test_measurement_id.py` (asserts the Python port reproduces every committed golden vector). Transitive pin: Rust == golden == Python.
+- **Acceptance criteria**: `pytest scripts/test_measurement_id.py` all green -- **65 passed** (re-verified this session). Python output matches the Rust golden file bit-exactly for all 63 vectors. (NOTE: the PR-1.5 row promised "100 fixture inputs"; 63 were shipped -- flagged by the phase-end gauntlet as a must-fix to reconcile.)
+- **Tests added**: `scripts/test_measurement_id.py` (65 cases: per-vector golden comparison across all tables + boundary fixtures + all-tables-covered + multibyte-present guards) plus the Rust golden generator/asserter in `measurement_id_golden.rs`.
+- **Review**: 2-vote (preset=pr-2, fresh+correctness) / cycle 1 ACCEPT (zero must-fix). 1 cycle-1 fix-commit (`c80bf5c6d`: dead code + dangling doc ref, should-fix applied post-accept). 1 should-fix deferred (scripts/ pytest not wired into CI -- see Deferred work).
+- **Confidence**: high (single-cycle clean accept; the load-bearing cross-language hash equivalence is pinned transitively and verified bit-exact).
+- **Deferred items**: 1 should-fix (golden==Python not CI-gated; PR-1.5 cycle-1 -- see Deferred work table).
+- **Surprises during implementation**:
+  - The implementation landed bundled in commit `0b431a8c5` (subject `plan: PR-1.5 gauntlet cycle 1 accepted`) rather than a separate `<area>:` implementation commit -- an artifact of the operator's 65-commit rebase onto `develop`. The code content is correct and tested; only the commit-subject attribution is non-standard.
+  - **Ledger backfill**: this entry was reconstructed and backfilled during the Phase-1 boundary on resume after it was found missing from Implementation status (PR-1.5 was marked complete at `b912d4b6a` without its Step 2.5 ledger entry landing). The phase-end gauntlet ran with PR-1.5 context supplied via the PR-enumeration row + the cumulative diff.
+
+### PR-1.6: (re-plan) repoint CI schema-deploy to the public instance endpoint + sweep phase-end cross-ref drift  (2 impl/fix commits ending at `b90a740da`, across 7 inner-loop gauntlet cycles)
+
+- **Scope shipped**: Repointed `schema-deploy.yml` `PGHOST` from the VPC-internal RDS Proxy var (`RDS_BENCH_ENDPOINT`) to the public instance var (`RDS_BENCH_INSTANCE_ENDPOINT`) with `PGSSLMODE=verify-full`; corrected the AWS account comment (`375504701696` → `245040174862`); established the CI=instance / proxy=Vercel split consistently across `schema-deploy.yml`, `benchmarks-website/infra/README.md`, `benchmarks-website/infra/provision.sh`, and `migrations/002_iam_db_user.sql`; replaced the README master-password bootstrap with a non-interactive, fail-fast Secrets-Manager fetch (`master_secret=$(aws ...) || exit 1; PGPASSWORD=$(printf '%s' "$master_secret" | jq -er '.password') || exit 1; export PGPASSWORD`); removed `RDS_BENCH_ENDPOINT` from the GitHub repo-vars (it is a Vercel-config value, not a GitHub variable). **CORRECTION (2026-06-01):** this describes the intended end state; the live GitHub repo-var edits were not actually performed until the 2026-06-01 live verification. See section "Phase 1 live verification (2026-06-01)".
+- **Acceptance criteria**: `yamllint --strict` clean on `schema-deploy.yml`; `PGHOST` resolves to the instance var; README bootstrap uses `verify-full`; `git grep 375504701696 benchmarks-website/infra/provision.sh` returns 0; the static guard suite (5 no-DB tests + the DB-backed index-column test) green locally (9 passed / 26 Docker-skipped). The "operator runs the live OIDC apply against the instance endpoint" criterion is an out-of-band operator step (not gated here).
+- **Tests added**: 5 static regression guards in `scripts/test_migrate_schema.py` — `test_schema_deploy_targets_instance_endpoint` (PGHOST=instance var + `PGSSLMODE=verify-full`, no proxy var), `test_provision_emits_instance_endpoint_var` (gh-var name/body: instance var set from `${DB_ENDPOINT}`, no repo-var from `${PROXY_ENDPOINT}`), `test_provision_grants_instance_dbuser` (IAM policy grants `dbuser:${DB_RESOURCE_ID}/${PG_MIGRATOR_ROLE}`), `test_readme_bootstrap_pins_verify_full` (rejects require/prefer/allow/disable/verify-ca), `test_readme_bootstrap_password_fetch_is_safe` (pins the non-interactive SM fetch; bans `export PGPASSWORD=$(`/stty/interactive-read on code lines) — plus the index-column test now pins `(table, columns)` per index incl. `tablename` and DESC/DESC ordering.
+- **Review**: 2-vote `preset=pr-2` (fresh + correctness), `executor=parallel` (Claude **and** Codex per lens). **7 inner-loop cycles**, 2 early-breaks. Cycles 1–5: cross-reference drift from the endpoint split, surfaced at distinct new sites each cycle (README:139 → :21/provision:500/002:5 → :71/76 repo-vars + provision:505 → :52 → fully converged at cycle 5). Cycles 3–7: the bootstrap-password runbook line churned across 4 fixes (single-quote → `read -rsp` → `stty/read` → SM-fetch → fail-fast assign-then-export). **Cycle-7 (final) verdict: REJECT, 2 must-fix — both test-guard-strictness / coverage-completeness, NOT functional defects** (pin `\|\| exit 1`; pin `PROXY_ROLE_NAME` usage). **Accepted by user-authorized override** at the cycle-7 second early-break ("accept regardless after one final cycle; defer residual"). The parallel Claude+Codex executor disjointness was the value driver: the Codex lens caught the cycle-2/3/4/5/6/7 must-fix that both Claude lenses rated accept/nit every cycle.
+- **Confidence**: high on the functional change (the endpoint repoint + cross-ref consistency were verified clean by every reviewer across all 7 cycles; the password fetch is fail-fast and syntax-checked under sh/bash/zsh/dash). medium on test-guard exhaustiveness (the deferred cycle-7 residual hardens the guards further).
+- **Deferred items**: 6 (cycle-6/7 residual) → see Deferred work: 2 must-fix deferred via user-authorized early-break (`test:868` pin `\|\| exit 1`; `provision.sh:63` `PROXY_ROLE_NAME` guard), 2 should-fix (`test:884` quoted-export form; `README:23` IAM-work contradiction), 2 cycle-6 doc nits (`secretsmanager:GetSecretValue` prereq; tear-down OIDC ARN account). All fold into a follow-up test-hardening + doc-polish pass.
+- **Surprises during implementation**:
+  - The runbook-snippet + test-coverage churn (7 cycles) was driven by adversarial Codex reviewers in unbounded refinement mode on a doc/test-heavy PR: each cycle's fix surfaced the next stricter angle (H4 self-reinforcement at the fix boundary). The synthesizer flagged this explicitly at cycles 5–7; the user bounded it with two early-breaks (Continue at cycle 5, accept-after-one-final-cycle at cycle 7).
+  - The functional change itself never regressed — every reject was about cross-reference doc consistency or test-guard strictness, never the repoint logic, IAM grant, or hash/schema invariants.
+
+### Cycle 1 — preset=phase-3 — reject
+
+<details><summary>Full Synthesizer Output JSON (gauntlet schema_version: 1)</summary>
+
+```json
+{
+  "schema_version": 1,
+  "preset": "phase-3",
+  "lenses_used": [
+    "spec",
+    "correctness",
+    "maint"
+  ],
+  "review_count": 3,
+  "unified_findings": [
+    {
+      "severity": "must-fix",
+      "kind": "bug",
+      "file_line": ".github/workflows/schema-deploy.yml:77",
+      "description": "RDS_BENCH_ENDPOINT is the RDS Proxy hostname, but RDS Proxy endpoints are not publicly accessible and GitHub-hosted runners are off-VPC. As wired, the schema-deploy job cannot reach the proxy at all. This challenges Key decisions Q2/Q6 ('RDS Proxy public endpoint, security group 0.0.0.0/0').",
+      "recommended_fix": "Point off-VPC schema-deploy at the public RDS *instance* endpoint with direct IAM auth (the proxy stays for Vercel reads), OR run schema-deploy inside the VPC (self-hosted runner / CodeBuild), OR expose the proxy via an intentional NLB/PrivateLink design. Resolve before claiming the schema-deploy path works; this likely amends Q2/Q6.",
+      "found_by": [
+        "correctness/codex"
+      ]
+    },
+    {
+      "severity": "must-fix",
+      "kind": "bug",
+      "file_line": "benchmarks-website/infra/provision.sh:311",
+      "description": "The RDS Proxy is provisioned with only the RDS-managed master secret, but CI connects as PGUSER=migrator. Standard RDS Proxy IAM auth still needs a Secrets Manager credential registered for the migrator DB user; without it the proxy cannot authenticate the migrator connection.",
+      "recommended_fix": "Either configure end-to-end IAM auth for the proxy for the migrator user, or create+attach a migrator credential secret and register it in the proxy auth config. Add a smoke test that connects through the chosen endpoint as migrator. (Couples with the schema-deploy.yml:77 reachability finding \u2014 resolve the CI-write endpoint design together.)",
+      "found_by": [
+        "correctness/codex"
+      ]
+    },
+    {
+      "severity": "must-fix",
+      "kind": "missing-acceptance",
+      "file_line": ".github/workflows/schema-deploy.yml:68",
+      "description": "PR-1.4's acceptance criterion was 'migrate-schema.py apply runs as the OIDC migrator role against RDS Proxy; status reports clean post-apply.' Implementation status records only wiring + yamllint + testcontainer coverage \u2014 the live OIDC apply against real RDS Proxy was never executed. Combined with the proxy-reachability and migrator-credential findings, the schema-deploy path is unproven and may be non-functional as designed.",
+      "recommended_fix": "After resolving the endpoint/credential design, run schema-deploy live once and record the clean apply/status, OR explicitly amend the PR-1.4 acceptance criterion to state live execution is deferred (and to which phase) with rationale.",
+      "found_by": [
+        "spec"
+      ]
+    },
+    {
+      "severity": "must-fix",
+      "kind": "unsafe",
+      "file_line": "benchmarks-website/infra/README.md:120",
+      "description": "The master-user bootstrap runbook command uses PGSSLMODE=require, which encrypts but does NOT verify the RDS server certificate, while transmitting the master password. This is a MITM exposure on the single most sensitive credential in the system. The schema-deploy workflow correctly uses verify-full; the bootstrap runbook is inconsistent.",
+      "recommended_fix": "Change the bootstrap runbook to PGSSLMODE=verify-full with PGSSLROOTCERT pointed at the downloaded RDS CA bundle, matching the workflow.",
+      "found_by": [
+        "correctness/codex"
+      ]
+    },
+    {
+      "severity": "must-fix",
+      "kind": "doc-quality",
+      "file_line": "benchmarks-website/infra/provision.sh:19",
+      "description": "The header comment says the script provisions into account 375504701696 'by default', but the actual TARGET_ACCOUNT default (line 50) and the entire README/plan are 245040174862. Per Key decisions, 375504701696 is the PERSONAL/v3-EC2 account \u2014 exactly the account the bench infra must NOT land in. An operator trusting the header points at the wrong account; verify_prereqs would then die confusingly, or worse the operator provisions into the wrong account.",
+      "recommended_fix": "Change the line-19 comment to account 245040174862 to match TARGET_ACCOUNT and the README; or interpolate the value rather than hardcoding a stale literal.",
+      "found_by": [
+        "maint",
+        "correctness/claude"
+      ]
+    },
+    {
+      "severity": "must-fix",
+      "kind": "scope-drift",
+      "file_line": "benchmarks-website/server/tests/measurement_id_golden.rs:102",
+      "description": "PR-1.5's acceptance promised '100 fixture (commit, dim-tuple) inputs'; the generator + committed golden file contain 63 vectors. The qualitative coverage is strong (all 5 tables + i32 MIN/MAX + empty/Some('') strings + multibyte UTF-8), but the literal acceptance criterion is unmet and was not amended.",
+      "recommended_fix": "Either add ~37 more deterministic fixture vectors, OR amend the PR-1.5 acceptance criterion to '63 vectors' with rationale (the chosen 63 exhaustively cover all tables + boundary classes). Cheap; pick one and record it.",
+      "found_by": [
+        "spec"
+      ]
+    },
+    {
+      "severity": "must-fix",
+      "kind": "weak-exit-criteria",
+      "file_line": "scripts/test_measurement_id.py:1",
+      "description": "The Phase-1 exit criterion (Phases-and-PRs table) names 'pytest scripts/test_post_ingest_hash.py all green', but the artifact ships scripts/test_measurement_id.py. The documented phase gate is unrunnable as written (no such file). Independently confirmed during exit-criteria execution.",
+      "recommended_fix": "Amend the Phase-1 exit-criteria string to 'pytest scripts/test_measurement_id.py' (the as-shipped file). Plan-edit only.",
+      "found_by": [
+        "spec"
+      ]
+    },
+    {
+      "severity": "must-fix",
+      "kind": "scope-drift",
+      "file_line": "scripts/_measurement_id.py:50",
+      "description": "Reference Table D ('SCHEMA_VERSION lockstep sites') claims scripts/_measurement_id.py 'Imports SCHEMA_VERSION from post-ingest.py | Python re-export to keep one site'. The shipped module neither imports nor re-exports SCHEMA_VERSION (and could not cleanly import from hyphenated post-ingest.py without importlib). The hash port is correct to omit it; Table D is stale and would mislead a future SCHEMA_VERSION bump. (Table D is a reference downstream PRs grep into.)",
+      "recommended_fix": "Amend Table D to remove the _measurement_id.py re-export row (or replace it with the real lockstep site). Do NOT add a spurious re-export to the hash port. Plan-edit only. (See disagreement: spec framed this as must-fix scope-drift requiring re-export OR amendment; maint framed it as should-fix amend-the-doc; synthesizer call = amend Table D, code is correct.)",
+      "found_by": [
+        "spec",
+        "maint"
+      ]
+    },
+    {
+      "severity": "should-fix",
+      "kind": "doc-quality",
+      "file_line": "migrations/README.md:35",
+      "description": "The 'Initial files' section lists only 001 and 002 and says the SQL files 'land in PR-1.3', but PR-1.4 added 003_migrator_ledger_grant.sql, which exists on disk and is exercised by the test suite. The directory's own README is a stale, incomplete inventory.",
+      "recommended_fix": "Add a bullet for 003_migrator_ledger_grant.sql (GRANT SELECT,INSERT on the ledger to migrator, PR-1.4) and fix the 'land in PR-1.3' sentence.",
+      "found_by": [
+        "spec",
+        "maint"
+      ]
+    },
+    {
+      "severity": "should-fix",
+      "kind": "coverage",
+      "file_line": "benchmarks-website/server/tests/measurement_id_golden.rs:1108-1117",
+      "description": "No golden vector exercises a NaN or Inf f64 threshold. Rust write_f64 uses v.to_bits() (preserves NaN payload bits); Python struct.pack('<d', nan) emits canonical NaN (0x7ff8...). A NaN threshold would hash differently across languages -> silent duplicate row, the exact failure the hash pin exists to prevent. Inf is canonical on both, so the gap is narrowly NaN.",
+      "recommended_fix": "Add f64::NAN / INFINITY / NEG_INFINITY threshold vectors and regenerate the golden file, OR assert threshold.is_finite() at the PR-2.1 ingest boundary so a non-finite value fails loudly rather than diverging silently.",
+      "found_by": [
+        "correctness/claude"
+      ]
+    },
+    {
+      "severity": "should-fix",
+      "kind": "scope-drift",
+      "file_line": "migrations/001_initial_schema.sql:75",
+      "description": "The composite-index Key decision promised indexes on '(dim_tuple..., commit_timestamp DESC)'; the migration creates dim-leading (read-path filter) indexes WITHOUT the trailing commit_timestamp, and the tests assert only index *names*, not indexed columns/order. The divergence is explained in PR-1.3's surprises (dim-leading serves the chart read path; PK enforces hash-tuple uniqueness) but the Key decision row was never updated.",
+      "recommended_fix": "Amend the composite-index Key decision to the implemented read-path strategy, AND/OR add a test asserting the index column definitions (not just names) so the intended shape is pinned.",
+      "found_by": [
+        "spec"
+      ]
+    },
+    {
+      "severity": "should-fix",
+      "kind": "doc-quality",
+      "file_line": ".github/workflows/schema-deploy.yml:12-14",
+      "description": "The workflow header still advertises a 'schema-deploy GitHub Environment with manual-approval as the stronger gate ... tracked as deferred hardening'. The 2026-05-29 deploy-model Key decision SUPERSEDED that path (PR merge is the gate; the Environment gate was judged the wrong tool). The comment points a future engineer at deferred work the plan reversed. (NOT a re-flag of the accepted no-env-gate tradeoff \u2014 this flags the stale comment, aligned with the decision.)",
+      "recommended_fix": "Replace the Environment-gate framing with the actual deferred item: switch the trigger to push on the deploy branch under paths: migrations/** (PR-merge-is-the-gate). Naturally lands with the deferred trigger-switch (Deferred work, 2026-05-29 deploy-model item).",
+      "found_by": [
+        "maint"
+      ]
+    },
+    {
+      "severity": "should-fix",
+      "kind": "doc-quality",
+      "file_line": "benchmarks-website/infra/provision.sh:266",
+      "description": "proxy_role_name ('vortex-bench-proxy-role') and its policy name are hardcoded locals, but the README 'Customizing' section claims 'Every name / class / engine version / region is set at the top via readonly declarations with ${ENV:-default} fallbacks.' The proxy role is an exception, and the tear-down runbook uses the literal default name, so an operator who overrode other names gets a tear-down mismatch.",
+      "recommended_fix": "Promote proxy_role_name to a top-level readonly PROXY_ROLE_NAME=\"${PROXY_ROLE_NAME:-vortex-bench-proxy-role}\" like the other names, OR soften the README 'every name is overridable' claim to enumerate the proxy role as fixed.",
+      "found_by": [
+        "maint"
+      ]
+    },
+    {
+      "severity": "nit",
+      "kind": "boundary",
+      "file_line": "scripts/migrate-schema.py:2733-2745",
+      "description": "status() reports a generic 'pending' (exit 1) for an empty/whitespace-only migration file, while apply() rejects it explicitly only when it reaches it. Same bad file, two different diagnoses. Behavior is safe (loud both ways) but asymmetric.",
+      "recommended_fix": "Optionally have status() classify empty/whitespace-only on-disk files distinctly so the operator sees the same diagnosis from status as from apply.",
+      "found_by": [
+        "correctness/claude"
+      ]
+    },
+    {
+      "severity": "nit",
+      "kind": "doc-quality",
+      "file_line": "migrations/README.md:39",
+      "description": "002 is described as 'CREATE ROLE for the IAM-auth user that bench.yml workflows assume into', but migrator is consumed by the schema-deploy workflow (PR-1.4), not bench.yml (the ingest workflow, which uses a separate future ingest role). The WHY misattributes the consumer.",
+      "recommended_fix": "Change 'bench.yml workflows' to 'the schema-deploy workflow (PR-1.4)'.",
+      "found_by": [
+        "maint"
+      ]
+    },
+    {
+      "severity": "nit",
+      "kind": "scaffolding",
+      "file_line": "benchmarks-website/server/tests/measurement_id_golden.rs:30",
+      "description": "REGEN_GOLDEN_VECTORS is permanent regeneration scaffolding (write-on-env, always-assert otherwise). Correct and well-documented, but nothing flags committed-JSON drift unless the Rust test runs in CI, and the golden==Python half is not CI-gated (deferred).",
+      "recommended_fix": "Add one sentence to the test module doc noting golden==Python is only enforced once 'uv run --all-packages pytest scripts/' is wired into CI (deferred), so a green local run does not prove cross-language parity in CI.",
+      "found_by": [
+        "maint"
+      ]
+    },
+    {
+      "severity": "nit",
+      "kind": "doc-quality",
+      "file_line": ".github/workflows/schema-deploy.yml:84-89",
+      "description": "The 'Apply migrations' step carries a ~5-line justification comment (set -x suppression, PGPASSWORD-on-own-line vs export masking). It documents two real footguns but is exactly the >100-char justification-comment shape the shared BAN warns about.",
+      "recommended_fix": "Keep the substance but tighten to two short sentences (token-leak + export-masking). No behavior change.",
+      "found_by": [
+        "maint"
+      ]
+    },
+    {
+      "severity": "nit",
+      "kind": "scope-drift",
+      "file_line": "benchmarks-website/server/tests/measurement_id_golden.rs:1",
+      "description": "PR-1.5's expected files row named 'benchmarks-website/server/src/db.rs (golden-vector test added)', but the test shipped as a separate integration test file benchmarks-website/server/tests/measurement_id_golden.rs. Minor placement deviation from the plan row.",
+      "recommended_fix": "Amend the PR-1.5 expected-files row to name the integration test location (the chosen placement is fine; the plan row is stale).",
+      "found_by": [
+        "spec"
+      ]
+    }
+  ],
+  "disagreements": [
+    {
+      "topic": "Severity of the wrong-account header comment (provision.sh:19)",
+      "positions": [
+        {
+          "lens": "maint",
+          "position": "must-fix: the comment names the WRONG account (375504701696 = personal/v3), and an operator trusting it provisions into the wrong account or hits a confusing verify_prereqs die."
+        },
+        {
+          "lens": "correctness/claude",
+          "position": "nit: cosmetic doc-quality; the actual TARGET_ACCOUNT default is correct."
+        }
+      ],
+      "synthesizer_call": "must-fix (HIGHEST, conservative). An operator-facing runbook naming the wrong AWS account is an operational hazard, not cosmetic; the fix is one line."
+    },
+    {
+      "topic": "Table D SCHEMA_VERSION re-export (scope-drift must-fix vs amend-the-doc should-fix)",
+      "positions": [
+        {
+          "lens": "spec",
+          "position": "must-fix scope-drift: Table D requires _measurement_id.py to re-export SCHEMA_VERSION; implement the re-export OR amend Table D."
+        },
+        {
+          "lens": "maint",
+          "position": "should-fix: the shipped module is CORRECT to omit the re-export (can't cleanly import hyphenated post-ingest.py; the hash port has no need for SCHEMA_VERSION); Table D is stale \u2014 amend the doc."
+        }
+      ],
+      "synthesizer_call": "Keep must-fix severity (HIGHEST, and Table D is a reference downstream PRs grep into \u2014 fix before phase close), but the ACTION is to amend Table D, NOT to add a re-export. The shipped hash port is correct."
+    }
+  ],
+  "dropped_re_flags": [
+    {
+      "topic": "migrator role lacks privileges to ALTER / CREATE INDEX on master-owned tables in future migrations (correctness/codex flagged must-fix at 002_iam_db_user.sql:37)",
+      "reason": "covered by Deferred work",
+      "reference": "Deferred work:487 (PR-1.3 cycle-1 \u2014 migrator table privileges; resolve role-ownership model in PR-2.1). NOTE: the deferral is framed around INGEST DML; it should be EXPANDED to also cover future-migration DDL (ALTER/CREATE INDEX on master-owned tables) so the schema-deploy steady-state is covered, not just the ingest write path. Surfaced as a synthesizer concern. No Phase-1 migration alters an existing table, so it does not block Phase 1 functionally."
+    },
+    {
+      "topic": "golden==Python hash test (and the testcontainer suite) not wired into CI (correctness/claude flagged should-fix)",
+      "reason": "covered by Deferred work",
+      "reference": "Deferred work:489 (PR-1.5 cycle-1 \u2014 scripts/ pytest not in CI) and Deferred work:486 (PR-1.2 \u2014 no CI runner). The reviewer itself acknowledged the prior triage; surfaced as the single largest standing correctness exposure for the hash pin."
+    }
+  ],
+  "phase_artifacts": {
+    "summary": "Phase 1 ('RDS + schema + hash port') lands the migration foundation in five concept areas. (A) Infrastructure: provision.sh idempotently bootstraps RDS Postgres db.t4g.micro + RDS Proxy (IAMAuth=REQUIRED, TLS) + GitHub OIDC provider + GitHubBenchmarkSchemaRole in account 245040174862, with an operator runbook in infra/README.md. (B) Schema-deploy CI: schema-deploy.yml (workflow_dispatch + dry_run; PR-merge is the accepted authorization gate, no environment: approval) generates a client-side IAM token and runs the migrate runner against the proxy as migrator over verify-full TLS. (C) Migration runner: scripts/migrate-schema.py applies migrations/*.sql in name order, tracks public._applied_migrations, is idempotent, uses autocommit + per-migration top-level transactions so a failing later migration rolls back only itself, rejects empty files; 28+ testcontainer tests. (D) DDL: 001 creates the commits dim + 5 fact tables + read-path composite indexes (Postgres translation of the authoritative DuckDB schema.rs, column order/nullability/types preserved); 002 the migrator login role + conditional rds_iam; 003 the append-only ledger grant. (E) Hash port: _measurement_id.py is a byte-for-byte port of db.rs measurement_id_* (xxhash64 seed 0), pinned by a Rust source-of-truth golden file giving Rust==golden==Python, verified bit-exact for all 63 vectors (Claude correctness executed the port; Rust golden test passes). The keystone hash-equivalence deliverable is solid and the schema shape provably matches schema.rs. HOWEVER the AWS-integration path has deploy-blocking gaps the Codex correctness lens surfaced: RDS Proxy endpoints are not publicly reachable from off-VPC GitHub runners (challenges Key decisions Q2/Q6); the proxy lacks a migrator credential for IAM auth; PR-1.4's live OIDC apply against real RDS Proxy was never executed (only wiring + lint + testcontainer); and the master-bootstrap runbook uses PGSSLMODE=require (no cert verification) while sending the master password. The Codex spec lens found contract gaps: 63 vectors shipped vs the promised 100; the Phase-1 exit criterion names a nonexistent test_post_ingest_hash.py; Table D claims a SCHEMA_VERSION re-export the hash port omits. Maintainability is otherwise high, but provision.sh's header names the WRONG AWS account, migrations/README omits 003, and the schema-deploy header advertises the superseded Environment gate.",
+    "surprises": [
+      {
+        "what": "RDS Proxy endpoints are not publicly accessible; off-VPC GitHub-hosted runners cannot reach the proxy. The plan's 'RDS Proxy public endpoint' assumption (Q6) may be architecturally invalid for the CI-write path.",
+        "how_handled": "Not handled in the diff \u2014 flagged as a must-fix deploy-blocker; likely forces amending Key decisions Q2/Q6 (e.g., CI writes to the public RDS instance endpoint with direct IAM, proxy stays for Vercel reads).",
+        "amend_plan": "yes"
+      },
+      {
+        "what": "PR-1.4's schema-deploy was accepted on wiring + yamllint + testcontainer, never run live against real RDS Proxy.",
+        "how_handled": "Recorded honestly in Implementation status; spec lens flags the acceptance criterion as unmet. Coupled with the proxy-reachability + migrator-credential findings, the path is unproven.",
+        "amend_plan": "yes"
+      },
+      {
+        "what": "PR-1.5 shipped 63 golden vectors, not the promised 100.",
+        "how_handled": "Status acknowledges 63; no amendment or extra fixtures. Qualitative coverage is strong (all tables + boundaries).",
+        "amend_plan": "yes"
+      },
+      {
+        "what": "The Phase-1 exit criterion names pytest scripts/test_post_ingest_hash.py, but the shipped file is test_measurement_id.py.",
+        "how_handled": "Not reconciled; the documented gate is unrunnable as written. Independently confirmed during exit-criteria execution.",
+        "amend_plan": "yes"
+      },
+      {
+        "what": "Table D's claim that _measurement_id.py re-exports SCHEMA_VERSION is stale; the shipped module correctly omits it.",
+        "how_handled": "Artifact correct; Table D not updated. Amend the reference table.",
+        "amend_plan": "yes"
+      },
+      {
+        "what": "Composite indexes are dim-leading (read-path filter columns), not the Key decision's '(dim_tuple..., commit_timestamp DESC)'.",
+        "how_handled": "Explained in PR-1.3 surprises (PK enforces hash-tuple uniqueness; dim-leading serves charts); Key decision row not updated and tests assert only index names.",
+        "amend_plan": "yes"
+      },
+      {
+        "what": "migrator role cannot ALTER / CREATE INDEX on master-owned tables in future migrations (GRANT CREATE on public is insufficient).",
+        "how_handled": "Covered by the deferred PR-1.3 role-ownership item (PR-2.1), but the deferral is ingest-DML-framed and should be expanded to cover migration DDL. Does not block Phase 1 (no Phase-1 migration alters an existing table).",
+        "amend_plan": "already-done"
+      },
+      {
+        "what": "Master-bootstrap runbook uses PGSSLMODE=require (encrypt-without-verify) while sending the master password.",
+        "how_handled": "Not handled \u2014 flagged must-fix (MITM exposure); workflow already uses verify-full, so only the README bootstrap is inconsistent.",
+        "amend_plan": "no"
+      },
+      {
+        "what": "NaN/Inf f64 threshold cross-language hash divergence is unguarded (no golden vector).",
+        "how_handled": "Flagged should-fix coverage; threshold is a cosine value so NaN is implausible, but the divergence would be silent.",
+        "amend_plan": "yes"
+      }
+    ],
+    "coverage": {
+      "tested_cases": [
+        {
+          "case": "Hash Rust==golden==Python across all 5 tables + i32 MIN/MAX + empty/Some('') strings + multibyte UTF-8 (63 vectors, executed bit-exact)",
+          "test_location": "benchmarks-website/server/tests/measurement_id_golden.rs + scripts/test_measurement_id.py",
+          "confidence": "high"
+        },
+        {
+          "case": "migrate-schema apply / idempotency / name-order / failing-migration rollback (subprocess) / status drift / empty-file rejection / non-default search_path ledger agreement / subdir-skip / case-insensitive discovery",
+          "test_location": "scripts/test_migrate_schema.py",
+          "confidence": "high"
+        },
+        {
+          "case": "Real 001-003 apply cleanly + idempotent; 6 tables, 6 indexes, per-table column order+nullability, key type translations, migrator role login, ledger grants (SELECT/INSERT present, DELETE/UPDATE absent)",
+          "test_location": "scripts/test_migrate_schema.py:3480-3640",
+          "confidence": "high"
+        }
+      ],
+      "untested_cases": [
+        {
+          "case": "Live schema-deploy OIDC apply as migrator against the real endpoint (and whether the proxy is even reachable from CI)",
+          "priority": "high",
+          "why_untested": "Recorded as wiring/lint/testcontainer only; reachability + migrator-credential findings suggest it may not work as wired."
+        },
+        {
+          "case": "scripts/ pytest running in CI (golden==Python parity AND the testcontainer suite are both ungated)",
+          "priority": "high",
+          "why_untested": "No CI job runs uv run --all-packages pytest scripts/; deferred CI-hardening."
+        },
+        {
+          "case": "RDS Proxy reachability from off-VPC GitHub-hosted runners",
+          "priority": "high",
+          "why_untested": "RDS Proxy is not publicly accessible; the CI-write endpoint design needs rework."
+        },
+        {
+          "case": "migrator credential registered for RDS Proxy IAM auth",
+          "priority": "high",
+          "why_untested": "Proxy has only the master secret; migrator connection would fail auth."
+        },
+        {
+          "case": "NaN/Inf f64 threshold cross-language equivalence",
+          "priority": "medium",
+          "why_untested": "No non-finite threshold vector."
+        },
+        {
+          "case": "Future-migration DDL (ALTER/CREATE INDEX) run as migrator on master-owned tables",
+          "priority": "medium",
+          "why_untested": "Deferred role-ownership (PR-2.1); no Phase-1 migration alters an existing table."
+        },
+        {
+          "case": "Composite-index column definitions (tests assert names only)",
+          "priority": "medium",
+          "why_untested": "Index-definition assertions not written."
+        },
+        {
+          "case": "Edit-after-apply ledger drift (no fingerprint column)",
+          "priority": "medium",
+          "why_untested": "Deferred (sha256 ledger column)."
+        }
+      ],
+      "recommendations": "Resolve the CI-write endpoint design FIRST (RDS Proxy reachability + migrator credential) \u2014 this likely amends Key decisions Q2/Q6 (point schema-deploy at the public RDS instance endpoint with direct IAM, or run in-VPC). Then run schema-deploy live once and record the clean apply/status. Fix the README bootstrap to PGSSLMODE=verify-full. Land the plan-edit must-fixes (exit-criteria test name, Table D, provision.sh account, vector-count reconciliation). Wire scripts/ pytest into CI (closes the largest hash-pin exposure)."
+    },
+    "tradeoffs": [
+      {
+        "decision": "Branching / merge target (per-phase child branches -> ct/bench-v4 -> develop)",
+        "original": "User pick Q1",
+        "verdict": "keep",
+        "rationale": "No artifact conflict."
+      },
+      {
+        "decision": "Postgres flavor (RDS db.t4g.micro single-AZ, account 245040174862)",
+        "original": "User pick Q2",
+        "verdict": "keep",
+        "rationale": "Provisioning/DDL target the chosen account/region/class; flavor-portable (testcontainer runs vanilla Postgres)."
+      },
+      {
+        "decision": "Connection pooler (RDS Proxy with IAM-auth pass-through)",
+        "original": "Locked by Q2",
+        "verdict": "revisit-but-keep",
+        "rationale": "The proxy is right for Vercel reads, BUT the CI-write-via-proxy assumption is challenged: RDS Proxy is not publicly reachable from off-VPC GitHub runners and lacks a migrator credential. The CI-write endpoint specifically needs rework (most-pessimistic across reviewers; correctness/codex would lean reverse for the CI path)."
+      },
+      {
+        "decision": "Ingest writer language (pure Python + golden vectors)",
+        "original": "User pick Q4",
+        "verdict": "revisit-but-keep",
+        "rationale": "Hash port verified bit-exact, but the 100-vs-63 fixture-count and Table D lockstep gaps need reconciliation."
+      },
+      {
+        "decision": "Schema deploy tool (in-house migrate-schema.py + plain SQL)",
+        "original": "User pick Q5a",
+        "verdict": "revisit-but-keep",
+        "rationale": "Sound and well-tested, but grew to ~180 LOC and still lacks ledger fingerprinting, so the documented edit-after-apply prohibition has zero runtime enforcement (deferred)."
+      },
+      {
+        "decision": "Schema-deploy authorization (PR merge is the gate; no environment gate)",
+        "original": "User decision 2026-05-29",
+        "verdict": "keep",
+        "rationale": "Accepted tradeoff; NOT re-flagged. Only the stale header COMMENT advertising the superseded Environment gate is flagged (doc-sync, not a reversal)."
+      },
+      {
+        "decision": "CI network reach (public + IAM, verify-full)",
+        "original": "User pick Q6",
+        "verdict": "revisit-but-keep",
+        "rationale": "The public+IAM model works for the RDS INSTANCE endpoint, but the 'public RDS Proxy endpoint' sub-assumption is invalid (proxy isn't public). Tied to the schema-deploy.yml:77 must-fix."
+      },
+      {
+        "decision": "Composite index definition strategy ((dim_tuple..., commit_timestamp DESC))",
+        "original": "Forward-looking design",
+        "verdict": "revisit-but-keep",
+        "rationale": "Implemented as dim-leading read-path indexes without the trailing timestamp; either amend the decision to the implemented strategy or pin index column definitions in tests."
+      },
+      {
+        "decision": "Cutover style / One-shot load / Read framework / Operator SQL / v3 disposition",
+        "original": "User picks Q5b,Q7,Q8,Q9 + forward-looking",
+        "verdict": "keep",
+        "rationale": "Future-phase decisions; no Phase-1 change contradicts them."
+      }
+    ]
+  },
+  "executive_summary": "Phase 1 ships a coherent, unusually well-documented foundation, and its keystone deliverable \u2014 the cross-language measurement_id hash equivalence (Rust==golden==Python) \u2014 is verified bit-exact for all 63 vectors, with the 6-table Postgres schema provably matching the authoritative DuckDB schema.rs and a well-tested migration runner. The mixed-executor review (Claude + Codex lenses) is the reason this is a REJECT rather than an accept: the Codex correctness lens surfaced a cluster of deploy-blocking AWS-integration gaps that the hash-focused Claude review did not. The most serious: RDS Proxy endpoints are NOT publicly reachable from off-VPC GitHub-hosted runners (schema-deploy.yml:77), the proxy was provisioned without a migrator credential for IAM auth (provision.sh:311), and PR-1.4's live OIDC apply against real RDS Proxy was never actually executed (schema-deploy.yml:68) \u2014 together meaning the schema-deploy CI path, a core Phase-1 deliverable, is unproven and likely broken as wired. Resolving it probably amends Key decisions Q2/Q6 (e.g., point CI writes at the public RDS *instance* endpoint with direct IAM and reserve the proxy for Vercel reads, or run schema-deploy in-VPC). A fourth correctness must-fix: the master-bootstrap runbook uses PGSSLMODE=require (encrypt-without-verify) while transmitting the master password (README:120) \u2014 a MITM exposure, fixed by verify-full. The Codex spec lens added contract-closure must-fixes that are mostly cheap plan-edits: 63 vectors shipped vs the promised 100 (reconcile the criterion or add vectors); the Phase-1 exit criterion names a nonexistent test_post_ingest_hash.py (rename to the shipped test_measurement_id.py \u2014 independently confirmed at exit-criteria time); and Table D claims a SCHEMA_VERSION re-export the hash port correctly omits (amend the reference table, do NOT add the re-export). The maint lens caught a genuine operational hazard: provision.sh's header comment names the WRONG (personal/v3) AWS account, which could misdirect an operator. Five should-fixes (stale migrations/README missing 003; composite-index decision-vs-impl drift; the schema-deploy header advertising the superseded Environment gate; a hardcoded proxy-role name contradicting the README; the unguarded NaN/Inf hash vector) and five nits round it out. Two findings were dropped as carry-forward (migrator table privileges and CI-gating of scripts/ pytest are both already in Deferred work) \u2014 though the role-privileges deferral should be expanded to cover future-migration DDL, not just ingest DML. Verdict: reject, 8 must-fix. The hash and schema work is strong; the AWS-integration + plan-consistency layer needs a focused fix pass before Phase 1 closes.",
+  "overall": "reject",
+  "must_fix_count": 8,
+  "should_fix_count": 5,
+  "nit_count": 5,
+  "review_cycles_this_invocation": 1,
+  "executor_routing": {
+    "spec": "codex",
+    "correctness": "parallel",
+    "maint": "claude"
+  }
+}
+```
+
+</details>
+
+## Superseded (re-planned) phase-end must-fix items — Phase 1: RDS + schema + hash port — cycle 1
+
+| Severity | File:line | Description | Implicated PR | Resolved |
+|----------|-----------|-------------|---------------|----------|
+| must-fix | .github/workflows/schema-deploy.yml:77 | RDS_BENCH_ENDPOINT is the RDS Proxy hostname, but RDS Proxy endpoints are not publicly accessible and GitHub-hosted runners are off-VPC. As wired, the schema... | PR-1.4 | [ ] |
+| must-fix | benchmarks-website/infra/provision.sh:311 | The RDS Proxy is provisioned with only the RDS-managed master secret, but CI connects as PGUSER=migrator. Standard RDS Proxy IAM auth still needs a Secrets M... | PR-1.1 | [ ] |
+| must-fix | .github/workflows/schema-deploy.yml:68 | PR-1.4's acceptance criterion was 'migrate-schema.py apply runs as the OIDC migrator role against RDS Proxy; status reports clean post-apply.' Implementation... | PR-1.4 | [ ] |
+| must-fix | benchmarks-website/infra/README.md:120 | The master-user bootstrap runbook command uses PGSSLMODE=require, which encrypts but does NOT verify the RDS server certificate, while transmitting the maste... | PR-1.4 | [ ] |
+| must-fix | benchmarks-website/infra/provision.sh:19 | The header comment says the script provisions into account 375504701696 'by default', but the actual TARGET_ACCOUNT default (line 50) and the entire README/p... | PR-1.1 | [ ] |
+| must-fix | benchmarks-website/server/tests/measurement_id_golden.rs:102 | PR-1.5's acceptance promised '100 fixture (commit, dim-tuple) inputs'; the generator + committed golden file contain 63 vectors. The qualitative coverage is ... | PR-1.5 | [ ] |
+| must-fix | scripts/test_measurement_id.py:1 | The Phase-1 exit criterion (Phases-and-PRs table) names 'pytest scripts/test_post_ingest_hash.py all green', but the artifact ships scripts/test_measurement_... | PR-1.5 | [ ] |
+| must-fix | scripts/_measurement_id.py:50 | Reference Table D ('SCHEMA_VERSION lockstep sites') claims scripts/_measurement_id.py 'Imports SCHEMA_VERSION from post-ingest.py \| Python re-export to keep... | PR-1.5 | [ ] |
+
+## Phase 1: RDS + schema + hash port — end-of-phase review (cycle 1) — rejected (3-vote)
+**Synthesizer output from /spiral:gauntlet (preset=phase-3, executor=mixed: spec→codex, correctness→parallel, maint→claude); full Synthesizer Output JSON in the `<details>` block at the end of this section.**
+
+Verdict: **reject** — 8 must-fix, 5 should-fix, 5 nit.
+
+### Summary of changes
+
+Phase 1 ('RDS + schema + hash port') lands the migration foundation in five concept areas. (A) Infrastructure: provision.sh idempotently bootstraps RDS Postgres db.t4g.micro + RDS Proxy (IAMAuth=REQUIRED, TLS) + GitHub OIDC provider + GitHubBenchmarkSchemaRole in account 245040174862, with an operator runbook in infra/README.md. (B) Schema-deploy CI: schema-deploy.yml (workflow_dispatch + dry_run; PR-merge is the accepted authorization gate, no environment: approval) generates a client-side IAM token and runs the migrate runner against the proxy as migrator over verify-full TLS. (C) Migration runner: scripts/migrate-schema.py applies migrations/*.sql in name order, tracks public._applied_migrations, is idempotent, uses autocommit + per-migration top-level transactions so a failing later migration rolls back only itself, rejects empty files; 28+ testcontainer tests. (D) DDL: 001 creates the commits dim + 5 fact tables + read-path composite indexes (Postgres translation of the authoritative DuckDB schema.rs, column order/nullability/types preserved); 002 the migrator login role + conditional rds_iam; 003 the append-only ledger grant. (E) Hash port: _measurement_id.py is a byte-for-byte port of db.rs measurement_id_* (xxhash64 seed 0), pinned by a Rust source-of-truth golden file giving Rust==golden==Python, verified bit-exact for all 63 vectors (Claude correctness executed the port; Rust golden test passes). The keystone hash-equivalence deliverable is solid and the schema shape provably matches schema.rs. HOWEVER the AWS-integration path has deploy-blocking gaps the Codex correctness lens surfaced: RDS Proxy endpoints are not publicly reachable from off-VPC GitHub runners (challenges Key decisions Q2/Q6); the proxy lacks a migrator credential for IAM auth; PR-1.4's live OIDC apply against real RDS Proxy was never executed (only wiring + lint + testcontainer); and the master-bootstrap runbook uses PGSSLMODE=require (no cert verification) while sending the master password. The Codex spec lens found contract gaps: 63 vectors shipped vs the promised 100; the Phase-1 exit criterion names a nonexistent test_post_ingest_hash.py; Table D claims a SCHEMA_VERSION re-export the hash port omits. Maintainability is otherwise high, but provision.sh's header names the WRONG AWS account, migrations/README omits 003, and the schema-deploy header advertises the superseded Environment gate.
+
+### Unified findings
+
+| # | Severity | Kind | File:line | Description | found_by |
+|---|----------|------|-----------|-------------|----------|
+| 1 | must-fix | bug | .github/workflows/schema-deploy.yml:77 | RDS_BENCH_ENDPOINT is the RDS Proxy hostname, but RDS Proxy endpoints are not publicly accessible and GitHub-hosted runners are off-VPC. ... | correctness/codex |
+| 2 | must-fix | bug | benchmarks-website/infra/provision.sh:311 | The RDS Proxy is provisioned with only the RDS-managed master secret, but CI connects as PGUSER=migrator. Standard RDS Proxy IAM auth sti... | correctness/codex |
+| 3 | must-fix | missing-acceptance | .github/workflows/schema-deploy.yml:68 | PR-1.4's acceptance criterion was 'migrate-schema.py apply runs as the OIDC migrator role against RDS Proxy; status reports clean post-ap... | spec |
+| 4 | must-fix | unsafe | benchmarks-website/infra/README.md:120 | The master-user bootstrap runbook command uses PGSSLMODE=require, which encrypts but does NOT verify the RDS server certificate, while tr... | correctness/codex |
+| 5 | must-fix | doc-quality | benchmarks-website/infra/provision.sh:19 | The header comment says the script provisions into account 375504701696 'by default', but the actual TARGET_ACCOUNT default (line 50) and... | maint, correctness/claude |
+| 6 | must-fix | scope-drift | benchmarks-website/server/tests/measurement_id_golden.rs:102 | PR-1.5's acceptance promised '100 fixture (commit, dim-tuple) inputs'; the generator + committed golden file contain 63 vectors. The qual... | spec |
+| 7 | must-fix | weak-exit-criteria | scripts/test_measurement_id.py:1 | The Phase-1 exit criterion (Phases-and-PRs table) names 'pytest scripts/test_post_ingest_hash.py all green', but the artifact ships scrip... | spec |
+| 8 | must-fix | scope-drift | scripts/_measurement_id.py:50 | Reference Table D ('SCHEMA_VERSION lockstep sites') claims scripts/_measurement_id.py 'Imports SCHEMA_VERSION from post-ingest.py \| Pyth... | spec, maint |
+| 9 | should-fix | doc-quality | migrations/README.md:35 | The 'Initial files' section lists only 001 and 002 and says the SQL files 'land in PR-1.3', but PR-1.4 added 003_migrator_ledger_grant.sq... | spec, maint |
+| 10 | should-fix | coverage | benchmarks-website/server/tests/measurement_id_golden.rs:1108-1117 | No golden vector exercises a NaN or Inf f64 threshold. Rust write_f64 uses v.to_bits() (preserves NaN payload bits); Python struct.pack('... | correctness/claude |
+| 11 | should-fix | scope-drift | migrations/001_initial_schema.sql:75 | The composite-index Key decision promised indexes on '(dim_tuple..., commit_timestamp DESC)'; the migration creates dim-leading (read-pat... | spec |
+| 12 | should-fix | doc-quality | .github/workflows/schema-deploy.yml:12-14 | The workflow header still advertises a 'schema-deploy GitHub Environment with manual-approval as the stronger gate ... tracked as deferre... | maint |
+| 13 | should-fix | doc-quality | benchmarks-website/infra/provision.sh:266 | proxy_role_name ('vortex-bench-proxy-role') and its policy name are hardcoded locals, but the README 'Customizing' section claims 'Every ... | maint |
+| 14 | nit | boundary | scripts/migrate-schema.py:2733-2745 | status() reports a generic 'pending' (exit 1) for an empty/whitespace-only migration file, while apply() rejects it explicitly only when ... | correctness/claude |
+| 15 | nit | doc-quality | migrations/README.md:39 | 002 is described as 'CREATE ROLE for the IAM-auth user that bench.yml workflows assume into', but migrator is consumed by the schema-depl... | maint |
+| 16 | nit | scaffolding | benchmarks-website/server/tests/measurement_id_golden.rs:30 | REGEN_GOLDEN_VECTORS is permanent regeneration scaffolding (write-on-env, always-assert otherwise). Correct and well-documented, but noth... | maint |
+| 17 | nit | doc-quality | .github/workflows/schema-deploy.yml:84-89 | The 'Apply migrations' step carries a ~5-line justification comment (set -x suppression, PGPASSWORD-on-own-line vs export masking). It do... | maint |
+| 18 | nit | scope-drift | benchmarks-website/server/tests/measurement_id_golden.rs:1 | PR-1.5's expected files row named 'benchmarks-website/server/src/db.rs (golden-vector test added)', but the test shipped as a separate in... | spec |
+
+### Surprises and discoveries
+
+- **RDS Proxy endpoints are not publicly accessible; off-VPC GitHub-hosted runners cannot reach the proxy. The plan's 'RDS Proxy public endpoint' assumption (Q6) may be architecturally invalid for the CI-write path.** — handled: Not handled in the diff — flagged as a must-fix deploy-blocker; likely forces amending Key decisions Q2/Q6 (e.g., CI writes to the public RDS instance endpoint with direct IAM, proxy stays for Vercel reads). (amend_plan: yes)
+- **PR-1.4's schema-deploy was accepted on wiring + yamllint + testcontainer, never run live against real RDS Proxy.** — handled: Recorded honestly in Implementation status; spec lens flags the acceptance criterion as unmet. Coupled with the proxy-reachability + migrator-credential findings, the path is unproven. (amend_plan: yes)
+- **PR-1.5 shipped 63 golden vectors, not the promised 100.** — handled: Status acknowledges 63; no amendment or extra fixtures. Qualitative coverage is strong (all tables + boundaries). (amend_plan: yes)
+- **The Phase-1 exit criterion names pytest scripts/test_post_ingest_hash.py, but the shipped file is test_measurement_id.py.** — handled: Not reconciled; the documented gate is unrunnable as written. Independently confirmed during exit-criteria execution. (amend_plan: yes)
+- **Table D's claim that _measurement_id.py re-exports SCHEMA_VERSION is stale; the shipped module correctly omits it.** — handled: Artifact correct; Table D not updated. Amend the reference table. (amend_plan: yes)
+- **Composite indexes are dim-leading (read-path filter columns), not the Key decision's '(dim_tuple..., commit_timestamp DESC)'.** — handled: Explained in PR-1.3 surprises (PK enforces hash-tuple uniqueness; dim-leading serves charts); Key decision row not updated and tests assert only index names. (amend_plan: yes)
+- **migrator role cannot ALTER / CREATE INDEX on master-owned tables in future migrations (GRANT CREATE on public is insufficient).** — handled: Covered by the deferred PR-1.3 role-ownership item (PR-2.1), but the deferral is ingest-DML-framed and should be expanded to cover migration DDL. Does not block Phase 1 (no Phase-1 migration alters an existing table). (amend_plan: already-done)
+- **Master-bootstrap runbook uses PGSSLMODE=require (encrypt-without-verify) while sending the master password.** — handled: Not handled — flagged must-fix (MITM exposure); workflow already uses verify-full, so only the README bootstrap is inconsistent. (amend_plan: no)
+- **NaN/Inf f64 threshold cross-language hash divergence is unguarded (no golden vector).** — handled: Flagged should-fix coverage; threshold is a cosine value so NaN is implausible, but the divergence would be silent. (amend_plan: yes)
+
+### Testing coverage assessment
+
+**Tested:**
+- Hash Rust==golden==Python across all 5 tables + i32 MIN/MAX + empty/Some('') strings + multibyte UTF-8 (63 vectors, executed bit-exact) (`benchmarks-website/server/tests/measurement_id_golden.rs + scripts/test_measurement_id.py`, confidence high)
+- migrate-schema apply / idempotency / name-order / failing-migration rollback (subprocess) / status drift / empty-file rejection / non-default search_path ledger agreement / subdir-skip / case-insensitive discovery (`scripts/test_migrate_schema.py`, confidence high)
+- Real 001-003 apply cleanly + idempotent; 6 tables, 6 indexes, per-table column order+nullability, key type translations, migrator role login, ledger grants (SELECT/INSERT present, DELETE/UPDATE absent) (`scripts/test_migrate_schema.py:3480-3640`, confidence high)
+
+**Untested (skeptical):**
+- [high] Live schema-deploy OIDC apply as migrator against the real endpoint (and whether the proxy is even reachable from CI) — Recorded as wiring/lint/testcontainer only; reachability + migrator-credential findings suggest it may not work as wired.
+- [high] scripts/ pytest running in CI (golden==Python parity AND the testcontainer suite are both ungated) — No CI job runs uv run --all-packages pytest scripts/; deferred CI-hardening.
+- [high] RDS Proxy reachability from off-VPC GitHub-hosted runners — RDS Proxy is not publicly accessible; the CI-write endpoint design needs rework.
+- [high] migrator credential registered for RDS Proxy IAM auth — Proxy has only the master secret; migrator connection would fail auth.
+- [medium] NaN/Inf f64 threshold cross-language equivalence — No non-finite threshold vector.
+- [medium] Future-migration DDL (ALTER/CREATE INDEX) run as migrator on master-owned tables — Deferred role-ownership (PR-2.1); no Phase-1 migration alters an existing table.
+- [medium] Composite-index column definitions (tests assert names only) — Index-definition assertions not written.
+- [medium] Edit-after-apply ledger drift (no fingerprint column) — Deferred (sha256 ledger column).
+
+_Recommendations:_ Resolve the CI-write endpoint design FIRST (RDS Proxy reachability + migrator credential) — this likely amends Key decisions Q2/Q6 (point schema-deploy at the public RDS instance endpoint with direct IAM, or run in-VPC). Then run schema-deploy live once and record the clean apply/status. Fix the README bootstrap to PGSSLMODE=verify-full. Land the plan-edit must-fixes (exit-criteria test name, Table D, provision.sh account, vector-count reconciliation). Wire scripts/ pytest into CI (closes the largest hash-pin exposure).
+
+### Tradeoffs re-evaluation
+
+- **Branching / merge target (per-phase child branches -> ct/bench-v4 -> develop)** → `keep` — No artifact conflict.
+- **Postgres flavor (RDS db.t4g.micro single-AZ, account 245040174862)** → `keep` — Provisioning/DDL target the chosen account/region/class; flavor-portable (testcontainer runs vanilla Postgres).
+- **Connection pooler (RDS Proxy with IAM-auth pass-through)** → `revisit-but-keep` — The proxy is right for Vercel reads, BUT the CI-write-via-proxy assumption is challenged: RDS Proxy is not publicly reachable from off-VPC GitHub runners and lacks a migrator credential. The CI-write endpoint specifically needs rework (most-pessimistic across reviewers; correctness/codex would lean reverse for the CI path).
+- **Ingest writer language (pure Python + golden vectors)** → `revisit-but-keep` — Hash port verified bit-exact, but the 100-vs-63 fixture-count and Table D lockstep gaps need reconciliation.
+- **Schema deploy tool (in-house migrate-schema.py + plain SQL)** → `revisit-but-keep` — Sound and well-tested, but grew to ~180 LOC and still lacks ledger fingerprinting, so the documented edit-after-apply prohibition has zero runtime enforcement (deferred).
+- **Schema-deploy authorization (PR merge is the gate; no environment gate)** → `keep` — Accepted tradeoff; NOT re-flagged. Only the stale header COMMENT advertising the superseded Environment gate is flagged (doc-sync, not a reversal).
+- **CI network reach (public + IAM, verify-full)** → `revisit-but-keep` — The public+IAM model works for the RDS INSTANCE endpoint, but the 'public RDS Proxy endpoint' sub-assumption is invalid (proxy isn't public). Tied to the schema-deploy.yml:77 must-fix.
+- **Composite index definition strategy ((dim_tuple..., commit_timestamp DESC))** → `revisit-but-keep` — Implemented as dim-leading read-path indexes without the trailing timestamp; either amend the decision to the implemented strategy or pin index column definitions in tests.
+- **Cutover style / One-shot load / Read framework / Operator SQL / v3 disposition** → `keep` — Future-phase decisions; no Phase-1 change contradicts them.
+
+### Disagreements
+
+- **Severity of the wrong-account header comment (provision.sh:19)**: maint: must-fix: the comment names the WRONG account (375504701696 = personal/v3), and an operator trusting it provisions into the wrong account or hits a confusing verify_prereqs die.; correctness/claude: nit: cosmetic doc-quality; the actual TARGET_ACCOUNT default is correct. → call: must-fix (HIGHEST, conservative). An operator-facing runbook naming the wrong AWS account is an operational hazard, not cosmetic; the fix is one line.
+- **Table D SCHEMA_VERSION re-export (scope-drift must-fix vs amend-the-doc should-fix)**: spec: must-fix scope-drift: Table D requires _measurement_id.py to re-export SCHEMA_VERSION; implement the re-export OR amend Table D.; maint: should-fix: the shipped module is CORRECT to omit the re-export (can't cleanly import hyphenated post-ingest.py; the hash port has no need for SCHEMA_VERSION); Table D is stale — amend the doc. → call: Keep must-fix severity (HIGHEST, and Table D is a reference downstream PRs grep into — fix before phase close), but the ACTION is to amend Table D, NOT to add a re-export. The shipped hash port is correct.
+
+### Dropped re-flags (carry-forward)
+
+- migrator role lacks privileges to ALTER / CREATE INDEX on master-owned tables in future migrations (correctness/codex flagged must-fix at 002_iam_db_user.sql:37) — covered by Deferred work (Deferred work:487 (PR-1.3 cycle-1 — migrator table privileges; resolve role-ownership model in PR-2.1). NOTE: the deferral is framed around INGEST DML; it should be EXPANDED to also cover future-migration DDL (ALTER/CREATE INDEX on master-owned tables) so the schema-deploy steady-state is covered, not just the ingest write path. Surfaced as a synthesizer concern. No Phase-1 migration alters an existing table, so it does not block Phase 1 functionally.)
+- golden==Python hash test (and the testcontainer suite) not wired into CI (correctness/claude flagged should-fix) — covered by Deferred work (Deferred work:489 (PR-1.5 cycle-1 — scripts/ pytest not in CI) and Deferred work:486 (PR-1.2 — no CI runner). The reviewer itself acknowledged the prior triage; surfaced as the single largest standing correctness exposure for the hash pin.)
+
+<details><summary>Full Synthesizer Output JSON (gauntlet schema_version: 1)</summary>
+
+```json
+{
+  "schema_version": 1,
+  "preset": "phase-3",
+  "lenses_used": [
+    "spec",
+    "correctness",
+    "maint"
+  ],
+  "review_count": 3,
+  "unified_findings": [
+    {
+      "severity": "must-fix",
+      "kind": "bug",
+      "file_line": ".github/workflows/schema-deploy.yml:77",
+      "description": "RDS_BENCH_ENDPOINT is the RDS Proxy hostname, but RDS Proxy endpoints are not publicly accessible and GitHub-hosted runners are off-VPC. As wired, the schema-deploy job cannot reach the proxy at all. This challenges Key decisions Q2/Q6 ('RDS Proxy public endpoint, security group 0.0.0.0/0').",
+      "recommended_fix": "Point off-VPC schema-deploy at the public RDS *instance* endpoint with direct IAM auth (the proxy stays for Vercel reads), OR run schema-deploy inside the VPC (self-hosted runner / CodeBuild), OR expose the proxy via an intentional NLB/PrivateLink design. Resolve before claiming the schema-deploy path works; this likely amends Q2/Q6.",
+      "found_by": [
+        "correctness/codex"
+      ]
+    },
+    {
+      "severity": "must-fix",
+      "kind": "bug",
+      "file_line": "benchmarks-website/infra/provision.sh:311",
+      "description": "The RDS Proxy is provisioned with only the RDS-managed master secret, but CI connects as PGUSER=migrator. Standard RDS Proxy IAM auth still needs a Secrets Manager credential registered for the migrator DB user; without it the proxy cannot authenticate the migrator connection.",
+      "recommended_fix": "Either configure end-to-end IAM auth for the proxy for the migrator user, or create+attach a migrator credential secret and register it in the proxy auth config. Add a smoke test that connects through the chosen endpoint as migrator. (Couples with the schema-deploy.yml:77 reachability finding \u2014 resolve the CI-write endpoint design together.)",
+      "found_by": [
+        "correctness/codex"
+      ]
+    },
+    {
+      "severity": "must-fix",
+      "kind": "missing-acceptance",
+      "file_line": ".github/workflows/schema-deploy.yml:68",
+      "description": "PR-1.4's acceptance criterion was 'migrate-schema.py apply runs as the OIDC migrator role against RDS Proxy; status reports clean post-apply.' Implementation status records only wiring + yamllint + testcontainer coverage \u2014 the live OIDC apply against real RDS Proxy was never executed. Combined with the proxy-reachability and migrator-credential findings, the schema-deploy path is unproven and may be non-functional as designed.",
+      "recommended_fix": "After resolving the endpoint/credential design, run schema-deploy live once and record the clean apply/status, OR explicitly amend the PR-1.4 acceptance criterion to state live execution is deferred (and to which phase) with rationale.",
+      "found_by": [
+        "spec"
+      ]
+    },
+    {
+      "severity": "must-fix",
+      "kind": "unsafe",
+      "file_line": "benchmarks-website/infra/README.md:120",
+      "description": "The master-user bootstrap runbook command uses PGSSLMODE=require, which encrypts but does NOT verify the RDS server certificate, while transmitting the master password. This is a MITM exposure on the single most sensitive credential in the system. The schema-deploy workflow correctly uses verify-full; the bootstrap runbook is inconsistent.",
+      "recommended_fix": "Change the bootstrap runbook to PGSSLMODE=verify-full with PGSSLROOTCERT pointed at the downloaded RDS CA bundle, matching the workflow.",
+      "found_by": [
+        "correctness/codex"
+      ]
+    },
+    {
+      "severity": "must-fix",
+      "kind": "doc-quality",
+      "file_line": "benchmarks-website/infra/provision.sh:19",
+      "description": "The header comment says the script provisions into account 375504701696 'by default', but the actual TARGET_ACCOUNT default (line 50) and the entire README/plan are 245040174862. Per Key decisions, 375504701696 is the PERSONAL/v3-EC2 account \u2014 exactly the account the bench infra must NOT land in. An operator trusting the header points at the wrong account; verify_prereqs would then die confusingly, or worse the operator provisions into the wrong account.",
+      "recommended_fix": "Change the line-19 comment to account 245040174862 to match TARGET_ACCOUNT and the README; or interpolate the value rather than hardcoding a stale literal.",
+      "found_by": [
+        "maint",
+        "correctness/claude"
+      ]
+    },
+    {
+      "severity": "must-fix",
+      "kind": "scope-drift",
+      "file_line": "benchmarks-website/server/tests/measurement_id_golden.rs:102",
+      "description": "PR-1.5's acceptance promised '100 fixture (commit, dim-tuple) inputs'; the generator + committed golden file contain 63 vectors. The qualitative coverage is strong (all 5 tables + i32 MIN/MAX + empty/Some('') strings + multibyte UTF-8), but the literal acceptance criterion is unmet and was not amended.",
+      "recommended_fix": "Either add ~37 more deterministic fixture vectors, OR amend the PR-1.5 acceptance criterion to '63 vectors' with rationale (the chosen 63 exhaustively cover all tables + boundary classes). Cheap; pick one and record it.",
+      "found_by": [
+        "spec"
+      ]
+    },
+    {
+      "severity": "must-fix",
+      "kind": "weak-exit-criteria",
+      "file_line": "scripts/test_measurement_id.py:1",
+      "description": "The Phase-1 exit criterion (Phases-and-PRs table) names 'pytest scripts/test_post_ingest_hash.py all green', but the artifact ships scripts/test_measurement_id.py. The documented phase gate is unrunnable as written (no such file). Independently confirmed during exit-criteria execution.",
+      "recommended_fix": "Amend the Phase-1 exit-criteria string to 'pytest scripts/test_measurement_id.py' (the as-shipped file). Plan-edit only.",
+      "found_by": [
+        "spec"
+      ]
+    },
+    {
+      "severity": "must-fix",
+      "kind": "scope-drift",
+      "file_line": "scripts/_measurement_id.py:50",
+      "description": "Reference Table D ('SCHEMA_VERSION lockstep sites') claims scripts/_measurement_id.py 'Imports SCHEMA_VERSION from post-ingest.py | Python re-export to keep one site'. The shipped module neither imports nor re-exports SCHEMA_VERSION (and could not cleanly import from hyphenated post-ingest.py without importlib). The hash port is correct to omit it; Table D is stale and would mislead a future SCHEMA_VERSION bump. (Table D is a reference downstream PRs grep into.)",
+      "recommended_fix": "Amend Table D to remove the _measurement_id.py re-export row (or replace it with the real lockstep site). Do NOT add a spurious re-export to the hash port. Plan-edit only. (See disagreement: spec framed this as must-fix scope-drift requiring re-export OR amendment; maint framed it as should-fix amend-the-doc; synthesizer call = amend Table D, code is correct.)",
+      "found_by": [
+        "spec",
+        "maint"
+      ]
+    },
+    {
+      "severity": "should-fix",
+      "kind": "doc-quality",
+      "file_line": "migrations/README.md:35",
+      "description": "The 'Initial files' section lists only 001 and 002 and says the SQL files 'land in PR-1.3', but PR-1.4 added 003_migrator_ledger_grant.sql, which exists on disk and is exercised by the test suite. The directory's own README is a stale, incomplete inventory.",
+      "recommended_fix": "Add a bullet for 003_migrator_ledger_grant.sql (GRANT SELECT,INSERT on the ledger to migrator, PR-1.4) and fix the 'land in PR-1.3' sentence.",
+      "found_by": [
+        "spec",
+        "maint"
+      ]
+    },
+    {
+      "severity": "should-fix",
+      "kind": "coverage",
+      "file_line": "benchmarks-website/server/tests/measurement_id_golden.rs:1108-1117",
+      "description": "No golden vector exercises a NaN or Inf f64 threshold. Rust write_f64 uses v.to_bits() (preserves NaN payload bits); Python struct.pack('<d', nan) emits canonical NaN (0x7ff8...). A NaN threshold would hash differently across languages -> silent duplicate row, the exact failure the hash pin exists to prevent. Inf is canonical on both, so the gap is narrowly NaN.",
+      "recommended_fix": "Add f64::NAN / INFINITY / NEG_INFINITY threshold vectors and regenerate the golden file, OR assert threshold.is_finite() at the PR-2.1 ingest boundary so a non-finite value fails loudly rather than diverging silently.",
+      "found_by": [
+        "correctness/claude"
+      ]
+    },
+    {
+      "severity": "should-fix",
+      "kind": "scope-drift",
+      "file_line": "migrations/001_initial_schema.sql:75",
+      "description": "The composite-index Key decision promised indexes on '(dim_tuple..., commit_timestamp DESC)'; the migration creates dim-leading (read-path filter) indexes WITHOUT the trailing commit_timestamp, and the tests assert only index *names*, not indexed columns/order. The divergence is explained in PR-1.3's surprises (dim-leading serves the chart read path; PK enforces hash-tuple uniqueness) but the Key decision row was never updated.",
+      "recommended_fix": "Amend the composite-index Key decision to the implemented read-path strategy, AND/OR add a test asserting the index column definitions (not just names) so the intended shape is pinned.",
+      "found_by": [
+        "spec"
+      ]
+    },
+    {
+      "severity": "should-fix",
+      "kind": "doc-quality",
+      "file_line": ".github/workflows/schema-deploy.yml:12-14",
+      "description": "The workflow header still advertises a 'schema-deploy GitHub Environment with manual-approval as the stronger gate ... tracked as deferred hardening'. The 2026-05-29 deploy-model Key decision SUPERSEDED that path (PR merge is the gate; the Environment gate was judged the wrong tool). The comment points a future engineer at deferred work the plan reversed. (NOT a re-flag of the accepted no-env-gate tradeoff \u2014 this flags the stale comment, aligned with the decision.)",
+      "recommended_fix": "Replace the Environment-gate framing with the actual deferred item: switch the trigger to push on the deploy branch under paths: migrations/** (PR-merge-is-the-gate). Naturally lands with the deferred trigger-switch (Deferred work, 2026-05-29 deploy-model item).",
+      "found_by": [
+        "maint"
+      ]
+    },
+    {
+      "severity": "should-fix",
+      "kind": "doc-quality",
+      "file_line": "benchmarks-website/infra/provision.sh:266",
+      "description": "proxy_role_name ('vortex-bench-proxy-role') and its policy name are hardcoded locals, but the README 'Customizing' section claims 'Every name / class / engine version / region is set at the top via readonly declarations with ${ENV:-default} fallbacks.' The proxy role is an exception, and the tear-down runbook uses the literal default name, so an operator who overrode other names gets a tear-down mismatch.",
+      "recommended_fix": "Promote proxy_role_name to a top-level readonly PROXY_ROLE_NAME=\"${PROXY_ROLE_NAME:-vortex-bench-proxy-role}\" like the other names, OR soften the README 'every name is overridable' claim to enumerate the proxy role as fixed.",
+      "found_by": [
+        "maint"
+      ]
+    },
+    {
+      "severity": "nit",
+      "kind": "boundary",
+      "file_line": "scripts/migrate-schema.py:2733-2745",
+      "description": "status() reports a generic 'pending' (exit 1) for an empty/whitespace-only migration file, while apply() rejects it explicitly only when it reaches it. Same bad file, two different diagnoses. Behavior is safe (loud both ways) but asymmetric.",
+      "recommended_fix": "Optionally have status() classify empty/whitespace-only on-disk files distinctly so the operator sees the same diagnosis from status as from apply.",
+      "found_by": [
+        "correctness/claude"
+      ]
+    },
+    {
+      "severity": "nit",
+      "kind": "doc-quality",
+      "file_line": "migrations/README.md:39",
+      "description": "002 is described as 'CREATE ROLE for the IAM-auth user that bench.yml workflows assume into', but migrator is consumed by the schema-deploy workflow (PR-1.4), not bench.yml (the ingest workflow, which uses a separate future ingest role). The WHY misattributes the consumer.",
+      "recommended_fix": "Change 'bench.yml workflows' to 'the schema-deploy workflow (PR-1.4)'.",
+      "found_by": [
+        "maint"
+      ]
+    },
+    {
+      "severity": "nit",
+      "kind": "scaffolding",
+      "file_line": "benchmarks-website/server/tests/measurement_id_golden.rs:30",
+      "description": "REGEN_GOLDEN_VECTORS is permanent regeneration scaffolding (write-on-env, always-assert otherwise). Correct and well-documented, but nothing flags committed-JSON drift unless the Rust test runs in CI, and the golden==Python half is not CI-gated (deferred).",
+      "recommended_fix": "Add one sentence to the test module doc noting golden==Python is only enforced once 'uv run --all-packages pytest scripts/' is wired into CI (deferred), so a green local run does not prove cross-language parity in CI.",
+      "found_by": [
+        "maint"
+      ]
+    },
+    {
+      "severity": "nit",
+      "kind": "doc-quality",
+      "file_line": ".github/workflows/schema-deploy.yml:84-89",
+      "description": "The 'Apply migrations' step carries a ~5-line justification comment (set -x suppression, PGPASSWORD-on-own-line vs export masking). It documents two real footguns but is exactly the >100-char justification-comment shape the shared BAN warns about.",
+      "recommended_fix": "Keep the substance but tighten to two short sentences (token-leak + export-masking). No behavior change.",
+      "found_by": [
+        "maint"
+      ]
+    },
+    {
+      "severity": "nit",
+      "kind": "scope-drift",
+      "file_line": "benchmarks-website/server/tests/measurement_id_golden.rs:1",
+      "description": "PR-1.5's expected files row named 'benchmarks-website/server/src/db.rs (golden-vector test added)', but the test shipped as a separate integration test file benchmarks-website/server/tests/measurement_id_golden.rs. Minor placement deviation from the plan row.",
+      "recommended_fix": "Amend the PR-1.5 expected-files row to name the integration test location (the chosen placement is fine; the plan row is stale).",
+      "found_by": [
+        "spec"
+      ]
+    }
+  ],
+  "disagreements": [
+    {
+      "topic": "Severity of the wrong-account header comment (provision.sh:19)",
+      "positions": [
+        {
+          "lens": "maint",
+          "position": "must-fix: the comment names the WRONG account (375504701696 = personal/v3), and an operator trusting it provisions into the wrong account or hits a confusing verify_prereqs die."
+        },
+        {
+          "lens": "correctness/claude",
+          "position": "nit: cosmetic doc-quality; the actual TARGET_ACCOUNT default is correct."
+        }
+      ],
+      "synthesizer_call": "must-fix (HIGHEST, conservative). An operator-facing runbook naming the wrong AWS account is an operational hazard, not cosmetic; the fix is one line."
+    },
+    {
+      "topic": "Table D SCHEMA_VERSION re-export (scope-drift must-fix vs amend-the-doc should-fix)",
+      "positions": [
+        {
+          "lens": "spec",
+          "position": "must-fix scope-drift: Table D requires _measurement_id.py to re-export SCHEMA_VERSION; implement the re-export OR amend Table D."
+        },
+        {
+          "lens": "maint",
+          "position": "should-fix: the shipped module is CORRECT to omit the re-export (can't cleanly import hyphenated post-ingest.py; the hash port has no need for SCHEMA_VERSION); Table D is stale \u2014 amend the doc."
+        }
+      ],
+      "synthesizer_call": "Keep must-fix severity (HIGHEST, and Table D is a reference downstream PRs grep into \u2014 fix before phase close), but the ACTION is to amend Table D, NOT to add a re-export. The shipped hash port is correct."
+    }
+  ],
+  "dropped_re_flags": [
+    {
+      "topic": "migrator role lacks privileges to ALTER / CREATE INDEX on master-owned tables in future migrations (correctness/codex flagged must-fix at 002_iam_db_user.sql:37)",
+      "reason": "covered by Deferred work",
+      "reference": "Deferred work:487 (PR-1.3 cycle-1 \u2014 migrator table privileges; resolve role-ownership model in PR-2.1). NOTE: the deferral is framed around INGEST DML; it should be EXPANDED to also cover future-migration DDL (ALTER/CREATE INDEX on master-owned tables) so the schema-deploy steady-state is covered, not just the ingest write path. Surfaced as a synthesizer concern. No Phase-1 migration alters an existing table, so it does not block Phase 1 functionally."
+    },
+    {
+      "topic": "golden==Python hash test (and the testcontainer suite) not wired into CI (correctness/claude flagged should-fix)",
+      "reason": "covered by Deferred work",
+      "reference": "Deferred work:489 (PR-1.5 cycle-1 \u2014 scripts/ pytest not in CI) and Deferred work:486 (PR-1.2 \u2014 no CI runner). The reviewer itself acknowledged the prior triage; surfaced as the single largest standing correctness exposure for the hash pin."
+    }
+  ],
+  "phase_artifacts": {
+    "summary": "Phase 1 ('RDS + schema + hash port') lands the migration foundation in five concept areas. (A) Infrastructure: provision.sh idempotently bootstraps RDS Postgres db.t4g.micro + RDS Proxy (IAMAuth=REQUIRED, TLS) + GitHub OIDC provider + GitHubBenchmarkSchemaRole in account 245040174862, with an operator runbook in infra/README.md. (B) Schema-deploy CI: schema-deploy.yml (workflow_dispatch + dry_run; PR-merge is the accepted authorization gate, no environment: approval) generates a client-side IAM token and runs the migrate runner against the proxy as migrator over verify-full TLS. (C) Migration runner: scripts/migrate-schema.py applies migrations/*.sql in name order, tracks public._applied_migrations, is idempotent, uses autocommit + per-migration top-level transactions so a failing later migration rolls back only itself, rejects empty files; 28+ testcontainer tests. (D) DDL: 001 creates the commits dim + 5 fact tables + read-path composite indexes (Postgres translation of the authoritative DuckDB schema.rs, column order/nullability/types preserved); 002 the migrator login role + conditional rds_iam; 003 the append-only ledger grant. (E) Hash port: _measurement_id.py is a byte-for-byte port of db.rs measurement_id_* (xxhash64 seed 0), pinned by a Rust source-of-truth golden file giving Rust==golden==Python, verified bit-exact for all 63 vectors (Claude correctness executed the port; Rust golden test passes). The keystone hash-equivalence deliverable is solid and the schema shape provably matches schema.rs. HOWEVER the AWS-integration path has deploy-blocking gaps the Codex correctness lens surfaced: RDS Proxy endpoints are not publicly reachable from off-VPC GitHub runners (challenges Key decisions Q2/Q6); the proxy lacks a migrator credential for IAM auth; PR-1.4's live OIDC apply against real RDS Proxy was never executed (only wiring + lint + testcontainer); and the master-bootstrap runbook uses PGSSLMODE=require (no cert verification) while sending the master password. The Codex spec lens found contract gaps: 63 vectors shipped vs the promised 100; the Phase-1 exit criterion names a nonexistent test_post_ingest_hash.py; Table D claims a SCHEMA_VERSION re-export the hash port omits. Maintainability is otherwise high, but provision.sh's header names the WRONG AWS account, migrations/README omits 003, and the schema-deploy header advertises the superseded Environment gate.",
+    "surprises": [
+      {
+        "what": "RDS Proxy endpoints are not publicly accessible; off-VPC GitHub-hosted runners cannot reach the proxy. The plan's 'RDS Proxy public endpoint' assumption (Q6) may be architecturally invalid for the CI-write path.",
+        "how_handled": "Not handled in the diff \u2014 flagged as a must-fix deploy-blocker; likely forces amending Key decisions Q2/Q6 (e.g., CI writes to the public RDS instance endpoint with direct IAM, proxy stays for Vercel reads).",
+        "amend_plan": "yes"
+      },
+      {
+        "what": "PR-1.4's schema-deploy was accepted on wiring + yamllint + testcontainer, never run live against real RDS Proxy.",
+        "how_handled": "Recorded honestly in Implementation status; spec lens flags the acceptance criterion as unmet. Coupled with the proxy-reachability + migrator-credential findings, the path is unproven.",
+        "amend_plan": "yes"
+      },
+      {
+        "what": "PR-1.5 shipped 63 golden vectors, not the promised 100.",
+        "how_handled": "Status acknowledges 63; no amendment or extra fixtures. Qualitative coverage is strong (all tables + boundaries).",
+        "amend_plan": "yes"
+      },
+      {
+        "what": "The Phase-1 exit criterion names pytest scripts/test_post_ingest_hash.py, but the shipped file is test_measurement_id.py.",
+        "how_handled": "Not reconciled; the documented gate is unrunnable as written. Independently confirmed during exit-criteria execution.",
+        "amend_plan": "yes"
+      },
+      {
+        "what": "Table D's claim that _measurement_id.py re-exports SCHEMA_VERSION is stale; the shipped module correctly omits it.",
+        "how_handled": "Artifact correct; Table D not updated. Amend the reference table.",
+        "amend_plan": "yes"
+      },
+      {
+        "what": "Composite indexes are dim-leading (read-path filter columns), not the Key decision's '(dim_tuple..., commit_timestamp DESC)'.",
+        "how_handled": "Explained in PR-1.3 surprises (PK enforces hash-tuple uniqueness; dim-leading serves charts); Key decision row not updated and tests assert only index names.",
+        "amend_plan": "yes"
+      },
+      {
+        "what": "migrator role cannot ALTER / CREATE INDEX on master-owned tables in future migrations (GRANT CREATE on public is insufficient).",
+        "how_handled": "Covered by the deferred PR-1.3 role-ownership item (PR-2.1), but the deferral is ingest-DML-framed and should be expanded to cover migration DDL. Does not block Phase 1 (no Phase-1 migration alters an existing table).",
+        "amend_plan": "already-done"
+      },
+      {
+        "what": "Master-bootstrap runbook uses PGSSLMODE=require (encrypt-without-verify) while sending the master password.",
+        "how_handled": "Not handled \u2014 flagged must-fix (MITM exposure); workflow already uses verify-full, so only the README bootstrap is inconsistent.",
+        "amend_plan": "no"
+      },
+      {
+        "what": "NaN/Inf f64 threshold cross-language hash divergence is unguarded (no golden vector).",
+        "how_handled": "Flagged should-fix coverage; threshold is a cosine value so NaN is implausible, but the divergence would be silent.",
+        "amend_plan": "yes"
+      }
+    ],
+    "coverage": {
+      "tested_cases": [
+        {
+          "case": "Hash Rust==golden==Python across all 5 tables + i32 MIN/MAX + empty/Some('') strings + multibyte UTF-8 (63 vectors, executed bit-exact)",
+          "test_location": "benchmarks-website/server/tests/measurement_id_golden.rs + scripts/test_measurement_id.py",
+          "confidence": "high"
+        },
+        {
+          "case": "migrate-schema apply / idempotency / name-order / failing-migration rollback (subprocess) / status drift / empty-file rejection / non-default search_path ledger agreement / subdir-skip / case-insensitive discovery",
+          "test_location": "scripts/test_migrate_schema.py",
+          "confidence": "high"
+        },
+        {
+          "case": "Real 001-003 apply cleanly + idempotent; 6 tables, 6 indexes, per-table column order+nullability, key type translations, migrator role login, ledger grants (SELECT/INSERT present, DELETE/UPDATE absent)",
+          "test_location": "scripts/test_migrate_schema.py:3480-3640",
+          "confidence": "high"
+        }
+      ],
+      "untested_cases": [
+        {
+          "case": "Live schema-deploy OIDC apply as migrator against the real endpoint (and whether the proxy is even reachable from CI)",
+          "priority": "high",
+          "why_untested": "Recorded as wiring/lint/testcontainer only; reachability + migrator-credential findings suggest it may not work as wired."
+        },
+        {
+          "case": "scripts/ pytest running in CI (golden==Python parity AND the testcontainer suite are both ungated)",
+          "priority": "high",
+          "why_untested": "No CI job runs uv run --all-packages pytest scripts/; deferred CI-hardening."
+        },
+        {
+          "case": "RDS Proxy reachability from off-VPC GitHub-hosted runners",
+          "priority": "high",
+          "why_untested": "RDS Proxy is not publicly accessible; the CI-write endpoint design needs rework."
+        },
+        {
+          "case": "migrator credential registered for RDS Proxy IAM auth",
+          "priority": "high",
+          "why_untested": "Proxy has only the master secret; migrator connection would fail auth."
+        },
+        {
+          "case": "NaN/Inf f64 threshold cross-language equivalence",
+          "priority": "medium",
+          "why_untested": "No non-finite threshold vector."
+        },
+        {
+          "case": "Future-migration DDL (ALTER/CREATE INDEX) run as migrator on master-owned tables",
+          "priority": "medium",
+          "why_untested": "Deferred role-ownership (PR-2.1); no Phase-1 migration alters an existing table."
+        },
+        {
+          "case": "Composite-index column definitions (tests assert names only)",
+          "priority": "medium",
+          "why_untested": "Index-definition assertions not written."
+        },
+        {
+          "case": "Edit-after-apply ledger drift (no fingerprint column)",
+          "priority": "medium",
+          "why_untested": "Deferred (sha256 ledger column)."
+        }
+      ],
+      "recommendations": "Resolve the CI-write endpoint design FIRST (RDS Proxy reachability + migrator credential) \u2014 this likely amends Key decisions Q2/Q6 (point schema-deploy at the public RDS instance endpoint with direct IAM, or run in-VPC). Then run schema-deploy live once and record the clean apply/status. Fix the README bootstrap to PGSSLMODE=verify-full. Land the plan-edit must-fixes (exit-criteria test name, Table D, provision.sh account, vector-count reconciliation). Wire scripts/ pytest into CI (closes the largest hash-pin exposure)."
+    },
+    "tradeoffs": [
+      {
+        "decision": "Branching / merge target (per-phase child branches -> ct/bench-v4 -> develop)",
+        "original": "User pick Q1",
+        "verdict": "keep",
+        "rationale": "No artifact conflict."
+      },
+      {
+        "decision": "Postgres flavor (RDS db.t4g.micro single-AZ, account 245040174862)",
+        "original": "User pick Q2",
+        "verdict": "keep",
+        "rationale": "Provisioning/DDL target the chosen account/region/class; flavor-portable (testcontainer runs vanilla Postgres)."
+      },
+      {
+        "decision": "Connection pooler (RDS Proxy with IAM-auth pass-through)",
+        "original": "Locked by Q2",
+        "verdict": "revisit-but-keep",
+        "rationale": "The proxy is right for Vercel reads, BUT the CI-write-via-proxy assumption is challenged: RDS Proxy is not publicly reachable from off-VPC GitHub runners and lacks a migrator credential. The CI-write endpoint specifically needs rework (most-pessimistic across reviewers; correctness/codex would lean reverse for the CI path)."
+      },
+      {
+        "decision": "Ingest writer language (pure Python + golden vectors)",
+        "original": "User pick Q4",
+        "verdict": "revisit-but-keep",
+        "rationale": "Hash port verified bit-exact, but the 100-vs-63 fixture-count and Table D lockstep gaps need reconciliation."
+      },
+      {
+        "decision": "Schema deploy tool (in-house migrate-schema.py + plain SQL)",
+        "original": "User pick Q5a",
+        "verdict": "revisit-but-keep",
+        "rationale": "Sound and well-tested, but grew to ~180 LOC and still lacks ledger fingerprinting, so the documented edit-after-apply prohibition has zero runtime enforcement (deferred)."
+      },
+      {
+        "decision": "Schema-deploy authorization (PR merge is the gate; no environment gate)",
+        "original": "User decision 2026-05-29",
+        "verdict": "keep",
+        "rationale": "Accepted tradeoff; NOT re-flagged. Only the stale header COMMENT advertising the superseded Environment gate is flagged (doc-sync, not a reversal)."
+      },
+      {
+        "decision": "CI network reach (public + IAM, verify-full)",
+        "original": "User pick Q6",
+        "verdict": "revisit-but-keep",
+        "rationale": "The public+IAM model works for the RDS INSTANCE endpoint, but the 'public RDS Proxy endpoint' sub-assumption is invalid (proxy isn't public). Tied to the schema-deploy.yml:77 must-fix."
+      },
+      {
+        "decision": "Composite index definition strategy ((dim_tuple..., commit_timestamp DESC))",
+        "original": "Forward-looking design",
+        "verdict": "revisit-but-keep",
+        "rationale": "Implemented as dim-leading read-path indexes without the trailing timestamp; either amend the decision to the implemented strategy or pin index column definitions in tests."
+      },
+      {
+        "decision": "Cutover style / One-shot load / Read framework / Operator SQL / v3 disposition",
+        "original": "User picks Q5b,Q7,Q8,Q9 + forward-looking",
+        "verdict": "keep",
+        "rationale": "Future-phase decisions; no Phase-1 change contradicts them."
+      }
+    ]
+  },
+  "executive_summary": "Phase 1 ships a coherent, unusually well-documented foundation, and its keystone deliverable \u2014 the cross-language measurement_id hash equivalence (Rust==golden==Python) \u2014 is verified bit-exact for all 63 vectors, with the 6-table Postgres schema provably matching the authoritative DuckDB schema.rs and a well-tested migration runner. The mixed-executor review (Claude + Codex lenses) is the reason this is a REJECT rather than an accept: the Codex correctness lens surfaced a cluster of deploy-blocking AWS-integration gaps that the hash-focused Claude review did not. The most serious: RDS Proxy endpoints are NOT publicly reachable from off-VPC GitHub-hosted runners (schema-deploy.yml:77), the proxy was provisioned without a migrator credential for IAM auth (provision.sh:311), and PR-1.4's live OIDC apply against real RDS Proxy was never actually executed (schema-deploy.yml:68) \u2014 together meaning the schema-deploy CI path, a core Phase-1 deliverable, is unproven and likely broken as wired. Resolving it probably amends Key decisions Q2/Q6 (e.g., point CI writes at the public RDS *instance* endpoint with direct IAM and reserve the proxy for Vercel reads, or run schema-deploy in-VPC). A fourth correctness must-fix: the master-bootstrap runbook uses PGSSLMODE=require (encrypt-without-verify) while transmitting the master password (README:120) \u2014 a MITM exposure, fixed by verify-full. The Codex spec lens added contract-closure must-fixes that are mostly cheap plan-edits: 63 vectors shipped vs the promised 100 (reconcile the criterion or add vectors); the Phase-1 exit criterion names a nonexistent test_post_ingest_hash.py (rename to the shipped test_measurement_id.py \u2014 independently confirmed at exit-criteria time); and Table D claims a SCHEMA_VERSION re-export the hash port correctly omits (amend the reference table, do NOT add the re-export). The maint lens caught a genuine operational hazard: provision.sh's header comment names the WRONG (personal/v3) AWS account, which could misdirect an operator. Five should-fixes (stale migrations/README missing 003; composite-index decision-vs-impl drift; the schema-deploy header advertising the superseded Environment gate; a hardcoded proxy-role name contradicting the README; the unguarded NaN/Inf hash vector) and five nits round it out. Two findings were dropped as carry-forward (migrator table privileges and CI-gating of scripts/ pytest are both already in Deferred work) \u2014 though the role-privileges deferral should be expanded to cover future-migration DDL, not just ingest DML. Verdict: reject, 8 must-fix. The hash and schema work is strong; the AWS-integration + plan-consistency layer needs a focused fix pass before Phase 1 closes.",
+  "overall": "reject",
+  "must_fix_count": 8,
+  "should_fix_count": 5,
+  "nit_count": 5,
+  "review_cycles_this_invocation": 1,
+  "executor_routing": {
+    "spec": "codex",
+    "correctness": "parallel",
+    "maint": "claude"
+  }
+}
+```
+
+</details>
+
+## Phase 1: RDS + schema + hash port — end-of-phase review (cycle 2) — accepted (3-vote; user-authorized over operator-gated + deferred items)
+
+**Recorded from 4 REAL reviewer invocations** (gauntlet `preset=phase-3`, `executor=mixed`: `spec`/codex, `correctness`/claude+codex parallel, `maint`/claude), run against the cumulative Phase-1 code diff `ae3e0494f..HEAD` (159KB, `.big-plans/` excluded). **Reconciliation note:** the formal synthesizer SUBAGENT was not spawned for this cycle (the two Claude reviewer outputs were ~140-177KB and `SendMessage` was unavailable to marshal them into files without re-running the reviews); the orchestrator reconciled the 4 real reviewer outputs inline (conservative-union severity, carry-forward drop). The 2 Codex raw JSONs are archived at `/tmp/gauntlet-PR-1_6-cycle2-35145/phase-reviews/`; the Claude findings + phase_artifacts are captured below. This is a transparent inline reconciliation of a real review, NOT a fabricated synthesizer output.
+
+**Reviewer verdicts**: `correctness`/claude ACCEPT (2 nits); `maint`/claude ACCEPT (2 nits); `spec`/codex REJECT (1 must-fix); `correctness`/codex REJECT (3 must-fix). Conservative verdict: **reject** → resolved as below.
+
+### Unified findings + resolution
+
+| Severity | File:line | Finding | Resolution |
+|---|---|---|---|
+| must-fix | `migrate-schema.py:158` | Migration DDL runs under caller `search_path`; under a non-default `search_path` an unqualified `CREATE TABLE` lands in the wrong schema while the public-pinned ledger reports clean. (correctness/codex) | **FIXED** in `cb68db1c6`: `SET LOCAL search_path TO public` per migration txn + test extended to assert the table lands in `public`. |
+| must-fix | `provision.sh:67` | `PG_MIGRATOR_ROLE` env-overridable but `migrations/002` hardcodes `CREATE ROLE migrator`; an override scopes the IAM grant to a nonexistent user and breaks deploy auth. (correctness/codex) | **FIXED** in `cb68db1c6`: `PG_MIGRATOR_ROLE` hardcoded to `migrator` (no env override) with an explanatory comment. |
+| must-fix | (acceptance criterion) | Phase-1 / PR-1.6 requires the operator to run the live OIDC schema-deploy apply against the instance endpoint + confirm `status` clean; this is unverified (out-of-band). (spec/codex) | **DEFERRED to operator pre-merge action** (live AWS apply; not performable in-session — no AWS creds). Tracked as the operator's gate before `ct/bench-v4` → `develop`. |
+| must-fix | `test_migrate_schema.py:980` | Tests assert migrator privileges by inspection but never run the runner AS migrator after a master-owned bootstrap. (correctness/codex) | **DROPPED (re-flag)**: covered by Deferred work (PR-1.3 cycle-1 → PR-2.1 role-ownership model). |
+| nit | `migrate-schema.py` discover/empty-file | Case-insensitive ledger keys; comment-only migration semantics untested. (correctness/claude) | Deferred (off-convention inputs; low priority). |
+| nit | `_measurement_id.py:48` | twox-hash endianness attribution misplaced (std Hasher defaults, not twox-hash); conclusion correct. (maint/claude) | Deferred (doc-quality; follow-up polish). |
+| nit | `migrate-schema.py:88` | `_applied_set` name does not signal its CREATE-TABLE side effect. (maint/claude) | Deferred (naming clarity; follow-up polish). |
+
+### Phase artifacts (reconciled from the 2 Claude reviewers' real phase_artifacts)
+
+- **Summary of changes**: Phase 1 stands up the data substrate — RDS Postgres `db.t4g.micro` + RDS Proxy + GitHub-OIDC schema role (`provision.sh`); a forward-only `migrate-schema.py` runner (public-pinned ledger, per-migration top-level autocommit transactions, now `SET LOCAL search_path TO public`); the 6-table schema + dim-leading read-path composite indexes (001), the IAM-auth `migrator` role (002), the ledger SELECT/INSERT grant (003); and a byte-for-byte Python port of the server-internal xxhash64 `measurement_id`, pinned transitively Rust==golden==Python via 63 vectors. PR-1.6 repointed CI from the VPC-internal proxy to the public instance endpoint (verify-full) with consistent CI=instance / proxy=Vercel docs + 5 static drift guards.
+- **Surprises**: (1) RDS Proxy is VPC-internal/unreachable from off-VPC runners — corrected via the PR-1.6 repoint + guards (Key decisions amended 2026-05-29). (2) Composite indexes diverged to dim-leading read-path columns (ratified; verified against `api/charts.rs` by maint/claude; pinned by the index test). (3) The single-owner testcontainer model does not exercise the master/migrator ownership split (documented; deferred PR-2.1). (4) NaN/Inf threshold cross-language divergence (deferred to a PR-2.1 ingest `is_finite()` guard).
+- **Testing coverage**: hash equivalence (Rust golden + Python, 63 vectors, all boundary classes); runner transaction discipline, idempotency, ordering, partial-failure persistence, search_path ledger AND now table placement; schema shape/nullability/index columns+order/role grants; 5 static PR-1.6 drift guards. Untested-but-triaged: golden==Python not CI-gated (deferred CI-hardening — highest-leverage Phase-2 action); non-additive migration under the real role split (deferred PR-2.1).
+- **Tradeoffs re-evaluation**: all Key decisions hold (`keep`); the schema-deploy-tool decision is `revisit-but-keep` (runner grew to ~229 LOC, still lacks applied-migration fingerprinting — revisit before the first data-affecting migration); no decision warrants `reverse`. The dead proxy grant on the schema role remains deferred least-privilege cleanup (PR-2.1).
+
+**Acceptance**: per the operator's cycle-2 phase-boundary decision, the 2 code must-fix were fixed (`cb68db1c6`) and the Phase-1 boundary is **accepted**, with the live OIDC apply as the operator's pre-merge gate and all nits + the dead-proxy-grant deferred to follow-up. No code defect in the shipped Phase-1 substrate was found across either phase-end cycle; the cycle-1→cycle-2 findings were endpoint-model + cross-PR-consistency + test-strictness items, all now resolved or tracked.
+
+## Phase 1 live verification (2026-06-01)
+
+Run live against real AWS by the operator + assistant on 2026-06-01 (account `245040174862`, local CLI profile `bench-prod` = IAM user `connor-aws-cli`, AdministratorAccess). This verified whether "Phase 1 is actually done" and surfaced that the schema had **never been applied** and that two GitHub repo-var changes this plan claimed PR-1.6 made had **never actually happened**. All three were fixed in-session.
+
+**Verified real (read-only AWS):** RDS instance `vortex-bench-prod` (`db-4VPTDACTRQHOS24WEIR3TNC2M4`) `available`, `IAMDatabaseAuthenticationEnabled: true`; RDS Proxy `vortex-bench-proxy` `available`; OIDC provider `token.actions.githubusercontent.com` (aud `sts.amazonaws.com`) present; `GitHubBenchmarkSchemaRole` trust branch-scoped to `refs/heads/develop` + `refs/heads/ct/bench-v4` (the PR-1.1 wildcard `repo:vortex-data/vortex:*` is gone, so the deferred trust-tightening re-run WAS applied); inline policy `rds-db-connect-migrator` grants `rds-db:connect` on the instance + proxy `dbuser:.../migrator` resources.
+
+**Fixed in-session (mutations to prod / shared repo):**
+
+1. **Schema bootstrap (was MISSING; the DB was bare).** Applied `001+002+003` as the RDS master (`postgres`) via `migrate-schema.py apply` over `verify-full`. Post-state verified: 6 data tables + `public._applied_migrations` ledger present; `migrator` role exists with LOGIN and is a member of `rds_iam`; `migrator` has SELECT/INSERT on the ledger; ledger records all 3 migrations. This is the one-time master bootstrap that `schema-deploy.yml`'s header documents.
+2. **`RDS_BENCH_INSTANCE_ENDPOINT` repo var (was MISSING).** Set to `vortex-bench-prod.c4f8qygk4xdp.us-east-1.rds.amazonaws.com`. Without it the workflow's `PGHOST` resolved to empty. This corrects the Implementation-status claims (PR-1.1 "Repo vars set" and PR-1.6 scope) that PR-1.6 had already added it.
+3. **Stale `RDS_BENCH_ENDPOINT` (proxy) repo var (lingered).** Audited (zero consumers across workflows, scripts, and app code; only negative test guards and plan history reference the name) and **deleted**. This corrects the same claims that PR-1.6 had already dropped it. The proxy endpoint value is preserved under Resource identities for the PR-4.2 Vercel config.
+
+**IAM end-to-end path confirmed at the DB:** generated an RDS IAM auth token for `migrator` (the same token type CI mints) and connected over `verify-full`, yielding `current_user=migrator`; ran the exact CI runner commands `status` and `apply` as `migrator`, both clean (`apply` is a no-op since master already applied everything). This proves every step downstream of the OIDC token; the locally generated token stood in for the OIDC-assumed-role token (`connor-aws-cli` admin carries `rds-db:connect`).
+
+**Resolves must-fix #1454 (operator pre-merge gate), narrowed:** the schema apply and the DB-side IAM-auth path are now DONE and verified. The only residual is the live `schema-deploy.yml` **workflow run via GitHub OIDC**, which is BLOCKED until `ct/bench-v4` merges to `develop` (a `workflow_dispatch` trigger is only registered once the workflow file is on the default branch). The sole unexercised link is the GitHub-to-STS assume-role federation, which is correctly configured (trust already allows `develop`).
+
+**Confirmed real (deferred PR-2.1 ownership model):** `migrator` HAS `CREATE` + `USAGE` on schema `public`, so a future new-table migration via the OIDC path would succeed; but the six data tables are owned by `postgres` and `migrator` has no SELECT/INSERT/ALTER on them, so a future migration that ALTERs an existing master-owned table could NOT run as `migrator`. This is the PR-2.1 role-ownership concern, now confirmed against the live DB.
+
+**Security postures observed (some already deferred):** the instance is `PubliclyAccessible: true` with SG `sg-065c61c4693f63816` ingress `0.0.0.0/0` on 5432, and `StorageEncrypted: false`. Worth tightening before production traffic.
+
 ## Deferred work
 
 | Source | File:line | Severity | Description | Deferral rationale |
@@ -486,7 +1506,21 @@ cargo run -p <ingest-crate> -- --envelope <recent-envelope.jsonl> --dry-run
 | PR-1.3 cycle-1 gauntlet | `migrations/002_iam_db_user.sql:37` (migrator table privileges) | should-fix | `migrator` is granted only `CREATE, USAGE ON SCHEMA public`, no table-level DML on the six tables `001` creates. Under the documented bootstrap order (first `apply` runs as RDS master, which owns `001`'s tables), the PR-2.x ingest write path connecting AS `migrator` would hit `permission denied`. | Forward-looking; the ingest write path is PR-2.x scope and the plan references a separate future `GitHubBenchmarkIngestRole`. Resolve the role-ownership model in PR-2.1 (dedicated ingest role with `GRANT SELECT,INSERT,UPDATE,DELETE` + `ALTER DEFAULT PRIVILEGES`, or explicit table grants to `migrator`), pinned by a connect-AS-ingest-role round-trip test. Fixing now would be premature and a least-privilege smell on the schema-deploy role. |
 | PR-1.4 cycle-2 gauntlet | `.github/workflows/schema-deploy.yml:50` (uv Python provisioning) | should-fix | The `Install uv` step relies on `uv` auto-provisioning a Python 3.11+ interpreter for the PEP 723 `requires-python` script with no explicit pin. Works with current `uv` and matches the sibling `docs.yml` pattern, but is a latent CI fragility if the shared `spiraldb/actions` setup-uv ever pins an older `uv` or disables managed-Python downloads. | Matches established repo convention (`docs.yml` / `bench-pr.yml` use the identical `setup-uv` + `uv run --no-project` pattern with no explicit Python pin); failure mode is loud + operator-visible (workflow_dispatch-only), not silent. Adding `uv python install 3.12` would deviate speculatively. Revisit if the shared setup-uv action's Python-provisioning behavior changes, or fold a repo-wide pin into a future CI-hardening pass. |
 | PR-1.5 cycle-1 gauntlet | `scripts/test_measurement_id.py` (+ `scripts/test_migrate_schema.py`) not wired into CI | should-fix | No CI job runs the `scripts/` pytest suites (the only pytest invocations cover `vortex-python/`). The Rust side IS gated (the golden test runs via `rust-test-other`), so Rust==golden is enforced, but golden==Python is not: a future edit to `_measurement_id.py` that diverges from the golden file would merge green and only surface at PR-2.1 ingest time as duplicate rows. The port currently matches all 63 vectors (verified). | Same class as the PR-1.2 `no CI runner` item (testcontainer suite also ungated). Wire one CI job — `uv run --all-packages pytest scripts/` — covering both `test_measurement_id.py` (no Docker needed) and `test_migrate_schema.py` (needs Docker). Fold into the CI-hardening pass alongside the PR-1.2 item rather than a one-off here; behavior is correct today, only enforcement is missing. |
+| 2026-05-29 deploy-model decision | `.github/workflows/schema-deploy.yml` (trigger) | should-fix | Implements the "Schema-deploy authorization + execution-safety model" Key decision: switch the trigger from `workflow_dispatch`-only to push on the deploy branch under `paths: migrations/** + scripts/migrate-schema.py`, keeping `workflow_dispatch` + `dry_run` for manual/preview runs and removing the now-superseded `environment:`-gate comments. PR merge becomes the deploy gate. | Small, well-scoped change to a Phase-1 deliverable; supersedes the original `environment: schema-deploy` manual-approval mandate. Phase placement is the fresh session's call at the Phase 1→2 boundary AUQ: amend Phase 1 (e.g. PR-1.6) OR fold into Phase 2 (it sits naturally beside the dual-write CI pipeline). The per-PR testcontainer test is already the execution-safety gate for additive DDL. |
+| 2026-05-29 deploy-model decision | data-affecting migration safety (no RDS branching) | should-fix | RDS has no Neon-style copy-on-write branching, so the testcontainer-against-empty-schema test does not validate a migration that mutates existing data (type change, NOT NULL on an existing column, backfill). | Add a CI step that PITR-restores a recent prod snapshot to a throwaway instance and runs the candidate migration there, but ONLY when a migration is data-affecting (additive DDL does not need it). Not needed for Phase 1's additive migrations; trigger this work the first time a data-affecting migration is authored. This is the RDS stand-in for Neon branching (Aurora fast-clone is the true analog but would reverse the `db.t4g.micro` Key decision). |
+| PR-1.6 cycle-1 gauntlet | `provision.sh:458` (schema-role proxy grant) | should-fix | `GitHubBenchmarkSchemaRole`'s `rds-db:connect` still covers the proxy resource-id, but PR-1.6 makes CI authenticate against the instance and the proxy is now Vercel-reads-only; the proxy grant on the schema role is dead least-privilege surface. | Harmless extra grant meanwhile. Drop the proxy resource (keep the instance) in PR-2.1, where the role-ownership/grant model is revisited alongside the ingest role. |
+| PR-1.6 cycle-6 gauntlet | `README.md` Prerequisites (`secretsmanager:GetSecretValue`) | nit | The PR-1.6 SM-fetch bootstrap (`aws secretsmanager get-secret-value`) needs `secretsmanager:GetSecretValue` on the master secret, an operator IAM permission not listed in the README Prerequisites table. Operator is normally PowerUser/Admin (line 34), so usually present. | Doc-only; deferred at the cycle-6/7 early-break to bound PR-1.6. Add the permission to the Prerequisites IAM list in a follow-up doc-polish pass. |
+| PR-1.6 cycle-6 gauntlet | `README.md:212` (tear-down OIDC-provider ARN) | nit | The commented-out OIDC-provider tear-down embeds the literal account `245040174862`; `TARGET_ACCOUNT` is overridable and absent from the tear-down substitution note. Line is commented-out + account-scoped, so blast radius is tiny. | Doc-only; deferred at the cycle-6/7 early-break. Note `TARGET_ACCOUNT` substitution in a follow-up doc-polish pass. |
+| PR-1.6 cycle-7 gauntlet | `scripts/test_migrate_schema.py:868` (password-fetch guard) | must-fix (deferred via user-authorized early-break) | `test_readme_bootstrap_password_fetch_is_safe` bans the masking pattern + interactive-read but does not pin the `\|\| exit 1` fail-fast structure; a future edit removing `\|\| exit 1` while leaving a `jq -er` comment-mention would pass. **Test-guard-strictness, NOT a functional defect** — the shipped runbook command IS fail-fast and correct. | Deferred at the cycle-7 second early-break (user directed accept-after-one-final-cycle, defer residual). Fold into a follow-up test-hardening PR: extract the README shell block and assert the exact `master_secret=$(...) \|\| exit 1` / `PGPASSWORD=$(... jq -er ...) \|\| exit 1` / standalone `export PGPASSWORD` sequence. |
+| PR-1.6 cycle-7 gauntlet | `benchmarks-website/infra/provision.sh:63` (`PROXY_ROLE_NAME` override) | must-fix (deferred via user-authorized early-break) | `PROXY_ROLE_NAME` is an observable `${ENV:-default}` override with no regression guard against role creation reverting to a hard-coded name (behavioral-drift BAN). **Test-coverage gap, NOT a functional defect** — provision.sh correctly uses `$PROXY_ROLE_NAME` today. | Deferred at the cycle-7 second early-break. Add a static provision.sh guard (get-role/create-role/put-role-policy reference `$PROXY_ROLE_NAME`, no hard-coded literal) in the follow-up test-hardening PR. |
+| PR-1.6 cycle-7 gauntlet | `scripts/test_migrate_schema.py:884` (password guard quoted form) | should-fix | The guard bans unquoted `export PGPASSWORD=$(` but not the quoted `export PGPASSWORD="$(...)"` form (which would also mask the substitution exit code). | Deferred at the cycle-7 early-break. Fold into the same follow-up test-hardening PR with a regex over code lines (`export\s+PGPASSWORD\s*=\s*['"]?\$\(`). |
+| PR-1.6 cycle-7 gauntlet | `benchmarks-website/infra/README.md:23` (IAM-work contradiction) | should-fix | README:21 (PR-1.6 edit) says the schema-role proxy grant is slated for PR-2.1 cleanup, but line 23 still says "no further IAM work after PR-1.3 lands" — an internal contradiction. Doc-only. | Deferred at the cycle-7 early-break. Narrow the line-23 claim (no further IAM work for the PR-1.3 bootstrap/schema-deploy path; PR-2.1 owns the proxy-grant cleanup + ingest grants) in the follow-up doc-polish pass. |
+| Phase-1 phase-end cycle-2 (spec/codex) | (operator action) | must-fix (operator pre-merge gate) | Phase-1 acceptance criterion "operator runs the live OIDC schema-deploy apply against the public instance endpoint and `status` reports clean" is unverified — requires a real AWS apply with live RDS, not performable in-session (no AWS creds). | **Operator pre-merge gate**: run the live `schema-deploy.yml` apply (or `migrate-schema.py apply` against RDS as the OIDC `migrator`) and confirm `status` clean BEFORE squash-merging `ct/bench-v4` → `develop`. Phase 1 accepted on this condition. |
+| Phase-1 phase-end cycle-2 (claude/codex nits) | `migrate-schema.py` / `_measurement_id.py` | nit (x3) | (a) case-insensitive ledger keys + comment-only-migration semantics untested (correctness/claude); (b) `_measurement_id.py:48` twox-hash endianness attribution misplaced — conclusion correct (maint/claude); (c) `migrate-schema.py:88` `_applied_set` name doesn't signal its CREATE-TABLE side effect (maint/claude). | Deferred to the follow-up test-hardening + doc-polish pass alongside the cycle-6/7 residual. All non-functional; correct behavior today. |
+
+| PR-1.5 phase-end gauntlet (cycle 1) | `scripts/measurement_id_golden.json` / ingest boundary | should-fix | No golden vector exercises a NaN/Inf f64 `threshold`; Rust `to_bits()` preserves NaN payload bits while Python `struct.pack('<d', nan)` emits canonical NaN, so a non-finite threshold would hash differently across languages -> silent duplicate row. | Threshold is a cosine value so NaN is implausible; the robust guard is `assert threshold.is_finite()` at the PR-2.1 ingest boundary (fail loud rather than diverge). Deferred to PR-2.1; track there. |
 
 ## Accepted tradeoffs / r1 traps
 
-(Empty. Populated as the user explicitly accepts a reviewer-flagged item.)
+- **Schema deploys have no manual-approval gate; PR merge is the authorization gate** (user decision 2026-05-29). A reviewed, merged PR is accepted as sufficient authorization to apply a migration to prod. We knowingly forgo (a) a GitHub Environment required-reviewer approval and (b) segregation of duties (a distinct approver from the author) and (c) merge-now/apply-later timing decoupling. Rationale: a manual approval only re-confirms the authorization already given at merge and does not verify execution safety; the real safety comes from migration testing. Reviewers must NOT re-flag the absence of an `environment:` gate or a manual approval step on `schema-deploy.yml`; it is an accepted, deliberate decision, not an oversight. (See the matching Key decision.)
+- **Execution safety for additive migrations is the per-PR testcontainer test, not a prod dry-run gate** (user decision 2026-05-29). Additive DDL (CREATE TABLE/INDEX, ADD COLUMN) is validated by `scripts/test_migrate_schema.py` against `postgres:16-alpine` at PR time; a migration that cannot apply cannot merge. The heavier PITR-snapshot-restore-against-real-data test is reserved for data-affecting migrations only (tracked in Deferred work). Reviewers must NOT flag the lack of a prod-data migration test on additive-only migrations as a gap.

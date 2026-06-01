@@ -16,7 +16,7 @@
 #      subnet groups in the target account / region.
 #
 # What this script provisions, in order:
-#   1. Verifies AWS identity + region (account `375504701696` in
+#   1. Verifies AWS identity + region (account `245040174862` in
 #      `us-east-1` by default; both overridable via env).
 #   2. Identifies the default VPC and its subnets.
 #   3. Creates a DB subnet group `vortex-bench-subnet-group` covering
@@ -34,8 +34,9 @@
 #      `token.actions.githubusercontent.com` for the
 #      `vortex-data/vortex` repo, with `rds-db:connect` on the future
 #      `migrator` Postgres user (created by migration 002 in PR-1.3).
-#   9. Prints a summary with the endpoint, role ARN, and the GitHub
-#      Actions vars to set.
+#   9. Prints a summary: the GitHub Actions vars to set (instance endpoint,
+#      region, DB name, role ARN) plus the proxy endpoint to carry into Vercel
+#      env (PR-4.2; not a GitHub variable).
 #
 # Re-run safety: every aws-cli mutation goes through `ensure_*`
 # functions that check for an existing resource first. A partially
@@ -59,10 +60,15 @@ readonly DB_ENGINE_VERSION="${DB_ENGINE_VERSION:-16.4}"
 readonly DB_ALLOCATED_STORAGE_GB="${DB_ALLOCATED_STORAGE_GB:-20}"
 readonly DB_MASTER_USERNAME="${DB_MASTER_USERNAME:-postgres}"
 readonly SCHEMA_ROLE_NAME="${SCHEMA_ROLE_NAME:-GitHubBenchmarkSchemaRole}"
+readonly PROXY_ROLE_NAME="${PROXY_ROLE_NAME:-vortex-bench-proxy-role}"
 readonly GITHUB_REPO="${GITHUB_REPO:-vortex-data/vortex}"
 # Postgres role created by migrations/002 in PR-1.3; the OIDC role's
-# rds-db:connect permission is scoped to this user.
-readonly PG_MIGRATOR_ROLE="${PG_MIGRATOR_ROLE:-migrator}"
+# rds-db:connect permission is scoped to this user. NOT overridable (unlike the
+# other names above): the role name is hardcoded in migrations/002
+# (`CREATE ROLE migrator`, static SQL) and the schema-deploy workflow connects
+# as `migrator`, so an env override here would scope the IAM grant to a user the
+# migration never creates and silently break deploy auth.
+readonly PG_MIGRATOR_ROLE="migrator"
 
 readonly TAG_KEY_PROJECT="Project"
 readonly TAG_VAL_PROJECT="vortex-benchmarks"
@@ -263,7 +269,7 @@ ensure_rds_proxy() {
     log "Step 5: RDS Proxy ${DB_PROXY_NAME}."
 
     # Proxy needs its own IAM role to read the master secret.
-    local proxy_role_name="vortex-bench-proxy-role"
+    local proxy_role_name="$PROXY_ROLE_NAME"
     local proxy_role_arn
 
     if proxy_role_arn=$(aws iam get-role --role-name "$proxy_role_name" \
@@ -393,10 +399,12 @@ ensure_schema_role() {
     ensure_oidc_provider
 
     # Trust-policy sub-claim is scoped to the specific branches the
-    # schema-deploy.yml workflow runs on (`develop` + `ct/bench-v4`).
-    # Without a `schema-deploy` GitHub Environment (operator lacks
-    # repo-admin to create one), this sub-claim restriction is the
-    # primary gate against unauthorized OIDC role assumption.
+    # schema-deploy.yml workflow runs on (`develop` + `ct/bench-v4`); this
+    # restriction is the gate against unauthorized OIDC role assumption. A
+    # `schema-deploy` GitHub Environment / manual-approval gate was deliberately
+    # declined per the 2026-05-29 deploy-model decision (it only re-confirms the
+    # authorization already given at PR merge; execution safety comes from the
+    # per-PR testcontainer migration test), NOT deferred for lack of repo-admin.
     local trust_policy
     trust_policy=$(cat <<EOF
 {
@@ -434,8 +442,11 @@ EOF
         log "  created: ${SCHEMA_ROLE_ARN}"
     fi
 
-    # rds-db:connect for the migrator Postgres user via the proxy resource.
-    # The Postgres user `migrator` is created in PR-1.3 migrations/002.
+    # rds-db:connect for the migrator Postgres user, scoped to BOTH the
+    # instance resource (used by CI for schema deploys) and the proxy resource
+    # (also granted today but unused by this role — dead surface pending PR-2.1
+    # least-privilege cleanup). The Postgres user `migrator` is created in PR-1.3
+    # migrations/002.
     #
     # DBProxyArn shape: `arn:aws:rds:<region>:<account>:db-proxy:prx-<id>` —
     # so `awk -F: '{print $NF}'` already returns `prx-<id>` including the
@@ -491,12 +502,25 @@ Schema role ARN  : ${SCHEMA_ROLE_ARN}
 NEXT STEPS:
 
 1. Set these GitHub Actions repository VARIABLES (not secrets):
-     gh variable set RDS_BENCH_ENDPOINT --body "${PROXY_ENDPOINT}"
+     # CI writers (schema-deploy + ingest) connect to the public INSTANCE
+     # endpoint with direct IAM. No GitHub workflow consumes the RDS Proxy
+     # endpoint: the proxy is VPC-internal (unreachable from off-VPC GitHub
+     # runners) and serves only the Vercel reader, which is configured via
+     # Vercel env vars (PR-4.2), NOT GitHub Actions variables.
+     gh variable set RDS_BENCH_INSTANCE_ENDPOINT --body "${DB_ENDPOINT}"
      gh variable set RDS_BENCH_REGION   --body "${TARGET_REGION}"
      gh variable set RDS_BENCH_DB_NAME  --body "${DB_NAME}"
      gh variable set GH_BENCH_SCHEMA_ROLE_ARN --body "${SCHEMA_ROLE_ARN}"
 
-2. Verify acceptance criteria for PR-1.1:
+2. Carry the RDS Proxy endpoint into the Vercel reader's environment (PR-4.2).
+   It is NOT a GitHub Actions variable (Vercel does not read GitHub repo
+   variables); set it as a Vercel project env var when PR-4.2 lands:
+     # ${PROXY_ENDPOINT}:5432
+   NOTE: the proxy is VPC-internal. Vercel-to-VPC reachability (VPC peering /
+   PrivateLink / a public-facing proxy) is an open PR-4.2 design item and is NOT
+   provisioned by this script; resolve + verify it before relying on this value.
+
+3. Verify acceptance criteria for PR-1.1:
      aws rds describe-db-instances --db-instance-identifier ${DB_INSTANCE_IDENTIFIER} \\
        --query 'DBInstances[0].[DBInstanceStatus,IAMDatabaseAuthenticationEnabled]'
      # expected: available  True
@@ -504,7 +528,7 @@ NEXT STEPS:
        --query 'DBProxies[0].[Status,Endpoint]'
      # expected: available  <endpoint>
 
-3. PR-1.3 will create the Postgres '${PG_MIGRATOR_ROLE}' user via
+4. PR-1.3 will create the Postgres '${PG_MIGRATOR_ROLE}' user via
    migrations/002. The OIDC role's permission policy is already
    scoped to that user; nothing more to do here.
 

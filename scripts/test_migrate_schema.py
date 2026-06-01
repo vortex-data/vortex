@@ -62,6 +62,27 @@ _EXPECTED_INDEXES = [
     "idx_vector_search_runs_chart",
 ]
 
+# Ordered indexed-column names per index (DESC/ASC qualifiers and quoting
+# stripped). Pins the dim-leading read-path order: the ratified Key decision is
+# that these indexes follow the chart-query filter columns, NOT the
+# `measurement_id` hash field order. Regression guard so a future edit cannot
+# silently reorder or drop an indexed column (index-name-only checks miss that).
+# Per-index `(table, [columns in order])`. Pinning the table as well as the
+# columns guards against an index created with the right name/columns on the
+# WRONG table (which would leave the intended table unindexed yet pass a
+# name+columns-only check).
+_EXPECTED_INDEX_COLUMNS = {
+    "idx_commits_timestamp": ("commits", ["timestamp", "commit_sha"]),
+    "idx_query_measurements_chart": (
+        "query_measurements",
+        ["dataset", "dataset_variant", "scale_factor", "storage", "query_idx"],
+    ),
+    "idx_compression_times_chart": ("compression_times", ["dataset", "dataset_variant"]),
+    "idx_compression_sizes_chart": ("compression_sizes", ["dataset", "dataset_variant"]),
+    "idx_random_access_times_chart": ("random_access_times", ["dataset"]),
+    "idx_vector_search_runs_chart": ("vector_search_runs", ["dataset", "layout", "threshold"]),
+}
+
 # Per-table `(column_name, is_nullable)` in ordinal order, mirroring the DuckDB
 # DDL exactly. Behavior-preservation: the plan's `Out of scope` forbids changing
 # column order, nullability, or dim-tuple membership, so this is a regression
@@ -583,6 +604,20 @@ def test_apply_uses_public_schema_under_custom_search_path(
             assert cur.fetchone()[0] is None, (
                 "ledger must NOT have been created in `foo` schema under search_path resolution"
             )
+            # Phase-end cycle-2 must-fix: the migration DDL itself must also land
+            # in `public`, matching the ledger. Without the runner's
+            # `SET LOCAL search_path TO public`, the unqualified `CREATE TABLE
+            # widgets` would resolve to `foo` (first on the search_path) while the
+            # public ledger still records the migration as applied -- a silent
+            # table mislocation the reader's `public.<table>` would never find.
+            cur.execute("SELECT to_regclass('public.widgets')::text")
+            assert cur.fetchone()[0] == "widgets", (
+                "migration table must be created in `public` regardless of the caller's search_path"
+            )
+            cur.execute("SELECT to_regclass('foo.widgets')::text")
+            assert cur.fetchone()[0] is None, (
+                "migration table must NOT land in `foo` under search_path resolution"
+            )
 
 
 def test_real_migrations_apply_cleanly(conn: psycopg.Connection) -> None:
@@ -627,6 +662,247 @@ def test_real_migrations_create_expected_indexes(conn: psycopg.Connection) -> No
 
     for index in _EXPECTED_INDEXES:
         assert index in names, f"index {index} missing; have {sorted(names)}"
+
+
+def test_real_migrations_index_columns(conn: psycopg.Connection) -> None:
+    """Pin the indexed columns AND their order, not just the index names.
+
+    The composite indexes are deliberately dim-leading (the read-path chart
+    filter columns), NOT the `measurement_id` hash field order -- a ratified
+    Key decision. An index-name-only check cannot catch a silent reorder or a
+    dropped column, so assert the column list of each index definition."""
+    runner.apply(conn, REPO_MIGRATIONS_DIR)
+
+    for index, (expected_table, expected_cols) in _EXPECTED_INDEX_COLUMNS.items():
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT tablename, indexdef FROM pg_indexes "
+                "WHERE schemaname = 'public' AND indexname = %s",
+                (index,),
+            )
+            row = cur.fetchone()
+        assert row is not None, f"index {index} missing"
+        tablename, indexdef = row
+        assert tablename == expected_table, (
+            f"{index}: expected on table {expected_table!r}, got {tablename!r}"
+        )
+        # Anchor on the btree column list (robust vs a future expression /
+        # partial / opclass-with-parens index, where a trailing-paren scan would
+        # grab the wrong group). Take the leading token of each comma part
+        # (drops DESC/ASC), unquoting reserved-word columns like "timestamp".
+        assert " USING btree (" in indexdef, (
+            f"{index}: not a plain btree index, parser assumption broken: {indexdef}"
+        )
+        inner = indexdef.split(" USING btree (", 1)[1].rsplit(")", 1)[0]
+        cols = [part.strip().split()[0].strip('"') for part in inner.split(",")]
+        assert cols == expected_cols, (
+            f"{index}: expected columns {expected_cols}, got {cols} "
+            f"(indexdef: {indexdef})"
+        )
+
+    # The column-name check above strips ASC/DESC; separately pin the DESC/DESC
+    # ordering of the time-series index (it is what makes recency-window scans
+    # over `commits` fast -- a silent drop to ASC would pass the check above).
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT indexdef FROM pg_indexes "
+            "WHERE schemaname = 'public' AND indexname = 'idx_commits_timestamp'"
+        )
+        ts_row = cur.fetchone()
+    assert ts_row is not None, "index idx_commits_timestamp missing"
+    ts_def = ts_row[0]
+    ts_inner = ts_def.split(" USING btree (", 1)[1].rsplit(")", 1)[0]
+    # Require DESC as a qualifier token somewhere after the column name
+    # (`split()[1:]`), not a substring of the column expression, so a future
+    # column whose name merely contains "desc" cannot false-pass.
+    assert all("DESC" in part.strip().upper().split()[1:] for part in ts_inner.split(",")), (
+        f"idx_commits_timestamp must order both columns DESC: {ts_def}"
+    )
+
+
+def test_schema_deploy_targets_instance_endpoint() -> None:
+    """Guard the PR-1.6 endpoint repoint (behavioral-drift BAN).
+
+    The schema-deploy workflow MUST connect to the public RDS *instance*
+    endpoint (`RDS_BENCH_INSTANCE_ENDPOINT`), not the VPC-internal RDS Proxy
+    (`RDS_BENCH_ENDPOINT`, unreachable from off-VPC GitHub runners). A silent
+    revert of PGHOST back to the proxy var would otherwise merge green and
+    break every schema deploy. No DB needed -- this is a static workflow check."""
+    workflow = (
+        Path(__file__).resolve().parent.parent
+        / ".github"
+        / "workflows"
+        / "schema-deploy.yml"
+    )
+    pghost_lines = [
+        ln for ln in workflow.read_text().splitlines() if ln.strip().startswith("PGHOST:")
+    ]
+    assert len(pghost_lines) == 1, f"expected exactly one PGHOST line, got {pghost_lines}"
+    line = pghost_lines[0]
+    assert "RDS_BENCH_INSTANCE_ENDPOINT" in line, (
+        f"schema-deploy PGHOST must be the instance-endpoint var, got: {line}"
+    )
+    # `RDS_BENCH_ENDPOINT` is NOT a substring of `RDS_BENCH_INSTANCE_ENDPOINT`,
+    # so this catches a revert to the proxy var without a false positive.
+    assert "RDS_BENCH_ENDPOINT" not in line, (
+        f"schema-deploy PGHOST must NOT be the VPC-internal proxy var: {line}"
+    )
+    # `PGSSLMODE` must be `verify-full`: the workflow connects with an IAM auth
+    # token, so the server certificate MUST be authenticated (not merely
+    # encrypted) to prevent a MITM from harvesting the token. A silent downgrade
+    # to `require`/`prefer` would weaken that and otherwise merge green. (The
+    # README master-password bootstrap path is pinned separately by
+    # `test_readme_bootstrap_pins_verify_full`.)
+    sslmode_lines = [
+        ln for ln in workflow.read_text().splitlines() if ln.strip().startswith("PGSSLMODE:")
+    ]
+    assert len(sslmode_lines) == 1, f"expected exactly one PGSSLMODE line, got {sslmode_lines}"
+    assert sslmode_lines[0].split(":", 1)[1].strip() == "verify-full", (
+        f"schema-deploy PGSSLMODE must be verify-full, got: {sslmode_lines[0]}"
+    )
+
+
+def test_provision_emits_instance_endpoint_var() -> None:
+    """Guard the PR-1.6 provision.sh repo-var output (behavioral-drift BAN).
+
+    `provision.sh`'s summary MUST emit `gh variable set
+    RDS_BENCH_INSTANCE_ENDPOINT` (the public instance endpoint CI's schema-deploy
+    consumes) and MUST NOT set `RDS_BENCH_ENDPOINT` as a GitHub Actions variable
+    (the VPC-internal proxy endpoint is Vercel-only, not a GitHub variable). A
+    silent revert of the summary to the proxy var would pass the PGHOST-only
+    workflow check above yet leave schema-deploy without the instance endpoint.
+    No DB needed -- static script check."""
+    provision = (
+        Path(__file__).resolve().parent.parent
+        / "benchmarks-website"
+        / "infra"
+        / "provision.sh"
+    )
+    # Parse `gh variable set <NAME> --body "<BODY>"` into {name: body} so we can
+    # check both the variable NAMES and the values they are set FROM.
+    pairs = {}
+    for ln in provision.read_text().splitlines():
+        ln = ln.strip()
+        if not ln.startswith("gh variable set "):
+            continue
+        name = ln.split()[3]
+        pairs[name] = ln.split("--body", 1)[1].strip() if "--body" in ln else ""
+    assert "RDS_BENCH_INSTANCE_ENDPOINT" in pairs, (
+        f"provision.sh must emit `gh variable set RDS_BENCH_INSTANCE_ENDPOINT`, got: {sorted(pairs)}"
+    )
+    # The instance var must carry the INSTANCE endpoint (`${DB_ENDPOINT}`), not
+    # the proxy endpoint -- a name-only check would pass `--body "${PROXY_ENDPOINT}"`.
+    assert "DB_ENDPOINT" in pairs["RDS_BENCH_INSTANCE_ENDPOINT"], (
+        f"RDS_BENCH_INSTANCE_ENDPOINT must be set from ${{DB_ENDPOINT}}, got body: {pairs['RDS_BENCH_INSTANCE_ENDPOINT']}"
+    )
+    assert "RDS_BENCH_ENDPOINT" not in pairs, (
+        f"provision.sh must NOT set the VPC-internal proxy var as a GitHub variable: {sorted(pairs)}"
+    )
+    # No GitHub repo-var may be set from the proxy endpoint; it goes to Vercel env.
+    assert not any("PROXY_ENDPOINT" in body for body in pairs.values()), (
+        f"no GitHub repo-var may be set from ${{PROXY_ENDPOINT}}: {pairs}"
+    )
+
+
+def test_provision_grants_instance_dbuser() -> None:
+    """Guard the IAM half of the PR-1.6 endpoint repoint (behavioral-drift BAN).
+
+    The repoint couples two changes: `schema-deploy` connects to the instance
+    endpoint (PGHOST) AND the `rds-db:connect` policy must grant the instance
+    dbuser resource (`dbuser:${DB_RESOURCE_ID}/${PG_MIGRATOR_ROLE}`). The
+    PGHOST/repo-var guards do not pin the IAM side; a regression that dropped the
+    instance grant (leaving the policy proxy-only) would pass them yet deny every
+    schema deploy. No DB needed -- static script check."""
+    provision = (
+        Path(__file__).resolve().parent.parent
+        / "benchmarks-website"
+        / "infra"
+        / "provision.sh"
+    ).read_text()
+    assert "dbuser:${DB_RESOURCE_ID}/${PG_MIGRATOR_ROLE}" in provision, (
+        "provision.sh rds-db:connect policy must grant the instance dbuser resource "
+        "`dbuser:${DB_RESOURCE_ID}/${PG_MIGRATOR_ROLE}` (CI authenticates against the instance)"
+    )
+
+
+def test_readme_bootstrap_pins_verify_full() -> None:
+    """Guard the README master-password bootstrap TLS setting (security-critical).
+
+    The one-time master bootstrap documented in the README is the path that
+    transmits the RDS master password, so `PGSSLMODE=verify-full` (authenticate
+    the server certificate, not merely encrypt) is mandatory there. The workflow
+    PGSSLMODE guard (`test_schema_deploy_targets_instance_endpoint`) does NOT
+    cover this README command; a silent downgrade to require/prefer/allow in the
+    runbook would weaken MITM protection on the master password and otherwise go
+    unnoticed. No DB needed -- static doc check."""
+    readme = (
+        Path(__file__).resolve().parent.parent
+        / "benchmarks-website"
+        / "infra"
+        / "README.md"
+    ).read_text()
+    assert "export PGSSLMODE=verify-full" in readme, (
+        "README bootstrap must `export PGSSLMODE=verify-full` (master-password path)"
+    )
+    assert "export PGSSLROOTCERT=" in readme, (
+        "README bootstrap must `export PGSSLROOTCERT=` (CA bundle for verify-full)"
+    )
+    for weak in (
+        "export PGSSLMODE=require",
+        "export PGSSLMODE=prefer",
+        "export PGSSLMODE=allow",
+        "export PGSSLMODE=disable",
+        # `verify-ca` validates the CA chain but skips hostname verification --
+        # a real (if weaker) downgrade from verify-full on the master-password path.
+        "export PGSSLMODE=verify-ca",
+    ):
+        assert weak not in readme, (
+            f"README bootstrap must not downgrade TLS below verify-full: found `{weak}`"
+        )
+
+
+def test_readme_bootstrap_password_fetch_is_safe() -> None:
+    """Guard the README master-password bootstrap fetch (fail-fast + non-interactive).
+
+    The bootstrap fetches the RDS master password from Secrets Manager. Two
+    failure modes the runbook must not regress into:
+    - `export PGPASSWORD=$(...)` masks the command substitution's exit code
+      (export's own status wins), so a failed fetch silently continues with an
+      empty password. The runbook must assign first, then export.
+    - an interactive `stty -echo; read` prompt consumes following pasted lines
+      and can strand the terminal with echo off.
+    Pin the non-interactive Secrets-Manager fetch so neither regression merges
+    green. No DB needed -- static doc check."""
+    readme = (
+        Path(__file__).resolve().parent.parent
+        / "benchmarks-website"
+        / "infra"
+        / "README.md"
+    ).read_text()
+    assert "aws secretsmanager get-secret-value" in readme, (
+        "README bootstrap must fetch the master password via "
+        "`aws secretsmanager get-secret-value` (non-interactive)"
+    )
+    assert "jq -er" in readme, (
+        "README bootstrap must parse the secret with `jq -er` (fatal on a missing key)"
+    )
+    # The negative checks scan only CODE lines: full-line `#` shell-comments
+    # legitimately MENTION `stty`/`export PGPASSWORD=$(` to explain why they are
+    # avoided, so a whole-text substring check would false-positive on the
+    # explanatory comment. Lines like `export PGHOST=... # note` keep their
+    # leading code token and are correctly retained.
+    code = "\n".join(
+        s for ln in readme.splitlines()
+        if (s := ln.strip()) and not s.startswith("#")
+    )
+    assert "export PGPASSWORD=$(" not in code, (
+        "README bootstrap must NOT use `export PGPASSWORD=$(...)` -- it masks the "
+        "substitution's exit code; assign first, then `export PGPASSWORD`"
+    )
+    for interactive in ("stty -echo", "stty echo", "read -rsp", "IFS= read -r PGPASSWORD"):
+        assert interactive not in code, (
+            f"README bootstrap must stay non-interactive: found `{interactive}` in a command line"
+        )
 
 
 @pytest.mark.parametrize("table", list(_EXPECTED_COLUMNS))

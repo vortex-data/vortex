@@ -155,6 +155,16 @@ def apply(conn: psycopg.Connection, migrations_dir: Path) -> int:
         # across the failure.
         with conn.transaction():
             with conn.cursor() as cur:
+                # Pin the migration DDL to `public` regardless of the caller's
+                # search_path. An unqualified `CREATE TABLE foo (...)` in a
+                # migration resolves against search_path; if the operator
+                # connected with e.g. `options='-c search_path=other,public'`,
+                # the tables would land in `other` while the public-qualified
+                # ledger below still records the migration as applied -- so
+                # `status` would report clean while the reader's `public.<table>`
+                # is missing. `SET LOCAL` scopes this to the current migration's
+                # transaction, matching the ledger's explicit `public.` qualifier.
+                cur.execute("SET LOCAL search_path TO public")
                 cur.execute(sql)
                 cur.execute(
                     "INSERT INTO public._applied_migrations (filename) VALUES (%s)",

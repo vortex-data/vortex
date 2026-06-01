@@ -32,11 +32,16 @@ lexicographic order, which equals numeric order under this convention.
   an earlier migration, write a new migration that supersedes the prior
   state.
 
-## Initial files (added in later Phase 1 PRs)
+## Initial files
 
-- `001_initial_schema.sql` — six tables plus composite indexes per
-  [`Table B`](../.big-plans/ct__bench-v4.md) of the plan (PR-1.3).
-- `002_iam_db_user.sql` — `CREATE ROLE` for the IAM-auth user that
-  `bench.yml` workflows assume into via RDS Proxy (PR-1.3).
+- `001_initial_schema.sql` — six tables plus dim-leading composite indexes
+  following the read-path chart-query filter columns (PR-1.3).
+- `002_iam_db_user.sql` — `CREATE ROLE` for the `migrator` IAM-auth user that
+  the schema-deploy workflow (`.github/workflows/schema-deploy.yml`, PR-1.4)
+  assumes into via direct IAM to the public instance endpoint (PR-1.3).
+- `003_migrator_ledger_grant.sql` — grants `migrator` `SELECT, INSERT` (only,
+  no `DELETE`/`UPDATE`) on `public._applied_migrations` so a migrator-role
+  apply can record/read the ledger against the master-owned bootstrap (PR-1.4).
 
-This README + the runner ship in PR-1.2; the SQL files land in PR-1.3.
+This README + the runner ship in PR-1.2; `001`/`002` land in PR-1.3 and `003`
+in PR-1.4.

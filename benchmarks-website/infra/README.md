@@ -18,7 +18,7 @@ Single one-shot script. Provisions, in order:
 3. An RDS Postgres instance `vortex-bench-prod` on `db.t4g.micro`, Postgres 16, 20 GiB GP3 storage, IAM auth enabled, RDS-managed master password (auto-rotated, stored in Secrets Manager), publicly accessible, single-AZ, 35-day backup window.
 4. An RDS Proxy `vortex-bench-proxy` in front of the instance, `IAMAuth=REQUIRED`, TLS required, pulling the master credential from the Secrets-Manager-managed secret via a service-linked IAM role.
 5. The GitHub OIDC provider `token.actions.githubusercontent.com` (account-scoped — created once if not present).
-6. An IAM role `GitHubBenchmarkSchemaRole` trusted to GitHub Actions OIDC for the `vortex-data/vortex` repo with `sts:AssumeRoleWithWebIdentity`. Permission policy: `rds-db:connect` scoped to the future `migrator` Postgres user via the proxy.
+6. An IAM role `GitHubBenchmarkSchemaRole` trusted to GitHub Actions OIDC for the `vortex-data/vortex` repo with `sts:AssumeRoleWithWebIdentity`. Permission policy: `rds-db:connect` scoped to the `migrator` Postgres user on the instance resource (used by CI for schema deploys) and the proxy resource. The proxy ARN on this role is unused dead surface — CI authenticates against the instance, and this GitHub-OIDC role is not assumable by the Vercel reader (Vercel uses its own credentials), so the proxy grant is slated for least-privilege cleanup in PR-2.1.
 
 The `migrator` Postgres user itself is created in PR-1.3 by `migrations/002_iam_db_user.sql`. The OIDC role's permission ARN is already pre-scoped to it; no further IAM work after PR-1.3 lands.
 
@@ -49,7 +49,7 @@ cd benchmarks-website/infra
 
 Expected duration: 5–12 minutes (the RDS instance + RDS Proxy creation each take a few minutes; the script blocks on `aws rds wait db-instance-available` for the instance and polls `describe-db-proxies` every 15s for the proxy — AWS CLI v2 has no built-in `db-proxy-available` waiter).
 
-Expected end state: prints a summary block with the proxy endpoint and the IAM role ARN to copy into GitHub repo variables.
+Expected end state: prints a summary block with the GitHub repo-variable values to set (instance endpoint, region, DB name, role ARN), plus the proxy endpoint as a separate value to carry into Vercel env config (PR-4.2). The proxy endpoint is **not** a GitHub variable.
 
 ## Idempotency
 
@@ -72,10 +72,17 @@ The script prints the exact `gh variable set` commands; copy them from its outpu
 
 | Variable | Value | Consumed by |
 |---|---|---|
-| `RDS_BENCH_ENDPOINT` | the RDS Proxy hostname | PR-2.2 ingest workflows; PR-1.4 schema-deploy.yml; PR-4.2 Next.js reader |
+| `RDS_BENCH_INSTANCE_ENDPOINT` | the public RDS **instance** hostname | CI writers — PR-1.4 schema-deploy.yml; PR-2.2 ingest workflows (direct IAM) |
 | `RDS_BENCH_REGION` | `us-east-1` (or override) | All AWS-CLI invocations from CI |
 | `RDS_BENCH_DB_NAME` | `vortex_bench` | All Postgres connections |
 | `GH_BENCH_SCHEMA_ROLE_ARN` | the OIDC role ARN | `.github/workflows/schema-deploy.yml` |
+
+The RDS Proxy hostname is deliberately **not** a GitHub Actions variable: it is
+VPC-internal, serves only the PR-4.2 Next.js reader on Vercel, and Vercel does
+not read GitHub repo variables. `provision.sh` prints it under a separate "carry
+into Vercel env (PR-4.2)" step; set it as a Vercel project env var when PR-4.2
+lands. Vercel-to-VPC reachability for the proxy (VPC peering / PrivateLink / a
+public-facing proxy) is itself an open PR-4.2 design item, not yet provisioned.
 
 No secrets are needed — IAM auth is the credential. The master password is RDS-managed; it is used only for the one-time bootstrap apply (see "Schema deploys + one-time bootstrap" below), never for steady-state CI.
 
@@ -86,16 +93,20 @@ Schema migrations under `migrations/` are applied by
 `workflow_dispatch` only: an operator triggers it manually from the GitHub
 Actions UI, optionally with `dry_run: true` to report drift via
 `migrate-schema.py status` without applying. That manual trigger is the deploy
-gate; a `schema-deploy` GitHub Environment with required-reviewer approval is
-the stronger gate but needs repo-admin to create and is tracked as deferred
-hardening.
+gate. Per the 2026-05-29 deploy-model decision, the intended deferred change is
+to ALSO trigger `apply` on push under `paths: migrations/** +
+scripts/migrate-schema.py` (PR merge becomes the deploy gate) -- NOT a GitHub
+Environment / manual-approval gate; execution safety comes from the per-PR
+testcontainer migration test, not a human click. The runner path is included in
+`paths` so a runner-only change still triggers a deploy.
 
-Steady-state deploys connect through the RDS Proxy as the `migrator` role using
-a short-lived IAM auth token (generated client-side via
-`aws rds generate-db-auth-token`, signed from the OIDC-assumed
-`GitHubBenchmarkSchemaRole` credentials; no password, no IAM permission beyond
-`rds-db:connect`). TLS is `verify-full` against Amazon's published RDS root CA
-bundle.
+Steady-state deploys connect to the public RDS **instance** endpoint
+(`RDS_BENCH_INSTANCE_ENDPOINT`) as the `migrator` role using a short-lived IAM
+auth token (generated client-side via `aws rds generate-db-auth-token`, signed
+from the OIDC-assumed `GitHubBenchmarkSchemaRole` credentials; no password, no
+IAM permission beyond `rds-db:connect`). The RDS Proxy is VPC-internal and
+unreachable from off-VPC GitHub runners, so CI never uses it. TLS is
+`verify-full` against Amazon's published RDS root CA bundle.
 
 ### One-time bootstrap (operator, as master)
 
@@ -103,34 +114,67 @@ CI can only IAM-auth as `migrator`, and `migrator` does not exist until
 migration `002` creates it. So the FIRST apply must be run once by the RDS
 master user, out-of-band. Two endpoint details matter:
 
-- The RDS Proxy is configured `IAMAuth=REQUIRED`, so it rejects password auth.
-  The master bootstrap must connect to the **instance** endpoint directly (from
+- Use the public **instance** endpoint (`RDS_BENCH_INSTANCE_ENDPOINT`, from
   `aws rds describe-db-instances --db-instance-identifier vortex-bench-prod
-  --query 'DBInstances[0].Endpoint.Address'`), NOT the proxy endpoint in
-  `RDS_BENCH_ENDPOINT`.
+  --query 'DBInstances[0].Endpoint.Address'`) -- the same endpoint steady-state
+  CI writers use. The RDS Proxy is VPC-internal and is configured
+  `IAMAuth=REQUIRED` (it rejects the master password anyway), so it is never
+  used for bootstrap or CI.
 - The master username is the one `provision.sh` set on the instance; retrieve
   the RDS-managed master password from Secrets Manager.
 
+`PGSSLMODE=verify-full` is mandatory here: the bootstrap transmits the master
+password, so the RDS server certificate MUST be verified (a bare `require` only
+encrypts, it does not authenticate the server -- a MITM could capture the
+master password). Run these commands from the repository root (the `scripts/`
+path below is repo-root-relative, not relative to `benchmarks-website/infra/`).
+Download the CA bundle first:
+
 ```sh
-export PGHOST=<instance-endpoint>           # NOT the proxy endpoint
+curl -fsSL https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
+  -o /tmp/rds-global-bundle.pem
+export PGHOST=<instance-endpoint>           # RDS_BENCH_INSTANCE_ENDPOINT, NOT the proxy
 export PGPORT=5432
 export PGDATABASE=<RDS_BENCH_DB_NAME>
 export PGUSER=<master-username>
-export PGPASSWORD=<master-password-from-secrets-manager>
-export PGSSLMODE=require
+# Fetch the RDS-managed master password from Secrets Manager. Assign first, then
+# export, so a failed fetch or parse is FATAL: a bare `export PGPASSWORD=$(...)`
+# returns 0 even when the substitution fails (export's own exit status wins),
+# which would silently continue with an empty password. `jq -er` exits non-zero
+# on a missing key. Non-interactive + copy-paste-safe: no interactive `read` to
+# consume pasted lines, no `stty -echo` to strand the terminal, and command
+# substitution preserves any password metacharacter. provision.sh prints the
+# master secret ARN; substitute it here:
+master_secret=$(aws secretsmanager get-secret-value \
+  --secret-id <master-secret-arn> --query SecretString --output text) || exit 1
+PGPASSWORD=$(printf '%s' "$master_secret" | jq -er '.password') || exit 1
+export PGPASSWORD
+export PGSSLMODE=verify-full
+export PGSSLROOTCERT=/tmp/rds-global-bundle.pem
 uv run --no-project scripts/migrate-schema.py apply
 ```
 
 This applies `001` (schema), `002` (creates the `migrator` role + binds it to
 `rds_iam`), and `003` (grants `migrator` SELECT + INSERT on the
-`_applied_migrations` ledger). After the bootstrap, every subsequent migration
-is applied by the `schema-deploy` workflow as `migrator` through the proxy; the
+`_applied_migrations` ledger). After the bootstrap, subsequent *additive*
+migrations are applied by the `schema-deploy` workflow as `migrator` against the
+public instance endpoint (`RDS_BENCH_INSTANCE_ENDPOINT`) with direct IAM; the
 master password is not needed again.
 
 Because the bootstrap runs as master, the schema objects and the ledger are
 master-owned; `003` grants `migrator` the ledger access it needs to record and
-read applied migrations. Privileges on the six data tables for the ingest write
-path are granted separately in PR-2.1 alongside the ingest-role design.
+read applied migrations. A migration that `ALTER`s or adds an index to an
+existing master-owned table (rather than only `CREATE`-ing new objects) needs
+the role-ownership model resolved first -- deferred to PR-2.1 alongside the
+ingest-role design (which also grants the six data tables' DML for the ingest
+write path). Phase-1 migrations are all additive (new objects), so `migrator`'s
+`CREATE` on the schema suffices today.
+
+The per-PR testcontainer migration test (`scripts/test_migrate_schema.py`)
+applies every migration as a single owning role, so it does NOT model the
+master/`migrator` ownership split and cannot catch a non-additive migration that
+would fail in production. Until PR-2.1 resolves the role-ownership model,
+additivity must be confirmed by inspection.
 
 ## Acceptance criteria for PR-1.1
 
@@ -151,6 +195,12 @@ aws rds describe-db-proxies \
 ## Tear-down (not part of PR-1.1; documented here for completeness)
 
 ```sh
+# These commands use the DEFAULT resource names. provision.sh lets you override
+# every name via `${ENV:-default}` (PROXY_ROLE_NAME, DB_PROXY_NAME,
+# DB_INSTANCE_IDENTIFIER, DB_SUBNET_GROUP_NAME, DB_SECURITY_GROUP_NAME,
+# SCHEMA_ROLE_NAME, ...); if you set
+# any override at provision time, substitute the same value in the matching
+# command below.
 aws rds deregister-db-proxy-targets --db-proxy-name vortex-bench-proxy \
   --target-group-name default --db-instance-identifiers vortex-bench-prod
 aws rds delete-db-proxy --db-proxy-name vortex-bench-proxy

@@ -3,16 +3,22 @@
 #
 # Apply Postgres schema migrations from `migrations/*.sql` to the
 # benchmarks-website RDS instance via the `scripts/migrate-schema.py` runner.
-# Connects through the RDS Proxy as the `migrator` IAM-auth role using a
-# short-lived token generated client-side from the OIDC-assumed
-# `GitHubBenchmarkSchemaRole` credentials.
+# Connects to the public RDS *instance* endpoint as the `migrator` IAM-auth
+# role using a short-lived token generated client-side from the OIDC-assumed
+# `GitHubBenchmarkSchemaRole` credentials. (The RDS Proxy is VPC-internal and
+# unreachable from off-VPC GitHub runners; it is reserved for the Vercel read
+# service. CI writers use the public instance endpoint with direct IAM.)
 #
-# Trigger is `workflow_dispatch` only: schema changes to the production database
-# are applied manually by an operator clicking "Run workflow", never
-# automatically on push. That manual step IS the deploy gate. A `schema-deploy`
-# GitHub Environment with manual-approval protection rules is the stronger gate
-# but needs repo-admin to create; it is tracked as deferred hardening (see the
-# plan's Deferred work).
+# Trigger is `workflow_dispatch` only for now: an operator runs it manually,
+# optionally with `dry_run` as the pre-apply preview. Per the 2026-05-29
+# deploy-model decision, the intended deferred change is to ALSO trigger `apply`
+# on push to the deploy branch under `paths: migrations/** +
+# scripts/migrate-schema.py` (PR merge becomes the deploy gate; the runner path
+# is included so a runner-only change still triggers a deploy) -- NOT a GitHub
+# Environment / manual-approval gate (that only re-confirms authorization
+# already given at merge; execution safety comes from the per-PR testcontainer
+# migration test). See the plan's Deferred work + the "Schema-deploy
+# authorization" Key decision.
 #
 # Bootstrap: CI can only IAM-auth as `migrator` (the OIDC role has no master
 # credential), so the FIRST apply must be run once by the RDS master user
@@ -58,7 +64,7 @@ jobs:
           aws-region: ${{ vars.RDS_BENCH_REGION }}
 
       - name: Download RDS CA bundle
-        # `sslmode=verify-full` validates the proxy certificate chain and
+        # `sslmode=verify-full` validates the instance certificate chain and
         # hostname against Amazon's published root CAs.
         run: |
           set -Eeuo pipefail
@@ -74,7 +80,7 @@ jobs:
         # token command is not masked by the `export` builtin's exit status
         # under `set -e`.
         env:
-          PGHOST: ${{ vars.RDS_BENCH_ENDPOINT }}
+          PGHOST: ${{ vars.RDS_BENCH_INSTANCE_ENDPOINT }}
           PGPORT: "5432"
           PGDATABASE: ${{ vars.RDS_BENCH_DB_NAME }}
           PGUSER: migrator
