@@ -8,6 +8,8 @@
 use std::env;
 use std::fs;
 use std::io;
+#[cfg(unix)]
+use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
@@ -417,7 +419,7 @@ fn cbindgen_rust2c(crate_dir: &Path) {
 fn symlink_duckdb_source(source_dir: &Path, duckdb_dir: &Path) {
     drop(fs::remove_file(duckdb_dir));
     drop(fs::remove_dir_all(duckdb_dir));
-    std::os::unix::fs::symlink(source_dir, duckdb_dir).unwrap();
+    symlink(source_dir, duckdb_dir).unwrap();
 }
 
 /// No-op on non-unix platforms (e.g. Windows): the symlink is only a convenience and
