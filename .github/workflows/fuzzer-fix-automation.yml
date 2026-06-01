@@ -429,8 +429,11 @@ jobs:
           REPO: ${{ github.repository }}
           BASE_BRANCH: ${{ github.event.repository.default_branch }}
           BRANCH_NAME: ${{ steps.claude.outputs.branch_name }}
+          TARGET: ${{ steps.extract.outputs.target }}
+          CRASH_FILE: ${{ steps.extract.outputs.crash_file }}
           ISSUE_NUMBER: ${{ inputs.issue_number }}
           ISSUE_TITLE: ${{ steps.fetch_issue.outputs.issue_title }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           commits_ahead="$(
             gh api "repos/$REPO/compare/$BASE_BRANCH...$BRANCH_NAME" \
@@ -452,21 +455,43 @@ jobs:
             exit 0
           fi
 
+          # Fuzzer issue titles look like "Fuzzing Crash: <variant> in <target>".
+          # Drop that prefix so the PR title reads "fix(fuzz): <variant> in <target>"
+          # instead of doubling up the "Fuzzing Crash:" wording.
+          crash_desc="${ISSUE_TITLE#Fuzzing Crash: }"
+          pr_title="fix(fuzz): $crash_desc (#$ISSUE_NUMBER)"
+
+          # Deliberately no "Closes #N": the nightly close-fixed-fuzzer-issues
+          # workflow re-runs the crash and closes the issue only once it no longer
+          # reproduces, so merging this PR should not close the issue on its own.
+          pr_body="$(cat <<EOF
+          Automated draft fix for fuzzer issue #$ISSUE_NUMBER.
+
+          - **Target**: \`$TARGET\`
+          - **Crash file**: \`$CRASH_FILE\`
+
+          Claude reproduced the crash, applied a minimal fix, and added a regression
+          test. The full analysis, diff, and test output are posted on issue
+          #$ISSUE_NUMBER.
+
+          This is a **draft**: please review carefully before marking it ready. The
+          linked issue is closed automatically by the nightly retest workflow once
+          the crash no longer reproduces, so this PR does not close it on merge.
+
+          [View Claude run]($RUN_URL)
+          EOF
+          )"
+
           pr_url="$(
             gh pr create \
               --repo "$REPO" \
               --draft \
               --base "$BASE_BRANCH" \
               --head "$BRANCH_NAME" \
-              --title "fix(fuzz): $ISSUE_TITLE" \
-              --body "Automated fuzzer fix for #$ISSUE_NUMBER.
-
-          This is an automated fix opened as a **draft** — please review carefully
-          before marking ready and merging. See the issue for Claude's analysis,
-          the fix, and the regression test.
-
-          [View Claude run](${{ github.server_url }}/$REPO/actions/runs/${{ github.run_id }})"
+              --title "$pr_title" \
+              --body "$pr_body"
           )"
           echo "Created draft pull request: $pr_url"
 
-          gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "🔀 Opened a draft pull request with the proposed fix: $pr_url"
+          gh issue comment "$ISSUE_NUMBER" --repo "$REPO" \
+            --body "🔀 Opened a draft pull request with the proposed fix: $pr_url"
