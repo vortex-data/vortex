@@ -450,7 +450,6 @@ fn to_field_mask(field: FieldName) -> FieldMask {
 
 #[cfg(test)]
 mod test {
-    use std::collections::BTreeSet;
     use std::ops::Range;
     use std::pin::Pin;
     use std::sync::Arc;
@@ -483,6 +482,7 @@ mod test {
     use super::ScanBuilder;
     use crate::ArrayFuture;
     use crate::LayoutReader;
+    use crate::RowSplits;
     use crate::SplitRange;
     use crate::scan::test::SCAN_SESSION;
     use crate::scan::test::session_with_handle;
@@ -523,10 +523,10 @@ mod test {
             &self,
             _field_mask: &[FieldMask],
             split_range: &SplitRange,
-            splits: &mut BTreeSet<u64>,
+            splits: &mut RowSplits,
         ) -> VortexResult<()> {
             self.register_splits_calls.fetch_add(1, Ordering::Relaxed);
-            splits.insert(split_range.root_row_range().end);
+            splits.push(split_range.root_row_range().end);
             Ok(())
         }
 
@@ -612,11 +612,11 @@ mod test {
             &self,
             _field_mask: &[FieldMask],
             split_range: &SplitRange,
-            splits: &mut BTreeSet<u64>,
+            splits: &mut RowSplits,
         ) -> VortexResult<()> {
             self.register_splits_calls.fetch_add(1, Ordering::Relaxed);
             for split in (split_range.row_range().start + 1)..=split_range.row_range().end {
-                splits.insert(split_range.row_offset() + split);
+                splits.push(split_range.row_offset() + split);
             }
             Ok(())
         }
@@ -725,11 +725,11 @@ mod test {
             &self,
             _field_mask: &[FieldMask],
             split_range: &SplitRange,
-            splits: &mut BTreeSet<u64>,
+            splits: &mut RowSplits,
         ) -> VortexResult<()> {
             self.register_splits_calls.fetch_add(1, Ordering::Relaxed);
             let _guard = self.gate.lock();
-            splits.insert(split_range.root_row_range().end);
+            splits.push(split_range.root_row_range().end);
             Ok(())
         }
 
@@ -805,5 +805,31 @@ mod test {
         assert_eq!(calls.load(Ordering::Relaxed), 0);
 
         drop(runtime);
+    }
+
+    #[test]
+    fn into_stream_with_row_range() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let reader = Arc::new(SplittingLayoutReader::new(Arc::clone(&calls)));
+
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+
+        let stream = ScanBuilder::new(session, reader)
+            .with_row_range(1..3)
+            .into_stream()?;
+        let mut iter = runtime.block_on_stream(stream);
+
+        let mut values = Vec::new();
+        for chunk in &mut iter {
+            let prim = chunk?.execute::<PrimitiveArray>(&mut ctx)?;
+            values.extend(prim.into_buffer::<i32>().iter().copied());
+        }
+
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+        assert_eq!(values.as_ref(), [1, 2]);
+
+        Ok(())
     }
 }
