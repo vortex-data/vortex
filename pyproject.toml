@@ -22,6 +22,12 @@ dev = [
     "pip>=23.3.2",
     "pytest>=7.4.0",
     "ruff>=0.7.1",
+    # `scripts/migrate-schema.py` (PR-1.2) needs psycopg at runtime when invoked via
+    # `uv run`; the inline PEP 723 metadata block in the script declares the same
+    # dependency for standalone execution. `scripts/test_migrate_schema.py` exercises
+    # the runner against a Postgres testcontainer.
+    "psycopg[binary]>=3.2",
+    "testcontainers[postgres]>=4.9",
     # forced transitive bumps
     "urllib3>=2.6.3",
     "filelock>=3.20.3",

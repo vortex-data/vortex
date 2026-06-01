@@ -9,19 +9,20 @@ planning_sub_flow: null
 current_phase: "Phase 1: RDS + schema + hash port"
 phase_index: 1
 current_pr: null
-pr_index: 2
+pr_index: 3
 outstanding_must_fix: 0
-deferred_items_total: 8
-last_user_touchpoint: 2026-05-28T02:00:00Z
-last_user_touchpoint_what: "PR-1.1 accepted (operator-verified); 8 should-fixes deferred"
+deferred_items_total: 12
+last_user_touchpoint: 2026-05-28T14:10:00Z
+last_user_touchpoint_what: "PR-1.2 complete (confidence: high, deferred: 4)"
 subagent_invocations_this_pr: 0
-subagent_invocations_total: 7
+subagent_invocations_total: 10
 review_cycles_this_pr: 0
 phase_entry_sha: d8f12ebbb
 phase_end_cycle: 0
 phase_end_reject_cycles: 0
 last_phase_end_verdict: null
-last_commit: 2336d48c1
+current_pr_is_ci_reopen: null
+last_commit: bdd53140c
 last_cycle_commits: []
 ```
 
@@ -189,7 +190,7 @@ Total: **5 phases, 21 PRs**.
 | PR | Phase | Scope (one line) | Files touched (expected) | Acceptance (specific, testable) |
 |---|---|---|---|---|
 | PR-1.1 | 1 | Provision RDS Postgres `db.t4g.micro` + RDS Proxy + GitHub OIDC schema role via aws-cli script; document in `benchmarks-website/infra/README.md`; capture endpoint via post-run `gh variable set RDS_BENCH_ENDPOINT` | `benchmarks-website/infra/provision.sh`, `benchmarks-website/infra/README.md`, `.github/workflows/schema-deploy.yml` (skeleton) | `aws rds describe-db-instances --db-instance-identifier vortex-bench-prod` returns `available` + `iam_database_authentication_enabled: true`; `aws rds describe-db-proxies --db-proxy-name vortex-bench-proxy` returns `Endpoint`. |
-| PR-1.2 | 1 | Write `scripts/migrate-schema.py` (~30-50 LOC) — applies `migrations/*.sql` in name order, tracks via `_applied_migrations` table, idempotent | `scripts/migrate-schema.py`, `scripts/test_migrate_schema.py`, `migrations/` (dir created), `pyproject.toml` (psycopg dep) | Unit test: applies a fresh schema to testcontainers Postgres, re-runs idempotently (0 rows changed second time), inserts and re-applies a v2 migration in order. |
+| PR-1.2 | 1 | Write `scripts/migrate-schema.py` (~80-180 LOC; original ~30-50 estimate was for the bare runner — status/drift, autocommit txn discipline, typed exceptions, and recovery commentary brought it closer to ~180) — applies `migrations/*.sql` in name order, tracks via `_applied_migrations` table, idempotent | `scripts/migrate-schema.py`, `scripts/test_migrate_schema.py`, `migrations/` (dir created + README), `pyproject.toml` (psycopg + testcontainers dev deps) | Unit test: applies a fresh schema to testcontainers Postgres, re-runs idempotently (0 rows changed second time), inserts and re-applies a v2 migration in order. `apply` survives a failing later migration without losing earlier ones (subprocess test). `status` exits non-zero on drift and does not DDL. |
 | PR-1.3 | 1 | Write `migrations/001_initial_schema.sql` (the 6 tables + composite indexes per Table B); `migrations/002_iam_db_user.sql` (CREATE ROLE for IAM auth) | `migrations/001_initial_schema.sql`, `migrations/002_iam_db_user.sql`, `scripts/test_migrate_schema.py` (extended) | `python scripts/migrate-schema.py --target=$RDS_DSN apply` succeeds; `\dt` shows the 6 tables; `\di` shows the composite indexes; `\du` shows the IAM-auth role with `rds_iam` group. |
 | PR-1.4 | 1 | Wire `.github/workflows/schema-deploy.yml` — OIDC → `GitHubBenchmarkSchemaRole` → `python scripts/migrate-schema.py apply` against RDS Proxy; gated by `environment: schema-deploy` (manual approval) | `.github/workflows/schema-deploy.yml`, IAM role doc in `web/ops/README.md` | Workflow runs to completion on `develop` push touching `migrations/`; manual-approval gate fires; `migrate-schema.py status` reports clean post-apply. |
 | PR-1.5 | 1 | Port xxhash64 to Python in `scripts/_measurement_id.py`; mirror per-table tag + write_str/write_opt_str/write_i32/write_f64 encoding; golden-vector test against Rust source-of-truth (new test in `vortex-bench-server`) | `scripts/_measurement_id.py`, `scripts/test_measurement_id.py`, `benchmarks-website/server/src/db.rs` (golden-vector test added) | `pytest scripts/test_measurement_id.py` all green; for 100 fixture (commit, dim-tuple) inputs the Python output matches the Rust output bit-exactly. |
@@ -414,6 +415,27 @@ cargo run -p <ingest-crate> -- --envelope <recent-envelope.jsonl> --dry-run
   - Three operator-found bugs not surfaced by cycle-1 static gauntlet: (1) `mktemp -t` template missing X's on GNU mktemp (CloudShell), (2) `aws rds wait db-proxy-available` is not a real AWS CLI v2 waiter, (3) `environment: schema-deploy` reference required GitHub repo-admin to create the environment, which operator lacks. All three fixed via additional cycle-2 fix-commits (674668406, d633735d9, 2336d48c1).
   - Pattern: static reviewers can't catch what running the script catches. Acknowledged as work-shape characteristic; future infra-script PRs should plan operator-execution as part of the acceptance flow, not gauntlet-cycle-2-only.
 
+### PR-1.2: Postgres migration runner + tests + migrations/ scaffolding  (4 code commits + 2 doc-fix commits + 3 gauntlet cycles, ending at f6999d6d3)
+
+- **Scope shipped**: `scripts/migrate-schema.py` (substrate-agnostic forward-only Postgres migration runner with `apply` and `status` commands; libpq env vars OR `--target=<dsn>`; PEP 723 inline metadata for standalone `uv run`); `scripts/test_migrate_schema.py` (16 pytest+testcontainers tests covering apply / idempotency / sequential order / subprocess close-on-exception rollback / status drift detection / empty-file rejection / case-insensitive discover / subdirectory-with-.sql-suffix filtering / non-default search_path); `migrations/` directory with `README.md` documenting naming convention + authoring rules + transactional-only invariant; `pyproject.toml` workspace dev deps gain `psycopg[binary]>=3.2` + `testcontainers[postgres]>=4.9`; `uv.lock` regenerated.
+- **Acceptance criteria — verified against postgres:16-alpine testcontainer**:
+  - Apply applies pending migrations idempotently (`test_apply_creates_..._and_runs_migrations`, `test_apply_is_idempotent`) ✓
+  - Apply applies new migration in name order without re-applying earlier ones (`test_apply_applies_new_migration_in_order`) ✓
+  - Apply survives a failing later migration without losing earlier ones — subprocess test mirroring production close-on-exception (`test_apply_rolls_back_on_failure_subprocess`) ✓
+  - Status exits non-zero on drift and does not DDL (`test_status_reports_applied_and_pending`, `test_status_clean_returns_zero`, `test_status_flags_orphaned_applied_files`, `test_status_does_not_create_table`) ✓
+  - Apply rejects empty + whitespace-only .sql files (`test_apply_rejects_empty_sql_file`, `test_apply_rejects_whitespace_only_sql_file`) ✓
+  - Apply + Status agree on ledger location under non-default search_path (`test_apply_uses_public_schema_under_custom_search_path`) ✓
+  - Discover ignores subdirectories with .sql suffix (`test_discover_ignores_subdirectory_with_sql_suffix`) ✓
+- **Tests added**: 16 pytest tests (4 pure-function, 12 testcontainer-backed). Local runs all pass against `postgres:16-alpine`. CI execution of this test suite is a deferred item (see below).
+- **Review**: 2-vote (preset=pr-2, fresh+correctness, Claude executor) / cycle 1 reject (2 must-fix: implicit-outer-txn savepoint bug + masked test) → fix bundle (txn model via autocommit + subprocess test + 6 should-fix items + plan-edit) → cycle 2 reject (2 new must-fix: empty-file replay bug exposed by carry-forward + schema-qualification divergence under non-default search_path) → fix bundle (empty-file rejection + schema-qualify all ledger refs + applied_set→_applied_set rename + is_file() guard + subprocess timeout + new regression tests) → cycle 3 accept (zero must-fix; both reviewers ACCEPT; remaining 9 should-fix + 3 nit triaged as docstring drift fixed inline or deferred).
+- **Confidence**: high (3-cycle gauntlet with monotonically improving verdicts; 16/16 tests green against testcontainers; substrate-agnostic runner depends only on libpq env vars; clean separation between writer-DDL path and read-only status path; per-migration autocommit-True transactions correctly survive partial failure; schema-qualification pins ledger to `public._applied_migrations` regardless of role search_path).
+- **Deferred items**: 4 should-fixes for PR-1.2 (concurrency advisory lock, autocommit toggle precondition for library callers, ledger fingerprint for edit-after-apply drift, CI pytest runner — all in Deferred work table).
+- **Surprises during implementation**:
+  - Cycle 1 surfaced a non-obvious psycopg3 transaction-model bug: `CREATE TABLE IF NOT EXISTS` outside a `with conn.transaction()` block lazily opens an implicit outer transaction; subsequent `conn.transaction()` blocks become SAVEPOINTs rather than top-level transactions, so a failing later migration triggers the connection-level rollback that discards all prior savepoint-released work. The original test masked this by catching the exception inside the test body, so the fixture's `with psycopg.connect()` exited cleanly via commit instead of with-exception via rollback. Fix: `conn.autocommit = True` at the top of apply()/status() forces each `conn.transaction()` to be a real top-level transaction; subprocess-based regression test exercises the production close-on-exception path.
+  - Cycle 2 surfaced a second non-obvious bug: schema-qualification divergence between `applied_set` / `apply` (unqualified `_applied_migrations`) and `_read_applied_filenames` (`public._applied_migrations` via `to_regclass`). Under default search_path both paths happen to find the same table; under a non-default search_path (very plausible for the PR-1.3 `migrator` IAM role under standard `rds_iam` least-privilege patterns) writer and reader would silently transact with different ledger tables. Fix: canonicalize every ledger reference to `public._applied_migrations` everywhere (DDL + INSERT + SELECT). Test connects with `options='-c search_path=foo,public'` and verifies writer-reader agreement.
+  - Pattern: per-cycle gauntlet caught two correctness ship-blockers neither reviewer would have spotted with a single pass — different prompts catch different bugs (the spec's load-bearing principle). The cycle-2 fix-commit's `Shared fix-commit attention` block at cycle 3 surfaced H1 docstring drift the fix introduced and let me clean it up before completion.
+  - Spec deviation: cycle-2 fix-commit bundled both must-fix items into a single fix-commit (rather than the per-must-fix split Step 2.4 prescribes), because the edits on the apply()/applied_set/ledger boundary genuinely overlap. Documented in the commit body; followed by one plan-edit decrementing by 2.
+
 ## Deferred work
 
 | Source | File:line | Severity | Description | Deferral rationale |
@@ -427,6 +449,10 @@ cargo run -p <ingest-crate> -- --envelope <recent-envelope.jsonl> --dry-run
 | PR-1.1 cycle-1 gauntlet | `provision.sh:649` (OIDC thumbprint hardcoded) | should-fix | AWS no longer enforces the thumbprint for GitHub OIDC; cosmetic. | Add comment when next touching the file. |
 | PR-1.1 cycle-1 gauntlet | `README.md:183` ("IAM auth is the gate") | should-fix | Phrasing overstates what PR-1.1 alone accomplishes; password auth on `postgres` master remains until PR-1.3's migration 002. | Update README in PR-1.3 alongside the rds_iam grant migration. |
 | PR-1.1 follow-up | (operator action) | medium | Re-run `provision.sh` in CloudShell to apply the branch-scoped trust policy update (commit 2336d48c1). Existing role still has the wildcard `repo:vortex-data/vortex:*` sub-claim until operator re-runs. | Operator-side; security tightening, not blocking. |
+| PR-1.2 cycle-1 gauntlet | `scripts/migrate-schema.py:57-75` (concurrency) | should-fix | Two concurrent CI runs can both observe the same pending set and race on non-idempotent DDL; PRIMARY KEY guards the ledger row but the DDL itself still executes twice, producing transient errors and ambiguous logs. | The CI workflow already serializes via `concurrency: schema-deploy`, and the initial DDL in PR-1.3 is idempotent (CREATE TABLE IF NOT EXISTS / IF NOT EXISTS indexes); revisit when a non-idempotent migration is actually authored. The fix is a Postgres advisory lock (`SELECT pg_advisory_xact_lock(<constant>)`) at the start of each per-migration transaction plus a concurrency test that spawns two parallel `apply` invocations. |
+| PR-1.2 cycle-2 gauntlet | `scripts/migrate-schema.py:108-112` (autocommit toggle precondition) | should-fix | `apply()` sets `conn.autocommit = True` unconditionally; psycopg raises `ProgrammingError` if the connection has a transaction in progress. Production safe (main() opens a fresh conn) but the function is exposed as a library API and a future caller that ran any prior `cursor.execute` would hit the error. | Library-API hardening; not relevant until a second importer materializes. Fix is to assert `conn.info.transaction_status == IDLE` at the top of `apply` or defensively `rollback()` before the toggle, with a test that opens a transaction first. |
+| PR-1.2 cycle-2 gauntlet | `scripts/migrate-schema.py` ledger schema (fingerprint) | should-fix | Applied migrations are not fingerprinted; an author editing `001_initial_schema.sql` after it has been applied to RDS sees `status` report clean both locally (against a freshly-applied testcontainer) and in CI (against RDS with the old file's effects). README forbids edit-after-apply but the runner has zero enforcement. | Substantive change: add a `sha256` column to `_applied_migrations`, record at apply time, compare on-disk hash vs ledger in `status`, report a third drift class `[~]` with non-zero exit. Track for a follow-up PR (PR-1.2.1 or fold into PR-1.4 wiring). |
+| PR-1.2 cycle-2 gauntlet | `scripts/test_migrate_schema.py` (no CI runner) | should-fix | The pytest suite skips silently when Docker is unavailable (`_docker_available()` probe), and no CI workflow currently runs the suite with Docker enabled. PR-1.2 acceptance ("Unit test: applies a fresh schema to testcontainers Postgres ...") is verified only by local dev runs; CI would be green even if the runner regressed. | PR-1.4 wires the schema-deploy workflow with real apply; pair it with a `pytest-on-PR` job that fails loud when `_docker_available` returns False in CI. Track for PR-1.4. |
 
 ## Accepted tradeoffs / r1 traps
 
