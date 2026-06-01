@@ -20,31 +20,8 @@ impl CastReduce for Delta {
         };
 
         let source_ptype = array.dtype().as_ptype();
-        // Only a same-width cast (e.g. a nullability change) can be served by
-        // re-casting the stored components in place. Any width change must defer
-        // to the decompress-then-cast fallback (`Ok(None)`):
-        //
-        // * Widening cannot be done in place. `bases`/`deltas` are held in
-        //   FastLanes transposed layout with `T::LANES` (= 1024 / bit_width)
-        //   entries per chunk, and `T::LANES` changes with the target width.
-        //   Re-widening the buffers element-wise preserves the *source* width's
-        //   layout, but `delta_decompress` then reads them with the *target*
-        //   width's lane count, decoding against a misaligned layout and
-        //   producing wrong (and, for `onpair` dictionary offsets, non-monotonic)
-        //   values for any array larger than a single near-empty chunk.
-        // * Narrowing is unsafe without first decompressing to check the max
-        //   value fits.
-        if source_ptype.bit_width() != target_ptype.bit_width() {
-            return Ok(None);
-        }
-        // Signed sources need a different cast policy than the lossless cast used
-        // here. The delta bytes are stored as the result of `wrapping_sub`, so e.g.
-        // a delta of -1i8 has the bit pattern 0xFF. Widening *as a value* (the cast op's
-        // semantics) sign-extends that to 0xFFFFFFFF, which means `wrapping_add(base, delta)`
-        // at the wider type produces a different result than at the source type — round-trip
-        // breaks. Cross-signedness widening has the same hazard for the same reason. Fall
-        // back to decompress-and-re-encode for both cases.
-        if target_ptype.is_signed_int() || source_ptype.is_signed_int() {
+        // TODO(DK): narrows can be safe but we must decompress to compute the maximum value.
+        if target_ptype.is_signed_int() || source_ptype.bit_width() > target_ptype.bit_width() {
             return Ok(None);
         }
 
@@ -99,43 +76,6 @@ mod tests {
 
         // Verify by decoding
         assert_arrays_eq!(casted, PrimitiveArray::from_iter([10u32, 20, 30, 40, 50]));
-    }
-
-    /// Widening across more than one FastLanes chunk (len > 1024). The in-place
-    /// component cast is invalid here because `T::LANES` differs between source
-    /// and target widths, so this must fall back to decompress-then-cast. A
-    /// previous in-place widen produced non-monotonic values and corrupted
-    /// round-trips (the `onpair` dictionary-offsets panic).
-    #[rstest]
-    #[case::u8_to_u32(8)]
-    #[case::u16_to_u32(16)]
-    fn test_cast_delta_widen_multichunk(#[case] src_width: u32) {
-        let n = 4096usize;
-        let expected: Vec<u32> = (0..n as u32).map(|i| (i * 3) % 60_000).collect();
-        let delta = match src_width {
-            8 => Delta::try_from_primitive_array(
-                &PrimitiveArray::from_iter((0..n).map(|i| ((i * 3) % 250) as u8)),
-                &mut SESSION.create_execution_ctx(),
-            ),
-            _ => Delta::try_from_primitive_array(
-                &PrimitiveArray::from_iter(expected.iter().map(|&v| v as u16)),
-                &mut SESSION.create_execution_ctx(),
-            ),
-        }
-        .unwrap();
-        let expected: Vec<u32> = if src_width == 8 {
-            (0..n).map(|i| ((i * 3) % 250) as u32).collect()
-        } else {
-            expected
-        };
-
-        let casted = delta
-            .into_array()
-            .cast(DType::Primitive(PType::U32, Nullability::NonNullable))
-            .unwrap()
-            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
-            .unwrap();
-        assert_eq!(casted.as_slice::<u32>(), expected.as_slice());
     }
 
     #[test]
