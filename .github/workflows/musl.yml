@@ -63,6 +63,12 @@ jobs:
             # roughly double the cold-cache compile time of this job.
             curl -LsSf https://get.nexte.st/latest/linux-musl \
               | tar zxf - -C "$CARGO_HOME/bin"
+            # The workspace is bind-mounted from the host runner and owned by a
+            # different uid than the container root, so git rejects it as "dubious
+            # ownership" and `git rev-parse HEAD` returns empty. vortex-bench and the
+            # benchmarks website embed that SHA in snapshots (redacted to <commit-sha> /
+            # <build-sha>); an empty SHA breaks the redaction and fails 10 snapshot tests.
+            git config --global --add safe.directory /work
             cargo nextest run --cargo-profile ci --locked --workspace --no-fail-fast \
               --exclude vortex-cuda --exclude vortex-cub --exclude vortex-nvcomp \
               --exclude gpu-scan-cli --exclude vortex-test-e2e-cuda \
