@@ -3,26 +3,26 @@
 ## Current State
 
 ```yaml
-status: planning
+status: executing
 branch: ct/bench-v4
-planning_sub_flow: re-plan-phase-2
-current_phase: "Phase 1: RDS + schema + hash port"
-phase_index: 1
-current_pr: null
-pr_index: 7
+planning_sub_flow: null
+current_phase: "Phase 2: Postgres writer + dual-write CI"
+phase_index: 2
+current_pr: PR-2.1
+pr_index: 1
 outstanding_must_fix: 0
 deferred_items_total: 25
-last_user_touchpoint: 2026-06-01T19:46:41Z
-last_user_touchpoint_what: "Phase 1 ACCEPTED + live-verified (see 'Phase 1 live verification (2026-06-01)' section — prod schema 001+002+003 applied, migrator IAM-auth path proven end-to-end at the DB, repo vars reconciled; do NOT redo this live state). Operator chose 'Re-plan Phase 2' at the Phase-1->2 boundary (Step 3.4). Now in the Phase 1 sub-flow scoped to Phase 2's PRs (planning_sub_flow: re-plan-phase-2). Goal: re-distribute the ~25 Phase-1 deferred items (PR-2.1 ingest role-ownership/grants, dead-proxy-grant cleanup, NaN/Inf is_finite() guard, the CI-hardening cluster golden==Python gate + pytest-on-PR + testcontainer-in-CI) plus the deferred 2026-05-29 deploy-model trigger-switch decision across a revised Phase-2 PR breakdown BEFORE implementing. Residual Phase-1 gate (unchanged): the live schema-deploy.yml OIDC workflow run is BLOCKED until ct/bench-v4 merges to develop. AWS access: local CLI profile bench-prod (IAM user connor-aws-cli, account 245040174862); see memories project_bench_aws_access + project_bench_phase1_live_state. Resume routes via status=planning + planning_sub_flow=re-plan-phase-2 into the design-tree interview (Step 1.4). Also: re-unlock 1Password if op-ssh-sign locks again."
+last_user_touchpoint: 2026-06-01T20:19:10Z
+last_user_touchpoint_what: "Phase 2 re-planned (5 PRs) and CONFIRMED for execution at the Step 1.8 final-confirmation AUQ. Decisions: comprehensive scope; dedicated bench_ingest DB role + GitHubBenchmarkIngestRole (least-privilege, separate from the schema-deploy migrator identity); Postgres-side dual-write reconciliation (authoritative cross-substrate diff stays in Phase 3); deploy-model trigger-switch folded into PR-2.4. Now entering Phase 2 inner loop at PR-2.1 (migration 004 bench_ingest role + grants + GitHubBenchmarkIngestRole + drop dead proxy grant). PRIOR LIVE STATE (do NOT redo): prod schema 001+002+003 applied; migrator IAM-auth path proven; repo vars reconciled (see 'Phase 1 live verification (2026-06-01)'). Residual Phase-1 gate: live schema-deploy.yml OIDC run BLOCKED until ct/bench-v4 merges to develop. AWS access: local CLI profile bench-prod (IAM user connor-aws-cli, account 245040174862); see memories project_bench_aws_access + project_bench_phase1_live_state. Also: re-unlock 1Password if op-ssh-sign locks again."
 subagent_invocations_this_pr: 0
-subagent_invocations_total: 22
+subagent_invocations_total: 25
 review_cycles_this_pr: 0
-phase_entry_sha: ae3e0494f
-phase_end_cycle: 2
+phase_entry_sha: null
+phase_end_cycle: 0
 phase_end_reject_cycles: 0
-last_phase_end_verdict: accept
+last_phase_end_verdict: null
 current_pr_is_ci_reopen: null
-last_commit: cb68db1c6
+last_commit: c2c742e42
 last_cycle_commits: []
 ```
 
