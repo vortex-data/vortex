@@ -302,9 +302,9 @@ typedef enum {
  * Physical type enum, represents the in-memory physical layout but might represent a different logical type.
  */
 enum PType
-#ifdef __cplusplus
+#if defined(__cplusplus) || __STDC_VERSION__ >= 202311L
     : uint8_t
-#endif // __cplusplus
+#endif // defined(__cplusplus) || __STDC_VERSION__ >= 202311L
 {
     /**
      * An 8-bit unsigned integer
@@ -352,7 +352,11 @@ enum PType
     F64 = 10,
 };
 #ifndef __cplusplus
+#if __STDC_VERSION__ >= 202311L
+typedef enum PType PType;
+#else
 typedef uint8_t PType;
+#endif // __STDC_VERSION__ >= 202311L
 #endif // __cplusplus
 
 /**
@@ -620,8 +624,6 @@ extern "C" {
 
 /**
  * Clone a borrowed [`vx_array`], returning an owned [`vx_array`].
- *
- *
  * Must be released with [`vx_array_free`].
  */
 const vx_array *vx_array_clone(const vx_array *ptr);
@@ -830,8 +832,6 @@ const vx_array *vx_array_iterator_next(vx_array_iterator *iter, vx_error **error
 
 /**
  * Clone a borrowed [`vx_binary`], returning an owned [`vx_binary`].
- *
- *
  * Must be released with [`vx_binary_free`].
  */
 const vx_binary *vx_binary_clone(const vx_binary *ptr);
@@ -858,8 +858,6 @@ const char *vx_binary_ptr(const vx_binary *ptr);
 
 /**
  * Clone a borrowed [`vx_data_source`], returning an owned [`vx_data_source`].
- *
- *
  * Must be released with [`vx_data_source_free`].
  */
 const vx_data_source *vx_data_source_clone(const vx_data_source *ptr);
@@ -893,8 +891,6 @@ void vx_data_source_get_row_count(const vx_data_source *ds, vx_estimate *row_cou
 
 /**
  * Clone a borrowed [`vx_dtype`], returning an owned [`vx_dtype`].
- *
- *
  * Must be released with [`vx_dtype_free`].
  */
 const vx_dtype *vx_dtype_clone(const vx_dtype *ptr);
@@ -1215,8 +1211,6 @@ vx_expression *vx_expression_list_contains(const vx_expression *list, const vx_e
 
 /**
  * Clone a borrowed [`vx_file`], returning an owned [`vx_file`].
- *
- *
  * Must be released with [`vx_file_free`].
  */
 const vx_file *vx_file_clone(const vx_file *ptr);
@@ -1602,8 +1596,6 @@ void vx_array_sink_close(vx_array_sink *sink, vx_error **error_out);
 
 /**
  * Clone a borrowed [`vx_string`], returning an owned [`vx_string`].
- *
- *
  * Must be released with [`vx_string_free`].
  */
 const vx_string *vx_string_clone(const vx_string *ptr);
