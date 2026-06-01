@@ -8,7 +8,6 @@
 use std::env;
 use std::fs;
 use std::io;
-use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
@@ -22,7 +21,12 @@ const DUCKDB_SOURCE_RELEASE_URL: &str = "https://github.com/duckdb/duckdb/archiv
 const DUCKDB_SOURCE_COMMIT_URL: &str = "https://github.com/duckdb/duckdb/archive";
 const DEFAULT_DUCKDB_VERSION: &str = "1.5.3";
 
-const BUILD_ARTIFACTS: [&str; 3] = ["libduckdb.dylib", "libduckdb.so", "libduckdb_static.a"];
+const BUILD_ARTIFACTS: [&str; 4] = [
+    "libduckdb.dylib",
+    "libduckdb.so",
+    "libduckdb_static.a",
+    "duckdb.dll",
+];
 
 const SOURCE_FILES: [&str; 17] = [
     "cpp/client_context.cpp",
@@ -178,6 +182,8 @@ fn download(version: &DuckDBVersion, library_dir: &Path) {
         "aarch64-apple-darwin" | "x86_64-apple-darwin" => ("osx", "universal"),
         "x86_64-unknown-linux-gnu" => ("linux", "amd64"),
         "aarch64-unknown-linux-gnu" => ("linux", "arm64"),
+        "x86_64-pc-windows-msvc" => ("windows", "amd64"),
+        "aarch64-pc-windows-msvc" => ("windows", "arm64"),
         _ => {
             println!("cargo:error=Unsupported target {target}");
             exit(1);
@@ -353,13 +359,21 @@ fn bindgen_c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
 
 /// Generate libvortex_duckdb.*
 fn compile_cpp(duckdb_include_dir: &Path) {
-    cc::Build::new()
-        .std("c++20")
-        .flags(["-Wall", "-Wextra", "-Wpedantic", "-Werror"])
-        .cpp(true)
-        // We don't want compiler warnings inside duckdb headers, pass as flags
-        .flag("-isystem")
-        .flag(duckdb_include_dir)
+    let mut build = cc::Build::new();
+    build.std("c++20").cpp(true);
+    if env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+        // MSVC's `cl` does not understand the GCC/Clang `-W*`/`-isystem` flags. Use the
+        // `/W4` warning level and add the DuckDB headers as a normal include. We do not
+        // enable `/WX`, so warnings originating in those headers don't fail the build.
+        build.flag("/W4").include(duckdb_include_dir);
+    } else {
+        build
+            .flags(["-Wall", "-Wextra", "-Wpedantic", "-Werror"])
+            // We don't want compiler warnings inside duckdb headers, pass as flags
+            .flag("-isystem")
+            .flag(duckdb_include_dir);
+    }
+    build
         .include("include")
         .include("cpp/include")
         .files(SOURCE_FILES)
@@ -396,6 +410,21 @@ fn cbindgen_rust2c(crate_dir: &Path) {
     }
 }
 
+/// Create a convenience symlink from `duckdb_dir` to the extracted DuckDB source tree.
+/// This is purely for editor/tooling navigation; the build uses the source path directly.
+/// Only created on unix, where the symlink API needs no special privilege.
+#[cfg(unix)]
+fn symlink_duckdb_source(source_dir: &Path, duckdb_dir: &Path) {
+    drop(fs::remove_file(duckdb_dir));
+    drop(fs::remove_dir_all(duckdb_dir));
+    std::os::unix::fs::symlink(source_dir, duckdb_dir).unwrap();
+}
+
+/// No-op on non-unix platforms (e.g. Windows): the symlink is only a convenience and
+/// Windows directory symlinks require elevated privileges.
+#[cfg(not(unix))]
+fn symlink_duckdb_source(_source_dir: &Path, _duckdb_dir: &Path) {}
+
 fn main() {
     println!("cargo:rerun-if-env-changed=DUCKDB_VERSION");
     println!("cargo:rerun-if-env-changed=VX_DUCKDB_DEBUG");
@@ -427,8 +456,12 @@ fn main() {
     println!("cargo:rustc-link-lib=dylib=duckdb");
 
     // Set rpath for binaries built directly from this crate. This is not
-    // inherited by downstream crates.
-    println!("cargo:rustc-link-arg=-Wl,-rpath,{library_dir_str}");
+    // inherited by downstream crates. `-Wl,-rpath` is GNU/Clang linker syntax that
+    // MSVC's linker rejects; on Windows the DLL is resolved via PATH / the executable
+    // directory instead, so skip it there.
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
+        println!("cargo:rustc-link-arg=-Wl,-rpath,{library_dir_str}");
+    }
 
     // Export the library path for downstream crates via the `links` manifest key.
     // Downstream crates can access this via `env::var("DEP_DUCKDB_LIB_DIR")` in their build.rs
@@ -467,9 +500,10 @@ fn main() {
         fs::write(&extract_marker, version.to_string()).unwrap();
     }
 
-    drop(fs::remove_file(&duckdb_dir));
-    drop(fs::remove_dir_all(&duckdb_dir));
-    symlink(&source_dir, &duckdb_dir).unwrap();
+    // Convenience symlink `crate_dir/duckdb` -> extracted source, for editor/tooling
+    // navigation only; the build itself uses `inner_dir` below. Created on unix where
+    // the symlink API is privilege-free; skipped elsewhere (e.g. Windows).
+    symlink_duckdb_source(&source_dir, &duckdb_dir);
 
     let has_debug_env =
         env::var("VX_DUCKDB_DEBUG").is_ok_and(|v| matches!(v.as_str(), "1" | "true"));
