@@ -61,8 +61,6 @@ use crate::dtype::Nullability;
 use crate::dtype::StructFields;
 use crate::dtype::arrow::FromArrowType;
 use crate::dtype::arrow::to_data_type_naive;
-use crate::dtype::extension::ExtDTypeRef;
-use crate::dtype::extension::ExtId;
 use crate::extension::datetime::AnyTemporal;
 use crate::extension::uuid::Uuid;
 use crate::validity::Validity;
@@ -99,17 +97,17 @@ pub trait ArrowExportVTable: 'static + Send + Sync + Debug {
     /// The Arrow extension ID this plugin produces.
     fn arrow_ext_id(&self) -> Id;
 
-    /// The Vortex extension ID this plugin maps from. Used only for inference by
+    /// The Vortex array or extension ID this plugin maps from. Used only for inference by
     /// [`ArrowSession::to_arrow_field`] / [`ArrowSession::to_arrow_schema`]; never as a
     /// dispatch key for [`execute_arrow`][Self::execute_arrow].
-    fn vortex_ext_id(&self) -> ExtId;
+    fn vortex_id(&self) -> Id;
 
     /// Build the Arrow [`Field`] this plugin produces for the given Vortex extension
     /// `dtype`. Used during schema inference.
     fn to_arrow_field(
         &self,
         name: &str,
-        dtype: &ExtDTypeRef,
+        dtype: &DType,
         session: &ArrowSession,
     ) -> VortexResult<Option<Field>>;
 
@@ -125,7 +123,7 @@ pub trait ArrowExportVTable: 'static + Send + Sync + Debug {
     ) -> VortexResult<ArrowExport>;
 }
 
-/// Plugin layer for importing an Arrow extension-typed array into a Vortex extension array.
+/// Plugin layer for importing an Arrow extension-typed array into a Vortex array.
 ///
 /// Plugins are dispatched by `arrow_ext_id`.
 ///
@@ -140,7 +138,7 @@ pub trait ArrowImportVTable: 'static + Send + Sync + Debug {
     #[allow(clippy::wrong_self_convention)]
     fn from_arrow_field(&self, field: &Field) -> VortexResult<Option<DType>>;
 
-    /// Convert an Arrow array into a Vortex extension array of `dtype`.
+    /// Convert an Arrow array into a Vortex array of `dtype`.
     ///
     /// Returns ownership of `array` via [`ArrowImport::Unsupported`] when the plugin cannot
     /// handle the input.
@@ -148,7 +146,8 @@ pub trait ArrowImportVTable: 'static + Send + Sync + Debug {
     fn from_arrow_array(
         &self,
         array: ArrowArrayRef,
-        dtype: &ExtDTypeRef,
+        field: &Field,
+        dtype: &DType,
     ) -> VortexResult<ArrowImport>;
 }
 
@@ -157,7 +156,7 @@ pub type ArrowImportVTableRef = Arc<dyn ArrowImportVTable>;
 
 type ExportMap = HashMap<Id, Arc<[ArrowExportVTableRef]>>;
 type ImportMap = HashMap<Id, Arc<[ArrowImportVTableRef]>>;
-type ExportDTypeMap = HashMap<ExtId, Arc<[ArrowExportVTableRef]>>;
+type ExportDTypeMap = HashMap<Id, Arc<[ArrowExportVTableRef]>>;
 
 /// Session-scoped registry of Arrow extension plugins.
 ///
@@ -199,11 +198,7 @@ impl ArrowSession {
             exporter.arrow_ext_id(),
             ArrowExportVTableRef::clone(&exporter),
         );
-        Self::insert(
-            &self.exporters_by_vortex,
-            exporter.vortex_ext_id(),
-            exporter,
-        );
+        Self::insert(&self.exporters_by_vortex, exporter.vortex_id(), exporter);
     }
 
     /// Register an [`ArrowImportVTable`] under its source Arrow extension name.
@@ -234,7 +229,7 @@ impl ArrowSession {
             .unwrap_or_else(|| Arc::from([]))
     }
 
-    fn exporters_by_vortex(&self, id: &ExtId) -> Arc<[ArrowExportVTableRef]> {
+    fn exporters_by_vortex(&self, id: &Id) -> Arc<[ArrowExportVTableRef]> {
         self.exporters_by_vortex
             .load()
             .get(id)
@@ -286,14 +281,36 @@ impl ArrowSession {
             }
             DType::Extension(ext) if !ext.is::<AnyTemporal>() => {
                 for plugin in self.exporters_by_vortex(&ext.id()).iter() {
-                    if let Some(field) = plugin.to_arrow_field(name, ext, self)? {
+                    if let Some(field) =
+                        plugin.to_arrow_field(name, &DType::Extension(ext.clone()), self)?
+                    {
                         return Ok(field);
                     }
                 }
                 vortex_bail!("extension type cannot be converted to Arrow without a plugin: {ext}");
             }
             DType::Variant(_) => {
-                vortex_bail!("Arrow does not have a raw/transparent Variant encoding");
+                // TODO(Adam): This currently encodes information about parquet-variant
+                // at this level. Variant's complexity with being an essentially logical type
+                // with multiple physical layout complicates handling this correctly.
+                Ok(Field::new(
+                    name,
+                    DataType::Struct(
+                        vec![
+                            Field::new("metadata", DataType::BinaryView, dtype.is_nullable()),
+                            Field::new("value", DataType::BinaryView, dtype.is_nullable()),
+                        ]
+                        .into(),
+                    ),
+                    dtype.is_nullable(),
+                )
+                .with_metadata(
+                    [(
+                        EXTENSION_TYPE_NAME_KEY.to_string(),
+                        "arrow.parquet.variant".to_string(),
+                    )]
+                    .into(),
+                ))
             }
             _ => Ok(Field::new(
                 name,
@@ -490,16 +507,14 @@ impl ArrowSession {
             let importers = self.importers(&Id::new(extension_name));
             if !importers.is_empty() {
                 let dtype = self.from_arrow_field(field)?;
-                if let DType::Extension(ext_dtype) = dtype {
-                    let mut current = array;
-                    for plugin in importers.iter() {
-                        match plugin.from_arrow_array(current, &ext_dtype)? {
-                            ArrowImport::Imported(arr) => return Ok(arr),
-                            ArrowImport::Unsupported(arr) => current = arr,
-                        }
+                let mut current = array;
+                for plugin in importers.iter() {
+                    match plugin.from_arrow_array(current, field, &dtype)? {
+                        ArrowImport::Imported(arr) => return Ok(arr),
+                        ArrowImport::Unsupported(arr) => current = arr,
                     }
-                    return ArrayRef::from_arrow(current.as_ref(), field.is_nullable());
                 }
+                return ArrayRef::from_arrow(current.as_ref(), field.is_nullable());
             }
         }
         self.from_arrow_array_canonical(array, field)
