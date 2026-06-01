@@ -357,7 +357,7 @@ jobs:
             **Suggested Approach**: [Recommendation with code snippets if possible]
             ```
           claude_args: |
-            --model claude-opus-4-20250514
+            --model claude-opus-4-8
             --max-turns 120
             --allowedTools "Read,Write,Edit,Glob,Grep,Bash(cargo:*),Bash(gh issue comment:*),Bash(gh run download:*),Bash(curl:*),Bash(find:*),Bash(ls:*),Bash(cat:*),Bash(RUST_BACKTRACE=* cargo:*)"
 

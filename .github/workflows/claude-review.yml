@@ -254,5 +254,6 @@ jobs:
             actions: read
 
           claude_args: |
+            --model claude-opus-4-8
             --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git show:*),Bash(git log:*),Bash(head:*),Bash(jq:*),Bash(rg:*)"
             --system-prompt "You are the repository's read-only Claude review workflow. Review the current same-repo pull request and respond in GitHub. Never modify files, never create commits, never push branches, and never open or update pull requests. Fork pull requests are blocked before this job starts."
