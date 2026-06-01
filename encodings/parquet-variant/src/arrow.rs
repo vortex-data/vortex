@@ -13,6 +13,7 @@ use arrow_schema::Fields;
 use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
 use parquet_variant_compute::GetOptions;
 use parquet_variant_compute::VariantArray as ArrowVariantArray;
+use parquet_variant_compute::unshred_variant;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -26,6 +27,7 @@ use vortex_array::arrow::ArrowSessionExt;
 use vortex_array::arrow::to_arrow_null_buffer;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
@@ -37,26 +39,28 @@ use crate::ParquetVariantArrayExt;
 const PARQUET_VARIANT_ARROW_EXTENSION_NAME: &str = "arrow.parquet.variant";
 static ARROW_PARQUET_VARIANT: CachedId = CachedId::new(PARQUET_VARIANT_ARROW_EXTENSION_NAME);
 
-fn is_parquet_variant_storage_fields(fields: &Fields) -> bool {
+fn parquet_variant_storage_request(fields: &Fields) -> Option<(bool, bool)> {
     let mut has_metadata = false;
-    let mut has_value_or_typed = false;
+    let mut has_value = false;
+    let mut has_typed_value = false;
 
     for field in fields {
         match field.name().as_str() {
-            "metadata" => has_metadata = true,
-            "value" | "typed_value" => has_value_or_typed = true,
-            _ => return false,
+            "metadata" if !has_metadata => has_metadata = true,
+            "value" if !has_value => has_value = true,
+            "typed_value" if !has_typed_value => has_typed_value = true,
+            _ => return None,
         }
     }
 
-    has_metadata && has_value_or_typed
+    (has_metadata && (has_value || has_typed_value)).then_some((has_value, has_typed_value))
 }
 
-fn try_export_storage_to_target<T: ParquetVariantArrayExt>(
+fn export_storage_to_target<T: ParquetVariantArrayExt>(
     parquet_array: &T,
     target_fields: &Fields,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<ArrowArrayRef>> {
+) -> VortexResult<ArrowArrayRef> {
     let mut arrays = Vec::with_capacity(target_fields.len());
 
     for field in target_fields {
@@ -64,10 +68,14 @@ fn try_export_storage_to_target<T: ParquetVariantArrayExt>(
             "metadata" => Some(parquet_array.metadata_array().clone()),
             "value" => parquet_array.value_array().cloned(),
             "typed_value" => parquet_array.typed_value_array().cloned(),
-            _ => return Ok(None),
+            _ => unreachable!("storage fields were validated before export"),
         };
         let Some(child) = child else {
-            return Ok(None);
+            vortex_bail!(
+                InvalidArgument: "cannot export Parquet Variant storage field '{}' because source has no {} child",
+                field.name(),
+                field.name()
+            );
         };
 
         arrays.push(ctx.session().clone().arrow().execute_arrow(
@@ -82,11 +90,27 @@ fn try_export_storage_to_target<T: ParquetVariantArrayExt>(
         parquet_array.as_ref().len(),
         ctx,
     )?;
-    Ok(Some(Arc::new(StructArray::try_new(
+    Ok(Arc::new(StructArray::try_new(
         target_fields.clone(),
         arrays,
         nulls,
-    )?)))
+    )?))
+}
+
+fn export_unshredded_storage_to_target<T: ParquetVariantArrayExt>(
+    parquet_array: &T,
+    target_fields: &Fields,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrowArrayRef> {
+    let arrow_variant = parquet_array.to_arrow(ctx)?;
+    let unshredded = unshred_variant(&arrow_variant)?;
+    let unshredded_array = if parquet_array.as_ref().dtype().is_nullable() {
+        ParquetVariant::from_arrow_variant_nullable(&unshredded)?
+    } else {
+        ParquetVariant::from_arrow_variant(&unshredded)?
+    };
+    let unshredded_parquet = unshredded_array.as_::<ParquetVariant>();
+    export_storage_to_target(&unshredded_parquet, target_fields, ctx)
 }
 
 impl ArrowExportVTable for ParquetVariant {
@@ -130,18 +154,35 @@ impl ArrowExportVTable for ParquetVariant {
             .ok_or_else(|| vortex_err!("cannot export Variant without ParquetVariant storage"))?;
 
         if let DataType::Struct(fields) = target.data_type()
-            && is_parquet_variant_storage_fields(fields)
+            && let Some((request_has_value, request_has_typed_value)) =
+                parquet_variant_storage_request(fields)
         {
-            if let Some(storage) = try_export_storage_to_target(&parquet_array, fields, ctx)? {
-                return Ok(ArrowExport::Exported(storage));
+            let has_value = parquet_array.value_array().is_some();
+            let has_typed_value = parquet_array.typed_value_array().is_some();
+
+            if request_has_value && !request_has_typed_value && has_typed_value {
+                return Ok(ArrowExport::Exported(export_unshredded_storage_to_target(
+                    &parquet_array,
+                    fields,
+                    ctx,
+                )?));
+            }
+            if has_value && !request_has_value {
+                vortex_bail!(
+                    InvalidArgument: "cannot export Parquet Variant storage without losing value child"
+                );
+            }
+            if has_typed_value && !request_has_typed_value {
+                vortex_bail!(
+                    InvalidArgument: "cannot export Parquet Variant storage without losing typed_value child"
+                );
             }
 
-            // The target is a Parquet Variant physical storage schema, not a logical variant
-            // projection. Return preferred storage rather than passing storage field names through
-            // `variant_get` as object keys.
-            return Ok(ArrowExport::Exported(
-                Arc::new(parquet_array.to_arrow(ctx)?.into_inner()) as ArrowArrayRef,
-            ));
+            return Ok(ArrowExport::Exported(export_storage_to_target(
+                &parquet_array,
+                fields,
+                ctx,
+            )?));
         }
 
         let arrow_variant = Arc::new(parquet_array.to_arrow(ctx)?.into_inner()) as ArrowArrayRef;
@@ -218,6 +259,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrow::ArrowSessionExt;
     use vortex_array::assert_arrays_eq;
@@ -265,6 +307,23 @@ mod tests {
         for (actual, expected) in actual.columns().iter().zip(expected.columns()) {
             assert_eq!(actual.to_data(), expected.to_data());
         }
+    }
+
+    fn assert_variant_scalars_eq(
+        actual: &vortex_array::ArrayRef,
+        expected: &vortex_array::ArrayRef,
+        session: &VortexSession,
+    ) -> VortexResult<()> {
+        assert_eq!(actual.len(), expected.len());
+        let mut actual_ctx = session.create_execution_ctx();
+        let mut expected_ctx = session.create_execution_ctx();
+        for index in 0..actual.len() {
+            assert_eq!(
+                actual.execute_scalar(index, &mut actual_ctx)?,
+                expected.execute_scalar(index, &mut expected_ctx)?
+            );
+        }
+        Ok(())
     }
 
     #[rstest]
@@ -341,6 +400,154 @@ mod tests {
             .from_arrow_array(Arc::clone(&exported), &field)?;
 
         assert_arrays_eq!(actual, expected);
+        Ok(())
+    }
+
+    #[rstest]
+    fn export_fully_shredded_to_inferred_storage_unshreds_value(
+        session: VortexSession,
+    ) -> VortexResult<()> {
+        let rows = [
+            VariantBuilder::new().with_value(10i32).finish(),
+            VariantBuilder::new().with_value(20i32).finish(),
+            VariantBuilder::new().with_value(30i32).finish(),
+        ];
+        let metadata =
+            VarBinViewArray::from_iter_bin(rows.iter().map(|(metadata, _)| metadata.as_slice()))
+                .into_array();
+        let typed_value = buffer![10i32, 20, 30].into_array();
+        let expected =
+            ParquetVariant::try_new(Validity::NonNullable, metadata, None, Some(typed_value))?
+                .into_array();
+
+        let mut ctx = session.create_execution_ctx();
+        let exported = session
+            .arrow()
+            .execute_arrow(expected.clone(), None, &mut ctx)?;
+
+        assert_eq!(
+            exported.data_type(),
+            &DataType::Struct(
+                vec![
+                    Field::new("metadata", DataType::BinaryView, false),
+                    Field::new("value", DataType::BinaryView, false),
+                ]
+                .into()
+            )
+        );
+
+        let field = Field::new("", exported.data_type().clone(), false).with_metadata(
+            [(
+                EXTENSION_TYPE_NAME_KEY.to_string(),
+                PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
+            )]
+            .into(),
+        );
+        let actual = session.arrow().from_arrow_array(exported, &field)?;
+        assert_variant_scalars_eq(&actual, &expected, &session)
+    }
+
+    #[rstest]
+    fn export_partially_shredded_to_metadata_value_preserves_typed_rows(
+        session: VortexSession,
+    ) -> VortexResult<()> {
+        let (metadata0, value0) = VariantBuilder::new().with_value("fallback-0").finish();
+        let (metadata1, _value1) = VariantBuilder::new().with_value(20i32).finish();
+        let (metadata2, value2) = VariantBuilder::new().with_value("fallback-2").finish();
+        let metadata = VarBinViewArray::from_iter_bin([
+            metadata0.as_slice(),
+            metadata1.as_slice(),
+            metadata2.as_slice(),
+        ])
+        .into_array();
+        let value = VarBinViewArray::from_iter_nullable_bin([
+            Some(value0.as_slice()),
+            None,
+            Some(value2.as_slice()),
+        ])
+        .into_array();
+        let typed_value = PrimitiveArray::from_option_iter([None, Some(20i32), None]).into_array();
+        let expected = ParquetVariant::try_new(
+            Validity::NonNullable,
+            metadata,
+            Some(value),
+            Some(typed_value),
+        )?
+        .into_array();
+        let field = Field::new(
+            "variant",
+            DataType::Struct(
+                vec![
+                    Field::new("metadata", DataType::BinaryView, false),
+                    Field::new("value", DataType::BinaryView, true),
+                ]
+                .into(),
+            ),
+            false,
+        )
+        .with_metadata(
+            [(
+                EXTENSION_TYPE_NAME_KEY.to_string(),
+                PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
+            )]
+            .into(),
+        );
+
+        let mut ctx = session.create_execution_ctx();
+        let exported = session
+            .arrow()
+            .execute_arrow(expected.clone(), Some(&field), &mut ctx)?;
+        assert_eq!(exported.data_type(), field.data_type());
+
+        let actual = session.arrow().from_arrow_array(exported, &field)?;
+        assert_variant_scalars_eq(&actual, &expected, &session)
+    }
+
+    #[rstest]
+    fn export_partial_storage_target_rejects_data_loss(session: VortexSession) -> VortexResult<()> {
+        let (metadata0, value0) = VariantBuilder::new().with_value("fallback-0").finish();
+        let (metadata1, _value1) = VariantBuilder::new().with_value(20i32).finish();
+        let metadata = VarBinViewArray::from_iter_bin([metadata0.as_slice(), metadata1.as_slice()])
+            .into_array();
+        let value =
+            VarBinViewArray::from_iter_nullable_bin([Some(value0.as_slice()), None]).into_array();
+        let typed_value = PrimitiveArray::from_option_iter([None, Some(20i32)]).into_array();
+        let array = ParquetVariant::try_new(
+            Validity::NonNullable,
+            metadata,
+            Some(value),
+            Some(typed_value),
+        )?
+        .into_array();
+        let field = Field::new(
+            "variant",
+            DataType::Struct(
+                vec![
+                    Field::new("metadata", DataType::BinaryView, false),
+                    Field::new("typed_value", DataType::Int32, true),
+                ]
+                .into(),
+            ),
+            false,
+        )
+        .with_metadata(
+            [(
+                EXTENSION_TYPE_NAME_KEY.to_string(),
+                PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
+            )]
+            .into(),
+        );
+
+        let mut ctx = session.create_execution_ctx();
+        let err = session
+            .arrow()
+            .execute_arrow(array, Some(&field), &mut ctx)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("cannot export Parquet Variant storage without losing value child"),
+            "unexpected error: {err}"
+        );
         Ok(())
     }
 
