@@ -56,5 +56,13 @@ name = "chunked_dict_fsst_builder"
 harness = false
 required-features = ["_test-harness"]
 
+[[bench]]
+name = "fsst_view_compute"
+harness = false
+
+[[bench]]
+name = "fsst_view_fineweb_queries"
+harness = false
+
 [package.metadata.cargo-machete]
 ignored = ["fsst-rs"]

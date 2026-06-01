@@ -16,6 +16,7 @@ mod canonical;
 mod compress;
 mod compute;
 mod dfa;
+mod fsstview;
 mod kernel;
 mod ops;
 mod rules;
@@ -27,3 +28,4 @@ mod tests;
 
 pub use array::*;
 pub use compress::*;
+pub use fsstview::*;
