@@ -130,6 +130,10 @@ name = "chunk_array_builder"
 harness = false
 
 [[bench]]
+name = "chunked_fsl_canonicalize"
+harness = false
+
+[[bench]]
 name = "scalar_at_struct"
 harness = false
 

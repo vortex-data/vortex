@@ -238,16 +238,16 @@ pub(crate) fn arrow_like(
     from_arrow_array_with_len(&result, len, nullable)
 }
 
-/// Variants of the LIKE filter that we know how to turn into a stats pruning predicate.s
+/// Variants of the LIKE filter that we know how to turn into a stats pruning predicate.
 #[derive(Debug, PartialEq)]
-enum LikeVariant<'a> {
+pub(crate) enum LikeVariant<'a> {
     Exact(Cow<'a, str>),
     Prefix(Cow<'a, str>),
 }
 
 impl<'a> LikeVariant<'a> {
     /// Parse a LIKE pattern string into its relevant variant
-    fn from_str(string: &'a str) -> Option<LikeVariant<'a>> {
+    pub(crate) fn from_str(string: &'a str) -> Option<LikeVariant<'a>> {
         let mut literal = None;
         let mut chars = string.char_indices();
 
