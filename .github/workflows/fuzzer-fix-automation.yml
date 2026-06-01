@@ -10,13 +10,19 @@ on:
       issue_number:
         description: "Issue number to analyze and fix"
         required: true
-        type: number
+        # Use string, not number: a `number` input is rendered as a float in
+        # expression interpolation (e.g. `8189` becomes `8189.0`), which breaks
+        # `gh issue view`, the fix branch name, and every issue comment.
+        type: string
   workflow_call:
     inputs:
       issue_number:
         description: "Issue number to analyze and fix"
         required: true
-        type: number
+        # See the workflow_dispatch note above: string avoids the `8189.0`
+        # float rendering. The `issues` caller passes
+        # `github.event.issue.number`, which coerces cleanly to a string.
+        type: string
 
 env:
   NIGHTLY_TOOLCHAIN: nightly-2026-02-05
