@@ -136,16 +136,19 @@ impl<A: 'static + Send> RepeatedScan<A> {
         let row_range = intersect_ranges(row_range.as_ref(), selection_range);
 
         let ranges = match &self.splits {
-            Splits::Natural(btree_set) => {
+            Splits::Natural(vec) => {
+                debug_assert!(vec.is_sorted());
                 let splits_iter = match row_range {
-                    None => Either::Left(btree_set.iter().copied()),
+                    None => Either::Left(vec.iter().copied()),
                     Some(range) => {
                         if range.is_empty() {
                             return Ok(Vec::new());
                         }
+                        let lo = vec.partition_point(|&x| x < range.start);
+                        let hi = vec.partition_point(|&x| x < range.end);
                         Either::Right(
                             iter::once(range.start)
-                                .chain(btree_set.range(range.clone()).copied())
+                                .chain(vec[lo..hi].iter().copied())
                                 .chain(iter::once(range.end)),
                         )
                     }

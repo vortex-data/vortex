@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::collections::BTreeSet;
 use std::future;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use futures::FutureExt;
 use futures::TryStreamExt;
@@ -30,6 +30,7 @@ use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
+use crate::reader::RowSplits;
 use crate::reader::SplitRange;
 use crate::segments::SegmentSource;
 
@@ -41,6 +42,8 @@ pub struct ChunkedReader {
     /// Row offset for each chunk
     chunk_offsets: Vec<u64>,
 }
+
+static UNKNOWN: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("chunked-child"));
 
 impl ChunkedReader {
     pub fn new(
@@ -58,9 +61,17 @@ impl ChunkedReader {
         chunk_offsets[nchildren] = layout.row_count();
 
         let dtypes = vec![layout.dtype.clone(); nchildren];
-        let names = (0..nchildren)
-            .map(|idx| Arc::from(format!("{name}.[{idx}]")))
-            .collect();
+
+        // format!() has non-marginal overhead for short queries like random
+        // access benchmarks
+        let names = if cfg!(debug_assertions) {
+            (0..nchildren)
+                .map(|idx| Arc::from(format!("{name}.[{idx}]")))
+                .collect()
+        } else {
+            vec![Arc::clone(&*UNKNOWN); nchildren]
+        };
+
         let lazy_children = LazyReaderChildren::new(
             Arc::clone(&layout.children),
             dtypes,
@@ -170,7 +181,7 @@ impl LayoutReader for ChunkedReader {
         &self,
         field_mask: &[FieldMask],
         split_range: &SplitRange,
-        splits: &mut BTreeSet<u64>,
+        splits: &mut RowSplits,
     ) -> VortexResult<()> {
         split_range.check_bounds(self.layout.row_count())?;
 
@@ -178,7 +189,10 @@ impl LayoutReader for ChunkedReader {
             return Ok(());
         }
 
-        for (chunk_idx, chunk_start, child_range, _) in self.ranges(split_range.row_range()) {
+        let iter = self.ranges(split_range.row_range());
+        splits.reserve(iter.size_hint().0);
+
+        for (chunk_idx, chunk_start, child_range, _) in iter {
             let child = self.chunk_reader(chunk_idx)?;
             let child_row_offset = split_range
                 .row_offset()
@@ -189,7 +203,7 @@ impl LayoutReader for ChunkedReader {
             child.register_splits(field_mask, &child_split_range, splits)?;
 
             // Register the split indicating the end of this chunk
-            splits.insert(
+            splits.push(
                 split_range
                     .row_offset()
                     .checked_add(chunk_start + child_split_range.row_range().end)
@@ -448,7 +462,7 @@ mod test {
             .splits(reader.as_ref(), &row_range, &[FieldMask::All])
             .unwrap();
 
-        assert_eq!(splits, expected.into_iter().collect());
+        assert_eq!(splits, expected.into_iter().collect::<Vec<_>>());
     }
 
     #[rstest]
