@@ -81,7 +81,6 @@ use datafusion_common::Statistics;
 use datafusion_common::arrow::array::AsArray;
 use datafusion_common::arrow::array::RecordBatch;
 use datafusion_common::stats::Precision as DFPrecision;
-use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_datasource::source::DataSource;
 use datafusion_execution::SendableRecordBatchStream;
 use datafusion_execution::TaskContext;
@@ -652,14 +651,6 @@ impl DataSource for VortexDataSource {
             FilterPushdownPropagation::with_parent_pushdown_result(pushdown_results)
                 .with_updated_node(Arc::new(this) as _),
         )
-    }
-
-    fn apply_expressions(
-        &self,
-        _f: &mut dyn FnMut(&dyn PhysicalExpr) -> DFResult<TreeNodeRecursion>,
-    ) -> DFResult<TreeNodeRecursion> {
-        // Its unclear to me if this is the desired behavior here.
-        Ok(TreeNodeRecursion::Continue)
     }
 }
 

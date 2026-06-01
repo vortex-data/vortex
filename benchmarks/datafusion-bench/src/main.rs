@@ -15,7 +15,6 @@ use datafusion::datasource::listing::ListingOptions;
 use datafusion::datasource::listing::ListingTable;
 use datafusion::datasource::listing::ListingTableConfig;
 use datafusion::datasource::listing::ListingTableUrl;
-use datafusion::execution::cache::file_statistics_cache::DefaultFileStatisticsCache;
 use datafusion::parquet::arrow::ParquetRecordBatchStreamBuilder;
 use datafusion::prelude::SessionContext;
 use datafusion_bench::format_to_df_format;

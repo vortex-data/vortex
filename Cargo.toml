@@ -132,22 +132,22 @@ cudarc = { version = "0.19.0", features = [
 ] }
 custom-labels = "0.4.4"
 dashmap = "6.1.0"
-datafusion = { git = "https://github.com/apache/datafusion", branch = "branch-54", default-features = false, features = [
+datafusion = { version = "54", git = "https://github.com/apache/datafusion", branch = "branch-54", default-features = false, features = [
     "sql",
 ] }
-datafusion-catalog = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
-datafusion-common = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
-datafusion-common-runtime = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
-datafusion-datasource = { git = "https://github.com/apache/datafusion", branch = "branch-54", default-features = false }
-datafusion-execution = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
-datafusion-expr = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
-datafusion-functions = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
-datafusion-physical-expr = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
-datafusion-physical-expr-adapter = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
-datafusion-physical-expr-common = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
-datafusion-physical-plan = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
-datafusion-pruning = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
-datafusion-sqllogictest = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-catalog = { version = "54", git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-common = { version = "54", git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-common-runtime = { version = "54", git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-datasource = { version = "54", git = "https://github.com/apache/datafusion", branch = "branch-54", default-features = false }
+datafusion-execution = { version = "54", git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-expr = { version = "54", git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-functions = { version = "54", git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-physical-expr = { version = "54", git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-physical-expr-adapter = { version = "54", git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-physical-expr-common = { version = "54", git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-physical-plan = { version = "54", git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-pruning = { version = "54", git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-sqllogictest = { version = "54", git = "https://github.com/apache/datafusion", branch = "branch-54" }
 dirs = "6.0.0"
 divan = { package = "codspeed-divan-compat", version = "4.0.4" }
 enum-iterator = "2.0.0"
