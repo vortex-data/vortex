@@ -284,9 +284,10 @@ jobs:
             **Crash log**: `crash_reproduction.log` (already run with RUST_BACKTRACE=full)
             **Target**: ${{ env.TARGET }}
 
-            **Note**: A draft pull request is opened automatically from the changes
-            you commit — do not open a PR yourself. Just make the source edits and
-            write the regression test; they will be committed to a fix branch for you.
+            **Note**: A draft pull request is opened automatically afterwards from
+            the source files you change — do not run git or open a PR yourself.
+            Just make the source edits and write the regression test; a later step
+            commits your changes to tracked files onto a fix branch and opens the PR.
 
             ## Your Task
 
@@ -421,32 +422,65 @@ jobs:
               --jq '.[] | select(.user.login == "claude-code[bot]" or .user.type == "Bot") | "- " + (.body | split("\n") | .[0])'
           fi
 
+      - name: Commit and push fix branch
+        id: commit
+        if: steps.reproduce.outputs.crash_reproduced == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          ISSUE_TITLE: ${{ steps.fetch_issue.outputs.issue_title }}
+        run: |
+          # claude-code-action only auto-creates a branch when it has an issue/PR
+          # event to anchor to. This workflow runs via workflow_dispatch /
+          # workflow_call, so we commit Claude's edits ourselves. `git add -u`
+          # stages only modifications to already-tracked files, which captures the
+          # source fix and regression test while ignoring the downloaded crash
+          # artifacts, build outputs, and logs this job leaves untracked.
+          git config user.name "vortex-claude[bot]"
+          git config user.email "274007616+vortex-claude[bot]@users.noreply.github.com"
+
+          git add -u
+          # Never commit lockfile churn from the fuzz build.
+          git reset -q -- '*Cargo.lock' 2>/dev/null || true
+
+          if git diff --cached --quiet; then
+            echo "No tracked source changes to commit — Claude produced no persistable fix."
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          branch="fuzzer-fix/issue-${ISSUE_NUMBER}"
+          git checkout -b "$branch"
+
+          crash_desc="${ISSUE_TITLE#Fuzzing Crash: }"
+          git commit -s \
+            -m "fix(fuzz): $crash_desc (#$ISSUE_NUMBER)" \
+            -m "Automated fix for fuzzer issue #$ISSUE_NUMBER."
+
+          git push --force \
+            "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" \
+            "HEAD:refs/heads/$branch"
+
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
       - name: Open draft pull request for fix branch
-        # Only when Claude committed a fix to a branch. The App token ensures the
-        # PR triggers normal CI; a draft keeps the fuzzer firehose low-noise until
-        # a maintainer marks it ready.
-        if: steps.reproduce.outputs.crash_reproduced == 'true' && steps.claude.outputs.branch_name != ''
+        # Only when a fix branch was pushed. The App token ensures the PR triggers
+        # normal CI; a draft keeps the fuzzer firehose low-noise until a maintainer
+        # marks it ready.
+        if: steps.commit.outputs.pushed == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           REPO: ${{ github.repository }}
           BASE_BRANCH: ${{ github.event.repository.default_branch }}
-          BRANCH_NAME: ${{ steps.claude.outputs.branch_name }}
+          BRANCH_NAME: ${{ steps.commit.outputs.branch }}
           TARGET: ${{ steps.extract.outputs.target }}
           CRASH_FILE: ${{ steps.extract.outputs.crash_file }}
           ISSUE_NUMBER: ${{ inputs.issue_number }}
           ISSUE_TITLE: ${{ steps.fetch_issue.outputs.issue_title }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          commits_ahead="$(
-            gh api "repos/$REPO/compare/$BASE_BRANCH...$BRANCH_NAME" \
-              --jq .ahead_by 2>/dev/null || echo 0
-          )"
-
-          if [[ "$commits_ahead" == "0" ]]; then
-            echo "Branch has no commits ahead of $BASE_BRANCH; skipping PR creation."
-            exit 0
-          fi
-
           existing_pr="$(
             gh pr list --repo "$REPO" --head "$BRANCH_NAME" --state all \
               --json url --jq '.[0].url // ""'
