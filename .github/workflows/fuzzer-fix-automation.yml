@@ -26,10 +26,15 @@ jobs:
     name: "Attempt to Fix Fuzzer Crash"
     # Only run when:
     # 1. Manually triggered via workflow_dispatch, OR
-    # 2. Called from another workflow (workflow_call)
+    # 2. Called from another workflow (workflow_call), OR
+    # 3. Reached via a reusable-workflow caller triggered by an "issues" event
+    #    (e.g. fuzzer-issue-autofix.yml). A called reusable workflow inherits
+    #    the caller's github.event_name, so the inner job sees "issues" rather
+    #    than "workflow_call" and must allow it explicitly.
     if: |
       github.event_name == 'workflow_call' ||
-      github.event_name == 'workflow_dispatch'
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'issues'
 
     runs-on: ubuntu-latest
     timeout-minutes: 120

@@ -1,0 +1,36 @@
+name: Fuzzer Issue Autofix
+
+# Run the Fuzzer Fix Automation whenever a fuzzer-labeled issue is opened or
+# gains the "fuzzer" label. This covers issues filed by the scheduled fuzz
+# pipeline as well as ones created manually, complementing the in-pipeline
+# attempt-fix-* jobs in fuzz.yml.
+
+concurrency:
+  # Keyed on the issue so repeat triggers (e.g. opened + labeled for the same
+  # issue) collapse into a single in-flight fix attempt.
+  group: fuzzer-fix-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+on:
+  issues:
+    types: [opened, labeled]
+
+jobs:
+  autofix:
+    name: "Autofix Fuzzer Issue"
+    # Only the github-actions bot and users with triage/write access can apply
+    # the "fuzzer" label, so this gate keeps arbitrary external issues from
+    # triggering the fix automation.
+    if: |
+      (github.event.action == 'opened' &&
+        contains(github.event.issue.labels.*.name, 'fuzzer')) ||
+      (github.event.action == 'labeled' && github.event.label.name == 'fuzzer')
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write
+    uses: ./.github/workflows/fuzzer-fix-automation.yml
+    with:
+      issue_number: ${{ github.event.issue.number }}
+    secrets: inherit
