@@ -5,10 +5,13 @@ use std::sync::Arc;
 
 use arrow_array::Array as _;
 use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_array::StructArray;
 use arrow_array::cast::AsArray;
 use arrow_schema::DataType;
 use arrow_schema::Field;
+use arrow_schema::Fields;
 use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
+use parquet_variant_compute::GetOptions;
 use parquet_variant_compute::VariantArray as ArrowVariantArray;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -19,9 +22,10 @@ use vortex_array::arrow::ArrowExportVTable;
 use vortex_array::arrow::ArrowImport;
 use vortex_array::arrow::ArrowImportVTable;
 use vortex_array::arrow::ArrowSession;
+use vortex_array::arrow::ArrowSessionExt;
+use vortex_array::arrow::to_arrow_null_buffer;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
@@ -32,6 +36,58 @@ use crate::ParquetVariantArrayExt;
 /// Arrow canonical extension name for Parquet Variant storage.
 const PARQUET_VARIANT_ARROW_EXTENSION_NAME: &str = "arrow.parquet.variant";
 static ARROW_PARQUET_VARIANT: CachedId = CachedId::new(PARQUET_VARIANT_ARROW_EXTENSION_NAME);
+
+fn is_parquet_variant_storage_fields(fields: &Fields) -> bool {
+    let mut has_metadata = false;
+    let mut has_value_or_typed = false;
+
+    for field in fields {
+        match field.name().as_str() {
+            "metadata" => has_metadata = true,
+            "value" | "typed_value" => has_value_or_typed = true,
+            _ => return false,
+        }
+    }
+
+    has_metadata && has_value_or_typed
+}
+
+fn try_export_storage_to_target<T: ParquetVariantArrayExt>(
+    parquet_array: &T,
+    target_fields: &Fields,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrowArrayRef>> {
+    let mut arrays = Vec::with_capacity(target_fields.len());
+
+    for field in target_fields {
+        let child = match field.name().as_str() {
+            "metadata" => Some(parquet_array.metadata_array().clone()),
+            "value" => parquet_array.value_array().cloned(),
+            "typed_value" => parquet_array.typed_value_array().cloned(),
+            _ => return Ok(None),
+        };
+        let Some(child) = child else {
+            return Ok(None);
+        };
+
+        arrays.push(ctx.session().clone().arrow().execute_arrow(
+            child,
+            Some(field.as_ref()),
+            ctx,
+        )?);
+    }
+
+    let nulls = to_arrow_null_buffer(
+        ParquetVariantArrayExt::validity(parquet_array),
+        parquet_array.as_ref().len(),
+        ctx,
+    )?;
+    Ok(Some(Arc::new(StructArray::try_new(
+        target_fields.clone(),
+        arrays,
+        nulls,
+    )?)))
+}
 
 impl ArrowExportVTable for ParquetVariant {
     fn arrow_ext_id(&self) -> Id {
@@ -45,16 +101,12 @@ impl ArrowExportVTable for ParquetVariant {
     fn to_arrow_field(
         &self,
         _name: &str,
-        dtype: &DType,
+        _dtype: &DType,
         _session: &ArrowSession,
     ) -> VortexResult<Option<Field>> {
-        // TODO(#8135): This is wrong and won't work for shredded arrays.
-        // We need to be able to access array metadata to accurately provide Arrow schemas.
-        if !dtype.is_variant() {
-            return Ok(None);
-        }
-
-        vortex_bail!(InvalidArgument: "ParquetVariant array can't infer its Arrow storage schema from dtype");
+        // Variant field inference is handled by `ArrowSession::to_arrow_field` directly; this
+        // plugin hook is only consulted for `DType::Extension`, never for `DType::Variant`.
+        Ok(None)
     }
 
     fn execute_arrow(
@@ -76,8 +128,32 @@ impl ArrowExportVTable for ParquetVariant {
         let parquet_array = executed
             .as_opt::<ParquetVariant>()
             .ok_or_else(|| vortex_err!("cannot export Variant without ParquetVariant storage"))?;
-        let arrow_variant = parquet_array.to_arrow(ctx)?;
-        Ok(ArrowExport::Exported(Arc::new(arrow_variant.into_inner())))
+
+        if let DataType::Struct(fields) = target.data_type()
+            && is_parquet_variant_storage_fields(fields)
+        {
+            if let Some(storage) = try_export_storage_to_target(&parquet_array, fields, ctx)? {
+                return Ok(ArrowExport::Exported(storage));
+            }
+
+            // The target is a Parquet Variant physical storage schema, not a logical variant
+            // projection. Return preferred storage rather than passing storage field names through
+            // `variant_get` as object keys.
+            return Ok(ArrowExport::Exported(
+                Arc::new(parquet_array.to_arrow(ctx)?.into_inner()) as ArrowArrayRef,
+            ));
+        }
+
+        let arrow_variant = Arc::new(parquet_array.to_arrow(ctx)?.into_inner()) as ArrowArrayRef;
+
+        if arrow_variant.data_type() == target.data_type() {
+            Ok(ArrowExport::Exported(arrow_variant))
+        } else {
+            Ok(ArrowExport::Exported(parquet_variant_compute::variant_get(
+                &arrow_variant,
+                GetOptions::new().with_as_type(Some(target.clone().into())),
+            )?))
+        }
     }
 }
 
@@ -242,16 +318,15 @@ mod tests {
             .into_array();
         let expected = array.clone();
 
+        let mut ctx = session.create_execution_ctx();
+        let exported = session
+            .arrow()
+            .execute_arrow(array.clone(), None, &mut ctx)?;
+
         let field = Field::new(
-            "variant",
-            DataType::Struct(
-                vec![
-                    Field::new("metadata", DataType::Binary, false),
-                    Field::new("value", DataType::Binary, false),
-                ]
-                .into(),
-            ),
-            false,
+            "",
+            exported.data_type().clone(),
+            array.dtype().is_nullable(),
         )
         .with_metadata(
             [(
@@ -260,10 +335,7 @@ mod tests {
             )]
             .into(),
         );
-        let mut ctx = session.create_execution_ctx();
-        let exported = session
-            .arrow()
-            .execute_arrow(array, Some(&field), &mut ctx)?;
+
         let actual = session
             .arrow()
             .from_arrow_array(Arc::clone(&exported), &field)?;
@@ -313,10 +385,10 @@ mod tests {
         let exported = session
             .arrow()
             .execute_arrow(array, Some(&field), &mut ctx)?;
-        assert_ne!(
+        assert_eq!(
             exported.data_type(),
             field.data_type(),
-            "The current arrow field isn't fully validated to the full storage type"
+            "Parquet Variant export should honor the requested storage schema"
         );
 
         let actual = session.arrow().from_arrow_array(exported, &field)?;

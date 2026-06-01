@@ -290,7 +290,27 @@ impl ArrowSession {
                 vortex_bail!("extension type cannot be converted to Arrow without a plugin: {ext}");
             }
             DType::Variant(_) => {
-                vortex_bail!("Arrow does not have a raw/transparent Variant encoding");
+                // TODO(Adam): This currently encodes information about parquet-variant
+                // at this level. Variant's complexity with being an essentially logical type
+                // with multiple physical layout complicates handling this correctly.
+                Ok(Field::new(
+                    name,
+                    DataType::Struct(
+                        vec![
+                            Field::new("metadata", DataType::BinaryView, dtype.is_nullable()),
+                            Field::new("value", DataType::BinaryView, dtype.is_nullable()),
+                        ]
+                        .into(),
+                    ),
+                    dtype.is_nullable(),
+                )
+                .with_metadata(
+                    [(
+                        EXTENSION_TYPE_NAME_KEY.to_string(),
+                        "arrow.parquet.variant".to_string(),
+                    )]
+                    .into(),
+                ))
             }
             _ => Ok(Field::new(
                 name,
