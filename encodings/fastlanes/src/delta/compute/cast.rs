@@ -24,6 +24,16 @@ impl CastReduce for Delta {
         if target_ptype.is_signed_int() || source_ptype.bit_width() > target_ptype.bit_width() {
             return Ok(None);
         }
+        // Signed sources need a different cast policy than the lossless widening cast
+        // used here. The delta bytes are stored as the result of `wrapping_sub`, so e.g.
+        // a delta of -1i8 has the bit pattern 0xFF. Widening *as a value* (the cast op's
+        // semantics) sign-extends that to 0xFFFFFFFF, which means `wrapping_add(base, delta)`
+        // at the wider type produces a different result than at the source type — round-trip
+        // breaks. Cross-signedness widening has the same hazard for the same reason. Fall
+        // back to decompress-and-re-encode for both cases.
+        if source_ptype.is_signed_int() {
+            return Ok(None);
+        }
 
         // Cast both bases and deltas to the target type
         let casted_bases = array.bases().cast(dtype.with_nullability(NonNullable))?;
