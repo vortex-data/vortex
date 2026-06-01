@@ -3,17 +3,17 @@
 ## Current State
 
 ```yaml
-status: phase-boundary
+status: planning
 branch: ct/bench-v4
-planning_sub_flow: null
+planning_sub_flow: re-plan-phase-2
 current_phase: "Phase 1: RDS + schema + hash port"
 phase_index: 1
 current_pr: null
 pr_index: 7
 outstanding_must_fix: 0
 deferred_items_total: 25
-last_user_touchpoint: 2026-06-01T19:07:56Z
-last_user_touchpoint_what: "Phase 1 ACCEPTED (phase-end cycle 2; 2 code must-fix fixed in cb68db1c6), then LIVE-VERIFIED against real AWS on 2026-06-01 (see section 'Phase 1 live verification (2026-06-01)' below). Operator is PAUSED at the Phase-1->2 boundary (Step 3.4). Resume: status=phase-boundary + verdict=accept routes Step 0.4 straight back to Step 3.4 (proceed-to-Phase-2 / re-plan / amend choice) WITHOUT re-running the phase-end review. LIVE STATE (do NOT redo): prod DB vortex-bench-prod ALREADY HAS the schema applied (migrations 001+002+003 bootstrapped as master over verify-full; migrator role + rds_iam + ledger grants present; IAM-token auth as migrator confirmed working). GitHub repo vars reconciled to match schema-deploy.yml: RDS_BENCH_INSTANCE_ENDPOINT set, stale RDS_BENCH_ENDPOINT proxy var deleted. Remaining Phase-1 operator gate is NARROW: only the live schema-deploy.yml OIDC workflow run is unexercised, BLOCKED until ct/bench-v4 merges to develop (workflow_dispatch needs the file on the default branch); everything downstream of the OIDC token is proven. AWS access for verification: local CLI profile bench-prod (IAM user connor-aws-cli, account 245040174862); see memories project_bench_aws_access + project_bench_phase1_live_state. Also: re-unlock 1Password if op-ssh-sign locks again."
+last_user_touchpoint: 2026-06-01T19:46:41Z
+last_user_touchpoint_what: "Phase 1 ACCEPTED + live-verified (see 'Phase 1 live verification (2026-06-01)' section — prod schema 001+002+003 applied, migrator IAM-auth path proven end-to-end at the DB, repo vars reconciled; do NOT redo this live state). Operator chose 'Re-plan Phase 2' at the Phase-1->2 boundary (Step 3.4). Now in the Phase 1 sub-flow scoped to Phase 2's PRs (planning_sub_flow: re-plan-phase-2). Goal: re-distribute the ~25 Phase-1 deferred items (PR-2.1 ingest role-ownership/grants, dead-proxy-grant cleanup, NaN/Inf is_finite() guard, the CI-hardening cluster golden==Python gate + pytest-on-PR + testcontainer-in-CI) plus the deferred 2026-05-29 deploy-model trigger-switch decision across a revised Phase-2 PR breakdown BEFORE implementing. Residual Phase-1 gate (unchanged): the live schema-deploy.yml OIDC workflow run is BLOCKED until ct/bench-v4 merges to develop. AWS access: local CLI profile bench-prod (IAM user connor-aws-cli, account 245040174862); see memories project_bench_aws_access + project_bench_phase1_live_state. Resume routes via status=planning + planning_sub_flow=re-plan-phase-2 into the design-tree interview (Step 1.4). Also: re-unlock 1Password if op-ssh-sign locks again."
 subagent_invocations_this_pr: 0
 subagent_invocations_total: 22
 review_cycles_this_pr: 0
