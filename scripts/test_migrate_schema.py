@@ -32,6 +32,115 @@ SCRIPT_PATH = Path(__file__).resolve().parent / "migrate-schema.py"
 # as a clear pytest failure instead of blocking the whole CI job.
 _SUBPROCESS_TIMEOUT_S = 60
 
+# The repository's real migrations directory (PR-1.3's `001_initial_schema.sql`
+# and `002_iam_db_user.sql`). The `test_real_migrations_*` tests apply these
+# against a vanilla Postgres testcontainer to prove the DDL is valid Postgres
+# and that the schema shape matches the authoritative DuckDB DDL in
+# `benchmarks-website/server/src/schema.rs`.
+REPO_MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
+
+# Tables `001_initial_schema.sql` must create, in boot/creation order (the
+# `commits` dim first, then the five fact families). Mirrors
+# `benchmarks-website/server/src/schema.rs` and its `TABLES` ordering.
+_EXPECTED_TABLES = [
+    "commits",
+    "query_measurements",
+    "compression_times",
+    "compression_sizes",
+    "random_access_times",
+    "vector_search_runs",
+]
+
+# Read-path indexes `001_initial_schema.sql` must create: the `commits`
+# timestamp-ordering index plus one chart-filter index per fact table.
+_EXPECTED_INDEXES = [
+    "idx_commits_timestamp",
+    "idx_query_measurements_chart",
+    "idx_compression_times_chart",
+    "idx_compression_sizes_chart",
+    "idx_random_access_times_chart",
+    "idx_vector_search_runs_chart",
+]
+
+# Per-table `(column_name, is_nullable)` in ordinal order, mirroring the DuckDB
+# DDL exactly. Behavior-preservation: the plan's `Out of scope` forbids changing
+# column order, nullability, or dim-tuple membership, so this is a regression
+# pin against accidental shape drift in the Postgres translation.
+_EXPECTED_COLUMNS: dict[str, list[tuple[str, str]]] = {
+    "commits": [
+        ("commit_sha", "NO"),
+        ("timestamp", "NO"),
+        ("message", "YES"),
+        ("author_name", "YES"),
+        ("author_email", "YES"),
+        ("committer_name", "YES"),
+        ("committer_email", "YES"),
+        ("tree_sha", "NO"),
+        ("url", "NO"),
+    ],
+    "query_measurements": [
+        ("measurement_id", "NO"),
+        ("commit_sha", "NO"),
+        ("dataset", "NO"),
+        ("dataset_variant", "YES"),
+        ("scale_factor", "YES"),
+        ("query_idx", "NO"),
+        ("storage", "NO"),
+        ("engine", "NO"),
+        ("format", "NO"),
+        ("value_ns", "NO"),
+        ("all_runtimes_ns", "NO"),
+        ("peak_physical", "YES"),
+        ("peak_virtual", "YES"),
+        ("physical_delta", "YES"),
+        ("virtual_delta", "YES"),
+        ("env_triple", "YES"),
+    ],
+    "compression_times": [
+        ("measurement_id", "NO"),
+        ("commit_sha", "NO"),
+        ("dataset", "NO"),
+        ("dataset_variant", "YES"),
+        ("format", "NO"),
+        ("op", "NO"),
+        ("value_ns", "NO"),
+        ("all_runtimes_ns", "NO"),
+        ("env_triple", "YES"),
+    ],
+    "compression_sizes": [
+        ("measurement_id", "NO"),
+        ("commit_sha", "NO"),
+        ("dataset", "NO"),
+        ("dataset_variant", "YES"),
+        ("format", "NO"),
+        ("value_bytes", "NO"),
+    ],
+    "random_access_times": [
+        ("measurement_id", "NO"),
+        ("commit_sha", "NO"),
+        ("dataset", "NO"),
+        ("format", "NO"),
+        ("value_ns", "NO"),
+        ("all_runtimes_ns", "NO"),
+        ("env_triple", "YES"),
+    ],
+    "vector_search_runs": [
+        ("measurement_id", "NO"),
+        ("commit_sha", "NO"),
+        ("dataset", "NO"),
+        ("layout", "NO"),
+        ("flavor", "NO"),
+        ("threshold", "NO"),
+        ("value_ns", "NO"),
+        ("all_runtimes_ns", "NO"),
+        ("matches", "NO"),
+        ("rows_scanned", "NO"),
+        ("bytes_scanned", "NO"),
+        ("iterations", "NO"),
+        ("env_triple", "YES"),
+    ],
+}
+
 
 def _load_runner():
     """Import `migrate-schema.py` by file path (the hyphen blocks `import`)."""
@@ -474,3 +583,132 @@ def test_apply_uses_public_schema_under_custom_search_path(
             assert cur.fetchone()[0] is None, (
                 "ledger must NOT have been created in `foo` schema under search_path resolution"
             )
+
+
+def test_real_migrations_apply_cleanly(conn: psycopg.Connection) -> None:
+    """The real PR-1.3 migrations (`001` + `002`) apply against vanilla Postgres
+    and are recorded in the ledger in order."""
+    applied = runner.apply(conn, REPO_MIGRATIONS_DIR)
+
+    assert applied == 2
+    with conn.cursor() as cur:
+        cur.execute("SELECT filename FROM public._applied_migrations ORDER BY filename")
+        assert [row[0] for row in cur.fetchall()] == [
+            "001_initial_schema.sql",
+            "002_iam_db_user.sql",
+        ]
+
+
+def test_real_migrations_idempotent(conn: psycopg.Connection) -> None:
+    """Re-applying the real migration set is a no-op (ledger-tracked)."""
+    first = runner.apply(conn, REPO_MIGRATIONS_DIR)
+    second = runner.apply(conn, REPO_MIGRATIONS_DIR)
+
+    assert first == 2
+    assert second == 0
+
+
+def test_real_migrations_create_expected_tables(conn: psycopg.Connection) -> None:
+    runner.apply(conn, REPO_MIGRATIONS_DIR)
+
+    with conn.cursor() as cur:
+        for table in _EXPECTED_TABLES:
+            cur.execute("SELECT to_regclass(%s)::text", (f"public.{table}",))
+            assert cur.fetchone()[0] == table, f"table {table} was not created"
+
+
+def test_real_migrations_create_expected_indexes(conn: psycopg.Connection) -> None:
+    runner.apply(conn, REPO_MIGRATIONS_DIR)
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT indexname FROM pg_indexes WHERE schemaname = 'public'")
+        names = {row[0] for row in cur.fetchall()}
+
+    for index in _EXPECTED_INDEXES:
+        assert index in names, f"index {index} missing; have {sorted(names)}"
+
+
+@pytest.mark.parametrize("table", list(_EXPECTED_COLUMNS))
+def test_real_migrations_preserve_column_shape(
+    conn: psycopg.Connection, table: str
+) -> None:
+    """The Postgres translation must preserve the DuckDB column order and
+    nullability exactly (behavior-preservation; see plan `Out of scope`)."""
+    runner.apply(conn, REPO_MIGRATIONS_DIR)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT column_name, is_nullable
+              FROM information_schema.columns
+             WHERE table_schema = 'public' AND table_name = %s
+             ORDER BY ordinal_position
+            """,
+            (table,),
+        )
+        actual = [(row[0], row[1]) for row in cur.fetchall()]
+
+    assert actual == _EXPECTED_COLUMNS[table]
+
+
+def test_real_migrations_key_column_types(conn: psycopg.Connection) -> None:
+    """Spot-check the type translations that differ or matter for round-trip:
+    DuckDB `DOUBLE` -> Postgres `double precision`, `BIGINT[]` stays an array,
+    and `measurement_id` is a `bigint` primary key."""
+    runner.apply(conn, REPO_MIGRATIONS_DIR)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT data_type FROM information_schema.columns
+             WHERE table_schema = 'public'
+               AND table_name = 'vector_search_runs'
+               AND column_name = 'threshold'
+            """
+        )
+        assert cur.fetchone()[0] == "double precision"
+
+        cur.execute(
+            """
+            SELECT data_type FROM information_schema.columns
+             WHERE table_schema = 'public'
+               AND table_name = 'query_measurements'
+               AND column_name = 'all_runtimes_ns'
+            """
+        )
+        assert cur.fetchone()[0] == "ARRAY"
+
+        cur.execute(
+            """
+            SELECT data_type FROM information_schema.columns
+             WHERE table_schema = 'public'
+               AND table_name = 'query_measurements'
+               AND column_name = 'measurement_id'
+            """
+        )
+        assert cur.fetchone()[0] == "bigint"
+
+        cur.execute(
+            """
+            SELECT a.attname
+              FROM pg_index i
+              JOIN pg_attribute a
+                ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+             WHERE i.indrelid = 'public.query_measurements'::regclass
+               AND i.indisprimary
+            """
+        )
+        assert [row[0] for row in cur.fetchall()] == ["measurement_id"]
+
+
+def test_real_migrations_create_migrator_role(conn: psycopg.Connection) -> None:
+    """`002_iam_db_user.sql` creates a login-capable `migrator` role. The
+    `rds_iam` grant is skipped on vanilla Postgres (the role does not exist
+    there); on real RDS it binds `migrator` to IAM-token auth."""
+    runner.apply(conn, REPO_MIGRATIONS_DIR)
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT rolcanlogin FROM pg_roles WHERE rolname = 'migrator'")
+        row = cur.fetchone()
+        assert row is not None, "migrator role was not created"
+        assert row[0] is True, "migrator role must be able to log in"

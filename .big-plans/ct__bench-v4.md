@@ -9,20 +9,20 @@ planning_sub_flow: null
 current_phase: "Phase 1: RDS + schema + hash port"
 phase_index: 1
 current_pr: null
-pr_index: 3
+pr_index: 4
 outstanding_must_fix: 0
-deferred_items_total: 12
-last_user_touchpoint: 2026-05-28T14:10:00Z
-last_user_touchpoint_what: "PR-1.2 complete (confidence: high, deferred: 4)"
+deferred_items_total: 13
+last_user_touchpoint: 2026-05-29T09:44:00Z
+last_user_touchpoint_what: "PR-1.3 complete (confidence: high, deferred: 1)"
 subagent_invocations_this_pr: 0
-subagent_invocations_total: 10
+subagent_invocations_total: 11
 review_cycles_this_pr: 0
 phase_entry_sha: d8f12ebbb
 phase_end_cycle: 0
 phase_end_reject_cycles: 0
 last_phase_end_verdict: null
 current_pr_is_ci_reopen: null
-last_commit: bdd53140c
+last_commit: ab59ef00f
 last_cycle_commits: []
 ```
 
@@ -436,6 +436,24 @@ cargo run -p <ingest-crate> -- --envelope <recent-envelope.jsonl> --dry-run
   - Pattern: per-cycle gauntlet caught two correctness ship-blockers neither reviewer would have spotted with a single pass — different prompts catch different bugs (the spec's load-bearing principle). The cycle-2 fix-commit's `Shared fix-commit attention` block at cycle 3 surfaced H1 docstring drift the fix introduced and let me clean it up before completion.
   - Spec deviation: cycle-2 fix-commit bundled both must-fix items into a single fix-commit (rather than the per-must-fix split Step 2.4 prescribes), because the edits on the apply()/applied_set/ledger boundary genuinely overlap. Documented in the commit body; followed by one plan-edit decrementing by 2.
 
+### PR-1.3: Postgres initial-schema + IAM migrator role migrations  (1 code commit + 1 gauntlet cycle, ending at b00cd967d)
+
+- **Scope shipped**: `migrations/001_initial_schema.sql` (the `commits` dim table + 5 fact tables + 6 read-path composite indexes, the Postgres translation of the authoritative DuckDB DDL in `benchmarks-website/server/src/schema.rs`); `migrations/002_iam_db_user.sql` (the `migrator` login role + conditional `rds_iam` grant + `GRANT CREATE, USAGE ON SCHEMA public`); `scripts/test_migrate_schema.py` gains 12 testcontainer-backed tests (apply-cleanly, idempotency, table set, index set, per-table column-shape pin, key type-translation spot-checks, migrator role).
+- **Acceptance criteria — verified against `postgres:16-alpine` testcontainer**:
+  - Real migrations apply cleanly + idempotently (`test_real_migrations_apply_cleanly`, `test_real_migrations_idempotent`) ✓
+  - All 6 tables created (`test_real_migrations_create_expected_tables`) ✓
+  - All 6 composite indexes created (`test_real_migrations_create_expected_indexes`) ✓
+  - Per-table column order + nullability matches `schema.rs` exactly (`test_real_migrations_preserve_column_shape[*]`, 6 parametrized cases) ✓
+  - `DOUBLE`→`double precision`, `BIGINT[]`→`ARRAY`, `measurement_id` bigint PK (`test_real_migrations_key_column_types`) ✓
+  - `migrator` login role created (`test_real_migrations_create_migrator_role`) ✓
+  - The `\dt`/`\di`/`\du` + `apply` plan acceptance criteria are exercised by the testcontainer assertions; `rds_iam` group membership is operator-verified on real RDS (untestable on vanilla Postgres, guarded by `IF EXISTS`).
+- **Tests added**: 12 (all testcontainer-backed). Local run: **28/28 pass** (16 prior + 12 new) against `postgres:16-alpine`. `py_compile` OK, `ruff` clean, `git diff --check` clean. (CI execution of the suite remains the deferred D-`PR-1.2 no-CI-runner` item, tracked for PR-1.4.)
+- **Review**: 2-vote (preset=pr-2, fresh+correctness, Claude executor) / cycle 1 ACCEPT (zero must-fix; both reviewers accept). Correctness skeptic ran an automated column-by-column comparison vs `schema.rs` confirming byte-equivalent schema shape across all 6 tables. 1 should-fix (migrator table privileges) deferred to PR-2.1; 3 nits dismissed (redundant-but-intentional `NOT NULL`, PG15+ index-planner dependency satisfied by target, untestable `rds_iam` membership).
+- **Confidence**: high (single-cycle clean accept; behavior-preservation obligation met and pinned by an ordinal column-shape regression test; transaction-block constraint and idempotency reasoned through by both lenses).
+- **Deferred items**: 1 should-fix (migrator table-level privileges -> resolve in PR-2.1 role-ownership design; see Deferred work table).
+- **Surprises during implementation**:
+  - None material. The composite-index design deliberately follows the read-path chart-query filter columns (`api/charts.rs`) rather than the `measurement_id` hash field order in Table B — the hash tuple leads with `commit_sha` but every chart query filters on the dim columns and joins `commits` on `commit_sha`, so a dim-leading index is what serves the read path; PK uniqueness over the full hash tuple is already enforced by `measurement_id`.
+
 ## Deferred work
 
 | Source | File:line | Severity | Description | Deferral rationale |
@@ -453,6 +471,7 @@ cargo run -p <ingest-crate> -- --envelope <recent-envelope.jsonl> --dry-run
 | PR-1.2 cycle-2 gauntlet | `scripts/migrate-schema.py:108-112` (autocommit toggle precondition) | should-fix | `apply()` sets `conn.autocommit = True` unconditionally; psycopg raises `ProgrammingError` if the connection has a transaction in progress. Production safe (main() opens a fresh conn) but the function is exposed as a library API and a future caller that ran any prior `cursor.execute` would hit the error. | Library-API hardening; not relevant until a second importer materializes. Fix is to assert `conn.info.transaction_status == IDLE` at the top of `apply` or defensively `rollback()` before the toggle, with a test that opens a transaction first. |
 | PR-1.2 cycle-2 gauntlet | `scripts/migrate-schema.py` ledger schema (fingerprint) | should-fix | Applied migrations are not fingerprinted; an author editing `001_initial_schema.sql` after it has been applied to RDS sees `status` report clean both locally (against a freshly-applied testcontainer) and in CI (against RDS with the old file's effects). README forbids edit-after-apply but the runner has zero enforcement. | Substantive change: add a `sha256` column to `_applied_migrations`, record at apply time, compare on-disk hash vs ledger in `status`, report a third drift class `[~]` with non-zero exit. Track for a follow-up PR (PR-1.2.1 or fold into PR-1.4 wiring). |
 | PR-1.2 cycle-2 gauntlet | `scripts/test_migrate_schema.py` (no CI runner) | should-fix | The pytest suite skips silently when Docker is unavailable (`_docker_available()` probe), and no CI workflow currently runs the suite with Docker enabled. PR-1.2 acceptance ("Unit test: applies a fresh schema to testcontainers Postgres ...") is verified only by local dev runs; CI would be green even if the runner regressed. | PR-1.4 wires the schema-deploy workflow with real apply; pair it with a `pytest-on-PR` job that fails loud when `_docker_available` returns False in CI. Track for PR-1.4. |
+| PR-1.3 cycle-1 gauntlet | `migrations/002_iam_db_user.sql:37` (migrator table privileges) | should-fix | `migrator` is granted only `CREATE, USAGE ON SCHEMA public`, no table-level DML on the six tables `001` creates. Under the documented bootstrap order (first `apply` runs as RDS master, which owns `001`'s tables), the PR-2.x ingest write path connecting AS `migrator` would hit `permission denied`. | Forward-looking; the ingest write path is PR-2.x scope and the plan references a separate future `GitHubBenchmarkIngestRole`. Resolve the role-ownership model in PR-2.1 (dedicated ingest role with `GRANT SELECT,INSERT,UPDATE,DELETE` + `ALTER DEFAULT PRIVILEGES`, or explicit table grants to `migrator`), pinned by a connect-AS-ingest-role round-trip test. Fixing now would be premature and a least-privilege smell on the schema-deploy role. |
 
 ## Accepted tradeoffs / r1 traps
 
