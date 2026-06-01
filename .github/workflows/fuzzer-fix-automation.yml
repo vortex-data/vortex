@@ -39,6 +39,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
+    environment:
+      # The GitHub App private key lives only in this environment, so only this
+      # job can mint an App installation token. Using the App token (not
+      # GITHUB_TOKEN) means the draft PR opened below triggers normal CI.
+      name: claude-automation
+      deployment: false
+
     permissions:
       contents: write
       pull-requests: write
@@ -48,6 +55,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          # Don't leave the built-in GITHUB_TOKEN in git config; the fix is
+          # committed and pushed with the App token so its PR triggers CI.
+          persist-credentials: false
 
       - name: Fetch issue details
         id: fetch_issue
@@ -231,7 +242,19 @@ jobs:
           echo "Crash could not be reproduced - skipping fix attempt"
           exit 0
 
+      - name: Generate short-lived GitHub App token
+        id: app-token
+        if: steps.reproduce.outputs.crash_reproduced == 'true'
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
+
       - name: Attempt to fix crash with Claude
+        id: claude
         if: steps.reproduce.outputs.crash_reproduced == 'true'
         env:
           ISSUE_NUMBER: ${{ inputs.issue_number }}
@@ -244,7 +267,9 @@ jobs:
         uses: anthropics/claude-code-action@787c5a0ce96a9a6cfb050ea0c8f4c05f2447c251  # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # Use the App token (not GITHUB_TOKEN) so the committed fix branch and
+          # its draft PR trigger normal pull_request CI workflows.
+          github_token: ${{ steps.app-token.outputs.token }}
           show_full_output: true
           prompt: |
             # Fuzzer Crash Fix - Issue #${{ env.ISSUE_NUMBER }}
@@ -256,6 +281,10 @@ jobs:
             **Crash file**: `${{ env.CRASH_FILE_PATH }}`
             **Crash log**: `crash_reproduction.log` (already run with RUST_BACKTRACE=full)
             **Target**: ${{ env.TARGET }}
+
+            **Note**: A draft pull request is opened automatically from the changes
+            you commit — do not open a PR yourself. Just make the source edits and
+            write the regression test; they will be committed to a fix branch for you.
 
             ## Your Task
 
@@ -389,3 +418,55 @@ jobs:
             gh api "repos/${{ github.repository }}/issues/$ISSUE_NUM/comments" \
               --jq '.[] | select(.user.login == "claude-code[bot]" or .user.type == "Bot") | "- " + (.body | split("\n") | .[0])'
           fi
+
+      - name: Open draft pull request for fix branch
+        # Only when Claude committed a fix to a branch. The App token ensures the
+        # PR triggers normal CI; a draft keeps the fuzzer firehose low-noise until
+        # a maintainer marks it ready.
+        if: steps.reproduce.outputs.crash_reproduced == 'true' && steps.claude.outputs.branch_name != ''
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+          BRANCH_NAME: ${{ steps.claude.outputs.branch_name }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          ISSUE_TITLE: ${{ steps.fetch_issue.outputs.issue_title }}
+        run: |
+          commits_ahead="$(
+            gh api "repos/$REPO/compare/$BASE_BRANCH...$BRANCH_NAME" \
+              --jq .ahead_by 2>/dev/null || echo 0
+          )"
+
+          if [[ "$commits_ahead" == "0" ]]; then
+            echo "Branch has no commits ahead of $BASE_BRANCH; skipping PR creation."
+            exit 0
+          fi
+
+          existing_pr="$(
+            gh pr list --repo "$REPO" --head "$BRANCH_NAME" --state all \
+              --json url --jq '.[0].url // ""'
+          )"
+
+          if [[ -n "$existing_pr" ]]; then
+            echo "Pull request already exists: $existing_pr"
+            exit 0
+          fi
+
+          pr_url="$(
+            gh pr create \
+              --repo "$REPO" \
+              --draft \
+              --base "$BASE_BRANCH" \
+              --head "$BRANCH_NAME" \
+              --title "fix(fuzz): $ISSUE_TITLE" \
+              --body "Automated fuzzer fix for #$ISSUE_NUMBER.
+
+          This is an automated fix opened as a **draft** — please review carefully
+          before marking ready and merging. See the issue for Claude's analysis,
+          the fix, and the regression test.
+
+          [View Claude run](${{ github.server_url }}/$REPO/actions/runs/${{ github.run_id }})"
+          )"
+          echo "Created draft pull request: $pr_url"
+
+          gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "🔀 Opened a draft pull request with the proposed fix: $pr_url"
