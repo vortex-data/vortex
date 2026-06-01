@@ -163,11 +163,6 @@ jobs:
             env:
               rustflags: "RUSTFLAGS='-A warnings --cfg getrandom_backend=\"unsupported\"'"
             args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-cuda --exclude vortex-cub --exclude vortex-nvcomp --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd --exclude vortex-test-e2e-cuda --exclude vortex-sqllogictest --exclude vortex-parquet-variant"
-          - name: "x86_64 musl with default features"
-            runner: amd64-medium
-            target: x86_64-unknown-linux-musl
-            # CUDA crates have no musl target, exclude them like the wasm build does.
-            args: "--target x86_64-unknown-linux-musl --all-targets --exclude vortex-cuda --exclude vortex-cub --exclude vortex-nvcomp --exclude vortex-test-e2e-cuda"
     steps:
       - uses: runs-on/action@v2
         if: github.repository == 'vortex-data/vortex'
@@ -178,22 +173,52 @@ jobs:
       - name: Install wasm32 target
         if: ${{ matrix.config.target == 'wasm32-unknown-unknown' }}
         run: rustup target add wasm32-unknown-unknown
-      - name: Install musl target
-        if: ${{ matrix.config.target == 'x86_64-unknown-linux-musl' }}
-        run: |
-          rustup target add x86_64-unknown-linux-musl
-          sudo apt-get update && sudo apt-get install -y musl-tools
       - uses: ./.github/actions/check-rebuild
-        env:
-          # Use the musl C toolchain for cross-compiled C deps and linking.
-          CC_x86_64_unknown_linux_musl: musl-gcc
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
         with:
           command: "${{matrix.config.env.rustflags}} cargo hack build --profile ci --locked ${{matrix.config.args}} --ignore-private"
       - name: "Make sure no files changed after build"
         run: |
           git status --porcelain
           test -z "$(git status --porcelain)"
+
+  build-rust-musl:
+    name: "Rust build (x86_64 musl)"
+    timeout-minutes: 30
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-large/image=ubuntu24-full-x64-pre-v2/tag=rust-build-musl', github.run_id)
+          || 'ubuntu-latest' }}
+    env:
+      # disable lints for build, they will be caught in Rust lint job.
+      RUSTFLAGS: "-A warnings"
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          targets: x86_64-unknown-linux-musl
+      - name: Install musl target
+        run: rustup target add x86_64-unknown-linux-musl
+      # Cross-compile to musl with zig as the C/C++ toolchain (musl-tools ships no
+      # musl-g++, so cc-rs C++ deps such as custom-labels fail with plain musl-gcc).
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29  # v2.2.1
+      - name: Install cargo-zigbuild
+        uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
+        with:
+          tool: cargo-zigbuild
+      # Exclusions:
+      #   - CUDA crates have no musl target (as in the wasm build).
+      #   - vortex-duckdb (and its dependents) can't build standalone for musl: its
+      #     build.rs has no prebuilt DuckDB for musl. The DuckDB extension builds it
+      #     against a musl DuckDB it compiles itself, so it is exercised there instead.
+      - run: >-
+          cargo zigbuild --profile ci --locked --target x86_64-unknown-linux-musl
+          --workspace --exclude vortex-cuda --exclude vortex-cub
+          --exclude vortex-nvcomp --exclude vortex-test-e2e-cuda
+          --exclude vortex-duckdb --exclude duckdb-bench --exclude vortex-sqllogictest
 
   check-min-deps:
     name: "Check build with minimal dependencies"
