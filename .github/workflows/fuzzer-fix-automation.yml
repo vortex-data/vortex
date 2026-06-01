@@ -524,6 +524,12 @@ jobs:
           EOF
           )"
 
+          # changelog/fix satisfies the required changelog-label check; create the owned fuzzer-fix label if missing so a fresh repo/fork doesn't error.
+          gh label create "fuzzer-fix" --repo "$REPO" \
+            --color "b60205" \
+            --description "A fix auto-generated from a fuzzer issue" \
+            2>/dev/null || true
+
           pr_url="$(
             gh pr create \
               --repo "$REPO" \
@@ -531,7 +537,9 @@ jobs:
               --base "$BASE_BRANCH" \
               --head "$BRANCH_NAME" \
               --title "$pr_title" \
-              --body "$pr_body"
+              --body "$pr_body" \
+              --label "fuzzer-fix" \
+              --label "changelog/fix"
           )"
           echo "Created draft pull request: $pr_url"
 
