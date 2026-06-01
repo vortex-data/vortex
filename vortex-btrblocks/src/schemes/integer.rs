@@ -13,6 +13,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::scalar::Scalar;
+use vortex_compressor::builtins::BinaryDictScheme;
 use vortex_compressor::builtins::FloatDictScheme;
 use vortex_compressor::builtins::StringDictScheme;
 use vortex_compressor::estimate::CompressionEstimate;
@@ -89,7 +90,6 @@ pub struct PcoScheme;
 // Re-export builtin schemes from vortex-compressor.
 pub use vortex_compressor::builtins::IntConstantScheme;
 pub use vortex_compressor::builtins::IntDictScheme;
-pub use vortex_compressor::builtins::is_integer_primitive;
 pub use vortex_compressor::stats::IntegerStats;
 
 /// RLE scheme for integer arrays.
@@ -108,7 +108,7 @@ impl Scheme for FoRScheme {
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        is_integer_primitive(canonical)
+        canonical.dtype().is_int()
     }
 
     /// Dict codes always start at 0, so FoR (which subtracts the min) is a no-op.
@@ -124,6 +124,10 @@ impl Scheme for FoRScheme {
             },
             AncestorExclusion {
                 ancestor: StringDictScheme.id(),
+                children: ChildSelection::One(1),
+            },
+            AncestorExclusion {
+                ancestor: BinaryDictScheme.id(),
                 children: ChildSelection::One(1),
             },
         ]
@@ -221,7 +225,7 @@ impl Scheme for ZigZagScheme {
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        is_integer_primitive(canonical)
+        canonical.dtype().is_int()
     }
 
     /// Children: encoded=0.
@@ -262,6 +266,10 @@ impl Scheme for ZigZagScheme {
             },
             AncestorExclusion {
                 ancestor: StringDictScheme.id(),
+                children: ChildSelection::One(1),
+            },
+            AncestorExclusion {
+                ancestor: BinaryDictScheme.id(),
                 children: ChildSelection::One(1),
             },
         ]
@@ -317,7 +325,7 @@ impl Scheme for BitPackingScheme {
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        is_integer_primitive(canonical)
+        canonical.dtype().is_int()
     }
 
     fn expected_compression_ratio(
@@ -412,7 +420,7 @@ impl Scheme for SparseScheme {
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        is_integer_primitive(canonical)
+        canonical.dtype().is_int()
     }
 
     fn stats_options(&self) -> GenerateStatsOptions {
@@ -554,7 +562,7 @@ impl Scheme for SparseScheme {
                 .indices()
                 .clone()
                 .execute::<PrimitiveArray>(exec_ctx)?
-                .narrow()?;
+                .narrow(exec_ctx)?;
 
             let compressed_indices = compressor.compress_child(
                 &indices.into_array(),
@@ -583,7 +591,7 @@ impl Scheme for RunEndScheme {
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        is_integer_primitive(canonical)
+        canonical.dtype().is_int()
     }
 
     /// Children: values=0, ends=1.
@@ -628,6 +636,10 @@ impl Scheme for RunEndScheme {
             },
             AncestorExclusion {
                 ancestor: StringDictScheme.id(),
+                children: ChildSelection::One(0),
+            },
+            AncestorExclusion {
+                ancestor: BinaryDictScheme.id(),
                 children: ChildSelection::One(0),
             },
         ]
@@ -683,7 +695,7 @@ impl Scheme for SequenceScheme {
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        is_integer_primitive(canonical)
+        canonical.dtype().is_int()
     }
 
     /// Sequence encoding on dictionary codes just adds a layer of indirection without compressing
@@ -701,6 +713,10 @@ impl Scheme for SequenceScheme {
             },
             AncestorExclusion {
                 ancestor: StringDictScheme.id(),
+                children: ChildSelection::One(1),
+            },
+            AncestorExclusion {
+                ancestor: BinaryDictScheme.id(),
                 children: ChildSelection::One(1),
             },
         ]
@@ -784,7 +800,7 @@ impl Scheme for PcoScheme {
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        is_integer_primitive(canonical)
+        canonical.dtype().is_int()
     }
 
     fn expected_compression_ratio(
@@ -849,7 +865,7 @@ pub(crate) fn rle_compress(
             .indices()
             .clone()
             .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow()?;
+            .narrow(exec_ctx)?;
         try_compress_delta(
             compressor,
             &rle_indices_primitive.into_array(),
@@ -866,7 +882,7 @@ pub(crate) fn rle_compress(
             .indices()
             .clone()
             .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow()?;
+            .narrow(exec_ctx)?;
         compressor.compress_child(
             &rle_indices_primitive.into_array(),
             &compress_ctx,
@@ -880,7 +896,7 @@ pub(crate) fn rle_compress(
         .values_idx_offsets()
         .clone()
         .execute::<PrimitiveArray>(exec_ctx)?
-        .narrow()?;
+        .narrow(exec_ctx)?;
     let compressed_offsets = compressor.compress_child(
         &rle_offsets_primitive.into_array(),
         &compress_ctx,
@@ -938,7 +954,7 @@ impl Scheme for IntRLEScheme {
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        is_integer_primitive(canonical)
+        canonical.dtype().is_int()
     }
 
     /// Children: values=0, indices=1, offsets=2.

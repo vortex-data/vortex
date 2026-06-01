@@ -98,6 +98,14 @@ serde_test = { workspace = true }
 vortex-array = { path = ".", features = ["_test-harness", "table-display"] }
 
 [[bench]]
+name = "aggregate_max"
+harness = false
+
+[[bench]]
+name = "aggregate_sum"
+harness = false
+
+[[bench]]
 name = "cast_primitive"
 harness = false
 
@@ -119,6 +127,10 @@ harness = false
 
 [[bench]]
 name = "chunk_array_builder"
+harness = false
+
+[[bench]]
+name = "chunked_fsl_canonicalize"
 harness = false
 
 [[bench]]

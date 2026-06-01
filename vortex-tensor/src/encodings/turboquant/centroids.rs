@@ -3,11 +3,23 @@
 
 //! Max-Lloyd centroid computation for TurboQuant scalar quantizers.
 //!
-//! Pre-computes optimal scalar quantizer centroids for the marginal distribution of coordinates
-//! after random rotation of a unit-norm vector. In high dimensions, each coordinate of a randomly
-//! rotated unit vector follows a distribution proportional to `(1 - x^2)^((d-3)/2)` on `[-1, 1]`,
-//! which converges to `N(0, 1/d)`. The Max-Lloyd algorithm finds optimal quantization centroids
-//! that minimize MSE for this distribution.
+//! Pre-computes and caches optimal scalar quantizer centroids for the marginal distribution of
+//! coordinates after a random orthogonal transform of a unit-norm vector.
+//!
+//! In high dimensions, each coordinate of a randomly transformed unit vector follows a
+//! distribution proportional to `(1 - x^2)^((d-3)/2)` on `[-1, 1]`, which converges to
+//! `N(0, 1/d)`.
+//!
+//! The Max-Lloyd algorithm finds optimal quantization centroids that minimize MSE for this
+//! distribution.
+//!
+//! Centroids are not stored in TurboQuant arrays. They are deterministically derived from
+//! `(padded_dim, bit_width)` and cached process-locally.
+//!
+//! The centroid model follows the random orthogonal transform marginal used by the TurboQuant
+//! paper. This encoder applies a SORF-style structured transform instead of a dense random Gaussian
+//! or orthogonal matrix, so paper-level error bounds should not be treated as verified for this
+//! implementation without separate empirical validation.
 
 use std::sync::LazyLock;
 
@@ -19,14 +31,18 @@ use vortex_utils::aliases::dash_map::DashMap;
 use crate::encodings::turboquant::MAX_BIT_WIDTH;
 use crate::encodings::turboquant::MIN_DIMENSION;
 
+// NB: All of these constants were chosen arbitrarily.
+
 /// The maximum iterations for Max-Lloyd algorithm when computing centroids.
 const MAX_ITERATIONS: usize = 200;
 
 /// The Max-Lloyd convergence threshold for stopping early when computing centroids.
 const CONVERGENCE_EPSILON: f64 = 1e-12;
 
-/// Number of numerical integration points for computing conditional expectations.
-const INTEGRATION_POINTS: usize = 1000;
+/// Number of trapezoids used for numerical integration when computing conditional expectations.
+///
+/// The trapezoidal rule evaluates the integrand at `INTEGRATION_TRAPEZOIDS + 1` points.
+const INTEGRATION_TRAPEZOIDS: usize = 1000;
 
 /// Global centroid cache keyed by (dimension, bit_width).
 static CENTROID_CACHE: LazyLock<DashMap<(u32, u8), Buffer<f32>>> = LazyLock::new(DashMap::default);
@@ -34,9 +50,9 @@ static CENTROID_CACHE: LazyLock<DashMap<(u32, u8), Buffer<f32>>> = LazyLock::new
 /// Get or compute cached centroids for the given dimension and bit width.
 ///
 /// Returns `2^bit_width` centroids sorted in ascending order, representing optimal scalar
-/// quantization levels for the coordinate distribution after random rotation in
+/// quantization levels for the coordinate distribution after a random orthogonal transform in
 /// `dimension`-dimensional space.
-pub fn compute_or_get_centroids(dimension: u32, bit_width: u8) -> VortexResult<Buffer<f32>> {
+pub(crate) fn compute_or_get_centroids(dimension: u32, bit_width: u8) -> VortexResult<Buffer<f32>> {
     vortex_ensure!(
         (1..=MAX_BIT_WIDTH).contains(&bit_width),
         "TurboQuant bit_width must be 1-{}, got {bit_width}",
@@ -86,12 +102,20 @@ impl HalfIntExponent {
 
 /// Compute optimal centroids via the Max-Lloyd (Lloyd-Max) algorithm.
 ///
-/// Operates on the marginal distribution of a single coordinate of a randomly rotated unit vector
-/// in d dimensions.
+/// Operates on the marginal distribution of a single coordinate of a randomly transformed unit
+/// vector in d dimensions.
 ///
 /// The probability distribution function is:
 ///   `f(x) = C_d * (1 - x^2)^((d-3)/2)` on `[-1, 1]`
 /// where `C_d` is the normalizing constant.
+///
+/// Centroids are seeded uniformly on `[±sqrt(bit_width) * sigma]` (where `sigma` is the standard
+/// deviation of the normal distribution that hypershere dimension values take, and specifically
+/// `sigma = 1/sqrt(dimension)`) rather than across the full `[-1, 1]`, which strands most of the
+/// centroids in the near-zero-mass tails.
+///
+/// Note that the `sqrt(bit_width)` is mostly empirically derived, we do not have a theoretical
+/// basis for choosing this other than the fact that it seems to produce good results.
 fn max_lloyd_centroids(dimension: u32, bit_width: u8) -> Buffer<f32> {
     debug_assert!((1..=MAX_BIT_WIDTH).contains(&bit_width));
     let num_centroids = 1usize << bit_width;
@@ -99,9 +123,14 @@ fn max_lloyd_centroids(dimension: u32, bit_width: u8) -> Buffer<f32> {
     // For the marginal distribution on [-1, 1], we use the exponent (d-3)/2.
     let exponent = HalfIntExponent::from_numerator(dimension as i32 - 3);
 
-    // Initialize centroids uniformly on [-1, 1].
+    // The coordinate marginal concentrates around 0 with this standard deviation.
+    let sigma = 1.0 / f64::from(dimension).sqrt();
+    let init_half = (f64::from(bit_width).sqrt() * sigma).min(1.0);
+
+    // Initialize centroids uniformly on [-init_half, init_half], where the mass lives, so no cell
+    // starts in a zero-mass region and freezes.
     let mut centroids: Vec<f64> = (0..num_centroids)
-        .map(|idx| -1.0 + (2.0 * (idx as f64) + 1.0) / (num_centroids as f64))
+        .map(|idx| -init_half + (2.0 * (idx as f64) + 1.0) * init_half / (num_centroids as f64))
         .collect();
 
     let mut boundaries: Vec<f64> = vec![0.0; num_centroids + 1];
@@ -145,16 +174,16 @@ fn mean_between_centroids(lo: f64, hi: f64, exponent: HalfIntExponent) -> f64 {
         return (lo + hi) / 2.0;
     }
 
-    let dx = (hi - lo) / INTEGRATION_POINTS as f64;
+    let dx = (hi - lo) / INTEGRATION_TRAPEZOIDS as f64;
 
     let mut numerator = 0.0;
     let mut denominator = 0.0;
 
-    for step in 0..=INTEGRATION_POINTS {
+    for step in 0..=INTEGRATION_TRAPEZOIDS {
         let x_val = lo + (step as f64) * dx;
         let weight = pdf_unnormalized(x_val, exponent);
 
-        let trap_weight = if step == 0 || step == INTEGRATION_POINTS {
+        let trap_weight = if step == 0 || step == INTEGRATION_TRAPEZOIDS {
             0.5
         } else {
             1.0
@@ -193,7 +222,7 @@ fn pdf_unnormalized(x_val: f64, exponent: HalfIntExponent) -> f64 {
 /// For `k` centroids, returns `k-1` boundaries. A value below `boundaries[0]` maps to centroid 0, a
 /// value in `[boundaries[i-1], boundaries[i])` maps to centroid `i`, and a
 /// value `>= boundaries[k-2]` maps to centroid `k-1`.
-pub fn compute_centroid_boundaries(centroids: &[f32]) -> Vec<f32> {
+pub(crate) fn compute_centroid_boundaries(centroids: &[f32]) -> Vec<f32> {
     centroids.windows(2).map(|w| (w[0] + w[1]) * 0.5).collect()
 }
 
@@ -203,7 +232,7 @@ pub fn compute_centroid_boundaries(centroids: &[f32]) -> Vec<f32> {
 /// centroids. Uses binary search on the midpoints, avoiding distance comparisons
 /// in the inner loop.
 #[inline]
-pub fn find_nearest_centroid(value: f32, boundaries: &[f32]) -> u8 {
+pub(crate) fn find_nearest_centroid(value: f32, boundaries: &[f32]) -> u8 {
     debug_assert!(
         boundaries.windows(2).all(|w| w[0] <= w[1]),
         "boundaries must be sorted"

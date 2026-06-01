@@ -9,13 +9,16 @@ use vortex_array::ExecutionCtx;
 use vortex_error::VortexResult;
 
 use crate::CascadingCompressor;
-use crate::builtins::BoolConstantScheme;
 use crate::builtins::constant::compress_constant_array_with_validity;
 use crate::ctx::CompressorContext;
 use crate::estimate::CompressionEstimate;
 use crate::estimate::EstimateVerdict;
 use crate::scheme::Scheme;
 use crate::stats::ArrayAndStats;
+
+/// Constant encoding for bool arrays where all valid values are the same.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct BoolConstantScheme;
 
 impl Scheme for BoolConstantScheme {
     fn scheme_name(&self) -> &'static str {

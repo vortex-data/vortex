@@ -18,6 +18,7 @@ use vortex_bench::datasets::nested_structs;
 use vortex_bench::datasets::taxi_data;
 use vortex_bench::idempotent_async;
 use vortex_bench::random_access::RandomAccessor;
+use vortex_bench::random_access::RandomAccessorRet;
 use vortex_bench::random_access::data_path;
 
 /// Convert a parquet file to lance format.
@@ -82,6 +83,7 @@ pub async fn nested_structs_lance() -> anyhow::Result<PathBuf> {
 pub struct LanceRandomAccessor {
     name: String,
     dataset: Dataset,
+    projection: ProjectionRequest,
 }
 
 impl LanceRandomAccessor {
@@ -92,9 +94,11 @@ impl LanceRandomAccessor {
                 .ok_or_else(|| anyhow!("Invalid dataset path"))?,
         )
         .await?;
+        let projection = ProjectionRequest::from_schema(dataset.schema().clone());
         Ok(Self {
             name: name.into(),
             dataset,
+            projection,
         })
     }
 }
@@ -109,9 +113,9 @@ impl RandomAccessor for LanceRandomAccessor {
         &self.name
     }
 
-    async fn take(&self, indices: &[u64]) -> anyhow::Result<usize> {
-        let projection = ProjectionRequest::from_schema(self.dataset.schema().clone());
-        let result = self.dataset.take(indices, projection).await?;
-        Ok(result.num_rows())
+    async fn take(&self, indices: &[u64]) -> anyhow::Result<RandomAccessorRet> {
+        Ok(RandomAccessorRet::RecordBatch(
+            self.dataset.take(indices, self.projection.clone()).await?,
+        ))
     }
 }

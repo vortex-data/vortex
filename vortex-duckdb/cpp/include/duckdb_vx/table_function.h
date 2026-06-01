@@ -1,17 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-/**
- * We redefine a C API for DuckDB Table Functions in order to expose the full functionality of the C++ API.
- *
- * Since this C API has no stability requirements (it's versioned lock-step with the Rust bindings), we can
- * take a transparent vtable struct to populate the C++ Table Function vtable.
- */
 #pragma once
-
-#include "error.h"
-#include "table_filter.h"
 #include "duckdb_vx/data.h"
+#include "duckdb_vx/error.h"
+#include "duckdb_vx/expr.h"
+#include "table_filter.h"
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -73,9 +67,7 @@ typedef struct {
 // Result data returned from the cardinality callback.
 typedef struct {
     idx_t estimated_cardinality;
-    idx_t max_cardinality;
     bool has_estimated_cardinality;
-    bool has_max_cardinality;
 } duckdb_vx_node_statistics;
 
 typedef struct {
@@ -98,46 +90,7 @@ typedef struct {
     size_t file_index;
 } duckdb_vx_partition_data;
 
-// vtable mimicking subset of TableFunction.
-// See duckdb/include/function/tfunc.hpp
-typedef struct {
-    const char *name;
-    const duckdb_logical_type *parameters;
-    size_t parameter_count;
-
-    duckdb_vx_data (*bind)(duckdb_client_context ctx,
-                           duckdb_vx_tfunc_bind_input input,
-                           duckdb_vx_tfunc_bind_result result,
-                           duckdb_vx_error *error_out);
-
-    duckdb_vx_data (*bind_data_clone)(const void *bind_data, duckdb_vx_error *error_out);
-
-    duckdb_vx_data (*init_global)(const duckdb_vx_tfunc_init_input *input, duckdb_vx_error *error_out);
-
-    duckdb_vx_data (*init_local)(void *init_global_data);
-
-    void (*function)(void *init_global_data,
-                     void *init_local_data,
-                     duckdb_data_chunk data_chunk_out,
-                     duckdb_vx_error *error_out);
-
-    bool (*statistics)(const void *bind_data, size_t column_index, duckdb_column_statistics *stats_out);
-
-    void (*cardinality)(void *bind_data, duckdb_vx_node_statistics *node_stats_out);
-
-    bool (*pushdown_complex_filter)(void *bind_data, duckdb_vx_expr expr, duckdb_vx_error *error_out);
-
-    void (*to_string)(void *bind_data, duckdb_vx_string_map map);
-
-    double (*table_scan_progress)(void *global_state);
-
-    void (*get_partition_data)(void *init_global_data,
-                               void *init_local_data,
-                               duckdb_vx_partition_data *partition_data_out);
-} duckdb_vx_tfunc_vtab_t;
-
-// A single function for configuring the DuckDB table function vtable.
-duckdb_state duckdb_vx_tfunc_register(duckdb_database ffi_db, const duckdb_vx_tfunc_vtab_t *vtab);
+duckdb_state duckdb_vx_register_table_functions(duckdb_database ffi_db);
 
 #ifdef __cplusplus
 }

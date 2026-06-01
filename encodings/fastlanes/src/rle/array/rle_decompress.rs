@@ -19,35 +19,44 @@ use crate::RLEArray;
 use crate::rle::RLEArrayExt;
 
 /// Decompresses an RLE array back into a primitive array.
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "complexity is from nested match_each_* macros"
-)]
 pub fn rle_decompress(array: &RLEArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
+    // The per-chunk value-index offsets are tiny (one entry per 1024-element chunk), so cast them
+    // to `u64` once here instead of monomorphizing the whole decode loop over the offset width.
+    let values_idx_offsets = array
+        .values_idx_offsets()
+        .clone()
+        .execute::<PrimitiveArray>(ctx)?;
+    let values_idx_offsets: Vec<u64> =
+        match_each_unsigned_integer_ptype!(values_idx_offsets.ptype(), |O| {
+            values_idx_offsets
+                .as_slice::<O>()
+                .iter()
+                .map(|&o| o.as_())
+                .collect()
+        });
+
     match_each_native_ptype!(array.values().dtype().as_ptype(), |V| {
-        match_each_unsigned_integer_ptype!(array.values_idx_offsets().dtype().as_ptype(), |O| {
-            // RLE indices are always u16 (or u8 if downcasted).
-            match array.indices().dtype().as_ptype() {
-                PType::U8 => rle_decode_typed::<V, u8, O>(array, ctx),
-                PType::U16 => rle_decode_typed::<V, u16, O>(array, ctx),
-                _ => vortex_panic!(
-                    "Unsupported index type for RLE decoding: {}",
-                    array.indices().dtype().as_ptype()
-                ),
-            }
-        })
+        // RLE indices are always u16 (or u8 if downcasted).
+        match array.indices().dtype().as_ptype() {
+            PType::U8 => rle_decode_typed::<V, u8>(array, &values_idx_offsets, ctx),
+            PType::U16 => rle_decode_typed::<V, u16>(array, &values_idx_offsets, ctx),
+            _ => vortex_panic!(
+                "Unsupported index type for RLE decoding: {}",
+                array.indices().dtype().as_ptype()
+            ),
+        }
     })
 }
 
 /// Decompresses an `RLEArray` into to a primitive array of unsigned integers.
-fn rle_decode_typed<V, I, O>(
+fn rle_decode_typed<V, I>(
     array: &RLEArray,
+    values_idx_offsets: &[u64],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray>
 where
     V: NativePType + RLE + Clone + Copy,
     I: NativePType + Into<usize>,
-    O: NativePType + AsPrimitive<u64>,
 {
     let values = array.values().clone().execute::<PrimitiveArray>(ctx)?;
     let values = values.as_slice::<V>();
@@ -64,23 +73,16 @@ where
     let mut buffer = BufferMut::<V>::with_capacity(num_chunks * FL_CHUNK_SIZE);
     let (out_buf, _) = buffer.spare_capacity_mut().as_chunks_mut::<FL_CHUNK_SIZE>();
 
-    let values_idx_offsets = array
-        .values_idx_offsets()
-        .clone()
-        .execute::<PrimitiveArray>(ctx)?;
-    let values_idx_offsets = values_idx_offsets.as_slice::<O>();
-
     for (chunk_idx, (chunk_indices, chunk_out)) in
         indices_sl.iter().zip(out_buf.iter_mut()).enumerate()
     {
         // Offsets in `values_idx_offsets` are absolute and need to be shifted
         // by the offset of the first chunk, respective of the current slice,
         // to make them relative.
-        let value_idx_offset =
-            (values_idx_offsets[chunk_idx].as_() - values_idx_offsets[0].as_()) as usize;
+        let value_idx_offset = (values_idx_offsets[chunk_idx] - values_idx_offsets[0]) as usize;
 
         let next_value_idx_offset = if chunk_idx + 1 < num_chunks {
-            (values_idx_offsets[chunk_idx + 1].as_() - values_idx_offsets[0].as_()) as usize
+            (values_idx_offsets[chunk_idx + 1] - values_idx_offsets[0]) as usize
         } else {
             values.len()
         };

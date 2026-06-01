@@ -374,7 +374,6 @@ TEST_CASE("Requesting scans", "[datasource]") {
     }
 
     vx_scan_options options = {};
-    options.max_threads = 1;
 
     {
         vx_scan *scan = vx_data_source_scan(ds, &options, nullptr, &error);
@@ -924,7 +923,6 @@ TEST_CASE("Broken scan with DType mismatch in filter", "[filter]") {
     };
 
     vx_scan_options scan_opts = {};
-    scan_opts.max_threads = 1;
     scan_opts.filter = filter;
 
     vx_scan *scan = vx_data_source_scan(ds, &scan_opts, nullptr, &error);

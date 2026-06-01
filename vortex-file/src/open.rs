@@ -194,11 +194,7 @@ impl VortexOpenOptions {
             Arc::clone(footer.segment_map()),
         ));
 
-        Ok(VortexFile {
-            footer,
-            segment_source,
-            session: opts.session,
-        })
+        Ok(VortexFile::new(footer, segment_source, opts.session))
     }
 
     /// An API for opening a [`VortexFile`] using any [`VortexReadAt`] implementation.
@@ -244,11 +240,11 @@ impl VortexOpenOptions {
             segment_source,
         ));
 
-        Ok(VortexFile {
+        Ok(VortexFile::new(
             footer,
             segment_source,
-            session: self.session.clone(),
-        })
+            self.session.clone(),
+        ))
     }
 
     async fn read_footer(&self, read: &dyn VortexReadAt) -> VortexResult<Footer> {

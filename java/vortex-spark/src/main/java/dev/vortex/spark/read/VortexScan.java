@@ -3,10 +3,12 @@
 
 package dev.vortex.spark.read;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import org.apache.spark.sql.connector.catalog.CatalogV2Util;
 import org.apache.spark.sql.connector.catalog.Column;
+import org.apache.spark.sql.connector.expressions.filter.Predicate;
 import org.apache.spark.sql.connector.read.Batch;
 import org.apache.spark.sql.connector.read.Scan;
 import org.apache.spark.sql.types.StructType;
@@ -17,6 +19,7 @@ public final class VortexScan implements Scan {
     private final List<String> paths;
     private final List<Column> readColumns;
     private final Map<String, String> formatOptions;
+    private final Predicate[] pushedPredicates;
 
     /**
      * Creates a new VortexScan for the specified file paths and columns. The caller is responsible for passing
@@ -24,11 +27,17 @@ public final class VortexScan implements Scan {
      *
      * @param paths the list of Vortex file paths to scan
      * @param readColumns the list of columns to read from the files
+     * @param pushedPredicates predicates pushed down by Spark; {@code null} or empty means no pushdown
      */
-    public VortexScan(List<String> paths, List<Column> readColumns, Map<String, String> formatOptions) {
+    public VortexScan(
+            List<String> paths,
+            List<Column> readColumns,
+            Map<String, String> formatOptions,
+            Predicate[] pushedPredicates) {
         this.paths = paths;
         this.readColumns = readColumns;
         this.formatOptions = formatOptions;
+        this.pushedPredicates = pushedPredicates == null ? new Predicate[0] : pushedPredicates.clone();
     }
 
     /**
@@ -46,7 +55,9 @@ public final class VortexScan implements Scan {
     /** Logging-friendly readable description of the scan source. */
     @Override
     public String description() {
-        return String.format("VortexScan{paths=%s, columns=%s}", paths, readColumns);
+        return String.format(
+                "VortexScan{paths=%s, columns=%s, pushedPredicates=%s}",
+                paths, readColumns, Arrays.toString(pushedPredicates));
     }
 
     /**
@@ -58,7 +69,7 @@ public final class VortexScan implements Scan {
      */
     @Override
     public Batch toBatch() {
-        return new VortexBatchExec(paths, readColumns, formatOptions);
+        return new VortexBatchExec(paths, readColumns, formatOptions, pushedPredicates);
     }
 
     /**

@@ -59,19 +59,23 @@ fn take_impl(
 
     match indices_validity.bit_buffer() {
         AllOr::All => {
+            let result_dtype = array
+                .dtype()
+                .union_nullability(indices.dtype().nullability());
+
             if let Some((start, end)) =
                 contiguous_sequential_take_range_indices(array.filter_mask(), indices)?
             {
-                return array.child().slice(start..end);
+                return array.child().slice(start..end)?.cast(result_dtype);
             }
 
             if let Some(take_len) = sequential_take_len(indices, array.len())? {
                 if take_len == 0 {
-                    return Ok(Canonical::empty(array.child().dtype()).into_array());
+                    return Ok(Canonical::empty(&result_dtype).into_array());
                 }
                 let rank_mask = Mask::from_slices(array.len(), vec![(0, take_len)]);
                 let mask = array.filter_mask().intersect_by_rank(&rank_mask);
-                return array.child().filter(mask);
+                return array.child().filter(mask)?.cast(result_dtype);
             }
 
             let translated = translate_indices(array.filter_mask(), indices, None)?;

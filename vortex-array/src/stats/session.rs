@@ -15,13 +15,24 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::scalar_fn::ScalarFnId;
 use crate::stats::rewrite::StatsRewriteRule;
 use crate::stats::rewrite::StatsRewriteRuleRef;
+use crate::stats::rewrite::register_builtins;
 
 type StatsRewriteRuleSet = Arc<[StatsRewriteRuleRef]>;
 
 /// Session state for stats APIs.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct StatsSession {
     rewrite_rules: RwLock<HashMap<ScalarFnId, StatsRewriteRuleSet>>,
+}
+
+impl Default for StatsSession {
+    fn default() -> Self {
+        let this = Self {
+            rewrite_rules: RwLock::new(HashMap::default()),
+        };
+        register_builtins(&this);
+        this
+    }
 }
 
 impl StatsSession {

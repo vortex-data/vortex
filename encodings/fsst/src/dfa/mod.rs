@@ -126,6 +126,8 @@ mod prefix;
 #[cfg(test)]
 mod tests;
 
+use std::borrow::Cow;
+
 use flat_contains::FlatContainsDfa;
 use fsst::ESCAPE_CODE;
 use fsst::Symbol;
@@ -170,18 +172,28 @@ impl FsstMatcher {
         };
 
         let inner = match like_kind {
-            LikeKind::Prefix(b"") | LikeKind::Contains(b"") => MatcherInner::MatchAll,
+            LikeKind::Prefix(pattern) | LikeKind::Contains(pattern) if pattern.is_empty() => {
+                MatcherInner::MatchAll
+            }
             LikeKind::Prefix(prefix) => {
                 if prefix.len() > FlatPrefixDfa::MAX_PREFIX_LEN {
                     return Ok(None);
                 }
-                MatcherInner::Prefix(FlatPrefixDfa::new(symbols, symbol_lengths, prefix)?)
+                MatcherInner::Prefix(FlatPrefixDfa::new(
+                    symbols,
+                    symbol_lengths,
+                    prefix.as_ref(),
+                )?)
             }
             LikeKind::Contains(needle) => {
                 if needle.len() > FlatContainsDfa::MAX_NEEDLE_LEN {
                     return Ok(None);
                 }
-                MatcherInner::Contains(FlatContainsDfa::new(symbols, symbol_lengths, needle)?)
+                MatcherInner::Contains(FlatContainsDfa::new(
+                    symbols,
+                    symbol_lengths,
+                    needle.as_ref(),
+                )?)
             }
         };
 
@@ -201,34 +213,66 @@ impl FsstMatcher {
 /// The subset of LIKE patterns we can handle without decompression.
 enum LikeKind<'a> {
     /// `prefix%`
-    Prefix(&'a [u8]),
+    Prefix(Cow<'a, [u8]>),
     /// `%needle%`
-    Contains(&'a [u8]),
+    Contains(Cow<'a, [u8]>),
 }
 
 impl<'a> LikeKind<'a> {
     fn parse(pattern: &'a [u8]) -> Option<Self> {
-        // The fast-path matchers below do not understand SQL LIKE escape sequences (e.g. `\%`
-        // matching a literal `%`). If the pattern contains a backslash we fall back to the
-        // general implementation, which correctly interprets escapes.
-        if pattern.contains(&b'\\') {
+        Self::parse_prefix(pattern).or_else(|| Self::parse_contains(pattern))
+    }
+
+    fn parse_prefix(pattern: &'a [u8]) -> Option<Self> {
+        Self::parse_literal_until_final_percent(pattern, 0).map(LikeKind::Prefix)
+    }
+
+    fn parse_contains(pattern: &'a [u8]) -> Option<Self> {
+        if !pattern.starts_with(b"%") {
             return None;
         }
 
-        // `prefix%` (including just `%` where prefix is empty)
-        if let Some(prefix) = pattern.strip_suffix(b"%")
-            && !prefix.contains(&b'%')
-            && !prefix.contains(&b'_')
-        {
-            return Some(LikeKind::Prefix(prefix));
-        }
+        Self::parse_literal_until_final_percent(pattern, 1).map(LikeKind::Contains)
+    }
 
-        // `%needle%`
-        let inner = pattern.strip_prefix(b"%")?.strip_suffix(b"%")?;
-        if !inner.contains(&b'%') && !inner.contains(&b'_') {
-            return Some(LikeKind::Contains(inner));
+    /// Parse `pattern[literal_start..]` as a literal terminated by a single
+    /// trailing `%`. Returns `None` if `_` or a non-final `%` is encountered.
+    ///
+    /// `literal` stays `None` until an escape forces us to materialize bytes;
+    /// from then on we push into the owned `Vec`. Otherwise we return a
+    /// borrowed slice straight from `pattern`.
+    fn parse_literal_until_final_percent(
+        pattern: &'a [u8],
+        literal_start: usize,
+    ) -> Option<Cow<'a, [u8]>> {
+        let mut literal: Option<Vec<u8>> = None;
+        let mut idx = literal_start;
+        while idx < pattern.len() {
+            match pattern[idx] {
+                b'\\' => {
+                    // Trailing `\` is treated as a literal backslash.
+                    let escaped = pattern.get(idx + 1).copied().unwrap_or(b'\\');
+                    literal
+                        .get_or_insert_with(|| pattern[literal_start..idx].to_vec())
+                        .push(escaped);
+                    idx = (idx + 2).min(pattern.len());
+                }
+                b'%' if idx + 1 == pattern.len() => {
+                    return Some(match literal {
+                        Some(buf) => Cow::Owned(buf),
+                        None => Cow::Borrowed(&pattern[literal_start..idx]),
+                    });
+                }
+                b'%' | b'_' => return None,
+                byte => {
+                    // No-op on the borrowed path; only push once we've started copying.
+                    if let Some(literal) = &mut literal {
+                        literal.push(byte);
+                    }
+                    idx += 1;
+                }
+            }
         }
-
         None
     }
 }

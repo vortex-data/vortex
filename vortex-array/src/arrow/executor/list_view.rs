@@ -11,10 +11,12 @@ use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::listview::DEFAULT_REBUILD_DENSITY_THRESHOLD;
+use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewDataParts;
+use crate::arrays::listview::ListViewRebuildMode;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::arrow::session::ArrowSessionExt;
 use crate::builtins::ArrayBuiltins;
@@ -27,15 +29,19 @@ pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
     elements_field: &FieldRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<arrow_array::ArrayRef> {
-    // Check for Vortex ListViewArray and convert directly.
-    let array = match array.try_downcast::<ListView>() {
-        Ok(array) => return list_view_to_list_view::<O>(array, elements_field, ctx),
-        Err(array) => array,
+    let array = array.execute::<ListViewArray>(ctx)?;
+
+    // If the array is sufficiently sparse, rebuild before handing it to Arrow. Otherwise downstream
+    // consumers hold an elements buffer containing unreferenced data in memory indefinitely,
+    // and any compute pass over that buffer wastes work on data nothing references.
+    let density = array.upper_bound_density(ctx)?;
+    let array = if density < DEFAULT_REBUILD_DENSITY_THRESHOLD {
+        array.rebuild(ListViewRebuildMode::MakeZeroCopyToList)?
+    } else {
+        array
     };
 
-    // Otherwise, we execute to ListViewArray and convert.
-    let list_view_array = array.execute::<ListViewArray>(ctx)?;
-    list_view_to_list_view::<O>(list_view_array, elements_field, ctx)
+    list_view_to_list_view::<O>(array, elements_field, ctx)
 }
 
 fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(

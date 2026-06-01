@@ -8,9 +8,7 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_error::VortexResult;
 
-use super::is_integer_primitive;
 use crate::CascadingCompressor;
-use crate::builtins::IntConstantScheme;
 use crate::builtins::constant::compress_constant_array_with_validity;
 use crate::ctx::CompressorContext;
 use crate::estimate::CompressionEstimate;
@@ -18,13 +16,17 @@ use crate::estimate::EstimateVerdict;
 use crate::scheme::Scheme;
 use crate::stats::ArrayAndStats;
 
+/// Constant encoding for integer arrays with a single distinct value.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct IntConstantScheme;
+
 impl Scheme for IntConstantScheme {
     fn scheme_name(&self) -> &'static str {
         "vortex.int.constant"
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        is_integer_primitive(canonical)
+        canonical.dtype().is_int()
     }
 
     fn expected_compression_ratio(
