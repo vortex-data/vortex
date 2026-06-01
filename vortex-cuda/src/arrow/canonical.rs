@@ -3,11 +3,15 @@
 
 use std::mem;
 use std::ptr;
+use std::sync::Arc;
 
 use async_trait::async_trait;
+use cudarc::driver::DeviceRepr;
+use cudarc::driver::PushKernelArg;
 use futures::future::BoxFuture;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::FixedSizeListArray;
 use vortex::array::arrays::ListArray;
 use vortex::array::arrays::PrimitiveArray;
@@ -24,13 +28,17 @@ use vortex::array::arrays::struct_::StructDataParts;
 use vortex::array::arrays::varbinview::VarBinViewDataParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::builtins::ArrayBuiltins;
+use vortex::array::match_each_decimal_value_type;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
+use vortex::dtype::DecimalDType;
 use vortex::dtype::DecimalType;
+use vortex::dtype::NativeDecimalType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
+use vortex::dtype::i256;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
@@ -39,6 +47,8 @@ use vortex::extension::datetime::AnyTemporal;
 use vortex::mask::Mask;
 
 use super::list_view::export_device_list_view;
+use crate::CudaBufferExt;
+use crate::CudaDeviceBuffer;
 use crate::CudaExecutionCtx;
 use crate::arrow::ARROW_DEVICE_CUDA;
 use crate::arrow::ArrowArray;
@@ -106,27 +116,7 @@ fn export_canonical(
                 // we don't need a sync event for Null since no data is copied.
                 Ok((array, ptr::null_mut()))
             }
-            Canonical::Decimal(decimal) => {
-                let len = decimal.len();
-                let DecimalDataParts {
-                    values,
-                    values_type,
-                    validity,
-                    ..
-                } = decimal.into_data_parts();
-
-                // TODO(aduffy): GPU kernel for upcasting.
-                vortex_ensure!(
-                    values_type >= DecimalType::I32,
-                    "cannot export DecimalArray with values type {values_type}. must be i32 or wider."
-                );
-
-                let (validity_buffer, null_count) =
-                    export_arrow_validity_buffer(validity, len, 0, ctx).await?;
-                let buffer = ctx.ensure_on_device(values).await?;
-
-                export_fixed_size(buffer, len, 0, validity_buffer, null_count, ctx)
-            }
+            Canonical::Decimal(decimal) => export_decimal(decimal, ctx).await,
             Canonical::Extension(extension) => {
                 if !extension.ext_dtype().is::<AnyTemporal>() {
                     vortex_bail!("only support temporal extension types currently");
@@ -240,6 +230,130 @@ fn export_canonical(
             c => vortex_bail!("unsupported Arrow Device export for {} array", c.dtype()),
         }
     })
+}
+
+/// Exports decimals with value buffers cast to Arrow's Decimal32/64/128/256 layout.
+///
+/// Decimal values are already decoded; this only adapts the physical buffer width. Keep this in
+/// sync with the schema mapping in `arrow_schema_for_array`. Storage-to-Arrow narrowing is rejected
+/// instead of checked on-device to avoid a device-to-host synchronization point.
+async fn export_decimal(
+    decimal: DecimalArray,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<(ArrowArray, SyncEvent)> {
+    let len = decimal.len();
+    let DecimalDataParts {
+        decimal_dtype,
+        values,
+        values_type,
+        validity,
+    } = decimal.into_data_parts();
+
+    let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
+    let target_type = arrow_decimal_value_type(decimal_dtype);
+    let values = export_decimal_values(values, values_type, target_type, len, ctx).await?;
+
+    export_fixed_size(values, len, 0, validity_buffer, null_count, ctx)
+}
+
+/// Returns the Arrow physical value type for a decimal dtype.
+///
+/// Must match the shared Vortex-to-Arrow decimal mapping in
+/// `vortex-array/src/dtype/arrow.rs`.
+fn arrow_decimal_value_type(decimal_dtype: DecimalDType) -> DecimalType {
+    match decimal_dtype.precision() {
+        1..=9 => DecimalType::I32,
+        10..=18 => DecimalType::I64,
+        19..=38 => DecimalType::I128,
+        39..=76 => DecimalType::I256,
+        0 => unreachable!("precision must be greater than 0"),
+        p => unreachable!("precision larger than 76 is invalid found precision {p}"),
+    }
+}
+
+/// Ensure the values buffer is on-device and has the Arrow-required decimal width.
+///
+/// Storage wider than the precision-implied Arrow width is rejected. Callers that hit this
+/// should narrow the storage via a decimal cast before exporting.
+async fn export_decimal_values(
+    values: BufferHandle,
+    values_type: DecimalType,
+    target_type: DecimalType,
+    len: usize,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<BufferHandle> {
+    if values_type.byte_width() > target_type.byte_width() {
+        vortex_bail!(
+            "cannot export decimal values from {values_type} storage to Arrow {target_type}: narrowing would require a device-to-host overflow check",
+        );
+    }
+    let values = ctx.ensure_on_device(values).await?;
+    if values_type == target_type {
+        return Ok(values);
+    }
+
+    match_each_decimal_value_type!(values_type, |S| {
+        export_decimal_values_from::<S>(values, target_type, len, ctx).await
+    })
+}
+
+/// Dispatch from a concrete storage type `S` to the Arrow-required output width.
+async fn export_decimal_values_from<S>(
+    values: BufferHandle,
+    target_type: DecimalType,
+    len: usize,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<BufferHandle>
+where
+    S: NativeDecimalType + DeviceRepr,
+{
+    match target_type {
+        DecimalType::I32 => decimal_cast::<S, i32>(values, len, ctx).await,
+        DecimalType::I64 => decimal_cast::<S, i64>(values, len, ctx).await,
+        DecimalType::I128 => decimal_cast::<S, i128>(values, len, ctx).await,
+        DecimalType::I256 => decimal_cast::<S, i256>(values, len, ctx).await,
+        target_type => {
+            vortex_bail!("cannot export DecimalArray as Arrow decimal value type {target_type}")
+        }
+    }
+}
+
+/// Launches the CUDA kernel that casts from Vortex storage type `S` to Arrow output type `D`.
+///
+/// The caller must ensure this is not a narrowing cast.
+async fn decimal_cast<S, D>(
+    values: BufferHandle,
+    len: usize,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<BufferHandle>
+where
+    S: NativeDecimalType + DeviceRepr,
+    D: NativeDecimalType + DeviceRepr,
+{
+    if len == 0 {
+        return ctx
+            .ensure_on_device(BufferHandle::new_host(
+                Buffer::<D>::empty().into_byte_buffer(),
+            ))
+            .await;
+    }
+
+    let output_buffer = ctx.device_alloc::<D>(len)?;
+    let output_device = CudaDeviceBuffer::new(output_buffer);
+
+    let values_view = values.cuda_view::<S>()?;
+    let output_view = output_device.as_view::<D>();
+    let len_u64 = len as u64;
+    let cuda_function = ctx.load_function_with_suffixes(
+        "decimal_cast",
+        &[&S::DECIMAL_TYPE.to_string(), &D::DECIMAL_TYPE.to_string()],
+    )?;
+
+    ctx.launch_kernel(&cuda_function, len, |args| {
+        args.arg(&values_view).arg(&output_view).arg(&len_u64);
+    })?;
+
+    Ok(BufferHandle::new_device(Arc::new(output_device)))
 }
 
 /// Export Vortex validity as an Arrow validity byte buffer.
@@ -537,16 +651,19 @@ mod tests {
     use vortex::array::arrays::VarBinViewArray;
     use vortex::array::arrays::primitive::PrimitiveArrayExt;
     use vortex::array::arrays::varbinview::BinaryView;
+    use vortex::array::buffer::BufferHandle;
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::buffer::ByteBuffer;
     use vortex::dtype::DType;
     use vortex::dtype::DecimalDType;
     use vortex::dtype::FieldNames;
+    use vortex::dtype::NativeDecimalType;
     use vortex::dtype::NativePType;
     use vortex::dtype::Nullability;
     use vortex::dtype::PType;
     use vortex::dtype::half::f16;
+    use vortex::dtype::i256;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::error::vortex_bail;
@@ -761,6 +878,14 @@ mod tests {
             .collect())
     }
 
+    fn assert_exported_decimal_values<T: NativeDecimalType>(
+        value_buffer: &BufferHandle,
+        expected: &[T],
+    ) {
+        let values = Buffer::<T>::from_byte_buffer(value_buffer.to_host_sync());
+        assert_eq!(values.as_slice(), expected);
+    }
+
     // Build a nested struct fixture with an out-of-line string-view value.
     fn nested_struct_array() -> ArrayRef {
         let nested = StructArray::new(
@@ -855,23 +980,195 @@ mod tests {
         Ok(())
     }
 
-    #[crate::test]
-    async fn test_export_decimal() -> VortexResult<()> {
+    async fn assert_exported_decimal<T: NativeDecimalType>(
+        array: ArrayRef,
+        expected_data_type: DataType,
+        expected_values: Vec<T>,
+    ) -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
-        let array = DecimalArray::from_iter(0i128..5, DecimalDType::new(38, 2)).into_array();
-        let mut device_array = array.export_device_array(&mut ctx).await?;
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
 
-        assert_eq!(device_array.array.length, 5);
-        assert_eq!(device_array.array.null_count, 0);
-        assert_eq!(device_array.array.n_buffers, 2);
-        assert_eq!(device_array.array.n_children, 0);
-        assert!(device_array.array.release.is_some());
-        assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
+        let field = Field::try_from(&exported.schema)?;
+        assert_eq!(field, Field::new("", expected_data_type, false));
+        assert_eq!(
+            exported.array.array.length,
+            i64::try_from(expected_values.len())?
+        );
+        assert_eq!(exported.array.array.null_count, 0);
+        assert_eq!(exported.array.array.n_buffers, 2);
+        assert_eq!(exported.array.array.n_children, 0);
+        assert!(exported.array.array.release.is_some());
+        assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
 
-        unsafe { release_exported_array(&raw mut device_array.array) };
+        let private_data = unsafe { &*exported.array.array.private_data.cast::<PrivateData>() };
+        let value_buffer = private_data.buffers[1]
+            .as_ref()
+            .vortex_expect("value buffer should be present");
+        assert_eq!(value_buffer.len(), expected_values.len() * size_of::<T>());
+        assert_exported_decimal_values(value_buffer, &expected_values);
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
+    }
+
+    #[rstest]
+    #[case::i8(
+        DecimalArray::from_iter([1i8, -2, 3], DecimalDType::new(2, 1)).into_array(),
+        DataType::Decimal32(2, 1),
+        vec![1i32, -2, 3]
+    )]
+    #[case::i16(
+        DecimalArray::from_iter([100i16, -200, 300], DecimalDType::new(4, 2)).into_array(),
+        DataType::Decimal32(4, 2),
+        vec![100i32, -200, 300]
+    )]
+    #[case::i32(
+        DecimalArray::from_iter([10_000i32, -20_000, 30_000], DecimalDType::new(9, 2)).into_array(),
+        DataType::Decimal32(9, 2),
+        vec![10_000i32, -20_000, 30_000]
+    )]
+    #[crate::test]
+    async fn test_export_decimal32(
+        #[case] array: ArrayRef,
+        #[case] expected_data_type: DataType,
+        #[case] expected_values: Vec<i32>,
+    ) -> VortexResult<()> {
+        assert_exported_decimal(array, expected_data_type, expected_values).await
+    }
+
+    #[rstest]
+    #[case::i32(
+        DecimalArray::from_iter([1_000_000i32, -2_000_000, 3_000_000], DecimalDType::new(10, 2)).into_array(),
+        DataType::Decimal64(10, 2),
+        vec![1_000_000i64, -2_000_000, 3_000_000]
+    )]
+    #[case::i32_boundary(
+        DecimalArray::from_iter([i32::MIN, -1i32, 0, 1, i32::MAX], DecimalDType::new(10, 0)).into_array(),
+        DataType::Decimal64(10, 0),
+        vec![i32::MIN as i64, -1, 0, 1, i32::MAX as i64]
+    )]
+    #[case::i64(
+        DecimalArray::from_iter([1_000_000i64, -2_000_000, 3_000_000], DecimalDType::new(18, 2)).into_array(),
+        DataType::Decimal64(18, 2),
+        vec![1_000_000i64, -2_000_000, 3_000_000]
+    )]
+    #[crate::test]
+    async fn test_export_decimal64(
+        #[case] array: ArrayRef,
+        #[case] expected_data_type: DataType,
+        #[case] expected_values: Vec<i64>,
+    ) -> VortexResult<()> {
+        assert_exported_decimal(array, expected_data_type, expected_values).await
+    }
+
+    #[rstest]
+    #[case::i64_boundary(
+        DecimalArray::from_iter([i64::MIN, -1i64, 0, 1, i64::MAX], DecimalDType::new(19, 0)).into_array(),
+        DataType::Decimal128(19, 0),
+        vec![i64::MIN as i128, -1, 0, 1, i64::MAX as i128]
+    )]
+    #[case::i128(
+        DecimalArray::from_iter([1i128, -2, 3], DecimalDType::new(38, 2)).into_array(),
+        DataType::Decimal128(38, 2),
+        vec![1i128, -2, 3]
+    )]
+    #[crate::test]
+    async fn test_export_decimal128(
+        #[case] array: ArrayRef,
+        #[case] expected_data_type: DataType,
+        #[case] expected_values: Vec<i128>,
+    ) -> VortexResult<()> {
+        assert_exported_decimal(array, expected_data_type, expected_values).await
+    }
+
+    #[crate::test]
+    async fn test_export_empty_decimal() -> VortexResult<()> {
+        assert_exported_decimal(
+            DecimalArray::new(
+                Buffer::<i32>::empty(),
+                DecimalDType::new(9, 2),
+                Validity::NonNullable,
+            )
+            .into_array(),
+            DataType::Decimal32(9, 2),
+            Vec::<i32>::new(),
+        )
+        .await
+    }
+
+    #[crate::test]
+    async fn test_export_empty_decimal_widening() -> VortexResult<()> {
+        assert_exported_decimal(
+            DecimalArray::new(
+                Buffer::<i8>::empty(),
+                DecimalDType::new(9, 2),
+                Validity::NonNullable,
+            )
+            .into_array(),
+            DataType::Decimal32(9, 2),
+            Vec::<i32>::new(),
+        )
+        .await
+    }
+
+    #[crate::test]
+    async fn test_export_decimal_narrowing_errors() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+        let array = DecimalArray::from_iter([i256::from_parts(0, 1)], DecimalDType::new(38, 0))
+            .into_array();
+
+        let err = array
+            .export_device_array_with_schema(&mut ctx)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("narrowing would require"));
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_export_decimal_narrowing_from_arrow_import() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+        let array = DecimalArray::from_iter([0i128, 1, -2], DecimalDType::new(10, 2)).into_array();
+
+        let err = array
+            .export_device_array_with_schema(&mut ctx)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("narrowing would require"));
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::i64(
+        DecimalArray::from_iter([i64::MIN, -1i64, 1, i64::MAX], DecimalDType::new(39, 0)).into_array(),
+        DataType::Decimal256(39, 0),
+        vec![i256::from_i128(i64::MIN as i128), i256::from_i128(-1), i256::from_i128(1), i256::from_i128(i64::MAX as i128)]
+    )]
+    #[case::i128(
+        DecimalArray::from_iter([1i128, -2, 3], DecimalDType::new(39, 2)).into_array(),
+        DataType::Decimal256(39, 2),
+        vec![i256::from_i128(1), i256::from_i128(-2), i256::from_i128(3)]
+    )]
+    #[case::i256(
+        DecimalArray::from_iter(
+            [i256::from_i128(10), i256::from_i128(-20), i256::from_i128(30)],
+            DecimalDType::new(76, 2),
+        )
+        .into_array(),
+        DataType::Decimal256(76, 2),
+        vec![i256::from_i128(10), i256::from_i128(-20), i256::from_i128(30)]
+    )]
+    #[crate::test]
+    async fn test_export_decimal256(
+        #[case] array: ArrayRef,
+        #[case] expected_data_type: DataType,
+        #[case] expected_values: Vec<i256>,
+    ) -> VortexResult<()> {
+        assert_exported_decimal(array, expected_data_type, expected_values).await
     }
 
     #[crate::test]
@@ -1519,6 +1816,14 @@ mod tests {
             &mut ctx,
         )
         .await?;
+
+        let private_data = unsafe { &*decimal.array.private_data.cast::<PrivateData>() };
+        let value_buffer = private_data.buffers[1]
+            .as_ref()
+            .vortex_expect("value buffer should be present");
+        assert_eq!(value_buffer.len(), 3 * size_of::<i64>());
+        assert_exported_decimal_values(value_buffer, &[100i64, 0, 300]);
+
         unsafe { release_exported_array(&raw mut decimal.array) };
 
         Ok(())
@@ -1789,6 +2094,67 @@ mod tests {
         assert_eq!(exported.array.array.length, 5);
         assert_eq!(exported.array.array.n_children, 2);
         assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_export_nested_struct_decimal_with_schema() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let nested = StructArray::new(
+            FieldNames::from_iter(["amount"]),
+            vec![
+                DecimalArray::from_iter([100i32, -200, 300], DecimalDType::new(9, 2)).into_array(),
+            ],
+            3,
+            Validity::NonNullable,
+        )
+        .into_array();
+        let array = StructArray::new(
+            FieldNames::from_iter(["nested"]),
+            vec![nested],
+            3,
+            Validity::NonNullable,
+        )
+        .into_array();
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+
+        let schema = Schema::try_from(&exported.schema)?;
+        assert_eq!(
+            schema,
+            Schema::new(vec![Field::new(
+                "nested",
+                DataType::Struct(Fields::from(vec![Field::new(
+                    "amount",
+                    DataType::Decimal32(9, 2),
+                    false,
+                )])),
+                false,
+            )])
+        );
+
+        let children = unsafe {
+            std::slice::from_raw_parts(
+                exported.array.array.children,
+                usize::try_from(exported.array.array.n_children)?,
+            )
+        };
+        let nested_child = unsafe { &*children[0] };
+        let nested_children = unsafe {
+            std::slice::from_raw_parts(
+                nested_child.children,
+                usize::try_from(nested_child.n_children)?,
+            )
+        };
+        let decimal_child = unsafe { &*nested_children[0] };
+        let private_data = unsafe { &*decimal_child.private_data.cast::<PrivateData>() };
+        let value_buffer = private_data.buffers[1]
+            .as_ref()
+            .vortex_expect("value buffer should be present");
+        assert_eq!(value_buffer.len(), 3 * size_of::<i32>());
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())

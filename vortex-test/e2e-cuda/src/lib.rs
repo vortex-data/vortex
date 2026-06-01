@@ -14,7 +14,7 @@ use std::sync::LazyLock;
 use arrow_array::Array;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::Date32Array;
-use arrow_array::Decimal128Array;
+use arrow_array::Decimal64Array;
 use arrow_array::StringArray;
 use arrow_array::cast::AsArray;
 use arrow_array::ffi::FFI_ArrowArray;
@@ -147,8 +147,8 @@ fn export_array_inner(schema_ptr: &mut FFI_ArrowSchema, array_ptr: &mut ArrowDev
         }
     };
     let decimal = DecimalArray::from_option_iter(
-        [Some(0i128), Some(1), None, Some(3), Some(4)],
-        DecimalDType::new(38, 2),
+        [Some(0i32), Some(1), None, Some(3), Some(4)],
+        DecimalDType::new(10, 2),
     );
     let strings = VarBinViewArray::from_iter_nullable_str([
         Some("one"),
@@ -244,8 +244,8 @@ fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowA
             &mut SESSION.create_execution_ctx(),
         )
         .expect("expected primitive Arrow array");
-    let decimal = Decimal128Array::from_iter([Some(0i128), Some(1), None, Some(3), Some(4)])
-        .with_precision_and_scale(38, 2)
+    let decimal = Decimal64Array::from_iter([Some(0i64), Some(1), None, Some(3), Some(4)])
+        .with_precision_and_scale(10, 2)
         .expect("with_precision_and_scale");
     let string = StringArray::from_iter([
         Some("one"),

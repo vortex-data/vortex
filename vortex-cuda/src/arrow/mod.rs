@@ -159,6 +159,9 @@ pub trait DeviceArrayExt {
     ///
     /// The returned array owns any device buffers allocated during export. Call the embedded
     /// Arrow release callback when the consumer is done with the array.
+    ///
+    /// Arrow arrays are not self-describing, so callers that use this method directly must provide
+    /// a matching schema out-of-band.
     async fn export_device_array(
         self,
         ctx: &mut CudaExecutionCtx,
@@ -174,6 +177,13 @@ pub trait DeviceArrayExt {
     /// Top-level struct arrays are exported as table-like Arrow schemas and struct-shaped device
     /// arrays. Top-level non-struct arrays are exported as column-shaped field schemas and
     /// column-shaped device arrays; this method does not wrap them in a single-field struct.
+    ///
+    /// Decimal arrays are exported using Arrow's decimal physical widths by declared precision:
+    /// Decimal32 for precision 1-9, Decimal64 for 10-18, Decimal128 for 19-38, and Decimal256 for
+    /// 39-76. If a decimal array's Vortex storage is wider than the Arrow width implied by its
+    /// precision, export fails instead of narrowing the values. Checking whether such a narrowing is
+    /// safe would require synchronizing an overflow flag from device to host, which this export path
+    /// intentionally avoids.
     async fn export_device_array_with_schema(
         self,
         ctx: &mut CudaExecutionCtx,
@@ -200,11 +210,7 @@ impl DeviceArrayExt for ArrayRef {
     }
 }
 
-/// Build the Arrow C schema that describes the device array exported for `array`.
-///
-/// Top-level Vortex structs are represented as Arrow schemas, which is the shape expected for
-/// table-like consumers. Non-struct arrays are represented as a single Arrow field schema, matching
-/// the column-shaped [`ArrowDeviceArray`] returned by [`DeviceArrayExt::export_device_array`].
+/// Build the Arrow C schema that describes the exported device array.
 fn arrow_schema_for_array(
     array: &ArrayRef,
     ctx: &mut CudaExecutionCtx,
