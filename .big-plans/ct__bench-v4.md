@@ -3,26 +3,26 @@
 ## Current State
 
 ```yaml
-status: executing
+status: phase-boundary
 branch: ct/bench-v4
 planning_sub_flow: null
 current_phase: "Phase 1: RDS + schema + hash port"
 phase_index: 1
 current_pr: null
-pr_index: 5
+pr_index: 6
 outstanding_must_fix: 0
-deferred_items_total: 14
-last_user_touchpoint: 2026-05-29T10:26:00Z
-last_user_touchpoint_what: "PR-1.4 complete (confidence: high, deferred: 1)"
+deferred_items_total: 15
+last_user_touchpoint: 2026-05-29T11:20:00Z
+last_user_touchpoint_what: "PR-1.5 complete (confidence: high, deferred: 1) -- last PR in Phase 1; at phase boundary"
 subagent_invocations_this_pr: 0
-subagent_invocations_total: 13
+subagent_invocations_total: 14
 review_cycles_this_pr: 0
 phase_entry_sha: d8f12ebbb
 phase_end_cycle: 0
 phase_end_reject_cycles: 0
 last_phase_end_verdict: null
 current_pr_is_ci_reopen: null
-last_commit: 7d8f437dc
+last_commit: 51212d7a3
 last_cycle_commits: []
 ```
 
@@ -485,6 +485,7 @@ cargo run -p <ingest-crate> -- --envelope <recent-envelope.jsonl> --dry-run
 | PR-1.2 cycle-2 gauntlet | `scripts/test_migrate_schema.py` (no CI runner) | should-fix | The pytest suite skips silently when Docker is unavailable (`_docker_available()` probe), and no CI workflow currently runs the suite with Docker enabled. PR-1.2 acceptance ("Unit test: applies a fresh schema to testcontainers Postgres ...") is verified only by local dev runs; CI would be green even if the runner regressed. | PR-1.4 wires the schema-deploy workflow with real apply; pair it with a `pytest-on-PR` job that fails loud when `_docker_available` returns False in CI. Track for PR-1.4. |
 | PR-1.3 cycle-1 gauntlet | `migrations/002_iam_db_user.sql:37` (migrator table privileges) | should-fix | `migrator` is granted only `CREATE, USAGE ON SCHEMA public`, no table-level DML on the six tables `001` creates. Under the documented bootstrap order (first `apply` runs as RDS master, which owns `001`'s tables), the PR-2.x ingest write path connecting AS `migrator` would hit `permission denied`. | Forward-looking; the ingest write path is PR-2.x scope and the plan references a separate future `GitHubBenchmarkIngestRole`. Resolve the role-ownership model in PR-2.1 (dedicated ingest role with `GRANT SELECT,INSERT,UPDATE,DELETE` + `ALTER DEFAULT PRIVILEGES`, or explicit table grants to `migrator`), pinned by a connect-AS-ingest-role round-trip test. Fixing now would be premature and a least-privilege smell on the schema-deploy role. |
 | PR-1.4 cycle-2 gauntlet | `.github/workflows/schema-deploy.yml:50` (uv Python provisioning) | should-fix | The `Install uv` step relies on `uv` auto-provisioning a Python 3.11+ interpreter for the PEP 723 `requires-python` script with no explicit pin. Works with current `uv` and matches the sibling `docs.yml` pattern, but is a latent CI fragility if the shared `spiraldb/actions` setup-uv ever pins an older `uv` or disables managed-Python downloads. | Matches established repo convention (`docs.yml` / `bench-pr.yml` use the identical `setup-uv` + `uv run --no-project` pattern with no explicit Python pin); failure mode is loud + operator-visible (workflow_dispatch-only), not silent. Adding `uv python install 3.12` would deviate speculatively. Revisit if the shared setup-uv action's Python-provisioning behavior changes, or fold a repo-wide pin into a future CI-hardening pass. |
+| PR-1.5 cycle-1 gauntlet | `scripts/test_measurement_id.py` (+ `scripts/test_migrate_schema.py`) not wired into CI | should-fix | No CI job runs the `scripts/` pytest suites (the only pytest invocations cover `vortex-python/`). The Rust side IS gated (the golden test runs via `rust-test-other`), so Rust==golden is enforced, but golden==Python is not: a future edit to `_measurement_id.py` that diverges from the golden file would merge green and only surface at PR-2.1 ingest time as duplicate rows. The port currently matches all 63 vectors (verified). | Same class as the PR-1.2 `no CI runner` item (testcontainer suite also ungated). Wire one CI job — `uv run --all-packages pytest scripts/` — covering both `test_measurement_id.py` (no Docker needed) and `test_migrate_schema.py` (needs Docker). Fold into the CI-hardening pass alongside the PR-1.2 item rather than a one-off here; behavior is correct today, only enforcement is missing. |
 
 ## Accepted tradeoffs / r1 traps
 

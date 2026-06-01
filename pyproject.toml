@@ -28,6 +28,11 @@ dev = [
     # the runner against a Postgres testcontainer.
     "psycopg[binary]>=3.2",
     "testcontainers[postgres]>=4.9",
+    # `scripts/_measurement_id.py` (PR-1.5) ports the server's xxhash64 measurement_id
+    # to Python; `scripts/test_measurement_id.py` checks it against Rust-generated golden
+    # vectors. The PR-2.1 ingest writer that imports the port declares the same dep in
+    # its own PEP 723 block for standalone `uv run`.
+    "xxhash>=3.5",
     # forced transitive bumps
     "urllib3>=2.6.3",
     "filelock>=3.20.3",
