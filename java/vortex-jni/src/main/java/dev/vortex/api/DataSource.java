@@ -6,6 +6,8 @@ package dev.vortex.api;
 import com.google.common.base.Preconditions;
 import dev.vortex.VortexCleaner;
 import dev.vortex.jni.NativeDataSource;
+import dev.vortex.jni.NativePointer;
+import java.lang.ref.Cleaner;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -21,17 +23,20 @@ import org.apache.arrow.vector.types.pojo.Schema;
  * A set of Vortex files opened through a {@link Session}. Data sources are cheap to open (only the first file is read
  * eagerly, to determine the schema) and can be scanned multiple times.
  *
- * <p>Native resources are released automatically via {@link VortexCleaner} when the data source becomes unreachable.
+ * <p>Callers should close the data source explicitly to release native resources promptly. If it becomes unreachable
+ * without {@link #close()}, {@link VortexCleaner} releases it as a backstop. After close, any method that accesses the
+ * native pointer throws {@link IllegalStateException} rather than risking use-after-free.
  */
-public final class DataSource {
+public final class DataSource implements AutoCloseable {
     private final Session session;
-    private final long pointer;
+    private final NativePointer pointer;
+    private final Cleaner.Cleanable closeHandle;
 
     private DataSource(Session session, long pointer) {
-        Preconditions.checkArgument(pointer != 0, "invalid data source pointer");
         this.session = Objects.requireNonNull(session, "session");
-        this.pointer = pointer;
-        VortexCleaner.register(this, () -> NativeDataSource.free(pointer));
+        this.pointer = NativePointer.of(pointer);
+        NativePointer pointerRef = this.pointer;
+        this.closeHandle = VortexCleaner.register(this, () -> NativeDataSource.free(pointerRef.take()));
     }
 
     /** Open a single URI. */
@@ -71,10 +76,15 @@ public final class DataSource {
         return new DataSource(session, pointer);
     }
 
+    private long nativePointer() {
+        return pointer.read();
+    }
+
     /** Arrow schema of the data source (and of scans produced from it). */
     public Schema arrowSchema(BufferAllocator allocator) {
+        long ptr = nativePointer();
         try (ArrowSchema schema = ArrowSchema.allocateNew(allocator)) {
-            NativeDataSource.arrowSchema(pointer, schema.memoryAddress());
+            NativeDataSource.arrowSchema(ptr, schema.memoryAddress());
             return Data.importSchema(allocator, schema, null);
         }
     }
@@ -86,7 +96,7 @@ public final class DataSource {
      */
     public RowCount rowCount() {
         long[] out = new long[2];
-        NativeDataSource.rowCount(pointer, out);
+        NativeDataSource.rowCount(nativePointer(), out);
         return switch ((int) out[1]) {
             case 1 -> new RowCount.Estimate(out[0]);
             case 2 -> new RowCount.Exact(out[0]);
@@ -142,7 +152,13 @@ public final class DataSource {
         boolean ordered = options.ordered();
 
         long scanPtr = dev.vortex.jni.NativeScan.create(
-                pointer, projectionPtr, filterPtr, begin, end, selectionIndices, selectionMode, limit, ordered);
+                nativePointer(), projectionPtr, filterPtr, begin, end, selectionIndices, selectionMode, limit, ordered);
         return Scan.fromPointer(session, scanPtr);
+    }
+
+    /** Release the native data source. Idempotent. */
+    @Override
+    public void close() {
+        closeHandle.clean();
     }
 }

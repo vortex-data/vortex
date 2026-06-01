@@ -3,13 +3,13 @@
 
 package dev.vortex.api;
 
-import com.google.common.base.Preconditions;
 import dev.vortex.VortexCleaner;
+import dev.vortex.jni.NativePointer;
 import dev.vortex.jni.NativeWriter;
 import java.io.IOException;
+import java.lang.ref.Cleaner;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.arrow.c.ArrowSchema;
 import org.apache.arrow.c.Data;
 import org.apache.arrow.memory.BufferAllocator;
@@ -24,21 +24,17 @@ import org.apache.arrow.vector.types.pojo.Schema;
  *
  * <p>Call {@link #close()} to flush remaining batches and finalize the file. If the writer becomes unreachable without
  * an explicit {@code close()}, {@link VortexCleaner} will flush and release native resources as a backstop — but
- * callers should always finalize explicitly so that I/O errors surface through the normal call path.
+ * callers should always finalize explicitly so that I/O errors surface through the normal call path. After close, any
+ * method that accesses the native pointer throws {@link IllegalStateException} rather than risking use-after-free.
  */
 public final class VortexWriter implements AutoCloseable {
-    private final long pointer;
-    private final AtomicBoolean closed = new AtomicBoolean(false);
+    private final NativePointer pointer;
+    private final Cleaner.Cleanable closeHandle;
 
     private VortexWriter(long pointer) {
-        Preconditions.checkArgument(pointer != 0, "invalid writer pointer");
-        this.pointer = pointer;
-        AtomicBoolean closedRef = this.closed;
-        VortexCleaner.register(this, () -> {
-            if (closedRef.compareAndSet(false, true)) {
-                NativeWriter.close(pointer);
-            }
-        });
+        this.pointer = NativePointer.of(pointer);
+        NativePointer pointerRef = this.pointer;
+        this.closeHandle = VortexCleaner.register(this, () -> NativeWriter.close(pointerRef.take()));
     }
 
     /**
@@ -65,12 +61,16 @@ public final class VortexWriter implements AutoCloseable {
         }
     }
 
+    private long nativePointer() {
+        return pointer.read();
+    }
+
     /** Write a batch directly from Arrow C Data Interface addresses. */
     public void writeBatch(long arrowArrayAddr, long arrowSchemaAddr) throws IOException {
-        Preconditions.checkState(!closed.get(), "writer already closed");
+        long ptr = nativePointer();
         final boolean ok;
         try {
-            ok = NativeWriter.writeBatch(pointer, arrowArrayAddr, arrowSchemaAddr);
+            ok = NativeWriter.writeBatch(ptr, arrowArrayAddr, arrowSchemaAddr);
         } catch (RuntimeException e) {
             throw new IOException("failed to write batch", e);
         }
@@ -82,12 +82,10 @@ public final class VortexWriter implements AutoCloseable {
     /** Flush any pending batches and finalize the file. Idempotent. */
     @Override
     public void close() throws IOException {
-        if (closed.compareAndSet(false, true)) {
-            try {
-                NativeWriter.close(pointer);
-            } catch (RuntimeException e) {
-                throw new IOException("failed to close writer", e);
-            }
+        try {
+            closeHandle.clean();
+        } catch (RuntimeException e) {
+            throw new IOException("failed to close writer", e);
         }
     }
 }

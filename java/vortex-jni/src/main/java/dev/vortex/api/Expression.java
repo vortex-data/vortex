@@ -6,6 +6,8 @@ package dev.vortex.api;
 import com.google.common.base.Preconditions;
 import dev.vortex.VortexCleaner;
 import dev.vortex.jni.NativeExpression;
+import dev.vortex.jni.NativePointer;
+import java.lang.ref.Cleaner;
 import java.util.Arrays;
 
 /**
@@ -13,20 +15,24 @@ import java.util.Arrays;
  *
  * <p>Expressions are composed via the static factories ({@link #root()}, {@link #getItem(String, Expression)}, etc.).
  * Each returned {@code Expression} owns its native pointer; the pointer is released automatically when the
- * {@code Expression} is no longer reachable. Passing an expression as an input to a builder does <em>not</em> transfer
- * ownership — the resulting expression is an independent copy on the native side.
+ * {@code Expression} is no longer reachable, or eagerly via {@link #close()}. Passing an expression as an input to a
+ * builder does <em>not</em> transfer ownership — the resulting expression is an independent copy on the native side.
+ *
+ * <p>After close, any method that accesses the native pointer throws {@link IllegalStateException} rather than risking
+ * use-after-free.
  */
-public final class Expression {
-    private final long pointer;
+public final class Expression implements AutoCloseable {
+    private final NativePointer pointer;
+    private final Cleaner.Cleanable closeHandle;
 
     private Expression(long pointer) {
-        Preconditions.checkArgument(pointer != 0, "invalid expression pointer");
-        this.pointer = pointer;
-        VortexCleaner.register(this, () -> NativeExpression.free(pointer));
+        this.pointer = NativePointer.of(pointer);
+        NativePointer pointerRef = this.pointer;
+        this.closeHandle = VortexCleaner.register(this, () -> NativeExpression.free(pointerRef.take()));
     }
 
     long nativePointer() {
-        return pointer;
+        return pointer.read();
     }
 
     /** The root expression: applying it to an array yields the array itself. */
@@ -107,6 +113,12 @@ public final class Expression {
 
     public static Expression literal(String value) {
         return new Expression(NativeExpression.literalString(value));
+    }
+
+    /** Release the native expression. Idempotent. */
+    @Override
+    public void close() {
+        closeHandle.clean();
     }
 
     private static long[] nativePointers(Expression[] exprs) {
