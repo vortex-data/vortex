@@ -266,10 +266,15 @@ impl AppState {
         session: &VortexSession,
         path: impl AsRef<std::path::Path>,
     ) -> vortex::error::VortexResult<AppState> {
+        use vortex::error::vortex_err;
         use vortex::file::OpenOptionsSessionExt;
 
         let session = session.clone();
-        let vxf = session.open_options().open_path(path.as_ref()).await?;
+        let url = path
+            .as_ref()
+            .to_str()
+            .ok_or_else(|| vortex_err!("path is not valid UTF-8: {}", path.as_ref().display()))?;
+        let vxf = session.open_options().open_url(url).await?;
 
         let cursor = LayoutCursor::new(vxf.footer().clone(), vxf.segment_source());
 

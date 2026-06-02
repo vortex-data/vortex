@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::session::VortexSession;
 
@@ -57,7 +58,11 @@ struct SegmentInfo {
 ///
 /// Returns an error if the file cannot be opened or read.
 pub async fn exec_segments(session: &VortexSession, args: SegmentsArgs) -> VortexResult<()> {
-    let vxf = session.open_options().open_path(args.file).await?;
+    let url = args
+        .file
+        .to_str()
+        .ok_or_else(|| vortex_err!("path is not valid UTF-8: {}", args.file.display()))?;
+    let vxf = session.open_options().open_url(url).await?;
     let footer = vxf.footer();
 
     let mut segment_tree = collect_segment_tree(footer.layout().as_ref(), footer.segment_map());

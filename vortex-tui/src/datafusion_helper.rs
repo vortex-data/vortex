@@ -52,6 +52,19 @@ pub async fn create_vortex_context(
     let table_url =
         ListingTableUrl::parse(file_path).map_err(|e| format!("Failed to parse file path: {e}"))?;
 
+    // For remote URLs (s3://, gs://, az://, …), resolve the object store and register it with the
+    // DataFusion context so it can list and read the file. Local paths need no registration.
+    if table_url.scheme() != "file" {
+        use vortex::io::object_store::cloud::ResolvedStore;
+        use vortex::io::object_store::cloud::resolve_url;
+
+        if let ResolvedStore::ObjectStore(store, _) = resolve_url(file_path, None)
+            .map_err(|e| format!("Failed to resolve object store: {e}"))?
+        {
+            ctx.register_object_store(table_url.as_ref(), store);
+        }
+    }
+
     let config = ListingTableConfig::new(table_url)
         .with_listing_options(
             ListingOptions::new(format).with_session_config_options(ctx.state().config()),

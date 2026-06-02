@@ -10,6 +10,7 @@ use std::sync::Arc;
 use serde::Serialize;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::layout::LayoutRef;
 use vortex::session::VortexSession;
@@ -92,9 +93,12 @@ pub async fn exec_tree(session: &VortexSession, args: TreeArgs) -> VortexResult<
 }
 
 async fn exec_array_tree(session: &VortexSession, file: &Path, _json: bool) -> VortexResult<()> {
+    let url = file
+        .to_str()
+        .ok_or_else(|| vortex_err!("path is not valid UTF-8: {}", file.display()))?;
     let full = session
         .open_options()
-        .open_path(file)
+        .open_url(url)
         .await?
         .scan()?
         .into_array_stream()?
@@ -112,7 +116,10 @@ async fn exec_layout_tree(
     verbose: bool,
     json: bool,
 ) -> VortexResult<()> {
-    let vxf = session.open_options().open_path(file).await?;
+    let url = file
+        .to_str()
+        .ok_or_else(|| vortex_err!("path is not valid UTF-8: {}", file.display()))?;
+    let vxf = session.open_options().open_url(url).await?;
     let footer = vxf.footer();
 
     if json {

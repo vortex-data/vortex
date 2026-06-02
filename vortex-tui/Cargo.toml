@@ -27,6 +27,7 @@ native = [
     "dep:tokio",
     "dep:vortex-datafusion",
     "ratatui/crossterm",
+    "vortex/cloud",
     "vortex/tokio",
     "vortex/zstd",
 ]

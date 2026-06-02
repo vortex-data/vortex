@@ -34,6 +34,7 @@ tokio = { workspace = true, features = [
     "sync",
 ] } # this is the maximum subset of fetaures that is safe for wasm32 targets
 tracing = { workspace = true }
+url = { workspace = true, optional = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
@@ -62,6 +63,16 @@ tokio = { workspace = true, features = ["full"] }
 
 [features]
 object_store = ["dep:object_store", "vortex-error/object_store"]
+# Enables native cloud object stores (S3, GCS, Azure, HTTP) plus the URL-based
+# store resolver and opinionated builder in `object_store::cloud`.
+cloud = [
+    "object_store",
+    "dep:url",
+    "object_store/aws",
+    "object_store/gcp",
+    "object_store/azure",
+    "object_store/http",
+]
 tokio = ["tokio/fs", "tokio/rt-multi-thread"]
 
 [lints]

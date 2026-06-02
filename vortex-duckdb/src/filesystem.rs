@@ -15,7 +15,6 @@ use futures::future::BoxFuture;
 use futures::stream;
 use futures::stream::BoxStream;
 use object_store::ObjectStore;
-use object_store::aws::AmazonS3Builder;
 use object_store::local::LocalFileSystem;
 use url::Url;
 use vortex::array::buffer::BufferHandle;
@@ -33,6 +32,8 @@ use vortex::io::filesystem::FileSystem;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::DEFAULT_CONCURRENCY as OBJECT_STORE_DEFAULT_CONCURRENCY;
 use vortex::io::object_store::ObjectStoreFileSystem;
+use vortex::io::object_store::cloud::ResolvedStore;
+use vortex::io::object_store::cloud::resolve_url;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::std_file::DEFAULT_CONCURRENCY as STD_FILE_DEFAULT_CONCURRENCY;
 
@@ -79,21 +80,17 @@ pub(super) fn resolve_filesystem(
 }
 
 fn object_store_fs(base_url: &Url) -> VortexResult<FileSystemRef> {
+    // Local paths use the local filesystem directly; all other schemes (s3://, gs://, az://, …)
+    // resolve through the shared cloud resolver.
     let object_store: Arc<dyn ObjectStore> = if base_url.scheme() == "file" {
         Arc::new(LocalFileSystem::new())
-    } else if base_url.scheme() == "s3" {
-        Arc::new(
-            AmazonS3Builder::from_env()
-                .with_bucket_name(base_url.host_str().ok_or_else(|| {
-                    vortex_err!("Failed to extract bucket name from URL: {base_url}")
-                })?)
-                .build()?,
-        )
     } else {
-        vortex_bail!(
-            "Unsupported URL scheme '{}', only 'file' and 's3' are supported with vortex_filesystem='vortex'",
-            base_url.scheme()
-        );
+        match resolve_url(base_url.as_str(), None)? {
+            ResolvedStore::ObjectStore(store, _) => store,
+            ResolvedStore::Path(_) => {
+                vortex_bail!("expected an object store for URL: {base_url}")
+            }
+        }
     };
 
     let object_store = Arc::new(Compat::new(object_store)) as Arc<dyn ObjectStore>;

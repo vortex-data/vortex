@@ -20,10 +20,10 @@ use datafusion::prelude::SessionConfig;
 use datafusion::prelude::SessionContext;
 use datafusion_common::GetExt;
 use object_store::ObjectStore;
-use object_store::aws::AmazonS3Builder;
-use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::local::LocalFileSystem;
 use url::Url;
+use vortex::io::object_store::cloud::ResolvedStore;
+use vortex::io::object_store::cloud::resolve_url;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
 use vortex_datafusion::VortexFormat;
@@ -74,31 +74,17 @@ pub fn make_object_store(
     source: &Url,
 ) -> anyhow::Result<Arc<dyn ObjectStore>> {
     match source.scheme() {
-        "s3" => {
-            let bucket_name = &source[url::Position::BeforeHost..url::Position::AfterHost];
-            let s3 = Arc::new(
-                AmazonS3Builder::from_env()
-                    .with_bucket_name(bucket_name)
-                    .build()?,
-            );
-            session.register_object_store(
-                &Url::parse(&format!("s3://{bucket_name}/"))?,
-                Arc::<object_store::aws::AmazonS3>::clone(&s3),
-            );
-            Ok(s3)
-        }
-        "gs" => {
-            let bucket_name = &source[url::Position::BeforeHost..url::Position::AfterHost];
-            let gcs = Arc::new(
-                GoogleCloudStorageBuilder::from_env()
-                    .with_bucket_name(bucket_name)
-                    .build()?,
-            );
-            session.register_object_store(
-                &Url::parse(&format!("gs://{bucket_name}/"))?,
-                Arc::<object_store::gcp::GoogleCloudStorage>::clone(&gcs),
-            );
-            Ok(gcs)
+        "s3" | "gs" | "az" => {
+            // Build the cloud store through the shared resolver, then register it with the
+            // DataFusion session under its scheme+authority prefix.
+            let store = match resolve_url(source.as_str(), None)? {
+                ResolvedStore::ObjectStore(store, _) => store,
+                ResolvedStore::Path(_) => anyhow::bail!("expected an object store for {source}"),
+            };
+            let authority = &source[url::Position::BeforeHost..url::Position::AfterHost];
+            let base = Url::parse(&format!("{}://{authority}/", source.scheme()))?;
+            session.register_object_store(&base, Arc::clone(&store));
+            Ok(store)
         }
         _ => {
             let fs = Arc::new(LocalFileSystem::default());

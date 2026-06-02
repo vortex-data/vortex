@@ -73,6 +73,8 @@ default = ["files", "zstd"]
 files = ["dep:vortex-file"]
 memmap2 = ["vortex-buffer/memmap2"]
 object_store = ["vortex-file/object_store", "vortex-io/object_store"]
+# Enables native cloud object stores (S3, GCS, Azure, HTTP) and URL-based file opening.
+cloud = ["object_store", "vortex-file/cloud", "vortex-io/cloud"]
 tokio = ["vortex-file/tokio"]
 zstd = ["dep:vortex-zstd", "vortex-file/zstd"]
 pretty = ["vortex-array/table-display"]

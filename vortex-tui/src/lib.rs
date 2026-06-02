@@ -130,7 +130,10 @@ mod native_cli {
         let cli = Cli::try_parse_from(args)?;
 
         let path = cli.command.file_path();
-        if !std::fs::exists(path)? {
+        // Remote URLs (e.g. s3://, gs://, az://) are validated when opened, not against the
+        // local filesystem. Only pre-check existence for local paths.
+        let is_url = matches!(path.to_str(), Some(s) if s.contains("://"));
+        if !is_url && !std::fs::exists(path)? {
             return Err(Cli::command()
                 .error(
                     clap::error::ErrorKind::Io,

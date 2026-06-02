@@ -43,6 +43,7 @@ use vortex::file::WriteSummary;
 use vortex::io::VortexWrite;
 use vortex::io::compat::Compat;
 use vortex::io::object_store::ObjectStoreWrite;
+use vortex::io::object_store::make_object_store;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::Task;
 use vortex::io::session::RuntimeSessionExt;
@@ -55,7 +56,6 @@ use crate::dtype::import_arrow_schema;
 use crate::errors::JNIError;
 use crate::errors::try_or_throw;
 use crate::file::extract_properties;
-use crate::object_store::make_object_store;
 use crate::session::session_ref;
 
 /// Capacity of the in-flight write queue. Small on purpose so that back-pressure from

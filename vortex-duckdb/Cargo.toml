@@ -32,14 +32,14 @@ futures = { workspace = true }
 itertools = { workspace = true }
 kanal = { workspace = true }
 num-traits = { workspace = true }
-object_store = { workspace = true, features = ["aws"] }
+object_store = { workspace = true }
 parking_lot = { workspace = true }
 paste = { workspace = true }
 static_assertions = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
-vortex = { workspace = true, features = ["files", "tokio", "object_store"] }
+vortex = { workspace = true, features = ["cloud", "files", "tokio", "object_store"] }
 vortex-utils = { workspace = true, features = ["dashmap"] }
 
 [dev-dependencies]

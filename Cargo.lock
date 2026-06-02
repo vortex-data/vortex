@@ -9780,6 +9780,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+ "url",
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
