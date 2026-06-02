@@ -36,7 +36,15 @@ fn main() {
     divan::main();
 }
 
-const LENS: &[usize] = &[1024, 64 * 1024, 1024 * 1024];
+const LENS: &[usize] = &[
+    1024,
+    16 * 1024,
+    64 * 1024,
+    256 * 1024,
+    1024 * 1024,
+    4 * 1024 * 1024,
+    16 * 1024 * 1024,
+];
 
 /// Build a delta-encoded array of a slowly varying monotone-ish sequence, plus a midpoint
 /// constant RHS so the predicate selectivity is ~50%.
