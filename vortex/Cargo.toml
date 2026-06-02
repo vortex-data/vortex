@@ -55,7 +55,6 @@ arrow-array = { workspace = true }
 divan = { workspace = true }
 fastlanes = { workspace = true }
 futures = { workspace = true }
-mimalloc = { workspace = true }
 parquet = { workspace = true }
 paste = { workspace = true }
 rand = { workspace = true }
@@ -67,6 +66,9 @@ tracing-subscriber = { workspace = true }
 vortex = { path = ".", features = ["tokio"] }
 vortex-bench = { workspace = true, features = ["unstable_encodings"] }
 vortex-tensor = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+mimalloc = { workspace = true }
 
 [features]
 default = ["files", "zstd"]

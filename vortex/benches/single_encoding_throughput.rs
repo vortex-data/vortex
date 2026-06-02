@@ -9,6 +9,7 @@ use std::sync::LazyLock;
 use divan::Bencher;
 #[cfg(not(codspeed))]
 use divan::counter::BytesCount;
+#[cfg(target_os = "macos")]
 use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
@@ -44,6 +45,7 @@ use vortex_error::VortexResult;
 use vortex_sequence::Sequence;
 use vortex_session::VortexSession;
 
+#[cfg(target_os = "macos")]
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 

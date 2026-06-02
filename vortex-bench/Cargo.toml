@@ -39,7 +39,6 @@ glob = { workspace = true }
 humansize = { workspace = true }
 indicatif = { workspace = true, features = ["futures"] }
 itertools = { workspace = true }
-mimalloc = { workspace = true }
 noodles-bgzf = { workspace = true, features = ["async"] }
 noodles-vcf = { workspace = true, features = ["async"] }
 parking_lot = { workspace = true }
@@ -66,6 +65,9 @@ tracing-subscriber = { workspace = true, features = [
 ] }
 url = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+mimalloc = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }

@@ -68,7 +68,8 @@ pub use vortex::error::vortex_panic;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 
-// All benchmarks run with mimalloc for consistency.
+// All benchmarks run with mimalloc for consistency on macOS.
+#[cfg(target_os = "macos")]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 

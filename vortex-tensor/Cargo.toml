@@ -34,9 +34,11 @@ prost = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }
-mimalloc = { workspace = true }
 rand = { workspace = true }
 rand_distr = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-btrblocks = { path = "../vortex-btrblocks" }
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+mimalloc = { workspace = true }

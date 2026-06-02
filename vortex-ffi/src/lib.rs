@@ -36,7 +36,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::io::runtime::current::CurrentThreadRuntime;
 
-#[cfg(all(feature = "mimalloc", not(miri)))]
+#[cfg(all(target_os = "macos", feature = "mimalloc", not(miri)))]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 

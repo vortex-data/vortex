@@ -9,6 +9,7 @@ use std::ops::Deref;
 use divan::Bencher;
 #[cfg(not(codspeed))]
 use divan::counter::BytesCount;
+#[cfg(target_os = "macos")]
 use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
@@ -44,6 +45,7 @@ use vortex::encodings::runend::RunEndArrayExt;
 use vortex::error::VortexExpect;
 use vortex::extension::datetime::TimeUnit;
 
+#[cfg(target_os = "macos")]
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
