@@ -41,6 +41,16 @@ public final class Expression {
         return new Expression(NativeExpression.root());
     }
 
+    /**
+     * The row-index expression. When evaluated as part of a Vortex scan it yields, as a non-nullable {@code u64}, each
+     * row's index in the file <em>before</em> filtering: the index is assigned to the unfiltered rows, so filtered-out
+     * rows leave gaps and the surviving rows keep their original positions rather than being renumbered. It cannot be
+     * evaluated outside of a scan.
+     */
+    public static Expression rowIdx() {
+        return new Expression(NativeExpression.rowIdx());
+    }
+
     /** Access a named field from a struct expression. */
     public static Expression getItem(String fieldName, Expression child) {
         return new Expression(NativeExpression.getItem(fieldName, child.nativePointer()));

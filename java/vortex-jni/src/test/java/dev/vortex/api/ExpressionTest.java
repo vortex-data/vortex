@@ -4,6 +4,7 @@
 package dev.vortex.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -16,6 +17,13 @@ public final class ExpressionTest {
     @BeforeAll
     public static void loadLibrary() {
         NativeLoader.loadJni();
+    }
+
+    @Test
+    public void rowIdxBuildsAndComposes() {
+        assertNotNull(Expression.rowIdx());
+        // Mirrors `gt(row_idx(), lit(...))` on the Rust side: the row-index expression composes like any other.
+        assertNotNull(Expression.binary(Expression.BinaryOp.LT, Expression.rowIdx(), Expression.literal(5L)));
     }
 
     @Test
