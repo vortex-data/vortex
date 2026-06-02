@@ -1,27 +1,108 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use fastlanes::FL_ORDER;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
 use super::Delta;
+use crate::bit_transpose::untranspose_validity;
+use crate::delta::array::DeltaArrayExt;
+use crate::delta::array::lane_count;
+
 impl OperationsVTable<Delta> for Delta {
+    /// Reconstruct a single value without decompressing the whole chunk.
+    ///
+    /// Delta decoding is independent per FastLanes lane: a value at logical position `p` lives in
+    /// exactly one lane and is the prefix sum of that lane's deltas, seeded by the lane base, up to
+    /// its row. We therefore materialize only the 1,024-element chunk containing `index` and walk
+    /// the single relevant lane, rather than running the full undelta + untranspose over all 1,024
+    /// values as canonicalization would.
     fn scalar_at(
         array: ArrayView<'_, Delta>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let decompressed = array
-            .array()
-            .slice(index..index + 1)?
+        vortex_ensure!(
+            index < array.len(),
+            "index {index} out of bounds for Delta array of length {}",
+            array.len()
+        );
+
+        let ptype = array.dtype().as_ptype();
+        let lanes = lane_count(ptype);
+        let rows = 1024 / lanes;
+
+        // Resolve the physical position within the chunk that backs this value.
+        let physical = index + array.offset();
+        let chunk = physical / 1024;
+        let chunk_local = physical % 1024;
+
+        // Materialize only this chunk's bases and deltas.
+        let bases = array
+            .bases()
+            .slice(chunk * lanes..(chunk + 1) * lanes)?
             .execute::<PrimitiveArray>(ctx)?;
-        decompressed.into_array().execute_scalar(0, ctx)
+        let deltas = array
+            .deltas()
+            .slice(chunk * 1024..(chunk + 1) * 1024)?
+            .execute::<PrimitiveArray>(ctx)?;
+
+        // Validity is stored in the (bit-)transposed deltas buffer; untranspose the chunk's mask
+        // and look up this value's logical position. The element transpose and the bit transpose
+        // use different layouts, so this is kept separate from the value reconstruction below.
+        let validity = untranspose_validity(&deltas.validity()?, ctx)?;
+        if !validity.is_valid(chunk_local)? {
+            return Ok(Scalar::null(array.dtype().clone()));
+        }
+
+        // Position of this value within the FastLanes-transposed (delta-encoded) value buffer.
+        let transposed = untranspose_index(chunk_local);
+
+        // Accumulate the lane's deltas onto its base up to (and including) this value's row.
+        // `wrapping_add` recovers both signed and unsigned values, inverting the `wrapping_sub`
+        // performed at compress time.
+        let lane = (transposed % 128) % lanes;
+        let scalar = match_each_integer_ptype!(ptype, |P| {
+            let bases = bases.as_slice::<P>();
+            let deltas = deltas.as_slice::<P>();
+            let mut value = bases[lane];
+            for row in 0..rows {
+                let idx = transposed_lane_index(row, lane);
+                value = value.wrapping_add(deltas[idx]);
+                if idx == transposed {
+                    break;
+                }
+            }
+            Scalar::primitive(value, array.dtype().nullability())
+        });
+
+        Ok(scalar)
     }
+}
+
+/// Position of the `row`th value of `lane` within the FastLanes-transposed 1,024-element buffer.
+///
+/// This matches the per-lane iteration order used by `fastlanes` delta (un)packing.
+fn transposed_lane_index(row: usize, lane: usize) -> usize {
+    FL_ORDER[row / 8] * 16 + (row % 8) * 128 + lane
+}
+
+/// Map a logical chunk-local index to its slot in the FastLanes-transposed buffer.
+///
+/// This is the inverse of `fastlanes::transpose`.
+fn untranspose_index(idx: usize) -> usize {
+    let lane = idx / 64;
+    let rem = idx % 64;
+    let order = FL_ORDER[rem / 8];
+    let row = rem % 8;
+    row * 128 + order * 16 + lane
 }
 
 #[cfg(test)]
@@ -267,5 +348,76 @@ mod tests {
     #[case::delta_i32_basic(PrimitiveArray::new(buffer![-1i32, -1, -1, -1, -1], Validity::NonNullable))]
     fn test_delta_binary_numeric(#[case] array: PrimitiveArray) {
         test_binary_numeric_array(da(&array).into_array());
+    }
+
+    /// `untranspose_index` must invert `fastlanes::transpose` over a full 1,024-element vector.
+    #[test]
+    fn untranspose_index_inverts_transpose() {
+        for i in 0..1024 {
+            assert_eq!(super::untranspose_index(fastlanes::transpose(i)), i);
+            assert_eq!(fastlanes::transpose(super::untranspose_index(i)), i);
+        }
+    }
+
+    /// `scalar_at` at every index must agree with the fully decompressed (canonical) array.
+    fn check_scalar_at(array: PrimitiveArray) {
+        let expected = array.clone().into_array();
+        let delta = da(&array).into_array();
+        assert_eq!(delta.len(), expected.len());
+
+        for i in 0..delta.len() {
+            let got = delta
+                .execute_scalar(i, &mut SESSION.create_execution_ctx())
+                .vortex_expect("delta scalar_at");
+            let want = expected
+                .execute_scalar(i, &mut SESSION.create_execution_ctx())
+                .vortex_expect("reference scalar_at");
+            assert_eq!(got.is_valid(), want.is_valid(), "validity mismatch at {i}");
+            if want.is_valid() {
+                assert_eq!(got, want, "value mismatch at {i}");
+            }
+        }
+    }
+
+    #[rstest]
+    #[case::u8((0u8..200).collect())]
+    #[case::u16((0u16..1500).map(|i| i * 3).collect())]
+    #[case::u32((0u32..2050).collect())]
+    #[case::u64((0u64..2050).map(|i| i * 7).collect())]
+    #[case::i32_crossing_zero((-1100i32..1100).collect())]
+    #[case::i64_negative((0i64..2050).map(|i| -i * 5).collect())]
+    #[case::single(PrimitiveArray::new(buffer![42u32], Validity::NonNullable))]
+    #[case::chunk_boundary((0u32..1025).collect())]
+    fn test_scalar_at_matches_canonical(#[case] array: PrimitiveArray) {
+        check_scalar_at(array);
+    }
+
+    #[rstest]
+    #[case::nullable_u32(PrimitiveArray::from_option_iter(
+        (0u32..1100).map(|i| (i % 3 != 0).then_some(i)),
+    ))]
+    #[case::nullable_i64(PrimitiveArray::from_option_iter(
+        (0i64..1100).map(|i| (i % 5 != 0).then_some(-i * 2)),
+    ))]
+    fn test_scalar_at_matches_canonical_nullable(#[case] array: PrimitiveArray) {
+        check_scalar_at(array);
+    }
+
+    /// `scalar_at` on a sliced array must honor the physical offset across chunk boundaries.
+    #[test]
+    fn test_scalar_at_sliced_offset() {
+        let delta = da(&(0u32..2048).collect()).into_array();
+        let sliced = delta.slice(1000..1100).unwrap();
+        let expected = PrimitiveArray::from_iter(1000u32..1100).into_array();
+
+        for i in 0..sliced.len() {
+            let got = sliced
+                .execute_scalar(i, &mut SESSION.create_execution_ctx())
+                .vortex_expect("delta scalar_at");
+            let want = expected
+                .execute_scalar(i, &mut SESSION.create_execution_ctx())
+                .vortex_expect("reference scalar_at");
+            assert_eq!(got, want, "value mismatch at {i}");
+        }
     }
 }
