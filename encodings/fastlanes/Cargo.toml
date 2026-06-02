@@ -70,7 +70,7 @@ harness = false
 [[bench]]
 name = "delta_for_bitpack"
 harness = false
-required-features = ["unstable_encodings"]
+required-features = ["unstable_encodings", "_test-harness"]
 
 [[bench]]
 name = "cast_bitpacked"

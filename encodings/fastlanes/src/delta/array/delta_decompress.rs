@@ -42,6 +42,16 @@ pub fn delta_decompress(
         return Ok(decoded);
     }
 
+    delta_decompress_generic(array, ctx)
+}
+
+/// The generic delta decode: fully materialize the `deltas` child, then invert the delta encoding
+/// (un-delta + untranspose). This is the path taken for every stack that the fused fast path does
+/// not recognize, and the one Vortex used before the fused `delta(for(bitpacking))` kernel existed.
+pub fn delta_decompress_generic(
+    array: &DeltaArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray> {
     let bases = array.bases().clone().execute::<PrimitiveArray>(ctx)?;
     let deltas = array.deltas().clone().execute::<PrimitiveArray>(ctx)?;
 
