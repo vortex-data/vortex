@@ -15,6 +15,8 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::dict_test::gen_primitive_for_dict;
 use vortex_array::arrays::dict_test::gen_varbin_words;
 use vortex_array::builders::dict::dict_encode;
+use vortex_array::builders::dict::dict_encode_sorted;
+use vortex_array::builders::dict::sort_dict;
 use vortex_array::dtype::NativePType;
 
 fn main() {
@@ -122,4 +124,55 @@ fn decode_varbinview(bencher: Bencher, (len, unique_values): (usize, usize)) {
     bencher
         .with_inputs(|| (&dict, LEGACY_SESSION.create_execution_ctx()))
         .bench_refs(|(dict, ctx)| (**dict).clone().execute::<Canonical>(ctx));
+}
+
+// ---------------------------------------------------------------------------
+// Sorted-dict benches: measure the cost of `sort_dict` (argsort + remap) on
+// top of an already-encoded dictionary, plus end-to-end `dict_encode_sorted`.
+// ---------------------------------------------------------------------------
+
+#[divan::bench(types = [u8, f32, i64], args = BENCH_ARGS)]
+fn sort_existing_primitives<T>(bencher: Bencher, (len, unique_values): (usize, usize))
+where
+    T: NativePType,
+    StandardUniform: Distribution<T>,
+{
+    let primitive_arr = gen_primitive_for_dict::<T>(len, unique_values);
+    let dict = dict_encode(&primitive_arr.into_array(), &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+
+    bencher
+        .with_inputs(|| dict.clone())
+        .bench_values(sort_dict);
+}
+
+#[divan::bench(args = BENCH_ARGS)]
+fn sort_existing_varbinview(bencher: Bencher, (len, unique_values): (usize, usize)) {
+    let varbinview_arr = VarBinViewArray::from_iter_str(gen_varbin_words(len, unique_values));
+    let dict = dict_encode(&varbinview_arr.into_array(), &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
+
+    bencher
+        .with_inputs(|| dict.clone())
+        .bench_values(sort_dict);
+}
+
+#[divan::bench(types = [u8, f32, i64], args = BENCH_ARGS)]
+fn encode_sorted_primitives<T>(bencher: Bencher, (len, unique_values): (usize, usize))
+where
+    T: NativePType,
+    StandardUniform: Distribution<T>,
+{
+    let primitive_arr = gen_primitive_for_dict::<T>(len, unique_values);
+
+    bencher
+        .with_inputs(|| &primitive_arr)
+        .bench_refs(|arr| dict_encode_sorted(&arr.clone().into_array()));
+}
+
+#[divan::bench(args = BENCH_ARGS)]
+fn encode_sorted_varbinview(bencher: Bencher, (len, unique_values): (usize, usize)) {
+    let varbinview_arr = VarBinViewArray::from_iter_str(gen_varbin_words(len, unique_values));
+
+    bencher
+        .with_inputs(|| &varbinview_arr)
+        .bench_refs(|arr| dict_encode_sorted(&arr.clone().into_array()));
 }

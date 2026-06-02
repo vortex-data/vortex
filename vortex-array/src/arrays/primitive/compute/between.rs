@@ -11,9 +11,11 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::BoolArray;
 use crate::arrays::Primitive;
+use crate::arrays::primitive::compute::chunked_pack::chunked_pack;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::match_each_native_ptype;
+use crate::match_each_unsigned_integer_ptype;
 use crate::scalar_fn::fns::between::BetweenKernel;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::between::StrictComparison;
@@ -30,11 +32,20 @@ impl BetweenKernel for Primitive {
             return Ok(None);
         };
 
-        // Note, we know that have checked before that the lower and upper bounds are not constant
-        // null values
-
         let nullability =
             arr.dtype().nullability() | lower.dtype().nullability() | upper.dtype().nullability();
+
+        // Inclusive-inclusive on unsigned has a wraparound fast path: `lo <= v <= hi` is
+        // equivalent to `v.wrapping_sub(lo) <= hi - lo` — one sub + one cmp per element.
+        if matches!(options.lower_strict, StrictComparison::NonStrict)
+            && matches!(options.upper_strict, StrictComparison::NonStrict)
+            && arr.ptype().is_unsigned_int()
+        {
+            let bits = match_each_unsigned_integer_ptype!(arr.ptype(), |P| {
+                wraparound_unsigned::<P>(arr.as_slice::<P>(), P::try_from(&lower)?, P::try_from(&upper)?)
+            });
+            return Ok(Some(into_bool_array(arr, bits, nullability)));
+        }
 
         Ok(Some(match_each_native_ptype!(arr.ptype(), |P| {
             between_impl::<P>(
@@ -48,6 +59,29 @@ impl BetweenKernel for Primitive {
     }
 }
 
+#[inline]
+fn wraparound_unsigned<T>(slice: &[T], lo: T, hi: T) -> BitBuffer
+where
+    T: Copy + num_traits::WrappingSub + PartialOrd,
+{
+    let range = hi.wrapping_sub(&lo);
+    chunked_pack(slice, |v| v.wrapping_sub(&lo) <= range)
+}
+
+fn into_bool_array(
+    arr: ArrayView<'_, Primitive>,
+    bits: BitBuffer,
+    nullability: Nullability,
+) -> ArrayRef {
+    BoolArray::new(
+        bits,
+        arr.validity()
+            .vortex_expect("validity should be derivable")
+            .union_nullability(nullability),
+    )
+    .into_array()
+}
+
 fn between_impl<T: NativePType + Copy>(
     arr: ArrayView<'_, Primitive>,
     lower: T,
@@ -55,64 +89,27 @@ fn between_impl<T: NativePType + Copy>(
     nullability: Nullability,
     options: &BetweenOptions,
 ) -> ArrayRef {
-    match (options.lower_strict, options.upper_strict) {
-        // Note: these comparisons are explicitly passed in to allow function impl inlining
-        (StrictComparison::Strict, StrictComparison::Strict) => between_impl_(
-            arr,
-            lower,
-            NativePType::is_lt,
-            upper,
-            NativePType::is_lt,
-            nullability,
-        ),
-        (StrictComparison::Strict, StrictComparison::NonStrict) => between_impl_(
-            arr,
-            lower,
-            NativePType::is_lt,
-            upper,
-            NativePType::is_le,
-            nullability,
-        ),
-        (StrictComparison::NonStrict, StrictComparison::Strict) => between_impl_(
-            arr,
-            lower,
-            NativePType::is_le,
-            upper,
-            NativePType::is_lt,
-            nullability,
-        ),
-        (StrictComparison::NonStrict, StrictComparison::NonStrict) => between_impl_(
-            arr,
-            lower,
-            NativePType::is_le,
-            upper,
-            NativePType::is_le,
-            nullability,
-        ),
-    }
-}
-
-fn between_impl_<T>(
-    arr: ArrayView<'_, Primitive>,
-    lower: T,
-    lower_fn: impl Fn(T, T) -> bool,
-    upper: T,
-    upper_fn: impl Fn(T, T) -> bool,
-    nullability: Nullability,
-) -> ArrayRef
-where
-    T: NativePType + Copy,
-{
-    let slice = arr.as_slice::<T>();
-    BoolArray::new(
-        BitBuffer::collect_bool(slice.len(), |idx| {
-            // We only iterate upto arr len and |arr| == |slice|.
-            let i = unsafe { *slice.get_unchecked(idx) };
-            lower_fn(lower, i) & upper_fn(i, upper)
-        }),
-        arr.validity()
-            .vortex_expect("validity should be derivable")
-            .union_nullability(nullability),
-    )
-    .into_array()
+    let bits = match (options.lower_strict, options.upper_strict) {
+        (StrictComparison::Strict, StrictComparison::Strict) => {
+            chunked_pack(arr.as_slice::<T>(), |v| {
+                NativePType::is_lt(lower, v) & NativePType::is_lt(v, upper)
+            })
+        }
+        (StrictComparison::Strict, StrictComparison::NonStrict) => {
+            chunked_pack(arr.as_slice::<T>(), |v| {
+                NativePType::is_lt(lower, v) & NativePType::is_le(v, upper)
+            })
+        }
+        (StrictComparison::NonStrict, StrictComparison::Strict) => {
+            chunked_pack(arr.as_slice::<T>(), |v| {
+                NativePType::is_le(lower, v) & NativePType::is_lt(v, upper)
+            })
+        }
+        (StrictComparison::NonStrict, StrictComparison::NonStrict) => {
+            chunked_pack(arr.as_slice::<T>(), |v| {
+                NativePType::is_le(lower, v) & NativePType::is_le(v, upper)
+            })
+        }
+    };
+    into_bool_array(arr, bits, nullability)
 }

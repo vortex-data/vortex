@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayEq;
@@ -15,19 +16,27 @@ use crate::arrays::Dict;
 use crate::arrays::DictArray;
 use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
+use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
+use crate::arrays::dict::compute::between::reduce_sorted_between;
+use crate::arrays::dict::compute::compare::reduce_sorted_compare;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::scalar_fn::AnyScalarFn;
+use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
+use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::builtins::ArrayBuiltins;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
+use crate::scalar_fn::fns::between::Between;
+use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::like::LikeReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
+use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::validity::Validity;
 
@@ -36,10 +45,95 @@ pub(crate) const PARENT_RULES: ParentRuleSet<Dict> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&CastReduceAdaptor(Dict)),
     ParentRuleSet::lift(&MaskReduceAdaptor(Dict)),
     ParentRuleSet::lift(&LikeReduceAdaptor(Dict)),
+    // Sorted-dict fast paths must fire before the value push-down, which would
+    // otherwise eagerly rewrite scalar_fn(dict, const) and prevent the rewrite.
+    ParentRuleSet::lift(&DictionarySortedCompareRule),
+    ParentRuleSet::lift(&DictionarySortedBetweenRule),
     ParentRuleSet::lift(&DictionaryScalarFnValuesPushDownRule),
     ParentRuleSet::lift(&DictionaryScalarFnCodesPullUpRule),
     ParentRuleSet::lift(&SliceReduceAdaptor(Dict)),
 ]);
+
+#[inline]
+fn sorted_precondition(array: ArrayView<'_, Dict>) -> bool {
+    array.has_sorted_values() && !array.values().dtype().is_nullable()
+}
+
+/// Reduce `compare(dict, const)` on a sorted-values dict to a codes-domain compare (or a
+/// constant when the boundary collapses).
+#[derive(Debug)]
+struct DictionarySortedCompareRule;
+
+impl ArrayParentReduceRule<Dict> for DictionarySortedCompareRule {
+    type Parent = ExactScalarFn<Binary>;
+
+    fn reduce_parent(
+        &self,
+        array: ArrayView<'_, Dict>,
+        parent: ScalarFnArrayView<'_, Binary>,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let Ok(cmp_op) = CompareOperator::try_from(*parent.options) else {
+            return Ok(None);
+        };
+        if !sorted_precondition(array) {
+            return Ok(None);
+        }
+
+        // Normalise so the dict is always the LHS, swapping the operator if it was on the RHS.
+        let scalar_fn = parent
+            .as_opt::<ScalarFn>()
+            .vortex_expect("ExactScalarFn matcher confirmed parent is ScalarFnArray");
+        let (cmp_op, other) = match child_idx {
+            0 => (cmp_op, scalar_fn.get_child(1)),
+            1 => (cmp_op.swap(), scalar_fn.get_child(0)),
+            _ => return Ok(None),
+        };
+        let Some(scalar) = other.as_constant() else {
+            return Ok(None);
+        };
+        if scalar.is_null() {
+            return Ok(None);
+        }
+
+        reduce_sorted_compare(array, &scalar, cmp_op)
+    }
+}
+
+/// Reduce `between(dict, lower, upper)` on a sorted-values dict to a codes-domain compare.
+#[derive(Debug)]
+struct DictionarySortedBetweenRule;
+
+impl ArrayParentReduceRule<Dict> for DictionarySortedBetweenRule {
+    type Parent = ExactScalarFn<Between>;
+
+    fn reduce_parent(
+        &self,
+        array: ArrayView<'_, Dict>,
+        parent: ScalarFnArrayView<'_, Between>,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        // Between children are [arr, lower, upper]; only fire on the arr child.
+        if child_idx != 0 || !sorted_precondition(array) {
+            return Ok(None);
+        }
+
+        let scalar_fn = parent
+            .as_opt::<ScalarFn>()
+            .vortex_expect("ExactScalarFn matcher confirmed parent is ScalarFnArray");
+        let (Some(lower_scalar), Some(upper_scalar)) = (
+            scalar_fn.get_child(1).as_constant(),
+            scalar_fn.get_child(2).as_constant(),
+        ) else {
+            return Ok(None);
+        };
+        if lower_scalar.is_null() || upper_scalar.is_null() {
+            return Ok(None);
+        }
+
+        reduce_sorted_between(array, &lower_scalar, &upper_scalar, parent.options)
+    }
+}
 
 /// Push down a scalar function to run only over the values of a dictionary array.
 #[derive(Debug)]

@@ -38,7 +38,7 @@ impl SliceReduce for Dict {
                 ))
             };
         }
-        // SAFETY: slicing the codes preserves invariants.
+        // SAFETY: slicing the codes preserves invariants; values unchanged.
         Ok(Some(
             unsafe { DictArray::new_unchecked(sliced_code, array.values().clone()) }.into_array(),
         ))

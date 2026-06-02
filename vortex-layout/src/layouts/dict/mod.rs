@@ -155,9 +155,8 @@ pub struct DictLayoutEncoding;
 pub struct DictLayout {
     values: LayoutRef,
     codes: LayoutRef,
-    /// Indicates whether all dictionary values are definitely referenced by at least one code.
-    /// `true` = all values are referenced (computed during encoding).
-    /// `false` = unknown/might have unreferenced values.
+    /// `true` if every dictionary value is referenced by at least one code. An incorrect
+    /// value here can cause incorrect query results (e.g. min/max) but never UB.
     all_values_referenced: bool,
 }
 
@@ -173,13 +172,8 @@ impl DictLayout {
     /// Set whether all dictionary values are definitely referenced.
     ///
     /// # Safety
-    /// The caller must ensure that when setting `all_values_referenced = true`, ALL dictionary
-    /// values are actually referenced by at least one valid code. Setting this incorrectly can
-    /// lead to incorrect query results in operations like min/max.
-    ///
-    /// This is typically only set to `true` during dictionary encoding when we know for certain
-    /// that all values are referenced.
-    /// See `DictArray::set_all_values_referenced`.
+    /// See `DictArray::set_all_values_referenced`. An incorrect value can produce
+    /// incorrect query results (e.g. min/max) but never UB.
     pub unsafe fn set_all_values_referenced(mut self, all_values_referenced: bool) -> Self {
         self.all_values_referenced = all_values_referenced;
         self

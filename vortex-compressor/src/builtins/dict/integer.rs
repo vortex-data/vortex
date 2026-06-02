@@ -17,6 +17,8 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::DictArrayExt;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_array::expr::stats::Precision;
+use vortex_array::expr::stats::Stat;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
@@ -115,6 +117,12 @@ impl Scheme for IntDictScheme {
         // Values = child 0.
         let compressed_values =
             compressor.compress_child(dict.values(), &compress_ctx, self.id(), 0, exec_ctx)?;
+        // Dictionary values are emitted in ascending order; compression preserves logical
+        // order, so re-stamp the stat on the compressed values to keep the sorted-dict
+        // pushdown enabled after a roundtrip.
+        compressed_values
+            .statistics()
+            .set(Stat::IsSorted, Precision::Exact(true.into()));
 
         // Codes = child 1.
         let narrowed_codes = dict
@@ -150,7 +158,13 @@ macro_rules! typed_encode {
         };
         let codes_validity = $source_array.validity()?;
 
-        let values: Buffer<$typ> = distinct.distinct_values().keys().map(|x| x.0).collect();
+        // Emit the distinct values in ascending order so the resulting codes form an
+        // order-preserving encoding of the column. This unlocks the sorted-dict
+        // compare/between pushdown (a single integer comparison in the codes domain)
+        // for low-cardinality integer columns.
+        let mut values_vec: Vec<$typ> = distinct.distinct_values().keys().map(|x| x.0).collect();
+        values_vec.sort_unstable();
+        let values: Buffer<$typ> = values_vec.into_iter().collect();
 
         let max_code = values.len();
         let codes = if max_code <= u8::MAX as usize {
@@ -174,6 +188,11 @@ macro_rules! typed_encode {
         };
 
         let values = PrimitiveArray::new(values, values_validity).into_array();
+        // Values were emitted in ascending order; record it so `has_sorted_values()`
+        // enables codes-domain compare/between pushdown without re-scanning.
+        values
+            .statistics()
+            .set(Stat::IsSorted, Precision::Exact(true.into()));
         // SAFETY: invariants enforced in DictEncoder.
         Ok(unsafe { DictArray::new_unchecked(codes, values).set_all_values_referenced(true) })
     }};
@@ -266,6 +285,8 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use vortex_array::arrays::dict::DictArrayExt;
+
     use super::dictionary_encode;
     use crate::stats::IntegerStats;
 
@@ -296,6 +317,58 @@ mod tests {
         )
         .into_array();
         let undict = dict_array
+            .as_array()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?
+            .into_array();
+        assert_arrays_eq!(undict, expected);
+        Ok(())
+    }
+
+    /// Low-cardinality column with nulls and values {0, 1, 2} (the canonical four-state
+    /// case). The dictionary must come out with sorted values so the codes are an
+    /// order-preserving encoding, enabling compare/between pushdown into the codes domain.
+    #[test]
+    fn test_dict_encode_low_cardinality_sorted() -> VortexResult<()> {
+        let mut ctx = VortexSession::empty()
+            .with::<ArraySession>()
+            .create_execution_ctx();
+        // Insertion order 2,0,1,... deliberately not sorted; nulls interspersed.
+        let data = buffer![2i32, 0, 1, 2, 0, 0, 1, 2, 0];
+        let validity = Validity::Array(
+            BoolArray::from_iter([true, true, true, false, true, true, false, true, true])
+                .into_array(),
+        );
+        let array = PrimitiveArray::new(data, validity);
+
+        let stats = IntegerStats::generate_opts(
+            &array,
+            crate::stats::GenerateStatsOptions {
+                count_distinct_values: true,
+            },
+            &mut ctx,
+        );
+        let dict = dictionary_encode(array.as_view(), &stats)?;
+
+        // Three distinct values, emitted in ascending order.
+        assert_eq!(dict.values().len(), 3);
+        assert_arrays_eq!(
+            dict.values().clone(),
+            PrimitiveArray::new(buffer![0i32, 1, 2], Validity::AllValid).into_array()
+        );
+        // Sortedness is recorded, so the codes-domain pushdown is enabled.
+        assert!(dict.has_sorted_values());
+
+        // Roundtrip preserves the original column (nulls included).
+        let expected = PrimitiveArray::new(
+            buffer![2i32, 0, 1, 2, 0, 0, 1, 2, 0],
+            Validity::Array(
+                BoolArray::from_iter([true, true, true, false, true, true, false, true, true])
+                    .into_array(),
+            ),
+        )
+        .into_array();
+        let undict = dict
             .as_array()
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)?

@@ -53,17 +53,18 @@ pub struct DictSlots {
 
 #[derive(Debug, Clone)]
 pub struct DictData {
-    /// Indicates whether all dictionary values are definitely referenced by at least one code.
-    /// `true` = all values are referenced (computed during encoding).
-    /// `false` = unknown/might have unreferenced values.
-    /// In case this is incorrect never use this to enable memory unsafe behaviour just semantically
-    /// incorrect behaviour.
+    /// `true` if every dictionary value is referenced by at least one code. An incorrect
+    /// value here can cause incorrect query results (e.g. min/max) but never UB.
     pub(super) all_values_referenced: bool,
 }
 
 impl Display for DictData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "all_values_referenced: {}", self.all_values_referenced)
+        write!(
+            f,
+            "all_values_referenced: {}",
+            self.all_values_referenced
+        )
     }
 }
 
@@ -80,15 +81,11 @@ impl DictData {
         }
     }
 
-    /// Set whether all dictionary values are definitely referenced.
+    /// Set whether all dictionary values are referenced by at least one code.
     ///
     /// # Safety
-    /// The caller must ensure that when setting `all_values_referenced = true`, ALL dictionary
-    /// values are actually referenced by at least one valid code. Setting this incorrectly can
-    /// lead to incorrect query results in operations like min/max.
-    ///
-    /// This is typically only set to `true` during dictionary encoding when we know for certain
-    /// that all values are referenced.
+    /// Setting `true` when some values are unreferenced does not cause UB but will produce
+    /// incorrect results from operations like min/max.
     pub unsafe fn set_all_values_referenced(mut self, all_values_referenced: bool) -> Self {
         self.all_values_referenced = all_values_referenced;
         self
@@ -126,6 +123,17 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
     #[inline]
     fn has_all_values_referenced(&self) -> bool {
         self.all_values_referenced
+    }
+
+    /// Returns whether the dictionary values are sorted in ascending order. Sourced
+    /// entirely from the values array's `Stat::IsSorted` (plus O(1) structural fallbacks
+    /// — empty, single-element, or constant). Never scans values.
+    ///
+    /// `sort_dict` and the sorted-dict writer cache `Stat::IsSorted = true` on the values
+    /// they produce; transforms that preserve the values array (take/filter/slice) reuse
+    /// the same stats cache via Arc-cloning, so propagation is automatic.
+    fn has_sorted_values(&self) -> bool {
+        infer_sorted_values(self.values())
     }
 
     fn validate_all_values_referenced(&self) -> VortexResult<()> {
@@ -190,6 +198,41 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
     }
 }
 impl<T: TypedArrayRef<Dict>> DictArrayExt for T {}
+
+/// O(1) inference of whether `values` is sorted, used when the explicit flag isn't set.
+/// Checks only structural conditions and cached stats; never scans the values.
+///
+/// The dict reader wraps the materialized values in a `Shared` array for de-duplication;
+/// look through that wrapper to read the underlying array's stats.
+fn infer_sorted_values(values: &ArrayRef) -> bool {
+    use crate::arrays::Constant;
+    use crate::arrays::Shared;
+    use crate::arrays::shared::SharedArrayExt;
+    use crate::expr::stats::Precision;
+    use crate::expr::stats::Stat;
+    use crate::expr::stats::StatsProviderExt;
+
+    // The dict reader wraps materialized values in `Shared`; check the underlying
+    // source inside the if-let so the typed view stays alive while we read stats.
+    if let Some(shared) = values.as_opt::<Shared>() {
+        let src = shared.source();
+        if src.len() <= 1 || src.is::<Constant>() {
+            return true;
+        }
+        return matches!(
+            src.statistics().get_as::<bool>(Stat::IsSorted),
+            Precision::Exact(true)
+        );
+    }
+
+    if values.len() <= 1 || values.is::<Constant>() {
+        return true;
+    }
+    matches!(
+        values.statistics().get_as::<bool>(Stat::IsSorted),
+        Precision::Exact(true)
+    )
+}
 
 /// Concrete parts of a [`DictArray`](super::DictArray) after iterative execution.
 pub struct DictParts {
@@ -289,6 +332,7 @@ impl Array<Dict> {
 
         array
     }
+
 }
 
 #[cfg(test)]
@@ -498,5 +542,37 @@ mod test {
             }
             .encode_to_vec(),
         );
+    }
+
+    #[test]
+    fn sorted_values_inferred_for_constant_values() -> VortexResult<()> {
+        use crate::arrays::ConstantArray;
+        use crate::arrays::dict::DictArrayExt;
+        // ConstantArray values: only one logical value, trivially sorted.
+        let values = ConstantArray::new(42i32, 1).into_array();
+        let codes = buffer![0u32, 0, 0].into_array();
+        let dict = DictArray::try_new(codes, values)?;
+        assert!(dict.has_sorted_values());
+        Ok(())
+    }
+
+    #[test]
+    fn sorted_values_inferred_from_is_sorted_stat() -> VortexResult<()> {
+        use crate::arrays::dict::DictArrayExt;
+        use crate::expr::stats::Precision;
+        use crate::expr::stats::Stat;
+        // Values are sorted in fact but the flag isn't set. Once the IsSorted stat is
+        // cached on the values array, the dict's inference picks it up.
+        let values = buffer![1i32, 2, 3].into_array();
+        let codes = buffer![0u32, 1, 2, 1, 0].into_array();
+        let dict = DictArray::try_new(codes, values.clone())?;
+        // Before the stat is set, the bare flag is false and no other cheap signal
+        // applies — inference returns false.
+        assert!(!dict.has_sorted_values());
+        values
+            .statistics()
+            .set(Stat::IsSorted, Precision::Exact(true.into()));
+        assert!(dict.has_sorted_values());
+        Ok(())
     }
 }
