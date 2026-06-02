@@ -128,7 +128,7 @@ pub fn value_list_string<'a>(
     })
 }
 
-pub fn parse_genotype(gt: Option<EntryValue>) -> VortexResult<Option<u64>> {
+pub fn parse_genotype(gt: Option<EntryValue>) -> VortexResult<Option<u8>> {
     let Some(gt) = gt else {
         return Ok(None);
     };
@@ -140,7 +140,7 @@ pub fn parse_genotype(gt: Option<EntryValue>) -> VortexResult<Option<u64>> {
         .process_results(|iter| iter.map(|x| x.0).collect::<Vec<_>>())?[..]
     {
         [None, None] => Ok(None),
-        [Some(l), Some(r)] => Ok(Some(l as u64 + r as u64)),
+        [Some(l), Some(r)] => Ok(Some(l as u8 + r as u8)),
         _ => vortex_bail!("wtf {:?}", gt),
     }
 }

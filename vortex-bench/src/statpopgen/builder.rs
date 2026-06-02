@@ -11,6 +11,7 @@ use arrow_array::builder::Float32Builder;
 use arrow_array::builder::Int32Builder;
 use arrow_array::builder::ListBuilder;
 use arrow_array::builder::StringBuilder;
+use arrow_array::builder::UInt8Builder;
 use arrow_array::builder::UInt64Builder;
 use arrow_schema::ArrowError;
 use arrow_schema::SchemaRef;
@@ -125,7 +126,7 @@ pub struct GnomADBuilder<'a> {
     /// `1|1`. We do not support these in the GT field.
     ///
     /// Every list is the same length; however, individual positions may be missing.
-    pub GT_builder: ListBuilder<UInt64Builder>,
+    pub GT_builder: ListBuilder<UInt8Builder>,
     /// The genotype quality.
     ///
     /// A small non-negative integer indicating our confidence in this genotype. It is usually the
