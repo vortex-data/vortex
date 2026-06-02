@@ -1,23 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnSatisfaction;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::EmptyOptions;
 use crate::aggregate_fn::fns::bounded_min::BoundedMin;
-use crate::aggregate_fn::fns::min_max::MinMax;
-use crate::aggregate_fn::fns::min_max::min_max;
+use crate::aggregate_fn::fns::extrema::Extremum;
+use crate::aggregate_fn::fns::extrema::ExtremumPartial;
+use crate::aggregate_fn::fns::extrema::accumulate_extremum;
+use crate::aggregate_fn::fns::extrema::compute_extremum;
+use crate::aggregate_fn::fns::extrema::extrema_return_dtype;
 use crate::dtype::DType;
-use crate::partial_ord::partial_min;
 use crate::scalar::Scalar;
 
 /// Compute the minimum non-null value of an array.
@@ -25,22 +25,19 @@ use crate::scalar::Scalar;
 pub struct Min;
 
 /// Partial accumulator state for the minimum aggregate.
+///
+/// The shared extrema state tracks both the current minimum and whether a runtime comparison was
+/// unordered. An unordered partial finalizes to a typed null, meaning the statistic is unknown.
 pub struct MinPartial {
-    min: Option<Scalar>,
-    element_dtype: DType,
+    inner: ExtremumPartial,
 }
 
-impl MinPartial {
-    fn merge(&mut self, min: Scalar) {
-        if min.is_null() {
-            return;
-        }
-
-        self.min = Some(match self.min.take() {
-            Some(current) => partial_min(min, current).vortex_expect("incomparable min scalars"),
-            None => min,
-        });
-    }
+/// Compute the minimum non-null value of an array, or `None` if the statistic is unknown.
+///
+/// Null values are ignored. Top-level primitive NaNs are ignored consistently with the aggregate
+/// semantics used by pruning; nested unordered comparisons make the result unknown.
+pub fn min(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<Scalar>> {
+    compute_extremum(Extremum::Min, Min, array, ctx)
 }
 
 impl AggregateFnVTable for Min {
@@ -56,9 +53,7 @@ impl AggregateFnVTable for Min {
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
-        MinMax
-            .return_dtype(&EmptyOptions, input_dtype)
-            .map(|_| input_dtype.as_nullable())
+        extrema_return_dtype(input_dtype)
     }
 
     fn can_satisfy(
@@ -85,26 +80,20 @@ impl AggregateFnVTable for Min {
         input_dtype: &DType,
     ) -> VortexResult<Self::Partial> {
         Ok(MinPartial {
-            min: None,
-            element_dtype: input_dtype.clone(),
+            inner: ExtremumPartial::new(input_dtype.as_nullable()),
         })
     }
 
     fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {
-        partial.merge(other);
-        Ok(())
+        partial.inner.merge_scalar(Extremum::Min, other)
     }
 
     fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
-        let dtype = partial.element_dtype.as_nullable();
-        match &partial.min {
-            Some(min) => min.cast(&dtype),
-            None => Ok(Scalar::null(dtype)),
-        }
+        partial.inner.to_scalar()
     }
 
     fn reset(&self, partial: &mut Self::Partial) {
-        partial.min = None;
+        partial.inner.reset();
     }
 
     fn is_saturated(&self, _partial: &Self::Partial) -> bool {
@@ -117,16 +106,7 @@ impl AggregateFnVTable for Min {
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        // Delegate to the existing min_max implementation for now. A dedicated min aggregate
-        // would avoid computing max when only min is needed.
-        let array = match batch {
-            Columnar::Canonical(canonical) => canonical.clone().into_array(),
-            Columnar::Constant(constant) => constant.clone().into_array(),
-        };
-        if let Some(result) = min_max(&array, ctx)? {
-            partial.merge(result.min);
-        }
-        Ok(())
+        accumulate_extremum(Extremum::Min, &mut partial.inner, batch, ctx)
     }
 
     fn finalize(&self, partials: ArrayRef) -> VortexResult<ArrayRef> {
@@ -150,6 +130,8 @@ mod tests {
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::fns::min::Min;
+    use crate::aggregate_fn::fns::min::min;
+    use crate::arrays::FixedSizeListArray;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -206,6 +188,31 @@ mod tests {
             acc.finish()?,
             Scalar::primitive(3i32, Nullability::Nullable)
         );
+        Ok(())
+    }
+
+    #[test]
+    fn min_fixed_size_list_uses_element_order() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let elements = buffer![2i32, 1, 3].into_array();
+        let array = FixedSizeListArray::new(elements, 1, Validity::NonNullable, 3).into_array();
+        let expected = array.execute_scalar(1, &mut ctx)?;
+
+        assert_eq!(min(&array, &mut ctx)?, Some(expected));
+        Ok(())
+    }
+
+    #[test]
+    fn min_aggregate_accepts_fixed_size_list() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let elements = buffer![2i32, 1, 3].into_array();
+        let array = FixedSizeListArray::new(elements, 1, Validity::NonNullable, 3).into_array();
+        let expected = array.execute_scalar(1, &mut ctx)?;
+        let mut acc = Accumulator::try_new(Min, EmptyOptions, array.dtype().clone())?;
+
+        acc.accumulate(&array, &mut ctx)?;
+
+        assert_eq!(acc.finish()?, expected.cast(&array.dtype().as_nullable())?);
         Ok(())
     }
 }

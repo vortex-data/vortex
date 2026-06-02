@@ -3,10 +3,10 @@
 
 mod cast;
 pub(crate) mod compare;
+pub(crate) mod extrema;
 mod filter;
 pub(crate) mod is_sorted;
 mod list_contains;
-pub(crate) mod min_max;
 mod slice;
 mod take;
 

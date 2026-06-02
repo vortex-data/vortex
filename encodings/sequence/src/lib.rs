@@ -19,7 +19,8 @@ pub use compress::sequence_encode;
 use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
-use vortex_array::aggregate_fn::fns::min_max::MinMax;
+use vortex_array::aggregate_fn::fns::max::Max;
+use vortex_array::aggregate_fn::fns::min::Min;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
@@ -31,13 +32,18 @@ pub fn initialize(session: &VortexSession) {
     // Register the Sequence-specific aggregate kernels.
     session.aggregate_fns().register_aggregate_kernel(
         Sequence.id(),
-        Some(MinMax.id()),
-        &compute::min_max::SequenceMinMaxKernel,
+        Some(IsSorted.id()),
+        &compute::is_sorted::SequenceIsSortedKernel,
     );
     session.aggregate_fns().register_aggregate_kernel(
         Sequence.id(),
-        Some(IsSorted.id()),
-        &compute::is_sorted::SequenceIsSortedKernel,
+        Some(Max.id()),
+        &compute::extrema::SequenceExtremaKernel,
+    );
+    session.aggregate_fns().register_aggregate_kernel(
+        Sequence.id(),
+        Some(Min.id()),
+        &compute::extrema::SequenceExtremaKernel,
     );
 }
 

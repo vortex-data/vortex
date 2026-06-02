@@ -19,8 +19,8 @@ use crate::ArrayRef;
 use crate::aggregate_fn::fns::is_constant::is_constant;
 use crate::aggregate_fn::fns::is_sorted::is_sorted;
 use crate::aggregate_fn::fns::is_sorted::is_strict_sorted;
-use crate::aggregate_fn::fns::min_max::MinMaxResult;
-use crate::aggregate_fn::fns::min_max::min_max;
+use crate::aggregate_fn::fns::max::max;
+use crate::aggregate_fn::fns::min::min;
 use crate::aggregate_fn::fns::nan_count::nan_count;
 use crate::aggregate_fn::fns::sum::sum;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
@@ -162,8 +162,8 @@ impl StatsSetRef<'_> {
         }
 
         Ok(match stat {
-            Stat::Min => min_max(self.dyn_array_ref, ctx)?.map(|MinMaxResult { min, max: _ }| min),
-            Stat::Max => min_max(self.dyn_array_ref, ctx)?.map(|MinMaxResult { min: _, max }| max),
+            Stat::Min => min(self.dyn_array_ref, ctx)?,
+            Stat::Max => max(self.dyn_array_ref, ctx)?,
             Stat::Sum => {
                 Stat::Sum
                     .dtype(self.dyn_array_ref.dtype())

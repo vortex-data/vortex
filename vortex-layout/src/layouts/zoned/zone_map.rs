@@ -41,7 +41,6 @@ use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_runend::RunEnd;
 use vortex_session::VortexSession;
@@ -213,13 +212,14 @@ impl ZoneMap {
             return Ok(eq(self.legacy_stat_field_expr(Stat::NaNCount)?, lit(0u64)));
         }
 
-        let return_dtype = aggregate_state_dtype(&input_dtype, aggregate_fn).ok_or_else(|| {
-            vortex_err!(
+        let return_dtype = match aggregate_state_dtype(&input_dtype, aggregate_fn) {
+            Some(return_dtype) => return_dtype,
+            None => vortex_bail!(
                 "Aggregate function {} does not support input dtype {}",
                 aggregate_fn,
                 input_dtype
-            )
-        })?;
+            ),
+        };
 
         if !input_is_root {
             return Ok(null_expr(return_dtype));
@@ -369,6 +369,7 @@ mod tests {
     use vortex_array::expr::not_eq;
     use vortex_array::expr::root;
     use vortex_array::expr::stats::Stat;
+    use vortex_array::scalar::Scalar;
     use vortex_array::stats::all_nan;
     use vortex_array::stats::all_non_nan;
     use vortex_array::stats::all_non_null;
@@ -616,6 +617,34 @@ mod tests {
 
         let expr = gt(root(), lit(5u64));
         let pruning_expr = falsify(&expr, PType::U64.into());
+        let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
+        assert_arrays_eq!(
+            mask.into_array(),
+            BoolArray::from_iter([false, false, false])
+        );
+    }
+
+    #[test]
+    fn fixed_size_list_min_max_stat_fn_lowers_to_unknown_mask() {
+        let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
+        let dtype = DType::FixedSizeList(Arc::clone(&element_dtype), 1, Nullability::NonNullable);
+        let zone_map = ZoneMap::try_new(
+            dtype.clone(),
+            StructArray::try_new(FieldNames::empty(), vec![], 3, Validity::NonNullable).unwrap(),
+            Arc::new([]),
+            4,
+            12,
+        )
+        .unwrap();
+
+        let literal = Scalar::fixed_size_list(
+            Arc::clone(&element_dtype),
+            vec![Scalar::primitive(5i32, Nullability::NonNullable)],
+            Nullability::NonNullable,
+        );
+        let expr = gt(root(), lit(literal));
+        let pruning_expr = falsify(&expr, dtype);
+
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),

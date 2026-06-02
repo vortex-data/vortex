@@ -22,8 +22,7 @@ use crate::aggregate_fn::AggregateFnSatisfaction;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::EmptyOptions;
 use crate::aggregate_fn::fns::min::Min;
-use crate::aggregate_fn::fns::min_max::MinMax;
-use crate::aggregate_fn::fns::min_max::min_max;
+use crate::aggregate_fn::fns::min::min;
 use crate::dtype::DType;
 use crate::partial_ord::partial_min;
 use crate::scalar::Scalar;
@@ -176,16 +175,14 @@ impl AggregateFnVTable for BoundedMin {
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        // Delegate to the existing min_max implementation for now. A dedicated bounded-min
-        // aggregate would avoid computing max when only min is needed.
         let array = match batch {
             Columnar::Canonical(canonical) => canonical.clone().into_array(),
             Columnar::Constant(constant) => constant.clone().into_array(),
         };
-        let Some(result) = min_max(&array, ctx)? else {
+        let Some(value) = min(&array, ctx)? else {
             return Ok(());
         };
-        if let Some(bound) = truncate_min(result.min, partial.max_bytes.get())? {
+        if let Some(bound) = truncate_min(value, partial.max_bytes.get())? {
             partial.merge(bound);
         }
         Ok(())
@@ -201,8 +198,7 @@ impl AggregateFnVTable for BoundedMin {
 }
 
 fn supported_dtype<'a>(_options: &BoundedMinOptions, input_dtype: &'a DType) -> Option<&'a DType> {
-    MinMax
-        .return_dtype(&EmptyOptions, input_dtype)
+    Min.return_dtype(&EmptyOptions, input_dtype)
         .map(|_| input_dtype)
 }
 

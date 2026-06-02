@@ -11,7 +11,6 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use vortex_array::ArrayRef;
-use vortex_array::aggregate_fn::fns::min_max::MinMaxResult;
 use vortex_array::scalar::Scalar;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSortedSide;
@@ -49,7 +48,7 @@ pub enum VortexFuzzError {
         Backtrace,
     ),
 
-    MinMaxMismatch(Option<MinMaxResult>, Option<MinMaxResult>, usize, Backtrace),
+    OptionalScalarMismatch(Option<Scalar>, Option<Scalar>, usize, Backtrace),
 
     ArrayNotEqual(Scalar, Scalar, usize, ArrayRef, ArrayRef, usize, Backtrace),
 
@@ -90,10 +89,10 @@ impl Display for VortexFuzzError {
                     array.display_tree(),
                 )
             }
-            VortexFuzzError::MinMaxMismatch(lhs, rhs, step, backtrace) => {
+            VortexFuzzError::OptionalScalarMismatch(lhs, rhs, step, backtrace) => {
                 write!(
                     f,
-                    "MinMax mismatch: expected {lhs:?} got {rhs:?} in step {step}\nBacktrace:\n{backtrace}"
+                    "Optional scalar mismatch: expected {lhs:?} got {rhs:?} in step {step}\nBacktrace:\n{backtrace}"
                 )
             }
             VortexFuzzError::ArrayNotEqual(
@@ -152,7 +151,7 @@ impl Error for VortexFuzzError {
             | VortexFuzzError::ArrayNotEqual(..)
             | VortexFuzzError::LengthMismatch(..)
             | VortexFuzzError::ScalarMismatch(..)
-            | VortexFuzzError::MinMaxMismatch(..)
+            | VortexFuzzError::OptionalScalarMismatch(..)
             | VortexFuzzError::DTypeMismatch(..) => None,
         }
     }

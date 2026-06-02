@@ -42,7 +42,8 @@ pub use patch::chunk_range;
 pub use patch::patch_chunk;
 
 use crate::ArrayRef;
-use crate::aggregate_fn::fns::min_max::min_max;
+use crate::aggregate_fn::fns::max::max;
+use crate::aggregate_fn::fns::min::min;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::bool::BoolArrayExt;
@@ -154,7 +155,13 @@ pub trait PrimitiveArrayExt: TypedArrayRef<Primitive> {
             return Ok(self.to_owned());
         }
 
-        let Some(min_max) = min_max(self.as_ref(), ctx)? else {
+        let Some(min) = min(self.as_ref(), ctx)? else {
+            return Ok(PrimitiveArray::new(
+                Buffer::<u8>::zeroed(self.len()),
+                self.validity(),
+            ));
+        };
+        let Some(max) = max(self.as_ref(), ctx)? else {
             return Ok(PrimitiveArray::new(
                 Buffer::<u8>::zeroed(self.len()),
                 self.validity(),
@@ -163,18 +170,10 @@ pub trait PrimitiveArrayExt: TypedArrayRef<Primitive> {
 
         // If we can't cast to i64, then leave the array as its original type.
         // It's too big to downcast anyway.
-        let Ok(min) = min_max
-            .min
-            .cast(&PType::I64.into())
-            .and_then(|s| i64::try_from(&s))
-        else {
+        let Ok(min) = min.cast(&PType::I64.into()).and_then(|s| i64::try_from(&s)) else {
             return Ok(self.to_owned());
         };
-        let Ok(max) = min_max
-            .max
-            .cast(&PType::I64.into())
-            .and_then(|s| i64::try_from(&s))
-        else {
+        let Ok(max) = max.cast(&PType::I64.into()).and_then(|s| i64::try_from(&s)) else {
             return Ok(self.to_owned());
         };
 

@@ -10,7 +10,6 @@ use crate::aggregate_fn::fns::all_nan::AllNan;
 use crate::aggregate_fn::fns::all_non_nan::AllNonNan;
 use crate::aggregate_fn::fns::all_non_null::AllNonNull;
 use crate::aggregate_fn::fns::all_null::AllNull;
-use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::nan_count::NanCount;
 use crate::aggregate_fn::fns::null_count::NullCount;
 use crate::aggregate_fn::fns::sum::Sum;
@@ -25,11 +24,6 @@ pub use crate::scalar_fn::fns::stat::StatOptions;
 /// a nullable all-null array with the aggregate return type.
 pub fn stat(expr: Expression, aggregate_fn: AggregateFnRef) -> Expression {
     StatFn.new_expr(StatOptions::new(aggregate_fn), [expr])
-}
-
-/// Creates `stat(expr, min_max)`, returning a nullable `{ min, max }` struct statistic.
-pub fn min_max(expr: Expression) -> Expression {
-    stat(expr, MinMax.bind(EmptyOptions))
 }
 
 /// Creates `stat(expr, sum)`, returning a nullable sum statistic.

@@ -4,10 +4,10 @@
 mod between;
 mod cast;
 mod compare;
+pub(crate) mod extrema;
 mod fill_null;
 mod filter;
 pub(crate) mod is_constant;
-pub(crate) mod min_max;
 pub(crate) mod nan_count;
 pub(crate) mod null_count;
 pub(crate) mod sum;

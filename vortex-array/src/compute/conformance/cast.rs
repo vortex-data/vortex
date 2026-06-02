@@ -10,8 +10,8 @@ use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::RecursiveCanonical;
 use crate::VortexSessionExecute;
-use crate::aggregate_fn::fns::min_max::MinMaxResult;
-use crate::aggregate_fn::fns::min_max::min_max;
+use crate::aggregate_fn::fns::max::max;
+use crate::aggregate_fn::fns::min::min;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -248,10 +248,10 @@ fn fits(value: &Scalar, ptype: PType) -> bool {
 
 fn test_cast_to_primitive(array: &ArrayRef, target_ptype: PType, test_round_trip: bool) {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
-    let maybe_min_max =
-        min_max(array, &mut ctx).vortex_expect("cast should succeed in conformance test");
+    let maybe_min = min(array, &mut ctx).vortex_expect("cast should succeed in conformance test");
+    let maybe_max = max(array, &mut ctx).vortex_expect("cast should succeed in conformance test");
 
-    if let Some(MinMaxResult { min, max }) = maybe_min_max
+    if let (Some(min), Some(max)) = (maybe_min, maybe_max)
         && (!fits(&min, target_ptype) || !fits(&max, target_ptype))
     {
         cast_and_execute(

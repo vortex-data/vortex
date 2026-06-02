@@ -11,7 +11,7 @@ use crate::LEGACY_SESSION;
 #[expect(deprecated)]
 use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
-use crate::aggregate_fn::fns::min_max::min_max;
+use crate::aggregate_fn::fns::max::max;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::listview::ListViewArrayExt;
@@ -330,17 +330,12 @@ impl ListViewArray {
             let sizes = self.sizes().cast(wide_dtype)?;
 
             let mut ctx = LEGACY_SESSION.create_execution_ctx();
-            let min_max = min_max(
-                &offsets
-                    .binary(sizes, Operator::Add)
-                    .vortex_expect("`offsets + sizes` somehow overflowed"),
-                &mut ctx,
-            )
-            .vortex_expect("Something went wrong while computing min and max")
-            .vortex_expect("We checked that the array was not empty in the top-level `rebuild`");
-
-            min_max
-                .max
+            let offset_ends = offsets
+                .binary(sizes, Operator::Add)
+                .vortex_expect("`offsets + sizes` somehow overflowed");
+            max(&offset_ends, &mut ctx)
+                .vortex_expect("Something went wrong while computing max")
+                .vortex_expect("We checked that the array was not empty in the top-level `rebuild`")
                 .as_primitive()
                 .as_::<usize>()
                 .vortex_expect("unable to interpret the max `offset + size` as a `usize`")

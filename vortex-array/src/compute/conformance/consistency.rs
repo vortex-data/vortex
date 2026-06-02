@@ -23,7 +23,6 @@ use std::sync::Arc;
 
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
-use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
@@ -1017,7 +1016,8 @@ fn test_boolean_demorgan_consistency(array: &ArrayRef) {
 /// Aggregate operations on sliced arrays must produce correct results
 /// regardless of the underlying encoding's offset handling.
 fn test_slice_aggregate_consistency(array: &ArrayRef) {
-    use crate::aggregate_fn::fns::min_max::min_max;
+    use crate::aggregate_fn::fns::max::max;
+    use crate::aggregate_fn::fns::min::min;
     use crate::aggregate_fn::fns::nan_count::nan_count;
     use crate::aggregate_fn::fns::sum::sum;
     use crate::dtype::DType;
@@ -1073,29 +1073,25 @@ fn test_slice_aggregate_consistency(array: &ArrayRef) {
         );
     }
 
-    // Test min_max
-    if let (Ok(slice_minmax), Ok(canonical_minmax)) = (
-        min_max(&sliced, &mut ctx),
-        min_max(&canonical_sliced, &mut ctx),
-    ) {
-        match (slice_minmax, canonical_minmax) {
-            (Some(s_result), Some(c_result)) => {
-                assert_eq!(
-                    s_result.min, c_result.min,
-                    "min on sliced array should match canonical. \
-                         Sliced: {:?}, Canonical: {:?}",
-                    s_result.min, c_result.min
-                );
-                assert_eq!(
-                    s_result.max, c_result.max,
-                    "max on sliced array should match canonical. \
-                         Sliced: {:?}, Canonical: {:?}",
-                    s_result.max, c_result.max
-                );
-            }
-            (None, None) => {} // Both empty, OK
-            _ => vortex_panic!("min_max results don't match"),
-        }
+    // Test min/max
+    if let (Ok(slice_min), Ok(canonical_min)) =
+        (min(&sliced, &mut ctx), min(&canonical_sliced, &mut ctx))
+    {
+        assert_eq!(
+            slice_min, canonical_min,
+            "min on sliced array should match canonical. \
+                 Sliced: {slice_min:?}, Canonical: {canonical_min:?}"
+        );
+    }
+
+    if let (Ok(slice_max), Ok(canonical_max)) =
+        (max(&sliced, &mut ctx), max(&canonical_sliced, &mut ctx))
+    {
+        assert_eq!(
+            slice_max, canonical_max,
+            "max on sliced array should match canonical. \
+                 Sliced: {slice_max:?}, Canonical: {canonical_max:?}"
+        );
     }
 
     // Test nan_count for floating point types

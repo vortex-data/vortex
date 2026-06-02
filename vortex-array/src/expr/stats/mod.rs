@@ -169,10 +169,16 @@ impl Stat {
             Self::IsConstant => DType::Bool(NonNullable),
             Self::IsSorted => DType::Bool(NonNullable),
             Self::IsStrictSorted => DType::Bool(NonNullable),
-            Self::Max if matches!(data_type, DType::Null) => return None,
-            Self::Max => data_type.clone(),
-            Self::Min if matches!(data_type, DType::Null) => return None,
-            Self::Min => data_type.clone(),
+            Self::Max => {
+                return aggregate_fn::fns::max::Max
+                    .return_dtype(&EmptyOptions, data_type)
+                    .map(|_| data_type.clone());
+            }
+            Self::Min => {
+                return aggregate_fn::fns::min::Min
+                    .return_dtype(&EmptyOptions, data_type)
+                    .map(|_| data_type.clone());
+            }
             Self::NullCount => {
                 return aggregate_fn::fns::null_count::NullCount
                     .return_dtype(&EmptyOptions, data_type);

@@ -3,10 +3,10 @@
 
 pub(crate) use cast::*;
 pub(crate) use compare::*;
+pub(crate) use extrema::*;
 pub(crate) use fill_null::*;
 pub(crate) use filter::*;
 pub(crate) use mask::*;
-pub(crate) use min_max::*;
 pub(crate) use scalar_at::*;
 pub(crate) use search_sorted::*;
 pub(crate) use slice::*;
@@ -16,10 +16,10 @@ pub(crate) use take::*;
 
 mod cast;
 mod compare;
+mod extrema;
 mod fill_null;
 mod filter;
 mod mask;
-mod min_max;
 mod scalar_at;
 mod search_sorted;
 mod slice;
@@ -44,8 +44,6 @@ use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::all_non_distinct::all_non_distinct;
-use vortex_array::aggregate_fn::fns::min_max::MinMaxResult;
-use vortex_array::aggregate_fn::fns::min_max::min_max;
 use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -119,7 +117,8 @@ pub enum Action {
     Compare(Scalar, CompareOperator),
     Cast(DType),
     Sum,
-    MinMax,
+    Min,
+    Max,
     FillNull(Scalar),
     Mask(Mask),
     // Here we want to try multiple values.
@@ -131,7 +130,7 @@ pub enum ExpectedValue {
     Array(ArrayRef),
     Search(SearchResult),
     Scalar(Scalar),
-    MinMax(Option<MinMaxResult>),
+    OptionalScalar(Option<Scalar>),
     ScalarVec(Vec<Scalar>),
 }
 
@@ -157,10 +156,10 @@ impl ExpectedValue {
         }
     }
 
-    pub fn min_max(self) -> Option<MinMaxResult> {
+    pub fn optional_scalar(self) -> Option<Scalar> {
         match self {
-            ExpectedValue::MinMax(m) => m,
-            _ => vortex_panic!("expected min_max"),
+            ExpectedValue::OptionalScalar(s) => s,
+            _ => vortex_panic!("expected optional_scalar"),
         }
     }
 
@@ -348,15 +347,25 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         .vortex_expect("sum_canonical_array should succeed in fuzz test");
                     (Action::Sum, ExpectedValue::Scalar(sum_result))
                 }
-                ActionType::MinMax => {
-                    // MinMax - returns a scalar, does NOT update current_array (terminal operation)
+                ActionType::Min => {
+                    // Min - returns an optional scalar, does NOT update current_array.
                     let current_array_canonical = current_array
                         .clone()
                         .execute::<Canonical>(&mut ctx)
                         .vortex_expect("execute canonical should succeed in fuzz test");
-                    let min_max_result = min_max_canonical_array(current_array_canonical, &mut ctx)
-                        .vortex_expect("min_max_canonical_array should succeed in fuzz test");
-                    (Action::MinMax, ExpectedValue::MinMax(min_max_result))
+                    let min_result = min_canonical_array(current_array_canonical, &mut ctx)
+                        .vortex_expect("min_canonical_array should succeed in fuzz test");
+                    (Action::Min, ExpectedValue::OptionalScalar(min_result))
+                }
+                ActionType::Max => {
+                    // Max - returns an optional scalar, does NOT update current_array.
+                    let current_array_canonical = current_array
+                        .clone()
+                        .execute::<Canonical>(&mut ctx)
+                        .vortex_expect("execute canonical should succeed in fuzz test");
+                    let max_result = max_canonical_array(current_array_canonical, &mut ctx)
+                        .vortex_expect("max_canonical_array should succeed in fuzz test");
+                    (Action::Max, ExpectedValue::OptionalScalar(max_result))
                 }
                 ActionType::FillNull => {
                     // FillNull - returns an array, updates current_array
@@ -465,7 +474,7 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
 
     match dtype {
         DType::Null => {
-            // Null arrays support most operations but not Sum or MinMax (return None for dtype)
+            // Null arrays support most operations but not Sum or extrema.
             [
                 Compress,
                 Slice,
@@ -485,8 +494,7 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
             ActionType::iter().collect()
         }
         DType::Utf8(_) | DType::Binary(_) => {
-            // Utf8/Binary supports everything except Sum and FillNull
-            // Actions: Compress, Slice, Take, SearchSorted, Filter, Compare, Cast, MinMax, Mask, ScalarAt
+            // Utf8/Binary supports everything except Sum and FillNull.
             [
                 Compress,
                 Slice,
@@ -495,21 +503,20 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
                 Filter,
                 Compare,
                 Cast,
-                MinMax,
+                Min,
+                Max,
                 Mask,
                 ScalarAt,
             ]
             .into()
         }
         DType::List(..) | DType::FixedSizeList(..) => {
-            // List supports: Compress, Slice, Take, Filter, MinMax, Mask, ScalarAt
-            // Does NOT support: SearchSorted, Compare, Cast, Sum, FillNull
-            [Compress, Slice, Take, Filter, MinMax, Mask, ScalarAt].into()
+            // List supports compression, selection, extrema, masks, and scalar access.
+            [Compress, Slice, Take, Filter, Min, Max, Mask, ScalarAt].into()
         }
         DType::Struct(sdt, _) => {
-            // Struct supports: Compress, Slice, Take, Filter, MinMax, Mask, ScalarAt
-            // Does NOT support: SearchSorted (requires scalar comparison), Compare, Cast, Sum, FillNull
-            let struct_actions = [Compress, Slice, Take, Filter, MinMax, Mask, ScalarAt];
+            // Struct supports extrema only when all fields support extrema.
+            let struct_actions = [Compress, Slice, Take, Filter, Min, Max, Mask, ScalarAt];
             sdt.fields()
                 .map(|child| actions_for_dtype(&child))
                 .fold(struct_actions.into(), |acc, actions| {
@@ -666,10 +673,23 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
                     .vortex_expect("sum operation should succeed in fuzz test");
                 assert_scalar_eq(&expected.scalar(), &sum_result, i)?;
             }
-            Action::MinMax => {
-                let min_max_result = min_max(&current_array, &mut ctx)
-                    .vortex_expect("min_max operation should succeed in fuzz test");
-                assert_min_max_eq(expected.min_max().as_ref(), min_max_result.as_ref(), i)?;
+            Action::Min => {
+                let min_result = min_array(&current_array, &mut ctx)
+                    .vortex_expect("min operation should succeed in fuzz test");
+                assert_optional_scalar_eq(
+                    expected.optional_scalar().as_ref(),
+                    min_result.as_ref(),
+                    i,
+                )?;
+            }
+            Action::Max => {
+                let max_result = max_array(&current_array, &mut ctx)
+                    .vortex_expect("max operation should succeed in fuzz test");
+                assert_optional_scalar_eq(
+                    expected.optional_scalar().as_ref(),
+                    max_result.as_ref(),
+                    i,
+                )?;
             }
             Action::FillNull(fill_value) => {
                 current_array = current_array
@@ -792,15 +812,15 @@ pub fn assert_scalar_eq(lhs: &Scalar, rhs: &Scalar, step: usize) -> VortexFuzzRe
     Ok(())
 }
 
-/// Assert two min/max results are equal.
+/// Assert two optional scalar results are equal.
 #[expect(clippy::result_large_err)]
-pub fn assert_min_max_eq(
-    lhs: Option<&MinMaxResult>,
-    rhs: Option<&MinMaxResult>,
+pub fn assert_optional_scalar_eq(
+    lhs: Option<&Scalar>,
+    rhs: Option<&Scalar>,
     step: usize,
 ) -> VortexFuzzResult<()> {
     if lhs != rhs {
-        return Err(VortexFuzzError::MinMaxMismatch(
+        return Err(VortexFuzzError::OptionalScalarMismatch(
             lhs.cloned(),
             rhs.cloned(),
             step,

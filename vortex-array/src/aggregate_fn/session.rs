@@ -27,7 +27,6 @@ use crate::aggregate_fn::fns::is_sorted::IsSorted;
 use crate::aggregate_fn::fns::last::Last;
 use crate::aggregate_fn::fns::max::Max;
 use crate::aggregate_fn::fns::min::Min;
-use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::nan_count::NanCount;
 use crate::aggregate_fn::fns::null_count::NullCount;
 use crate::aggregate_fn::fns::sum::Sum;
@@ -39,9 +38,9 @@ use crate::array::VTable;
 use crate::arrays::Chunked;
 use crate::arrays::Dict;
 use crate::arrays::chunked::compute::aggregate::ChunkedArrayAggregate;
+use crate::arrays::dict::compute::extrema::DictExtremaKernel;
 use crate::arrays::dict::compute::is_constant::DictIsConstantKernel;
 use crate::arrays::dict::compute::is_sorted::DictIsSortedKernel;
-use crate::arrays::dict::compute::min_max::DictMinMaxKernel;
 
 /// Registry of aggregate function vtables.
 pub type AggregateFnRegistry = Registry<AggregateFnPluginRef>;
@@ -89,7 +88,6 @@ impl Default for AggregateFnSession {
         this.register(Last);
         this.register(Max);
         this.register(Min);
-        this.register(MinMax);
         this.register(NanCount);
         this.register(NullCount);
         this.register(Sum);
@@ -97,7 +95,8 @@ impl Default for AggregateFnSession {
 
         // Register the built-in aggregate kernels.
         this.register_aggregate_kernel(Chunked.id(), None::<AggregateFnId>, &ChunkedArrayAggregate);
-        this.register_aggregate_kernel(Dict.id(), Some(MinMax.id()), &DictMinMaxKernel);
+        this.register_aggregate_kernel(Dict.id(), Some(Max.id()), &DictExtremaKernel);
+        this.register_aggregate_kernel(Dict.id(), Some(Min.id()), &DictExtremaKernel);
         this.register_aggregate_kernel(Dict.id(), Some(IsConstant.id()), &DictIsConstantKernel);
         this.register_aggregate_kernel(Dict.id(), Some(IsSorted.id()), &DictIsSortedKernel);
 

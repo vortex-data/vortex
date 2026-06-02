@@ -18,7 +18,8 @@ use crate::ArraySlots;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
-use crate::aggregate_fn::fns::min_max::min_max;
+use crate::aggregate_fn::fns::max::max;
+use crate::aggregate_fn::fns::min::min;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -210,17 +211,15 @@ impl ListData {
 
         // Validate that offsets min is non-negative, and max does not exceed the length of
         // the elements array.
-        if let Some(min_max) = min_max(offsets, &mut ctx)? {
+        if let (Some(min), Some(max)) = (min(offsets, &mut ctx)?, max(offsets, &mut ctx)?) {
             match_each_integer_ptype!(offsets_ptype, |P| {
                 #[allow(clippy::absurd_extreme_comparisons, unused_comparisons)]
                 {
-                    let max = min_max
-                        .max
+                    let max = max
                         .as_primitive()
                         .as_::<P>()
                         .vortex_expect("offsets type must fit offsets values");
-                    let min = min_max
-                        .min
+                    let min = min
                         .as_primitive()
                         .as_::<P>()
                         .vortex_expect("offsets type must fit offsets values");
@@ -244,7 +243,7 @@ impl ListData {
         } else {
             // TODO(aduffy): fallback to slower validation pathway?
             vortex_bail!(
-                InvalidArgument: "offsets array with encoding {} must support min_max compute function",
+                InvalidArgument: "offsets array with encoding {} must support min/max compute functions",
                 offsets.encoding_id()
             );
         };

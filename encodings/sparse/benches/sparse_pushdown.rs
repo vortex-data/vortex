@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Benchmarks for the Sparse pushdown kernels (`is_constant`, `sum`, `min_max`,
-//! `null_count`, compare).
+//! Benchmarks for the Sparse pushdown kernels (`is_constant`, `sum`, `null_count`, compare).
 //!
 //! Each benchmark exercises the registered kernel path on a single representative
 //! sparse `i32` array. All are `O(num_patches)`; the patch counts below are sized so
@@ -20,7 +19,6 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::is_constant::is_constant;
-use vortex_array::aggregate_fn::fns::min_max::min_max;
 use vortex_array::aggregate_fn::fns::null_count::null_count;
 use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::ConstantArray;
@@ -99,15 +97,6 @@ fn sparse_sum(bencher: Bencher) {
         .with_inputs(|| (make_sparse(100_000, false), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| {
             divan::black_box(sum(&array, &mut ctx).vortex_expect("sum"))
-        });
-}
-
-#[divan::bench]
-fn sparse_min_max(bencher: Bencher) {
-    bencher
-        .with_inputs(|| (make_sparse(40_000, false), SESSION.create_execution_ctx()))
-        .bench_values(|(array, mut ctx)| {
-            divan::black_box(min_max(&array, &mut ctx).vortex_expect("min_max"))
         });
 }
 

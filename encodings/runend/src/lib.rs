@@ -30,7 +30,8 @@ use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
-use vortex_array::aggregate_fn::fns::min_max::MinMax;
+use vortex_array::aggregate_fn::fns::max::Max;
+use vortex_array::aggregate_fn::fns::min::Min;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
@@ -42,11 +43,6 @@ pub fn initialize(session: &VortexSession) {
     // Register the RunEnd-specific aggregate kernels.
     session.aggregate_fns().register_aggregate_kernel(
         RunEnd.id(),
-        Some(MinMax.id()),
-        &compute::min_max::RunEndMinMaxKernel,
-    );
-    session.aggregate_fns().register_aggregate_kernel(
-        RunEnd.id(),
         Some(IsConstant.id()),
         &compute::is_constant::RunEndIsConstantKernel,
     );
@@ -54,6 +50,16 @@ pub fn initialize(session: &VortexSession) {
         RunEnd.id(),
         Some(IsSorted.id()),
         &compute::is_sorted::RunEndIsSortedKernel,
+    );
+    session.aggregate_fns().register_aggregate_kernel(
+        RunEnd.id(),
+        Some(Max.id()),
+        &compute::extrema::RunEndExtremaKernel,
+    );
+    session.aggregate_fns().register_aggregate_kernel(
+        RunEnd.id(),
+        Some(Min.id()),
+        &compute::extrema::RunEndExtremaKernel,
     );
 }
 

@@ -13,7 +13,8 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::aggregate_fn;
+use crate::aggregate_fn::fns::max::max;
+use crate::aggregate_fn::fns::min::min;
 use crate::array::ArrayView;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
@@ -213,10 +214,15 @@ fn values_fit_in(
     if !compute {
         return false;
     }
-    aggregate_fn::fns::min_max::min_max(array.array(), ctx)
-        .ok()
-        .flatten()
-        .is_none_or(|mm| mm.min.cast(&target_dtype).is_ok() && mm.max.cast(&target_dtype).is_ok())
+    match (
+        min(array.array(), ctx).ok().flatten(),
+        max(array.array(), ctx).ok().flatten(),
+    ) {
+        (Some(min), Some(max)) => {
+            min.cast(&target_dtype).is_ok() && max.cast(&target_dtype).is_ok()
+        }
+        _ => true,
+    }
 }
 
 /// Cached-only check: returns `Some(fits)` if both `Min` and `Max` are present as `Exact` in the
