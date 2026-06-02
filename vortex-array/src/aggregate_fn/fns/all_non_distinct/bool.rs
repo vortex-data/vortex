@@ -10,5 +10,5 @@ where
     L: BoolArrayExt,
     R: BoolArrayExt,
 {
-    Ok(lhs.to_bit_buffer() == rhs.to_bit_buffer())
+    Ok(lhs.bit_buffer_view() == rhs.bit_buffer_view())
 }

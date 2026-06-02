@@ -41,7 +41,7 @@ impl FillNullKernel for Dict {
 
         // We found the fill value already in the values at this given index.
         let Some(existing_fill_value_index) =
-            found_fill_values.to_bit_buffer().set_indices().next()
+            found_fill_values.bit_buffer_view().set_indices().next()
         else {
             // No fill values found, so we must canonicalize and fill_null.
             return Ok(Some(

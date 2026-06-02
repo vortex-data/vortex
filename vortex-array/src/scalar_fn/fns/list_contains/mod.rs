@@ -351,7 +351,7 @@ where
 {
     let offsets_slice = offsets.as_slice::<O>();
     let sizes_slice = sizes.as_slice::<S>();
-    let bits = matches.to_bit_buffer();
+    let bits = matches.bit_buffer_view();
 
     (0..list_array_len)
         .map(|i| {
@@ -360,7 +360,7 @@ where
 
             // BitIndexIterator yields indices of true bits only. If `.next()` returns
             // `Some(_)`, at least one element in this list's range matches.
-            let mut set_bits = BitIndexIterator::new(bits.inner().as_ref(), offset, size);
+            let mut set_bits = BitIndexIterator::new(bits.inner(), offset, size);
             set_bits.next().is_some()
         })
         .collect::<BitBuffer>()

@@ -563,9 +563,14 @@ impl Executable for CanonicalValidity {
             Canonical::Bool(b) => {
                 let validity = child_to_validity(b.slots()[0].as_ref(), b.dtype().nullability());
                 let len = b.len();
-                let BoolDataParts { bits, offset, len } = b.into_data().into_parts(len);
+                let BoolDataParts { bits, meta } = b.into_data().into_parts(len);
                 Ok(CanonicalValidity(Canonical::Bool(
-                    BoolArray::try_new_from_handle(bits, offset, len, validity.execute(ctx)?)?,
+                    BoolArray::try_new_from_handle(
+                        bits,
+                        meta.offset(),
+                        meta.len(),
+                        validity.execute(ctx)?,
+                    )?,
                 )))
             }
             Canonical::Primitive(p) => {
@@ -713,9 +718,14 @@ impl Executable for RecursiveCanonical {
             Canonical::Bool(b) => {
                 let validity = child_to_validity(b.slots()[0].as_ref(), b.dtype().nullability());
                 let len = b.len();
-                let BoolDataParts { bits, offset, len } = b.into_data().into_parts(len);
+                let BoolDataParts { bits, meta } = b.into_data().into_parts(len);
                 Ok(RecursiveCanonical(Canonical::Bool(
-                    BoolArray::try_new_from_handle(bits, offset, len, validity.execute(ctx)?)?,
+                    BoolArray::try_new_from_handle(
+                        bits,
+                        meta.offset(),
+                        meta.len(),
+                        validity.execute(ctx)?,
+                    )?,
                 )))
             }
             Canonical::Primitive(p) => {
