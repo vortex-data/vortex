@@ -51,6 +51,53 @@ fn build_inputs<const BW: u8>(len: usize) -> (ArrayRef, ArrayRef, ExecutionCtx) 
     (array, rhs, ctx)
 }
 
+/// Build the same packed array but with an *in-range* constant RHS, so the streaming /
+/// fused unpack-compare path runs (the out-of-range fast path does not apply).
+fn build_in_range_inputs<const BW: u8>(len: usize) -> (ArrayRef, ArrayRef, ExecutionCtx) {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let buf: BufferMut<u32> = (0..len).map(|i| (i as u32) % (1 << BW)).collect();
+    let array = BitPackedData::encode(
+        &PrimitiveArray::new(buf.freeze(), Validity::NonNullable).into_array(),
+        BW,
+        &mut ctx,
+    )
+    .unwrap()
+    .into_array();
+    // Mid-range constant: inside [0, 2^BW - 1], so every lane must actually be inspected.
+    let constant = (1u32 << BW) / 2;
+    let rhs = ConstantArray::new(constant, len).into_array();
+    (array, rhs, ctx)
+}
+
+#[divan::bench(args = LENS, consts = BIT_WIDTHS)]
+fn in_range_eq<const BW: u8>(bencher: Bencher, len: usize) {
+    let (array, rhs, mut ctx) = build_in_range_inputs::<BW>(len);
+    bencher.counter(ItemsCount::new(len)).bench_local(|| {
+        array
+            .clone()
+            .binary(rhs.clone(), Operator::Eq)
+            .unwrap()
+            .execute::<BoolArray>(&mut ctx)
+            .unwrap()
+    });
+}
+
+#[divan::bench(args = LENS, consts = BIT_WIDTHS)]
+fn in_range_eq_baseline<const BW: u8>(bencher: Bencher, len: usize) {
+    let (array, rhs, mut ctx) = build_in_range_inputs::<BW>(len);
+    bencher.counter(ItemsCount::new(len)).bench_local(|| {
+        // What the fallback would do: materialize the unpacked primitive, then run Arrow
+        // compare on it.
+        let primitive = array.clone().execute::<PrimitiveArray>(&mut ctx).unwrap();
+        primitive
+            .into_array()
+            .binary(rhs.clone(), Operator::Eq)
+            .unwrap()
+            .execute::<BoolArray>(&mut ctx)
+            .unwrap()
+    });
+}
+
 #[divan::bench(args = LENS, consts = BIT_WIDTHS)]
 fn fast_eq_out_of_range<const BW: u8>(bencher: Bencher, len: usize) {
     let (array, rhs, mut ctx) = build_inputs::<BW>(len);

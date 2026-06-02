@@ -11,6 +11,8 @@
 //! resulting words straight into the output bit buffer, so the materialised primitive
 //! never appears anywhere.
 
+use fastlanes::BitPackingCompare;
+use fastlanes::FastLanesComparable;
 use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -20,6 +22,7 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
@@ -102,4 +105,92 @@ where
         cursor += 1;
     }
     cursor
+}
+
+/// Compare every element of a [`BitPackedArray`](crate::BitPackedArray) against the constant
+/// `value` with `cmp`, producing a [`BoolArray`].
+///
+/// Unlike [`stream_predicate`], this uses the FastLanes fused unpack-and-compare kernel
+/// ([`fastlanes::BitPackingCompare`]): each value is unpacked in-register and compared on the
+/// spot, so neither the unpacked primitive nor a per-element scratch is materialised. Patches
+/// are applied afterwards by overwriting the result bit at each patched index with
+/// `cmp(patch_value, value)`.
+pub(super) fn stream_compare<T, F>(
+    array: ArrayView<'_, BitPacked>,
+    value: T,
+    cmp: F,
+    nullability: Nullability,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef>
+where
+    T: BitPackedIter
+        + NativePType
+        + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
+    <T as PhysicalPType>::Physical: BitPackingCompare,
+    F: Fn(T, T) -> bool + Copy,
+{
+    let len = array.len();
+    let mut words: BufferMut<u64> = BufferMut::zeroed(len.div_ceil(u64::BITS as usize));
+
+    if len > 0 {
+        let mut chunks = array.unpacked_chunks::<T>()?;
+        let words = words.as_mut_slice();
+        chunks.for_each_compared_chunk(cmp, value, |bools, range| {
+            pack_bools_into_words(words, range.start, bools.len(), |i| bools[i]);
+        });
+    }
+
+    let mut bits = BitBufferMut::from_buffer(words.into_byte_buffer(), 0, len);
+
+    if let Some(p) = array.patches() {
+        let p_idx = p.indices().clone().execute::<PrimitiveArray>(ctx)?;
+        let p_val = p.values().clone().execute::<PrimitiveArray>(ctx)?;
+        let p_off = p.offset();
+        match_each_unsigned_integer_ptype!(p_idx.ptype(), |I| {
+            apply_compare_patches::<T, I, F>(
+                &mut bits,
+                p_idx.as_slice::<I>(),
+                p_val.as_slice::<T>(),
+                p_off,
+                cmp,
+                value,
+            );
+        });
+    }
+
+    let validity = array.validity()?.union_nullability(nullability);
+    Ok(BoolArray::new(bits.freeze(), validity).into_array())
+}
+
+/// Overwrite the result bit at each patched index with `cmp(patch_value, value)`. The fused
+/// compare kernel reads the (truncated) packed value at patched positions, so those bits are
+/// stale until corrected here.
+fn apply_compare_patches<T, I, F>(
+    bits: &mut BitBufferMut,
+    indices: &[I],
+    values: &[T],
+    indices_offset: usize,
+    cmp: F,
+    value: T,
+) where
+    T: NativePType,
+    I: AsPrimitive<usize>,
+    F: Fn(T, T) -> bool,
+{
+    let len = bits.len();
+    for (&raw_idx, &patch_value) in indices.iter().zip(values.iter()) {
+        let i: usize = raw_idx.as_();
+        if i < indices_offset {
+            continue;
+        }
+        let pos = i - indices_offset;
+        if pos >= len {
+            break;
+        }
+        if cmp(patch_value, value) {
+            bits.set(pos);
+        } else {
+            bits.unset(pos);
+        }
+    }
 }

@@ -19,13 +19,16 @@
 //!   `O(1)` `i128` check on the constant alone — strictly cheaper than encoding `c` into
 //!   the bit-packed representation, and layout-agnostic.
 //!
-//! * **Streaming fallback** — in-range constants are evaluated by [`stream_predicate`],
-//!   which walks the array one 1024-element FastLanes block at a time through a reusable
-//!   scratch buffer and folds a per-element predicate into a `BitBuffer`, never
-//!   materialising the full primitive.
+//! * **Streaming fallback** — in-range constants are evaluated by [`stream_compare`], which
+//!   walks the array one 1024-element FastLanes block at a time and uses the fused
+//!   unpack-and-compare kernel ([`fastlanes::BitPackingCompare`]) to compare each value
+//!   in-register, folding the result straight into a `BitBuffer` without ever materialising
+//!   the unpacked primitive.
 
 use std::cmp::Ordering;
 
+use fastlanes::BitPackingCompare;
+use fastlanes::FastLanesComparable;
 use num_traits::ToPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -38,6 +41,7 @@ use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
@@ -49,7 +53,7 @@ use vortex_error::VortexResult;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
-use crate::bitpacking::compute::stream_predicate::stream_predicate;
+use crate::bitpacking::compute::stream_predicate::stream_compare;
 use crate::unpack_iter::BitPacked as BitPackedIter;
 
 impl CompareKernel for BitPacked {
@@ -93,7 +97,12 @@ fn compare_constant_typed<T>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef>
 where
-    T: NativePType + Copy + ToPrimitive + BitPackedIter,
+    T: NativePType
+        + Copy
+        + ToPrimitive
+        + BitPackedIter
+        + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
+    <T as PhysicalPType>::Physical: BitPackingCompare,
 {
     // `O(1)` fast path: a constant outside the packable range compares identically against
     // every packed lane, so the answer is a constant boolean modulo patches and validity.
@@ -101,17 +110,27 @@ where
         return compare_out_of_range::<T>(lhs, rhs, relation, operator, nullability, ctx);
     }
 
-    // In-range: stream the predicate over the packed blocks. `NativePType::is_eq` / `is_lt`
-    // etc. provide total comparison; `NotEq` has no direct method, so use `!is_eq`.
+    // In-range: fused unpack-and-compare over the packed blocks. `NativePType::is_eq` /
+    // `is_lt` etc. provide total comparison; `NotEq` has no direct method, so use `!is_eq`.
     match operator {
-        CompareOperator::Eq => stream_predicate::<T, _>(lhs, nullability, |v| v.is_eq(rhs), ctx),
-        CompareOperator::NotEq => {
-            stream_predicate::<T, _>(lhs, nullability, |v| !v.is_eq(rhs), ctx)
+        CompareOperator::Eq => {
+            stream_compare::<T, _>(lhs, rhs, |a, b| a.is_eq(b), nullability, ctx)
         }
-        CompareOperator::Lt => stream_predicate::<T, _>(lhs, nullability, |v| v.is_lt(rhs), ctx),
-        CompareOperator::Lte => stream_predicate::<T, _>(lhs, nullability, |v| v.is_le(rhs), ctx),
-        CompareOperator::Gt => stream_predicate::<T, _>(lhs, nullability, |v| v.is_gt(rhs), ctx),
-        CompareOperator::Gte => stream_predicate::<T, _>(lhs, nullability, |v| v.is_ge(rhs), ctx),
+        CompareOperator::NotEq => {
+            stream_compare::<T, _>(lhs, rhs, |a, b| !a.is_eq(b), nullability, ctx)
+        }
+        CompareOperator::Lt => {
+            stream_compare::<T, _>(lhs, rhs, |a, b| a.is_lt(b), nullability, ctx)
+        }
+        CompareOperator::Lte => {
+            stream_compare::<T, _>(lhs, rhs, |a, b| a.is_le(b), nullability, ctx)
+        }
+        CompareOperator::Gt => {
+            stream_compare::<T, _>(lhs, rhs, |a, b| a.is_gt(b), nullability, ctx)
+        }
+        CompareOperator::Gte => {
+            stream_compare::<T, _>(lhs, rhs, |a, b| a.is_ge(b), nullability, ctx)
+        }
     }
 }
 
