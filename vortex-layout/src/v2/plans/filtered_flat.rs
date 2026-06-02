@@ -7,7 +7,7 @@
 //! Produced by [`crate::v2::plans::flat::FlatPlan::try_pushdown_mask`]
 //! when a `FilterPlan`'s mask is absorbed into the leaf. At execute
 //! time it folds the mask stream into a single [`Mask`], polls its
-//! pre-registered shared segment future only if the mask keeps rows,
+//! lazy shared segment request only if the mask keeps rows,
 //! slices to the requested row range, filters, and applies the
 //! projection expression.
 //!
@@ -23,9 +23,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use async_stream::try_stream;
-use futures::FutureExt;
 use futures::StreamExt;
-use futures::TryFutureExt;
 use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
@@ -48,7 +46,7 @@ use crate::v2::experiment::trace_flow;
 use crate::v2::plans::LayoutPlan;
 use crate::v2::plans::LayoutPlanRef;
 use crate::v2::plans::PartitionStats;
-use crate::v2::plans::flat::SharedSegmentFuture;
+use crate::v2::plans::flat::SharedSegmentRequest;
 use crate::v2::plans::flat::decode_segment;
 use crate::v2::plans::flat::slice_to_range;
 use crate::v2::scan_ctx::ScanCtx;
@@ -64,7 +62,7 @@ pub struct FilteredFlatPlan {
     layout_dtype: DType,
     array_ctx: ReadContext,
     array_tree: Option<ByteBuffer>,
-    segment_fut: SharedSegmentFuture,
+    segment_request: SharedSegmentRequest,
     expr: Expression,
     selection: Selection,
     output_dtype: DType,
@@ -85,18 +83,13 @@ impl FilteredFlatPlan {
         output_dtype: DType,
         mask_plan: LayoutPlanRef,
     ) -> Self {
-        let segment_fut = segment_source
-            .request(segment_id)
-            .map_err(Arc::new)
-            .boxed()
-            .shared();
-        Self::with_segment_future(
+        Self::with_segment_request(
             segment_id,
             layout_row_count,
             layout_dtype,
             array_ctx,
             array_tree,
-            segment_fut,
+            SharedSegmentRequest::new(segment_source, segment_id),
             expr,
             selection,
             output_dtype,
@@ -105,13 +98,13 @@ impl FilteredFlatPlan {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn with_segment_future(
+    pub(crate) fn with_segment_request(
         segment_id: SegmentId,
         layout_row_count: u64,
         layout_dtype: DType,
         array_ctx: ReadContext,
         array_tree: Option<ByteBuffer>,
-        segment_fut: SharedSegmentFuture,
+        segment_request: SharedSegmentRequest,
         expr: Expression,
         selection: Selection,
         output_dtype: DType,
@@ -123,7 +116,7 @@ impl FilteredFlatPlan {
             layout_dtype,
             array_ctx,
             array_tree,
-            segment_fut,
+            segment_request,
             expr,
             selection,
             output_dtype,
@@ -228,7 +221,7 @@ impl LayoutPlan for FilteredFlatPlan {
             layout_dtype: self.layout_dtype.clone(),
             array_ctx: self.array_ctx.clone(),
             array_tree: self.array_tree.clone(),
-            segment_fut: self.segment_fut.clone(),
+            segment_request: self.segment_request.clone(),
             expr: self.expr.clone(),
             selection: self.selection.clone(),
             output_dtype: self.output_dtype.clone(),
@@ -274,7 +267,7 @@ impl LayoutPlan for FilteredFlatPlan {
             self.segment_id,
             global_range,
             rows.saturating_mul(16),
-            self.segment_fut.clone(),
+            self.segment_request.clone(),
         )?;
         Ok(())
     }
@@ -302,7 +295,7 @@ impl LayoutPlan for FilteredFlatPlan {
         let layout_dtype = self.layout_dtype.clone();
         let array_ctx = self.array_ctx.clone();
         let array_tree = self.array_tree.clone();
-        let segment_fut = self.segment_fut.clone();
+        let segment_request = self.segment_request.clone();
         let layout_row_count = self.layout_row_count;
         let expr = self.expr.clone();
         let session = ctx.session().clone();
@@ -395,7 +388,7 @@ impl LayoutPlan for FilteredFlatPlan {
                     let decode_start = Instant::now();
                     if decoded.is_none() {
                         decoded = Some(decode_segment(
-                            segment_fut.clone(),
+                            segment_request.request(),
                             array_tree.clone(),
                             layout_dtype.clone(),
                             layout_row_count,
@@ -520,7 +513,7 @@ impl LayoutPlan for FilteredFlatPlan {
 
             let decode_start = Instant::now();
             let array = decode_segment(
-                segment_fut,
+                segment_request.request(),
                 array_tree,
                 layout_dtype,
                 layout_row_count,

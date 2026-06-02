@@ -42,6 +42,8 @@ use crate::v2::plans::and_bool::ConjunctPlan;
 use crate::v2::plans::cse::cse;
 use crate::v2::plans::filter::FilterPlan;
 use crate::v2::scan_ctx::ScanCtx;
+use crate::v2::scheduler::try_execute_with_single_scheduler;
+use crate::v2::toggle;
 
 /// Scan request for the LayoutPlan v2 path. Mirrors the inputs to
 /// `vortex_layout::scan::scan_builder::ScanBuilder` but produces a
@@ -96,9 +98,11 @@ impl Scan {
         let Some(filter) = self.filter.as_ref() else {
             // Projection-only — still worth CSE in case the projection
             // expression itself produced duplicate subtrees (e.g. a
-            // pack referring to the same field twice).
-            // No filter → no demand machinery needed; skip ScanPlan.
-            return cse(projection_plan);
+            // pack referring to the same field twice). Keep the
+            // ScanPlan boundary so projection-only scans can try the
+            // native morsel scheduler before falling back to the
+            // existing executor.
+            return Ok(Arc::new(ScanPlan::new(cse(projection_plan)?, row_count)));
         };
 
         // Decompose the filter into top-level AND conjuncts, plan
@@ -382,6 +386,17 @@ impl LayoutPlan for ScanPlan {
                 .detach();
         }
 
+        if toggle::use_v2_scheduler()
+            && let Some(stream) = try_execute_with_single_scheduler(
+                Arc::clone(&self.body),
+                row_range.clone(),
+                demand.clone(),
+                ctx.clone(),
+            )?
+        {
+            return Ok(stream);
+        }
+
         self.body.execute(row_range, &demand, ctx)
     }
 }
@@ -390,8 +405,12 @@ impl LayoutPlan for ScanPlan {
 mod tests {
     use std::ops::Range;
     use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
 
+    use futures::FutureExt;
     use futures::StreamExt;
+    use futures::future::BoxFuture;
     use futures::stream;
     use vortex_array::ArrayContext;
     use vortex_array::ArrayRef;
@@ -410,6 +429,7 @@ mod tests {
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_mask::Mask;
     use vortex_scan::selection::Selection;
     use vortex_session::VortexSession;
 
@@ -420,6 +440,7 @@ mod tests {
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::table::TableStrategy;
     use crate::scan::scan_builder::ScanBuilder;
+    use crate::segments::SegmentFuture;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
@@ -427,6 +448,8 @@ mod tests {
     use crate::sequence::SequentialStreamExt as _;
     use crate::session::LayoutSession;
     use crate::test::SESSION;
+    use crate::v2::demand::DemandSource;
+    use crate::v2::demand::Resource;
 
     fn session_with_handle(handle: Handle) -> VortexSession {
         VortexSession::empty()
@@ -435,6 +458,46 @@ mod tests {
             .with::<ScalarFnSession>()
             .with::<RuntimeSession>()
             .with_handle(handle)
+    }
+
+    struct CountingSegmentSource {
+        inner: Arc<dyn SegmentSource>,
+        requests: Arc<AtomicUsize>,
+    }
+
+    impl SegmentSource for CountingSegmentSource {
+        fn request(&self, id: crate::segments::SegmentId) -> SegmentFuture {
+            self.requests.fetch_add(1, Ordering::SeqCst);
+            self.inner.request(id)
+        }
+    }
+
+    struct StaticDemandSource {
+        mask: Mask,
+    }
+
+    impl Resource for StaticDemandSource {
+        fn version(&self) -> u64 {
+            1
+        }
+
+        fn ensure_ready(&self) -> BoxFuture<'_, VortexResult<()>> {
+            async { Ok(()) }.boxed()
+        }
+    }
+
+    impl DemandSource for StaticDemandSource {
+        fn mask_for(
+            &self,
+            range: crate::v2::demand::RowRange,
+        ) -> BoxFuture<'_, VortexResult<Mask>> {
+            async move {
+                let start = usize::try_from(range.start)?;
+                let end = usize::try_from(range.end)?;
+                Ok(self.mask.slice(start..end))
+            }
+            .boxed()
+        }
     }
 
     /// Build a `Chunked(Struct(Flat, Flat))` layout with two chunks.
@@ -634,6 +697,47 @@ mod tests {
         (segments, layout, array)
     }
 
+    /// Build a `Chunked(Flat)` layout backed by two primitive chunks.
+    fn build_chunked_flat_layout() -> (Arc<dyn SegmentSource>, LayoutRef, ArrayRef) {
+        let chunk1 = buffer![1i32, 2, 3, 4].into_array();
+        let chunk2 = buffer![5i32, 6, 7].into_array();
+        let dtype = chunk1.dtype().clone();
+
+        let ctx = ArrayContext::empty();
+        let segments = Arc::new(TestSegments::default());
+        let segments_for_strategy = Arc::<TestSegments>::clone(&segments);
+        let strategy = ChunkedLayoutStrategy::new(FlatLayoutStrategy::default());
+        let (mut sequence_id, eof) = SequenceId::root().split();
+        let chunk1_for_write = chunk1.clone();
+        let chunk2_for_write = chunk2.clone();
+        let dtype_for_write = dtype.clone();
+        let layout = block_on(|handle| async move {
+            let session = session_with_handle(handle);
+            strategy
+                .write_stream(
+                    ctx,
+                    segments_for_strategy,
+                    SequentialStreamAdapter::new(
+                        dtype_for_write,
+                        stream::iter([
+                            Ok((sequence_id.advance(), chunk1_for_write)),
+                            Ok((sequence_id.advance(), chunk2_for_write)),
+                        ]),
+                    )
+                    .sendable(),
+                    eof,
+                    &session,
+                )
+                .await
+        })
+        .unwrap();
+
+        let combined = ChunkedArray::try_new(vec![chunk1, chunk2], dtype)
+            .unwrap()
+            .into_array();
+        (segments, layout, combined)
+    }
+
     /// V1 and V2 must produce identical output for a projection-only scan.
     #[test]
     fn diff_v1_v2_projection_only_chunked_struct() -> VortexResult<()> {
@@ -709,6 +813,130 @@ mod tests {
         assert_arrays_eq!(v1, v2);
         assert_arrays_eq!(v2, expected);
 
+        Ok(())
+    }
+
+    #[test]
+    fn scheduler_execute_projection_only_flat() -> VortexResult<()> {
+        use crate::v2::demand::RowDemand;
+        use crate::v2::plans::PlanArguments;
+        use crate::v2::plans::PlanCtx;
+        use crate::v2::scan_ctx::ScanCtx;
+        use crate::v2::scheduler::try_execute_with_single_scheduler;
+
+        let (segments, layout, expected) = build_flat_layout();
+        let row_count = layout.row_count();
+        let (chunks, dtype) = block_on(|handle| async move {
+            let session = session_with_handle(handle);
+            let ctx = PlanCtx::new(segments, session.clone());
+            let plan = layout.plan(PlanArguments {
+                selection: Selection::All,
+                expr: root(),
+                ctx,
+            })?;
+            let dtype = plan.schema().clone();
+            let demand = RowDemand::empty(row_count);
+            let scan_ctx = ScanCtx::new(session);
+            let mut stream =
+                try_execute_with_single_scheduler(plan, 0..row_count, demand, scan_ctx)?
+                    .ok_or_else(|| {
+                        vortex_error::vortex_err!("flat plan should execute via scheduler")
+                    })?;
+            let mut chunks = Vec::new();
+            while let Some(chunk) = stream.next().await {
+                chunks.push(chunk?);
+            }
+            VortexResult::Ok((chunks, dtype))
+        })?;
+
+        let scheduled = ChunkedArray::try_new(chunks, dtype)?.into_array();
+        assert_arrays_eq!(scheduled, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn scheduler_skips_flat_segment_request_when_demand_is_false() -> VortexResult<()> {
+        use crate::v2::demand::RowDemand;
+        use crate::v2::plans::PlanArguments;
+        use crate::v2::plans::PlanCtx;
+        use crate::v2::scan_ctx::ScanCtx;
+        use crate::v2::scheduler::try_execute_with_single_scheduler;
+
+        let (segments, layout, _expected) = build_flat_layout();
+        let requests = Arc::new(AtomicUsize::new(0));
+        let counting_segments: Arc<dyn SegmentSource> = Arc::new(CountingSegmentSource {
+            inner: segments,
+            requests: Arc::clone(&requests),
+        });
+        let row_count = layout.row_count();
+        let (chunks, dtype) = block_on(|handle| async move {
+            let session = session_with_handle(handle);
+            let ctx = PlanCtx::new(counting_segments, session.clone());
+            let plan = layout.plan(PlanArguments {
+                selection: Selection::All,
+                expr: root(),
+                ctx,
+            })?;
+            let dtype = plan.schema().clone();
+            let demand = RowDemand::new(
+                vec![Arc::new(StaticDemandSource {
+                    mask: Mask::new_false(usize::try_from(row_count)?),
+                })],
+                row_count,
+            );
+            let scan_ctx = ScanCtx::new(session);
+            let mut stream =
+                try_execute_with_single_scheduler(plan, 0..row_count, demand, scan_ctx)?
+                    .ok_or_else(|| {
+                        vortex_error::vortex_err!("flat plan should execute via scheduler")
+                    })?;
+            let mut chunks = Vec::new();
+            while let Some(chunk) = stream.next().await {
+                chunks.push(chunk?);
+            }
+            VortexResult::Ok((chunks, dtype))
+        })?;
+
+        let scheduled = ChunkedArray::try_new(chunks, dtype)?.into_array();
+        assert_eq!(scheduled.len(), usize::try_from(row_count)?);
+        assert_eq!(requests.load(Ordering::SeqCst), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn scheduler_execute_projection_only_chunked_flat() -> VortexResult<()> {
+        use crate::v2::demand::RowDemand;
+        use crate::v2::plans::PlanArguments;
+        use crate::v2::plans::PlanCtx;
+        use crate::v2::scan_ctx::ScanCtx;
+        use crate::v2::scheduler::try_execute_with_single_scheduler;
+
+        let (segments, layout, expected) = build_chunked_flat_layout();
+        let row_count = layout.row_count();
+        let (chunks, dtype) = block_on(|handle| async move {
+            let session = session_with_handle(handle);
+            let ctx = PlanCtx::new(segments, session.clone());
+            let plan = layout.plan(PlanArguments {
+                selection: Selection::All,
+                expr: root(),
+                ctx,
+            })?;
+            let dtype = plan.schema().clone();
+            let demand = RowDemand::empty(row_count);
+            let scan_ctx = ScanCtx::new(session);
+            let mut stream = try_execute_with_single_scheduler(plan, 2..6, demand, scan_ctx)?
+                .ok_or_else(|| {
+                    vortex_error::vortex_err!("chunked flat plan should execute via scheduler")
+                })?;
+            let mut chunks = Vec::new();
+            while let Some(chunk) = stream.next().await {
+                chunks.push(chunk?);
+            }
+            VortexResult::Ok((chunks, dtype))
+        })?;
+
+        let scheduled = ChunkedArray::try_new(chunks, dtype)?.into_array();
+        assert_arrays_eq!(scheduled, expected.slice(2..6)?);
         Ok(())
     }
 

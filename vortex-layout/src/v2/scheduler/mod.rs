@@ -14,6 +14,7 @@ pub(crate) mod queue;
 
 pub use lowering::LayoutLoweringCtx;
 pub use lowering::LayoutSchedulerRunReport;
+pub(crate) use lowering::try_execute_with_single_scheduler;
 #[cfg(test)]
 pub(crate) use queue::IoRequestId;
 #[cfg(test)]

@@ -16,10 +16,24 @@ use std::env;
 /// Environment variable that opts into the v2 scan path.
 pub const ENV_VAR: &str = "VORTEX_LAYOUT_PLAN_V2";
 
+/// Environment variable that opts v2 scans into the scheduler-backed
+/// projection prototype when that path can execute the plan natively.
+pub const SCHEDULER_ENV_VAR: &str = "VORTEX_LAYOUT_PLAN_V2_SCHEDULER";
+
 /// True iff the v2 scan toggle is set via [`ENV_VAR`]. Recognised
 /// truthy values: `1`, `true`, `yes`, `on` (case-insensitive).
 pub fn use_v2_scan() -> bool {
-    match env::var(ENV_VAR) {
+    bool_env_var(ENV_VAR)
+}
+
+/// True iff the v2 scheduler prototype is enabled via
+/// [`SCHEDULER_ENV_VAR`].
+pub fn use_v2_scheduler() -> bool {
+    bool_env_var(SCHEDULER_ENV_VAR)
+}
+
+fn bool_env_var(name: &str) -> bool {
+    match env::var(name) {
         Ok(v) => matches!(
             v.trim().to_ascii_lowercase().as_str(),
             "1" | "true" | "yes" | "on"
@@ -42,6 +56,7 @@ mod tests {
         // Regression check: code elsewhere reads VORTEX_LAYOUT_PLAN_V2
         // directly (e.g., benchmark setup scripts).
         assert_eq!(ENV_VAR, "VORTEX_LAYOUT_PLAN_V2");
+        assert_eq!(SCHEDULER_ENV_VAR, "VORTEX_LAYOUT_PLAN_V2_SCHEDULER");
     }
 
     #[test]

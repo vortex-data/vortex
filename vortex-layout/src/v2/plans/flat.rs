@@ -5,8 +5,8 @@
 //!
 //! Owns its own segment fetch + decode + expression apply; does not
 //! go through any V1 `LayoutReader`. Holds the `SegmentId`, the
-//! decode context, a pre-registered shared segment future, and the
-//! expression — the plan is fully lowered V2-native.
+//! decode context, a lazy shared segment request, and the expression
+//! — the plan is fully lowered V2-native.
 //!
 //! When [`LayoutPlan::try_pushdown_mask`] is called and a mask
 //! pushes down successfully, this plan node is replaced with a
@@ -26,6 +26,7 @@ use futures::FutureExt;
 use futures::TryFutureExt;
 use futures::future::BoxFuture;
 use futures::future::Shared;
+use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
@@ -53,8 +54,58 @@ use crate::v2::plans::PartitionStats;
 use crate::v2::plans::filtered_flat::FilteredFlatPlan;
 use crate::v2::scan_ctx::ScanCtx;
 use crate::v2::scheduler::LayoutLoweringCtx;
+use crate::v2::scheduler::queue::MorselRole;
+use crate::v2::scheduler::queue::SchedulerMorsel;
+use crate::v2::scheduler::queue::SchedulerRunCtx;
+use crate::v2::scheduler::queue::SchedulerSourceNode;
 
 pub(crate) type SharedSegmentFuture = Shared<BoxFuture<'static, SharedVortexResult<BufferHandle>>>;
+
+/// Lazily registers a segment read and shares the resulting future.
+#[derive(Clone)]
+pub(crate) struct SharedSegmentRequest {
+    inner: Arc<SharedSegmentRequestInner>,
+}
+
+struct SharedSegmentRequestInner {
+    segment_id: SegmentId,
+    segment_source: Arc<dyn SegmentSource>,
+    future: Mutex<Option<SharedSegmentFuture>>,
+}
+
+impl SharedSegmentRequest {
+    pub(crate) fn new(segment_source: Arc<dyn SegmentSource>, segment_id: SegmentId) -> Self {
+        Self {
+            inner: Arc::new(SharedSegmentRequestInner {
+                segment_id,
+                segment_source,
+                future: Mutex::new(None),
+            }),
+        }
+    }
+
+    pub(crate) fn request(&self) -> SharedSegmentFuture {
+        let mut future = self.inner.future.lock();
+        future
+            .get_or_insert_with(|| {
+                self.inner
+                    .segment_source
+                    .request(self.inner.segment_id)
+                    .map_err(Arc::new)
+                    .boxed()
+                    .shared()
+            })
+            .clone()
+    }
+}
+
+impl std::fmt::Debug for SharedSegmentRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SharedSegmentRequest")
+            .field("segment_id", &self.inner.segment_id)
+            .finish_non_exhaustive()
+    }
+}
 
 /// Terminal node over one segment. Owns the segment fetch and array
 /// decode; no V1 `LayoutReader` involved.
@@ -71,10 +122,86 @@ pub struct FlatPlan {
     /// present, decode reads only the segment buffers and reconstructs
     /// the array via `SerializedArray::from_flatbuffer_and_segment`.
     array_tree: Option<ByteBuffer>,
-    segment_fut: SharedSegmentFuture,
+    segment_request: SharedSegmentRequest,
     expr: Expression,
     selection: Selection,
     output_dtype: DType,
+}
+
+struct FlatSchedulerSourceNode {
+    label: String,
+    segment_id: SegmentId,
+    local_range: Range<u64>,
+    layout_row_count: u64,
+    layout_dtype: DType,
+    array_ctx: ReadContext,
+    array_tree: Option<ByteBuffer>,
+    segment_request: SharedSegmentRequest,
+    expr: Expression,
+    selection: Selection,
+    output_dtype: DType,
+}
+
+impl SchedulerSourceNode for FlatSchedulerSourceNode {
+    fn label(&self) -> &str {
+        &self.label
+    }
+
+    fn role(&self) -> MorselRole {
+        MorselRole::ValueProducer
+    }
+
+    fn can_execute_morsels(&self) -> bool {
+        true
+    }
+
+    fn execute_morsel(
+        &self,
+        morsel: SchedulerMorsel,
+        ctx: SchedulerRunCtx,
+    ) -> BoxFuture<'static, VortexResult<ArrayRef>> {
+        let segment_id = self.segment_id;
+        let local_range = self.local_range.clone();
+        let layout_row_count = self.layout_row_count;
+        let layout_dtype = self.layout_dtype.clone();
+        let array_ctx = self.array_ctx.clone();
+        let array_tree = self.array_tree.clone();
+        let segment_request = self.segment_request.clone();
+        let expr = self.expr.clone();
+        let selection = self.selection.clone();
+        let output_dtype = self.output_dtype.clone();
+        let global_range = morsel.order_key().clone();
+        async move {
+            if !matches!(selection, Selection::All) {
+                vortex_bail!(
+                    "FlatPlan scheduler source only supports Selection::All for {segment_id:?}"
+                );
+            }
+
+            let requested_rows = local_range.end.saturating_sub(local_range.start);
+            let demanded_rows = ctx.demand().cardinality(global_range).await?;
+            if demanded_rows == 0 {
+                let len = usize::try_from(requested_rows).map_err(|_| {
+                    vortex_err!("FlatPlan scheduler source requested row count exceeds usize")
+                })?;
+                return Ok(default_array(&output_dtype, len));
+            }
+
+            let session = ctx.scan_ctx().session().clone();
+            let array = decode_segment(
+                segment_request.request(),
+                array_tree,
+                layout_dtype,
+                layout_row_count,
+                array_ctx,
+                &session,
+            )
+            .await?;
+            let array = slice_to_range(array, &local_range)?;
+            array.apply(&expr)
+        }
+        .boxed()
+    }
 }
 
 impl FlatPlan {
@@ -90,18 +217,13 @@ impl FlatPlan {
         selection: Selection,
         output_dtype: DType,
     ) -> Self {
-        let segment_fut = segment_source
-            .request(segment_id)
-            .map_err(Arc::new)
-            .boxed()
-            .shared();
         Self {
             segment_id,
             layout_row_count,
             layout_dtype,
             array_ctx,
             array_tree,
-            segment_fut,
+            segment_request: SharedSegmentRequest::new(segment_source, segment_id),
             expr,
             selection,
             output_dtype,
@@ -223,13 +345,13 @@ impl LayoutPlan for FlatPlan {
                 "flat pushdown succeeded"
             );
         }
-        Some(Arc::new(FilteredFlatPlan::with_segment_future(
+        Some(Arc::new(FilteredFlatPlan::with_segment_request(
             self.segment_id,
             self.layout_row_count,
             self.layout_dtype.clone(),
             self.array_ctx.clone(),
             self.array_tree.clone(),
-            self.segment_fut.clone(),
+            self.segment_request.clone(),
             self.expr.clone(),
             self.selection.clone(),
             self.output_dtype.clone(),
@@ -249,12 +371,26 @@ impl LayoutPlan for FlatPlan {
             );
         }
         let operator = ctx.alloc_operator();
-        let pipeline = ctx.close_pipeline_with_segment_source(
-            operator,
+        let label = format!(
+            "operator{}:flat-segment:{:?}:{:?}->{}",
+            operator.raw(),
             self.segment_id,
             row_range,
-            self.schema(),
-        )?;
+            self.output_dtype
+        );
+        let pipeline = ctx.close_pipeline_with_source_node(FlatSchedulerSourceNode {
+            label,
+            segment_id: self.segment_id,
+            local_range: row_range,
+            layout_row_count: self.layout_row_count,
+            layout_dtype: self.layout_dtype.clone(),
+            array_ctx: self.array_ctx.clone(),
+            array_tree: self.array_tree.clone(),
+            segment_request: self.segment_request.clone(),
+            expr: self.expr.clone(),
+            selection: self.selection.clone(),
+            output_dtype: self.output_dtype.clone(),
+        })?;
         let global_range = ctx.current_global_range();
         let rows = global_range.end.saturating_sub(global_range.start).max(1);
         ctx.register_segment_task(
@@ -262,7 +398,7 @@ impl LayoutPlan for FlatPlan {
             self.segment_id,
             global_range,
             rows.saturating_mul(16),
-            self.segment_fut.clone(),
+            self.segment_request.clone(),
         )?;
         Ok(())
     }
@@ -290,7 +426,7 @@ impl LayoutPlan for FlatPlan {
         let layout_dtype = self.layout_dtype.clone();
         let array_ctx = self.array_ctx.clone();
         let array_tree = self.array_tree.clone();
-        let segment_fut = self.segment_fut.clone();
+        let segment_request = self.segment_request.clone();
         let layout_row_count = self.layout_row_count;
         let expr = self.expr.clone();
         let session = ctx.session().clone();
@@ -318,7 +454,7 @@ impl LayoutPlan for FlatPlan {
                 yield default_array(&output_dtype, len);
             } else {
                 let array = decode_segment(
-                    segment_fut.clone(),
+                    segment_request.request(),
                     array_tree.clone(),
                     layout_dtype.clone(),
                     layout_row_count,

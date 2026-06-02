@@ -223,13 +223,27 @@ impl LayoutPlan for LetPlan {
         ctx: &mut LayoutLoweringCtx,
     ) -> VortexResult<()> {
         let operator = ctx.alloc_operator();
-        ctx.with_input_resource_pipeline(
-            operator,
-            0,
-            row_range.clone(),
-            self.source.schema(),
-            |ctx| self.source.lower_to_scheduler(row_range.clone(), ctx),
-        )?;
+        let source_row_range = self.source_row_range(row_range.clone());
+        let source_global_range = if source_row_range == row_range {
+            ctx.current_global_range()
+        } else {
+            // Some CSE sources are child-local subtrees hoisted above
+            // a wider body. Lower those sources in their own full
+            // coordinate range, matching `publish_mask`/`publish_stream`.
+            source_row_range.clone()
+        };
+        ctx.with_global_range(source_global_range, |ctx| {
+            ctx.with_input_resource_pipeline(
+                operator,
+                0,
+                source_row_range.clone(),
+                self.source.schema(),
+                |ctx| {
+                    self.source
+                        .lower_to_scheduler(source_row_range.clone(), ctx)
+                },
+            )
+        })?;
 
         ctx.push_plan_node(operator, row_range.clone(), self.schema(), 2)?;
         self.body.lower_to_scheduler(row_range, ctx)

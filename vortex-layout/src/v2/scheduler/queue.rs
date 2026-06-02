@@ -7,18 +7,26 @@ use std::collections::BinaryHeap;
 use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::task::Context;
 use std::task::Poll;
 
 use futures::FutureExt;
+use futures::future::BoxFuture;
 use futures::future::poll_fn;
+use vortex_array::ArrayRef;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 
 use crate::segments::SegmentId;
+use crate::v2::demand::RowDemand;
 use crate::v2::domain::DomainId;
 use crate::v2::experiment::trace_flow;
 use crate::v2::plans::flat::SharedSegmentFuture;
+use crate::v2::plans::flat::SharedSegmentRequest;
+use crate::v2::scan_ctx::ScanCtx;
 
 /// Stable identifier for one DataFusion partition-local scheduler.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
@@ -115,18 +123,129 @@ pub(crate) trait SchedulerSourceNode: Send + Sync + 'static {
 
     /// Scheduling role for the first morsel admitted for this source.
     fn role(&self) -> MorselRole;
+
+    /// True when this source has a native morsel execution
+    /// implementation.
+    fn can_execute_morsels(&self) -> bool {
+        false
+    }
+
+    /// Execute one morsel and produce the source array for the
+    /// pipeline. Source implementations must not return streams; they
+    /// operate on the bounded morsel handed to them by the scheduler.
+    fn execute_morsel(
+        &self,
+        _morsel: SchedulerMorsel,
+        _ctx: SchedulerRunCtx,
+    ) -> BoxFuture<'static, VortexResult<ArrayRef>> {
+        let label = self.label().to_string();
+        async move { vortex_bail!("scheduler source {label} does not support morsel execution") }
+            .boxed()
+    }
 }
 
 /// Transform operator carried by a lowered scheduler pipeline.
 pub(crate) trait SchedulerTransformNode: Send + Sync + 'static {
     /// Human-readable operator label for traces and diagnostics.
     fn label(&self) -> &str;
+
+    /// True when this transform has a native morsel execution
+    /// implementation.
+    fn can_execute_morsels(&self) -> bool {
+        false
+    }
+
+    /// Transform one source array. Transforms are disabled for the
+    /// first scheduler-backed scan path until each plan node has a
+    /// real implementation.
+    fn execute_morsel(
+        &self,
+        _array: ArrayRef,
+        _ctx: SchedulerRunCtx,
+    ) -> BoxFuture<'static, VortexResult<ArrayRef>> {
+        let label = self.label().to_string();
+        async move { vortex_bail!("scheduler transform {label} does not support morsel execution") }
+            .boxed()
+    }
 }
 
 /// Sink operator that terminates a lowered scheduler pipeline.
 pub(crate) trait SchedulerSinkNode: Send + Sync + 'static {
     /// Human-readable operator label for traces and diagnostics.
     fn label(&self) -> &str;
+
+    /// True when this sink has a native morsel execution
+    /// implementation.
+    fn can_execute_morsels(&self) -> bool {
+        false
+    }
+
+    /// Consume one completed pipeline morsel.
+    fn push_morsel(
+        &self,
+        _array: ArrayRef,
+        _ctx: SchedulerRunCtx,
+    ) -> BoxFuture<'static, VortexResult<()>> {
+        let label = self.label().to_string();
+        async move { vortex_bail!("scheduler sink {label} does not support morsel execution") }
+            .boxed()
+    }
+}
+
+/// Runtime context shared by native scheduler pipeline nodes.
+#[derive(Clone)]
+pub(crate) struct SchedulerRunCtx {
+    demand: RowDemand,
+    scan_ctx: ScanCtx,
+    root_output: Option<kanal::AsyncSender<VortexResult<ArrayRef>>>,
+    emitted_work: Arc<Mutex<Vec<SchedulerWorkTask>>>,
+}
+
+impl SchedulerRunCtx {
+    pub(crate) fn new(
+        demand: RowDemand,
+        scan_ctx: ScanCtx,
+        root_output: Option<kanal::AsyncSender<VortexResult<ArrayRef>>>,
+    ) -> Self {
+        Self {
+            demand,
+            scan_ctx,
+            root_output,
+            emitted_work: Arc::default(),
+        }
+    }
+
+    pub(crate) fn demand(&self) -> &RowDemand {
+        &self.demand
+    }
+
+    pub(crate) fn scan_ctx(&self) -> &ScanCtx {
+        &self.scan_ctx
+    }
+
+    pub(crate) async fn send_root_output(&self, array: ArrayRef) -> VortexResult<()> {
+        let Some(root_output) = &self.root_output else {
+            vortex_bail!("scheduler root output channel is not installed");
+        };
+        root_output
+            .send(Ok(array))
+            .await
+            .map_err(|_| vortex_err!("scheduler root output channel closed"))
+    }
+
+    pub(crate) fn emit_work(&self, work: SchedulerWorkTask) -> VortexResult<()> {
+        self.emitted_work
+            .lock()
+            .map_err(|_| vortex_err!("scheduler emitted-work queue poisoned"))?
+            .push(work);
+        Ok(())
+    }
+
+    pub(super) fn drain_emitted_work(&self) -> VortexResult<Vec<SchedulerWorkTask>> {
+        Ok(std::mem::take(&mut *self.emitted_work.lock().map_err(
+            |_| vortex_err!("scheduler emitted-work queue poisoned"),
+        )?))
+    }
 }
 
 /// Source that closes a lowered pipeline.
@@ -148,6 +267,18 @@ impl SchedulerPipelineSource {
 
     pub(crate) fn role(&self) -> MorselRole {
         self.node.role()
+    }
+
+    pub(crate) fn can_execute_morsels(&self) -> bool {
+        self.node.can_execute_morsels()
+    }
+
+    pub(crate) fn execute_morsel(
+        &self,
+        morsel: SchedulerMorsel,
+        ctx: SchedulerRunCtx,
+    ) -> BoxFuture<'static, VortexResult<ArrayRef>> {
+        self.node.execute_morsel(morsel, ctx)
     }
 }
 
@@ -176,6 +307,18 @@ impl SchedulerPipelineTransform {
     pub(crate) fn label(&self) -> &str {
         self.node.label()
     }
+
+    pub(crate) fn can_execute_morsels(&self) -> bool {
+        self.node.can_execute_morsels()
+    }
+
+    pub(crate) fn execute_morsel(
+        &self,
+        array: ArrayRef,
+        ctx: SchedulerRunCtx,
+    ) -> BoxFuture<'static, VortexResult<ArrayRef>> {
+        self.node.execute_morsel(array, ctx)
+    }
 }
 
 impl fmt::Debug for SchedulerPipelineTransform {
@@ -201,6 +344,18 @@ impl SchedulerPipelineSink {
 
     pub(crate) fn label(&self) -> &str {
         self.node.label()
+    }
+
+    pub(crate) fn can_execute_morsels(&self) -> bool {
+        self.node.can_execute_morsels()
+    }
+
+    pub(crate) fn push_morsel(
+        &self,
+        array: ArrayRef,
+        ctx: SchedulerRunCtx,
+    ) -> BoxFuture<'static, VortexResult<()>> {
+        self.node.push_morsel(array, ctx)
     }
 }
 
@@ -353,7 +508,6 @@ pub(crate) struct SchedulerMorsel {
 impl SchedulerMorsel {
     /// Construct a scheduler morsel.
     #[allow(clippy::too_many_arguments)]
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         id: MorselId,
         domain: DomainId,
@@ -385,6 +539,12 @@ impl SchedulerMorsel {
         self.stage
     }
 
+    /// Ordered row range covered by this morsel in its scheduler
+    /// domain.
+    pub(crate) fn order_key(&self) -> &Range<u64> {
+        &self.order_key
+    }
+
     pub(super) fn advance_one_stage(&mut self) -> Option<(u16, u16)> {
         let from = self.stage;
         if self.stage + 1 >= self.stage_count {
@@ -412,12 +572,17 @@ impl SchedulerWorkTask {
         Self { pipeline, morsel }
     }
 
+    /// Morsel carried by this task.
+    pub(crate) fn morsel(&self) -> &SchedulerMorsel {
+        &self.morsel
+    }
+
     fn memory_bytes(&self) -> u64 {
         self.morsel.memory_bytes()
     }
 }
 
-/// Segment future tracked in the same priority queue as CPU morsels.
+/// Segment request tracked in the same priority queue as CPU morsels.
 pub(crate) struct SchedulerSegmentTask {
     pub(super) id: IoRequestId,
     pub(super) pipeline: PipelineId,
@@ -426,7 +591,9 @@ pub(crate) struct SchedulerSegmentTask {
     pub(super) range: Range<u64>,
     pub(super) bytes: u64,
     pub(super) priority: MorselPriority,
+    segment_request: Option<SharedSegmentRequest>,
     segment_future: Option<SharedSegmentFuture>,
+    request_registered: bool,
 }
 
 impl fmt::Debug for SchedulerSegmentTask {
@@ -438,7 +605,9 @@ impl fmt::Debug for SchedulerSegmentTask {
             .field("domain", &self.domain)
             .field("range", &self.range)
             .field("bytes", &self.bytes)
+            .field("has_segment_request", &self.segment_request.is_some())
             .field("has_segment_future", &self.segment_future.is_some())
+            .field("request_registered", &self.request_registered)
             .finish_non_exhaustive()
     }
 }
@@ -454,7 +623,7 @@ impl SchedulerSegmentTask {
         range: Range<u64>,
         bytes: u64,
         priority: MorselPriority,
-        segment_future: SharedSegmentFuture,
+        segment_request: SharedSegmentRequest,
     ) -> Self {
         Self {
             id,
@@ -464,7 +633,9 @@ impl SchedulerSegmentTask {
             range,
             bytes,
             priority,
-            segment_future: Some(segment_future),
+            segment_request: Some(segment_request),
+            segment_future: None,
+            request_registered: false,
         }
     }
 
@@ -486,11 +657,43 @@ impl SchedulerSegmentTask {
             range,
             bytes,
             priority,
+            segment_request: None,
             segment_future: None,
+            request_registered: true,
         }
     }
 
+    pub(super) fn request_registered(&self) -> bool {
+        self.request_registered
+    }
+
+    pub(super) async fn demand_admission(
+        &self,
+        demand: &RowDemand,
+    ) -> VortexResult<SegmentDemandAdmission> {
+        if demand.cardinality_uncached(self.range.clone()).await? == 0 {
+            Ok(SegmentDemandAdmission::Skip)
+        } else {
+            Ok(SegmentDemandAdmission::Register)
+        }
+    }
+
+    pub(super) fn register_request(&mut self) {
+        if self.request_registered {
+            return;
+        }
+        if let Some(segment_request) = &self.segment_request {
+            self.segment_future = Some(segment_request.request());
+        }
+        self.request_registered = true;
+    }
+
+    pub(super) fn poll_once(&mut self, cx: &mut Context<'_>) -> Poll<VortexResult<u64>> {
+        self.poll(cx)
+    }
+
     fn poll(&mut self, cx: &mut Context<'_>) -> Poll<VortexResult<u64>> {
+        self.register_request();
         let Some(segment_future) = &mut self.segment_future else {
             return Poll::Ready(Ok(self.bytes));
         };
@@ -507,6 +710,11 @@ impl SchedulerSegmentTask {
     pub(super) async fn wait(&mut self) -> VortexResult<u64> {
         poll_fn(|cx| self.poll(cx)).await
     }
+}
+
+pub(super) enum SegmentDemandAdmission {
+    Skip,
+    Register,
 }
 
 /// Work-stealing and balancing control tasks.
@@ -729,7 +937,12 @@ impl SchedulerBudget {
 
 impl Default for SchedulerBudget {
     fn default() -> Self {
-        Self::new(1024, 64 * 1024 * 1024)
+        // Layout lowering can create many small source/resource
+        // tasks for wide, independently chunked files before any
+        // work is driven. Keep the event cap high enough that
+        // prototype evaluation fails on unsupported operators rather
+        // than on an arbitrary queue bound.
+        Self::new(16 * 1024, 64 * 1024 * 1024)
     }
 }
 
@@ -931,6 +1144,21 @@ impl PartitionScheduler {
                 entry
             })
             .collect();
+    }
+
+    pub(super) fn has_unregistered_segment_request(&self) -> bool {
+        self.queue.iter().any(|entry| {
+            matches!(
+                &entry.task,
+                SchedulerTask::Segment(segment) if !segment.request_registered()
+            )
+        })
+    }
+
+    pub(super) fn has_non_segment_work(&self) -> bool {
+        self.queue
+            .iter()
+            .any(|entry| !matches!(entry.task, SchedulerTask::Segment(_)))
     }
 
     /// Advance one task.

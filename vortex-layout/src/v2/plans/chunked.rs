@@ -8,18 +8,26 @@
 
 #![allow(clippy::cognitive_complexity)]
 
+use std::collections::BTreeMap;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::Mutex;
 
+use futures::FutureExt;
 use futures::TryStreamExt;
+use futures::future::BoxFuture;
 use futures::stream;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::dtype::DType;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 
 use crate::v2::demand::RowDemand;
 use crate::v2::experiment::trace_flow;
@@ -29,6 +37,13 @@ use crate::v2::plans::PartitionStats;
 use crate::v2::plans::mask_slice::MaskSlicePlan;
 use crate::v2::scan_ctx::ScanCtx;
 use crate::v2::scheduler::LayoutLoweringCtx;
+use crate::v2::scheduler::queue::MorselEstimate;
+use crate::v2::scheduler::queue::MorselRole;
+use crate::v2::scheduler::queue::SchedulerMorsel;
+use crate::v2::scheduler::queue::SchedulerRunCtx;
+use crate::v2::scheduler::queue::SchedulerSinkNode;
+use crate::v2::scheduler::queue::SchedulerSourceNode;
+use crate::v2::scheduler::queue::SchedulerWorkTask;
 
 /// Routes one partition per child chunk. `partition_count == children.len()`
 /// in the default (ordered) mode; relaxed mode is a follow-up PR.
@@ -74,6 +89,143 @@ impl ChunkedPlan {
 
     fn chunk_range(&self, idx: usize) -> Range<u64> {
         self.chunk_offsets[idx]..self.chunk_offsets[idx + 1]
+    }
+}
+
+#[derive(Debug, Default)]
+struct ChunkedSchedulerResourceState {
+    outputs: BTreeMap<usize, ArrayRef>,
+    parent_work: Option<SchedulerWorkTask>,
+    emitted_parent: bool,
+}
+
+#[derive(Debug)]
+struct ChunkedSchedulerResource {
+    expected_inputs: usize,
+    state: Mutex<ChunkedSchedulerResourceState>,
+}
+
+impl ChunkedSchedulerResource {
+    fn new(expected_inputs: usize) -> Self {
+        Self {
+            expected_inputs,
+            state: Mutex::default(),
+        }
+    }
+
+    fn set_parent_work(&self, work: SchedulerWorkTask) -> VortexResult<()> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| vortex_err!("chunked scheduler resource lock poisoned"))?;
+        if state.parent_work.replace(work).is_some() {
+            vortex_bail!("chunked scheduler resource parent work set twice");
+        }
+        Ok(())
+    }
+
+    fn record_input(
+        &self,
+        input: usize,
+        array: ArrayRef,
+        ctx: &SchedulerRunCtx,
+    ) -> VortexResult<()> {
+        let parent_work = {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| vortex_err!("chunked scheduler resource lock poisoned"))?;
+            if state.outputs.insert(input, array).is_some() {
+                vortex_bail!("chunked scheduler resource input {input} completed twice");
+            }
+            if state.outputs.len() == self.expected_inputs && !state.emitted_parent {
+                state.emitted_parent = true;
+                state.parent_work.clone()
+            } else {
+                None
+            }
+        };
+
+        if let Some(work) = parent_work {
+            ctx.emit_work(work)?;
+        }
+        Ok(())
+    }
+
+    fn take_outputs(&self) -> VortexResult<Vec<ArrayRef>> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| vortex_err!("chunked scheduler resource lock poisoned"))?;
+        if state.outputs.len() != self.expected_inputs {
+            vortex_bail!(
+                "chunked scheduler resource expected {} inputs, got {}",
+                self.expected_inputs,
+                state.outputs.len()
+            );
+        }
+        let outputs = std::mem::take(&mut state.outputs);
+        Ok(outputs.into_values().collect())
+    }
+}
+
+struct ChunkedInputSinkNode {
+    label: String,
+    input: usize,
+    resource: Arc<ChunkedSchedulerResource>,
+}
+
+impl SchedulerSinkNode for ChunkedInputSinkNode {
+    fn label(&self) -> &str {
+        &self.label
+    }
+
+    fn can_execute_morsels(&self) -> bool {
+        true
+    }
+
+    fn push_morsel(
+        &self,
+        array: ArrayRef,
+        ctx: SchedulerRunCtx,
+    ) -> BoxFuture<'static, VortexResult<()>> {
+        let input = self.input;
+        let resource = Arc::clone(&self.resource);
+        async move { resource.record_input(input, array, &ctx) }.boxed()
+    }
+}
+
+struct ChunkedSchedulerSourceNode {
+    label: String,
+    resource: Arc<ChunkedSchedulerResource>,
+    output_dtype: DType,
+}
+
+impl SchedulerSourceNode for ChunkedSchedulerSourceNode {
+    fn label(&self) -> &str {
+        &self.label
+    }
+
+    fn role(&self) -> MorselRole {
+        MorselRole::Combiner
+    }
+
+    fn can_execute_morsels(&self) -> bool {
+        true
+    }
+
+    fn execute_morsel(
+        &self,
+        _morsel: SchedulerMorsel,
+        _ctx: SchedulerRunCtx,
+    ) -> BoxFuture<'static, VortexResult<ArrayRef>> {
+        let resource = Arc::clone(&self.resource);
+        let output_dtype = self.output_dtype.clone();
+        async move {
+            let chunks = resource.take_outputs()?;
+            Ok(ChunkedArray::try_new(chunks, output_dtype)?.into_array())
+        }
+        .boxed()
     }
 }
 
@@ -240,6 +392,7 @@ impl LayoutPlan for ChunkedPlan {
         }
 
         let operator = ctx.alloc_operator();
+        let mut intersecting = Vec::new();
         for idx in 0..self.children.len() {
             let chunk_start = self.chunk_offsets[idx];
             let chunk_end = self.chunk_offsets[idx + 1];
@@ -250,17 +403,57 @@ impl LayoutPlan for ChunkedPlan {
             let intersect_start = chunk_start.max(row_range.start);
             let intersect_end = chunk_end.min(row_range.end);
             let child_range = (intersect_start - chunk_start)..(intersect_end - chunk_start);
-            ctx.with_global_range(intersect_start..intersect_end, |ctx| {
-                ctx.with_input_resource_pipeline(
-                    operator,
-                    idx,
-                    child_range.clone(),
-                    self.children[idx].schema(),
-                    |ctx| self.children[idx].lower_to_scheduler(child_range, ctx),
-                )
+            intersecting.push((idx, child_range, intersect_start..intersect_end));
+        }
+
+        if intersecting.is_empty() {
+            ctx.close_node_output_pipeline(operator, row_range, self.schema(), 0)?;
+            return Ok(());
+        }
+
+        let resource = Arc::new(ChunkedSchedulerResource::new(intersecting.len()));
+        for (input, (idx, child_range, global_range)) in intersecting.iter().enumerate() {
+            let sink = ChunkedInputSinkNode {
+                label: format!(
+                    "chunked-resource:operator{}:input{input}:child{idx}:{child_range:?}->{global_range:?}:{}",
+                    operator.raw(),
+                    self.children[*idx].schema()
+                ),
+                input,
+                resource: Arc::clone(&resource),
+            };
+            ctx.with_global_range(global_range.clone(), |ctx| {
+                ctx.with_sink_pipeline(sink, |ctx| {
+                    self.children[*idx].lower_to_scheduler(child_range.clone(), ctx)
+                })
             })?;
         }
-        ctx.close_node_output_pipeline(operator, row_range, self.schema(), self.children.len())?;
+
+        let global_range = ctx.current_global_range();
+        let source = ChunkedSchedulerSourceNode {
+            label: format!(
+                "operator{}:chunked-output:{row_range:?}->{global_range:?}:{}:{}children",
+                operator.raw(),
+                self.schema(),
+                intersecting.len()
+            ),
+            resource: Arc::clone(&resource),
+            output_dtype: self.output_dtype.clone(),
+        };
+        let pipeline = ctx.close_pipeline_with_source_node(source)?;
+        let rows = global_range.end.saturating_sub(global_range.start).max(1);
+        let estimate = MorselEstimate::new(
+            rows.saturating_mul(5),
+            0,
+            rows.saturating_mul(16).min(1024 * 1024),
+        );
+        let parent_work = ctx.create_pipeline_work_with_estimate(
+            pipeline,
+            global_range,
+            MorselRole::Combiner,
+            estimate,
+        )?;
+        resource.set_parent_work(parent_work)?;
         Ok(())
     }
 
