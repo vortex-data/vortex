@@ -5,6 +5,8 @@ use divan::Bencher;
 use vortex_fastlanes::bit_transpose::scalar::transpose_bits_scalar;
 use vortex_fastlanes::bit_transpose::scalar::untranspose_bits_scalar;
 
+mod shared;
+
 fn main() {
     divan::main();
 }
@@ -23,9 +25,15 @@ const BATCH_SIZE: usize = 1000;
 
 // ============================================================================
 // Transpose: single array
+//
+// Scalar benchmarks are architecture-neutral, so they run on every leg as a
+// per-architecture baseline.
 // ============================================================================
 
-#[divan::bench]
+#[divan::bench(
+    name = variant!("transpose_scalar"),
+    ignore = ignore_unless_variant!(simulation, x86_64, aarch64),
+)]
 fn transpose_scalar(bencher: Bencher) {
     let input = generate_test_data(42);
 
@@ -40,7 +48,10 @@ fn transpose_scalar(bencher: Bencher) {
 // Transpose: throughput (1000 arrays)
 // ============================================================================
 
-#[divan::bench]
+#[divan::bench(
+    name = variant!("transpose_scalar_throughput"),
+    ignore = ignore_unless_variant!(simulation, x86_64, aarch64),
+)]
 fn transpose_scalar_throughput(bencher: Bencher) {
     let inputs: Vec<[u8; 128]> = (0..BATCH_SIZE).map(generate_test_data).collect();
 
@@ -57,7 +68,10 @@ fn transpose_scalar_throughput(bencher: Bencher) {
 // Untranspose: single array
 // ============================================================================
 
-#[divan::bench]
+#[divan::bench(
+    name = variant!("untranspose_scalar"),
+    ignore = ignore_unless_variant!(simulation, x86_64, aarch64),
+)]
 fn untranspose_scalar(bencher: Bencher) {
     let input = generate_test_data(42);
 
@@ -72,7 +86,10 @@ fn untranspose_scalar(bencher: Bencher) {
 // Untranspose: throughput (1000 arrays)
 // ============================================================================
 
-#[divan::bench]
+#[divan::bench(
+    name = variant!("untranspose_scalar_throughput"),
+    ignore = ignore_unless_variant!(simulation, x86_64, aarch64),
+)]
 fn untranspose_scalar_throughput(bencher: Bencher) {
     let inputs: Vec<[u8; 128]> = (0..BATCH_SIZE).map(generate_test_data).collect();
 
@@ -87,6 +104,10 @@ fn untranspose_scalar_throughput(bencher: Bencher) {
 
 // ============================================================================
 // x86_64 benchmarks
+//
+// BMI2 and VBMI share the `x86_64` walltime leg (and the `simulation` leg); the
+// `#[target_feature]` intrinsics are selected at runtime via `has_bmi2` /
+// `has_vbmi`, so a single x86 build covers both.
 // ============================================================================
 
 #[cfg(target_arch = "x86_64")]
@@ -104,7 +125,10 @@ mod x86 {
 
     // --- Transpose: single array ---
 
-    #[divan::bench]
+    #[divan::bench(
+        name = crate::variant!("transpose_bmi2"),
+        ignore = crate::ignore_unless_variant!(simulation, x86_64),
+    )]
     fn transpose_bmi2(bencher: Bencher) {
         if !has_bmi2() {
             return;
@@ -119,7 +143,10 @@ mod x86 {
             });
     }
 
-    #[divan::bench]
+    #[divan::bench(
+        name = crate::variant!("transpose_vbmi"),
+        ignore = crate::ignore_unless_variant!(simulation, x86_64),
+    )]
     fn transpose_vbmi(bencher: Bencher) {
         if !has_vbmi() {
             return;
@@ -136,7 +163,10 @@ mod x86 {
 
     // --- Untranspose: single array ---
 
-    #[divan::bench]
+    #[divan::bench(
+        name = crate::variant!("untranspose_bmi2"),
+        ignore = crate::ignore_unless_variant!(simulation, x86_64),
+    )]
     fn untranspose_bmi2(bencher: Bencher) {
         if !has_bmi2() {
             return;
@@ -151,7 +181,10 @@ mod x86 {
             });
     }
 
-    #[divan::bench]
+    #[divan::bench(
+        name = crate::variant!("untranspose_vbmi"),
+        ignore = crate::ignore_unless_variant!(simulation, x86_64),
+    )]
     fn untranspose_vbmi(bencher: Bencher) {
         if !has_vbmi() {
             return;
@@ -168,7 +201,10 @@ mod x86 {
 
     // --- Transpose: throughput (1000 arrays) ---
 
-    #[divan::bench]
+    #[divan::bench(
+        name = crate::variant!("transpose_bmi2_throughput"),
+        ignore = crate::ignore_unless_variant!(simulation, x86_64),
+    )]
     fn transpose_bmi2_throughput(bencher: Bencher) {
         if !has_bmi2() {
             return;
@@ -185,7 +221,10 @@ mod x86 {
             });
     }
 
-    #[divan::bench]
+    #[divan::bench(
+        name = crate::variant!("transpose_vbmi_throughput"),
+        ignore = crate::ignore_unless_variant!(simulation, x86_64),
+    )]
     fn transpose_vbmi_throughput(bencher: Bencher) {
         if !has_vbmi() {
             return;
@@ -204,7 +243,10 @@ mod x86 {
 
     // --- Untranspose: throughput (1000 arrays) ---
 
-    #[divan::bench]
+    #[divan::bench(
+        name = crate::variant!("untranspose_bmi2_throughput"),
+        ignore = crate::ignore_unless_variant!(simulation, x86_64),
+    )]
     fn untranspose_bmi2_throughput(bencher: Bencher) {
         if !has_bmi2() {
             return;
@@ -221,7 +263,10 @@ mod x86 {
             });
     }
 
-    #[divan::bench]
+    #[divan::bench(
+        name = crate::variant!("untranspose_vbmi_throughput"),
+        ignore = crate::ignore_unless_variant!(simulation, x86_64),
+    )]
     fn untranspose_vbmi_throughput(bencher: Bencher) {
         if !has_vbmi() {
             return;
@@ -241,6 +286,8 @@ mod x86 {
 
 // ============================================================================
 // aarch64 benchmarks
+//
+// NEON has its own walltime leg; the scalar baselines above also run there.
 // ============================================================================
 
 #[cfg(target_arch = "aarch64")]
@@ -254,7 +301,10 @@ mod aarch64 {
 
     // --- Transpose: single array ---
 
-    #[divan::bench]
+    #[divan::bench(
+        name = crate::variant!("transpose_neon"),
+        ignore = crate::ignore_unless_variant!(aarch64),
+    )]
     fn transpose_neon(bencher: Bencher) {
         let input = generate_test_data(42);
 
@@ -267,7 +317,10 @@ mod aarch64 {
 
     // --- Untranspose: single array ---
 
-    #[divan::bench]
+    #[divan::bench(
+        name = crate::variant!("untranspose_neon"),
+        ignore = crate::ignore_unless_variant!(aarch64),
+    )]
     fn untranspose_neon(bencher: Bencher) {
         let input = generate_test_data(42);
 
@@ -280,7 +333,10 @@ mod aarch64 {
 
     // --- Transpose: throughput (1000 arrays) ---
 
-    #[divan::bench]
+    #[divan::bench(
+        name = crate::variant!("transpose_neon_throughput"),
+        ignore = crate::ignore_unless_variant!(aarch64),
+    )]
     fn transpose_neon_throughput(bencher: Bencher) {
         let inputs: Vec<[u8; 128]> = (0..BATCH_SIZE).map(generate_test_data).collect();
 
@@ -295,7 +351,10 @@ mod aarch64 {
 
     // --- Untranspose: throughput (1000 arrays) ---
 
-    #[divan::bench]
+    #[divan::bench(
+        name = crate::variant!("untranspose_neon_throughput"),
+        ignore = crate::ignore_unless_variant!(aarch64),
+    )]
     fn untranspose_neon_throughput(bencher: Bencher) {
         let inputs: Vec<[u8; 128]> = (0..BATCH_SIZE).map(generate_test_data).collect();
 

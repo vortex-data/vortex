@@ -18,6 +18,10 @@ timeout = 3600
 # Environment variables for PyO3. Ensures reproducible builds and avoids spurious recompilations.
 [env]
 PYO3_ENVIRONMENT_SIGNATURE = { value = "cpython-3.11-64bit", force = true }
+# Default benchmark variant. A plain `cargo bench` runs every benchmark once on
+# the host; the CodSpeed workflow overrides this per leg to gate and name
+# feature-set-specific runs. Not forced, so a workflow-provided value wins.
+BENCH_VARIANT = "local"
 
 [cache.global-clean]
 # Anything older than this duration will be deleted in the source cache.

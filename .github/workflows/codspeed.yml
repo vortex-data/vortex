@@ -58,6 +58,10 @@ jobs:
       - name: Build benchmarks
         env:
           RUSTFLAGS: "-C target-feature=+avx2"
+          # Benchmarks gated on a CPU feature set (e.g. bit_transpose) run their
+          # `simulation`-tagged variants here, in simulation mode. Walltime
+          # variants run in the dedicated bench-codspeed-bittranspose job.
+          BENCH_VARIANT: simulation
         run: cargo codspeed build ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) --profile bench
       - name: Run benchmarks
         uses: CodSpeedHQ/action@d872884a306dd4853acf0f584f4b706cf0cc72a2
@@ -65,6 +69,54 @@ jobs:
           run: bash scripts/bench-taskset.sh cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
           mode: "simulation"
+
+  bench-codspeed-bittranspose:
+    # Walltime measurements for the bit_transpose benchmark on real silicon, one
+    # leg per architecture. Each leg builds with its own target features and sets
+    # BENCH_VARIANT, which both gates the benchmarks (via `ignore`) and prefixes
+    # their names so x86_64 and aarch64 results do not collide in CodSpeed. The
+    # simulation variant of these benchmarks runs in the bench-codspeed job above.
+    if: github.repository == 'vortex-data/vortex'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - leg: x86_64
+            runner: amd64-medium
+            image: ubuntu24-full-x64-pre-v2
+            rustflags: "-C target-feature=+avx2"
+          - leg: aarch64
+            runner: arm64-medium
+            image: ubuntu24-full-arm64-pre-v2
+            rustflags: "-C target-feature=+neon"
+    name: "Benchmark bit_transpose with Codspeed (${{ matrix.leg }})"
+    timeout-minutes: 30
+    runs-on: >-
+      runs-on=${{ github.run_id }}/runner=${{ matrix.runner }}/image=${{ matrix.image }}/tag=bench-bittranspose-${{ matrix.leg }}
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - name: Setup benchmark environment
+        run: sudo bash scripts/setup-benchmark.sh
+      - uses: ./.github/actions/setup-prebuild
+      - uses: ./.github/actions/system-info
+      - name: Install Codspeed
+        uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
+        with:
+          tool: cargo-codspeed
+      - name: Build benchmarks
+        env:
+          RUSTFLAGS: ${{ matrix.rustflags }}
+          BENCH_VARIANT: ${{ matrix.leg }}
+        run: cargo codspeed build -m walltime -p vortex-fastlanes --features _test-harness --bench bit_transpose --profile bench
+      - name: Run benchmarks
+        uses: CodSpeedHQ/action@d872884a306dd4853acf0f584f4b706cf0cc72a2
+        with:
+          run: bash scripts/bench-taskset.sh cargo codspeed run
+          token: ${{ secrets.CODSPEED_TOKEN }}
+          mode: "walltime"
 
   bench-codspeed-cuda:
     if: github.repository == 'vortex-data/vortex'
