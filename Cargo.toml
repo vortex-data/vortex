@@ -216,11 +216,18 @@ rand_distr = "0.6"
 ratatui = { version = "0.30", default-features = false }
 regex = "1.11.0"
 regex-automata = "0.4"
+# Use the system TLS stack (OpenSSL via `native-tls`) rather than reqwest's
+# bundled rustls, whose `rustls` feature pulls in `aws-lc-rs`/`aws-lc-sys` and
+# costs ~64s of C/asm compilation in a clean build. `native-tls` links the
+# already-present system OpenSSL and needs no runtime crypto-provider setup, so
+# every reqwest user (including `vortex-duckdb`'s build script) keeps working
+# unchanged. Cloud object stores (S3/GCS) are unaffected: they go through
+# `object_store`'s own reqwest, which uses `ring`.
 reqwest = { version = "0.13.0", features = [
     "blocking",
     "charset",
     "http2",
-    "rustls",
+    "native-tls",
     "system-proxy",
 ], default-features = false }
 roaring = "0.11.0"
