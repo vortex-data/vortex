@@ -154,6 +154,17 @@ impl AggregateFnSession {
                 .copied()
         })
     }
+
+    pub fn register_grouped_kernel(
+        &self,
+        array_id: impl Into<ArrayId>,
+        agg_fn_id: impl Into<AggregateFnId>,
+        kernel: &'static dyn DynGroupedAggregateKernel,
+    ) {
+        let id = array_id.into();
+        let fn_id = agg_fn_id.into();
+        self.grouped_kernels.insert((id, Some(fn_id)), kernel)
+    }
 }
 
 /// Extension trait for accessing aggregate function session data.
