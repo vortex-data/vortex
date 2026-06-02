@@ -23,8 +23,11 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::match_each_unsigned_integer_ptype;
+use vortex_fastlanes::Delta;
+use vortex_fastlanes::FoR;
+use vortex_fastlanes::FoRArrayExt;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
-use vortex_fastlanes::{Delta, FoR, FoRArrayExt, delta_compress};
+use vortex_fastlanes::delta_compress;
 
 fn main() {
     divan::main();

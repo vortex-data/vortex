@@ -19,11 +19,17 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
+#[cfg(feature = "unstable_encodings")]
+use crate::BitPacked;
+#[cfg(feature = "unstable_encodings")]
+use crate::BitPackedArrayExt;
 use crate::DeltaArray;
+#[cfg(feature = "unstable_encodings")]
+use crate::FoR;
 use crate::bit_transpose::untranspose_validity;
 use crate::delta::array::DeltaArrayExt;
 #[cfg(feature = "unstable_encodings")]
-use crate::{BitPacked, BitPackedArrayExt, FoR, r#for::FoRArrayExt};
+use crate::r#for::FoRArrayExt;
 
 pub fn delta_decompress(
     array: &DeltaArray,
