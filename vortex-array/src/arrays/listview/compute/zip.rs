@@ -57,15 +57,15 @@ impl ZipKernel for ListView {
 
         let len = if_true.len();
 
+        let result_elements_dtype = if_true
+            .elements()
+            .dtype()
+            .union_nullability(if_false.elements().dtype().nullability());
+
         // `if_false`'s elements share the element dtype up to nullability; normalize so both chunks
         // of the concatenated elements array have an identical dtype.
-        let true_elements = if_true.elements().clone();
-        let element_dtype = true_elements.dtype().clone();
-        let false_elements = if if_false.elements().dtype() == &element_dtype {
-            if_false.elements().clone()
-        } else {
-            if_false.elements().cast(element_dtype.clone())?
-        };
+        let true_elements = if_true.elements().cast(result_elements_dtype.clone())?;
+        let false_elements = if_false.elements().cast(result_elements_dtype.clone())?;
 
         // `if_false` views index into the second half of the concatenated elements.
         let false_shift = true_elements.len() as u64;
@@ -73,10 +73,10 @@ impl ZipKernel for ListView {
         // Concatenate the two `elements` arrays without copying. If either side is already a
         // `ChunkedArray` (e.g. the result of a previous list-view zip), splice its chunks in
         // directly rather than nesting chunked arrays.
-        let mut chunks = Vec::new();
+        let mut chunks = Vec::with_capacity(2);
         push_element_chunks(true_elements, &mut chunks);
         push_element_chunks(false_elements, &mut chunks);
-        let elements = ChunkedArray::try_new(chunks, element_dtype)?.into_array();
+        let elements = ChunkedArray::try_new(chunks, result_elements_dtype)?.into_array();
 
         let true_offsets = to_u64(if_true.offsets(), ctx)?;
         let true_sizes = to_u64(if_true.sizes(), ctx)?;
@@ -85,27 +85,29 @@ impl ZipKernel for ListView {
 
         let mut offsets = BufferMut::<u64>::with_capacity(len);
         let mut sizes = BufferMut::<u64>::with_capacity(len);
-        for i in 0..len {
-            // SAFETY: the loop runs exactly `len` times and both buffers reserved `len`.
-            unsafe {
-                if mask.value(i) {
-                    offsets.push_unchecked(true_offsets[i]);
-                    sizes.push_unchecked(true_sizes[i]);
-                } else {
-                    offsets.push_unchecked(false_offsets[i] + false_shift);
-                    sizes.push_unchecked(false_sizes[i]);
-                }
+        for (idx, (out_offsets, out_sizes)) in offsets
+            .spare_capacity_mut()
+            .iter_mut()
+            .zip(sizes.spare_capacity_mut().iter_mut())
+            .take(len)
+            .enumerate()
+        {
+            if mask.value(idx) {
+                out_offsets.write(true_offsets[idx]);
+                out_sizes.write(true_sizes[idx]);
+            } else {
+                out_offsets.write(false_offsets[idx] + false_shift);
+                out_sizes.write(false_sizes[idx]);
             }
         }
 
-        let validity = zip_validity(
-            if_true.validity()?,
-            if_false.validity()?,
-            &mask,
-            if_true.nullability() | if_false.nullability(),
-            len,
-            ctx,
-        )?;
+        // SAFETY: the loop above initialized exactly `len` slots in both buffers.
+        unsafe {
+            offsets.set_len(len);
+            sizes.set_len(len);
+        }
+
+        let validity = zip_validity(if_true.validity()?, if_false.validity()?, &mask, ctx)?;
 
         Ok(Some(
             ListViewArray::try_new(
@@ -142,8 +144,6 @@ fn zip_validity(
     if_true: Validity,
     if_false: Validity,
     mask: &Mask,
-    nullability: Nullability,
-    len: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Validity> {
     Ok(match (&if_true, &if_false) {
@@ -151,12 +151,12 @@ fn zip_validity(
         (Validity::AllValid, Validity::AllValid) => Validity::AllValid,
         (Validity::AllInvalid, Validity::AllInvalid) => Validity::AllInvalid,
         _ => {
-            let true_mask = if_true.execute_mask(len, ctx)?;
-            let false_mask = if_false.execute_mask(len, ctx)?;
+            let true_mask = if_true.execute_mask(mask.len(), ctx)?;
+            let false_mask = if_false.execute_mask(mask.len(), ctx)?;
             let combined = true_mask
                 .bitand(mask)
-                .bitor(&false_mask.bitand(&mask.clone().not()));
-            Validity::from_mask(combined, nullability)
+                .bitor(&false_mask.bitand(&mask.not()));
+            Validity::from_mask(combined, if_true.nullability() | if_false.nullability())
         }
     })
 }
