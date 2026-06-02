@@ -26,6 +26,7 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
+use crate::LayoutReaderContext;
 use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
 use crate::layouts::chunked::ChunkedLayout;
@@ -51,7 +52,7 @@ impl ChunkedReader {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
-        ctx: crate::LayoutReaderContext,
+        ctx: LayoutReaderContext,
     ) -> Self {
         let nchildren = layout.nchildren();
 
