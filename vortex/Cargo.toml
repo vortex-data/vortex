@@ -100,5 +100,10 @@ harness = false
 test = false
 
 [[bench]]
+name = "delta_for_throughput"
+harness = false
+test = false
+
+[[bench]]
 name = "pipeline"
 harness = false
