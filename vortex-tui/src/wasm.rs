@@ -78,7 +78,12 @@ async fn load_flat_array(
     row_count: u64,
 ) -> vortex::array::ArrayRef {
     let reader = layout
-        .new_reader("".into(), segment_source.clone(), session)
+        .new_reader(
+            "".into(),
+            segment_source.clone(),
+            session,
+            &Default::default(),
+        )
         .vortex_expect("Failed to create reader");
     reader
         .projection_evaluation(

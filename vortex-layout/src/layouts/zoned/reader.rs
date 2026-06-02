@@ -42,6 +42,7 @@ impl ZonedReader {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: VortexSession,
+        ctx: crate::LayoutReaderContext,
     ) -> VortexResult<Self> {
         let dtypes = vec![
             layout.dtype.clone(),
@@ -54,6 +55,7 @@ impl ZonedReader {
             names,
             Arc::clone(&segment_source),
             session.clone(),
+            ctx,
         ));
 
         Ok(Self {
@@ -307,7 +309,7 @@ mod test {
         block_on(|handle| async {
             let session = session_with_handle(handle);
             let result = layout
-                .new_reader("".into(), segments, &session)
+                .new_reader("".into(), segments, &session, &Default::default())
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -330,7 +332,9 @@ mod test {
         block_on(|handle| async {
             let row_count = layout.row_count();
             let session = session_with_handle(handle);
-            let reader = layout.new_reader("".into(), segments, &session).unwrap();
+            let reader = layout
+                .new_reader("".into(), segments, &session, &Default::default())
+                .unwrap();
 
             // Choose a prune-able expression
             let expr = gt(root(), lit(7));
@@ -376,7 +380,8 @@ mod test {
         block_on(|handle| async {
             let row_count = legacy_layout.row_count();
             let session = session_with_handle(handle);
-            let reader = legacy_layout.new_reader("".into(), segments, &session)?;
+            let reader =
+                legacy_layout.new_reader("".into(), segments, &session, &Default::default())?;
 
             let result = reader
                 .pruning_evaluation(

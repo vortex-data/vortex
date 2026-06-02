@@ -112,7 +112,12 @@ impl VortexFile {
             .footer
             .layout()
             // TODO(ngates): we may want to allow the user pass in a name here?
-            .new_reader("".into(), segment_source, &self.session)?;
+            .new_reader(
+                "".into(),
+                segment_source,
+                &self.session,
+                &Default::default(),
+            )?;
 
         Ok(if let Some(stats) = self.file_stats().cloned() {
             Arc::new(FileStatsLayoutReader::new(

@@ -107,7 +107,7 @@ mod test {
         .unwrap();
 
         layout
-            .new_reader("".into(), segments, &SCAN_SESSION)
+            .new_reader("".into(), segments, &SCAN_SESSION, &Default::default())
             .unwrap()
     }
 

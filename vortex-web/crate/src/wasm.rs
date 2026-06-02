@@ -293,7 +293,12 @@ impl VortexFileHandle {
 
         let segment_source = self.vxf.segment_source();
         let reader = layout
-            .new_reader(node_id.into(), segment_source, &self.session)
+            .new_reader(
+                node_id.into(),
+                segment_source,
+                &self.session,
+                &Default::default(),
+            )
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
         let stream = ScanBuilder::new(self.session.clone(), reader)
