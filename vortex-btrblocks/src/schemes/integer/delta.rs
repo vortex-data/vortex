@@ -41,9 +41,9 @@ pub struct DeltaScheme;
 ///
 /// Unlike FoR/BitPacking, Delta breaks random access and adds a prefix-sum decode pass, and it
 /// carries a structural sign bit on its residuals. We therefore require Delta to be meaningfully
-/// (~10%) smaller than the best alternative before it wins, rather than picking it for a
+/// (~5%) smaller than the best alternative before it wins, rather than picking it for a
 /// single-bit gain. This factor encodes that "delta tax".
-const DELTA_PENALTY: f64 = 0.9;
+const DELTA_PENALTY: f64 = 0.95;
 
 /// Minimum length before Delta is worth considering (one FastLanes chunk).
 const MIN_DELTA_LEN: usize = 1024;
