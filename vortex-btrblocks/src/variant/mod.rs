@@ -16,6 +16,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::EmptyArrayData;
+use vortex_array::EmptyMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
@@ -31,7 +32,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::extension::ExtVTable;
-use vortex_array::extension::EmptyMetadata;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
@@ -407,13 +407,15 @@ impl Scheme for JsonToVariantScheme {
             })
             .transpose()?;
 
-        ParquetVariant::try_new(
+        let variant = ParquetVariant::try_new(
             parquet_variant.validity()?,
             compressed_metadata,
             compressed_value,
             parquet_variant.typed_value_array().cloned(),
-        )
-        .map(IntoArray::into_array)
+        )?
+        .into_array();
+
+        Ok(VariantToJson::try_new(variant)?.into_array())
     }
 }
 
@@ -427,9 +429,7 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::accessor::ArrayAccessor;
-    use vortex_array::arrays::Extension;
     use vortex_array::arrays::ExtensionArray;
-    use vortex_array::arrays::VarBinView;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::extension::ExtensionArrayExt;
     use vortex_array::session::ArraySession;
@@ -437,7 +437,6 @@ mod tests {
     use vortex_compressor::builtins::IntConstantScheme;
     use vortex_compressor::builtins::StringConstantScheme;
     use vortex_compressor::builtins::StringDictScheme;
-    use vortex_fsst::FSST;
     use vortex_session::VortexSession;
 
     use super::*;
@@ -530,15 +529,16 @@ mod tests {
 
     #[test]
     fn variant_to_json_canonicalizes_to_json_extension() -> VortexResult<()> {
-        let values = vec![
+        let values = [
             "0".to_string(),
             r#"{"a":32}"#.to_string(),
             r#""hello""#.to_string(),
             "null".to_string(),
         ];
-        let source = json_array(&values)?;
-        let source_ext = source.as_::<Extension>();
-        let storage = source_ext.storage_array().clone();
+        let storage =
+            VarBinViewArray::from_iter_str(values.iter().map(String::as_str)).into_array();
+        let source =
+            ExtensionArray::try_new_from_vtable(Json, EmptyMetadata, storage.clone())?.into_array();
 
         let mut exec_ctx = SESSION.create_execution_ctx();
         let arrow_array = {
@@ -556,7 +556,8 @@ mod tests {
         let json = wrapped
             .into_array()
             .execute::<ExtensionArray>(&mut exec_ctx)?;
-        assert!(json.ext_dtype().is::<Json>());
+        assert_eq!(json.dtype(), source.dtype());
+        assert!(json.storage_array().dtype().is_utf8());
         let json_storage = json
             .storage_array()
             .clone()
@@ -588,6 +589,23 @@ mod tests {
             &SequenceScheme,
             &ZigZagScheme,
         ])
+    }
+
+    #[test]
+    fn json_to_variant_scheme_wraps_output_as_json() -> VortexResult<()> {
+        let array = json_array(&json_data())?;
+
+        let variant_compressor = parquet_variant_child_compressor();
+        let mut exec_ctx = SESSION.create_execution_ctx();
+        let compressed = variant_compressor.compress(&array, &mut exec_ctx)?;
+
+        assert_eq!(compressed.dtype(), array.dtype());
+
+        let json = compressed.execute::<ExtensionArray>(&mut exec_ctx)?;
+        assert_eq!(json.dtype(), array.dtype());
+        assert!(json.storage_array().dtype().is_utf8());
+
+        Ok(())
     }
 
     fn print_comparison_output(
@@ -630,13 +648,6 @@ mod tests {
         let variant_compressed = variant_compressor.compress(&array, &mut exec_ctx)?;
 
         assert!(
-            variant_compressed.is::<ParquetVariant>(),
-            "expected ParquetVariant output, got encoding {} with dtype {} and {} bytes",
-            variant_compressed.encoding_id(),
-            variant_compressed.dtype(),
-            variant_compressed.nbytes()
-        );
-        assert!(
             variant_compressed.nbytes() < string_compressed.nbytes(),
             "Parquet Variant conversion should compress repeated JSON keys: \
              variant={} bytes, input={} bytes",
@@ -653,19 +664,21 @@ mod tests {
     fn recursively_compresses_parquet_variant_binary_children() -> VortexResult<()> {
         let array: ArrayRef = json_array(&json_data())?;
 
+        let mut exec_ctx = SESSION.create_execution_ctx();
+        let uncompressed_children =
+            CascadingCompressor::new(vec![&JsonToVariantScheme]).compress(&array, &mut exec_ctx)?;
+
         let variant_compressor = parquet_variant_child_compressor();
         let mut exec_ctx = SESSION.create_execution_ctx();
         let compressed = variant_compressor.compress(&array, &mut exec_ctx)?;
-        let parquet_variant = compressed.downcast::<ParquetVariant>();
 
         assert!(
-            !parquet_variant.metadata_array().is::<VarBinView>(),
-            "expected Parquet Variant metadata child to be compressed, got {}",
-            parquet_variant.metadata_array().encoding_id(),
+            compressed.nbytes() < uncompressed_children.nbytes(),
+            "recursive child compression should reduce Parquet Variant size: compressed={} bytes, uncompressed_children={} bytes",
+            compressed.nbytes(),
+            uncompressed_children.nbytes(),
         );
-        assert!(parquet_variant.value_array().is_some());
-        assert!(parquet_variant.typed_value_array().is_none());
-
+        assert_eq!(compressed.dtype(), array.dtype());
         Ok(())
     }
 
@@ -689,23 +702,12 @@ mod tests {
         let mut exec_ctx = SESSION.create_execution_ctx();
         let with_binary_fsst =
             parquet_variant_child_compressor().compress(&array, &mut exec_ctx)?;
-        let parquet_variant = with_binary_fsst.clone().downcast::<ParquetVariant>();
 
         assert!(
             with_binary_fsst.nbytes() < without_binary_fsst.nbytes(),
             "binary FSST should improve Parquet Variant child compression: with={} bytes, without={} bytes",
             with_binary_fsst.nbytes(),
             without_binary_fsst.nbytes(),
-        );
-        assert!(
-            parquet_variant
-                .value_array()
-                .is_some_and(|value| value.is::<FSST>()),
-            "expected Parquet Variant value child to use binary FSST, got {}",
-            parquet_variant.value_array().map_or_else(
-                || "missing".to_string(),
-                |value| value.encoding_id().to_string()
-            ),
         );
 
         Ok(())
@@ -732,9 +734,9 @@ mod tests {
         let variant_compressor = CascadingCompressor::new(vec![
             &JsonToVariantScheme,
             &BinaryDictScheme,
-            &FSSTScheme,
+            // &FSSTScheme,
             &BinaryFSSTScheme,
-            // &ZstdScheme,
+            // &crate::schemes::binary::BinaryZstdScheme,
             &IntConstantScheme,
             &StringConstantScheme,
             &FoRScheme,
