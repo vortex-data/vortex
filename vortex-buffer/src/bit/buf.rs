@@ -377,6 +377,13 @@ impl BitBuffer {
             Err(buffer) => Err(BitBuffer::new_with_offset(buffer, self.len, self.offset)),
         }
     }
+
+    /// Convert this `BitBuffer` into a mutable version, copying the data if there is more than a
+    /// single strong reference to the underlying buffer.
+    pub fn into_mut(self) -> BitBufferMut {
+        self.try_into_mut()
+            .unwrap_or_else(|buffer| BitBufferMut::copy_from(&buffer))
+    }
 }
 
 impl From<&[bool]> for BitBuffer {
@@ -808,5 +815,36 @@ mod tests {
             let expected = (i % 2 == 0) && (i % 4 == 0);
             assert_eq!(mapped.value(i), expected, "Mismatch at index {}", i);
         }
+    }
+
+    #[test]
+    fn test_into_mut_unique_preserves_contents() {
+        let buf = BitBuffer::collect_bool(20, |i| i % 3 == 0);
+        let expected: Vec<bool> = buf.iter().collect();
+
+        // The buffer is uniquely owned, so this is a zero-copy move.
+        let mut_buf = buf.into_mut();
+
+        assert_eq!(mut_buf.len(), 20);
+        for (i, &e) in expected.iter().enumerate() {
+            assert_eq!(mut_buf.value(i), e, "mismatch at index {i}");
+        }
+    }
+
+    #[test]
+    fn test_into_mut_shared_copies() {
+        let buf = BitBuffer::collect_bool(16, |i| i % 2 == 0);
+        // Keep a second strong reference so the underlying buffer is shared.
+        let shared = buf.clone();
+
+        let mut mut_buf = buf.into_mut();
+        mut_buf.set_to(0, false);
+
+        // Mutating the copy must not affect the still-held shared buffer.
+        assert!(!mut_buf.value(0));
+        assert!(
+            shared.value(0),
+            "shared buffer must be unaffected by the copy"
+        );
     }
 }

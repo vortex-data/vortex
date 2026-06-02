@@ -246,7 +246,7 @@ impl ArrayBuilder for FixedSizeListBuilder {
 
         self.elements_builder.extend_from_array(fsl.elements());
         self.nulls.append_validity_mask(
-            array
+            &array
                 .validity()
                 .vortex_expect("validity_mask in extend_from_array_unchecked")
                 .execute_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
@@ -261,8 +261,7 @@ impl ArrayBuilder for FixedSizeListBuilder {
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.nulls = LazyBitBufferBuilder::new(validity.len());
-        self.nulls.append_validity_mask(validity);
+        self.nulls = LazyBitBufferBuilder::from_validity_mask(validity);
     }
 
     fn finish(&mut self) -> ArrayRef {

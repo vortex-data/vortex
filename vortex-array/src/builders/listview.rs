@@ -308,7 +308,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         debug_assert!(listview.is_zero_copy_to_list());
 
         self.nulls.append_validity_mask(
-            array
+            &array
                 .validity()
                 .vortex_expect("validity_mask in extend_from_array_unchecked")
                 .execute_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
@@ -364,8 +364,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.nulls = LazyBitBufferBuilder::new(validity.len());
-        self.nulls.append_validity_mask(validity);
+        self.nulls = LazyBitBufferBuilder::from_validity_mask(validity);
     }
 
     fn finish(&mut self) -> ArrayRef {
