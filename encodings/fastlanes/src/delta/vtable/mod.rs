@@ -40,10 +40,13 @@ use crate::delta::array::delta_decompress::delta_decompress;
 use crate::delta::array::lane_count;
 use crate::delta_compress;
 
+mod kernels;
 mod operations;
 mod rules;
 mod slice;
 mod validity;
+
+use crate::delta::vtable::kernels::PARENT_KERNELS;
 
 /// A [`Delta`]-encoded Vortex array.
 pub type DeltaArray = Array<Delta>;
@@ -175,6 +178,15 @@ impl VTable for Delta {
         Ok(ExecutionResult::done(
             delta_decompress(&array, ctx)?.into_array(),
         ))
+    }
+
+    fn execute_parent(
+        array: ArrayView<'_, Self>,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 
