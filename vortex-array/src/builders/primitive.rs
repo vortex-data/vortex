@@ -129,7 +129,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     /// Extends the primitive array with an iterator.
     pub fn extend_with_iterator(&mut self, iter: impl IntoIterator<Item = T>, mask: &Mask) {
         self.values.extend(iter);
-        self.nulls.append_validity_mask(&mask);
+        self.nulls.append_validity_mask(mask);
     }
 }
 

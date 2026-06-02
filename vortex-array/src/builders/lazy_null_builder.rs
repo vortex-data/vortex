@@ -47,9 +47,14 @@ impl LazyBitBufferBuilder {
                 capacity: len,
             },
             Mask::AllFalse(len) => Self::from_buffer(BitBufferMut::new_unset(len)),
-            // Take ownership of the underlying buffer; `into_bit_buffer` and `into_mut` only copy
-            // when the buffer is shared, otherwise this is a move.
-            values @ Mask::Values(_) => Self::from_buffer(values.into_bit_buffer().into_mut()),
+            // Take ownership of the underlying buffer; `into_bit_buffer` and `try_into_mut` only
+            // copy when the buffer is shared, otherwise this is a move.
+            values @ Mask::Values(_) => Self::from_buffer(
+                values
+                    .into_bit_buffer()
+                    .try_into_mut()
+                    .unwrap_or_else(|buffer| BitBufferMut::copy_from(&buffer)),
+            ),
         }
     }
 
