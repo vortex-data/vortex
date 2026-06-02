@@ -58,7 +58,7 @@ tokio-util = { workspace = true }
 tpchgen = { workspace = true }
 tpchgen-arrow = { workspace = true }
 tracing = { workspace = true }
-tracing-perfetto = { workspace = true }
+tracing-perfetto = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, features = [
     "env-filter",
     "json",
@@ -72,3 +72,7 @@ insta = { workspace = true }
 
 [features]
 unstable_encodings = ["vortex/unstable_encodings"]
+# Enables the `--tracing` Perfetto span exporter. Off by default because
+# `tracing-perfetto` adds ~23s of compile time to a clean build and is only
+# needed when capturing a Perfetto trace.
+perfetto = ["dep:tracing-perfetto"]

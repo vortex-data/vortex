@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#[cfg(feature = "perfetto")]
 use std::fs::File;
 use std::io::IsTerminal;
 
 use clap::ValueEnum;
 use tracing::level_filters::LevelFilter;
+#[cfg(feature = "perfetto")]
 use tracing_perfetto::PerfettoLayer;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::Layer;
@@ -46,6 +48,7 @@ pub fn setup_logging_and_tracing_with_format(
 ) -> anyhow::Result<()> {
     let filter = default_env_filter(verbose);
 
+    #[cfg(feature = "perfetto")]
     let perfetto_layer = perfetto
         .then(|| {
             Ok::<_, anyhow::Error>(
@@ -53,6 +56,14 @@ pub fn setup_logging_and_tracing_with_format(
             )
         })
         .transpose()?;
+
+    #[cfg(not(feature = "perfetto"))]
+    if perfetto {
+        eprintln!(
+            "warning: tracing/Perfetto export was requested but vortex-bench was built \
+             without the `perfetto` feature; no trace will be written"
+        );
+    }
 
     // `fmt::layer()` and `fmt::layer().json()` produce different concrete types,
     // so erase each to a `dyn Layer` via `.boxed()` and keep the registry uniform.
@@ -72,11 +83,10 @@ pub fn setup_logging_and_tracing_with_format(
             .boxed(),
     };
 
-    tracing_subscriber::registry()
-        .with(filter)
-        .with(perfetto_layer)
-        .with(fmt_layer)
-        .init();
+    let registry = tracing_subscriber::registry().with(filter);
+    #[cfg(feature = "perfetto")]
+    let registry = registry.with(perfetto_layer);
+    registry.with(fmt_layer).init();
 
     Ok(())
 }

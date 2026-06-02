@@ -47,6 +47,8 @@ custom-labels = { workspace = true }
 [features]
 cuda = ["dep:vortex-cuda"]
 unstable_encodings = ["vortex/unstable_encodings"]
+# Forwards to `vortex-bench/perfetto` to enable the `--tracing` Perfetto exporter.
+perfetto = ["vortex-bench/perfetto"]
 
 [lints]
 workspace = true
