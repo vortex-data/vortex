@@ -13,7 +13,14 @@
 //! folds a `Fn(T) -> bool` predicate over the chunk while it is still hot in L1, and packs the
 //! resulting bools straight into the output [`vortex_buffer::BitBuffer`] via
 //! [`pack_bools_into_words`] (the same word-at-a-time shape as
-//! [`vortex_buffer::BitBuffer::collect_bool`]). The materialised primitive never exists.
+//! [`vortex_buffer::BitBuffer::collect_bool`]). The materialised primitive never exists — only the
+//! 8-bit-per-element bit buffer (and the bases/deltas children, which the fallback decompresses
+//! anyway) are ever written.
+//!
+//! The decompress itself (a per-lane prefix sum) is identical to the fallback's, so the win is
+//! exactly the avoided write-and-reread of the `len * size_of::<T>()`-byte output primitive. That
+//! saving is largest once the output no longer fits in cache; see `benches/delta_compare.rs` for
+//! the resulting U-shaped speedup curve.
 
 use fastlanes::Delta as FlDelta;
 use fastlanes::FastLanes;
@@ -141,8 +148,9 @@ fn stream_blocks<U, T, const LANES: usize, P>(
         let local_lo = lo - chunk_start;
         let count = hi - lo;
         let out_offset = lo - start;
-        pack_bools_into_words(words, out_offset, count, |k| {
-            predicate(values[local_lo + k])
-        });
+        // Window to exactly the logical slice of this chunk so the predicate indexes a slice
+        // whose length matches the pack loop bound, keeping the inner fold tight.
+        let window = &values[local_lo..local_lo + count];
+        pack_bools_into_words(words, out_offset, count, |k| predicate(window[k]));
     }
 }
