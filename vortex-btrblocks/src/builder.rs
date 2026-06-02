@@ -41,6 +41,9 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     &integer::RunEndScheme,
     &integer::SequenceScheme,
     &integer::IntRLEScheme,
+    // Prefer all other schemes above delta, for now (since its slower to decompress).
+    #[cfg(feature = "unstable_encodings")]
+    &integer::DeltaScheme,
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // Float schemes.
     ////////////////////////////////////////////////////////////////////////////////////////////////
