@@ -4,7 +4,7 @@
 //! Integer compression schemes.
 
 mod bitpacking;
-mod frame_of_reference;
+mod for_;
 mod rle;
 mod runend;
 mod sequence;
@@ -15,7 +15,7 @@ mod zigzag;
 mod pco;
 
 pub use bitpacking::BitPackingScheme;
-pub use frame_of_reference::FoRScheme;
+pub use for_::FoRScheme;
 #[cfg(feature = "pco")]
 pub use pco::PcoScheme;
 pub use rle::IntRLEScheme;
