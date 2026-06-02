@@ -10,10 +10,13 @@ runs:
         echo "=== CPU Model ==="
         lscpu
         echo "=== /proc/cpuinfo summary ==="
-        grep -m1 "model name" /proc/cpuinfo
+        # x86 exposes "model name"; aarch64 has no such line (the model is shown
+        # by lscpu above), so a missing match must not fail the step.
+        grep -m1 "model name" /proc/cpuinfo || true
         nproc
         echo "=== CPU Flags ==="
-        grep -m1 "flags" /proc/cpuinfo
+        # x86 exposes "flags"; aarch64 exposes "Features".
+        grep -m1 -E "^(flags|Features)" /proc/cpuinfo || true
 
         echo "=== Memory ==="
         free -h
