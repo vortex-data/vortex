@@ -79,8 +79,8 @@ impl CanonicalCudaExt for Canonical {
 
                 let bits = BitBuffer::new_with_offset(
                     bits.try_into_host()?.await?,
-                    meta.offset(),
                     meta.len(),
+                    meta.offset(),
                 );
                 Ok(Canonical::Bool(BoolArray::new(bits, validity)))
             }
