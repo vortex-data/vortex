@@ -65,9 +65,9 @@ void duckdb_vx_vector_set_validity_data(duckdb_vector ffi_vector,
 // Converts a duckdb flat vector into a Sequence vector.
 void duckdb_vx_sequence_vector(duckdb_vector c_vector, int64_t start, int64_t step, idx_t capacity);
 
-void duckdb_vector_flatten(duckdb_vector vector, unsigned long len);
+void duckdb_vector_flatten(duckdb_vector vector, idx_t len);
 
-const char *duckdb_vector_to_string(duckdb_vector vector, unsigned long len, duckdb_vx_error *err);
+const char *duckdb_vector_to_string(duckdb_vector vector, idx_t len, duckdb_vx_error *err);
 
 duckdb_value duckdb_vx_vector_get_value(duckdb_vector ffi_vector, idx_t index);
 

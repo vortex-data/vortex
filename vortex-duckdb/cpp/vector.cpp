@@ -127,12 +127,12 @@ extern "C" duckdb_value duckdb_vx_vector_get_value(duckdb_vector ffi_vector, idx
     return reinterpret_cast<duckdb_value>(value.release());
 }
 
-void duckdb_vector_flatten(duckdb_vector vector, unsigned long len) {
+void duckdb_vector_flatten(duckdb_vector vector, idx_t len) {
     auto dvector = reinterpret_cast<Vector *>(vector);
     dvector->Flatten(len);
 }
 
-const char *duckdb_vector_to_string(duckdb_vector vector, unsigned long len, duckdb_vx_error *err) {
+const char *duckdb_vector_to_string(duckdb_vector vector, idx_t len, duckdb_vx_error *err) {
     try {
         auto dvector = reinterpret_cast<Vector *>(vector);
         auto str = dvector->ToString(len);
