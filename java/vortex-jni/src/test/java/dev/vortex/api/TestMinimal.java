@@ -226,12 +226,27 @@ public final class TestMinimal {
 
     @Test
     public void testSelectionIndicesMustBeSortedAndUnique() {
-        Session session = Session.create();
-        DataSource ds = DataSource.open(session, writePath);
-        ScanOptions options = ScanOptions.includeRows(2, 1);
-
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> ds.scan(options));
+        IllegalArgumentException exception =
+                assertThrows(IllegalArgumentException.class, () -> ScanOptions.includeRows(2, 1));
         assertEquals("selection indices must be sorted ascending and unique", exception.getMessage());
+    }
+
+    @Test
+    public void testSelectionPayloadMustChooseIndicesOrRoaring() {
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> ScanOptions.builder()
+                .selectionMode(ScanOptions.SelectionMode.INCLUDE)
+                .selectionIndices(new long[] {0})
+                .selectionRoaringBitmap(new byte[] {1})
+                .build());
+        assertEquals("row selection must use either indices or roaring bitmap, not both", exception.getMessage());
+    }
+
+    @Test
+    public void testSelectionPayloadRequiresMode() {
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> ScanOptions.builder().selectionIndices(new long[] {0}).build());
+        assertEquals("row selection payload requires a selection mode", exception.getMessage());
     }
 
     private interface BatchReader {

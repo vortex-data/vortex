@@ -158,10 +158,7 @@ public final class DataSource {
 
     private static long[] selectionIndices(ScanOptions options) {
         return switch (options.selectionMode()) {
-            case INCLUDE, EXCLUDE ->
-                options.selectionIndices()
-                        .map(DataSource::validateSelectionIndices)
-                        .orElse(null);
+            case INCLUDE, EXCLUDE -> options.selectionIndices().orElse(null);
             default -> null;
         };
     }
@@ -174,17 +171,5 @@ public final class DataSource {
                                 "selection roaring bitmap is required for roaring selection modes"));
             default -> null;
         };
-    }
-
-    private static long[] validateSelectionIndices(long[] selectionIndices) {
-        long previous = -1L;
-        for (int i = 0; i < selectionIndices.length; i++) {
-            long index = selectionIndices[i];
-            Preconditions.checkArgument(index >= 0, "selection indices must be non-negative");
-            Preconditions.checkArgument(
-                    i == 0 || index > previous, "selection indices must be sorted ascending and unique");
-            previous = index;
-        }
-        return selectionIndices;
     }
 }

@@ -57,6 +57,54 @@ public interface ScanOptions {
         return false;
     }
 
+    @Value.Check
+    default void validateSelectionPayload() {
+        boolean hasIndices = selectionIndices().isPresent();
+        boolean hasRoaringBitmap = selectionRoaringBitmap().isPresent();
+        if (hasIndices && hasRoaringBitmap) {
+            throw new IllegalArgumentException("row selection must use either indices or roaring bitmap, not both");
+        }
+        if (hasIndices) {
+            validateSelectionIndices(selectionIndices().orElseThrow());
+        }
+
+        switch (selectionMode()) {
+            case INCLUDE_ALL -> {
+                if (hasIndices || hasRoaringBitmap) {
+                    throw new IllegalArgumentException("row selection payload requires a selection mode");
+                }
+            }
+            case INCLUDE, EXCLUDE -> {
+                if (!hasIndices) {
+                    throw new IllegalArgumentException("selection indices are required for index selection modes");
+                }
+            }
+            case INCLUDE_ROARING, EXCLUDE_ROARING -> {
+                if (!hasRoaringBitmap) {
+                    throw new IllegalArgumentException(
+                            "selection roaring bitmap is required for roaring selection modes");
+                }
+                if (selectionRoaringBitmap().orElseThrow().length == 0) {
+                    throw new IllegalArgumentException("selection roaring bitmap must not be empty");
+                }
+            }
+        }
+    }
+
+    private static void validateSelectionIndices(long[] selectionIndices) {
+        long previous = -1L;
+        for (int i = 0; i < selectionIndices.length; i++) {
+            long index = selectionIndices[i];
+            if (index < 0) {
+                throw new IllegalArgumentException("selection indices must be non-negative");
+            }
+            if (i > 0 && index <= previous) {
+                throw new IllegalArgumentException("selection indices must be sorted ascending and unique");
+            }
+            previous = index;
+        }
+    }
+
     static ScanOptions of() {
         return ImmutableScanOptions.builder().build();
     }
