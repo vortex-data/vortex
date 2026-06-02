@@ -238,7 +238,7 @@ impl Display for FieldPath {
     }
 }
 
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
 /// Contains a set of field paths, and can answer an efficient field path contains queries.
 pub struct FieldPathSet {
     /// While this is currently a set wrapper it can be replaced with a trie.
@@ -251,12 +251,45 @@ impl FieldPathSet {
     pub fn contains(&self, path: &FieldPath) -> bool {
         self.set.contains(path)
     }
+
+    /// Inserts a field path prefix unless an existing prefix already covers it.
+    ///
+    /// Any existing field paths covered by the new prefix are removed.
+    pub fn insert_prefix(&mut self, path: FieldPath) {
+        if self
+            .set
+            .iter()
+            .any(|existing| path.parts().starts_with(existing.parts()))
+        {
+            return;
+        }
+
+        self.set
+            .retain(|existing| !existing.parts().starts_with(path.parts()));
+        self.set.insert(path);
+    }
+
+    /// Inserts field path prefixes, retaining only the minimal covering set.
+    pub fn extend_prefixes(&mut self, paths: impl IntoIterator<Item = FieldPath>) {
+        for path in paths {
+            self.insert_prefix(path);
+        }
+    }
 }
 
 impl FromIterator<FieldPath> for FieldPathSet {
     fn from_iter<T: IntoIterator<Item = FieldPath>>(iter: T) -> Self {
         let set = HashSet::from_iter(iter);
         Self { set }
+    }
+}
+
+impl IntoIterator for FieldPathSet {
+    type Item = FieldPath;
+    type IntoIter = <HashSet<FieldPath> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.set.into_iter()
     }
 }
 
@@ -417,5 +450,17 @@ mod tests {
         let path3 = field_path!(x);
         assert!(!path1.overlap(&path3));
         assert!(!path3.overlap(&path1));
+    }
+
+    #[test]
+    fn insert_prefix_retains_minimal_covering_set() {
+        let mut paths = FieldPathSet::default();
+        paths.extend_prefixes([field_path!(a.b), field_path!(x), field_path!(a)]);
+        paths.insert_prefix(field_path!(a.c));
+
+        assert_eq!(
+            paths,
+            FieldPathSet::from_iter([field_path!(a), field_path!(x)])
+        );
     }
 }
