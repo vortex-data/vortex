@@ -592,7 +592,7 @@ mod tests {
 
             // Read back and verify equivalence with the input.
             let read_back = layout
-                .new_reader("".into(), segments, &session)
+                .new_reader("".into(), segments, &session, &Default::default())
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),
