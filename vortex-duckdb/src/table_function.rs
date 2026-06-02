@@ -9,7 +9,10 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
+#[cfg(unix)]
 use custom_labels::CURRENT_LABELSET;
+#[cfg(unix)]
+use custom_labels::sys as custom_labels_sys;
 use futures::StreamExt;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
@@ -33,6 +36,7 @@ use vortex::io::runtime::BlockingRuntime as _;
 use vortex::io::runtime::current::ThreadSafeIterator;
 use vortex::layout::scan::multi::MultiLayoutChild;
 use vortex::layout::scan::multi::MultiLayoutDataSource;
+#[cfg(unix)]
 use vortex::metrics::tracing::get_global_labels;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::operators::Operator;
@@ -286,19 +290,20 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
 }
 
 pub fn init_local(global: &TableFunctionGlobal) -> TableFunctionLocal {
-    unsafe {
-        use custom_labels::sys;
+    // `custom-labels` is unix-only (it does not build under MSVC), so the thread-local
+    // labelset integration is skipped on other platforms.
+    #[cfg(unix)]
+    {
+        unsafe {
+            if custom_labels_sys::current().is_null() {
+                let ls = custom_labels_sys::new(0);
+                custom_labels_sys::replace(ls);
+            };
+        }
 
-        if sys::current().is_null() {
-            let ls = sys::new(0);
-            sys::replace(ls);
-        };
-    }
-
-    let global_labels = get_global_labels();
-
-    for (key, value) in global_labels {
-        CURRENT_LABELSET.set(key, value);
+        for (key, value) in get_global_labels() {
+            CURRENT_LABELSET.set(key, value);
+        }
     }
 
     TableFunctionLocal {
