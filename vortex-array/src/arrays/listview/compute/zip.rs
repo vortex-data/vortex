@@ -14,9 +14,11 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
+use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -67,8 +69,14 @@ impl ZipKernel for ListView {
 
         // `if_false` views index into the second half of the concatenated elements.
         let false_shift = true_elements.len() as u64;
-        let elements =
-            ChunkedArray::try_new(vec![true_elements, false_elements], element_dtype)?.into_array();
+
+        // Concatenate the two `elements` arrays without copying. If either side is already a
+        // `ChunkedArray` (e.g. the result of a previous list-view zip), splice its chunks in
+        // directly rather than nesting chunked arrays.
+        let mut chunks = Vec::new();
+        push_element_chunks(true_elements, &mut chunks);
+        push_element_chunks(false_elements, &mut chunks);
+        let elements = ChunkedArray::try_new(chunks, element_dtype)?.into_array();
 
         let true_offsets = to_u64(if_true.offsets(), ctx)?;
         let true_sizes = to_u64(if_true.sizes(), ctx)?;
@@ -108,6 +116,15 @@ impl ZipKernel for ListView {
             )?
             .into_array(),
         ))
+    }
+}
+
+/// Appends `array`'s element chunks to `chunks`, flattening a top-level [`ChunkedArray`] so the
+/// concatenated elements never nest chunked arrays.
+fn push_element_chunks(array: ArrayRef, chunks: &mut Vec<ArrayRef>) {
+    match array.as_opt::<Chunked>() {
+        Some(chunked) => chunks.extend(chunked.iter_chunks().cloned()),
+        None => chunks.push(array),
     }
 }
 
@@ -155,10 +172,17 @@ mod tests {
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
+    use crate::arrays::Chunked;
+    use crate::arrays::ChunkedArray;
     use crate::arrays::ListView;
     use crate::arrays::ListViewArray;
+    use crate::arrays::chunked::ChunkedArrayExt;
+    use crate::arrays::listview::ListViewArrayExt;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::validity::Validity;
 
     fn list_view(
@@ -281,6 +305,61 @@ mod tests {
             buffer![0u32, 2, 3].into_array(),
             buffer![2u32, 1, 2].into_array(),
             Validity::AllValid,
+        );
+        assert_arrays_eq!(result, expected);
+        Ok(())
+    }
+
+    /// When an input's `elements` is already a [`ChunkedArray`], its chunks are spliced in rather
+    /// than nesting a chunked array inside the concatenated elements.
+    #[test]
+    fn zip_flattens_chunked_elements() -> VortexResult<()> {
+        // elements [1, 2, 3] stored as two chunks; lists [[1, 2], [3]].
+        let chunked_elements = ChunkedArray::try_new(
+            vec![buffer![1i32, 2].into_array(), buffer![3i32].into_array()],
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+        )?
+        .into_array();
+        let if_true = list_view(
+            chunked_elements,
+            buffer![0u32, 2].into_array(),
+            buffer![2u32, 1].into_array(),
+            Validity::NonNullable,
+        );
+        // [[10], [20]]
+        let if_false = list_view(
+            buffer![10i32, 20].into_array(),
+            buffer![0u32, 1].into_array(),
+            buffer![1u32, 1].into_array(),
+            Validity::NonNullable,
+        );
+        let mask = Mask::from_iter([true, false]);
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let result = mask
+            .into_array()
+            .zip(if_true, if_false)?
+            .execute::<ArrayRef>(&mut ctx)?;
+
+        // The concatenated elements are chunked, but no chunk is itself a `ChunkedArray`.
+        let result_lv = result
+            .as_opt::<ListView>()
+            .expect("zip keeps the list-view encoding");
+        let chunked = result_lv
+            .elements()
+            .as_opt::<Chunked>()
+            .expect("zip concatenates elements into a chunked array");
+        assert!(
+            chunked.iter_chunks().all(|chunk| !chunk.is::<Chunked>()),
+            "chunked elements must be flattened, not nested",
+        );
+
+        // [[1, 2], [20]]
+        let expected = list_view(
+            buffer![1i32, 2, 20].into_array(),
+            buffer![0u32, 2].into_array(),
+            buffer![2u32, 1].into_array(),
+            Validity::NonNullable,
         );
         assert_arrays_eq!(result, expected);
         Ok(())
