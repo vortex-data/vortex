@@ -16,7 +16,9 @@ use crate::Canonical;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
+use crate::arrays::List;
 use crate::arrays::ListArray;
+use crate::arrays::list::ListArrayExt;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
@@ -218,6 +220,20 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
+        // Trim the element child to the window the offsets actually reference *before*
+        // canonicalizing in `to_listview()` that would otherwise decode the entire chunk.
+        let trimmed;
+        // Only ListArray has this sliced-but-untrimmed property.
+        let array = if let Some(list) = array.as_opt::<List>() {
+            trimmed = list
+                .reset_offsets(false)
+                .vortex_expect("reset_offsets in extend_from_array_unchecked")
+                .into_array();
+            &trimmed
+        } else {
+            array
+        };
+
         #[expect(deprecated)]
         let list = array.to_listview();
         if list.is_empty() {
