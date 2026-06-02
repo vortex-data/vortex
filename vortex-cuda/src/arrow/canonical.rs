@@ -980,6 +980,74 @@ mod tests {
         Ok(())
     }
 
+    #[crate::test]
+    async fn test_export_host_contiguous_list_view() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let array = ListViewArray::new(
+            PrimitiveArray::from_iter(0i32..5).into_array(),
+            PrimitiveArray::from_iter([0i32, 2, 2]).into_array(),
+            PrimitiveArray::from_iter([2i32, 0, 3]).into_array(),
+            Validity::NonNullable,
+        )
+        .into_array();
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+
+        assert_eq!(exported.array.array.length, 3);
+        assert_eq!(exported.array.array.n_buffers, 2);
+        assert_eq!(
+            private_data_buffer_i32_values(&exported.array.array, 1)?,
+            [0, 2, 2, 5]
+        );
+        assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_export_host_non_contiguous_nested_list_view_falls_back_to_cpu() -> VortexResult<()>
+    {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let elements = StructArray::new(
+            FieldNames::from_iter(["x"]),
+            vec![PrimitiveArray::from_iter(0i32..4).into_array()],
+            4,
+            Validity::NonNullable,
+        )
+        .into_array();
+        let array = ListViewArray::new(
+            elements,
+            PrimitiveArray::from_iter([0i32, 1]).into_array(),
+            PrimitiveArray::from_iter([3i32, 2]).into_array(),
+            Validity::NonNullable,
+        )
+        .into_array();
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+
+        assert_eq!(exported.array.array.length, 2);
+        assert_eq!(
+            private_data_buffer_i32_values(&exported.array.array, 1)?,
+            [0, 3, 5]
+        );
+        let list_children = unsafe { std::slice::from_raw_parts(exported.array.array.children, 1) };
+        let struct_child = unsafe { &*list_children[0] };
+        assert_eq!(struct_child.length, 5);
+        let struct_children = unsafe { std::slice::from_raw_parts(struct_child.children, 1) };
+        let field_child = unsafe { &*struct_children[0] };
+        assert_eq!(
+            private_data_buffer_i32_values(field_child, 1)?,
+            [0, 1, 2, 1, 2]
+        );
+        assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
     #[rstest]
     #[case::i32_i32(PType::I32, PType::I32)]
     #[case::u32_u16(PType::U32, PType::U16)]
