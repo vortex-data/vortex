@@ -413,8 +413,8 @@ debug-assertions = false
 strip = "debuginfo"
 incremental = false
 
-# Temporary patch: build against the fastlanes branch carrying the unstable
-# `Delta::unfor_undelta_pack` fused kernel (spiraldb/fastlanes#140). Replace with a published
-# fastlanes version bump once that PR merges and releases.
+# Temporary patch: build against the fastlanes revision carrying the `delta_for_bitpacking`
+# fused `Delta::unfor_undelta_pack` kernel (spiraldb/fastlanes#140, rev 267717c). Replace with a
+# published fastlanes version bump once that PR merges and releases.
 [patch.crates-io]
-fastlanes = { git = "https://github.com/spiraldb/fastlanes", branch = "claude/delta-bitpacking-fastlanes-V6mTZ" }
+fastlanes = { git = "https://github.com/spiraldb/fastlanes", rev = "267717cd72e8b6f0ed0e5321ae3fc785fa433058" }
