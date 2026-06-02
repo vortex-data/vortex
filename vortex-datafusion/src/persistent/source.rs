@@ -341,6 +341,7 @@ impl VortexSource {
             file_metadata_cache: self.file_metadata_cache.clone(),
             projection_pushdown: self.options.projection_pushdown,
             scan_concurrency: self.options.scan_concurrency,
+            use_all_decimals: self.options.use_all_decimals,
         };
 
         Ok(opener)

@@ -122,6 +122,7 @@ use crate::convert::exprs::DefaultExpressionConvertor;
 use crate::convert::exprs::ExpressionConvertor;
 use crate::convert::exprs::ProcessedProjection;
 use crate::convert::exprs::make_vortex_predicate;
+use crate::convert::schema::maybe_narrow_decimals;
 use crate::convert::stats::stats_set_to_df;
 
 /// Builder for [`VortexDataSource`].
@@ -169,6 +170,7 @@ pub struct VortexDataSourceBuilder {
 
     arrow_schema: Option<SchemaRef>,
     projection: Option<Vec<usize>>,
+    use_all_decimals: bool,
 }
 
 impl VortexDataSourceBuilder {
@@ -199,6 +201,19 @@ impl VortexDataSourceBuilder {
         self
     }
 
+    /// Returns the narrow `Decimal32`/`Decimal64` Arrow types to DataFusion instead of widening
+    /// every decimal to `Decimal128`.
+    ///
+    /// This only affects the schema derived from the Vortex dtype. An explicit schema supplied via
+    /// [`Self::with_arrow_schema`] is used verbatim.
+    ///
+    /// Decimals with precision up to 9 are returned as `Decimal32`, and decimals with precision 10
+    /// to 18 as `Decimal64`. Larger precisions are unaffected.
+    pub fn with_use_all_decimals(mut self, use_all_decimals: bool) -> Self {
+        self.use_all_decimals = use_all_decimals;
+        self
+    }
+
     /// Builds the [`VortexDataSource`].
     ///
     /// The builder eagerly resolves statistics for the initial projection
@@ -208,14 +223,16 @@ impl VortexDataSourceBuilder {
         // The projection expression
         let mut projection = root();
 
-        // Resolve the Arrow schema
+        // Resolve the Arrow schema. An explicit schema is used verbatim; a derived schema is
+        // narrowed to smaller decimal types when `use_all_decimals` is enabled.
         let mut arrow_schema = match self.arrow_schema {
             Some(schema) => schema,
-            None => Arc::new(
+            None => Arc::new(maybe_narrow_decimals(
                 self.session
                     .arrow()
                     .to_arrow_schema(self.data_source.dtype())?,
-            ),
+                self.use_all_decimals,
+            )),
         };
 
         // Apply any selection and create a projection expression.
@@ -276,6 +293,7 @@ impl VortexDataSourceBuilder {
             limit: None,
             ordered: false,
             num_partitions: get_available_parallelism().unwrap_or(1),
+            use_all_decimals: self.use_all_decimals,
         })
     }
 }
@@ -288,6 +306,7 @@ impl VortexDataSource {
             session,
             arrow_schema: None,
             projection: None,
+            use_all_decimals: false,
         }
     }
 }
@@ -357,6 +376,10 @@ pub struct VortexDataSource {
     /// always declare to DataFusion that we only have a single partition so that we can
     /// internally manage concurrency and fix the problem of partition skew.
     num_partitions: usize,
+
+    /// Whether to return narrow `Decimal32`/`Decimal64` Arrow types instead of widening every
+    /// decimal to `Decimal128`.
+    use_all_decimals: bool,
 }
 
 impl fmt::Debug for VortexDataSource {
@@ -569,12 +592,13 @@ impl DataSource for VortexDataSource {
         let scan_dtype = scan_projection
             .return_dtype(self.data_source.dtype())
             .map_err(|e| DataFusionError::External(Box::new(e)))?;
-        let scan_output_schema = Arc::new(
+        let scan_output_schema = Arc::new(maybe_narrow_decimals(
             self.session
                 .arrow()
                 .to_arrow_schema(&scan_dtype)
                 .map_err(|e| DataFusionError::External(Box::new(e)))?,
-        );
+            self.use_all_decimals,
+        ));
 
         // Remap the leftover column references to match the scan output schema.
         let leftover_projection = leftover_projection

@@ -3,11 +3,17 @@
 
 use arrow_schema::DataType;
 use arrow_schema::Field;
+use arrow_schema::Fields;
 use arrow_schema::Schema;
 use datafusion_common::Result as DFResult;
 use datafusion_common::exec_datafusion_err;
 use vortex::array::arrow::ArrowSession;
 use vortex::dtype::DType;
+
+/// Maximum precision that fits in an Arrow `Decimal32`.
+const DECIMAL32_MAX_PRECISION: u8 = 9;
+/// Maximum precision that fits in an Arrow `Decimal64`.
+const DECIMAL64_MAX_PRECISION: u8 = 18;
 
 /// Calculate the physical Arrow schema for a Vortex file given its DType and the expected logical schema.
 ///
@@ -24,6 +30,7 @@ pub fn calculate_physical_schema(
     dtype: &DType,
     reference_logical_schema: &Schema,
     arrow_session: &ArrowSession,
+    use_all_decimals: bool,
 ) -> DFResult<Schema> {
     let DType::Struct(struct_dtype, _) = dtype else {
         return Err(exec_datafusion_err!(
@@ -37,26 +44,90 @@ pub fn calculate_physical_schema(
         .zip(struct_dtype.fields())
         .map(|(name, field_dtype)| {
             let logical_field = reference_logical_schema.field_with_name(name.as_ref()).ok();
-            match logical_field {
+            let field = match logical_field {
                 Some(logical_field) => {
                     let arrow_type = calculate_physical_field_type(
                         &field_dtype,
                         logical_field.data_type(),
                         arrow_session,
                     )?;
-                    Ok(
-                        Field::new(name.to_string(), arrow_type, field_dtype.is_nullable())
-                            .with_metadata(logical_field.metadata().clone()),
-                    )
+                    Field::new(name.to_string(), arrow_type, field_dtype.is_nullable())
+                        .with_metadata(logical_field.metadata().clone())
                 }
                 None => arrow_session
                     .to_arrow_field(name.as_ref(), &field_dtype)
-                    .map_err(|e| exec_datafusion_err!("Failed to convert dtype to arrow: {e}")),
-            }
+                    .map_err(|e| exec_datafusion_err!("Failed to convert dtype to arrow: {e}"))?,
+            };
+            Ok(maybe_narrow_decimals_field(field, use_all_decimals))
         })
         .collect::<DFResult<Vec<_>>>()?;
 
     Ok(Schema::new(fields))
+}
+
+/// Narrow `Decimal128` fields in `schema` to `Decimal32`/`Decimal64` based on their precision when
+/// `use_all_decimals` is set, otherwise return the schema unchanged.
+///
+/// Vortex always widens decimals to `Decimal128` (or `Decimal256` above precision 38) when
+/// converting to Arrow, so engines that can handle the smaller Arrow decimal types opt in via this
+/// narrowing pass.
+pub(crate) fn maybe_narrow_decimals(schema: Schema, use_all_decimals: bool) -> Schema {
+    if !use_all_decimals {
+        return schema;
+    }
+    let fields: Vec<Field> = schema
+        .fields()
+        .iter()
+        .map(|field| maybe_narrow_decimals_field(field.as_ref().clone(), true))
+        .collect();
+    Schema::new_with_metadata(fields, schema.metadata().clone())
+}
+
+/// Apply decimal narrowing to a single [`Field`] (recursing into nested types) when
+/// `use_all_decimals` is set, otherwise return the field unchanged.
+fn maybe_narrow_decimals_field(field: Field, use_all_decimals: bool) -> Field {
+    if !use_all_decimals {
+        return field;
+    }
+    let narrowed = narrow_decimals_data_type(field.data_type());
+    field.with_data_type(narrowed)
+}
+
+/// Recursively narrow `Decimal128` Arrow data types to the smallest decimal type that fits their
+/// precision, leaving all other types untouched.
+fn narrow_decimals_data_type(data_type: &DataType) -> DataType {
+    match data_type {
+        DataType::Decimal128(precision, scale) if *precision <= DECIMAL32_MAX_PRECISION => {
+            DataType::Decimal32(*precision, *scale)
+        }
+        DataType::Decimal128(precision, scale) if *precision <= DECIMAL64_MAX_PRECISION => {
+            DataType::Decimal64(*precision, *scale)
+        }
+        DataType::Struct(fields) => DataType::Struct(narrow_decimals_fields(fields)),
+        DataType::List(field) => DataType::List(narrow_decimals_field_ref(field)),
+        DataType::LargeList(field) => DataType::LargeList(narrow_decimals_field_ref(field)),
+        DataType::ListView(field) => DataType::ListView(narrow_decimals_field_ref(field)),
+        DataType::LargeListView(field) => DataType::LargeListView(narrow_decimals_field_ref(field)),
+        DataType::FixedSizeList(field, size) => {
+            DataType::FixedSizeList(narrow_decimals_field_ref(field), *size)
+        }
+        other => other.clone(),
+    }
+}
+
+fn narrow_decimals_fields(fields: &Fields) -> Fields {
+    fields
+        .iter()
+        .map(|field| narrow_decimals_field_ref(field))
+        .collect()
+}
+
+fn narrow_decimals_field_ref(field: &Field) -> std::sync::Arc<Field> {
+    std::sync::Arc::new(
+        field
+            .clone()
+            .with_data_type(narrow_decimals_data_type(field.data_type())),
+    )
 }
 
 /// Calculate the physical Arrow type for a field, preferring the logical type when the
@@ -232,7 +303,8 @@ mod tests {
         );
 
         let physical_schema =
-            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default()).unwrap();
+            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default(), false)
+                .unwrap();
 
         // Should preserve the dictionary type from the logical schema
         assert_eq!(
@@ -263,7 +335,8 @@ mod tests {
         );
 
         let physical_schema =
-            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default()).unwrap();
+            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default(), false)
+                .unwrap();
 
         assert_eq!(physical_schema.field(0).data_type(), &DataType::Utf8);
         assert_eq!(physical_schema.field(1).data_type(), &DataType::LargeUtf8);
@@ -283,7 +356,8 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let result = calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default());
+        let result =
+            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default(), false);
         assert!(
             result
                 .unwrap_err()
@@ -303,7 +377,8 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let result = calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default());
+        let result =
+            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default(), false);
         assert!(
             result
                 .unwrap_err()
@@ -350,7 +425,8 @@ mod tests {
         );
 
         let physical_schema =
-            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default()).unwrap();
+            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default(), false)
+                .unwrap();
 
         // Check outer structure
         assert_eq!(physical_schema.fields().len(), 2);
@@ -392,7 +468,8 @@ mod tests {
         );
 
         let physical_schema =
-            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default()).unwrap();
+            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default(), false)
+                .unwrap();
 
         if let DataType::List(elem_field) = physical_schema.field(0).data_type() {
             assert_eq!(
@@ -411,7 +488,8 @@ mod tests {
 
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
 
-        let result = calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default());
+        let result =
+            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default(), false);
         assert!(result.is_err());
         assert!(
             result
@@ -419,5 +497,123 @@ mod tests {
                 .to_string()
                 .contains("Expected struct dtype")
         );
+    }
+
+    #[test]
+    fn test_decimal_widening_by_default() {
+        use vortex::dtype::DecimalDType;
+
+        // Vortex always widens decimals to Decimal128 when handing them to DataFusion, regardless
+        // of their precision, unless `use_all_decimals` is enabled.
+        let dtype = DType::Struct(
+            StructFields::from_iter([
+                (
+                    "d32",
+                    DType::Decimal(DecimalDType::new(5, 2), Nullability::Nullable),
+                ),
+                (
+                    "d64",
+                    DType::Decimal(DecimalDType::new(15, 4), Nullability::Nullable),
+                ),
+                (
+                    "d128",
+                    DType::Decimal(DecimalDType::new(30, 4), Nullability::Nullable),
+                ),
+            ]),
+            Nullability::NonNullable,
+        );
+        // Empty reference schema forces the `to_arrow_field` path for every column.
+        let logical_schema = Schema::empty();
+
+        let physical_schema =
+            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default(), false)
+                .unwrap();
+
+        assert_eq!(
+            physical_schema.field(0).data_type(),
+            &DataType::Decimal128(5, 2)
+        );
+        assert_eq!(
+            physical_schema.field(1).data_type(),
+            &DataType::Decimal128(15, 4)
+        );
+        assert_eq!(
+            physical_schema.field(2).data_type(),
+            &DataType::Decimal128(30, 4)
+        );
+    }
+
+    #[test]
+    fn test_decimal_narrowing_when_enabled() {
+        use vortex::dtype::DecimalDType;
+
+        // With `use_all_decimals` enabled, decimals are narrowed to the smallest Arrow decimal
+        // type that fits their precision.
+        let dtype = DType::Struct(
+            StructFields::from_iter([
+                (
+                    "d32",
+                    DType::Decimal(DecimalDType::new(5, 2), Nullability::Nullable),
+                ),
+                (
+                    "d64",
+                    DType::Decimal(DecimalDType::new(15, 4), Nullability::Nullable),
+                ),
+                (
+                    "d128",
+                    DType::Decimal(DecimalDType::new(30, 4), Nullability::Nullable),
+                ),
+            ]),
+            Nullability::NonNullable,
+        );
+        let logical_schema = Schema::empty();
+
+        let physical_schema =
+            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default(), true)
+                .unwrap();
+
+        assert_eq!(
+            physical_schema.field(0).data_type(),
+            &DataType::Decimal32(5, 2)
+        );
+        assert_eq!(
+            physical_schema.field(1).data_type(),
+            &DataType::Decimal64(15, 4)
+        );
+        // Precision above 18 stays as Decimal128.
+        assert_eq!(
+            physical_schema.field(2).data_type(),
+            &DataType::Decimal128(30, 4)
+        );
+    }
+
+    #[test]
+    fn test_decimal_narrowing_nested_struct() {
+        use vortex::dtype::DecimalDType;
+
+        // Nested decimals inside a struct should be narrowed too.
+        let dtype = DType::Struct(
+            StructFields::from_iter([(
+                "outer",
+                DType::Struct(
+                    StructFields::from_iter([(
+                        "inner_d32",
+                        DType::Decimal(DecimalDType::new(4, 1), Nullability::Nullable),
+                    )]),
+                    Nullability::Nullable,
+                ),
+            )]),
+            Nullability::NonNullable,
+        );
+        let logical_schema = Schema::empty();
+
+        let physical_schema =
+            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default(), true)
+                .unwrap();
+
+        let DataType::Struct(inner_fields) = physical_schema.field(0).data_type() else {
+            panic!("expected struct");
+        };
+        assert_eq!(inner_fields[0].data_type(), &DataType::Decimal32(4, 1));
     }
 }

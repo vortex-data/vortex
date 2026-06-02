@@ -103,6 +103,9 @@ pub(crate) struct VortexOpener {
     /// Whether to enable expression pushdown into the underlying Vortex scan.
     pub projection_pushdown: bool,
     pub scan_concurrency: Option<usize>,
+    /// Whether to return narrow `Decimal32`/`Decimal64` Arrow types instead of widening every
+    /// decimal to `Decimal128`.
+    pub use_all_decimals: bool,
 }
 
 impl FileOpener for VortexOpener {
@@ -136,6 +139,7 @@ impl FileOpener for VortexOpener {
 
         let expr_convertor = Arc::clone(&self.expression_convertor);
         let projection_pushdown = self.projection_pushdown;
+        let use_all_decimals = self.use_all_decimals;
 
         // Replace column access for partition columns with literals
         #[expect(clippy::disallowed_types)]
@@ -220,6 +224,7 @@ impl FileOpener for VortexOpener {
                 vxf.dtype(),
                 &unified_file_schema,
                 &session.arrow(),
+                use_all_decimals,
             )?);
 
             let projected_physical_schema = projection.project_schema(&unified_file_schema)?;
@@ -277,8 +282,12 @@ impl FileOpener for VortexOpener {
                     .collect();
                 Schema::new(fields)
             };
-            let stream_schema =
-                calculate_physical_schema(&scan_dtype, &scan_reference_schema, &session.arrow())?;
+            let stream_schema = calculate_physical_schema(
+                &scan_dtype,
+                &scan_reference_schema,
+                &session.arrow(),
+                use_all_decimals,
+            )?;
 
             let leftover_projection = leftover_projection
                 .try_map_exprs(|expr| reassign_expr_columns(expr, &stream_schema))?;
@@ -694,6 +703,7 @@ mod tests {
             file_metadata_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
+            use_all_decimals: false,
         }
     }
 
@@ -826,6 +836,7 @@ mod tests {
             file_metadata_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
+            use_all_decimals: false,
         };
 
         let filter = col("a").lt(lit(100_i32));
@@ -913,6 +924,7 @@ mod tests {
             file_metadata_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
+            use_all_decimals: false,
         };
 
         let stream = opener.open(file)?.await?;
@@ -1070,6 +1082,7 @@ mod tests {
             file_metadata_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
+            use_all_decimals: false,
         };
 
         // This should succeed and return the correctly projected and cast data
@@ -1130,6 +1143,7 @@ mod tests {
             file_metadata_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
+            use_all_decimals: false,
         }
     }
 
@@ -1334,6 +1348,7 @@ mod tests {
             file_metadata_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
+            use_all_decimals: false,
         };
 
         let file = PartitionedFile::new(file_path.to_string(), data_size);

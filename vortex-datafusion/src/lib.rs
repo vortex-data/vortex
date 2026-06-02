@@ -167,11 +167,15 @@ mod common_tests {
     impl TestSessionContext {
         /// Create a new test session context with the given projection pushdown setting.
         pub fn new(projection_pushdown: bool) -> Self {
-            let store = Arc::new(InMemory::new());
-            let opts = VortexTableOptions {
+            Self::new_with_options(VortexTableOptions {
                 projection_pushdown,
                 ..Default::default()
-            };
+            })
+        }
+
+        /// Create a new test session context with explicit [`VortexTableOptions`].
+        pub fn new_with_options(opts: VortexTableOptions) -> Self {
+            let store = Arc::new(InMemory::new());
             let factory = Arc::new(VortexFormatFactory::new().with_options(opts));
             let mut session_state_builder = SessionStateBuilder::new()
                 .with_default_features()

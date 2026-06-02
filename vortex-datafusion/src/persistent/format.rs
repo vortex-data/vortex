@@ -69,6 +69,7 @@ use super::sink::VortexSink;
 use super::source::VortexSource;
 use crate::PrecisionExt as _;
 use crate::convert::TryToDataFusion;
+use crate::convert::schema::maybe_narrow_decimals;
 use crate::convert::stats::is_constant_to_distinct_count;
 
 const DEFAULT_FOOTER_INITIAL_READ_SIZE_BYTES: usize = MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE;
@@ -172,6 +173,16 @@ config_namespace! {
         /// This does not affect the overall parallelism
         /// across partitions, which is controlled by DataFusion's execution configuration.
         pub scan_concurrency: Option<usize>, default = None
+        /// Whether to return the narrow `Decimal32` and `Decimal64` Arrow types to DataFusion.
+        ///
+        /// Vortex stores decimals using the smallest integer width that fits their precision,
+        /// but by default every decimal is widened to `Decimal128` (or `Decimal256` above
+        /// precision 38) when handed to DataFusion, because many engines have incomplete support
+        /// for the smaller Arrow decimal types.
+        ///
+        /// When enabled, decimals with precision up to 9 are returned as `Decimal32` and decimals
+        /// with precision 10 to 18 are returned as `Decimal64`, matching their logical precision.
+        pub use_all_decimals: bool, default = false
     }
 }
 
@@ -381,6 +392,8 @@ impl FileFormat for VortexFormat {
                         let inferred_schema = session
                             .arrow()
                             .to_arrow_schema(cached_vortex.footer().dtype())?;
+                        let inferred_schema =
+                            maybe_narrow_decimals(inferred_schema, opts.use_all_decimals);
                         return VortexResult::Ok((object.location, inferred_schema));
                     }
 
@@ -405,6 +418,8 @@ impl FileFormat for VortexFormat {
                     cache.put(&object.location, entry);
 
                     let inferred_schema = session.arrow().to_arrow_schema(vxf.dtype())?;
+                    let inferred_schema =
+                        maybe_narrow_decimals(inferred_schema, opts.use_all_decimals);
                     VortexResult::Ok((object.location, inferred_schema))
                 })
                 .map(|f| f.vortex_expect("Failed to spawn infer_schema"))
@@ -708,5 +723,65 @@ mod tests {
 
         let format = VortexFormat::new_with_options(VortexSession::default(), opts);
         assert_eq!(format.options().footer_initial_read_size_bytes, 12345);
+    }
+
+    #[test]
+    fn use_all_decimals_option_parses() {
+        let mut opts = VortexTableOptions::default();
+        assert!(!opts.use_all_decimals);
+        opts.set("use_all_decimals", "true").unwrap();
+        assert!(opts.use_all_decimals);
+    }
+
+    /// A small decimal column is widened to `Decimal128` by default and narrowed to `Decimal32`
+    /// only when `use_all_decimals` is enabled on the format options.
+    async fn run_decimal_scan(use_all_decimals: bool) -> anyhow::Result<arrow_schema::DataType> {
+        use datafusion::arrow::array::Decimal128Array;
+        use datafusion::arrow::datatypes::DataType;
+        use datafusion::arrow::datatypes::Field;
+        use datafusion::arrow::datatypes::Schema as ArrowSchema;
+        use datafusion::arrow::record_batch::RecordBatch;
+
+        let ctx = TestSessionContext::new_with_options(VortexTableOptions {
+            use_all_decimals,
+            ..Default::default()
+        });
+
+        let decimals = Decimal128Array::from(vec![Some(123i128), Some(456), None])
+            .with_precision_and_scale(5, 2)?;
+        let schema = Arc::new(ArrowSchema::new(vec![Field::new(
+            "d",
+            DataType::Decimal128(5, 2),
+            true,
+        )]));
+        let batch = RecordBatch::try_new(schema, vec![Arc::new(decimals)])?;
+        ctx.write_arrow_batch("decimals.vortex", &batch).await?;
+
+        let result = ctx
+            .session
+            .sql("SELECT d FROM '/decimals.vortex'")
+            .await?
+            .collect()
+            .await?;
+
+        Ok(result[0].schema().field(0).data_type().clone())
+    }
+
+    #[tokio::test]
+    async fn use_all_decimals_disabled_widens_to_decimal128() -> anyhow::Result<()> {
+        assert_eq!(
+            run_decimal_scan(false).await?,
+            arrow_schema::DataType::Decimal128(5, 2)
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn use_all_decimals_enabled_returns_decimal32() -> anyhow::Result<()> {
+        assert_eq!(
+            run_decimal_scan(true).await?,
+            arrow_schema::DataType::Decimal32(5, 2)
+        );
+        Ok(())
     }
 }
