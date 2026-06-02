@@ -5,6 +5,7 @@ use std::hash::Hash;
 use std::hash::Hasher;
 
 use prost::Message;
+use vortex_array::Accuracy;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -15,7 +16,6 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::Precision;
 use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
@@ -65,13 +65,13 @@ pub struct RLEMetadata {
 }
 
 impl ArrayHash for RLEData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _accuracy: Accuracy) {
         self.offset.hash(state);
     }
 }
 
 impl ArrayEq for RLEData {
-    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+    fn array_eq(&self, other: &Self, _accuracy: Accuracy) -> bool {
         self.offset == other.offset
     }
 }

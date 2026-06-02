@@ -155,22 +155,22 @@ impl Debug for ArrayRef {
 }
 
 impl ArrayHash for ArrayRef {
-    fn array_hash<H: Hasher>(&self, state: &mut H, precision: crate::Precision) {
+    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: crate::Accuracy) {
         self.0.len.hash(state);
         self.0.dtype.hash(state);
         self.0.encoding_id.hash(state);
         self.0.slots.len().hash(state);
         for slot in &self.0.slots {
-            slot.array_hash(state, precision);
+            slot.array_hash(state, accuracy);
         }
         self.0
             .data
-            .dyn_array_hash(state as &mut dyn Hasher, precision);
+            .dyn_array_hash(state as &mut dyn Hasher, accuracy);
     }
 }
 
 impl ArrayEq for ArrayRef {
-    fn array_eq(&self, other: &Self, precision: crate::Precision) -> bool {
+    fn array_eq(&self, other: &Self, accuracy: crate::Accuracy) -> bool {
         self.0.len == other.0.len
             && self.0.dtype == other.0.dtype
             && self.0.encoding_id == other.0.encoding_id
@@ -180,8 +180,8 @@ impl ArrayEq for ArrayRef {
                 .slots
                 .iter()
                 .zip(other.0.slots.iter())
-                .all(|(slot, other_slot)| slot.array_eq(other_slot, precision))
-            && self.0.data.dyn_array_eq(other, precision)
+                .all(|(slot, other_slot)| slot.array_eq(other_slot, accuracy))
+            && self.0.data.dyn_array_eq(other, accuracy)
     }
 }
 impl ArrayRef {

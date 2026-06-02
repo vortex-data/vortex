@@ -7,6 +7,7 @@ use std::fmt::Formatter;
 use std::hash::Hasher;
 
 use prost::Message as _;
+use vortex_array::Accuracy;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -18,7 +19,6 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::Precision;
 use vortex_array::array_slots;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
@@ -196,19 +196,19 @@ impl Debug for OnPairData {
 }
 
 impl ArrayHash for OnPairData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
-        self.dict_bytes.as_host().array_hash(state, precision);
+    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: Accuracy) {
+        self.dict_bytes.as_host().array_hash(state, accuracy);
         state.write_u32(self.bits);
     }
 }
 
 impl ArrayEq for OnPairData {
-    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+    fn array_eq(&self, other: &Self, accuracy: Accuracy) -> bool {
         self.bits == other.bits
             && self
                 .dict_bytes
                 .as_host()
-                .array_eq(other.dict_bytes.as_host(), precision)
+                .array_eq(other.dict_bytes.as_host(), accuracy)
     }
 }
 

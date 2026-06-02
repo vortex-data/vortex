@@ -9,6 +9,7 @@ use std::hash::Hasher;
 
 use kernel::PARENT_KERNELS;
 use prost::Message as _;
+use vortex_array::Accuracy;
 use vortex_array::AnyCanonical;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
@@ -22,7 +23,6 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::Precision;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Primitive;
@@ -165,7 +165,7 @@ pub struct SparseMetadata {
 }
 
 impl ArrayHash for SparseData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _accuracy: Accuracy) {
         self.array_len.hash(state);
         self.patches_data.hash(state);
         self.fill_value.hash(state);
@@ -173,7 +173,7 @@ impl ArrayHash for SparseData {
 }
 
 impl ArrayEq for SparseData {
-    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+    fn array_eq(&self, other: &Self, _accuracy: Accuracy) -> bool {
         self.array_len == other.array_len
             && self.patches_data == other.patches_data
             && self.fill_value == other.fill_value

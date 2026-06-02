@@ -9,6 +9,7 @@ use std::hash::Hasher;
 
 use itertools::Itertools;
 use prost::Message;
+use vortex_array::Accuracy;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -22,7 +23,6 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
-use vortex_array::Precision;
 use vortex_array::TypedArrayRef;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Primitive;
@@ -75,17 +75,17 @@ pub struct ALPRDMetadata {
 }
 
 impl ArrayHash for ALPRDData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
-        self.left_parts_dictionary.array_hash(state, precision);
+    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: Accuracy) {
+        self.left_parts_dictionary.array_hash(state, accuracy);
         self.right_bit_width.hash(state);
         self.patches_data.hash(state);
     }
 }
 
 impl ArrayEq for ALPRDData {
-    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+    fn array_eq(&self, other: &Self, accuracy: Accuracy) -> bool {
         self.left_parts_dictionary
-            .array_eq(&other.left_parts_dictionary, precision)
+            .array_eq(&other.left_parts_dictionary, accuracy)
             && self.right_bit_width == other.right_bit_width
             && self.patches_data == other.patches_data
     }

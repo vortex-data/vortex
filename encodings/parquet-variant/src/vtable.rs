@@ -304,13 +304,13 @@ mod tests {
     use parquet_variant_compute::VariantArray as ArrowVariantArray;
     use rstest::fixture;
     use rstest::rstest;
+    use vortex_array::Accuracy;
     use vortex_array::ArrayContext;
     use vortex_array::ArrayEq;
     use vortex_array::ArrayRef;
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
-    use vortex_array::Precision;
     use vortex_array::VTable;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
@@ -525,7 +525,7 @@ mod tests {
         let array = outer_pv.into_array();
         let decoded = roundtrip(array.clone())?;
 
-        assert!(array.array_eq(&decoded, Precision::Value));
+        assert!(array.array_eq(&decoded, Accuracy::Value));
         let decoded_pv = decoded
             .as_opt::<ParquetVariant>()
             .ok_or_else(|| vortex_err!("expected parquet variant array"))?;
@@ -547,7 +547,7 @@ mod tests {
         let array = pv.into_array();
         let decoded = roundtrip(array.clone())?;
 
-        assert!(array.array_eq(&decoded, Precision::Value));
+        assert!(array.array_eq(&decoded, Accuracy::Value));
         assert_eq!(decoded.dtype(), &DType::Variant(Nullability::Nullable));
         let decoded_pv = decoded
             .as_opt::<ParquetVariant>()
@@ -572,7 +572,7 @@ mod tests {
         let array = outer_pv.into_array();
         let decoded = roundtrip(array.clone())?;
 
-        assert!(array.array_eq(&decoded, Precision::Value));
+        assert!(array.array_eq(&decoded, Accuracy::Value));
         let decoded_pv = decoded
             .as_opt::<ParquetVariant>()
             .ok_or_else(|| vortex_err!("expected parquet variant array"))?;

@@ -12,6 +12,7 @@ use fsst::Compressor;
 use fsst::Decompressor;
 use fsst::Symbol;
 use prost::Message as _;
+use vortex_array::Accuracy;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -25,7 +26,6 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
-use vortex_array::Precision;
 use vortex_array::TypedArrayRef;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::VarBin;
@@ -80,7 +80,7 @@ impl FSSTMetadata {
 }
 
 impl ArrayHash for FSSTData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Accuracy) {
         self.symbol_table.symbols.array_hash(state, precision);
         self.symbol_table
             .symbol_lengths
@@ -90,7 +90,7 @@ impl ArrayHash for FSSTData {
 }
 
 impl ArrayEq for FSSTData {
-    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+    fn array_eq(&self, other: &Self, precision: Accuracy) -> bool {
         self.symbol_table
             .symbols
             .array_eq(&other.symbol_table.symbols, precision)

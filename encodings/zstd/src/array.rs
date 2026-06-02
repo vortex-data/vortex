@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use itertools::Itertools as _;
 use prost::Message as _;
+use vortex_array::Accuracy;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -21,7 +22,6 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::Precision;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -84,18 +84,18 @@ type ViewLen = u32;
 pub type ZstdArray = Array<Zstd>;
 
 impl ArrayHash for ZstdData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: Accuracy) {
         match &self.dictionary {
             Some(dict) => {
                 true.hash(state);
-                dict.array_hash(state, precision);
+                dict.array_hash(state, accuracy);
             }
             None => {
                 false.hash(state);
             }
         }
         for frame in &self.frames {
-            frame.array_hash(state, precision);
+            frame.array_hash(state, accuracy);
         }
         self.unsliced_n_rows.hash(state);
         self.slice_start.hash(state);
@@ -104,9 +104,9 @@ impl ArrayHash for ZstdData {
 }
 
 impl ArrayEq for ZstdData {
-    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+    fn array_eq(&self, other: &Self, accuracy: Accuracy) -> bool {
         if !match (&self.dictionary, &other.dictionary) {
-            (Some(d1), Some(d2)) => d1.array_eq(d2, precision),
+            (Some(d1), Some(d2)) => d1.array_eq(d2, accuracy),
             (None, None) => true,
             _ => false,
         } {
@@ -116,7 +116,7 @@ impl ArrayEq for ZstdData {
             return false;
         }
         for (a, b) in self.frames.iter().zip(&other.frames) {
-            if !a.array_eq(b, precision) {
+            if !a.array_eq(b, accuracy) {
                 return false;
             }
         }

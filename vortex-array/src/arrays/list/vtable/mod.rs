@@ -13,13 +13,13 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::Accuracy;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
-use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayParts;
@@ -54,11 +54,11 @@ pub struct ListMetadata {
 }
 
 impl ArrayHash for ListData {
-    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _accuracy: Accuracy) {}
 }
 
 impl ArrayEq for ListData {
-    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+    fn array_eq(&self, _other: &Self, _accuracy: Accuracy) -> bool {
         true
     }
 }

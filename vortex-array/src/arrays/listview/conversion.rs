@@ -291,11 +291,11 @@ mod tests {
     use super::super::tests::common::create_nullable_listview;
     use super::super::tests::common::create_overlapping_listview;
     use super::recursive_list_from_list_view;
+    use crate::Accuracy;
     use crate::ArrayEq;
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
-    use crate::Precision;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::FixedSizeListArray;
@@ -395,7 +395,7 @@ mod tests {
             nullable_list_view
                 .validity()
                 .vortex_expect("listview validity should be derivable")
-                .array_eq(&validity, Precision::Ptr)
+                .array_eq(&validity, Accuracy::Ptr)
         );
         assert_eq!(nullable_list_view.len(), 3);
 
