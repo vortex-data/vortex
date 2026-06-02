@@ -48,6 +48,7 @@ use vortex::extension::datetime::TimeUnit;
 use vortex::extension::datetime::Timestamp;
 use vortex::extension::uuid::Uuid;
 use vortex::extension::uuid::UuidMetadata;
+use vortex::layout::layouts::row_idx::row_idx;
 use vortex::scalar::DecimalValue;
 use vortex::scalar::Scalar;
 use vortex::scalar::ScalarValue;
@@ -114,6 +115,14 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_root(
     _class: JClass,
 ) -> jlong {
     into_raw(root())
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_rowIdx(
+    _env: EnvUnowned,
+    _class: JClass,
+) -> jlong {
+    into_raw(row_idx())
 }
 
 #[unsafe(no_mangle)]
