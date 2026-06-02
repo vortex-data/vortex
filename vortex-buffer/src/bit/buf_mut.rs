@@ -478,7 +478,14 @@ impl BitBufferMut {
     ///
     /// This efficiently copies all bits from the source buffer to the end of this buffer.
     pub fn append_buffer(&mut self, buffer: &BitBuffer) {
-        let bit_len = buffer.len();
+        self.append_view(buffer.as_view());
+    }
+
+    /// Append a [`BitBufferView`] to this [`BitBufferMut`].
+    ///
+    /// This efficiently copies all bits from the source view to the end of this buffer.
+    pub fn append_view(&mut self, view: crate::BitBufferView<'_>) {
+        let bit_len = view.len();
         if bit_len == 0 {
             return;
         }
@@ -497,13 +504,10 @@ impl BitBufferMut {
             .buffer
             .as_mut_slice()
             .view_bits_mut::<bitvec::prelude::Lsb0>();
-        let other_slice = buffer
-            .inner()
-            .as_slice()
-            .view_bits::<bitvec::prelude::Lsb0>();
+        let other_slice = view.inner().view_bits::<bitvec::prelude::Lsb0>();
 
         // Copy from source buffer (accounting for its offset) to destination (accounting for our offset + len)
-        let source_range = buffer.offset()..buffer.offset() + bit_len;
+        let source_range = view.offset()..view.offset() + bit_len;
         self_slice[start_bit_pos..end_bit_pos].copy_from_bitslice(&other_slice[source_range]);
 
         self.len += bit_len;

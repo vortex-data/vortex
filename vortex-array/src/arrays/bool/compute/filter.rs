@@ -3,6 +3,7 @@
 
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
+use vortex_buffer::BitBufferView;
 use vortex_buffer::get_bit;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -29,23 +30,23 @@ impl FilterReduce for Bool {
             .values()
             .vortex_expect("AllTrue and AllFalse are handled by filter fn");
 
-        let src = array.to_bit_buffer();
+        let src = array.bit_buffer_view();
         let density = mask_values.density();
         let buffer = if density < SPARSE_DENSITY_THRESHOLD {
-            filter_sparse(&src, mask_values, mask.true_count())
+            filter_sparse(src, mask_values, mask.true_count())
         } else {
-            filter_bitbuffer_by_mask(&src, mask_values.bit_buffer(), mask.true_count())
+            filter_bitbuffer_by_mask(src, mask_values.bit_buffer().as_view(), mask.true_count())
         };
 
         Ok(Some(BoolArray::new(buffer, validity).into_array()))
     }
 }
 
-fn filter_sparse(src: &BitBuffer, mask_values: &MaskValues, true_count: usize) -> BitBuffer {
+fn filter_sparse(src: BitBufferView<'_>, mask_values: &MaskValues, true_count: usize) -> BitBuffer {
     if let Some(slices) = mask_values.cached_slices() {
         filter_slices(src, true_count, slices.iter().copied())
     } else if let Some(indices) = mask_values.cached_indices() {
-        let buffer = src.inner().as_ref();
+        let buffer = src.inner();
         let offset = src.offset();
         BitBuffer::collect_bool(indices.len(), |idx| {
             // SAFETY: `collect_bool` calls the closure exactly `indices.len()` times.
@@ -53,24 +54,28 @@ fn filter_sparse(src: &BitBuffer, mask_values: &MaskValues, true_count: usize) -
             get_bit(buffer, offset + idx)
         })
     } else {
-        filter_set_bits(src, mask_values.bit_buffer(), true_count)
+        filter_set_bits(src, mask_values.bit_buffer().as_view(), true_count)
     }
 }
 
 fn filter_slices(
-    src: &BitBuffer,
+    src: BitBufferView<'_>,
     output_len: usize,
     slices: impl Iterator<Item = (usize, usize)>,
 ) -> BitBuffer {
     let mut builder = BitBufferMut::with_capacity(output_len);
     for (start, end) in slices {
-        builder.append_buffer(&src.slice(start..end));
+        builder.append_view(src.slice(start..end));
     }
     builder.freeze()
 }
 
-fn filter_set_bits(src: &BitBuffer, mask_buf: &BitBuffer, true_count: usize) -> BitBuffer {
-    let buffer = src.inner().as_ref();
+fn filter_set_bits(
+    src: BitBufferView<'_>,
+    mask_buf: BitBufferView<'_>,
+    true_count: usize,
+) -> BitBuffer {
+    let buffer = src.inner();
     let offset = src.offset();
     let mut indices = mask_buf.set_indices();
     BitBuffer::collect_bool(true_count, |_| {
@@ -86,8 +91,8 @@ fn filter_set_bits(src: &BitBuffer, mask_buf: &BitBuffer, true_count: usize) -> 
 /// each 64-bit word, with a u128 accumulator to simplify overflow handling.
 /// Fast paths skip PEXT entirely for all-ones and all-zeros mask words.
 pub fn filter_bitbuffer_by_mask(
-    src: &BitBuffer,
-    mask_buf: &BitBuffer,
+    src: BitBufferView<'_>,
+    mask_buf: BitBufferView<'_>,
     true_count: usize,
 ) -> BitBuffer {
     #[cfg(target_arch = "x86_64")]
@@ -107,14 +112,22 @@ pub fn filter_bitbuffer_by_mask(
 /// the hot loop.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "bmi2,popcnt")]
-unsafe fn filter_pext_bmi2(src: &BitBuffer, mask_buf: &BitBuffer, true_count: usize) -> BitBuffer {
+unsafe fn filter_pext_bmi2(
+    src: BitBufferView<'_>,
+    mask_buf: BitBufferView<'_>,
+    true_count: usize,
+) -> BitBuffer {
     use std::arch::x86_64::_pext_u64;
 
     filter_inner(src, mask_buf, true_count, |src, mask| _pext_u64(src, mask))
 }
 
 /// Software fallback filter using byte-LUT PEXT.
-fn filter_pext_fallback(src: &BitBuffer, mask_buf: &BitBuffer, true_count: usize) -> BitBuffer {
+fn filter_pext_fallback(
+    src: BitBufferView<'_>,
+    mask_buf: BitBufferView<'_>,
+    true_count: usize,
+) -> BitBuffer {
     filter_inner(src, mask_buf, true_count, pext_fallback)
 }
 
@@ -126,8 +139,8 @@ fn filter_pext_fallback(src: &BitBuffer, mask_buf: &BitBuffer, true_count: usize
 #[inline(always)]
 #[allow(clippy::cast_possible_truncation)]
 fn filter_inner(
-    src: &BitBuffer,
-    mask_buf: &BitBuffer,
+    src: BitBufferView<'_>,
+    mask_buf: BitBufferView<'_>,
     true_count: usize,
     pext_fn: impl Fn(u64, u64) -> u64,
 ) -> BitBuffer {
@@ -347,8 +360,8 @@ mod tests {
     fn filter_bool_by_buffer() {
         let arr = BoolArray::from_iter([true, true, false]);
 
-        let filtered =
-            filter_bitbuffer_by_mask(&arr.to_bit_buffer(), &BitBuffer::from_indices(3, [0, 2]), 2);
+        let mask_buf = BitBuffer::from_indices(3, [0, 2]);
+        let filtered = filter_bitbuffer_by_mask(arr.bit_buffer_view(), mask_buf.as_view(), 2);
         assert_eq!(vec![true, false], filtered.iter().collect_vec())
     }
 
