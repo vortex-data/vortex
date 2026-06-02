@@ -136,13 +136,40 @@ public final class DataSource {
         long filterPtr = options.filter().map(Expression::nativePointer).orElse(0L);
         long begin = options.rowRangeBegin().orElse(0L);
         long end = options.rowRangeEnd().orElse(0L);
-        long[] selectionIndices = options.selectionIndices().orElse(null);
-        byte selectionMode = options.selectionMode().code();
+        ScanOptions.SelectionMode selectionMode = options.selectionMode();
+        long[] selectionIndices = selectionIndices(options);
+        byte[] selectionRoaringBitmap = selectionRoaringBitmap(options);
         long limit = options.limit().orElse(0L);
         boolean ordered = options.ordered();
 
         long scanPtr = dev.vortex.jni.NativeScan.create(
-                pointer, projectionPtr, filterPtr, begin, end, selectionIndices, selectionMode, limit, ordered);
+                pointer,
+                projectionPtr,
+                filterPtr,
+                begin,
+                end,
+                selectionIndices,
+                selectionRoaringBitmap,
+                selectionMode.code(),
+                limit,
+                ordered);
         return Scan.fromPointer(session, scanPtr);
+    }
+
+    private static long[] selectionIndices(ScanOptions options) {
+        return switch (options.selectionMode()) {
+            case INCLUDE, EXCLUDE -> options.selectionIndices().orElse(null);
+            default -> null;
+        };
+    }
+
+    private static byte[] selectionRoaringBitmap(ScanOptions options) {
+        return switch (options.selectionMode()) {
+            case INCLUDE_ROARING, EXCLUDE_ROARING ->
+                options.selectionRoaringBitmap()
+                        .orElseThrow(() -> new IllegalArgumentException(
+                                "selection roaring bitmap is required for roaring selection modes"));
+            default -> null;
+        };
     }
 }
