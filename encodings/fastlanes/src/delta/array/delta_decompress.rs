@@ -226,14 +226,69 @@ where
     output.freeze()
 }
 
-/// Fused delta decompression: unpack each bit-packed chunk into a cache-resident scratch buffer
-/// and feed it straight into `undelta` + `untranspose`, without a full-length intermediate for the
-/// unpacked deltas.
+/// Per-type bridge to the FastLanes const-generic `undelta_pack` kernel.
 ///
-/// `packed` holds `num_chunks` chunks of `1024 * bit_width / T::T` packed values each. `patches`
-/// holds `(index, value)` exception pairs sorted by ascending index, applied to the unpacked deltas
-/// before the cumulative sum.
-pub(crate) fn fused_decompress_primitive<T, const LANES: usize>(
+/// `undelta_pack` fuses bit-unpacking and the cumulative sum into a single pass over a chunk, but it
+/// is generic over the bit width `W` as a const. `match_each_unsigned_integer_ptype!` only hands us
+/// a type *alias*, while the `seq_t!` runtime-width dispatch needs a literal type token, so the
+/// dispatch is implemented once per concrete type via a macro and exposed through this trait.
+trait FusedUndelta: NativePType + Delta + Transpose + BitPacking {
+    /// Unpack one bit-packed chunk and apply `undelta` in a single fused pass.
+    ///
+    /// # Safety
+    /// `packed_chunk` must be exactly `1024 * bit_width / Self::T` elements, `base` exactly
+    /// `1024 / Self::T` elements, and `bit_width` in `0..Self::T`.
+    unsafe fn undelta_chunk(
+        bit_width: usize,
+        packed_chunk: &[Self],
+        base: &[Self],
+        out: &mut [Self; 1024],
+    );
+}
+
+macro_rules! impl_fused_undelta {
+    ($T:tt) => {
+        impl FusedUndelta for $T {
+            #[inline]
+            unsafe fn undelta_chunk(
+                bit_width: usize,
+                packed_chunk: &[Self],
+                base: &[Self],
+                out: &mut [Self; 1024],
+            ) {
+                const LANES: usize = 1024 / (8 * size_of::<$T>());
+                // SAFETY: caller guarantees `base` is exactly `LANES` elements.
+                let base: &[$T; LANES] = unsafe { &*(base.as_ptr().cast()) };
+                fastlanes::seq_t!(W in $T {
+                    match bit_width {
+                        #(W => {
+                            const B: usize = 1024 * W / <$T as fastlanes::FastLanes>::T;
+                            // SAFETY: caller guarantees `packed_chunk` is exactly `B` elements.
+                            let input: &[$T; B] = unsafe { &*(packed_chunk.as_ptr().cast()) };
+                            <$T as fastlanes::Delta>::undelta_pack::<LANES, W, B>(input, base, out);
+                        })*
+                        _ => unreachable!("bit width {bit_width} out of range for {}", stringify!($T)),
+                    }
+                });
+            }
+        }
+    };
+}
+
+impl_fused_undelta!(u8);
+impl_fused_undelta!(u16);
+impl_fused_undelta!(u32);
+impl_fused_undelta!(u64);
+
+/// Fused delta decompression: decode each bit-packed chunk straight into `undelta` + `untranspose`,
+/// without a full-length intermediate for the unpacked deltas.
+///
+/// `packed` holds `num_chunks` chunks of `1024 * bit_width / T::T` packed values each. When there are
+/// no exceptions, each chunk uses the fully-fused FastLanes `undelta_pack` kernel (unpack + cumulative
+/// sum in one pass). When `patches` is non-empty the chunk is unpacked into a scratch buffer so the
+/// exceptions can be applied to the unpacked deltas before the cumulative sum; `patches` must be
+/// sorted by ascending index.
+fn fused_decompress_primitive<T, const LANES: usize>(
     bases: &[T],
     packed: &[T],
     bit_width: usize,
@@ -241,7 +296,7 @@ pub(crate) fn fused_decompress_primitive<T, const LANES: usize>(
     patches: &[(usize, T)],
 ) -> Buffer<T>
 where
-    T: NativePType + Delta + Transpose + BitPacking,
+    T: FusedUndelta,
 {
     let elems_per_chunk = FL_CHUNK_SIZE * bit_width / (8 * size_of::<T>());
     debug_assert_eq!(packed.len(), num_chunks * elems_per_chunk);
@@ -250,32 +305,46 @@ where
     let mut output = BufferMut::with_capacity(num_chunks * FL_CHUNK_SIZE);
     let (output_chunks, _) = output.spare_capacity_mut().as_chunks_mut::<1024>();
 
+    // The fully-fused kernel can only be used when no exception has to be spliced in between
+    // unpacking and the cumulative sum.
+    let fused = patches.is_empty();
+
     let mut patch_cursor = 0;
     let mut unpacked: [T; 1024] = [T::default(); 1024];
     let mut transposed: [T; 1024] = [T::default(); 1024];
     for (i, output_chunk) in (0..num_chunks).zip(output_chunks.iter_mut()) {
         let packed_chunk = &packed[i * elems_per_chunk..(i + 1) * elems_per_chunk];
+        let base = &bases[i * LANES..(i + 1) * LANES];
 
-        // SAFETY: `packed_chunk` is exactly `elems_per_chunk = 1024 * bit_width / T::T` elements
-        // and `unpacked` is exactly 1024 elements, as required by `unchecked_unpack`.
-        unsafe {
-            BitPacking::unchecked_unpack(bit_width, packed_chunk, &mut unpacked);
+        if fused {
+            // SAFETY: `packed_chunk` is exactly `elems_per_chunk` elements, `base` is `LANES`
+            // elements, and `bit_width < T::T` is guaranteed by the bit-packed encoding.
+            unsafe {
+                T::undelta_chunk(bit_width, packed_chunk, base, &mut transposed);
+            }
+        } else {
+            // SAFETY: `packed_chunk` is exactly `elems_per_chunk` elements and `unpacked` is 1024
+            // elements, as required by `unchecked_unpack`.
+            unsafe {
+                BitPacking::unchecked_unpack(bit_width, packed_chunk, &mut unpacked);
+            }
+
+            // Apply any exceptions falling in this chunk before the cumulative sum.
+            let chunk_end = (i + 1) * FL_CHUNK_SIZE;
+            while let Some(&(index, value)) = patches.get(patch_cursor)
+                && index < chunk_end
+            {
+                unpacked[index - i * FL_CHUNK_SIZE] = value;
+                patch_cursor += 1;
+            }
+
+            Delta::undelta::<LANES>(
+                &unpacked,
+                // SAFETY: `base` is exactly `LANES` elements.
+                unsafe { &*(base.as_ptr().cast()) },
+                &mut transposed,
+            );
         }
-
-        // Apply any exceptions falling in this chunk before the cumulative sum.
-        let chunk_end = (i + 1) * FL_CHUNK_SIZE;
-        while let Some(&(index, value)) = patches.get(patch_cursor)
-            && index < chunk_end
-        {
-            unpacked[index - i * FL_CHUNK_SIZE] = value;
-            patch_cursor += 1;
-        }
-
-        Delta::undelta::<LANES>(
-            &unpacked,
-            unsafe { &*(bases[i * LANES..(i + 1) * LANES].as_ptr().cast()) },
-            &mut transposed,
-        );
 
         Transpose::untranspose(&transposed, unsafe {
             mem::transmute::<&mut [MaybeUninit<T>; 1024], &mut [T; 1024]>(output_chunk)

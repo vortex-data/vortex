@@ -23,6 +23,7 @@ lending-iterator = { workspace = true }
 num-traits = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true, optional = true }
+seq-macro = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }

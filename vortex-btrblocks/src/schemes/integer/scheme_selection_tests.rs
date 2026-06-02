@@ -33,6 +33,45 @@ use crate::BtrBlocksCompressor;
 static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
+/// A generally-increasing (but not strictly increasing) integer column compresses to a tree where
+/// the RLE run indices are delta-encoded with *bit-packed* deltas — the shape decoded by the fused
+/// `delta_decompress` path. Each integer level repeats a slightly varying number of times, so the
+/// per-lane index deltas are small but not constant (which would instead select a constant child).
+#[cfg(feature = "unstable_encodings")]
+#[test]
+fn test_delta_bitpacked_indices_chosen() -> VortexResult<()> {
+    use rand::RngExt;
+
+    let mut rng = StdRng::seed_from_u64(7);
+    let mut values: Vec<i64> = Vec::new();
+    let mut level = 0i64;
+    while values.len() < 16384 {
+        let run_len = rng.random_range(6usize..12);
+        values.extend(iter::repeat_n(level, run_len));
+        level += 1;
+    }
+    values.truncate(16384);
+
+    let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable).into_array();
+    let compressed =
+        BtrBlocksCompressor::default().compress(&array, &mut SESSION.create_execution_ctx())?;
+
+    let tree = format!("{}", compressed.display_tree());
+    assert!(
+        tree.contains("fastlanes.delta"),
+        "expected delta-encoded indices, got tree:\n{tree}"
+    );
+    assert!(
+        tree.contains("deltas: fastlanes.bitpacked"),
+        "expected bit-packed deltas (the fused decode path), got tree:\n{tree}"
+    );
+
+    // And it must round-trip.
+    let decoded = compressed.execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
+    assert_eq!(decoded.as_slice::<i64>(), values.as_slice());
+    Ok(())
+}
+
 #[test]
 fn test_constant_compressed() -> VortexResult<()> {
     let values: Vec<i32> = iter::repeat_n(42, 100).collect();
