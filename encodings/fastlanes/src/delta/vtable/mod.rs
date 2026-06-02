@@ -40,6 +40,7 @@ use crate::delta::array::delta_decompress::delta_decompress;
 use crate::delta::array::lane_count;
 use crate::delta_compress;
 
+mod kernels;
 mod operations;
 mod rules;
 mod slice;
@@ -114,6 +115,15 @@ impl VTable for Delta {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         rules::RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn execute_parent(
+        array: ArrayView<'_, Self>,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        kernels::PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
