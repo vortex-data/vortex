@@ -145,7 +145,14 @@ fn export_canonical(
                     export_arrow_validity_buffer(validity, len, offset, ctx).await?;
 
                 let bits = ctx.ensure_on_device(bits).await?;
-                export_fixed_size(bits, meta.len(), meta.offset(), validity_buffer, null_count, ctx)
+                export_fixed_size(
+                    bits,
+                    meta.len(),
+                    meta.offset(),
+                    validity_buffer,
+                    null_count,
+                    ctx,
+                )
             }
             Canonical::VarBinView(varbinview) => {
                 let len = varbinview.len();
