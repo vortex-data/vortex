@@ -15,11 +15,13 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
+use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VariantArray;
 use crate::arrays::chunked::ChunkedArrayExt;
+use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewRebuildMode;
 use crate::arrays::variant::VariantArrayExt;
@@ -58,6 +60,15 @@ pub(super) fn _canonicalize(
             elem_dtype,
             ctx,
         )?),
+        DType::FixedSizeList(elem_dtype, list_size, _) => {
+            Canonical::FixedSizeList(swizzle_fixed_size_list_chunks(
+                &owned_chunks,
+                array.array().validity()?,
+                elem_dtype,
+                *list_size,
+                ctx,
+            )?)
+        }
         DType::Variant(_) => Canonical::Variant(pack_variant_chunks(owned_chunks, ctx)?),
         _ => {
             let mut builder = builder_with_capacity_in(ctx.allocator(), array.dtype(), array.len());
@@ -240,6 +251,37 @@ fn swizzle_list_chunks(
     })
 }
 
+/// Packs [`FixedSizeListArray`]s together into a single [`FixedSizeListArray`] whose `elements`
+/// child is a [`ChunkedArray`].
+///
+/// Every chunk shares the same `list_size`, and each chunk's `elements` child is exactly
+/// `list_size * chunk.len()` long and starts at the first list, so we can reuse the chunks'
+/// `elements` children directly as the chunks of a combined `elements` array without copying.
+///
+/// The caller guarantees there are at least 2 chunks.
+fn swizzle_fixed_size_list_chunks(
+    chunks: &[ArrayRef],
+    validity: Validity,
+    elem_dtype: &DType,
+    list_size: u32,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<FixedSizeListArray> {
+    let len: usize = chunks.iter().map(|c| c.len()).sum();
+
+    let mut element_chunks = Vec::with_capacity(chunks.len());
+    for chunk in chunks {
+        let chunk_array = chunk.clone().execute::<FixedSizeListArray>(ctx)?;
+        // A canonical `FixedSizeListArray` keeps its `elements` child trimmed to exactly
+        // `list_size * chunk.len()` starting at the first list, so the children concatenate
+        // cleanly into the combined `elements` array.
+        element_chunks.push(chunk_array.elements().clone());
+    }
+
+    let chunked_elements = ChunkedArray::try_new(element_chunks, elem_dtype.clone())?.into_array();
+
+    FixedSizeListArray::try_new(chunked_elements, list_size, validity, len)
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -263,6 +305,7 @@ mod tests {
     use crate::accessor::ArrayAccessor;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
+    use crate::arrays::FixedSizeListArray;
     use crate::arrays::ListArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
@@ -549,6 +592,49 @@ mod tests {
                 .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
+    }
+
+    #[test]
+    fn pack_fixed_size_lists() -> VortexResult<()> {
+        let f1 = FixedSizeListArray::try_new(
+            buffer![1, 2, 3, 4, 5, 6].into_array(),
+            2,
+            Validity::NonNullable,
+            3,
+        )?;
+        let f2 = FixedSizeListArray::try_new(
+            buffer![7, 8, 9, 10].into_array(),
+            2,
+            Validity::NonNullable,
+            2,
+        )?;
+        let dtype = f1.dtype().clone();
+
+        let chunked =
+            ChunkedArray::try_new(vec![f1.into_array(), f2.into_array()], dtype)?.into_array();
+
+        let canonical = chunked
+            .clone()
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?;
+        let fsl = match canonical {
+            Canonical::FixedSizeList(fsl) => fsl,
+            other => vortex_bail!("expected FixedSizeList canonical array, got {other:?}"),
+        };
+
+        assert_eq!(fsl.len(), 5);
+        let expected = FixedSizeListArray::try_new(
+            buffer![1, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array(),
+            2,
+            Validity::NonNullable,
+            5,
+        )?;
+        for idx in 0..5 {
+            assert_eq!(
+                chunked.execute_scalar(idx, &mut LEGACY_SESSION.create_execution_ctx())?,
+                expected.execute_scalar(idx, &mut LEGACY_SESSION.create_execution_ctx())?,
+            );
+        }
+        Ok(())
     }
 
     #[test]

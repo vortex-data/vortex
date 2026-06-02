@@ -69,7 +69,7 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install nextest
-        uses: taiki-e/install-action@7be9fd86bd1707236395105d6e9329dd1511a7e1  # v2
+        uses: taiki-e/install-action@e49978b799e49ff429d162b7a30601a569ab6538  # v2
         with:
           tool: nextest
       - name: Rust Tests
@@ -150,5 +150,6 @@ jobs:
       - name: Download and run cudf-test-harness
         run: |
           curl -fsSL https://github.com/vortex-data/cudf-test-harness/releases/latest/download/cudf-test-harness-x86_64.tar.gz | tar -xz
-          cd cudf-test-harness-x86_64
-          compute-sanitizer --tool memcheck --error-exitcode 1 ./cudf-test-harness check $GITHUB_WORKSPACE/target/x86_64-unknown-linux-gnu/ci/libvortex_test_e2e_cuda.so
+          $GITHUB_WORKSPACE/target/x86_64-unknown-linux-gnu/ci/cudf_harness_runner \
+            ./cudf-test-harness-x86_64/cudf-test-harness \
+            $GITHUB_WORKSPACE/target/x86_64-unknown-linux-gnu/ci/libvortex_test_e2e_cuda.so

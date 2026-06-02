@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod between;
 mod cast;
+mod compare;
 mod filter;
 pub(crate) mod is_constant;
 mod slice;
+mod stream_predicate;
 mod take;
 
 // TODO(connor): This is duplicated in `encodings/fastlanes/src/bitpacking/kernels/mod.rs`.

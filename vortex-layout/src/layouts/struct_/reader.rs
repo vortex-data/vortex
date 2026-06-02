@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -43,6 +42,7 @@ use crate::ArrayFuture;
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
+use crate::RowSplits;
 use crate::SplitRange;
 use crate::layouts::partitioned::PartitionedExprEval;
 use crate::layouts::struct_::StructLayout;
@@ -240,10 +240,10 @@ impl LayoutReader for StructReader {
         &self,
         field_mask: &[FieldMask],
         split_range: &SplitRange,
-        splits: &mut BTreeSet<u64>,
+        splits: &mut RowSplits,
     ) -> VortexResult<()> {
         // In the case of an empty struct, we need to register the end split.
-        splits.insert(split_range.root_row_range().end);
+        splits.push(split_range.root_row_range().end);
 
         // Register splits for the validity child, if there is one
         if let Some(validity_ref) = self.validity()? {

@@ -33,9 +33,9 @@ fn make_array() -> PrimitiveArray {
 #[divan::bench]
 fn encode_generic(bencher: Bencher) {
     let array = make_array().into_array();
-    bencher
-        .with_inputs(|| &array)
-        .bench_refs(|array| dict_encode(array).unwrap());
+    bencher.with_inputs(|| &array).bench_refs(|array| {
+        dict_encode(array, &mut LEGACY_SESSION.create_execution_ctx()).unwrap()
+    });
 }
 
 #[cfg(not(codspeed))]

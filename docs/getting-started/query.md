@@ -32,6 +32,10 @@ LIMIT 10
 
 Use `[` and `]` to paginate results, `s` to sort by the selected column.
 
+For a browser-based view of a single Vortex file, use
+[Vortex Explorer](https://explore.vortex.dev/). It lets you visually inspect the file contents,
+including raw bytes in a hex dump-like view.
+
 ## Inspect
 
 View the file structure without the full TUI:

@@ -19,10 +19,6 @@ pub(super) fn accumulate_bool(
     array: &BoolArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    if array.is_empty() {
-        return Ok(());
-    }
-
     let mask = array
         .as_ref()
         .validity()?

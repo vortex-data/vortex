@@ -14,6 +14,7 @@ use crate::ExecutionCtx;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::listview::DEFAULT_REBUILD_DENSITY_THRESHOLD;
+use crate::arrays::listview::DEFAULT_TRIM_ELEMENTS_THRESHOLD;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewDataParts;
 use crate::arrays::listview::ListViewRebuildMode;
@@ -31,11 +32,28 @@ pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
 ) -> VortexResult<arrow_array::ArrayRef> {
     let array = array.execute::<ListViewArray>(ctx)?;
 
-    // If the array is sufficiently sparse, rebuild before handing it to Arrow. Otherwise downstream
-    // consumers hold an elements buffer containing unreferenced data in memory indefinitely,
-    // and any compute pass over that buffer wastes work on data nothing references.
-    let density = array.upper_bound_density(ctx)?;
-    let array = if density < DEFAULT_REBUILD_DENSITY_THRESHOLD {
+    // Reclaim unreferenced elements before handing the array to Arrow. Otherwise downstream
+    // consumers hold an elements buffer containing unreferenced data in memory indefinitely, and
+    // any compute pass over that buffer wastes work on data nothing references.
+    let array = if array.is_zero_copy_to_list() {
+        // A zctl array has no overlaps and no interior gaps, so the only unreferenced
+        // elements are leading and trailing. Trimming them is much cheaper than a full rebuild.
+        // Compute the referenced bounds once and reuse them for both the decision and the trim.
+        let n_elts = array.elements().len();
+        if n_elts == 0 || array.is_empty() {
+            array
+        } else {
+            let (start, end) = array.referenced_element_bounds(ctx)?;
+            let waste = (n_elts - (end - start)) as f32 / n_elts as f32;
+            if waste > DEFAULT_TRIM_ELEMENTS_THRESHOLD {
+                // SAFETY: we calculated valid start and end bounds
+                unsafe { array.trim_elements(start, end)? }
+            } else {
+                array
+            }
+        }
+    } else if array.upper_bound_density(ctx)? < DEFAULT_REBUILD_DENSITY_THRESHOLD {
+        // Overlaps, gaps, or garbage may be present, so a full rebuild is needed to reclaim waste.
         array.rebuild(ListViewRebuildMode::MakeZeroCopyToList)?
     } else {
         array
@@ -105,6 +123,41 @@ mod tests {
     use crate::arrow::executor::list_view::ListViewArray;
     use crate::arrow::executor::list_view::PrimitiveArray;
     use crate::validity::Validity;
+
+    #[test]
+    fn trims_zero_copy_with_significant_trailing_waste() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        // Zero-copy-to-list array with 10 elements but only [0, 4) referenced -> 60% waste.
+        // The conversion should trim the elements buffer down to the referenced range.
+        let elements = PrimitiveArray::new(
+            buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+            Validity::NonNullable,
+        );
+        let offsets = PrimitiveArray::new(buffer![0i32, 2], Validity::NonNullable);
+        let sizes = PrimitiveArray::new(buffer![2i32, 2], Validity::NonNullable);
+        let list_array = unsafe {
+            ListViewArray::new_unchecked(
+                elements.into_array(),
+                offsets.into_array(),
+                sizes.into_array(),
+                Validity::NonNullable,
+            )
+            .with_zero_copy_to_list(true)
+        };
+
+        let field = Field::new("item", DataType::Int32, false);
+        let arrow_dt = DataType::ListView(field.into());
+        let arrow_array = list_array
+            .into_array()
+            .execute_arrow(Some(&arrow_dt), &mut ctx)?;
+
+        let listview = arrow_array
+            .as_any()
+            .downcast_ref::<GenericListViewArray<i32>>()
+            .unwrap();
+        assert_eq!(listview.values().len(), 4);
+        Ok(())
+    }
 
     #[test]
     fn test_to_arrow_listview_i32() -> VortexResult<()> {

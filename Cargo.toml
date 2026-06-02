@@ -54,6 +54,8 @@ members = [
     "encodings/zstd",
     "encodings/bytebool",
     "encodings/parquet-variant",
+    # Experimental encodings
+    "encodings/experimental/onpair",
     # Benchmarks
     "benchmarks/lance-bench",
     "benchmarks/compress-bench",
@@ -188,6 +190,7 @@ num_enum = { version = "0.7.3", default-features = false }
 object_store = { version = "0.13.1", default-features = false }
 once_cell = "1.21"
 oneshot = { version = "0.2.0", features = ["async"] }
+onpair = { version = "0.0.4" }
 opentelemetry = "0.32.0"
 opentelemetry-otlp = "0.32.0"
 opentelemetry_sdk = "0.32.0"
@@ -203,7 +206,6 @@ proc-macro2 = "1.0.95"
 prost = "0.14"
 prost-build = "0.14"
 prost-types = "0.14"
-public-api = { git = "https://github.com/vortex-data/cargo-public-api.git", branch = "main" }
 pyo3 = { version = "0.28.0" }
 pyo3-bytes = "0.6"
 pyo3-log = "0.13.0"
@@ -289,6 +291,7 @@ vortex-ipc = { version = "0.1.0", path = "./vortex-ipc", default-features = fals
 vortex-layout = { version = "0.1.0", path = "./vortex-layout", default-features = false }
 vortex-mask = { version = "0.1.0", path = "./vortex-mask", default-features = false }
 vortex-metrics = { version = "0.1.0", path = "./vortex-metrics", default-features = false }
+vortex-onpair = { version = "0.1.0", path = "./encodings/experimental/onpair", default-features = false }
 vortex-parquet-variant = { version = "0.1.0", path = "./encodings/parquet-variant" }
 vortex-pco = { version = "0.1.0", path = "./encodings/pco", default-features = false }
 vortex-proto = { version = "0.1.0", path = "./vortex-proto", default-features = false }
@@ -375,7 +378,8 @@ use_debug = "deny"
 
 [profile.release]
 codegen-units = 1
-# Turn LTO off, as it breaks when vortex-duckdb-ext is linked.
+# Our general performance should not be dependent on LTO since crates that use
+# Vortex may choose not to have LTO.
 lto = "off"
 
 [profile.release_debug]

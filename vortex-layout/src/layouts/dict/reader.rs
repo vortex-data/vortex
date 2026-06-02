@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::collections::BTreeSet;
 use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
@@ -32,6 +31,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 use super::DictLayout;
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
+use crate::RowSplits;
 use crate::SplitRange;
 use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSource;
@@ -168,7 +168,7 @@ impl LayoutReader for DictReader {
         &self,
         field_mask: &[FieldMask],
         split_range: &SplitRange,
-        splits: &mut BTreeSet<u64>,
+        splits: &mut RowSplits,
     ) -> VortexResult<()> {
         self.codes.register_splits(field_mask, split_range, splits)
     }

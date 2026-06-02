@@ -2,13 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #include "include/duckdb_vx/vector.h"
-#include "duckdb_vx/duckdb_diagnostics.h"
-
-DUCKDB_INCLUDES_BEGIN
 #include "duckdb/common/vector.hpp"
 #include "duckdb/common/types/value.hpp"
 #include "duckdb/common/types/vector.hpp"
-DUCKDB_INCLUDES_END
 
 #include "duckdb_vx/vector_buffer.hpp"
 

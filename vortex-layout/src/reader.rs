@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -93,6 +92,33 @@ impl SplitRange {
     }
 }
 
+/// A collection of row split points
+pub struct RowSplits(Vec<u64>);
+
+impl RowSplits {
+    /// Add row to splits
+    pub fn push(&mut self, row: u64) {
+        self.0.push(row);
+    }
+
+    /// Reserve space for "additional" elements
+    pub fn reserve(&mut self, additional: usize) {
+        self.0.reserve(additional);
+    }
+
+    /// Create a new RowSplits with preallocated "capacity"
+    pub(crate) fn new_capacity(capacity: usize) -> Self {
+        Self(Vec::with_capacity(capacity))
+    }
+
+    pub(crate) fn into_sorted_deduped(mut self) -> Vec<u64> {
+        self.0.sort_unstable();
+        self.0.dedup();
+        self.0.shrink_to_fit();
+        self.0
+    }
+}
+
 /// A [`LayoutReader`] is used to read a [`crate::Layout`] in a way that can cache state across multiple
 /// evaluation operations.
 pub trait LayoutReader: 'static + Send + Sync {
@@ -113,7 +139,7 @@ pub trait LayoutReader: 'static + Send + Sync {
         &self,
         field_mask: &[FieldMask],
         split_range: &SplitRange,
-        splits: &mut BTreeSet<u64>,
+        splits: &mut RowSplits,
     ) -> VortexResult<()>;
 
     /// Returns a mask where all false values are proven to be false in the given expression.

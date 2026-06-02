@@ -4,7 +4,9 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
+use arrow_array::RecordBatch;
 use async_trait::async_trait;
+use vortex::array::ArrayRef;
 
 use crate::Format;
 
@@ -41,6 +43,11 @@ pub trait BenchDataset: Send + Sync {
     async fn path(&self, format: Format) -> Result<PathBuf>;
 }
 
+pub enum RandomAccessorRet {
+    RecordBatch(RecordBatch),
+    ArrayRef(ArrayRef),
+}
+
 /// Trait for format-specific random access (take) operations.
 ///
 /// Implementations handle reading specific rows by index from a data source.
@@ -53,6 +60,6 @@ pub trait RandomAccessor: Send + Sync {
     /// The format this accessor handles.
     fn format(&self) -> Format;
 
-    /// Take rows at the given indices, returning the number of rows read.
-    async fn take(&self, indices: &[u64]) -> Result<usize>;
+    /// Take rows at the given indices, returning the handle.
+    async fn take(&self, indices: &[u64]) -> Result<RandomAccessorRet>;
 }
