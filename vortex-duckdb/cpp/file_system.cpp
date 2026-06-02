@@ -4,13 +4,10 @@
 #include "duckdb_vx.h"
 #include "duckdb_vx/error.hpp"
 
-#include "duckdb_vx/duckdb_diagnostics.h"
-DUCKDB_INCLUDES_BEGIN
 #include <duckdb/common/exception.hpp>
 #include <duckdb/common/file_system.hpp>
 #include <duckdb/common/helper.hpp>
 #include <duckdb/main/client_context.hpp>
-DUCKDB_INCLUDES_END
 
 #include <utility>
 

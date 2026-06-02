@@ -473,7 +473,7 @@ mod tests {
             .indices()
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)?
-            .narrow()?;
+            .narrow(&mut ctx)?;
         let re_encoded = RLEData::encode(indices_prim.as_view(), &mut ctx)?;
 
         // Reconstruct the outer RLE with re-encoded indices.

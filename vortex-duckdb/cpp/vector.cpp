@@ -2,18 +2,19 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #include "include/duckdb_vx/vector.h"
-#include "duckdb_vx/duckdb_diagnostics.h"
-
-DUCKDB_INCLUDES_BEGIN
 #include "duckdb/common/vector.hpp"
 #include "duckdb/common/types/value.hpp"
 #include "duckdb/common/types/vector.hpp"
-DUCKDB_INCLUDES_END
 
-#include "duckdb_vx.h"
 #include "duckdb_vx/vector_buffer.hpp"
 
 using namespace duckdb;
+
+extern "C" duckdb_vector duckdb_vx_vector_slice(duckdb_vector ffi_vector, idx_t offset, idx_t end) {
+    const Vector &vector = *reinterpret_cast<Vector *>(ffi_vector);
+    Vector *const sliced = new Vector(vector, offset, end);
+    return reinterpret_cast<duckdb_vector>(sliced);
+}
 
 extern "C" void duckdb_vx_vector_slice_to_dictionary(duckdb_vector ffi_vector,
                                                      duckdb_selection_vector ffi_sel_vec,

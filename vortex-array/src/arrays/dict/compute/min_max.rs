@@ -60,21 +60,27 @@ impl DynAggregateKernel for DictMinMaxKernel {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::fns::min_max::min_max;
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
     use crate::builders::dict::dict_encode;
+    use crate::session::ArraySession;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     fn assert_min_max(array: &ArrayRef, expected: Option<(i32, i32)>) -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         match (min_max(array, &mut ctx)?, expected) {
             (Some(result), Some((expected_min, expected_max))) => {
                 assert_eq!(i32::try_from(&result.min)?, expected_min);
@@ -117,7 +123,11 @@ mod tests {
     }
 
     fn dict_single() -> DictArray {
-        dict_encode(&buffer![42i32].into_array()).expect("valid single-value dictionary")
+        dict_encode(
+            &buffer![42i32].into_array(),
+            &mut SESSION.create_execution_ctx(),
+        )
+        .expect("valid single-value dictionary")
     }
 
     fn dict_nullable_codes() -> DictArray {
@@ -132,6 +142,7 @@ mod tests {
         dict_encode(
             &PrimitiveArray::from_option_iter([Some(1i32), None, Some(2), Some(1), None])
                 .into_array(),
+            &mut SESSION.create_execution_ctx(),
         )
         .expect("valid nullable-value dictionary")
     }
@@ -166,7 +177,7 @@ mod tests {
     #[test]
     fn test_sliced_dict() -> VortexResult<()> {
         let reference = PrimitiveArray::from_iter([1, 5, 10, 50, 100]);
-        let dict = dict_encode(&reference.into_array())?;
+        let dict = dict_encode(&reference.into_array(), &mut SESSION.create_execution_ctx())?;
         let sliced = dict.slice(1..3)?;
         assert_min_max(&sliced, Some((5, 10)))
     }

@@ -157,14 +157,14 @@ impl TableProvider for VortexTable {
     //  planning over stats from the physical plan?
     fn statistics(&self) -> Option<Statistics> {
         let num_rows = match self.data_source.row_count() {
-            Some(VortexPrecision::Exact(v)) => {
+            VortexPrecision::Exact(v) => {
                 usize::try_from(v).map(Precision::Exact).unwrap_or_default()
             }
             _ => Precision::Absent,
         };
 
         let total_byte_size = match self.data_source.byte_size() {
-            Some(VortexPrecision::Exact(v)) => {
+            VortexPrecision::Exact(v) => {
                 usize::try_from(v).map(Precision::Exact).unwrap_or_default()
             }
             _ => Precision::Absent,

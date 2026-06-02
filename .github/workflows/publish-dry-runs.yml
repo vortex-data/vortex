@@ -117,7 +117,7 @@ jobs:
       - name: Install cargo-edit
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:
-          tool: cargo-edit
+          tool: cargo-edit@0.13.10
       - name: Set Version
         run: |
           # This is mostly a dummy version, we don't actually publish anything but it cannot exist in crates.io

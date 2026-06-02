@@ -24,6 +24,7 @@ unstable_encodings = ["vortex/unstable_encodings"]
 
 [dependencies]
 arc-swap = { workspace = true }
+arrow-schema = { workspace = true, features = ["ffi"] }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 cudarc = { workspace = true, features = ["f16"] }

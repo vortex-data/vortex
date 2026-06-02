@@ -24,6 +24,7 @@ futures = { workspace = true }
 indicatif = { workspace = true }
 parquet = { workspace = true, features = ["async"] }
 rand = { workspace = true }
+rand_distr = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 tabled = { workspace = true, features = ["std"] }
 tokio = { workspace = true, features = ["full"] }

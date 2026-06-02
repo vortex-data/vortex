@@ -3,11 +3,7 @@
 
 #pragma once
 
-#include "duckdb_vx/duckdb_diagnostics.h"
-
-DUCKDB_INCLUDES_BEGIN
 #include "duckdb.h"
-DUCKDB_INCLUDES_END
 
 #include "duckdb_vx/data.h"
 #include "duckdb_vx/error.h"
@@ -16,6 +12,9 @@ DUCKDB_INCLUDES_END
 #ifdef __cplusplus /* If compiled as C++, use C ABI */
 extern "C" {
 #endif
+
+// Create a vector that slices another vector between a pair of offsets [offset, end)
+duckdb_vector duckdb_vx_vector_slice(duckdb_vector ffi_vector, idx_t offset, idx_t end);
 
 /// Slice the vector to a new dictionary vector, using the current vector's values and
 /// the provided selection vector.

@@ -19,7 +19,7 @@ use crate::builders::PrimitiveBuilder;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
 use crate::executor::ExecutionCtx;
-use crate::match_each_integer_ptype;
+use crate::match_each_unsigned_integer_ptype;
 use crate::match_smallest_offset_type;
 
 // TODO(connor)[ListView]: Re-revert to the version where we simply convert to a `ListView` and call
@@ -38,16 +38,22 @@ impl TakeExecute for List {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
+        let indices = indices.reinterpret_cast(indices.ptype().to_unsigned());
+        let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+        let offsets = offsets.reinterpret_cast(offsets.ptype().to_unsigned());
         // This is an over-approximation of the total number of elements in the resulting array.
         let total_approx = array.elements().len().saturating_mul(indices.len());
 
-        match_each_integer_ptype!(array.offsets().dtype().as_ptype(), |O| {
-            match_each_integer_ptype!(indices.ptype(), |I| {
+        match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
+            match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
                 match_smallest_offset_type!(total_approx, |OutputOffsetType| {
-                    {
-                        let indices = indices.as_view();
-                        _take::<I, O, OutputOffsetType>(array, indices, ctx).map(Some)
-                    }
+                    _take::<I, O, OutputOffsetType>(
+                        array,
+                        offsets.as_view(),
+                        indices.as_view(),
+                        ctx,
+                    )
+                    .map(Some)
                 })
             })
         })
@@ -56,6 +62,7 @@ impl TakeExecute for List {
 
 fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
     array: ArrayView<'_, List>,
+    offsets_array: ArrayView<'_, Primitive>,
     indices_array: ArrayView<'_, Primitive>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
@@ -68,10 +75,9 @@ fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
         .execute_mask(indices_array.as_ref().len(), ctx)?;
 
     if !indices_validity.all_true() || !data_validity.all_true() {
-        return _take_nullable::<I, O, OutputOffsetType>(array, indices_array, ctx);
+        return _take_nullable::<I, O, OutputOffsetType>(array, offsets_array, indices_array, ctx);
     }
 
-    let offsets_array = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
     let offsets: &[O] = offsets_array.as_slice();
     let indices: &[I] = indices_array.as_slice();
 
@@ -121,12 +127,15 @@ fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
     .into_array())
 }
 
+// Kept out-of-line: as a single-callsite generic helper it would otherwise be inlined into every
+// monomorphization of `_take`, duplicating the entire nullable path across all specializations.
+#[inline(never)]
 fn _take_nullable<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
     array: ArrayView<'_, List>,
+    offsets_array: ArrayView<'_, Primitive>,
     indices_array: ArrayView<'_, Primitive>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let offsets_array = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
     let offsets: &[O] = offsets_array.as_slice();
     let indices: &[I] = indices_array.as_slice();
     let data_validity = array

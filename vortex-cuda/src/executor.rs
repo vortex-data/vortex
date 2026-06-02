@@ -12,6 +12,7 @@ use cudarc::driver::CudaSlice;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::LaunchArgs;
 use cudarc::driver::LaunchConfig;
+use cudarc::driver::ValidAsZeroBits;
 use futures::future::BoxFuture;
 use tracing::debug;
 use tracing::trace;
@@ -26,6 +27,7 @@ use vortex::array::arrays::struct_::StructDataParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::dtype::PType;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 
 use crate::CudaSession;
@@ -255,7 +257,7 @@ impl CudaExecutionCtx {
         data: D,
     ) -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>>
     where
-        T: DeviceRepr + Debug + Send + Sync + 'static,
+        T: DeviceRepr + ValidAsZeroBits + Debug + Send + Sync + 'static,
         D: AsRef<[T]> + Send + 'static,
     {
         self.stream.copy_to_device(data)
@@ -417,8 +419,9 @@ impl CudaArrayExt for ArrayRef {
 
         // Try all GPU execution strategies: fused dynamic dispatch, partial
         // fusion with subtree fallbacks, and single-kernel fallback.
-        // If none succeed, fall back to CPU execution.
-        match hybrid_dispatch::try_gpu_dispatch(&self, ctx).await {
+        // If none succeed, fall back to CPU execution only when all buffers
+        // remain host-resident.
+        let gpu_error = match hybrid_dispatch::try_gpu_dispatch(&self, ctx).await {
             Ok(canonical) => return Ok(canonical),
             Err(e) => {
                 debug!(
@@ -426,10 +429,17 @@ impl CudaArrayExt for ArrayRef {
                     error = %e,
                     "No GPU execution path available, falling back to CPU"
                 );
+                e
             }
+        };
+
+        if !self.is_host() {
+            vortex_bail!(
+                "GPU execution for encoding {} failed ({gpu_error}); CPU fallback with device-resident buffers is not supported",
+                self.encoding_id()
+            );
         }
 
-        // TODO(0ax1): Double check whether we need to move buffers back to the host explicitly.
         self.execute(&mut ctx.ctx)
     }
 }

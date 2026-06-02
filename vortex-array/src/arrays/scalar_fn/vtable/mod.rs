@@ -15,6 +15,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -285,7 +286,8 @@ impl scalar_fn::ScalarFnVTable for ArrayExpr {
     type Options = FakeEq<ArrayRef>;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new("vortex.array")
+        static ID: CachedId = CachedId::new("vortex.array");
+        *ID
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {

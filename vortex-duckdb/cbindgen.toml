@@ -1,4 +1,8 @@
 language = "C"
+cpp_compat = true
+usize_is_size_t = true
+style = "type"
+braces = "SameLine"
 
 header = """
 // SPDX-License-Identifier: Apache-2.0
@@ -23,3 +27,6 @@ trailer = """
 
 // clang-format on
 """
+
+[fn]
+prefix = "extern"

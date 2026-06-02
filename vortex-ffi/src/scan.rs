@@ -110,9 +110,6 @@ pub struct vx_scan_options {
     pub selection: vx_scan_selection,
     /// Maximum number of rows to return. 0 means no limit.
     pub limit: u64,
-    /// Upper limit for parallelism. 0 means no limit.
-    /// Scan will return at most "max_threads" partitions.
-    pub max_threads: u64,
     /// If true, return in storage order.
     pub ordered: bool,
 }
@@ -194,17 +191,17 @@ fn scan_request(opts: *const vx_scan_options) -> VortexResult<ScanRequest> {
     })
 }
 
-fn write_estimate<T: Into<u64>>(estimate: Option<Precision<T>>, out: &mut vx_estimate) {
+fn write_estimate<T: Into<u64>>(estimate: Precision<T>, out: &mut vx_estimate) {
     match estimate {
-        Some(Precision::Exact(value)) => {
+        Precision::Exact(value) => {
             out.r#type = vx_estimate_type::VX_ESTIMATE_EXACT;
             out.estimate = value.into();
         }
-        Some(Precision::Inexact(value)) => {
+        Precision::Inexact(value) => {
             out.r#type = vx_estimate_type::VX_ESTIMATE_INEXACT;
             out.estimate = value.into();
         }
-        None => {
+        Precision::Absent => {
             out.r#type = vx_estimate_type::VX_ESTIMATE_UNKNOWN;
         }
     }
@@ -234,13 +231,9 @@ pub unsafe extern "C-unwind" fn vx_data_source_scan(
         RUNTIME.block_on(async {
             let scan = vx_data_source::as_ref(data_source).scan(request).await?;
             if !estimate.is_null() {
-                write_estimate(
-                    scan.partition_count().map(|x| match x {
-                        Precision::Exact(v) => Precision::Exact(v as u64),
-                        Precision::Inexact(v) => Precision::Inexact(v as u64),
-                    }),
-                    unsafe { &mut *estimate },
-                );
+                write_estimate(scan.partition_count().map(|v| v as u64), unsafe {
+                    &mut *estimate
+                });
             }
             Ok(vx_scan::new(VxScan::Pending(scan)))
         })

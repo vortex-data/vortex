@@ -29,8 +29,6 @@ use vortex_array::arrow::FromArrowArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::arrow::FromArrowType;
 use vortex_array::dtype::extension::ExtDType;
-use vortex_array::dtype::extension::ExtDTypeRef;
-use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::extension::EmptyMetadata;
 use vortex_error::VortexResult;
@@ -68,16 +66,20 @@ impl ArrowExportVTable for Vector {
         *ARROW_VECTOR
     }
 
-    fn vortex_ext_id(&self) -> ExtId {
+    fn vortex_id(&self) -> Id {
         Vector.id()
     }
 
     fn to_arrow_field(
         &self,
         name: &str,
-        dtype: &ExtDTypeRef,
+        dtype: &DType,
         session: &ArrowSession,
     ) -> VortexResult<Option<Field>> {
+        let DType::Extension(dtype) = dtype else {
+            return Ok(None);
+        };
+
         if !dtype.is::<Vector>() {
             return Ok(None);
         }
@@ -141,8 +143,12 @@ impl ArrowImportVTable for Vector {
     fn from_arrow_array(
         &self,
         array: ArrowArrayRef,
-        dtype: &ExtDTypeRef,
+        _field: &Field,
+        dtype: &DType,
     ) -> VortexResult<ArrowImport> {
+        let DType::Extension(dtype) = dtype else {
+            return Ok(ArrowImport::Unsupported(array));
+        };
         if !dtype.is::<Vector>() {
             return Ok(ArrowImport::Unsupported(array));
         }
@@ -362,13 +368,11 @@ mod tests {
     #[test]
     fn from_arrow_array_returns_unsupported_for_non_fsl() -> VortexResult<()> {
         let dtype = vector_dtype(false);
-        let ext = dtype
-            .as_extension_opt()
-            .expect("vector dtype should be an extension dtype")
-            .clone();
+        let field = Field::new("embedding", DataType::Int32, false);
 
         let int_array: ArrowArrayRef = Arc::new(Int32Array::from(vec![1, 2, 3]));
-        let result = <Vector as ArrowImportVTable>::from_arrow_array(&Vector, int_array, &ext)?;
+        let result =
+            <Vector as ArrowImportVTable>::from_arrow_array(&Vector, int_array, &field, &dtype)?;
         assert!(matches!(result, ArrowImport::Unsupported(_)));
         Ok(())
     }
@@ -386,8 +390,13 @@ mod tests {
             ExtDType::try_with_vtable(Uuid, UuidMetadata::default(), uuid_storage)?.erased();
 
         let fsl_arrow = arrow_fsl_f32(vec![1.0, 2.0, 3.0], DIM as i32);
-        let result =
-            <Vector as ArrowImportVTable>::from_arrow_array(&Vector, fsl_arrow, &uuid_ext)?;
+        let field = Field::new("embedding", fsl_arrow.data_type().clone(), false);
+        let result = <Vector as ArrowImportVTable>::from_arrow_array(
+            &Vector,
+            fsl_arrow,
+            &field,
+            &DType::Extension(uuid_ext),
+        )?;
         assert!(matches!(result, ArrowImport::Unsupported(_)));
         Ok(())
     }

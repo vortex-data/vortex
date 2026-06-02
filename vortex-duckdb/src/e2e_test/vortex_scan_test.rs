@@ -982,8 +982,10 @@ fn test_vortex_encodings_roundtrip() {
     assert_eq!(list_entries[4].offset, 10);
 
     // Get child vector and verify actual values
+    let list_child_len = list_vec.list_vector_get_size();
+    assert_eq!(list_child_len, 10);
     let list_child = list_vec.list_vector_get_child();
-    let child_values = list_child.as_slice_with_len::<i32>(10); // 10 total child elements
+    let child_values = list_child.as_slice_with_len::<i32>(list_child_len.as_());
     assert_eq!(child_values, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 
     // Verify fixed-size list column (column 9)

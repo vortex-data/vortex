@@ -22,3 +22,20 @@ query T
 SELECT string_agg(str, ',') FROM '$__TEST_DIR__/strings.vortex' WHERE str LIKE '%He%';
 ----
 Hello,Hey
+
+query T
+SELECT string_agg(str, ',') FROM '$__TEST_DIR__/strings.vortex' WHERE contains(str, 'e');
+----
+Hello,Hey
+
+onlyif duckdb
+query T
+SELECT string_agg(str, ',') FROM '$__TEST_DIR__/strings.vortex' WHERE prefix(str, 'He');
+----
+Hello,Hey
+
+onlyif duckdb
+query T
+SELECT string_agg(str, ',') FROM '$__TEST_DIR__/strings.vortex' WHERE suffix(str, 'lo');
+----
+Hello

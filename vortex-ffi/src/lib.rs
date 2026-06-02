@@ -49,15 +49,6 @@ pub(crate) unsafe fn to_string(ptr: *const c_char) -> String {
     c_str.to_string_lossy().into_owned()
 }
 
-pub(crate) unsafe fn to_string_vec(ptr: *const *const c_char, len: usize) -> Vec<String> {
-    #[expect(clippy::expect_used)]
-    (0..len)
-        .map(|i: usize| unsafe {
-            to_string(*ptr.offset(i.try_into().expect("pointer offset overflow")))
-        })
-        .collect()
-}
-
 /// SAFETY: name must be a non-NULL pointer
 pub(crate) unsafe fn to_field_name(name: *const c_char) -> VortexResult<FieldName> {
     let name = unsafe { CStr::from_ptr(name) }

@@ -81,8 +81,8 @@ fn truncate_scalar_stat<F: Fn(Scalar) -> Option<(Scalar, bool)>>(
     stat: Stat,
     truncation: F,
 ) {
-    if let Some(sv) = statistics.get(stat) {
-        if let Some((truncated_value, truncated)) = truncation(sv.into_inner()) {
+    if let Some(sv) = statistics.get(stat).into_inner() {
+        if let Some((truncated_value, truncated)) = truncation(sv) {
             if truncated && let Some(v) = truncated_value.into_value() {
                 statistics.set(stat, Precision::Inexact(v));
             }
@@ -273,7 +273,7 @@ mod tests {
 
             assert_eq!(
                 result.statistics().get_as::<bool>(Stat::IsSorted),
-                Some(Precision::Exact(true))
+                Precision::Exact(true)
             );
         })
     }
@@ -325,16 +325,16 @@ mod tests {
             assert_eq!(
                 result.statistics().get_as::<String>(Stat::Min),
                 // The typo is correct, we need this to be truncated.
-                Some(Precision::Inexact(
+                Precision::Inexact(
                     // spellchecker:ignore-next-line
                     "Another string that's meant to be smaller than the previous valu".to_string()
-                ))
+                )
             );
             assert_eq!(
                 result.statistics().get_as::<String>(Stat::Max),
-                Some(Precision::Inexact(
+                Precision::Inexact(
                     "Long value to test that the statistics are actually truncated, j".to_string()
-                ))
+                )
             );
         })
     }

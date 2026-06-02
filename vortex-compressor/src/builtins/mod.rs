@@ -10,30 +10,9 @@
 //! [`DictArray`]: vortex_array::arrays::DictArray
 //! [`MaskedArray`]: vortex_array::arrays::MaskedArray
 
-use vortex_array::Canonical;
-use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
-
-/// Returns `true` if the canonical array is a primitive with an integer ptype.
-pub fn is_integer_primitive(canonical: &Canonical) -> bool {
-    matches!(canonical, Canonical::Primitive(p) if p.ptype().is_int())
-}
-
-/// Returns `true` if the canonical form represents a floating-point primitive.
-pub fn is_float_primitive(canonical: &Canonical) -> bool {
-    matches!(canonical, Canonical::Primitive(p) if !p.ptype().is_int())
-}
-
-/// Returns `true` if the canonical array is a UTF-8 string type.
-pub fn is_utf8_string(canonical: &Canonical) -> bool {
-    matches!(canonical,
-        Canonical::VarBinView(v) if
-            v.dtype().eq_ignore_nullability(&DType::Utf8(Nullability::NonNullable))
-    )
-}
-
 mod dict;
 
+pub use dict::BinaryDictScheme;
 pub use dict::FloatDictScheme;
 pub use dict::IntDictScheme;
 pub use dict::StringDictScheme;
@@ -42,6 +21,7 @@ pub use dict::integer_dictionary_encode;
 
 mod constant;
 
+pub use constant::BinaryConstantScheme;
 pub use constant::BoolConstantScheme;
 pub use constant::FloatConstantScheme;
 pub use constant::IntConstantScheme;

@@ -1,0 +1,84 @@
+name: Linux musl
+
+# Concurrency mirrors the main "Linters and Tests" workflow:
+# - PRs: new commits cancel in-progress (outdated) runs.
+# - Push to develop: runs queue sequentially, never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
+on:
+  push:
+    branches: [develop]
+  pull_request: { }
+  workflow_dispatch: { }
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  rust-test-musl:
+    name: "Rust tests (linux-musl)"
+    timeout-minutes: 90
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-large/image=ubuntu24-full-x64-pre-v2/tag=rust-build-musl', github.run_id)
+          || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      # Build and test natively inside Alpine so the musl C/C++ toolchain (gcc, g++) and
+      # GNU ld are used. Cross-compiling from the glibc host is not viable: musl-tools
+      # ships no musl-g++ for C++ deps such as custom-labels, and zig's linker rejects the
+      # --dynamic-list arg those deps emit. Checkout runs on the host because JS actions
+      # cannot run inside an Alpine (musl) container, so this job provisions rustup +
+      # nextest itself rather than using the prebuilt toolchain / sccache setup that the
+      # glibc test runners use.
+      #
+      # Exclusions:
+      #   - CUDA crates have no CUDA toolkit / musl target (as in the wasm build).
+      #   - vortex-duckdb and its dependents can't build standalone for musl: its
+      #     build.rs has no prebuilt DuckDB for musl. The DuckDB extension builds it
+      #     against a musl DuckDB it compiles itself, so it is exercised there instead.
+      - name: Build & test workspace for x86_64-unknown-linux-musl
+        run: |
+          docker run --rm -v "${GITHUB_WORKSPACE}:/work" -w /work alpine:3.21 sh -euc '
+            # tzdata provides /usr/share/zoneinfo; without it Alpine has no timezone
+            # database and datetime tests fail with "failed to find time zone `UTC`".
+            apk add --no-cache build-base clang clang-dev llvm-dev cmake make perl \
+              pkgconf protobuf protobuf-dev openssl-dev zstd-dev bash git curl ca-certificates \
+              python3 python3-dev tar tzdata
+            # -crt-static makes build-script binaries dynamically linked so bindgen
+            # (custom-labels, a transitive dep of vortex-io) can dlopen libclang; a
+            # fully static musl build script panics with "Dynamic loading not supported".
+            export CARGO_HOME=/root/.cargo CARGO_TARGET_DIR=/tmp/target RUSTFLAGS="-A warnings -C target-feature=-crt-static"
+            export PATH="$CARGO_HOME/bin:$PATH"
+            curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --default-toolchain none
+            rustup show
+            # Prebuilt static musl nextest binary; building it from source would
+            # roughly double the cold-cache compile time of this job.
+            curl -LsSf https://get.nexte.st/latest/linux-musl \
+              | tar zxf - -C "$CARGO_HOME/bin"
+            # The workspace is bind-mounted from the host runner and owned by a
+            # different uid than the container root, so git rejects it as "dubious
+            # ownership" and `git rev-parse HEAD` returns empty. vortex-bench and the
+            # benchmarks website embed that SHA in snapshots (redacted to <commit-sha> /
+            # <build-sha>); an empty SHA breaks the redaction and fails 10 snapshot tests.
+            git config --global --add safe.directory /work
+            cargo nextest run --cargo-profile ci --locked --workspace --no-fail-fast \
+              --exclude vortex-cuda --exclude vortex-cub --exclude vortex-nvcomp \
+              --exclude gpu-scan-cli --exclude vortex-test-e2e-cuda \
+              --exclude vortex-duckdb --exclude duckdb-bench --exclude vortex-sqllogictest
+          '
+
+      - name: Alert incident.io
+        if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/develop'
+        uses: ./.github/actions/alert-incident-io
+        with:
+          api-key: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
+          alert-title: "Rust tests (linux-musl) failed on develop"
+          deduplication-key: ci-rust-test-linux-musl-failure

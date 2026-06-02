@@ -7,7 +7,6 @@
 //! [`FileStatsLayoutReader`] short-circuits [`pruning_evaluation`](LayoutReader::pruning_evaluation)
 //! by returning an all-false mask — avoiding all downstream I/O.
 
-use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -32,6 +31,7 @@ use vortex_error::VortexResult;
 use vortex_layout::ArrayFuture;
 use vortex_layout::LayoutReader;
 use vortex_layout::LayoutReaderRef;
+use vortex_layout::RowSplits;
 use vortex_layout::SplitRange;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -132,7 +132,7 @@ impl StatsCatalog for FileStatsLayoutReader {
         let field_idx = self.struct_fields.find(field_name)?;
         let field_stats = self.file_stats.stats_sets().get(field_idx)?;
 
-        let stat_value = field_stats.get(stat)?.as_exact()?;
+        let stat_value = field_stats.get(stat).as_exact()?;
         let field_dtype = self.struct_fields.field_by_index(field_idx)?;
         let stat_dtype = stat.dtype(&field_dtype)?;
         let stat_scalar = Scalar::try_new(stat_dtype, Some(stat_value)).ok()?;
@@ -158,7 +158,7 @@ impl LayoutReader for FileStatsLayoutReader {
         &self,
         field_mask: &[FieldMask],
         split_range: &SplitRange,
-        splits: &mut BTreeSet<u64>,
+        splits: &mut RowSplits,
     ) -> VortexResult<()> {
         self.child.register_splits(field_mask, split_range, splits)
     }

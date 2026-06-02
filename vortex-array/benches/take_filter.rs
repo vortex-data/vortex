@@ -45,6 +45,7 @@ fn main() {
 const ARRAY_LEN: usize = 25_000;
 const FILTERED_LENS: &[usize] = &[4_096, 16_384];
 const NUM_INDICES: &[usize] = &[1_000];
+const SMALL_NUM_INDICES: &[usize] = &[10];
 const LARGE_TAKE_CASES: &[(usize, usize)] = &[(2_500, 25_000), (12_500, 25_000)];
 
 /// Nested types are heavier per element, so they use a much smaller array and take fewer indices.
@@ -81,6 +82,10 @@ fn slice_mask(array_len: usize, filtered_len: usize) -> Mask {
 }
 
 fn random_mask(array_len: usize, filtered_len: usize) -> Mask {
+    Mask::from_buffer(random_mask_buffer(array_len, filtered_len))
+}
+
+fn random_mask_buffer(array_len: usize, filtered_len: usize) -> BitBuffer {
     let mut indices: Vec<usize> = (0..array_len).collect();
     indices.shuffle(&mut StdRng::seed_from_u64(MASK_SEED));
     indices.truncate(filtered_len);
@@ -90,7 +95,7 @@ fn random_mask(array_len: usize, filtered_len: usize) -> Mask {
         buffer.set(idx);
     }
 
-    Mask::from_buffer(buffer.freeze())
+    buffer.freeze()
 }
 
 fn sequential_indices(num_indices: usize) -> ArrayRef {
@@ -123,6 +128,29 @@ fn bench_take_filter(bencher: Bencher, array: ArrayRef, indices: ArrayRef) {
                 .take(indices.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
+                .unwrap()
+        });
+}
+
+fn bench_take_filter_uncached_mask(
+    bencher: Bencher,
+    child: ArrayRef,
+    mask: BitBuffer,
+    indices: ArrayRef,
+) {
+    bencher
+        .with_inputs(|| {
+            let array = child
+                .clone()
+                .filter(Mask::from_buffer(mask.clone()))
+                .unwrap();
+            (array, indices.clone(), SESSION.create_execution_ctx())
+        })
+        .bench_values(|(array, indices, mut ctx)| {
+            array
+                .take(indices)
+                .unwrap()
+                .execute::<RecursiveCanonical>(&mut ctx)
                 .unwrap()
         });
 }
@@ -171,6 +199,30 @@ fn take_filter_primitive_random_mask_random_indices<const FILTERED_LEN: usize>(
     bench_take_filter(bencher, array, random_indices(num_indices, FILTERED_LEN));
 }
 
+#[divan::bench(args = SMALL_NUM_INDICES, consts = FILTERED_LENS)]
+fn take_filter_primitive_small_random_mask_random_indices<const FILTERED_LEN: usize>(
+    bencher: Bencher,
+    num_indices: usize,
+) {
+    let array = primitive_array()
+        .filter(random_mask(ARRAY_LEN, FILTERED_LEN))
+        .unwrap();
+    bench_take_filter(bencher, array, random_indices(num_indices, FILTERED_LEN));
+}
+
+#[divan::bench(args = SMALL_NUM_INDICES, consts = FILTERED_LENS)]
+fn take_filter_primitive_small_uncached_random_mask_random_indices<const FILTERED_LEN: usize>(
+    bencher: Bencher,
+    num_indices: usize,
+) {
+    bench_take_filter_uncached_mask(
+        bencher,
+        primitive_array(),
+        random_mask_buffer(ARRAY_LEN, FILTERED_LEN),
+        random_indices(num_indices, FILTERED_LEN),
+    );
+}
+
 #[divan::bench(args = NESTED_NUM_INDICES, consts = NESTED_FILTERED_LENS)]
 fn take_filter_list_slice_mask_sequential_indices<const FILTERED_LEN: usize>(
     bencher: Bencher,
@@ -213,6 +265,30 @@ fn take_filter_list_random_mask_random_indices<const FILTERED_LEN: usize>(
         .filter(random_mask(NESTED_ARRAY_LEN, FILTERED_LEN))
         .unwrap();
     bench_take_filter(bencher, array, random_indices(num_indices, FILTERED_LEN));
+}
+
+#[divan::bench(args = SMALL_NUM_INDICES, consts = NESTED_FILTERED_LENS)]
+fn take_filter_list_small_random_mask_random_indices<const FILTERED_LEN: usize>(
+    bencher: Bencher,
+    num_indices: usize,
+) {
+    let array = list_array(NESTED_ARRAY_LEN)
+        .filter(random_mask(NESTED_ARRAY_LEN, FILTERED_LEN))
+        .unwrap();
+    bench_take_filter(bencher, array, random_indices(num_indices, FILTERED_LEN));
+}
+
+#[divan::bench(args = SMALL_NUM_INDICES, consts = NESTED_FILTERED_LENS)]
+fn take_filter_list_small_uncached_random_mask_random_indices<const FILTERED_LEN: usize>(
+    bencher: Bencher,
+    num_indices: usize,
+) {
+    bench_take_filter_uncached_mask(
+        bencher,
+        list_array(NESTED_ARRAY_LEN),
+        random_mask_buffer(NESTED_ARRAY_LEN, FILTERED_LEN),
+        random_indices(num_indices, FILTERED_LEN),
+    );
 }
 
 #[divan::bench(args = NUM_INDICES, consts = FILTERED_LENS)]

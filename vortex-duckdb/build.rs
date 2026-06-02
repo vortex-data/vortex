@@ -7,6 +7,7 @@
 
 use std::env;
 use std::fs;
+use std::io;
 use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::path::PathBuf;
@@ -14,10 +15,12 @@ use std::process::Command;
 use std::process::exit;
 
 use bindgen::Abi;
+use bindgen::callbacks::ParseCallbacks;
 
 const DUCKDB_RELEASES_URL: &str = "https://github.com/duckdb/duckdb/releases/download";
 const DUCKDB_SOURCE_RELEASE_URL: &str = "https://github.com/duckdb/duckdb/archive/refs/tags";
 const DUCKDB_SOURCE_COMMIT_URL: &str = "https://github.com/duckdb/duckdb/archive";
+const DEFAULT_DUCKDB_VERSION: &str = "1.5.3";
 
 const BUILD_ARTIFACTS: [&str; 3] = ["libduckdb.dylib", "libduckdb.so", "libduckdb_static.a"];
 
@@ -43,6 +46,26 @@ const SOURCE_FILES: [&str; 17] = [
 
 const DOWNLOAD_MAX_RETRIES: i32 = 3;
 const DOWNLOAD_TIMEOUT: u64 = 90;
+
+#[derive(Debug)]
+struct BindgenCargoCallbacks;
+
+impl ParseCallbacks for BindgenCargoCallbacks {
+    fn read_env_var(&self, key: &str) {
+        println!("cargo:rerun-if-env-changed={key}");
+    }
+
+    fn header_file(&self, filename: &str) {
+        println!("cargo:rerun-if-changed={filename}");
+    }
+
+    fn include_file(&self, _filename: &str) {
+        // We do not want to let bindgen add DuckDB headers from OUT_DIR to Cargo's fingerprint.
+        // Those files are extracted during this build script, so their mtimes are newer than
+        // Cargo's build-script output timestamp and would force one extra
+        // rebuild after a clean build.
+    }
+}
 
 #[derive(Debug, Clone)]
 enum DuckDBVersion {
@@ -256,7 +279,7 @@ fn try_build_duckdb(
 
     let library_dir_str = library_dir.display();
     if let Err(err) = fs::remove_dir_all(library_dir)
-        && err.kind() != std::io::ErrorKind::NotFound
+        && err.kind() != io::ErrorKind::NotFound
     {
         println!("cargo:error=Failed to remove {library_dir_str}: {err}");
         exit(1);
@@ -281,7 +304,8 @@ fn try_build_duckdb(
     }
 }
 
-fn c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
+/// Generate rust functions with bindgen from C sources.
+fn bindgen_c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
     let bindings = bindgen::Builder::default()
         .header("cpp/include/duckdb_vx.h")
         .override_abi(Abi::CUnwind, ".*")
@@ -305,9 +329,7 @@ fn c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
         .clang_arg(format!("-I{}", duckdb_include_dir.display()))
         .clang_arg(format!("-I{}", crate_dir.join("cpp/include").display()))
         .generate_comments(true)
-        // Tell cargo to invalidate the built crate whenever any of the
-        // included header files changed.
-        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
+        .parse_callbacks(Box::new(BindgenCargoCallbacks))
         .generate();
 
     let bindings = match bindings {
@@ -329,22 +351,26 @@ fn c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
     }
 }
 
-fn cpp(duckdb_include_dir: &Path) {
+/// Generate libvortex_duckdb.*
+fn compile_cpp(duckdb_include_dir: &Path) {
     cc::Build::new()
         .std("c++20")
-        .flags(["-Wall", "-Wextra", "-Wpedantic"])
+        .flags(["-Wall", "-Wextra", "-Wpedantic", "-Werror"])
         .cpp(true)
-        .include(duckdb_include_dir)
+        // We don't want compiler warnings inside duckdb headers, pass as flags
+        .flag("-isystem")
+        .flag(duckdb_include_dir)
+        .include("include")
         .include("cpp/include")
         .files(SOURCE_FILES)
         .compile("vortex-duckdb-extras");
-    // bindgen generates rerun-if-changed for .h/.hpp files
     for e in SOURCE_FILES {
         println!("cargo:rerun-if-changed={e}");
     }
 }
 
-fn rust2c(crate_dir: &Path) {
+/// Generate include/vortex.h from rust sources
+fn cbindgen_rust2c(crate_dir: &Path) {
     let header = crate_dir.join("include/vortex.h");
     let output = cbindgen::Builder::new()
         .with_config(cbindgen::Config::from_file(crate_dir.join("cbindgen.toml")).unwrap())
@@ -384,7 +410,7 @@ fn main() {
     // e.g. reordering fields in C++ structs.
     let version = env::var("DUCKDB_VERSION")
         // You can also change this version to a commit hash
-        .unwrap_or_else(|_| "1.5.2".to_owned());
+        .unwrap_or_else(|_| DEFAULT_DUCKDB_VERSION.to_owned());
     let version = DuckDBVersion::from(&version);
     match &version {
         DuckDBVersion::Release(v) => println!("cargo:info=Using DuckDB release version: {v}"),
@@ -421,13 +447,24 @@ fn main() {
         DuckDBVersion::Commit(c) => format!("{DUCKDB_SOURCE_COMMIT_URL}/{c}.zip"),
     };
 
-    fs::create_dir_all(&source_dir).unwrap();
     let source_archive_path = source_dir.with_extension("zip");
     download_url(&source_archive_url, &source_archive_path);
 
     let inner_dir = source_dir.join(version.archive_inner_dir_name());
-    if !inner_dir.join("CMakeLists.txt").exists() {
+    let extract_marker = source_dir.join(".vx-extract-complete");
+    if !extract_marker.exists() {
+        if let Err(err) = fs::remove_dir_all(&source_dir)
+            && err.kind() != io::ErrorKind::NotFound
+        {
+            println!(
+                "cargo:error=Failed to clear {}: {err}",
+                source_dir.display()
+            );
+            exit(1);
+        }
+        fs::create_dir_all(&source_dir).unwrap();
         extract(&source_archive_path, &source_dir);
+        fs::write(&extract_marker, version.to_string()).unwrap();
     }
 
     drop(fs::remove_file(&duckdb_dir));
@@ -449,7 +486,8 @@ fn main() {
     };
 
     let duckdb_include_dir = inner_dir.join("src").join("include");
-    c2rust(&crate_dir, &duckdb_include_dir);
-    cpp(&duckdb_include_dir);
-    rust2c(&crate_dir);
+    println!("cargo:rerun-if-changed=cpp/include");
+    bindgen_c2rust(&crate_dir, &duckdb_include_dir);
+    cbindgen_rust2c(&crate_dir);
+    compile_cpp(&duckdb_include_dir);
 }

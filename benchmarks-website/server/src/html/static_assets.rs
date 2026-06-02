@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Static asset serving — bundled JS/CSS/PNG via [`include_bytes!`].
+//! Static asset serving - bundled JS/CSS/PNG via [`include_bytes!`].
 //!
 //! Every static asset is baked into the binary at build time so the v3 server
 //! is fully self-contained. Cache headers force the browser to revalidate on
@@ -18,10 +18,19 @@ const CHART_INIT_JS: &[u8] = include_bytes!("../../static/chart-init.js");
 const STYLE_CSS: &[u8] = include_bytes!("../../static/style.css");
 const VORTEX_BLACK_PNG: &[u8] = include_bytes!("../../../public/Vortex_Black_NoBG.png");
 const VORTEX_WHITE_PNG: &[u8] = include_bytes!("../../../public/Vortex_White_NoBG.png");
+// Square transparent sigil-only favicons (500x500). Light = black sigil
+// for light-mode tabs, dark = white sigil for dark-mode tabs. The
+// browser tab switches between them via `prefers-color-scheme` media
+// queries on the `<link rel="icon">` tags in `render::favicon_links`.
+// v2's `public/favicon-*.png` set is unsuitable - those have white
+// backgrounds baked in, so they render as a glaring white square on
+// dark-mode tabs.
+const ICON_LIGHT_PNG: &[u8] = include_bytes!("../../static/icon-light.png");
+const ICON_DARK_PNG: &[u8] = include_bytes!("../../static/icon-dark.png");
 
 /// Cache-busting suffix appended to every static asset URL. Bump on a UI
 /// release so cached browsers see the new bytes.
-pub(crate) const STATIC_ASSET_VERSION: &str = "bench-v3-ui-22";
+pub(crate) const STATIC_ASSET_VERSION: &str = "bench-v3-ui-27";
 
 /// Append the cache-bust query param to a static asset URL.
 pub(crate) fn versioned_asset(path: &str) -> String {
@@ -50,6 +59,14 @@ pub(crate) async fn serve_vortex_black_png() -> impl IntoResponse {
 
 pub(crate) async fn serve_vortex_white_png() -> impl IntoResponse {
     static_response(VORTEX_WHITE_PNG, "image/png")
+}
+
+pub(crate) async fn serve_icon_light_png() -> impl IntoResponse {
+    static_response(ICON_LIGHT_PNG, "image/png")
+}
+
+pub(crate) async fn serve_icon_dark_png() -> impl IntoResponse {
+    static_response(ICON_DARK_PNG, "image/png")
 }
 
 fn static_response(bytes: &'static [u8], content_type: &'static str) -> Response {

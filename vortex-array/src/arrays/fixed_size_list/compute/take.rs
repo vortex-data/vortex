@@ -19,9 +19,10 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
+use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::dtype::IntegerPType;
 use crate::executor::ExecutionCtx;
-use crate::match_each_integer_ptype;
+use crate::match_each_unsigned_integer_ptype;
 use crate::match_smallest_offset_type;
 use crate::validity::Validity;
 
@@ -31,14 +32,15 @@ use crate::validity::Validity;
 /// that elements start at offset 0 and be perfectly packed without gaps. We expand list indices
 /// into element indices and push them down to the child elements array.
 impl TakeExecute for FixedSizeList {
-    #[expect(clippy::cognitive_complexity)]
     fn take(
         array: ArrayView<'_, FixedSizeList>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let max_element_idx = array.elements().len();
-        match_each_integer_ptype!(indices.dtype().as_ptype(), |I| {
+        // Indices are non-negative; dispatch over the 4 unsigned widths (the executed array is
+        // reinterpreted to unsigned in `take_with_indices`). `E` is already unsigned.
+        match_each_unsigned_integer_ptype!(indices.dtype().as_ptype().to_unsigned(), |I| {
             match_smallest_offset_type!(max_element_idx, |E| {
                 take_with_indices::<I, E>(array, indices, ctx)
             })
@@ -56,6 +58,8 @@ fn take_with_indices<I: IntegerPType, E: IntegerPType>(
     let list_size = array.list_size() as usize;
 
     let indices_array = indices.clone().execute::<PrimitiveArray>(ctx)?;
+    // Reinterpret to unsigned so `as_slice::<I>` (with unsigned `I`) matches; values are unchanged.
+    let indices_array = indices_array.reinterpret_cast(indices_array.ptype().to_unsigned());
 
     // Make sure to handle degenerate case where lists have size 0 (these can take fast paths).
     if list_size == 0 {

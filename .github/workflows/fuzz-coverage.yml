@@ -40,11 +40,14 @@ jobs:
             rustup component add llvm-tools-preview --toolchain $NIGHTLY_TOOLCHAIN
 
           # Verify llvm-profdata is accessible (cargo-fuzz needs it for coverage merging)
-          LLVM_PROFDATA="$(rustc +$NIGHTLY_TOOLCHAIN --print sysroot)/lib/rustlib/$(rustc +$NIGHTLY_TOOLCHAIN -vV | sed -n 's|host: ||p')/bin/llvm-profdata"
+          RUST_SYSROOT="$(rustc +$NIGHTLY_TOOLCHAIN --print sysroot)"
+          RUST_HOST="$(rustc +$NIGHTLY_TOOLCHAIN --print host-tuple)"
+          LLVM_TOOLS_BIN="${RUST_SYSROOT}/lib/rustlib/${RUST_HOST}/bin"
+          LLVM_PROFDATA="${LLVM_TOOLS_BIN}/llvm-profdata"
           if [ ! -f "$LLVM_PROFDATA" ]; then
             echo "ERROR: llvm-profdata not found at $LLVM_PROFDATA"
             echo "Listing bin directory:"
-            ls -la "$(dirname "$LLVM_PROFDATA")" || echo "Directory does not exist"
+            ls -la "$LLVM_TOOLS_BIN" || echo "Directory does not exist"
             exit 1
           fi
           echo "Found llvm-profdata at $LLVM_PROFDATA"
@@ -84,13 +87,13 @@ jobs:
           COVERAGE_DIR="fuzz/coverage/${{ matrix.fuzz_target }}"
 
           # llvm tools are installed via rustup's llvm-tools component
-          LLVM_TOOLS_BIN="$(rustc +$NIGHTLY_TOOLCHAIN --print sysroot)/lib/rustlib/$(rustc +$NIGHTLY_TOOLCHAIN -vV | sed -n 's|host: ||p')/bin"
-
-          TARGET_TRIPLE=$(rustc +$NIGHTLY_TOOLCHAIN -vV | sed -n 's|host: ||p')
+          RUST_SYSROOT="$(rustc +$NIGHTLY_TOOLCHAIN --print sysroot)"
+          RUST_HOST="$(rustc +$NIGHTLY_TOOLCHAIN --print host-tuple)"
+          LLVM_TOOLS_BIN="${RUST_SYSROOT}/lib/rustlib/${RUST_HOST}/bin"
 
           # cargo-fuzz coverage places the binary at:
           #   target/<triple>/coverage/<triple>/release/<fuzz_target>
-          FUZZ_BIN="target/${TARGET_TRIPLE}/coverage/${TARGET_TRIPLE}/release/${{ matrix.fuzz_target }}"
+          FUZZ_BIN="target/${RUST_HOST}/coverage/${RUST_HOST}/release/${{ matrix.fuzz_target }}"
 
           if [ ! -f "$FUZZ_BIN" ]; then
             echo "ERROR: Could not find fuzz binary at $FUZZ_BIN"

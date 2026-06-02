@@ -40,6 +40,7 @@ jobs:
             "changelog/fix"
             "changelog/docs"
             "changelog/chore"
+            "changelog/ci"
             "changelog/skip"
           )
           REQUIRED_LABELS_JSON=$(jq -n '$ARGS.positional' --args "${REQUIRED_LABELS[@]}")

@@ -33,7 +33,6 @@ use std::sync::Arc;
 
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
-use vortex::dtype::FieldName;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::dtype::PType::F32;
@@ -160,6 +159,7 @@ impl FromLogicalType for DType {
                     .collect::<VortexResult<_>>()?,
                 nullability,
             ),
+            DUCKDB_TYPE::DUCKDB_TYPE_VARIANT => DType::Variant(nullability),
             DUCKDB_TYPE::DUCKDB_TYPE_TIME_TZ => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_INTERVAL => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_ENUM => todo!(),
@@ -174,20 +174,6 @@ impl FromLogicalType for DType {
             DUCKDB_TYPE::DUCKDB_TYPE_GEOMETRY => todo!(),
         })
     }
-}
-
-pub fn from_duckdb_table<'a, I, S>(iter: I) -> VortexResult<StructFields>
-where
-    I: Iterator<Item = (S, &'a LogicalTypeRef, Nullability)>,
-    S: AsRef<str>,
-{
-    iter.map(|(name, type_, nullability)| {
-        Ok((
-            FieldName::from(name.as_ref()),
-            DType::from_logical_type(type_, nullability)?,
-        ))
-    })
-    .collect::<VortexResult<StructFields>>()
 }
 
 impl TryFrom<DType> for LogicalType {

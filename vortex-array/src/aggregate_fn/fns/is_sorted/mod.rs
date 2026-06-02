@@ -77,7 +77,7 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
     };
 
     // Short-circuit using cached array statistics.
-    if let Some(Precision::Exact(value)) = array.statistics().get_as::<bool>(stat) {
+    if let Precision::Exact(value) = array.statistics().get_as::<bool>(stat) {
         return Ok(value);
     }
 
