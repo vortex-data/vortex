@@ -9819,6 +9819,10 @@ dependencies = [
 [[package]]
 name = "vortex-json"
 version = "0.1.0"
+dependencies = [
+ "vortex-array",
+ "vortex-error",
+]
 
 [[package]]
 name = "vortex-layout"

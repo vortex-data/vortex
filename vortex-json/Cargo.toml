@@ -17,3 +17,5 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
+vortex-array = { workspace = true, default-features = false }
+vortex-error = { workspace = true, default-features = false }

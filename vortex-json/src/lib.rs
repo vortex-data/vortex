@@ -10,3 +10,5 @@
 //! Extension type and related functionality for a JSON extension type for Vortex.
 
 mod dtype;
+
+pub use dtype::Json;
