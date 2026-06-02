@@ -42,7 +42,7 @@ vortex-fastlanes = { path = ".", features = ["_test-harness", "unstable_encoding
 _test-harness = ["dep:rand"]
 # Unstable encodings/decoders with no stability guarantee. Enables the fused
 # delta(for(bitpacking)) decode kernel from the fastlanes crate.
-unstable_encodings = ["fastlanes/unstable"]
+unstable_encodings = ["fastlanes/delta_for_bitpacking"]
 
 [[bench]]
 name = "bitpacking_take"
