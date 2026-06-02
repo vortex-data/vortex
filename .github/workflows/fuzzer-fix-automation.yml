@@ -1,7 +1,8 @@
 name: Fuzzer Fix Automation
 
+# Distinct from the caller's `fuzzer-fix-<issue>` group: this reusable workflow runs inside the caller's run, so sharing the name would make it cancel its own parent (cancel-in-progress).
 concurrency:
-  group: fuzzer-fix-${{ inputs.issue_number || github.run_id }}
+  group: fuzzer-fix-automation-${{ inputs.issue_number || github.run_id }}
   cancel-in-progress: true
 
 on:
