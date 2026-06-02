@@ -91,19 +91,11 @@ impl ScalarFnVTable for Zip {
 
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         vortex_ensure!(
-            arg_dtypes[0].eq_ignore_nullability(&arg_dtypes[1]),
-            "zip requires if_true and if_false to have the same base type, got {} and {}",
-            arg_dtypes[0],
-            arg_dtypes[1]
-        );
-        vortex_ensure!(
             matches!(arg_dtypes[2], DType::Bool(_)),
             "zip requires mask to be a boolean type, got {}",
             arg_dtypes[2]
         );
-        Ok(arg_dtypes[0]
-            .clone()
-            .union_nullability(arg_dtypes[1].nullability()))
+        zip_return_dtype(&arg_dtypes[0], &arg_dtypes[1])
     }
 
     fn execute(
@@ -120,10 +112,7 @@ impl ScalarFnVTable for Zip {
             .execute::<BoolArray>(ctx)?
             .to_mask_fill_null_false(ctx);
 
-        let return_dtype = if_true
-            .dtype()
-            .clone()
-            .union_nullability(if_false.dtype().nullability());
+        let return_dtype = zip_return_dtype(if_true.dtype(), if_false.dtype())?;
 
         if mask.all_true() {
             return if_true.cast(return_dtype)?.execute(ctx);
@@ -184,10 +173,7 @@ pub(crate) fn zip_impl(
         "zip requires arrays to have the same size"
     );
 
-    let return_type = if_true
-        .dtype()
-        .clone()
-        .union_nullability(if_false.dtype().nullability());
+    let return_type = zip_return_dtype(if_true.dtype(), if_false.dtype())?;
 
     if mask.all_true() {
         return if_true.cast(return_type);
@@ -209,6 +195,18 @@ pub(crate) fn zip_impl(
         builder_with_capacity(&return_type, if_true.len()),
         ctx,
     )
+}
+
+fn zip_return_dtype(if_true: &DType, if_false: &DType) -> VortexResult<DType> {
+    vortex_ensure!(
+        if_true.eq_ignore_nullability(if_false),
+        "zip requires if_true and if_false to have the same base type, got {} and {}",
+        if_true,
+        if_false
+    );
+    Ok(if_true
+        .least_supertype(if_false)
+        .vortex_expect("zip inputs with the same base type must have a common dtype"))
 }
 
 fn zip_impl_with_builder(
