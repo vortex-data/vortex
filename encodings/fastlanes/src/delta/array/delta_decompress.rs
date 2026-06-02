@@ -15,16 +15,15 @@ use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+#[cfg(feature = "unstable_encodings")]
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use crate::BitPacked;
-use crate::BitPackedArrayExt;
 use crate::DeltaArray;
-use crate::FoR;
 use crate::bit_transpose::untranspose_validity;
 use crate::delta::array::DeltaArrayExt;
-use crate::r#for::FoRArrayExt;
+#[cfg(feature = "unstable_encodings")]
+use crate::{BitPacked, BitPackedArrayExt, FoR, r#for::FoRArrayExt};
 
 pub fn delta_decompress(
     array: &DeltaArray,
@@ -32,6 +31,7 @@ pub fn delta_decompress(
 ) -> VortexResult<PrimitiveArray> {
     // Fast path: a fully fused `delta(for(bitpacking))` decode that unpacks, applies the
     // frame-of-reference, and inverts the delta encoding in a single pass over the packed buffer.
+    #[cfg(feature = "unstable_encodings")]
     if let Some(decoded) = try_fused_for_bitpacking(array, ctx)? {
         return Ok(decoded);
     }
@@ -70,6 +70,7 @@ pub fn delta_decompress(
 /// deltas are unpacked, FoR-decoded, and un-delta'd in a single pass via
 /// [`Delta::unchecked_unfor_undelta_pack`]. Otherwise returns `None` so the caller falls back to the
 /// generic path.
+#[cfg(feature = "unstable_encodings")]
 pub(crate) fn try_fused_for_bitpacking(
     array: &DeltaArray,
     ctx: &mut ExecutionCtx,
@@ -132,6 +133,7 @@ pub(crate) fn try_fused_for_bitpacking(
 /// `packed` holds `num_values / 1024` chunks each of `128 * bit_width / size_of::<T>()` packed
 /// words. Each chunk is unpacked, FoR-decoded (wrapping-add `reference`) and un-delta'd in a single
 /// pass, then untransposed back into logical order.
+#[cfg(feature = "unstable_encodings")]
 pub(crate) fn decompress_fused<T, const LANES: usize>(
     bases: &[T],
     packed: &[T],

@@ -107,6 +107,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::primitive::PrimitiveArrayExt;
     use vortex_array::assert_arrays_eq;
+    #[cfg(feature = "unstable_encodings")]
     use vortex_array::match_each_unsigned_integer_ptype;
     use vortex_array::session::ArraySession;
     use vortex_error::VortexExpect;
@@ -114,10 +115,12 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::Delta;
+    #[cfg(feature = "unstable_encodings")]
     use crate::FoR;
     use crate::bitpack_compress::bitpack_encode;
     use crate::delta::array::delta_decompress::delta_decompress;
     use crate::delta_compress;
+    #[cfg(feature = "unstable_encodings")]
     use crate::r#for::FoRArrayExt;
 
     static SESSION: LazyLock<VortexSession> =
@@ -126,6 +129,7 @@ mod tests {
     /// Build a `delta(for(bitpacking))` stack from `array`: delta-encode, then FoR + bit-pack the
     /// resulting deltas. This is the exact tree the fused decode path in `delta_decompress`
     /// recognizes.
+    #[cfg(feature = "unstable_encodings")]
     fn build_delta_for_bitpacked(
         array: &PrimitiveArray,
         ctx: &mut vortex_array::ExecutionCtx,
@@ -161,6 +165,7 @@ mod tests {
     ///
     /// Lengths are exact multiples of 1024 so there is no zero-padding tail. (Padding can make a
     /// lane straddle the real/zero boundary, producing a wrapping delta that forces full width.)
+    #[cfg(feature = "unstable_encodings")]
     #[rstest]
     #[case::u32_non_decreasing((0u32..20_480).map(|i| i / 3).collect())]
     #[case::u64_non_decreasing((0u64..20_480).map(|i| (i / 5) * 2).collect())]

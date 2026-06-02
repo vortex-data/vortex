@@ -36,10 +36,13 @@ rand = { workspace = true }
 rstest = { workspace = true }
 vortex-alp = { path = "../alp" }
 vortex-array = { workspace = true, features = ["_test-harness"] }
-vortex-fastlanes = { path = ".", features = ["_test-harness"] }
+vortex-fastlanes = { path = ".", features = ["_test-harness", "unstable_encodings"] }
 
 [features]
 _test-harness = ["dep:rand"]
+# Unstable encodings/decoders with no stability guarantee. Enables the fused
+# delta(for(bitpacking)) decode kernel from the fastlanes crate.
+unstable_encodings = ["fastlanes/unstable"]
 
 [[bench]]
 name = "bitpacking_take"
@@ -67,6 +70,7 @@ harness = false
 [[bench]]
 name = "delta_for_bitpack"
 harness = false
+required-features = ["unstable_encodings"]
 
 [[bench]]
 name = "cast_bitpacked"

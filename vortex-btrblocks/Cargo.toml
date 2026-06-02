@@ -53,6 +53,7 @@ unstable_encodings = [
     "dep:vortex-tensor",
     "dep:vortex-onpair",
     "vortex-zstd?/unstable_encodings",
+    "vortex-fastlanes/unstable_encodings",
 ]
 pco = ["dep:pco", "dep:vortex-pco"]
 zstd = ["dep:vortex-zstd"]
