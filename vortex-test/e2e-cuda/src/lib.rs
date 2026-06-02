@@ -35,7 +35,6 @@ use vortex::array::ArrayRef as VortexArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::DecimalArray;
-use vortex::array::arrays::FixedSizeListArray;
 use vortex::array::arrays::ListArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
@@ -106,16 +105,6 @@ fn list_array() -> VortexArrayRef {
     .into_array()
 }
 
-fn fixed_size_list_array() -> VortexArrayRef {
-    FixedSizeListArray::new(
-        PrimitiveArray::from_iter(20i32..30).into_array(),
-        2,
-        Validity::from_iter([true, false, true, true, false]),
-        5,
-    )
-    .into_array()
-}
-
 /// # Safety
 /// called by C++ code.
 #[unsafe(no_mangle)]
@@ -149,22 +138,17 @@ pub unsafe extern "C" fn export_array(
         TimeUnit::Days,
     );
 
+    // cuDF's `from_arrow_device_column` has no Arrow FixedSizeList -> cudf type mapping, so a
+    // `fixed_lists` column would fail conversion even though Vortex exports it correctly (see the
+    // `test_export_fixed_size_list` unit test in vortex-cuda). Keep `lists`, which cuDF supports.
     let array = StructArray::new(
-        FieldNames::from_iter([
-            "prims",
-            "decimals",
-            "strings",
-            "dates",
-            "lists",
-            "fixed_lists",
-        ]),
+        FieldNames::from_iter(["prims", "decimals", "strings", "dates", "lists"]),
         vec![
             primitive,
             decimal.into_array(),
             strings.into_array(),
             dates.into_array(),
             list_array(),
-            fixed_size_list_array(),
         ],
         5,
         Validity::NonNullable,
@@ -223,14 +207,6 @@ pub unsafe extern "C" fn validate_array(
         .arrow()
         .execute_arrow(list_array(), None, &mut SESSION.create_execution_ctx())
         .expect("expected list Arrow array");
-    let fixed_size_list = SESSION
-        .arrow()
-        .execute_arrow(
-            fixed_size_list_array(),
-            None,
-            &mut SESSION.create_execution_ctx(),
-        )
-        .expect("expected fixed-size-list Arrow array");
 
     let expected_fields = Fields::from_iter([
         Field::new("prims", primitive.data_type().clone(), true),
@@ -238,7 +214,6 @@ pub unsafe extern "C" fn validate_array(
         Field::new("strings", string.data_type().clone(), true),
         Field::new("dates", date.data_type().clone(), true),
         Field::new("lists", list.data_type().clone(), true),
-        Field::new("fixed_lists", fixed_size_list.data_type().clone(), true),
     ]);
 
     assert_eq!(
@@ -254,7 +229,6 @@ pub unsafe extern "C" fn validate_array(
         Arc::new(string),
         Arc::new(date),
         list,
-        fixed_size_list,
     ];
 
     for (expected, actual) in expected_fields.iter().zip(struct_array.columns()) {
