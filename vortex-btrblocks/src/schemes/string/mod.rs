@@ -15,20 +15,17 @@ mod zstd_buffers;
 mod onpair;
 
 pub use fsst::FSSTScheme;
-pub use sparse::NullDominatedSparseScheme;
-
-#[cfg(feature = "zstd")]
-pub use zstd::ZstdScheme;
-#[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
-pub use zstd_buffers::ZstdBuffersScheme;
-
 #[cfg(feature = "unstable_encodings")]
 pub use onpair::OnPairScheme;
-
+pub use sparse::NullDominatedSparseScheme;
 // Re-export builtin schemes from vortex-compressor.
 pub use vortex_compressor::builtins::StringConstantScheme;
 pub use vortex_compressor::builtins::StringDictScheme;
 pub use vortex_compressor::stats::StringStats;
+#[cfg(feature = "zstd")]
+pub use zstd::ZstdScheme;
+#[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
+pub use zstd_buffers::ZstdBuffersScheme;
 
 #[cfg(test)]
 mod scheme_selection_tests;

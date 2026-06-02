@@ -16,23 +16,20 @@ mod pco;
 
 pub use bitpacking::BitPackingScheme;
 pub use frame_of_reference::FoRScheme;
-pub use rle::IntRLEScheme;
-pub use runend::RunEndScheme;
-pub use sequence::SequenceScheme;
-pub use sparse::SparseScheme;
-pub use zigzag::ZigZagScheme;
-
 #[cfg(feature = "pco")]
 pub use pco::PcoScheme;
-
+pub use rle::IntRLEScheme;
 pub(crate) use rle::rle_compress;
 #[cfg(feature = "unstable_encodings")]
 pub(crate) use rle::try_compress_delta;
-
+pub use runend::RunEndScheme;
+pub use sequence::SequenceScheme;
+pub use sparse::SparseScheme;
 // Re-export builtin schemes from vortex-compressor.
 pub use vortex_compressor::builtins::IntConstantScheme;
 pub use vortex_compressor::builtins::IntDictScheme;
 pub use vortex_compressor::stats::IntegerStats;
+pub use zigzag::ZigZagScheme;
 
 /// Threshold for the average run length in an array before we consider run-length encoding.
 pub(crate) const RUN_LENGTH_THRESHOLD: u32 = 4;

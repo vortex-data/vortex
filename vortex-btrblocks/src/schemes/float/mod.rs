@@ -13,12 +13,10 @@ mod pco;
 
 pub use alp::ALPScheme;
 pub use alprd::ALPRDScheme;
-pub use rle::FloatRLEScheme;
-pub use sparse::NullDominatedSparseScheme;
-
 #[cfg(feature = "pco")]
 pub use pco::PcoScheme;
-
+pub use rle::FloatRLEScheme;
+pub use sparse::NullDominatedSparseScheme;
 // Re-export builtin schemes from vortex-compressor.
 pub use vortex_compressor::builtins::FloatConstantScheme;
 pub use vortex_compressor::builtins::FloatDictScheme;
