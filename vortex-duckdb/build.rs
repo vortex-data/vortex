@@ -381,15 +381,17 @@ fn bindgen_c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
     }
 }
 
-/// Configure the C++ warning flags and the DuckDB header include path on `build`.
+/// Configure the C++ compiler flags and the DuckDB header include path on `build`.
 ///
 /// MSVC's `cl` does not understand the GCC/Clang `-W*`/`-isystem` flags, so it gets `/W4`
-/// and a plain include. We deliberately do not enable `/WX` (warnings-as-errors) there, so
-/// warnings originating inside the DuckDB headers don't fail the build. Other toolchains
-/// keep the stricter `-Werror` set with the headers added via `-isystem` for the same reason.
+/// and a plain include. It also needs `/EHsc` to enable standard C++ exception unwinding
+/// (which the DuckDB headers rely on). We deliberately do not enable `/WX`
+/// (warnings-as-errors) there, so warnings originating inside the DuckDB headers don't fail
+/// the build. Other toolchains keep the stricter `-Werror` set with the headers added via
+/// `-isystem` for the same reason.
 fn configure_cpp_warnings(build: &mut cc::Build, duckdb_include_dir: &Path) {
     if target_is_msvc() {
-        build.flag("/W4").include(duckdb_include_dir);
+        build.flag("/W4").flag("/EHsc").include(duckdb_include_dir);
     } else {
         build
             .flags(["-Wall", "-Wextra", "-Wpedantic", "-Werror"])

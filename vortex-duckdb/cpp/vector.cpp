@@ -160,6 +160,10 @@ void duckdb_vx_vector_set_all_valid(duckdb_vector ffi_vector) {
     case FSST_VECTOR:
         return FSSTVector::Validity(vector).Reset();
     default:
+#if defined(_MSC_VER)
+        __assume(false);
+#else
         __builtin_unreachable();
+#endif
     }
 }
