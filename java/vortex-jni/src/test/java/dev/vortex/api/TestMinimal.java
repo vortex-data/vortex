@@ -5,6 +5,7 @@ package dev.vortex.api;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import dev.vortex.arrow.ArrowAllocation;
 import dev.vortex.jni.NativeLoader;
@@ -31,6 +32,7 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.roaringbitmap.longlong.Roaring64NavigableMap;
 
 public final class TestMinimal {
     static final class Person {
@@ -180,6 +182,58 @@ public final class TestMinimal {
         assertEquals(List.of(new Person("John", BigDecimal.valueOf(10_000L, 2), "VA")), people);
     }
 
+    @Test
+    public void testSelectionIncludesRows() throws Exception {
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Session session = Session.create();
+        DataSource ds = DataSource.open(session, writePath);
+
+        List<Person> people = readAll(ds, ScanOptions.includeRows(0, 3, 9), allocator, TestMinimal::readFullBatch);
+        assertEquals(List.of(MINIMAL_DATA.get(0), MINIMAL_DATA.get(3), MINIMAL_DATA.get(9)), people);
+    }
+
+    @Test
+    public void testSelectionExcludesRows() throws Exception {
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Session session = Session.create();
+        DataSource ds = DataSource.open(session, writePath);
+
+        List<Person> people = readAll(ds, ScanOptions.excludeRows(0, 9), allocator, TestMinimal::readFullBatch);
+        assertEquals(MINIMAL_DATA.subList(1, 9), people);
+    }
+
+    @Test
+    public void testRoaringSelectionIncludesRows() throws Exception {
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Session session = Session.create();
+        DataSource ds = DataSource.open(session, writePath);
+
+        List<Person> people =
+                readAll(ds, ScanOptions.includeRows(roaringRows(0, 3, 9)), allocator, TestMinimal::readFullBatch);
+        assertEquals(List.of(MINIMAL_DATA.get(0), MINIMAL_DATA.get(3), MINIMAL_DATA.get(9)), people);
+    }
+
+    @Test
+    public void testRoaringSelectionExcludesRows() throws Exception {
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Session session = Session.create();
+        DataSource ds = DataSource.open(session, writePath);
+
+        List<Person> people =
+                readAll(ds, ScanOptions.excludeRows(roaringRows(0, 9)), allocator, TestMinimal::readFullBatch);
+        assertEquals(MINIMAL_DATA.subList(1, 9), people);
+    }
+
+    @Test
+    public void testSelectionIndicesMustBeSortedAndUnique() {
+        Session session = Session.create();
+        DataSource ds = DataSource.open(session, writePath);
+        ScanOptions options = ScanOptions.includeRows(2, 1);
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> ds.scan(options));
+        assertEquals("selection indices must be sorted ascending and unique", exception.getMessage());
+    }
+
     private interface BatchReader {
         List<Person> read(VectorSchemaRoot root);
     }
@@ -220,5 +274,13 @@ public final class TestMinimal {
             result.add(new Person(name, salary, state));
         }
         return result;
+    }
+
+    private static Roaring64NavigableMap roaringRows(long... rows) {
+        Roaring64NavigableMap bitmap = new Roaring64NavigableMap();
+        for (long row : rows) {
+            bitmap.addLong(row);
+        }
+        return bitmap;
     }
 }

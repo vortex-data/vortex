@@ -9809,6 +9809,7 @@ dependencies = [
  "jni",
  "object_store 0.13.2",
  "parking_lot",
+ "roaring",
  "thiserror 2.0.18",
  "tracing",
  "tracing-subscriber",
