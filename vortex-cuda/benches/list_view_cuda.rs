@@ -4,7 +4,6 @@
 //! CUDA benchmarks for Arrow Device export of Vortex list-view arrays.
 
 #![expect(clippy::cast_possible_truncation)]
-#![expect(clippy::unwrap_used)]
 
 #[allow(dead_code)]
 mod bench_config;

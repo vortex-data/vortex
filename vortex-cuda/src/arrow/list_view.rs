@@ -102,6 +102,7 @@ enum DeviceListViewOffsets {
 }
 
 /// Build cuDF-supported `i32` Arrow `List` offsets for a contiguous device-resident list-view.
+#[expect(clippy::cognitive_complexity)]
 async fn export_device_list_view_offsets(
     offsets_ptype: PType,
     offsets_buffer: BufferHandle,
@@ -316,6 +317,7 @@ where
     Ok(output_values)
 }
 
+#[expect(clippy::cognitive_complexity, clippy::too_many_arguments)]
 async fn export_rebuilt_primitive_list_view(
     elements: ArrayRef,
     offsets_ptype: PType,

@@ -700,6 +700,7 @@ mod tests {
         primitive_on_device(values, ctx).await
     }
 
+    #[expect(clippy::cast_possible_truncation)]
     async fn integer_array_on_device(
         ptype: PType,
         values: &[i64],
