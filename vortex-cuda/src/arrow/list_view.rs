@@ -5,15 +5,6 @@
 
 use std::sync::Arc;
 
-use super::ArrowArray;
-use super::SyncEvent;
-use super::canonical::export_arrow_validity_buffer;
-use super::canonical::export_list_layout;
-use crate::CudaBufferExt;
-use crate::CudaDeviceBuffer;
-use crate::CudaExecutionCtx;
-use crate::cub::exclusive_sum_i32;
-use crate::executor::CudaArrayExt;
 use cudarc::driver::CudaSlice;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
@@ -33,6 +24,16 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
+
+use super::ArrowArray;
+use super::SyncEvent;
+use super::canonical::export_arrow_validity_buffer;
+use super::canonical::export_list_layout;
+use crate::CudaBufferExt;
+use crate::CudaDeviceBuffer;
+use crate::CudaExecutionCtx;
+use crate::cub::exclusive_sum_i32;
+use crate::executor::CudaArrayExt;
 
 /// Export a device-resident Vortex list-view as Arrow `List` without staging offsets on host.
 ///

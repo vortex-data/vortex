@@ -4,15 +4,6 @@
 use std::mem;
 use std::ptr;
 
-use super::list_view::export_device_list_view;
-use crate::CudaExecutionCtx;
-use crate::arrow::ARROW_DEVICE_CUDA;
-use crate::arrow::ArrowArray;
-use crate::arrow::ArrowDeviceArray;
-use crate::arrow::ExportDeviceArray;
-use crate::arrow::PrivateData;
-use crate::arrow::SyncEvent;
-use crate::executor::CudaArrayExt;
 use async_trait::async_trait;
 use futures::future::BoxFuture;
 use vortex::array::ArrayRef;
@@ -47,6 +38,16 @@ use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex::extension::datetime::AnyTemporal;
 use vortex::mask::Mask;
+
+use super::list_view::export_device_list_view;
+use crate::CudaExecutionCtx;
+use crate::arrow::ARROW_DEVICE_CUDA;
+use crate::arrow::ArrowArray;
+use crate::arrow::ArrowDeviceArray;
+use crate::arrow::ExportDeviceArray;
+use crate::arrow::PrivateData;
+use crate::arrow::SyncEvent;
+use crate::executor::CudaArrayExt;
 
 /// An implementation of `ExportDeviceArray` that exports Vortex arrays to `ArrowDeviceArray` by
 /// first decoding the array on the GPU and then converting the canonical type to the nearest
