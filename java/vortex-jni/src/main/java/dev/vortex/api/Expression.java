@@ -42,8 +42,10 @@ public final class Expression {
     }
 
     /**
-     * The row-index expression. When evaluated as part of a Vortex scan it yields the zero-based index of each row
-     * within the file as a non-nullable {@code u64}. It cannot be evaluated outside of a scan.
+     * The row-index expression. When evaluated as part of a Vortex scan it yields, as a non-nullable {@code u64}, each
+     * row's index in the file <em>before</em> filtering: the index is assigned to the unfiltered rows, so filtered-out
+     * rows leave gaps and the surviving rows keep their original positions rather than being renumbered. It cannot be
+     * evaluated outside of a scan.
      */
     public static Expression rowIdx() {
         return new Expression(NativeExpression.rowIdx());
