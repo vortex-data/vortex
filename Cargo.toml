@@ -401,6 +401,13 @@ lto = false
 debug-assertions = true
 inherits = "bench"
 
+# Third-party dependencies are rarely stepped through in a debugger, so building
+# them without debuginfo cuts a large amount of codegen and link work from clean
+# `dev` builds (~20% less CPU) while keeping full debuginfo on the workspace
+# crates we actually profile. This applies to all non-workspace deps.
+[profile.dev.package."*"]
+debug = false
+
 [profile.ci]
 inherits = "dev"
 debug = "line-tables-only"
