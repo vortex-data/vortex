@@ -68,3 +68,8 @@ harness = false
 name = "cast_bitpacked"
 harness = false
 required-features = ["_test-harness"]
+
+[[bench]]
+name = "delta_scalar_at"
+harness = false
+required-features = ["_test-harness"]

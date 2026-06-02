@@ -12,7 +12,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use super::Delta;
-use crate::bit_transpose::untranspose_validity;
 use crate::delta::array::DeltaArrayExt;
 use crate::delta::array::lane_count;
 
@@ -44,7 +43,9 @@ impl OperationsVTable<Delta> for Delta {
         let chunk = physical / 1024;
         let chunk_local = physical % 1024;
 
-        // Materialize only this chunk's bases and deltas.
+        // Materialize only this chunk's bases and deltas. Validity is handled by the generic
+        // `execute_scalar` guard before dispatch, so (as in bitpacking) we only reconstruct the
+        // value here.
         let bases = array
             .bases()
             .slice(chunk * lanes..(chunk + 1) * lanes)?
@@ -53,14 +54,6 @@ impl OperationsVTable<Delta> for Delta {
             .deltas()
             .slice(chunk * 1024..(chunk + 1) * 1024)?
             .execute::<PrimitiveArray>(ctx)?;
-
-        // Validity is stored in the (bit-)transposed deltas buffer; untranspose the chunk's mask
-        // and look up this value's logical position. The element transpose and the bit transpose
-        // use different layouts, so this is kept separate from the value reconstruction below.
-        let validity = untranspose_validity(&deltas.validity()?, ctx)?;
-        if !validity.is_valid(chunk_local)? {
-            return Ok(Scalar::null(array.dtype().clone()));
-        }
 
         // Position of this value within the FastLanes-transposed (delta-encoded) value buffer.
         let transposed = untranspose_index(chunk_local);
