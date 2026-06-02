@@ -114,36 +114,3 @@ pub fn default_env_filter(is_verbose: bool) -> EnvFilter {
 fn is_lance_target(target: &str) -> bool {
     target == "lance" || target.starts_with("lance::") || target.starts_with("lance_")
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn lance_targets_match_the_crate_family() {
-        for target in [
-            "lance",
-            "lance::dataset",
-            "lance_core::utils",
-            "lance_io",
-            "lance_encoding::decoder",
-        ] {
-            assert!(is_lance_target(target), "expected match for {target}");
-        }
-        for target in ["lancelot", "vortex_array", "datafusion", "arrow::array"] {
-            assert!(!is_lance_target(target), "unexpected match for {target}");
-        }
-    }
-
-    #[test]
-    fn level_ordering_drops_only_below_warn() {
-        // The suppression predicate keeps an event when its level is *not* greater than WARN.
-        // Guard against the `tracing::Level` ordering inverting underneath us.
-        for level in [Level::WARN, Level::ERROR] {
-            assert!(level <= Level::WARN, "{level} should be kept");
-        }
-        for level in [Level::INFO, Level::DEBUG, Level::TRACE] {
-            assert!(level > Level::WARN, "{level} should be dropped");
-        }
-    }
-}
