@@ -451,6 +451,30 @@ fn rpath_link_arg(library_dir: &Path) -> Option<String> {
     }
 }
 
+/// On Windows, copy `duckdb.dll` next to the built artifacts so the loader can find it at
+/// run time. Windows has no rpath: a DLL is resolved from the executable's own directory or
+/// from `PATH`. We place it in the Cargo profile dir and its `deps/` subdir (where `nextest`
+/// runs test executables). No-op elsewhere, where rpath / `*_LIBRARY_PATH` handle this.
+fn copy_runtime_dll(library_dir: &Path, out_dir: &Path) {
+    if !target_is_windows() {
+        return;
+    }
+    let dll = library_dir.join("duckdb.dll");
+    if !dll.exists() {
+        return;
+    }
+    // OUT_DIR is `<target>/<profile>/build/<pkg>/out`; the profile dir four levels up holds
+    // the binaries and its `deps/` holds the test executables.
+    let Some(profile_dir) = out_dir.ancestors().nth(3) else {
+        return;
+    };
+    for dir in [profile_dir.to_path_buf(), profile_dir.join("deps")] {
+        if dir.is_dir() {
+            drop(fs::copy(&dll, dir.join("duckdb.dll")));
+        }
+    }
+}
+
 /// Create a convenience symlink `crate_dir/duckdb` -> the extracted DuckDB source tree.
 /// This is purely for editor/tooling navigation; the build uses the source path directly.
 /// Only created on unix, where the symlink API needs no special privilege.
@@ -555,6 +579,8 @@ fn main() {
     } else {
         download(&version, &library_dir);
     };
+
+    copy_runtime_dll(&library_dir, &out_dir);
 
     let duckdb_include_dir = inner_dir.join("src").join("include");
     println!("cargo:rerun-if-changed=cpp/include");

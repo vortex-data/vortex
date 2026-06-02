@@ -332,6 +332,10 @@ jobs:
             --exclude lance-bench --exclude datafusion-bench --exclude random-access-bench `
             --exclude compress-bench --exclude xtask --exclude vortex-datafusion `
             --exclude gpu-scan-cli --exclude vortex-sqllogictest
+      - name: Rust Tests (Windows - DuckDB)
+        if: matrix.os == 'windows-x64'
+        run: |
+          cargo nextest run --cargo-profile ci --locked -p vortex-duckdb --all-features --no-fail-fast
       - name: Rust Tests (Other)
         if: matrix.os != 'windows-x64'
         run: |
