@@ -16,6 +16,7 @@ pub use array::SequenceArray;
 pub use array::SequenceData;
 pub use array::SequenceDataParts;
 pub use compress::sequence_encode;
+pub use compress::sequence_parts;
 use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;

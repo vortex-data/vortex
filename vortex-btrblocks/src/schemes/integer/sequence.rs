@@ -20,6 +20,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_sequence::sequence_encode;
+use vortex_sequence::sequence_parts;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
@@ -82,17 +83,10 @@ impl Scheme for SequenceScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        // If the distinct_values_count was computed, and not all values are unique, then this
-        // cannot be encoded as a sequence array.
-        if stats
-            .distinct_count()
-            .is_some_and(|count| count as usize != data.array_len())
-        {
+        if !stats.estimated_distinct_count_could_equal(data.array_len()) {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        // TODO(connor): `sequence_encode` allocates the encoded array just to confirm feasibility.
-        // A cheaper `is_sequence` probe would let us skip the allocation entirely.
         CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
             |_compressor, data, best_so_far, _ctx, exec_ctx| {
                 // `SequenceArray` stores exactly two scalars (base and multiplier), so the best
@@ -107,9 +101,7 @@ impl Scheme for SequenceScheme {
                     return Ok(EstimateVerdict::Skip);
                 }
 
-                // TODO(connor): We should pass this array back to the compressor in the case that
-                // we do want to sequence encode this so that we do not need to recompress.
-                if sequence_encode(data.array_as_primitive(), exec_ctx)?.is_none() {
+                if sequence_parts(data.array_as_primitive(), exec_ctx)?.is_none() {
                     return Ok(EstimateVerdict::Skip);
                 }
                 // TODO(connor): Should we get the actual ratio here?

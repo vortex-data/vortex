@@ -23,6 +23,13 @@ use vortex_mask::AllOr;
 use super::GenerateStatsOptions;
 use super::cardinality::CardinalityEstimator;
 
+/// Expected relative error for the default cardinality estimator precision.
+///
+/// Cloudflare's default `P=12` HLL++ parameters document this as `1.04 / sqrt(2^12)`.
+const DISTINCT_COUNT_ERROR_NUMERATOR: usize = 65;
+/// Denominator for the default cardinality estimator expected relative error.
+const DISTINCT_COUNT_ERROR_DENOMINATOR: usize = 4_000;
+
 /// Information about the distinct values in an integer array.
 ///
 /// The `distinct_count` is an estimate computed using Cloudflare's cardinality estimator, which
@@ -265,10 +272,28 @@ impl IntegerStats {
         self.erased.distinct_count()
     }
 
+    /// Returns true if the estimated distinct count could equal `count` within the estimator's
+    /// expected error bound.
+    pub fn estimated_distinct_count_could_equal(&self, count: usize) -> bool {
+        let Some(distinct_count) = self.distinct_count() else {
+            return true;
+        };
+
+        let error_bound = distinct_count_error_bound(count);
+        (distinct_count as usize).abs_diff(count) <= error_bound
+    }
+
     /// Get the most commonly occurring value and its count, if we have computed it already.
     pub fn most_frequent_value_and_count(&self) -> Option<(PValue, u32)> {
         self.erased.most_frequent_value_and_count()
     }
+}
+
+/// Returns the absolute error bound for an expected distinct count.
+fn distinct_count_error_bound(count: usize) -> usize {
+    count
+        .saturating_mul(DISTINCT_COUNT_ERROR_NUMERATOR)
+        .div_ceil(DISTINCT_COUNT_ERROR_DENOMINATOR)
 }
 
 impl IntegerStats {
@@ -719,6 +744,25 @@ mod tests {
             error_ratio < 0.05,
             "estimator error {error_ratio} exceeds 5% for 1024 distinct values"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_estimated_distinct_count_could_equal() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let unique =
+            PrimitiveArray::new((0..1024u32).collect::<Buffer<u32>>(), Validity::NonNullable);
+        let unique_stats = typed_int_stats::<u32>(&unique, true, &mut ctx)?;
+        assert!(unique_stats.estimated_distinct_count_could_equal(1024));
+
+        let low_cardinality = PrimitiveArray::new(
+            (0..1024u32).map(|value| value % 8).collect::<Buffer<u32>>(),
+            Validity::NonNullable,
+        );
+        let low_cardinality_stats = typed_int_stats::<u32>(&low_cardinality, true, &mut ctx)?;
+        assert!(!low_cardinality_stats.estimated_distinct_count_could_equal(1024));
+
         Ok(())
     }
 }
