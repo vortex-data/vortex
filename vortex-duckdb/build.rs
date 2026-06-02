@@ -23,13 +23,6 @@ const DUCKDB_SOURCE_RELEASE_URL: &str = "https://github.com/duckdb/duckdb/archiv
 const DUCKDB_SOURCE_COMMIT_URL: &str = "https://github.com/duckdb/duckdb/archive";
 const DEFAULT_DUCKDB_VERSION: &str = "1.5.3";
 
-const BUILD_ARTIFACTS: [&str; 4] = [
-    "libduckdb.dylib",
-    "libduckdb.so",
-    "libduckdb_static.a",
-    "duckdb.dll",
-];
-
 const SOURCE_FILES: [&str; 17] = [
     "cpp/client_context.cpp",
     "cpp/config.cpp",
@@ -67,6 +60,19 @@ fn target_is_msvc() -> bool {
 /// host-vs-target reason as [`target_is_msvc`].
 fn target_is_windows() -> bool {
     env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
+}
+
+/// The DuckDB library files to look for on the current target.
+///
+/// DuckDB names its shared library per-OS (`.dylib` / `.so` / `.dll`) and, on unix, also
+/// emits a static archive. We probe for these after a download or source build and copy
+/// whichever exist, so the list must reflect the target rather than mixing every OS.
+fn build_artifacts() -> &'static [&'static str] {
+    match env::var("CARGO_CFG_TARGET_OS").as_deref() {
+        Ok("macos") => &["libduckdb.dylib", "libduckdb_static.a"],
+        Ok("windows") => &["duckdb.dll"],
+        _ => &["libduckdb.so", "libduckdb_static.a"],
+    }
 }
 
 #[derive(Debug)]
@@ -216,7 +222,7 @@ fn download(version: &DuckDBVersion, library_dir: &Path) {
     download_url(&url, &archive_path);
 
     let duckdb_lib_dir = archive_path.parent().unwrap().to_path_buf();
-    for artifact in BUILD_ARTIFACTS {
+    for artifact in build_artifacts() {
         if duckdb_lib_dir.join(artifact).exists() {
             return;
         }
@@ -288,7 +294,7 @@ fn try_build_duckdb(
     let build_src_dir = build_dir.join("src");
 
     let mut build = true;
-    for artifact in BUILD_ARTIFACTS {
+    for artifact in build_artifacts() {
         let path = build_src_dir.join(artifact);
         if path.exists() {
             println!("cargo:info=Found {artifact} in {}", path.display());
@@ -311,7 +317,7 @@ fn try_build_duckdb(
     fs::create_dir_all(library_dir).unwrap();
 
     let mut found_artifact = false;
-    for artifact in BUILD_ARTIFACTS {
+    for artifact in build_artifacts() {
         let src = build_src_dir.join(artifact);
         if !src.exists() {
             continue;
@@ -322,7 +328,7 @@ fn try_build_duckdb(
     }
 
     if !found_artifact {
-        let artifacts = BUILD_ARTIFACTS.join(",");
+        let artifacts = build_artifacts().join(",");
         println!("cargo:error=Failed to find any of {artifacts} after build");
         exit(1);
     }
