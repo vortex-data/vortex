@@ -224,10 +224,10 @@ fn dot_product_quantized_accuracy() -> VortexResult<()> {
     reason = "test uses known small dimensions"
 )]
 fn sorf_transform_roundtrip_isolation() -> VortexResult<()> {
+    use vortex_array::EmptyMetadata;
     use vortex_array::IntoArray;
     use vortex_array::arrays::dict::DictArray;
     use vortex_array::dtype::extension::ExtDType;
-    use vortex_array::extension::EmptyMetadata;
     use vortex_array::validity::Validity;
     use vortex_buffer::BufferMut;
 

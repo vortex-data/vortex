@@ -95,7 +95,7 @@
 //! use vortex_array::arrays::ExtensionArray;
 //! use vortex_array::arrays::FixedSizeListArray;
 //! use vortex_array::arrays::PrimitiveArray;
-//! use vortex_array::extension::EmptyMetadata;
+//! use vortex_array::EmptyMetadata;
 //! use vortex_array::session::ArraySession;
 //! use vortex_array::validity::Validity;
 //! use vortex_buffer::BufferMut;

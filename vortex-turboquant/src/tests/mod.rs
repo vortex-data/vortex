@@ -7,6 +7,7 @@
 )]
 
 use vortex_array::ArrayRef;
+use vortex_array::EmptyMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
@@ -17,7 +18,6 @@ use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
-use vortex_array::extension::EmptyMetadata;
 use vortex_array::memory::MemorySession;
 use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
