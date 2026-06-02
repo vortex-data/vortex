@@ -334,7 +334,16 @@ jobs:
             --exclude gpu-scan-cli --exclude vortex-sqllogictest
       - name: Rust Tests (Windows - DuckDB)
         if: matrix.os == 'windows-x64'
+        shell: pwsh
         run: |
+          # vortex-duckdb's build.rs runs bindgen, which needs libclang. Use the
+          # preinstalled LLVM if present, otherwise install it via Chocolatey.
+          $llvm = "C:\Program Files\LLVM\bin"
+          if (-not (Test-Path "$llvm\libclang.dll")) {
+            choco install llvm --no-progress -y
+          }
+          echo "LIBCLANG_PATH=$llvm" >> $env:GITHUB_ENV
+          $env:LIBCLANG_PATH = $llvm
           cargo nextest run --cargo-profile ci --locked -p vortex-duckdb --all-features --no-fail-fast
       - name: Rust Tests (Other)
         if: matrix.os != 'windows-x64'
