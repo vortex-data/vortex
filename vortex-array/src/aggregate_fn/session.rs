@@ -41,7 +41,11 @@ use crate::arrays::dict::compute::is_constant::DictIsConstantKernel;
 use crate::arrays::dict::compute::is_sorted::DictIsSortedKernel;
 use crate::arrays::dict::compute::min_max::DictMinMaxKernel;
 
-/// Session state for aggregate function vtables.
+/// Session state for aggregate functions and encoding-specific aggregate kernels.
+///
+/// The default session registers the built-in aggregate functions and kernels. Additional
+/// aggregate functions and kernels may be registered by extensions when they are added to a
+/// [`VortexSession`](vortex_session::VortexSession).
 #[derive(Debug)]
 pub struct AggregateFnSession {
     registry: ArcSwapMap<AggregateFnId, AggregateFnPluginRef>,
@@ -101,7 +105,7 @@ impl Default for AggregateFnSession {
 }
 
 impl AggregateFnSession {
-    /// Find plugin in the registry for the given id
+    /// Returns the aggregate function plugin registered for `id`, if any.
     pub fn find_plugin(&self, id: &AggregateFnId) -> Option<AggregateFnPluginRef> {
         self.registry.get(id)
     }
@@ -114,6 +118,10 @@ impl AggregateFnSession {
         self.registry.insert(id, pluginref);
     }
 
+    /// Returns the aggregate kernel registered for `array_id` and `agg_fn_id`, if any.
+    ///
+    /// Lookup first checks for a kernel registered for the exact aggregate function, then falls
+    /// back to a kernel registered for all aggregate functions on the same array encoding.
     pub fn find_aggregate_kernel(
         &self,
         array_id: impl Into<ArrayId>,
@@ -129,7 +137,11 @@ impl AggregateFnSession {
         })
     }
 
-    /// Register an aggregate function kernel for a specific aggregate function and array type.
+    /// Registers an aggregate kernel for an array encoding.
+    ///
+    /// When `agg_fn_id` is `Some`, the kernel is used only for that aggregate function. When
+    /// `agg_fn_id` is `None`, the kernel is used as the fallback for aggregate functions on the
+    /// array encoding that do not have a more specific kernel.
     pub fn register_aggregate_kernel(
         &self,
         array_id: impl Into<ArrayId>,
@@ -140,6 +152,10 @@ impl AggregateFnSession {
         self.kernels.insert(id, kernel);
     }
 
+    /// Returns the grouped aggregate kernel registered for `array_id` and `agg_fn_id`, if any.
+    ///
+    /// Lookup first checks for a kernel registered for the exact aggregate function, then falls
+    /// back to a kernel registered for all aggregate functions on the same array encoding.
     pub fn find_grouped_kernel(
         &self,
         array_id: impl Into<ArrayId>,
@@ -155,6 +171,7 @@ impl AggregateFnSession {
         })
     }
 
+    /// Registers a grouped aggregate kernel for a specific aggregate function and array encoding.
     pub fn register_grouped_kernel(
         &self,
         array_id: impl Into<ArrayId>,
@@ -169,7 +186,7 @@ impl AggregateFnSession {
 
 /// Extension trait for accessing aggregate function session data.
 pub trait AggregateFnSessionExt: SessionExt {
-    /// Returns the aggregate function vtable registry.
+    /// Returns the aggregate function session data.
     fn aggregate_fns(&self) -> Ref<'_, AggregateFnSession> {
         self.get::<AggregateFnSession>()
     }
