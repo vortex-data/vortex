@@ -11,7 +11,7 @@
 //! * `delta_for_fastlanes`  : `Delta <- { bases: FoR <- BitPacked, deltas: FoR <- BitPacked }`
 //! * `delta_bitpacked`      : `Delta <- { bases: FoR <- BitPacked, deltas: BitPacked }` — the tree
 //!   the BtrBlocks compressor emits for RLE run indices, and the one decoded by the fused
-//!   `delta_decompress` fast path (fused `undelta_pack`).
+//!   `delta_decompress` fast path (per-chunk unpack feeding straight into `undelta`).
 
 #![expect(clippy::unwrap_used)]
 
