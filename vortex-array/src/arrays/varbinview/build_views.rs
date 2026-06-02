@@ -24,53 +24,87 @@ pub fn offsets_to_lengths<P: NativePType>(offsets: &[P]) -> Buffer<P> {
 /// Maximum number of buffer bytes that can be referenced by a single `BinaryView`
 pub const MAX_BUFFER_LEN: usize = i32::MAX as usize;
 
-/// Split a large buffer of input `bytes` holding string data
+/// Split a large buffer of input `bytes` holding string data into `VarBinView` buffers and views.
+///
+/// `max_buffer_len` must not exceed [`MAX_BUFFER_LEN`], since every view offset is stored in a
+/// `u32` and offsets are bounded by `max_buffer_len`.
 pub fn build_views<P: NativePType + AsPrimitive<usize>>(
+    start_buf_index: u32,
+    max_buffer_len: usize,
+    bytes: ByteBufferMut,
+    lens: &[P],
+) -> (Vec<ByteBuffer>, Buffer<BinaryView>) {
+    assert!(
+        max_buffer_len <= MAX_BUFFER_LEN,
+        "max_buffer_len cannot exceed MAX_BUFFER_LEN, offsets must fit in u32"
+    );
+
+    if bytes.len() <= max_buffer_len {
+        // Common case: the whole decoded heap fits within a single buffer, so no rollover can occur
+        // (`bytes.len()` is the total decoded size and therefore an upper bound on every offset).
+        build_views_single_buffer(start_buf_index, bytes, lens)
+    } else {
+        build_views_rolling(start_buf_index, max_buffer_len, bytes, lens)
+    }
+}
+
+/// Build views when the whole heap fits in a single output buffer.
+///
+/// Because no rollover can occur, the hot loop drops the per-element rollover branch and constructs
+/// reference views inline, avoiding the out-of-line `BinaryView::make_view` call for the common
+/// long-string case. Every offset is bounded by `bytes.len()`, which the caller has guaranteed is
+/// at most [`MAX_BUFFER_LEN`], so the `usize -> u32` conversions cannot truncate.
+fn build_views_single_buffer<P: NativePType + AsPrimitive<usize>>(
+    start_buf_index: u32,
+    bytes: ByteBufferMut,
+    lens: &[P],
+) -> (Vec<ByteBuffer>, Buffer<BinaryView>) {
+    let mut views = BufferMut::<BinaryView>::with_capacity(lens.len());
+
+    let data = bytes.as_slice();
+    let mut offset = 0usize;
+    // Write directly into the reserved spare capacity rather than `push_unchecked`. The latter
+    // advances the backing buffer's length on every call, which the optimizer cannot prove is
+    // loop-invariant, so it reloads and rewrites the output cursor through the stack each
+    // iteration. Writing into the spare slice keeps the cursor in a register and the length is
+    // set once after the loop.
+    let spare = views.spare_capacity_mut();
+    for (slot, &len) in spare.iter_mut().zip(lens) {
+        let len = len.as_();
+        let value = &data[offset..offset + len];
+        let view = if len > BinaryView::MAX_INLINED_SIZE {
+            let mut prefix = [0u8; 4];
+            prefix.copy_from_slice(&value[..4]);
+            BinaryView::new_ref(len.as_(), prefix, start_buf_index, offset.as_())
+        } else {
+            BinaryView::make_view(value, start_buf_index, offset.as_())
+        };
+        slot.write(view);
+        offset += len;
+    }
+    // SAFETY: the loop initialized exactly `lens.len()` contiguous views (`spare` has at least
+    //  `lens.len()` slots, and `zip` stops at the shorter operand).
+    unsafe { views.set_len(lens.len()) };
+
+    let buffers = if bytes.is_empty() {
+        Vec::new()
+    } else {
+        vec![bytes.freeze()]
+    };
+    (buffers, views.freeze())
+}
+
+/// Build views when the heap exceeds `max_buffer_len` and must be split across multiple buffers.
+///
+/// The buffer is rolled over every `max_buffer_len` bytes so that no view offset overflows the
+/// `u32` offset field.
+fn build_views_rolling<P: NativePType + AsPrimitive<usize>>(
     start_buf_index: u32,
     max_buffer_len: usize,
     mut bytes: ByteBufferMut,
     lens: &[P],
 ) -> (Vec<ByteBuffer>, Buffer<BinaryView>) {
     let mut views = BufferMut::<BinaryView>::with_capacity(lens.len());
-
-    // Common case: the whole decoded heap fits within a single buffer, so no rollover can occur
-    // (`bytes.len()` is the total decoded size and therefore an upper bound on every offset). This
-    // lets the hot loop drop the per-element rollover branch and construct reference views inline,
-    // avoiding the out-of-line `BinaryView::make_view` call for the common long-string case.
-    if bytes.len() <= max_buffer_len {
-        let data = bytes.as_slice();
-        let mut offset = 0usize;
-        // Write directly into the reserved spare capacity rather than `push_unchecked`. The latter
-        // advances the backing buffer's length on every call, which the optimizer cannot prove is
-        // loop-invariant, so it reloads and rewrites the output cursor through the stack each
-        // iteration. Writing into the spare slice keeps the cursor in a register and the length is
-        // set once after the loop.
-        let spare = views.spare_capacity_mut();
-        for (slot, &len) in spare.iter_mut().zip(lens) {
-            let len = len.as_();
-            let value = &data[offset..offset + len];
-            let view = if len > BinaryView::MAX_INLINED_SIZE {
-                let mut prefix = [0u8; 4];
-                prefix.copy_from_slice(&value[..4]);
-                BinaryView::new_ref(len.as_(), prefix, start_buf_index, offset.as_())
-            } else {
-                BinaryView::make_view(value, start_buf_index, offset.as_())
-            };
-            slot.write(view);
-            offset += len;
-        }
-        // SAFETY: the loop initialized exactly `lens.len()` contiguous views (`spare` has at least
-        //  `lens.len()` slots, and `zip` stops at the shorter operand).
-        unsafe { views.set_len(lens.len()) };
-
-        let buffers = if bytes.is_empty() {
-            Vec::new()
-        } else {
-            vec![bytes.freeze()]
-        };
-        return (buffers, views.freeze());
-    }
-
     let mut buffers = Vec::new();
     let mut buf_index = start_buf_index;
 
@@ -407,5 +441,16 @@ mod tests {
                 BinaryView::make_view(b"ddddddddddddd", 1, 13),
             ]
         )
+    }
+
+    #[test]
+    #[should_panic(expected = "max_buffer_len cannot exceed MAX_BUFFER_LEN")]
+    fn test_max_buffer_len_too_large_panics() {
+        build_views(
+            0,
+            MAX_BUFFER_LEN + 1,
+            ByteBufferMut::copy_from("abc"),
+            &[3u32],
+        );
     }
 }

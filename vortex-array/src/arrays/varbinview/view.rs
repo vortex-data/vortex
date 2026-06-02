@@ -150,17 +150,15 @@ impl BinaryView {
             12 => Self {
                 inlined: Inlined::new::<12>(value),
             },
-            _ => Self {
-                _ref: Ref {
-                    size: u32::try_from(value.len()).vortex_expect("value length must fit in u32"),
-                    prefix: value[0..4]
-                        .try_into()
-                        .ok()
-                        .vortex_expect("prefix must be exactly 4 bytes"),
-                    buffer_index: block,
-                    offset,
-                },
-            },
+            _ => Self::new_ref(
+                u32::try_from(value.len()).vortex_expect("value length must fit in u32"),
+                value[0..4]
+                    .try_into()
+                    .ok()
+                    .vortex_expect("prefix must be exactly 4 bytes"),
+                block,
+                offset,
+            ),
         }
     }
 
@@ -301,29 +299,34 @@ impl fmt::Debug for BinaryView {
 }
 
 #[cfg(test)]
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "test values are bounded well within the target types"
-)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn new_ref_matches_make_view() {
+    #[rstest::rstest]
+    // Just past the inline boundary, typical, and large values.
+    #[case(13, 7, 42)]
+    #[case(20, 7, 42)]
+    #[case(255, 7, 42)]
+    #[case(4096, 7, 42)]
+    // Zero buffer index/offset and the `u32` extremes, to confirm the `u128` field assembly does
+    // not overflow into neighbouring fields.
+    #[case(13, 0, 0)]
+    #[case(13, u32::MAX, u32::MAX)]
+    fn new_ref_matches_make_view(#[case] len: u32, #[case] buffer_index: u32, #[case] offset: u32) {
         // `new_ref` assembles the reference view as a `u128`; it must be byte-identical to the
         // value-inspecting `make_view` for any value longer than the inline limit.
-        for &len in &[13usize, 20, 255, 4096] {
-            let value: Vec<u8> = (0..len).map(|i| (i % 251) as u8).collect();
-            let prefix = [value[0], value[1], value[2], value[3]];
-            let made = BinaryView::make_view(&value, 7, 42);
-            let built = BinaryView::new_ref(len as u32, prefix, 7, 42);
-            assert_eq!(made.as_u128(), built.as_u128(), "mismatch at len {len}");
-            assert!(!built.is_inlined());
-            let r = built.as_view();
-            assert_eq!(r.size, len as u32);
-            assert_eq!(r.prefix, prefix);
-            assert_eq!(r.buffer_index, 7);
-            assert_eq!(r.offset, 42);
-        }
+        let value: Vec<u8> = (0..len)
+            .map(|i| u8::try_from(i % 251).vortex_expect("i % 251 fits in u8"))
+            .collect();
+        let prefix = [value[0], value[1], value[2], value[3]];
+        let made = BinaryView::make_view(&value, buffer_index, offset);
+        let built = BinaryView::new_ref(len, prefix, buffer_index, offset);
+        assert_eq!(made.as_u128(), built.as_u128(), "mismatch at len {len}");
+        assert!(!built.is_inlined());
+        let r = built.as_view();
+        assert_eq!(r.size, len);
+        assert_eq!(r.prefix, prefix);
+        assert_eq!(r.buffer_index, buffer_index);
+        assert_eq!(r.offset, offset);
     }
 }
