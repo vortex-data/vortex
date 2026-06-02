@@ -29,9 +29,9 @@ datafusion-physical-plan = { workspace = true }
 futures.workspace = true
 itertools.workspace = true
 object_store = { workspace = true, features = ["aws", "gcp"] }
-opentelemetry.workspace = true
-opentelemetry-otlp.workspace = true
-opentelemetry_sdk.workspace = true
+opentelemetry = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
 parking_lot = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 url = { workspace = true }
@@ -49,6 +49,10 @@ cuda = ["dep:vortex-cuda"]
 unstable_encodings = ["vortex/unstable_encodings"]
 # Forwards to `vortex-bench/perfetto` to enable the `--tracing` Perfetto exporter.
 perfetto = ["vortex-bench/perfetto"]
+# Enables the OpenTelemetry OTLP span exporter (`export_plan_spans`). Off by
+# default because the OTLP/gRPC stack (tonic, prost, h2) adds ~15s of compile
+# time to a clean build.
+otlp = ["dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk"]
 
 [lints]
 workspace = true
