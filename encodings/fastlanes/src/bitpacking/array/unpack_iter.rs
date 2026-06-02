@@ -6,8 +6,6 @@ use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use fastlanes::BitPacking;
-use fastlanes::BitPackingCompare;
-use fastlanes::FastLanesComparable;
 use lending_iterator::gat;
 use lending_iterator::prelude::Item;
 #[gat(Item)]
@@ -107,21 +105,24 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
         )
     }
 
-    /// Fused unpack + compare. For each chunk, compare every unpacked value against `value`
-    /// with `cmp` and feed the resulting bools (with their array-order range) to `emit`,
-    /// without materialising the unpacked primitives. The full (non-sliced) chunks use the
-    /// FastLanes fused [`BitPackingCompare::unchecked_unpack_cmp`] kernel, which unpacks each
-    /// value in-register and compares it immediately; any sliced initial/trailing chunk falls
-    /// back to a plain unpack-then-compare (at most two partial chunks).
-    pub(crate) fn for_each_compared_chunk<F>(
+    /// Fused unpack + compare. Each full (non-sliced) 1024-element chunk is handed to
+    /// `full_chunk_kernel` together with its packed bytes and a `[bool; 1024]` scratch; the
+    /// kernel writes the per-element comparison result into the scratch without materialising
+    /// the unpacked primitives. Any sliced initial/trailing chunk (at most two) falls back to
+    /// a plain unpack-then-`cmp`. The resulting bools (with their array-order range) are fed
+    /// to `emit`.
+    ///
+    /// `full_chunk_kernel` receives `(bit_width, packed_chunk, &mut [bool; 1024])`; the packed
+    /// chunk is exactly `128 * bit_width / size_of::<Physical>()` physical words.
+    pub(crate) fn for_each_compared_chunk<F, K>(
         &mut self,
         cmp: F,
         value: T,
+        mut full_chunk_kernel: K,
         mut emit: impl FnMut(&[bool], Range<usize>),
     ) where
-        T: FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
-        <T as PhysicalPType>::Physical: BitPackingCompare,
         F: Fn(T, T) -> bool + Copy,
+        K: FnMut(usize, &[<T as PhysicalPType>::Physical], &mut [bool; 1024]),
     {
         let mut bools = [false; CHUNK_SIZE];
         let mut local_idx = 0;
@@ -140,17 +141,7 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
             let elems_per_chunk = self.elems_per_chunk();
             for i in self.full_chunks_range() {
                 let chunk = &packed[i * elems_per_chunk..][..elems_per_chunk];
-                // SAFETY: `chunk` is exactly `elems_per_chunk` = 128 * bit_width /
-                // size_of::<Physical>() elements, and `bools` is exactly CHUNK_SIZE.
-                unsafe {
-                    <<T as PhysicalPType>::Physical as BitPackingCompare>::unchecked_unpack_cmp(
-                        self.bit_width,
-                        chunk,
-                        &mut bools,
-                        cmp,
-                        value,
-                    );
-                }
+                full_chunk_kernel(self.bit_width, chunk, &mut bools);
                 emit(&bools, local_idx..local_idx + CHUNK_SIZE);
                 local_idx += CHUNK_SIZE;
             }

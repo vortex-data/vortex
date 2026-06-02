@@ -9,6 +9,7 @@ pub(crate) mod is_constant;
 mod slice;
 mod stream_predicate;
 mod take;
+mod unpack_cmp_avx2;
 
 // TODO(connor): This is duplicated in `encodings/fastlanes/src/bitpacking/kernels/mod.rs`.
 fn chunked_indices<F: FnMut(usize, &[usize])>(

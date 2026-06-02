@@ -31,6 +31,9 @@ use vortex_error::VortexResult;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
+use crate::bitpacking::compute::unpack_cmp_avx2::UnpackCmpAvx2;
+use crate::bitpacking::compute::unpack_cmp_avx2::pack_block_bools;
+use crate::bitpacking::compute::unpack_cmp_avx2::unpack_cmp_block;
 use crate::unpack_iter::BitPacked as BitPackedIter;
 
 /// Stream `predicate` over the unpacked values of a [`BitPackedArray`], one FastLanes
@@ -125,6 +128,7 @@ pub(super) fn stream_compare<T, F>(
 where
     T: BitPackedIter
         + NativePType
+        + UnpackCmpAvx2
         + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
     <T as PhysicalPType>::Physical: BitPackingCompare,
     F: Fn(T, T) -> bool + Copy,
@@ -135,9 +139,27 @@ where
     if len > 0 {
         let mut chunks = array.unpacked_chunks::<T>()?;
         let words = words.as_mut_slice();
-        chunks.for_each_compared_chunk(cmp, value, |bools, range| {
-            pack_bools_into_words(words, range.start, bools.len(), |i| bools[i]);
-        });
+        chunks.for_each_compared_chunk(
+            cmp,
+            value,
+            |width, chunk, out| {
+                // SAFETY: `chunk` is exactly 128 * width / size_of::<Physical>() physical
+                // words and `out` is [bool; 1024], satisfying `unpack_cmp_block`'s contract.
+                unsafe { unpack_cmp_block::<T, _>(width, chunk, out, cmp, value) };
+            },
+            |bools, range| {
+                // Hot path: a full 1024-element chunk always starts on a 64-bit boundary, so
+                // pack it straight into 16 words with the SIMD movemask packer (the scalar
+                // `pack_bools_into_words` dominates this kernel otherwise). Partial initial /
+                // trailing chunks keep the general path.
+                if let (Ok(block), 0) = (<&[bool; 1024]>::try_from(bools), range.start % 64) {
+                    let word = range.start / 64;
+                    pack_block_bools(&mut words[word..word + 16], block);
+                } else {
+                    pack_bools_into_words(words, range.start, bools.len(), |i| bools[i]);
+                }
+            },
+        );
     }
 
     let mut bits = BitBufferMut::from_buffer(words.into_byte_buffer(), 0, len);

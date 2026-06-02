@@ -54,6 +54,7 @@ use vortex_error::VortexResult;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::bitpacking::compute::stream_predicate::stream_compare;
+use crate::bitpacking::compute::unpack_cmp_avx2::UnpackCmpAvx2;
 use crate::unpack_iter::BitPacked as BitPackedIter;
 
 impl CompareKernel for BitPacked {
@@ -101,6 +102,7 @@ where
         + Copy
         + ToPrimitive
         + BitPackedIter
+        + UnpackCmpAvx2
         + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
     <T as PhysicalPType>::Physical: BitPackingCompare,
 {
