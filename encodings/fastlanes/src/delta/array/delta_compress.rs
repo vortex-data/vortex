@@ -105,19 +105,82 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::primitive::PrimitiveArrayExt;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::match_each_unsigned_integer_ptype;
     use vortex_array::session::ArraySession;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::Delta;
+    use crate::FoR;
     use crate::bitpack_compress::bitpack_encode;
     use crate::delta::array::delta_decompress::delta_decompress;
     use crate::delta_compress;
+    use crate::r#for::FoRArrayExt;
 
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+
+    /// Build a `delta(for(bitpacking))` stack from `array`: delta-encode, then FoR + bit-pack the
+    /// resulting deltas. This is the exact tree the fused decode path in `delta_decompress`
+    /// recognizes.
+    fn build_delta_for_bitpacked(
+        array: &PrimitiveArray,
+        ctx: &mut vortex_array::ExecutionCtx,
+    ) -> VortexResult<crate::DeltaArray> {
+        let (bases, deltas) = delta_compress(array, ctx)?;
+        let for_deltas = FoR::encode(deltas)?;
+        let reference = for_deltas.reference_scalar().clone();
+        let for_encoded = for_deltas
+            .encoded()
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?;
+        // Pick the smallest width that captures every value so bit-packing introduces no patches,
+        // keeping the array on the fused decode path.
+        let unsigned = for_encoded.ptype().to_unsigned();
+        let bit_width = match_each_unsigned_integer_ptype!(unsigned, |T| {
+            let reinterpreted = for_encoded.reinterpret_cast(unsigned);
+            let max = reinterpreted
+                .as_slice::<T>()
+                .iter()
+                .copied()
+                .max()
+                .unwrap_or_default();
+            (T::BITS - max.leading_zeros()) as u8
+        });
+        let bitpacked = bitpack_encode(&for_encoded, bit_width, None, ctx)?;
+        let fused_for = FoR::try_new(bitpacked.into_array(), reference)?;
+        Delta::try_new(bases.into_array(), fused_for.into_array(), 0, array.len())
+    }
+
+    /// Non-strictly-increasing (monotone non-decreasing) integer columns. Consecutive equal runs
+    /// make many deltas zero, so the per-lane FoR reference over the deltas is small and the deltas
+    /// bit-pack tightly — exactly the shape that produces a delta(for(bitpacking)) stack.
+    ///
+    /// Lengths are exact multiples of 1024 so there is no zero-padding tail. (Padding can make a
+    /// lane straddle the real/zero boundary, producing a wrapping delta that forces full width.)
+    #[rstest]
+    #[case::u32_non_decreasing((0u32..20_480).map(|i| i / 3).collect())]
+    #[case::u64_non_decreasing((0u64..20_480).map(|i| (i / 5) * 2).collect())]
+    #[case::u32_long_runs((0u32..20_480).map(|i| i / 100).collect())]
+    fn fused_for_bitpacking_roundtrip(#[case] array: PrimitiveArray) -> VortexResult<()> {
+        use crate::delta::array::delta_decompress::try_fused_for_bitpacking;
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let stack = build_delta_for_bitpacked(&array, &mut ctx)?;
+
+        // The stack must take the fused decode path, not silently fall back to the generic one.
+        assert!(
+            try_fused_for_bitpacking(&stack, &mut ctx)?.is_some(),
+            "delta(for(bitpacking)) must be recognized by the fused decode path"
+        );
+
+        let decompressed = stack.into_array().execute::<PrimitiveArray>(&mut ctx)?;
+        assert_arrays_eq!(decompressed, array);
+        Ok(())
+    }
 
     #[rstest]
     #[case::u32((0u32..10_000).collect())]
