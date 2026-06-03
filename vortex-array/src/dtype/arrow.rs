@@ -298,12 +298,13 @@ pub(crate) fn to_data_type_naive(dtype: &DType) -> VortexResult<DataType> {
             let scale = dt.scale();
 
             match precision {
-                // DECIMAL32_MAX_PRECISION
-                0..=9 => DataType::Decimal32(precision, scale),
-                // DECIMAL64_MAX_PRECISION
-                10..=18 => DataType::Decimal64(precision, scale),
+                // This code is commented out until DataFusion improves its support for smaller decimals.
+                // // DECIMAL32_MAX_PRECISION
+                // 0..=9 => DataType::Decimal32(precision, scale),
+                // // DECIMAL64_MAX_PRECISION
+                // 10..=18 => DataType::Decimal64(precision, scale),
                 // DECIMAL128_MAX_PRECISION
-                19..=38 => DataType::Decimal128(precision, scale),
+                0..=38 => DataType::Decimal128(precision, scale),
                 // DECIMAL256_MAX_PRECISION
                 39.. => DataType::Decimal256(precision, scale),
             }
@@ -450,18 +451,11 @@ mod test {
     }
 
     #[rstest]
-    #[case(1, DataType::Decimal32(1, 0))]
-    #[case(9, DataType::Decimal32(9, 0))]
-    #[case(10, DataType::Decimal64(10, 0))]
-    #[case(18, DataType::Decimal64(18, 0))]
-    #[case(19, DataType::Decimal128(19, 0))]
+    #[case(1, DataType::Decimal128(1, 0))]
     #[case(38, DataType::Decimal128(38, 0))]
     #[case(39, DataType::Decimal256(39, 0))]
     #[case(76, DataType::Decimal256(76, 0))]
-    fn test_decimal_dtype_to_arrow_smallest_width(
-        #[case] precision: u8,
-        #[case] expected: DataType,
-    ) {
+    fn test_decimal_dtype_to_arrow(#[case] precision: u8, #[case] expected: DataType) {
         use crate::dtype::DecimalDType;
 
         let dtype = DType::Decimal(DecimalDType::new(precision, 0), Nullability::NonNullable);

@@ -32,8 +32,11 @@ use vortex::array::match_each_decimal_value_type;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
+<<<<<<< HEAD
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
+=======
+>>>>>>> dbce147e9 (wip)
 use vortex::dtype::DecimalType;
 use vortex::dtype::NativeDecimalType;
 use vortex::dtype::Nullability;
@@ -56,6 +59,7 @@ use crate::arrow::ArrowDeviceArray;
 use crate::arrow::ExportDeviceArray;
 use crate::arrow::PrivateData;
 use crate::arrow::SyncEvent;
+use crate::arrow::cuda_decimal_value_type;
 use crate::executor::CudaArrayExt;
 
 /// An implementation of `ExportDeviceArray` that exports Vortex arrays to `ArrowDeviceArray` by
@@ -234,9 +238,9 @@ fn export_canonical(
 
 /// Exports decimals with value buffers cast to Arrow's Decimal32/64/128/256 layout.
 ///
-/// Decimal values are already decoded; this only adapts the physical buffer width. Keep this in
-/// sync with the schema mapping in `arrow_schema_for_array`. Storage-to-Arrow narrowing is rejected
-/// instead of checked on-device to avoid a device-to-host synchronization point.
+/// Decimal values are already decoded; this only adapts the physical buffer width. Storage-to-Arrow
+/// narrowing is rejected instead of checked on-device to avoid a device-to-host synchronization
+/// point.
 async fn export_decimal(
     decimal: DecimalArray,
     ctx: &mut CudaExecutionCtx,
@@ -250,12 +254,13 @@ async fn export_decimal(
     } = decimal.into_data_parts();
 
     let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
-    let target_type = arrow_decimal_value_type(decimal_dtype);
+    let target_type = cuda_decimal_value_type(decimal_dtype);
     let values = export_decimal_values(values, values_type, target_type, len, ctx).await?;
 
     export_fixed_size(values, len, 0, validity_buffer, null_count, ctx)
 }
 
+<<<<<<< HEAD
 /// Returns the Arrow physical value type for a decimal dtype.
 ///
 /// Must match the shared Vortex-to-Arrow decimal mapping in
@@ -271,6 +276,8 @@ fn arrow_decimal_value_type(decimal_dtype: DecimalDType) -> DecimalType {
     }
 }
 
+=======
+>>>>>>> dbce147e9 (wip)
 /// Ensure the values buffer is on-device and has the Arrow-required decimal width.
 ///
 /// Storage wider than the precision-implied Arrow width is rejected. Callers that hit this
