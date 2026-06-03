@@ -412,3 +412,8 @@ debug = false
 debug-assertions = false
 strip = "debuginfo"
 incremental = false
+
+# Pin to the in-development FastLanes branch (PR #141 fused [u64;16] cmp mask +
+# PR #145 width-generic BMI/VBMI untranspose) until a release is cut.
+[patch.crates-io]
+fastlanes = { git = "https://github.com/spiraldb/fastlanes", rev = "6c10ea72cf693a17e994aa6401604ebedbeda453" }

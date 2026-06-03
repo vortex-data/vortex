@@ -8,6 +8,9 @@
 //! a [`BitBuffer`]. Patches are re-applied at the end by overwriting bits at the patched
 //! indices with `predicate(patch_value)`.
 
+use fastlanes::BitPacking;
+use fastlanes::BitPackingCompare;
+use fastlanes::FastLanesComparable;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -20,7 +23,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
-use crate::bitpacking::compute::stream_predicate::stream_predicate;
+use crate::bitpacking::compute::compare_fused::stream_compare_fused;
+use crate::unpack_iter::BitPacked as BitPackedIter;
 
 impl CompareKernel for BitPacked {
     fn compare(
@@ -55,6 +59,15 @@ impl CompareKernel for BitPacked {
     }
 }
 
+/// Compare every value against the constant via the fused FastLanes `unpack_cmp` kernel.
+///
+/// `NativePType::is_eq` / `is_lt` etc. provide total comparison (matching the primitive between
+/// kernel's dispatch shape). `NotEq` has no direct method, so use `!is_eq`.
+///
+/// The fused kernel (compare straight into a transposed 1024-bit mask, then a single SIMD
+/// untranspose into logical row order) beats the unpack-then-compare streaming baseline for every
+/// integer type and bit width - see `benches/bitpack_compare_fused.rs` (~6-7x for 8-bit lanes
+/// down to ~1.2-1.9x for 64-bit lanes), so it is used unconditionally.
 fn compare_constant_typed<T>(
     lhs: ArrayView<'_, BitPacked>,
     rhs: T,
@@ -63,19 +76,28 @@ fn compare_constant_typed<T>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef>
 where
-    T: NativePType + Copy + crate::unpack_iter::BitPacked,
+    T: NativePType + BitPackedIter + FastLanesComparable,
+    <T as FastLanesComparable>::Bitpacked: BitPacking + NativePType + BitPackingCompare,
 {
-    // `NativePType::is_eq` / `is_lt` etc. provide total comparison (matching the primitive
-    // between kernel's dispatch shape). `NotEq` has no direct method, so use `!is_eq`.
     match operator {
-        CompareOperator::Eq => stream_predicate::<T, _>(lhs, nullability, |v| v.is_eq(rhs), ctx),
-        CompareOperator::NotEq => {
-            stream_predicate::<T, _>(lhs, nullability, |v| !v.is_eq(rhs), ctx)
+        CompareOperator::Eq => {
+            stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| a.is_eq(b), ctx)
         }
-        CompareOperator::Lt => stream_predicate::<T, _>(lhs, nullability, |v| v.is_lt(rhs), ctx),
-        CompareOperator::Lte => stream_predicate::<T, _>(lhs, nullability, |v| v.is_le(rhs), ctx),
-        CompareOperator::Gt => stream_predicate::<T, _>(lhs, nullability, |v| v.is_gt(rhs), ctx),
-        CompareOperator::Gte => stream_predicate::<T, _>(lhs, nullability, |v| v.is_ge(rhs), ctx),
+        CompareOperator::NotEq => {
+            stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| !a.is_eq(b), ctx)
+        }
+        CompareOperator::Lt => {
+            stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| a.is_lt(b), ctx)
+        }
+        CompareOperator::Lte => {
+            stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| a.is_le(b), ctx)
+        }
+        CompareOperator::Gt => {
+            stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| a.is_gt(b), ctx)
+        }
+        CompareOperator::Gte => {
+            stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| a.is_ge(b), ctx)
+        }
     }
 }
 
