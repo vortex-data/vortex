@@ -32,11 +32,7 @@ use vortex::array::match_each_decimal_value_type;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
-<<<<<<< HEAD
 use vortex::dtype::DType;
-use vortex::dtype::DecimalDType;
-=======
->>>>>>> dbce147e9 (wip)
 use vortex::dtype::DecimalType;
 use vortex::dtype::NativeDecimalType;
 use vortex::dtype::Nullability;
@@ -260,24 +256,6 @@ async fn export_decimal(
     export_fixed_size(values, len, 0, validity_buffer, null_count, ctx)
 }
 
-<<<<<<< HEAD
-/// Returns the Arrow physical value type for a decimal dtype.
-///
-/// Must match the shared Vortex-to-Arrow decimal mapping in
-/// `vortex-array/src/dtype/arrow.rs`.
-fn arrow_decimal_value_type(decimal_dtype: DecimalDType) -> DecimalType {
-    match decimal_dtype.precision() {
-        1..=9 => DecimalType::I32,
-        10..=18 => DecimalType::I64,
-        19..=38 => DecimalType::I128,
-        39..=76 => DecimalType::I256,
-        0 => unreachable!("precision must be greater than 0"),
-        p => unreachable!("precision larger than 76 is invalid found precision {p}"),
-    }
-}
-
-=======
->>>>>>> dbce147e9 (wip)
 /// Ensure the values buffer is on-device and has the Arrow-required decimal width.
 ///
 /// Storage wider than the precision-implied Arrow width is rejected. Callers that hit this

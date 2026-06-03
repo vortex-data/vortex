@@ -29,11 +29,8 @@ use vortex::array::ArrayRef;
 use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::buffer::BufferHandle;
 use vortex::dtype::DType;
-<<<<<<< HEAD
-=======
 use vortex::dtype::DecimalDType;
 use vortex::dtype::DecimalType;
->>>>>>> dbce147e9 (wip)
 use vortex::dtype::StructFields;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
@@ -186,12 +183,8 @@ pub trait DeviceArrayExt {
     /// arrays. Top-level non-struct arrays are exported as column-shaped field schemas and
     /// column-shaped device arrays; this method does not wrap them in a single-field struct.
     ///
-    /// Decimal arrays are exported using Arrow's decimal physical widths by declared precision:
-    /// Decimal32 for precision 1-9, Decimal64 for 10-18, Decimal128 for 19-38, and Decimal256 for
-    /// 39-76. If a decimal array's Vortex storage is wider than the Arrow width implied by its
-    /// precision, export fails instead of narrowing the values. Checking whether such a narrowing is
-    /// safe would require synchronizing an overflow flag from device to host, which this export path
-    /// intentionally avoids.
+    /// Decimal exports use the Arrow decimal width implied by precision; storage wider than that
+    /// width is rejected rather than narrowed on device.
     async fn export_device_array_with_schema(
         self,
         ctx: &mut CudaExecutionCtx,
@@ -223,23 +216,13 @@ fn arrow_schema_for_array(
     array: &ArrayRef,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<FFI_ArrowSchema> {
-<<<<<<< HEAD
-    let arrow = ctx.execution_ctx().session().arrow();
     let dtype = arrow_device_export_dtype(array.dtype());
     match &dtype {
-        DType::Struct(..) => Ok(FFI_ArrowSchema::try_from(arrow.to_arrow_schema(&dtype)?)?),
-        _ => Ok(FFI_ArrowSchema::try_from(
-            arrow.to_arrow_field("", &dtype)?,
-        )?),
-=======
-    match array.dtype() {
         DType::Struct(struct_dtype, _) => Ok(FFI_ArrowSchema::try_from(Schema::new(
             cuda_arrow_struct_fields(struct_dtype, ctx)?,
         ))?),
         _ => Ok(FFI_ArrowSchema::try_from(cuda_arrow_field(
-            "",
-            array.dtype(),
-            ctx,
+            "", &dtype, ctx,
         )?)?),
     }
 }
@@ -297,7 +280,6 @@ pub(crate) fn cuda_decimal_value_type(decimal_dtype: DecimalDType) -> DecimalTyp
         19..=38 => DecimalType::I128,
         39..=76 => DecimalType::I256,
         p => unreachable!("precision {p} is invalid for a DecimalDType"),
->>>>>>> dbce147e9 (wip)
     }
 }
 
