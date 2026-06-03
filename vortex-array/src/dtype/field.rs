@@ -238,47 +238,56 @@ impl Display for FieldPath {
     }
 }
 
-#[derive(Default, Clone, Debug, PartialEq, Eq)]
-/// Contains a set of field paths, and can answer an efficient field path contains queries.
+#[derive(Default, Clone, Debug)]
+/// A set of field paths supporting efficient `contains` queries.
+///
+/// Paths are stored as inserted. Prefix-minimization—collapsing a path into an ancestor that
+/// already covers it—is deferred until the set is iterated via [`IntoIterator`], so insertion stays
+/// cheap.
 pub struct FieldPathSet {
-    /// While this is currently a set wrapper it can be replaced with a trie.
+    /// While this is currently a set wrapper it can be replaced with a trie, at which point the
+    /// deferred minimization in [`IntoIterator`] becomes cheap.
     // TODO(joe): this can be replaced with a `FieldPath` trie
     set: HashSet<FieldPath>,
 }
 
 impl FieldPathSet {
-    /// Checks if a set contains a field path
+    /// Checks if the set contains exactly this field path.
     pub fn contains(&self, path: &FieldPath) -> bool {
         self.set.contains(path)
     }
 
-    /// Iterates over the field paths in the set.
+    /// Iterates over the field paths in the set, as inserted (not prefix-minimized).
     pub fn iter(&self) -> impl Iterator<Item = &FieldPath> {
         self.set.iter()
     }
 
-    /// Inserts a field path prefix unless an existing prefix already covers it.
-    ///
-    /// Any existing field paths covered by the new prefix are removed.
-    pub fn insert_prefix(&mut self, path: FieldPath) {
-        if self
-            .set
+    /// Inserts a field path. Prefix-minimization is deferred until the set is iterated.
+    pub fn insert(&mut self, path: FieldPath) {
+        self.set.insert(path);
+    }
+}
+
+/// Reduces field paths to their minimal covering set: any path that has another path in the set as
+/// a prefix is redundant and dropped.
+fn minimal_covering_set(paths: impl IntoIterator<Item = FieldPath>) -> Vec<FieldPath> {
+    let mut covering: Vec<FieldPath> = Vec::new();
+    for path in paths {
+        if covering
             .iter()
             .any(|existing| path.parts().starts_with(existing.parts()))
         {
-            return;
+            continue;
         }
-
-        self.set
-            .retain(|existing| !existing.parts().starts_with(path.parts()));
-        self.set.insert(path);
+        covering.retain(|existing| !existing.parts().starts_with(path.parts()));
+        covering.push(path);
     }
+    covering
+}
 
-    /// Inserts field path prefixes, retaining only the minimal covering set.
-    pub fn extend_prefixes(&mut self, paths: impl IntoIterator<Item = FieldPath>) {
-        for path in paths {
-            self.insert_prefix(path);
-        }
+impl Extend<FieldPath> for FieldPathSet {
+    fn extend<T: IntoIterator<Item = FieldPath>>(&mut self, iter: T) {
+        self.set.extend(iter);
     }
 }
 
@@ -291,10 +300,11 @@ impl FromIterator<FieldPath> for FieldPathSet {
 
 impl IntoIterator for FieldPathSet {
     type Item = FieldPath;
-    type IntoIter = <HashSet<FieldPath> as IntoIterator>::IntoIter;
+    type IntoIter = std::vec::IntoIter<FieldPath>;
 
+    /// Iterates the prefix-minimal covering set: redundant descendants are dropped.
     fn into_iter(self) -> Self::IntoIter {
-        self.set.into_iter()
+        minimal_covering_set(self.set).into_iter()
     }
 }
 
@@ -458,14 +468,15 @@ mod tests {
     }
 
     #[test]
-    fn insert_prefix_retains_minimal_covering_set() {
+    fn iteration_yields_minimal_covering_set() {
         let mut paths = FieldPathSet::default();
-        paths.extend_prefixes([field_path!(a.b), field_path!(x), field_path!(a)]);
-        paths.insert_prefix(field_path!(a.c));
+        paths.extend([field_path!(a.b), field_path!(x), field_path!(a)]);
+        paths.insert(field_path!(a.c));
 
+        // Iteration collapses `a.b`/`a.c` into the covering `a`.
         assert_eq!(
-            paths,
-            FieldPathSet::from_iter([field_path!(a), field_path!(x)])
+            paths.into_iter().collect::<HashSet<_>>(),
+            HashSet::from_iter([field_path!(a), field_path!(x)])
         );
     }
 }

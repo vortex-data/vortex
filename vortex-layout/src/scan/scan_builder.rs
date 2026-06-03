@@ -419,7 +419,7 @@ pub fn referenced_field_masks(
 
     let mut field_paths = referenced_field_paths(projection, dtype)?;
     if let Some(filter) = filter {
-        field_paths.extend_prefixes(referenced_field_paths(filter, dtype)?);
+        field_paths.extend(referenced_field_paths(filter, dtype)?);
     }
     Ok(field_paths.into_iter().map(FieldMask::Prefix).collect_vec())
 }

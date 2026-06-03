@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::iter::once;
-
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -19,10 +17,11 @@ use crate::scalar_fn::fns::get_item::GetItem;
 use crate::scalar_fn::fns::root::Root;
 use crate::scalar_fn::fns::select::Select;
 
-/// Returns a prefix-minimal set of rooted field paths referenced by an expression.
+/// Returns the rooted field paths referenced by an expression.
 ///
-/// A standalone root expression is represented by [`FieldPath::root`], which conservatively
-/// selects all fields. When one referenced path is a prefix of another, only the prefix is returned.
+/// Iterating the returned set (via [`IntoIterator`]) yields the prefix-minimal covering set: when
+/// one referenced path is a prefix of another, only the prefix is kept. A standalone root
+/// expression is represented by [`FieldPath::root`], which conservatively selects all fields.
 /// Scalar functions other than `GetItem` and `Select` conservatively reference each complete child
 /// output.
 pub fn referenced_field_paths(expr: &Expression, scope: &DType) -> VortexResult<FieldPathSet> {
@@ -71,10 +70,14 @@ pub fn referenced_field_paths(expr: &Expression, scope: &DType) -> VortexResult<
 /// Threads the set of currently-requested field paths down the expression tree, narrowing it at
 /// each `GetItem`/`Select`, and records the rooted paths reached at each `Root` leaf.
 ///
-/// Narrowing the requested path is only sound through `GetItem` (a genuine field access) and
-/// `Select` (a genuine column projection). Any other function is opaque—we cannot assume it
-/// preserves a field's provenance—so its children conservatively re-request the whole scope. This
-/// is what keeps an expression like `f($).x` reading every field of `$` rather than just `x`.
+/// Paths are carried reversed so a `GetItem` can `push` its field instead of prepending it; they
+/// are reversed back to rooted order when recorded at a `Root`, and `Select` reads a path's head
+/// from its last element.
+///
+/// Narrowing is only sound through `GetItem` (a genuine field access) and `Select` (a genuine
+/// column projection). Any other function is opaque—we cannot assume it preserves a field's
+/// provenance—so its children conservatively re-request the whole scope, which is what keeps an
+/// expression like `f($).x` reading every field of `$` rather than just `x`.
 struct ReferencedFieldPaths<'a> {
     scope: &'a DType,
     field_paths: FieldPathSet,
@@ -90,27 +93,25 @@ impl NodeFolderContext for ReferencedFieldPaths<'_> {
         requested: &Self::Context,
         node: &Expression,
     ) -> VortexResult<FoldDownContext<Self::Context, ()>> {
-        // A `Root` leaf resolves the requested paths against the actual scope.
         if node.is::<Root>() {
-            self.field_paths.extend_prefixes(requested.iter().cloned());
+            self.field_paths.extend(
+                requested
+                    .iter()
+                    .map(|path| FieldPath::from_iter(path.parts().iter().rev().cloned())),
+            );
             return Ok(FoldDownContext::Skip(()));
         }
 
-        // `GetItem` prepends its field to every requested path before descending into its child.
         if let Some(field_name) = node.as_opt::<GetItem>() {
-            let prefixed = requested
+            let appended = requested
                 .iter()
-                .map(|path| {
-                    FieldPath::from_iter(
-                        once(Field::Name(field_name.clone())).chain(path.parts().iter().cloned()),
-                    )
-                })
+                .map(|path| path.clone().push(Field::Name(field_name.clone())))
                 .collect();
-            return Ok(FoldDownContext::Continue(prefixed));
+            return Ok(FoldDownContext::Continue(appended));
         }
 
-        // `Select` keeps requested paths whose head is included, expanding a whole-scope request
-        // into one path per included field.
+        // Keep requested paths whose head is included, expanding a whole-scope request into one
+        // path per included field.
         if let Some(selection) = node.as_opt::<Select>() {
             let child_dtype = node.child(0).return_dtype(self.scope)?;
             let child_fields = child_dtype
@@ -118,11 +119,11 @@ impl NodeFolderContext for ReferencedFieldPaths<'_> {
                 .ok_or_else(|| vortex_err!("Select child is not a struct"))?;
             let included_fields = selection.normalize_to_included_fields(child_fields.names())?;
 
-            let mut narrowed = Vec::new();
+            let mut narrowed = Vec::with_capacity(requested.len());
             for path in requested {
                 if path.is_root() {
                     narrowed.extend(included_fields.iter().cloned().map(FieldPath::from_name));
-                } else if let Some(Field::Name(field_name)) = path.parts().first()
+                } else if let Some(Field::Name(field_name)) = path.parts().last()
                     && included_fields
                         .iter()
                         .any(|included| included == field_name)
@@ -155,6 +156,8 @@ impl NodeFolderContext for ReferencedFieldPaths<'_> {
 
 #[cfg(test)]
 mod tests {
+    use vortex_utils::aliases::hash_set::HashSet;
+
     use super::*;
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::PType::I32;
@@ -178,13 +181,20 @@ mod tests {
         )
     }
 
+    /// Collects the prefix-minimal field paths referenced by `expr` against [`scope`].
+    fn referenced(expr: &Expression) -> VortexResult<HashSet<FieldPath>> {
+        Ok(referenced_field_paths(expr, &scope())?
+            .into_iter()
+            .collect())
+    }
+
     #[test]
     fn nested_select_preserves_field_path() -> VortexResult<()> {
         let expr = select(["x"], get_item("a", root()));
 
         assert_eq!(
-            referenced_field_paths(&expr, &scope())?,
-            FieldPathSet::from_iter([FieldPath::from_name("a").push("x")])
+            referenced(&expr)?,
+            HashSet::from_iter([FieldPath::from_name("a").push("x")])
         );
         Ok(())
     }
@@ -194,8 +204,8 @@ mod tests {
         let expr = get_item("x", select(["x", "y"], get_item("a", root())));
 
         assert_eq!(
-            referenced_field_paths(&expr, &scope())?,
-            FieldPathSet::from_iter([FieldPath::from_name("a").push("x")])
+            referenced(&expr)?,
+            HashSet::from_iter([FieldPath::from_name("a").push("x")])
         );
         Ok(())
     }
@@ -205,8 +215,8 @@ mod tests {
         let expr = select_exclude(["y"], get_item("a", root()));
 
         assert_eq!(
-            referenced_field_paths(&expr, &scope())?,
-            FieldPathSet::from_iter([FieldPath::from_name("a").push("x")])
+            referenced(&expr)?,
+            HashSet::from_iter([FieldPath::from_name("a").push("x")])
         );
         Ok(())
     }
@@ -222,8 +232,8 @@ mod tests {
         );
 
         assert_eq!(
-            referenced_field_paths(&expr, &scope())?,
-            FieldPathSet::from_iter([FieldPath::from_name("a")])
+            referenced(&expr)?,
+            HashSet::from_iter([FieldPath::from_name("a")])
         );
         Ok(())
     }
@@ -234,18 +244,15 @@ mod tests {
         // as a scope field access, so the wrapped `root()` conservatively references all fields.
         let expr = get_item("x", pack([("x", root())], NonNullable));
 
-        assert_eq!(
-            referenced_field_paths(&expr, &scope())?,
-            FieldPathSet::from_iter([FieldPath::root()])
-        );
+        assert_eq!(referenced(&expr)?, HashSet::from_iter([FieldPath::root()]));
         Ok(())
     }
 
     #[test]
     fn root_references_all_fields() -> VortexResult<()> {
         assert_eq!(
-            referenced_field_paths(&root(), &scope())?,
-            FieldPathSet::from_iter([FieldPath::root()])
+            referenced(&root())?,
+            HashSet::from_iter([FieldPath::root()])
         );
         Ok(())
     }
