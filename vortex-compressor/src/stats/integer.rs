@@ -283,8 +283,8 @@ impl IntegerStats {
     /// Callers pass an upper bound on the true distinct count (the array length), so an estimate
     /// at or above `count` is pure estimator overshoot and cannot rule out "every value is
     /// distinct" — we accept it. Below `count` we only rule it out when the estimate falls short by
-    /// more than the estimator's expected error (see [`distinct_count_error_bound`]), so estimator
-    /// noise does not cause us to skip genuinely all-distinct arrays such as arithmetic sequences.
+    /// more than the estimator's expected error, so estimator noise does not cause us to skip
+    /// genuinely all-distinct arrays such as arithmetic sequences.
     pub fn estimated_distinct_count_could_equal(&self, count: usize) -> bool {
         let Some(distinct_count) = self.distinct_count() else {
             return true;
