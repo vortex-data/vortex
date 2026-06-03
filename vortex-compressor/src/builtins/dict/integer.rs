@@ -80,7 +80,7 @@ impl Scheme for IntDictScheme {
 
         // TODO(connor): Should we just hardcode this instead of let the compressor choose?
         // Assume codes are compressed RLE + BitPacking.
-        let codes_bw = u32::BITS - distinct_values_count.leading_zeros();
+        let codes_bw = usize::BITS - distinct_values_count.leading_zeros();
 
         let n_runs = stats.value_count() / stats.average_run_length();
 
