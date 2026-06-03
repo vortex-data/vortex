@@ -15,12 +15,10 @@ use futures::stream::BoxStream;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldMask;
-use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldPath;
 use vortex_array::expr::Expression;
-use vortex_array::expr::analysis::immediate_access::immediate_scope_access;
+use vortex_array::expr::analysis::immediate_access::referenced_field_paths;
 use vortex_array::expr::root;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorAdapter;
@@ -417,20 +415,20 @@ pub fn filter_and_projection_masks(
     filter: Option<&Expression>,
     dtype: &DType,
 ) -> VortexResult<(Vec<FieldMask>, Vec<FieldMask>)> {
-    let Some(struct_dtype) = dtype.as_struct_fields_opt() else {
+    if dtype.as_struct_fields_opt().is_none() {
         return Ok(match filter {
             Some(_) => (vec![FieldMask::All], vec![FieldMask::All]),
             None => (Vec::new(), vec![FieldMask::All]),
         });
-    };
-    let projection_mask = immediate_scope_access(projection, struct_dtype);
+    }
+    let projection_mask = referenced_field_paths(projection, dtype)?;
     Ok(match filter {
         None => (
             Vec::new(),
             projection_mask.into_iter().map(to_field_mask).collect_vec(),
         ),
         Some(f) => {
-            let filter_mask = immediate_scope_access(f, struct_dtype);
+            let filter_mask = referenced_field_paths(f, dtype)?;
             let only_projection_mask = projection_mask
                 .difference(&filter_mask)
                 .cloned()
@@ -444,8 +442,8 @@ pub fn filter_and_projection_masks(
     })
 }
 
-fn to_field_mask(field: FieldName) -> FieldMask {
-    FieldMask::Prefix(FieldPath::from(Field::Name(field)))
+fn to_field_mask(field_path: FieldPath) -> FieldMask {
+    FieldMask::Prefix(field_path)
 }
 
 #[cfg(test)]

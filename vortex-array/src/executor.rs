@@ -15,6 +15,7 @@
 use std::env::VarError;
 use std::fmt;
 use std::fmt::Display;
+use std::sync::Arc;
 use std::sync::LazyLock;
 #[cfg(debug_assertions)]
 use std::sync::atomic::AtomicUsize;
@@ -26,7 +27,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
-use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 
@@ -305,6 +305,12 @@ struct StackFrame {
 #[derive(Debug, Clone)]
 pub struct ExecutionCtx {
     session: VortexSession,
+    /// Snapshot of the session's [`ArrayKernels`], cached once at construction.
+    ///
+    /// The executor consults these per array node; looking them up on the session each time takes a
+    /// `DashMap` shard read-lock, which becomes a major contention point (`lock_shared_slow`) when
+    /// many threads execute concurrently. Caching the (cheap) snapshot here avoids that.
+    kernels: Option<Arc<ArrayKernels>>,
     #[cfg(debug_assertions)]
     id: usize,
     #[cfg(debug_assertions)]
@@ -314,8 +320,12 @@ pub struct ExecutionCtx {
 impl ExecutionCtx {
     /// Create a new execution context with the given session.
     pub fn new(session: VortexSession) -> Self {
+        let kernels = session
+            .get_opt::<ArrayKernels>()
+            .map(|k| Arc::new((*k).clone()));
         Self {
             session,
+            kernels,
             #[cfg(debug_assertions)]
             id: {
                 static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
@@ -329,6 +339,11 @@ impl ExecutionCtx {
     /// Get the session associated with this execution context.
     pub fn session(&self) -> &VortexSession {
         &self.session
+    }
+
+    /// The cached [`ArrayKernels`] snapshot for this execution, if any were registered.
+    fn array_kernels(&self) -> Option<Arc<ArrayKernels>> {
+        self.kernels.clone()
     }
 
     /// Get the session-scoped host allocator for this execution context.
@@ -424,13 +439,12 @@ impl Executable for ArrayRef {
             }
         }
 
-        let tmp_session = ctx.session().clone();
-        let kernels = tmp_session.get_opt::<ArrayKernels>();
+        let kernels = ctx.array_kernels();
 
         for (slot_idx, slot) in array.slots().iter().enumerate() {
             let Some(child) = slot else { continue };
             if let Some(executed_parent) =
-                execute_parent_for_child(&array, child, slot_idx, kernels.as_ref(), ctx)?
+                execute_parent_for_child(&array, child, slot_idx, kernels.as_deref(), ctx)?
             {
                 ctx.log(format_args!(
                     "execute_parent: slot[{}]({}) rewrote {} -> {}",
@@ -542,7 +556,7 @@ fn execute_parent_for_child(
     parent: &ArrayRef,
     child: &ArrayRef,
     slot_idx: usize,
-    kernels: Option<&Ref<ArrayKernels>>,
+    kernels: Option<&ArrayKernels>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
     if let Some(kernels) = kernels
@@ -561,13 +575,12 @@ fn execute_parent_for_child(
 
 /// Try execute_parent on each occupied slot of the array.
 fn try_execute_parent(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<ArrayRef>> {
-    let tmp_session = ctx.session().clone();
-    let kernels = tmp_session.get_opt::<ArrayKernels>();
+    let kernels = ctx.array_kernels();
 
     for (slot_idx, slot) in array.slots().iter().enumerate() {
         let Some(child) = slot else { continue };
         if let Some(executed_parent) =
-            execute_parent_for_child(array, child, slot_idx, kernels.as_ref(), ctx)?
+            execute_parent_for_child(array, child, slot_idx, kernels.as_deref(), ctx)?
         {
             ctx.log(format_args!(
                 "execute_parent: slot[{}]({}) rewrote {} -> {}",

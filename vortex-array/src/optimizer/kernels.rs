@@ -128,6 +128,16 @@ impl Default for ArrayKernels {
     }
 }
 
+impl Clone for ArrayKernels {
+    /// Cheap snapshot clone: each `ArcSwap` is cloned by sharing its current `Arc` payload.
+    fn clone(&self) -> Self {
+        Self {
+            reduce_parent: ArcSwap::from(self.reduce_parent.load_full()),
+            execute_parent: ArcSwap::from(self.execute_parent.load_full()),
+        }
+    }
+}
+
 impl ArrayKernels {
     /// Create an empty [`ArrayKernels`] with no kernels registered.
     pub fn empty() -> Self {

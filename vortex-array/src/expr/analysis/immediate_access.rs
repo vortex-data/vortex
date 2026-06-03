@@ -2,9 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::dtype::DType;
 use crate::dtype::FieldName;
+use crate::dtype::FieldPath;
 use crate::dtype::StructFields;
 use crate::expr::Expression;
 use crate::expr::analysis::AnnotationFn;
@@ -88,4 +92,61 @@ pub fn immediate_scope_access<'a>(
         .get(expr)
         .vortex_expect("Expression missing from scope accesses, this is a internal bug")
         .clone()
+}
+
+/// Returns the rooted field paths referenced by an expression.
+///
+/// Unlike [`immediate_scope_access`], this preserves nested field accesses. A standalone root
+/// expression is represented by [`FieldPath::root`], which conservatively selects all fields.
+pub fn referenced_field_paths(
+    expr: &Expression,
+    scope: &DType,
+) -> VortexResult<HashSet<FieldPath>> {
+    let mut field_paths = HashSet::new();
+    collect_referenced_field_paths(expr, scope, &mut field_paths)?;
+    Ok(field_paths)
+}
+
+fn collect_referenced_field_paths(
+    expr: &Expression,
+    scope: &DType,
+    field_paths: &mut HashSet<FieldPath>,
+) -> VortexResult<()> {
+    if let Some(selection) = expr.as_opt::<Select>()
+        && let Some(path) = rooted_field_path(expr.child(0))
+    {
+        let dtype = path
+            .resolve(scope.clone())
+            .ok_or_else(|| vortex_err!("Field path {path} does not exist in scope {scope}"))?;
+        let fields = dtype
+            .as_struct_fields_opt()
+            .ok_or_else(|| vortex_err!("Select child at field path {path} is not a struct"))?;
+        field_paths.extend(
+            selection
+                .normalize_to_included_fields(fields.names())?
+                .into_iter()
+                .map(|field| path.clone().push(field)),
+        );
+        return Ok(());
+    }
+
+    if let Some(path) = rooted_field_path(expr) {
+        field_paths.insert(path);
+        return Ok(());
+    }
+
+    for child in expr.children().iter() {
+        collect_referenced_field_paths(child, scope, field_paths)?;
+    }
+
+    Ok(())
+}
+
+fn rooted_field_path(expr: &Expression) -> Option<FieldPath> {
+    if expr.is::<Root>() {
+        return Some(FieldPath::root());
+    }
+
+    expr.as_opt::<GetItem>()
+        .and_then(|field| rooted_field_path(expr.child(0)).map(|path| path.push(field.clone())))
 }
