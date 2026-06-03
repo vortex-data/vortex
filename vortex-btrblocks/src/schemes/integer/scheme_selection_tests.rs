@@ -137,12 +137,8 @@ fn test_sequence_compressed() -> VortexResult<()> {
     Ok(())
 }
 
-/// Regression for the cardinality-estimator change: a 10k-element `arange` is all-distinct, but
-/// the HLL++ estimate drifts a few percent off the exact count. The sequence gate must still treat
-/// it as a candidate so it is encoded as a sequence (or delta), matching `test_arrange_encode` in
-/// the Python suite.
 #[test]
-fn test_arange_sequence_compressed() -> VortexResult<()> {
+fn test_range_sequence_compressed() -> VortexResult<()> {
     let array = PrimitiveArray::new(
         (0..10_000u32).collect::<Buffer<u32>>(),
         Validity::NonNullable,
