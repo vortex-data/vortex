@@ -28,6 +28,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 use vortex_tensor::vector::AnyVector;
 
 use super::metadata::deserialize_config;
@@ -74,7 +75,8 @@ impl ScalarFnVTable for TQEncode {
     type Options = TurboQuantConfig;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new("vortex.turboquant.encode")
+        static ID: CachedId = CachedId::new("vortex.turboquant.encode");
+        *ID
     }
 
     fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

@@ -36,6 +36,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 use vortex_tensor::vector::Vector;
 
 use crate::centroids::compute_or_get_centroids;
@@ -66,7 +67,8 @@ impl ScalarFnVTable for TQDecode {
     type Options = EmptyMetadata;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new("vortex.turboquant.decode")
+        static ID: CachedId = CachedId::new("vortex.turboquant.decode");
+        *ID
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

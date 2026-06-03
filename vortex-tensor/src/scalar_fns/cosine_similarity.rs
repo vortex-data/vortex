@@ -28,6 +28,7 @@ use vortex_array::serde::ArrayChildren;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::scalar_fns::inner_product::InnerProduct;
 use crate::scalar_fns::l2_denorm::DenormOrientation;
@@ -79,7 +80,8 @@ impl ScalarFnVTable for CosineSimilarity {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new("vortex.tensor.cosine_similarity")
+        static ID: CachedId = CachedId::new("vortex.tensor.cosine_similarity");
+        *ID
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {

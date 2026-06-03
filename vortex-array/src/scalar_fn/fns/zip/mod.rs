@@ -12,6 +12,7 @@ use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -46,7 +47,8 @@ impl ScalarFnVTable for Zip {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new("vortex.zip")
+        static ID: CachedId = CachedId::new("vortex.zip");
+        *ID
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

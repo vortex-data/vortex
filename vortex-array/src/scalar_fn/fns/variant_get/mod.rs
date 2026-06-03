@@ -12,6 +12,7 @@ use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_proto::expr::variant_path_element;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 use vortex_utils::aliases::StringEscape;
 
 use crate::ArrayRef;
@@ -45,7 +46,8 @@ impl ScalarFnVTable for VariantGet {
     type Options = VariantGetOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new("vortex.variant_get")
+        static ID: CachedId = CachedId::new("vortex.variant_get");
+        *ID
     }
 
     fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
