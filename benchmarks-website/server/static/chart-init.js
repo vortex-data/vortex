@@ -136,6 +136,11 @@
   var FETCH_N = "all";           // explicit full-history upgrade
   var DEFAULT_VISIBLE = 100;     // initial visible window (last 100 of fetched)
   var CHART_FETCH_N = String(DEFAULT_VISIBLE); // materialized shard window
+  // The robust history + headline charts open framed to the most recent
+  // `DEFAULT_WINDOW_MONTHS` of commits; resetting the zoom relaxes them back to
+  // the full loaded history. View-only — all the data is already in the chart,
+  // we just set the initial x-window.
+  var DEFAULT_WINDOW_MONTHS = 3;
   var HYDRATION_CONCURRENCY = 4; // per-tab cap for latest-100 shard requests
   var FULL_HISTORY_CONCURRENCY = 2; // per-tab cap for background `?n=all`
   var GROUP_OPEN_PRIORITY_STEP = 100;
@@ -305,27 +310,91 @@
   }
   // ---- Robust history estimators ------------------------------------------
   // Per-commit run noise + harness spikes make the raw per-query lines a
-  // sawtooth. A centered rolling median is spike-immune (ignores up to half the
-  // window) and edge-preserving (keeps genuine step changes crisp), and a
-  // rolling quantile band shows the typical operating range. Nulls (commits a
-  // series didn't run) are skipped inside the window. ROBUST_WINDOW is the one
-  // knob; p25/p75 the band.
-  var ROBUST_WINDOW = 15;
-  function rollingMedian(v, w) {
+  // sawtooth. The central line is a rolling inter-quartile mean (the average of
+  // the p25–p75 window values): spike-immune like a median, but unlike a median
+  // it stays smooth through *bimodal* data — a benchmark that flips between two
+  // CI machine classes leaves a median sitting in the empty gap, sawtoothing
+  // between the modes, whereas the IQ-mean moves continuously as the mix shifts.
+  // The p25/p75 quantile band shows the spread (wide where a bench is unstable).
+  //
+  // Stats window over the last N *actual samples* (the commits a series really
+  // ran), NOT index positions: nulls are compacted out, the window walks the
+  // real runs, and each result is emitted at its sample's original commit
+  // position (gaps stay null; spanGaps joins them). N adapts to how much data a
+  // series has (`adaptiveWindow`): a sparse series (e.g. SF100, ~260 runs) stays
+  // responsive at the ROBUST_WINDOW floor; a dense, noisy suite (TPC-DS, TPC-H
+  // SF1, ~every commit) gets a wider window so the line reads as a trend, capped
+  // at ROBUST_WINDOW_MAX so it can't smooth across a genuine step change.
+  var ROBUST_WINDOW = 9;
+  var ROBUST_WINDOW_MAX = 75;
+  // Smoothing window for a series with `present` real samples: ~present/50,
+  // clamped to [ROBUST_WINDOW, ROBUST_WINDOW_MAX] — more runs smooth more, so a
+  // dense, noisy suite (TPC-DS ~50, TPC-H SF1 ~67) reads as a trend while a
+  // sparse one (SF100) stays at the responsive floor. The cap keeps a genuine
+  // step change from ramping away entirely.
+  function adaptiveWindow(present) {
+    return Math.max(ROBUST_WINDOW, Math.min(ROBUST_WINDOW_MAX, Math.round(present / 50)));
+  }
+  // A raw series with at most this many real samples is "sparse": its per-run
+  // dots are the signal, so draw them prominently; denser series let the band
+  // lead and keep faint dots (else thousands of points crowd into a cloud that
+  // fights the line). Tuned so TPC-H SF100 (~260 runs) reads as dots while
+  // SF1/SF10 (thousands) stay band-led.
+  var SPARSE_DOT_SAMPLES = 600;
+  // Apply `pick` to the window of `w` non-null samples centred on each sample,
+  // emitting the result at that sample's original index.
+  function rollingSampleStat(v, w, pick) {
+    var idx = [], val = [];
+    for (var i = 0; i < v.length; i++) {
+      if (v[i] != null) { idx.push(i); val.push(v[i]); }
+    }
+    var out = new Array(v.length).fill(null);
     var h = w >> 1;
-    return v.map(function (_, i) {
-      var s = v.slice(Math.max(0, i - h), Math.min(v.length, i + h + 1))
-        .filter(function (x) { return x != null; }).sort(function (a, b) { return a - b; });
-      return s.length ? s[s.length >> 1] : null;
+    for (var j = 0; j < val.length; j++) {
+      var s = val.slice(Math.max(0, j - h), Math.min(val.length, j + h + 1))
+        .sort(function (a, b) { return a - b; });
+      out[idx[j]] = pick(s);
+    }
+    return out;
+  }
+  // Central line: mean of the inter-quartile (p25–p75) window values — see the
+  // section header for why this beats a median on bimodal series.
+  function rollingIqMean(v, w) {
+    return rollingSampleStat(v, w, function (s) {
+      var n = s.length;
+      if (!n) return null;
+      var a = Math.floor(n * 0.25);
+      var b = Math.max(a + 1, Math.ceil(n * 0.75));
+      var sum = 0;
+      for (var m = a; m < b; m++) sum += s[m];
+      return sum / (b - a);
     });
   }
   function rollingQuantile(v, w, q) {
-    var h = w >> 1;
-    return v.map(function (_, i) {
-      var s = v.slice(Math.max(0, i - h), Math.min(v.length, i + h + 1))
-        .filter(function (x) { return x != null; }).sort(function (a, b) { return a - b; });
-      return s.length ? s[Math.min(s.length - 1, Math.max(0, Math.round(q * (s.length - 1))))] : null;
+    return rollingSampleStat(v, w, function (s) {
+      return s.length
+        ? s[Math.min(s.length - 1, Math.max(0, Math.round(q * (s.length - 1))))]
+        : null;
     });
+  }
+  // Dash pattern for the dotted line extensions.
+  var DOTTED_DASH = [3, 4];
+  // Extend a median series to both edges of the (known) axis: hold its first
+  // and last real value across the leading/trailing gap, and return a
+  // `segment.borderDash` fn that dashes only those held extensions (the real
+  // span stays solid). So a benchmark not run early (started late) or not run
+  // recently (retired) still reaches the edge — as a dotted "last known value"
+  // line. Mutates `med` in place; returns null when the series has no data.
+  function extendMedianToEdges(med) {
+    var n = med.length, first = -1, last = -1, i;
+    for (i = 0; i < n; i++) { if (med[i] != null) { if (first < 0) first = i; last = i; } }
+    if (first < 0) return null;
+    var fv = med[first], lv = med[last];
+    for (i = 0; i < first; i++) med[i] = fv;
+    for (i = last + 1; i < n; i++) med[i] = lv;
+    return function (ctx) {
+      return (ctx.p1DataIndex <= first || ctx.p0DataIndex >= last) ? DOTTED_DASH : undefined;
+    };
   }
 
   function shortSha(sha) {
@@ -355,6 +424,61 @@
   function truncate(s, max) {
     if (typeof s !== "string") return "";
     return s.length > max ? s.slice(0, max - 1) + "…" : s;
+  }
+
+  // Parse a commit's ISO timestamp down to a day-resolution epoch (ms). The
+  // axis only ever cares about dates, so the time portion is dropped — this
+  // also sidesteps timezone drift. Returns NaN for missing/malformed values.
+  function commitDateMs(commit) {
+    var ts = commit && commit.timestamp;
+    if (typeof ts !== "string" || ts.length < 10) return NaN;
+    var t = Date.parse(ts.slice(0, 10));
+    return isFinite(t) ? t : NaN;
+  }
+
+  // Index of the earliest commit within `months` of the NEWEST commit's date.
+  // Anchored to the last usable timestamp rather than wall-clock so a stale
+  // snapshot still frames its own trailing window. Returns 0 when every commit
+  // is already inside the window, or when timestamps are unusable — i.e. "show
+  // everything" is the safe fallback, never a blank chart.
+  function defaultWindowStartIndex(commits, months) {
+    if (!Array.isArray(commits) || commits.length === 0) return 0;
+    var anchor = NaN;
+    for (var i = commits.length - 1; i >= 0; i--) {
+      anchor = commitDateMs(commits[i]);
+      if (isFinite(anchor)) break;
+    }
+    if (!isFinite(anchor)) return 0;
+    // Average Gregorian month — exactness doesn't matter for a framing window.
+    var cutoff = anchor - months * 30.44 * 24 * 3600 * 1000;
+    for (var j = 0; j < commits.length; j++) {
+      var dj = commitDateMs(commits[j]);
+      if (isFinite(dj) && dj >= cutoff) return j;
+    }
+    return 0;
+  }
+
+  // Frame a freshly-built chart to the last `DEFAULT_WINDOW_MONTHS` of commits
+  // via the zoom plugin. The static scale config carries no x min/max, so the
+  // plugin records "full range" as the original — `resetZoom()` (the card's
+  // reset button) therefore relaxes back to the entire loaded history, and
+  // drag-zoom still narrows further. No-op when the data already fits the
+  // window (startIdx 0), leaving the reset button hidden.
+  function frameToDefaultWindow(chart, commits) {
+    if (!chart || !Array.isArray(commits)) return;
+    var startIdx = defaultWindowStartIndex(commits, DEFAULT_WINDOW_MONTHS);
+    if (startIdx <= 0) return;
+    var maxIdx = commits.length - 1;
+    if (typeof chart.zoomScale === "function") {
+      chart.zoomScale("x", { min: startIdx, max: maxIdx }, "none");
+    } else {
+      chart.options.scales.x.min = startIdx;
+      chart.options.scales.x.max = maxIdx;
+      chart.update("none");
+    }
+    // zoomScale doesn't reliably fire the plugin's onZoom, so surface the
+    // "zoomed" state to the reset button ourselves.
+    notifyZoomState(chart, true);
   }
 
   function firstLine(s) {
@@ -1291,24 +1415,32 @@
       var fmt = (meta[n] || {}).format;
       var color = formatColor(fmt);
       var arr = (raw[n] || []).map(function (x) { return x == null ? null : x * mul; });
-      var med = rollingMedian(arr, ROBUST_WINDOW);
-      var lo = rollingQuantile(arr, ROBUST_WINDOW, 0.25);
-      var hi = rollingQuantile(arr, ROBUST_WINDOW, 0.75);
+      var present = 0;
+      for (var pi = 0; pi < arr.length; pi++) { if (arr[pi] != null) present++; }
+      var win = adaptiveWindow(present);
+      var med = rollingIqMean(arr, win);
+      var lo = rollingQuantile(arr, win, 0.25);
+      var hi = rollingQuantile(arr, win, 0.75);
       lo.forEach(function (x) { if (x != null) loAll.push(x); });
       hi.forEach(function (x) { if (x != null) hiAll.push(x); });
-      // Raw per-commit points behind the band — same idea as the headline:
-      // reveals where the data actually fell so the band/line aren't blackbox
-      // smoothing. The y-range is clipped to the band's robust span below, so
-      // residual spikes simply don't draw; raw dots show only within the
-      // typical range, faint enough that the band still dominates.
+      // Raw per-commit points behind the band — the honest record of each real
+      // run. Dots are the signal for a SPARSE series (e.g. SF100) so they're
+      // drawn prominently; for a DENSE series the band leads and dots stay
+      // faint, else thousands of points crowd into a cloud that fights the
+      // line. The y-range is clipped to the band's robust span below, so
+      // residual spikes simply don't draw.
+      var dotsSparse = present <= SPARSE_DOT_SAMPLES;
       datasets.push({
-        data: arr, borderColor: "transparent", backgroundColor: color + "44",
-        pointRadius: 1.5, pointHoverRadius: 1.5, pointBorderWidth: 0,
-        showLine: false, spanGaps: false, _raw: true,
+        data: arr, borderColor: "transparent",
+        backgroundColor: color + (dotsSparse ? "aa" : "44"),
+        pointRadius: dotsSparse ? 2.2 : 1.5,
+        pointHoverRadius: dotsSparse ? 2.8 : 1.5,
+        pointBorderWidth: 0, showLine: false, spanGaps: false, _raw: true,
       });
       datasets.push({ data: lo, borderColor: "transparent", pointRadius: 0, fill: false, tension: 0.3, spanGaps: true });
       datasets.push({ data: hi, borderColor: "transparent", pointRadius: 0, fill: "-1", backgroundColor: color + "26", tension: 0.3, spanGaps: true });
-      datasets.push({ label: formatLabel(fmt), data: med, borderColor: color, backgroundColor: color, borderWidth: 1.8, pointRadius: 0, pointHoverRadius: 3, fill: false, tension: 0.3, spanGaps: true, _fmt: fmt });
+      var medDash = extendMedianToEdges(med);
+      datasets.push({ label: formatLabel(fmt), data: med, borderColor: color, backgroundColor: color, borderWidth: 1.8, pointRadius: 0, pointHoverRadius: 3, fill: false, tension: 0.3, spanGaps: true, _fmt: fmt, segment: medDash ? { borderDash: medDash } : undefined });
     });
     // Robust y-range: 2nd/98th percentile of the band bounds (× pad), so a
     // residual spike that survived into a band edge can't blow out the scale.
@@ -1316,6 +1448,13 @@
     hiAll.sort(function (a, b) { return a - b; });
     var ymin = loAll.length ? loAll[Math.floor(loAll.length * 0.02)] * 0.9 : undefined;
     var ymax = hiAll.length ? hiAll[Math.floor(hiAll.length * 0.98)] * 1.12 : undefined;
+
+    // Robust cards participate in the per-card / per-group Y-scale model:
+    // `applyY` reads and writes `canvas.__bench_state.y`. Reuse any existing
+    // state so a log toggle survives the `?n=all` rebuild (which re-enters this
+    // function via `replaceChartPayload`); default to linear otherwise.
+    var state = canvas.__bench_state || { y: "linear", scope: defaultScopeForCard(card) };
+    canvas.__bench_state = state;
 
     var chart = new Chart(canvas, {
       type: "line",
@@ -1329,19 +1468,26 @@
             // Labels stay SHA-indexed (positions are 1:1 with commits) but
             // the tick callback renders a date from the parallel commits
             // array, so the axis reads "May 28" instead of "8de1f30". The
-            // tooltip still surfaces the SHA + full date.
+            // tooltip still surfaces the SHA + full date. Index by the tick's
+            // VALUE (the commit index), not the tick-array position — once the
+            // axis is zoomed (the default 3-month window) those diverge, and
+            // the position would map every label back to the earliest commits.
             ticks: {
               maxTicksLimit: 7,
               autoSkip: true,
               maxRotation: 0,
               color: cssVar("--muted"),
-              callback: function (_val, idx) {
-                var c = (payload.commits || [])[idx];
+              callback: function (val, idx, ticks) {
+                var t = ticks && ticks[idx];
+                var ci = t && t.value != null ? t.value : val;
+                var c = (payload.commits || [])[ci];
                 return c ? formatAxisDate(c.timestamp) : "";
               },
             },
           },
-          y: { min: ymin, max: ymax, grid: { color: cssVar("--line"), drawTicks: false },
+          y: { type: state.y === "log" ? "logarithmic" : "linear",
+               beginAtZero: state.y !== "log",
+               min: ymin, max: ymax, grid: { color: cssVar("--line"), drawTicks: false },
                ticks: { color: cssVar("--muted") },
                title: { display: true, text: unit.axisLabel, color: cssVar("--faint") } },
         },
@@ -1382,6 +1528,7 @@
     });
     canvas.__bench_chart = chart;
     canvas.__bench_robust = true;
+    frameToDefaultWindow(chart, payload.commits || []);
     wireChartControls(card, chart, { zoomable: true });
     return chart;
   }
@@ -2874,9 +3021,12 @@
     data.lines.forEach(function (ln) {
       var cvar = formatColorVar(ln.format), color = cssVar(cvar);
       var logs = ln.speedups.map(function (s) { return s == null ? null : Math.log2(s); });
-      var medLog = rollingMedian(logs, ROBUST_WINDOW);
-      var loLog = rollingQuantile(logs, ROBUST_WINDOW, 0.25);
-      var hiLog = rollingQuantile(logs, ROBUST_WINDOW, 0.75);
+      var present = 0;
+      for (var pli = 0; pli < logs.length; pli++) { if (logs[pli] != null) present++; }
+      var win = adaptiveWindow(present);
+      var medLog = rollingIqMean(logs, win);
+      var loLog = rollingQuantile(logs, win, 0.25);
+      var hiLog = rollingQuantile(logs, win, 0.75);
       datasets.push({
         data: logs,
         borderColor: "transparent",
@@ -2899,9 +3049,11 @@
         backgroundColor: color + "26", tension: 0.25, spanGaps: true,
         _aux_fmt: ln.format, _aux_alpha: "26",
       });
+      var medLogDash = extendMedianToEdges(medLog);
       datasets.push({
         label: ln.label,
         data: medLog,
+        segment: medLogDash ? { borderDash: medLogDash } : undefined,
         _cvar: cvar,
         _fmt: ln.format,
         borderColor: color,
@@ -2939,15 +3091,19 @@
           x: {
             grid: { display: false },
             border: { display: false },
-            // Same date-from-commits axis as the per-card history charts.
+            // Same date-from-commits axis as the per-card history charts —
+            // index by the tick's VALUE (commit index), not its array position,
+            // so labels stay correct once the axis is zoomed.
             ticks: {
               color: cssVar("--muted"),
               font: { family: MONO_FONT, size: 11 },
               maxRotation: 0,
               autoSkip: true,
               maxTicksLimit: 7,
-              callback: function (_val, idx) {
-                var c = data.commits[idx];
+              callback: function (val, idx, ticks) {
+                var t = ticks && ticks[idx];
+                var ci = t && t.value != null ? t.value : val;
+                var c = data.commits[ci];
                 return c ? formatAxisDate(c.timestamp) : "";
               },
             },
@@ -3031,6 +3187,7 @@
         },
       },
     });
+    frameToDefaultWindow(entry.chart, data.commits || []);
     wireChartControls(figure, entry.chart, { zoomable: true });
     historyChartEntries.push(entry);
   }

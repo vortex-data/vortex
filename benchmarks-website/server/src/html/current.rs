@@ -575,7 +575,7 @@ fn build_history(generation: &ReadGeneration, chart_links: &[ChartLink]) -> Opti
 /// and scale-factor pills) get in-place toggles that swap the headline chart;
 /// everything else is a single chart. Empty when there's no comparable history.
 pub(super) fn history_section(generation: &ReadGeneration, group: &LandingGroup) -> Markup {
-    if group.scale_pills.len() < 2 {
+    if group.scale_pills.is_empty() {
         return history_headline(generation, &group.chart_links);
     }
     let all = generation.groups();
@@ -633,9 +633,9 @@ pub(super) fn sf_toggle_pills(pills: &[ScalePill]) -> Markup {
 }
 
 /// Storage toggle buttons for a TPC suite. Renders one button per tier that
-/// actually has data, in canonical order (NVMe before S3). The row collapses
-/// entirely when only one tier is present, since a single-button toggle is no
-/// choice at all (TPC-DS is NVMe-only today, so it shows no storage row).
+/// actually has data, in canonical order (NVMe before S3). A lone tier still
+/// renders as a single (active) pill so the dimension stays visible under the
+/// bare heading (e.g. TPC-DS is NVMe-only); the row only collapses with no data.
 pub(super) fn storage_toggle_pills(pills: &[ScalePill]) -> Markup {
     let current_storage = pills
         .iter()
@@ -647,7 +647,7 @@ pub(super) fn storage_toggle_pills(pills: &[ScalePill]) -> Markup {
         .iter()
         .filter(|t| present.contains(*t))
         .collect();
-    if row.len() < 2 {
+    if row.is_empty() {
         return html! {};
     }
     html! {
@@ -734,7 +734,7 @@ pub(super) fn history_headline(generation: &ReadGeneration, chart_links: &[Chart
 /// pills) get storage + scale-factor toggles that swap the visible charts in
 /// place; everything else is a single set of facet charts.
 fn speedup_section(generation: &ReadGeneration, group: &LandingGroup) -> Markup {
-    if group.scale_pills.len() >= 2 {
+    if !group.scale_pills.is_empty() {
         return query_fanout_section(generation, group);
     }
     let (facets, faceted_by_engine) = build_facets(generation, &group.chart_links);
@@ -746,11 +746,14 @@ fn speedup_section(generation: &ReadGeneration, group: &LandingGroup) -> Markup 
     } else {
         "Dataset"
     };
+    // All facets in a group share the unit, so the first facet's verb labels
+    // the section's magnitude sort ("Speedup" vs "Smaller").
+    let metric = facets.first().map(|f| f.metric).unwrap_or("faster");
     html! {
         section.current-group id=(anchor_for(&group.slug)) {
             header.current-group-head {
                 (collapsible_name(&group.name, group.description.as_deref()))
-                (speedup_sort_control(order_noun))
+                (speedup_sort_control(order_noun, metric))
             }
             div.speedup-grid {
                 @for ed in &facets {
@@ -799,6 +802,14 @@ fn query_fanout_section(generation: &ReadGeneration, group: &LandingGroup) -> Ma
     if sets.is_empty() {
         return html! {};
     }
+    // TPC fan-out is always a query suite (time), but read the verb rather than
+    // assume it, so the magnitude sort stays correct if a non-time suite ever
+    // fans out.
+    let metric = sets
+        .first()
+        .and_then(|s| s.facets.first())
+        .map(|f| f.metric)
+        .unwrap_or("faster");
 
     html! {
         section.current-group id=(anchor_for(&group.slug)) {
@@ -807,7 +818,7 @@ fn query_fanout_section(generation: &ReadGeneration, group: &LandingGroup) -> Ma
                 // blurb drops both the "(NVMe|S3)" segment of the description
                 // and the "at SF=N (~XGB)" clause.
                 (collapsible_name(&heading, group.description.as_deref().map(strip_tpc_blurb_dims)))
-                (speedup_sort_control("Query #"))
+                (speedup_sort_control("Query #", metric))
             }
             // Toggles live in the collapsible body so they fold away with the
             // charts. Storage row first, then SF — same order as on /historic.
@@ -886,15 +897,25 @@ fn collapsible_name(name: &str, blurb: Option<&str>) -> Markup {
     }
 }
 
-/// Sort toggle for a speedup section: "Speedup" (default, biggest win first) vs
-/// the natural item order (labelled `order_noun`, e.g. "Query #" or "Dataset").
-/// `chart-init.js` wires the clicks and re-sorts every chart in the section.
-fn speedup_sort_control(order_noun: &str) -> Markup {
+/// Sort toggle for a speedup section: the magnitude sort (default, biggest win
+/// first) vs the natural item order (labelled `order_noun`, e.g. "Query #" or
+/// "Dataset"). The magnitude label tracks the unit's comparison verb — "Speedup"
+/// for time sections, "Smaller" for size sections — so a compression-size chart
+/// doesn't read "Speedup". `chart-init.js` wires the clicks and re-sorts every
+/// chart in the section.
+fn speedup_sort_control(order_noun: &str, metric: &str) -> Markup {
+    // `data-sort="speedup"` is the internal sort-mode key the JS reads (sort by
+    // the B/A ratio), independent of the displayed verb; only the label changes.
+    let magnitude_label = if metric == "smaller" {
+        "Smaller"
+    } else {
+        "Speedup"
+    };
     html! {
         div.speedup-sort data-role="speedup-sort" role="group" aria-label="Sort" {
             span.speedup-sort-label { "Sort" }
             button.speedup-sort-btn.speedup-sort-btn--active
-                type="button" data-sort="speedup" aria-pressed="true" { "Speedup" }
+                type="button" data-sort="speedup" aria-pressed="true" { (magnitude_label) }
             button.speedup-sort-btn type="button" data-sort="query" aria-pressed="false" { (order_noun) }
         }
     }

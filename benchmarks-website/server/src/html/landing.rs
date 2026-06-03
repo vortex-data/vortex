@@ -183,10 +183,10 @@ pub(super) fn landing_body(
     let mut next_idx = 0usize;
     let mut layouts: Vec<GroupLayout> = Vec::with_capacity(groups.len());
     for g in groups.iter() {
-        // Anything with fewer than two (storage, SF) combinations renders
-        // flat — there's no toggle to own a dimension, so the heading keeps
-        // its parentheticals and the chart-grid is the rep's.
-        if g.scale_pills.len() < 2 {
+        // Non-TPC groups (no pills) render flat. Any TPC cluster — even a
+        // single (storage, SF) combo like TPC-DS — fans out, so the heading is
+        // the bare suite name and the dimension shows as a (single) pill.
+        if g.scale_pills.is_empty() {
             layouts.push(GroupLayout::Flat(build_cards(
                 &g.chart_links,
                 &g.engines,
