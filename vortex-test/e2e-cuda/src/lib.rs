@@ -14,7 +14,9 @@ use std::sync::LazyLock;
 use arrow_array::Array;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::Date32Array;
+use arrow_array::Decimal32Array;
 use arrow_array::Decimal64Array;
+use arrow_array::Decimal128Array;
 use arrow_array::StringArray;
 use arrow_array::cast::AsArray;
 use arrow_array::ffi::FFI_ArrowArray;
@@ -146,9 +148,19 @@ fn export_array_inner(schema_ptr: &mut FFI_ArrowSchema, array_ptr: &mut ArrowDev
             return 1;
         }
     };
-    let decimal = DecimalArray::from_option_iter(
+    // cuDF supports Arrow decimal device imports through Decimal128. Decimal256 is intentionally
+    // not included here because cuDF has no DECIMAL256 type_id or Arrow interop mapping.
+    let decimal32 = DecimalArray::from_option_iter(
+        [Some(0i8), Some(1), None, Some(3), Some(4)],
+        DecimalDType::new(9, 2),
+    );
+    let decimal64 = DecimalArray::from_option_iter(
         [Some(0i32), Some(1), None, Some(3), Some(4)],
         DecimalDType::new(10, 2),
+    );
+    let decimal128 = DecimalArray::from_option_iter(
+        [Some(0i64), Some(1), None, Some(3), Some(4)],
+        DecimalDType::new(19, 2),
     );
     let strings = VarBinViewArray::from_iter_nullable_str([
         Some("one"),
@@ -166,7 +178,9 @@ fn export_array_inner(schema_ptr: &mut FFI_ArrowSchema, array_ptr: &mut ArrowDev
     let array = StructArray::new(
         FieldNames::from_iter([
             "prims",
-            "decimals",
+            "decimal32",
+            "decimal64",
+            "decimal128",
             "strings",
             "dates",
             "lists",
@@ -174,7 +188,9 @@ fn export_array_inner(schema_ptr: &mut FFI_ArrowSchema, array_ptr: &mut ArrowDev
         ]),
         vec![
             primitive,
-            decimal.into_array(),
+            decimal32.into_array(),
+            decimal64.into_array(),
+            decimal128.into_array(),
             strings.into_array(),
             dates.into_array(),
             list_array(),
@@ -244,8 +260,15 @@ fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowA
             &mut SESSION.create_execution_ctx(),
         )
         .expect("expected primitive Arrow array");
-    let decimal = Decimal64Array::from_iter([Some(0i64), Some(1), None, Some(3), Some(4)])
-        .with_precision_and_scale(10, 2)
+    let decimal32 = Decimal32Array::from_iter([Some(0i32), Some(1), None, Some(3), Some(4)])
+        // cuDF stores decimals using the maximum precision for the physical width and preserves scale.
+        .with_precision_and_scale(9, 2)
+        .expect("with_precision_and_scale");
+    let decimal64 = Decimal64Array::from_iter([Some(0i64), Some(1), None, Some(3), Some(4)])
+        .with_precision_and_scale(18, 2)
+        .expect("with_precision_and_scale");
+    let decimal128 = Decimal128Array::from_iter([Some(0i128), Some(1), None, Some(3), Some(4)])
+        .with_precision_and_scale(38, 2)
         .expect("with_precision_and_scale");
     let string = StringArray::from_iter([
         Some("one"),
@@ -270,7 +293,9 @@ fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowA
 
     let expected_fields = Fields::from_iter([
         Field::new("prims", primitive.data_type().clone(), true),
-        Field::new("decimals", decimal.data_type().clone(), true),
+        Field::new("decimal32", decimal32.data_type().clone(), true),
+        Field::new("decimal64", decimal64.data_type().clone(), true),
+        Field::new("decimal128", decimal128.data_type().clone(), true),
         Field::new("strings", string.data_type().clone(), true),
         Field::new("dates", date.data_type().clone(), true),
         cudf_list_field("lists"),
@@ -278,12 +303,16 @@ fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowA
     ]);
     if &expected_fields != struct_array.fields() {
         eprintln!("wrong fields for host array");
+        eprintln!("expected fields: {expected_fields:#?}");
+        eprintln!("actual fields: {:#?}", struct_array.fields());
         return 1;
     }
 
-    let expected_arrays: [ArrowArrayRef; 4] = [
+    let expected_arrays: [ArrowArrayRef; 6] = [
         primitive,
-        Arc::new(decimal),
+        Arc::new(decimal32),
+        Arc::new(decimal64),
+        Arc::new(decimal128),
         Arc::new(string),
         Arc::new(date),
     ];
@@ -299,11 +328,11 @@ fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowA
         }
     }
 
-    if !list_values_eq(list.as_ref(), struct_array.column(4).as_ref()) {
+    if !list_values_eq(list.as_ref(), struct_array.column(6).as_ref()) {
         eprintln!("wrong values for lists column");
         return 1;
     }
-    if !list_values_eq(fixed_size_list.as_ref(), struct_array.column(5).as_ref()) {
+    if !list_values_eq(fixed_size_list.as_ref(), struct_array.column(7).as_ref()) {
         eprintln!("wrong values for fixed_lists column");
         return 1;
     }
