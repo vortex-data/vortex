@@ -10,7 +10,7 @@ use crate::dtype::PType;
 use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
-use crate::extension::EmptyMetadata;
+use crate::EmptyMetadata;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 

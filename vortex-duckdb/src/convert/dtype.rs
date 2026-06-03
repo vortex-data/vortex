@@ -334,7 +334,7 @@ mod tests {
     use vortex::dtype::extension::ExtId;
     use vortex::dtype::extension::ExtVTable;
     use vortex::error::VortexResult;
-    use vortex::extension::EmptyMetadata;
+    use vortex::array::EmptyMetadata;
     use vortex::extension::datetime::Date;
     use vortex::extension::datetime::Time;
     use vortex::extension::datetime::Timestamp;

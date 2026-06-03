@@ -519,7 +519,7 @@ mod turboquant_benches {
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::scalar_fn::ScalarFnArrayExt;
     use vortex::array::dtype::extension::ExtDType;
-    use vortex::array::extension::EmptyMetadata;
+    use vortex::array::EmptyMetadata;
     use vortex::array::validity::Validity;
     use vortex_array::VortexSessionExecute;
     use vortex_buffer::BufferMut;
