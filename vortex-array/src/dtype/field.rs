@@ -252,6 +252,11 @@ impl FieldPathSet {
         self.set.contains(path)
     }
 
+    /// Iterates over the field paths in the set.
+    pub fn iter(&self) -> impl Iterator<Item = &FieldPath> {
+        self.set.iter()
+    }
+
     /// Inserts a field path prefix unless an existing prefix already covers it.
     ///
     /// Any existing field paths covered by the new prefix are removed.
