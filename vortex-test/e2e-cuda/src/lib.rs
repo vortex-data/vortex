@@ -7,14 +7,15 @@
 //!
 //! * test harness calls `dlopen` in this library
 //! * invokes the `export_array` function to get back the device array
-//! * pass the arrays to `cudf`'s `from_arrow_device_column`
-//! * run some operations on the loaded column view
+//! * pass the array to `cudf`'s `from_arrow_device`
+//! * convert the loaded table back to Arrow host data for validation
 //! * call `array->release()` to drop the data allocated from the Rust side
 
-#![expect(clippy::unwrap_used, clippy::expect_used)]
+#![expect(clippy::expect_used)]
 
 use std::env;
 use std::mem;
+use std::panic;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
@@ -27,6 +28,7 @@ use arrow_array::cast::AsArray;
 use arrow_array::ffi::FFI_ArrowArray;
 use arrow_array::ffi::from_ffi;
 use arrow_array::make_array;
+use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Fields;
 use arrow_schema::ffi::FFI_ArrowSchema;
@@ -133,7 +135,17 @@ pub unsafe extern "C" fn export_array(
     schema_ptr: &mut FFI_ArrowSchema,
     array_ptr: &mut ArrowDeviceArray,
 ) -> i32 {
-    let mut ctx = CudaSession::create_execution_ctx(&SESSION).unwrap();
+    ffi_boundary("export_array", || export_array_inner(schema_ptr, array_ptr))
+}
+
+fn export_array_inner(schema_ptr: &mut FFI_ArrowSchema, array_ptr: &mut ArrowDeviceArray) -> i32 {
+    let mut ctx = match CudaSession::create_execution_ctx(&SESSION) {
+        Ok(ctx) => ctx,
+        Err(err) => {
+            eprintln!("error creating CUDA execution context: {err}");
+            return 1;
+        }
+    };
 
     let primitive = match primitive_array() {
         Ok(array) => array,
@@ -201,10 +213,32 @@ pub unsafe extern "C" fn validate_array(
     ffi_schema: &FFI_ArrowSchema,
     ffi_array: &mut FFI_ArrowArray,
 ) -> i32 {
+    ffi_boundary("validate_array", || {
+        validate_array_inner(ffi_schema, ffi_array)
+    })
+}
+
+fn ffi_boundary(name: &str, f: impl FnOnce() -> i32) -> i32 {
+    match panic::catch_unwind(panic::AssertUnwindSafe(f)) {
+        Ok(code) => code,
+        Err(_) => {
+            eprintln!("panic in {name}");
+            1
+        }
+    }
+}
+
+fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowArray) -> i32 {
     // SAFETY: the provided pointers must not be null, and must point at valid FFI Arrow types.
     let array_data = unsafe {
         let ffi_array = mem::replace(ffi_array, FFI_ArrowArray::empty());
-        from_ffi(ffi_array, ffi_schema).expect("from_ffi failed")
+        match from_ffi(ffi_array, ffi_schema) {
+            Ok(array_data) => array_data,
+            Err(err) => {
+                eprintln!("from_ffi failed: {err}");
+                return 1;
+            }
+        }
     };
 
     let array = make_array(array_data);
@@ -247,29 +281,54 @@ pub unsafe extern "C" fn validate_array(
         Field::new("decimals", decimal.data_type().clone(), true),
         Field::new("strings", string.data_type().clone(), true),
         Field::new("dates", date.data_type().clone(), true),
-        Field::new("lists", list.data_type().clone(), true),
-        Field::new("fixed_lists", fixed_size_list.data_type().clone(), true),
+        cudf_list_field("lists"),
+        cudf_list_field("fixed_lists"),
     ]);
+    if &expected_fields != struct_array.fields() {
+        eprintln!("wrong fields for host array");
+        return 1;
+    }
 
-    assert_eq!(
-        &expected_fields,
-        struct_array.fields(),
-        "wrong fields for host array: {:?}",
-        struct_array.fields()
-    );
-
-    let expected_fields: [ArrowArrayRef; _] = [
+    let expected_arrays: [ArrowArrayRef; 4] = [
         primitive,
         Arc::new(decimal),
         Arc::new(string),
         Arc::new(date),
-        list,
-        fixed_size_list,
     ];
 
-    for (expected, actual) in expected_fields.iter().zip(struct_array.columns()) {
-        assert_eq!(expected.as_ref(), actual.as_ref());
+    for (idx, (expected, actual)) in expected_arrays
+        .iter()
+        .zip(struct_array.columns())
+        .enumerate()
+    {
+        if expected.as_ref() != actual.as_ref() {
+            eprintln!("wrong values for host column {idx}");
+            return 1;
+        }
+    }
+
+    if !list_values_eq(list.as_ref(), struct_array.column(4).as_ref()) {
+        eprintln!("wrong values for lists column");
+        return 1;
+    }
+    if !list_values_eq(fixed_size_list.as_ref(), struct_array.column(5).as_ref()) {
+        eprintln!("wrong values for fixed_lists column");
+        return 1;
     }
 
     0
+}
+
+fn cudf_list_field(name: &str) -> Field {
+    Field::new_list(name, Field::new("element", DataType::Int32, false), true)
+}
+
+fn list_values_eq(expected: &dyn Array, actual: &dyn Array) -> bool {
+    let expected = expected.as_list::<i32>();
+    let actual = actual.as_list::<i32>();
+
+    expected.len() == actual.len()
+        && expected.value_offsets() == actual.value_offsets()
+        && (0..expected.len()).all(|idx| expected.is_null(idx) == actual.is_null(idx))
+        && expected.values().as_ref() == actual.values().as_ref()
 }
