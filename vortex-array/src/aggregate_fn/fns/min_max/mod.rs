@@ -61,8 +61,8 @@ pub fn min_max(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<
         return Ok(None);
     }
 
-    // Short-circuit for unsupported dtypes.
-    if MinMax.return_dtype(&EmptyOptions, array.dtype()).is_none() {
+    // Short-circuit for dtypes this helper cannot currently compute.
+    if !minmax_compute_supported_dtype(array.dtype()) {
         return Ok(None);
     }
 
@@ -162,6 +162,37 @@ pub fn make_minmax_dtype(element_dtype: &DType) -> DType {
     )
 }
 
+fn minmax_supported_dtype(input_dtype: &DType) -> bool {
+    match input_dtype {
+        DType::Bool(_)
+        | DType::Primitive(..)
+        | DType::Decimal(..)
+        | DType::Utf8(..)
+        | DType::Binary(..)
+        | DType::Extension(..) => true,
+        DType::List(element_dtype, _) => minmax_supported_dtype(element_dtype),
+        DType::FixedSizeList(element_dtype, ..) => minmax_supported_dtype(element_dtype),
+        _ => false,
+    }
+}
+
+/// Returns whether [`min_max`] can currently compute extrema for this logical dtype.
+///
+/// This is intentionally narrower than [`minmax_supported_dtype`]. List and fixed-size-list
+/// extrema have a defined output dtype for aggregate expression lowering, but the accumulator does
+/// not yet implement lexicographic list comparison.
+fn minmax_compute_supported_dtype(input_dtype: &DType) -> bool {
+    matches!(
+        input_dtype,
+        DType::Bool(_)
+            | DType::Primitive(..)
+            | DType::Decimal(..)
+            | DType::Utf8(..)
+            | DType::Binary(..)
+            | DType::Extension(..)
+    )
+}
+
 impl AggregateFnVTable for MinMax {
     type Options = EmptyOptions;
     type Partial = MinMaxPartial;
@@ -175,15 +206,7 @@ impl AggregateFnVTable for MinMax {
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
-        match input_dtype {
-            DType::Bool(_)
-            | DType::Primitive(..)
-            | DType::Decimal(..)
-            | DType::Utf8(..)
-            | DType::Binary(..)
-            | DType::Extension(..) => Some(make_minmax_dtype(input_dtype)),
-            _ => None,
-        }
+        minmax_supported_dtype(input_dtype).then(|| make_minmax_dtype(input_dtype))
     }
 
     fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
@@ -278,6 +301,8 @@ impl AggregateFnVTable for MinMax {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
@@ -298,6 +323,8 @@ mod tests {
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::DecimalArray;
+    use crate::arrays::FixedSizeListArray;
+    use crate::arrays::ListArray;
     use crate::arrays::NullArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
@@ -567,6 +594,47 @@ mod tests {
         )?;
         assert_eq!(result.min, expected_min);
         assert_eq!(result.max, expected_max);
+        Ok(())
+    }
+
+    #[test]
+    fn list_and_fixed_size_list_return_dtype() {
+        let element_dtype = DType::Primitive(PType::I32, Nullability::Nullable);
+        let list_dtype = DType::List(Arc::new(element_dtype.clone()), Nullability::Nullable);
+        let fixed_size_list_dtype =
+            DType::FixedSizeList(Arc::new(element_dtype), 1, Nullability::Nullable);
+
+        assert_eq!(
+            MinMax.return_dtype(&EmptyOptions, &list_dtype),
+            Some(make_minmax_dtype(&list_dtype))
+        );
+        assert_eq!(
+            MinMax.return_dtype(&EmptyOptions, &fixed_size_list_dtype),
+            Some(make_minmax_dtype(&fixed_size_list_dtype))
+        );
+    }
+
+    #[test]
+    fn list_and_fixed_size_list_min_max_returns_none() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
+        let list_array = ListArray::try_new(
+            buffer![1i32, 2, 3].into_array(),
+            buffer![0u32, 2, 3].into_array(),
+            Validity::NonNullable,
+        )?
+        .into_array();
+        assert_eq!(min_max(&list_array, &mut ctx)?, None);
+
+        let fixed_size_list_array = FixedSizeListArray::try_new(
+            buffer![1i32, 2, 3, 4].into_array(),
+            2,
+            Validity::NonNullable,
+            2,
+        )?
+        .into_array();
+        assert_eq!(min_max(&fixed_size_list_array, &mut ctx)?, None);
+
         Ok(())
     }
 
