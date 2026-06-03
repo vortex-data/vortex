@@ -29,6 +29,7 @@ use vortex_session::VortexSession;
 use crate::LayoutReaderContext;
 use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
+use crate::LazyReaderChildrenCache;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
 use crate::reader::RowSplits;
@@ -51,6 +52,7 @@ impl ChunkedReader {
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
         ctx: LayoutReaderContext,
+        reader_cache: LazyReaderChildrenCache,
     ) -> Self {
         let nchildren = layout.nchildren();
         let dtypes = vec![layout.dtype.clone(); nchildren];
@@ -72,6 +74,7 @@ impl ChunkedReader {
             segment_source,
             session.clone(),
             ctx,
+            reader_cache,
         );
 
         Self {

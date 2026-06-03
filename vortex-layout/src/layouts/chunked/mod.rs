@@ -19,6 +19,7 @@ use crate::LayoutId;
 use crate::LayoutReaderContext;
 use crate::LayoutReaderRef;
 use crate::LayoutRef;
+use crate::SharedReaderCache;
 use crate::VTable;
 use crate::children::LayoutChildren;
 use crate::children::OwnedLayoutChildren;
@@ -77,12 +78,16 @@ impl VTable for Chunked {
         session: &VortexSession,
         ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef> {
+        let reader_cache = layout
+            .cache
+            .get_or_create(&segment_source, layout.nchildren());
         Ok(Arc::new(ChunkedReader::new(
             layout.clone(),
             name,
             segment_source,
             session,
             ctx.clone(),
+            reader_cache,
         )))
     }
 
@@ -113,6 +118,7 @@ impl VTable for Chunked {
 
         layout.children = new_children;
         layout.chunk_offsets = chunk_offsets;
+        layout.cache = SharedReaderCache::new();
         Ok(())
     }
 }
@@ -130,6 +136,7 @@ pub struct ChunkedLayout {
     dtype: DType,
     children: Arc<dyn LayoutChildren>,
     chunk_offsets: Vec<u64>,
+    cache: SharedReaderCache,
 }
 
 impl ChunkedLayout {
@@ -149,6 +156,7 @@ impl ChunkedLayout {
             dtype,
             children,
             chunk_offsets,
+            cache: SharedReaderCache::new(),
         }
     }
 

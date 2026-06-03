@@ -22,6 +22,7 @@ use vortex_session::VortexSession;
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
+use crate::LazyReaderChildrenCache;
 use crate::RowSplits;
 use crate::SplitRange;
 use crate::layouts::zoned::ZonedLayout;
@@ -49,6 +50,7 @@ impl ZonedReader {
             stats_table_dtype(layout.dtype(), layout.present_stats()),
         ];
         let names = vec![Arc::clone(&name), format!("{}.zones", name).into()];
+        let cache = LazyReaderChildrenCache::new(layout.nchildren());
         let lazy_children = Arc::new(LazyReaderChildren::new(
             Arc::clone(&layout.children),
             dtypes,
@@ -56,6 +58,7 @@ impl ZonedReader {
             Arc::clone(&segment_source),
             session.clone(),
             ctx,
+            cache,
         ));
 
         Ok(Self {

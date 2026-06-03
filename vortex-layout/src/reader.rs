@@ -2,12 +2,17 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::fmt::Debug;
+use std::fmt::Formatter;
+use std::fmt::Result;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::Weak;
 
 use futures::future::BoxFuture;
 use futures::try_join;
 use once_cell::sync::OnceCell;
+use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
@@ -202,6 +207,20 @@ impl ArrayFutureExt for ArrayFuture {
     }
 }
 
+/// Per child layout reader cache
+#[derive(Clone)]
+pub struct LazyReaderChildrenCache(Arc<[OnceCell<LayoutReaderRef>]>);
+
+impl LazyReaderChildrenCache {
+    pub fn new(len: usize) -> Self {
+        Self(vec![OnceCell::new(); len].into_boxed_slice().into())
+    }
+
+    pub fn item(&self, idx: usize) -> &OnceCell<LayoutReaderRef> {
+        &self.0[idx]
+    }
+}
+
 pub struct LazyReaderChildren {
     children: Arc<dyn LayoutChildren>,
     dtypes: Vec<DType>,
@@ -209,11 +228,12 @@ pub struct LazyReaderChildren {
     segment_source: Arc<dyn SegmentSource>,
     session: VortexSession,
     ctx: LayoutReaderContext,
-    // TODO(ngates): we may want a hash map of some sort here?
-    cache: Vec<OnceCell<LayoutReaderRef>>,
+    cache: LazyReaderChildrenCache,
 }
 
 impl LazyReaderChildren {
+    /// If cache is supplied, caller must ensure it was created with same
+    /// "nchildren" and "segment_source"
     pub fn new(
         children: Arc<dyn LayoutChildren>,
         dtypes: Vec<DType>,
@@ -221,9 +241,8 @@ impl LazyReaderChildren {
         segment_source: Arc<dyn SegmentSource>,
         session: VortexSession,
         ctx: LayoutReaderContext,
+        cache: LazyReaderChildrenCache,
     ) -> Self {
-        let nchildren = children.nchildren();
-        let cache = (0..nchildren).map(|_| OnceCell::new()).collect();
         Self {
             children,
             dtypes,
@@ -236,19 +255,63 @@ impl LazyReaderChildren {
     }
 
     pub fn get(&self, idx: usize) -> VortexResult<&LayoutReaderRef> {
-        if idx >= self.cache.len() {
-            vortex_bail!("Child index out of bounds: {} of {}", idx, self.cache.len());
-        }
-
-        self.cache[idx].get_or_try_init(|| {
-            let dtype = &self.dtypes[idx];
-            let child = self.children.child(idx, dtype)?;
-            child.new_reader(
+        self.cache.item(idx).get_or_try_init(|| {
+            self.children.child(idx, &self.dtypes[idx])?.new_reader(
                 Arc::clone(&self.names[idx]),
                 Arc::clone(&self.segment_source),
                 &self.session,
                 &self.ctx,
             )
         })
+    }
+}
+
+struct SharedReaderCacheInner {
+    weak: Weak<dyn SegmentSource>,
+    cache: LazyReaderChildrenCache,
+}
+
+/// Per segment source reader cache
+#[derive(Clone)]
+pub struct SharedReaderCache(Arc<Mutex<Option<SharedReaderCacheInner>>>);
+
+impl SharedReaderCache {
+    pub fn new() -> Self {
+        Self(Arc::new(Mutex::new(None)))
+    }
+
+    /// Return or initialize cached LazyReaderChildrenCache for "segment_source"
+    pub fn get_or_create(
+        &self,
+        segment_source: &Arc<dyn SegmentSource>,
+        nchildren: usize,
+    ) -> LazyReaderChildrenCache {
+        let mut guard = self.0.lock();
+        if let Some(inner) = guard.as_ref()
+            && let Some(strong) = inner.weak.upgrade()
+            && Arc::ptr_eq(&strong, segment_source)
+        {
+            inner.cache.clone()
+        } else {
+            let weak = Arc::downgrade(segment_source);
+            let cache = LazyReaderChildrenCache::new(nchildren);
+            *guard = Some(SharedReaderCacheInner {
+                weak,
+                cache: cache.clone(),
+            });
+            cache
+        }
+    }
+}
+
+impl Default for SharedReaderCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Debug for SharedReaderCache {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        f.debug_struct("SharedReaderCache").finish_non_exhaustive()
     }
 }

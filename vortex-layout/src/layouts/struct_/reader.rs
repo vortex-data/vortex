@@ -42,6 +42,7 @@ use crate::ArrayFuture;
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
+use crate::LazyReaderChildrenCache;
 use crate::RowSplits;
 use crate::SplitRange;
 use crate::layouts::partitioned::PartitionedExprEval;
@@ -94,6 +95,7 @@ impl StructReader {
             names.insert(0, Arc::from("validity"));
         }
 
+        let cache = LazyReaderChildrenCache::new(layout.nchildren());
         let lazy_children = LazyReaderChildren::new(
             Arc::clone(&layout.children),
             dtypes,
@@ -101,6 +103,7 @@ impl StructReader {
             Arc::clone(&segment_source),
             session.clone(),
             ctx,
+            cache,
         );
 
         // Create an expanded root expression that contains all fields of the struct.
