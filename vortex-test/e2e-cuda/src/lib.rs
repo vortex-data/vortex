@@ -303,8 +303,8 @@ fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowA
     ]);
     if &expected_fields != struct_array.fields() {
         eprintln!("wrong fields for host array");
-        eprintln!("expected fields: {expected_fields:#?}");
-        eprintln!("actual fields: {:#?}", struct_array.fields());
+        eprintln!("expected fields: {}", format_fields(&expected_fields));
+        eprintln!("actual fields: {}", format_fields(struct_array.fields()));
         return 1;
     }
 
@@ -342,6 +342,21 @@ fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowA
 
 fn cudf_list_field(name: &str) -> Field {
     Field::new_list(name, Field::new("element", DataType::Int32, false), true)
+}
+
+fn format_fields(fields: &Fields) -> String {
+    fields
+        .iter()
+        .map(|field| {
+            format!(
+                "{}: {}{}",
+                field.name(),
+                field.data_type(),
+                if field.is_nullable() { "?" } else { "" }
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn list_values_eq(expected: &dyn Array, actual: &dyn Array) -> bool {
