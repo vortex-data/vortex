@@ -14,6 +14,7 @@ use vortex_proto::expr::FieldNames as ProtoFieldNames;
 use vortex_proto::expr::SelectOpts;
 use vortex_proto::expr::select_opts::Opts;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -48,7 +49,8 @@ impl ScalarFnVTable for Select {
     type Options = FieldSelection;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.select")
+        static ID: CachedId = CachedId::new("vortex.select");
+        *ID
     }
 
     fn serialize(&self, instance: &FieldSelection) -> VortexResult<Option<Vec<u8>>> {
