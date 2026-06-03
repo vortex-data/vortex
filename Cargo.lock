@@ -9909,6 +9909,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-cuda-ffi"
+version = "0.1.0"
+dependencies = [
+ "arrow-schema",
+ "futures",
+ "vortex",
+ "vortex-array",
+ "vortex-cuda",
+ "vortex-cuda-macros",
+ "vortex-ffi",
+]
+
+[[package]]
 name = "vortex-cuda-macros"
 version = "0.1.0"
 dependencies = [

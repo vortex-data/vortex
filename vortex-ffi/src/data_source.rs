@@ -3,6 +3,7 @@
 #![allow(non_camel_case_types)]
 #![deny(missing_docs)]
 
+use std::ffi::CStr;
 use std::ffi::c_char;
 use std::ptr;
 use std::sync::Arc;
@@ -24,7 +25,6 @@ use crate::error::vx_error;
 use crate::scan::vx_estimate;
 use crate::scan::vx_estimate_type;
 use crate::session::vx_session;
-use crate::to_string;
 
 crate::arc_dyn_wrapper!(
     /// A reference to one or more (possibly remote) paths.
@@ -63,7 +63,9 @@ unsafe fn data_source_new(
     let opts = unsafe { &*opts };
     vortex_ensure!(!opts.paths.is_null());
 
-    let glob = unsafe { to_string(opts.paths) };
+    let glob = unsafe { CStr::from_ptr(opts.paths) }
+        .to_string_lossy()
+        .into_owned();
     let mut data_source = MultiFileDataSource::new(session.clone());
     for glob in glob.split(',') {
         data_source = data_source.with_glob(glob, None);

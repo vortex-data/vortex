@@ -32,6 +32,7 @@ fn main() {
         .contains("sanitizer")
     {
         println!("cargo:info=Skipping header generation due to sanitizers");
+        return;
     }
 
     if env::var("MIRI").is_ok() || env::var("MIRIFLAGS").is_ok() {
