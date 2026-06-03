@@ -162,19 +162,15 @@ fn export_canonical(
                 export_fixed_size(bits, len, offset, validity_buffer, null_count, ctx)
             }
             Canonical::List(listview) => {
-                // cuDF expects standard Arrow `List`, while Vortex canonical lists are list-views.
-                // Try the CUDA path first, copying host metadata/children to GPU as needed. If a
-                // host list-view hits a GPU implementation gap, rebuild it to `ListArray` on CPU;
-                // `export_list` still exports the rebuilt Arrow layout back to GPU buffers.
+                // cuDF imports standard Arrow `List`, while Vortex canonical lists are list-views.
+                // Try the GPU path first; host list-views can fall back to a CPU rebuild.
                 let is_host = listview.as_ref().is_host();
                 let gpu_err = match export_device_list_view(listview.clone(), ctx).await {
                     Ok(exported) => return Ok(exported),
                     Err(err) => err,
                 };
 
-                // The fallback calls the CPU list-view rebuild, which requires host-resident
-                // buffers. Device-resident fallback would need an explicit D2H materialization
-                // step; until then, preserve the original GPU export error.
+                // CPU rebuild requires host-resident buffers; device-resident arrays keep the GPU error.
                 if !is_host {
                     return Err(gpu_err);
                 }
@@ -328,9 +324,8 @@ pub(super) async fn export_list_layout(
 
 /// Export a Vortex fixed-size-list as Arrow `List`.
 ///
-/// Arrow has a native `FixedSizeList` layout, but cuDF's Arrow Device import currently maps Arrow
-/// `List`/`LargeList` to cuDF `LIST` and rejects `FixedSizeList`. Emit equivalent standard Arrow
-/// `List` offsets so fixed-size-list columns can be consumed by cuDF.
+/// cuDF's Arrow Device import accepts `List`/`LargeList` as cuDF `LIST`, but rejects
+/// `FixedSizeList`, so emit equivalent standard Arrow `List` offsets.
 async fn export_fixed_size_list(
     array: FixedSizeListArray,
     ctx: &mut CudaExecutionCtx,

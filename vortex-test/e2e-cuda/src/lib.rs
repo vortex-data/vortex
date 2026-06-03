@@ -1,15 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! This file is a simple C-compatible API that is called from the cudf-test-harness at CI time.
-//!
-//! The flow is:
-//!
-//! * test harness calls `dlopen` in this library
-//! * invokes the `export_array` function to get back the device array
-//! * pass the array to `cudf`'s `from_arrow_device`
-//! * convert the loaded table back to Arrow host data for validation
-//! * call `array->release()` to drop the data allocated from the Rust side
+//! C ABI used by `cudf-test-harness` to export and validate Arrow Device data in CI.
 
 #![expect(clippy::expect_used)]
 
@@ -129,7 +121,7 @@ fn fixed_size_list_as_list_array() -> VortexArrayRef {
 }
 
 /// # Safety
-/// called by C++ code.
+/// `schema_ptr` and `array_ptr` must be valid writable pointers.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn export_array(
     schema_ptr: &mut FFI_ArrowSchema,
@@ -207,7 +199,7 @@ fn export_array_inner(schema_ptr: &mut FFI_ArrowSchema, array_ptr: &mut ArrowDev
 }
 
 /// # Safety
-/// called by C++ code.
+/// `ffi_schema` and `ffi_array` must describe a valid Arrow C Data array.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn validate_array(
     ffi_schema: &FFI_ArrowSchema,
@@ -229,7 +221,7 @@ fn ffi_boundary(name: &str, f: impl FnOnce() -> i32) -> i32 {
 }
 
 fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowArray) -> i32 {
-    // SAFETY: the provided pointers must not be null, and must point at valid FFI Arrow types.
+    // SAFETY: guaranteed by the C ABI contract.
     let array_data = unsafe {
         let ffi_array = mem::replace(ffi_array, FFI_ArrowArray::empty());
         match from_ffi(ffi_array, ffi_schema) {

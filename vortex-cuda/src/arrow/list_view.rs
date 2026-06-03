@@ -35,7 +35,7 @@ use crate::CudaExecutionCtx;
 use crate::cub::exclusive_sum_i32;
 use crate::executor::CudaArrayExt;
 
-/// Export a device-resident Vortex list-view as Arrow `List` without staging offsets on host.
+/// Export a Vortex list-view as Arrow `List` using device kernels.
 ///
 /// Contiguous list-views reuse their child elements. Non-contiguous list-views are rebuilt on GPU
 /// only when the child is primitive and non-nullable/non-null; other child shapes are rejected.
@@ -101,7 +101,7 @@ enum DeviceListViewOffsets {
     RequiresRebuild,
 }
 
-/// Build cuDF-supported `i32` Arrow `List` offsets for a contiguous device-resident list-view.
+/// Build cuDF-supported `i32` Arrow `List` offsets from list-view offset/size device buffers.
 #[expect(clippy::cognitive_complexity)]
 async fn export_device_list_view_offsets(
     offsets_ptype: PType,

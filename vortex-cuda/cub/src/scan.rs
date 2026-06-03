@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Safe wrappers around CUB DeviceScan operations used by CUDA kernels.
+//! Rust wrappers around CUB DeviceScan operations used by CUDA kernels.
 
 use std::ffi::c_void;
 

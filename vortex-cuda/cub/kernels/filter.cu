@@ -189,10 +189,7 @@ DEFINE_FILTER_BITMASK(f64, double)
 DEFINE_FILTER_BITMASK(i128, __int128_t)
 DEFINE_FILTER_BITMASK(i256, __int256_t)
 
-// CUB scan operations use a two-call API: first call with null temporary storage to query the
-// number of scratch bytes required for a given type/item count, then call again with a device
-// scratch allocation of that size to enqueue the scan on the target stream. These wrappers expose
-// that pattern through a stable C ABI for the Rust side of vortex-cub.
+// Query CUB temporary storage for an exclusive-sum scan.
 template <typename T>
 static cudaError_t scan_exclusive_sum_temp_size_impl(size_t *temp_bytes, int64_t num_items) {
     size_t bytes = 0;
@@ -205,9 +202,7 @@ static cudaError_t scan_exclusive_sum_temp_size_impl(size_t *temp_bytes, int64_t
     return err;
 }
 
-// Define one temp-size query and one scan launch function per supported element type. The suffix
-// is part of the exported symbol name consumed by bindgen/Rust; keep it in sync with
-// vortex-cuda/cub/src/scan.rs.
+// Export one temp-size query and scan launch per supported element type.
 #define DEFINE_SCAN_EXCLUSIVE_SUM(suffix, Type)                                                              \
     extern "C" cudaError_t scan_exclusive_sum_##suffix##_temp_size(size_t *temp_bytes, int64_t num_items) {  \
         return scan_exclusive_sum_temp_size_impl<Type>(temp_bytes, num_items);                               \
