@@ -167,7 +167,7 @@ fn export_canonical(
                 // Try the CUDA path first, copying host metadata/children to GPU as needed. If a
                 // host list-view hits a GPU implementation gap, rebuild it to `ListArray` on CPU;
                 // `export_list` still exports the rebuilt Arrow layout back to GPU buffers.
-                let is_host = listview.clone().into_array().is_host();
+                let is_host = listview.as_ref().is_host();
                 let gpu_err = match export_device_list_view(listview.clone(), ctx).await {
                     Ok(exported) => return Ok(exported),
                     Err(err) => err,
