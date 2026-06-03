@@ -140,7 +140,11 @@ pub fn parse_genotype(gt: Option<EntryValue>) -> VortexResult<Option<u8>> {
         .process_results(|iter| iter.map(|x| x.0).collect::<Vec<_>>())?[..]
     {
         [None, None] => Ok(None),
-        [Some(l), Some(r)] => Ok(Some(l as u8 + r as u8)),
+        // GT dosage is the number of alternate alleles: 0, 1, or 2.
+        [Some(l), Some(r)] => match u8::try_from(l + r) {
+            Ok(dosage) => Ok(Some(dosage)),
+            Err(_) => vortex_bail!("genotype allele sum {} does not fit in u8", l + r),
+        },
         _ => vortex_bail!("wtf {:?}", gt),
     }
 }

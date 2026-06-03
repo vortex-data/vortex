@@ -445,3 +445,33 @@ impl<'a> GnomADBuilder<'a> {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use arrow_schema::DataType;
+    use noodles_vcf::Header;
+
+    use super::GnomADBuilder;
+
+    /// Regression test: the GnomAD schema declares `GT` as `list(u8)`, so the builder must
+    /// emit a `List<UInt8>` array. Previously the builder used `UInt64`, so `finish` failed
+    /// inside `RecordBatch::try_new` with a schema/array type mismatch.
+    #[test]
+    fn gt_builder_matches_u8_schema() -> anyhow::Result<()> {
+        let header = Header::default();
+        let schema = super::super::schema::schema_from_vcf_header(&header);
+
+        // `finish` validates every column against the schema via `RecordBatch::try_new`,
+        // so this only succeeds when the GT builder's element type matches `list(u8)`.
+        let batch = GnomADBuilder::new(&header, schema).finish()?;
+
+        let gt = batch
+            .column_by_name("GT")
+            .expect("GT column must be present");
+        let DataType::List(item) = gt.data_type() else {
+            panic!("GT must be a List, got {:?}", gt.data_type());
+        };
+        assert_eq!(item.data_type(), &DataType::UInt8, "GT items must be u8");
+        Ok(())
+    }
+}
