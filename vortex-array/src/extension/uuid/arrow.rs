@@ -142,7 +142,7 @@ impl ArrowImportVTable for Uuid {
             PType::U8,
             Validity::NonNullable,
         );
-        let validity = nulls(fsb.nulls(), dtype.is_nullable());
+        let validity = nulls(fsb.nulls(), dtype.is_nullable())?;
 
         let storage = FixedSizeListArray::new(
             u8_array.into_array(),
