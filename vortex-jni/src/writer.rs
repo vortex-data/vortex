@@ -46,8 +46,6 @@ use vortex::io::object_store::ObjectStoreWrite;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::Task;
 use vortex::io::session::RuntimeSessionExt;
-use vortex::layout::LayoutStrategy;
-use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex::session::VortexSession;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex_parquet_variant::ParquetVariant;
@@ -101,13 +99,8 @@ fn write_options_for_schema(
 
     let mut allowed = vortex::file::ALLOWED_ENCODINGS.clone();
     allowed.insert(ParquetVariant.id());
-    let flat: Arc<dyn LayoutStrategy> =
-        Arc::new(FlatLayoutStrategy::default().with_allow_encodings(allowed));
 
-    let mut strategy = WriteStrategyBuilder::default();
-    for path in variant_paths {
-        strategy = strategy.with_field_writer(path, Arc::clone(&flat));
-    }
+    let strategy = WriteStrategyBuilder::default().with_allow_encodings(allowed);
 
     session.write_options().with_strategy(strategy.build())
 }

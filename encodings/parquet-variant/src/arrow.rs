@@ -18,6 +18,8 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::Variant;
+use vortex_array::arrays::variant::VariantArrayExt;
 use vortex_array::arrow::ArrowExport;
 use vortex_array::arrow::ArrowExportVTable;
 use vortex_array::arrow::ArrowImport;
@@ -113,6 +115,35 @@ fn export_unshredded_storage_to_target<T: ParquetVariantArrayExt>(
     export_storage_to_target(&unshredded_parquet, target_fields, ctx)
 }
 
+fn parquet_variant_for_export(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    let executed = array.execute_until::<ParquetVariant>(ctx)?;
+    if executed.is::<ParquetVariant>() {
+        return Ok(executed);
+    }
+
+    let variant = executed
+        .as_opt::<Variant>()
+        .ok_or_else(|| vortex_err!("cannot export Variant without ParquetVariant storage"))?;
+    let core_storage = variant
+        .core_storage()
+        .clone()
+        .execute_until::<ParquetVariant>(ctx)?;
+    let parquet_core = core_storage
+        .as_opt::<ParquetVariant>()
+        .ok_or_else(|| vortex_err!("cannot export Variant without ParquetVariant core storage"))?;
+    let Some(shredded) = variant.shredded() else {
+        return Ok(core_storage);
+    };
+
+    ParquetVariant::try_new(
+        ParquetVariantArrayExt::validity(&parquet_core),
+        parquet_core.metadata_array().clone(),
+        parquet_core.value_array().cloned(),
+        Some(shredded.clone()),
+    )
+    .map(IntoArray::into_array)
+}
+
 impl ArrowExportVTable for ParquetVariant {
     fn arrow_ext_id(&self) -> Id {
         *ARROW_PARQUET_VARIANT
@@ -148,10 +179,8 @@ impl ArrowExportVTable for ParquetVariant {
             return Ok(ArrowExport::Unsupported(array));
         }
 
-        let executed = array.execute_until::<ParquetVariant>(ctx)?;
-        let parquet_array = executed
-            .as_opt::<ParquetVariant>()
-            .ok_or_else(|| vortex_err!("cannot export Variant without ParquetVariant storage"))?;
+        let parquet_array = parquet_variant_for_export(array, ctx)?;
+        let parquet_array = parquet_array.as_::<ParquetVariant>();
 
         if let DataType::Struct(fields) = target.data_type()
             && let Some((request_has_value, request_has_typed_value)) =
@@ -261,6 +290,7 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::arrays::VariantArray;
     use vortex_array::arrow::ArrowSessionExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
@@ -357,6 +387,77 @@ mod tests {
 
         assert_struct_arrays_eq(exported, &storage);
         Ok(())
+    }
+
+    #[rstest]
+    fn export_canonical_variant_with_parquet_variant_core_storage(
+        session: VortexSession,
+    ) -> VortexResult<()> {
+        let storage = arrow_variant_storage();
+        let field = arrow_variant_field(&storage);
+        let core_storage = session
+            .arrow()
+            .from_arrow_array(Arc::new(storage.clone()) as ArrowArrayRef, &field)?;
+        let canonical = VariantArray::try_new(core_storage, None)?.into_array();
+
+        let mut ctx = session.create_execution_ctx();
+        let exported = session
+            .arrow()
+            .execute_arrow(canonical, Some(&field), &mut ctx)?;
+        let exported = exported.as_struct();
+
+        assert_struct_arrays_eq(exported, &storage);
+        Ok(())
+    }
+
+    #[rstest]
+    fn export_canonical_variant_reattaches_shredded_child(
+        session: VortexSession,
+    ) -> VortexResult<()> {
+        let rows = [
+            VariantBuilder::new().with_value(10i32).finish(),
+            VariantBuilder::new().with_value(20i32).finish(),
+            VariantBuilder::new().with_value(30i32).finish(),
+        ];
+        let metadata =
+            VarBinViewArray::from_iter_bin(rows.iter().map(|(metadata, _)| metadata.as_slice()))
+                .into_array();
+        let typed_value = buffer![10i32, 20, 30].into_array();
+        let expected =
+            ParquetVariant::try_new(Validity::NonNullable, metadata, None, Some(typed_value))?
+                .into_array();
+
+        let mut ctx = session.create_execution_ctx();
+        let canonical = expected
+            .clone()
+            .execute::<VariantArray>(&mut ctx)?
+            .into_array();
+        let field = Field::new(
+            "variant",
+            DataType::Struct(
+                vec![
+                    Field::new("metadata", DataType::BinaryView, false),
+                    Field::new("value", DataType::BinaryView, false),
+                ]
+                .into(),
+            ),
+            false,
+        )
+        .with_metadata(
+            [(
+                EXTENSION_TYPE_NAME_KEY.to_string(),
+                PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
+            )]
+            .into(),
+        );
+
+        let exported = session
+            .arrow()
+            .execute_arrow(canonical, Some(&field), &mut ctx)?;
+        assert_eq!(exported.data_type(), field.data_type());
+
+        let actual = session.arrow().from_arrow_array(exported, &field)?;
+        assert_variant_scalars_eq(&actual, &expected, &session)
     }
 
     #[rstest]
