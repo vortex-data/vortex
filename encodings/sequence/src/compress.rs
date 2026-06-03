@@ -172,8 +172,6 @@ fn sequence_parts_typed<P: NativePType + Into<PValue> + CheckedAdd + CheckedSub>
 mod tests {
     use std::sync::LazyLock;
 
-    #[expect(unused_imports)]
-    use itertools::Itertools;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;

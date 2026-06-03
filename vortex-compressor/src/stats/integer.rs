@@ -47,11 +47,11 @@ const DISTINCT_COUNT_CONFIDENCE_SIGMAS: usize = 4;
 #[derive(Debug, Clone)]
 pub struct DistinctInfo<T> {
     /// The estimated count of unique values. This _must_ be non-zero.
-    distinct_count: u32,
+    distinct_count: usize,
     /// The most frequent value (Boyer-Moore majority candidate).
     most_frequent_value: T,
     /// The exact number of times `most_frequent_value` occurs in the array.
-    top_frequency: u32,
+    top_frequency: usize,
 }
 
 /// Typed statistics for a specific integer type.
@@ -74,12 +74,12 @@ impl<T> TypedStats<T> {
 
 impl<T> TypedStats<T> {
     /// Get the count of distinct values, if we have computed it already.
-    fn distinct_count(&self) -> Option<u32> {
+    fn distinct_count(&self) -> Option<usize> {
         Some(self.distinct.as_ref()?.distinct_count)
     }
 
     /// Get the most commonly occurring value and its count, if we have computed it already.
-    fn most_frequent_value_and_count(&self) -> Option<(&T, u32)> {
+    fn most_frequent_value_and_count(&self) -> Option<(&T, usize)> {
         let distinct = self.distinct.as_ref()?;
         Some((&distinct.most_frequent_value, distinct.top_frequency))
     }
@@ -176,7 +176,7 @@ impl ErasedStats {
     }
 
     /// Get the count of distinct values, if we have computed it already.
-    pub fn distinct_count(&self) -> Option<u32> {
+    pub fn distinct_count(&self) -> Option<usize> {
         match &self {
             ErasedStats::U8(x) => x.distinct_count(),
             ErasedStats::U16(x) => x.distinct_count(),
@@ -190,7 +190,7 @@ impl ErasedStats {
     }
 
     /// Get the most commonly occurring value and its count.
-    pub fn most_frequent_value_and_count(&self) -> Option<(PValue, u32)> {
+    pub fn most_frequent_value_and_count(&self) -> Option<(PValue, usize)> {
         match &self {
             ErasedStats::U8(x) => {
                 let (top_value, count) = x.most_frequent_value_and_count()?;
@@ -252,11 +252,11 @@ impl_from_typed!(i64, ErasedStats::I64);
 #[derive(Clone, Debug)]
 pub struct IntegerStats {
     /// Cache for `validity.false_count()`.
-    null_count: u32,
+    null_count: usize,
     /// Cache for `validity.true_count()`.
-    value_count: u32,
+    value_count: usize,
     /// The average run length.
-    average_run_length: u32,
+    average_run_length: usize,
     /// Type-erased typed statistics.
     erased: ErasedStats,
 }
@@ -274,7 +274,7 @@ impl IntegerStats {
     }
 
     /// Get the count of distinct values, if we have computed it already.
-    pub fn distinct_count(&self) -> Option<u32> {
+    pub fn distinct_count(&self) -> Option<usize> {
         self.erased.distinct_count()
     }
 
@@ -289,7 +289,6 @@ impl IntegerStats {
         let Some(distinct_count) = self.distinct_count() else {
             return true;
         };
-        let distinct_count = distinct_count as usize;
 
         // The true distinct count never exceeds `count`, so an over-estimate reflects estimator
         // noise and remains consistent with all values being distinct.
@@ -301,7 +300,7 @@ impl IntegerStats {
     }
 
     /// Get the most commonly occurring value and its count, if we have computed it already.
-    pub fn most_frequent_value_and_count(&self) -> Option<(PValue, u32)> {
+    pub fn most_frequent_value_and_count(&self) -> Option<(PValue, usize)> {
         self.erased.most_frequent_value_and_count()
     }
 }
@@ -333,17 +332,17 @@ impl IntegerStats {
     }
 
     /// Returns the number of null values.
-    pub fn null_count(&self) -> u32 {
+    pub fn null_count(&self) -> usize {
         self.null_count
     }
 
     /// Returns the number of non-null values.
-    pub fn value_count(&self) -> u32 {
+    pub fn value_count(&self) -> usize {
         self.value_count
     }
 
     /// Returns the average run length.
-    pub fn average_run_length(&self) -> u32 {
+    pub fn average_run_length(&self) -> usize {
         self.average_run_length
     }
 
@@ -381,7 +380,7 @@ where
 
     if array.all_invalid(ctx)? {
         return Ok(IntegerStats {
-            null_count: u32::try_from(array.len())?,
+            null_count: array.len(),
             value_count: 0,
             average_run_length: 0,
             erased: TypedStats {
@@ -491,9 +490,7 @@ where
     let distinct = count_distinct_values.then(|| {
         // The cardinality estimator is exact for small cardinalities and approximate beyond.
         // We clamp to at least 1 because we are inside the non-empty/non-all-null branch.
-        let distinct_count = u32::try_from(loop_state.estimator.estimate())
-            .vortex_expect("there are more than `u32::MAX` distinct values")
-            .max(1);
+        let distinct_count = loop_state.estimator.estimate().max(1);
 
         // Count the Boyer-Moore majority candidate exactly via a second pass. If any value
         // accounts for more than half of the non-null entries, this counts that value; otherwise
@@ -513,9 +510,6 @@ where
 
     let typed = TypedStats { min, max, distinct };
 
-    let null_count = u32::try_from(null_count)?;
-    let value_count = u32::try_from(value_count)?;
-
     Ok(IntegerStats {
         null_count,
         value_count,
@@ -533,14 +527,14 @@ where
     /// The previous value seen.
     prev: T,
     /// The run count.
-    runs: u32,
+    runs: usize,
     /// Cloudflare's cardinality estimator, used to approximate the number of distinct values
     /// without materializing an exact hash map.
     estimator: CardinalityEstimator<NativeValue<T>>,
     /// Boyer-Moore majority candidate; holds the current candidate for the most frequent value.
     bm_candidate: T,
     /// Boyer-Moore vote counter for `bm_candidate`.
-    bm_votes: u32,
+    bm_votes: usize,
 }
 
 /// Updates the Boyer-Moore majority-vote state for a single value.
@@ -562,8 +556,12 @@ where
 
 /// Counts exact occurrences of `needle` in `buffer`, restricted to valid positions according to
 /// `validity`.
-fn count_occurrences<T: IntegerPType>(buffer: &[T], validity: AllOr<&BitBuffer>, needle: T) -> u32 {
-    let count = match validity {
+fn count_occurrences<T: IntegerPType>(
+    buffer: &[T],
+    validity: AllOr<&BitBuffer>,
+    needle: T,
+) -> usize {
+    match validity {
         AllOr::All => buffer.iter().filter(|&&v| v == needle).count(),
         AllOr::None => 0,
         AllOr::Some(mask) => buffer
@@ -571,8 +569,7 @@ fn count_occurrences<T: IntegerPType>(buffer: &[T], validity: AllOr<&BitBuffer>,
             .enumerate()
             .filter(|&(idx, &v)| mask.value(idx) && v == needle)
             .count(),
-    };
-    u32::try_from(count).vortex_expect("occurrences cannot exceed `u32::MAX`")
+    }
 }
 
 /// Inner loop for non-null chunks of 64 values.

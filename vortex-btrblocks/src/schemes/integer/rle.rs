@@ -22,12 +22,12 @@ use vortex_fastlanes::Delta;
 use vortex_fastlanes::RLE;
 use vortex_fastlanes::RLEArrayExt;
 
-use super::RUN_LENGTH_THRESHOLD;
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
 use crate::SchemeExt;
+use crate::schemes::integer::RUN_THRESHOLD;
 use crate::schemes::rle_ancestor_exclusions;
 use crate::schemes::rle_descendant_exclusions;
 
@@ -179,7 +179,7 @@ impl Scheme for IntRLEScheme {
         if compress_ctx.finished_cascading() {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
-        if data.integer_stats(exec_ctx).average_run_length() < RUN_LENGTH_THRESHOLD {
+        if data.integer_stats(exec_ctx).average_run_length() < RUN_THRESHOLD {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 

@@ -76,21 +76,21 @@ impl Scheme for IntDictScheme {
 
         // Ignore nulls encoding for the estimate. We only focus on values.
 
-        let values_size = bit_width * distinct_values_count as usize;
+        let values_size = bit_width * distinct_values_count;
 
         // TODO(connor): Should we just hardcode this instead of let the compressor choose?
         // Assume codes are compressed RLE + BitPacking.
         let codes_bw = u32::BITS - distinct_values_count.leading_zeros();
 
-        let n_runs = (stats.value_count() / stats.average_run_length()) as usize;
+        let n_runs = stats.value_count() / stats.average_run_length();
 
         // Assume that codes will either be BitPack or RLE-BitPack.
-        let codes_size_bp = codes_bw as usize * stats.value_count() as usize;
+        let codes_size_bp = codes_bw as usize * stats.value_count();
         let codes_size_rle_bp = usize::checked_mul(codes_bw as usize + 32, n_runs);
 
         let codes_size = usize::min(codes_size_bp, codes_size_rle_bp.unwrap_or(usize::MAX));
 
-        let before = stats.value_count() as usize * bit_width;
+        let before = stats.value_count() * bit_width;
 
         CompressionEstimate::Verdict(EstimateVerdict::Ratio(
             before as f64 / (values_size + codes_size) as f64,

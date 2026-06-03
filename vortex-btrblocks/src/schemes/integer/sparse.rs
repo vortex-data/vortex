@@ -140,7 +140,7 @@ impl Scheme for SparseScheme {
                 "this must be present since `SparseScheme` declared that we need distinct values",
             );
 
-        if most_frequent_count as usize == len {
+        if most_frequent_count == len {
             // If the most frequent value is the only value, we should compress as constant instead.
             return Ok(ConstantArray::new(
                 Scalar::primitive_value(

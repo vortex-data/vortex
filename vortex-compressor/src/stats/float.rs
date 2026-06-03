@@ -30,7 +30,7 @@ use super::cardinality::CardinalityEstimator;
 #[derive(Debug, Clone)]
 pub struct DistinctInfo<T> {
     /// The estimated count of unique values. This _must_ be non-zero.
-    distinct_count: u32,
+    distinct_count: usize,
     /// Phantom marker for the float element type.
     _marker: PhantomData<T>,
 }
@@ -62,7 +62,7 @@ pub enum ErasedStats {
 
 impl ErasedStats {
     /// Get the count of distinct values, if we have computed it already.
-    fn distinct_count(&self) -> Option<u32> {
+    fn distinct_count(&self) -> Option<usize> {
         match self {
             ErasedStats::F16(x) => x.distinct.as_ref().map(|d| d.distinct_count),
             ErasedStats::F32(x) => x.distinct.as_ref().map(|d| d.distinct_count),
@@ -90,11 +90,11 @@ impl_from_typed!(f64, ErasedStats::F64);
 #[derive(Debug, Clone)]
 pub struct FloatStats {
     /// Cache for `validity.false_count()`.
-    null_count: u32,
+    null_count: usize,
     /// Cache for `validity.true_count()`.
-    value_count: u32,
+    value_count: usize,
     /// The average run length.
-    average_run_length: u32,
+    average_run_length: usize,
     /// Type-erased typed statistics.
     erased: ErasedStats,
 }
@@ -115,7 +115,7 @@ impl FloatStats {
     }
 
     /// Get the count of distinct values, if we have computed it already.
-    pub fn distinct_count(&self) -> Option<u32> {
+    pub fn distinct_count(&self) -> Option<usize> {
         self.erased.distinct_count()
     }
 }
@@ -137,17 +137,17 @@ impl FloatStats {
     }
 
     /// Returns the number of null values.
-    pub fn null_count(&self) -> u32 {
+    pub fn null_count(&self) -> usize {
         self.null_count
     }
 
     /// Returns the number of non-null values.
-    pub fn value_count(&self) -> u32 {
+    pub fn value_count(&self) -> usize {
         self.value_count
     }
 
     /// Returns the average run length.
-    pub fn average_run_length(&self) -> u32 {
+    pub fn average_run_length(&self) -> usize {
         self.average_run_length
     }
 
@@ -179,7 +179,7 @@ where
 
     if array.all_invalid(ctx)? {
         return Ok(FloatStats {
-            null_count: u32::try_from(array.len())?,
+            null_count: array.len(),
             value_count: 0,
             average_run_length: 0,
             erased: TypedStats {
@@ -248,13 +248,8 @@ where
         }
     }
 
-    let null_count = u32::try_from(null_count)?;
-    let value_count = u32::try_from(value_count)?;
-
     let distinct = count_distinct_values.then(|| DistinctInfo {
-        distinct_count: u32::try_from(estimator.estimate())
-            .vortex_expect("more than u32::MAX distinct values")
-            .max(1),
+        distinct_count: estimator.estimate().max(1),
         _marker: PhantomData,
     });
 

@@ -17,7 +17,7 @@ use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
-use crate::schemes::integer::RUN_LENGTH_THRESHOLD;
+use crate::schemes::integer::RUN_THRESHOLD;
 use crate::schemes::integer::rle_compress;
 use crate::schemes::rle_ancestor_exclusions;
 use crate::schemes::rle_descendant_exclusions;
@@ -59,7 +59,7 @@ impl Scheme for FloatRLEScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        if data.float_stats(exec_ctx).average_run_length() < RUN_LENGTH_THRESHOLD {
+        if data.float_stats(exec_ctx).average_run_length() < RUN_THRESHOLD {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
