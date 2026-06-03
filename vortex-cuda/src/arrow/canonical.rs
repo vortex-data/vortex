@@ -326,41 +326,56 @@ pub(super) async fn export_list_layout(
     Ok((arrow_list, sync_event))
 }
 
-/// Export a Vortex fixed-size-list as Arrow `FixedSizeList`: validity and one child array.
+/// Export a Vortex fixed-size-list as Arrow `List`.
+///
+/// Arrow has a native `FixedSizeList` layout, but cuDF's Arrow Device import currently maps Arrow
+/// `List`/`LargeList` to cuDF `LIST` and rejects `FixedSizeList`. Emit equivalent standard Arrow
+/// `List` offsets so fixed-size-list columns can be consumed by cuDF.
 async fn export_fixed_size_list(
     array: FixedSizeListArray,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<(ArrowArray, SyncEvent)> {
     let len = array.len();
     let list_size = array.list_size();
-    i32::try_from(list_size).map_err(|_| {
-        vortex_err!(
-            "cannot export FixedSizeList with list size {list_size}: Arrow fixed-size-list layout requires i32 list size"
-        )
-    })?;
     let FixedSizeListDataParts {
         elements, validity, ..
     } = array.into_data_parts();
 
     let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
+    let offsets_buffer = fixed_size_list_offsets(len, list_size, ctx).await?;
 
-    let cuda_elements = elements.execute_cuda(ctx).await?;
-    let (elements_child, _) = export_canonical(cuda_elements, ctx).await?;
+    export_list_layout(
+        elements,
+        len,
+        validity_buffer,
+        null_count,
+        offsets_buffer,
+        ctx,
+    )
+    .await
+}
 
-    let mut private_data = PrivateData::new(vec![validity_buffer], vec![elements_child], ctx)?;
-    let sync_event = private_data.sync_event();
+async fn fixed_size_list_offsets(
+    len: usize,
+    list_size: u32,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<BufferHandle> {
+    let list_size = i32::try_from(list_size).map_err(|_| {
+        vortex_err!(
+            "cannot export FixedSizeList with list size {list_size}: Arrow List offsets require i32"
+        )
+    })?;
+    let offsets = (0..=i32::try_from(len)?)
+        .map(|idx| {
+            idx.checked_mul(list_size)
+                .ok_or_else(|| vortex_err!("FixedSizeList Arrow List offsets exceed i32 range"))
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
 
-    let mut arrow_fixed_size_list = ArrowArray::empty();
-    arrow_fixed_size_list.length = len as i64;
-    arrow_fixed_size_list.null_count = null_count;
-    arrow_fixed_size_list.n_buffers = 1;
-    arrow_fixed_size_list.buffers = private_data.buffer_ptrs.as_mut_ptr();
-    arrow_fixed_size_list.n_children = 1;
-    arrow_fixed_size_list.children = private_data.children.as_mut_ptr();
-    arrow_fixed_size_list.release = Some(release_array);
-    arrow_fixed_size_list.private_data = Box::into_raw(private_data).cast();
-
-    Ok((arrow_fixed_size_list, sync_event))
+    ctx.ensure_on_device(BufferHandle::new_host(
+        Buffer::from(offsets).into_byte_buffer(),
+    ))
+    .await
 }
 
 /// Return cuDF-supported Arrow `List` offsets as an `i32` device buffer.
@@ -1283,7 +1298,7 @@ mod tests {
     }
 
     #[crate::test]
-    async fn test_export_fixed_size_list() -> VortexResult<()> {
+    async fn test_export_fixed_size_list_as_list() -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
@@ -1299,18 +1314,22 @@ mod tests {
         let field = Field::try_from(&exported.schema)?;
         assert_eq!(
             field,
-            Field::new_fixed_size_list(
+            Field::new_list(
                 "",
                 Field::new(Field::LIST_FIELD_DEFAULT_NAME, DataType::Int32, false),
-                2,
                 false,
             )
         );
         assert_eq!(exported.array.array.length, 3);
         assert_eq!(exported.array.array.null_count, 0);
-        assert_eq!(exported.array.array.n_buffers, 1);
-        let buffers = unsafe { std::slice::from_raw_parts(exported.array.array.buffers, 1) };
+        assert_eq!(exported.array.array.n_buffers, 2);
+        let buffers = unsafe { std::slice::from_raw_parts(exported.array.array.buffers, 2) };
         assert!(buffers[0].is_null());
+        assert!(!buffers[1].is_null());
+        assert_eq!(
+            private_data_buffer_i32_values(&exported.array.array, 1)?,
+            [0, 2, 4, 6]
+        );
         assert_eq!(exported.array.array.n_children, 1);
         let children = unsafe { std::slice::from_raw_parts(exported.array.array.children, 1) };
         let elements = unsafe { &*children[0] };

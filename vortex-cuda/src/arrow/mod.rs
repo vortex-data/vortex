@@ -26,6 +26,7 @@ use vortex::array::ArrayRef;
 use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::buffer::BufferHandle;
 use vortex::dtype::DType;
+use vortex::dtype::StructFields;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 
@@ -209,13 +210,34 @@ fn arrow_schema_for_array(
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<FFI_ArrowSchema> {
     let arrow = ctx.execution_ctx().session().arrow();
-    match array.dtype() {
-        DType::Struct(..) => Ok(FFI_ArrowSchema::try_from(
-            arrow.to_arrow_schema(array.dtype())?,
-        )?),
+    let dtype = arrow_device_export_dtype(array.dtype());
+    match &dtype {
+        DType::Struct(..) => Ok(FFI_ArrowSchema::try_from(arrow.to_arrow_schema(&dtype)?)?),
         _ => Ok(FFI_ArrowSchema::try_from(
-            arrow.to_arrow_field("", array.dtype())?,
+            arrow.to_arrow_field("", &dtype)?,
         )?),
+    }
+}
+
+fn arrow_device_export_dtype(dtype: &DType) -> DType {
+    match dtype {
+        DType::List(element, nullability) => {
+            DType::List(Arc::new(arrow_device_export_dtype(element)), *nullability)
+        }
+        DType::FixedSizeList(element, _, nullability) => {
+            DType::List(Arc::new(arrow_device_export_dtype(element)), *nullability)
+        }
+        DType::Struct(fields, nullability) => DType::Struct(
+            StructFields::new(
+                fields.names().clone(),
+                fields
+                    .fields()
+                    .map(|dtype| arrow_device_export_dtype(&dtype))
+                    .collect(),
+            ),
+            *nullability,
+        ),
+        dtype => dtype.clone(),
     }
 }
 
