@@ -23,12 +23,18 @@ use vortex_mask::AllOr;
 use super::GenerateStatsOptions;
 use super::cardinality::CardinalityEstimator;
 
-/// Expected relative error for the default cardinality estimator precision.
+/// Expected relative standard error of the default cardinality estimator.
 ///
-/// Cloudflare's default `P=12` HLL++ parameters document this as `1.04 / sqrt(2^12)`.
-const DISTINCT_COUNT_ERROR_NUMERATOR: usize = 65;
-/// Denominator for the default cardinality estimator expected relative error.
-const DISTINCT_COUNT_ERROR_DENOMINATOR: usize = 4_000;
+/// Cloudflare's default `P=12` HLL++ parameters document this as `1.04 / sqrt(2^12) ≈ 1.625%`.
+const DISTINCT_COUNT_STD_ERROR_NUMERATOR: usize = 65;
+/// Denominator for [`DISTINCT_COUNT_STD_ERROR_NUMERATOR`].
+const DISTINCT_COUNT_STD_ERROR_DENOMINATOR: usize = 4_000;
+/// Number of standard errors to tolerate when deciding whether an estimate is consistent with an
+/// exact count. A single standard error only covers ~68% of estimates, which spuriously rejects
+/// genuinely all-distinct arrays (e.g. a true arithmetic sequence whose estimate drifts a few
+/// percent off the array length). A wider interval keeps the false-rejection rate negligible while
+/// still excluding clearly low-cardinality data, whose estimate is far below the array length.
+const DISTINCT_COUNT_CONFIDENCE_SIGMAS: usize = 4;
 
 /// Information about the distinct values in an integer array.
 ///
@@ -272,15 +278,26 @@ impl IntegerStats {
         self.erased.distinct_count()
     }
 
-    /// Returns true if the estimated distinct count could equal `count` within the estimator's
-    /// expected error bound.
+    /// Returns true if the true distinct count could plausibly equal `count`.
+    ///
+    /// Callers pass an upper bound on the true distinct count (the array length), so an estimate
+    /// at or above `count` is pure estimator overshoot and cannot rule out "every value is
+    /// distinct" — we accept it. Below `count` we only rule it out when the estimate falls short by
+    /// more than the estimator's expected error (see [`distinct_count_error_bound`]), so estimator
+    /// noise does not cause us to skip genuinely all-distinct arrays such as arithmetic sequences.
     pub fn estimated_distinct_count_could_equal(&self, count: usize) -> bool {
         let Some(distinct_count) = self.distinct_count() else {
             return true;
         };
+        let distinct_count = distinct_count as usize;
 
-        let error_bound = distinct_count_error_bound(count);
-        (distinct_count as usize).abs_diff(count) <= error_bound
+        // The true distinct count never exceeds `count`, so an over-estimate reflects estimator
+        // noise and remains consistent with all values being distinct.
+        if distinct_count >= count {
+            return true;
+        }
+
+        count - distinct_count <= distinct_count_error_bound(count)
     }
 
     /// Get the most commonly occurring value and its count, if we have computed it already.
@@ -289,11 +306,14 @@ impl IntegerStats {
     }
 }
 
-/// Returns the absolute error bound for an expected distinct count.
+/// Returns the absolute tolerance for treating an estimate as consistent with `count` distinct
+/// values, sized as [`DISTINCT_COUNT_CONFIDENCE_SIGMAS`] multiples of the estimator's standard
+/// error.
 fn distinct_count_error_bound(count: usize) -> usize {
     count
-        .saturating_mul(DISTINCT_COUNT_ERROR_NUMERATOR)
-        .div_ceil(DISTINCT_COUNT_ERROR_DENOMINATOR)
+        .saturating_mul(DISTINCT_COUNT_STD_ERROR_NUMERATOR)
+        .saturating_mul(DISTINCT_COUNT_CONFIDENCE_SIGMAS)
+        .div_ceil(DISTINCT_COUNT_STD_ERROR_DENOMINATOR)
 }
 
 impl IntegerStats {
@@ -762,6 +782,24 @@ mod tests {
         );
         let low_cardinality_stats = typed_int_stats::<u32>(&low_cardinality, true, &mut ctx)?;
         assert!(!low_cardinality_stats.estimated_distinct_count_could_equal(1024));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_all_distinct_could_equal_despite_estimator_drift() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        // Regression: an arithmetic sequence is all-distinct, but the HLL++ estimate for ~10k
+        // values drifts a few percent off the exact count (here it overshoots to ~10457). The
+        // sequence scheme gates on `estimated_distinct_count_could_equal`, so this must remain true
+        // or the array is never sequence-encoded.
+        let arange = PrimitiveArray::new(
+            (0..10_000u32).collect::<Buffer<u32>>(),
+            Validity::NonNullable,
+        );
+        let arange_stats = typed_int_stats::<u32>(&arange, true, &mut ctx)?;
+        assert!(arange_stats.estimated_distinct_count_could_equal(10_000));
 
         Ok(())
     }
