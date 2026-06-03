@@ -794,12 +794,12 @@ mod tests {
         // values drifts a few percent off the exact count (here it overshoots to ~10457). The
         // sequence scheme gates on `estimated_distinct_count_could_equal`, so this must remain true
         // or the array is never sequence-encoded.
-        let arange = PrimitiveArray::new(
+        let range = PrimitiveArray::new(
             (0..10_000u32).collect::<Buffer<u32>>(),
             Validity::NonNullable,
         );
-        let arange_stats = typed_int_stats::<u32>(&arange, true, &mut ctx)?;
-        assert!(arange_stats.estimated_distinct_count_could_equal(10_000));
+        let range_stats = typed_int_stats::<u32>(&range, true, &mut ctx)?;
+        assert!(range_stats.estimated_distinct_count_could_equal(10_000));
 
         Ok(())
     }
