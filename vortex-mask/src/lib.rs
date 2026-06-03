@@ -457,7 +457,23 @@ impl Mask {
                 if let Some(slices) = values.slices.get() {
                     return slices.last().map(|(_, end)| end - 1);
                 }
-                values.buffer.set_slices().last().map(|(_, end)| end - 1)
+
+                if values.true_count == 0 {
+                    return None;
+                }
+
+                Some(
+                    values
+                        .buffer
+                        .select(values.true_count - 1)
+                        .unwrap_or_else(|| {
+                            vortex_panic!(
+                                "Rank {} out of bounds for mask with true count {}",
+                                values.true_count - 1,
+                                values.true_count
+                            )
+                        }),
+                )
             }
         }
     }
@@ -473,8 +489,19 @@ impl Mask {
         match &self {
             Self::AllTrue(_) => n,
             Self::AllFalse(_) => unreachable!("no true values in all-false mask"),
-            // TODO(joe): optimize this function
-            Self::Values(values) => values.indices()[n],
+            Self::Values(values) => {
+                if let Some(indices) = values.indices.get() {
+                    return indices[n];
+                }
+
+                values.buffer.select(n).unwrap_or_else(|| {
+                    vortex_panic!(
+                        "Rank {} out of bounds for mask with true count {}",
+                        values.true_count - 1,
+                        values.true_count
+                    )
+                })
+            }
         }
     }
 
@@ -738,6 +765,15 @@ impl MaskValues {
         })
     }
 
+    /// Returns cached index positions when this mask already has them materialized.
+    ///
+    /// Unlike [`Self::indices`], this does not build the index vector from another
+    /// representation.
+    #[inline]
+    pub fn cached_indices(&self) -> Option<&[usize]> {
+        self.indices.get().map(Vec::as_slice)
+    }
+
     /// Constructs a slices vector from one of the other representations.
     #[inline]
     pub fn slices(&self) -> &[(usize, usize)] {
@@ -748,6 +784,15 @@ impl MaskValues {
 
             self.buffer.set_slices().collect()
         })
+    }
+
+    /// Returns cached true-value ranges when this mask already has them materialized.
+    ///
+    /// Unlike [`Self::slices`], this does not build the slice vector from another
+    /// representation.
+    #[inline]
+    pub fn cached_slices(&self) -> Option<&[(usize, usize)]> {
+        self.slices.get().map(Vec::as_slice)
     }
 
     /// Return an iterator over either indices or slices of the mask based on a density threshold.

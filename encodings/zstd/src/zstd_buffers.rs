@@ -563,7 +563,7 @@ mod tests {
 
         let compressed = ZstdBuffers::compress(&input, 3, &LEGACY_SESSION)?;
 
-        assert!(compressed.statistics().get(Stat::Min).is_some());
+        assert!(!compressed.statistics().get(Stat::Min).is_absent());
         Ok(())
     }
 

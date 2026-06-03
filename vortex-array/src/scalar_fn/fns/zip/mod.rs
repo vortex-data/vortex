@@ -91,19 +91,11 @@ impl ScalarFnVTable for Zip {
 
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         vortex_ensure!(
-            arg_dtypes[0].eq_ignore_nullability(&arg_dtypes[1]),
-            "zip requires if_true and if_false to have the same base type, got {} and {}",
-            arg_dtypes[0],
-            arg_dtypes[1]
-        );
-        vortex_ensure!(
             matches!(arg_dtypes[2], DType::Bool(_)),
             "zip requires mask to be a boolean type, got {}",
             arg_dtypes[2]
         );
-        Ok(arg_dtypes[0]
-            .clone()
-            .union_nullability(arg_dtypes[1].nullability()))
+        zip_return_dtype(&arg_dtypes[0], &arg_dtypes[1])
     }
 
     fn execute(
@@ -120,10 +112,7 @@ impl ScalarFnVTable for Zip {
             .execute::<BoolArray>(ctx)?
             .to_mask_fill_null_false(ctx);
 
-        let return_dtype = if_true
-            .dtype()
-            .clone()
-            .union_nullability(if_false.dtype().nullability());
+        let return_dtype = zip_return_dtype(if_true.dtype(), if_false.dtype())?;
 
         if mask.all_true() {
             return if_true.cast(return_dtype)?.execute(ctx);
@@ -139,7 +128,7 @@ impl ScalarFnVTable for Zip {
             return mask.into_array().zip(if_true, if_false);
         }
 
-        zip_impl(&if_true, &if_false, &mask)
+        zip_impl(&if_true, &if_false, &mask, ctx)
     }
 
     fn simplify(
@@ -176,6 +165,7 @@ pub(crate) fn zip_impl(
     if_true: &ArrayRef,
     if_false: &ArrayRef,
     mask: &Mask,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     assert_eq!(
         if_true.len(),
@@ -183,10 +173,7 @@ pub(crate) fn zip_impl(
         "zip requires arrays to have the same size"
     );
 
-    let return_type = if_true
-        .dtype()
-        .clone()
-        .union_nullability(if_false.dtype().nullability());
+    let return_type = zip_return_dtype(if_true.dtype(), if_false.dtype())?;
 
     if mask.all_true() {
         return if_true.cast(return_type);
@@ -195,13 +182,31 @@ pub(crate) fn zip_impl(
         return if_false.cast(return_type);
     }
 
+    // `append_to_builder` requires exact dtype equality, so normalize branch
+    // nullability to the output dtype before appending slices into the builder.
+    let if_true = if_true.cast(return_type.clone())?;
+    let if_false = if_false.cast(return_type.clone())?;
+
     zip_impl_with_builder(
-        if_true,
-        if_false,
+        &if_true,
+        &if_false,
         mask.values()
             .vortex_expect("zip_impl_with_builder: mask is not all-true or all-false"),
         builder_with_capacity(&return_type, if_true.len()),
+        ctx,
     )
+}
+
+fn zip_return_dtype(if_true: &DType, if_false: &DType) -> VortexResult<DType> {
+    vortex_ensure!(
+        if_true.eq_ignore_nullability(if_false),
+        "zip requires if_true and if_false to have the same base type, got {} and {}",
+        if_true,
+        if_false
+    );
+    Ok(if_true
+        .least_supertype(if_false)
+        .vortex_expect("zip inputs with the same base type must have a common dtype"))
 }
 
 fn zip_impl_with_builder(
@@ -209,13 +214,22 @@ fn zip_impl_with_builder(
     if_false: &ArrayRef,
     mask: &MaskValues,
     mut builder: Box<dyn ArrayBuilder>,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     for (start, end) in mask.slices() {
-        builder.extend_from_array(&if_false.slice(builder.len()..*start)?);
-        builder.extend_from_array(&if_true.slice(*start..*end)?);
+        if builder.len() < *start {
+            if_false
+                .slice(builder.len()..*start)?
+                .append_to_builder(builder.as_mut(), ctx)?;
+        }
+        if_true
+            .slice(*start..*end)?
+            .append_to_builder(builder.as_mut(), ctx)?;
     }
     if builder.len() < if_false.len() {
-        builder.extend_from_array(&if_false.slice(builder.len()..if_false.len())?);
+        if_false
+            .slice(builder.len()..if_false.len())?
+            .append_to_builder(builder.as_mut(), ctx)?;
     }
     Ok(builder.finish())
 }
@@ -319,7 +333,8 @@ mod tests {
         let if_false =
             PrimitiveArray::from_option_iter([Some(1), Some(2), Some(3), None]).into_array();
 
-        let result = zip_impl(&if_true, &if_false, &mask)?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let result = zip_impl(&if_true, &if_false, &mask, &mut ctx)?;
         assert_arrays_eq!(
             result,
             PrimitiveArray::from_option_iter([Some(10i32), Some(20), Some(30), Some(40)])
@@ -336,7 +351,8 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(10), Some(20), Some(30), None]).into_array();
         let if_false = buffer![1i32, 2, 3, 4].into_array();
 
-        let result = zip_impl(&if_true, &if_false, &mask)?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let result = zip_impl(&if_true, &if_false, &mask, &mut ctx)?;
         assert_arrays_eq!(
             result,
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)]).into_array()

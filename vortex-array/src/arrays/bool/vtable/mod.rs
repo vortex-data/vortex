@@ -53,13 +53,13 @@ pub struct BoolMetadata {
 impl ArrayHash for BoolData {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
         self.bits.array_hash(state, precision);
-        self.offset.hash(state);
+        self.meta.offset().hash(state);
     }
 }
 
 impl ArrayEq for BoolData {
     fn array_eq(&self, other: &Self, precision: Precision) -> bool {
-        self.offset == other.offset && self.bits.array_eq(&other.bits, precision)
+        self.meta.offset() == other.meta.offset() && self.bits.array_eq(&other.bits, precision)
     }
 }
 
@@ -96,10 +96,11 @@ impl VTable for Bool {
         array: ArrayView<'_, Self>,
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
-        assert!(array.offset < 8, "Offset must be <8, got {}", array.offset);
+        let offset = array.meta.offset();
+        assert!(offset < 8, "Offset must be <8, got {offset}");
         Ok(Some(
             BoolMetadata {
-                offset: u32::try_from(array.offset).vortex_expect("checked"),
+                offset: u32::try_from(offset).vortex_expect("checked"),
             }
             .encode_to_vec(),
         ))
@@ -116,9 +117,9 @@ impl VTable for Bool {
             vortex_bail!("Expected bool dtype, got {dtype:?}");
         };
         vortex_ensure!(
-            data.bits.len() * 8 >= data.offset + len,
+            data.bits.len() * 8 >= data.meta.offset() + len,
             "BoolArray buffer with offset {} cannot back outer length {} (buffer bits = {})",
-            data.offset,
+            data.meta.offset(),
             len,
             data.bits.len() * 8
         );

@@ -30,6 +30,7 @@ vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-fsst = { workspace = true }
 vortex-mask = { workspace = true }
+vortex-onpair = { workspace = true, optional = true }
 vortex-pco = { workspace = true, optional = true }
 vortex-runend = { workspace = true }
 vortex-sequence = { workspace = true }
@@ -48,7 +49,11 @@ vortex-session = { workspace = true }
 
 [features]
 # This feature enabled unstable encodings for which we don't guarantee stability.
-unstable_encodings = ["dep:vortex-tensor", "vortex-zstd?/unstable_encodings"]
+unstable_encodings = [
+    "dep:vortex-tensor",
+    "dep:vortex-onpair",
+    "vortex-zstd?/unstable_encodings",
+]
 pco = ["dep:pco", "dep:vortex-pco"]
 zstd = ["dep:vortex-zstd"]
 

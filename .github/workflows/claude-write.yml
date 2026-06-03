@@ -197,7 +197,7 @@ jobs:
 
       - name: Run Claude Code
         id: claude
-        uses: anthropics/claude-code-action@51ea8ea73a139f2a74ff649e3092c25a904aed7e  # v1.0.123
+        uses: anthropics/claude-code-action@787c5a0ce96a9a6cfb050ea0c8f4c05f2447c251  # v1.0.133
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ steps.app-token.outputs.token }}
@@ -208,6 +208,7 @@ jobs:
             actions: read
 
           claude_args: |
+            --model claude-opus-4-8
             --allowedTools "Bash(cargo nextest:*),Bash(cargo check:*),Bash(cargo clippy:*),Bash(cargo fmt:*),Bash(uv run:*)"
             --system-prompt "You are the repository's write-capable Claude workflow. You run only from trusted issue traffic and from trusted PR conversation comments on same-repo pull requests that were previously opened by the repository's Claude GitHub App. Create or update branches and pull requests using the provided GitHub App token. Do not use fork pull request content because those runs are blocked before this job starts."
 

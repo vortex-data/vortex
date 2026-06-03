@@ -7,7 +7,9 @@ use std::fmt::Formatter;
 use arrow_array::BooleanArray;
 use smallvec::smallvec;
 use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferMeta;
 use vortex_buffer::BitBufferMut;
+use vortex_buffer::BitBufferView;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -69,19 +71,18 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 #[derive(Clone, Debug)]
 pub struct BoolData {
     pub(super) bits: BufferHandle,
-    pub(super) offset: usize,
+    pub(super) meta: BitBufferMeta,
 }
 
 impl Display for BoolData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "offset: {}", self.offset)
+        write!(f, "offset: {}", self.meta.offset())
     }
 }
 
 pub struct BoolDataParts {
     pub bits: BufferHandle,
-    pub offset: usize,
-    pub len: usize,
+    pub meta: BitBufferMeta,
 }
 
 pub trait BoolArrayExt: TypedArrayRef<Bool> {
@@ -101,7 +102,12 @@ pub trait BoolArrayExt: TypedArrayRef<Bool> {
 
     fn to_bit_buffer(&self) -> BitBuffer {
         let buffer = self.bits.as_host().clone();
-        BitBuffer::new_with_offset(buffer, self.as_ref().len(), self.offset)
+        BitBuffer::new_with_offset(buffer, self.meta.len(), self.meta.offset())
+    }
+
+    /// Borrow the array's packed bits as a [`BitBufferView`] without cloning the backing buffer.
+    fn bit_buffer_view(&self) -> BitBufferView<'_> {
+        BitBufferView::from_meta(self.bits.as_host().as_slice(), self.meta)
     }
 
     fn maybe_execute_mask(&self, ctx: &mut ExecutionCtx) -> VortexResult<Option<Mask>> {
@@ -141,8 +147,7 @@ impl BoolData {
     pub fn into_parts(self, len: usize) -> BoolDataParts {
         BoolDataParts {
             bits: self.bits,
-            offset: self.offset,
-            len,
+            meta: BitBufferMeta::new(self.meta.offset(), len),
         }
     }
 
@@ -242,7 +247,7 @@ impl Array<Bool> {
         let len = self.len();
         let data = self.into_data();
         let buffer = data.bits.unwrap_host();
-        BitBuffer::new_with_offset(buffer, len, data.offset)
+        BitBuffer::new_with_offset(buffer, len, data.meta.offset())
     }
 }
 
@@ -252,11 +257,11 @@ impl BoolData {
         let bits = bits.shrink_offset();
         Self::validate(&bits, &validity)?;
 
-        let (offset, _len, buffer) = bits.into_inner();
+        let (offset, len, buffer) = bits.into_inner();
 
         Ok(Self {
             bits: BufferHandle::new_host(buffer),
-            offset,
+            meta: BitBufferMeta::new(offset, len),
         })
     }
 
@@ -281,18 +286,21 @@ impl BoolData {
             bits.len() * 8,
         );
 
-        Ok(Self { bits, offset })
+        Ok(Self {
+            bits,
+            meta: BitBufferMeta::new(offset, len),
+        })
     }
 
     pub(super) unsafe fn new_unchecked(bits: BitBuffer, validity: Validity) -> Self {
         if cfg!(debug_assertions) {
             Self::try_new(bits, validity).vortex_expect("Failed to create BoolData")
         } else {
-            let (offset, _len, buffer) = bits.into_inner();
+            let (offset, len, buffer) = bits.into_inner();
 
             Self {
                 bits: BufferHandle::new_host(buffer),
-                offset,
+                meta: BitBufferMeta::new(offset, len),
             }
         }
     }

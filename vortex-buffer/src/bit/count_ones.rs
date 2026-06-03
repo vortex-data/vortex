@@ -22,7 +22,11 @@ pub fn count_ones(bytes: &[u8], offset: usize, len: usize) -> usize {
 }
 
 #[inline]
-fn align_offset_len(bytes: &[u8], offset: usize, len: usize) -> (Option<u8>, &[u8], Option<u8>) {
+pub(super) fn align_offset_len(
+    bytes: &[u8],
+    offset: usize,
+    len: usize,
+) -> (Option<u8>, &[u8], Option<u8>) {
     let start_byte = offset / 8;
     let start_bit = offset % 8;
     let end_bit = offset + len;

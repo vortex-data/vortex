@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::collections::BTreeSet;
 use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
@@ -24,6 +23,7 @@ use vortex_session::VortexSession;
 use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
 use crate::reader::LayoutReader;
+use crate::reader::RowSplits;
 use crate::reader::SplitRange;
 use crate::segments::SegmentSource;
 
@@ -105,10 +105,10 @@ impl LayoutReader for FlatReader {
         &self,
         _field_mask: &[FieldMask],
         split_range: &SplitRange,
-        splits: &mut BTreeSet<u64>,
+        splits: &mut RowSplits,
     ) -> VortexResult<()> {
         split_range.check_bounds(self.layout.row_count)?;
-        splits.insert(split_range.root_row_range().end);
+        splits.push(split_range.root_row_range().end);
         Ok(())
     }
 
@@ -276,7 +276,7 @@ mod test {
             );
 
             let result = layout
-                .new_reader("".into(), segments, &SESSION)?
+                .new_reader("".into(), segments, &SESSION, &Default::default())?
                 .projection_evaluation(
                     &(0..layout.row_count()),
                     &root(),
@@ -313,7 +313,7 @@ mod test {
 
             let expr = gt(root(), lit(3i32));
             let result = layout
-                .new_reader("".into(), segments, &SESSION)
+                .new_reader("".into(), segments, &SESSION, &Default::default())
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -350,7 +350,7 @@ mod test {
                 .unwrap();
 
             let result = layout
-                .new_reader("".into(), segments, &SESSION)
+                .new_reader("".into(), segments, &SESSION, &Default::default())
                 .unwrap()
                 .projection_evaluation(&(2..4), &root(), MaskFuture::new_true(2))
                 .unwrap()

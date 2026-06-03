@@ -155,20 +155,28 @@ where
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     #[expect(unused_imports)]
     use itertools::Itertools;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray as _;
+    use crate::VortexSessionExecute;
     use crate::arrays::dict::DictArraySlotsExt;
     use crate::assert_arrays_eq;
     use crate::builders::dict::dict_encode;
     use crate::builders::dict::primitive::PrimitiveArray;
+    use crate::session::ArraySession;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[test]
     fn encode_primitive() {
         let arr = buffer![1, 1, 3, 3, 3].into_array();
-        let dict = dict_encode(&arr).unwrap();
+        let dict = dict_encode(&arr, &mut SESSION.create_execution_ctx()).unwrap();
 
         let expected_codes = buffer![0u8, 0, 1, 1, 1].into_array();
         assert_arrays_eq!(dict.codes(), expected_codes);
@@ -189,7 +197,7 @@ mod test {
             Some(3),
             None,
         ]);
-        let dict = dict_encode(&arr.into_array()).unwrap();
+        let dict = dict_encode(&arr.into_array(), &mut SESSION.create_execution_ctx()).unwrap();
 
         let expected_codes = buffer![0u8, 0, 1, 2, 2, 1, 2, 1].into_array();
         assert_arrays_eq!(dict.codes(), expected_codes);

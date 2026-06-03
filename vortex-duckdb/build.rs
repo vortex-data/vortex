@@ -7,6 +7,7 @@
 
 use std::env;
 use std::fs;
+use std::io;
 use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::path::PathBuf;
@@ -278,7 +279,7 @@ fn try_build_duckdb(
 
     let library_dir_str = library_dir.display();
     if let Err(err) = fs::remove_dir_all(library_dir)
-        && err.kind() != std::io::ErrorKind::NotFound
+        && err.kind() != io::ErrorKind::NotFound
     {
         println!("cargo:error=Failed to remove {library_dir_str}: {err}");
         exit(1);
@@ -303,7 +304,8 @@ fn try_build_duckdb(
     }
 }
 
-fn c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
+/// Generate rust functions with bindgen from C sources.
+fn bindgen_c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
     let bindings = bindgen::Builder::default()
         .header("cpp/include/duckdb_vx.h")
         .override_abi(Abi::CUnwind, ".*")
@@ -349,12 +351,16 @@ fn c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
     }
 }
 
-fn cpp(duckdb_include_dir: &Path) {
+/// Generate libvortex_duckdb.*
+fn compile_cpp(duckdb_include_dir: &Path) {
     cc::Build::new()
         .std("c++20")
-        .flags(["-Wall", "-Wextra", "-Wpedantic"])
+        .flags(["-Wall", "-Wextra", "-Wpedantic", "-Werror"])
         .cpp(true)
-        .include(duckdb_include_dir)
+        // We don't want compiler warnings inside duckdb headers, pass as flags
+        .flag("-isystem")
+        .flag(duckdb_include_dir)
+        .include("include")
         .include("cpp/include")
         .files(SOURCE_FILES)
         .compile("vortex-duckdb-extras");
@@ -363,7 +369,8 @@ fn cpp(duckdb_include_dir: &Path) {
     }
 }
 
-fn rust2c(crate_dir: &Path) {
+/// Generate include/vortex.h from rust sources
+fn cbindgen_rust2c(crate_dir: &Path) {
     let header = crate_dir.join("include/vortex.h");
     let output = cbindgen::Builder::new()
         .with_config(cbindgen::Config::from_file(crate_dir.join("cbindgen.toml")).unwrap())
@@ -440,13 +447,24 @@ fn main() {
         DuckDBVersion::Commit(c) => format!("{DUCKDB_SOURCE_COMMIT_URL}/{c}.zip"),
     };
 
-    fs::create_dir_all(&source_dir).unwrap();
     let source_archive_path = source_dir.with_extension("zip");
     download_url(&source_archive_url, &source_archive_path);
 
     let inner_dir = source_dir.join(version.archive_inner_dir_name());
-    if !inner_dir.join("CMakeLists.txt").exists() {
+    let extract_marker = source_dir.join(".vx-extract-complete");
+    if !extract_marker.exists() {
+        if let Err(err) = fs::remove_dir_all(&source_dir)
+            && err.kind() != io::ErrorKind::NotFound
+        {
+            println!(
+                "cargo:error=Failed to clear {}: {err}",
+                source_dir.display()
+            );
+            exit(1);
+        }
+        fs::create_dir_all(&source_dir).unwrap();
         extract(&source_archive_path, &source_dir);
+        fs::write(&extract_marker, version.to_string()).unwrap();
     }
 
     drop(fs::remove_file(&duckdb_dir));
@@ -469,7 +487,7 @@ fn main() {
 
     let duckdb_include_dir = inner_dir.join("src").join("include");
     println!("cargo:rerun-if-changed=cpp/include");
-    c2rust(&crate_dir, &duckdb_include_dir);
-    cpp(&duckdb_include_dir);
-    rust2c(&crate_dir);
+    bindgen_c2rust(&crate_dir, &duckdb_include_dir);
+    cbindgen_rust2c(&crate_dir);
+    compile_cpp(&duckdb_include_dir);
 }

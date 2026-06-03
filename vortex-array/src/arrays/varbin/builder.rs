@@ -177,7 +177,7 @@ mod tests {
             .offsets()
             .statistics()
             .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
-        assert_eq!(is_sorted, Some(Precision::Exact(true)));
+        assert_eq!(is_sorted, Precision::Exact(true));
         Ok(())
     }
 
@@ -190,7 +190,7 @@ mod tests {
             .offsets()
             .statistics()
             .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
-        assert_eq!(is_sorted, Some(Precision::Exact(true)));
+        assert_eq!(is_sorted, Precision::Exact(true));
         Ok(())
     }
 }

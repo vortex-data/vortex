@@ -22,6 +22,7 @@ use vortex_array::arrays::VarBinView;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::listview::ListViewArrayExt;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::arrays::varbinview::build_views::BinaryView;
 use vortex_array::buffer::BufferHandle;
@@ -41,6 +42,7 @@ use vortex_array::dtype::StructFields;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_native_ptype;
+use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::match_smallest_offset_type;
 use vortex_array::patches::Patches;
 use vortex_array::scalar::DecimalScalar;
@@ -163,10 +165,6 @@ pub(super) fn execute_sparse(parts: SparseParts, ctx: &mut ExecutionCtx) -> Vort
     })
 }
 
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "complexity is from nested match_smallest_offset_type macro"
-)]
 fn execute_sparse_lists(
     resolved: &Patches,
     fill_value: &Scalar,
@@ -175,14 +173,17 @@ fn execute_sparse_lists(
     nullability: Nullability,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
+    // Patch indices are non-negative; reinterpret to unsigned so this dispatches over 4 widths
+    // instead of 8. `O` is already unsigned (from `match_smallest_offset_type`).
     let indices = resolved.indices().as_::<Primitive>().into_owned();
+    let indices = indices.reinterpret_cast(indices.ptype().to_unsigned());
     let values = resolved.values().as_::<ListView>().into_owned();
     let fill_list = fill_value.as_list();
 
     let n_filled = len - resolved.num_patches();
     let total_canonical_values = values.elements().len() + fill_list.len() * n_filled;
 
-    Ok(match_each_integer_ptype!(indices.ptype(), |I| {
+    Ok(match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
         match_smallest_offset_type!(total_canonical_values, |O| {
             execute_sparse_lists_inner::<I, O>(
                 indices.as_slice(),

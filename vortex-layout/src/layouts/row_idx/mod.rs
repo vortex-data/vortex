@@ -3,7 +3,6 @@
 
 mod expr;
 
-use std::collections::BTreeSet;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::ops::BitAnd;
@@ -43,6 +42,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::ArrayFuture;
 use crate::LayoutReader;
+use crate::RowSplits;
 use crate::SplitRange;
 use crate::layouts::partitioned::PartitionedExprEval;
 
@@ -172,7 +172,7 @@ impl LayoutReader for RowIdxLayoutReader {
         &self,
         field_mask: &[FieldMask],
         split_range: &SplitRange,
-        splits: &mut BTreeSet<u64>,
+        splits: &mut RowSplits,
     ) -> VortexResult<()> {
         self.child.register_splits(field_mask, split_range, splits)
     }
@@ -370,7 +370,9 @@ mod tests {
             let expr = eq(root(), lit(3i32));
             let result = RowIdxLayoutReader::new(
                 0,
-                layout.new_reader("".into(), segments, &SESSION).unwrap(),
+                layout
+                    .new_reader("".into(), segments, &SESSION, &Default::default())
+                    .unwrap(),
                 SESSION.clone(),
             )
             .projection_evaluation(
@@ -411,7 +413,9 @@ mod tests {
             let expr = gt(row_idx(), lit(3u64));
             let result = RowIdxLayoutReader::new(
                 0,
-                layout.new_reader("".into(), segments, &SESSION).unwrap(),
+                layout
+                    .new_reader("".into(), segments, &SESSION, &Default::default())
+                    .unwrap(),
                 SESSION.clone(),
             )
             .projection_evaluation(
@@ -456,7 +460,9 @@ mod tests {
 
             let result = RowIdxLayoutReader::new(
                 0,
-                layout.new_reader("".into(), segments, &SESSION).unwrap(),
+                layout
+                    .new_reader("".into(), segments, &SESSION, &Default::default())
+                    .unwrap(),
                 SESSION.clone(),
             )
             .projection_evaluation(

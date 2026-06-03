@@ -33,7 +33,7 @@ jobs:
             "repos/$REPO/actions/workflows/approvals.yml/runs?head_sha=$HEAD_SHA" \
             --jq '.workflow_runs[0].id // empty')
           if [ -z "$run_id" ]; then
-            echo "No approvals.yml run for $HEAD_SHA — nothing to re-run."
+            echo "No approvals.yml run for $HEAD_SHA - nothing to re-run."
             exit 0
           fi
           echo "Re-running approvals.yml run $run_id"

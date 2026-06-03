@@ -122,22 +122,26 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
         // 0. Legacy stats bridge: if this aggregate is still cached under a legacy Stat slot,
         //    consume that exact stat before kernel dispatch or decode.
         if let Some(stat) = Stat::from_aggregate_fn(&self.aggregate_fn)
-            && let Some(Precision::Exact(partial)) = batch.statistics().get(stat)
+            && let Precision::Exact(partial) = batch.statistics().get(stat)
         {
-            vortex_ensure!(
-                partial.dtype() == &self.partial_dtype,
-                "Aggregate {} read legacy stat {} with dtype {}, expected {}",
-                self.aggregate_fn,
-                stat,
-                partial.dtype(),
-                self.partial_dtype,
-            );
+            let partial = if partial.dtype() == &self.partial_dtype {
+                partial
+            } else {
+                vortex_ensure!(
+                    partial.dtype().eq_ignore_nullability(&self.partial_dtype),
+                    "Aggregate {} read legacy stat {} with dtype {}, expected {}",
+                    self.aggregate_fn,
+                    stat,
+                    partial.dtype(),
+                    self.partial_dtype,
+                );
+                partial.cast(&self.partial_dtype)?
+            };
             self.vtable.combine_partials(&mut self.partial, partial)?;
             return Ok(());
         }
 
         let session = ctx.session().clone();
-        let kernels = &session.aggregate_fns().kernels;
 
         // 1. Kernel registry first: a registered `(encoding, aggregate_fn)` kernel is strictly
         //    more specific than the vtable's `try_accumulate` short-circuit. Checking the
@@ -145,13 +149,9 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
         //    `Combined::try_accumulate` always returns true, so a later kernel check would be
         //    unreachable.
         {
-            let kernels_r = kernels.read();
-            let batch_id = batch.encoding_id();
-            let kernel = kernels_r
-                .get(&(batch_id, Some(self.aggregate_fn.id())))
-                .or_else(|| kernels_r.get(&(batch_id, None)))
-                .copied();
-            drop(kernels_r);
+            let kernel = session
+                .aggregate_fns()
+                .find_aggregate_kernel(batch.encoding_id(), self.aggregate_fn.id());
             if let Some(kernel) = kernel
                 && let Some(result) = kernel.aggregate(&self.aggregate_fn, batch, ctx)?
             {
@@ -182,14 +182,9 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
                 break;
             }
 
-            let kernels_r = kernels.read();
-            let batch_id = batch.encoding_id();
-            let kernel = kernels_r
-                .get(&(batch_id, Some(self.aggregate_fn.id())))
-                .or_else(|| kernels_r.get(&(batch_id, None)))
-                .copied();
-            drop(kernels_r);
-            if let Some(kernel) = kernel
+            if let Some(kernel) = session
+                .aggregate_fns()
+                .find_aggregate_kernel(batch.encoding_id(), self.aggregate_fn.id())
                 && let Some(result) = kernel.aggregate(&self.aggregate_fn, &batch, ctx)?
             {
                 vortex_ensure!(

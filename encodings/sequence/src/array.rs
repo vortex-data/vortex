@@ -519,12 +519,12 @@ mod tests {
         let is_sorted = arr
             .statistics()
             .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
-        assert_eq!(is_sorted, Some(StatPrecision::Exact(true)));
+        assert_eq!(is_sorted, StatPrecision::Exact(true));
 
         let is_strict_sorted = arr
             .statistics()
             .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsStrictSorted));
-        assert_eq!(is_strict_sorted, Some(StatPrecision::Exact(true)));
+        assert_eq!(is_strict_sorted, StatPrecision::Exact(true));
         Ok(())
     }
 
@@ -535,12 +535,12 @@ mod tests {
         let is_sorted = arr
             .statistics()
             .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
-        assert_eq!(is_sorted, Some(StatPrecision::Exact(true)));
+        assert_eq!(is_sorted, StatPrecision::Exact(true));
 
         let is_strict_sorted = arr
             .statistics()
             .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsStrictSorted));
-        assert_eq!(is_strict_sorted, Some(StatPrecision::Exact(false)));
+        assert_eq!(is_strict_sorted, StatPrecision::Exact(false));
         Ok(())
     }
 
@@ -551,12 +551,12 @@ mod tests {
         let is_sorted = arr
             .statistics()
             .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
-        assert_eq!(is_sorted, Some(StatPrecision::Exact(false)));
+        assert_eq!(is_sorted, StatPrecision::Exact(false));
 
         let is_strict_sorted = arr
             .statistics()
             .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsStrictSorted));
-        assert_eq!(is_strict_sorted, Some(StatPrecision::Exact(false)));
+        assert_eq!(is_strict_sorted, StatPrecision::Exact(false));
         Ok(())
     }
 
@@ -575,8 +575,8 @@ mod tests {
             .statistics()
             .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsStrictSorted));
 
-        assert_eq!(is_sorted, Some(StatPrecision::Exact(true)));
-        assert_eq!(is_strict_sorted, Some(StatPrecision::Exact(true)));
+        assert_eq!(is_sorted, StatPrecision::Exact(true));
+        assert_eq!(is_strict_sorted, StatPrecision::Exact(true));
 
         Ok(())
     }

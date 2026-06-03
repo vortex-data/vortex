@@ -4,6 +4,7 @@
 //! Cascading array compression implementation.
 
 use vortex_array::ArrayRef;
+use vortex_array::ArraySlots;
 use vortex_array::Canonical;
 use vortex_array::CanonicalValidity;
 use vortex_array::ExecutionCtx;
@@ -15,6 +16,8 @@ use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::Variant;
+use vortex_array::arrays::VariantArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::list::ListArrayExt;
@@ -23,11 +26,9 @@ use vortex_array::arrays::listview::list_from_list_view;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::scalar_fn::AnyScalarFn;
 use vortex_array::arrays::struct_::StructArrayExt;
-use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
+use vortex_array::arrays::variant::VariantArrayExt;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 
 use crate::builtins::IntDictScheme;
 use crate::ctx::CompressorContext;
@@ -213,45 +214,50 @@ impl CascadingCompressor {
                 )?
                 .into_array())
             }
-            Canonical::VarBinView(strings) => {
-                if strings
-                    .dtype()
-                    .eq_ignore_nullability(&DType::Utf8(Nullability::NonNullable))
-                {
-                    self.choose_and_compress(Canonical::VarBinView(strings), compress_ctx, exec_ctx)
-                } else {
-                    // We do not compress binary arrays.
-                    Ok(strings.into_array())
-                }
+            Canonical::VarBinView(varbinview) => {
+                self.choose_and_compress(Canonical::VarBinView(varbinview), compress_ctx, exec_ctx)
             }
             Canonical::Extension(ext_array) => {
-                let before_nbytes = ext_array.as_ref().nbytes();
-
                 // Try scheme-based compression first.
-                let result = self.choose_and_compress(
+                let scheme_compressed = self.choose_and_compress(
                     Canonical::Extension(ext_array.clone()),
                     compress_ctx,
                     exec_ctx,
                 )?;
-                if result.nbytes() < before_nbytes {
-                    return Ok(result);
-                }
-
                 // TODO(connor): HACK TO SUPPORT L2 DENORMALIZATION!!!
-                if result.is::<AnyScalarFn>() {
-                    return Ok(result);
+                if scheme_compressed.is::<AnyScalarFn>() {
+                    return Ok(scheme_compressed);
                 }
 
-                // Otherwise, fall back to compressing the underlying storage array.
+                // Also compress the underlying storage array. Some extension schemes can beat the
+                // extension storage but still lose to ordinary storage compression.
                 let compressed_storage = self.compress(ext_array.storage_array(), exec_ctx)?;
-
-                Ok(
+                let storage_compressed =
                     ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage)
-                        .into_array(),
-                )
+                        .into_array();
+
+                if scheme_compressed.nbytes() < storage_compressed.nbytes() {
+                    Ok(scheme_compressed)
+                } else {
+                    Ok(storage_compressed)
+                }
             }
-            Canonical::Variant(_) => {
-                vortex_bail!("Variant arrays can not be compressed")
+            Canonical::Variant(variant_array) => {
+                let core_storage =
+                    self.compress_physical_slots(variant_array.core_storage(), exec_ctx)?;
+                let shredded = variant_array
+                    .shredded()
+                    .map(|arr| {
+                        // Avoid stack-overflow for variant shredded values
+                        if arr.is::<Variant>() {
+                            self.compress_physical_slots(arr, exec_ctx)
+                        } else {
+                            self.compress(arr, exec_ctx)
+                        }
+                    })
+                    .transpose()?;
+
+                Ok(VariantArray::try_new(core_storage, shredded)?.into_array())
             }
         }
     }
@@ -500,7 +506,7 @@ impl CascadingCompressor {
             .offsets()
             .clone()
             .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow()?;
+            .narrow(exec_ctx)?;
         let compressed_offsets = self.compress_canonical(
             Canonical::Primitive(list_offsets_primitive),
             offset_ctx,
@@ -530,7 +536,7 @@ impl CascadingCompressor {
             .offsets()
             .clone()
             .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow()?;
+            .narrow(exec_ctx)?;
         let compressed_offsets = self.compress_canonical(
             Canonical::Primitive(list_view_offsets_primitive),
             offset_ctx,
@@ -542,7 +548,7 @@ impl CascadingCompressor {
             .sizes()
             .clone()
             .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow()?;
+            .narrow(exec_ctx)?;
         let compressed_sizes = self.compress_canonical(
             Canonical::Primitive(list_view_sizes_primitive),
             sizes_ctx,
@@ -556,6 +562,25 @@ impl CascadingCompressor {
             list_view.validity()?,
         )?
         .into_array())
+    }
+
+    /// Compress very child slot of the array, then re-build it from them.
+    fn compress_physical_slots(
+        &self,
+        array: &ArrayRef,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let slots = array
+            .slots()
+            .iter()
+            .map(|slot| {
+                slot.as_ref()
+                    .map(|child| self.compress(child, exec_ctx))
+                    .transpose()
+            })
+            .collect::<VortexResult<ArraySlots>>()?;
+
+        array.clone().with_slots(slots)
     }
 }
 

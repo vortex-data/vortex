@@ -512,10 +512,10 @@ impl DataSource for VortexDataSource {
     fn partition_statistics(&self, _partition: Option<usize>) -> DFResult<Statistics> {
         // FIXME(ngates): this should be adjusted based on filters. See DuckDB for heuristics,
         //  and in the future, store the selectivity stats in the session.
-        let num_rows = estimate_to_df_precision(self.data_source.row_count().as_ref());
+        let num_rows = estimate_to_df_precision(&self.data_source.row_count());
 
         // FIXME(ngates): byte size should be adjusted for the initial projection...
-        let total_byte_size = estimate_to_df_precision(self.data_source.byte_size().as_ref());
+        let total_byte_size = estimate_to_df_precision(&self.data_source.byte_size());
 
         // Column statistics must match the output schema (leftover_schema), which may differ
         // from the initial schema after try_swapping_with_projection adds computed columns.
@@ -663,12 +663,10 @@ impl DataSource for VortexDataSource {
 /// [`DataFusionPrecision`].
 ///
 /// [`DataFusionPrecision`]: datafusion_common::stats::Precision
-fn estimate_to_df_precision(est: Option<&Precision<u64>>) -> DFPrecision<usize> {
+fn estimate_to_df_precision(est: &Precision<u64>) -> DFPrecision<usize> {
     match est {
-        Some(Precision::Exact(v)) => DFPrecision::Exact(usize::try_from(*v).unwrap_or(usize::MAX)),
-        Some(Precision::Inexact(v)) => {
-            DFPrecision::Inexact(usize::try_from(*v).unwrap_or(usize::MAX))
-        }
-        None => DFPrecision::Absent,
+        Precision::Exact(v) => DFPrecision::Exact(usize::try_from(*v).unwrap_or(usize::MAX)),
+        Precision::Inexact(v) => DFPrecision::Inexact(usize::try_from(*v).unwrap_or(usize::MAX)),
+        Precision::Absent => DFPrecision::Absent,
     }
 }

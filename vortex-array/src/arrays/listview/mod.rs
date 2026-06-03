@@ -18,6 +18,8 @@ pub use conversion::list_view_from_list;
 pub use conversion::recursive_list_from_list_view;
 
 mod rebuild;
+pub use rebuild::DEFAULT_REBUILD_DENSITY_THRESHOLD;
+pub use rebuild::DEFAULT_TRIM_ELEMENTS_THRESHOLD;
 pub use rebuild::ListViewRebuildMode;
 
 #[cfg(test)]

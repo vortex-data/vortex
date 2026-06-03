@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! DuckDB schema applied on server boot — one `commits` dim plus five fact
+//! DuckDB schema applied on server boot - one `commits` dim plus five fact
 //! tables, one per measurement family.
 //!
 //! ## Design principles
@@ -20,7 +20,7 @@
 //!    `measurement_id` is a deterministic 64-bit hash of `commit_sha` plus
 //!    that table's dimensional tuple, computed in
 //!    [`crate::db::measurement_id_query`] et al. Including `commit_sha`
-//!    makes every (commit, dim) pair a distinct row — that is exactly what
+//!    makes every (commit, dim) pair a distinct row - that is exactly what
 //!    the chart pages render as a time series. Re-emission of the same
 //!    (commit, dim) pair is the upsert case. The hash is **server-internal**
 //!    and never crosses a process boundary; the wire never carries it.
@@ -32,13 +32,13 @@
 //!
 //! ## Tables
 //!
-//! - **`commits`** — dim table. `commit_sha` is the PK. `timestamp`,
+//! - **`commits`** - dim table. `commit_sha` is the PK. `timestamp`,
 //!   `tree_sha`, and `url` are required (the server cannot render a chart
 //!   without them); `message` and the author/committer name + email pair are
 //!   nullable so v2-imported rows that lacked them survive. Populated on
 //!   every `/api/ingest` from the envelope's `commit` block, and on every
 //!   migrator run from `commits.json`.
-//! - **`query_measurements`** — SQL query suite measurements (TPC-H, TPC-DS,
+//! - **`query_measurements`** - SQL query suite measurements (TPC-H, TPC-DS,
 //!   ClickBench, StatPopGen, PolarSignals, Fineweb, GhArchive, Public-BI).
 //!   Natural key: `(commit_sha, dataset, dataset_variant, scale_factor,
 //!   query_idx, storage, engine, format)`. Memory columns
@@ -47,27 +47,27 @@
 //!   are NULL otherwise; the ingest path enforces "all four or none".
 //!   `dataset_variant` carries a categorical sub-name (Public-BI dataset,
 //!   ClickBench flavor); `scale_factor` is the TPC SF as a string.
-//! - **`compression_times`** — encode/decode timings from `compress-bench`.
+//! - **`compression_times`** - encode/decode timings from `compress-bench`.
 //!   Natural key: `(commit_sha, dataset, dataset_variant, format, op)`,
 //!   where `op ∈ {encode, decode}`. Encode and decode share a table because
 //!   they share dim and value shape; keeping them together makes the
 //!   per-format chart a single SQL query.
-//! - **`compression_sizes`** — on-disk sizes from `compress-bench`. One-shot
+//! - **`compression_sizes`** - on-disk sizes from `compress-bench`. One-shot
 //!   (no per-iteration data, no `all_runtimes_ns`). Natural key:
 //!   `(commit_sha, dataset, dataset_variant, format)`. Compression ratios
-//!   (e.g. `vortex:parquet-zstd`) are NOT stored — they are a SELECT over
+//!   (e.g. `vortex:parquet-zstd`) are NOT stored - they are a SELECT over
 //!   this table joined to itself, computed in `api/summary.rs`.
-//! - **`random_access_times`** — take-time timings from
+//! - **`random_access_times`** - take-time timings from
 //!   `random-access-bench`. Different dataset namespace from
-//!   `compression_times` (chimp, taxi, etc.) — kept in its own table so
+//!   `compression_times` (chimp, taxi, etc.) - kept in its own table so
 //!   dataset filters never have to disambiguate which suite a row belongs
 //!   to. Natural key: `(commit_sha, dataset, format)`.
-//! - **`vector_search_runs`** — cosine-similarity scans from
+//! - **`vector_search_runs`** - cosine-similarity scans from
 //!   `vector-search-bench`. The only family that emits a timing **plus**
 //!   side counters (`matches`, `rows_scanned`, `bytes_scanned`) for the
 //!   same scan; keeping them in one row avoids a 1:N split that has to be
 //!   re-joined on read. Natural key: `(commit_sha, dataset, layout,
-//!   flavor, threshold)`. `iterations` is not part of the dim hash — it is
+//!   flavor, threshold)`. `iterations` is not part of the dim hash - it is
 //!   a side count, like `matches`.
 //!
 //! ## Column conventions
@@ -91,7 +91,12 @@
 //!
 //! There is no migration framework. If you change the schema:
 //!
-//! 1. Update [`SCHEMA_DDL`] and the matching [`crate::records`] struct.
+//! 1. Update the per-family DDL constant ([`COMMITS_DDL`] for the dim,
+//!    [`QUERY_MEASUREMENTS_DDL`] / [`COMPRESSION_TIMES_DDL`] /
+//!    [`COMPRESSION_SIZES_DDL`] / [`RANDOM_ACCESS_TIMES_DDL`] /
+//!    [`VECTOR_SEARCH_RUNS_DDL`] for the facts), the matching
+//!    [`crate::records`] struct, and the [`crate::family::Family`] entry
+//!    that ties them together.
 //! 2. Update or delete any local `bench.duckdb` (the migrator's
 //!    `open_target_db` already deletes-and-recreates).
 //! 3. Bump [`SCHEMA_VERSION`] if the wire envelope's
@@ -99,8 +104,10 @@
 //!
 //! A real forward-only migration framework is post-cutover work.
 
-/// DDL for the `commits` dim plus the five fact tables.
-pub const SCHEMA_DDL: &str = r#"
+/// DDL for the `commits` dim table. The five fact-table DDLs live with
+/// their respective [`crate::family::Family`] declarations; [`crate::db::open`]
+/// applies this constant first, then iterates [`crate::family::FAMILIES`].
+pub const COMMITS_DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS commits (
     commit_sha       TEXT        PRIMARY KEY NOT NULL,
     timestamp        TIMESTAMPTZ NOT NULL,
@@ -112,7 +119,11 @@ CREATE TABLE IF NOT EXISTS commits (
     tree_sha         TEXT        NOT NULL,
     url              TEXT        NOT NULL
 );
+"#;
 
+/// DDL for the `query_measurements` fact table. Wired into the
+/// `schema_ddl` field of [`crate::family::QUERY_MEASUREMENTS`].
+pub const QUERY_MEASUREMENTS_DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS query_measurements (
     measurement_id   BIGINT      PRIMARY KEY NOT NULL,
     commit_sha       TEXT        NOT NULL,
@@ -131,7 +142,11 @@ CREATE TABLE IF NOT EXISTS query_measurements (
     virtual_delta    BIGINT,
     env_triple       TEXT
 );
+"#;
 
+/// DDL for the `compression_times` fact table. Wired into the
+/// `schema_ddl` field of [`crate::family::COMPRESSION_TIMES`].
+pub const COMPRESSION_TIMES_DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS compression_times (
     measurement_id   BIGINT      PRIMARY KEY NOT NULL,
     commit_sha       TEXT        NOT NULL,
@@ -143,7 +158,11 @@ CREATE TABLE IF NOT EXISTS compression_times (
     all_runtimes_ns  BIGINT[]    NOT NULL,
     env_triple       TEXT
 );
+"#;
 
+/// DDL for the `compression_sizes` fact table. Wired into the
+/// `schema_ddl` field of [`crate::family::COMPRESSION_SIZES`].
+pub const COMPRESSION_SIZES_DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS compression_sizes (
     measurement_id   BIGINT      PRIMARY KEY NOT NULL,
     commit_sha       TEXT        NOT NULL,
@@ -152,7 +171,11 @@ CREATE TABLE IF NOT EXISTS compression_sizes (
     format           TEXT        NOT NULL,
     value_bytes      BIGINT      NOT NULL
 );
+"#;
 
+/// DDL for the `random_access_times` fact table. Wired into the
+/// `schema_ddl` field of [`crate::family::RANDOM_ACCESS_TIMES`].
+pub const RANDOM_ACCESS_TIMES_DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS random_access_times (
     measurement_id   BIGINT      PRIMARY KEY NOT NULL,
     commit_sha       TEXT        NOT NULL,
@@ -162,7 +185,11 @@ CREATE TABLE IF NOT EXISTS random_access_times (
     all_runtimes_ns  BIGINT[]    NOT NULL,
     env_triple       TEXT
 );
+"#;
 
+/// DDL for the `vector_search_runs` fact table. Wired into the
+/// `schema_ddl` field of [`crate::family::VECTOR_SEARCH_RUNS`].
+pub const VECTOR_SEARCH_RUNS_DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS vector_search_runs (
     measurement_id   BIGINT      PRIMARY KEY NOT NULL,
     commit_sha       TEXT        NOT NULL,
@@ -182,4 +209,29 @@ CREATE TABLE IF NOT EXISTS vector_search_runs (
 
 /// Schema version expected by the server. The ingest envelope's
 /// `run_meta.schema_version` must match this exactly at alpha.
+///
+/// Coupled sites that MUST agree on this value (see
+/// `benchmarks-website/AGENTS.md` → "Wire shapes are a coordinated change"):
+///
+/// - This constant.
+/// - The producer-side wire-shape source of truth in
+///   [`vortex_bench::v3`](../../../vortex-bench/src/v3.rs).
+/// - The CI ingest wrapper at `scripts/post-ingest.py`, which fills the
+///   envelope's `run_meta.schema_version` from a hardcoded Python constant.
+///   Bumping `SCHEMA_VERSION` without bumping `post-ingest.py` makes every
+///   CI run 400 at ingest until the script is updated.
 pub const SCHEMA_VERSION: i32 = 1;
+
+/// Every table in the schema, in the order a fresh boot creates them.
+/// Used by the snapshot endpoint to drive a per-table `COPY ... TO`
+/// across the whole DB and by the restore docs to document the same
+/// list. `commits` is the dim table; the rest are facts, derived from
+/// the registry so adding a new fact table is one entry in
+/// [`crate::family::FAMILIES`] and the snapshot endpoint + restore docs
+/// pick it up automatically.
+pub static TABLES: std::sync::LazyLock<Vec<&'static str>> = std::sync::LazyLock::new(|| {
+    let mut v: Vec<&'static str> = Vec::with_capacity(1 + crate::family::FAMILIES.len());
+    v.push("commits");
+    v.extend(crate::family::FAMILIES.iter().map(|f| f.table_name));
+    v
+});

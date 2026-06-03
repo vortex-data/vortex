@@ -6,7 +6,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hasher;
 use std::sync::Arc;
-use std::sync::LazyLock;
+use std::sync::OnceLock;
 
 use fsst::Compressor;
 use fsst::Decompressor;
@@ -81,18 +81,23 @@ impl FSSTMetadata {
 
 impl ArrayHash for FSSTData {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
-        self.symbols.array_hash(state, precision);
-        self.symbol_lengths.array_hash(state, precision);
+        self.symbol_table.symbols.array_hash(state, precision);
+        self.symbol_table
+            .symbol_lengths
+            .array_hash(state, precision);
         self.codes_bytes.as_host().array_hash(state, precision);
     }
 }
 
 impl ArrayEq for FSSTData {
     fn array_eq(&self, other: &Self, precision: Precision) -> bool {
-        self.symbols.array_eq(&other.symbols, precision)
+        self.symbol_table
+            .symbols
+            .array_eq(&other.symbol_table.symbols, precision)
             && self
+                .symbol_table
                 .symbol_lengths
-                .array_eq(&other.symbol_lengths, precision)
+                .array_eq(&other.symbol_table.symbol_lengths, precision)
             && self
                 .codes_bytes
                 .as_host()
@@ -346,34 +351,58 @@ pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] =
 /// [`FSSTArrayExt::codes()`], combining this buffer with the offsets/validity from slots.
 #[derive(Clone)]
 pub struct FSSTData {
-    symbols: Buffer<Symbol>,
-    symbol_lengths: Buffer<u8>,
+    symbol_table: Arc<FSSTSymbolTable>,
     /// The raw compressed codes bytes, equivalent to `VarBinData::bytes`.
     codes_bytes: BufferHandle,
     /// Cached length (number of elements).
     len: usize,
-
-    /// Memoized compressor used for push-down of compute by compressing the RHS.
-    compressor: Arc<LazyLock<Compressor, Box<dyn Fn() -> Compressor + Send>>>,
 }
 
 impl Display for FSSTData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "len: {}, nsymbols: {}", self.len, self.symbols.len())
+        write!(
+            f,
+            "len: {}, nsymbols: {}",
+            self.len,
+            self.symbol_table.symbols.len()
+        )
     }
 }
 
 impl Debug for FSSTData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FSSTArray")
-            .field("symbols", &self.symbols)
-            .field("symbol_lengths", &self.symbol_lengths)
+            .field("symbols", &self.symbol_table.symbols)
+            .field("symbol_lengths", &self.symbol_table.symbol_lengths)
             .field("codes_bytes_len", &self.codes_bytes.len())
             .field("len", &self.len)
             .field("uncompressed_lengths", &"<outer slot>")
             .field("codes_offsets", &"<outer slot>")
             .field("codes_validity", &"<outer slot>")
             .finish()
+    }
+}
+
+pub(crate) struct FSSTSymbolTable {
+    symbols: Buffer<Symbol>,
+    symbol_lengths: Buffer<u8>,
+    /// Memoized compressor used for push-down of compute by compressing the RHS.
+    compressor: OnceLock<Compressor>,
+}
+
+impl FSSTSymbolTable {
+    fn new(symbols: Buffer<Symbol>, symbol_lengths: Buffer<u8>) -> Self {
+        Self {
+            symbols,
+            symbol_lengths,
+            compressor: OnceLock::new(),
+        }
+    }
+
+    fn compressor(&self) -> &Compressor {
+        self.compressor.get_or_init(|| {
+            Compressor::rebuild_from(self.symbols.as_slice(), self.symbol_lengths.as_slice())
+        })
     }
 }
 
@@ -407,6 +436,32 @@ impl FSST {
         let slots = FSSTData::make_slots(&codes, &uncompressed_lengths);
         let codes_bytes = codes.bytes_handle().clone();
         let data = FSSTData::try_new(symbols, symbol_lengths, codes_bytes, len)?;
+        Ok(unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(FSST, dtype, len, data).with_slots(slots))
+        })
+    }
+
+    pub(crate) fn try_new_with_symbol_table(
+        dtype: DType,
+        symbol_table: Arc<FSSTSymbolTable>,
+        codes: VarBinArray,
+        uncompressed_lengths: ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<FSSTArray> {
+        let len = codes.len();
+        FSSTData::validate_parts_from_codes(
+            &symbol_table.symbols,
+            &symbol_table.symbol_lengths,
+            &codes,
+            &uncompressed_lengths,
+            &dtype,
+            len,
+            ctx,
+        )?;
+        let slots = FSSTData::make_slots(&codes, &uncompressed_lengths);
+        let codes_bytes = codes.bytes_handle().clone();
+        let data =
+            unsafe { FSSTData::new_unchecked_with_symbol_table(symbol_table, codes_bytes, len) };
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(FSST, dtype, len, data).with_slots(slots))
         })
@@ -463,17 +518,17 @@ impl FSST {
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
-    pub(crate) unsafe fn new_unchecked(
+    pub(crate) unsafe fn new_unchecked_with_symbol_table(
         dtype: DType,
-        symbols: Buffer<Symbol>,
-        symbol_lengths: Buffer<u8>,
+        symbol_table: Arc<FSSTSymbolTable>,
         codes: VarBinArray,
         uncompressed_lengths: ArrayRef,
     ) -> FSSTArray {
         let len = codes.len();
         let slots = FSSTData::make_slots(&codes, &uncompressed_lengths);
         let codes_bytes = codes.bytes_handle().clone();
-        let data = unsafe { FSSTData::new_unchecked(symbols, symbol_lengths, codes_bytes, len) };
+        let data =
+            unsafe { FSSTData::new_unchecked_with_symbol_table(symbol_table, codes_bytes, len) };
         unsafe {
             Array::from_parts_unchecked(ArrayParts::new(FSST, dtype, len, data).with_slots(slots))
         }
@@ -534,8 +589,8 @@ impl FSSTData {
             .as_ref()
             .vortex_expect("FSSTArray codes_offsets slot");
         Self::validate_parts(
-            &self.symbols,
-            &self.symbol_lengths,
+            &self.symbol_table.symbols,
+            &self.symbol_table.symbol_lengths,
             &self.codes_bytes,
             codes_offsets,
             dtype.nullability(),
@@ -567,9 +622,12 @@ impl FSSTData {
         if symbols.len() > 255 {
             vortex_bail!(InvalidArgument: "symbols array must have length <= 255");
         }
+
         if symbols.len() != symbol_lengths.len() {
             vortex_bail!(InvalidArgument: "symbols and symbol_lengths arrays must have same length");
         }
+
+        Self::validate_symbol_lengths(symbol_lengths.as_slice())?;
 
         // codes_offsets.len() - 1 == number of elements
         let codes_len = codes_offsets.len().saturating_sub(1);
@@ -612,6 +670,32 @@ impl FSSTData {
         Ok(())
     }
 
+    fn validate_symbol_lengths(symbol_lengths: &[u8]) -> VortexResult<()> {
+        let mut expected = 2;
+        for (idx, &len) in symbol_lengths.iter().enumerate() {
+            if len > 8 || len == 0 {
+                vortex_bail!(InvalidArgument: "symbol length at index {idx} must be between 1 and 8, found {len}");
+            }
+
+            if expected == 1 {
+                if len != 1 {
+                    vortex_bail!(InvalidArgument: "symbol length at index {idx} must be 1 after one-byte symbols begin, found {len}");
+                }
+            } else {
+                if len == 1 {
+                    expected = 1;
+                }
+
+                if len < expected {
+                    vortex_bail!(InvalidArgument: "symbol length at index {idx} violates FSST symbol table ordering");
+                }
+                expected = len;
+            }
+        }
+
+        Ok(())
+    }
+
     /// Validate using a VarBinArray for the codes (convenience for construction paths).
     fn validate_parts_from_codes(
         symbols: &Buffer<Symbol>,
@@ -641,18 +725,19 @@ impl FSSTData {
         codes_bytes: BufferHandle,
         len: usize,
     ) -> Self {
-        let symbols2 = symbols.clone();
-        let symbol_lengths2 = symbol_lengths.clone();
-        let compressor = Arc::new(LazyLock::new(Box::new(move || {
-            Compressor::rebuild_from(symbols2.as_slice(), symbol_lengths2.as_slice())
-        })
-            as Box<dyn Fn() -> Compressor + Send>));
+        let symbol_table = Arc::new(FSSTSymbolTable::new(symbols, symbol_lengths));
+        unsafe { Self::new_unchecked_with_symbol_table(symbol_table, codes_bytes, len) }
+    }
+
+    pub(crate) unsafe fn new_unchecked_with_symbol_table(
+        symbol_table: Arc<FSSTSymbolTable>,
+        codes_bytes: BufferHandle,
+        len: usize,
+    ) -> Self {
         Self {
-            symbols,
-            symbol_lengths,
+            symbol_table,
             codes_bytes,
             len,
-            compressor,
         }
     }
 
@@ -668,12 +753,16 @@ impl FSSTData {
 
     /// Access the symbol table array.
     pub fn symbols(&self) -> &Buffer<Symbol> {
-        &self.symbols
+        &self.symbol_table.symbols
     }
 
     /// Access the symbol lengths array.
     pub fn symbol_lengths(&self) -> &Buffer<u8> {
-        &self.symbol_lengths
+        &self.symbol_table.symbol_lengths
+    }
+
+    pub(crate) fn symbol_table(&self) -> Arc<FSSTSymbolTable> {
+        Arc::clone(&self.symbol_table)
     }
 
     /// Access the compressed codes bytes buffer handle (may be on host or device).
@@ -694,7 +783,7 @@ impl FSSTData {
 
     /// Retrieves the FSST compressor.
     pub fn compressor(&self) -> &Compressor {
-        self.compressor.as_ref()
+        self.symbol_table.compressor()
     }
 }
 
@@ -771,11 +860,47 @@ mod test {
     use vortex_array::test_harness::check_metadata;
     use vortex_buffer::Buffer;
     use vortex_error::VortexError;
+    use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
 
     use crate::FSST;
     use crate::array::FSSTArrayExt;
     use crate::array::FSSTMetadata;
     use crate::fsst_compress_iter;
+
+    #[test]
+    fn slice_reuses_initialized_compressor() -> VortexResult<()> {
+        let symbols = Buffer::<Symbol>::copy_from([
+            Symbol::from_slice(b"abc00000"),
+            Symbol::from_slice(b"defghijk"),
+        ]);
+        let symbol_lengths = Buffer::<u8>::copy_from([3, 8]);
+
+        let compressor = Compressor::rebuild_from(symbols.as_slice(), symbol_lengths.as_slice());
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let fsst_array = fsst_compress_iter(
+            [
+                Some(b"abcabcab".as_ref()),
+                Some(b"defghijk".as_ref()),
+                Some(b"abcxyz".as_ref()),
+            ]
+            .into_iter(),
+            3,
+            DType::Utf8(Nullability::NonNullable),
+            &compressor,
+            &mut ctx,
+        );
+
+        let compressor_ptr = fsst_array.compressor() as *const Compressor;
+        let sliced = fsst_array
+            .slice(1..3)?
+            .try_downcast::<FSST>()
+            .map_err(|_| vortex_err!("slice must return an FSST array"))?;
+        let sliced_compressor_ptr = sliced.compressor() as *const Compressor;
+
+        assert_eq!(compressor_ptr, sliced_compressor_ptr);
+        Ok(())
+    }
 
     #[cfg_attr(miri, ignore)]
     #[test]

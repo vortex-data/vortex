@@ -19,7 +19,9 @@ const SPLITMIX64_MUL1: u64 = 0xBF58_476D_1CE4_E5B9;
 /// Second SplitMix64 mixing multiplier from the reference implementation.
 const SPLITMIX64_MUL2: u64 = 0x94D0_49BB_1331_11EB;
 
-/// Frozen local SplitMix64 stream used to define SORF sign diagonals.
+/// Frozen local SplitMix64 stream used to define SORF sign diagonals. Bit-identical to the
+/// reference implementation linked at the module top, which makes the sign stream part of the
+/// encoding's wire contract.
 pub(crate) struct SplitMix64 {
     state: u64,
 }

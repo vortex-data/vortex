@@ -30,6 +30,7 @@ use vortex::utils::aliases::hash_map::HashMap;
 use crate::Format;
 use crate::SESSION;
 use crate::random_access::RandomAccessor;
+use crate::random_access::RandomAccessorRet;
 
 /// Random accessor for Vortex format files.
 ///
@@ -66,7 +67,7 @@ impl RandomAccessor for VortexRandomAccessor {
         &self.name
     }
 
-    async fn take(&self, indices: &[u64]) -> anyhow::Result<usize> {
+    async fn take(&self, indices: &[u64]) -> anyhow::Result<RandomAccessorRet> {
         let indices_buf: Buffer<u64> = Buffer::from(indices.to_vec());
         let array = self
             .file
@@ -79,7 +80,7 @@ impl RandomAccessor for VortexRandomAccessor {
         // We canonicalize / decompress for equivalence to Arrow's `RecordBatch`es.
         let mut ctx = SESSION.create_execution_ctx();
         let canonical = array.execute::<Canonical>(&mut ctx)?.into_array();
-        Ok(canonical.len())
+        Ok(RandomAccessorRet::ArrayRef(canonical))
     }
 }
 
@@ -137,7 +138,7 @@ impl RandomAccessor for ParquetRandomAccessor {
         &self.name
     }
 
-    async fn take(&self, indices: &[u64]) -> anyhow::Result<usize> {
+    async fn take(&self, indices: &[u64]) -> anyhow::Result<RandomAccessorRet> {
         // Map indices to row groups.
         let mut row_groups = HashMap::new();
         for &idx in indices {
@@ -181,6 +182,6 @@ impl RandomAccessor for ParquetRandomAccessor {
             .await;
 
         let result = concat_batches(&schema, &batches)?;
-        Ok(result.num_rows())
+        Ok(RandomAccessorRet::RecordBatch(result))
     }
 }

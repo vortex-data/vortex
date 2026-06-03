@@ -5,6 +5,6 @@ use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
 
 pub(super) fn check_bool_constant(array: &BoolArray) -> bool {
-    let true_count = array.to_bit_buffer().true_count();
+    let true_count = array.bit_buffer_view().true_count();
     true_count == array.len() || true_count == 0
 }

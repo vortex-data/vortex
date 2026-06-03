@@ -36,7 +36,7 @@ SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "CC-BY-4.0"
 
 [[annotations]]
-path = ["**/.gitignore", ".gitmodules", ".python-version", "**/*.lock", "**/*.lockfile", "**/*.toml", "**/*.json", ".idea/**", ".github/**", "codecov.yml", "java/gradle/wrapper/gradle-wrapper.properties", "**.duckdb*"]
+path = ["**/.gitignore", ".gitmodules", ".python-version", "**/*.lock", "**/*.lockfile", "**/*.toml", "**/*.json", "CITATION.cff", ".idea/**", ".github/**", "codecov.yml", "java/gradle/wrapper/gradle-wrapper.properties", "**.duckdb*"]
 precedence = "override"
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "Apache-2.0"
@@ -45,4 +45,9 @@ SPDX-License-Identifier = "Apache-2.0"
 path = ["vortex-cuda/kernels/src/bit_unpack_*"]
 precedence = "override"
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "vortex-cuda/src/arrow/reference/arrow_c_device.h"
+SPDX-FileCopyrightText = "2016-2025 Copyright The Apache Software Foundation"
 SPDX-License-Identifier = "Apache-2.0"

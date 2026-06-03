@@ -17,6 +17,7 @@ use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
+use crate::aggregate_fn::AggregateFnSatisfaction;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 
@@ -55,6 +56,34 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
         _session: &VortexSession,
     ) -> VortexResult<Self::Options> {
         vortex_bail!("Aggregate function {} is not deserializable", self.id());
+    }
+
+    /// Coerce the input type for this aggregate function.
+    ///
+    /// This is optionally used by Vortex users when performing type coercion over a Vortex
+    /// expression. The default implementation returns the input type unchanged.
+    fn coerce_args(&self, options: &Self::Options, input_dtype: &DType) -> VortexResult<DType> {
+        let _ = options;
+        Ok(input_dtype.clone())
+    }
+
+    /// Return whether this stored aggregate can satisfy `requested`.
+    ///
+    /// The default implementation only treats exactly equal aggregate functions as satisfying the
+    /// request. Approximate pruning aggregates can override this to expose looser-but-sound bounds.
+    fn can_satisfy(
+        &self,
+        options: &Self::Options,
+        requested: &AggregateFnRef,
+    ) -> AggregateFnSatisfaction {
+        if requested
+            .as_opt::<Self>()
+            .is_some_and(|other| other == options)
+        {
+            AggregateFnSatisfaction::Exact
+        } else {
+            AggregateFnSatisfaction::No
+        }
     }
 
     /// The return [`DType`] of the aggregate.

@@ -184,10 +184,11 @@ impl SqlBenchmarkRunner {
         if let Some(expected_counts) = &self.expected_row_counts
             && query_idx < expected_counts.len()
         {
+            let expected = expected_counts[query_idx];
             assert_eq!(
                 row_count,
-                expected_counts[query_idx],
-                "Row count mismatch for query {query_idx} - {engine}:{format}",
+                expected,
+                "Row count mismatch for query {query_idx} - {engine}:{format}, expected {expected}, got {row_count}",
                 engine = self.engine,
             );
         }

@@ -194,6 +194,8 @@ impl Stat {
     /// Return the built-in aggregate function corresponding to this statistic, if one exists.
     pub fn aggregate_fn(&self) -> Option<AggregateFnRef> {
         Some(match self {
+            Self::Max => aggregate_fn::fns::max::Max.bind(EmptyOptions),
+            Self::Min => aggregate_fn::fns::min::Min.bind(EmptyOptions),
             Self::Sum => aggregate_fn::fns::sum::Sum.bind(EmptyOptions),
             Self::NullCount => aggregate_fn::fns::null_count::NullCount.bind(EmptyOptions),
             Self::NaNCount => aggregate_fn::fns::nan_count::NanCount.bind(EmptyOptions),
@@ -201,9 +203,7 @@ impl Stat {
                 aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
                     .bind(EmptyOptions)
             }
-            Self::IsConstant | Self::IsSorted | Self::IsStrictSorted | Self::Max | Self::Min => {
-                return None;
-            }
+            Self::IsConstant | Self::IsSorted | Self::IsStrictSorted => return None,
         })
     }
 
@@ -217,6 +217,12 @@ impl Stat {
         }
         if aggregate_fn.is::<aggregate_fn::fns::null_count::NullCount>() {
             return Some(Self::NullCount);
+        }
+        if aggregate_fn.is::<aggregate_fn::fns::min::Min>() {
+            return Some(Self::Min);
+        }
+        if aggregate_fn.is::<aggregate_fn::fns::max::Max>() {
+            return Some(Self::Max);
         }
         if aggregate_fn
             .is::<aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes>()

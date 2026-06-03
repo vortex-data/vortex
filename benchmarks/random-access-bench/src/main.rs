@@ -24,7 +24,6 @@ use vortex_bench::datasets::nested_structs::NestedStructsData;
 use vortex_bench::datasets::taxi_data::TaxiData;
 use vortex_bench::display::DisplayFormat;
 use vortex_bench::display::print_measurements_json;
-use vortex_bench::display::render_table;
 use vortex_bench::measurements::TimingMeasurement;
 use vortex_bench::random_access::BenchDataset;
 use vortex_bench::random_access::ParquetRandomAccessor;
@@ -34,13 +33,18 @@ use vortex_bench::setup_logging_and_tracing;
 use vortex_bench::utils::constants::STORAGE_NVME;
 use vortex_bench::v3;
 
+use crate::render::RandomAccessRun;
+use crate::render::render_random_access_table;
+
+mod render;
+
 // ---------------------------------------------------------------------------
 // Access patterns
 // ---------------------------------------------------------------------------
 
 /// Access pattern for random access benchmarks.
-#[derive(Clone, Copy, Debug)]
-enum AccessPattern {
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub enum AccessPattern {
     /// Multiple clusters of sequential indices scattered across the dataset,
     /// simulating workloads with spatial locality (e.g. scanning nearby records).
     Correlated,
@@ -225,15 +229,17 @@ async fn main() -> Result<()> {
 /// collecting timing for each run. When `reopen` is true, the accessor is
 /// recreated from scratch before each iteration so that file metadata
 /// parsing is included in the timing.
+#[expect(clippy::too_many_arguments)]
 async fn benchmark_random_access(
     dataset: &dyn BenchDataset,
     format: Format,
     measurement_name: &str,
+    pattern: Option<AccessPattern>,
     indices: &[u64],
     time_limit_secs: u64,
     storage: &str,
     reopen: bool,
-) -> Result<TimingMeasurement> {
+) -> Result<RandomAccessRun> {
     let time_limit = Duration::from_secs(time_limit_secs);
     let overall_start = Instant::now();
     let mut runs = Vec::new();
@@ -241,8 +247,9 @@ async fn benchmark_random_access(
 
     loop {
         let start = Instant::now();
-        let _row_count = accessor.take(indices).await?;
+        let arr = accessor.take(indices).await?;
         runs.push(start.elapsed());
+        drop(arr);
 
         if overall_start.elapsed() >= time_limit {
             break;
@@ -253,12 +260,29 @@ async fn benchmark_random_access(
         }
     }
 
-    Ok(TimingMeasurement {
+    let timing = TimingMeasurement {
         name: measurement_name.to_string(),
         storage: storage.to_string(),
         target: Target::new(format_to_engine(format), format),
         runs,
+    };
+    Ok(RandomAccessRun {
+        display_name: display_name(dataset.name(), pattern),
+        dataset: dataset.name().to_string(),
+        pattern,
+        reopen,
+        timing,
     })
+}
+
+/// Row label for the table view. Format is implied by the column header, so
+/// it is omitted from the row label even though it stays in the
+/// [`TimingMeasurement::name`] used for JSON back-compat.
+fn display_name(dataset: &str, pattern: Option<AccessPattern>) -> String {
+    match pattern {
+        Some(p) => format!("random-access/{}/{}", dataset, p.name()),
+        None => format!("random-access/{}", dataset),
+    }
 }
 
 /// Build a measurement name for a benchmark run.
@@ -287,19 +311,13 @@ fn v3_random_access_dataset_name(dataset: &str, pattern: Option<AccessPattern>) 
     }
 }
 
-fn push_v3_random_access_record(
-    records: &mut Vec<v3::V3Record>,
-    measurement: &TimingMeasurement,
-    dataset: &str,
-    pattern: Option<AccessPattern>,
-    reopen: bool,
-) {
-    if reopen {
+fn push_v3_random_access_record(records: &mut Vec<v3::V3Record>, run: &RandomAccessRun) {
+    if run.reopen {
         return;
     }
 
-    let dataset = v3_random_access_dataset_name(dataset, pattern);
-    records.push(v3::random_access_record(measurement, &dataset));
+    let dataset = v3_random_access_dataset_name(&run.dataset, run.pattern);
+    records.push(v3::random_access_record(&run.timing, &dataset));
 }
 
 /// Map format to the appropriate engine for random access benchmarks.
@@ -385,10 +403,11 @@ async fn run_random_access(
         .sum();
     let progress = ProgressBar::new(total_steps as u64);
 
-    let mut targets = Vec::new();
-    let mut measurements = Vec::new();
+    let mut runs: Vec<RandomAccessRun> = Vec::new();
     let mut v3_records: Vec<v3::V3Record> = Vec::new();
 
+    // Iteration order matters for the table renderer: row order is set by the
+    // first time each `(dataset, pattern)` pair is observed.
     for dataset in datasets {
         for format in &formats {
             if dataset.name() == "taxi" {
@@ -399,10 +418,11 @@ async fn run_random_access(
                     } else {
                         name.clone()
                     };
-                    let measurement = benchmark_random_access(
+                    let run = benchmark_random_access(
                         dataset.as_ref(),
                         *format,
                         &bench_name,
+                        None,
                         &FIXED_TAXI_INDICES,
                         time_limit,
                         STORAGE_NVME,
@@ -410,15 +430,8 @@ async fn run_random_access(
                     )
                     .await?;
 
-                    push_v3_random_access_record(
-                        &mut v3_records,
-                        &measurement,
-                        dataset.name(),
-                        None,
-                        reopen,
-                    );
-                    targets.push(measurement.target);
-                    measurements.push(measurement);
+                    push_v3_random_access_record(&mut v3_records, &run);
+                    runs.push(run);
                     progress.inc(1);
                 }
             }
@@ -432,10 +445,11 @@ async fn run_random_access(
                     } else {
                         name.clone()
                     };
-                    let measurement = benchmark_random_access(
+                    let run = benchmark_random_access(
                         dataset.as_ref(),
                         *format,
                         &bench_name,
+                        Some(*pattern),
                         &indices,
                         time_limit,
                         STORAGE_NVME,
@@ -443,15 +457,8 @@ async fn run_random_access(
                     )
                     .await?;
 
-                    push_v3_random_access_record(
-                        &mut v3_records,
-                        &measurement,
-                        dataset.name(),
-                        Some(*pattern),
-                        reopen,
-                    );
-                    targets.push(measurement.target);
-                    measurements.push(measurement);
+                    push_v3_random_access_record(&mut v3_records, &run);
+                    runs.push(run);
                     progress.inc(1);
                 }
             }
@@ -468,10 +475,11 @@ async fn run_random_access(
 
     match display_format {
         DisplayFormat::Table => {
-            render_table(&mut writer, measurements, &targets)?;
+            render_random_access_table(&mut writer, &runs, &formats, reopen_variants)?;
         }
         DisplayFormat::GhJson => {
-            print_measurements_json(&mut writer, measurements)?;
+            let timings: Vec<TimingMeasurement> = runs.into_iter().map(|r| r.timing).collect();
+            print_measurements_json(&mut writer, timings)?;
         }
     }
 
@@ -495,30 +503,33 @@ mod tests {
         );
     }
 
+    fn fake_run(dataset: &str, pattern: Option<AccessPattern>, reopen: bool) -> RandomAccessRun {
+        RandomAccessRun {
+            timing: TimingMeasurement {
+                name: format!("random-access/{dataset}/parquet-tokio-local-disk"),
+                target: Target::new(Engine::Arrow, Format::Parquet),
+                storage: STORAGE_NVME.to_string(),
+                runs: vec![Duration::from_nanos(10)],
+            },
+            dataset: dataset.to_string(),
+            pattern,
+            reopen,
+            display_name: display_name(dataset, pattern),
+        }
+    }
+
     #[test]
     fn v3_random_access_records_skip_reopen_variants() {
-        let measurement = TimingMeasurement {
-            name: "random-access/taxi/uniform/parquet-tokio-local-disk".to_string(),
-            target: Target::new(Engine::Arrow, Format::Parquet),
-            storage: STORAGE_NVME.to_string(),
-            runs: vec![Duration::from_nanos(10)],
-        };
         let mut records = Vec::new();
 
-        push_v3_random_access_record(&mut records, &measurement, "taxi", None, false);
+        push_v3_random_access_record(&mut records, &fake_run("taxi", None, false));
         push_v3_random_access_record(
             &mut records,
-            &measurement,
-            "taxi",
-            Some(AccessPattern::Uniform),
-            false,
+            &fake_run("taxi", Some(AccessPattern::Uniform), false),
         );
         push_v3_random_access_record(
             &mut records,
-            &measurement,
-            "taxi",
-            Some(AccessPattern::Correlated),
-            true,
+            &fake_run("taxi", Some(AccessPattern::Correlated), true),
         );
 
         assert_eq!(records.len(), 2);
@@ -530,5 +541,18 @@ mod tests {
             v3::V3Record::RandomAccessTime(record) => assert_eq!(record.dataset, "taxi/uniform"),
             other => panic!("expected random-access record, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn display_name_drops_format_extension() {
+        assert_eq!(display_name("taxi", None), "random-access/taxi");
+        assert_eq!(
+            display_name("taxi", Some(AccessPattern::Uniform)),
+            "random-access/taxi/uniform"
+        );
+        assert_eq!(
+            display_name("feature-vectors", Some(AccessPattern::Correlated)),
+            "random-access/feature-vectors/correlated"
+        );
     }
 }

@@ -25,11 +25,24 @@
 //! [Arrow canonical extension type]: https://arrow.apache.org/docs/format/CanonicalExtensions.html#parquet-variant
 
 mod array;
+mod arrow;
 mod kernel;
 mod operations;
 mod validity;
 mod vtable;
 
+use std::sync::Arc;
+
 pub use array::ParquetVariantArrayExt;
+use vortex_array::arrow::ArrowSessionExt;
+use vortex_array::session::ArraySessionExt;
+use vortex_session::VortexSession;
 pub use vtable::ParquetVariant;
 pub use vtable::ParquetVariantArray;
+
+/// Register Parquet Variant array and Arrow extension support with a session.
+pub fn initialize(session: &VortexSession) {
+    session.arrays().register(ParquetVariant);
+    session.arrow().register_exporter(Arc::new(ParquetVariant));
+    session.arrow().register_importer(Arc::new(ParquetVariant));
+}

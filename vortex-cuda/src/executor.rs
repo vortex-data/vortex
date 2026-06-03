@@ -12,6 +12,7 @@ use cudarc::driver::CudaSlice;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::LaunchArgs;
 use cudarc::driver::LaunchConfig;
+use cudarc::driver::ValidAsZeroBits;
 use futures::future::BoxFuture;
 use tracing::debug;
 use tracing::trace;
@@ -256,7 +257,7 @@ impl CudaExecutionCtx {
         data: D,
     ) -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>>
     where
-        T: DeviceRepr + Debug + Send + Sync + 'static,
+        T: DeviceRepr + ValidAsZeroBits + Debug + Send + Sync + 'static,
         D: AsRef<[T]> + Send + 'static,
     {
         self.stream.copy_to_device(data)

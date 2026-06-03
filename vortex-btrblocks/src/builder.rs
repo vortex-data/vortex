@@ -10,6 +10,7 @@ use crate::CascadingCompressor;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::SchemeId;
+use crate::schemes::binary;
 use crate::schemes::bool;
 use crate::schemes::decimal;
 use crate::schemes::float;
@@ -53,9 +54,18 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     // String schemes.
     ////////////////////////////////////////////////////////////////////////////////////////////////
     &string::StringDictScheme,
+    // Both string-fragmentation schemes are registered; the sample-based
+    // selector keeps whichever is smaller per column.
     &string::FSSTScheme,
+    #[cfg(feature = "unstable_encodings")]
+    &string::OnPairScheme,
     &string::StringConstantScheme,
     &string::NullDominatedSparseScheme,
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    // Binary schemes.
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    &binary::BinaryDictScheme,
+    &binary::BinaryConstantScheme,
     // Decimal schemes.
     &decimal::DecimalScheme,
     // Temporal schemes.
@@ -168,14 +178,23 @@ impl BtrBlocksCompressorBuilder {
     /// preserves the array buffer layout for zero-conversion GPU decompression. Without it,
     /// interleaved Zstd compression is used.
     pub fn only_cuda_compatible(self) -> Self {
-        let builder = self.exclude_schemes([
+        // String fragmentation schemes (OnPair, FSST) require host-side
+        // dictionary expansion at decode time, which is incompatible with
+        // pure-GPU decompression paths. Strip whichever string-fragment
+        // scheme is enabled by feature.
+        #[cfg_attr(not(feature = "unstable_encodings"), allow(unused_mut))]
+        let mut excluded: Vec<SchemeId> = vec![
             integer::SparseScheme.id(),
             integer::IntRLEScheme.id(),
             float::FloatRLEScheme.id(),
             float::NullDominatedSparseScheme.id(),
             string::StringDictScheme.id(),
             string::FSSTScheme.id(),
-        ]);
+            binary::BinaryDictScheme.id(),
+        ];
+        #[cfg(feature = "unstable_encodings")]
+        excluded.push(string::OnPairScheme.id());
+        let builder = self.exclude_schemes(excluded);
 
         #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
         let builder = builder.with_new_scheme(&string::ZstdBuffersScheme);

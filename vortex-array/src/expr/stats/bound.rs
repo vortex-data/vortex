@@ -7,6 +7,7 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 
 use crate::expr::stats::Precision;
+use crate::expr::stats::Precision::Absent;
 use crate::expr::stats::Precision::Exact;
 use crate::expr::stats::Precision::Inexact;
 use crate::expr::stats::StatBound;
@@ -19,7 +20,7 @@ use crate::partial_ord::partial_min;
 pub struct LowerBound<T>(pub(crate) Precision<T>);
 
 impl<T> LowerBound<T> {
-    pub(crate) fn min_value(self) -> T {
+    pub(crate) fn min_value(self) -> Option<T> {
         self.0.into_inner()
     }
 }
@@ -37,7 +38,7 @@ pub enum IntersectionResult<T> {
     /// An intersection result was found
     Value(T),
     /// Values has no intersection.
-    None,
+    Empty,
 }
 
 impl<T> IntersectionResult<T> {
@@ -47,7 +48,7 @@ impl<T> IntersectionResult<T> {
     {
         match self {
             IntersectionResult::Value(v) => Ok(v),
-            IntersectionResult::None => Err(err()),
+            IntersectionResult::Empty => Err(err()),
         }
     }
 }
@@ -58,6 +59,8 @@ impl<T: PartialOrd + Clone> StatBound<T> for LowerBound<T> {
     }
 
     fn union(&self, other: &Self) -> Option<LowerBound<T>> {
+        use Precision::*;
+
         Some(LowerBound(match (&self.0, &other.0) {
             (Exact(lhs), Exact(rhs)) => Exact(partial_min(lhs, rhs)?.clone()),
             (Inexact(lhs), Inexact(rhs)) => Inexact(partial_min(lhs, rhs)?.clone()),
@@ -75,6 +78,7 @@ impl<T: PartialOrd + Clone> StatBound<T> for LowerBound<T> {
                     Inexact(rhs.clone())
                 }
             }
+            (Absent, _) | (_, Absent) => return None,
         }))
     }
 
@@ -86,7 +90,7 @@ impl<T: PartialOrd + Clone> StatBound<T> for LowerBound<T> {
                     IntersectionResult::Value(LowerBound(Exact(lhs.clone())))
                 } else {
                     // The two intervals do not overlap
-                    IntersectionResult::None
+                    IntersectionResult::Empty
                 }
             }
             (Inexact(lhs), Inexact(rhs)) => {
@@ -97,7 +101,7 @@ impl<T: PartialOrd + Clone> StatBound<T> for LowerBound<T> {
                     IntersectionResult::Value(LowerBound(Exact(rhs.clone())))
                 } else {
                     // The two intervals do not overlap
-                    IntersectionResult::None
+                    IntersectionResult::Empty
                 }
             }
             (Exact(lhs), Inexact(rhs)) => {
@@ -105,9 +109,10 @@ impl<T: PartialOrd + Clone> StatBound<T> for LowerBound<T> {
                     IntersectionResult::Value(LowerBound(Exact(lhs.clone())))
                 } else {
                     // The two intervals do not overlap
-                    IntersectionResult::None
+                    IntersectionResult::Empty
                 }
             }
+            (Absent, _) | (_, Absent) => return None,
         })
     }
 
@@ -137,6 +142,7 @@ impl<T: PartialOrd> PartialOrd<T> for LowerBound<T> {
             Inexact(lhs) => lhs
                 .partial_cmp(other)
                 .and_then(|o| if o == Ordering::Less { None } else { Some(o) }),
+            Absent => None,
         }
     }
 }
@@ -146,7 +152,7 @@ impl<T: PartialOrd> PartialOrd<T> for LowerBound<T> {
 pub struct UpperBound<T>(pub(crate) Precision<T>);
 
 impl<T> UpperBound<T> {
-    pub(crate) fn max_value(self) -> T {
+    pub(crate) fn max_value(self) -> Option<T> {
         self.0.into_inner()
     }
 }
@@ -175,6 +181,7 @@ impl<T: PartialOrd + Clone> StatBound<T> for UpperBound<T> {
                     Inexact(rhs.clone())
                 }
             }
+            (Absent, _) | (_, Absent) => return None,
         }))
     }
 
@@ -185,7 +192,7 @@ impl<T: PartialOrd + Clone> StatBound<T> for UpperBound<T> {
                     IntersectionResult::Value(UpperBound(Exact(lhs.clone())))
                 } else {
                     // The two intervals do not overlap
-                    IntersectionResult::None
+                    IntersectionResult::Empty
                 }
             }
             (Inexact(lhs), Inexact(rhs)) => {
@@ -196,7 +203,7 @@ impl<T: PartialOrd + Clone> StatBound<T> for UpperBound<T> {
                     IntersectionResult::Value(UpperBound(Exact(rhs.clone())))
                 } else {
                     // The two intervals do not overlap
-                    IntersectionResult::None
+                    IntersectionResult::Empty
                 }
             }
             (Exact(lhs), Inexact(rhs)) => {
@@ -204,9 +211,10 @@ impl<T: PartialOrd + Clone> StatBound<T> for UpperBound<T> {
                     IntersectionResult::Value(UpperBound(Exact(lhs.clone())))
                 } else {
                     // The two intervals do not overlap
-                    IntersectionResult::None
+                    IntersectionResult::Empty
                 }
             }
+            (Absent, _) | (_, Absent) => return None,
         })
     }
 
@@ -240,6 +248,7 @@ impl<T: PartialOrd> PartialOrd<T> for UpperBound<T> {
                     Some(o)
                 }
             }),
+            Absent => None,
         }
     }
 }
@@ -305,7 +314,7 @@ mod tests {
         let ub1: UpperBound<i32> = UpperBound(Precision::exact(13i32));
         let ub2 = UpperBound(Precision::inexact(12i32));
 
-        assert_eq!(Some(IntersectionResult::None), ub1.intersection(&ub2));
+        assert_eq!(Some(IntersectionResult::Empty), ub1.intersection(&ub2));
     }
 
     #[test]
@@ -321,6 +330,6 @@ mod tests {
         let lb1: LowerBound<i32> = LowerBound(Precision::exact(12i32));
         let lb2 = LowerBound(Precision::inexact(13i32));
 
-        assert_eq!(Some(IntersectionResult::None), lb1.intersection(&lb2));
+        assert_eq!(Some(IntersectionResult::Empty), lb1.intersection(&lb2));
     }
 }

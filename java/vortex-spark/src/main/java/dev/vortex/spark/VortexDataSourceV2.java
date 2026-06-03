@@ -20,6 +20,7 @@ import java.util.stream.Stream;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.connector.catalog.Table;
 import org.apache.spark.sql.connector.catalog.TableProvider;
+import org.apache.spark.sql.connector.expressions.Expressions;
 import org.apache.spark.sql.connector.expressions.Transform;
 import org.apache.spark.sql.sources.DataSourceRegister;
 import org.apache.spark.sql.types.DataType;
@@ -116,6 +117,38 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
         }
 
         return dataSchema;
+    }
+
+    /**
+     * Infers partition transforms by inspecting Hive-style {@code key=value} segments in the first listed file path.
+     *
+     * <p>Spark calls this before {@link #getTable(StructType, Transform[], Map)} when the caller did not provide
+     * explicit partitioning. Returning identity transforms here lets downstream components (notably
+     * {@link dev.vortex.spark.read.VortexScanBuilder}) tell which schema columns are encoded in the directory layout
+     * rather than stored inside the Vortex files, which matters for predicate pushdown.
+     */
+    @Override
+    public Transform[] inferPartitioning(CaseInsensitiveStringMap options) {
+        var paths = getPaths(options);
+        if (paths.isEmpty()) {
+            return new Transform[0];
+        }
+        var formatOptions = buildDataSourceOptions(options.asCaseSensitiveMap());
+        String pathToInfer = Objects.requireNonNull(Iterables.getLast(paths));
+        if (!pathToInfer.endsWith(".vortex")) {
+            Optional<String> firstFile =
+                    NativeFiles.listFiles(VortexSparkSession.get(formatOptions), pathToInfer, formatOptions).stream()
+                            .findFirst();
+            if (firstFile.isEmpty()) {
+                return new Transform[0];
+            }
+            pathToInfer = firstFile.get();
+        }
+        Map<String, String> partitionValues = PartitionPathUtils.parsePartitionValues(pathToInfer);
+        if (partitionValues.isEmpty()) {
+            return new Transform[0];
+        }
+        return partitionValues.keySet().stream().map(Expressions::identity).toArray(Transform[]::new);
     }
 
     /**

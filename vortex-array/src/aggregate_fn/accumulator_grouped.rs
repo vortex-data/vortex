@@ -163,17 +163,15 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         let mut elements = groups.elements().clone();
         let groups_validity = groups.validity()?;
         let session = ctx.session().clone();
-        let kernels = &session.aggregate_fns().grouped_kernels;
 
         for _ in 0..max_iterations() {
             if elements.is::<AnyCanonical>() {
                 break;
             }
 
-            let kernels_r = kernels.read();
-            if let Some(result) = kernels_r
-                .get(&(elements.encoding_id(), Some(self.aggregate_fn.id())))
-                .or_else(|| kernels_r.get(&(elements.encoding_id(), None)))
+            if let Some(result) = session
+                .aggregate_fns()
+                .find_grouped_kernel(elements.encoding_id(), self.aggregate_fn.id())
                 .and_then(|kernel| {
                     // SAFETY: we assume that elements execution is safe
                     let groups = unsafe {
@@ -255,17 +253,15 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         let mut elements = groups.elements().clone();
         let groups_validity = groups.validity()?;
         let session = ctx.session().clone();
-        let kernels = &session.aggregate_fns().grouped_kernels;
 
         for _ in 0..64 {
             if elements.is::<AnyCanonical>() {
                 break;
             }
 
-            let kernels_r = kernels.read();
-            if let Some(result) = kernels_r
-                .get(&(elements.encoding_id(), Some(self.aggregate_fn.id())))
-                .or_else(|| kernels_r.get(&(elements.encoding_id(), None)))
+            if let Some(result) = session
+                .aggregate_fns()
+                .find_grouped_kernel(elements.encoding_id(), self.aggregate_fn.id())
                 .and_then(|kernel| {
                     // SAFETY: we assume that elements execution is safe
                     let groups = unsafe {
