@@ -783,22 +783,6 @@ def main() -> None:
     print("---")
     print("")
 
-    if statistical_analysis is not None:
-        alpha_rows = statistical_analysis["detail_df"][~statistical_analysis["detail_df"]["is_control"]].copy()
-        if not alpha_rows.empty:
-            alpha_rows = alpha_rows.sort_values(["query", "engine", "file_format"])
-            alpha_table = pd.DataFrame(
-                {
-                    "Query": alpha_rows["query"].astype(int),
-                    "Config": alpha_rows["combo"],
-                    "Raw Δ": alpha_rows["ratio"].map(format_ratio_change),
-                    "Control Δ": alpha_rows["beta_ratio"].map(format_ratio_change),
-                    "Attributed α": alpha_rows["alpha_ratio"].map(format_ratio_change),
-                    "Noise floor": alpha_rows["noise_floor_ratio"].map(format_ratio_change),
-                    "Significant?": alpha_rows["signal"].map(format_signal),
-                }
-            )
-
     grouped_tables = df3.groupby(["engine", "file_format"], dropna=False, sort=False)
     for engine, file_format in sorted(grouped_tables.groups.keys(), key=group_sort_key):
         group_df = grouped_tables.get_group((engine, file_format)).sort_values("name")
@@ -846,21 +830,6 @@ def main() -> None:
         print("---")
         print("")
         print(file_size_report)
-
-    if statistical_analysis is not None and not alpha_rows.empty:
-        print("<details>")
-        print("<summary>Full attributed analysis</summary>")
-        print("")
-        print("<br>")
-        print("")
-        print(
-            alpha_table.to_markdown(
-                index=False,
-                tablefmt="github",
-            )
-        )
-        print("")
-        print("</details>")
 
 
 if __name__ == "__main__":
