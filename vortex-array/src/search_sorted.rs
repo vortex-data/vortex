@@ -237,7 +237,7 @@ fn search_sorted_side_idx<F: FnMut(usize) -> VortexResult<Ordering>>(
         // Binary search interacts poorly with branch prediction, so force
         // the compiler to use conditional moves if supported by the target
         // architecture.
-        base = if cmp == Greater { base } else { mid };
+        base = hint::select_unpredictable(cmp == Greater, base, mid);
 
         // This is imprecise in the case where `size` is odd and the
         // comparison returns Greater: the mid element still gets included
