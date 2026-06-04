@@ -103,18 +103,22 @@ pub trait IndexOrd<V> {
     /// For example, if self\[idx\] > elem, return Some(Greater).
     fn index_cmp(&self, idx: usize, elem: &V) -> VortexResult<Option<Ordering>>;
 
+    #[inline]
     fn index_lt(&self, idx: usize, elem: &V) -> VortexResult<bool> {
         Ok(matches!(self.index_cmp(idx, elem)?, Some(Less)))
     }
 
+    #[inline]
     fn index_le(&self, idx: usize, elem: &V) -> VortexResult<bool> {
         Ok(matches!(self.index_cmp(idx, elem)?, Some(Less | Equal)))
     }
 
+    #[inline]
     fn index_gt(&self, idx: usize, elem: &V) -> VortexResult<bool> {
         Ok(matches!(self.index_cmp(idx, elem)?, Some(Greater)))
     }
 
+    #[inline]
     fn index_ge(&self, idx: usize, elem: &V) -> VortexResult<bool> {
         Ok(matches!(self.index_cmp(idx, elem)?, Some(Greater | Equal)))
     }
@@ -132,6 +136,7 @@ pub trait IndexOrd<V> {
 /// |left |array\[i-1\] < value <= array\[i\]|
 /// |right|array\[i-1\] <= value < array\[i\]|
 pub trait SearchSorted<T> {
+    #[inline]
     fn search_sorted(&self, value: &T, side: SearchSortedSide) -> VortexResult<SearchResult>
     where
         Self: IndexOrd<T>,
@@ -180,6 +185,7 @@ impl<S, T> SearchSorted<T> for S
 where
     S: IndexOrd<T> + ?Sized,
 {
+    #[inline]
     fn search_sorted_by<
         F: FnMut(usize) -> VortexResult<Ordering>,
         N: FnMut(usize) -> VortexResult<Ordering>,
@@ -210,6 +216,7 @@ where
 }
 
 // Code adapted from Rust standard library slice::binary_search_by
+#[inline]
 fn search_sorted_side_idx<F: FnMut(usize) -> VortexResult<Ordering>>(
     mut find: F,
     from: usize,
@@ -276,11 +283,13 @@ impl IndexOrd<Scalar> for ArrayRef {
 }
 
 impl<T: PartialOrd> IndexOrd<T> for [T] {
+    #[inline]
     fn index_cmp(&self, idx: usize, elem: &T) -> VortexResult<Option<Ordering>> {
         // SAFETY: Used in search_sorted_by same as the standard library. The search_sorted ensures idx is in bounds
         Ok(unsafe { self.get_unchecked(idx) }.partial_cmp(elem))
     }
 
+    #[inline]
     fn index_len(&self) -> usize {
         self.len()
     }
