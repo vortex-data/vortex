@@ -8,11 +8,15 @@
 //! a [`BitBuffer`]. Patches are re-applied at the end by overwriting bits at the patched
 //! indices with `predicate(patch_value)`.
 
+use fastlanes::BitPacking;
+use fastlanes::BitPackingCompare;
+use fastlanes::FastLanesComparable;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar_fn::fns::binary::CompareKernel;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
@@ -56,7 +60,7 @@ impl CompareKernel for BitPacked {
     }
 }
 
-/// Compare every value against the constant by streaming the regular FastLanes unpack iterator.
+/// Compare every value against the constant via the fused FastLanes `unpack_cmp` kernel.
 ///
 /// `NativePType::is_eq` / `is_lt` etc. provide total comparison (matching the primitive between
 /// kernel's dispatch shape). `NotEq` has no direct method, so use `!is_eq`.
@@ -68,7 +72,10 @@ fn compare_constant_typed<T>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef>
 where
-    T: NativePType + BitPackedIter + Copy,
+    T: NativePType
+        + BitPackedIter
+        + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
+    <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare,
 {
     match operator {
         CompareOperator::Eq => {
@@ -201,6 +208,78 @@ mod tests {
             .binary(rhs, Operator::Eq)?
             .execute::<BoolArray>(&mut ctx)?;
         assert_arrays_eq!(actual, expected);
+        Ok(())
+    }
+
+    /// Sliced inputs: a non-zero block offset (and a length spanning several blocks) must still go
+    /// through the fused kernel and agree with the primitive fallback. Sweeps slice starts that
+    /// land both inside the first block and past it, with lengths that end mid-block and on a block
+    /// boundary.
+    #[rstest]
+    #[case(1, 4000)] // start mid-first-block, multi-block length
+    #[case(1023, 2)] // start at the last row of the first block
+    #[case(1024, 1024)] // start exactly on a block boundary, exactly one block long
+    #[case(1500, 1000)] // start mid-second-block
+    #[case(3, 1021)] // ends exactly on the first block boundary
+    fn sliced_matches_primitive(
+        #[case] start: usize,
+        #[case] slice_len: usize,
+    ) -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let values: Vec<u32> = (0..5000u32).map(|i| i % 128).collect();
+        let prim = PrimitiveArray::from_iter(values);
+        let packed = BitPackedData::encode(&prim.clone().into_array(), 7, &mut ctx)?;
+
+        let sliced = packed.into_array().slice(start..start + slice_len)?;
+        let rhs = ConstantArray::new(50u32, slice_len).into_array();
+        for op in [
+            CompareOperator::Eq,
+            CompareOperator::Lt,
+            CompareOperator::Gte,
+        ] {
+            let got = <BitPacked as CompareKernel>::compare(
+                sliced.as_::<BitPacked>(),
+                &rhs,
+                op,
+                &mut ctx,
+            )?
+            .expect("fused compare kernel must engage for sliced arrays")
+            .execute::<BoolArray>(&mut ctx)?;
+            let want = prim
+                .clone()
+                .into_array()
+                .slice(start..start + slice_len)?
+                .binary(rhs.clone(), Operator::from(op))?
+                .execute::<BoolArray>(&mut ctx)?;
+            assert_arrays_eq!(got, want);
+        }
+        Ok(())
+    }
+
+    /// Sliced *and* patched: combine a non-zero offset with out-of-range values that land in
+    /// `Patches`, exercising the `offset + (global - p_off)` patch-position math.
+    #[test]
+    fn sliced_with_patches_matches_primitive() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let values: Vec<i32> = (0..4096)
+            .map(|i| if i % 91 == 0 { 100_000 + i } else { i % 100 })
+            .collect();
+        let prim = PrimitiveArray::from_iter(values);
+        let packed = BitPackedData::encode(&prim.clone().into_array(), 7, &mut ctx)?;
+        assert!(packed.patches().is_some(), "test setup expects patches");
+
+        let (start, end) = (700usize, 3500usize);
+        let sliced = packed.into_array().slice(start..end)?;
+        let rhs = ConstantArray::new(50i32, end - start).into_array();
+        let got = sliced
+            .binary(rhs.clone(), Operator::Eq)?
+            .execute::<BoolArray>(&mut ctx)?;
+        let want = prim
+            .into_array()
+            .slice(start..end)?
+            .binary(rhs, Operator::Eq)?
+            .execute::<BoolArray>(&mut ctx)?;
+        assert_arrays_eq!(got, want);
         Ok(())
     }
 

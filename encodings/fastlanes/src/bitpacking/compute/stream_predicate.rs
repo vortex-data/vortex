@@ -78,7 +78,7 @@ where
 /// `[chunk_start, chunk_start + block.len())`, starting from `cursor` and returning the
 /// advanced cursor. Sorted indices mean the cursor only moves forward across the walk.
 #[inline]
-pub(super) fn splice_patches<T, I>(
+fn splice_patches<T, I>(
     block: &mut [T],
     chunk_start: usize,
     mut cursor: usize,
