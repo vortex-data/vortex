@@ -229,11 +229,12 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         )?;
         let mut states = builder_with_capacity(&self.partial_dtype, offsets.len());
 
-        for (offset, size) in offsets.iter().zip(sizes.iter()) {
+        for (i, (offset, size)) in offsets.iter().zip(sizes.iter()).enumerate() {
             let offset = offset.to_usize().vortex_expect("Offset value is not usize");
             let size = size.to_usize().vortex_expect("Size value is not usize");
 
-            if validity.value(offset) {
+            // validity is for the outer list view, so it must be indexed with `i`
+            if validity.value(i) {
                 let group = elements.slice(offset..offset + size)?;
                 accumulator.accumulate(&group, ctx)?;
                 states.append_scalar(&accumulator.flush()?)?;
