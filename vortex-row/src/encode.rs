@@ -131,10 +131,19 @@ fn execute_row_encode(
     let total_len =
         usize::try_from(total).vortex_expect("validated row-encoded output size must fit usize");
 
-    // Allocate the elements buffer (zero-initialized). The zero-init lets every encoder
-    // assume previously untouched bytes are zero, simplifying the null-row fill paths.
     let mut out_buf: BufferMut<u8> = BufferMut::with_capacity(total_len);
-    out_buf.push_n(0u8, total_len);
+    // Every encoder writes every byte in its row range: fixed-width values write
+    // sentinel + value (null rows write sentinel + explicit zero-fill); varlen blocks
+    // zero-pad their final partial block; struct/FSL fixed children are written for all
+    // rows then null parent rows are overwritten with the canonical null body. So the
+    // size-pass + encoder contract guarantees `[0, total_len)` is fully written before
+    // the buffer is read out, making the pre-zero-init redundant. Skipping it saves a
+    // `total_len`-byte memset per call (significant for varlen-heavy inputs, where
+    // `total_len` reaches multiple MB).
+    //
+    // SAFETY: `total_len` bytes of capacity were just reserved, and by the contract above
+    // every byte in that range is written before `out_buf` is frozen and read.
+    unsafe { out_buf.set_len(total_len) };
 
     // ===== Phase 3: per-row offsets =====
     // listview_offsets[i] is the absolute byte offset where row `i` begins.
