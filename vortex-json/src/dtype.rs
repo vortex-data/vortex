@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Extension dtype defintion for the JSON type
+//! Extension dtype definition for the JSON type
 
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::extension::ExtDType;
