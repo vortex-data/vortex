@@ -89,11 +89,17 @@ fn main() {
 fn fsst_unpack_then_convert(bencher: divan::Bencher) {
     let (fsst, total_bytes) = build_fsst();
     let encoder = RowEncoder::default();
-    bencher.counter(BytesCount::new(total_bytes)).bench_local(|| {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let decoded = fsst.clone().execute::<Canonical>(&mut ctx).unwrap().into_array();
-        encoder.encode(&[decoded], &mut ctx).unwrap()
-    });
+    bencher
+        .counter(BytesCount::new(total_bytes))
+        .bench_local(|| {
+            let mut ctx = LEGACY_SESSION.create_execution_ctx();
+            let decoded = fsst
+                .clone()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
+                .into_array();
+            encoder.encode(&[decoded], &mut ctx).unwrap()
+        });
 }
 
 /// Irreducible floor: FSST decompression alone (a direct kernel must still produce these
@@ -113,8 +119,12 @@ fn plain_row_encode_only(bencher: divan::Bencher) {
     let (fsst, total_bytes) = build_fsst();
     let decoded = decompress(&fsst);
     let encoder = RowEncoder::default();
-    bencher.counter(BytesCount::new(total_bytes)).bench_local(|| {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        encoder.encode(std::slice::from_ref(&decoded), &mut ctx).unwrap()
-    });
+    bencher
+        .counter(BytesCount::new(total_bytes))
+        .bench_local(|| {
+            let mut ctx = LEGACY_SESSION.create_execution_ctx();
+            encoder
+                .encode(std::slice::from_ref(&decoded), &mut ctx)
+                .unwrap()
+        });
 }
