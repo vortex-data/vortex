@@ -135,7 +135,10 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
             }
 
             let referenced_mask = self.compute_referenced_values_mask(true)?;
-            let all_referenced = referenced_mask.iter().all(|v| v);
+            // "all values referenced" is equivalent to every bit being set, i.e. the popcount
+            // equals the length. `true_count` uses a vectorized popcount, which is much faster
+            // than iterating the buffer bit-by-bit.
+            let all_referenced = referenced_mask.true_count() == referenced_mask.len();
 
             vortex_ensure!(all_referenced, "value in dict not referenced");
         }
