@@ -268,10 +268,8 @@ impl ScalarFnVTable for CaseWhen {
         //   CASE WHEN is_null(x)     THEN c ELSE x END  ==>  fill_null(x, c)
         //   CASE WHEN is_not_null(x) THEN x ELSE c END  ==>  fill_null(x, c)
         //
-        // `fill_null` requires `c` to be a non-null constant: its kernel reads the fill
-        // value via `as_constant()` and bails on a null scalar. Restricting `c` to a
-        // non-null `Literal` keeps the rewrite both executable and semantically exact
-        // (replacing nulls in `x` with `c` matches the CASE only when `c` is never null).
+        // The fill `c` must be a `Literal`: `fill_null`'s kernel reads the fill value via
+        // `as_constant()`, so a non-constant fill would produce an unexecutable expression.
         if options.num_when_then_pairs != 1 || !options.has_else {
             return Ok(None);
         }
@@ -290,12 +288,16 @@ impl ScalarFnVTable for CaseWhen {
             return Ok(None);
         };
 
-        match fill.as_opt::<Literal>() {
-            Some(scalar) if !scalar.is_null() => {
-                Ok(Some(crate::expr::fill_null(x.clone(), fill.clone())))
-            }
-            _ => Ok(None),
+        let Some(scalar) = fill.as_opt::<Literal>() else {
+            return Ok(None);
+        };
+
+        if scalar.is_null() {
+            // Filling the nulls of `x` with NULL is a no-op
+            return Ok(Some(x.clone()));
         }
+
+        Ok(Some(crate::expr::fill_null(x.clone(), fill.clone())))
     }
 
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {
@@ -1304,17 +1306,52 @@ mod tests {
     }
 
     #[test]
-    fn test_simplify_does_not_fire_for_null_fill() -> VortexResult<()> {
-        // A null fill literal would make fill_null bail and is not semantically a COALESCE.
+    fn test_simplify_null_fill_collapses_to_input() -> VortexResult<()> {
+        // Filling the nulls of x with NULL is a no-op, so both forms collapse to just `x`.
+        //   CASE WHEN is_null(x)     THEN null ELSE x    END  ==>  x
+        //   CASE WHEN is_not_null(x) THEN x    ELSE null END  ==>  x
+        let null_fill = || {
+            lit(Scalar::null(DType::Primitive(
+                PType::I64,
+                Nullability::Nullable,
+            )))
+        };
+
+        for expr in [
+            case_when(is_null(col("x")), null_fill(), col("x")),
+            case_when(is_not_null(col("x")), col("x"), null_fill()),
+        ] {
+            let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x"]))?;
+            assert_eq!(
+                optimized.to_string(),
+                "$.x",
+                "expected collapse to input column, got {optimized}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_simplify_null_fill_semantic_equivalence() -> VortexResult<()> {
+        // The collapse-to-input rewrite must preserve values (and `x`'s nullability).
+        let array = PrimitiveArray::from_option_iter([Some(1i64), None, Some(3)]).into_array();
+        let scope = DType::Primitive(PType::I64, Nullability::Nullable);
         let null_fill = lit(Scalar::null(DType::Primitive(
             PType::I64,
             Nullability::Nullable,
         )));
-        let expr = case_when(is_null(col("x")), null_fill, col("x"));
-        let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x"]))?;
-        let s = optimized.to_string();
-        assert!(s.contains("CASE"), "expected CASE WHEN to remain, got {s}");
-        assert!(!s.contains("fill_null"), "must not rewrite, got {s}");
+
+        let original = case_when(is_null(root()), null_fill, root());
+        let optimized = original.optimize_recursive(&scope)?;
+        assert_eq!(
+            optimized.to_string(),
+            "$",
+            "expected collapse to root, got {optimized}"
+        );
+
+        let expected = PrimitiveArray::from_option_iter([Some(1i64), None, Some(3)]).into_array();
+        assert_arrays_eq!(evaluate_expr(&original, &array), expected);
+        assert_arrays_eq!(evaluate_expr(&optimized, &array), expected);
         Ok(())
     }
 
