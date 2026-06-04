@@ -9982,6 +9982,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-row"
+version = "0.1.0"
+dependencies = [
+ "arrow-array",
+ "arrow-row",
+ "arrow-schema",
+ "bytes",
+ "codspeed-divan-compat",
+ "mimalloc",
+ "rand 0.10.1",
+ "rstest",
+ "smallvec",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-mask",
+ "vortex-session",
+]
+
+[[package]]
 name = "vortex-runend"
 version = "0.1.0"
 dependencies = [

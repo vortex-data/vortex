@@ -12,6 +12,7 @@ members = [
     "vortex-io",
     "vortex-proto",
     "vortex-array",
+    "vortex-row",
     "vortex-tensor",
     "vortex-turboquant",
     "vortex-compressor",
@@ -104,6 +105,7 @@ arrow-cast = "58"
 arrow-data = "58"
 arrow-ipc = "58"
 arrow-ord = "58"
+arrow-row = "58"
 arrow-schema = "58"
 arrow-select = "58"
 arrow-string = "58"
@@ -295,6 +297,7 @@ vortex-onpair = { version = "0.1.0", path = "./encodings/experimental/onpair", d
 vortex-parquet-variant = { version = "0.1.0", path = "./encodings/parquet-variant" }
 vortex-pco = { version = "0.1.0", path = "./encodings/pco", default-features = false }
 vortex-proto = { version = "0.1.0", path = "./vortex-proto", default-features = false }
+vortex-row = { version = "0.1.0", path = "./vortex-row", default-features = false }
 vortex-runend = { version = "0.1.0", path = "./encodings/runend", default-features = false }
 vortex-scan = { version = "0.1.0", path = "./vortex-scan", default-features = false }
 vortex-sequence = { version = "0.1.0", path = "encodings/sequence", default-features = false }

@@ -1,0 +1,41 @@
+[package]
+name = "vortex-row"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Row-oriented byte encoder for Vortex arrays, analogous to arrow-row."
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+publish = false
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
+
+[dependencies]
+bytes = { workspace = true }
+smallvec = { workspace = true }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-mask = { workspace = true }
+vortex-session = { workspace = true }
+
+[dev-dependencies]
+arrow-array = { workspace = true }
+arrow-row = { workspace = true }
+arrow-schema = { workspace = true }
+divan = { workspace = true }
+mimalloc = { workspace = true }
+rand = { workspace = true }
+rstest = { workspace = true }
+vortex-array = { workspace = true, features = ["_test-harness"] }
+
+[[bench]]
+name = "row_encode"
+harness = false
