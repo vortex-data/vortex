@@ -165,10 +165,14 @@ fn execute_row_encode(
             }
         }
         Some(v) => {
+            // Mixed: offsets[i] = i * fixed_per_row + var_prefix[i], where var_prefix is the
+            // exclusive cumsum of varlen lengths. `iter_mut().zip` elides per-element bounds
+            // checks; the total was validated to fit u32 upstream so the wrapping arithmetic
+            // is exact (it never actually wraps).
             let mut acc: u32 = 0;
-            for (i, &l) in v.iter().enumerate() {
-                off[i] = (i as u32) * fixed_per_row + acc;
-                acc += l;
+            for (i, (slot, &l)) in off.iter_mut().zip(v.iter()).enumerate() {
+                *slot = (i as u32).wrapping_mul(fixed_per_row).wrapping_add(acc);
+                acc = acc.wrapping_add(l);
             }
         }
     }
