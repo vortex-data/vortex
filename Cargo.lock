@@ -9571,6 +9571,7 @@ dependencies = [
  "bitvec",
  "cbindgen",
  "cc",
+ "codspeed-divan-compat",
  "custom-labels",
  "futures",
  "itertools 0.14.0",
