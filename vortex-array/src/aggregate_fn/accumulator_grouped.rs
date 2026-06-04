@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrow_buffer::ArrowNativeType;
+use num_traits::AsPrimitive;
+use num_traits::ToPrimitive;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -9,6 +11,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::AnyCanonical;
@@ -26,14 +29,18 @@ use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::arrays::ChunkedArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListViewArray;
+use crate::arrays::Primitive;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
+use crate::dtype::NativePType;
 use crate::executor::max_iterations;
 use crate::match_each_integer_ptype;
+use crate::match_each_native_ptype;
 
 /// Reference-counted type-erased grouped accumulator.
 pub type GroupedAccumulatorRef = Box<dyn DynGroupedAccumulator>;
@@ -224,6 +231,23 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         validity: &Mask,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        // Fast path: summing a canonical, all-valid primitive column. The generic loop below
+        // creates a slice array + does a kernel-dispatching scalar `accumulate` + scalar boxing per
+        // group, which is catastrophic for many small groups. A direct typed per-group slice sum is
+        // orders of magnitude faster. Falls through for null elements / other aggregates.
+        if self.aggregate_fn.id().as_str() == "vortex.sum"
+            && let Some(result) = try_sum_primitive_groups(
+                elements,
+                offsets,
+                sizes,
+                validity,
+                &self.partial_dtype,
+                ctx,
+            )?
+        {
+            return self.push_result(result);
+        }
+
         let mut accumulator = Accumulator::try_new(
             self.vtable.clone(),
             self.options.clone(),
@@ -331,4 +355,157 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         self.partials.push(state);
         Ok(())
     }
+}
+
+/// Fast vectorized per-group `Sum` over a canonical, all-valid primitive elements array.
+///
+/// Returns `Ok(None)` (caller falls back to the generic per-group path) when the elements are not a
+/// canonical primitive, contain nulls, or the result dtype would not match the `Sum` partial dtype.
+fn try_sum_primitive_groups<O: IntegerPType>(
+    elements: &ArrayRef,
+    offsets: &[O],
+    sizes: &[O],
+    group_validity: &Mask,
+    partial_dtype: &DType,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    let Some(prim) = elements.as_opt::<Primitive>() else {
+        return Ok(None);
+    };
+    // Materialize the element validity once. The common case (a nullable column with no actual
+    // nulls) is `AllOr::All` and takes the tight slice-sum loop; mixed validity falls to a masked
+    // loop. (`AllOr::None` -> every valid group sums to zero, matching `Sum`.)
+    let elem_mask = prim.validity()?.execute_mask(prim.len(), ctx)?;
+    let all_valid = matches!(elem_mask.slices(), AllOr::All);
+
+    let result = match_each_native_ptype!(prim.ptype(),
+        unsigned: |T| { sum_groups_unsigned::<T, O>(prim.as_slice::<T>(), offsets, sizes, group_validity, &elem_mask, all_valid) },
+        signed:   |T| { sum_groups_signed::<T, O>(prim.as_slice::<T>(), offsets, sizes, group_validity, &elem_mask, all_valid) },
+        floating: |T| { sum_groups_float::<T, O>(prim.as_slice::<T>(), offsets, sizes, group_validity, &elem_mask, all_valid) }
+    );
+
+    // Defensive: if our widening doesn't exactly match the aggregate's partial dtype, fall back to
+    // the generic path rather than emit a mistyped array downstream.
+    if result.dtype() != partial_dtype {
+        return Ok(None);
+    }
+    Ok(Some(result))
+}
+
+fn sum_groups_unsigned<T, O>(
+    values: &[T],
+    offsets: &[O],
+    sizes: &[O],
+    group_validity: &Mask,
+    elem_mask: &Mask,
+    all_valid: bool,
+) -> ArrayRef
+where
+    T: NativePType + AsPrimitive<u64>,
+    O: IntegerPType,
+{
+    let iter = offsets
+        .iter()
+        .zip(sizes.iter())
+        .enumerate()
+        .map(|(i, (o, sz))| {
+            if !group_validity.value(i) {
+                return None;
+            }
+            let o = o.to_usize().vortex_expect("offset usize");
+            let sz = sz.to_usize().vortex_expect("size usize");
+            let mut acc: u64 = 0;
+            if all_valid {
+                for &v in &values[o..o + sz] {
+                    acc = acc.checked_add(v.as_())?; // overflow -> null, matching Sum saturation
+                }
+            } else {
+                for j in 0..sz {
+                    if elem_mask.value(o + j) {
+                        acc = acc.checked_add(values[o + j].as_())?;
+                    }
+                }
+            }
+            Some(acc)
+        });
+    PrimitiveArray::from_option_iter(iter).into_array()
+}
+
+fn sum_groups_signed<T, O>(
+    values: &[T],
+    offsets: &[O],
+    sizes: &[O],
+    group_validity: &Mask,
+    elem_mask: &Mask,
+    all_valid: bool,
+) -> ArrayRef
+where
+    T: NativePType + AsPrimitive<i64>,
+    O: IntegerPType,
+{
+    let iter = offsets
+        .iter()
+        .zip(sizes.iter())
+        .enumerate()
+        .map(|(i, (o, sz))| {
+            if !group_validity.value(i) {
+                return None;
+            }
+            let o = o.to_usize().vortex_expect("offset usize");
+            let sz = sz.to_usize().vortex_expect("size usize");
+            let mut acc: i64 = 0;
+            if all_valid {
+                for &v in &values[o..o + sz] {
+                    acc = acc.checked_add(v.as_())?; // overflow -> null, matching Sum saturation
+                }
+            } else {
+                for j in 0..sz {
+                    if elem_mask.value(o + j) {
+                        acc = acc.checked_add(values[o + j].as_())?;
+                    }
+                }
+            }
+            Some(acc)
+        });
+    PrimitiveArray::from_option_iter(iter).into_array()
+}
+
+fn sum_groups_float<T, O>(
+    values: &[T],
+    offsets: &[O],
+    sizes: &[O],
+    group_validity: &Mask,
+    elem_mask: &Mask,
+    all_valid: bool,
+) -> ArrayRef
+where
+    T: NativePType + ToPrimitive,
+    O: IntegerPType,
+{
+    let iter = offsets
+        .iter()
+        .zip(sizes.iter())
+        .enumerate()
+        .map(|(i, (o, sz))| {
+            if !group_validity.value(i) {
+                return None;
+            }
+            let o = o.to_usize().vortex_expect("offset usize");
+            let sz = sz.to_usize().vortex_expect("size usize");
+            let mut acc: f64 = 0.0;
+            // NaN propagates, matching Sum's float semantics.
+            if all_valid {
+                for &v in &values[o..o + sz] {
+                    acc += v.to_f64().vortex_expect("float to f64");
+                }
+            } else {
+                for j in 0..sz {
+                    if elem_mask.value(o + j) {
+                        acc += values[o + j].to_f64().vortex_expect("float to f64");
+                    }
+                }
+            }
+            Some(acc)
+        });
+    PrimitiveArray::from_option_iter(iter).into_array()
 }
