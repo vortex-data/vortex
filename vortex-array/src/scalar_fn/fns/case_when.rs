@@ -41,6 +41,10 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::SimplifyCtx;
+use crate::scalar_fn::fns::is_not_null::IsNotNull;
+use crate::scalar_fn::fns::is_null::IsNull;
+use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::zip::zip_impl;
 
 /// Options for the n-ary CaseWhen expression.
@@ -251,6 +255,49 @@ impl ScalarFnVTable for CaseWhen {
         merge_case_branches(branches, else_value, ctx)
     }
 
+    fn simplify(
+        &self,
+        options: &Self::Options,
+        expr: &Expression,
+        _ctx: &dyn SimplifyCtx,
+    ) -> VortexResult<Option<Expression>> {
+        // Rewrite the COALESCE-shaped CASE WHEN into `fill_null`, which references `x`
+        // once and lowers to a single fill kernel instead of a `zip`/merge that resolves
+        // `x` twice (once for the `is_null` predicate, once for the value branch).
+        //
+        //   CASE WHEN is_null(x)     THEN c ELSE x END  ==>  fill_null(x, c)
+        //   CASE WHEN is_not_null(x) THEN x ELSE c END  ==>  fill_null(x, c)
+        //
+        // `fill_null` requires `c` to be a non-null constant: its kernel reads the fill
+        // value via `as_constant()` and bails on a null scalar. Restricting `c` to a
+        // non-null `Literal` keeps the rewrite both executable and semantically exact
+        // (replacing nulls in `x` with `c` matches the CASE only when `c` is never null).
+        if options.num_when_then_pairs != 1 || !options.has_else {
+            return Ok(None);
+        }
+
+        let when = expr.child(0);
+        let then = expr.child(1);
+        let els = expr.child(2);
+
+        // `is_null(x) ? c : x` — predicate operand and ELSE are the same `x`, fill is THEN.
+        let (x, fill) = if when.is::<IsNull>() && when.child(0) == els {
+            (els, then)
+        // `is_not_null(x) ? x : c` — predicate operand and THEN are the same `x`, fill is ELSE.
+        } else if when.is::<IsNotNull>() && when.child(0) == then {
+            (then, els)
+        } else {
+            return Ok(None);
+        };
+
+        match fill.as_opt::<Literal>() {
+            Some(scalar) if !scalar.is_null() => {
+                Ok(Some(crate::expr::fill_null(x.clone(), fill.clone())))
+            }
+            _ => Ok(None),
+        }
+    }
+
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {
         true
     }
@@ -410,12 +457,15 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::StructFields;
     use crate::expr::case_when;
     use crate::expr::case_when_no_else;
     use crate::expr::col;
     use crate::expr::eq;
     use crate::expr::get_item;
     use crate::expr::gt;
+    use crate::expr::is_not_null;
+    use crate::expr::is_null;
     use crate::expr::lit;
     use crate::expr::nested_case_when;
     use crate::expr::root;
@@ -1191,6 +1241,135 @@ mod tests {
         // row 1: cond1=NULL(→false), cond2=true → 20
         // row 2: cond1=false, cond2=NULL(→false) → else=0
         assert_arrays_eq!(result, buffer![10i32, 20, 0].into_array());
+    }
+
+    // ==================== Simplify: COALESCE -> fill_null ====================
+
+    /// Builds a non-nullable struct scope whose named fields are all `Nullable(I64)`.
+    fn nullable_i64_scope(fields: &[&str]) -> DType {
+        DType::Struct(
+            StructFields::new(
+                fields.to_vec().into(),
+                vec![DType::Primitive(PType::I64, Nullability::Nullable); fields.len()],
+            ),
+            Nullability::NonNullable,
+        )
+    }
+
+    #[test]
+    fn test_simplify_coalesce_is_null_rewrites_to_fill_null() -> VortexResult<()> {
+        // CASE WHEN is_null(x) THEN 0 ELSE x END  ==>  fill_null(x, 0)
+        let expr = case_when(is_null(col("x")), lit(0i64), col("x"));
+        let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x"]))?;
+        assert!(
+            optimized.to_string().starts_with("vortex.fill_null"),
+            "expected fill_null, got {optimized}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_simplify_coalesce_is_not_null_rewrites_to_fill_null() -> VortexResult<()> {
+        // CASE WHEN is_not_null(x) THEN x ELSE 0 END  ==>  fill_null(x, 0)
+        let expr = case_when(is_not_null(col("x")), col("x"), lit(0i64));
+        let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x"]))?;
+        assert!(
+            optimized.to_string().starts_with("vortex.fill_null"),
+            "expected fill_null, got {optimized}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_simplify_does_not_fire_when_operands_differ() -> VortexResult<()> {
+        // The is_null operand (x) and the ELSE (y) are different columns: not a COALESCE.
+        let expr = case_when(is_null(col("x")), lit(0i64), col("y"));
+        let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x", "y"]))?;
+        let s = optimized.to_string();
+        assert!(s.contains("CASE"), "expected CASE WHEN to remain, got {s}");
+        assert!(!s.contains("fill_null"), "must not rewrite, got {s}");
+        Ok(())
+    }
+
+    #[test]
+    fn test_simplify_does_not_fire_for_non_constant_fill() -> VortexResult<()> {
+        // COALESCE(x, c) with a *column* fill: fill_null cannot consume a non-constant
+        // fill value, so the rewrite must not fire.
+        let expr = case_when(is_null(col("x")), col("c"), col("x"));
+        let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x", "c"]))?;
+        let s = optimized.to_string();
+        assert!(s.contains("CASE"), "expected CASE WHEN to remain, got {s}");
+        assert!(!s.contains("fill_null"), "must not rewrite, got {s}");
+        Ok(())
+    }
+
+    #[test]
+    fn test_simplify_does_not_fire_for_null_fill() -> VortexResult<()> {
+        // A null fill literal would make fill_null bail and is not semantically a COALESCE.
+        let null_fill = lit(Scalar::null(DType::Primitive(
+            PType::I64,
+            Nullability::Nullable,
+        )));
+        let expr = case_when(is_null(col("x")), null_fill, col("x"));
+        let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x"]))?;
+        let s = optimized.to_string();
+        assert!(s.contains("CASE"), "expected CASE WHEN to remain, got {s}");
+        assert!(!s.contains("fill_null"), "must not rewrite, got {s}");
+        Ok(())
+    }
+
+    #[test]
+    fn test_simplify_does_not_fire_without_else() -> VortexResult<()> {
+        let expr = case_when_no_else(is_null(col("x")), lit(0i64));
+        let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x"]))?;
+        assert!(
+            !optimized.to_string().contains("fill_null"),
+            "must not rewrite a no-ELSE case_when, got {optimized}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_simplify_does_not_fire_for_multi_pair() -> VortexResult<()> {
+        let expr = nested_case_when(
+            vec![
+                (is_null(col("x")), lit(0i64)),
+                (gt(col("x"), lit(5i64)), lit(1i64)),
+            ],
+            Some(col("x")),
+        );
+        let optimized = expr.optimize_recursive(&nullable_i64_scope(&["x"]))?;
+        assert!(
+            !optimized.to_string().contains("fill_null"),
+            "must not rewrite a multi-pair case_when, got {optimized}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_simplify_semantic_equivalence() -> VortexResult<()> {
+        // The optimized expression must produce the same values as the original CASE WHEN.
+        let array = PrimitiveArray::from_option_iter([Some(1i64), None, Some(3)]).into_array();
+        let scope = DType::Primitive(PType::I64, Nullability::Nullable);
+
+        let original = case_when(is_null(root()), lit(0i64), root());
+        let optimized = original.optimize_recursive(&scope)?;
+        assert!(
+            optimized.to_string().starts_with("vortex.fill_null"),
+            "expected fill_null, got {optimized}"
+        );
+
+        // Original keeps CASE WHEN's nullable result dtype; the rewrite tightens it to
+        // NonNullable because a non-null fill cannot leave any nulls behind. Values match.
+        assert_arrays_eq!(
+            evaluate_expr(&original, &array),
+            PrimitiveArray::from_option_iter([Some(1i64), Some(0), Some(3)]).into_array()
+        );
+        assert_arrays_eq!(
+            evaluate_expr(&optimized, &array),
+            buffer![1i64, 0, 3].into_array()
+        );
+        Ok(())
     }
 
     #[test]
