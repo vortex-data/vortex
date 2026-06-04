@@ -16,7 +16,6 @@ use vortex_array::arrays::dict::DictArrayExt;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::builders::dict::dict_encode;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::CascadingCompressor;
@@ -89,12 +88,12 @@ impl Scheme for FloatDictScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        let distinct_values_count = stats.distinct_count().vortex_expect(
-            "this must be present since `DictScheme` declared that we need distinct values",
-        );
+        let max_useful_distinct_count = stats.value_count() / 2;
 
-        // If > 50% of the values are distinct, skip dictionary scheme.
-        if distinct_values_count > stats.value_count() / 2 {
+        // If more than 50% of the values are definitely distinct, skip dictionary encoding.
+        // Cardinality is approximate for larger counts, so keep borderline estimates alive long
+        // enough for sampling to decide.
+        if !stats.estimated_distinct_count_could_be_at_most(max_useful_distinct_count) {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 

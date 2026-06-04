@@ -52,8 +52,9 @@ impl Scheme for BinaryConstantScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse);
         }
 
-        // Since the estimated distinct count is always going to be less than or equal to the actual
-        // distinct count, if this is not equal to 1 the actual is definitely not equal to 1.
+        // The estimator is exact for small cardinalities, so a constant array (exactly one
+        // distinct value) is always reported as 1. An estimate above 1 therefore means the array
+        // is genuinely not constant; an estimate of 1 still falls through to the exact check below.
         if stats.estimated_distinct_count().is_some_and(|c| c > 1) {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }

@@ -69,8 +69,12 @@ impl Scheme for IntDictScheme {
             "this must be present since `DictScheme` declared that we need distinct values",
         );
 
-        // If > 50% of the values are distinct, skip dictionary scheme.
-        if distinct_values_count > stats.value_count() / 2 {
+        let max_useful_distinct_count = stats.value_count() / 2;
+
+        // If more than 50% of the values are definitely distinct, skip dictionary encoding.
+        // Cardinality is approximate for larger counts, so keep borderline estimates alive long
+        // enough for sampling to decide.
+        if !stats.estimated_distinct_count_could_be_at_most(max_useful_distinct_count) {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 

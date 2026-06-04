@@ -14,6 +14,7 @@ use vortex_mask::AllOr;
 
 use super::GenerateStatsOptions;
 use super::cardinality::CardinalityEstimator;
+use super::cardinality::estimate_could_be_at_most;
 
 /// Array of variable-length byte/string values, and relevant stats for compression.
 #[derive(Clone, Debug)]
@@ -130,6 +131,15 @@ impl StringStats {
     /// above or below the true count) for larger ones.
     pub fn estimated_distinct_count(&self) -> Option<usize> {
         self.estimated_distinct_count
+    }
+
+    /// Returns true if the true distinct count could plausibly be at most `count`.
+    pub fn estimated_distinct_count_could_be_at_most(&self, count: usize) -> bool {
+        let Some(distinct_count) = self.estimated_distinct_count else {
+            return true;
+        };
+
+        estimate_could_be_at_most(distinct_count, count)
     }
 
     /// Returns the number of non-null values.

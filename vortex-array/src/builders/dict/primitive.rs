@@ -98,6 +98,27 @@ where
             }
         }
     }
+
+    fn encode_null(&mut self) -> Option<Code> {
+        if let Some(code) = self.null_code.get() {
+            return Some(*code);
+        }
+
+        if self.values.len() >= self.max_dict_len {
+            return None;
+        }
+
+        let code = Code::from_usize(self.values.len()).unwrap_or_else(|| {
+            vortex_panic!("{} has to fit into {}", self.values.len(), Code::PTYPE)
+        });
+        self.values.push(T::default());
+        self.values_nulls.append_false();
+        self.null_code
+            .set(code)
+            .ok()
+            .vortex_expect("null code is initialized once");
+        Some(code)
+    }
 }
 
 /// Dictionary encode primitive array with given PType.
@@ -132,28 +153,18 @@ where
                 }
             }
             Mask::AllFalse(_) => {
-                self.values.push(T::default());
-                self.values_nulls.append_false();
-                unsafe {
-                    codes.push_n_unchecked(
-                        Code::from_usize(0).vortex_expect("must fit 0"),
-                        array.len(),
-                    )
+                if let Some(code) = self.encode_null() {
+                    unsafe { codes.push_n_unchecked(code, array.len()) }
                 }
             }
             Mask::Values(v) => {
                 let bit_buff = v.bit_buffer();
                 for (&value, valid) in prim.as_slice::<T>().iter().zip(bit_buff) {
                     if !valid {
-                        let code = self.null_code.get_or_init(|| {
-                            let code = self.values.len();
-                            self.values.push(T::default());
-                            self.values_nulls.append_false();
-                            Code::from_usize(code).unwrap_or_else(|| {
-                                vortex_panic!("{} has to fit into {}", code, Code::PTYPE)
-                            })
-                        });
-                        unsafe { codes.push_unchecked(*code) }
+                        let Some(code) = self.encode_null() else {
+                            break;
+                        };
+                        unsafe { codes.push_unchecked(code) }
                     } else {
                         let Some(code) = self.encode_value(value) else {
                             break;

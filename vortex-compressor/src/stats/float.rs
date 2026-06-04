@@ -22,6 +22,7 @@ use vortex_mask::AllOr;
 
 use super::GenerateStatsOptions;
 use super::cardinality::CardinalityEstimator;
+use super::cardinality::estimate_could_be_at_most;
 
 /// Information about the distinct values in a float array.
 ///
@@ -117,6 +118,15 @@ impl FloatStats {
     /// Get the count of distinct values, if we have computed it already.
     pub fn distinct_count(&self) -> Option<usize> {
         self.erased.distinct_count()
+    }
+
+    /// Returns true if the true distinct count could plausibly be at most `count`.
+    pub fn estimated_distinct_count_could_be_at_most(&self, count: usize) -> bool {
+        let Some(distinct_count) = self.distinct_count() else {
+            return true;
+        };
+
+        estimate_could_be_at_most(distinct_count, count)
     }
 }
 

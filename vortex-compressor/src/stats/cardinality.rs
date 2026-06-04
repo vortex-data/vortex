@@ -14,6 +14,16 @@
 
 use std::hash::Hash;
 
+/// Expected relative standard error of the default cardinality estimator.
+///
+/// Cloudflare's default `P=12` HLL++ parameters document this as
+/// `1.04 / sqrt(2^12) ≈ 1.625%`.
+const DISTINCT_COUNT_STD_ERROR_NUMERATOR: usize = 65;
+/// Denominator for [`DISTINCT_COUNT_STD_ERROR_NUMERATOR`].
+const DISTINCT_COUNT_STD_ERROR_DENOMINATOR: usize = 4_000;
+/// Number of standard errors to tolerate when turning estimates into scheme-selection cutoffs.
+const DISTINCT_COUNT_CONFIDENCE_SIGMAS: usize = 4;
+
 /// Approximate distinct-count estimator with a tiny, stable surface area.
 ///
 /// The estimator is exact for small cardinalities on 64-bit targets and approximate beyond. On
@@ -54,6 +64,19 @@ impl<T: Hash + ?Sized> Default for CardinalityEstimator<T> {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Returns an absolute tolerance for comparing a cardinality estimate with `count`.
+pub(crate) fn distinct_count_error_bound(count: usize) -> usize {
+    count
+        .saturating_mul(DISTINCT_COUNT_STD_ERROR_NUMERATOR)
+        .saturating_mul(DISTINCT_COUNT_CONFIDENCE_SIGMAS)
+        .div_ceil(DISTINCT_COUNT_STD_ERROR_DENOMINATOR)
+}
+
+/// Returns true if `estimate` is still consistent with the true count being at most `count`.
+pub(crate) fn estimate_could_be_at_most(estimate: usize, count: usize) -> bool {
+    estimate <= count || estimate - count <= distinct_count_error_bound(count)
 }
 
 /// Backend implementations selected at compile time by pointer width.

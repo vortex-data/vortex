@@ -22,19 +22,8 @@ use vortex_mask::AllOr;
 
 use super::GenerateStatsOptions;
 use super::cardinality::CardinalityEstimator;
-
-/// Expected relative standard error of the default cardinality estimator.
-///
-/// Cloudflare's default `P=12` HLL++ parameters document this as `1.04 / sqrt(2^12) ≈ 1.625%`.
-const DISTINCT_COUNT_STD_ERROR_NUMERATOR: usize = 65;
-/// Denominator for [`DISTINCT_COUNT_STD_ERROR_NUMERATOR`].
-const DISTINCT_COUNT_STD_ERROR_DENOMINATOR: usize = 4_000;
-/// Number of standard errors to tolerate when deciding whether an estimate is consistent with an
-/// exact count. A single standard error only covers ~68% of estimates, which spuriously rejects
-/// genuinely all-distinct arrays (e.g. a true arithmetic sequence whose estimate drifts a few
-/// percent off the array length). A wider interval keeps the false-rejection rate negligible while
-/// still excluding clearly low-cardinality data, whose estimate is far below the array length.
-const DISTINCT_COUNT_CONFIDENCE_SIGMAS: usize = 4;
+use super::cardinality::distinct_count_error_bound;
+use super::cardinality::estimate_could_be_at_most;
 
 /// Information about the distinct values in an integer array.
 ///
@@ -299,20 +288,19 @@ impl IntegerStats {
         count - distinct_count <= distinct_count_error_bound(count)
     }
 
+    /// Returns true if the true distinct count could plausibly be at most `count`.
+    pub fn estimated_distinct_count_could_be_at_most(&self, count: usize) -> bool {
+        let Some(distinct_count) = self.distinct_count() else {
+            return true;
+        };
+
+        estimate_could_be_at_most(distinct_count, count)
+    }
+
     /// Get the most commonly occurring value and its count, if we have computed it already.
     pub fn most_frequent_value_and_count(&self) -> Option<(PValue, usize)> {
         self.erased.most_frequent_value_and_count()
     }
-}
-
-/// Returns the absolute tolerance for treating an estimate as consistent with `count` distinct
-/// values, sized as [`DISTINCT_COUNT_CONFIDENCE_SIGMAS`] multiples of the estimator's standard
-/// error.
-fn distinct_count_error_bound(count: usize) -> usize {
-    count
-        .saturating_mul(DISTINCT_COUNT_STD_ERROR_NUMERATOR)
-        .saturating_mul(DISTINCT_COUNT_CONFIDENCE_SIGMAS)
-        .div_ceil(DISTINCT_COUNT_STD_ERROR_DENOMINATOR)
 }
 
 impl IntegerStats {

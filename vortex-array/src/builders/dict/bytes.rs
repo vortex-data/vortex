@@ -6,11 +6,11 @@ use std::hash::BuildHasher;
 use std::mem;
 use std::sync::Arc;
 
-use itertools::Itertools;
 use num_traits::AsPrimitive;
 use vortex_array::ExecutionCtx;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
+use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -131,26 +131,49 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
         }
     }
 
-    /// Encode a stream of value bytes against the dictionary, honoring the supplied validity mask.
+    fn encode_null(&mut self) -> Option<Code> {
+        if let Some(code) = self.null_code.get() {
+            return Some(*code);
+        }
+
+        if self.views.len() >= self.max_dict_len
+            || self.dict_bytes() + size_of::<BinaryView>() > self.max_dict_bytes
+        {
+            return None;
+        }
+
+        let code = self.views.len();
+        self.views.push(BinaryView::default());
+        self.values_nulls.append_false();
+        let code = Code::from_usize(code)
+            .unwrap_or_else(|| vortex_panic!("{} has to fit into {}", code, Code::PTYPE));
+        self.null_code
+            .set(code)
+            .ok()
+            .vortex_expect("null code is initialized once");
+        Some(code)
+    }
+
+    /// Encode row values against the dictionary, honoring the supplied validity mask.
     ///
-    /// `values` must yield one slice per logical row in input order; the mask is applied here so
-    /// callers do not need to emit anything for null positions.
-    fn encode_iter<'a, I>(
+    /// `value_at` is called only for valid rows. That matters for VarBinView arrays because null
+    /// rows can hold arbitrary view metadata.
+    fn encode_validity<'a, F>(
         &mut self,
         len: usize,
         validity_mask: Mask,
-        values: I,
+        mut value_at: F,
     ) -> VortexResult<PrimitiveArray>
     where
-        I: Iterator<Item = &'a [u8]>,
+        F: FnMut(usize) -> &'a [u8],
     {
         let mut local_lookup = self.lookup.take().vortex_expect("Must have a lookup dict");
         let mut codes: BufferMut<Code> = BufferMut::with_capacity(len);
 
         match validity_mask.bit_buffer() {
             AllOr::All => {
-                for value in values {
-                    let Some(code) = self.encode_value(&mut local_lookup, value) else {
+                for idx in 0..len {
+                    let Some(code) = self.encode_value(&mut local_lookup, value_at(idx)) else {
                         break;
                     };
                     // SAFETY: we reserved capacity in the buffer for `len` elements
@@ -158,27 +181,20 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
                 }
             }
             AllOr::None => {
-                self.views.push(BinaryView::default());
-                self.values_nulls.append_false();
-                unsafe {
-                    codes.push_n_unchecked(Code::from_usize(0).vortex_expect("must fit 0"), len)
+                if let Some(code) = self.encode_null() {
+                    unsafe { codes.push_n_unchecked(code, len) }
                 }
             }
             AllOr::Some(b) => {
-                for (value, valid) in values.zip_eq(b.iter()) {
+                for (idx, valid) in b.iter().enumerate() {
                     if !valid {
-                        let code = self.null_code.get_or_init(|| {
-                            let code = self.views.len();
-                            self.views.push(BinaryView::default());
-                            self.values_nulls.append_false();
-                            Code::from_usize(code).unwrap_or_else(|| {
-                                vortex_panic!("{} has to fit into {}", code, Code::PTYPE)
-                            })
-                        });
+                        let Some(code) = self.encode_null() else {
+                            break;
+                        };
                         // SAFETY: we reserved capacity in the buffer for `len` elements
-                        unsafe { codes.push_unchecked(*code) }
+                        unsafe { codes.push_unchecked(code) }
                     } else {
-                        let Some(code) = self.encode_value(&mut local_lookup, value) else {
+                        let Some(code) = self.encode_value(&mut local_lookup, value_at(idx)) else {
                             break;
                         };
                         // SAFETY: we reserved capacity in the buffer for `len` elements
@@ -206,12 +222,11 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
 
         match_each_integer_ptype!(offsets.ptype(), |P| {
             let slice_offsets = offsets.as_slice::<P>();
-            let values = slice_offsets.windows(2).map(|w| {
-                let start: usize = w[0].as_();
-                let end: usize = w[1].as_();
+            self.encode_validity(len, validity_mask, |idx| {
+                let start: usize = slice_offsets[idx].as_();
+                let end: usize = slice_offsets[idx + 1].as_();
                 &bytes[start..end]
-            });
-            self.encode_iter(len, validity_mask, values)
+            })
         })
     }
 
@@ -231,14 +246,16 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
             .map(|b| b.as_host())
             .collect::<Vec<_>>();
 
-        let values = views.iter().map(|view| {
-            if view.is_inlined() {
-                view.as_inlined().value()
-            } else {
-                &buffers[view.as_view().buffer_index as usize][view.as_view().as_range()]
-            }
-        });
-        self.encode_iter(len, validity_mask, values)
+        self.encode_validity(len, validity_mask, |idx| view_bytes(&buffers, &views[idx]))
+    }
+}
+
+fn view_bytes<'a>(buffers: &[&'a ByteBuffer], view: &'a BinaryView) -> &'a [u8] {
+    if view.is_inlined() {
+        view.as_inlined().value()
+    } else {
+        let view = view.as_view();
+        &buffers[view.buffer_index as usize][view.as_range()]
     }
 }
 
@@ -290,8 +307,11 @@ impl<Code: UnsignedPType> DictEncoder for BytesDictBuilder<Code> {
 #[cfg(test)]
 mod test {
     use std::str;
+    use std::sync::Arc;
     use std::sync::LazyLock;
 
+    use vortex_buffer::Buffer;
+    use vortex_buffer::ByteBuffer;
     use vortex_session::VortexSession;
 
     use crate::IntoArray;
@@ -301,7 +321,12 @@ mod test {
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::dict::DictArraySlotsExt;
+    use crate::arrays::varbinview::BinaryView;
+    use crate::buffer::BufferHandle;
     use crate::builders::dict::dict_encode;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
 
@@ -363,6 +388,32 @@ mod test {
                 vec![Some("hello"), None, Some("world"), Some("again")]
             );
         });
+    }
+
+    #[test]
+    fn encode_varbinview_ignores_invalid_null_views() {
+        let value = b"outlined value";
+        let valid_view = BinaryView::make_view(value, 0, 0);
+        let invalid_null_view = BinaryView::make_view(b"invalid null view", 99, 0);
+        let views = Buffer::copy_from([valid_view, invalid_null_view, valid_view]);
+        let buffers = Arc::from([BufferHandle::new_host(ByteBuffer::copy_from(value))]);
+        let arr = unsafe {
+            VarBinViewArray::new_handle_unchecked(
+                BufferHandle::new_host(views.into_byte_buffer()),
+                buffers,
+                DType::Utf8(Nullability::Nullable),
+                Validity::from_iter([true, false, true]),
+            )
+        }
+        .into_array();
+
+        let dict = dict_encode(&arr, &mut SESSION.create_execution_ctx()).unwrap();
+        let codes = dict
+            .codes()
+            .clone()
+            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
+        assert_eq!(codes.as_slice::<u8>(), &[0, 1, 0]);
     }
 
     #[test]
