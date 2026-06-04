@@ -226,7 +226,11 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
 
     let mut next_index = 0;
 
-    for (patch_idx, sparse_idx) in patch_indices.iter().enumerate() {
+    for ((patch_idx, sparse_idx), patch_valid) in patch_indices
+        .iter()
+        .enumerate()
+        .zip(patch_values_validity.iter())
+    {
         let sparse_idx = sparse_idx
             .to_usize()
             .vortex_expect("patch index must fit in usize");
@@ -237,7 +241,7 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
             sparse_idx - next_index,
         );
 
-        if patch_values_validity.value(patch_idx) {
+        if patch_valid {
             let patch_list = patch_values
                 .list_elements_at(patch_idx)
                 .vortex_expect("list_elements_at");
@@ -318,7 +322,7 @@ fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
         .iter()
         .map(|x| (*x).to_usize().vortex_expect("index must fit in usize"));
 
-    for (patch_idx, sparse_idx) in indices.enumerate() {
+    for ((patch_idx, sparse_idx), patch_valid) in indices.enumerate().zip(values_validity.iter()) {
         // Fill gap before this patch with fill values.
         append_fixed_size_list_fill(
             &mut builder,
@@ -327,7 +331,7 @@ fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
         );
 
         // Append the patch value, handling null patches by appending defaults.
-        if values_validity.value(patch_idx) {
+        if patch_valid {
             let patch_list = values
                 .fixed_size_list_elements_at(patch_idx)
                 .vortex_expect("fixed_size_list_elements_at");

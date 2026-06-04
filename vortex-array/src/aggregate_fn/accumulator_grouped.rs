@@ -229,12 +229,13 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         )?;
         let mut states = builder_with_capacity(&self.partial_dtype, offsets.len());
 
-        for (i, (offset, size)) in offsets.iter().zip(sizes.iter()).enumerate() {
+        // `validity` is the per-group list-view validity, so it is zipped element-wise with the
+        // offsets and sizes (one entry per group).
+        for ((offset, size), valid) in offsets.iter().zip(sizes.iter()).zip(validity.iter()) {
             let offset = offset.to_usize().vortex_expect("Offset value is not usize");
             let size = size.to_usize().vortex_expect("Size value is not usize");
 
-            // validity is for the outer list view, so it must be indexed with `i`
-            if validity.value(i) {
+            if valid {
                 let group = elements.slice(offset..offset + size)?;
                 accumulator.accumulate(&group, ctx)?;
                 states.append_scalar(&accumulator.flush()?)?;
@@ -304,8 +305,8 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
             .to_usize()
             .vortex_expect("List size is not usize");
 
-        for i in 0..groups.len() {
-            if validity.value(i) {
+        for valid in validity.iter() {
+            if valid {
                 let group = elements.slice(offset..offset + size)?;
                 accumulator.accumulate(&group, ctx)?;
                 states.append_scalar(&accumulator.flush()?)?;

@@ -85,14 +85,15 @@ impl ZipKernel for ListView {
 
         let mut offsets = BufferMut::<u64>::with_capacity(len);
         let mut sizes = BufferMut::<u64>::with_capacity(len);
-        for (idx, (out_offsets, out_sizes)) in offsets
+        for ((idx, (out_offsets, out_sizes)), selected) in offsets
             .spare_capacity_mut()
             .iter_mut()
             .zip(sizes.spare_capacity_mut().iter_mut())
             .take(len)
             .enumerate()
+            .zip(mask.iter())
         {
-            if mask.value(idx) {
+            if selected {
                 out_offsets.write(true_offsets[idx]);
                 out_sizes.write(true_sizes[idx]);
             } else {

@@ -164,8 +164,8 @@ fn _take_nullable<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPTy
     let mut current_offset = OutputOffsetType::zero();
     new_offsets.append_zero();
 
-    for (idx, data_idx) in indices.iter().enumerate() {
-        if !indices_validity.value(idx) {
+    for (data_idx, index_valid) in indices.iter().zip(indices_validity.iter()) {
+        if !index_valid {
             new_offsets.append_value(current_offset);
             continue;
         }

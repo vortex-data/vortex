@@ -202,8 +202,8 @@ fn take_nullable<Index: IntegerPType, Offset: IntegerPType, NewOffset: IntegerPT
     let mut valid_indices = Vec::with_capacity(indices.len());
 
     // First pass: calculate offsets and validity
-    for (idx, data_idx) in indices.iter().enumerate() {
-        if !indices_validity.value(idx) {
+    for (data_idx, index_valid) in indices.iter().zip(indices_validity.iter()) {
+        if !index_valid {
             validity_buffer.append(false);
             new_offsets.push(current_offset);
             continue;
