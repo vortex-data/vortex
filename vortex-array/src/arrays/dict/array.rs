@@ -152,14 +152,15 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
             .validity()?
             .execute_mask(codes.len(), &mut LEGACY_SESSION.create_execution_ctx())?;
         #[expect(deprecated)]
-        let codes_primitive = self.codes().to_primitive();
+        let codes_primitive = codes.to_primitive();
         let values_len = self.values().len();
 
-        let init_value = !referenced;
-        let referenced_value = referenced;
-
-        let mut values_vec = vec![init_value; values_len];
-        match codes_validity.bit_buffer() {
+        // `seen[i]` records whether value `i` is referenced by at least one valid code.
+        // `mark_referenced` stops as soon as every value has been seen: dictionaries are
+        // frequently referenced by far more codes than they have values, so this commonly skips
+        // the bulk of the scatter — and the final pack, since the resulting mask is then constant.
+        let mut seen = vec![false; values_len];
+        let all_referenced = match codes_validity.bit_buffer() {
             AllOr::All => {
                 match_each_integer_ptype!(codes_primitive.ptype(), |P| {
                     #[allow(
@@ -167,32 +168,64 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
                         clippy::cast_sign_loss,
                         reason = "codes are non-negative indices; a negative signed code would wrap to a large usize and panic on the bounds-checked array index"
                     )]
-                    for &idx in codes_primitive.as_slice::<P>() {
-                        values_vec[idx as usize] = referenced_value;
-                    }
-                });
+                    let indices = codes_primitive
+                        .as_slice::<P>()
+                        .iter()
+                        .map(|&idx| idx as usize);
+                    mark_referenced(&mut seen, indices)
+                })
             }
-            AllOr::None => {}
+            AllOr::None => values_len == 0,
             AllOr::Some(mask) => {
                 match_each_integer_ptype!(codes_primitive.ptype(), |P| {
                     let codes = codes_primitive.as_slice::<P>();
-
                     #[allow(
                         clippy::cast_possible_truncation,
                         clippy::cast_sign_loss,
                         reason = "codes are non-negative indices; a negative signed code would wrap to a large usize and panic on the bounds-checked array index"
                     )]
-                    mask.set_indices().for_each(|idx| {
-                        values_vec[codes[idx] as usize] = referenced_value;
-                    });
-                });
+                    let indices = mask.set_indices().map(|i| codes[i] as usize);
+                    mark_referenced(&mut seen, indices)
+                })
             }
+        };
+
+        // When every value is referenced the mask is constant, so we avoid rebuilding it.
+        if all_referenced {
+            return Ok(BitBuffer::full(referenced, values_len));
         }
 
-        Ok(BitBuffer::from(values_vec))
+        Ok(if referenced {
+            BitBuffer::from(seen)
+        } else {
+            BitBuffer::collect_bool(values_len, |i| !seen[i])
+        })
     }
 }
 impl<T: TypedArrayRef<Dict>> DictArrayExt for T {}
+
+/// Marks `seen[idx] = true` for every index yielded by `indices`.
+///
+/// Returns `true` as soon as every entry in `seen` has been marked (allowing the caller to stop
+/// early), otherwise `false` once `indices` is exhausted. The store is skipped for already-seen
+/// values, which in the common case of many codes per value avoids a read-modify-write storm on a
+/// handful of hot bytes.
+fn mark_referenced(seen: &mut [bool], indices: impl IntoIterator<Item = usize>) -> bool {
+    let mut remaining = seen.len();
+    if remaining == 0 {
+        return true;
+    }
+    for idx in indices {
+        if !seen[idx] {
+            seen[idx] = true;
+            remaining -= 1;
+            if remaining == 0 {
+                return true;
+            }
+        }
+    }
+    false
+}
 
 /// Concrete parts of a [`DictArray`](super::DictArray) after iterative execution.
 pub struct DictParts {
