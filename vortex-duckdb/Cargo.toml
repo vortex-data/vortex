@@ -45,6 +45,7 @@ vortex-utils = { workspace = true, features = ["dashmap"] }
 
 [dev-dependencies]
 anyhow = { workspace = true }
+divan = { workspace = true }
 geo-types = { workspace = true }
 jiff = { workspace = true }
 rstest = { workspace = true }
@@ -53,6 +54,10 @@ vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-runend = { workspace = true }
 vortex-sequence = { workspace = true }
 wkb = { workspace = true }
+
+[[bench]]
+name = "bool_export"
+harness = false
 
 [lints]
 workspace = true

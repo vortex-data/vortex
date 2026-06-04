@@ -46,13 +46,16 @@ impl ColumnExporter for BoolExporter {
     ) -> VortexResult<()> {
         // DuckDB uses byte bools, not bit bools.
         // maybe we can convert into these from a compressed array sometimes?.
-        unsafe { vector.as_slice_mut(len) }.copy_from_slice(
-            &self
-                .bit_buffer
-                .slice(offset..(offset + len))
-                .iter()
-                .collect::<Vec<bool>>(),
-        );
+        // Unpack the bits directly into the destination byte slice, avoiding the
+        // throwaway `Vec<bool>` allocation and the extra copy pass. The sliced
+        // iterator already accounts for the buffer's bit offset.
+        let dst = unsafe { vector.as_slice_mut(len) };
+        for (slot, bit) in dst
+            .iter_mut()
+            .zip(self.bit_buffer.slice(offset..(offset + len)).iter())
+        {
+            *slot = bit;
+        }
 
         Ok(())
     }
