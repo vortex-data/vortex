@@ -35,7 +35,12 @@ mimalloc = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-fsst = { workspace = true }
 
 [[bench]]
 name = "row_encode"
+harness = false
+
+[[bench]]
+name = "fsst_row_encode"
 harness = false

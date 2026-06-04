@@ -9997,6 +9997,7 @@ dependencies = [
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
+ "vortex-fsst",
  "vortex-mask",
  "vortex-session",
 ]
