@@ -35,6 +35,7 @@ jobs:
           - { shard: 6, name: "Encodings 3", packages: "vortex-pco vortex-runend vortex-sequence" }
           - { shard: 7, name: "Encodings 4", packages: "vortex-sparse vortex-zigzag vortex-zstd" }
           - { shard: 8, name: "Storage formats", packages: "vortex-flatbuffers vortex-proto vortex-btrblocks" }
+          - { shard: 9, name: "Row encoding", packages: "vortex-row" }
     name: "Benchmark with Codspeed (Shard #${{ matrix.shard }})"
     timeout-minutes: 30
     runs-on: >-
