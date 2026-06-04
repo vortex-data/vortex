@@ -248,6 +248,15 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
             return self.push_result(result);
         }
 
+        // Fast path: `count` over any element type is just the number of valid elements per group
+        // (= group size when the elements are all-valid). Avoids the per-group scalar accumulator.
+        if self.aggregate_fn.id().as_str() == "vortex.count"
+            && let Some(result) =
+                try_count_groups(elements, offsets, sizes, validity, &self.partial_dtype, ctx)?
+        {
+            return self.push_result(result);
+        }
+
         let mut accumulator = Accumulator::try_new(
             self.vtable.clone(),
             self.options.clone(),
@@ -386,6 +395,41 @@ fn try_sum_primitive_groups<O: IntegerPType>(
 
     // Defensive: if our widening doesn't exactly match the aggregate's partial dtype, fall back to
     // the generic path rather than emit a mistyped array downstream.
+    if result.dtype() != partial_dtype {
+        return Ok(None);
+    }
+    Ok(Some(result))
+}
+
+/// Fast vectorized per-group `count` (number of non-null elements per group). For all-valid
+/// elements this is just the group size. Returns `Ok(None)` (caller falls back) when any group is
+/// null (the non-nullable count partial can't represent it) or the result dtype mismatches.
+fn try_count_groups<O: IntegerPType>(
+    elements: &ArrayRef,
+    offsets: &[O],
+    sizes: &[O],
+    group_validity: &Mask,
+    partial_dtype: &DType,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    // The count partial dtype is non-nullable, so it cannot represent a null group.
+    if !matches!(group_validity.slices(), AllOr::All) {
+        return Ok(None);
+    }
+    let elem_mask = elements.validity()?.execute_mask(elements.len(), ctx)?;
+    let all_valid = matches!(elem_mask.slices(), AllOr::All);
+
+    let counts = offsets.iter().zip(sizes.iter()).map(|(o, sz)| {
+        let o = o.to_usize().vortex_expect("offset usize");
+        let sz = sz.to_usize().vortex_expect("size usize");
+        if all_valid {
+            sz as u64
+        } else {
+            (o..o + sz).filter(|&j| elem_mask.value(j)).count() as u64
+        }
+    });
+    let result = PrimitiveArray::from_iter(counts).into_array();
+
     if result.dtype() != partial_dtype {
         return Ok(None);
     }
