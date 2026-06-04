@@ -24,7 +24,6 @@ use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::match_each_integer_ptype;
-use crate::validity::Validity;
 
 impl FilterKernel for VarBin {
     fn filter(
@@ -164,13 +163,17 @@ fn filter_select_var_bin_by_index(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<VarBinArray> {
     let offsets = values.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+    // Materialize validity into a mask once, rather than calling `Validity::is_valid`
+    // per selected index (which allocates an execution context per call for
+    // array-backed validity).
+    let validity_mask = values.validity()?.execute_mask(values.len(), ctx)?;
     match_each_integer_ptype!(offsets.ptype(), |O| {
         filter_select_var_bin_by_index_primitive_offset(
             values.dtype().clone(),
             offsets.as_slice::<O>(),
             values.bytes().as_slice(),
             mask_indices,
-            values.validity()?,
+            &validity_mask,
             selection_count,
         )
     })
@@ -181,13 +184,12 @@ fn filter_select_var_bin_by_index_primitive_offset<O: IntegerPType>(
     offsets: &[O],
     data: &[u8],
     mask_indices: &[usize],
-    // TODO(ngates): pass LogicalValidity instead
-    validity: Validity,
+    validity_mask: &Mask,
     selection_count: usize,
 ) -> VortexResult<VarBinArray> {
     let mut builder = VarBinBuilder::<O>::with_capacity(selection_count);
     for idx in mask_indices.iter().copied() {
-        if validity.is_valid(idx)? {
+        if validity_mask.value(idx) {
             let (start, end) = (
                 offsets[idx].to_usize().ok_or_else(|| {
                     vortex_err!("Failed to convert offset to usize: {}", offsets[idx])

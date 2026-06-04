@@ -129,6 +129,13 @@ impl Validity {
     }
 
     /// Returns whether the `index` item is valid.
+    ///
+    /// # Performance
+    ///
+    /// For the [`Validity::Array`] variant this allocates an execution context and runs a
+    /// scalar lookup on every call, so it must not be called in a loop. To check many
+    /// positions, materialize the validity once with [`Validity::execute_mask`] and read it
+    /// with `Mask::value`.
     #[inline]
     pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
         Ok(match self {
@@ -143,6 +150,11 @@ impl Validity {
         })
     }
 
+    /// Returns whether the `index` item is null.
+    ///
+    /// # Performance
+    ///
+    /// See [`Validity::is_valid`]: do not call this in a loop for array-backed validity.
     #[inline]
     pub fn is_null(&self, index: usize) -> VortexResult<bool> {
         Ok(!self.is_valid(index)?)
