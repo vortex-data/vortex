@@ -12,6 +12,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::AnyColumnar;
 use crate::ArrayRef;
@@ -53,7 +54,8 @@ impl ScalarFnVTable for Cast {
     type Options = DType;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new("vortex.cast")
+        static ID: CachedId = CachedId::new("vortex.cast");
+        *ID
     }
 
     fn serialize(&self, dtype: &DType) -> VortexResult<Option<Vec<u8>>> {

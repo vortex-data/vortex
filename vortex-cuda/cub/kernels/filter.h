@@ -81,6 +81,24 @@ FILTER_TYPE_TABLE(DECLARE_FILTER_BITMASK)
 
 #undef DECLARE_FILTER_BITMASK
 
+cudaError_t scan_exclusive_sum_i32_temp_size(size_t *temp_bytes, int64_t num_items);
+
+cudaError_t scan_exclusive_sum_i32(void *d_temp,
+                                   size_t temp_bytes,
+                                   const int32_t *d_in,
+                                   int32_t *d_out,
+                                   int64_t num_items,
+                                   cudaStream_t stream);
+
+cudaError_t scan_exclusive_sum_i64_temp_size(size_t *temp_bytes, int64_t num_items);
+
+cudaError_t scan_exclusive_sum_i64(void *d_temp,
+                                   size_t temp_bytes,
+                                   const int64_t *d_in,
+                                   int64_t *d_out,
+                                   int64_t num_items,
+                                   cudaStream_t stream);
+
 #ifdef __cplusplus
 }
 #endif

@@ -9,6 +9,7 @@ use tracing::info;
 
 pub mod arrow;
 mod canonical;
+mod cub;
 mod device_buffer;
 mod device_read_at;
 pub mod dynamic_dispatch;

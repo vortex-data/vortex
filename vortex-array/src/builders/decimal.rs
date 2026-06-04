@@ -207,7 +207,7 @@ impl ArrayBuilder for DecimalBuilder {
         });
 
         self.nulls.append_validity_mask(
-            decimal_array
+            &decimal_array
                 .as_ref()
                 .validity()
                 .vortex_expect("validity_mask")
@@ -225,8 +225,7 @@ impl ArrayBuilder for DecimalBuilder {
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.nulls = LazyBitBufferBuilder::new(validity.len());
-        self.nulls.append_validity_mask(validity);
+        self.nulls = LazyBitBufferBuilder::from_validity_mask(validity);
     }
 
     fn finish(&mut self) -> ArrayRef {

@@ -30,10 +30,9 @@ fn build_with_codes_validity(
     )?;
 
     Ok(unsafe {
-        FSST::new_unchecked(
+        FSST::new_unchecked_with_symbol_table(
             dtype.clone(),
-            array.symbols().clone(),
-            array.symbol_lengths().clone(),
+            array.symbol_table(),
             new_codes,
             array.uncompressed_lengths().clone(),
         )

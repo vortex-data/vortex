@@ -206,7 +206,7 @@ impl VarBinViewBuilder {
             "Some buffers already exist",
         );
         self.views_builder.extend_trusted(views.iter().copied());
-        self.push_only_validity_mask(validity_mask);
+        self.push_only_validity_mask(&validity_mask);
 
         debug_assert_eq!(self.nulls.len(), self.views_builder.len())
     }
@@ -236,7 +236,7 @@ impl VarBinViewBuilder {
     }
 
     // Pushes a validity mask into the builder not affecting the views or buffers
-    fn push_only_validity_mask(&mut self, validity_mask: Mask) {
+    fn push_only_validity_mask(&mut self, validity_mask: &Mask) {
         self.nulls.append_validity_mask(validity_mask);
     }
 }
@@ -299,17 +299,13 @@ impl ArrayBuilder for VarBinViewBuilder {
         let array = array.to_varbinview();
         self.flush_in_progress();
 
-        self.push_only_validity_mask(
-            array
-                .as_ref()
-                .validity()
-                .vortex_expect("validity_mask")
-                .execute_mask(
-                    array.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )
-                .vortex_expect("Failed to compute validity mask"),
-        );
+        let mask = array
+            .validity()
+            .vortex_expect("validity_mask")
+            .execute_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("Failed to compute validity mask");
+
+        self.push_only_validity_mask(&mask);
 
         let view_adjustment =
             self.completed
@@ -325,41 +321,30 @@ impl ArrayBuilder for VarBinViewBuilder {
                     .iter()
                     .map(|view| adjustment.adjust_view(view)),
             ),
-            ViewAdjustment::Rewriting(adjustment) => {
-                match array
-                    .as_ref()
-                    .validity()
-                    .vortex_expect("validity_mask")
-                    .execute_mask(
-                        array.as_ref().len(),
-                        &mut LEGACY_SESSION.create_execution_ctx(),
-                    )
-                    .vortex_expect("Failed to compute validity mask")
-                {
-                    Mask::AllTrue(_) => {
-                        for (idx, &view) in array.views().iter().enumerate() {
-                            let new_view = self.push_view(view, &adjustment, &array, idx);
-                            self.views_builder.push(new_view);
-                        }
-                    }
-                    Mask::AllFalse(_) => {
-                        self.views_builder
-                            .push_n(BinaryView::empty_view(), array.len());
-                    }
-                    Mask::Values(v) => {
-                        for (idx, (&view, is_valid)) in
-                            array.views().iter().zip(v.bit_buffer().iter()).enumerate()
-                        {
-                            let new_view = if !is_valid {
-                                BinaryView::empty_view()
-                            } else {
-                                self.push_view(view, &adjustment, &array, idx)
-                            };
-                            self.views_builder.push(new_view);
-                        }
+            ViewAdjustment::Rewriting(adjustment) => match mask {
+                Mask::AllTrue(_) => {
+                    for (idx, &view) in array.views().iter().enumerate() {
+                        let new_view = self.push_view(view, &adjustment, &array, idx);
+                        self.views_builder.push(new_view);
                     }
                 }
-            }
+                Mask::AllFalse(_) => {
+                    self.views_builder
+                        .push_n(BinaryView::empty_view(), array.len());
+                }
+                Mask::Values(v) => {
+                    for (idx, (&view, is_valid)) in
+                        array.views().iter().zip(v.bit_buffer().iter()).enumerate()
+                    {
+                        let new_view = if !is_valid {
+                            BinaryView::empty_view()
+                        } else {
+                            self.push_view(view, &adjustment, &array, idx)
+                        };
+                        self.views_builder.push(new_view);
+                    }
+                }
+            },
         }
     }
 
@@ -369,8 +354,7 @@ impl ArrayBuilder for VarBinViewBuilder {
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.nulls = LazyBitBufferBuilder::new(validity.len());
-        self.nulls.append_validity_mask(validity);
+        self.nulls = LazyBitBufferBuilder::from_validity_mask(validity);
     }
 
     fn finish(&mut self) -> ArrayRef {
@@ -626,8 +610,8 @@ impl BuffersWithOffsets {
                 buffers: Arc::from(
                     array
                         .data_buffers()
-                        .to_vec()
-                        .into_iter()
+                        .iter()
+                        .cloned()
                         .map(|b| b.unwrap_host())
                         .collect_vec(),
                 ),

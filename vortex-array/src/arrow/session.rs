@@ -515,14 +515,14 @@ impl ArrowSession {
                         // Arrow pushes nulls into non-nullable fields; strip before recursing
                         // so Vortex's stricter validity invariants are upheld.
                         let inner = if col.null_count() > 0 && !child_field.is_nullable() {
-                            make_array(remove_nulls(col.to_data()))
+                            make_array(remove_nulls(col.to_data())?)
                         } else {
                             ArrowArrayRef::clone(col)
                         };
                         self.from_arrow_array(inner, child_field.as_ref())
                     })
                     .collect::<VortexResult<Vec<_>>>()?;
-                let validity = nulls(arrow_struct.nulls(), field.is_nullable());
+                let validity = nulls(arrow_struct.nulls(), field.is_nullable())?;
                 Ok(
                     StructArray::try_new(names, columns, arrow_struct.len(), validity)?
                         .into_array(),
@@ -533,7 +533,7 @@ impl ArrowSession {
                 let elements = self
                     .from_arrow_array(ArrowArrayRef::clone(list.values()), elem_field.as_ref())?;
                 let offsets = list.offsets().clone().into_array();
-                let validity = nulls(list.nulls(), field.is_nullable());
+                let validity = nulls(list.nulls(), field.is_nullable())?;
                 Ok(crate::arrays::ListArray::try_new(elements, offsets, validity)?.into_array())
             }
             DataType::LargeList(elem_field) => {
@@ -541,14 +541,14 @@ impl ArrowSession {
                 let elements = self
                     .from_arrow_array(ArrowArrayRef::clone(list.values()), elem_field.as_ref())?;
                 let offsets = list.offsets().clone().into_array();
-                let validity = nulls(list.nulls(), field.is_nullable());
+                let validity = nulls(list.nulls(), field.is_nullable())?;
                 Ok(crate::arrays::ListArray::try_new(elements, offsets, validity)?.into_array())
             }
             DataType::FixedSizeList(elem_field, list_size) => {
                 let fsl = array.as_fixed_size_list();
                 let elements =
                     self.from_arrow_array(ArrowArrayRef::clone(fsl.values()), elem_field.as_ref())?;
-                let validity = nulls(fsl.nulls(), field.is_nullable());
+                let validity = nulls(fsl.nulls(), field.is_nullable())?;
                 Ok(crate::arrays::FixedSizeListArray::try_new(
                     elements,
                     *list_size as u32,
@@ -563,7 +563,7 @@ impl ArrowSession {
                     .from_arrow_array(ArrowArrayRef::clone(list.values()), elem_field.as_ref())?;
                 let offsets = list.offsets().clone().into_array();
                 let sizes = list.sizes().clone().into_array();
-                let validity = nulls(list.nulls(), field.is_nullable());
+                let validity = nulls(list.nulls(), field.is_nullable())?;
                 Ok(
                     crate::arrays::ListViewArray::try_new(elements, offsets, sizes, validity)?
                         .into_array(),
@@ -575,7 +575,7 @@ impl ArrowSession {
                     .from_arrow_array(ArrowArrayRef::clone(list.values()), elem_field.as_ref())?;
                 let offsets = list.offsets().clone().into_array();
                 let sizes = list.sizes().clone().into_array();
-                let validity = nulls(list.nulls(), field.is_nullable());
+                let validity = nulls(list.nulls(), field.is_nullable())?;
                 Ok(
                     crate::arrays::ListViewArray::try_new(elements, offsets, sizes, validity)?
                         .into_array(),

@@ -127,7 +127,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     }
 
     /// Extends the primitive array with an iterator.
-    pub fn extend_with_iterator(&mut self, iter: impl IntoIterator<Item = T>, mask: Mask) {
+    pub fn extend_with_iterator(&mut self, iter: impl IntoIterator<Item = T>, mask: &Mask) {
         self.values.extend(iter);
         self.nulls.append_validity_mask(mask);
     }
@@ -190,7 +190,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
 
         self.values.extend_from_slice(array.as_slice::<T>());
         self.nulls.append_validity_mask(
-            array
+            &array
                 .as_ref()
                 .validity()
                 .vortex_expect("validity_mask")
@@ -208,8 +208,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.nulls = LazyBitBufferBuilder::new(validity.len());
-        self.nulls.append_validity_mask(validity);
+        self.nulls = LazyBitBufferBuilder::from_validity_mask(validity);
     }
 
     fn finish(&mut self) -> ArrayRef {
@@ -271,7 +270,7 @@ impl<T> UninitRange<'_, T> {
     /// - The caller must ensure that they safely initialize `mask.len()` primitive values via
     ///   [`UninitRange::copy_from_slice`].
     /// - The caller must also ensure that they only call this method once.
-    pub unsafe fn append_mask(&mut self, mask: Mask) {
+    pub unsafe fn append_mask(&mut self, mask: &Mask) {
         assert_eq!(
             mask.len(),
             self.len,
@@ -426,7 +425,7 @@ mod tests {
 
         // SAFETY: We're about to initialize the values.
         unsafe {
-            range.append_mask(mask);
+            range.append_mask(&mask);
         }
 
         // Initialize the values.
@@ -476,7 +475,7 @@ mod tests {
 
         // SAFETY: This is expected to panic due to length mismatch.
         unsafe {
-            range.append_mask(wrong_mask);
+            range.append_mask(&wrong_mask);
         }
     }
 
@@ -522,7 +521,7 @@ mod tests {
         let initial_mask = Mask::from_iter([false, false, false]);
         // SAFETY: We're about to initialize the values.
         unsafe {
-            range.append_mask(initial_mask);
+            range.append_mask(&initial_mask);
         }
 
         // Now we can use set_bit to modify individual bits with relative indexing.
@@ -623,7 +622,7 @@ mod tests {
         let mask = Mask::from_iter([true, true, false]);
         // SAFETY: We're about to initialize the matching number of values.
         unsafe {
-            range.append_mask(mask);
+            range.append_mask(&mask);
         }
 
         // Initialize all values.

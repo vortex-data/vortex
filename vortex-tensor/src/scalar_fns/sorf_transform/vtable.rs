@@ -43,6 +43,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use super::SorfOptions;
 use super::SorfTransform;
@@ -55,7 +56,8 @@ impl ScalarFnVTable for SorfTransform {
     type Options = SorfOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new("vortex.tensor.sorf_transform")
+        static ID: CachedId = CachedId::new("vortex.tensor.sorf_transform");
+        *ID
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {

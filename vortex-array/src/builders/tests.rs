@@ -5,6 +5,8 @@ use std::sync::Arc;
 
 use rstest::rstest;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_mask::Mask;
 
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
@@ -819,4 +821,63 @@ fn test_append_scalar_repeated_same_instance() {
             i
         );
     }
+}
+
+/// Test that `set_validity` correctly overrides a builder's validity across all mask variants.
+///
+/// `set_validity` moves the mask's buffer into the builder rather than copying it, so the
+/// `sliced_offset` case is important: slicing a `Mask::Values` at a non-byte-aligned boundary
+/// yields a buffer with a non-zero bit offset, which the move path must preserve.
+#[rstest]
+#[case::all_true(Mask::new_true(8), vec![true; 8])]
+#[case::all_false(Mask::new_false(8), vec![false; 8])]
+#[case::values(
+    Mask::from_iter([true, false, true, true, false, false, true, false]),
+    vec![true, false, true, true, false, false, true, false]
+)]
+#[case::sliced_offset(
+    Mask::from_iter([
+        false, false, false, // dropped by the slice
+        true, false, true, true, false, false, true, false, // kept: indices 3..11
+        true, true, true, true, true, // dropped by the slice
+    ])
+    .slice(3..11),
+    vec![true, false, true, true, false, false, true, false]
+)]
+fn test_set_validity_overrides_validity(
+    #[case] mask: Mask,
+    #[case] expected: Vec<bool>,
+) -> VortexResult<()> {
+    let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
+    let mut builder = builder_with_capacity(&dtype, mask.len());
+    builder.append_zeros(mask.len());
+
+    builder.set_validity(mask);
+
+    let validity = builder.finish().validity()?;
+    for (i, &valid) in expected.iter().enumerate() {
+        assert_eq!(
+            validity.is_valid(i)?,
+            valid,
+            "validity mismatch at index {i}"
+        );
+    }
+    Ok(())
+}
+
+/// Test that `set_validity` is a no-op on a non-nullable builder.
+#[test]
+fn test_set_validity_noop_when_non_nullable() -> VortexResult<()> {
+    let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+    let mut builder = builder_with_capacity(&dtype, 4);
+    builder.append_zeros(4);
+
+    // Providing an all-false mask must not make the non-nullable array invalid.
+    builder.set_validity(Mask::new_false(4));
+
+    let validity = builder.finish().validity()?;
+    for i in 0..4 {
+        assert!(validity.is_valid(i)?, "index {i} should remain valid");
+    }
+    Ok(())
 }

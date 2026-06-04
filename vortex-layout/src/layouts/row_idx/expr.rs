@@ -17,6 +17,7 @@ use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_session::registry::CachedId;
 
 #[derive(Clone)]
 pub struct RowIdx;
@@ -25,7 +26,8 @@ impl ScalarFnVTable for RowIdx {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new("vortex.row_idx")
+        static ID: CachedId = CachedId::new("vortex.row_idx");
+        *ID
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {

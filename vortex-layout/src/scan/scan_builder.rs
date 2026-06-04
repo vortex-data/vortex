@@ -15,12 +15,9 @@ use futures::stream::BoxStream;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldMask;
-use vortex_array::dtype::FieldName;
-use vortex_array::dtype::FieldPath;
 use vortex_array::expr::Expression;
-use vortex_array::expr::analysis::immediate_access::immediate_scope_access;
+use vortex_array::expr::analysis::referenced_field_paths;
 use vortex_array::expr::root;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorAdapter;
@@ -267,9 +264,8 @@ impl<A: 'static + Send> ScanBuilder<A> {
             .transpose()?;
 
         // Construct field masks and compute the row splits of the scan.
-        let (filter_mask, projection_mask) =
-            filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
-        let field_mask: Vec<_> = [filter_mask, projection_mask].concat();
+        let field_mask =
+            referenced_field_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
 
         let splits =
             if let Some(ranges) = attempt_split_ranges(&self.selection, self.row_range.as_ref()) {
@@ -412,40 +408,20 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
 /// Compute masks of field paths referenced by the projection and filter in the scan.
 ///
 /// Projection and filter must be pre-simplified.
-pub fn filter_and_projection_masks(
+pub fn referenced_field_masks(
     projection: &Expression,
     filter: Option<&Expression>,
     dtype: &DType,
-) -> VortexResult<(Vec<FieldMask>, Vec<FieldMask>)> {
-    let Some(struct_dtype) = dtype.as_struct_fields_opt() else {
-        return Ok(match filter {
-            Some(_) => (vec![FieldMask::All], vec![FieldMask::All]),
-            None => (Vec::new(), vec![FieldMask::All]),
-        });
-    };
-    let projection_mask = immediate_scope_access(projection, struct_dtype);
-    Ok(match filter {
-        None => (
-            Vec::new(),
-            projection_mask.into_iter().map(to_field_mask).collect_vec(),
-        ),
-        Some(f) => {
-            let filter_mask = immediate_scope_access(f, struct_dtype);
-            let only_projection_mask = projection_mask
-                .difference(&filter_mask)
-                .cloned()
-                .map(to_field_mask)
-                .collect_vec();
-            (
-                filter_mask.into_iter().map(to_field_mask).collect_vec(),
-                only_projection_mask,
-            )
-        }
-    })
-}
+) -> VortexResult<Vec<FieldMask>> {
+    if dtype.as_struct_fields_opt().is_none() {
+        return Ok(vec![FieldMask::All]);
+    }
 
-fn to_field_mask(field: FieldName) -> FieldMask {
-    FieldMask::Prefix(FieldPath::from(Field::Name(field)))
+    let mut field_paths = referenced_field_paths(projection, dtype)?;
+    if let Some(filter) = filter {
+        field_paths.extend(referenced_field_paths(filter, dtype)?);
+    }
+    Ok(field_paths.into_iter().map(FieldMask::Prefix).collect_vec())
 }
 
 #[cfg(test)]
@@ -470,9 +446,16 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldMask;
+    use vortex_array::dtype::FieldPath;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
     use vortex_array::expr::Expression;
+    use vortex_array::expr::eq;
+    use vortex_array::expr::get_item;
+    use vortex_array::expr::is_not_null;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::root;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_io::runtime::BlockingRuntime;
@@ -480,12 +463,67 @@ mod test {
     use vortex_mask::Mask;
 
     use super::ScanBuilder;
+    use super::referenced_field_masks;
     use crate::ArrayFuture;
     use crate::LayoutReader;
     use crate::RowSplits;
     use crate::SplitRange;
     use crate::scan::test::SCAN_SESSION;
     use crate::scan::test::session_with_handle;
+
+    fn nested_dtype() -> DType {
+        DType::Struct(
+            StructFields::from_iter([
+                (
+                    "a",
+                    DType::Struct(
+                        StructFields::from_iter([
+                            ("1", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                            ("2", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                        ]),
+                        Nullability::NonNullable,
+                    ),
+                ),
+                ("b", DType::Primitive(PType::I32, Nullability::NonNullable)),
+            ]),
+            Nullability::NonNullable,
+        )
+    }
+
+    #[test]
+    fn nested_projection_preserves_field_path_in_split_mask() -> VortexResult<()> {
+        let projection = get_item("1", get_item("a", root()));
+        let filter = eq(get_item("2", get_item("a", root())), lit(0_i32));
+
+        let field_masks = referenced_field_masks(&projection, Some(&filter), &nested_dtype())?;
+
+        assert_eq!(field_masks.len(), 2);
+        assert!(field_masks.contains(&FieldMask::Prefix(FieldPath::from_name("a").push("1"))));
+        assert!(field_masks.contains(&FieldMask::Prefix(FieldPath::from_name("a").push("2"))));
+        Ok(())
+    }
+
+    #[test]
+    fn filter_path_covers_nested_projection_path() -> VortexResult<()> {
+        let projection = get_item("1", get_item("a", root()));
+        let filter = is_not_null(get_item("a", root()));
+
+        let field_masks = referenced_field_masks(&projection, Some(&filter), &nested_dtype())?;
+
+        assert_eq!(field_masks, [FieldMask::Prefix(FieldPath::from_name("a"))]);
+        Ok(())
+    }
+
+    #[test]
+    fn parent_projection_path_covers_nested_filter_path() -> VortexResult<()> {
+        let projection = get_item("a", root());
+        let filter = is_not_null(get_item("1", get_item("a", root())));
+
+        let field_masks = referenced_field_masks(&projection, Some(&filter), &nested_dtype())?;
+
+        assert_eq!(field_masks, [FieldMask::Prefix(FieldPath::from_name("a"))]);
+        Ok(())
+    }
 
     #[derive(Debug)]
     struct CountingLayoutReader {

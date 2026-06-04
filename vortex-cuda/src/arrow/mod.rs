@@ -9,12 +9,16 @@
 //! More documentation at <https://arrow.apache.org/docs/format/CDeviceDataInterface.html>
 
 mod canonical;
+mod list_view;
 
 use std::ffi::c_void;
 use std::fmt::Debug;
 use std::ptr;
 use std::sync::Arc;
 
+use arrow_schema::DataType;
+use arrow_schema::Field;
+use arrow_schema::Schema;
 use arrow_schema::ffi::FFI_ArrowSchema;
 use async_trait::async_trait;
 pub(crate) use canonical::CanonicalDeviceArrayExport;
@@ -25,6 +29,9 @@ use vortex::array::ArrayRef;
 use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::buffer::BufferHandle;
 use vortex::dtype::DType;
+use vortex::dtype::DecimalDType;
+use vortex::dtype::DecimalType;
+use vortex::dtype::StructFields;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 
@@ -157,6 +164,10 @@ pub trait DeviceArrayExt {
     ///
     /// The returned array owns any device buffers allocated during export. Call the embedded
     /// Arrow release callback when the consumer is done with the array.
+    ///
+    /// Arrow arrays are not self-describing, so callers that use this method directly must provide
+    /// a matching schema out-of-band. Prefer [`Self::export_device_array_with_schema`] unless a
+    /// consumer already has the CUDA export schema.
     async fn export_device_array(
         self,
         ctx: &mut CudaExecutionCtx,
@@ -165,13 +176,15 @@ pub trait DeviceArrayExt {
     /// Export this array as an Arrow C Device array together with its matching Arrow C schema.
     ///
     /// Arrow arrays are not self-describing: consumers need both the [`ArrowDeviceArray`] and an
-    /// Arrow schema to interpret the buffer layout. This helper derives the schema from the
-    /// Vortex dtype using the session's Arrow conversion rules and returns it alongside the device
-    /// array.
+    /// Arrow schema to interpret the buffer layout. This helper derives the schema that matches the
+    /// CUDA device export layout and returns it alongside the device array.
     ///
     /// Top-level struct arrays are exported as table-like Arrow schemas and struct-shaped device
     /// arrays. Top-level non-struct arrays are exported as column-shaped field schemas and
     /// column-shaped device arrays; this method does not wrap them in a single-field struct.
+    ///
+    /// Decimal exports use the Arrow decimal width implied by precision; storage wider than that
+    /// width is rejected rather than narrowed on device.
     async fn export_device_array_with_schema(
         self,
         ctx: &mut CudaExecutionCtx,
@@ -198,23 +211,97 @@ impl DeviceArrayExt for ArrayRef {
     }
 }
 
-/// Build the Arrow C schema that describes the device array exported for `array`.
-///
-/// Top-level Vortex structs are represented as Arrow schemas, which is the shape expected for
-/// table-like consumers. Non-struct arrays are represented as a single Arrow field schema, matching
-/// the column-shaped [`ArrowDeviceArray`] returned by [`DeviceArrayExt::export_device_array`].
+/// Build the Arrow C schema that describes the exported device array.
 fn arrow_schema_for_array(
     array: &ArrayRef,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<FFI_ArrowSchema> {
-    let arrow = ctx.execution_ctx().session().arrow();
-    match array.dtype() {
-        DType::Struct(..) => Ok(FFI_ArrowSchema::try_from(
-            arrow.to_arrow_schema(array.dtype())?,
-        )?),
-        _ => Ok(FFI_ArrowSchema::try_from(
-            arrow.to_arrow_field("", array.dtype())?,
-        )?),
+    let dtype = arrow_device_export_dtype(array.dtype());
+    match &dtype {
+        DType::Struct(struct_dtype, _) => Ok(FFI_ArrowSchema::try_from(Schema::new(
+            cuda_arrow_struct_fields(struct_dtype, ctx)?,
+        ))?),
+        _ => Ok(FFI_ArrowSchema::try_from(cuda_arrow_field(
+            "", &dtype, ctx,
+        )?)?),
+    }
+}
+
+fn cuda_arrow_struct_fields(
+    struct_dtype: &StructFields,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<Vec<Field>> {
+    let mut fields = Vec::with_capacity(struct_dtype.nfields());
+    for (field_name, field_dtype) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
+        fields.push(cuda_arrow_field(field_name.as_ref(), &field_dtype, ctx)?);
+    }
+    Ok(fields)
+}
+
+fn cuda_arrow_field(
+    name: impl AsRef<str>,
+    dtype: &DType,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<Field> {
+    let field = ctx
+        .execution_ctx()
+        .session()
+        .arrow()
+        .to_arrow_field(name.as_ref(), dtype)?;
+
+    let data_type = match dtype {
+        DType::Decimal(decimal_dtype, _) => cuda_arrow_decimal_data_type(*decimal_dtype),
+        DType::Struct(struct_dtype, _) => {
+            DataType::Struct(cuda_arrow_struct_fields(struct_dtype, ctx)?.into())
+        }
+        _ => return Ok(field),
+    };
+
+    Ok(
+        Field::new(field.name().clone(), data_type, field.is_nullable())
+            .with_metadata(field.metadata().clone()),
+    )
+}
+
+fn cuda_arrow_decimal_data_type(decimal_dtype: DecimalDType) -> DataType {
+    match cuda_decimal_value_type(decimal_dtype) {
+        DecimalType::I32 => DataType::Decimal32(decimal_dtype.precision(), decimal_dtype.scale()),
+        DecimalType::I64 => DataType::Decimal64(decimal_dtype.precision(), decimal_dtype.scale()),
+        DecimalType::I128 => DataType::Decimal128(decimal_dtype.precision(), decimal_dtype.scale()),
+        DecimalType::I256 => DataType::Decimal256(decimal_dtype.precision(), decimal_dtype.scale()),
+        decimal_type => unreachable!("unsupported decimal value type {decimal_type}"),
+    }
+}
+
+pub(crate) fn cuda_decimal_value_type(decimal_dtype: DecimalDType) -> DecimalType {
+    match decimal_dtype.precision() {
+        1..=9 => DecimalType::I32,
+        10..=18 => DecimalType::I64,
+        19..=38 => DecimalType::I128,
+        39..=76 => DecimalType::I256,
+        p => unreachable!("precision {p} is invalid for a DecimalDType"),
+    }
+}
+
+fn arrow_device_export_dtype(dtype: &DType) -> DType {
+    match dtype {
+        DType::List(element, nullability) => {
+            DType::List(Arc::new(arrow_device_export_dtype(element)), *nullability)
+        }
+        DType::FixedSizeList(element, _, nullability) => {
+            DType::List(Arc::new(arrow_device_export_dtype(element)), *nullability)
+        }
+        DType::Struct(fields, nullability) => DType::Struct(
+            StructFields::new(
+                fields.names().clone(),
+                fields
+                    .fields()
+                    .map(|dtype| arrow_device_export_dtype(&dtype))
+                    .collect(),
+            ),
+            *nullability,
+        ),
+        dtype => dtype.clone(),
     }
 }
 

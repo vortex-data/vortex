@@ -54,6 +54,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::l2_norm::L2Norm;
@@ -149,7 +150,8 @@ impl ScalarFnVTable for L2Denorm {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new("vortex.tensor.l2_denorm")
+        static ID: CachedId = CachedId::new("vortex.tensor.l2_denorm");
+        *ID
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {

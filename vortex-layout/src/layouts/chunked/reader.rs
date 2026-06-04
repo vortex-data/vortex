@@ -40,8 +40,6 @@ pub struct ChunkedReader {
     layout: ChunkedLayout,
     name: Arc<str>,
     lazy_children: LazyReaderChildren,
-    /// Row offset for each chunk
-    chunk_offsets: Vec<u64>,
 }
 
 static UNKNOWN: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("chunked-child"));
@@ -55,13 +53,6 @@ impl ChunkedReader {
         ctx: LayoutReaderContext,
     ) -> Self {
         let nchildren = layout.nchildren();
-
-        let mut chunk_offsets = vec![0; nchildren + 1];
-        for i in 1..nchildren {
-            chunk_offsets[i] = chunk_offsets[i - 1] + layout.children.child_row_count(i - 1);
-        }
-        chunk_offsets[nchildren] = layout.row_count();
-
         let dtypes = vec![layout.dtype.clone(); nchildren];
 
         // format!() has non-marginal overhead for short queries like random
@@ -87,7 +78,6 @@ impl ChunkedReader {
             layout,
             name,
             lazy_children,
-            chunk_offsets,
         }
     }
 
@@ -97,22 +87,25 @@ impl ChunkedReader {
     }
 
     fn chunk_offset(&self, idx: usize) -> u64 {
-        self.chunk_offsets.get(idx).copied().unwrap_or_else(|| {
+        if idx >= self.layout.chunk_offsets.len() {
             vortex_panic!(
                 "Internal error: Chunk offset {idx} out of bounds (num_children: {}, num_offsets: {}). \
                 This indicates a bug in ChunkedReader initialization or chunk_range calculation.",
                 self.layout.nchildren(),
-                self.chunk_offsets.len()
+                self.layout.chunk_offsets.len()
             )
-        })
+        }
+        self.layout.chunk_offsets[idx]
     }
 
     fn chunk_range(&self, row_range: &Range<u64>) -> Range<usize> {
         let start_chunk = self
+            .layout
             .chunk_offsets
             .binary_search(&row_range.start)
             .unwrap_or_else(|x| x.saturating_sub(1));
         let end_chunk = self
+            .layout
             .chunk_offsets
             .binary_search(&row_range.end)
             .unwrap_or_else(|x| x);

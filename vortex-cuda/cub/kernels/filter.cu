@@ -188,3 +188,33 @@ DEFINE_FILTER_BITMASK(f32, float)
 DEFINE_FILTER_BITMASK(f64, double)
 DEFINE_FILTER_BITMASK(i128, __int128_t)
 DEFINE_FILTER_BITMASK(i256, __int256_t)
+
+// Query CUB temporary storage for an exclusive-sum scan.
+template <typename T>
+static cudaError_t scan_exclusive_sum_temp_size_impl(size_t *temp_bytes, int64_t num_items) {
+    size_t bytes = 0;
+    cudaError_t err = cub::DeviceScan::ExclusiveSum(nullptr,
+                                                    bytes,
+                                                    static_cast<const T *>(nullptr),
+                                                    static_cast<T *>(nullptr),
+                                                    num_items);
+    *temp_bytes = bytes;
+    return err;
+}
+
+// Export one temp-size query and scan launch per supported element type.
+#define DEFINE_SCAN_EXCLUSIVE_SUM(suffix, Type)                                                              \
+    extern "C" cudaError_t scan_exclusive_sum_##suffix##_temp_size(size_t *temp_bytes, int64_t num_items) {  \
+        return scan_exclusive_sum_temp_size_impl<Type>(temp_bytes, num_items);                               \
+    }                                                                                                        \
+    extern "C" cudaError_t scan_exclusive_sum_##suffix(void *d_temp,                                         \
+                                                       size_t temp_bytes,                                    \
+                                                       const Type *d_in,                                     \
+                                                       Type *d_out,                                          \
+                                                       int64_t num_items,                                    \
+                                                       cudaStream_t stream) {                                \
+        return cub::DeviceScan::ExclusiveSum(d_temp, temp_bytes, d_in, d_out, num_items, stream);            \
+    }
+
+DEFINE_SCAN_EXCLUSIVE_SUM(i32, int32_t)
+DEFINE_SCAN_EXCLUSIVE_SUM(i64, int64_t)

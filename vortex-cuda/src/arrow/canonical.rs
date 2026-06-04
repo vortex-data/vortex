@@ -3,30 +3,51 @@
 
 use std::mem;
 use std::ptr;
+use std::sync::Arc;
 
 use async_trait::async_trait;
+use cudarc::driver::DeviceRepr;
+use cudarc::driver::PushKernelArg;
 use futures::future::BoxFuture;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+use vortex::array::arrays::DecimalArray;
+use vortex::array::arrays::FixedSizeListArray;
+use vortex::array::arrays::ListArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::bool::BoolDataParts;
 use vortex::array::arrays::decimal::DecimalDataParts;
 use vortex::array::arrays::extension::ExtensionArrayExt;
+use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex::array::arrays::fixed_size_list::FixedSizeListDataParts;
+use vortex::array::arrays::list::ListDataParts;
+use vortex::array::arrays::listview::list_from_list_view;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::arrays::struct_::StructDataParts;
 use vortex::array::arrays::varbinview::VarBinViewDataParts;
 use vortex::array::buffer::BufferHandle;
+use vortex::array::builtins::ArrayBuiltins;
+use vortex::array::match_each_decimal_value_type;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
+use vortex::dtype::DType;
 use vortex::dtype::DecimalType;
+use vortex::dtype::NativeDecimalType;
+use vortex::dtype::Nullability;
+use vortex::dtype::PType;
+use vortex::dtype::i256;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
+use vortex::error::vortex_err;
 use vortex::extension::datetime::AnyTemporal;
 use vortex::mask::Mask;
 
+use super::list_view::export_device_list_view;
+use crate::CudaBufferExt;
+use crate::CudaDeviceBuffer;
 use crate::CudaExecutionCtx;
 use crate::arrow::ARROW_DEVICE_CUDA;
 use crate::arrow::ArrowArray;
@@ -34,6 +55,7 @@ use crate::arrow::ArrowDeviceArray;
 use crate::arrow::ExportDeviceArray;
 use crate::arrow::PrivateData;
 use crate::arrow::SyncEvent;
+use crate::arrow::cuda_decimal_value_type;
 use crate::executor::CudaArrayExt;
 
 /// An implementation of `ExportDeviceArray` that exports Vortex arrays to `ArrowDeviceArray` by
@@ -94,27 +116,7 @@ fn export_canonical(
                 // we don't need a sync event for Null since no data is copied.
                 Ok((array, ptr::null_mut()))
             }
-            Canonical::Decimal(decimal) => {
-                let len = decimal.len();
-                let DecimalDataParts {
-                    values,
-                    values_type,
-                    validity,
-                    ..
-                } = decimal.into_data_parts();
-
-                // TODO(aduffy): GPU kernel for upcasting.
-                vortex_ensure!(
-                    values_type >= DecimalType::I32,
-                    "cannot export DecimalArray with values type {values_type}. must be i32 or wider."
-                );
-
-                let (validity_buffer, null_count) =
-                    export_arrow_validity_buffer(validity, len, 0, ctx).await?;
-                let buffer = ctx.ensure_on_device(values).await?;
-
-                export_fixed_size(buffer, len, 0, validity_buffer, null_count, ctx)
-            }
+            Canonical::Decimal(decimal) => export_decimal(decimal, ctx).await,
             Canonical::Extension(extension) => {
                 if !extension.ext_dtype().is::<AnyTemporal>() {
                     vortex_bail!("only support temporal extension types currently");
@@ -153,6 +155,25 @@ fn export_canonical(
                     null_count,
                     ctx,
                 )
+            }
+            Canonical::List(listview) => {
+                // cuDF imports standard Arrow `List`, while Vortex canonical lists are list-views.
+                // Try the GPU path first; host list-views can fall back to a CPU rebuild.
+                let is_host = listview.as_ref().is_host();
+                let gpu_err = match export_device_list_view(listview.clone(), ctx).await {
+                    Ok(exported) => return Ok(exported),
+                    Err(err) => err,
+                };
+
+                // CPU rebuild requires host-resident buffers; device-resident arrays keep the GPU error.
+                if !is_host {
+                    return Err(gpu_err);
+                }
+
+                export_list(list_from_list_view(listview)?, ctx).await
+            }
+            Canonical::FixedSizeList(fixed_size_list) => {
+                export_fixed_size_list(fixed_size_list, ctx).await
             }
             Canonical::VarBinView(varbinview) => {
                 let len = varbinview.len();
@@ -211,10 +232,119 @@ fn export_canonical(
     })
 }
 
+/// Exports decimals with value buffers cast to Arrow's Decimal32/64/128/256 layout.
+///
+/// Decimal values are already decoded; this only adapts the physical buffer width. Storage-to-Arrow
+/// narrowing is rejected instead of checked on-device to avoid a device-to-host synchronization
+/// point.
+async fn export_decimal(
+    decimal: DecimalArray,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<(ArrowArray, SyncEvent)> {
+    let len = decimal.len();
+    let DecimalDataParts {
+        decimal_dtype,
+        values,
+        values_type,
+        validity,
+    } = decimal.into_data_parts();
+
+    let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
+    let target_type = cuda_decimal_value_type(decimal_dtype);
+    let values = export_decimal_values(values, values_type, target_type, len, ctx).await?;
+
+    export_fixed_size(values, len, 0, validity_buffer, null_count, ctx)
+}
+
+/// Ensure the values buffer is on-device and has the Arrow-required decimal width.
+///
+/// Storage wider than the precision-implied Arrow width is rejected. Callers that hit this
+/// should narrow the storage via a decimal cast before exporting.
+async fn export_decimal_values(
+    values: BufferHandle,
+    values_type: DecimalType,
+    target_type: DecimalType,
+    len: usize,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<BufferHandle> {
+    if values_type.byte_width() > target_type.byte_width() {
+        vortex_bail!(
+            "cannot export decimal values from {values_type} storage to Arrow {target_type}: narrowing would require a device-to-host overflow check",
+        );
+    }
+    let values = ctx.ensure_on_device(values).await?;
+    if values_type == target_type {
+        return Ok(values);
+    }
+
+    match_each_decimal_value_type!(values_type, |S| {
+        export_decimal_values_from::<S>(values, target_type, len, ctx).await
+    })
+}
+
+/// Dispatch from a concrete storage type `S` to the Arrow-required output width.
+async fn export_decimal_values_from<S>(
+    values: BufferHandle,
+    target_type: DecimalType,
+    len: usize,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<BufferHandle>
+where
+    S: NativeDecimalType + DeviceRepr,
+{
+    match target_type {
+        DecimalType::I32 => decimal_cast::<S, i32>(values, len, ctx).await,
+        DecimalType::I64 => decimal_cast::<S, i64>(values, len, ctx).await,
+        DecimalType::I128 => decimal_cast::<S, i128>(values, len, ctx).await,
+        DecimalType::I256 => decimal_cast::<S, i256>(values, len, ctx).await,
+        target_type => {
+            vortex_bail!("cannot export DecimalArray as Arrow decimal value type {target_type}")
+        }
+    }
+}
+
+/// Launches the CUDA kernel that casts from Vortex storage type `S` to Arrow output type `D`.
+///
+/// The caller must ensure this is not a narrowing cast.
+async fn decimal_cast<S, D>(
+    values: BufferHandle,
+    len: usize,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<BufferHandle>
+where
+    S: NativeDecimalType + DeviceRepr,
+    D: NativeDecimalType + DeviceRepr,
+{
+    if len == 0 {
+        return ctx
+            .ensure_on_device(BufferHandle::new_host(
+                Buffer::<D>::empty().into_byte_buffer(),
+            ))
+            .await;
+    }
+
+    let output_buffer = ctx.device_alloc::<D>(len)?;
+    let output_device = CudaDeviceBuffer::new(output_buffer);
+
+    let values_view = values.cuda_view::<S>()?;
+    let output_view = output_device.as_view::<D>();
+    let len_u64 = len as u64;
+    let cuda_function = ctx.load_function_with_suffixes(
+        "decimal_cast",
+        &[&S::DECIMAL_TYPE.to_string(), &D::DECIMAL_TYPE.to_string()],
+    )?;
+
+    ctx.launch_kernel(&cuda_function, len, |args| {
+        args.arg(&values_view).arg(&output_view).arg(&len_u64);
+    })?;
+
+    Ok(BufferHandle::new_device(Arc::new(output_device)))
+}
+
 /// Export Vortex validity as an Arrow validity byte buffer.
 ///
 /// Returns `None` for the buffer when Arrow can omit validity because all rows are valid.
-async fn export_arrow_validity_buffer(
+pub(super) async fn export_arrow_validity_buffer(
     validity: Validity,
     len: usize,
     arrow_offset: usize,
@@ -235,6 +365,140 @@ async fn export_arrow_validity_buffer(
         .await?;
 
     Ok((Some(validity), null_count))
+}
+
+/// Export a standard Vortex list as Arrow `List`: validity, offsets, and one child array.
+async fn export_list(
+    array: ListArray,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<(ArrowArray, SyncEvent)> {
+    let len = array.len();
+    let ListDataParts {
+        elements,
+        offsets,
+        validity,
+        ..
+    } = array.into_data_parts();
+
+    let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
+    let offsets_buffer = export_arrow_list_offsets(offsets, ctx).await?;
+
+    export_list_layout(
+        elements,
+        len,
+        validity_buffer,
+        null_count,
+        offsets_buffer,
+        ctx,
+    )
+    .await
+}
+
+/// Build the shared Arrow `List` parent once offsets and validity are ready on device.
+pub(super) async fn export_list_layout(
+    elements: ArrayRef,
+    len: usize,
+    validity_buffer: Option<BufferHandle>,
+    null_count: i64,
+    offsets_buffer: BufferHandle,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<(ArrowArray, SyncEvent)> {
+    let cuda_elements = elements.execute_cuda(ctx).await?;
+    let (elements_child, _) = export_canonical(cuda_elements, ctx).await?;
+
+    let mut private_data = PrivateData::new(
+        vec![validity_buffer, Some(offsets_buffer)],
+        vec![elements_child],
+        ctx,
+    )?;
+    let sync_event = private_data.sync_event();
+
+    let mut arrow_list = ArrowArray::empty();
+    arrow_list.length = len as i64;
+    arrow_list.null_count = null_count;
+    arrow_list.n_buffers = 2;
+    arrow_list.buffers = private_data.buffer_ptrs.as_mut_ptr();
+    arrow_list.n_children = 1;
+    arrow_list.children = private_data.children.as_mut_ptr();
+    arrow_list.release = Some(release_array);
+    arrow_list.private_data = Box::into_raw(private_data).cast();
+
+    Ok((arrow_list, sync_event))
+}
+
+/// Export a Vortex fixed-size-list as Arrow `List`.
+///
+/// cuDF's Arrow Device import accepts `List`/`LargeList` as cuDF `LIST`, but rejects
+/// `FixedSizeList`, so emit equivalent standard Arrow `List` offsets.
+async fn export_fixed_size_list(
+    array: FixedSizeListArray,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<(ArrowArray, SyncEvent)> {
+    let len = array.len();
+    let list_size = array.list_size();
+    let FixedSizeListDataParts {
+        elements, validity, ..
+    } = array.into_data_parts();
+
+    let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
+    let offsets_buffer = fixed_size_list_offsets(len, list_size, ctx).await?;
+
+    export_list_layout(
+        elements,
+        len,
+        validity_buffer,
+        null_count,
+        offsets_buffer,
+        ctx,
+    )
+    .await
+}
+
+async fn fixed_size_list_offsets(
+    len: usize,
+    list_size: u32,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<BufferHandle> {
+    let list_size = i32::try_from(list_size).map_err(|_| {
+        vortex_err!(
+            "cannot export FixedSizeList with list size {list_size}: Arrow List offsets require i32"
+        )
+    })?;
+    let offsets = (0..=i32::try_from(len)?)
+        .map(|idx| {
+            idx.checked_mul(list_size)
+                .ok_or_else(|| vortex_err!("FixedSizeList Arrow List offsets exceed i32 range"))
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+
+    ctx.ensure_on_device(BufferHandle::new_host(
+        Buffer::from(offsets).into_byte_buffer(),
+    ))
+    .await
+}
+
+/// Return cuDF-supported Arrow `List` offsets as an `i32` device buffer.
+async fn export_arrow_list_offsets(
+    offsets: ArrayRef,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<BufferHandle> {
+    let offsets = if offsets.dtype().as_ptype() == PType::I32 {
+        offsets
+    } else {
+        offsets.cast(DType::Primitive(PType::I32, Nullability::NonNullable))?
+    };
+    let offsets = offsets.execute_cuda(ctx).await?;
+    let Canonical::Primitive(offsets) = offsets else {
+        vortex_bail!("list offsets must be primitive, got {}", offsets.dtype());
+    };
+
+    let PrimitiveDataParts { ptype, buffer, .. } = offsets.into_data_parts();
+    vortex_ensure!(
+        ptype == PType::I32,
+        "list offsets cast to i32 produced {ptype}"
+    );
+
+    ctx.ensure_on_device(buffer).await
 }
 
 async fn export_struct(
@@ -362,22 +626,32 @@ mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::DecimalArray;
+    use vortex::array::arrays::FixedSizeListArray;
+    use vortex::array::arrays::ListArray;
+    use vortex::array::arrays::ListViewArray;
     use vortex::array::arrays::NullArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::StructArray;
     use vortex::array::arrays::TemporalArray;
     use vortex::array::arrays::VarBinViewArray;
+    use vortex::array::arrays::primitive::PrimitiveArrayExt;
     use vortex::array::arrays::varbinview::BinaryView;
+    use vortex::array::buffer::BufferHandle;
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::buffer::ByteBuffer;
     use vortex::dtype::DType;
     use vortex::dtype::DecimalDType;
     use vortex::dtype::FieldNames;
+    use vortex::dtype::NativeDecimalType;
+    use vortex::dtype::NativePType;
     use vortex::dtype::Nullability;
+    use vortex::dtype::PType;
     use vortex::dtype::half::f16;
+    use vortex::dtype::i256;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
+    use vortex::error::vortex_bail;
     use vortex::extension::datetime::TimeUnit;
     use vortex::session::VortexSession;
 
@@ -521,6 +795,82 @@ mod tests {
         (array, buffer_lengths)
     }
 
+    async fn primitive_on_device<T: NativePType>(
+        values: impl IntoIterator<Item = T>,
+        ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let primitive = PrimitiveArray::from_iter(values);
+        let handle = ctx
+            .ensure_on_device(primitive.buffer_handle().clone())
+            .await?;
+        Ok(
+            PrimitiveArray::from_buffer_handle(handle, T::PTYPE, Validity::NonNullable)
+                .into_array(),
+        )
+    }
+
+    async fn primitive_i32_on_device(
+        values: impl IntoIterator<Item = i32>,
+        ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        primitive_on_device(values, ctx).await
+    }
+
+    #[expect(clippy::cast_possible_truncation)]
+    async fn integer_array_on_device(
+        ptype: PType,
+        values: &[i64],
+        ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        match ptype {
+            PType::U8 => primitive_on_device(values.iter().map(|&value| value as u8), ctx).await,
+            PType::U16 => primitive_on_device(values.iter().map(|&value| value as u16), ctx).await,
+            PType::U32 => primitive_on_device(values.iter().map(|&value| value as u32), ctx).await,
+            PType::U64 => primitive_on_device(values.iter().map(|&value| value as u64), ctx).await,
+            PType::I8 => primitive_on_device(values.iter().map(|&value| value as i8), ctx).await,
+            PType::I16 => primitive_on_device(values.iter().map(|&value| value as i16), ctx).await,
+            PType::I32 => primitive_on_device(values.iter().map(|&value| value as i32), ctx).await,
+            PType::I64 => primitive_on_device(values.iter().copied(), ctx).await,
+            ptype => vortex_bail!("test helper only supports integer PTypes, got {ptype}"),
+        }
+    }
+
+    async fn nullable_primitive_i32_on_device(
+        values: impl IntoIterator<Item = Option<i32>>,
+        ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let primitive = PrimitiveArray::from_option_iter(values);
+        let handle = ctx
+            .ensure_on_device(primitive.buffer_handle().clone())
+            .await?;
+        Ok(
+            PrimitiveArray::from_buffer_handle(handle, PType::I32, primitive.validity()?)
+                .into_array(),
+        )
+    }
+
+    fn private_data_buffer_i32_values(
+        array: &ArrowArray,
+        buffer_idx: usize,
+    ) -> VortexResult<Vec<i32>> {
+        let private_data = unsafe { &*array.private_data.cast::<PrivateData>() };
+        let buffer = private_data.buffers[buffer_idx]
+            .as_ref()
+            .vortex_expect("buffer should be present");
+        Ok(Buffer::<i32>::from_byte_buffer(buffer.to_host_sync())
+            .iter()
+            .copied()
+            .collect())
+    }
+
+    fn assert_exported_decimal_values<T: NativeDecimalType>(
+        value_buffer: &BufferHandle,
+        expected: &[T],
+    ) {
+        let values = Buffer::<T>::from_byte_buffer(value_buffer.to_host_sync());
+        assert_eq!(values.as_slice(), expected);
+    }
+
     // Build a nested struct fixture with an out-of-line string-view value.
     fn nested_struct_array() -> ArrayRef {
         let nested = StructArray::new(
@@ -615,23 +965,195 @@ mod tests {
         Ok(())
     }
 
-    #[crate::test]
-    async fn test_export_decimal() -> VortexResult<()> {
+    async fn assert_exported_decimal<T: NativeDecimalType>(
+        array: ArrayRef,
+        expected_data_type: DataType,
+        expected_values: Vec<T>,
+    ) -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
-        let array = DecimalArray::from_iter(0i128..5, DecimalDType::new(38, 2)).into_array();
-        let mut device_array = array.export_device_array(&mut ctx).await?;
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
 
-        assert_eq!(device_array.array.length, 5);
-        assert_eq!(device_array.array.null_count, 0);
-        assert_eq!(device_array.array.n_buffers, 2);
-        assert_eq!(device_array.array.n_children, 0);
-        assert!(device_array.array.release.is_some());
-        assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
+        let field = Field::try_from(&exported.schema)?;
+        assert_eq!(field, Field::new("", expected_data_type, false));
+        assert_eq!(
+            exported.array.array.length,
+            i64::try_from(expected_values.len())?
+        );
+        assert_eq!(exported.array.array.null_count, 0);
+        assert_eq!(exported.array.array.n_buffers, 2);
+        assert_eq!(exported.array.array.n_children, 0);
+        assert!(exported.array.array.release.is_some());
+        assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
 
-        unsafe { release_exported_array(&raw mut device_array.array) };
+        let private_data = unsafe { &*exported.array.array.private_data.cast::<PrivateData>() };
+        let value_buffer = private_data.buffers[1]
+            .as_ref()
+            .vortex_expect("value buffer should be present");
+        assert_eq!(value_buffer.len(), expected_values.len() * size_of::<T>());
+        assert_exported_decimal_values(value_buffer, &expected_values);
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
+    }
+
+    #[rstest]
+    #[case::i8(
+        DecimalArray::from_iter([1i8, -2, 3], DecimalDType::new(2, 1)).into_array(),
+        DataType::Decimal32(2, 1),
+        vec![1i32, -2, 3]
+    )]
+    #[case::i16(
+        DecimalArray::from_iter([100i16, -200, 300], DecimalDType::new(4, 2)).into_array(),
+        DataType::Decimal32(4, 2),
+        vec![100i32, -200, 300]
+    )]
+    #[case::i32(
+        DecimalArray::from_iter([10_000i32, -20_000, 30_000], DecimalDType::new(9, 2)).into_array(),
+        DataType::Decimal32(9, 2),
+        vec![10_000i32, -20_000, 30_000]
+    )]
+    #[crate::test]
+    async fn test_export_decimal32(
+        #[case] array: ArrayRef,
+        #[case] expected_data_type: DataType,
+        #[case] expected_values: Vec<i32>,
+    ) -> VortexResult<()> {
+        assert_exported_decimal(array, expected_data_type, expected_values).await
+    }
+
+    #[rstest]
+    #[case::i32(
+        DecimalArray::from_iter([1_000_000i32, -2_000_000, 3_000_000], DecimalDType::new(10, 2)).into_array(),
+        DataType::Decimal64(10, 2),
+        vec![1_000_000i64, -2_000_000, 3_000_000]
+    )]
+    #[case::i32_boundary(
+        DecimalArray::from_iter([i32::MIN, -1i32, 0, 1, i32::MAX], DecimalDType::new(10, 0)).into_array(),
+        DataType::Decimal64(10, 0),
+        vec![i32::MIN as i64, -1, 0, 1, i32::MAX as i64]
+    )]
+    #[case::i64(
+        DecimalArray::from_iter([1_000_000i64, -2_000_000, 3_000_000], DecimalDType::new(18, 2)).into_array(),
+        DataType::Decimal64(18, 2),
+        vec![1_000_000i64, -2_000_000, 3_000_000]
+    )]
+    #[crate::test]
+    async fn test_export_decimal64(
+        #[case] array: ArrayRef,
+        #[case] expected_data_type: DataType,
+        #[case] expected_values: Vec<i64>,
+    ) -> VortexResult<()> {
+        assert_exported_decimal(array, expected_data_type, expected_values).await
+    }
+
+    #[rstest]
+    #[case::i64_boundary(
+        DecimalArray::from_iter([i64::MIN, -1i64, 0, 1, i64::MAX], DecimalDType::new(19, 0)).into_array(),
+        DataType::Decimal128(19, 0),
+        vec![i64::MIN as i128, -1, 0, 1, i64::MAX as i128]
+    )]
+    #[case::i128(
+        DecimalArray::from_iter([1i128, -2, 3], DecimalDType::new(38, 2)).into_array(),
+        DataType::Decimal128(38, 2),
+        vec![1i128, -2, 3]
+    )]
+    #[crate::test]
+    async fn test_export_decimal128(
+        #[case] array: ArrayRef,
+        #[case] expected_data_type: DataType,
+        #[case] expected_values: Vec<i128>,
+    ) -> VortexResult<()> {
+        assert_exported_decimal(array, expected_data_type, expected_values).await
+    }
+
+    #[crate::test]
+    async fn test_export_empty_decimal() -> VortexResult<()> {
+        assert_exported_decimal(
+            DecimalArray::new(
+                Buffer::<i32>::empty(),
+                DecimalDType::new(9, 2),
+                Validity::NonNullable,
+            )
+            .into_array(),
+            DataType::Decimal32(9, 2),
+            Vec::<i32>::new(),
+        )
+        .await
+    }
+
+    #[crate::test]
+    async fn test_export_empty_decimal_widening() -> VortexResult<()> {
+        assert_exported_decimal(
+            DecimalArray::new(
+                Buffer::<i8>::empty(),
+                DecimalDType::new(9, 2),
+                Validity::NonNullable,
+            )
+            .into_array(),
+            DataType::Decimal32(9, 2),
+            Vec::<i32>::new(),
+        )
+        .await
+    }
+
+    #[crate::test]
+    async fn test_export_decimal_narrowing_errors() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+        let array = DecimalArray::from_iter([i256::from_parts(0, 1)], DecimalDType::new(38, 0))
+            .into_array();
+
+        let err = array
+            .export_device_array_with_schema(&mut ctx)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("narrowing would require"));
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_export_decimal_narrowing_from_arrow_import() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+        let array = DecimalArray::from_iter([0i128, 1, -2], DecimalDType::new(10, 2)).into_array();
+
+        let err = array
+            .export_device_array_with_schema(&mut ctx)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("narrowing would require"));
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::i64(
+        DecimalArray::from_iter([i64::MIN, -1i64, 1, i64::MAX], DecimalDType::new(39, 0)).into_array(),
+        DataType::Decimal256(39, 0),
+        vec![i256::from_i128(i64::MIN as i128), i256::from_i128(-1), i256::from_i128(1), i256::from_i128(i64::MAX as i128)]
+    )]
+    #[case::i128(
+        DecimalArray::from_iter([1i128, -2, 3], DecimalDType::new(39, 2)).into_array(),
+        DataType::Decimal256(39, 2),
+        vec![i256::from_i128(1), i256::from_i128(-2), i256::from_i128(3)]
+    )]
+    #[case::i256(
+        DecimalArray::from_iter(
+            [i256::from_i128(10), i256::from_i128(-20), i256::from_i128(30)],
+            DecimalDType::new(76, 2),
+        )
+        .into_array(),
+        DataType::Decimal256(76, 2),
+        vec![i256::from_i128(10), i256::from_i128(-20), i256::from_i128(30)]
+    )]
+    #[crate::test]
+    async fn test_export_decimal256(
+        #[case] array: ArrayRef,
+        #[case] expected_data_type: DataType,
+        #[case] expected_values: Vec<i256>,
+    ) -> VortexResult<()> {
+        assert_exported_decimal(array, expected_data_type, expected_values).await
     }
 
     #[crate::test]
@@ -717,6 +1239,154 @@ mod tests {
         Ok(())
     }
 
+    #[crate::test]
+    async fn test_export_list() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let array = ListArray::try_new(
+            PrimitiveArray::from_iter(0i32..5).into_array(),
+            PrimitiveArray::from_iter([0i32, 2, 2, 5]).into_array(),
+            Validity::NonNullable,
+        )?
+        .into_array();
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+
+        let field = Field::try_from(&exported.schema)?;
+        assert_eq!(
+            field,
+            Field::new_list(
+                "",
+                Field::new(Field::LIST_FIELD_DEFAULT_NAME, DataType::Int32, false),
+                false,
+            )
+        );
+        assert_eq!(exported.array.array.length, 3);
+        assert_eq!(exported.array.array.null_count, 0);
+        assert_eq!(exported.array.array.n_buffers, 2);
+        let buffers = unsafe { std::slice::from_raw_parts(exported.array.array.buffers, 2) };
+        assert!(buffers[0].is_null());
+        assert!(!buffers[1].is_null());
+        assert_eq!(exported.array.array.n_children, 1);
+        let children = unsafe { std::slice::from_raw_parts(exported.array.array.children, 1) };
+        let elements = unsafe { &*children[0] };
+        assert_eq!(elements.length, 5);
+        assert_eq!(elements.n_buffers, 2);
+        assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_export_host_contiguous_list_view() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let array = ListViewArray::new(
+            PrimitiveArray::from_iter(0i32..5).into_array(),
+            PrimitiveArray::from_iter([0i32, 2, 2]).into_array(),
+            PrimitiveArray::from_iter([2i32, 0, 3]).into_array(),
+            Validity::NonNullable,
+        )
+        .into_array();
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+
+        assert_eq!(exported.array.array.length, 3);
+        assert_eq!(exported.array.array.n_buffers, 2);
+        assert_eq!(
+            private_data_buffer_i32_values(&exported.array.array, 1)?,
+            [0, 2, 2, 5]
+        );
+        assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_export_host_non_contiguous_nested_list_view_falls_back_to_cpu() -> VortexResult<()>
+    {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let elements = StructArray::new(
+            FieldNames::from_iter(["x"]),
+            vec![PrimitiveArray::from_iter(0i32..4).into_array()],
+            4,
+            Validity::NonNullable,
+        )
+        .into_array();
+        let array = ListViewArray::new(
+            elements,
+            PrimitiveArray::from_iter([0i32, 1]).into_array(),
+            PrimitiveArray::from_iter([3i32, 2]).into_array(),
+            Validity::NonNullable,
+        )
+        .into_array();
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+
+        assert_eq!(exported.array.array.length, 2);
+        assert_eq!(
+            private_data_buffer_i32_values(&exported.array.array, 1)?,
+            [0, 3, 5]
+        );
+        let list_children = unsafe { std::slice::from_raw_parts(exported.array.array.children, 1) };
+        let struct_child = unsafe { &*list_children[0] };
+        assert_eq!(struct_child.length, 5);
+        let struct_children = unsafe { std::slice::from_raw_parts(struct_child.children, 1) };
+        let field_child = unsafe { &*struct_children[0] };
+        assert_eq!(
+            private_data_buffer_i32_values(field_child, 1)?,
+            [0, 1, 2, 1, 2]
+        );
+        assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::i32_i32(PType::I32, PType::I32)]
+    #[case::u32_u16(PType::U32, PType::U16)]
+    #[case::i64_u8(PType::I64, PType::U8)]
+    #[case::u64_i16(PType::U64, PType::I16)]
+    #[crate::test]
+    async fn test_export_device_contiguous_list_view(
+        #[case] offsets_ptype: PType,
+        #[case] sizes_ptype: PType,
+    ) -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let elements = primitive_i32_on_device(0..5, &mut ctx).await?;
+        let offsets = integer_array_on_device(offsets_ptype, &[0, 2, 2], &mut ctx).await?;
+        let sizes = integer_array_on_device(sizes_ptype, &[2, 0, 3], &mut ctx).await?;
+        let array =
+            ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+
+        let field = Field::try_from(&exported.schema)?;
+        assert_eq!(
+            field,
+            Field::new_list(
+                "",
+                Field::new(Field::LIST_FIELD_DEFAULT_NAME, DataType::Int32, false),
+                false,
+            )
+        );
+        assert_eq!(exported.array.array.length, 3);
+        assert_eq!(exported.array.array.n_buffers, 2);
+        assert_eq!(
+            private_data_buffer_i32_values(&exported.array.array, 1)?,
+            [0, 2, 2, 5]
+        );
+        assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
     #[rstest]
     #[case::utf8(
         multi_buffer_varbinview(DType::Utf8(Nullability::NonNullable)),
@@ -740,6 +1410,213 @@ mod tests {
         let field = Field::try_from(&exported.schema)?;
         assert_eq!(field, Field::new("", expected_data_type, false));
         assert_varbinview_layout(&exported.array.array, 3, 0, &expected_data_buffer_lengths)?;
+        assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::i64(PrimitiveArray::from_iter([0i64, 2, 2, 5]).into_array())]
+    #[case::u64(PrimitiveArray::from_iter([0u64, 2, 2, 5]).into_array())]
+    #[crate::test]
+    async fn test_export_list_with_non_i32_offsets(#[case] offsets: ArrayRef) -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let array = ListArray::try_new(
+            PrimitiveArray::from_iter(0i32..5).into_array(),
+            offsets,
+            Validity::NonNullable,
+        )?
+        .into_array();
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+
+        assert_eq!(exported.array.array.length, 3);
+        assert_eq!(exported.array.array.n_buffers, 2);
+        assert_eq!(
+            private_data_buffer_i32_values(&exported.array.array, 1)?,
+            [0, 2, 2, 5]
+        );
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::i32_i32(PType::I32, PType::I32)]
+    #[case::u32_u16(PType::U32, PType::U16)]
+    #[case::i64_u8(PType::I64, PType::U8)]
+    #[case::u64_i16(PType::U64, PType::I16)]
+    #[crate::test]
+    async fn test_export_device_non_contiguous_primitive_list_view(
+        #[case] offsets_ptype: PType,
+        #[case] sizes_ptype: PType,
+    ) -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let elements = primitive_i32_on_device([10, 11, 12, 13, 14], &mut ctx).await?;
+        let offsets = integer_array_on_device(offsets_ptype, &[3, 0, 2], &mut ctx).await?;
+        let sizes = integer_array_on_device(sizes_ptype, &[2, 2, 1], &mut ctx).await?;
+        let array =
+            ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+
+        assert_eq!(exported.array.array.length, 3);
+        assert_eq!(
+            private_data_buffer_i32_values(&exported.array.array, 1)?,
+            [0, 2, 4, 5]
+        );
+        let children = unsafe { std::slice::from_raw_parts(exported.array.array.children, 1) };
+        let elements = unsafe { &*children[0] };
+        assert_eq!(
+            private_data_buffer_i32_values(elements, 1)?,
+            [13, 14, 10, 11, 12]
+        );
+        assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::out_of_bounds(&[3], &[2], "offsets/sizes are invalid")]
+    #[case::negative_offset(&[-1], &[1], "offsets exceed i32 range")]
+    #[crate::test]
+    async fn test_export_device_invalid_list_view_returns_error(
+        #[case] offsets_values: &[i64],
+        #[case] sizes_values: &[i64],
+        #[case] expected_error: &str,
+    ) -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let elements = primitive_i32_on_device(0..4, &mut ctx).await?;
+        let offsets = integer_array_on_device(PType::I32, offsets_values, &mut ctx).await?;
+        let sizes = integer_array_on_device(PType::I32, sizes_values, &mut ctx).await?;
+        let array = unsafe {
+            ListViewArray::new_unchecked(elements, offsets, sizes, Validity::NonNullable)
+        }
+        .into_array();
+        let err = match array.export_device_array(&mut ctx).await {
+            Ok(mut exported) => {
+                unsafe { release_exported_array(&raw mut exported.array) };
+                vortex_bail!("invalid device list view should be unsupported")
+            }
+            Err(err) => err,
+        };
+
+        assert!(
+            err.to_string().contains(expected_error),
+            "unexpected error: {err}"
+        );
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_export_device_non_contiguous_nested_list_view_returns_error() -> VortexResult<()>
+    {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let field = primitive_i32_on_device(0..4, &mut ctx).await?;
+        let elements = StructArray::new(
+            FieldNames::from_iter(["x"]),
+            vec![field],
+            4,
+            Validity::NonNullable,
+        )
+        .into_array();
+        let offsets = primitive_i32_on_device([0, 1], &mut ctx).await?;
+        let sizes = primitive_i32_on_device([3, 2], &mut ctx).await?;
+        let array =
+            ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
+        let err = match array.export_device_array(&mut ctx).await {
+            Ok(mut exported) => {
+                unsafe { release_exported_array(&raw mut exported.array) };
+                vortex_bail!("non-contiguous nested list view should be unsupported")
+            }
+            Err(err) => err,
+        };
+
+        assert!(
+            err.to_string()
+                .contains("GPU child rebuild only supports primitive children"),
+            "unexpected error: {err}"
+        );
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_export_device_non_contiguous_nullable_primitive_list_view_returns_error()
+    -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let elements = nullable_primitive_i32_on_device(
+            [Some(10), None, Some(12), Some(13), Some(14)],
+            &mut ctx,
+        )
+        .await?;
+        let offsets = primitive_i32_on_device([3, 0, 2], &mut ctx).await?;
+        let sizes = primitive_i32_on_device([2, 2, 1], &mut ctx).await?;
+        let array =
+            ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
+        let err = match array.export_device_array(&mut ctx).await {
+            Ok(mut exported) => {
+                unsafe { release_exported_array(&raw mut exported.array) };
+                vortex_bail!("non-contiguous nullable primitive list view should be unsupported")
+            }
+            Err(err) => err,
+        };
+
+        assert!(
+            err.to_string()
+                .contains("GPU child validity rebuild is not implemented"),
+            "unexpected error: {err}"
+        );
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_export_fixed_size_list_as_list() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let array = FixedSizeListArray::new(
+            PrimitiveArray::from_iter(0i32..6).into_array(),
+            2,
+            Validity::NonNullable,
+            3,
+        )
+        .into_array();
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+
+        let field = Field::try_from(&exported.schema)?;
+        assert_eq!(
+            field,
+            Field::new_list(
+                "",
+                Field::new(Field::LIST_FIELD_DEFAULT_NAME, DataType::Int32, false),
+                false,
+            )
+        );
+        assert_eq!(exported.array.array.length, 3);
+        assert_eq!(exported.array.array.null_count, 0);
+        assert_eq!(exported.array.array.n_buffers, 2);
+        let buffers = unsafe { std::slice::from_raw_parts(exported.array.array.buffers, 2) };
+        assert!(buffers[0].is_null());
+        assert!(!buffers[1].is_null());
+        assert_eq!(
+            private_data_buffer_i32_values(&exported.array.array, 1)?,
+            [0, 2, 4, 6]
+        );
+        assert_eq!(exported.array.array.n_children, 1);
+        let children = unsafe { std::slice::from_raw_parts(exported.array.array.children, 1) };
+        let elements = unsafe { &*children[0] };
+        assert_eq!(elements.length, 6);
+        assert_eq!(elements.n_buffers, 2);
         assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
@@ -924,6 +1801,14 @@ mod tests {
             &mut ctx,
         )
         .await?;
+
+        let private_data = unsafe { &*decimal.array.private_data.cast::<PrivateData>() };
+        let value_buffer = private_data.buffers[1]
+            .as_ref()
+            .vortex_expect("value buffer should be present");
+        assert_eq!(value_buffer.len(), 3 * size_of::<i64>());
+        assert_exported_decimal_values(value_buffer, &[100i64, 0, 300]);
+
         unsafe { release_exported_array(&raw mut decimal.array) };
 
         Ok(())
@@ -1194,6 +2079,67 @@ mod tests {
         assert_eq!(exported.array.array.length, 5);
         assert_eq!(exported.array.array.n_children, 2);
         assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_export_nested_struct_decimal_with_schema() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let nested = StructArray::new(
+            FieldNames::from_iter(["amount"]),
+            vec![
+                DecimalArray::from_iter([100i32, -200, 300], DecimalDType::new(9, 2)).into_array(),
+            ],
+            3,
+            Validity::NonNullable,
+        )
+        .into_array();
+        let array = StructArray::new(
+            FieldNames::from_iter(["nested"]),
+            vec![nested],
+            3,
+            Validity::NonNullable,
+        )
+        .into_array();
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+
+        let schema = Schema::try_from(&exported.schema)?;
+        assert_eq!(
+            schema,
+            Schema::new(vec![Field::new(
+                "nested",
+                DataType::Struct(Fields::from(vec![Field::new(
+                    "amount",
+                    DataType::Decimal32(9, 2),
+                    false,
+                )])),
+                false,
+            )])
+        );
+
+        let children = unsafe {
+            std::slice::from_raw_parts(
+                exported.array.array.children,
+                usize::try_from(exported.array.array.n_children)?,
+            )
+        };
+        let nested_child = unsafe { &*children[0] };
+        let nested_children = unsafe {
+            std::slice::from_raw_parts(
+                nested_child.children,
+                usize::try_from(nested_child.n_children)?,
+            )
+        };
+        let decimal_child = unsafe { &*nested_children[0] };
+        let private_data = unsafe { &*decimal_child.private_data.cast::<PrivateData>() };
+        let value_buffer = private_data.buffers[1]
+            .as_ref()
+            .vortex_expect("value buffer should be present");
+        assert_eq!(value_buffer.len(), 3 * size_of::<i32>());
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
