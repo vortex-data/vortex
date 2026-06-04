@@ -158,10 +158,12 @@ fn execute_row_encode(
     let off = listview_offsets.as_mut_slice();
     match var_lengths.as_ref() {
         None => {
-            // Pure-fixed: offsets[i] = i * fixed_per_row. `iter_mut().enumerate()` elides
-            // per-element bounds checks, so LLVM auto-vectorizes this multiply.
-            for (i, slot) in off.iter_mut().enumerate() {
-                *slot = (i as u32) * fixed_per_row;
+            // Pure-fixed: offsets[i] = i * fixed_per_row. Zipping against a `u32` counter
+            // elides per-element bounds checks (and avoids a per-element `usize as u32`
+            // cast), so LLVM auto-vectorizes this multiply. `nrows` fits u32, so the counter
+            // never overflows.
+            for (slot, i) in off.iter_mut().zip(0u32..) {
+                *slot = i * fixed_per_row;
             }
         }
         Some(v) => {
@@ -170,8 +172,8 @@ fn execute_row_encode(
             // checks; the total was validated to fit u32 upstream so the wrapping arithmetic
             // is exact (it never actually wraps).
             let mut acc: u32 = 0;
-            for (i, (slot, &l)) in off.iter_mut().zip(v.iter()).enumerate() {
-                *slot = (i as u32).wrapping_mul(fixed_per_row).wrapping_add(acc);
+            for ((slot, &l), i) in off.iter_mut().zip(v.iter()).zip(0u32..) {
+                *slot = i.wrapping_mul(fixed_per_row).wrapping_add(acc);
                 acc = acc.wrapping_add(l);
             }
         }

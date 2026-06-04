@@ -979,6 +979,9 @@ fn encode_non_empty_varlen_body(bytes: &[u8], out: &mut [u8], descending: bool) 
     };
     let total = (full_to_write + 1) * VARLEN_BLOCK_TOTAL;
     debug_assert!(out.len() >= total);
+    // The final block's continuation byte encodes its content length (1..=32).
+    let len_byte =
+        u8::try_from(partial_block_len).vortex_expect("varlen final block length (1..=32) fits u8");
 
     // SAFETY: `out` has at least `total` bytes — the caller sizes every varlen slot via
     // `encoded_size_for_non_empty_varlen` (which equals `1 + total`, the extra byte being the
@@ -1004,7 +1007,7 @@ fn encode_non_empty_varlen_body(bytes: &[u8], out: &mut [u8], descending: bool) 
                 0,
                 VARLEN_BLOCK_SIZE - partial_block_len,
             );
-            *dst.add(VARLEN_BLOCK_SIZE) = partial_block_len as u8;
+            *dst.add(VARLEN_BLOCK_SIZE) = len_byte;
         } else {
             // Descending: invert every value byte. A u64-stride XOR gives LLVM a vectorizable
             // inner loop; the tail handles the partial block byte-wise.
@@ -1022,10 +1025,10 @@ fn encode_non_empty_varlen_body(bytes: &[u8], out: &mut [u8], descending: bool) 
                 0xFF, // 0x00 XOR 0xFF
                 VARLEN_BLOCK_SIZE - partial_block_len,
             );
-            *dst.add(VARLEN_BLOCK_SIZE) = (partial_block_len as u8) ^ 0xFF;
+            *dst.add(VARLEN_BLOCK_SIZE) = len_byte ^ 0xFF;
         }
     }
-    total as u32
+    u32::try_from(total).vortex_expect("encoded varlen byte length fits u32")
 }
 
 /// Copy 32 bytes from `src` to `dst`, XORing each with `0xFF`. LLVM auto-vectorizes the
