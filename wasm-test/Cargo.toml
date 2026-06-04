@@ -16,8 +16,3 @@ vortex = { path = "../vortex", default-features = false }
 inherits = "dev"
 debug = "line-tables-only"
 incremental = false
-
-# wasm-test is excluded from the workspace, so it does not inherit the root
-# [patch.crates-io]; pin the in-development FastLanes here too until a release is cut.
-[patch.crates-io]
-fastlanes = { git = "https://github.com/spiraldb/fastlanes", rev = "6c10ea72cf693a17e994aa6401604ebedbeda453" }
