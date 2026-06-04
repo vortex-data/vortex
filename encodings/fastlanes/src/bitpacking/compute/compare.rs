@@ -8,9 +8,6 @@
 //! a [`BitBuffer`]. Patches are re-applied at the end by overwriting bits at the patched
 //! indices with `predicate(patch_value)`.
 
-use fastlanes::BitPacking;
-use fastlanes::BitPackingCompare;
-use fastlanes::FastLanesComparable;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -59,15 +56,10 @@ impl CompareKernel for BitPacked {
     }
 }
 
-/// Compare every value against the constant via the fused FastLanes `unpack_cmp` kernel.
+/// Compare every value against the constant by streaming the regular FastLanes unpack iterator.
 ///
 /// `NativePType::is_eq` / `is_lt` etc. provide total comparison (matching the primitive between
 /// kernel's dispatch shape). `NotEq` has no direct method, so use `!is_eq`.
-///
-/// The fused kernel (compare straight into a transposed 1024-bit mask, then a single SIMD
-/// untranspose into logical row order) beats the unpack-then-compare streaming baseline for every
-/// integer type and bit width - see `benches/bitpack_compare_fused.rs` (~6-7x for 8-bit lanes
-/// down to ~1.2-1.9x for 64-bit lanes), so it is used unconditionally.
 fn compare_constant_typed<T>(
     lhs: ArrayView<'_, BitPacked>,
     rhs: T,
@@ -76,8 +68,7 @@ fn compare_constant_typed<T>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef>
 where
-    T: NativePType + BitPackedIter + FastLanesComparable,
-    <T as FastLanesComparable>::Bitpacked: BitPacking + NativePType + BitPackingCompare,
+    T: NativePType + BitPackedIter + Copy,
 {
     match operator {
         CompareOperator::Eq => {
