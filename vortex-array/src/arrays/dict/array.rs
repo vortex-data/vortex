@@ -23,6 +23,7 @@ use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
 use crate::array_slots;
 use crate::arrays::Dict;
+use crate::arrays::PrimitiveArray;
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::match_each_integer_ptype;
@@ -156,39 +157,13 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
         let values_len = self.values().len();
 
         // `seen[i]` records whether value `i` is referenced by at least one valid code.
-        // `mark_referenced` stops as soon as every value has been seen: dictionaries are
-        // frequently referenced by far more codes than they have values, so this commonly skips
-        // the bulk of the scatter — and the final pack, since the resulting mask is then constant.
         let mut seen = vec![false; values_len];
-        let all_referenced = match codes_validity.bit_buffer() {
-            AllOr::All => {
-                match_each_integer_ptype!(codes_primitive.ptype(), |P| {
-                    #[allow(
-                        clippy::cast_possible_truncation,
-                        clippy::cast_sign_loss,
-                        reason = "codes are non-negative indices; a negative signed code would wrap to a large usize and panic on the bounds-checked array index"
-                    )]
-                    let indices = codes_primitive
-                        .as_slice::<P>()
-                        .iter()
-                        .map(|&idx| idx as usize);
-                    mark_referenced(&mut seen, indices)
-                })
-            }
-            AllOr::None => values_len == 0,
-            AllOr::Some(mask) => {
-                match_each_integer_ptype!(codes_primitive.ptype(), |P| {
-                    let codes = codes_primitive.as_slice::<P>();
-                    #[allow(
-                        clippy::cast_possible_truncation,
-                        clippy::cast_sign_loss,
-                        reason = "codes are non-negative indices; a negative signed code would wrap to a large usize and panic on the bounds-checked array index"
-                    )]
-                    let indices = mask.set_indices().map(|i| codes[i] as usize);
-                    mark_referenced(&mut seen, indices)
-                })
-            }
-        };
+        let all_referenced = populate_seen(
+            &mut seen,
+            &codes_primitive,
+            codes_validity.bit_buffer(),
+            self.has_all_values_referenced(),
+        );
 
         // When every value is referenced the mask is constant, so we avoid rebuilding it.
         if all_referenced {
@@ -204,12 +179,68 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
 }
 impl<T: TypedArrayRef<Dict>> DictArrayExt for T {}
 
-/// Marks `seen[idx] = true` for every index yielded by `indices`.
+/// Populates `seen` so that `seen[v]` is `true` iff value `v` is referenced by a valid code, and
+/// returns whether every value ended up referenced.
 ///
-/// Returns `true` as soon as every entry in `seen` has been marked (allowing the caller to stop
-/// early), otherwise `false` once `indices` is exhausted. The store is skipped for already-seen
-/// values, which in the common case of many codes per value avoids a read-modify-write storm on a
-/// handful of hot bytes.
+/// When `expect_all` is set — the caller believes the whole dictionary is referenced, e.g. during
+/// validation — the scan stops via [`mark_referenced`] as soon as every value has been seen.
+/// Otherwise, the common case where only some values are referenced (`min_max`/`is_constant`), a
+/// branchless blind store is used: writing every reference unconditionally avoids the branch
+/// mispredictions and read-modify-write contention that a data-dependent skip incurs on a small,
+/// densely-referenced dictionary.
+fn populate_seen(
+    seen: &mut [bool],
+    codes: &PrimitiveArray,
+    validity: AllOr<&BitBuffer>,
+    expect_all: bool,
+) -> bool {
+    match validity {
+        AllOr::All => match_each_integer_ptype!(codes.ptype(), |P| {
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "codes are non-negative indices; a negative signed code wraps to a large usize and panics on the bounds-checked array index"
+            )]
+            let indices = codes.as_slice::<P>().iter().map(|&c| c as usize);
+            scatter_into(seen, indices, expect_all)
+        }),
+        AllOr::None => seen.is_empty(),
+        AllOr::Some(valid) => match_each_integer_ptype!(codes.ptype(), |P| {
+            let codes = codes.as_slice::<P>();
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "codes are non-negative indices; a negative signed code wraps to a large usize and panics on the bounds-checked array index"
+            )]
+            let indices = valid.set_indices().map(|i| codes[i] as usize);
+            scatter_into(seen, indices, expect_all)
+        }),
+    }
+}
+
+/// Scatters references into `seen` and reports whether all values are referenced, choosing the
+/// early-exit or blind-store strategy based on `expect_all`. See [`populate_seen`].
+fn scatter_into(
+    seen: &mut [bool],
+    indices: impl IntoIterator<Item = usize>,
+    expect_all: bool,
+) -> bool {
+    if expect_all {
+        mark_referenced(seen, indices)
+    } else {
+        for idx in indices {
+            seen[idx] = true;
+        }
+        seen.iter().all(|&b| b)
+    }
+}
+
+/// Marks `seen[idx] = true` for every index yielded by `indices`, stopping as soon as every entry
+/// has been marked.
+///
+/// Returns `true` if every entry was marked (allowing the caller to stop early), otherwise `false`
+/// once `indices` is exhausted. The store is skipped for already-seen values, which when most codes
+/// repeat a fully-referenced dictionary lets the scan finish after only a fraction of the codes.
 fn mark_referenced(seen: &mut [bool], indices: impl IntoIterator<Item = usize>) -> bool {
     let mut remaining = seen.len();
     if remaining == 0 {

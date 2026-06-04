@@ -16,6 +16,23 @@ fn main() {
     divan::main();
 }
 
+/// Flags a fixture as fully referenced when it actually is, mirroring what the encoder records.
+/// This keeps fully-referenced dictionaries on the early-exit path (as they would be in practice),
+/// rather than the blind-store path used when only some values are referenced.
+fn flag_if_all_referenced(array: DictArray, num_values: usize) -> DictArray {
+    let all_referenced = array
+        .compute_referenced_values_mask(true)
+        .unwrap()
+        .true_count()
+        == num_values;
+    if all_referenced {
+        // SAFETY: verified above that every value is referenced by a valid code.
+        unsafe { array.set_all_values_referenced(true) }
+    } else {
+        array
+    }
+}
+
 /// Benchmark with many codes (65K) relative to 1024 values.
 /// This tests performance when the values dictionary is small but many codes reference it.
 #[divan::bench(args = [
@@ -38,7 +55,45 @@ fn bench_many_codes_few_values(bencher: Bencher, num_values: i32) {
     )
     .into_array();
 
-    let array = DictArray::try_new(codes, values).unwrap();
+    let array = flag_if_all_referenced(
+        DictArray::try_new(codes, values).unwrap(),
+        num_values as usize,
+    );
+
+    bencher
+        .with_inputs(|| &array)
+        .bench_refs(|array| array.compute_referenced_values_mask(false).unwrap());
+}
+
+/// Benchmark the production shape: a 1K-16K value dictionary where only ~50% of the values are
+/// referenced, with 65K codes. Because the dictionary is not fully referenced the mask must scan
+/// every code (no early exit) — this is what `min_max`/`is_constant` see in practice.
+#[divan::bench(args = [
+    1024,
+    4096,
+    8192,
+    16384,
+])]
+fn bench_partial_coverage(bencher: Bencher, num_values: i32) {
+    let mut rng = StdRng::seed_from_u64(0);
+
+    let num_codes = 65_536;
+
+    let values = PrimitiveArray::from_iter(0..num_values).into_array();
+
+    // Codes only ever reference the first ~50% of the values.
+    #[expect(clippy::cast_sign_loss)]
+    let num_referenced = (num_values as usize / 2).max(1);
+    #[expect(clippy::cast_possible_truncation)]
+    let codes = PrimitiveArray::from_iter(
+        (0..num_codes).map(|_| rng.random_range(0..num_referenced) as u32),
+    )
+    .into_array();
+
+    let array = flag_if_all_referenced(
+        DictArray::try_new(codes, values).unwrap(),
+        num_values as usize,
+    );
 
     bencher
         .with_inputs(|| &array)
@@ -70,7 +125,10 @@ fn bench_many_nulls(bencher: Bencher, fraction_valid: f64) {
     }))
     .into_array();
 
-    let array = DictArray::try_new(codes, values).unwrap();
+    let array = flag_if_all_referenced(
+        DictArray::try_new(codes, values).unwrap(),
+        num_values as usize,
+    );
 
     bencher
         .with_inputs(|| &array)
@@ -104,7 +162,10 @@ fn bench_sparse_coverage(bencher: Bencher, fraction_coverage: f64) {
     )
     .into_array();
 
-    let array = DictArray::try_new(codes, values).unwrap();
+    let array = flag_if_all_referenced(
+        DictArray::try_new(codes, values).unwrap(),
+        num_values as usize,
+    );
 
     bencher
         .with_inputs(|| &array)
