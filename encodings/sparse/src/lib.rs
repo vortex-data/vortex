@@ -73,13 +73,11 @@ mod ops;
 mod rules;
 mod slice;
 
-
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
 use vortex_array::aggregate_fn::fns::min_max::MinMax;
 use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::aggregate_fn::fns::null_count::NullCount;
 use vortex_array::aggregate_fn::fns::sum::Sum;
-
 
 /// Initialize Sparse encoding in the given session.
 ///

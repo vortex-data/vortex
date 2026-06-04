@@ -162,10 +162,8 @@ pub fn register_default_encodings(session: &VortexSession) {
     {
         let arrays = session.arrays();
         arrays.register(Dict);
-        arrays.register(FSST);
         #[cfg(feature = "unstable_encodings")]
         arrays.register(OnPair);
-        arrays.register(Pco);
         arrays.register(ZigZag);
         #[cfg(feature = "zstd")]
         arrays.register(vortex_zstd::Zstd);
