@@ -4,6 +4,7 @@
 //! Factory functions for creating [`Expression`]s from scalar function vtables.
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
@@ -52,20 +53,24 @@ use crate::scalar_fn::fns::variant_get::VariantGetOptions;
 use crate::scalar_fn::fns::variant_get::VariantPath;
 use crate::scalar_fn::fns::zip::Zip;
 
-// ---- Root ----
+static ROOT: LazyLock<Expression> = LazyLock::new(|| {
+    Root.try_new_expr(EmptyOptions, vec![])
+        .vortex_expect("Creating root() shouldn't fail")
+});
 
 /// Creates an expression that references the root scope.
 ///
 /// Returns the entire input array as passed to the expression evaluator.
 /// This is commonly used as the starting point for field access and other operations.
 pub fn root() -> Expression {
-    Root.try_new_expr(EmptyOptions, vec![])
-        .vortex_expect("Failed to create Root expression")
+    ROOT.clone()
 }
 
 /// Return whether the expression is a root expression.
 pub fn is_root(expr: &Expression) -> bool {
-    expr.is::<Root>()
+    // root doesn't have any children, and scalar_fns have distinct ids
+    // so we should almost always hit this eq check
+    (expr.scalar_fn().id() == ROOT.scalar_fn().id()) || expr.is::<Root>()
 }
 
 // ---- Literal ----

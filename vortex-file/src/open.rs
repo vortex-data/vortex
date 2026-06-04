@@ -60,6 +60,8 @@ pub struct VortexOpenOptions {
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
     /// Default labels applied to all the file's metrics
     labels: Vec<Label>,
+    /// Whether to cache file's LayoutReader between scans
+    cache_layout_reader: bool,
 }
 
 pub trait OpenOptionsSessionExt:
@@ -77,6 +79,7 @@ pub trait OpenOptionsSessionExt:
             initial_read_segments: Default::default(),
             metrics_registry: None,
             labels: Vec::default(),
+            cache_layout_reader: false,
         }
     }
 }
@@ -89,6 +92,12 @@ impl VortexOpenOptions {
     /// Configure the initial read size for the Vortex file.
     pub fn with_initial_read_size(mut self, initial_read_size: usize) -> Self {
         self.initial_read_size = initial_read_size;
+        self
+    }
+
+    /// Cache file's LayoutReader between scans
+    pub fn with_layout_reader_cache(mut self) -> Self {
+        self.cache_layout_reader = true;
         self
     }
 
@@ -182,6 +191,7 @@ impl VortexOpenOptions {
             tracing::warn!("metrics registry is ignored for in-memory `open_buffer`");
         }
 
+        let cache_layout_reader = self.cache_layout_reader;
         let mut opts = self.with_initial_read_size(0);
 
         let footer = match opts.footer.take() {
@@ -193,8 +203,12 @@ impl VortexOpenOptions {
             buffer,
             Arc::clone(footer.segment_map()),
         ));
-
-        Ok(VortexFile::new(footer, segment_source, opts.session))
+        let file = VortexFile::new(footer, segment_source, opts.session);
+        Ok(if cache_layout_reader {
+            file.with_caching()
+        } else {
+            file
+        })
     }
 
     /// An API for opening a [`VortexFile`] using any [`VortexReadAt`] implementation.
@@ -240,11 +254,12 @@ impl VortexOpenOptions {
             segment_source,
         ));
 
-        Ok(VortexFile::new(
-            footer,
-            segment_source,
-            self.session.clone(),
-        ))
+        let file = VortexFile::new(footer, segment_source, self.session.clone());
+        Ok(if self.cache_layout_reader {
+            file.with_caching()
+        } else {
+            file
+        })
     }
 
     async fn read_footer(&self, read: &dyn VortexReadAt) -> VortexResult<Footer> {

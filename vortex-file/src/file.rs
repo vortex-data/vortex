@@ -8,6 +8,7 @@
 
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use itertools::Itertools;
 use vortex_array::ArrayRef;
@@ -51,6 +52,29 @@ pub struct VortexFile {
     segment_source: Arc<dyn SegmentSource>,
     /// The Vortex session used to open this file.
     session: VortexSession,
+    /// None id LayoutReader caching is turned off
+    layout_reader_cache: Option<OnceLock<Arc<dyn LayoutReader>>>,
+}
+
+fn layout_reader(
+    segment_source: Arc<dyn SegmentSource>,
+    footer: &Footer,
+    session: &VortexSession,
+) -> VortexResult<Arc<dyn LayoutReader>> {
+    let root_reader = footer
+        .layout()
+        // TODO(ngates): we may want to allow the user pass in a name here?
+        .new_reader("".into(), segment_source, session, &Default::default())?;
+
+    Ok(if let Some(stats) = footer.statistics().cloned() {
+        Arc::new(FileStatsLayoutReader::new(
+            root_reader,
+            stats,
+            session.clone(),
+        ))
+    } else {
+        root_reader
+    })
 }
 
 impl VortexFile {
@@ -64,6 +88,17 @@ impl VortexFile {
             footer,
             segment_source,
             session,
+            layout_reader_cache: None,
+        }
+    }
+
+    /// Enable layout reader caching
+    pub fn with_caching(self) -> Self {
+        Self {
+            footer: self.footer,
+            segment_source: self.segment_source,
+            session: self.session,
+            layout_reader_cache: Some(OnceLock::new()),
         }
     }
 
@@ -106,28 +141,30 @@ impl VortexFile {
     ///
     /// Wraps the root layout in a [`FileStatsLayoutReader`] if file stats are available.
     pub fn layout_reader(&self) -> VortexResult<Arc<dyn LayoutReader>> {
-        let segment_source = self.segment_source();
-
-        let root_reader = self
-            .footer
-            .layout()
-            // TODO(ngates): we may want to allow the user pass in a name here?
-            .new_reader(
-                "".into(),
-                segment_source,
+        match &self.layout_reader_cache {
+            None => layout_reader(
+                Arc::clone(&self.segment_source),
+                &self.footer,
                 &self.session,
-                &Default::default(),
-            )?;
-
-        Ok(if let Some(stats) = self.file_stats().cloned() {
-            Arc::new(FileStatsLayoutReader::new(
-                root_reader,
-                stats,
-                self.session.clone(),
-            ))
-        } else {
-            root_reader
-        })
+            ),
+            Some(reader) => {
+                // get_or_try_init is unstable
+                if let Some(val) = reader.get() {
+                    Ok(Arc::clone(val))
+                } else {
+                    let inner = layout_reader(
+                        Arc::clone(&self.segment_source),
+                        &self.footer,
+                        &self.session,
+                    )?;
+                    Ok(if let Err(val) = reader.set(Arc::clone(&inner)) {
+                        val
+                    } else {
+                        inner
+                    })
+                }
+            }
+        }
     }
 
     /// Create a [`DataSource`](vortex_scan::DataSource) from this file for scanning.

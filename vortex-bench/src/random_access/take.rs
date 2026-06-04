@@ -48,7 +48,11 @@ impl VortexRandomAccessor {
         name: impl Into<String>,
         format: Format,
     ) -> anyhow::Result<Self> {
-        let file = SESSION.open_options().open_path(path.as_ref()).await?;
+        let file = SESSION
+            .open_options()
+            .with_layout_reader_cache()
+            .open_path(path.as_ref())
+            .await?;
         Ok(Self {
             name: name.into(),
             format,
