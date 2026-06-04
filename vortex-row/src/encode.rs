@@ -186,8 +186,16 @@ fn execute_row_encode(
     let offsets_arr =
         PrimitiveArray::new(listview_offsets.freeze(), Validity::NonNullable).into_array();
     let sizes_arr = PrimitiveArray::new(row_cursors.freeze(), Validity::NonNullable).into_array();
-    Ok(
-        ListViewArray::try_new(elements, offsets_arr, sizes_arr, Validity::NonNullable)?
-            .into_array(),
-    )
+    // SAFETY: this encoder constructs `elements`, `offsets_arr`, and `sizes_arr` itself:
+    // - `elements` is a `PrimitiveArray<u8>` of length `total_len`.
+    // - `offsets_arr[i]` is `i * fixed_per_row + var_prefix[i]`, monotonically increasing and
+    //   in `0..=total_len`.
+    // - `offsets_arr[i] + sizes_arr[i] <= total_len` by construction, and each row's slice is
+    //   disjoint from every other row's.
+    // `try_new`'s validation re-walks every row to check exactly these invariants, which we
+    // already guarantee by construction, so we skip it.
+    Ok(unsafe {
+        ListViewArray::new_unchecked(elements, offsets_arr, sizes_arr, Validity::NonNullable)
+    }
+    .into_array())
 }
