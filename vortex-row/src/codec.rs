@@ -26,7 +26,6 @@
 
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
-use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::ExtensionArray;
@@ -642,35 +641,71 @@ fn encode_varbinview(
     row_offsets: &[u32],
     col_offset: &mut [u32],
     out: &mut [u8],
-    _ctx: &mut ExecutionCtx,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
     let null_byte = varlen_null_sentinel(field);
     let empty_byte = varlen_empty_sentinel(field);
     let non_empty_byte = varlen_non_empty_sentinel(field);
+    let descending = field.descending;
 
-    // `with_iterator` yields `Some(bytes)` for non-null rows and `None` for null rows,
-    // so the iterator alone fully describes validity — no separate mask lookup needed.
-    arr.with_iterator(|iter| {
-        for (i, maybe) in iter.enumerate() {
-            let pos = (row_offsets[i] + col_offset[i]) as usize;
-            match maybe {
-                None => {
-                    out[pos] = null_byte;
-                    col_offset[i] += VARLEN_NULL_SIZE;
-                }
-                Some([]) => {
+    let views = arr.views();
+    // Cache the data-buffer slices once. Inlined views (len <= 12) carry their bytes inline,
+    // so they never touch `buffers`; referenced views index into the pre-validated buffer at
+    // `offset..offset + len`. Walking views directly avoids the per-row bounds and branch work
+    // of `with_iterator`.
+    let buffers: smallvec::SmallVec<[&[u8]; 4]> = (0..arr.data_buffers().len())
+        .map(|i| arr.buffer(i).as_slice())
+        .collect();
+
+    match resolve_validity(arr.as_ref().validity()?, arr.len(), ctx)? {
+        ValidityKind::AllValid => {
+            for (i, view) in views.iter().enumerate() {
+                let pos = (row_offsets[i] + col_offset[i]) as usize;
+                let len = view.len() as usize;
+                if len == 0 {
                     out[pos] = empty_byte;
                     col_offset[i] += VARLEN_EMPTY_SIZE;
+                    continue;
                 }
-                Some(bytes) => {
-                    out[pos] = non_empty_byte;
-                    let written =
-                        encode_non_empty_varlen_body(bytes, &mut out[pos + 1..], field.descending);
-                    col_offset[i] += 1 + written;
-                }
+                let bytes: &[u8] = if view.is_inlined() {
+                    view.as_inlined().value()
+                } else {
+                    let r = view.as_view();
+                    let off = r.offset as usize;
+                    &buffers[r.buffer_index as usize][off..off + len]
+                };
+                out[pos] = non_empty_byte;
+                let written = encode_non_empty_varlen_body(bytes, &mut out[pos + 1..], descending);
+                col_offset[i] += 1 + written;
             }
         }
-    });
+        ValidityKind::Mask(mask) => {
+            for (i, view) in views.iter().enumerate() {
+                let pos = (row_offsets[i] + col_offset[i]) as usize;
+                if !mask.value(i) {
+                    out[pos] = null_byte;
+                    col_offset[i] += VARLEN_NULL_SIZE;
+                    continue;
+                }
+                let len = view.len() as usize;
+                if len == 0 {
+                    out[pos] = empty_byte;
+                    col_offset[i] += VARLEN_EMPTY_SIZE;
+                    continue;
+                }
+                let bytes: &[u8] = if view.is_inlined() {
+                    view.as_inlined().value()
+                } else {
+                    let r = view.as_view();
+                    let off = r.offset as usize;
+                    &buffers[r.buffer_index as usize][off..off + len]
+                };
+                out[pos] = non_empty_byte;
+                let written = encode_non_empty_varlen_body(bytes, &mut out[pos + 1..], descending);
+                col_offset[i] += 1 + written;
+            }
+        }
+    }
     Ok(())
 }
 
