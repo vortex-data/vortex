@@ -277,9 +277,14 @@ mod tests {
         let (start, end) = (700usize, 3500usize);
         let sliced = packed.into_array().slice(start..end)?;
         let rhs = ConstantArray::new(50i32, end - start).into_array();
-        let got = sliced
-            .binary(rhs.clone(), Operator::Eq)?
-            .execute::<BoolArray>(&mut ctx)?;
+        let got = <BitPacked as CompareKernel>::compare(
+            sliced.as_::<BitPacked>(),
+            &rhs,
+            CompareOperator::Eq,
+            &mut ctx,
+        )?
+        .expect("fused compare kernel must engage for sliced arrays with patches")
+        .execute::<BoolArray>(&mut ctx)?;
         let want = prim
             .into_array()
             .slice(start..end)?
