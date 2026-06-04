@@ -249,6 +249,7 @@ impl BufferHandle {
     }
 
     /// Downcast this handle as a handle to a host-resident buffer, or `None`.
+    #[inline]
     pub fn as_host_opt(&self) -> Option<&ByteBuffer> {
         match &self.0 {
             Inner::Host(buffer) => Some(buffer),
@@ -266,6 +267,7 @@ impl BufferHandle {
 
     /// A version of [`as_host_opt`][Self::as_host_opt] that panics if the allocation is
     /// not a host allocation.
+    #[inline]
     pub fn as_host(&self) -> &ByteBuffer {
         self.as_host_opt().vortex_expect("expected host buffer")
     }
