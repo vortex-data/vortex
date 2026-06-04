@@ -178,9 +178,19 @@ Decide per site — bulk is not always the answer:
 - **The accessor is already genuinely `O(1)`** (e.g. reading an already-materialized `Mask`/
   slice, or a native bitmap) → leave it; bulk would not help.
 
+Even after materializing into a `Mask`/`BitBuffer`, **do not loop with `value(i)` per
+element** to act on each set bit — the per-element branch dominates. Iterate a `u64` word
+at a time with all-set / all-unset fast paths: use [`BitBuffer::for_each_set_index`]. It
+beats `for i in 0..len { if buf.value(i) {..} }` by 2-45x (more at low density) and beats
+collecting `set_indices()` by ~2x at mid/high density, while self-adapting from sparse to
+dense — see `vortex-mask/benches/mask_iteration.rs`. Reach for the cached `indices()` /
+`slices()` representations when you need them more than once; otherwise `for_each_set_index`
+needs no materialization.
+
 When you touch such a loop, back the change with a benchmark (see
-`vortex-array/benches/validity_is_valid.rs` for the `is_valid` case and
-`vortex-mask/benches/valid_counts.rs` for the popcount case).
+`vortex-array/benches/validity_is_valid.rs` for the `is_valid` case,
+`vortex-mask/benches/valid_counts.rs` for the popcount case, and
+`vortex-mask/benches/mask_iteration.rs` for the per-element-vs-word-vs-sparse comparison).
 
 ## Tests
 

@@ -43,5 +43,9 @@ harness = false
 name = "valid_counts"
 harness = false
 
+[[bench]]
+name = "mask_iteration"
+harness = false
+
 [lints]
 workspace = true
