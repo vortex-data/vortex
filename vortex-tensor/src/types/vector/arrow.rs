@@ -15,6 +15,7 @@ use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
 use vortex_array::ArrayRef;
+use vortex_array::EmptyMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
@@ -30,7 +31,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::arrow::FromArrowType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtVTable;
-use vortex_array::extension::EmptyMetadata;
 use vortex_error::VortexResult;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
@@ -174,6 +174,7 @@ mod tests {
     use arrow_array::Float32Array;
     use arrow_array::Int32Array;
     use arrow_schema::Field;
+    use vortex_array::EmptyMetadata;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::FixedSizeListArray;
@@ -188,7 +189,6 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
     use vortex_array::dtype::extension::ExtDType;
-    use vortex_array::extension::EmptyMetadata;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 

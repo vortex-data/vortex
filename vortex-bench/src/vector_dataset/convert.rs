@@ -4,6 +4,7 @@
 // TODO(connor): Should we re-export this through `conversions.rs`?
 
 use vortex::array::ArrayRef;
+use vortex::array::EmptyMetadata;
 use vortex::array::IntoArray;
 use vortex::array::arrays::Chunked;
 use vortex::array::arrays::ChunkedArray;
@@ -23,7 +24,6 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
-use vortex::extension::EmptyMetadata;
 use vortex_tensor::vector::Vector;
 
 /// Rewrap a list-of-float column as a [`vortex_tensor::vector::Vector`] extension array.

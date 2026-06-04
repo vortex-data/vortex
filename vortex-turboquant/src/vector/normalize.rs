@@ -10,6 +10,7 @@
 
 use num_traits::Float;
 use vortex_array::ArrayRef;
+use vortex_array::EmptyMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
@@ -19,7 +20,6 @@ use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::dtype::NativePType;
-use vortex_array::extension::EmptyMetadata;
 use vortex_array::match_each_float_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;

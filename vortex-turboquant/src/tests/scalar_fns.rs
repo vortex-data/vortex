@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::EmptyMetadata;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::extension::EmptyMetadata;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;

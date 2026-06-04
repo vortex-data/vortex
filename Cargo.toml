@@ -13,6 +13,7 @@ members = [
     "vortex-proto",
     "vortex-array",
     "vortex-tensor",
+    "vortex-json",
     "vortex-turboquant",
     "vortex-compressor",
     "vortex-btrblocks",
@@ -288,6 +289,7 @@ vortex-flatbuffers = { version = "0.1.0", path = "./vortex-flatbuffers", default
 vortex-fsst = { version = "0.1.0", path = "./encodings/fsst", default-features = false }
 vortex-io = { version = "0.1.0", path = "./vortex-io", default-features = false }
 vortex-ipc = { version = "0.1.0", path = "./vortex-ipc", default-features = false }
+vortex-json = { version = "0.1.0", path = "./vortex-json", default-features = false }
 vortex-layout = { version = "0.1.0", path = "./vortex-layout", default-features = false }
 vortex-mask = { version = "0.1.0", path = "./vortex-mask", default-features = false }
 vortex-metrics = { version = "0.1.0", path = "./vortex-metrics", default-features = false }

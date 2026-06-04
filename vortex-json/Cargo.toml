@@ -1,0 +1,21 @@
+[package]
+name = "vortex-json"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Vortex JSON extension type"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
+
+[dependencies]
+vortex-array = { workspace = true, default-features = false }
+vortex-error = { workspace = true, default-features = false }
