@@ -150,22 +150,24 @@ fn execute_row_encode(
     // For pure-fixed: i * fixed_per_row.
     // For mixed: i * fixed_per_row + exclusive prefix sum of var_lengths.
     // Build directly into a BufferMut to avoid a Vec→Buffer copy at the end.
-    let nrows_u32 =
-        u32::try_from(nrows).vortex_expect("nrows fits u32 (validated earlier in this function)");
     let mut listview_offsets: BufferMut<u32> = BufferMut::with_capacity(nrows);
+    // SAFETY: `nrows` of capacity reserved above; every index in `[0, nrows)` is written
+    // before the buffer is read out. `nrows` was validated to fit `u32` at function entry,
+    // so `i as u32` below is exact and the multiplications can't overflow.
+    unsafe { listview_offsets.set_len(nrows) };
+    let off = listview_offsets.as_mut_slice();
     match var_lengths.as_ref() {
         None => {
-            for row_idx in 0..nrows_u32 {
-                // Total bytes already fit in u32, so row_idx * fixed_per_row also does.
-                listview_offsets.push(row_idx * fixed_per_row);
+            // Pure-fixed: offsets[i] = i * fixed_per_row. `iter_mut().enumerate()` elides
+            // per-element bounds checks, so LLVM auto-vectorizes this multiply.
+            for (i, slot) in off.iter_mut().enumerate() {
+                *slot = (i as u32) * fixed_per_row;
             }
         }
         Some(v) => {
             let mut acc: u32 = 0;
-            for (row_idx, &l) in (0..nrows_u32).zip(v.iter()) {
-                // The arithmetic below cannot overflow because we already verified the
-                // total fits in u32.
-                listview_offsets.push(row_idx * fixed_per_row + acc);
+            for (i, &l) in v.iter().enumerate() {
+                off[i] = (i as u32) * fixed_per_row + acc;
                 acc += l;
             }
         }
