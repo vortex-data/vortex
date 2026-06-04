@@ -74,8 +74,6 @@ pub fn make_object_store(
 ) -> anyhow::Result<Arc<dyn ObjectStore>> {
     match source.scheme() {
         "s3" | "gs" | "az" => {
-            // Build the cloud store through the shared resolver, then register it with the
-            // DataFusion session under its scheme+authority prefix.
             let (store, _) = FileLocation::resolve(source.as_str())?.into_remote()?;
             let authority = &source[url::Position::BeforeHost..url::Position::AfterHost];
             let base = Url::parse(&format!("{}://{authority}/", source.scheme()))?;

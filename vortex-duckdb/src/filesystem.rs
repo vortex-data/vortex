@@ -79,8 +79,6 @@ pub(super) fn resolve_filesystem(
 }
 
 fn object_store_fs(base_url: &Url) -> VortexResult<FileSystemRef> {
-    // Local paths use the local filesystem directly; all other schemes (s3://, gs://, az://, …)
-    // resolve through the shared cloud resolver.
     let object_store: Arc<dyn ObjectStore> = if base_url.scheme() == "file" {
         Arc::new(LocalFileSystem::new())
     } else {

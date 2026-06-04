@@ -343,7 +343,7 @@ impl VortexOpenOptions {
     }
 }
 
-#[cfg(all(feature = "cloud", not(target_arch = "wasm32")))]
+#[cfg(feature = "cloud")]
 impl VortexOpenOptions {
     /// Open a Vortex file from a URL or filesystem path.
     ///

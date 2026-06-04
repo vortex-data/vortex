@@ -66,26 +66,12 @@ impl FileLocation {
     /// Resolve a URL or path string to a [`FileLocation`].
     ///
     /// - `file://` URLs and inputs that do not parse as a URL resolve to [`FileLocation::Local`].
-    /// - All other schemes (`s3://`, `gs://`, `az://`, `http(s)://`, …) resolve through the
+    /// - All other schemes (`s3://`, `gs://`, `az://`, `http(s)://`, ...) resolve through the
     ///   process-global registry, which lazily constructs and caches the store from the URL and
     ///   case-insensitive environment variables, returning [`FileLocation::Remote`].
     ///
     /// This is the canonical entry point. Callers needing MinIO/LocalStack-style defaults or
     /// explicit per-property credentials can use [`make_object_store`] instead.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use vortex_io::object_store::FileLocation;
-    ///
-    /// # fn main() -> vortex_error::VortexResult<()> {
-    /// match FileLocation::resolve("s3://bucket/key/file.vortex")? {
-    ///     FileLocation::Remote { store, path } => { /* read from `store` at `path` */ }
-    ///     FileLocation::Local(path) => { /* read local file at `path` */ }
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn resolve(url_or_path: impl AsRef<str>) -> VortexResult<Self> {
         let url_or_path = url_or_path.as_ref();
         match Url::parse(url_or_path) {
@@ -99,7 +85,6 @@ impl FileLocation {
                 let (store, path) = DEFAULT_REGISTRY.resolve(&url)?;
                 Ok(FileLocation::Remote { store, path })
             }
-            // Not a URL: treat the input as a local filesystem path.
             Err(_) => Ok(FileLocation::Local(PathBuf::from(url_or_path))),
         }
     }

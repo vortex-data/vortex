@@ -70,7 +70,6 @@ workspace = true
 
 [features]
 object_store = ["dep:object_store", "vortex-io/object_store", "tokio"]
-# Enables `VortexOpenOptions::open_url` and the cloud object stores it resolves.
 cloud = ["object_store", "vortex-io/cloud"]
 tokio = [
     "dep:tokio",
