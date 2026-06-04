@@ -36,6 +36,16 @@ pub type FileSystemRef = Arc<dyn FileSystem>;
 /// Implementations handle the details of a particular storage backend (local disk, S3, GCS, etc.)
 /// while consumers work through this uniform interface.
 ///
+/// # Paths
+///
+/// Path strings are *literal* object keys / file paths: the characters are used verbatim, with no
+/// shell-style `~` expansion (`~` is a literal tilde, not the home directory) and no
+/// percent-encoding or -decoding applied by this layer (`%20` is the three characters `%`, `2`,
+/// `0`, not a space). A path produced by [`list`](FileSystem::list) or [`head`](FileSystem::head)
+/// is the object's actual key, so it can be passed straight back to
+/// [`open_read`](FileSystem::open_read) — including when it contains characters such as `~`, `%`,
+/// `[`, `]`, or `#`.
+///
 /// # Future Work
 ///
 /// An `open_write` method will be added once [`VortexWrite`](crate::VortexWrite) is
