@@ -6,9 +6,9 @@ use vortex_error::vortex_err;
 
 use super::uncompressed_size_in_bytes_u64;
 use crate::ExecutionCtx;
+use crate::aggregate_fn::fns::uncompressed_size_in_bytes::validity_uncompressed_size_in_bytes;
 use crate::arrays::StructArray;
 use crate::arrays::struct_::StructArrayExt;
-use crate::validity::validity_uncompressed_size_in_bytes;
 
 pub(super) fn struct_uncompressed_size_in_bytes(
     array: &StructArray,

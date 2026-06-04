@@ -21,8 +21,6 @@ pub use alp_rd::*;
 use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::nan_count::NanCount;
-use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::FixedWidthUncompressedSizeInBytesKernel;
-use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::session::ArraySessionExt;
@@ -47,15 +45,5 @@ pub fn initialize(session: &VortexSession) {
         ALP.id(),
         Some(NanCount.id()),
         &compute::nan_count::ALPNanCountKernel,
-    );
-    session.aggregate_fns().register_aggregate_kernel(
-        ALP.id(),
-        Some(UncompressedSizeInBytes.id()),
-        &FixedWidthUncompressedSizeInBytesKernel,
-    );
-    session.aggregate_fns().register_aggregate_kernel(
-        ALPRD.id(),
-        Some(UncompressedSizeInBytes.id()),
-        &FixedWidthUncompressedSizeInBytesKernel,
     );
 }

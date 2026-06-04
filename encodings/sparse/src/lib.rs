@@ -24,7 +24,6 @@ use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::aggregate_fn::AggregateFnVTable;
-use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::FixedWidthUncompressedSizeInBytesKernel;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::arrays::BoolArray;
@@ -117,7 +116,7 @@ pub fn initialize(session: &VortexSession) {
     session.aggregate_fns().register_aggregate_kernel(
         Sparse.id(),
         Some(UncompressedSizeInBytes.id()),
-        &FixedWidthUncompressedSizeInBytesKernel,
+        &compute::uncompressed_size::SparseUncompressedSizeInBytesKernel,
     );
 }
 

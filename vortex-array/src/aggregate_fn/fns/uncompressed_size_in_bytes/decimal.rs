@@ -5,10 +5,10 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::ExecutionCtx;
+use crate::aggregate_fn::fns::uncompressed_size_in_bytes::validity_uncompressed_size_in_bytes;
 use crate::arrays::DecimalArray;
 use crate::arrays::decimal::DecimalArrayExt;
 use crate::dtype::DecimalType;
-use crate::validity::validity_uncompressed_size_in_bytes;
 
 pub(super) fn decimal_uncompressed_size_in_bytes(
     array: &DecimalArray,

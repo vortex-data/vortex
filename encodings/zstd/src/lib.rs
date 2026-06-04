@@ -29,18 +29,6 @@ pub fn initialize(session: &VortexSession) {
         Some(UncompressedSizeInBytes.id()),
         &compute::uncompressed_size::ZstdUncompressedSizeInBytesKernel,
     );
-
-    #[cfg(feature = "unstable_encodings")]
-    {
-        use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::FixedWidthUncompressedSizeInBytesKernel;
-
-        session.arrays().register(ZstdBuffers);
-        session.aggregate_fns().register_aggregate_kernel(
-            ZstdBuffers.id(),
-            Some(UncompressedSizeInBytes.id()),
-            &FixedWidthUncompressedSizeInBytesKernel,
-        );
-    }
 }
 
 #[derive(Clone, prost::Message)]

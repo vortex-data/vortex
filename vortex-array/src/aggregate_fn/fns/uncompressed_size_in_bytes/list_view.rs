@@ -6,10 +6,10 @@ use vortex_error::vortex_err;
 
 use super::uncompressed_size_in_bytes_u64;
 use crate::ExecutionCtx;
+use crate::aggregate_fn::fns::uncompressed_size_in_bytes::validity_uncompressed_size_in_bytes;
 use crate::arrays::ListViewArray;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewRebuildMode;
-use crate::validity::validity_uncompressed_size_in_bytes;
 
 pub(super) fn list_view_uncompressed_size_in_bytes(
     array: &ListViewArray,

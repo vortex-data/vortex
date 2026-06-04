@@ -30,8 +30,6 @@ use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
-use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::FixedWidthUncompressedSizeInBytesKernel;
-use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::session::ArraySessionExt;
@@ -65,26 +63,6 @@ pub fn initialize(session: &VortexSession) {
         FoR.id(),
         Some(IsSorted.id()),
         &FoRIsSortedKernel,
-    );
-    session.aggregate_fns().register_aggregate_kernel(
-        BitPacked.id(),
-        Some(UncompressedSizeInBytes.id()),
-        &FixedWidthUncompressedSizeInBytesKernel,
-    );
-    session.aggregate_fns().register_aggregate_kernel(
-        Delta.id(),
-        Some(UncompressedSizeInBytes.id()),
-        &FixedWidthUncompressedSizeInBytesKernel,
-    );
-    session.aggregate_fns().register_aggregate_kernel(
-        FoR.id(),
-        Some(UncompressedSizeInBytes.id()),
-        &FixedWidthUncompressedSizeInBytesKernel,
-    );
-    session.aggregate_fns().register_aggregate_kernel(
-        RLE.id(),
-        Some(UncompressedSizeInBytes.id()),
-        &FixedWidthUncompressedSizeInBytesKernel,
     );
 }
 

@@ -7,13 +7,12 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::aggregate_fn::AggregateFnRef;
-use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::FixedWidthUncompressedSizeInBytesKernel;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
+use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::validity_uncompressed_size_in_bytes;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::arrays::varbinview::build_views::BinaryView;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
-use vortex_array::validity::validity_uncompressed_size_in_bytes;
 use vortex_array::vtable::child_to_validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -35,19 +34,13 @@ impl DynAggregateKernel for ZstdUncompressedSizeInBytesKernel {
             return Ok(None);
         }
 
-        if let Some(size) =
-            FixedWidthUncompressedSizeInBytesKernel.aggregate(aggregate_fn, batch, ctx)?
-        {
-            return Ok(Some(size));
+        if !matches!(batch.dtype(), DType::Binary(_) | DType::Utf8(_)) {
+            return Ok(None);
         }
 
         let Some(array) = batch.as_opt::<Zstd>() else {
             return Ok(None);
         };
-
-        if !matches!(array.dtype(), DType::Binary(_) | DType::Utf8(_)) {
-            return Ok(None);
-        }
 
         let views_size = u64::try_from(array.len())
             .map_err(|e| vortex_err!("array length does not fit in u64: {e}"))?

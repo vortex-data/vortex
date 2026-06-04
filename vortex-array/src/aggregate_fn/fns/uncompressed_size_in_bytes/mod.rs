@@ -5,7 +5,6 @@ mod bool;
 mod decimal;
 mod extension;
 mod fixed_size_list;
-mod kernel;
 mod list_view;
 mod null;
 mod primitive;
@@ -18,7 +17,6 @@ use bool::bool_uncompressed_size_in_bytes;
 use decimal::decimal_uncompressed_size_in_bytes;
 use extension::extension_uncompressed_size_in_bytes;
 use fixed_size_list::fixed_size_list_uncompressed_size_in_bytes;
-pub use kernel::FixedWidthUncompressedSizeInBytesKernel;
 use list_view::list_view_uncompressed_size_in_bytes;
 use null::null_uncompressed_size_in_bytes;
 use primitive::primitive_uncompressed_size_in_bytes;
@@ -28,6 +26,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -50,7 +49,6 @@ use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
-use crate::validity::validity_uncompressed_size_in_bytes;
 
 /// Return the uncompressed size of an array in bytes.
 ///
@@ -60,6 +58,22 @@ pub fn uncompressed_size_in_bytes(array: &ArrayRef, ctx: &mut ExecutionCtx) -> V
 
     usize::try_from(size)
         .map_err(|e| vortex_err!("Failed to convert uncompressed size to usize: {e}"))
+}
+
+/// Returns the number of bytes a validity mask contributes to an uncompressed array.
+///
+/// This is the validity portion of the [`UncompressedSizeInBytes`] aggregate for canonical
+/// arrays and encoding kernels that report that aggregate directly.
+///
+/// Uniform masks contribute no bytes, because Vortex does not materialize a validity buffer for
+/// all-valid or all-invalid arrays. A mixed mask contributes the packed bit-buffer size, rounded up
+/// to whole bytes.
+pub fn validity_uncompressed_size_in_bytes(validity: Mask) -> VortexResult<u64> {
+    match validity {
+        Mask::AllTrue(_) | Mask::AllFalse(_) => Ok(0),
+        Mask::Values(values) => u64::try_from(values.len().div_ceil(8))
+            .map_err(|e| vortex_err!("Failed to convert bit buffer length to u64: {e}")),
+    }
 }
 
 pub fn uncompressed_size_in_bytes_u64(
@@ -175,7 +189,7 @@ impl AggregateFnVTable for UncompressedSizeInBytes {
         batch: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
-        let Some(size) = kernel::fixed_width_uncompressed_size_in_bytes(batch, ctx)? else {
+        let Some(size) = fixed_width_uncompressed_size_in_bytes(batch, ctx)? else {
             return Ok(false);
         };
 
@@ -247,8 +261,11 @@ pub(crate) fn constant_uncompressed_size_in_bytes(
         }
     };
 
+    let validity = array.validity()?.execute_mask(array.len(), ctx)?;
+    let validity_size = validity_uncompressed_size_in_bytes(validity)?;
+
     value_size
-        .checked_add(constant_validity_size(array, ctx)?)
+        .checked_add(validity_size)
         .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))
 }
 
@@ -266,14 +283,6 @@ fn constant_varbinview_value_size(len: usize, scalar_len: Option<usize>) -> Vort
     views_size
         .checked_add(data_size)
         .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))
-}
-
-fn constant_validity_size(
-    array: ArrayView<'_, Constant>,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<u64> {
-    let validity = array.validity()?.execute_mask(array.len(), ctx)?;
-    validity_uncompressed_size_in_bytes(validity)
 }
 
 fn supports_uncompressed_size_in_bytes(dtype: &DType) -> bool {
@@ -303,8 +312,63 @@ pub(crate) fn packed_bit_buffer_size_in_bytes(len: usize) -> VortexResult<u64> {
         .map_err(|e| vortex_err!("Failed to convert bit buffer length to u64: {e}"))
 }
 
+pub(crate) fn fixed_width_uncompressed_size_in_bytes(
+    array: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<u64>> {
+    let Some((size, include_validity)) = fixed_width_value_size(array.dtype(), array.len())? else {
+        return Ok(None);
+    };
+
+    if include_validity {
+        let validity_size =
+            validity_uncompressed_size_in_bytes(array.validity()?.execute_mask(array.len(), ctx)?)?;
+        size.checked_add(validity_size)
+            .map(Some)
+            .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))
+    } else {
+        Ok(Some(size))
+    }
+}
+
+fn fixed_width_value_size(dtype: &DType, len: usize) -> VortexResult<Option<(u64, bool)>> {
+    let fixed = match dtype {
+        DType::Null => (0, false),
+        DType::Bool(_) => (packed_bit_buffer_size_in_bytes(len)?, true),
+        DType::Primitive(ptype, _) => (
+            u64::try_from(len)
+                .map_err(|e| vortex_err!("array length does not fit in u64: {e}"))?
+                .checked_mul(ptype.byte_width() as u64)
+                .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?,
+            true,
+        ),
+        DType::Decimal(decimal_type, _) => (
+            u64::try_from(len)
+                .map_err(|e| vortex_err!("array length does not fit in u64: {e}"))?
+                .checked_mul(
+                    DecimalType::smallest_decimal_value_type(decimal_type).byte_width() as u64,
+                )
+                .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?,
+            true,
+        ),
+        DType::Extension(ext_dtype) => {
+            return fixed_width_value_size(ext_dtype.storage_dtype(), len);
+        }
+        DType::Utf8(_)
+        | DType::Binary(_)
+        | DType::List(..)
+        | DType::FixedSizeList(..)
+        | DType::Struct(..)
+        | DType::Union(_)
+        | DType::Variant(_) => return Ok(None),
+    };
+
+    Ok(Some(fixed))
+}
+
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
@@ -320,6 +384,7 @@ mod tests {
     use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
     use crate::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
+    use crate::aggregate_fn::fns::uncompressed_size_in_bytes::validity_uncompressed_size_in_bytes;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
@@ -736,6 +801,18 @@ mod tests {
         let result = UncompressedSizeInBytes.to_scalar(&state)?;
         UncompressedSizeInBytes.reset(&mut state);
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(8));
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(Mask::AllTrue(9), 0)]
+    #[case(Mask::AllFalse(9), 0)]
+    #[case(Mask::from_iter([true, false, true, true, false, true, false, true, true]), 2)]
+    fn validity_uncompressed_size_matches_validity_buffer_size(
+        #[case] mask: Mask,
+        #[case] expected: u64,
+    ) -> VortexResult<()> {
+        assert_eq!(validity_uncompressed_size_in_bytes(mask)?, expected);
         Ok(())
     }
 }

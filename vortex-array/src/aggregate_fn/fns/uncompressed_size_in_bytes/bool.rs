@@ -6,8 +6,8 @@ use vortex_error::vortex_err;
 
 use super::packed_bit_buffer_size_in_bytes;
 use crate::ExecutionCtx;
+use crate::aggregate_fn::fns::uncompressed_size_in_bytes::validity_uncompressed_size_in_bytes;
 use crate::arrays::BoolArray;
-use crate::validity::validity_uncompressed_size_in_bytes;
 
 pub(super) fn bool_uncompressed_size_in_bytes(
     array: &BoolArray,

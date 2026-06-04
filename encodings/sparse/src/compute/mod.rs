@@ -12,6 +12,7 @@ pub(crate) mod nan_count;
 pub(crate) mod null_count;
 pub(crate) mod sum;
 mod take;
+pub(crate) mod uncompressed_size;
 
 #[cfg(test)]
 mod test {

@@ -11,11 +11,11 @@ use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes_u64;
+use crate::aggregate_fn::fns::uncompressed_size_in_bytes::validity_uncompressed_size_in_bytes;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::arrays::List;
 use crate::arrays::list::ListArrayExt;
 use crate::scalar::Scalar;
-use crate::validity::validity_uncompressed_size_in_bytes;
 
 #[derive(Debug)]
 pub(crate) struct ListUncompressedSizeInBytesKernel;

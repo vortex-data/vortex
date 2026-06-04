@@ -5,9 +5,9 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::ExecutionCtx;
+use crate::aggregate_fn::fns::uncompressed_size_in_bytes::validity_uncompressed_size_in_bytes;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::PrimitiveArrayExt;
-use crate::validity::validity_uncompressed_size_in_bytes;
 
 pub(super) fn primitive_uncompressed_size_in_bytes(
     array: &PrimitiveArray,

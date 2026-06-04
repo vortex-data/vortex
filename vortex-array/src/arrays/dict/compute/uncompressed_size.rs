@@ -6,7 +6,6 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnRef;
-use crate::aggregate_fn::fns::uncompressed_size_in_bytes::FixedWidthUncompressedSizeInBytesKernel;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes_u64;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
@@ -23,19 +22,21 @@ impl DynAggregateKernel for DictUncompressedSizeInBytesKernel {
         batch: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Scalar>> {
-        if !aggregate_fn.is::<UncompressedSizeInBytes>() || !batch.is::<Dict>() {
+        if !aggregate_fn.is::<UncompressedSizeInBytes>() {
             return Ok(None);
         }
 
-        // Fixed-width decoded size only needs the logical width, row count, and derived validity.
-        if let Some(size) =
-            FixedWidthUncompressedSizeInBytesKernel.aggregate(aggregate_fn, batch, ctx)?
-        {
-            return Ok(Some(size));
+        let Some(dict) = batch.as_opt::<Dict>() else {
+            return Ok(None);
+        };
+
+        // We only want to use this kernel for variable length values
+        if dict.dtype().element_size().is_some() {
+            return Ok(None);
         }
 
-        // For variable-width dictionaries, apply the codes to the values, then let the resulting
         // array's aggregate kernel compute its decoded size.
+        // For variable-width dictionaries, apply the codes to the values, then let the resulting
         let decoded = batch.clone().execute::<ArrayRef>(ctx)?;
         Ok(Some(Scalar::from(uncompressed_size_in_bytes_u64(
             &decoded, ctx,

@@ -113,11 +113,8 @@ use vortex_array::arrays::Dict;
 use vortex_array::arrays::Patched;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::session::ArraySessionExt;
-use vortex_bytebool::ByteBool;
-use vortex_fsst::FSST;
 #[cfg(feature = "unstable_encodings")]
 use vortex_onpair::OnPair;
-use vortex_pco::Pco;
 use vortex_session::VortexSession;
 use vortex_zigzag::ZigZag;
 pub use writer::*;
