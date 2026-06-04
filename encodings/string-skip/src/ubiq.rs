@@ -6,9 +6,12 @@
 //! Skipping these bigrams on both build and probe concentrates bloom
 //! bits on the rare bigrams that actually carry pruning signal.
 
+use hashbrown::HashMap;
+use hashbrown::HashSet;
+use serde::Deserialize;
+use serde::Serialize;
+
 use crate::hash::BigramKey;
-use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
 
 /// Sorted set of code bigrams that exceed a global frequency threshold.
 #[derive(Clone, Serialize, Deserialize)]

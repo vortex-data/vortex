@@ -218,8 +218,7 @@ fn clickbench_url_skip_indexes() {
         onpair_compress(&varbin, varbin.len(), varbin.dtype(), DEFAULT_DICT12_CONFIG).unwrap();
     let bits = arr.bits();
     let mut ctx = SESSION.create_execution_ctx();
-    let inputs =
-        OwnedDecodeInputs::collect(arr.as_view(), &mut ctx).expect("decode inputs");
+    let inputs = OwnedDecodeInputs::collect(arr.as_view(), &mut ctx).expect("decode inputs");
     let dv = inputs.view();
     let index = DictIndex::build(&dv);
     eprintln!(
@@ -255,7 +254,11 @@ fn clickbench_url_skip_indexes() {
         trigram.push(TrigramBloom::build(&dv, lo, hi, TRIGRAM_BITS_PER_ROW));
         seam.push(SeamBloom::build(&dv, lo, hi, SEAM_BITS_PER_ROW));
     }
-    eprintln!("built {} chunks of skip indexes in {:?}", NUM_CHUNKS, t0.elapsed());
+    eprintln!(
+        "built {} chunks of skip indexes in {:?}",
+        NUM_CHUNKS,
+        t0.elapsed()
+    );
 
     let presence_bytes: usize = presence.iter().map(DictPresence::byte_size).sum();
     let trigram_bytes: usize = trigram.iter().map(TrigramBloom::byte_size).sum();
@@ -273,7 +276,11 @@ fn clickbench_url_skip_indexes() {
     let real_substr: String = {
         let s = rows[2345].clone();
         // pick a long-ish unique chunk of an actual URL
-        if s.len() >= 24 { s[6..24].to_string() } else { s }
+        if s.len() >= 24 {
+            s[6..24].to_string()
+        } else {
+            s
+        }
     };
 
     let queries: Vec<Pred> = vec![
@@ -321,12 +328,23 @@ fn clickbench_url_skip_indexes() {
 
     let mut per_query_keep: Vec<(usize, usize, usize, usize)> = Vec::with_capacity(queries.len());
     println!();
-    println!("=== Per-query prefilter results (NUM_CHUNKS = {}) ===", NUM_CHUNKS);
+    println!(
+        "=== Per-query prefilter results (NUM_CHUNKS = {}) ===",
+        NUM_CHUNKS
+    );
     println!(
         "{:<48} {:>6} {:>6}  {:>6} {:>6} {:>6} {:>6}  {:>6} {:>6} {:>6} {:>6}",
-        "query", "real", "empty",
-        "A.keep", "B.keep", "C.keep", "AB.keep",
-        "A.rec", "B.rec", "C.rec", "AB.rec",
+        "query",
+        "real",
+        "empty",
+        "A.keep",
+        "B.keep",
+        "C.keep",
+        "AB.keep",
+        "A.rec",
+        "B.rec",
+        "C.rec",
+        "AB.rec",
     );
     println!("{}", "-".repeat(132));
 
@@ -373,10 +391,22 @@ fn clickbench_url_skip_indexes() {
             keeps.3 += pab as usize;
 
             // Soundness check — never prune a chunk that actually has a match.
-            assert!(!actual_match[c] || pa, "A false-negative on chunk {c} for query {q:?}");
-            assert!(!actual_match[c] || pb, "B false-negative on chunk {c} for query {q:?}");
-            assert!(!actual_match[c] || pc, "C false-negative on chunk {c} for query {q:?}");
-            assert!(!actual_match[c] || pab, "AB false-negative on chunk {c} for query {q:?}");
+            assert!(
+                !actual_match[c] || pa,
+                "A false-negative on chunk {c} for query {q:?}"
+            );
+            assert!(
+                !actual_match[c] || pb,
+                "B false-negative on chunk {c} for query {q:?}"
+            );
+            assert!(
+                !actual_match[c] || pc,
+                "C false-negative on chunk {c} for query {q:?}"
+            );
+            assert!(
+                !actual_match[c] || pab,
+                "AB false-negative on chunk {c} for query {q:?}"
+            );
         }
 
         let pruned_a = NUM_CHUNKS - keep_a;
@@ -392,14 +422,25 @@ fn clickbench_url_skip_indexes() {
 
         println!(
             "{:<48} {:>6} {:>6}  {:>6} {:>6} {:>6} {:>6}  {:>6.2} {:>6.2} {:>6.2} {:>6.2}",
-            q.name(), real, empty,
-            keep_a, keep_b, keep_c, keep_ab,
-            rec_a, rec_b, rec_c, rec_ab,
+            q.name(),
+            real,
+            empty,
+            keep_a,
+            keep_b,
+            keep_c,
+            keep_ab,
+            rec_a,
+            rec_b,
+            rec_c,
+            rec_ab,
         );
     }
     println!();
     println!("Columns:");
-    println!("  real      = chunks (of {}) that actually contain a match", NUM_CHUNKS);
+    println!(
+        "  real      = chunks (of {}) that actually contain a match",
+        NUM_CHUNKS
+    );
     println!("  empty     = chunks with zero matches (best-case pruneable)");
     println!("  X.keep    = chunks the X prefilter still keeps  (lower = better)");
     println!("  X.rec     = pruning recall = (empty - kept-but-empty) / empty  (1.00 = perfect)");
@@ -536,7 +577,10 @@ const CHUNK_SIZE_BIG: usize = 1024;
 #[cfg_attr(miri, ignore)]
 fn clickbench_url_skip_realistic_workload() {
     let Some(path) = hits_path() else {
-        eprintln!("skipping realistic workload: {} not found", "/tmp/hits_0.parquet");
+        eprintln!(
+            "skipping realistic workload: {} not found",
+            "/tmp/hits_0.parquet"
+        );
         return;
     };
 
@@ -547,13 +591,21 @@ fn clickbench_url_skip_realistic_workload() {
         .unwrap_or(N_ROWS_BIG);
     let rows = read_url_column(&path, n_rows);
     let n = rows.len();
-    assert!(n >= 8 * CHUNK_SIZE_BIG, "got only {n} rows, expected ≥ {}", 8 * CHUNK_SIZE_BIG);
+    assert!(
+        n >= 8 * CHUNK_SIZE_BIG,
+        "got only {n} rows, expected ≥ {}",
+        8 * CHUNK_SIZE_BIG
+    );
     let num_chunks = n / CHUNK_SIZE_BIG;
     let n_aligned = num_chunks * CHUNK_SIZE_BIG;
     let raw_bytes: usize = rows[..n_aligned].iter().map(|s| s.len()).sum();
     eprintln!(
         "loaded {} rows in {:?}; using {} chunks × {} rows ({} bytes raw)",
-        n, t0.elapsed(), num_chunks, CHUNK_SIZE_BIG, raw_bytes
+        n,
+        t0.elapsed(),
+        num_chunks,
+        CHUNK_SIZE_BIG,
+        raw_bytes
     );
 
     let varbin = VarBinArray::from_iter(
@@ -628,7 +680,9 @@ fn clickbench_url_skip_realistic_workload() {
         let max_len = s.len().min(15);
         let len = 5 + (rng.next() as usize) % (max_len - 4);
         let start = (rng.next() as usize) % (s.len() - len + 1);
-        let needle = std::str::from_utf8(&s[start..start + len]).unwrap_or("").to_string();
+        let needle = std::str::from_utf8(&s[start..start + len])
+            .unwrap_or("")
+            .to_string();
         if needle.is_empty() {
             continue;
         }
@@ -771,7 +825,11 @@ fn clickbench_url_skip_realistic_workload() {
 
     // ------------------------------- report ---------------------------------
     fn pct(num: usize, den: usize) -> f64 {
-        if den == 0 { 0.0 } else { 100.0 * num as f64 / den as f64 }
+        if den == 0 {
+            0.0
+        } else {
+            100.0 * num as f64 / den as f64
+        }
     }
     fn quantile(xs: &mut [f64], q: f64) -> f64 {
         if xs.is_empty() {
@@ -784,16 +842,24 @@ fn clickbench_url_skip_realistic_workload() {
     fn dump(name: &str, s: &mut Stats) {
         println!(
             "{:<18}  Q={:>3}  C={:>6}  real={:>6} ({:>5.2}%)  empty={:>6}",
-            name, s.n_queries, s.n_chunks, s.real_total,
-            pct(s.real_total, s.n_chunks), s.empty_total,
+            name,
+            s.n_queries,
+            s.n_chunks,
+            s.real_total,
+            pct(s.real_total, s.n_chunks),
+            s.empty_total,
         );
         println!(
             "{:>20}  A: Pr[keep]={:>5.2}%  recall={:>5.2}%   B: Pr[keep]={:>5.2}%  recall={:>5.2}%   D: Pr[keep]={:>5.2}%  recall={:>5.2}%   AB: Pr[keep]={:>5.2}%  recall={:>5.2}%",
             "",
-            pct(s.kept_a, s.n_chunks), pct(s.pruned_a_of_empty, s.empty_total),
-            pct(s.kept_b, s.n_chunks), pct(s.pruned_b_of_empty, s.empty_total),
-            pct(s.kept_d, s.n_chunks), pct(s.pruned_d_of_empty, s.empty_total),
-            pct(s.kept_ab, s.n_chunks), pct(s.pruned_ab_of_empty, s.empty_total),
+            pct(s.kept_a, s.n_chunks),
+            pct(s.pruned_a_of_empty, s.empty_total),
+            pct(s.kept_b, s.n_chunks),
+            pct(s.pruned_b_of_empty, s.empty_total),
+            pct(s.kept_d, s.n_chunks),
+            pct(s.pruned_d_of_empty, s.empty_total),
+            pct(s.kept_ab, s.n_chunks),
+            pct(s.pruned_ab_of_empty, s.empty_total),
         );
         let mut a = s.keep_a_per_q.clone();
         let mut b = s.keep_b_per_q.clone();
@@ -801,16 +867,28 @@ fn clickbench_url_skip_realistic_workload() {
         println!(
             "{:>20}  per-query Pr[keep] quantiles  p50/p90/p99:   A {:.2}/{:.2}/{:.2}   B {:.2}/{:.2}/{:.2}   AB {:.2}/{:.2}/{:.2}",
             "",
-            quantile(&mut a, 0.5), quantile(&mut a, 0.9), quantile(&mut a, 0.99),
-            quantile(&mut b, 0.5), quantile(&mut b, 0.9), quantile(&mut b, 0.99),
-            quantile(&mut ab, 0.5), quantile(&mut ab, 0.9), quantile(&mut ab, 0.99),
+            quantile(&mut a, 0.5),
+            quantile(&mut a, 0.9),
+            quantile(&mut a, 0.99),
+            quantile(&mut b, 0.5),
+            quantile(&mut b, 0.9),
+            quantile(&mut b, 0.99),
+            quantile(&mut ab, 0.5),
+            quantile(&mut ab, 0.9),
+            quantile(&mut ab, 0.99),
         );
     }
 
     println!();
-    println!("=== Realistic workload: {} queries × {} chunks ===", workload.len(), num_chunks);
+    println!(
+        "=== Realistic workload: {} queries × {} chunks ===",
+        workload.len(),
+        num_chunks
+    );
     println!("(Q=queries  C=chunk evaluations  real=% of (Q×C) with ≥1 match  empty=Q×C - real)");
-    println!("(Pr[keep] = fraction of (Q×C) we still scan; recall = fraction of empty (Q×C) pruned)");
+    println!(
+        "(Pr[keep] = fraction of (Q×C) we still scan; recall = fraction of empty (Q×C) pruned)"
+    );
     println!();
     dump("all queries", &mut stats_total);
     println!();
@@ -824,9 +902,7 @@ fn clickbench_url_skip_realistic_workload() {
 
     // ---------- bottom line: implied I/O reduction in this workload --------
     println!();
-    println!(
-        "Bottom line on this workload (assuming one chunk == one I/O page):"
-    );
+    println!("Bottom line on this workload (assuming one chunk == one I/O page):");
     println!(
         "  A      reads {:>5.2}% of pages   ({:.2}× speedup over no prefilter)",
         pct(stats_total.kept_a, stats_total.n_chunks),

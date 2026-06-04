@@ -5,7 +5,8 @@
 //! emit. On sorted data they give **exact** pruning for equality,
 //! range, prefix, length, and null predicates.
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
 /// Per-chunk statistics. Built once at write time.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -85,10 +86,10 @@ impl ChunkStats {
                     min_len = min_len.min(b.len());
                     max_len = max_len.max(b.len());
                     raw_bytes += b.len();
-                    if min.as_ref().map_or(true, |m| b < m.as_slice()) {
+                    if min.as_ref().is_none_or(|m| b < m.as_slice()) {
                         min = Some(b.to_vec());
                     }
-                    if max.as_ref().map_or(true, |m| b > m.as_slice()) {
+                    if max.as_ref().is_none_or(|m| b > m.as_slice()) {
                         max = Some(b.to_vec());
                     }
                 }

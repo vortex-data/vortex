@@ -5,9 +5,15 @@
 //! hand-rolled bloom is in the ballpark of `fastbloom` (which we
 //! decided not to depend on).
 
-use criterion::{Criterion, criterion_group, criterion_main, BatchSize, black_box};
-use string_skip::{Bloom, DictPresence, UbiquitousBigrams};
-use string_skip::hash::{pair_hash, splitmix32};
+use criterion::BatchSize;
+use criterion::Criterion;
+use criterion::black_box;
+use criterion::criterion_group;
+use criterion::criterion_main;
+use string_skip::Bloom;
+use string_skip::DictPresence;
+use string_skip::UbiquitousBigrams;
+use string_skip::hash::splitmix32;
 
 fn bench_bloom_insert(c: &mut Criterion) {
     let mut g = c.benchmark_group("bloom_insert");

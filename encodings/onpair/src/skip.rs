@@ -112,12 +112,7 @@ impl DictPresence {
     /// or (b) at some reached position `p` there is a present dict
     /// token whose bytes start with `prefix[p..]` (the token consumes
     /// the remaining prefix and may extend past it).
-    pub fn might_starts_with(
-        &self,
-        dv: &DecodeView<'_>,
-        index: &DictIndex,
-        prefix: &[u8],
-    ) -> bool {
+    pub fn might_starts_with(&self, dv: &DecodeView<'_>, index: &DictIndex, prefix: &[u8]) -> bool {
         let n = prefix.len();
         if n == 0 {
             return true;
@@ -738,13 +733,7 @@ impl TokenPairBloom {
 
     /// True iff some dict pair `(a, b)` is in the Bloom with `a`'s
     /// bytes ending in `s1` and `b`'s bytes starting with `s2`.
-    fn has_pair_with(
-        &self,
-        dv: &DecodeView<'_>,
-        index: &DictIndex,
-        s1: &[u8],
-        s2: &[u8],
-    ) -> bool {
+    fn has_pair_with(&self, dv: &DecodeView<'_>, index: &DictIndex, s1: &[u8], s2: &[u8]) -> bool {
         if s2.is_empty() {
             return false;
         }
@@ -940,25 +929,36 @@ impl CodeBigramBloom {
                         } else {
                             0
                         };
-                        eprintln!("    tok[{i}] id={c} {:?} bytes={tok_start}..{tok_end} (cover from needle start: {cover_bytes})",
-                            std::str::from_utf8(tb).unwrap_or("?"));
+                        eprintln!(
+                            "    tok[{i}] id={c} {:?} bytes={tok_start}..{tok_end} (cover from needle start: {cover_bytes})",
+                            std::str::from_utf8(tb).unwrap_or("?")
+                        );
                         if i > 0 {
                             let prev = toks[i - 1];
                             let (h1, h2) = pair_hash(prev, c);
-                            eprintln!("      bigram({prev},{c}) in bloom: {}", self.bloom.contains(h1, h2));
+                            eprintln!(
+                                "      bigram({prev},{c}) in bloom: {}",
+                                self.bloom.contains(h1, h2)
+                            );
                         }
                     }
                 }
                 // Show what cover value this corresponds to
-                let first_tok_idx = tok_boundaries.iter().position(|&b| b > needle_pos).unwrap() - 1;
+                let first_tok_idx =
+                    tok_boundaries.iter().position(|&b| b > needle_pos).unwrap() - 1;
                 let cover = tok_boundaries[first_tok_idx + 1] - needle_pos;
-                eprintln!("    → cover = {cover} (needle starts {0} bytes from end of token {first_tok_idx})",
-                    needle_pos - tok_boundaries[first_tok_idx]);
+                eprintln!(
+                    "    → cover = {cover} (needle starts {0} bytes from end of token {first_tok_idx})",
+                    needle_pos - tok_boundaries[first_tok_idx]
+                );
                 return;
             }
         }
-        eprintln!("  No row found containing needle {:?} in range {lo}..{hi} ({} rows)",
-            std::str::from_utf8(needle).unwrap_or("?"), hi - lo);
+        eprintln!(
+            "  No row found containing needle {:?} in range {lo}..{hi} ({} rows)",
+            std::str::from_utf8(needle).unwrap_or("?"),
+            hi - lo
+        );
     }
 
     /// Check one alignment: delegates to the shared free function.
@@ -1034,10 +1034,8 @@ impl UbiquitousBigrams {
 
         // Count chunks each bigram appears in. Use a HashMap keyed
         // on packed u32 bigram IDs.
-        let mut counts: std::collections::HashMap<u32, u32> =
-            std::collections::HashMap::new();
-        let mut seen: std::collections::HashSet<u32> =
-            std::collections::HashSet::new();
+        let mut counts: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+        let mut seen: std::collections::HashSet<u32> = std::collections::HashSet::new();
 
         for c in 0..n_chunks {
             seen.clear();
@@ -1123,16 +1121,17 @@ impl BigramTiers {
         let n_rows = codes_offsets.len().saturating_sub(1);
         let n_chunks = n_rows / chunk_size;
         if n_chunks == 0 {
-            return Self { entries: Vec::new(), default_k: 3 };
+            return Self {
+                entries: Vec::new(),
+                default_k: 3,
+            };
         }
         let t_top = (n_chunks * top_pct as usize) / 100;
         let t_common = (n_chunks * common_pct as usize) / 100;
         let t_medium = (n_chunks * medium_pct as usize) / 100;
 
-        let mut counts: std::collections::HashMap<u32, u32> =
-            std::collections::HashMap::new();
-        let mut seen: std::collections::HashSet<u32> =
-            std::collections::HashSet::new();
+        let mut counts: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+        let mut seen: std::collections::HashSet<u32> = std::collections::HashSet::new();
         for c in 0..n_chunks {
             seen.clear();
             let row_lo = c * chunk_size;
@@ -1168,11 +1167,17 @@ impl BigramTiers {
             })
             .collect();
         entries.sort_unstable_by_key(|&(k, _)| k);
-        Self { entries, default_k: 3 }
+        Self {
+            entries,
+            default_k: 3,
+        }
     }
 
     pub fn empty() -> Self {
-        Self { entries: Vec::new(), default_k: 3 }
+        Self {
+            entries: Vec::new(),
+            default_k: 3,
+        }
     }
 
     /// Get the probe count `k` for a given bigram.
@@ -1290,9 +1295,8 @@ impl HybridBloom {
                 if &dv.dict_bytes[off + tlen - cover..off + tlen] != suffix {
                     continue;
                 }
-                if check_aligned_with_ubiq(
-                    &self.bloom, dv, index, remainder, Some(id as u16), ubiq,
-                ) {
+                if check_aligned_with_ubiq(&self.bloom, dv, index, remainder, Some(id as u16), ubiq)
+                {
                     return true;
                 }
             }
@@ -1396,9 +1400,7 @@ impl TieredBloom {
                 if &dv.dict_bytes[off + tlen - cover..off + tlen] != suffix {
                     continue;
                 }
-                if check_aligned_tiered(
-                    &self.bloom, dv, index, remainder, Some(id as u16), tiers,
-                ) {
+                if check_aligned_tiered(&self.bloom, dv, index, remainder, Some(id as u16), tiers) {
                     return true;
                 }
             }
@@ -1632,12 +1634,7 @@ fn check_aligned_trigram(
 /// is guaranteed the same in the actual row. Shared by
 /// `CodeBigramBloom` and `HybridBloom`.
 #[inline]
-fn is_safe_position(
-    dv: &DecodeView<'_>,
-    index: &DictIndex,
-    remainder: &[u8],
-    pos: usize,
-) -> bool {
+fn is_safe_position(dv: &DecodeView<'_>, index: &DictIndex, remainder: &[u8], pos: usize) -> bool {
     let remaining = &remainder[pos..];
     if remaining.is_empty() {
         return false;
@@ -1657,7 +1654,6 @@ fn is_safe_position(
     }
     true
 }
-
 
 /// Find the single-byte dictionary token for byte `b`, if any. OnPair
 /// training always includes the 256 single-byte tokens, so this is
@@ -1702,15 +1698,16 @@ fn splitmix32(mut x: u32) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::DEFAULT_DICT12_CONFIG;
-    use crate::decode::OwnedDecodeInputs;
-    use crate::onpair_compress;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
+
+    use super::*;
+    use crate::DEFAULT_DICT12_CONFIG;
+    use crate::decode::OwnedDecodeInputs;
+    use crate::onpair_compress;
 
     fn build_inputs(strings: &[&str]) -> OwnedDecodeInputs {
         let varbin = VarBinArray::from_iter(

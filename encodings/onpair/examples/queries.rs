@@ -101,19 +101,28 @@ fn main() -> anyhow::Result<()> {
         eprintln!("  sorted {} rows", rows.len());
     }
     let total_raw_bytes: usize = rows.iter().map(String::len).sum();
-    eprintln!("loaded {} rows ({:.1} MB raw)", rows.len(), total_raw_bytes as f64 / 1e6);
+    eprintln!(
+        "loaded {} rows ({:.1} MB raw)",
+        rows.len(),
+        total_raw_bytes as f64 / 1e6
+    );
 
     let varbin = VarBinArray::from_iter(
         rows.iter().map(|s| Some(s.as_bytes())),
         DType::Utf8(Nullability::NonNullable),
     );
     let t0 = Instant::now();
-    let arr = onpair_compress(&varbin, varbin.len(), varbin.dtype(), DEFAULT_DICT12_CONFIG).unwrap();
+    let arr =
+        onpair_compress(&varbin, varbin.len(), varbin.dtype(), DEFAULT_DICT12_CONFIG).unwrap();
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let inputs = OwnedDecodeInputs::collect(arr.as_view(), &mut ctx).unwrap();
     let dv = inputs.view();
     let index = DictIndex::build(&dv);
-    eprintln!("OnPair-compressed in {:?}; dict_size={}", t0.elapsed(), dv.dict_table.len());
+    eprintln!(
+        "OnPair-compressed in {:?}; dict_size={}",
+        t0.elapsed(),
+        dv.dict_table.len()
+    );
 
     // -------- Build per-chunk state ------------------------------------------
     let cs = args.chunk_size;
@@ -121,15 +130,24 @@ fn main() -> anyhow::Result<()> {
     let nch = n_aligned / cs;
     eprintln!("chunks: {} of {} rows each", nch, cs);
 
-    let chunk_stats: Vec<ChunkStats> = (0..nch).map(|c| {
-        let slice = &rows[c * cs..(c + 1) * cs];
-        let min = slice.iter().map(|s| s.as_bytes()).min().unwrap().to_vec();
-        let max = slice.iter().map(|s| s.as_bytes()).max().unwrap().to_vec();
-        let min_len = slice.iter().map(String::len).min().unwrap();
-        let max_len = slice.iter().map(String::len).max().unwrap();
-        let raw_bytes = slice.iter().map(String::len).sum();
-        ChunkStats { min, max, min_len, max_len, null_count: 0, raw_bytes }
-    }).collect();
+    let chunk_stats: Vec<ChunkStats> = (0..nch)
+        .map(|c| {
+            let slice = &rows[c * cs..(c + 1) * cs];
+            let min = slice.iter().map(|s| s.as_bytes()).min().unwrap().to_vec();
+            let max = slice.iter().map(|s| s.as_bytes()).max().unwrap().to_vec();
+            let min_len = slice.iter().map(String::len).min().unwrap();
+            let max_len = slice.iter().map(String::len).max().unwrap();
+            let raw_bytes = slice.iter().map(String::len).sum();
+            ChunkStats {
+                min,
+                max,
+                min_len,
+                max_len,
+                null_count: 0,
+                raw_bytes,
+            }
+        })
+        .collect();
 
     let presence: Vec<DictPresence> = (0..nch)
         .map(|c| DictPresence::build(&dv, c * cs, (c + 1) * cs))
@@ -139,7 +157,11 @@ fn main() -> anyhow::Result<()> {
     let blooms: Vec<HybridBloom> = (0..nch)
         .map(|c| HybridBloom::build(&dv, c * cs, (c + 1) * cs, args.bits, &ubiq))
         .collect();
-    eprintln!("ubiq table: {} entries ({} B)", ubiq.len(), ubiq.byte_size());
+    eprintln!(
+        "ubiq table: {} entries ({} B)",
+        ubiq.len(),
+        ubiq.byte_size()
+    );
 
     // -------- Build the workload --------------------------------------------
     let mut rng = Splitmix64::new(args.seed);
@@ -147,11 +169,17 @@ fn main() -> anyhow::Result<()> {
 
     // -------- Run all queries -----------------------------------------------
     println!();
-    println!("=== Query pruning report ({} chunks, {:.1} MB raw, {:.1} MB/chunk avg) ===",
-        nch, total_raw_bytes as f64 / 1e6,
-        chunk_stats.iter().map(|s| s.raw_bytes).sum::<usize>() as f64 / nch as f64 / 1e6);
+    println!(
+        "=== Query pruning report ({} chunks, {:.1} MB raw, {:.1} MB/chunk avg) ===",
+        nch,
+        total_raw_bytes as f64 / 1e6,
+        chunk_stats.iter().map(|s| s.raw_bytes).sum::<usize>() as f64 / nch as f64 / 1e6
+    );
     println!();
-    println!("{:<35} {:>10} {:>10} {:>10} {:>10}", "Query class (sample size)", "skip%", "bytes_avoid", "chunks_kept", "queries");
+    println!(
+        "{:<35} {:>10} {:>10} {:>10} {:>10}",
+        "Query class (sample size)", "skip%", "bytes_avoid", "chunks_kept", "queries"
+    );
     println!("{}", "-".repeat(80));
 
     let kept_total = nch as f64;
@@ -163,7 +191,17 @@ fn main() -> anyhow::Result<()> {
         let n_q = queries.len();
         let mut sum = PruneResult::default();
         for q in &queries {
-            let pr = prune(q, &chunk_stats, &presence, &blooms, &ubiq, &dv, &index, &rows, cs);
+            let pr = prune(
+                q,
+                &chunk_stats,
+                &presence,
+                &blooms,
+                &ubiq,
+                &dv,
+                &index,
+                &rows,
+                cs,
+            );
             // Sanity: assert no false negatives
             for c in 0..nch {
                 let truly_matches = q.truly_matches(&rows[c * cs..(c + 1) * cs]);
@@ -173,15 +211,19 @@ fn main() -> anyhow::Result<()> {
             }
             sum.chunks_kept += pr.kept_chunks.len();
             sum.chunks_skipped += nch - pr.kept_chunks.len();
-            sum.bytes_saved += (0..nch).filter(|c| !pr.kept_chunks.contains(c))
-                .map(|c| chunk_stats[c].raw_bytes).sum::<usize>();
+            sum.bytes_saved += (0..nch)
+                .filter(|c| !pr.kept_chunks.contains(c))
+                .map(|c| chunk_stats[c].raw_bytes)
+                .sum::<usize>();
         }
         let avg_kept = sum.chunks_kept as f64 / n_q as f64;
         let avg_skipped = sum.chunks_skipped as f64 / n_q as f64;
         let skip_pct = 100.0 * avg_skipped / kept_total;
         let avg_saved_mb = sum.bytes_saved as f64 / n_q as f64 / 1e6;
-        println!("{:<35} {:>9.1}% {:>8.1} MB {:>10.1} {:>10}",
-            label, skip_pct, avg_saved_mb, avg_kept, n_q);
+        println!(
+            "{:<35} {:>9.1}% {:>8.1} MB {:>10.1} {:>10}",
+            label, skip_pct, avg_saved_mb, avg_kept, n_q
+        );
     }
 
     Ok(())
@@ -241,11 +283,14 @@ impl Pred {
             Pred::SingleWildcard(p, s) => {
                 let r = r.as_bytes();
                 let need = p.len() + 1 + s.len();
-                if r.len() < need { return false; }
+                if r.len() < need {
+                    return false;
+                }
                 // try every offset (this is for substring `%a_b%` mode)
                 for i in 0..=r.len() - need {
                     if &r[i..i + p.len()] == p.as_bytes()
-                        && &r[i + p.len() + 1..i + p.len() + 1 + s.len()] == s.as_bytes() {
+                        && &r[i + p.len() + 1..i + p.len() + 1 + s.len()] == s.as_bytes()
+                    {
                         return true;
                     }
                 }
@@ -312,16 +357,15 @@ fn chunk_might_match(
     match pred {
         Pred::Eq(x) => {
             let xb = x.as_bytes();
-            stats.min.as_slice() <= xb && xb <= stats.max.as_slice()
+            stats.min.as_slice() <= xb
+                && xb <= stats.max.as_slice()
                 && presence.might_eq(dv, index, xb)
         }
         Pred::Lt(x) => {
             // chunk must have some row < x: min < x
             stats.min.as_slice() < x.as_bytes()
         }
-        Pred::Gte(x) => {
-            stats.max.as_slice() >= x.as_bytes()
-        }
+        Pred::Gte(x) => stats.max.as_slice() >= x.as_bytes(),
         Pred::Between(a, b) => {
             !(stats.max.as_slice() < a.as_bytes() || stats.min.as_slice() > b.as_bytes())
         }
@@ -346,9 +390,7 @@ fn chunk_might_match(
             // No reliable min/max pruning for suffixes — fall back to bloom
             bloom.might_contain(dv, index, presence, ubiq, s.as_bytes())
         }
-        Pred::Contains(s) => {
-            bloom.might_contain(dv, index, presence, ubiq, s.as_bytes())
-        }
+        Pred::Contains(s) => bloom.might_contain(dv, index, presence, ubiq, s.as_bytes()),
         Pred::PrefixSuffix(p, s) => {
             // Combine: prefix range check + bloom for suffix
             let pb = p.as_bytes();
@@ -387,7 +429,8 @@ fn chunk_might_match(
         Pred::IsNull => stats.null_count > 0,
         Pred::InSet(xs) => xs.iter().any(|x| {
             let xb = x.as_bytes();
-            stats.min.as_slice() <= xb && xb <= stats.max.as_slice()
+            stats.min.as_slice() <= xb
+                && xb <= stats.max.as_slice()
                 && presence.might_eq(dv, index, xb)
         }),
     }
@@ -397,9 +440,11 @@ fn chunk_might_match(
 //                              Workload
 // ============================================================================
 
-fn build_workload(rows: &[String], rng: &mut Splitmix64, n: usize)
-    -> Vec<(&'static str, Vec<Pred>)>
-{
+fn build_workload(
+    rows: &[String],
+    rng: &mut Splitmix64,
+    n: usize,
+) -> Vec<(&'static str, Vec<Pred>)> {
     let mut w = Vec::<(&'static str, Vec<Pred>)>::new();
 
     // Equality: pick real rows
@@ -422,7 +467,9 @@ fn build_workload(rows: &[String], rng: &mut Splitmix64, n: usize)
     for _ in 0..n {
         let mut a = rows[(rng.next() as usize) % rows.len()].clone();
         let mut b = rows[(rng.next() as usize) % rows.len()].clone();
-        if a > b { std::mem::swap(&mut a, &mut b); }
+        if a > b {
+            std::mem::swap(&mut a, &mut b);
+        }
         between.push(Pred::Between(a, b));
     }
     w.push(("Between: col BETWEEN a AND b", between));
@@ -431,7 +478,9 @@ fn build_workload(rows: &[String], rng: &mut Splitmix64, n: usize)
     let mut prefix = Vec::new();
     for _ in 0..n {
         let r = rows[(rng.next() as usize) % rows.len()].as_bytes();
-        if r.len() < 8 { continue; }
+        if r.len() < 8 {
+            continue;
+        }
         let plen = 3 + (rng.next() as usize) % 6;
         if let Ok(p) = std::str::from_utf8(&r[..plen.min(r.len())]) {
             prefix.push(Pred::Prefix(p.to_string()));
@@ -443,7 +492,9 @@ fn build_workload(rows: &[String], rng: &mut Splitmix64, n: usize)
     let mut suffix = Vec::new();
     for _ in 0..n {
         let r = rows[(rng.next() as usize) % rows.len()].as_bytes();
-        if r.len() < 8 { continue; }
+        if r.len() < 8 {
+            continue;
+        }
         let slen = 3 + (rng.next() as usize) % 6;
         let start = r.len().saturating_sub(slen);
         if let Ok(s) = std::str::from_utf8(&r[start..]) {
@@ -456,7 +507,9 @@ fn build_workload(rows: &[String], rng: &mut Splitmix64, n: usize)
     let mut contains = Vec::new();
     for _ in 0..n {
         let r = rows[(rng.next() as usize) % rows.len()].as_bytes();
-        if r.len() < 10 { continue; }
+        if r.len() < 10 {
+            continue;
+        }
         let slen = 5 + (rng.next() as usize) % 8;
         let start = (rng.next() as usize) % (r.len() - slen);
         if let Ok(s) = std::str::from_utf8(&r[start..start + slen]) {
@@ -469,11 +522,15 @@ fn build_workload(rows: &[String], rng: &mut Splitmix64, n: usize)
     let mut psufx = Vec::new();
     for _ in 0..n {
         let r = rows[(rng.next() as usize) % rows.len()].as_bytes();
-        if r.len() < 14 { continue; }
+        if r.len() < 14 {
+            continue;
+        }
         let plen = 3 + (rng.next() as usize) % 4;
         let slen = 3 + (rng.next() as usize) % 4;
-        if let (Ok(p), Ok(s)) = (std::str::from_utf8(&r[..plen]),
-                                  std::str::from_utf8(&r[r.len() - slen..])) {
+        if let (Ok(p), Ok(s)) = (
+            std::str::from_utf8(&r[..plen]),
+            std::str::from_utf8(&r[r.len() - slen..]),
+        ) {
             psufx.push(Pred::PrefixSuffix(p.to_string(), s.to_string()));
         }
     }
@@ -483,12 +540,16 @@ fn build_workload(rows: &[String], rng: &mut Splitmix64, n: usize)
     let mut sw = Vec::new();
     for _ in 0..n {
         let r = rows[(rng.next() as usize) % rows.len()].as_bytes();
-        if r.len() < 12 { continue; }
+        if r.len() < 12 {
+            continue;
+        }
         let pos = 3 + (rng.next() as usize) % (r.len() - 10);
         let plen = 3;
         let slen = 3;
-        if let (Ok(p), Ok(s)) = (std::str::from_utf8(&r[pos..pos+plen]),
-                                  std::str::from_utf8(&r[pos+plen+1..pos+plen+1+slen])) {
+        if let (Ok(p), Ok(s)) = (
+            std::str::from_utf8(&r[pos..pos + plen]),
+            std::str::from_utf8(&r[pos + plen + 1..pos + plen + 1 + slen]),
+        ) {
             sw.push(Pred::SingleWildcard(p.to_string(), s.to_string()));
         }
     }
@@ -498,14 +559,20 @@ fn build_workload(rows: &[String], rng: &mut Splitmix64, n: usize)
     let mut mf = Vec::new();
     for _ in 0..n {
         let r = rows[(rng.next() as usize) % rows.len()].as_bytes();
-        if r.len() < 16 { continue; }
+        if r.len() < 16 {
+            continue;
+        }
         let plen1 = 3 + (rng.next() as usize) % 4;
         let start1 = (rng.next() as usize) % (r.len() / 3);
         let start2 = start1 + plen1 + 2 + (rng.next() as usize) % 4;
         let plen2 = 3 + (rng.next() as usize) % 4;
-        if start2 + plen2 > r.len() { continue; }
-        if let (Ok(f1), Ok(f2)) = (std::str::from_utf8(&r[start1..start1+plen1]),
-                                    std::str::from_utf8(&r[start2..start2+plen2])) {
+        if start2 + plen2 > r.len() {
+            continue;
+        }
+        if let (Ok(f1), Ok(f2)) = (
+            std::str::from_utf8(&r[start1..start1 + plen1]),
+            std::str::from_utf8(&r[start2..start2 + plen2]),
+        ) {
             mf.push(Pred::MultiFragment(vec![f1.to_string(), f2.to_string()]));
         }
     }
@@ -516,18 +583,22 @@ fn build_workload(rows: &[String], rng: &mut Splitmix64, n: usize)
     let lg: Vec<Pred> = (0..n).map(|i| Pred::LengthGt(avg_len + (i % 20))).collect();
     w.push(("LengthGt: LENGTH(col) > k", lg));
 
-    let lb: Vec<Pred> = (0..n).map(|_| {
-        let lo = (rng.next() as usize) % avg_len;
-        let hi = lo + 10 + (rng.next() as usize) % 50;
-        Pred::LengthBetween(lo, hi)
-    }).collect();
+    let lb: Vec<Pred> = (0..n)
+        .map(|_| {
+            let lo = (rng.next() as usize) % avg_len;
+            let hi = lo + 10 + (rng.next() as usize) % 50;
+            Pred::LengthBetween(lo, hi)
+        })
+        .collect();
     w.push(("LengthBetween: LENGTH BETWEEN lo AND hi", lb));
 
     // IN set
     let mut in_set = Vec::new();
     for _ in 0..n {
         let k = 3 + (rng.next() as usize) % 5;
-        let xs: Vec<String> = (0..k).map(|_| rows[(rng.next() as usize) % rows.len()].clone()).collect();
+        let xs: Vec<String> = (0..k)
+            .map(|_| rows[(rng.next() as usize) % rows.len()].clone())
+            .collect();
         in_set.push(Pred::InSet(xs));
     }
     w.push(("InSet: col IN (3-7 values)", in_set));
@@ -548,18 +619,32 @@ fn load_column(paths: &[PathBuf], col_name: &str, max_rows: usize) -> anyhow::Re
         let file = File::open(path).with_context(|| format!("open {path:?}"))?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
         let schema = builder.schema().clone();
-        let col_idx = schema.fields().iter().position(|f| f.name() == col_name)
+        let col_idx = schema
+            .fields()
+            .iter()
+            .position(|f| f.name() == col_name)
             .with_context(|| format!("column {col_name:?} not in {path:?}"))?;
         let mask = ProjectionMask::leaves(builder.parquet_schema(), [col_idx]);
-        let mut reader = builder.with_projection(mask).with_batch_size(8192).build()?;
+        let mut reader = builder
+            .with_projection(mask)
+            .with_batch_size(8192)
+            .build()?;
         while let Some(batch) = reader.next() {
             let batch = batch?;
             let col = batch.column(0);
-            let want = if max_rows > 0 { max_rows.saturating_sub(out.len()) } else { col.len() };
-            if want == 0 { break 'outer; }
+            let want = if max_rows > 0 {
+                max_rows.saturating_sub(out.len())
+            } else {
+                col.len()
+            };
+            if want == 0 {
+                break 'outer;
+            }
             let pushed = push_strings(col, want, &mut out);
             anyhow::ensure!(pushed > 0, "unexpected column type: {:?}", col.data_type());
-            if max_rows > 0 && out.len() >= max_rows { break 'outer; }
+            if max_rows > 0 && out.len() >= max_rows {
+                break 'outer;
+            }
         }
     }
     Ok(out)
@@ -568,32 +653,44 @@ fn load_column(paths: &[PathBuf], col_name: &str, max_rows: usize) -> anyhow::Re
 fn push_strings(col: &dyn ArrowArray, want: usize, out: &mut Vec<String>) -> usize {
     if let Some(s) = col.as_string_opt::<i32>() {
         let n = s.len().min(want);
-        for i in 0..n { out.push(s.value(i).to_string()); }
+        for i in 0..n {
+            out.push(s.value(i).to_string());
+        }
         return n;
     }
     if let Some(s) = col.as_string_opt::<i64>() {
         let n = s.len().min(want);
-        for i in 0..n { out.push(s.value(i).to_string()); }
+        for i in 0..n {
+            out.push(s.value(i).to_string());
+        }
         return n;
     }
     if let Some(s) = col.as_string_view_opt() {
         let n = s.len().min(want);
-        for i in 0..n { out.push(s.value(i).to_string()); }
+        for i in 0..n {
+            out.push(s.value(i).to_string());
+        }
         return n;
     }
     if let Some(b) = col.as_binary_opt::<i32>() {
         let n = b.len().min(want);
-        for i in 0..n { out.push(String::from_utf8_lossy(b.value(i)).into_owned()); }
+        for i in 0..n {
+            out.push(String::from_utf8_lossy(b.value(i)).into_owned());
+        }
         return n;
     }
     if let Some(b) = col.as_binary_opt::<i64>() {
         let n = b.len().min(want);
-        for i in 0..n { out.push(String::from_utf8_lossy(b.value(i)).into_owned()); }
+        for i in 0..n {
+            out.push(String::from_utf8_lossy(b.value(i)).into_owned());
+        }
         return n;
     }
     if let Some(b) = col.as_binary_view_opt() {
         let n = b.len().min(want);
-        for i in 0..n { out.push(String::from_utf8_lossy(b.value(i)).into_owned()); }
+        for i in 0..n {
+            out.push(String::from_utf8_lossy(b.value(i)).into_owned());
+        }
         return n;
     }
     0
@@ -601,7 +698,9 @@ fn push_strings(col: &dyn ArrowArray, want: usize, out: &mut Vec<String>) -> usi
 
 struct Splitmix64(u64);
 impl Splitmix64 {
-    fn new(seed: u64) -> Self { Self(seed) }
+    fn new(seed: u64) -> Self {
+        Self(seed)
+    }
     fn next(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
         let mut z = self.0;

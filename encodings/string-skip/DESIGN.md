@@ -195,8 +195,10 @@ bits to them, and more bits to rare terms.**
 
 The simplest application: identify bigrams appearing in `> X%` of
 chunks ("ubiquitous"), and **skip them on both insert and probe**.
-At query time, ubiquitous bigrams are treated as "always present"
-(sound: they almost certainly are, in any chunk).
+At query time, ubiquitous bigrams are treated as "uninformative": they are not
+used as negative evidence. This is sound even when a skipped bigram is absent
+from a specific chunk, because the index simply declines to prune on that
+bigram.
 
 Build (once per column, at write time, when codes are already in
 memory):
@@ -231,14 +233,13 @@ precision win is also larger.
 
 ### Query soundness
 
-Skipping a bigram at probe time is sound because:
-- Ubiquitous bigrams: they're in nearly every chunk's bloom anyway, so
-  "always present" is a true conservative answer.
-- Lower-tier bigrams: same argument, just with smaller "near-always".
+Skipping a bigram at probe time is sound because skipped or lower-tier bigrams
+are treated as weaker evidence, never as proof of absence. A `k=0` bigram is
+ignored entirely; `k=1`/`k=2` bigrams can only false-positive more often than
+`k=3` bigrams.
 
-The bloom never reports a false negative for an inserted bit. Skipping
-an *insertion* simply means we can't use that bigram as evidence —
-we don't claim it's there, we just don't probe.
+The bloom never reports a false negative for an inserted bit. Skipping an
+*insertion* simply means we cannot use that bigram as pruning evidence.
 
 ### When does this help?
 
@@ -323,6 +324,6 @@ For automatic tuning: at write time, build the ubiquity table at
    include rare *code trigrams* with `k=3+`? Adds insertions but
    may further reduce FPR on the long tail.
 
-4. **Persistence.** The ubiquity table is column-level metadata. It
-   should be written alongside the dictionary in the Vortex layout
-   so reads can use it without recomputing.
+4. **Persistence.** The ubiquity table is column-level metadata. The current
+   integration plan stores it in an OnPair-local auxiliary skip-index layout so
+   reads can use it without recomputing while keeping this crate Vortex-free.

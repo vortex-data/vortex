@@ -244,8 +244,7 @@ impl ContainsBloom {
                 if *self.dict_contains.get_unchecked(c as usize) {
                     return Some(true);
                 }
-                any_extend |=
-                    *self.dict_could_extend.get_unchecked(c as usize);
+                any_extend |= *self.dict_could_extend.get_unchecked(c as usize);
             }
         }
         if any_extend { None } else { Some(false) }
@@ -316,7 +315,8 @@ mod tests {
                     None => false,
                 };
                 assert_eq!(
-                    got, want,
+                    got,
+                    want,
                     "prefix={:?} row={s:?}",
                     std::str::from_utf8(prefix)
                 );
@@ -337,14 +337,7 @@ mod tests {
         let inputs = build_inputs(strings);
         let dv = inputs.view();
 
-        for &needle in &[
-            &b"example"[..],
-            b"google",
-            b"reg",
-            b"://",
-            b"missing",
-            b"e",
-        ] {
+        for &needle in &[&b"example"[..], b"google", b"reg", b"://", b"missing", b"e"] {
             let bloom = ContainsBloom::build(&dv, needle);
             for (r, s) in strings.iter().enumerate() {
                 let want = memchr::memmem::find(s.as_bytes(), needle).is_some();
@@ -353,7 +346,11 @@ mod tests {
                 dv.decode_row_into(r, &mut row_bytes);
                 match bloom.classify(codes) {
                     Some(true) => {
-                        assert!(want, "false +ve: needle={:?} row={s:?}", std::str::from_utf8(needle));
+                        assert!(
+                            want,
+                            "false +ve: needle={:?} row={s:?}",
+                            std::str::from_utf8(needle)
+                        );
                     }
                     Some(false) => {
                         assert!(
@@ -365,10 +362,7 @@ mod tests {
                     None => {
                         // Unknown — that's fine; just check the decoded
                         // memmem agrees with `want`.
-                        assert_eq!(
-                            memchr::memmem::find(&row_bytes, needle).is_some(),
-                            want
-                        );
+                        assert_eq!(memchr::memmem::find(&row_bytes, needle).is_some(), want);
                     }
                 }
             }

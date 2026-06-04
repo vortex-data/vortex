@@ -4,8 +4,12 @@
 //! Tiny (`dict_size / 8` bytes per chunk; 512 B for the default 4096-
 //! token dict). Exact necessary condition for `=` and `LIKE 'p%'`.
 
-use crate::dict::{DictIndex, TokenDict, tokenize_needle};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
+
+use crate::dict::DictIndex;
+use crate::dict::TokenDict;
+use crate::dict::tokenize_needle;
 
 /// Bitmap over dict ids: bit `i` is set iff token id `i` appears in
 /// some row of this chunk.
@@ -49,12 +53,7 @@ impl DictPresence {
     /// Sound necessary condition for `col = needle`. Returns `false`
     /// only when the chunk provably can't contain a row equal to
     /// `needle`.
-    pub fn might_eq<D: TokenDict>(
-        &self,
-        dict: &D,
-        index: &DictIndex,
-        needle: &[u8],
-    ) -> bool {
+    pub fn might_eq<D: TokenDict>(&self, dict: &D, index: &DictIndex, needle: &[u8]) -> bool {
         let Some(toks) = tokenize_needle(dict, index, needle) else {
             return false;
         };
@@ -126,8 +125,12 @@ mod tests {
         }
     }
     impl TokenDict for TestDict {
-        fn len(&self) -> usize { self.toks.len() }
-        fn token_bytes(&self, id: u16) -> &[u8] { &self.toks[id as usize] }
+        fn len(&self) -> usize {
+            self.toks.len()
+        }
+        fn token_bytes(&self, id: u16) -> &[u8] {
+            &self.toks[id as usize]
+        }
     }
 
     #[test]

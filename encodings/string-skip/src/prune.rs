@@ -5,15 +5,20 @@
 //! into a single `chunk_might_match` function — the entry point used
 //! by query planners to decide whether to scan or skip a chunk.
 
+use serde::Deserialize;
+use serde::Serialize;
+
 use crate::bloom::Bloom;
 use crate::chunk_stats::ChunkStats;
-use crate::dict::{DictIndex, TokenDict, is_safe_position, tokenize_needle};
+use crate::dict::DictIndex;
+use crate::dict::TokenDict;
+use crate::dict::is_safe_position;
+use crate::dict::tokenize_needle;
 use crate::hash::pair_hash;
 use crate::pred::Pred;
 use crate::presence::DictPresence;
 use crate::tiers::BigramTiers;
 use crate::ubiq::UbiquitousBigrams;
-use serde::{Deserialize, Serialize};
 
 /// BitFunnel-style code-bigram bloom with ubiquitous-bigram skipping.
 #[derive(Clone, Serialize, Deserialize)]
@@ -246,17 +251,19 @@ fn check_aligned_ubiq<D: TokenDict>(
         starts.push(pos);
         pos += dict.token_bytes(t).len();
     }
-    let safe: Vec<bool> = starts.iter()
+    let safe: Vec<bool> = starts
+        .iter()
         .map(|&p| is_safe_position(dict, index, remainder, p))
         .collect();
 
     // Entry bigram
-    if let Some(e) = entry {
-        if safe[0] && !ubiq.contains(e, toks[0]) {
-            let (h1, h2) = pair_hash(e, toks[0]);
-            if !bloom.contains(h1, h2) {
-                return false;
-            }
+    if let Some(e) = entry
+        && safe[0]
+        && !ubiq.contains(e, toks[0])
+    {
+        let (h1, h2) = pair_hash(e, toks[0]);
+        if !bloom.contains(h1, h2) {
+            return false;
         }
     }
     // Interior bigrams
@@ -292,18 +299,19 @@ fn check_aligned_tiered<D: TokenDict>(
         starts.push(pos);
         pos += dict.token_bytes(t).len();
     }
-    let safe: Vec<bool> = starts.iter()
+    let safe: Vec<bool> = starts
+        .iter()
         .map(|&p| is_safe_position(dict, index, remainder, p))
         .collect();
 
-    if let Some(e) = entry {
-        if safe[0] {
-            let k = tiers.k_for(e, toks[0]);
-            if k > 0 {
-                let (h1, h2) = pair_hash(e, toks[0]);
-                if !bloom.contains_k(h1, h2, k) {
-                    return false;
-                }
+    if let Some(e) = entry
+        && safe[0]
+    {
+        let k = tiers.k_for(e, toks[0]);
+        if k > 0 {
+            let (h1, h2) = pair_hash(e, toks[0]);
+            if !bloom.contains_k(h1, h2, k) {
+                return false;
             }
         }
     }
@@ -356,15 +364,13 @@ pub struct PruneResult {
 /// contain a row matching `pred`, `false` if it provably can't.
 ///
 /// Sound: never returns `false` when the chunk truly contains a match.
-pub fn chunk_might_match<D: TokenDict>(
-    pred: &Pred,
-    state: &ChunkSkipState<'_, D>,
-) -> bool {
+pub fn chunk_might_match<D: TokenDict>(pred: &Pred, state: &ChunkSkipState<'_, D>) -> bool {
     let s = state.stats;
     match pred {
         Pred::Eq(x) => {
             let xb = x.as_slice();
-            s.min.as_slice() <= xb && xb <= s.max.as_slice()
+            s.min.as_slice() <= xb
+                && xb <= s.max.as_slice()
                 && state.presence.might_eq(state.dict, state.index, xb)
         }
         Pred::Lt(x) => s.min.as_slice() < x.as_slice(),
@@ -380,31 +386,39 @@ pub fn chunk_might_match<D: TokenDict>(
                 return false;
             }
             let mut upper = pb.to_vec();
-            upper.extend(std::iter::repeat(0xffu8).take(s.max_len));
+            upper.extend(std::iter::repeat_n(0xffu8, s.max_len));
             if s.min.as_slice() > upper.as_slice() {
                 return false;
             }
-            state.presence.might_starts_with(state.dict, state.index, pb)
+            state
+                .presence
+                .might_starts_with(state.dict, state.index, pb)
         }
         Pred::Suffix(suf) => {
             // No reliable min/max pruning for suffixes — bloom only.
             match (state.bloom, state.tiered) {
-                (Some(b), _) => b.might_contain(
-                    state.dict, state.index, state.presence, state.ubiq, suf),
-                (_, Some(t)) => t.might_contain(
-                    state.dict, state.index, state.presence, state.tiers, suf),
+                (Some(b), _) => {
+                    b.might_contain(state.dict, state.index, state.presence, state.ubiq, suf)
+                }
+                (_, Some(t)) => {
+                    t.might_contain(state.dict, state.index, state.presence, state.tiers, suf)
+                }
                 _ => true, // no bloom → can't prune
             }
         }
-        Pred::Contains(s_bytes) => {
-            match (state.bloom, state.tiered) {
-                (Some(b), _) => b.might_contain(
-                    state.dict, state.index, state.presence, state.ubiq, s_bytes),
-                (_, Some(t)) => t.might_contain(
-                    state.dict, state.index, state.presence, state.tiers, s_bytes),
-                _ => true,
+        Pred::Contains(s_bytes) => match (state.bloom, state.tiered) {
+            (Some(b), _) => {
+                b.might_contain(state.dict, state.index, state.presence, state.ubiq, s_bytes)
             }
-        }
+            (_, Some(t)) => t.might_contain(
+                state.dict,
+                state.index,
+                state.presence,
+                state.tiers,
+                s_bytes,
+            ),
+            _ => true,
+        },
         Pred::PrefixSuffix(p, suf) => {
             // Prefix range pruning + bloom for suffix
             let pb = p.as_slice();
@@ -412,25 +426,29 @@ pub fn chunk_might_match<D: TokenDict>(
                 return false;
             }
             let mut upper = pb.to_vec();
-            upper.extend(std::iter::repeat(0xffu8).take(s.max_len));
+            upper.extend(std::iter::repeat_n(0xffu8, s.max_len));
             if s.min.as_slice() > upper.as_slice() {
                 return false;
             }
             match (state.bloom, state.tiered) {
-                (Some(b), _) => b.might_contain(
-                    state.dict, state.index, state.presence, state.ubiq, suf),
-                (_, Some(t)) => t.might_contain(
-                    state.dict, state.index, state.presence, state.tiers, suf),
+                (Some(b), _) => {
+                    b.might_contain(state.dict, state.index, state.presence, state.ubiq, suf)
+                }
+                (_, Some(t)) => {
+                    t.might_contain(state.dict, state.index, state.presence, state.tiers, suf)
+                }
                 _ => true,
             }
         }
         Pred::SingleWildcard(p, suf) => {
             // Both anchored parts must be in the chunk (as substrings)
             let check = |needle: &[u8]| match (state.bloom, state.tiered) {
-                (Some(b), _) => b.might_contain(
-                    state.dict, state.index, state.presence, state.ubiq, needle),
-                (_, Some(t)) => t.might_contain(
-                    state.dict, state.index, state.presence, state.tiers, needle),
+                (Some(b), _) => {
+                    b.might_contain(state.dict, state.index, state.presence, state.ubiq, needle)
+                }
+                (_, Some(t)) => {
+                    t.might_contain(state.dict, state.index, state.presence, state.tiers, needle)
+                }
                 _ => true,
             };
             if !p.is_empty() && !check(p) {
@@ -443,10 +461,12 @@ pub fn chunk_might_match<D: TokenDict>(
         }
         Pred::MultiFragment(frags) => {
             let check = |needle: &[u8]| match (state.bloom, state.tiered) {
-                (Some(b), _) => b.might_contain(
-                    state.dict, state.index, state.presence, state.ubiq, needle),
-                (_, Some(t)) => t.might_contain(
-                    state.dict, state.index, state.presence, state.tiers, needle),
+                (Some(b), _) => {
+                    b.might_contain(state.dict, state.index, state.presence, state.ubiq, needle)
+                }
+                (_, Some(t)) => {
+                    t.might_contain(state.dict, state.index, state.presence, state.tiers, needle)
+                }
                 _ => true,
             };
             for f in frags {
@@ -462,7 +482,8 @@ pub fn chunk_might_match<D: TokenDict>(
         Pred::IsNotNull => s.n_rows > 0,
         Pred::InSet(xs) => xs.iter().any(|x| {
             let xb = x.as_slice();
-            s.min.as_slice() <= xb && xb <= s.max.as_slice()
+            s.min.as_slice() <= xb
+                && xb <= s.max.as_slice()
                 && state.presence.might_eq(state.dict, state.index, xb)
         }),
     }

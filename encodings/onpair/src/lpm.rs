@@ -80,11 +80,7 @@ impl DictIndex {
 /// Tokenise `needle` via greedy longest-prefix-match against the
 /// OnPair dict. Returns `None` if any byte of the needle has no
 /// matching dict entry.
-pub fn tokenize_needle(
-    dv: &DecodeView<'_>,
-    index: &DictIndex,
-    needle: &[u8],
-) -> Option<Vec<u16>> {
+pub fn tokenize_needle(dv: &DecodeView<'_>, index: &DictIndex, needle: &[u8]) -> Option<Vec<u16>> {
     let mut tokens = Vec::with_capacity(needle.len());
     let mut pos = 0usize;
     while pos < needle.len() {
@@ -129,15 +125,16 @@ pub fn tokenize_needle(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::DEFAULT_DICT12_CONFIG;
-    use crate::decode::OwnedDecodeInputs;
-    use crate::onpair_compress;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
+
+    use super::*;
+    use crate::DEFAULT_DICT12_CONFIG;
+    use crate::decode::OwnedDecodeInputs;
+    use crate::onpair_compress;
 
     fn build_array(strings: &[&str]) -> OwnedDecodeInputs {
         let varbin = VarBinArray::from_iter(

@@ -11,6 +11,7 @@ name = "string_skip"
 [dependencies]
 memchr = "2"
 bincode = { version = "1", default-features = false }
+hashbrown = { workspace = true }
 serde = { version = "1", default-features = false, features = ["derive", "alloc", "std"] }
 thiserror = "2"
 

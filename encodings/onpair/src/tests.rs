@@ -12,19 +12,19 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::filter::FilterKernel;
-use vortex_array::match_each_integer_ptype;
-use vortex_array::validity::Validity;
-use vortex_buffer::BufferMut;
 use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar_fn::fns::like::Like;
 use vortex_array::scalar_fn::fns::like::LikeOptions;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::session::ArraySession;
 use vortex_array::test_harness::check_metadata;
+use vortex_array::validity::Validity;
+use vortex_buffer::BufferMut;
 use vortex_session::VortexSession;
 
 use crate::OnPair;
@@ -322,10 +322,7 @@ fn test_onpair_filter_shares_dict() {
 /// Rebuild an OnPair array, swapping `codes_offsets` for a narrowed
 /// (smaller-ptype) primitive copy. Used by the narrowed-child
 /// regression tests below.
-fn narrow_codes_offsets(
-    arr: &crate::OnPairArray,
-    target: PType,
-) -> crate::OnPairArray {
+fn narrow_codes_offsets(arr: &crate::OnPairArray, target: PType) -> crate::OnPairArray {
     let view = arr.as_view();
     let mut ctx = SESSION.create_execution_ctx();
     let original = view

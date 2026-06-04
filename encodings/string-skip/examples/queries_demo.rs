@@ -16,7 +16,6 @@
 
 #![allow(clippy::print_stdout)]
 
-use std::collections::HashSet;
 use std::fs::File;
 use std::path::PathBuf;
 
@@ -24,18 +23,24 @@ use anyhow::Context;
 use arrow_array::Array as ArrowArray;
 use arrow_array::cast::AsArray;
 use clap::Parser;
+use hashbrown::HashMap;
+use hashbrown::HashSet;
 use parquet::arrow::ProjectionMask;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use rand::SeedableRng;
 use rand::seq::IndexedRandom;
 use rand_xoshiro::Xoshiro256PlusPlus;
-
-use string_skip::{
-    BigramTiers, ChunkStats, DictIndex, DictPresence, HybridBloom, Pred,
-    UbiquitousBigrams, chunk_might_match,
-    dict::{TokenDict, tokenize_needle},
-    prune::ChunkSkipState,
-};
+use string_skip::BigramTiers;
+use string_skip::ChunkStats;
+use string_skip::DictIndex;
+use string_skip::DictPresence;
+use string_skip::HybridBloom;
+use string_skip::Pred;
+use string_skip::UbiquitousBigrams;
+use string_skip::chunk_might_match;
+use string_skip::dict::TokenDict;
+use string_skip::dict::tokenize_needle;
+use string_skip::prune::ChunkSkipState;
 
 #[derive(Parser)]
 struct Args {
@@ -72,8 +77,7 @@ impl DemoDict {
     /// Build by seeding with all 256 single-byte tokens and the most
     /// frequent 2-3 byte substrings seen in `rows`.
     fn build(rows: &[Vec<u8>], target_size: usize) -> Self {
-        let mut counts: std::collections::HashMap<Vec<u8>, u32> =
-            std::collections::HashMap::new();
+        let mut counts: HashMap<Vec<u8>, u32> = HashMap::new();
         for r in rows {
             for w in r.windows(2) {
                 *counts.entry(w.to_vec()).or_insert(0) += 1;
@@ -95,8 +99,12 @@ impl DemoDict {
 }
 
 impl TokenDict for DemoDict {
-    fn len(&self) -> usize { self.toks.len() }
-    fn token_bytes(&self, id: u16) -> &[u8] { &self.toks[id as usize] }
+    fn len(&self) -> usize {
+        self.toks.len()
+    }
+    fn token_bytes(&self, id: u16) -> &[u8] {
+        &self.toks[id as usize]
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -109,7 +117,11 @@ fn main() -> anyhow::Result<()> {
         eprintln!("  sorted {} rows", rows.len());
     }
     let total_raw: usize = rows.iter().map(Vec::len).sum();
-    eprintln!("loaded {} rows ({:.1} MB)", rows.len(), total_raw as f64 / 1e6);
+    eprintln!(
+        "loaded {} rows ({:.1} MB)",
+        rows.len(),
+        total_raw as f64 / 1e6
+    );
 
     eprintln!("Building demo dict (4096 tokens)...");
     let dict = DemoDict::build(&rows, 4096);
@@ -125,8 +137,11 @@ fn main() -> anyhow::Result<()> {
         codes.extend(toks);
         offsets.push(codes.len() as u32);
     }
-    eprintln!("  {} total tokens, {:.1} per row", codes.len(),
-        codes.len() as f64 / rows.len() as f64);
+    eprintln!(
+        "  {} total tokens, {:.1} per row",
+        codes.len(),
+        codes.len() as f64 / rows.len() as f64
+    );
 
     let cs = args.chunk_size;
     let nch = rows.len() / cs;
@@ -157,8 +172,7 @@ fn main() -> anyhow::Result<()> {
 
     eprintln!("Building per-chunk blooms...");
     let blooms: Vec<HybridBloom> = (0..nch)
-        .map(|c| HybridBloom::build(
-            &codes, &offsets, c * cs, (c + 1) * cs, args.bits, &ubiq))
+        .map(|c| HybridBloom::build(&codes, &offsets, c * cs, (c + 1) * cs, args.bits, &ubiq))
         .collect();
 
     // Build the workload
@@ -169,11 +183,16 @@ fn main() -> anyhow::Result<()> {
     let avg_chunk_bytes = total_raw / nch;
 
     println!();
-    println!("=== Pruning report ({nch} chunks, {:.1} MB raw, {:.2} MB/chunk avg) ===",
-        total_raw as f64 / 1e6, avg_chunk_bytes as f64 / 1e6);
+    println!(
+        "=== Pruning report ({nch} chunks, {:.1} MB raw, {:.2} MB/chunk avg) ===",
+        total_raw as f64 / 1e6,
+        avg_chunk_bytes as f64 / 1e6
+    );
     println!();
-    println!("{:<38} {:>8} {:>10} {:>10} {:>6}",
-        "Predicate class", "skip%", "avg avoid", "kept/qry", "queries");
+    println!(
+        "{:<38} {:>8} {:>10} {:>10} {:>6}",
+        "Predicate class", "skip%", "avg avoid", "kept/qry", "queries"
+    );
     println!("{}", "-".repeat(78));
 
     for (label, queries) in &workload {
@@ -183,18 +202,28 @@ fn main() -> anyhow::Result<()> {
         let mut total_kept = 0usize;
         let mut total_bytes_saved = 0usize;
         for q in queries {
-            let kept = run_query(q, &chunk_stats, &presence, &blooms, &ubiq, &tiers, &dict, &index, nch);
+            let kept = run_query(
+                q,
+                &chunk_stats,
+                &presence,
+                &blooms,
+                &ubiq,
+                &tiers,
+                &dict,
+                &index,
+                nch,
+            );
             // Soundness check
-            for c in 0..nch {
-                let truly = q.matches_any(&rows[c * cs..(c + 1) * cs]);
+            for (c, rows_chunk) in rows.chunks_exact(cs).take(nch).enumerate() {
+                let truly = q.matches_any(rows_chunk);
                 if truly && !kept.contains(&c) {
                     panic!("FN for {label} q={q:?} chunk={c}");
                 }
             }
             total_kept += kept.len();
-            for c in 0..nch {
+            for (c, stats) in chunk_stats.iter().enumerate().take(nch) {
                 if !kept.contains(&c) {
-                    total_bytes_saved += chunk_stats[c].raw_bytes;
+                    total_bytes_saved += stats.raw_bytes;
                 }
             }
         }
@@ -203,8 +232,10 @@ fn main() -> anyhow::Result<()> {
         let avg_skipped = total_chunks - avg_kept;
         let skip_pct = 100.0 * avg_skipped / total_chunks;
         let avg_avoid_mb = total_bytes_saved as f64 / n_q as f64 / 1e6;
-        println!("{:<38} {:>7.1}% {:>7.1} MB {:>10.1} {:>6}",
-            label, skip_pct, avg_avoid_mb, avg_kept, n_q);
+        println!(
+            "{:<38} {:>7.1}% {:>7.1} MB {:>10.1} {:>6}",
+            label, skip_pct, avg_avoid_mb, avg_kept, n_q
+        );
     }
 
     Ok(())
@@ -250,89 +281,126 @@ fn build_workload(
     let mut w = Vec::new();
 
     // Eq
-    let eq: Vec<Pred> = (0..n).map(|_| Pred::Eq(rows.choose(rng).unwrap().clone())).collect();
+    let eq: Vec<Pred> = (0..n)
+        .map(|_| Pred::Eq(rows.choose(rng).unwrap().clone()))
+        .collect();
     w.push(("Eq: col = 'x'", eq));
 
     // Lt
-    let lt: Vec<Pred> = (0..n).map(|_| Pred::Lt(rows.choose(rng).unwrap().clone())).collect();
+    let lt: Vec<Pred> = (0..n)
+        .map(|_| Pred::Lt(rows.choose(rng).unwrap().clone()))
+        .collect();
     w.push(("Lt: col < 'x'", lt));
 
     // Between
-    let between: Vec<Pred> = (0..n).map(|_| {
-        let mut a = rows.choose(rng).unwrap().clone();
-        let mut b = rows.choose(rng).unwrap().clone();
-        if a > b { std::mem::swap(&mut a, &mut b); }
-        Pred::Between(a, b)
-    }).collect();
+    let between: Vec<Pred> = (0..n)
+        .map(|_| {
+            let mut a = rows.choose(rng).unwrap().clone();
+            let mut b = rows.choose(rng).unwrap().clone();
+            if a > b {
+                std::mem::swap(&mut a, &mut b);
+            }
+            Pred::Between(a, b)
+        })
+        .collect();
     w.push(("Between: BETWEEN a AND b", between));
 
     // Prefix
-    let prefix: Vec<Pred> = (0..n).filter_map(|_| {
-        let r = rows.choose(rng).unwrap();
-        if r.len() < 8 { return None; }
-        let plen = 3 + rng.gen_range(0..6);
-        Some(Pred::Prefix(r[..plen.min(r.len())].to_vec()))
-    }).collect();
+    let prefix: Vec<Pred> = (0..n)
+        .filter_map(|_| {
+            let r = rows.choose(rng).unwrap();
+            if r.len() < 8 {
+                return None;
+            }
+            let plen = 3 + rng.random_range(0..6);
+            Some(Pred::Prefix(r[..plen.min(r.len())].to_vec()))
+        })
+        .collect();
     w.push(("Prefix: LIKE 'p%'", prefix));
 
     // Suffix
-    let suffix: Vec<Pred> = (0..n).filter_map(|_| {
-        let r = rows.choose(rng).unwrap();
-        if r.len() < 8 { return None; }
-        let slen = 3 + rng.gen_range(0..6);
-        let start = r.len().saturating_sub(slen);
-        Some(Pred::Suffix(r[start..].to_vec()))
-    }).collect();
+    let suffix: Vec<Pred> = (0..n)
+        .filter_map(|_| {
+            let r = rows.choose(rng).unwrap();
+            if r.len() < 8 {
+                return None;
+            }
+            let slen = 3 + rng.random_range(0..6);
+            let start = r.len().saturating_sub(slen);
+            Some(Pred::Suffix(r[start..].to_vec()))
+        })
+        .collect();
     w.push(("Suffix: LIKE '%s'", suffix));
 
     // Contains
-    let contains: Vec<Pred> = (0..n).filter_map(|_| {
-        let r = rows.choose(rng).unwrap();
-        if r.len() < 10 { return None; }
-        let slen = 5 + rng.gen_range(0..8);
-        let start = rng.gen_range(0..r.len() - slen);
-        Some(Pred::Contains(r[start..start + slen].to_vec()))
-    }).collect();
+    let contains: Vec<Pred> = (0..n)
+        .filter_map(|_| {
+            let r = rows.choose(rng).unwrap();
+            if r.len() < 10 {
+                return None;
+            }
+            let slen = 5 + rng.random_range(0..8);
+            let start = rng.random_range(0..r.len() - slen);
+            Some(Pred::Contains(r[start..start + slen].to_vec()))
+        })
+        .collect();
     w.push(("Contains: LIKE '%x%'", contains));
 
     // PrefixSuffix
-    let psufx: Vec<Pred> = (0..n).filter_map(|_| {
-        let r = rows.choose(rng).unwrap();
-        if r.len() < 14 { return None; }
-        let plen = 3 + rng.gen_range(0..4);
-        let slen = 3 + rng.gen_range(0..4);
-        Some(Pred::PrefixSuffix(r[..plen].to_vec(), r[r.len() - slen..].to_vec()))
-    }).collect();
+    let psufx: Vec<Pred> = (0..n)
+        .filter_map(|_| {
+            let r = rows.choose(rng).unwrap();
+            if r.len() < 14 {
+                return None;
+            }
+            let plen = 3 + rng.random_range(0..4);
+            let slen = 3 + rng.random_range(0..4);
+            Some(Pred::PrefixSuffix(
+                r[..plen].to_vec(),
+                r[r.len() - slen..].to_vec(),
+            ))
+        })
+        .collect();
     w.push(("PrefixSuffix: LIKE 'a%b'", psufx));
 
     // SingleWildcard
-    let sw: Vec<Pred> = (0..n).filter_map(|_| {
-        let r = rows.choose(rng).unwrap();
-        if r.len() < 12 { return None; }
-        let pos = 3 + rng.gen_range(0..r.len() - 10);
-        let plen = 3;
-        let slen = 3;
-        Some(Pred::SingleWildcard(
-            r[pos..pos + plen].to_vec(),
-            r[pos + plen + 1..pos + plen + 1 + slen].to_vec(),
-        ))
-    }).collect();
+    let sw: Vec<Pred> = (0..n)
+        .filter_map(|_| {
+            let r = rows.choose(rng).unwrap();
+            if r.len() < 12 {
+                return None;
+            }
+            let pos = 3 + rng.random_range(0..r.len() - 10);
+            let plen = 3;
+            let slen = 3;
+            Some(Pred::SingleWildcard(
+                r[pos..pos + plen].to_vec(),
+                r[pos + plen + 1..pos + plen + 1 + slen].to_vec(),
+            ))
+        })
+        .collect();
     w.push(("Wildcard: LIKE '%a_b%'", sw));
 
     // MultiFragment
-    let mf: Vec<Pred> = (0..n).filter_map(|_| {
-        let r = rows.choose(rng).unwrap();
-        if r.len() < 16 { return None; }
-        let len1 = 3 + rng.gen_range(0..4);
-        let start1 = rng.gen_range(0..r.len() / 3);
-        let start2 = start1 + len1 + 2 + rng.gen_range(0..4);
-        let len2 = 3 + rng.gen_range(0..4);
-        if start2 + len2 > r.len() { return None; }
-        Some(Pred::MultiFragment(vec![
-            r[start1..start1 + len1].to_vec(),
-            r[start2..start2 + len2].to_vec(),
-        ]))
-    }).collect();
+    let mf: Vec<Pred> = (0..n)
+        .filter_map(|_| {
+            let r = rows.choose(rng).unwrap();
+            if r.len() < 16 {
+                return None;
+            }
+            let len1 = 3 + rng.random_range(0..4);
+            let start1 = rng.random_range(0..r.len() / 3);
+            let start2 = start1 + len1 + 2 + rng.random_range(0..4);
+            let len2 = 3 + rng.random_range(0..4);
+            if start2 + len2 > r.len() {
+                return None;
+            }
+            Some(Pred::MultiFragment(vec![
+                r[start1..start1 + len1].to_vec(),
+                r[start2..start2 + len2].to_vec(),
+            ]))
+        })
+        .collect();
     w.push(("MultiFragment: LIKE '%a%b%'", mf));
 
     // Length predicates
@@ -340,19 +408,23 @@ fn build_workload(
     let lg: Vec<Pred> = (0..n).map(|i| Pred::LengthGt(avg_len + (i % 20))).collect();
     w.push(("LengthGt: LENGTH > k", lg));
 
-    let lb: Vec<Pred> = (0..n).map(|_| {
-        let lo = rng.gen_range(0..avg_len);
-        let hi = lo + 10 + rng.gen_range(0..50);
-        Pred::LengthBetween(lo, hi)
-    }).collect();
+    let lb: Vec<Pred> = (0..n)
+        .map(|_| {
+            let lo = rng.random_range(0..avg_len);
+            let hi = lo + 10 + rng.random_range(0..50);
+            Pred::LengthBetween(lo, hi)
+        })
+        .collect();
     w.push(("LengthBetween: LENGTH BETWEEN", lb));
 
     // IN set
-    let in_set: Vec<Pred> = (0..n).map(|_| {
-        let k = 3 + rng.gen_range(0..5);
-        let xs: Vec<Vec<u8>> = (0..k).map(|_| rows.choose(rng).unwrap().clone()).collect();
-        Pred::InSet(xs)
-    }).collect();
+    let in_set: Vec<Pred> = (0..n)
+        .map(|_| {
+            let k = 3 + rng.random_range(0..5);
+            let xs: Vec<Vec<u8>> = (0..k).map(|_| rows.choose(rng).unwrap().clone()).collect();
+            Pred::InSet(xs)
+        })
+        .collect();
     w.push(("InSet: IN (3-7 values)", in_set));
 
     w.push(("IsNull: IS NULL", vec![Pred::IsNull]));
@@ -367,18 +439,28 @@ fn load_column(paths: &[PathBuf], col_name: &str, max_rows: usize) -> anyhow::Re
         let file = File::open(path).with_context(|| format!("open {path:?}"))?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
         let schema = builder.schema().clone();
-        let col_idx = schema.fields().iter().position(|f| f.name() == col_name)
+        let col_idx = schema
+            .fields()
+            .iter()
+            .position(|f| f.name() == col_name)
             .with_context(|| format!("column {col_name:?} not in {path:?}"))?;
         let mask = ProjectionMask::leaves(builder.parquet_schema(), [col_idx]);
-        let mut reader = builder.with_projection(mask).with_batch_size(8192).build()?;
-        while let Some(batch) = reader.next() {
+        let reader = builder
+            .with_projection(mask)
+            .with_batch_size(8192)
+            .build()?;
+        for batch in reader {
             let batch = batch?;
             let col = batch.column(0);
             let want = max_rows.saturating_sub(out.len());
-            if want == 0 { break 'outer; }
+            if want == 0 {
+                break 'outer;
+            }
             let pushed = push_strings(col, want, &mut out);
             anyhow::ensure!(pushed > 0, "unexpected column type: {:?}", col.data_type());
-            if out.len() >= max_rows { break 'outer; }
+            if out.len() >= max_rows {
+                break 'outer;
+            }
         }
     }
     Ok(out)
@@ -387,32 +469,44 @@ fn load_column(paths: &[PathBuf], col_name: &str, max_rows: usize) -> anyhow::Re
 fn push_strings(col: &dyn ArrowArray, want: usize, out: &mut Vec<Vec<u8>>) -> usize {
     if let Some(s) = col.as_string_opt::<i32>() {
         let n = s.len().min(want);
-        for i in 0..n { out.push(s.value(i).as_bytes().to_vec()); }
+        for i in 0..n {
+            out.push(s.value(i).as_bytes().to_vec());
+        }
         return n;
     }
     if let Some(s) = col.as_string_opt::<i64>() {
         let n = s.len().min(want);
-        for i in 0..n { out.push(s.value(i).as_bytes().to_vec()); }
+        for i in 0..n {
+            out.push(s.value(i).as_bytes().to_vec());
+        }
         return n;
     }
     if let Some(s) = col.as_string_view_opt() {
         let n = s.len().min(want);
-        for i in 0..n { out.push(s.value(i).as_bytes().to_vec()); }
+        for i in 0..n {
+            out.push(s.value(i).as_bytes().to_vec());
+        }
         return n;
     }
     if let Some(b) = col.as_binary_opt::<i32>() {
         let n = b.len().min(want);
-        for i in 0..n { out.push(b.value(i).to_vec()); }
+        for i in 0..n {
+            out.push(b.value(i).to_vec());
+        }
         return n;
     }
     if let Some(b) = col.as_binary_opt::<i64>() {
         let n = b.len().min(want);
-        for i in 0..n { out.push(b.value(i).to_vec()); }
+        for i in 0..n {
+            out.push(b.value(i).to_vec());
+        }
         return n;
     }
     if let Some(b) = col.as_binary_view_opt() {
         let n = b.len().min(want);
-        for i in 0..n { out.push(b.value(i).to_vec()); }
+        for i in 0..n {
+            out.push(b.value(i).to_vec());
+        }
         return n;
     }
     0

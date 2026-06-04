@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Hash helpers used by the bloom and bigram tables.
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
 /// 32-bit splitmix step. Tiny, branch-free, no SIMD needed.
 #[inline]
@@ -65,7 +66,10 @@ mod tests {
         let h1 = splitmix32(1);
         assert_ne!(h0, h1);
         let diff = (h0 ^ h1).count_ones();
-        assert!(diff > 8, "splitmix32 has poor avalanche: only {diff} bits diff");
+        assert!(
+            diff > 8,
+            "splitmix32 has poor avalanche: only {diff} bits diff"
+        );
     }
 
     #[test]

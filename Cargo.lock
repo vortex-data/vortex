@@ -9074,6 +9074,7 @@ dependencies = [
  "bincode",
  "clap",
  "criterion",
+ "hashbrown 0.17.1",
  "memchr",
  "parquet 57.3.0",
  "proptest",

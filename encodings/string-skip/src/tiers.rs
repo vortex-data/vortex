@@ -3,9 +3,12 @@
 //! frequency. Implements the full BitFunnel idea: common bigrams get
 //! fewer hash bits, rare bigrams get more.
 
+use hashbrown::HashMap;
+use hashbrown::HashSet;
+use serde::Deserialize;
+use serde::Serialize;
+
 use crate::hash::BigramKey;
-use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
 
 /// Per-bigram tier table.
 ///
@@ -86,12 +89,18 @@ impl BigramTiers {
             })
             .collect();
         entries.sort_unstable_by_key(|&(k, _)| k);
-        Self { entries, default_k: 3 }
+        Self {
+            entries,
+            default_k: 3,
+        }
     }
 
     /// Empty tier table — every bigram uses `default_k=3`.
     pub fn empty() -> Self {
-        Self { entries: Vec::new(), default_k: 3 }
+        Self {
+            entries: Vec::new(),
+            default_k: 3,
+        }
     }
 
     /// Get `k` for a given bigram. Returns `default_k` if not in table.

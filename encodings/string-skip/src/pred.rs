@@ -6,7 +6,8 @@
 //! variants for skip-index dispatch, and avoiding the dep keeps this
 //! crate embeddable.
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
 /// SQL-ish string predicates that the skip index can prune against.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -60,7 +61,9 @@ impl Pred {
             Pred::Prefix(p) => row.starts_with(p.as_slice()),
             Pred::Suffix(s) => row.ends_with(s.as_slice()),
             Pred::Contains(s) => memchr::memmem::find(row, s).is_some(),
-            Pred::PrefixSuffix(p, s) => row.starts_with(p.as_slice()) && row.ends_with(s.as_slice()),
+            Pred::PrefixSuffix(p, s) => {
+                row.starts_with(p.as_slice()) && row.ends_with(s.as_slice())
+            }
             Pred::SingleWildcard(p, s) => {
                 let need = p.len() + 1 + s.len();
                 if row.len() < need {
@@ -134,13 +137,13 @@ mod tests {
     fn single_wildcard() {
         let p = Pred::SingleWildcard(b"hel".to_vec(), b"o".to_vec());
         // Looking for "hel?o" as a substring
-        assert!(p.matches_one(b"hello"));    // hel + l + o
+        assert!(p.matches_one(b"hello")); // hel + l + o
         assert!(p.matches_one(b"yhelxo abc")); // hel + x + o at offset 1
-        assert!(p.matches_one(b"helloo"));   // hel + l + o at offset 0 still matches
+        assert!(p.matches_one(b"helloo")); // hel + l + o at offset 0 still matches
         // Negative: pattern doesn't appear at all
-        assert!(!p.matches_one(b"hxllo"));   // no "hel" prefix
-        assert!(!p.matches_one(b"helxx"));   // "hel" then wildcard then NOT 'o'
-        assert!(!p.matches_one(b"hi"));      // too short
+        assert!(!p.matches_one(b"hxllo")); // no "hel" prefix
+        assert!(!p.matches_one(b"helxx")); // "hel" then wildcard then NOT 'o'
+        assert!(!p.matches_one(b"hi")); // too short
     }
 
     #[test]

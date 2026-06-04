@@ -50,10 +50,15 @@ pub mod ubiq;
 
 pub use bloom::Bloom;
 pub use chunk_stats::ChunkStats;
-pub use dict::{DictIndex, TokenDict, tokenize_needle};
+pub use dict::DictIndex;
+pub use dict::TokenDict;
+pub use dict::tokenize_needle;
 pub use pred::Pred;
 pub use presence::DictPresence;
-pub use prune::{HybridBloom, PruneResult, TieredBloom, chunk_might_match};
+pub use prune::HybridBloom;
+pub use prune::PruneResult;
+pub use prune::TieredBloom;
+pub use prune::chunk_might_match;
 pub use tiers::BigramTiers;
 pub use ubiq::UbiquitousBigrams;
 

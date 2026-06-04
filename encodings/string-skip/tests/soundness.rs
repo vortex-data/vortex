@@ -6,18 +6,23 @@
 //! These property tests generate random rows, build all the skip
 //! indexes, and verify no FN across a large random predicate space.
 
-use proptest::prelude::*;
 use proptest::collection::vec;
+use proptest::prelude::*;
 use rand::Rng;
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256PlusPlus;
-
-use string_skip::{
-    BigramTiers, Bloom, ChunkStats, DictIndex, DictPresence, HybridBloom, Pred,
-    TieredBloom, UbiquitousBigrams, chunk_might_match,
-    dict::{TokenDict, tokenize_needle},
-    prune::ChunkSkipState,
-};
+use string_skip::BigramTiers;
+use string_skip::ChunkStats;
+use string_skip::DictIndex;
+use string_skip::DictPresence;
+use string_skip::HybridBloom;
+use string_skip::Pred;
+use string_skip::TieredBloom;
+use string_skip::UbiquitousBigrams;
+use string_skip::chunk_might_match;
+use string_skip::dict::TokenDict;
+use string_skip::dict::tokenize_needle;
+use string_skip::prune::ChunkSkipState;
 
 /// A minimal test dict + code stream. The dict always includes all 256
 /// single-byte tokens plus the supplied multi-byte tokens, sorted.
@@ -44,8 +49,12 @@ impl TestDict {
     }
 }
 impl TokenDict for TestDict {
-    fn len(&self) -> usize { self.toks.len() }
-    fn token_bytes(&self, id: u16) -> &[u8] { &self.toks[id as usize] }
+    fn len(&self) -> usize {
+        self.toks.len()
+    }
+    fn token_bytes(&self, id: u16) -> &[u8] {
+        &self.toks[id as usize]
+    }
 }
 
 impl TestColumn {
@@ -59,16 +68,30 @@ impl TestColumn {
             codes.extend(toks);
             offsets.push(codes.len() as u32);
         }
-        Self { dict, index, codes, offsets, rows }
+        Self {
+            dict,
+            index,
+            codes,
+            offsets,
+            rows,
+        }
     }
 }
 
 /// Pure-byte generator: alphanumeric ASCII, ASCII punct, ASCII whitespace.
 fn ascii_byte() -> impl Strategy<Value = u8> {
     prop_oneof![
-        Just(b'/'), Just(b'.'), Just(b'_'), Just(b'-'),
-        Just(b' '), Just(b'a'), Just(b'b'), Just(b'c'),
-        (b'a'..=b'z'), (b'A'..=b'Z'), (b'0'..=b'9'),
+        Just(b'/'),
+        Just(b'.'),
+        Just(b'_'),
+        Just(b'-'),
+        Just(b' '),
+        Just(b'a'),
+        Just(b'b'),
+        Just(b'c'),
+        (b'a'..=b'z'),
+        (b'A'..=b'Z'),
+        (b'0'..=b'9'),
     ]
 }
 
@@ -78,48 +101,6 @@ fn arb_row(min_len: usize, max_len: usize) -> impl Strategy<Value = Vec<u8>> {
 
 fn arb_rows(n: usize) -> impl Strategy<Value = Vec<Vec<u8>>> {
     vec(arb_row(3, 30), n..=n)
-}
-
-/// Generate a predicate whose pattern is sampled from one of the rows
-/// (so the FN-checking is meaningful — some chunks really do match).
-fn arb_pred_from_rows(rows: Vec<Vec<u8>>) -> impl Strategy<Value = Pred> {
-    let n = rows.len();
-    (0usize..n, 0..14u8).prop_flat_map(move |(row_idx, kind)| {
-        let r = rows[row_idx].clone();
-        // Generate a "where to slice" offset and length.
-        let max_off = r.len().saturating_sub(1);
-        (0..=max_off, 1usize..=10).prop_map(move |(off, len)| {
-            let row = &r;
-            let off = off.min(row.len().saturating_sub(1));
-            let len = len.min(row.len() - off).max(1);
-            let slice = row[off..off + len].to_vec();
-            match kind {
-                0 => Pred::Eq(row.clone()),
-                1 => Pred::Lt(row.clone()),
-                2 => Pred::Gt(row.clone()),
-                3 => Pred::Between(row.clone(), row.clone()),
-                4 => Pred::Prefix(row[..len.min(row.len())].to_vec()),
-                5 => Pred::Suffix(row[row.len().saturating_sub(len)..].to_vec()),
-                6 => Pred::Contains(slice.clone()),
-                7 if slice.len() >= 3 => {
-                    let mid = slice.len() / 2;
-                    Pred::PrefixSuffix(slice[..mid].to_vec(), slice[mid..].to_vec())
-                }
-                8 if slice.len() >= 3 => {
-                    let half = slice.len() / 2;
-                    Pred::SingleWildcard(
-                        slice[..half.saturating_sub(1)].to_vec(),
-                        slice[half + 1..].to_vec(),
-                    )
-                }
-                9 => Pred::LengthGt(slice.len()),
-                10 => Pred::LengthBetween(0, slice.len()),
-                11 => Pred::IsNotNull,
-                12 => Pred::InSet(vec![row.clone(), slice.clone()]),
-                _ => Pred::Contains(slice),
-            }
-        })
-    })
 }
 
 proptest! {
@@ -191,19 +172,30 @@ proptest! {
 /// Hand-rolled predicate generator (proptest's flat_map gets unwieldy
 /// for such a heterogeneous AST).
 fn make_pred_from_rows<R: Rng>(rng: &mut R, rows: &[Vec<u8>]) -> Pred {
-    let kind = rng.gen_range(0..14u8);
-    let row = &rows[rng.gen_range(0..rows.len())];
-    let off = if row.len() <= 1 { 0 } else { rng.gen_range(0..row.len() - 1) };
-    let len = if row.len() <= off + 1 { 1 } else { rng.gen_range(1..=row.len() - off).min(10) };
+    let kind = rng.random_range(0..14u8);
+    let row = &rows[rng.random_range(0..rows.len())];
+    let off = if row.len() <= 1 {
+        0
+    } else {
+        rng.random_range(0..row.len() - 1)
+    };
+    let len = if row.len() <= off + 1 {
+        1
+    } else {
+        rng.random_range(1..=row.len() - off).min(10)
+    };
     let slice = row[off..off + len].to_vec();
     match kind {
         0 => Pred::Eq(row.clone()),
         1 => Pred::Lt(row.clone()),
         2 => Pred::Gt(row.clone()),
         3 => {
-            let other = &rows[rng.gen_range(0..rows.len())];
-            let (lo, hi) = if row <= other { (row.clone(), other.clone()) }
-                          else { (other.clone(), row.clone()) };
+            let other = &rows[rng.random_range(0..rows.len())];
+            let (lo, hi) = if row <= other {
+                (row.clone(), other.clone())
+            } else {
+                (other.clone(), row.clone())
+            };
             Pred::Between(lo, hi)
         }
         4 => Pred::Prefix(row[..len.min(row.len())].to_vec()),
@@ -220,12 +212,14 @@ fn make_pred_from_rows<R: Rng>(rng: &mut R, rows: &[Vec<u8>]) -> Pred {
                 slice[half + 1.min(slice.len() - half)..].to_vec(),
             )
         }
-        9 => Pred::LengthGt(rng.gen_range(0..50)),
-        10 => Pred::LengthBetween(rng.gen_range(0..30), rng.gen_range(20..60)),
+        9 => Pred::LengthGt(rng.random_range(0..50)),
+        10 => Pred::LengthBetween(rng.random_range(0..30), rng.random_range(20..60)),
         11 => Pred::IsNotNull,
         12 => {
-            let n = rng.gen_range(1..=5);
-            let vals: Vec<Vec<u8>> = (0..n).map(|_| rows[rng.gen_range(0..rows.len())].clone()).collect();
+            let n = rng.random_range(1..=5);
+            let vals: Vec<Vec<u8>> = (0..n)
+                .map(|_| rows[rng.random_range(0..rows.len())].clone())
+                .collect();
             Pred::InSet(vals)
         }
         _ => Pred::Contains(slice),
@@ -242,18 +236,17 @@ fn substring_no_fn_with_long_extension_tokens() {
         b"http://www.adidas.com/women/dresses".to_vec(),
     ];
     // Force a multi-byte dict token that includes the needle bytes.
-    let col = TestColumn::build(rows.clone(),
-        vec!["http://www.", "adidas.com/", "iroverlanet.ru/"]);
+    let col = TestColumn::build(
+        rows.clone(),
+        vec!["http://www.", "adidas.com/", "iroverlanet.ru/"],
+    );
 
     let chunk_stats = ChunkStats::from_rows(&col.rows);
     let presence = DictPresence::build(&col.codes, col.dict.len());
     let ubiq = UbiquitousBigrams::empty();
     let tiers = BigramTiers::empty();
-    let bloom = HybridBloom::build(
-        &col.codes, &col.offsets, 0, col.rows.len(), 16, &ubiq);
+    let bloom = HybridBloom::build(&col.codes, &col.offsets, 0, col.rows.len(), 16, &ubiq);
 
-    // Search for a substring that appears mid-token in the row.
-    let pred = Pred::Contains(b"u/kiroverlanet".to_vec().into_iter().filter(|_| true).collect());
     // We don't actually need that substring to match; the key check
     // is that whatever DOES match returns true. Try several:
     for needle in [&b"iroverlanet"[..], &b"adidas"[..], &b"sneakers"[..]] {
@@ -270,8 +263,10 @@ fn substring_no_fn_with_long_extension_tokens() {
             index: &col.index,
         };
         let says = chunk_might_match(&p, &state);
-        assert!(!truly || says,
+        assert!(
+            !truly || says,
             "FN for needle {:?}: truly={truly}, says={says}",
-            std::str::from_utf8(needle).unwrap());
+            std::str::from_utf8(needle).unwrap()
+        );
     }
 }

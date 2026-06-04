@@ -12,7 +12,8 @@
 //! that are L1-resident, the perf difference to SIMD blooms is below
 //! noise.
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
 /// Bit-level approximate-membership filter.
 ///
@@ -33,7 +34,11 @@ impl Bloom {
         let num_bits = num_bits.next_power_of_two().max(64);
         let mask = (num_bits as u64) - 1;
         let bits = vec![0u64; num_bits / 64];
-        Self { bits, mask, default_k }
+        Self {
+            bits,
+            mask,
+            default_k,
+        }
     }
 
     /// Bytes occupied by the bit array (not counting `mask`/`k`).
@@ -69,8 +74,8 @@ impl Bloom {
         }
     }
 
-    /// Probe with an explicit `k`. `k=0` returns `true` (item is
-    /// treated as "always present" — its bits weren't inserted).
+    /// Probe with an explicit `k`. `k=0` returns `true` because the item is
+    /// treated as uninformative pruning evidence — its bits were not inserted.
     #[inline]
     pub fn contains_k(&self, h1: u32, h2: u32, k: u32) -> bool {
         let mask = self.mask;
@@ -102,8 +107,10 @@ mod tests {
             b.insert(i, i.wrapping_mul(0x27d4_eb2f));
         }
         for i in 0..100u32 {
-            assert!(b.contains(i, i.wrapping_mul(0x27d4_eb2f)),
-                "missed item {i}");
+            assert!(
+                b.contains(i, i.wrapping_mul(0x27d4_eb2f)),
+                "missed item {i}"
+            );
         }
     }
 
@@ -114,8 +121,10 @@ mod tests {
             b.insert_k(i, i.wrapping_mul(0x27d4_eb2f), *k);
         }
         for (i, k) in (0..200u32).zip([1u32, 2, 3].iter().cycle()) {
-            assert!(b.contains_k(i, i.wrapping_mul(0x27d4_eb2f), *k),
-                "missed item {i} k={k}");
+            assert!(
+                b.contains_k(i, i.wrapping_mul(0x27d4_eb2f), *k),
+                "missed item {i} k={k}"
+            );
         }
     }
 

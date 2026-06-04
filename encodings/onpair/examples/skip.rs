@@ -65,20 +65,18 @@ use vortex_onpair::DEFAULT_DICT12_CONFIG;
 use vortex_onpair::decode::OwnedDecodeInputs;
 use vortex_onpair::lpm::DictIndex;
 use vortex_onpair::onpair_compress;
+use vortex_onpair::skip::BigramTiers;
 use vortex_onpair::skip::CodeBigramBloom;
 use vortex_onpair::skip::DictPresence;
-use vortex_onpair::skip::BigramTiers;
 use vortex_onpair::skip::HybridBloom;
-use vortex_onpair::skip::TieredBloom;
-use vortex_onpair::skip::UbiquitousBigrams;
 use vortex_onpair::skip::SeamBloom;
+use vortex_onpair::skip::TieredBloom;
 use vortex_onpair::skip::TokenPairBloom;
 use vortex_onpair::skip::TrigramBloom;
+use vortex_onpair::skip::UbiquitousBigrams;
 
 #[derive(Parser)]
-#[command(
-    about = "Sweep skip-index configurations and recommend a design for your column"
-)]
+#[command(about = "Sweep skip-index configurations and recommend a design for your column")]
 struct Args {
     /// Parquet file path. Repeat for multiple files.
     #[arg(long, num_args = 1.., required = true)]
@@ -177,10 +175,18 @@ struct Bucket {
 }
 impl Bucket {
     fn real_pct(&self) -> f64 {
-        if self.n_c == 0 { 0.0 } else { 100.0 * self.real as f64 / self.n_c as f64 }
+        if self.n_c == 0 {
+            0.0
+        } else {
+            100.0 * self.real as f64 / self.n_c as f64
+        }
     }
     fn kept_pct(&self) -> f64 {
-        if self.n_c == 0 { 0.0 } else { 100.0 * self.kept as f64 / self.n_c as f64 }
+        if self.n_c == 0 {
+            0.0
+        } else {
+            100.0 * self.kept as f64 / self.n_c as f64
+        }
     }
     fn vs_floor(&self) -> f64 {
         self.kept_pct() - self.real_pct()
@@ -281,23 +287,26 @@ fn main() -> anyhow::Result<()> {
 
         // BitFunnel-style ubiquitous-bigram set (column-level).
         // Built once per chunk_size from the full code stream.
-        let ubiq = UbiquitousBigrams::build(
-            dv.codes, dv.codes_offsets, cs, args.ubiq_pct,
-        );
+        let ubiq = UbiquitousBigrams::build(dv.codes, dv.codes_offsets, cs, args.ubiq_pct);
         eprintln!(
             "  ubiq bigrams (>{}% of chunks at cs={}): {} entries ({} B)",
-            args.ubiq_pct, cs, ubiq.len(), ubiq.byte_size(),
+            args.ubiq_pct,
+            cs,
+            ubiq.len(),
+            ubiq.byte_size(),
         );
 
         // BitFunnel-style tiered bigram k-counts (column-level).
         // top 50% → k=0 (skip), 25-50% → k=1, 10-25% → k=2, ≤10% → k=3.
-        let tiers = BigramTiers::build(
-            dv.codes, dv.codes_offsets, cs, 50, 25, 10,
-        );
+        let tiers = BigramTiers::build(dv.codes, dv.codes_offsets, cs, 50, 25, 10);
         let tc = tiers.tier_counts();
         eprintln!(
             "  tier bigrams at cs={}: k=0:{} k=1:{} k=2:{} ({} B)",
-            cs, tc[0], tc[1], tc[2], tiers.byte_size(),
+            cs,
+            tc[0],
+            tc[1],
+            tc[2],
+            tiers.byte_size(),
         );
 
         let chunk_raw_bytes: Vec<usize> = (0..nch)
@@ -327,9 +336,17 @@ fn main() -> anyhow::Result<()> {
         // Evaluate A once. bits=0 is sentinel.
         if variants.contains(&"A") {
             results.push(eval(
-                "A", cs, 0, n_aligned,
-                a_bytes, a_build_ns,
-                &workload, nch, &rows, &chunk_raw_bytes, &chunk_compressed_bytes,
+                "A",
+                cs,
+                0,
+                n_aligned,
+                a_bytes,
+                a_build_ns,
+                &workload,
+                nch,
+                &rows,
+                &chunk_raw_bytes,
+                &chunk_compressed_bytes,
                 |q, c| match q {
                     Pred::Contains(s) => presence[c].might_contain(&dv, s.as_bytes()),
                     Pred::StartsWith(s) => presence[c].might_starts_with(&dv, &index, s.as_bytes()),
@@ -360,9 +377,17 @@ fn main() -> anyhow::Result<()> {
 
             if variants.contains(&"B") {
                 results.push(eval(
-                    "B", cs, bits, n_aligned,
-                    b_bytes, b_build_ns,
-                    &workload, nch, &rows, &chunk_raw_bytes, &chunk_compressed_bytes,
+                    "B",
+                    cs,
+                    bits,
+                    n_aligned,
+                    b_bytes,
+                    b_build_ns,
+                    &workload,
+                    nch,
+                    &rows,
+                    &chunk_raw_bytes,
+                    &chunk_compressed_bytes,
                     |q, c| bs[c].might_contain(q.bytes()),
                 ));
             }
@@ -370,9 +395,17 @@ fn main() -> anyhow::Result<()> {
                 let ab_bytes = a_bytes + b_bytes;
                 let ab_build_ns = a_build_ns + b_build_ns;
                 results.push(eval(
-                    "AB", cs, bits, n_aligned,
-                    ab_bytes, ab_build_ns,
-                    &workload, nch, &rows, &chunk_raw_bytes, &chunk_compressed_bytes,
+                    "AB",
+                    cs,
+                    bits,
+                    n_aligned,
+                    ab_bytes,
+                    ab_build_ns,
+                    &workload,
+                    nch,
+                    &rows,
+                    &chunk_raw_bytes,
+                    &chunk_compressed_bytes,
                     |q, c| {
                         let pa = match q {
                             Pred::Contains(s) => presence[c].might_contain(&dv, s.as_bytes()),
@@ -394,9 +427,17 @@ fn main() -> anyhow::Result<()> {
                 let c_build = t0.elapsed().as_nanos() + a_build_ns;
                 let c_bytes = cs_idx.iter().map(SeamBloom::byte_size).sum::<usize>() + a_bytes;
                 results.push(eval(
-                    "C", cs, bits, n_aligned,
-                    c_bytes, c_build,
-                    &workload, nch, &rows, &chunk_raw_bytes, &chunk_compressed_bytes,
+                    "C",
+                    cs,
+                    bits,
+                    n_aligned,
+                    c_bytes,
+                    c_build,
+                    &workload,
+                    nch,
+                    &rows,
+                    &chunk_raw_bytes,
+                    &chunk_compressed_bytes,
                     |q, c| cs_idx[c].might_contain(&dv, &presence[c], q.bytes()),
                 ));
             }
@@ -410,9 +451,17 @@ fn main() -> anyhow::Result<()> {
                 let d_build = t0.elapsed().as_nanos() + a_build_ns;
                 let d_bytes = ds.iter().map(TokenPairBloom::byte_size).sum::<usize>() + a_bytes;
                 results.push(eval(
-                    "D", cs, bits, n_aligned,
-                    d_bytes, d_build,
-                    &workload, nch, &rows, &chunk_raw_bytes, &chunk_compressed_bytes,
+                    "D",
+                    cs,
+                    bits,
+                    n_aligned,
+                    d_bytes,
+                    d_build,
+                    &workload,
+                    nch,
+                    &rows,
+                    &chunk_raw_bytes,
+                    &chunk_compressed_bytes,
                     |q, c| match q {
                         Pred::Contains(s) => {
                             ds[c].might_contain(&dv, &index, &presence[c], s.as_bytes())
@@ -433,9 +482,17 @@ fn main() -> anyhow::Result<()> {
                 let e_build = t0.elapsed().as_nanos() + a_build_ns;
                 let e_bytes = es.iter().map(CodeBigramBloom::byte_size).sum::<usize>() + a_bytes;
                 results.push(eval(
-                    "E", cs, bits, n_aligned,
-                    e_bytes, e_build,
-                    &workload, nch, &rows, &chunk_raw_bytes, &chunk_compressed_bytes,
+                    "E",
+                    cs,
+                    bits,
+                    n_aligned,
+                    e_bytes,
+                    e_build,
+                    &workload,
+                    nch,
+                    &rows,
+                    &chunk_raw_bytes,
+                    &chunk_compressed_bytes,
                     |q, c| match q {
                         Pred::Contains(s) => {
                             es[c].might_contain(&dv, &index, &presence[c], s.as_bytes())
@@ -459,9 +516,17 @@ fn main() -> anyhow::Result<()> {
                     + a_bytes
                     + ubiq.byte_size();
                 results.push(eval(
-                    "F", cs, bits, n_aligned,
-                    f_bytes, f_build,
-                    &workload, nch, &rows, &chunk_raw_bytes, &chunk_compressed_bytes,
+                    "F",
+                    cs,
+                    bits,
+                    n_aligned,
+                    f_bytes,
+                    f_build,
+                    &workload,
+                    nch,
+                    &rows,
+                    &chunk_raw_bytes,
+                    &chunk_compressed_bytes,
                     |q, c| match q {
                         Pred::Contains(s) => {
                             fs[c].might_contain(&dv, &index, &presence[c], &ubiq, s.as_bytes())
@@ -484,9 +549,17 @@ fn main() -> anyhow::Result<()> {
                     + a_bytes
                     + tiers.byte_size();
                 results.push(eval(
-                    "G", cs, bits, n_aligned,
-                    g_bytes, g_build,
-                    &workload, nch, &rows, &chunk_raw_bytes, &chunk_compressed_bytes,
+                    "G",
+                    cs,
+                    bits,
+                    n_aligned,
+                    g_bytes,
+                    g_build,
+                    &workload,
+                    nch,
+                    &rows,
+                    &chunk_raw_bytes,
+                    &chunk_compressed_bytes,
                     |q, c| match q {
                         Pred::Contains(s) => {
                             gs[c].might_contain(&dv, &index, &presence[c], &tiers, s.as_bytes())
@@ -518,17 +591,30 @@ fn main() -> anyhow::Result<()> {
                 writeln!(
                     w,
                     "{},{},{},{},{:.4},{:.4},{:.4},{:.4},{:.1},{}",
-                    r.variant, r.chunk_size, r.bits, cat,
-                    r.bytes_per_row, b.real_pct(), b.kept_pct(), b.vs_floor(),
-                    r.build_ns_per_row, r.eval_ns_per_q,
+                    r.variant,
+                    r.chunk_size,
+                    r.bits,
+                    cat,
+                    r.bytes_per_row,
+                    b.real_pct(),
+                    b.kept_pct(),
+                    b.vs_floor(),
+                    r.build_ns_per_row,
+                    r.eval_ns_per_q,
                 )?;
             }
             writeln!(
                 w,
                 "{},{},{},TOTAL,{:.4},{:.4},{:.4},{:.4},{:.1},{}",
-                r.variant, r.chunk_size, r.bits,
-                r.bytes_per_row, r.total.real_pct(), r.total.kept_pct(),
-                r.total.vs_floor(), r.build_ns_per_row, r.eval_ns_per_q,
+                r.variant,
+                r.chunk_size,
+                r.bits,
+                r.bytes_per_row,
+                r.total.real_pct(),
+                r.total.kept_pct(),
+                r.total.vs_floor(),
+                r.build_ns_per_row,
+                r.eval_ns_per_q,
             )?;
         }
         w.flush()?;
@@ -538,7 +624,8 @@ fn main() -> anyhow::Result<()> {
     if !args.quiet {
         println!();
         println!("=== Sweep results ===");
-        let total_compressed_mb = results.first()
+        let total_compressed_mb = results
+            .first()
             .map(|r| r.total_compressed_bytes as f64 / (1024.0 * 1024.0))
             .unwrap_or(0.0);
         println!(
@@ -548,8 +635,17 @@ fn main() -> anyhow::Result<()> {
         println!();
         println!(
             "{:<5} {:>5} {:>5}  {:>6} {:>6} {:>9} {:>11}  {:>9}  {:>9}  {:>9}  {:>9}",
-            "var", "chunk", "bits", "B/row", "skip%",
-            "saved/q", "comp_saved", "subst", "prefix", "TOTAL", "eval_us",
+            "var",
+            "chunk",
+            "bits",
+            "B/row",
+            "skip%",
+            "saved/q",
+            "comp_saved",
+            "subst",
+            "prefix",
+            "TOTAL",
+            "eval_us",
         );
         println!("{}", "-".repeat(110));
         for r in &results {
@@ -558,8 +654,13 @@ fn main() -> anyhow::Result<()> {
             let comp_saved_mb = r.compressed_saved_per_q / (1024.0 * 1024.0);
             println!(
                 "{:<5} {:>5} {:>5}  {:>6.2} {:>5.1}% {:>7.1}MB {:>9.1}MB {:>+8.2}pp {:>+8.2}pp {:>+8.2}pp {:>9.1}",
-                r.variant, r.chunk_size, r.bits, r.bytes_per_row,
-                skip_pct, saved_mb, comp_saved_mb,
+                r.variant,
+                r.chunk_size,
+                r.bits,
+                r.bytes_per_row,
+                skip_pct,
+                saved_mb,
+                comp_saved_mb,
                 cat_vs_floor(r, "auto/substring"),
                 cat_vs_floor(r, "auto/prefix"),
                 r.total.vs_floor(),
@@ -570,15 +671,20 @@ fn main() -> anyhow::Result<()> {
         println!("skip%   = avg fraction of chunks skipped per query (higher = better).");
         println!("saved/q = avg raw bytes NOT read per query.");
         println!("vs_floor numbers are (Pr[keep] − real_rate) in pp. 0 pp = optimal.");
-        println!("Floor for substring on this data: {:.2}%", category_floor(&results, "auto/substring"));
+        println!(
+            "Floor for substring on this data: {:.2}%",
+            category_floor(&results, "auto/substring")
+        );
     }
 
     // ----------------------------------------------------------- Pareto + reco
     let pareto = pareto_for_substring(&results);
     println!();
     println!("=== Pareto frontier (substring workload) ===");
-    println!("{:<5} {:>5} {:>5}  {:>7}  {:>6}  {:>9} {:>11}  {:>8}  {:>10}",
-        "var", "chunk", "bits", "B/row", "skip%", "saved/q", "comp_saved", "vs_floor", "eval_us");
+    println!(
+        "{:<5} {:>5} {:>5}  {:>7}  {:>6}  {:>9} {:>11}  {:>8}  {:>10}",
+        "var", "chunk", "bits", "B/row", "skip%", "saved/q", "comp_saved", "vs_floor", "eval_us"
+    );
     println!("{}", "-".repeat(85));
     for r in &pareto {
         let skip_pct = 100.0 - r.total.kept_pct();
@@ -586,8 +692,13 @@ fn main() -> anyhow::Result<()> {
         let comp_saved_mb = r.compressed_saved_per_q / (1024.0 * 1024.0);
         println!(
             "{:<5} {:>5} {:>5}  {:>7.2}  {:>5.1}%  {:>7.1}MB {:>9.1}MB  {:>+7.2}pp  {:>10.1}",
-            r.variant, r.chunk_size, r.bits, r.bytes_per_row,
-            skip_pct, saved_mb, comp_saved_mb,
+            r.variant,
+            r.chunk_size,
+            r.bits,
+            r.bytes_per_row,
+            skip_pct,
+            saved_mb,
+            comp_saved_mb,
             cat_vs_floor(r, "auto/substring"),
             r.eval_ns_per_q as f64 / 1000.0,
         );
@@ -606,7 +717,11 @@ fn main() -> anyhow::Result<()> {
 
     // ----------------------------------------------------------- per-query detail
     if !args.like.is_empty() {
-        let like_preds: Vec<Pred> = args.like.iter().map(|s| Pred::Contains(s.clone())).collect();
+        let like_preds: Vec<Pred> = args
+            .like
+            .iter()
+            .map(|s| Pred::Contains(s.clone()))
+            .collect();
 
         // Show detail for each (variant, bits) combo that exists in results.
         let detail_configs: Vec<(&'static str, usize)> = results
@@ -639,19 +754,28 @@ fn main() -> anyhow::Result<()> {
                     .collect();
 
                 println!();
-                println!("=== Per-query detail (chunk_size={cs}, {} chunks, {:.1} MB raw, {:.1} MB compressed) ===",
-                    nch, total_raw as f64 / (1024.0 * 1024.0),
-                    total_comp as f64 / (1024.0 * 1024.0));
+                println!(
+                    "=== Per-query detail (chunk_size={cs}, {} chunks, {:.1} MB raw, {:.1} MB compressed) ===",
+                    nch,
+                    total_raw as f64 / (1024.0 * 1024.0),
+                    total_comp as f64 / (1024.0 * 1024.0)
+                );
 
                 // Pre-build all bloom variants at each bits setting.
-                let all_bits: Vec<usize> = detail_configs.iter().map(|&(_, b)| b).collect::<std::collections::BTreeSet<_>>().into_iter().collect();
+                let all_bits: Vec<usize> = detail_configs
+                    .iter()
+                    .map(|&(_, b)| b)
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .into_iter()
+                    .collect();
 
                 for &bits in &all_bits {
                     let blooms_b: Vec<TrigramBloom> = (0..nch)
                         .map(|c| {
                             TrigramBloom::build_from_strings(
                                 rows[c * cs..(c + 1) * cs].iter().map(String::as_bytes),
-                                cs, bits.max(1),
+                                cs,
+                                bits.max(1),
                             )
                         })
                         .collect();
@@ -664,18 +788,31 @@ fn main() -> anyhow::Result<()> {
                     let blooms_e: Vec<CodeBigramBloom> = (0..nch)
                         .map(|c| CodeBigramBloom::build(&dv, c * cs, (c + 1) * cs, bits.max(1)))
                         .collect();
-                    let detail_ubiq = UbiquitousBigrams::build(
-                        dv.codes, dv.codes_offsets, cs, args.ubiq_pct,
-                    );
+                    let detail_ubiq =
+                        UbiquitousBigrams::build(dv.codes, dv.codes_offsets, cs, args.ubiq_pct);
                     let blooms_f: Vec<HybridBloom> = (0..nch)
-                        .map(|c| HybridBloom::build(&dv, c * cs, (c + 1) * cs, bits.max(1), &detail_ubiq))
+                        .map(|c| {
+                            HybridBloom::build(&dv, c * cs, (c + 1) * cs, bits.max(1), &detail_ubiq)
+                        })
                         .collect();
 
                     println!();
                     println!("  --- bits/row={bits} ---");
-                    println!("  {:<40} {:>4} {:>6} {:>6} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5}  {:>8}  {:>8}",
-                        "query", "real", "A", "B", "C", "D", "E", "F",
-                        "skip%", "F_s%", "raw_MB", "comp_sv");
+                    println!(
+                        "  {:<40} {:>4} {:>6} {:>6} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5}  {:>8}  {:>8}",
+                        "query",
+                        "real",
+                        "A",
+                        "B",
+                        "C",
+                        "D",
+                        "E",
+                        "F",
+                        "skip%",
+                        "F_s%",
+                        "raw_MB",
+                        "comp_sv"
+                    );
                     println!("  {}", "-".repeat(125));
 
                     for pred in &like_preds {
@@ -693,21 +830,45 @@ fn main() -> anyhow::Result<()> {
                             let real = pred.truly_matches(&rows[lo..hi]);
                             let ka = match pred {
                                 Pred::Contains(s) => presence[c].might_contain(&dv, s.as_bytes()),
-                                Pred::StartsWith(s) => presence[c].might_starts_with(&dv, &index, s.as_bytes()),
+                                Pred::StartsWith(s) => {
+                                    presence[c].might_starts_with(&dv, &index, s.as_bytes())
+                                }
                             };
                             let kb = blooms_b[c].might_contain(pred.bytes());
                             let kc = blooms_c[c].might_contain(&dv, &presence[c], pred.bytes());
                             let kd = match pred {
-                                Pred::Contains(s) => blooms_d[c].might_contain(&dv, &index, &presence[c], s.as_bytes()),
-                                Pred::StartsWith(s) => presence[c].might_starts_with(&dv, &index, s.as_bytes()),
+                                Pred::Contains(s) => blooms_d[c].might_contain(
+                                    &dv,
+                                    &index,
+                                    &presence[c],
+                                    s.as_bytes(),
+                                ),
+                                Pred::StartsWith(s) => {
+                                    presence[c].might_starts_with(&dv, &index, s.as_bytes())
+                                }
                             };
                             let ke = match pred {
-                                Pred::Contains(s) => blooms_e[c].might_contain(&dv, &index, &presence[c], s.as_bytes()),
-                                Pred::StartsWith(s) => presence[c].might_starts_with(&dv, &index, s.as_bytes()),
+                                Pred::Contains(s) => blooms_e[c].might_contain(
+                                    &dv,
+                                    &index,
+                                    &presence[c],
+                                    s.as_bytes(),
+                                ),
+                                Pred::StartsWith(s) => {
+                                    presence[c].might_starts_with(&dv, &index, s.as_bytes())
+                                }
                             };
                             let kf = match pred {
-                                Pred::Contains(s) => blooms_f[c].might_contain(&dv, &index, &presence[c], &detail_ubiq, s.as_bytes()),
-                                Pred::StartsWith(s) => presence[c].might_starts_with(&dv, &index, s.as_bytes()),
+                                Pred::Contains(s) => blooms_f[c].might_contain(
+                                    &dv,
+                                    &index,
+                                    &presence[c],
+                                    &detail_ubiq,
+                                    s.as_bytes(),
+                                ),
+                                Pred::StartsWith(s) => {
+                                    presence[c].might_starts_with(&dv, &index, s.as_bytes())
+                                }
                             };
                             real_count += real as usize;
                             kept_a += ka as usize;
@@ -730,9 +891,16 @@ fn main() -> anyhow::Result<()> {
                         };
                         println!(
                             "  {:<40} {:>4} {:>6} {:>6} {:>5} {:>5} {:>5} {:>5} {:>5.1} {:>4.1}% {:>8.1} {:>8.1}",
-                            display_trunc, real_count,
-                            kept_a, kept_b, kept_c, kept_d, kept_e, kept_f,
-                            skip_f_pct, skip_f_pct,
+                            display_trunc,
+                            real_count,
+                            kept_a,
+                            kept_b,
+                            kept_c,
+                            kept_d,
+                            kept_e,
+                            kept_f,
+                            skip_f_pct,
+                            skip_f_pct,
                             total_comp as f64 / (1024.0 * 1024.0),
                             comp_saved_mb,
                         );
@@ -749,10 +917,15 @@ fn print_recommendation(label: &str, r: Option<&&Row>) {
     match r {
         Some(r) => println!(
             "  {label}: variant={}  chunk_size={}  bits/row={}  ⇒ {:.2} B/row, {:+.2}pp substring",
-            r.variant, r.chunk_size, r.bits, r.bytes_per_row,
+            r.variant,
+            r.chunk_size,
+            r.bits,
+            r.bytes_per_row,
             cat_vs_floor(r, "auto/substring"),
         ),
-        None => println!("  {label}: (no Pareto point within budget — increase --bits or --variants)"),
+        None => {
+            println!("  {label}: (no Pareto point within budget — increase --bits or --variants)")
+        }
     }
 }
 
@@ -761,7 +934,8 @@ fn cat_vs_floor(r: &Row, cat: &'static str) -> f64 {
 }
 
 fn category_floor(results: &[Row], cat: &'static str) -> f64 {
-    results.first()
+    results
+        .first()
         .and_then(|r| r.by_cat.get(cat))
         .map(Bucket::real_pct)
         .unwrap_or(0.0)
@@ -779,8 +953,7 @@ fn pareto_for_substring(results: &[Row]) -> Vec<&Row> {
             !results.iter().any(|other| {
                 let o_bytes = other.bytes_per_row;
                 let o_vs = cat_vs_floor(other, "auto/substring");
-                (o_bytes < me_bytes && o_vs <= me_vs)
-                    || (o_bytes <= me_bytes && o_vs < me_vs)
+                (o_bytes < me_bytes && o_vs <= me_vs) || (o_bytes <= me_bytes && o_vs < me_vs)
             })
         })
         .collect();
@@ -887,7 +1060,8 @@ fn build_workload(args: &Args, rows: &[String]) -> Vec<(&'static str, Pred)> {
 }
 
 fn parse_csv(s: &str) -> anyhow::Result<Vec<usize>> {
-    s.split(',').map(|x| x.trim().parse::<usize>().context("parse"))
+    s.split(',')
+        .map(|x| x.trim().parse::<usize>().context("parse"))
         .collect()
 }
 
@@ -944,18 +1118,32 @@ fn load_column(paths: &[PathBuf], col_name: &str, max_rows: usize) -> anyhow::Re
         let file = File::open(path).with_context(|| format!("open {path:?}"))?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
         let schema = builder.schema().clone();
-        let col_idx = schema.fields().iter().position(|f| f.name() == col_name)
+        let col_idx = schema
+            .fields()
+            .iter()
+            .position(|f| f.name() == col_name)
             .with_context(|| format!("column {col_name:?} not in {path:?}"))?;
         let mask = ProjectionMask::leaves(builder.parquet_schema(), [col_idx]);
-        let mut reader = builder.with_projection(mask).with_batch_size(8192).build()?;
+        let mut reader = builder
+            .with_projection(mask)
+            .with_batch_size(8192)
+            .build()?;
         while let Some(batch) = reader.next() {
             let batch = batch?;
             let col = batch.column(0);
-            let want = if max_rows > 0 { max_rows.saturating_sub(out.len()) } else { col.len() };
-            if want == 0 { break 'outer; }
+            let want = if max_rows > 0 {
+                max_rows.saturating_sub(out.len())
+            } else {
+                col.len()
+            };
+            if want == 0 {
+                break 'outer;
+            }
             let pushed = push_strings(col, want, &mut out);
             anyhow::ensure!(pushed > 0, "unexpected column type: {:?}", col.data_type());
-            if max_rows > 0 && out.len() >= max_rows { break 'outer; }
+            if max_rows > 0 && out.len() >= max_rows {
+                break 'outer;
+            }
         }
     }
     Ok(out)
@@ -964,32 +1152,44 @@ fn load_column(paths: &[PathBuf], col_name: &str, max_rows: usize) -> anyhow::Re
 fn push_strings(col: &dyn ArrowArray, want: usize, out: &mut Vec<String>) -> usize {
     if let Some(s) = col.as_string_opt::<i32>() {
         let n = s.len().min(want);
-        for i in 0..n { out.push(s.value(i).to_string()); }
+        for i in 0..n {
+            out.push(s.value(i).to_string());
+        }
         return n;
     }
     if let Some(s) = col.as_string_opt::<i64>() {
         let n = s.len().min(want);
-        for i in 0..n { out.push(s.value(i).to_string()); }
+        for i in 0..n {
+            out.push(s.value(i).to_string());
+        }
         return n;
     }
     if let Some(s) = col.as_string_view_opt() {
         let n = s.len().min(want);
-        for i in 0..n { out.push(s.value(i).to_string()); }
+        for i in 0..n {
+            out.push(s.value(i).to_string());
+        }
         return n;
     }
     if let Some(b) = col.as_binary_opt::<i32>() {
         let n = b.len().min(want);
-        for i in 0..n { out.push(String::from_utf8_lossy(b.value(i)).into_owned()); }
+        for i in 0..n {
+            out.push(String::from_utf8_lossy(b.value(i)).into_owned());
+        }
         return n;
     }
     if let Some(b) = col.as_binary_opt::<i64>() {
         let n = b.len().min(want);
-        for i in 0..n { out.push(String::from_utf8_lossy(b.value(i)).into_owned()); }
+        for i in 0..n {
+            out.push(String::from_utf8_lossy(b.value(i)).into_owned());
+        }
         return n;
     }
     if let Some(b) = col.as_binary_view_opt() {
         let n = b.len().min(want);
-        for i in 0..n { out.push(String::from_utf8_lossy(b.value(i)).into_owned()); }
+        for i in 0..n {
+            out.push(String::from_utf8_lossy(b.value(i)).into_owned());
+        }
         return n;
     }
     0
@@ -997,7 +1197,9 @@ fn push_strings(col: &dyn ArrowArray, want: usize, out: &mut Vec<String>) -> usi
 
 struct Splitmix64(u64);
 impl Splitmix64 {
-    fn new(seed: u64) -> Self { Self(seed) }
+    fn new(seed: u64) -> Self {
+        Self(seed)
+    }
     fn next(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
         let mut z = self.0;

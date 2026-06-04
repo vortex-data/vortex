@@ -18,9 +18,9 @@ covered by property tests.
 
 | Class | Example | Mechanism |
 |-------|---------|-----------|
-| Equality | `col = 'x'` | min/max range + dict bitmap |
-| Range | `col < 'x'`, `BETWEEN a AND b` | min/max only — exact on sorted data |
-| Prefix | `LIKE 'p%'` | min/max as a range — exact on sorted data |
+| Equality | `col = 'x'` | min/max range + dict-presence necessary condition |
+| Range | `col < 'x'`, `BETWEEN a AND b` | min/max only — tighter on sorted data |
+| Prefix | `LIKE 'p%'` | min/max range + dict-presence necessary condition |
 | Suffix | `LIKE '%s'` | code-bigram bloom |
 | Substring | `LIKE '%x%'` | code-bigram bloom |
 | Prefix + suffix | `LIKE 'a%b'` | min/max range + bloom |
@@ -32,8 +32,9 @@ covered by property tests.
 
 ## Variants
 
-- **`DictPresence`** — bitmap over dict ids. 0.05 B/row. Exact for equality
-  and `LIKE 'p%'` (on top of min/max).
+- **`DictPresence`** — bitmap over dict ids. 0.05 B/row. Sound necessary
+  condition for equality and `LIKE 'p%'` (on top of min/max); false positives
+  are expected because it does not track row-local token adjacency.
 - **`HybridBloom`** — BitFunnel-style code-bigram bloom that skips
   ubiquitous bigrams. ~2-4 B/row. Tight for substring on URL-like data.
 - **`TieredBloom`** — variable-k bloom (BitFunnel's full
@@ -55,8 +56,14 @@ pub trait TokenDict {
 ```
 
 A code stream is just `(codes: &[u16], codes_offsets: &[u32])` where
-`codes_offsets[i..i+1]` describes row `i`'s slice into `codes`. OnPair,
-FSST, and any custom BPE-style encoding fit this shape.
+`codes_offsets[i..i+1]` describes row `i`'s slice into `codes`.
+
+Current production target: OnPair. Other dictionary encodings must satisfy the
+same invariants before using the bloom path: `u16` code ids, lex-sorted token
+bytes, deterministic greedy longest-prefix tokenization, and a maximum token
+length no larger than the current 16-byte substring cover limit. FSST does not
+fit directly because its wire format mixes code bytes with literal escapes and
+its symbol table is frequency-ordered.
 
 ## Usage
 
@@ -89,11 +96,14 @@ if chunk_might_match(&pred, &state) {
 
 ## Vortex integration
 
-Vortex's chunked-layout reader implements `LayoutReader::pruning_evaluation`.
-A `ChunkStatsLayoutReader` wraps the OnPair chunked reader, holds
-deserialized per-chunk skip indexes, and calls `chunk_might_match` from
-this crate to short-circuit pruning. Mirrors `FileStatsLayoutReader` in
-the v2 file format. See `SKIP_DESIGN.md` for the full plan.
+The v1 Vortex integration should live in `vortex-onpair` as an
+`OnPairSkipIndexLayout` that wraps a data child plus an auxiliary skip-index
+payload. `string-skip` remains a pure algorithm crate with no `vortex-*`
+dependencies. The layout reader calls `chunk_might_match` from this crate
+during `LayoutReader::pruning_evaluation` to short-circuit chunks that cannot
+match.
+
+See `INTEGRATION_PLAN.md` for the implementation plan.
 
 ## Dependencies
 
@@ -138,8 +148,10 @@ libraries can't.
 
 ## Status
 
-Standalone crate, no Vortex dependency. Used by `vortex-onpair` via a thin
-adapter (TODO). Vortex layout/reader integration: TODO (see SKIP_DESIGN.md).
+Standalone crate, no Vortex dependency. `cargo test -p string-skip` passes.
+Repository clippy/public-API cleanup is still required before treating the
+crate as release-ready. `vortex-onpair` adapter and layout integration: TODO
+(see `INTEGRATION_PLAN.md`).
 
 ## License
 
