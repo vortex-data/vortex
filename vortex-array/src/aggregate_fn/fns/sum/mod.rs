@@ -4,6 +4,7 @@
 mod bool;
 mod constant;
 mod decimal;
+mod grouped;
 mod primitive;
 
 use vortex_error::VortexExpect;
@@ -25,6 +26,7 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::GroupedArray;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::MAX_PRECISION;
@@ -211,6 +213,15 @@ impl AggregateFnVTable for Sum {
             Some(SumState::Float(v)) => v.is_nan(),
             Some(_) => false,
         }
+    }
+
+    fn try_accumulate_grouped(
+        &self,
+        _options: &Self::Options,
+        groups: &GroupedArray,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        grouped::try_grouped_sum(groups, ctx)
     }
 
     fn accumulate(

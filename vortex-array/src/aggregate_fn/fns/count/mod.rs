@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod grouped;
+
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -10,6 +12,7 @@ use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::GroupedArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -80,6 +83,15 @@ impl AggregateFnVTable for Count {
     ) -> VortexResult<bool> {
         *state += batch.valid_count(ctx)? as u64;
         Ok(true)
+    }
+
+    fn try_accumulate_grouped(
+        &self,
+        _options: &Self::Options,
+        groups: &GroupedArray,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        grouped::try_grouped_count(groups, ctx)
     }
 
     fn accumulate(
