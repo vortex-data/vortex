@@ -111,6 +111,18 @@ fn word_trailing_zeros(bencher: Bencher, (len, density): (usize, f64)) {
 }
 
 #[divan::bench(args = ARGS)]
+fn for_each_set_index(bencher: Bencher, (len, density): (usize, f64)) {
+    let (buf, values) = make(len, density);
+    bencher
+        .with_inputs(|| (&buf, &values))
+        .bench_refs(|(buf, values)| {
+            let mut acc = 0u64;
+            buf.for_each_set_index(|i| acc = acc.wrapping_add(values[i]));
+            acc
+        });
+}
+
+#[divan::bench(args = ARGS)]
 fn set_slices(bencher: Bencher, (len, density): (usize, f64)) {
     let (buf, values) = make(len, density);
     bencher

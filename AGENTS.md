@@ -151,6 +151,47 @@ Notes:
   self-explanatory code.
 - Keep public APIs small and consistent with neighboring crates.
 
+## Performance: avoid hidden-cost accessors in hot loops
+
+The most common performance trap in this codebase is calling a *per-element accessor that
+hides non-trivial work* inside an `O(n)` loop, instead of doing the work once over the whole
+chunk. The call site looks like a cheap getter, but each call re-pays a cost that is constant
+(or amortizable) across the loop, making the loop `O(n · k)`.
+
+Watch for these accessors used inside `for i in 0..n { ... }`:
+
+| Per-element accessor (in a loop) | Hidden cost | Bulk replacement |
+| --- | --- | --- |
+| `Validity::is_valid(i)` / `is_null(i)` | for array-backed validity, **allocates an `ExecutionCtx` and runs a scalar lookup per call** | `validity.execute_mask(len, ctx)?` once, then `Mask::value(i)` |
+| `array.scalar_at(i)` / `array.execute_scalar(i, ctx)` | per-element execution through the compute stack | canonicalize once (`execute::<PrimitiveArray>` / `as_slice`) then index |
+| `BitBuffer::value(i)` / `Mask::value(i)` accumulated into a count | recomputes the byte address each call; defeats popcount | `true_count()`, `BitBuffer::count_range(start, end)`, `set_indices()` |
+| `BitIterator::next()` to accumulate a running rank/prefix count | bit-at-a-time | `count_range` over each gap (SIMD popcount) |
+| re-deriving a value inside the loop (e.g. `self.validity()?` each iteration) | re-runs the derivation `n` times | hoist it above the loop |
+
+Decide per site — bulk is not always the answer:
+
+- **Sequential / contiguous access** over an accessor that hides amortizable work → hoist and
+  go bulk (materialize once, then index or iterate the chunk).
+- **Gather over arbitrary indices** → you cannot amortize a per-element *decode*, but you can
+  still materialize the backing buffer once (e.g. `execute_mask`) and then do cheap `O(1)`
+  random reads, avoiding per-call context/allocation.
+- **The accessor is already genuinely `O(1)`** (e.g. reading an already-materialized `Mask`/
+  slice, or a native bitmap) → leave it; bulk would not help.
+
+Even after materializing into a `Mask`/`BitBuffer`, **do not loop with `value(i)` per
+element** to act on each set bit — the per-element branch dominates. Iterate a `u64` word
+at a time with all-set / all-unset fast paths: use [`BitBuffer::for_each_set_index`]. It
+beats `for i in 0..len { if buf.value(i) {..} }` by 2-45x (more at low density) and beats
+collecting `set_indices()` by ~2x at mid/high density, while self-adapting from sparse to
+dense — see `vortex-mask/benches/mask_iteration.rs`. Reach for the cached `indices()` /
+`slices()` representations when you need them more than once; otherwise `for_each_set_index`
+needs no materialization.
+
+When you touch such a loop, back the change with a benchmark (see
+`vortex-array/benches/validity_is_valid.rs` for the `is_valid` case,
+`vortex-mask/benches/valid_counts.rs` for the popcount case, and
+`vortex-mask/benches/mask_iteration.rs` for the per-element-vs-word-vs-sparse comparison).
+
 ## Tests
 
 - Strongly consider `rstest` cases when parameterizing repetitive test logic.
@@ -179,6 +220,9 @@ Check new and modified lines against this list before finishing:
 - Updating expected test output to match buggy behavior without independently verifying the
   intended semantics.
 - Silently reducing the scope of an approved plan when implementation is harder than expected.
+- Calling a hidden-cost per-element accessor (`Validity::is_valid`, `scalar_at`, `BitBuffer::
+  value` accumulation) inside a hot loop instead of materializing once — see
+  "Performance: avoid hidden-cost accessors in hot loops".
 
 ## Summaries
 
