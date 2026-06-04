@@ -43,6 +43,7 @@ use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::half::f16;
 use vortex_array::match_each_native_ptype;
+use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -85,6 +86,32 @@ const fn encoded_size_for_fixed(value_bytes: u32) -> u32 {
 
 fn byte_width_u32(width: usize) -> u32 {
     u32::try_from(width).vortex_expect("native byte width must fit in u32")
+}
+
+/// Pre-resolved per-row validity for the row encoders.
+///
+/// Encoders pattern-match on this once before their inner loop so the no-nulls fast path
+/// avoids per-row `mask.value(i)` branches entirely, and the nullable path materializes the
+/// mask exactly once.
+pub(crate) enum ValidityKind {
+    /// Column statically has no nulls (`Validity::NonNullable` or `AllValid`); no mask needed.
+    AllValid,
+    /// Column may have nulls; carries the materialized per-row mask.
+    Mask(vortex_mask::Mask),
+}
+
+/// Resolve a [`Validity`] into a [`ValidityKind`], materializing the mask only when the column
+/// may actually have nulls.
+#[inline]
+pub(crate) fn resolve_validity(
+    validity: Validity,
+    len: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ValidityKind> {
+    Ok(match validity {
+        Validity::NonNullable | Validity::AllValid => ValidityKind::AllValid,
+        other => ValidityKind::Mask(other.execute_mask(len, ctx)?),
+    })
 }
 
 /// Returns the sentinel byte for a null varlen value.
@@ -306,19 +333,34 @@ fn add_size_varbinview(
     sizes: &mut [u32],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    let mask = arr.as_ref().validity()?.execute_mask(arr.len(), ctx)?;
     let views = arr.views();
-    for (i, view) in views.iter().enumerate() {
-        let contribution = if !mask.value(i) {
-            VARLEN_NULL_SIZE
-        } else if view.is_empty() {
-            VARLEN_EMPTY_SIZE
-        } else {
-            encoded_size_for_non_empty_varlen(view.len() as usize)
-        };
-        sizes[i] = sizes[i]
-            .checked_add(contribution)
-            .vortex_expect("per-row size overflow");
+    match resolve_validity(arr.as_ref().validity()?, arr.len(), ctx)? {
+        ValidityKind::AllValid => {
+            for (i, view) in views.iter().enumerate() {
+                let contribution = if view.is_empty() {
+                    VARLEN_EMPTY_SIZE
+                } else {
+                    encoded_size_for_non_empty_varlen(view.len() as usize)
+                };
+                sizes[i] = sizes[i]
+                    .checked_add(contribution)
+                    .vortex_expect("per-row size overflow");
+            }
+        }
+        ValidityKind::Mask(mask) => {
+            for (i, view) in views.iter().enumerate() {
+                let contribution = if !mask.value(i) {
+                    VARLEN_NULL_SIZE
+                } else if view.is_empty() {
+                    VARLEN_EMPTY_SIZE
+                } else {
+                    encoded_size_for_non_empty_varlen(view.len() as usize)
+                };
+                sizes[i] = sizes[i]
+                    .checked_add(contribution)
+                    .vortex_expect("per-row size overflow");
+            }
+        }
     }
     Ok(())
 }
@@ -443,23 +485,35 @@ fn encode_bool(
     out: &mut [u8],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    let mask = arr.as_ref().validity()?.execute_mask(arr.len(), ctx)?;
     let bits = arr.clone().into_bit_buffer();
     let non_null = field.non_null_sentinel();
-    let null = field.null_sentinel();
     let xor = if field.descending { 0xFF } else { 0x00 };
-    for i in 0..bits.len() {
-        let pos = (row_offsets[i] + col_offset[i]) as usize;
-        if mask.value(i) {
-            out[pos] = non_null;
-            // false=0x01, true=0x02 so false < true; XOR for descending
-            let raw = if bits.value(i) { 0x02u8 } else { 0x01u8 };
-            out[pos + 1] = raw ^ xor;
-        } else {
-            out[pos] = null;
-            out[pos + 1] = 0;
+    match resolve_validity(arr.as_ref().validity()?, arr.len(), ctx)? {
+        ValidityKind::AllValid => {
+            for i in 0..bits.len() {
+                let pos = (row_offsets[i] + col_offset[i]) as usize;
+                out[pos] = non_null;
+                // false=0x01, true=0x02 so false < true; XOR for descending
+                let raw = if bits.value(i) { 0x02u8 } else { 0x01u8 };
+                out[pos + 1] = raw ^ xor;
+                col_offset[i] += BOOL_ENCODED_SIZE;
+            }
         }
-        col_offset[i] += BOOL_ENCODED_SIZE;
+        ValidityKind::Mask(mask) => {
+            let null = field.null_sentinel();
+            for i in 0..bits.len() {
+                let pos = (row_offsets[i] + col_offset[i]) as usize;
+                if mask.value(i) {
+                    out[pos] = non_null;
+                    let raw = if bits.value(i) { 0x02u8 } else { 0x01u8 };
+                    out[pos + 1] = raw ^ xor;
+                } else {
+                    out[pos] = null;
+                    out[pos + 1] = 0;
+                }
+                col_offset[i] += BOOL_ENCODED_SIZE;
+            }
+        }
     }
     Ok(())
 }
@@ -486,24 +540,36 @@ fn encode_primitive_typed<T: NativePType + RowEncode>(
     out: &mut [u8],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    let mask = arr.as_ref().validity()?.execute_mask(arr.len(), ctx)?;
     let slice: &[T] = arr.as_slice();
     let non_null = field.non_null_sentinel();
-    let null = field.null_sentinel();
     let value_bytes = size_of::<T>();
-    for (i, &v) in slice.iter().enumerate() {
-        let pos = (row_offsets[i] + col_offset[i]) as usize;
-        if mask.value(i) {
-            out[pos] = non_null;
-            v.encode_to(&mut out[pos + 1..pos + 1 + value_bytes], field.descending);
-        } else {
-            out[pos] = null;
-            // Zero-fill the value bytes.
-            for b in &mut out[pos + 1..pos + 1 + value_bytes] {
-                *b = 0;
+    let stride = encoded_size_for_fixed(byte_width_u32(value_bytes));
+    match resolve_validity(arr.as_ref().validity()?, arr.len(), ctx)? {
+        ValidityKind::AllValid => {
+            for (i, &v) in slice.iter().enumerate() {
+                let pos = (row_offsets[i] + col_offset[i]) as usize;
+                out[pos] = non_null;
+                v.encode_to(&mut out[pos + 1..pos + 1 + value_bytes], field.descending);
+                col_offset[i] += stride;
             }
         }
-        col_offset[i] += encoded_size_for_fixed(byte_width_u32(value_bytes));
+        ValidityKind::Mask(mask) => {
+            let null = field.null_sentinel();
+            for (i, &v) in slice.iter().enumerate() {
+                let pos = (row_offsets[i] + col_offset[i]) as usize;
+                if mask.value(i) {
+                    out[pos] = non_null;
+                    v.encode_to(&mut out[pos + 1..pos + 1 + value_bytes], field.descending);
+                } else {
+                    out[pos] = null;
+                    // Zero-fill the value bytes.
+                    for b in &mut out[pos + 1..pos + 1 + value_bytes] {
+                        *b = 0;
+                    }
+                }
+                col_offset[i] += stride;
+            }
+        }
     }
     Ok(())
 }
