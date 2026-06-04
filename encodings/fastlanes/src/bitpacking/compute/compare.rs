@@ -101,9 +101,10 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
@@ -113,11 +114,16 @@ mod tests {
     use vortex_array::scalar_fn::fns::binary::CompareKernel;
     use vortex_array::scalar_fn::fns::operators::CompareOperator;
     use vortex_array::scalar_fn::fns::operators::Operator;
+    use vortex_array::session::ArraySession;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::BitPacked;
     use crate::BitPackedArrayExt;
     use crate::BitPackedData;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     /// All six operators on a small in-range input.
     #[rstest]
@@ -128,7 +134,7 @@ mod tests {
     #[case(Operator::Gt, vec![false, false, false, false, true, true, false])]
     #[case(Operator::Gte, vec![false, false, false, true, true, true, true])]
     fn small(#[case] op: Operator, #[case] expected: Vec<bool>) {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = PrimitiveArray::from_iter([0u32, 1, 2, 3, 4, 5, 3]);
         let packed = BitPackedData::encode(&values.into_array(), 3, &mut ctx).unwrap();
         let rhs = ConstantArray::new(3u32, packed.len()).into_array();
@@ -150,7 +156,7 @@ mod tests {
         ($name:ident, $T:ty, $($bw:expr),+) => {
             #[test]
             fn $name() -> VortexResult<()> {
-                let mut ctx = LEGACY_SESSION.create_execution_ctx();
+                let mut ctx = SESSION.create_execution_ctx();
                 for bw in [$($bw),+] {
                     let cap: u128 = 1u128 << bw;
                     let values: Vec<$T> = (0..2048u128).map(|i| (i % cap) as $T).collect();
@@ -191,7 +197,7 @@ mod tests {
     /// predicate runs.
     #[test]
     fn signed_with_patches_matches_primitive() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values: Vec<i32> = (0..1500)
             .map(|i| if i % 73 == 0 { 100_000 + i } else { i % 100 })
             .collect();
@@ -225,7 +231,7 @@ mod tests {
         #[case] start: usize,
         #[case] slice_len: usize,
     ) -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values: Vec<u32> = (0..5000u32).map(|i| i % 128).collect();
         let prim = PrimitiveArray::from_iter(values);
         let packed = BitPackedData::encode(&prim.clone().into_array(), 7, &mut ctx)?;
@@ -260,7 +266,7 @@ mod tests {
     /// `Patches`, exercising the `offset + (global - p_off)` patch-position math.
     #[test]
     fn sliced_with_patches_matches_primitive() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values: Vec<i32> = (0..4096)
             .map(|i| if i % 91 == 0 { 100_000 + i } else { i % 100 })
             .collect();
@@ -286,7 +292,7 @@ mod tests {
     /// Nullable input — the result must carry the array's validity.
     #[test]
     fn nullable_propagates_validity() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let prim = PrimitiveArray::from_option_iter([Some(1u32), None, Some(3), Some(4), None]);
         let packed = BitPackedData::encode(&prim.clone().into_array(), 3, &mut ctx)?;
         let rhs = ConstantArray::new(3u32, packed.len()).into_array();

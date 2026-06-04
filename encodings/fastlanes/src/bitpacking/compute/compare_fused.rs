@@ -53,41 +53,6 @@ const U64_BITS: usize = u64::BITS as usize;
 /// `u64` words spanning one FastLanes block (1024 bits / 64).
 const WORDS_PER_CHUNK: usize = CHUNK_SIZE / U64_BITS;
 
-/// Unpack one packed FastLanes block, comparing each value against `rhs` *as it is unpacked*, and
-/// write the resulting 1024-bit mask (logical row order, LSB-first) into `out`.
-///
-/// `transposed` is caller-owned scratch reused across every block, so the hot loop makes no
-/// per-call stack allocation; its prior contents are irrelevant (the kernel overwrites it).
-#[inline]
-fn unpack_cmp_block<T, F>(
-    transposed: &mut [u64; WORDS_PER_CHUNK],
-    out: &mut [u64; WORDS_PER_CHUNK],
-    bit_width: usize,
-    packed_chunk: &[<T as PhysicalPType>::Physical],
-    cmp: F,
-    rhs: T,
-) where
-    T: NativePType
-        + PhysicalPType
-        + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
-    <T as PhysicalPType>::Physical: BitPacking + BitPackingCompare,
-    F: Fn(T, T) -> bool,
-{
-    transposed.fill(0);
-    // SAFETY: `packed_chunk` holds exactly `128 * bit_width / size_of::<U>()` packed elements and
-    // `bit_width <= U::T`, satisfying `unchecked_unpack_cmp`'s contract.
-    unsafe {
-        <<T as PhysicalPType>::Physical as BitPackingCompare>::unchecked_unpack_cmp::<T, _>(
-            bit_width,
-            packed_chunk,
-            transposed,
-            cmp,
-            rhs,
-        );
-    }
-    untranspose_bits::<<T as PhysicalPType>::Physical>(transposed, out);
-}
-
 /// Compare the unpacked values of a [`BitPackedArray`] against `rhs` using the fused FastLanes
 /// `unpack_cmp` kernel, producing a [`BoolArray`].
 ///
@@ -131,11 +96,24 @@ where
             let out = words[range.start / U64_BITS..]
                 .first_chunk_mut::<WORDS_PER_CHUNK>()
                 .vortex_expect("over-allocated buffer holds a full block per chunk");
-            unpack_cmp_block::<T, _>(&mut transposed, out, bit_width, packed_chunk, cmp, rhs);
+            // SAFETY: `packed_chunk` holds exactly `128 * bit_width / size_of::<U>()` packed
+            // elements and `bit_width <= U::T`, satisfying `unchecked_unpack_cmp`'s contract. The
+            // kernel assigns every word in `transposed`, so its previous contents are irrelevant.
+            unsafe {
+                <<T as PhysicalPType>::Physical as BitPackingCompare>::unchecked_unpack_cmp::<T, _>(
+                    bit_width,
+                    packed_chunk,
+                    &mut transposed,
+                    cmp,
+                    rhs,
+                );
+            }
+            untranspose_bits::<<T as PhysicalPType>::Physical>(&transposed, out);
         });
 
         // Patched indices hold placeholder packed values, so their fused result is meaningless;
         // overwrite each with the comparison against the real patch value.
+        // TODO(joe): apply patches per `packed_chunked`.
         if let Some(p) = array.patches() {
             let p_idx = p.indices().clone().execute::<PrimitiveArray>(ctx)?;
             let p_val = p.values().clone().execute::<PrimitiveArray>(ctx)?;
