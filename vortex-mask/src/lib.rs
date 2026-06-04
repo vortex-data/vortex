@@ -780,7 +780,10 @@ impl MaskValues {
             }
 
             let mut indices = Vec::with_capacity(self.true_count);
-            indices.extend(self.buffer.set_indices());
+            // Word-at-a-time set-bit walk; faster than collecting `set_indices()`,
+            // whose per-`next` iterator state inlines less well (see
+            // `vortex-mask/benches/mask_iteration.rs`).
+            self.buffer.for_each_set_index(|i| indices.push(i));
             debug_assert!(indices.is_sorted());
             assert_eq!(indices.len(), self.true_count);
             indices

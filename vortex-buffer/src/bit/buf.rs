@@ -424,6 +424,38 @@ impl BitBuffer {
         BitSliceIterator::new(self.buffer.as_slice(), self.offset, self.len)
     }
 
+    /// Invoke `f(index)` for every set bit, in ascending order, processing a `u64`
+    /// word at a time.
+    ///
+    /// This is the fast way to "do something for each set bit": it skips all-zero
+    /// words, fast-paths all-one words, and walks the remaining bits with
+    /// `trailing_zeros`. Prefer it over `for i in 0..len { if buf.value(i) { f(i) } }`
+    /// (which pays a branch per element) and over collecting [`Self::set_indices`]
+    /// (whose per-`next` iterator state does not inline as well).
+    #[inline]
+    pub fn for_each_set_index<F: FnMut(usize)>(&self, mut f: F) {
+        let chunks = self.chunks();
+        // `remainder_bits` zero-pads above the logical length, so every set bit it
+        // reports is in-bounds and it is never all-ones (so the all-set fast path
+        // below is only ever taken for genuine full words).
+        let remainder = chunks.remainder_bits();
+        let mut base = 0usize;
+        for word in chunks.iter().chain(std::iter::once(remainder)) {
+            if word == u64::MAX {
+                for k in 0..64 {
+                    f(base + k);
+                }
+            } else {
+                let mut w = word;
+                while w != 0 {
+                    f(base + w.trailing_zeros() as usize);
+                    w &= w - 1;
+                }
+            }
+            base += 64;
+        }
+    }
+
     /// Created a new BitBuffer with offset reset to 0
     pub fn sliced(&self) -> Self {
         if self.offset.is_multiple_of(8) {
@@ -902,6 +934,42 @@ mod tests {
                 .count();
             assert_eq!(view.count_range(start, end), expected, "[{start}, {end})");
         }
+    }
+
+    #[rstest]
+    #[case(0)]
+    #[case(1)]
+    #[case(63)]
+    #[case(64)]
+    #[case(65)]
+    #[case(200)]
+    #[case(1000)]
+    fn test_for_each_set_index_matches_set_indices(#[case] len: usize) {
+        let buf = BitBuffer::collect_bool(len, |i| i % 5 == 0 || i % 7 == 0);
+        let expected: Vec<usize> = buf.set_indices().collect();
+        let mut got = Vec::new();
+        buf.for_each_set_index(|i| got.push(i));
+        assert_eq!(got, expected);
+    }
+
+    #[rstest]
+    #[case(3, 200)]
+    #[case(7, 130)]
+    fn test_for_each_set_index_with_offset(#[case] offset: usize, #[case] len: usize) {
+        let base = BitBuffer::collect_bool(offset + len, |i| i % 3 == 0);
+        let view = BitBuffer::new_with_offset(base.inner().clone(), len, offset);
+        let expected: Vec<usize> = view.set_indices().collect();
+        let mut got = Vec::new();
+        view.for_each_set_index(|i| got.push(i));
+        assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn test_for_each_set_index_all_set() {
+        let buf = BitBuffer::new_set(130);
+        let mut got = Vec::new();
+        buf.for_each_set_index(|i| got.push(i));
+        assert_eq!(got, (0..130).collect::<Vec<_>>());
     }
 
     #[test]
