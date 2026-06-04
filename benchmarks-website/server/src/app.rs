@@ -36,9 +36,9 @@ use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::routing::get;
 use axum::routing::post;
+use hashbrown::HashSet;
 use parking_lot::Mutex;
 use tower_http::compression::CompressionLayer;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::admin;
 use crate::api;

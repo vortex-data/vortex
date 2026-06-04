@@ -23,11 +23,11 @@ use arrow_buffer::OffsetBuffer;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Schema;
+use hashbrown::HashMap;
 use vortex_bench_server::records::CompressionSize;
 use vortex_bench_server::records::CompressionTime;
 use vortex_bench_server::records::QueryMeasurement;
 use vortex_bench_server::records::RandomAccessTime;
-use vortex_utils::aliases::hash_map::HashMap;
 
 use super::MigrationSummary;
 
