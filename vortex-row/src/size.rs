@@ -36,6 +36,24 @@ use crate::options::RowEncodingOptions;
 use crate::options::deserialize_row_encoding_options;
 use crate::options::serialize_row_encoding_options;
 
+/// Classification of a single input column for the size pass.
+///
+/// Tracks each column's within-row byte offset (the constant prefix from all preceding
+/// fixed-width columns) and, for fixed columns, whether any variable-length column has
+/// appeared yet — the encode pass uses this to choose between the arithmetic-write fast
+/// path (no varlen before this column, so the within-row position is constant per row) and
+/// the cursor-write path.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum ColKind {
+    /// Fixed-width column. `prefix` is the within-row byte offset of this column's first
+    /// byte. When `before_varlen` is true no variable-length column precedes this one, so the
+    /// within-row offset is constant for every row.
+    Fixed { prefix: u32, before_varlen: bool },
+    /// Column has variable per-row width. `fixed_prefix` is the sum of widths of all
+    /// preceding fixed columns; the contribution of earlier varlen columns is added per row.
+    Variable { fixed_prefix: u32 },
+}
+
 /// Result of the size pass: enough information for both [`RowSize::execute`] and the
 /// downstream [`RowEncode`](super::encode::RowEncode) pipeline.
 ///
@@ -45,6 +63,8 @@ use crate::options::serialize_row_encoding_options;
 pub(crate) struct SizePassResult {
     pub fixed_per_row: u32,
     pub var_lengths: Option<Vec<u32>>,
+    pub col_kinds: Vec<ColKind>,
+    pub first_varlen_idx: Option<usize>,
     pub columns: Vec<Canonical>,
 }
 
@@ -77,8 +97,11 @@ pub(crate) fn compute_sizes(
     let nrows = args.row_count();
 
     let mut columns: Vec<Canonical> = Vec::with_capacity(n_inputs);
+    let mut col_kinds: Vec<ColKind> = Vec::with_capacity(n_inputs);
     let mut fixed_per_row: u32 = 0;
     let mut var_lengths: Option<Vec<u32>> = None;
+    let mut first_varlen_idx: Option<usize> = None;
+    let mut running_fixed_prefix: u32 = 0;
 
     for i in 0..n_inputs {
         let col = args.get(i)?;
@@ -95,13 +118,24 @@ pub(crate) fn compute_sizes(
         let canonical = col.execute::<Canonical>(ctx)?;
         match width {
             RowWidth::Fixed(w) => {
-                fixed_per_row = fixed_per_row.checked_add(w).ok_or_else(|| {
-                    vortex_error::vortex_err!("per-row fixed width overflows u32 at column {}", i)
-                })?;
+                col_kinds.push(ColKind::Fixed {
+                    prefix: running_fixed_prefix,
+                    before_varlen: first_varlen_idx.is_none(),
+                });
+                let overflow =
+                    || vortex_error::vortex_err!("per-row fixed width overflows u32 at column {i}");
+                fixed_per_row = fixed_per_row.checked_add(w).ok_or_else(overflow)?;
+                running_fixed_prefix = running_fixed_prefix.checked_add(w).ok_or_else(overflow)?;
             }
             RowWidth::Variable => {
+                if first_varlen_idx.is_none() {
+                    first_varlen_idx = Some(i);
+                }
                 let v = var_lengths.get_or_insert_with(|| vec![0u32; nrows]);
                 codec::field_size(&canonical, options.fields[i], v, ctx)?;
+                col_kinds.push(ColKind::Variable {
+                    fixed_prefix: running_fixed_prefix,
+                });
             }
         }
         columns.push(canonical);
@@ -110,6 +144,8 @@ pub(crate) fn compute_sizes(
     Ok(SizePassResult {
         fixed_per_row,
         var_lengths,
+        col_kinds,
+        first_varlen_idx,
         columns,
     })
 }

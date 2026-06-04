@@ -34,6 +34,7 @@ use crate::codec;
 use crate::options::RowEncodingOptions;
 use crate::options::deserialize_row_encoding_options;
 use crate::options::serialize_row_encoding_options;
+use crate::size::ColKind;
 use crate::size::compute_sizes;
 
 /// Variadic scalar function that encodes N input columns into a single `List<u8>`
@@ -112,6 +113,8 @@ fn execute_row_encode(
     let crate::size::SizePassResult {
         fixed_per_row,
         var_lengths,
+        col_kinds,
+        first_varlen_idx,
         columns,
     } = compute_sizes(options, args, ctx)?;
 
@@ -149,53 +152,107 @@ fn execute_row_encode(
     // listview_offsets[i] is the absolute byte offset where row `i` begins.
     // For pure-fixed: i * fixed_per_row.
     // For mixed: i * fixed_per_row + exclusive prefix sum of var_lengths.
+    //
+    // When fixed-before-varlen columns coexist with a varlen column, we additionally build
+    // `var_prefix_for_arith[i] = exclusive cumsum of var_lengths[..i]` and hand it to the
+    // arithmetic encoders so they can compute per-row write positions without a cursor.
+    let need_arith_prefix = first_varlen_idx.is_some()
+        && col_kinds.iter().any(|k| {
+            matches!(
+                k,
+                ColKind::Fixed {
+                    before_varlen: true,
+                    ..
+                }
+            )
+        });
+
     // Build directly into a BufferMut to avoid a Vec→Buffer copy at the end.
     let mut listview_offsets: BufferMut<u32> = BufferMut::with_capacity(nrows);
     // SAFETY: `nrows` of capacity reserved above; every index in `[0, nrows)` is written
     // before the buffer is read out. `nrows` was validated to fit `u32` at function entry,
-    // so `i as u32` below is exact and the multiplications can't overflow.
+    // so the `0u32..` counters below are exact and the multiplications can't overflow.
     unsafe { listview_offsets.set_len(nrows) };
     let off = listview_offsets.as_mut_slice();
+    let mut var_prefix_for_arith: Option<Vec<u32>> = None;
     match var_lengths.as_ref() {
         None => {
             // Pure-fixed: offsets[i] = i * fixed_per_row. Zipping against a `u32` counter
-            // elides per-element bounds checks (and avoids a per-element `usize as u32`
-            // cast), so LLVM auto-vectorizes this multiply. `nrows` fits u32, so the counter
-            // never overflows.
+            // elides per-element bounds checks, so LLVM auto-vectorizes this multiply.
             for (slot, i) in off.iter_mut().zip(0u32..) {
                 *slot = i * fixed_per_row;
             }
         }
         Some(v) => {
             // Mixed: offsets[i] = i * fixed_per_row + var_prefix[i], where var_prefix is the
-            // exclusive cumsum of varlen lengths. `iter_mut().zip` elides per-element bounds
-            // checks; the total was validated to fit u32 upstream so the wrapping arithmetic
-            // is exact (it never actually wraps).
+            // exclusive cumsum of varlen lengths. The total was validated to fit u32 upstream
+            // so the wrapping arithmetic is exact (it never actually wraps).
+            let mut vp: Option<Vec<u32>> = need_arith_prefix.then(|| Vec::with_capacity(nrows));
             let mut acc: u32 = 0;
             for ((slot, &l), i) in off.iter_mut().zip(v.iter()).zip(0u32..) {
+                if let Some(p) = vp.as_mut() {
+                    p.push(acc);
+                }
                 *slot = i.wrapping_mul(fixed_per_row).wrapping_add(acc);
                 acc = acc.wrapping_add(l);
             }
+            var_prefix_for_arith = vp;
         }
     }
     let listview_offsets_slice: &[u32] = listview_offsets.as_slice();
 
     // Per-row write cursor (also doubles as the ListView `sizes` slot when done). We build
     // it as a BufferMut so we can hand it directly to the output PrimitiveArray.
+    //
+    // The cursor path begins at the first cursor-path column. Fixed-before-varlen columns
+    // are written by the arithmetic path and do not touch the cursor, so the cursor is
+    // pre-seeded with the within-row offset of the first varlen column (its `fixed_prefix`).
+    // When there are no varlen columns at all, every column takes the arithmetic path and
+    // the cursor loop runs zero iterations; seeding with `fixed_per_row` then leaves the
+    // cursors already correct as per-row sizes.
+    let initial_cursor: u32 = match first_varlen_idx {
+        Some(idx) => match col_kinds[idx] {
+            ColKind::Variable { fixed_prefix } => fixed_prefix,
+            ColKind::Fixed { .. } => unreachable!("first_varlen_idx points at a varlen column"),
+        },
+        None => fixed_per_row,
+    };
     let mut row_cursors: BufferMut<u32> = BufferMut::with_capacity(nrows);
-    row_cursors.push_n(0u32, nrows);
+    row_cursors.push_n(initial_cursor, nrows);
 
-    // ===== Phase 4: encode columns via the cursor path =====
-    // Each column was canonicalized once during the size pass; reuse that canonical form.
+    // ===== Phase 4: encode columns =====
+    // Fixed-before-varlen columns take the arithmetic-write path (constant within-row
+    // offset, no cursor mutation). Fixed-after-varlen and varlen columns take the cursor
+    // path. Each column was canonicalized once during the size pass; reuse that form.
     for (i, canonical) in columns.iter().enumerate() {
-        codec::field_encode(
-            canonical,
-            options.fields[i],
-            listview_offsets_slice,
-            row_cursors.as_mut_slice(),
-            &mut out_buf,
-            ctx,
-        )?;
+        match col_kinds[i] {
+            ColKind::Fixed {
+                prefix,
+                before_varlen: true,
+                ..
+            } => {
+                codec::field_encode_fixed_arithmetic(
+                    canonical,
+                    options.fields[i],
+                    prefix,
+                    fixed_per_row,
+                    var_prefix_for_arith.as_deref(),
+                    nrows,
+                    &mut out_buf,
+                    ctx,
+                )?;
+            }
+            ColKind::Fixed { .. } | ColKind::Variable { .. } => {
+                codec::field_encode(
+                    canonical,
+                    options.fields[i],
+                    listview_offsets_slice,
+                    row_cursors.as_mut_slice(),
+                    &mut out_buf,
+                    ctx,
+                )?;
+            }
+        }
     }
 
     // ===== Phase 5: build ListView output =====

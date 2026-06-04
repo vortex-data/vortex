@@ -269,6 +269,59 @@ pub(crate) fn field_size(
     Ok(())
 }
 
+/// Encode a fixed-width column at arithmetic offsets, without reading or writing any per-row
+/// cursor.
+///
+/// For row `i`, the column's bytes are written starting at `i * row_stride + col_prefix
+/// (+ var_prefix[i])`, where `var_prefix` is the exclusive prefix sum of the varlen
+/// contributions (`None` when the row layout has no variable-length columns). This is the
+/// fast path for fixed-width columns that appear before any varlen column, so their
+/// within-row position is a constant offset rather than a running cursor.
+///
+/// For primitive columns in the pure-fixed case it uses a `chunks_exact_mut` hot loop that
+/// removes the per-row offset/cursor indirection (matching `arrow-row`'s `encode_not_null`).
+/// All other types reuse [`field_encode`] at the materialized offsets, so the bytes written
+/// are byte-identical to the cursor path.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn field_encode_fixed_arithmetic(
+    canonical: &Canonical,
+    field: RowSortField,
+    col_prefix: u32,
+    row_stride: u32,
+    var_prefix: Option<&[u32]>,
+    nrows: usize,
+    out: &mut [u8],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    if var_prefix.is_none()
+        && let Canonical::Primitive(arr) = canonical
+    {
+        return encode_primitive_arith(arr, field, col_prefix, row_stride, out, ctx);
+    }
+
+    // General path: materialize this column's per-row start offsets and reuse the cursor
+    // encoder with zero-initialized cursors, so every row is written at its arithmetic
+    // offset with the exact same bytes the cursor path would produce.
+    let mut offsets: Vec<u32> = Vec::with_capacity(nrows);
+    let mut base = col_prefix;
+    match var_prefix {
+        None => {
+            for _ in 0..nrows {
+                offsets.push(base);
+                base = base.wrapping_add(row_stride);
+            }
+        }
+        Some(vp) => {
+            for &p in vp.iter().take(nrows) {
+                offsets.push(base.wrapping_add(p));
+                base = base.wrapping_add(row_stride);
+            }
+        }
+    }
+    let mut cursors = vec![0u32; nrows];
+    field_encode(canonical, field, &offsets, &mut cursors, out, ctx)
+}
+
 /// Encode each row's bytes for the given canonical view into `out`, writing starting at
 /// `offsets[i] + cursors[i]` for row `i` and advancing `cursors[i]` by the number of
 /// bytes written.
@@ -956,6 +1009,68 @@ fn encode_extension(
 ) -> VortexResult<()> {
     let storage = arr.storage_array().clone().execute::<Canonical>(ctx)?;
     field_encode(&storage, field, row_offsets, col_offset, out, ctx)
+}
+
+/// Arithmetic-write primitive encoder: writes each row's `sentinel + value` slot at a
+/// constant within-row offset, iterating the output in `row_stride`-sized chunks so the
+/// compiler can drop the per-row offset/cursor indirection.
+fn encode_primitive_arith(
+    arr: &PrimitiveArray,
+    field: RowSortField,
+    col_prefix: u32,
+    row_stride: u32,
+    out: &mut [u8],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    match_each_native_ptype!(arr.ptype(), |T| {
+        encode_primitive_arith_typed::<T>(arr, field, col_prefix, row_stride, out, ctx)?;
+    });
+    Ok(())
+}
+
+fn encode_primitive_arith_typed<T: NativePType + RowEncode>(
+    arr: &PrimitiveArray,
+    field: RowSortField,
+    col_prefix: u32,
+    row_stride: u32,
+    out: &mut [u8],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let slice: &[T] = arr.as_slice();
+    let non_null = field.non_null_sentinel();
+    let value_bytes = size_of::<T>();
+    let slot_size = 1 + value_bytes;
+    let stride = row_stride as usize;
+    let prefix = col_prefix as usize;
+    let descending = field.descending;
+
+    match resolve_validity(arr.as_ref().validity()?, arr.len(), ctx)? {
+        ValidityKind::AllValid => {
+            // Hot path: each row's slot is a fixed window inside its `stride`-sized chunk,
+            // so the inner write vectorizes the same way as `arrow-row`'s not-null path.
+            for (chunk, &v) in out.chunks_exact_mut(stride).zip(slice.iter()) {
+                let slot = &mut chunk[prefix..prefix + slot_size];
+                slot[0] = non_null;
+                v.encode_to(&mut slot[1..], descending);
+            }
+        }
+        ValidityKind::Mask(mask) => {
+            let null = field.null_sentinel();
+            for (i, (chunk, &v)) in out.chunks_exact_mut(stride).zip(slice.iter()).enumerate() {
+                let slot = &mut chunk[prefix..prefix + slot_size];
+                if mask.value(i) {
+                    slot[0] = non_null;
+                    v.encode_to(&mut slot[1..], descending);
+                } else {
+                    slot[0] = null;
+                    for b in &mut slot[1..] {
+                        *b = 0;
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Encode a non-empty variable-length byte slice into `out` in 32-byte blocks with
