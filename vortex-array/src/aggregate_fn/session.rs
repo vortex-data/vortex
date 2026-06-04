@@ -4,7 +4,7 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use parking_lot::RwLock;
+use arc_swap::ArcSwap;
 use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::SessionVar;
@@ -51,8 +51,11 @@ pub type AggregateFnRegistry = Registry<AggregateFnPluginRef>;
 pub struct AggregateFnSession {
     registry: AggregateFnRegistry,
 
-    pub(super) kernels: RwLock<HashMap<KernelKey, &'static dyn DynAggregateKernel>>,
-    pub(super) grouped_kernels: RwLock<HashMap<KernelKey, &'static dyn DynGroupedAggregateKernel>>,
+    // `ArcSwap` rather than `RwLock`: kernels are registered once at session construction and read
+    // on every accumulate call. Under parallel reduce, a `RwLock` read-lock here was the dominant
+    // cost (`lock_shared_slow`); `ArcSwap` makes the per-accumulate lookup a lock-free atomic load.
+    pub(super) kernels: ArcSwap<HashMap<KernelKey, &'static dyn DynAggregateKernel>>,
+    pub(super) grouped_kernels: ArcSwap<HashMap<KernelKey, &'static dyn DynGroupedAggregateKernel>>,
 }
 
 impl SessionVar for AggregateFnSession {
@@ -71,8 +74,8 @@ impl Default for AggregateFnSession {
     fn default() -> Self {
         let this = Self {
             registry: AggregateFnRegistry::default(),
-            kernels: RwLock::new(HashMap::default()),
-            grouped_kernels: RwLock::new(HashMap::default()),
+            kernels: ArcSwap::from_pointee(HashMap::default()),
+            grouped_kernels: ArcSwap::from_pointee(HashMap::default()),
         };
 
         // Register the built-in aggregate functions
@@ -125,9 +128,12 @@ impl AggregateFnSession {
         agg_fn_id: Option<impl Into<AggregateFnId>>,
         kernel: &'static dyn DynAggregateKernel,
     ) {
-        self.kernels
-            .write()
-            .insert((array_id.into(), agg_fn_id.map(|id| id.into())), kernel);
+        let key = (array_id.into(), agg_fn_id.map(|id| id.into()));
+        self.kernels.rcu(|current| {
+            let mut new = (**current).clone();
+            new.insert(key.clone(), kernel);
+            new
+        });
     }
 }
 

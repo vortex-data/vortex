@@ -150,7 +150,7 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
         //    `Combined::try_accumulate` always returns true, so a later kernel check would be
         //    unreachable.
         {
-            let kernels_r = kernels.read();
+            let kernels_r = kernels.load();
             let batch_id = batch.encoding_id();
             let kernel = kernels_r
                 .get(&(batch_id, Some(self.aggregate_fn.id())))
@@ -187,7 +187,7 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
                 break;
             }
 
-            let kernels_r = kernels.read();
+            let kernels_r = kernels.load();
             let batch_id = batch.encoding_id();
             let kernel = kernels_r
                 .get(&(batch_id, Some(self.aggregate_fn.id())))

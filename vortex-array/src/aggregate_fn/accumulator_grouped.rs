@@ -170,7 +170,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
                 break;
             }
 
-            let kernels_r = kernels.read();
+            let kernels_r = kernels.load();
             if let Some(result) = kernels_r
                 .get(&(elements.encoding_id(), Some(self.aggregate_fn.id())))
                 .or_else(|| kernels_r.get(&(elements.encoding_id(), None)))
@@ -262,7 +262,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
                 break;
             }
 
-            let kernels_r = kernels.read();
+            let kernels_r = kernels.load();
             if let Some(result) = kernels_r
                 .get(&(elements.encoding_id(), Some(self.aggregate_fn.id())))
                 .or_else(|| kernels_r.get(&(elements.encoding_id(), None)))
