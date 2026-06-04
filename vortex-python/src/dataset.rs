@@ -33,8 +33,6 @@ use crate::arrow::ToPyArrow;
 use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
 use crate::install_module;
-use crate::object_store::resolve::ResolvedStore;
-use crate::object_store::resolve::resolve_store;
 use crate::session::session;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
@@ -120,14 +118,14 @@ impl PyVortexDataset {
         store: Option<Arc<dyn object_store::ObjectStore>>,
     ) -> VortexResult<Self> {
         let session = session();
-        let vxf = match resolve_store(url, store)? {
-            ResolvedStore::ObjectStore(store, path) => {
+        let vxf = match store {
+            Some(store) => {
                 session
                     .open_options()
-                    .open_object_store(&store, path.as_ref())
+                    .open_object_store(&store, url)
                     .await?
             }
-            ResolvedStore::Path(path) => session.open_options().open_path(path).await?,
+            None => session.open_options().open_url(url).await?,
         };
         PyVortexDataset::try_new(vxf)
     }

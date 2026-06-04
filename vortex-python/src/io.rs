@@ -38,8 +38,6 @@ use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
 use crate::install_module;
 use crate::iter::PyArrayIterator;
-use crate::object_store::resolve::ResolvedStore;
-use crate::object_store::resolve::resolve_store;
 use crate::session::session;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
@@ -195,9 +193,10 @@ pub fn write(
     let session = session();
     py.detach(|| {
         RUNTIME.block_on(async move {
-            match resolve_store(path, store.map(|x| x.into_inner()))? {
-                ResolvedStore::ObjectStore(store, path) => {
-                    let mut store = ObjectStoreWrite::new(store, &path).await?;
+            match store.map(|x| x.into_inner()) {
+                Some(store) => {
+                    let mut store =
+                        ObjectStoreWrite::new(store, &object_store::path::Path::from(path)).await?;
                     session
                         .write_options()
                         .write(&mut store, iter.into_inner().into_array_stream())
@@ -205,7 +204,7 @@ pub fn write(
                     store.shutdown().await?;
                     VortexResult::Ok(())
                 }
-                ResolvedStore::Path(path) => {
+                None => {
                     let mut w = File::create(path).await?;
                     session
                         .write_options()
@@ -330,9 +329,11 @@ impl PyVortexWriteOptions {
             }
             let strategy = strategy.build();
             RUNTIME.block_on(async move {
-                match resolve_store(path, store.map(|x| x.into_inner()))? {
-                    ResolvedStore::ObjectStore(store, path) => {
-                        let mut store = ObjectStoreWrite::new(store, &path).await?;
+                match store.map(|x| x.into_inner()) {
+                    Some(store) => {
+                        let mut store =
+                            ObjectStoreWrite::new(store, &object_store::path::Path::from(path))
+                                .await?;
                         session
                             .write_options()
                             .with_strategy(strategy)
@@ -341,7 +342,7 @@ impl PyVortexWriteOptions {
                         store.shutdown().await?;
                         VortexResult::Ok(())
                     }
-                    ResolvedStore::Path(path) => {
+                    None => {
                         let mut w = File::create(path).await?;
                         session
                             .write_options()

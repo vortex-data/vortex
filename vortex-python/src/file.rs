@@ -37,8 +37,6 @@ use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
 use crate::install_module;
 use crate::iter::PyArrayIterator;
-use crate::object_store::resolve::ResolvedStore;
-use crate::object_store::resolve::resolve_store;
 use crate::scan::PyRepeatedScan;
 use crate::session::session;
 
@@ -73,11 +71,9 @@ pub fn open(
                 options = options.with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)));
             }
 
-            match resolve_store(path, store.map(|x| x.into_inner()))? {
-                ResolvedStore::ObjectStore(store, path) => {
-                    options.open_object_store(&store, path.as_ref()).await
-                }
-                ResolvedStore::Path(path) => options.open_path(path).await,
+            match store.map(|x| x.into_inner()) {
+                Some(store) => options.open_object_store(&store, path).await,
+                None => options.open_url(path).await,
             }
         })
     })?;

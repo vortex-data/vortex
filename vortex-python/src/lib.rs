@@ -24,7 +24,6 @@ mod expr;
 mod file;
 mod io;
 mod iter;
-mod object_store;
 mod python_repr;
 mod registry;
 mod runtime;

@@ -37,13 +37,7 @@ async-fs = { workspace = true }
 bytes = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
-object_store = { workspace = true, features = [
-    "fs",
-    "aws",
-    "gcp",
-    "azure",
-    "http",
-] }
+object_store = { workspace = true, features = ["fs"] }
 parking_lot = { workspace = true }
 pyo3 = { workspace = true, features = ["abi3", "abi3-py311"] }
 pyo3-bytes = { workspace = true }
@@ -51,7 +45,7 @@ pyo3-log = { workspace = true }
 pyo3-object_store = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"], optional = true }
 url = { workspace = true }
-vortex = { workspace = true, features = ["object_store"] }
+vortex = { workspace = true, features = ["cloud", "object_store"] }
 vortex-tui = { workspace = true, optional = true }
 
 [dev-dependencies]
