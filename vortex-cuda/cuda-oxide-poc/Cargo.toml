@@ -1,0 +1,15 @@
+[package]
+name = "vortex_cuda_oxide_poc"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# This package is intentionally excluded from the main Vortex workspace.
+# Build it from this directory with `cargo oxide run` after installing cargo-oxide.
+
+[dependencies]
+cuda-core = { git = "https://github.com/NVlabs/cuda-oxide.git" }
+cuda-device = { git = "https://github.com/NVlabs/cuda-oxide.git" }
+cuda-host = { git = "https://github.com/NVlabs/cuda-oxide.git" }
+
+[workspace]

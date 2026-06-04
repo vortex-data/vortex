@@ -1,0 +1,6 @@
+[toolchain]
+# cuda-oxide currently requires nightly with rustc-dev support.
+# Keep this local to the POC so the main Vortex workspace remains on its pinned stable toolchain.
+channel = "nightly-2026-04-03"
+components = ["rust-src", "rustc-dev", "llvm-tools", "rustfmt", "clippy"]
+profile = "minimal"

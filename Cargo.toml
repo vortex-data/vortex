@@ -67,7 +67,7 @@ members = [
     "benchmarks-website/server",
     "benchmarks-website/migrate",
 ]
-exclude = ["java/testfiles", "wasm-test"]
+exclude = ["java/testfiles", "wasm-test", "vortex-cuda/cuda-oxide-poc"]
 resolver = "2"
 
 [workspace.package]

@@ -1,0 +1,5 @@
+[alias]
+# Convenience aliases; these still require `cargo-oxide` to be installed.
+oxide-build = "oxide build"
+oxide-run = "oxide run"
+oxide-doctor = "oxide doctor"
