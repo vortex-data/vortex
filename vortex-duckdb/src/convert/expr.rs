@@ -4,7 +4,9 @@
 use std::sync::Arc;
 
 use tracing::debug;
+use vortex::dtype::DType;
 use vortex::dtype::Nullability;
+use vortex::dtype::PType;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -13,6 +15,8 @@ use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
+use vortex::expr::byte_length;
+use vortex::expr::cast;
 use vortex::expr::col;
 use vortex::expr::get_item;
 use vortex::expr::is_not_null;
@@ -21,6 +25,7 @@ use vortex::expr::list_contains;
 use vortex::expr::lit;
 use vortex::expr::not;
 use vortex::expr::or_collect;
+use vortex::expr::root;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::between::Between;
@@ -168,6 +173,29 @@ pub fn can_push_expression(value: &duckdb::ExpressionRef) -> bool {
             }
             op.children().all(can_push_expression)
         }
+    }
+}
+
+pub fn try_from_projection_expression(
+    value: &duckdb::ExpressionRef,
+    col_name: &str,
+) -> VortexResult<Option<Expression>> {
+    let Some(value) = value.as_class() else {
+        return Ok(None);
+    };
+    if let ExpressionClass::BoundFunction(func) = value {
+        Ok(match func.scalar_function.name() {
+            "strlen" => {
+                // byte_length returns u64 but strlen expects i64
+                // TODO(myrrc): transmute since no one cares about upper but
+                let col = byte_length(get_item(col_name, root()));
+                let col = cast(col, DType::Primitive(PType::I64, false.into()));
+                Some(col)
+            }
+            _ => None,
+        })
+    } else {
+        Ok(None)
     }
 }
 

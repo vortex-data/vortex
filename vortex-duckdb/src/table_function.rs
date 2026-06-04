@@ -45,7 +45,7 @@ use crate::RUNTIME;
 use crate::SESSION;
 use crate::column_statistics::ColumnStatistics;
 use crate::column_statistics::ColumnStatisticsAggregate;
-use crate::convert::try_from_bound_expression;
+use crate::convert::{try_from_bound_expression, try_from_projection_expression};
 use crate::duckdb::BindInputRef;
 use crate::duckdb::BindResultRef;
 use crate::duckdb::ClientContextRef;
@@ -427,6 +427,26 @@ pub fn pushdown_complex_filter(
     debug!(%expr, report_pushed, "pushed down expression");
     bind_data.filter_exprs.push(expr);
     Ok(report_pushed)
+}
+
+pub fn pushdown_projection_expression(
+    bind_data: &mut TableFunctionBind,
+    expr: &ExpressionRef,
+    projection_id: usize,
+) -> VortexResult<bool> {
+    let col_name = &bind_data.column_fields[projection_id].name;
+    debug!(%expr, %col_name, "pushing down projection expression");
+    match try_from_projection_expression(expr, col_name)? {
+        None => {
+            debug!(%expr, "failed to push down expression");
+            return Ok(false);
+        }
+        Some(vx_expr) => {
+            bind_data.column_fields[projection_id].projection_fn = Some(vx_expr);
+            debug!(%expr, "pushed down expression");
+            return Ok(true);
+        }
+    }
 }
 
 /// Get column-wise statistics. Available only if we're reading a single file.

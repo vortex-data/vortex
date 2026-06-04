@@ -10,6 +10,7 @@ mod vector;
 pub use dtype::FromLogicalType;
 pub use expr::can_push_expression;
 pub use expr::try_from_bound_expression;
+pub use expr::try_from_projection_expression;
 pub use scalar::*;
 pub use table_filter::try_from_table_filter;
 pub use table_filter::try_from_virtual_column_filter;

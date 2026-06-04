@@ -1,0 +1,127 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+# column with fn
+# column, column with fn
+# column
+# + cte
+# + nested cte
+# + view
+# + nested view
+
+query I
+COPY (SELECT * FROM (VALUES ('Hello'), ('Hi'), ('Hey')) AS t(str)) TO '$__TEST_DIR__/pe-pushdown.vortex';
+----
+3
+
+query T
+SELECT str FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY str;
+----
+Hello
+Hey
+Hi
+
+query I
+SELECT len(str) AS l FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY l DESC;
+----
+5
+3
+2
+
+query TI
+SELECT str, len(str) AS l FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY str;
+----
+Hello 5
+Hey 3
+Hi 2
+
+query IT
+SELECT len(str) AS l, str FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY str;
+----
+5 Hello
+3 Hey
+2 Hi
+
+# fn -> cte
+query I
+SELECT len(str) FROM (SELECT str FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY str);
+----
+5
+3
+2
+
+# fn -> cte -> cte
+query I
+WITH cte1 AS (SELECT str FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY str),
+     cte2 AS (SELECT str from cte1)
+SELECT len(str) FROM cte2;
+----
+5
+3
+2
+
+# cte -> fn -> cte
+query TI
+WITH cte1 AS (SELECT str FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY str),
+     cte2 AS (SELECT str, len(str) as l from cte1)
+SELECT str, l FROM cte2;
+----
+Hello 5
+Hey 3
+Hi 2
+
+query I
+CREATE VIEW pe1 AS SELECT str FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY str;
+----
+
+query T
+SELECT str FROM pe1;
+----
+Hello
+Hey
+Hi
+
+query I
+SELECT len(str) AS l FROM pe1;
+----
+5
+3
+2
+
+# nested view
+query I
+CREATE VIEW pe2 AS SELECT str FROM pe1;
+----
+
+query T
+SELECT str FROM pe2;
+----
+Hello
+Hey
+Hi
+
+query I
+SELECT len(str) AS l FROM pe2;
+----
+5
+3
+2
+
+query TI
+SELECT str, len(str) AS l FROM pe2;
+----
+Hello 5
+Hey 3
+Hi 2
+
+# fn -> cte with fn -> cte
+query I
+WITH cte1 AS (SELECT str FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY str),
+     cte2 AS (SELECT str, len(str) as l from cte1)
+SELECT len(str) FROM cte2;
+----
+5
+3
+2
