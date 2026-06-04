@@ -3,6 +3,7 @@
 
 use futures::StreamExt;
 use futures::TryStreamExt;
+use futures::stream;
 use futures::stream::BoxStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -22,20 +23,16 @@ impl dyn FileSystem + '_ {
     pub fn glob(&self, pattern: &str) -> VortexResult<BoxStream<'_, VortexResult<FileListing>>> {
         validate_glob(pattern)?;
 
-        // If there are no glob characters, the pattern is an exact file path.
-        // Use [`list`](FileSystem::list) with the full path as the prefix so that
-        // the filesystem confirms the file exists and populates its size, then
-        // filter to the exact match to avoid yielding prefix-collisions such as
-        // `foo.vortex.backup` when the caller asked for `foo.vortex`.
+        // If there are no glob characters, the pattern is an exact file path. `list` enumerates
+        // entries *under* a prefix on a path-segment basis and never yields the prefix itself, so
+        // listing an exact path would report an existing file as missing (and could surface prefix
+        // collisions such as `foo.vortex.backup` when the caller asked for `foo.vortex`). Use
+        // `head` to confirm the file exists and capture its size, yielding a single-element stream
+        // when it does and an empty stream when it does not.
         if !pattern.contains(['*', '?', '[']) {
             let pattern = pattern.to_string();
-            let stream = self
-                .list(&pattern)
-                .try_filter(move |listing| {
-                    let matches = listing.path == pattern;
-                    async move { matches }
-                })
-                .into_stream()
+            let stream = stream::once(async move { self.head(&pattern).await })
+                .try_filter_map(|listing| async move { Ok(listing) })
                 .boxed();
             return Ok(stream);
         }
@@ -95,40 +92,47 @@ mod tests {
 
     use async_trait::async_trait;
     use futures::TryStreamExt;
-    use futures::stream;
-    use parking_lot::Mutex;
     use vortex_error::vortex_panic;
 
     use super::*;
     use crate::VortexReadAt;
     use crate::filesystem::FileSystem;
 
-    /// A mock filesystem whose `list` records the requested prefix and returns
-    /// a preconfigured set of listings.
+    /// A mock filesystem that resolves exact paths through [`head`](FileSystem::head) and
+    /// panics if [`list`](FileSystem::list) is called. This encodes the invariant the fix
+    /// depends on: the exact-path glob branch must never list, because an object store's `list`
+    /// does not return the exact path of a file.
     #[derive(Debug)]
-    struct MockFileSystem {
-        listings: Vec<FileListing>,
-        last_prefix: Mutex<Option<String>>,
+    struct HeadFileSystem {
+        files: Vec<FileListing>,
     }
 
-    impl MockFileSystem {
-        fn new(listings: Vec<FileListing>) -> Self {
+    impl HeadFileSystem {
+        fn new(files: &[(&str, u64)]) -> Self {
             Self {
-                listings,
-                last_prefix: Mutex::new(None),
+                files: files
+                    .iter()
+                    .map(|&(path, size)| FileListing {
+                        path: path.to_string(),
+                        size: Some(size),
+                    })
+                    .collect(),
             }
-        }
-
-        fn last_prefix(&self) -> Option<String> {
-            self.last_prefix.lock().clone()
         }
     }
 
     #[async_trait]
-    impl FileSystem for MockFileSystem {
-        fn list(&self, prefix: &str) -> BoxStream<'_, VortexResult<FileListing>> {
-            *self.last_prefix.lock() = Some(prefix.to_string());
-            stream::iter(self.listings.clone().into_iter().map(Ok)).boxed()
+    impl FileSystem for HeadFileSystem {
+        fn list(&self, _prefix: &str) -> BoxStream<'_, VortexResult<FileListing>> {
+            vortex_panic!("list() must not be called for an exact path; glob should use head()")
+        }
+
+        async fn head(&self, path: &str) -> VortexResult<Option<FileListing>> {
+            Ok(self
+                .files
+                .iter()
+                .find(|listing| listing.path == path)
+                .cloned())
         }
 
         async fn open_read(&self, _path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
@@ -142,10 +146,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_glob_exact_path_existing_returns_listing_with_size() -> VortexResult<()> {
-        let fs = MockFileSystem::new(vec![FileListing {
-            path: "data/file.vortex".to_string(),
-            size: Some(1024),
-        }]);
+        let fs = HeadFileSystem::new(&[("data/file.vortex", 1024)]);
         let fs_dyn: &dyn FileSystem = &fs;
         let results: Vec<FileListing> = fs_dyn.glob("data/file.vortex")?.try_collect().await?;
         assert_eq!(results.len(), 1);
@@ -153,19 +154,14 @@ mod tests {
         assert_eq!(
             results[0].size,
             Some(1024),
-            "exact-path glob should propagate the size reported by list"
-        );
-        assert_eq!(
-            fs.last_prefix().as_deref(),
-            Some("data/file.vortex"),
-            "exact path should be passed as the list prefix"
+            "exact-path glob should propagate the size reported by head"
         );
         Ok(())
     }
 
     #[tokio::test]
     async fn test_glob_exact_path_missing_returns_empty_stream() -> VortexResult<()> {
-        let fs = MockFileSystem::new(vec![]);
+        let fs = HeadFileSystem::new(&[]);
         let fs_dyn: &dyn FileSystem = &fs;
         let results: Vec<FileListing> = fs_dyn.glob("data/missing.vortex")?.try_collect().await?;
         assert!(
@@ -176,19 +172,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_glob_exact_path_filters_prefix_collisions() -> VortexResult<()> {
-        // Object stores list by prefix, so `list("foo.vortex")` can return `foo.vortex.backup`.
-        // The exact-path branch must filter to an equality match.
-        let fs = MockFileSystem::new(vec![
-            FileListing {
-                path: "foo.vortex".to_string(),
-                size: Some(10),
-            },
-            FileListing {
-                path: "foo.vortex.backup".to_string(),
-                size: Some(20),
-            },
-        ]);
+    async fn test_glob_exact_path_ignores_prefix_siblings() -> VortexResult<()> {
+        // A real object store lists by prefix and would surface `foo.vortex.backup` when asked to
+        // list `foo.vortex`. Resolving the exact path via head sidesteps that: only the requested
+        // key is returned, and the panicking `list` proves the branch never enumerated.
+        let fs = HeadFileSystem::new(&[("foo.vortex", 10), ("foo.vortex.backup", 20)]);
         let fs_dyn: &dyn FileSystem = &fs;
         let results: Vec<FileListing> = fs_dyn.glob("foo.vortex")?.try_collect().await?;
         assert_eq!(results.len(), 1);

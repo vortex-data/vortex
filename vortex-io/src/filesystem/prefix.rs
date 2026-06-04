@@ -52,6 +52,18 @@ impl FileSystem for PrefixFileSystem {
             .boxed()
     }
 
+    async fn head(&self, path: &str) -> VortexResult<Option<FileListing>> {
+        let full_path = format!("{}{}", self.prefix, path.trim_start_matches('/'));
+        Ok(self.inner.head(&full_path).await?.map(|mut listing| {
+            listing.path = listing
+                .path
+                .strip_prefix(&self.prefix)
+                .unwrap_or(&listing.path)
+                .to_string();
+            listing
+        }))
+    }
+
     async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
         self.inner
             .open_read(&format!("{}{}", self.prefix, path.trim_start_matches('/')))
