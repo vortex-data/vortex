@@ -109,6 +109,7 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::slice::SliceKernel;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::scalar_fn::fns::binary::CompareKernel;
@@ -278,12 +279,8 @@ mod tests {
         // `ArrayRef::slice` leaves a lazy `SliceArray` over a patched `BitPacked` (the
         // `SliceReduce` path bails when patches are present), so go through the `SliceKernel`,
         // which reads the buffers and produces a sliced `BitPacked` with sliced patches.
-        let sliced = <BitPacked as vortex_array::arrays::slice::SliceKernel>::slice(
-            packed.as_view(),
-            start..end,
-            &mut ctx,
-        )?
-        .expect("slice kernel produces a sliced bitpacked array");
+        let sliced = <BitPacked as SliceKernel>::slice(packed.as_view(), start..end, &mut ctx)?
+            .expect("slice kernel produces a sliced bitpacked array");
         let rhs = ConstantArray::new(50i32, end - start).into_array();
         let got = <BitPacked as CompareKernel>::compare(
             sliced.as_::<BitPacked>(),
