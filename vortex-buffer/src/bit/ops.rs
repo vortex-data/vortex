@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem::MaybeUninit;
+
 use crate::BitBuffer;
 use crate::BitBufferMut;
 use crate::Buffer;
+use crate::ByteBufferMut;
 use crate::trusted_len::TrustedLenExt;
 
 /// Read up to 8 bytes as a little-endian `u64`, zero-padding the high bytes when fewer than 8 are
@@ -17,25 +20,90 @@ fn read_u64_le(bytes: &[u8]) -> u64 {
     u64::from_le_bytes(buf)
 }
 
-/// Apply `op` to each little-endian `u64` word of `data` in place.
-///
-/// `data` is split into full `u64` words via [`slice::as_chunks`], with the trailing
-/// `data.len() % 8` bytes handled as one final partial word (see [`read_u64_le`]).
-#[inline]
-fn map_u64_words_in_place<F: FnMut(u64) -> u64>(data: &mut [u8], mut op: F) {
-    let (words, tail) = data.as_chunks_mut::<8>();
-    for word in words {
-        *word = op(u64::from_le_bytes(*word)).to_le_bytes();
+trait BitWordTarget {
+    fn byte_len(&self) -> usize;
+
+    fn read_word(&self, byte_offset: usize, len: usize) -> u64;
+
+    fn write_word(&mut self, byte_offset: usize, word: &[u8]);
+}
+
+impl BitWordTarget for &mut [u8] {
+    #[inline]
+    fn byte_len(&self) -> usize {
+        (**self).len()
     }
-    if !tail.is_empty() {
-        let word = op(read_u64_le(tail)).to_le_bytes();
-        tail.copy_from_slice(&word[..tail.len()]);
+
+    #[inline]
+    fn read_word(&self, byte_offset: usize, len: usize) -> u64 {
+        read_u64_le(&(**self)[byte_offset..byte_offset + len])
+    }
+
+    #[inline]
+    fn write_word(&mut self, byte_offset: usize, word: &[u8]) {
+        (**self)[byte_offset..byte_offset + word.len()].copy_from_slice(word);
+    }
+}
+
+struct OutOfPlaceBitWordTarget<'a> {
+    src: &'a [u8],
+    dst: &'a mut [MaybeUninit<u8>],
+}
+
+impl<'a> OutOfPlaceBitWordTarget<'a> {
+    #[inline]
+    fn new(src: &'a [u8], dst: &'a mut [MaybeUninit<u8>]) -> Self {
+        debug_assert!(dst.len() >= src.len());
+        Self { src, dst }
+    }
+}
+
+impl BitWordTarget for OutOfPlaceBitWordTarget<'_> {
+    #[inline]
+    fn byte_len(&self) -> usize {
+        self.src.len()
+    }
+
+    #[inline]
+    fn read_word(&self, byte_offset: usize, len: usize) -> u64 {
+        read_u64_le(&self.src[byte_offset..byte_offset + len])
+    }
+
+    #[inline]
+    fn write_word(&mut self, byte_offset: usize, word: &[u8]) {
+        for (dst_byte, byte) in self.dst[byte_offset..byte_offset + word.len()]
+            .iter_mut()
+            .zip(word)
+        {
+            dst_byte.write(*byte);
+        }
+    }
+}
+
+/// Apply `op` to each little-endian `u64` word of `target`.
+///
+/// The target is split into full `u64` words, with the trailing `len % 8` bytes handled as
+/// one final partial word (see [`read_u64_le`]).
+#[inline]
+fn map_u64_words<T: BitWordTarget, F: FnMut(u64) -> u64>(mut target: T, mut op: F) {
+    let len = target.byte_len();
+    let full_bytes = len - (len % 8);
+
+    for byte_offset in (0..full_bytes).step_by(8) {
+        let word = op(target.read_word(byte_offset, 8)).to_le_bytes();
+        target.write_word(byte_offset, &word);
+    }
+
+    if full_bytes != len {
+        let tail_len = len - full_bytes;
+        let word = op(target.read_word(full_bytes, tail_len)).to_le_bytes();
+        target.write_word(full_bytes, &word[..tail_len]);
     }
 }
 
 /// Combine each little-endian `u64` word of `dst` with the matching word of `src` via `op`,
-/// writing the result back into `dst`. Processes `dst.len().min(src.len())` bytes; see
-/// [`map_u64_words_in_place`] for the partial-word handling.
+/// writing the result back into `dst`. Processes `dst.len().min(src.len())` bytes, with the
+/// trailing partial word handled like [`map_u64_words`].
 #[inline]
 fn zip_u64_words_in_place<F: FnMut(u64, u64) -> u64>(dst: &mut [u8], src: &[u8], mut op: F) {
     let n = dst.len().min(src.len());
@@ -54,9 +122,16 @@ fn zip_u64_words_in_place<F: FnMut(u64, u64) -> u64>(dst: &mut [u8], src: &[u8],
 /// Apply a unary operation to a [`BitBuffer`], always allocating a new output buffer.
 #[inline]
 pub(super) fn bitwise_unary_op_copy<F: FnMut(u64) -> u64>(buffer: &BitBuffer, op: F) -> BitBuffer {
-    let mut buf = BitBufferMut::copy_from(buffer);
-    map_u64_words_in_place(buf.as_mut_slice(), op);
-    buf.freeze()
+    let src = buffer.inner().as_slice();
+    let mut bytes = ByteBufferMut::with_capacity(src.len());
+    map_u64_words(
+        OutOfPlaceBitWordTarget::new(src, bytes.spare_capacity_mut()),
+        op,
+    );
+    // SAFETY: `map_u64_words` initializes every byte in `0..src.len()` for
+    // `OutOfPlaceU64WordTarget`.
+    unsafe { bytes.set_len(src.len()) };
+    BitBufferMut::from_buffer(bytes, buffer.offset(), buffer.len()).freeze()
 }
 
 /// Apply a unary operation to an owned [`BitBuffer`], mutating in-place when possible.
@@ -76,7 +151,7 @@ pub(super) fn bitwise_unary_op<F: FnMut(u64) -> u64>(buffer: BitBuffer, op: F) -
 
 #[inline]
 pub(super) fn bitwise_unary_op_mut<F: FnMut(u64) -> u64>(buffer: &mut BitBufferMut, op: F) {
-    map_u64_words_in_place(buffer.as_mut_slice(), op);
+    map_u64_words(buffer.as_mut_slice(), op);
 }
 
 /// Apply a binary operation with an owned left operand, mutating in-place when possible.
