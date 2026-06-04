@@ -19,11 +19,9 @@
 //! output buffer is over-allocated to whole 1024-bit blocks, so every block - the sliced first
 //! block, the body, and the trailing partial - untransposes straight into a 64-bit-word-aligned
 //! slot with no per-block temporary and only one shared scratch `[u64; 16]`. The leading `offset`
-//! garbage rows and the trailing padding are trimmed afterwards: leading whole `u64` words are
-//! dropped with [`BufferMut::split_off`] (an O(1) re-slice) and the residual `offset % 64` bits plus
-//! `len` form the final [`BitBufferMut`] view. The result is therefore byte-aligned (offset 0) when
-//! `offset % 8 == 0`. Inline patches are spliced in afterwards by overwriting the bits at the
-//! patched indices with `cmp(patch_value, rhs)`.
+//! garbage rows are represented as the final [`BitBuffer`] bit offset, which naturally handles
+//! sub-byte slices without copy-aligning. Inline patches are spliced in afterwards by overwriting
+//! the bits at the patched indices with `cmp(patch_value, rhs)`.
 
 use fastlanes::BitPacking;
 use fastlanes::BitPackingCompare;
@@ -51,8 +49,9 @@ use crate::BitPackedArrayExt;
 use crate::unpack_iter::BitPacked as BitPackedIter;
 
 const CHUNK_SIZE: usize = 1024;
+const U64_BITS: usize = u64::BITS as usize;
 /// `u64` words spanning one FastLanes block (1024 bits / 64).
-const WORDS_PER_CHUNK: usize = CHUNK_SIZE / u64::BITS as usize;
+const WORDS_PER_CHUNK: usize = CHUNK_SIZE / U64_BITS;
 
 /// Unpack one packed FastLanes block, comparing each value against `rhs` *as it is unpacked*, and
 /// write the resulting 1024-bit mask (logical row order, LSB-first) into `out`.
@@ -129,15 +128,14 @@ where
         let mut transposed = [0u64; WORDS_PER_CHUNK];
         chunks.for_each_packed_chunk(|packed_chunk, range| {
             // Block starts are always 1024-aligned (padded coords), so the slot is a full block.
-            let out = words[range.start / u64::BITS as usize..]
+            let out = words[range.start / U64_BITS..]
                 .first_chunk_mut::<WORDS_PER_CHUNK>()
                 .vortex_expect("over-allocated buffer holds a full block per chunk");
             unpack_cmp_block::<T, _>(&mut transposed, out, bit_width, packed_chunk, cmp, rhs);
         });
 
         // Patched indices hold placeholder packed values, so their fused result is meaningless;
-        // overwrite each with the comparison against the real patch value. Patch positions are
-        // logical (`global - p_off`); shift by `offset` into padded coordinates.
+        // overwrite each with the comparison against the real patch value.
         if let Some(p) = array.patches() {
             let p_idx = p.indices().clone().execute::<PrimitiveArray>(ctx)?;
             let p_val = p.values().clone().execute::<PrimitiveArray>(ctx)?;
@@ -153,16 +151,9 @@ where
         }
     }
 
-    // Trim the leading garbage: drop whole `u64` words covered entirely by the skipped `offset`
-    // region (an O(1) re-slice; `u64` granularity keeps the byte buffer 8-aligned). The residual
-    // `offset % 64` bits become the view offset, so the result is byte-aligned when `offset % 8 == 0`
-    // and offset 0 when `offset % 64 == 0`.
-    let head_words = offset / u64::BITS as usize;
-    let bit_offset = offset % u64::BITS as usize;
-    let bytes = words.split_off(head_words).into_byte_buffer();
-    let bits = BitBufferMut::from_buffer(bytes, bit_offset, len);
+    let bits = BitBufferMut::from_buffer(words.into_byte_buffer(), offset, len).freeze();
     let validity = array.validity()?.union_nullability(nullability);
-    Ok(BoolArray::new(bits.freeze(), validity).into_array())
+    Ok(BoolArray::new(bits, validity).into_array())
 }
 
 /// Branchlessly write a single bit in a packed `u64` word buffer: clear the bit, then OR in the
@@ -170,8 +161,8 @@ where
 /// target word through a single bounds-checked `&mut`.
 #[inline]
 fn set_bit(words: &mut [u64], idx: usize, value: bool) {
-    let shift = idx % u64::BITS as usize;
+    let shift = idx % U64_BITS;
     let mask = 1u64 << shift;
-    let word = &mut words[idx / u64::BITS as usize];
+    let word = &mut words[idx / U64_BITS];
     *word = (*word & !mask) | (u64::from(value) << shift);
 }
