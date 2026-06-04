@@ -347,18 +347,17 @@ impl VortexOpenOptions {
 impl VortexOpenOptions {
     /// Open a Vortex file from a URL or filesystem path.
     ///
-    /// The input is resolved by [`resolve_url`]: `file://` URLs and plain paths open from the
-    /// local filesystem, while `s3://`, `gs://`, `az://`, and `http(s)://` URLs resolve to the
-    /// appropriate cloud object store using standard environment-based credentials.
+    /// The input is resolved by [`FileLocation::resolve`]: `file://` URLs and plain paths open
+    /// from the local filesystem, while `s3://`, `gs://`, `az://`, and `http(s)://` URLs resolve
+    /// to the appropriate cloud object store using standard environment-based credentials.
     ///
-    /// [`resolve_url`]: vortex_io::object_store::cloud::resolve_url
-    pub async fn open_url(self, url: &str) -> VortexResult<VortexFile> {
-        use vortex_io::object_store::cloud::ResolvedStore;
-        use vortex_io::object_store::cloud::resolve_url;
+    /// [`FileLocation::resolve`]: vortex_io::object_store::FileLocation::resolve
+    pub async fn open_url(self, url: impl AsRef<str>) -> VortexResult<VortexFile> {
+        use vortex_io::object_store::FileLocation;
 
-        match resolve_url(url, None)? {
-            ResolvedStore::Path(path) => self.open_path(path).await,
-            ResolvedStore::ObjectStore(store, path) => {
+        match FileLocation::resolve(url)? {
+            FileLocation::Local(path) => self.open_path(path).await,
+            FileLocation::Remote { store, path } => {
                 self.open_object_store(&store, path.as_ref()).await
             }
         }

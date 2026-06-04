@@ -31,9 +31,8 @@ use vortex::io::filesystem::FileListing;
 use vortex::io::filesystem::FileSystem;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::DEFAULT_CONCURRENCY as OBJECT_STORE_DEFAULT_CONCURRENCY;
+use vortex::io::object_store::FileLocation;
 use vortex::io::object_store::ObjectStoreFileSystem;
-use vortex::io::object_store::cloud::ResolvedStore;
-use vortex::io::object_store::cloud::resolve_url;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::std_file::DEFAULT_CONCURRENCY as STD_FILE_DEFAULT_CONCURRENCY;
 
@@ -85,12 +84,8 @@ fn object_store_fs(base_url: &Url) -> VortexResult<FileSystemRef> {
     let object_store: Arc<dyn ObjectStore> = if base_url.scheme() == "file" {
         Arc::new(LocalFileSystem::new())
     } else {
-        match resolve_url(base_url.as_str(), None)? {
-            ResolvedStore::ObjectStore(store, _) => store,
-            ResolvedStore::Path(_) => {
-                vortex_bail!("expected an object store for URL: {base_url}")
-            }
-        }
+        let (store, _) = FileLocation::resolve(base_url.as_str())?.into_remote()?;
+        store
     };
 
     let object_store = Arc::new(Compat::new(object_store)) as Arc<dyn ObjectStore>;

@@ -5,10 +5,11 @@
 //!
 //! Two entry points are provided:
 //!
-//! - [`resolve_url`] — the canonical resolver. It maps a URL or path string to either a
+//! - [`FileLocation::resolve`] — the canonical resolver. It maps a URL or path string to either a
 //!   local filesystem path or a registered/lazily-created [`ObjectStore`], using standard
-//!   `object_store` URL parsing with case-insensitive environment variables.
-//! - [`make_object_store`] — an opinionated per-scheme builder for callers that need
+//!   `object_store` URL parsing with case-insensitive environment variables. This is the
+//!   recommended entry point for nearly all callers.
+//! - [`make_object_store`] — an opt-in, opinionated per-scheme builder for callers that need
 //!   MinIO/LocalStack-friendly defaults (path-style S3 addressing, generic endpoint,
 //!   `allow_http`) and arbitrary config-key passthrough.
 
@@ -40,71 +41,98 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::object_store::registry::Registry;
 
-/// The process-global registry used by [`resolve_url`] when no explicit store is supplied.
+/// The process-global registry used by [`FileLocation::resolve`] to cache lazily-constructed
+/// stores.
 static DEFAULT_REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::default);
 
-/// The outcome of resolving a URL or path string.
+/// Where the bytes of a file live: on the local filesystem, or in an object store.
 ///
-/// A local path resolves to [`ResolvedStore::Path`]; any other scheme resolves to an
-/// [`ObjectStore`] plus the object's [`Path`] within that store.
+/// Produced by [`FileLocation::resolve`]. Local paths and `file://` URLs resolve to
+/// [`FileLocation::Local`]; any other scheme resolves to [`FileLocation::Remote`].
 #[derive(Debug)]
-pub enum ResolvedStore {
-    /// An object store and the path to the object within it.
-    ObjectStore(Arc<dyn ObjectStore>, Path),
+pub enum FileLocation {
     /// A local filesystem path.
-    Path(PathBuf),
+    Local(PathBuf),
+    /// An object store and the object's path within it.
+    Remote {
+        /// The object store to read from.
+        store: Arc<dyn ObjectStore>,
+        /// The object's path within `store`.
+        path: Path,
+    },
 }
 
-/// Resolve a URL or path to either a local filesystem path or an object store.
-///
-/// If an explicit `store` is provided it is used directly, with `url_or_path` interpreted as a
-/// path within that store. Otherwise:
-///
-/// - `file://` URLs and inputs that do not parse as a URL are treated as local paths.
-/// - All other schemes (`s3://`, `gs://`, `az://`, `http(s)://`, …) are resolved through the
-///   process-global registry, which lazily constructs and caches the store from the URL and
-///   case-insensitive environment variables.
-///
-/// # Example
-///
-/// ```no_run
-/// use vortex_io::object_store::cloud::{resolve_url, ResolvedStore};
-///
-/// # fn main() -> vortex_error::VortexResult<()> {
-/// match resolve_url("s3://bucket/key/file.vortex", None)? {
-///     ResolvedStore::ObjectStore(store, path) => { /* read from `store` at `path` */ }
-///     ResolvedStore::Path(path) => { /* read local file at `path` */ }
-/// }
-/// # Ok(())
-/// # }
-/// ```
-pub fn resolve_url(
-    url_or_path: &str,
-    store: Option<Arc<dyn ObjectStore>>,
-) -> VortexResult<ResolvedStore> {
-    match store {
-        // If an explicit store is provided, use it.
-        Some(store) => Ok(ResolvedStore::ObjectStore(store, Path::from(url_or_path))),
-        None => match Url::parse(url_or_path) {
+impl FileLocation {
+    /// Resolve a URL or path string to a [`FileLocation`].
+    ///
+    /// - `file://` URLs and inputs that do not parse as a URL resolve to [`FileLocation::Local`].
+    /// - All other schemes (`s3://`, `gs://`, `az://`, `http(s)://`, …) resolve through the
+    ///   process-global registry, which lazily constructs and caches the store from the URL and
+    ///   case-insensitive environment variables, returning [`FileLocation::Remote`].
+    ///
+    /// This is the canonical entry point. Callers needing MinIO/LocalStack-style defaults or
+    /// explicit per-property credentials can use [`make_object_store`] instead.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use vortex_io::object_store::FileLocation;
+    ///
+    /// # fn main() -> vortex_error::VortexResult<()> {
+    /// match FileLocation::resolve("s3://bucket/key/file.vortex")? {
+    ///     FileLocation::Remote { store, path } => { /* read from `store` at `path` */ }
+    ///     FileLocation::Local(path) => { /* read local file at `path` */ }
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn resolve(url_or_path: impl AsRef<str>) -> VortexResult<Self> {
+        let url_or_path = url_or_path.as_ref();
+        match Url::parse(url_or_path) {
             Ok(url) if url.scheme() == "file" => {
                 let path = url
                     .to_file_path()
                     .map_err(|_| vortex_err!("invalid file URL: {url_or_path}"))?;
-                Ok(ResolvedStore::Path(path))
+                Ok(FileLocation::Local(path))
             }
             Ok(url) => {
                 let (store, path) = DEFAULT_REGISTRY.resolve(&url)?;
-                Ok(ResolvedStore::ObjectStore(store, path))
+                Ok(FileLocation::Remote { store, path })
             }
             // Not a URL: treat the input as a local filesystem path.
-            Err(_) => Ok(ResolvedStore::Path(PathBuf::from(url_or_path))),
-        },
+            Err(_) => Ok(FileLocation::Local(PathBuf::from(url_or_path))),
+        }
+    }
+
+    /// Returns `true` if this is a local filesystem path.
+    pub fn is_local(&self) -> bool {
+        matches!(self, FileLocation::Local(_))
+    }
+
+    /// Returns `true` if this is a remote object store location.
+    pub fn is_remote(&self) -> bool {
+        matches!(self, FileLocation::Remote { .. })
+    }
+
+    /// Require a remote object store, returning the store and object path.
+    ///
+    /// Returns an error if this is a [`FileLocation::Local`] path.
+    pub fn into_remote(self) -> VortexResult<(Arc<dyn ObjectStore>, Path)> {
+        match self {
+            FileLocation::Remote { store, path } => Ok((store, path)),
+            FileLocation::Local(path) => {
+                vortex_bail!(
+                    "expected a remote object store, got local path: {}",
+                    path.display()
+                )
+            }
+        }
     }
 }
 
 /// Build an [`ObjectStore`] for a URL with opinionated, self-hosting-friendly defaults.
 ///
-/// Unlike [`resolve_url`], this constructs the store with explicit per-scheme builders:
+/// Unlike [`FileLocation::resolve`], this constructs the store with explicit per-scheme builders:
 ///
 /// - S3 uses a generic endpoint and path-style addressing with `allow_http`, so it works
 ///   against MinIO/LocalStack as well as AWS.
@@ -113,6 +141,9 @@ pub fn resolve_url(
 /// - Any remaining `properties` entries are passed through as scheme-specific config keys.
 ///
 /// Resolved stores are cached process-wide, keyed by URL authority and properties.
+///
+/// Prefer [`FileLocation::resolve`] unless you specifically need these opinionated defaults or
+/// per-property configuration passthrough.
 // The cognitive-complexity lint only triggers under some feature unifications (it depends on how
 // the `tracing` macros expand), so we use `allow` rather than `expect` to avoid an unfulfilled
 // expectation in minimal-feature builds.
@@ -246,28 +277,17 @@ fn url_cache_key(url: &Url, properties: &HashMap<String, String>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::path::PathBuf;
 
-    use object_store::local::LocalFileSystem;
     use object_store::path::Path;
 
-    use super::ResolvedStore;
-    use super::resolve_url;
+    use super::FileLocation;
 
-    impl ResolvedStore {
-        fn unwrap_store(self) -> (Arc<dyn object_store::ObjectStore>, Path) {
+    impl FileLocation {
+        fn unwrap_local(self) -> PathBuf {
             match self {
-                ResolvedStore::ObjectStore(store, path) => (store, path),
-                ResolvedStore::Path(_) => panic!("cannot unwrap ResolvedStore::Path as store"),
-            }
-        }
-
-        fn unwrap_path(self) -> std::path::PathBuf {
-            match self {
-                ResolvedStore::ObjectStore(..) => {
-                    panic!("cannot unwrap ResolvedStore::ObjectStore as path")
-                }
-                ResolvedStore::Path(path) => path,
+                FileLocation::Local(path) => path,
+                FileLocation::Remote { .. } => panic!("expected Local, got Remote"),
             }
         }
     }
@@ -275,22 +295,18 @@ mod tests {
     #[test]
     fn test_resolve() -> vortex_error::VortexResult<()> {
         assert_eq!(
-            resolve_url("/my/absolute/path", None)?.unwrap_path(),
-            std::path::PathBuf::from("/my/absolute/path")
+            FileLocation::resolve("/my/absolute/path")?.unwrap_local(),
+            PathBuf::from("/my/absolute/path")
         );
 
         assert_eq!(
-            resolve_url("file:///my/absolute/path", None)?.unwrap_path(),
-            std::path::PathBuf::from("/my/absolute/path")
+            FileLocation::resolve("file:///my/absolute/path")?.unwrap_local(),
+            PathBuf::from("/my/absolute/path")
         );
 
         let (_store, path) =
-            resolve_url("s3://my-bucket/first/second/third/", None)?.unwrap_store();
+            FileLocation::resolve("s3://my-bucket/first/second/third/")?.into_remote()?;
         assert_eq!(path, Path::from("first/second/third"));
-
-        let local_store = Arc::new(LocalFileSystem::default());
-        let (_store, path) = resolve_url("/root/test", Some(local_store))?.unwrap_store();
-        assert_eq!(path, Path::from("root/test"));
 
         Ok(())
     }

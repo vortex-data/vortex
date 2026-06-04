@@ -12,6 +12,7 @@ use datafusion::datasource::listing::ListingTable;
 use datafusion::datasource::listing::ListingTableConfig;
 use datafusion::datasource::listing::ListingTableUrl;
 use datafusion::prelude::SessionContext;
+use vortex::io::object_store::FileLocation;
 use vortex::session::VortexSession;
 use vortex_datafusion::VortexFormat;
 
@@ -55,10 +56,7 @@ pub async fn create_vortex_context(
     // For remote URLs (s3://, gs://, az://, …), resolve the object store and register it with the
     // DataFusion context so it can list and read the file. Local paths need no registration.
     if table_url.scheme() != "file" {
-        use vortex::io::object_store::cloud::ResolvedStore;
-        use vortex::io::object_store::cloud::resolve_url;
-
-        if let ResolvedStore::ObjectStore(store, _) = resolve_url(file_path, None)
+        if let FileLocation::Remote { store, .. } = FileLocation::resolve(file_path)
             .map_err(|e| format!("Failed to resolve object store: {e}"))?
         {
             ctx.register_object_store(table_url.as_ref(), store);

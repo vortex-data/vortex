@@ -22,8 +22,7 @@ use datafusion_common::GetExt;
 use object_store::ObjectStore;
 use object_store::local::LocalFileSystem;
 use url::Url;
-use vortex::io::object_store::cloud::ResolvedStore;
-use vortex::io::object_store::cloud::resolve_url;
+use vortex::io::object_store::FileLocation;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
 use vortex_datafusion::VortexFormat;
@@ -77,10 +76,7 @@ pub fn make_object_store(
         "s3" | "gs" | "az" => {
             // Build the cloud store through the shared resolver, then register it with the
             // DataFusion session under its scheme+authority prefix.
-            let store = match resolve_url(source.as_str(), None)? {
-                ResolvedStore::ObjectStore(store, _) => store,
-                ResolvedStore::Path(_) => anyhow::bail!("expected an object store for {source}"),
-            };
+            let (store, _) = FileLocation::resolve(source.as_str())?.into_remote()?;
             let authority = &source[url::Position::BeforeHost..url::Position::AfterHost];
             let base = Url::parse(&format!("{}://{authority}/", source.scheme()))?;
             session.register_object_store(&base, Arc::clone(&store));

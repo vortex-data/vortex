@@ -2,11 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #[cfg(feature = "cloud")]
-pub mod cloud;
+mod cloud;
 mod filesystem;
 mod read_at;
 #[cfg(feature = "cloud")]
-pub mod registry;
+mod registry;
 mod write;
 
 #[cfg(feature = "cloud")]
