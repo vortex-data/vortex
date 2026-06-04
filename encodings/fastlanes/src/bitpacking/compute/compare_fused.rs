@@ -110,37 +110,29 @@ where
             }
             untranspose_bits::<<T as PhysicalPType>::Physical>(&transposed, out);
         });
-
-        // Patched indices hold placeholder packed values, so their fused result is meaningless;
-        // overwrite each with the comparison against the real patch value.
-        // TODO(joe): apply patches per `packed_chunked`.
-        if let Some(p) = array.patches() {
-            let p_idx = p.indices().clone().execute::<PrimitiveArray>(ctx)?;
-            let p_val = p.values().clone().execute::<PrimitiveArray>(ctx)?;
-            let p_off = p.offset();
-            match_each_unsigned_integer_ptype!(p_idx.ptype(), |I| {
-                let indices = p_idx.as_slice::<I>();
-                let values = p_val.as_slice::<T>();
-                for (&global, &value) in indices.iter().zip(values) {
-                    let global: usize = global.as_();
-                    set_bit(words, offset + global - p_off, cmp(value, rhs));
-                }
-            });
-        }
     }
 
-    let bits = BitBufferMut::from_buffer(words.into_byte_buffer(), offset, len).freeze();
-    let validity = array.validity()?.union_nullability(nullability);
-    Ok(BoolArray::new(bits, validity).into_array())
-}
+    let mut bits = BitBufferMut::from_buffer(words.into_byte_buffer(), offset, len);
 
-/// Branchlessly write a single bit in a packed `u64` word buffer: clear the bit, then OR in the
-/// new value. Avoids a data-dependent branch per patch in the patch-fixup loop, and touches the
-/// target word through a single bounds-checked `&mut`.
-#[inline]
-fn set_bit(words: &mut [u64], idx: usize, value: bool) {
-    let shift = idx % U64_BITS;
-    let mask = 1u64 << shift;
-    let word = &mut words[idx / U64_BITS];
-    *word = (*word & !mask) | (u64::from(value) << shift);
+    // Patched indices hold placeholder packed values, so their fused result is meaningless;
+    // overwrite each with the comparison against the real patch value.
+    // TODO(joe): apply patches per `packed_chunked`.
+    if let Some(p) = array.patches() {
+        let p_idx = p.indices().clone().execute::<PrimitiveArray>(ctx)?;
+        // TODO(joe): push down cmp??
+        let p_val = p.values().clone().execute::<PrimitiveArray>(ctx)?;
+        let p_off = p.offset();
+        match_each_unsigned_integer_ptype!(p_idx.ptype(), |I| {
+            let indices = p_idx.as_slice::<I>();
+            let values = p_val.as_slice::<T>();
+            for (&global, &value) in indices.iter().zip(values) {
+                let global: usize = global.as_();
+                let idx = global - p_off;
+                bits.set_to(idx, cmp(value, rhs))
+            }
+        });
+    }
+
+    let validity = array.validity()?.union_nullability(nullability);
+    Ok(BoolArray::new(bits.freeze(), validity).into_array())
 }
