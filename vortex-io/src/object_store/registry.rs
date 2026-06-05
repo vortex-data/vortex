@@ -183,8 +183,9 @@ mod tests {
                 .resolve(&Url::parse("s3://my-bucket/test").unwrap())
                 .unwrap();
 
-            // NOTE: object_store doesn't let us downcast stores, the only way to verify
-            //  that a configuration was added is to validate that it ends up in the Debug output.
+            // NOTE(aduffy): object_store doesn't let us downcast stores, the only way to verify
+            //  that a configuration was added was to validate that it ends up in the Debug
+            //  output :/
             let mut debug_str = String::new();
             write!(&mut debug_str, "{store:?}").unwrap();
 
