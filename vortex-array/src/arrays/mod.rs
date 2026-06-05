@@ -62,6 +62,10 @@ pub mod masked;
 pub use masked::Masked;
 pub use masked::MaskedArray;
 
+pub mod merge;
+pub use merge::MergeN;
+pub use merge::MergeNArray;
+
 pub mod null;
 pub use null::Null;
 pub use null::NullArray;
