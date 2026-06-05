@@ -23,6 +23,8 @@ from pathlib import Path
 
 import psycopg
 import pytest
+from psycopg import conninfo
+from psycopg import sql as pg_sql
 from testcontainers.postgres import PostgresContainer
 
 SCRIPT_PATH = Path(__file__).resolve().parent / "migrate-schema.py"
@@ -186,6 +188,18 @@ def _docker_available() -> bool:
         return False
 
 
+def _require_docker_for_testcontainers() -> None:
+    # The testcontainer suite MUST run in CI: a missing Docker daemon is a HARD FAILURE there,
+    # not a silent skip. A green CI job with skipped testcontainer tests would let a migration-runner
+    # regression merge undetected, which is exactly what wiring `scripts/` into CI (PR-2.3) closes.
+    # Locally (no CI env) we skip so developers without Docker can still run the pure-unit tests.
+    if _docker_available():
+        return
+    if os.environ.get("CI"):
+        pytest.fail("Docker unavailable in CI (`docker info` failed); the testcontainer suite must run, not skip")
+    pytest.skip("Docker not running; skipping Postgres testcontainer tests")
+
+
 @pytest.fixture(scope="module")
 def postgres_dsn() -> Iterator[str]:
     """Spin up a Postgres testcontainer for the module and yield a libpq DSN.
@@ -194,11 +208,10 @@ def postgres_dsn() -> Iterator[str]:
     (`postgresql+psycopg2://...`); psycopg wants a libpq URI, so we rebuild
     the URI from the container's exposed accessors.
 
-    Skipped (not failed) when Docker isn't available locally — CI runs this
-    via the testcontainers-friendly job (Docker socket mounted).
+    Skipped locally when Docker isn't available; FAILS in CI (where the `CI` env var is set)
+    so the testcontainer suite can never silently skip on the CI runner.
     """
-    if not _docker_available():
-        pytest.skip("Docker not running; skipping Postgres testcontainer tests")
+    _require_docker_for_testcontainers()
     with PostgresContainer("postgres:16-alpine") as container:
         host = container.get_container_host_ip()
         port = container.get_exposed_port(5432)
@@ -251,6 +264,29 @@ def _write_migration(d: Path, name: str, sql: str) -> Path:
     p = d / name
     p.write_text(sql)
     return p
+
+
+def test_require_docker_fails_loud_in_ci(monkeypatch) -> None:
+    # In CI a missing Docker daemon must FAIL the testcontainer suite, not skip it: a green job with
+    # skipped migration-runner tests would let a regression merge undetected (the gap PR-2.3 closes).
+    # Catch BOTH outcome types (Failed/Skipped both subclass BaseException) so an always-skip
+    # regression -- the helper raising Skipped -- is caught HERE and asserted against, rather than
+    # escaping a bare pytest.raises(Failed) and being recorded by pytest as a (green) test-skip.
+    monkeypatch.setenv("CI", "true")
+    monkeypatch.setattr(sys.modules[__name__], "_docker_available", lambda: False)
+    with pytest.raises((pytest.fail.Exception, pytest.skip.Exception)) as exc_info:
+        _require_docker_for_testcontainers()
+    assert isinstance(exc_info.value, pytest.fail.Exception), "must FAIL (not skip) when Docker is absent in CI"
+
+
+def test_require_docker_skips_without_ci(monkeypatch) -> None:
+    # Locally (no CI env) a missing Docker daemon skips so the pure-unit tests still run. Symmetric to
+    # the CI test: catch both outcome types and assert it is a skip (not a fail).
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.setattr(sys.modules[__name__], "_docker_available", lambda: False)
+    with pytest.raises((pytest.fail.Exception, pytest.skip.Exception)) as exc_info:
+        _require_docker_for_testcontainers()
+    assert isinstance(exc_info.value, pytest.skip.Exception), "must skip (not fail) when not in CI"
 
 
 def test_apply_creates_applied_migrations_table_and_runs_migrations(
@@ -621,17 +657,18 @@ def test_apply_uses_public_schema_under_custom_search_path(
 
 
 def test_real_migrations_apply_cleanly(conn: psycopg.Connection) -> None:
-    """The real Phase-1 migrations (`001` + `002` + `003`) apply against vanilla
+    """The real migrations (`001` + `002` + `003` + `004`) apply against vanilla
     Postgres and are recorded in the ledger in order."""
     applied = runner.apply(conn, REPO_MIGRATIONS_DIR)
 
-    assert applied == 3
+    assert applied == 4
     with conn.cursor() as cur:
         cur.execute("SELECT filename FROM public._applied_migrations ORDER BY filename")
         assert [row[0] for row in cur.fetchall()] == [
             "001_initial_schema.sql",
             "002_iam_db_user.sql",
             "003_migrator_ledger_grant.sql",
+            "004_ingest_role.sql",
         ]
 
 
@@ -640,7 +677,7 @@ def test_real_migrations_idempotent(conn: psycopg.Connection) -> None:
     first = runner.apply(conn, REPO_MIGRATIONS_DIR)
     second = runner.apply(conn, REPO_MIGRATIONS_DIR)
 
-    assert first == 3
+    assert first == 4
     assert second == 0
 
 
@@ -792,8 +829,9 @@ def test_provision_emits_instance_endpoint_var() -> None:
     )
     # The instance var must carry the INSTANCE endpoint (`${DB_ENDPOINT}`), not
     # the proxy endpoint -- a name-only check would pass `--body "${PROXY_ENDPOINT}"`.
-    assert "DB_ENDPOINT" in pairs["RDS_BENCH_INSTANCE_ENDPOINT"], (
-        f"RDS_BENCH_INSTANCE_ENDPOINT must be set from ${{DB_ENDPOINT}}, got body: {pairs['RDS_BENCH_INSTANCE_ENDPOINT']}"
+    instance_body = pairs["RDS_BENCH_INSTANCE_ENDPOINT"]
+    assert "DB_ENDPOINT" in instance_body, (
+        f"RDS_BENCH_INSTANCE_ENDPOINT must be set from ${{DB_ENDPOINT}}, got body: {instance_body}"
     )
     assert "RDS_BENCH_ENDPOINT" not in pairs, (
         f"provision.sh must NOT set the VPC-internal proxy var as a GitHub variable: {sorted(pairs)}"
@@ -822,6 +860,62 @@ def test_provision_grants_instance_dbuser() -> None:
     assert "dbuser:${DB_RESOURCE_ID}/${PG_MIGRATOR_ROLE}" in provision, (
         "provision.sh rds-db:connect policy must grant the instance dbuser resource "
         "`dbuser:${DB_RESOURCE_ID}/${PG_MIGRATOR_ROLE}` (CI authenticates against the instance)"
+    )
+
+
+def test_provision_creates_ingest_role_with_instance_dbuser() -> None:
+    """PR-2.1: `provision.sh` provisions the dedicated `GitHubBenchmarkIngestRole`
+    and scopes its `rds-db:connect` to the `bench_ingest` dbuser on the INSTANCE
+    resource (the dual-write CI path connects to the public instance endpoint,
+    never the VPC-internal proxy), and emits the `GH_BENCH_INGEST_ROLE_ARN` repo
+    var. Static script check -- no AWS needed."""
+    provision = (
+        Path(__file__).resolve().parent.parent
+        / "benchmarks-website"
+        / "infra"
+        / "provision.sh"
+    ).read_text()
+    assert "GitHubBenchmarkIngestRole" in provision, (
+        "provision.sh must provision the GitHubBenchmarkIngestRole OIDC role"
+    )
+    assert 'PG_INGEST_ROLE="bench_ingest"' in provision, (
+        "PG_INGEST_ROLE must be hardcoded to `bench_ingest` (matches migrations/004)"
+    )
+    assert "rds-db-connect-ingest" in provision, (
+        "provision.sh must attach an `rds-db-connect-ingest` inline policy to the ingest role"
+    )
+    assert "dbuser:${DB_RESOURCE_ID}/${PG_INGEST_ROLE}" in provision, (
+        "ingest role rds-db:connect must grant the instance dbuser resource "
+        "`dbuser:${DB_RESOURCE_ID}/${PG_INGEST_ROLE}`"
+    )
+    assert "GH_BENCH_INGEST_ROLE_ARN" in provision, (
+        "provision.sh summary must emit the `GH_BENCH_INGEST_ROLE_ARN` repo var"
+    )
+
+
+def test_provision_schema_role_drops_dead_proxy_grant() -> None:
+    """PR-2.1 least-privilege cleanup: the schema role's `rds-db:connect` policy
+    must no longer grant the VPC-internal proxy resource (dead surface through
+    PR-1.6). The `proxy_resource_id` lookup existed ONLY to build that dead grant,
+    so its complete removal is the precise, false-positive-free signal that the
+    grant is gone. Static script check."""
+    provision = (
+        Path(__file__).resolve().parent.parent
+        / "benchmarks-website"
+        / "infra"
+        / "provision.sh"
+    ).read_text()
+    assert "proxy_resource_id" not in provision, (
+        "the dead proxy `rds-db:connect` grant (and its `proxy_resource_id` lookup) "
+        "must be removed from the schema role in PR-2.1's least-privilege cleanup"
+    )
+    # Neither OIDC role may scope rds-db:connect to a proxy dbuser. The only
+    # dbuser ARN resources in the file must be the two INSTANCE grants. Match the
+    # ARN substring `:dbuser:` so prose mentions of "dbuser" don't false-trip.
+    dbuser_lines = [ln for ln in provision.splitlines() if ":dbuser:" in ln]
+    assert dbuser_lines, "expected at least one rds-db:connect dbuser ARN resource"
+    assert all("${DB_RESOURCE_ID}" in ln for ln in dbuser_lines), (
+        f"every rds-db:connect dbuser grant must target the instance resource, got: {dbuser_lines}"
     )
 
 
@@ -1020,3 +1114,319 @@ def test_real_migrations_grant_migrator_ledger_access(conn: psycopg.Connection) 
         assert cur.fetchone()[0] is False, (
             "migrator must NOT have UPDATE on the append-only ledger (least-privilege)"
         )
+
+
+# Minimal valid `INSERT ... ON CONFLICT DO UPDATE` per data table (only NOT NULL
+# columns populated), used to prove the `bench_ingest` role can perform the ingest
+# write path's upsert on every table. The conflict target is `measurement_id` for
+# the fact tables and `commit_sha` for the `commits` dim.
+_INGEST_UPSERTS = {
+    "commits": (
+        "INSERT INTO commits (commit_sha, timestamp, tree_sha, url) "
+        "VALUES ('sha-bench-ingest', now(), 'tree-x', 'https://example/x') "
+        "ON CONFLICT (commit_sha) DO UPDATE SET url = EXCLUDED.url"
+    ),
+    "query_measurements": (
+        "INSERT INTO query_measurements (measurement_id, commit_sha, dataset, "
+        "query_idx, storage, engine, format, value_ns, all_runtimes_ns) "
+        "VALUES (1, 'sha-bench-ingest', 'ds', 0, 'st', 'en', 'fmt', 1, ARRAY[1]::bigint[]) "
+        "ON CONFLICT (measurement_id) DO UPDATE SET value_ns = EXCLUDED.value_ns"
+    ),
+    "compression_times": (
+        "INSERT INTO compression_times (measurement_id, commit_sha, dataset, "
+        "format, op, value_ns, all_runtimes_ns) "
+        "VALUES (1, 'sha-bench-ingest', 'ds', 'fmt', 'encode', 1, ARRAY[1]::bigint[]) "
+        "ON CONFLICT (measurement_id) DO UPDATE SET value_ns = EXCLUDED.value_ns"
+    ),
+    "compression_sizes": (
+        "INSERT INTO compression_sizes (measurement_id, commit_sha, dataset, "
+        "format, value_bytes) "
+        "VALUES (1, 'sha-bench-ingest', 'ds', 'fmt', 1) "
+        "ON CONFLICT (measurement_id) DO UPDATE SET value_bytes = EXCLUDED.value_bytes"
+    ),
+    "random_access_times": (
+        "INSERT INTO random_access_times (measurement_id, commit_sha, dataset, "
+        "format, value_ns, all_runtimes_ns) "
+        "VALUES (1, 'sha-bench-ingest', 'ds', 'fmt', 1, ARRAY[1]::bigint[]) "
+        "ON CONFLICT (measurement_id) DO UPDATE SET value_ns = EXCLUDED.value_ns"
+    ),
+    "vector_search_runs": (
+        "INSERT INTO vector_search_runs (measurement_id, commit_sha, dataset, "
+        "layout, flavor, threshold, value_ns, all_runtimes_ns, matches, "
+        "rows_scanned, bytes_scanned, iterations) "
+        "VALUES (1, 'sha-bench-ingest', 'ds', 'lay', 'fla', 0.5, 1, ARRAY[1]::bigint[], "
+        "1, 1, 1, 1) "
+        "ON CONFLICT (measurement_id) DO UPDATE SET value_ns = EXCLUDED.value_ns"
+    ),
+}
+
+
+def test_real_migrations_create_bench_ingest_role(conn: psycopg.Connection) -> None:
+    """`004_ingest_role.sql` creates a login-capable `bench_ingest` role. The
+    `rds_iam` grant is skipped on vanilla Postgres (the role does not exist there);
+    on real RDS it binds `bench_ingest` to IAM-token auth, mirroring `migrator`."""
+    runner.apply(conn, REPO_MIGRATIONS_DIR)
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT rolcanlogin FROM pg_roles WHERE rolname = 'bench_ingest'")
+        row = cur.fetchone()
+        assert row is not None, "bench_ingest role was not created"
+        assert row[0] is True, "bench_ingest role must be able to log in"
+
+
+def test_bench_ingest_has_dml_only_on_data_tables(conn: psycopg.Connection) -> None:
+    """`004_ingest_role.sql` grants `bench_ingest` exactly SELECT/INSERT/UPDATE on
+    all six data tables (the upsert write path needs INSERT + UPDATE for
+    `ON CONFLICT DO UPDATE`, and SELECT for read-back/reconciliation), plus USAGE
+    (not CREATE) on `public`. DELETE/TRUNCATE and schema CREATE are withheld: the
+    ingest path is data-DML-only, never DDL (least-privilege separation from the
+    schema-deploy `migrator` identity)."""
+    runner.apply(conn, REPO_MIGRATIONS_DIR)
+
+    with conn.cursor() as cur:
+        for table in _EXPECTED_TABLES:
+            qualified = f"public.{table}"
+            for priv in ("SELECT", "INSERT", "UPDATE"):
+                cur.execute(
+                    "SELECT has_table_privilege('bench_ingest', %s, %s)", (qualified, priv)
+                )
+                assert cur.fetchone()[0] is True, f"bench_ingest needs {priv} on {table}"
+            for priv in ("DELETE", "TRUNCATE"):
+                cur.execute(
+                    "SELECT has_table_privilege('bench_ingest', %s, %s)", (qualified, priv)
+                )
+                assert cur.fetchone()[0] is False, (
+                    f"bench_ingest must NOT have {priv} on {table} (data-DML-only)"
+                )
+        cur.execute("SELECT has_schema_privilege('bench_ingest', 'public', 'USAGE')")
+        assert cur.fetchone()[0] is True, "bench_ingest needs USAGE on public to reach the tables"
+        cur.execute("SELECT has_schema_privilege('bench_ingest', 'public', 'CREATE')")
+        assert cur.fetchone()[0] is False, (
+            "bench_ingest must NOT have CREATE on public (no DDL; least-privilege)"
+        )
+
+
+def test_bench_ingest_can_upsert_and_is_denied_ddl_delete(
+    conn: psycopg.Connection,
+) -> None:
+    """Round-trip under the real ownership split: the data tables are owned by the
+    bootstrapping superuser (modeling the RDS master) and `bench_ingest` is a
+    non-owner whose only privileges come from `004`'s grants. AS `bench_ingest`, an
+    `INSERT ... ON CONFLICT DO UPDATE` (run twice to exercise both the INSERT and
+    the DO UPDATE branch, i.e. both privileges) succeeds on all six tables, while a
+    DELETE and a DDL attempt are denied.
+
+    `SET ROLE` drops session privileges to `bench_ingest` -- the portable way to
+    test the role without a password, since `bench_ingest` is IAM-auth-only (no
+    password) on real RDS."""
+    runner.apply(conn, REPO_MIGRATIONS_DIR)
+    # `apply` leaves the connection in autocommit; make that explicit so each
+    # statement is its own transaction and an expected failure does not poison the
+    # session. `SET ROLE` (session-level) persists across autocommit statements.
+    conn.autocommit = True
+
+    with conn.cursor() as cur:
+        cur.execute("SET ROLE bench_ingest")
+        try:
+            for stmt in _INGEST_UPSERTS.values():
+                cur.execute(stmt)  # first run inserts
+                cur.execute(stmt)  # second run hits ON CONFLICT -> DO UPDATE
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                cur.execute("DELETE FROM query_measurements")
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                cur.execute("CREATE TABLE bench_ingest_should_not_exist (x integer)")
+        finally:
+            cur.execute("RESET ROLE")
+
+
+def test_bench_ingest_default_privileges_cover_future_migrator_tables(
+    conn: psycopg.Connection,
+) -> None:
+    """`004` sets `ALTER DEFAULT PRIVILEGES FOR ROLE migrator ... GRANT
+    SELECT,INSERT,UPDATE ON TABLES TO bench_ingest`, so a future data table created
+    by a `migrator`-run migration auto-grants the ingest role its DML without a
+    follow-up explicit grant. Pins that non-obvious clause."""
+    runner.apply(conn, REPO_MIGRATIONS_DIR)
+    conn.autocommit = True
+
+    with conn.cursor() as cur:
+        cur.execute("SET ROLE migrator")
+        try:
+            cur.execute(
+                "CREATE TABLE public.future_fact (measurement_id bigint primary key)"
+            )
+        finally:
+            cur.execute("RESET ROLE")
+        try:
+            for priv in ("SELECT", "INSERT", "UPDATE"):
+                cur.execute(
+                    "SELECT has_table_privilege('bench_ingest', 'public.future_fact', %s)",
+                    (priv,),
+                )
+                assert cur.fetchone()[0] is True, (
+                    f"bench_ingest should auto-receive {priv} on a future migrator-created table"
+                )
+        finally:
+            cur.execute("DROP TABLE IF EXISTS public.future_fact")
+
+
+# Password for the simulated RDS master login. The testcontainer authenticates
+# host connections with a password, so the modeled master needs one to connect as
+# a REAL login (not `SET ROLE`) -- see the test docstring for why that fidelity
+# matters.
+_RDS_MASTER_SIM_PASSWORD = "rds_master_sim_pw"  # noqa: S105 -- test-only literal
+
+
+def _rds_master_sim_dsn(postgres_dsn: str) -> str:
+    """Rewrite the superuser DSN to log in AS `rds_master_sim` with its password."""
+    info = conninfo.conninfo_to_dict(postgres_dsn)
+    info["user"] = "rds_master_sim"
+    info["password"] = _RDS_MASTER_SIM_PASSWORD
+    return conninfo.make_conninfo(**info)
+
+
+def _scrub_bootstrap_roles(cur: psycopg.Cursor) -> None:
+    """Drop the bootstrap roles (and anything they own) so a non-superuser master
+    can re-create `migrator`/`bench_ingest` from scratch and thereby hold the ADMIN
+    membership the `004` default-privilege self-grant relies on. Idempotent.
+
+    The explicit `REVOKE ... ON SCHEMA public` is load-bearing: `DROP OWNED BY`
+    does not reliably clear a `public` privilege one bootstrap role granted to
+    another (e.g. `migrator`'s USAGE/CREATE granted by the master), which would
+    otherwise block the `DROP ROLE`."""
+    cur.execute(
+        """
+        DO $$
+        DECLARE r text;
+        BEGIN
+            FOR r IN SELECT unnest(ARRAY['migrator', 'bench_ingest', 'rds_master_sim']) LOOP
+                IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
+                    EXECUTE format('REVOKE ALL PRIVILEGES ON SCHEMA public FROM %I CASCADE', r);
+                END IF;
+            END LOOP;
+            FOR r IN SELECT unnest(ARRAY['migrator', 'bench_ingest', 'rds_master_sim']) LOOP
+                IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
+                    EXECUTE format('DROP OWNED BY %I CASCADE', r);
+                    EXECUTE format('DROP ROLE %I', r);
+                END IF;
+            END LOOP;
+        END$$;
+        """
+    )
+
+
+def test_real_migrations_apply_as_non_superuser_createrole_master(
+    conn: psycopg.Connection, postgres_dsn: str
+) -> None:
+    """Apply `001`..`004` AS a real non-superuser CREATEROLE login (the RDS master).
+
+    The module's `conn` fixture connects as the testcontainer's built-in user, a
+    TRUE superuser (`rolsuper = true`) that bypasses every privilege check. Real RDS
+    runs the bootstrap as the master, `rds_superuser` -- a `rolsuper = false` role
+    with CREATEROLE. That gap matters for `004`'s `ALTER DEFAULT PRIVILEGES FOR ROLE
+    migrator`: PostgreSQL 16 grants a CREATEROLE creator its new role WITH INHERIT
+    FALSE, SET FALSE (the `createrole_self_grant` default), so the master neither
+    inherits `migrator` nor can `SET ROLE migrator`; the bare ADP rolls back the
+    whole `004` transaction under such a master.
+
+    The reproduction MUST be a real login, not a `SET ROLE` from the superuser
+    `conn`: `SET ROLE` is checked against the *session* user, so a superuser session
+    that `SET ROLE`s to the master keeps superuser bypass and masks the failure
+    exactly as the `conn` fixture does. This test therefore creates a NOSUPERUSER
+    CREATEROLE master (with `createrole_self_grant` pinned to the default empty
+    value), logs in AS it, applies the real migration set, and asserts both a clean
+    apply and that the default-privilege rule took effect. It fails
+    (`InsufficientPrivilege`) against the pre-fix `004` and passes once `004`
+    self-grants the membership the ADP needs via the ADMIN option the master holds
+    on `migrator`.
+    """
+    conn.autocommit = True
+    # Build the modeled master, scrubbing any roles a sibling test left behind so
+    # THIS master creates `migrator` itself (and thus holds ADMIN on it).
+    with conn.cursor() as cur:
+        _scrub_bootstrap_roles(cur)
+        cur.execute(
+            pg_sql.SQL(
+                "CREATE ROLE rds_master_sim WITH LOGIN NOSUPERUSER "
+                "CREATEROLE PASSWORD {}"
+            ).format(pg_sql.Literal(_RDS_MASTER_SIM_PASSWORD))
+        )
+        # Pin the self-grant policy to the PG/RDS default so creating `migrator`
+        # yields INHERIT FALSE / SET FALSE membership deterministically.
+        cur.execute("ALTER ROLE rds_master_sim SET createrole_self_grant = ''")
+        # The master owns its bootstrap objects: it needs CREATE on `public` to
+        # create the six tables, and the GRANT OPTION to re-grant schema access to
+        # `migrator` in `002`.
+        cur.execute(
+            "GRANT CREATE, USAGE ON SCHEMA public TO rds_master_sim WITH GRANT OPTION"
+        )
+
+    try:
+        # Apply the real migrations AS the non-superuser master (a real login).
+        with psycopg.connect(_rds_master_sim_dsn(postgres_dsn)) as master:
+            master.autocommit = True
+            current_role, is_super = master.execute(
+                "SELECT current_user, "
+                "(SELECT rolsuper FROM pg_roles WHERE rolname = current_user)"
+            ).fetchone()
+            assert current_role == "rds_master_sim"
+            assert is_super is False, "fidelity requires a non-superuser master login"
+
+            applied = runner.apply(master, REPO_MIGRATIONS_DIR)
+            assert applied == 4, (
+                "all four real migrations must apply under the non-superuser master"
+            )
+
+        # Verify, on the superuser connection, that the bootstrap produced a usable
+        # default-privilege rule for future migrator-created tables.
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT a.privilege_type
+                FROM pg_default_acl da
+                JOIN pg_roles dr ON dr.oid = da.defaclrole
+                JOIN pg_namespace n ON n.oid = da.defaclnamespace
+                CROSS JOIN LATERAL aclexplode(da.defaclacl) a
+                JOIN pg_roles g ON g.oid = a.grantee
+                WHERE dr.rolname = 'migrator' AND n.nspname = 'public'
+                  AND da.defaclobjtype = 'r' AND g.rolname = 'bench_ingest'
+                """
+            )
+            granted = {row[0] for row in cur.fetchall()}
+            assert granted == {"SELECT", "INSERT", "UPDATE"}, (
+                "004 must default-privilege bench_ingest SELECT/INSERT/UPDATE on "
+                f"future migrator-created tables; got {sorted(granted)}"
+            )
+            # The temporary INHERIT self-grant `004` uses must be revoked: the
+            # master must not be left inheriting `migrator`.
+            cur.execute("SELECT pg_has_role('rds_master_sim', 'migrator', 'USAGE')")
+            assert cur.fetchone()[0] is False, (
+                "004's temporary INHERIT self-grant must be revoked; the master must "
+                "not be left inheriting migrator"
+            )
+            # And the REVOKE must remove ONLY the self-grant, not the creator's ADMIN
+            # auto-grant: the self-grant (grantor = master) and the CREATE ROLE
+            # auto-grant (grantor = bootstrap superuser) are SEPARATE pg_auth_members
+            # rows, so exactly one membership row must survive -- the auto-grant, with
+            # ADMIN TRUE / INHERIT FALSE intact -- proving the master can still
+            # administer `migrator` after the bootstrap. A regression that revoked the
+            # wrong row (e.g. the auto-grant) would not be caught by the USAGE check
+            # above, which passes either way.
+            cur.execute(
+                """
+                SELECT am.admin_option, am.inherit_option
+                FROM pg_auth_members am
+                JOIN pg_roles r ON r.oid = am.roleid
+                JOIN pg_roles m ON m.oid = am.member
+                WHERE r.rolname = 'migrator' AND m.rolname = 'rds_master_sim'
+                """
+            )
+            rows = cur.fetchall()
+            assert rows == [(True, False)], (
+                "the master must retain exactly its CREATE-ROLE ADMIN auto-grant on "
+                f"migrator (admin=True, inherit=False) after 004; got {rows}"
+            )
+    finally:
+        # Leave the module-scoped container clean for sibling tests.
+        with conn.cursor() as cur:
+            _scrub_bootstrap_roles(cur)

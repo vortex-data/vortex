@@ -9,16 +9,14 @@
 # unreachable from off-VPC GitHub runners; it is reserved for the Vercel read
 # service. CI writers use the public instance endpoint with direct IAM.)
 #
-# Trigger is `workflow_dispatch` only for now: an operator runs it manually,
-# optionally with `dry_run` as the pre-apply preview. Per the 2026-05-29
-# deploy-model decision, the intended deferred change is to ALSO trigger `apply`
-# on push to the deploy branch under `paths: migrations/** +
-# scripts/migrate-schema.py` (PR merge becomes the deploy gate; the runner path
-# is included so a runner-only change still triggers a deploy) -- NOT a GitHub
-# Environment / manual-approval gate (that only re-confirms authorization
-# already given at merge; execution safety comes from the per-PR testcontainer
-# migration test). See the plan's Deferred work + the "Schema-deploy
-# authorization" Key decision.
+# Per the 2026-05-29 deploy-model decision, `apply` triggers on push to the
+# deploy branch (`develop`) under `paths: migrations/** + scripts/migrate-schema.py`
+# (PR merge becomes the deploy gate; the runner path is included so a runner-only
+# change still triggers a deploy) -- NOT a GitHub Environment / manual-approval
+# gate (that only re-confirms authorization already given at merge; execution
+# safety comes from the per-PR testcontainer migration test). `workflow_dispatch`
+# is also kept, with `dry_run` as the manual pre-apply preview. See the
+# "Schema-deploy authorization" Key decision in the plan.
 #
 # Bootstrap: CI can only IAM-auth as `migrator` (the OIDC role has no master
 # credential), so the FIRST apply must be run once by the RDS master user
@@ -29,6 +27,11 @@
 name: schema-deploy
 
 on:
+  push:
+    branches: [develop]
+    paths:
+      - "migrations/**"
+      - "scripts/migrate-schema.py"
   workflow_dispatch:
     inputs:
       dry_run:
