@@ -18,6 +18,7 @@ use vortex_session::registry::CachedId;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrow::Datum;
+#[allow(deprecated)]
 use crate::arrow::from_arrow_array_with_len;
 use crate::dtype::DType;
 use crate::expr::Expression;
@@ -211,6 +212,7 @@ impl ScalarFnVTable for Like {
 }
 
 /// Implementation of LIKE using the Arrow crate.
+#[allow(deprecated)]
 pub(crate) fn arrow_like(
     array: &ArrayRef,
     pattern: &ArrayRef,

@@ -105,6 +105,9 @@ impl ArrowDatum for Datum {
 /// # Error
 ///
 /// The provided array must have length
+#[deprecated(
+    note = "Relies on the hidden global `LEGACY_SESSION`; thread an explicit `ExecutionCtx` through `execute_scalar` instead"
+)]
 pub fn from_arrow_array_with_len<A>(array: A, len: usize, nullable: bool) -> VortexResult<ArrayRef>
 where
     ArrayRef: FromArrowArray<A>,

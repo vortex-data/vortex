@@ -23,6 +23,7 @@ use crate::arrays::VarBin;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbin::VarBinArrayExt;
 use crate::arrow::Datum;
+#[allow(deprecated)]
 use crate::arrow::from_arrow_array_with_len;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -34,6 +35,7 @@ use crate::scalar_fn::fns::operators::Operator;
 
 // This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
 impl CompareKernel for VarBin {
+    #[allow(deprecated)]
     fn compare(
         lhs: ArrayView<'_, VarBin>,
         rhs: &ArrayRef,

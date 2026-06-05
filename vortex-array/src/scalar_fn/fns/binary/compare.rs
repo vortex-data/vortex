@@ -26,6 +26,7 @@ use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::arrow::ArrowSessionExt;
 use crate::arrow::Datum;
+#[allow(deprecated)]
 use crate::arrow::from_arrow_array_with_len;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -142,6 +143,7 @@ pub(crate) fn execute_compare(
 }
 
 /// Fall back to Arrow for comparison.
+#[allow(deprecated)]
 fn arrow_compare_arrays(
     left: &ArrayRef,
     right: &ArrayRef,

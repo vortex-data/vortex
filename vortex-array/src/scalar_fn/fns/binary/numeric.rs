@@ -8,6 +8,7 @@ use crate::IntoArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrow::Datum;
+#[allow(deprecated)]
 use crate::arrow::from_arrow_array_with_len;
 use crate::executor::ExecutionCtx;
 use crate::scalar::NumericOperator;
@@ -29,6 +30,7 @@ pub(crate) fn execute_numeric(
 }
 
 /// Implementation of numeric operations using the Arrow crate.
+#[allow(deprecated)]
 pub(crate) fn arrow_numeric(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
