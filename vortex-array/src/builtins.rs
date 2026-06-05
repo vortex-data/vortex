@@ -14,6 +14,7 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::MergeArray;
 use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
@@ -140,6 +141,10 @@ pub trait ArrayBuiltins: Sized {
     /// Conditional selection: `result[i] = if mask[i] then if_true[i] else if_false[i]`.
     fn zip(&self, if_true: ArrayRef, if_false: ArrayRef) -> VortexResult<ArrayRef>;
 
+    /// Order-preserving merge by selector: output row `i` is taken from `branches[selector[i]]`,
+    /// where `self` is the (non-nullable) selector. See [`MergeArray`].
+    fn merge(&self, branches: Vec<ArrayRef>) -> VortexResult<ArrayRef>;
+
     /// Check if a list contains a value.
     fn list_contains(&self, value: ArrayRef) -> VortexResult<ArrayRef>;
 
@@ -211,6 +216,10 @@ impl ArrayBuiltins for ArrayRef {
 
     fn zip(&self, if_true: ArrayRef, if_false: ArrayRef) -> VortexResult<ArrayRef> {
         Zip.try_new_array(self.len(), EmptyOptions, [if_true, if_false, self.clone()])
+    }
+
+    fn merge(&self, branches: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
+        Ok(MergeArray::try_new(branches, self.clone())?.into_array())
     }
 
     fn list_contains(&self, value: ArrayRef) -> VortexResult<ArrayRef> {

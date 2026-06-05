@@ -12,9 +12,9 @@
 //! appear in that branch. Equivalently, [`Merge`] interleaves the branches back together in the
 //! order dictated by the selector.
 //!
-//! It is the inverse (the "mux") of partitioning rows into branches by a predicate: split rows
-//! into per-branch compact runs, process each branch, then [`Merge`] re-assembles them in the
-//! original order using the selector that recorded each row's branch.
+//! It re-assembles rows that were partitioned into branches by a predicate: split rows into
+//! per-branch compact runs, process each branch, then [`Merge`] puts them back in the original
+//! order using the selector that recorded each row's branch.
 //!
 //! The branches are **compact**: each holds only the rows it owns, so they are generally shorter
 //! than the output. This distinguishes [`Merge`] from an element-wise select such as `zip`,
