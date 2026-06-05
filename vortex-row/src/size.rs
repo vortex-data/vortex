@@ -63,16 +63,18 @@ pub(crate) enum ColKind {
 
 /// Per-column representation carried from the size pass into the encode pass.
 ///
-/// Most columns are canonicalized exactly once during the size pass and the canonical form is
-/// reused for encoding (no second decode). Columns that a per-encoding kernel claimed during
-/// the size pass are kept in their original encoded form so the matching encode kernel can
-/// write their bytes directly without canonicalizing.
+/// A variable-width column whose per-row sizes had to be computed by canonicalizing is kept in
+/// canonical form so the encode pass reuses it (no second decode). Every other column is kept
+/// in its original encoded form: fixed-width columns (whose per-row size is a constant derived
+/// from the dtype, so no decode is needed for sizing) and variable-width columns claimed by a
+/// per-encoding kernel. The encode pass routes those through kernel dispatch, canonicalizing
+/// lazily only if no kernel claims them.
 pub(crate) enum ColumnEncodeInput {
-    /// Column canonicalized during the size pass; reuse for the encode pass.
+    /// Variable-width column canonicalized during the size pass; reuse for the encode pass.
     Canonical(Canonical),
-    /// Variable-width column claimed by a per-encoding [`RowSizeKernel`]; the encode pass
-    /// routes it through [`dispatch_encode`](crate::dispatch_encode) on the encoded form.
-    Kernel(ArrayRef),
+    /// Column kept in its original encoded form; the encode pass dispatches it through the
+    /// per-encoding kernels (or canonicalizes lazily on the fallback path).
+    Raw(ArrayRef),
 }
 
 /// Result of the size pass: enough information for both [`RowSize::execute`] and the
@@ -145,9 +147,10 @@ pub(crate) fn compute_sizes(
                     || vortex_error::vortex_err!("per-row fixed width overflows u32 at column {i}");
                 fixed_per_row = fixed_per_row.checked_add(w).ok_or_else(overflow)?;
                 running_fixed_prefix = running_fixed_prefix.checked_add(w).ok_or_else(overflow)?;
-                // Fixed-width columns are canonicalized once and reused for the encode pass.
-                let canonical = col.execute::<Canonical>(ctx)?;
-                columns.push(ColumnEncodeInput::Canonical(canonical));
+                // Fixed-width columns have a constant per-row size (derived from the dtype),
+                // so the size pass needs no decode. Keep the encoded form and let the encode
+                // pass fuse decompression with the write (or canonicalize lazily).
+                columns.push(ColumnEncodeInput::Raw(col));
             }
             RowWidth::Variable => {
                 if first_varlen_idx.is_none() {
@@ -159,7 +162,7 @@ pub(crate) fn compute_sizes(
                 // and that canonical form is shared with the encode pass.
                 match dispatch_size(&col, options.fields[i], v, ctx)? {
                     Some(canonical) => columns.push(ColumnEncodeInput::Canonical(canonical)),
-                    None => columns.push(ColumnEncodeInput::Kernel(col)),
+                    None => columns.push(ColumnEncodeInput::Raw(col)),
                 }
                 col_kinds.push(ColKind::Variable {
                     fixed_prefix: running_fixed_prefix,
@@ -306,7 +309,7 @@ pub fn dispatch_size(
     {
         return Ok(None);
     }
-    if let Some((size_fn, _)) = registry::lookup(&col.encoding_id())
+    if let Some((size_fn, ..)) = registry::lookup(&col.encoding_id())
         && size_fn(col, field, sizes, ctx)?.is_some()
     {
         return Ok(None);

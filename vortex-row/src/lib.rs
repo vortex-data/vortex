@@ -48,6 +48,7 @@ pub use encoder::convert_columns;
 pub use encoder::convert_columns_with_options;
 pub use options::RowEncodingOptions;
 pub use options::RowSortField;
+pub use registry::DynEncodeFixedArithFn;
 pub use registry::DynEncodeFn;
 pub use registry::DynSizeFn;
 pub use registry::RowEncodeRegistration;

@@ -39,6 +39,7 @@ use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::row_encode_common::PrimRowEncode;
 use crate::row_encode_common::encode_primitive_chunk;
+use crate::row_encode_common::encode_primitive_chunk_arith;
 use crate::row_encode_common::encoded_size_for_ptype;
 use crate::unpack_iter::BitPacked as BitPackedUnpack;
 
@@ -59,7 +60,95 @@ fn bitpacked_size_contribution(
     Ok(Some(()))
 }
 
-/// Per-row byte encoding for a `BitPacked` column.
+fn supported_ptype(ptype: PType) -> bool {
+    matches!(
+        ptype,
+        PType::I8
+            | PType::I16
+            | PType::I32
+            | PType::I64
+            | PType::U8
+            | PType::U16
+            | PType::U32
+            | PType::U64
+    )
+}
+
+/// Materialize the null mask and patch slices once, outside the hot loop.
+#[allow(clippy::type_complexity)]
+fn bitpacked_prep(
+    view: vortex_array::ArrayView<'_, BitPacked>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(
+    Option<vortex_mask::Mask>,
+    Option<(PrimitiveArray, PrimitiveArray, usize)>,
+)> {
+    // The explicit Ext method returns a `Validity` (the inherent `validity()` on `ArrayView`
+    // returns `VortexResult<Validity>`).
+    let validity = BitPackedArrayExt::validity(&view);
+    let mask = match &validity {
+        Validity::NonNullable | Validity::AllValid => None,
+        _ => Some(validity.execute_mask(view.as_ref().len(), ctx)?),
+    };
+    let patch_pairs = if let Some(p) = view.patches() {
+        let indices = p.indices().clone().execute::<PrimitiveArray>(ctx)?;
+        let values = p.values().clone().execute::<PrimitiveArray>(ctx)?;
+        Some((indices, values, p.offset()))
+    } else {
+        None
+    };
+    Ok((mask, patch_pairs))
+}
+
+/// Walk the bit-packed storage in 1024-element chunks (initial sliced chunk, full middle
+/// chunks, trailing sliced chunk), unpacking each chunk into a stack buffer, applying any
+/// patches, and handing the chunk plus its starting logical row to `write`.
+fn walk_bitpacked<T, F>(
+    arr_view: vortex_array::ArrayView<'_, BitPacked>,
+    patch_pairs: Option<&(PrimitiveArray, PrimitiveArray, usize)>,
+    out: &mut [u8],
+    mut write: F,
+) -> VortexResult<()>
+where
+    T: BitPackedUnpack + NativePType,
+    F: FnMut(&[T], usize, &mut [u8]),
+{
+    let total_len = arr_view.as_ref().len();
+    let mut local_idx: usize = 0;
+    let mut unpacked = arr_view.unpacked_chunks::<T>()?;
+
+    if let Some(initial) = unpacked.initial() {
+        let len_chunk = initial.len();
+        apply_patches_in_range::<T>(initial, patch_pairs, local_idx, local_idx + len_chunk);
+        write(initial, local_idx, out);
+        local_idx += len_chunk;
+    }
+
+    let mut chunks_iter = unpacked.full_chunks();
+    while let Some(chunk) = chunks_iter.next() {
+        let len_chunk = 1024.min(total_len - local_idx);
+        apply_patches_in_range::<T>(
+            &mut chunk[..len_chunk],
+            patch_pairs,
+            local_idx,
+            local_idx + len_chunk,
+        );
+        write(&chunk[..len_chunk], local_idx, out);
+        local_idx += len_chunk;
+    }
+
+    if let Some(trailer) = unpacked.trailer() {
+        let len_chunk = trailer.len();
+        apply_patches_in_range::<T>(trailer, patch_pairs, local_idx, local_idx + len_chunk);
+        write(trailer, local_idx, out);
+        local_idx += len_chunk;
+    }
+
+    debug_assert_eq!(local_idx, total_len);
+    Ok(())
+}
+
+/// Per-row byte encoding for a `BitPacked` column (cursor path).
 fn bitpacked_encode_into(
     column: &ArrayRef,
     field: RowSortField,
@@ -72,145 +161,81 @@ fn bitpacked_encode_into(
         return Ok(None);
     };
     let ptype = view.dtype().as_ptype();
-    if !matches!(
-        ptype,
-        PType::I8
-            | PType::I16
-            | PType::I32
-            | PType::I64
-            | PType::U8
-            | PType::U16
-            | PType::U32
-            | PType::U64
-    ) {
+    if !supported_ptype(ptype) {
         return Ok(None);
     }
-    // Materialize validity once and fast-path the common all-valid case.
-    // Use the explicit Ext method which returns a `Validity` (the inherent `validity()` on
-    // `ArrayView` returns `VortexResult<Validity>`).
-    let validity = BitPackedArrayExt::validity(&view);
-    let mask = match &validity {
-        Validity::NonNullable | Validity::AllValid => None,
-        _ => Some(validity.execute_mask(view.as_ref().len(), ctx)?),
-    };
-
-    // Materialize patches (rare; if patches are present we materialize the patch
-    // index/value slices once outside the hot loop).
-    let patches = view.patches();
-    let patch_pairs = if let Some(p) = patches {
-        let indices = p.indices().clone().execute::<PrimitiveArray>(ctx)?;
-        let values = p.values().clone().execute::<PrimitiveArray>(ctx)?;
-        Some((indices, values, p.offset()))
-    } else {
-        None
-    };
+    let (mask, patch_pairs) = bitpacked_prep(view, ctx)?;
+    let descending = field.descending;
+    let non_null = field.non_null_sentinel();
+    let null = field.null_sentinel();
 
     match_each_integer_ptype!(ptype, |T| {
-        encode_bitpacked_typed::<T>(
-            view,
-            field,
-            offsets,
-            cursors,
-            out,
-            mask.as_ref(),
-            patch_pairs.as_ref(),
-        )?;
+        let value_bytes = size_of::<T>();
+        let stride = (1 + value_bytes) as u32;
+        walk_bitpacked::<T, _>(view, patch_pairs.as_ref(), out, |chunk, row_start, out| {
+            encode_primitive_chunk::<T>(
+                chunk,
+                row_start,
+                offsets,
+                cursors,
+                out,
+                mask.as_ref(),
+                non_null,
+                null,
+                descending,
+                value_bytes,
+                stride,
+            );
+        })?;
     });
     Ok(Some(()))
 }
 
+/// Fixed-width arithmetic encoding for a `BitPacked` column: fuse decompression with the row
+/// write at `i * row_stride + col_prefix (+ var_prefix[i])`, skipping the canonical array and
+/// the per-row cursor entirely.
 #[allow(clippy::too_many_arguments)]
-fn encode_bitpacked_typed<T>(
-    arr_view: vortex_array::ArrayView<'_, BitPacked>,
+fn bitpacked_encode_fixed_arith(
+    column: &ArrayRef,
     field: RowSortField,
-    offsets: &[u32],
-    cursors: &mut [u32],
+    col_prefix: u32,
+    row_stride: u32,
+    var_prefix: Option<&[u32]>,
+    _nrows: usize,
     out: &mut [u8],
-    mask: Option<&vortex_mask::Mask>,
-    patch_pairs: Option<&(PrimitiveArray, PrimitiveArray, usize)>,
-) -> VortexResult<()>
-where
-    T: BitPackedUnpack + NativePType + PrimRowEncode,
-{
-    let total_len = arr_view.as_ref().len();
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<()>> {
+    let Some(view) = column.as_opt::<BitPacked>() else {
+        return Ok(None);
+    };
+    let ptype = view.dtype().as_ptype();
+    if !supported_ptype(ptype) {
+        return Ok(None);
+    }
+    let (mask, patch_pairs) = bitpacked_prep(view, ctx)?;
     let descending = field.descending;
     let non_null = field.non_null_sentinel();
     let null = field.null_sentinel();
-    let value_bytes = size_of::<T>();
-    let stride = (1 + value_bytes) as u32;
 
-    let mut local_idx: usize = 0;
-    let mut unpacked = arr_view.unpacked_chunks::<T>()?;
-
-    // Walk the array: initial sliced chunk, full middle chunks, trailing sliced chunk.
-    if let Some(initial) = unpacked.initial() {
-        let len_chunk = initial.len();
-        // Apply patches that fall in this chunk (logical rows local_idx..local_idx+len_chunk).
-        apply_patches_in_range::<T>(initial, patch_pairs, local_idx, local_idx + len_chunk);
-        write_chunk_rows::<T>(
-            initial,
-            local_idx,
-            offsets,
-            cursors,
-            out,
-            mask,
-            non_null,
-            null,
-            descending,
-            value_bytes,
-            stride,
-        );
-        local_idx += len_chunk;
-    }
-
-    let mut chunks_iter = unpacked.full_chunks();
-    while let Some(chunk) = chunks_iter.next() {
-        // Determine logical length: full chunk is 1024.
-        let len_chunk = 1024.min(total_len - local_idx);
-        // Apply patches that fall in this chunk.
-        apply_patches_in_range::<T>(
-            &mut chunk[..len_chunk],
-            patch_pairs,
-            local_idx,
-            local_idx + len_chunk,
-        );
-        write_chunk_rows::<T>(
-            &chunk[..len_chunk],
-            local_idx,
-            offsets,
-            cursors,
-            out,
-            mask,
-            non_null,
-            null,
-            descending,
-            value_bytes,
-            stride,
-        );
-        local_idx += len_chunk;
-    }
-
-    if let Some(trailer) = unpacked.trailer() {
-        let len_chunk = trailer.len();
-        apply_patches_in_range::<T>(trailer, patch_pairs, local_idx, local_idx + len_chunk);
-        write_chunk_rows::<T>(
-            trailer,
-            local_idx,
-            offsets,
-            cursors,
-            out,
-            mask,
-            non_null,
-            null,
-            descending,
-            value_bytes,
-            stride,
-        );
-        local_idx += len_chunk;
-    }
-
-    debug_assert_eq!(local_idx, total_len);
-    Ok(())
+    match_each_integer_ptype!(ptype, |T| {
+        let value_bytes = size_of::<T>();
+        walk_bitpacked::<T, _>(view, patch_pairs.as_ref(), out, |chunk, row_start, out| {
+            encode_primitive_chunk_arith::<T>(
+                chunk,
+                row_start,
+                col_prefix,
+                row_stride,
+                var_prefix,
+                out,
+                mask.as_ref(),
+                non_null,
+                null,
+                descending,
+                value_bytes,
+            );
+        })?;
+    });
+    Ok(Some(()))
 }
 
 /// Overwrite values in `chunk` (which covers logical rows `[chunk_start, chunk_end)`) with
@@ -291,35 +316,6 @@ fn apply_patches_in_range<T: NativePType>(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn write_chunk_rows<T: NativePType + PrimRowEncode>(
-    chunk: &[T],
-    row_start: usize,
-    offsets: &[u32],
-    cursors: &mut [u32],
-    out: &mut [u8],
-    mask: Option<&vortex_mask::Mask>,
-    non_null: u8,
-    null: u8,
-    descending: bool,
-    value_bytes: usize,
-    stride: u32,
-) {
-    encode_primitive_chunk::<T>(
-        chunk,
-        row_start,
-        offsets,
-        cursors,
-        out,
-        mask,
-        non_null,
-        null,
-        descending,
-        value_bytes,
-        stride,
-    );
-}
-
 fn bitpacked_array_id() -> ArrayId {
     use vortex_session::registry::CachedId;
     static ID: CachedId = CachedId::new("fastlanes.bitpacked");
@@ -331,6 +327,7 @@ inventory::submit! {
         id: bitpacked_array_id,
         size: bitpacked_size_contribution,
         encode: bitpacked_encode_into,
+        encode_fixed_arith: Some(bitpacked_encode_fixed_arith),
     }
 }
 
@@ -397,6 +394,26 @@ mod tests {
         let bp = BitPackedData::encode(&raw, 6, &mut ctx)?.into_array();
         let by_canonical = convert_columns(&[raw], &[RowSortField::default()], &mut ctx)?;
         let by_bp = convert_columns(&[bp], &[RowSortField::default()], &mut ctx)?;
+        assert_eq!(collect_rows(&by_canonical), collect_rows(&by_bp));
+        Ok(())
+    }
+
+    /// A fixed-width BitPacked column placed *before* a variable-length column exercises the
+    /// arithmetic path's `var_prefix` branch (irregularly-spaced row positions).
+    #[test]
+    fn bitpacked_row_encode_before_varlen_uses_var_prefix() -> VortexResult<()> {
+        use vortex_array::arrays::VarBinViewArray;
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let nums: Vec<u32> = (0..64).map(|i| i % 50).collect();
+        let raw = PrimitiveArray::from_iter(nums).into_array();
+        let bp = BitPackedData::encode(&raw, 6, &mut ctx)?.into_array();
+        let words = VarBinViewArray::from_iter_str((0..64).map(|i| "x".repeat((i % 7) + 1)));
+        let words = words.into_array();
+        let fields = [RowSortField::default(), RowSortField::default()];
+
+        let by_canonical = convert_columns(&[raw, words.clone()], &fields, &mut ctx)?;
+        let by_bp = convert_columns(&[bp, words], &fields, &mut ctx)?;
         assert_eq!(collect_rows(&by_canonical), collect_rows(&by_bp));
         Ok(())
     }

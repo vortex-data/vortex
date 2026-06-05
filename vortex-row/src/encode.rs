@@ -18,6 +18,7 @@ use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::Dict;
 use vortex_array::arrays::patched::Patched;
@@ -231,8 +232,9 @@ fn execute_row_encode(
 
     // ===== Phase 4: encode columns =====
     // Fixed-before-varlen columns take the arithmetic-write path (constant within-row
-    // offset, no cursor mutation). Fixed-after-varlen and varlen columns take the cursor
-    // path. Each column was canonicalized once during the size pass; reuse that form.
+    // offset, no cursor mutation), where a fixed-width kernel can fuse decompression with the
+    // write. Fixed-after-varlen and varlen columns take the cursor path. Variable-width
+    // fallback columns reuse the canonical form materialized during the size pass.
     for (i, col_input) in columns.iter().enumerate() {
         let field = options.fields[i];
         match (col_kinds[i], col_input) {
@@ -242,10 +244,10 @@ fn execute_row_encode(
                     before_varlen: true,
                     ..
                 },
-                ColumnEncodeInput::Canonical(canonical),
+                ColumnEncodeInput::Raw(raw),
             ) => {
-                codec::field_encode_fixed_arithmetic(
-                    canonical,
+                dispatch_encode_fixed_arith(
+                    raw,
                     field,
                     prefix,
                     fixed_per_row,
@@ -255,18 +257,7 @@ fn execute_row_encode(
                     ctx,
                 )?;
             }
-            (ColKind::Fixed { .. }, ColumnEncodeInput::Canonical(canonical))
-            | (ColKind::Variable { .. }, ColumnEncodeInput::Canonical(canonical)) => {
-                codec::field_encode(
-                    canonical,
-                    field,
-                    listview_offsets_slice,
-                    row_cursors.as_mut_slice(),
-                    &mut out_buf,
-                    ctx,
-                )?;
-            }
-            (ColKind::Variable { .. }, ColumnEncodeInput::Kernel(raw)) => {
+            (_, ColumnEncodeInput::Raw(raw)) => {
                 dispatch_encode(
                     raw,
                     field,
@@ -276,8 +267,15 @@ fn execute_row_encode(
                     ctx,
                 )?;
             }
-            (ColKind::Fixed { .. }, ColumnEncodeInput::Kernel(_)) => {
-                unreachable!("fixed-width columns are always canonicalized in the size pass")
+            (_, ColumnEncodeInput::Canonical(canonical)) => {
+                codec::field_encode(
+                    canonical,
+                    field,
+                    listview_offsets_slice,
+                    row_cursors.as_mut_slice(),
+                    &mut out_buf,
+                    ctx,
+                )?;
             }
         }
     }
@@ -331,13 +329,66 @@ pub fn dispatch_encode(
     {
         return Ok(());
     }
-    if let Some((_, encode_fn)) = registry::lookup(&col.encoding_id())
+    if let Some((_, encode_fn, _)) = registry::lookup(&col.encoding_id())
         && encode_fn(col, field, offsets, cursors, out, ctx)?.is_some()
     {
         return Ok(());
     }
     let canonical = col.clone().execute::<Canonical>(ctx)?;
     codec::field_encode(&canonical, field, offsets, cursors, out, ctx)
+}
+
+/// Dispatch a fixed-width column through the arithmetic-write fast path, for columns that
+/// appear before any variable-length column. Row `i` is written at the constant within-row
+/// position `i * row_stride + col_prefix (+ var_prefix[i])`, with no per-row cursor.
+///
+/// A fixed-width kernel (e.g. FastLanes BitPacked) can fuse decompression with the write here,
+/// skipping both the intermediate canonical array and the cursor/offset array traffic. Columns
+/// with no kernel fall back to canonicalization plus
+/// [`codec::field_encode_fixed_arithmetic`].
+#[allow(clippy::too_many_arguments)]
+pub fn dispatch_encode_fixed_arith(
+    col: &ArrayRef,
+    field: RowSortField,
+    col_prefix: u32,
+    row_stride: u32,
+    var_prefix: Option<&[u32]>,
+    nrows: usize,
+    out: &mut [u8],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    // Already-canonical primitive: hand straight to the codec's arithmetic primitive path
+    // without re-running the canonicalization machinery.
+    if col.as_opt::<Primitive>().is_some()
+        && let Ok(parr) = col.clone().try_downcast::<Primitive>()
+    {
+        let canonical = Canonical::Primitive(parr);
+        return codec::field_encode_fixed_arithmetic(
+            &canonical, field, col_prefix, row_stride, var_prefix, nrows, out, ctx,
+        );
+    }
+    // Constant: write the same encoded bytes at every per-row position.
+    if let Some(view) = col.as_opt::<Constant>()
+        && Constant::row_encode_fixed_arith(
+            view, field, col_prefix, row_stride, var_prefix, out, ctx,
+        )?
+        .is_some()
+    {
+        return Ok(());
+    }
+    // Downstream fixed-width kernels (e.g. FastLanes BitPacked / FoR / Delta).
+    if let Some((_, _, Some(arith_fn))) = registry::lookup(&col.encoding_id())
+        && arith_fn(
+            col, field, col_prefix, row_stride, var_prefix, nrows, out, ctx,
+        )?
+        .is_some()
+    {
+        return Ok(());
+    }
+    let canonical = col.clone().execute::<Canonical>(ctx)?;
+    codec::field_encode_fixed_arithmetic(
+        &canonical, field, col_prefix, row_stride, var_prefix, nrows, out, ctx,
+    )
 }
 
 /// Per-encoding fast path that writes a column's per-row bytes into `out` at `offsets[i] +
@@ -356,4 +407,22 @@ pub trait RowEncodeKernel: VTable {
         out: &mut [u8],
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<()>>;
+
+    /// Fixed-width arithmetic write: write row `i`'s bytes at the constant within-row position
+    /// `i * row_stride + col_prefix (+ var_prefix[i])`, without a per-row cursor.
+    ///
+    /// Only called for fixed-width columns that precede every variable-length column. The
+    /// default declines (`Ok(None)`), so the dispatcher falls back to canonicalization; an
+    /// encoding overrides it to fuse decompression with the arithmetic write.
+    fn row_encode_fixed_arith(
+        _column: ArrayView<'_, Self>,
+        _field: RowSortField,
+        _col_prefix: u32,
+        _row_stride: u32,
+        _var_prefix: Option<&[u32]>,
+        _out: &mut [u8],
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<()>> {
+        Ok(None)
+    }
 }

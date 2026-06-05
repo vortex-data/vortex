@@ -8,6 +8,11 @@
 //! array and reusing the shared codec, so the bytes are byte-identical to the canonical path)
 //! and then broadcast it, paying the encode cost once rather than once per row.
 
+#![allow(
+    clippy::cast_possible_truncation,
+    reason = "row encoding indexes into u32-sized buffers; lengths are validated to fit in u32"
+)]
+
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -77,6 +82,38 @@ impl RowEncodeKernel for Constant {
             let pos = (offsets[i] + cursors[i]) as usize;
             out[pos..pos + len_usize].copy_from_slice(&bytes);
             cursors[i] += len;
+        }
+        Ok(Some(()))
+    }
+
+    fn row_encode_fixed_arith(
+        column: ArrayView<'_, Self>,
+        field: RowSortField,
+        col_prefix: u32,
+        row_stride: u32,
+        var_prefix: Option<&[u32]>,
+        out: &mut [u8],
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<()>> {
+        let (len, bytes) = encode_scalar_once(&column, field, true, ctx)?;
+        let len_usize = len as usize;
+        if len == 0 {
+            return Ok(Some(()));
+        }
+        let n = column.len();
+        match var_prefix {
+            None => {
+                for i in 0..n {
+                    let pos = (i as u32 * row_stride + col_prefix) as usize;
+                    out[pos..pos + len_usize].copy_from_slice(&bytes);
+                }
+            }
+            Some(vp) => {
+                for i in 0..n {
+                    let pos = (i as u32 * row_stride + col_prefix + vp[i]) as usize;
+                    out[pos..pos + len_usize].copy_from_slice(&bytes);
+                }
+            }
         }
         Ok(Some(()))
     }

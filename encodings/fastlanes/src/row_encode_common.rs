@@ -125,3 +125,82 @@ pub fn encode_primitive_chunk<T: NativePType + PrimRowEncode>(
         }
     }
 }
+
+/// Write a chunk of unpacked values into the output buffer at *arithmetic* positions, with no
+/// per-row cursor.
+///
+/// Row `i` (logical row `row_start + j` for the `j`-th element) is written at
+/// `i * row_stride + col_prefix (+ var_prefix[i])`. This is the fixed-width arithmetic
+/// fast path: there is no `offsets`/`cursors` array traffic, only the output write.
+#[allow(clippy::too_many_arguments)]
+#[inline]
+pub fn encode_primitive_chunk_arith<T: NativePType + PrimRowEncode>(
+    chunk: &[T],
+    row_start: usize,
+    col_prefix: u32,
+    row_stride: u32,
+    var_prefix: Option<&[u32]>,
+    out: &mut [u8],
+    mask: Option<&vortex_mask::Mask>,
+    non_null: u8,
+    null: u8,
+    descending: bool,
+    value_bytes: usize,
+) {
+    let stride = row_stride as usize;
+    let prefix = col_prefix as usize;
+    let slot_size = 1 + value_bytes;
+    match var_prefix {
+        // Pure-fixed: row slots are `row_stride` apart, so slice out this chunk's contiguous
+        // region and walk it with `chunks_exact_mut`. The fixed-window inner write vectorizes
+        // exactly like the codec's primitive arithmetic path.
+        None => {
+            let start = row_start * stride;
+            let region = &mut out[start..start + chunk.len() * stride];
+            match mask {
+                None => {
+                    for (slot_chunk, &v) in region.chunks_exact_mut(stride).zip(chunk.iter()) {
+                        let slot = &mut slot_chunk[prefix..prefix + slot_size];
+                        slot[0] = non_null;
+                        v.row_encode_to(&mut slot[1..], descending);
+                    }
+                }
+                Some(m) => {
+                    for (j, (slot_chunk, &v)) in region
+                        .chunks_exact_mut(stride)
+                        .zip(chunk.iter())
+                        .enumerate()
+                    {
+                        let slot = &mut slot_chunk[prefix..prefix + slot_size];
+                        if m.value(row_start + j) {
+                            slot[0] = non_null;
+                            v.row_encode_to(&mut slot[1..], descending);
+                        } else {
+                            slot[0] = null;
+                            for b in &mut slot[1..] {
+                                *b = 0;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Fixed-before-varlen with varlen columns present: per-row positions are offset by the
+        // varlen prefix sum, so they are not regularly spaced; index each row directly.
+        Some(vp) => {
+            for (j, &v) in chunk.iter().enumerate() {
+                let row = row_start + j;
+                let pos = ((row as u32) * row_stride + col_prefix + vp[row]) as usize;
+                if mask.is_none_or(|m| m.value(row)) {
+                    out[pos] = non_null;
+                    v.row_encode_to(&mut out[pos + 1..pos + 1 + value_bytes], descending);
+                } else {
+                    out[pos] = null;
+                    for b in &mut out[pos + 1..pos + 1 + value_bytes] {
+                        *b = 0;
+                    }
+                }
+            }
+        }
+    }
+}

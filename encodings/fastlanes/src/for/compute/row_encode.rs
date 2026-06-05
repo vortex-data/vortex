@@ -329,6 +329,9 @@ inventory::submit! {
         id: for_array_id,
         size: for_size_contribution,
         encode: for_encode_into,
+        // FoR falls back to canonicalize + arithmetic-encode for fixed-before-varlen columns;
+        // the cursor `encode` still applies to fixed-after-varlen and nested positions.
+        encode_fixed_arith: None,
     }
 }
 

@@ -29,7 +29,7 @@ use crate::options::RowSortField;
 pub type DynSizeFn =
     fn(&ArrayRef, RowSortField, &mut [u32], &mut ExecutionCtx) -> VortexResult<Option<()>>;
 
-/// Function pointer signature for an encoding's per-row byte encoding.
+/// Function pointer signature for an encoding's per-row byte encoding (cursor path).
 ///
 /// Returns `Ok(Some(()))` when the kernel handled the column, or `Ok(None)` to decline and
 /// fall back to the canonical path.
@@ -38,6 +38,25 @@ pub type DynEncodeFn = fn(
     RowSortField,
     &[u32],
     &mut [u32],
+    &mut [u8],
+    &mut ExecutionCtx,
+) -> VortexResult<Option<()>>;
+
+/// Function pointer signature for an encoding's fixed-width arithmetic encode path.
+///
+/// Used for fixed-width columns that appear before any variable-length column, where the
+/// within-row write position of row `i` is `i * row_stride + col_prefix (+ var_prefix[i])`.
+/// This lets a fixed-width encoding (e.g. FastLanes BitPacked) fuse decompression with the
+/// row write and skip both the intermediate canonical array and the per-row cursor traffic.
+///
+/// Returns `Ok(Some(()))` when the kernel handled the column, or `Ok(None)` to decline.
+pub type DynEncodeFixedArithFn = fn(
+    &ArrayRef,
+    RowSortField,
+    u32,            // col_prefix
+    u32,            // row_stride
+    Option<&[u32]>, // var_prefix (exclusive cumsum of varlen lengths), None for pure-fixed
+    usize,          // nrows
     &mut [u8],
     &mut ExecutionCtx,
 ) -> VortexResult<Option<()>>;
@@ -51,19 +70,24 @@ pub struct RowEncodeRegistration {
     pub id: fn() -> ArrayId,
     /// Per-row size contribution function.
     pub size: DynSizeFn,
-    /// Per-row encoding function.
+    /// Per-row encoding function (cursor path).
     pub encode: DynEncodeFn,
+    /// Optional fixed-width arithmetic encode path. Set to `None` to always take the cursor
+    /// path (or the canonical fallback) for fixed-before-varlen columns.
+    pub encode_fixed_arith: Option<DynEncodeFixedArithFn>,
 }
 
 inventory::collect!(RowEncodeRegistration);
 
-/// Look up a (size, encode) pair for the given encoding id.
-pub(crate) fn lookup(id: &ArrayId) -> Option<(DynSizeFn, DynEncodeFn)> {
-    static MAP: OnceLock<HashMap<ArrayId, (DynSizeFn, DynEncodeFn)>> = OnceLock::new();
+type Entry = (DynSizeFn, DynEncodeFn, Option<DynEncodeFixedArithFn>);
+
+/// Look up the registered (size, encode, encode_fixed_arith) functions for an encoding id.
+pub(crate) fn lookup(id: &ArrayId) -> Option<Entry> {
+    static MAP: OnceLock<HashMap<ArrayId, Entry>> = OnceLock::new();
     let map = MAP.get_or_init(|| {
         inventory::iter::<RowEncodeRegistration>
             .into_iter()
-            .map(|r| ((r.id)(), (r.size, r.encode)))
+            .map(|r| ((r.id)(), (r.size, r.encode, r.encode_fixed_arith)))
             .collect()
     });
     map.get(id).copied()

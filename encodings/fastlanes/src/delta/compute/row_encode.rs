@@ -170,6 +170,7 @@ inventory::submit! {
         id: delta_array_id,
         size: delta_size_contribution,
         encode: delta_encode_into,
+        encode_fixed_arith: None,
     }
 }
 

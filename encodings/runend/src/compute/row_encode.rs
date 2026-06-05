@@ -169,6 +169,7 @@ inventory::submit! {
         id: run_end_array_id,
         size: run_end_size_contribution,
         encode: run_end_encode_into,
+        encode_fixed_arith: None,
     }
 }
 
