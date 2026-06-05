@@ -725,3 +725,29 @@ fn test_mask_concat_mixed_types() {
     assert!(!result.value(6)); // from all_false
     assert!(!result.value(7)); // from all_false
 }
+
+// `Mask::iter` per-element bool iteration
+
+#[rstest]
+#[case::all_true(Mask::new_true(4), vec![true, true, true, true])]
+#[case::all_false(Mask::new_false(3), vec![false, false, false])]
+#[case::values(
+    Mask::from_buffer(BitBuffer::from_iter([true, false, true, true, false])),
+    vec![true, false, true, true, false]
+)]
+#[case::empty(Mask::new_true(0), vec![])]
+fn mask_iter_matches_value(#[case] mask: Mask, #[case] expected: Vec<bool>) {
+    // Iterator yields exactly one bool per element, matching `value`.
+    let collected: Vec<bool> = mask.iter().collect();
+    assert_eq!(collected, expected);
+
+    let by_value: Vec<bool> = (0..mask.len()).map(|i| mask.value(i)).collect();
+    assert_eq!(collected, by_value);
+
+    // ExactSizeIterator reports the right length, including after partial consumption.
+    let mut it = mask.iter();
+    assert_eq!(it.len(), mask.len());
+    if it.next().is_some() {
+        assert_eq!(it.len(), mask.len() - 1);
+    }
+}

@@ -22,7 +22,8 @@ public final class ExpressionTest {
     @Test
     public void rowIdxBuildsAndComposes() {
         assertNotNull(Expression.rowIdx());
-        // Mirrors `gt(row_idx(), lit(...))` on the Rust side: the row-index expression composes like any other.
+        // Mirrors `gt(row_idx(), lit(...))` on the Rust side: the row-index expression
+        // composes like any other.
         assertNotNull(Expression.binary(Expression.BinaryOp.LT, Expression.rowIdx(), Expression.literal(5L)));
     }
 
@@ -34,5 +35,13 @@ public final class ExpressionTest {
         RuntimeException exception =
                 assertThrows(RuntimeException.class, () -> Expression.literalDecimal(tooLarge, 76, 0));
         assertTrue(exception.getMessage().contains("Decimal value must fit with 32 bytes"));
+    }
+
+    @Test
+    public void packComposes() {
+        assertNotNull(Expression.pack(
+                new String[] {"x", "y", "z"},
+                new Expression[] {Expression.column("a"), Expression.literal(5L), Expression.rowIdx()},
+            true));
     }
 }

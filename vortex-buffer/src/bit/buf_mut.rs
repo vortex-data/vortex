@@ -581,6 +581,7 @@ impl From<Vec<bool>> for BitBufferMut {
 }
 
 impl FromIterator<bool> for BitBufferMut {
+    #[inline]
     fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
         let mut iter = iter.into_iter();
 

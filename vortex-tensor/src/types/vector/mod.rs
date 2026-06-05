@@ -4,13 +4,13 @@
 //! Vector extension type for fixed-length float vectors (e.g., embeddings).
 
 use vortex_array::ArrayRef;
+use vortex_array::EmptyMetadata;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
-use vortex_array::extension::EmptyMetadata;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;

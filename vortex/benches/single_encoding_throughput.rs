@@ -512,6 +512,7 @@ mod turboquant_benches {
     use paste::paste;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
+    use vortex::array::EmptyMetadata;
     use vortex::array::IntoArray;
     use vortex::array::arrays::Extension;
     use vortex::array::arrays::ExtensionArray;
@@ -519,7 +520,6 @@ mod turboquant_benches {
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::scalar_fn::ScalarFnArrayExt;
     use vortex::array::dtype::extension::ExtDType;
-    use vortex::array::extension::EmptyMetadata;
     use vortex::array::validity::Validity;
     use vortex_array::VortexSessionExecute;
     use vortex_buffer::BufferMut;

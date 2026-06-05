@@ -14,6 +14,7 @@ members = [
     "vortex-array",
     "vortex-row",
     "vortex-tensor",
+    "vortex-json",
     "vortex-turboquant",
     "vortex-compressor",
     "vortex-btrblocks",
@@ -154,7 +155,7 @@ dirs = "6.0.0"
 divan = { package = "codspeed-divan-compat", version = "4.0.4" }
 enum-iterator = "2.0.0"
 env_logger = "0.11"
-fastlanes = "0.5"
+fastlanes = "0.5.1"
 flatbuffers = "25.2.10"
 fsst-rs = "0.5.11"
 futures = { version = "0.3.31", default-features = false }
@@ -290,6 +291,7 @@ vortex-flatbuffers = { version = "0.1.0", path = "./vortex-flatbuffers", default
 vortex-fsst = { version = "0.1.0", path = "./encodings/fsst", default-features = false }
 vortex-io = { version = "0.1.0", path = "./vortex-io", default-features = false }
 vortex-ipc = { version = "0.1.0", path = "./vortex-ipc", default-features = false }
+vortex-json = { version = "0.1.0", path = "./vortex-json", default-features = false }
 vortex-layout = { version = "0.1.0", path = "./vortex-layout", default-features = false }
 vortex-mask = { version = "0.1.0", path = "./vortex-mask", default-features = false }
 vortex-metrics = { version = "0.1.0", path = "./vortex-metrics", default-features = false }
@@ -390,7 +392,7 @@ debug = "full"
 inherits = "release"
 
 [profile.bench]
-codegen-units = 1
+codegen-units = 16
 debug = "full"
 lto = false
 

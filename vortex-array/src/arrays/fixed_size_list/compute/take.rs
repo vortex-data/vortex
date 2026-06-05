@@ -175,12 +175,10 @@ fn take_nullable_fsl<I: IntegerPType, E: IntegerPType>(
     let mut new_validity_builder = BitBufferMut::with_capacity(new_len);
 
     // Build the element indices while tracking which lists are null.
-    for (i, data_idx) in indices.iter().enumerate() {
+    for (data_idx, is_index_valid) in indices.iter().zip(indices_validity.iter()) {
         let data_idx = data_idx
             .to_usize()
             .unwrap_or_else(|| vortex_panic!("Failed to convert index to usize: {}", data_idx));
-
-        let is_index_valid = indices_validity.value(i);
 
         // The list is null if the index is null or the indexed element is null.
         if !is_index_valid || !array_validity.value(data_idx) {

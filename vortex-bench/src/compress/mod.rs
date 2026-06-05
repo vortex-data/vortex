@@ -16,6 +16,31 @@ use crate::Format;
 use crate::measurements::CompressionTimingMeasurement;
 use crate::measurements::CustomUnitMeasurement;
 
+/// Number of top-level columns in the wide-table decompression projection benchmark.
+pub const READ_PROJECTION_ROOT_COLUMNS: usize = 100_000;
+
+/// Number of top-level columns read by the wide-table decompression projection benchmark.
+pub const READ_PROJECTION_COLUMNS: usize = 10_000;
+
+/// Fixed read projection for the wide-table decompression projection benchmark.
+pub static READ_PROJECTION: [usize; READ_PROJECTION_COLUMNS] = make_read_projection();
+
+const fn make_read_projection() -> [usize; READ_PROJECTION_COLUMNS] {
+    let stride = READ_PROJECTION_ROOT_COLUMNS / READ_PROJECTION_COLUMNS;
+    let mut projection = [0; READ_PROJECTION_COLUMNS];
+    let mut idx = 0;
+    while idx < READ_PROJECTION_COLUMNS {
+        projection[idx] = idx * stride;
+        idx += 1;
+    }
+    projection
+}
+
+/// Read projection for a file with `root_columns` top-level columns, if this benchmark projects it.
+pub fn read_projection(root_columns: usize) -> Option<&'static [usize]> {
+    (root_columns == READ_PROJECTION_ROOT_COLUMNS).then_some(&READ_PROJECTION)
+}
+
 #[derive(Default)]
 pub struct CompressMeasurements {
     pub timings: Vec<CompressionTimingMeasurement>,
@@ -100,6 +125,9 @@ pub trait Compressor: Send + Sync {
     ///
     /// This method first compresses the data to the target format, then decompresses it.
     /// The timing returned should only measure the decompression phase.
+    ///
+    /// Format implementations apply the fixed wide-table read projection when the input schema
+    /// matches the projection benchmark.
     async fn decompress(&self, parquet_path: &Path) -> Result<Duration>;
 }
 

@@ -13,6 +13,7 @@ use arrow_array::RecordBatch;
 use arrow_array::StructArray;
 use arrow_array::ffi::FFI_ArrowArray;
 use arrow_array::ffi::FFI_ArrowSchema;
+use arrow_schema::SchemaRef;
 use async_fs::File;
 use futures::SinkExt;
 use futures::channel::mpsc;
@@ -28,12 +29,16 @@ use object_store::ObjectStore;
 use object_store::path::Path as ObjectStorePath;
 use url::Url;
 use vortex::array::ArrayRef;
-use vortex::array::arrow::FromArrowArray;
+use vortex::array::VTable;
+use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::dtype::DType;
+use vortex::dtype::Field as DTypeField;
+use vortex::dtype::FieldPath;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::file::WriteOptionsSessionExt;
+use vortex::file::WriteStrategyBuilder;
 use vortex::file::WriteSummary;
 use vortex::io::VortexWrite;
 use vortex::io::compat::Compat;
@@ -41,10 +46,12 @@ use vortex::io::object_store::ObjectStoreWrite;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::Task;
 use vortex::io::session::RuntimeSessionExt;
+use vortex::session::VortexSession;
 use vortex::utils::aliases::hash_map::HashMap;
+use vortex_parquet_variant::ParquetVariant;
 
 use crate::RUNTIME;
-use crate::dtype::import_dtype_from_arrow;
+use crate::dtype::import_arrow_schema;
 use crate::errors::JNIError;
 use crate::errors::try_or_throw;
 use crate::file::extract_properties;
@@ -81,21 +88,66 @@ fn resolve_store(
     }
 }
 
+fn write_options_for_schema(
+    session: &VortexSession,
+    write_schema: &DType,
+) -> vortex::file::VortexWriteOptions {
+    let variant_paths = variant_field_paths(write_schema);
+    if variant_paths.is_empty() {
+        return session.write_options();
+    }
+
+    let mut allowed = vortex::file::ALLOWED_ENCODINGS.clone();
+    allowed.insert(ParquetVariant.id());
+
+    let strategy = WriteStrategyBuilder::default().with_allow_encodings(allowed);
+
+    session.write_options().with_strategy(strategy.build())
+}
+
+fn variant_field_paths(dtype: &DType) -> Vec<FieldPath> {
+    let mut paths = Vec::new();
+    collect_variant_field_paths(dtype, FieldPath::root(), &mut paths);
+    paths
+}
+
+fn collect_variant_field_paths(dtype: &DType, path: FieldPath, paths: &mut Vec<FieldPath>) {
+    match dtype {
+        DType::Variant(_) => paths.push(path),
+        DType::Struct(fields, _) => {
+            for (name, field_dtype) in fields.names().iter().zip(fields.fields()) {
+                collect_variant_field_paths(
+                    &field_dtype,
+                    path.clone().push(DTypeField::from(name.clone())),
+                    paths,
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Native writer holding a write-task handle and a sender that Java pushes batches into.
 pub struct NativeWriter {
     handle: Option<Task<VortexResult<WriteSummary>>>,
+    session: VortexSession,
+    arrow_schema: SchemaRef,
     write_schema: DType,
     sender: mpsc::Sender<VortexResult<ArrayRef>>,
 }
 
 impl NativeWriter {
     pub fn new(
+        session: VortexSession,
+        arrow_schema: SchemaRef,
         write_schema: DType,
         handle: Task<VortexResult<WriteSummary>>,
         sender: mpsc::Sender<VortexResult<ArrayRef>>,
     ) -> Self {
         Self {
             handle: Some(handle),
+            session,
+            arrow_schema,
             write_schema,
             sender,
         }
@@ -117,7 +169,10 @@ impl NativeWriter {
     }
 
     fn write_record_batch(&self, batch: RecordBatch) -> VortexResult<()> {
-        let vortex_batch = ArrayRef::from_arrow(batch, false)?;
+        let vortex_batch = self
+            .session
+            .arrow()
+            .from_arrow_record_batch(batch, self.arrow_schema.as_ref())?;
         if !vortex_batch.dtype().eq(&self.write_schema) {
             return Err(vortex_err!(
                 "write schema mismatch: expected {}, got {}",
@@ -162,13 +217,15 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
         }
         let session = unsafe { session_ref(session_ptr) };
 
-        let write_schema = import_dtype_from_arrow(arrow_schema_addr)?;
+        let arrow_schema = Arc::new(import_arrow_schema(arrow_schema_addr)?);
+        let write_schema = session.arrow().from_arrow_schema(arrow_schema.as_ref())?;
 
         let file_path: String = uri.try_to_string(env)?;
         let properties: HashMap<String, String> = extract_properties(env, &options)?;
         let resolved = resolve_store(&file_path, &properties)?;
         let (tx, rx) = mpsc::channel(WRITE_CHANNEL_CAPACITY);
         let stream = ArrayStreamAdapter::new(write_schema.clone(), rx);
+        let write_options = write_options_for_schema(session, &write_schema);
 
         let handle = session.handle().spawn(async move {
             match resolved {
@@ -177,21 +234,28 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
                         async_fs::create_dir_all(parent).await?;
                     }
                     let mut file = File::create(path).await?;
-                    let summary = session.write_options().write(&mut file, stream).await?;
+                    let summary = write_options.write(&mut file, stream).await?;
                     file.shutdown().await?;
                     Ok(summary)
                 }
                 ResolvedStore::ObjectStore(store, path) => {
                     let mut write =
                         ObjectStoreWrite::new(Arc::new(Compat::new(store)), &path).await?;
-                    let summary = session.write_options().write(&mut write, stream).await?;
+                    let summary = write_options.write(&mut write, stream).await?;
                     write.shutdown().await?;
                     Ok(summary)
                 }
             }
         });
 
-        Ok(Box::new(NativeWriter::new(write_schema, handle, tx)).into_raw())
+        Ok(Box::new(NativeWriter::new(
+            session.clone(),
+            arrow_schema,
+            write_schema,
+            handle,
+            tx,
+        ))
+        .into_raw())
     })
 }
 

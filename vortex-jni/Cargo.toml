@@ -30,6 +30,7 @@ tracing = { workspace = true, features = ["std", "log"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "files"] }
+vortex-parquet-variant = { workspace = true }
 
 [dev-dependencies]
 jni = { workspace = true, features = ["invocation"] }
