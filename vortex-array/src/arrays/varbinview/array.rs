@@ -318,9 +318,16 @@ impl VarBinViewData {
     where
         F: Fn(&[u8]) -> bool,
     {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        // Only array-backed validity needs an execution context; the constant variants resolve
+        // null-ness without one, so avoid constructing a context in the common (non-null) case.
+        let mut ctx =
+            matches!(validity, Validity::Array(_)).then(|| LEGACY_SESSION.create_execution_ctx());
         for (idx, &view) in views.iter().enumerate() {
-            if validity.execute_is_null(idx, &mut ctx)? {
+            let is_null = match ctx.as_mut() {
+                Some(ctx) => validity.execute_is_null(idx, ctx)?,
+                None => matches!(validity, Validity::AllInvalid),
+            };
+            if is_null {
                 continue;
             }
 

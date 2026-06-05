@@ -14,6 +14,7 @@ use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::ArraySlots;
+use crate::ExecutionCtx;
 use crate::LEGACY_SESSION;
 #[expect(deprecated)]
 use crate::ToCanonical as _;
@@ -244,32 +245,53 @@ impl VarBinData {
             && matches!(dtype, DType::Utf8(_))
             && let Some(bytes) = bytes.as_host_opt()
         {
-            #[expect(deprecated)]
-            let primitive_offsets = offsets.to_primitive();
-            match_each_integer_ptype!(primitive_offsets.dtype().as_ptype(), |O| {
-                let offsets_slice = primitive_offsets.as_slice::<O>();
-                let mut ctx = LEGACY_SESSION.create_execution_ctx();
-                for (i, (start, end)) in offsets_slice
-                    .windows(2)
-                    .map(|o| (o[0].as_(), o[1].as_()))
-                    .enumerate()
-                {
-                    if validity.execute_is_null(i, &mut ctx)? {
-                        continue;
-                    }
-
-                    let string_bytes = &bytes.as_ref()[start..end];
-                    simdutf8::basic::from_utf8(string_bytes).map_err(|_| {
-                        #[expect(clippy::unwrap_used)]
-                        // run validation using `compat` package to get more detailed error message
-                        let err = simdutf8::compat::from_utf8(string_bytes).unwrap_err();
-                        vortex_err!("invalid utf-8: {err} at index {i}")
-                    })?;
-                }
-            });
+            Self::validate_utf8(offsets, bytes.as_ref(), validity)?;
         }
 
         Ok(())
+    }
+
+    /// Validates that every non-null value is valid UTF-8.
+    fn validate_utf8(offsets: &ArrayRef, bytes: &[u8], validity: &Validity) -> VortexResult<()> {
+        #[expect(deprecated)]
+        let primitive_offsets = offsets.to_primitive();
+        // Only array-backed validity needs an execution context; the constant variants resolve
+        // null-ness without one, so avoid constructing a context otherwise.
+        let mut ctx =
+            matches!(validity, Validity::Array(_)).then(|| LEGACY_SESSION.create_execution_ctx());
+        match_each_integer_ptype!(primitive_offsets.dtype().as_ptype(), |O| {
+            let offsets_slice = primitive_offsets.as_slice::<O>();
+            for (i, (start, end)) in offsets_slice
+                .windows(2)
+                .map(|o| (o[0].as_(), o[1].as_()))
+                .enumerate()
+            {
+                if Self::is_null_at(validity, i, ctx.as_mut())? {
+                    continue;
+                }
+
+                let string_bytes = &bytes[start..end];
+                simdutf8::basic::from_utf8(string_bytes).map_err(|_| {
+                    #[expect(clippy::unwrap_used)]
+                    // run validation using `compat` package to get more detailed error message
+                    let err = simdutf8::compat::from_utf8(string_bytes).unwrap_err();
+                    vortex_err!("invalid utf-8: {err} at index {i}")
+                })?;
+            }
+        });
+        Ok(())
+    }
+
+    /// Resolves null-ness at `index`, using `ctx` only for array-backed validity.
+    fn is_null_at(
+        validity: &Validity,
+        index: usize,
+        ctx: Option<&mut ExecutionCtx>,
+    ) -> VortexResult<bool> {
+        match ctx {
+            Some(ctx) => validity.execute_is_null(index, ctx),
+            None => Ok(matches!(validity, Validity::AllInvalid)),
+        }
     }
 
     /// Access the value bytes child buffer
