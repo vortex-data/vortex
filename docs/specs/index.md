@@ -11,4 +11,5 @@ file-format
 ipc-format
 dtype-format
 scalar-format
+row-encoding
 ```

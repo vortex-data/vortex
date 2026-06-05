@@ -28,13 +28,11 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
-use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::NullArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
@@ -227,11 +225,11 @@ pub(crate) fn row_width_for_dtype(dtype: &DType) -> VortexResult<RowWidth> {
                 "row encoding does not support variable-size List arrays (no well-defined ordering)"
             )
         }
-        DType::Extension(ext) => row_width_for_dtype(ext.storage_dtype()),
         DType::Variant(_) => {
             vortex_bail!("row encoding does not support Variant arrays (no well-defined ordering)")
         }
         DType::Union(_) => vortex_bail!("row encoding does not support Union arrays"),
+        dtype => vortex_bail!("row encoding does not support dtype: {dtype:?}"),
     }
 }
 
@@ -257,13 +255,18 @@ pub(crate) fn field_size(
         Canonical::VarBinView(arr) => add_size_varbinview(arr, sizes, ctx)?,
         Canonical::Struct(arr) => add_size_struct(arr, field, sizes, ctx)?,
         Canonical::FixedSizeList(arr) => add_size_fsl(arr, field, sizes, ctx)?,
-        Canonical::Extension(arr) => add_size_extension(arr, field, sizes, ctx)?,
         Canonical::List(_) => vortex_bail!(
             "row encoding does not support canonical List arrays: {:?}",
             canonical.dtype()
         ),
         Canonical::Variant(_) => {
             vortex_bail!("row encoding does not support Variant arrays (no well-defined ordering)")
+        }
+        unsupported => {
+            vortex_bail!(
+                "row encoding does not support canonical array: {:?}",
+                unsupported.dtype()
+            )
         }
     }
     Ok(())
@@ -344,13 +347,18 @@ pub(crate) fn field_encode(
         Canonical::VarBinView(arr) => encode_varbinview(arr, field, offsets, cursors, out, ctx)?,
         Canonical::Struct(arr) => encode_struct(arr, field, offsets, cursors, out, ctx)?,
         Canonical::FixedSizeList(arr) => encode_fsl(arr, field, offsets, cursors, out, ctx)?,
-        Canonical::Extension(arr) => encode_extension(arr, field, offsets, cursors, out, ctx)?,
         Canonical::List(_) => vortex_bail!(
             "row encoding does not support canonical List arrays: {:?}",
             canonical.dtype()
         ),
         Canonical::Variant(_) => {
             vortex_bail!("row encoding does not support Variant arrays (no well-defined ordering)")
+        }
+        unsupported => {
+            vortex_bail!(
+                "row encoding does not support canonical array: {:?}",
+                unsupported.dtype()
+            )
         }
     }
     Ok(())
@@ -502,16 +510,6 @@ fn add_size_fsl(
         }
     }
     Ok(())
-}
-
-fn add_size_extension(
-    arr: &ExtensionArray,
-    field: RowSortField,
-    sizes: &mut [u32],
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<()> {
-    let storage = arr.storage_array().clone().execute::<Canonical>(ctx)?;
-    field_size(&storage, field, sizes, ctx)
 }
 
 fn encode_null(
@@ -997,18 +995,6 @@ fn encode_variable_child(
         }
     }
     Ok(())
-}
-
-fn encode_extension(
-    arr: &ExtensionArray,
-    field: RowSortField,
-    row_offsets: &[u32],
-    col_offset: &mut [u32],
-    out: &mut [u8],
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<()> {
-    let storage = arr.storage_array().clone().execute::<Canonical>(ctx)?;
-    field_encode(&storage, field, row_offsets, col_offset, out, ctx)
 }
 
 /// Arithmetic-write primitive encoder: writes each row's `sentinel + value` slot at a

@@ -6,6 +6,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::ListViewArray;
+use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::VecExecutionArgs;
 use vortex_error::VortexResult;
@@ -85,6 +86,7 @@ impl RowEncoder {
         };
         let nrows = cols[0].len();
         for (i, col) in cols.iter().enumerate() {
+            reject_extension_dtype(col.dtype())?;
             if col.len() != nrows {
                 vortex_bail!(
                     "RowEncoder: column {} has length {} but expected {}",
@@ -96,6 +98,27 @@ impl RowEncoder {
         }
         Ok((options, VecExecutionArgs::new(cols.to_vec(), nrows)))
     }
+}
+
+fn reject_extension_dtype(dtype: &DType) -> VortexResult<()> {
+    match dtype {
+        DType::Extension(ext_dtype) => {
+            vortex_bail!(
+                "row encoding does not support Extension arrays yet: {}",
+                ext_dtype.id()
+            )
+        }
+        DType::Struct(fields, _) => {
+            for field_dtype in fields.fields() {
+                reject_extension_dtype(&field_dtype)?;
+            }
+        }
+        DType::FixedSizeList(elem, ..) | DType::List(elem, _) => {
+            reject_extension_dtype(elem)?;
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 /// Convert N columnar arrays into a single row-oriented [`ListViewArray`] of `u8` whose bytes

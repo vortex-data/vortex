@@ -162,7 +162,7 @@ pub(crate) fn compute_sizes(
 ///
 /// The total per-row byte size is `fixed + var`.
 ///
-/// This scalar function is public for session registration and encoding extension work.
+/// This scalar function is public for session registration and row-encoding work.
 /// Most callers should use [`RowEncoder::row_sizes`](crate::RowEncoder::row_sizes) rather
 /// than invoking the scalar function directly.
 #[derive(Clone, Debug)]

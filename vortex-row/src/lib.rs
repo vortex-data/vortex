@@ -23,9 +23,9 @@
 //! into the per-row slots from left to right.
 //!
 //! Supported logical types are nulls, booleans, primitive integers and floats, decimals up to
-//! 128 bits, UTF-8 and binary values, structs, fixed-size lists, and extensions whose storage
-//! type is supported. Variant, union, and variable-size list arrays are rejected because this
-//! crate does not define an ordering for them.
+//! 128 bits, UTF-8 and binary values, structs, and fixed-size lists. Extension, variant,
+//! union, and variable-size list arrays are rejected because this crate does not define an
+//! ordering for them.
 
 mod codec;
 mod encode;

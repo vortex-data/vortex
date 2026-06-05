@@ -10,10 +10,15 @@ use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::listview::ListViewArrayExt;
+use vortex_array::dtype::Nullability;
+use vortex_array::extension::datetime::Date;
+use vortex_array::extension::datetime::TimeUnit;
 use vortex_error::VortexResult;
 
 use crate::RowEncoder;
@@ -85,6 +90,41 @@ fn primitive_u32_sort_order() -> VortexResult<()> {
     sorted_idx.sort_by(|a, b| values[*a].cmp(&values[*b]));
     let expected: Vec<Vec<u8>> = sorted_idx.iter().map(|&i| rows[i].clone()).collect();
     assert_eq!(sorted_rows, expected);
+    Ok(())
+}
+
+#[test]
+fn reject_temporal_extension_dtype_early() -> VortexResult<()> {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let storage = PrimitiveArray::from_iter([2i32, -1, 0, 7]).into_array();
+    let ext_dtype = Date::new(TimeUnit::Days, Nullability::NonNullable).erased();
+    let col = ExtensionArray::new(ext_dtype, storage).into_array();
+
+    let err = convert_columns(&[col], &[RowSortField::ascending()], &mut ctx)
+        .expect_err("temporal extensions should be rejected");
+    assert!(
+        err.to_string().contains("Extension arrays yet"),
+        "expected error mentioning unsupported Extension arrays, got: {err}"
+    );
+    Ok(())
+}
+
+#[test]
+fn reject_nested_temporal_extension_dtype_early() -> VortexResult<()> {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let storage = PrimitiveArray::from_iter([2i32, -1, 0, 7]).into_array();
+    let ext_dtype = Date::new(TimeUnit::Days, Nullability::NonNullable).erased();
+    let date_col = ExtensionArray::new(ext_dtype, storage).into_array();
+    let tag_col = VarBinViewArray::from_iter_str(["d", "b", "c", "a"]).into_array();
+    let struct_col =
+        StructArray::from_fields(&[("date", date_col), ("tag", tag_col)])?.into_array();
+
+    let err = convert_columns(&[struct_col], &[RowSortField::ascending()], &mut ctx)
+        .expect_err("nested temporal extensions should be rejected");
+    assert!(
+        err.to_string().contains("Extension arrays yet"),
+        "expected error mentioning unsupported Extension arrays, got: {err}"
+    );
     Ok(())
 }
 

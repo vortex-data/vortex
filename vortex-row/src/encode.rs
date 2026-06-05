@@ -41,7 +41,7 @@ use crate::size::compute_sizes;
 /// [`ListViewArray`] where row `i` contains the row-encoded bytes for column values
 /// `cols[0][i], cols[1][i], ...` concatenated left-to-right.
 ///
-/// This scalar function is public for session registration and encoding extension work.
+/// This scalar function is public for session registration and row-encoding work.
 /// Most callers should use [`RowEncoder`](crate::RowEncoder) rather than invoking the scalar
 /// function directly.
 #[derive(Clone, Debug)]
