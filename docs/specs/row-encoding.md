@@ -7,7 +7,7 @@ logical tuple comparison of the input values under the configured row sort optio
 
 This is a schema-aware row-key format. The bytes do not contain type tags, field names, or
 sort options. Two encoded rows are comparable only when they were produced with the same
-input schema and the same per-column `RowSortField` settings.
+input schema and the same per-column `RowSortFieldOptions` settings.
 
 The row encoding is not the Vortex file format or scalar IPC format. It is an internal
 comparison representation used for sort keys and row-key operations.
@@ -72,10 +72,10 @@ For example:
 
 ## Field Options
 
-Each input column has a `RowSortField`:
+Each input column has a `RowSortFieldOptions`:
 
 ```text
-RowSortField {
+RowSortFieldOptions {
     descending: bool,
     nulls_first: bool,
 }
@@ -361,7 +361,7 @@ The outer sentinel is the fixed-width sentinel:
 - `0x00` or `0x02` for a null struct, depending on null placement
 
 For a non-null struct, each field is encoded recursively in schema order using the same
-`RowSortField` as the parent struct column.
+`RowSortFieldOptions` as the parent struct column.
 
 For a null struct, the body is canonicalized so two null parent rows produce byte-equal
 output even if their physical child arrays contain different values:
@@ -386,7 +386,7 @@ The outer sentinel is the fixed-width sentinel:
 - `0x00` or `0x02` for a null list, depending on null placement
 
 For a non-null fixed-size list, elements are encoded recursively in element order using the
-same `RowSortField` as the parent list column.
+same `RowSortFieldOptions` as the parent list column.
 
 For a null fixed-size list, the body is canonicalized:
 

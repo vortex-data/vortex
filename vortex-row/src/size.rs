@@ -44,7 +44,7 @@ use crate::options::serialize_row_encoding_options;
 /// path (no varlen before this column, so the within-row position is constant per row) and
 /// the cursor-write path.
 #[derive(Clone, Copy, Debug)]
-pub(crate) enum ColKind {
+pub(crate) enum ColumnKind {
     /// Fixed-width column. `prefix` is the within-row byte offset of this column's first
     /// byte. When `before_varlen` is true no variable-length column precedes this one, so the
     /// within-row offset is constant for every row.
@@ -63,7 +63,7 @@ pub(crate) enum ColKind {
 pub(crate) struct SizePassResult {
     pub fixed_per_row: u32,
     pub var_lengths: Option<Vec<u32>>,
-    pub col_kinds: Vec<ColKind>,
+    pub col_kinds: Vec<ColumnKind>,
     pub first_varlen_idx: Option<usize>,
     pub columns: Vec<Canonical>,
 }
@@ -97,7 +97,7 @@ pub(crate) fn compute_sizes(
     let nrows = args.row_count();
 
     let mut columns: Vec<Canonical> = Vec::with_capacity(n_inputs);
-    let mut col_kinds: Vec<ColKind> = Vec::with_capacity(n_inputs);
+    let mut col_kinds: Vec<ColumnKind> = Vec::with_capacity(n_inputs);
     let mut fixed_per_row: u32 = 0;
     let mut var_lengths: Option<Vec<u32>> = None;
     let mut first_varlen_idx: Option<usize> = None;
@@ -118,7 +118,7 @@ pub(crate) fn compute_sizes(
         let canonical = col.execute::<Canonical>(ctx)?;
         match width {
             RowWidth::Fixed(w) => {
-                col_kinds.push(ColKind::Fixed {
+                col_kinds.push(ColumnKind::Fixed {
                     prefix: running_fixed_prefix,
                     before_varlen: first_varlen_idx.is_none(),
                 });
@@ -133,7 +133,7 @@ pub(crate) fn compute_sizes(
                 }
                 let v = var_lengths.get_or_insert_with(|| vec![0u32; nrows]);
                 codec::field_size(&canonical, options.fields[i], v, ctx)?;
-                col_kinds.push(ColKind::Variable {
+                col_kinds.push(ColumnKind::Variable {
                     fixed_prefix: running_fixed_prefix,
                 });
             }
@@ -151,7 +151,7 @@ pub(crate) fn compute_sizes(
 }
 
 /// Variadic scalar function that, given N input columns and per-column
-/// [`RowSortField`](crate::RowSortField)s,
+/// [`RowSortFieldOptions`](crate::RowSortFieldOptions)s,
 /// returns a `Struct { fixed: U32, var: U32 }` array of per-row byte sizes for the
 /// row-oriented encoding produced by [`RowEncode`](super::encode::RowEncode).
 ///

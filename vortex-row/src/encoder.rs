@@ -14,12 +14,12 @@ use vortex_error::vortex_bail;
 
 use crate::encode::RowEncode;
 use crate::options::RowEncodingOptions;
-use crate::options::RowSortField;
+use crate::options::RowSortFieldOptions;
 use crate::size::RowSize;
 
 /// Encodes N columnar arrays into a single row-oriented [`ListViewArray`] of `u8` whose row
 /// byte slices compare lexicographically in the same order as a tuple comparison of the input
-/// values under the configured [`RowSortField`]s.
+/// values under the configured [`RowSortFieldOptions`]s.
 ///
 /// Construct with [`RowEncoder::new`] or [`RowEncoder::with_options`] to pin the per-column
 /// sort options, or use [`RowEncoder::default`] to apply ascending, nulls-first ordering to
@@ -30,8 +30,8 @@ pub struct RowEncoder {
 }
 
 impl RowEncoder {
-    /// Construct a `RowEncoder` from one [`RowSortField`] per input column.
-    pub fn new(fields: impl IntoIterator<Item = RowSortField>) -> Self {
+    /// Construct a `RowEncoder` from one [`RowSortFieldOptions`] per input column.
+    pub fn new(fields: impl IntoIterator<Item = RowSortFieldOptions>) -> Self {
         Self {
             options: Some(RowEncodingOptions::new(fields)),
         }
@@ -126,7 +126,7 @@ fn reject_extension_dtype(dtype: &DType) -> VortexResult<()> {
 /// values according to `fields`. Convenience wrapper over [`RowEncoder::encode`].
 pub fn convert_columns(
     cols: &[ArrayRef],
-    fields: &[RowSortField],
+    fields: &[RowSortFieldOptions],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ListViewArray> {
     RowEncoder::new(fields.iter().copied()).encode(cols, ctx)
@@ -145,7 +145,7 @@ pub fn convert_columns_with_options(
 /// Convenience wrapper over [`RowEncoder::row_sizes`].
 pub fn compute_row_sizes(
     cols: &[ArrayRef],
-    fields: &[RowSortField],
+    fields: &[RowSortFieldOptions],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     RowEncoder::new(fields.iter().copied()).row_sizes(cols, ctx)

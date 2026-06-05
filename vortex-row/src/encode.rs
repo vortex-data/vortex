@@ -34,7 +34,7 @@ use crate::codec;
 use crate::options::RowEncodingOptions;
 use crate::options::deserialize_row_encoding_options;
 use crate::options::serialize_row_encoding_options;
-use crate::size::ColKind;
+use crate::size::ColumnKind;
 use crate::size::compute_sizes;
 
 /// Variadic scalar function that encodes N input columns into a single `List<u8>`
@@ -160,7 +160,7 @@ fn execute_row_encode(
         && col_kinds.iter().any(|k| {
             matches!(
                 k,
-                ColKind::Fixed {
+                ColumnKind::Fixed {
                     before_varlen: true,
                     ..
                 }
@@ -212,8 +212,8 @@ fn execute_row_encode(
     // cursors already correct as per-row sizes.
     let initial_cursor: u32 = match first_varlen_idx {
         Some(idx) => match col_kinds[idx] {
-            ColKind::Variable { fixed_prefix } => fixed_prefix,
-            ColKind::Fixed { .. } => unreachable!("first_varlen_idx points at a varlen column"),
+            ColumnKind::Variable { fixed_prefix } => fixed_prefix,
+            ColumnKind::Fixed { .. } => unreachable!("first_varlen_idx points at a varlen column"),
         },
         None => fixed_per_row,
     };
@@ -226,7 +226,7 @@ fn execute_row_encode(
     // path. Each column was canonicalized once during the size pass; reuse that form.
     for (i, canonical) in columns.iter().enumerate() {
         match col_kinds[i] {
-            ColKind::Fixed {
+            ColumnKind::Fixed {
                 prefix,
                 before_varlen: true,
                 ..
@@ -242,7 +242,7 @@ fn execute_row_encode(
                     ctx,
                 )?;
             }
-            ColKind::Fixed { .. } | ColKind::Variable { .. } => {
+            ColumnKind::Fixed { .. } | ColumnKind::Variable { .. } => {
                 codec::field_encode(
                     canonical,
                     options.fields[i],

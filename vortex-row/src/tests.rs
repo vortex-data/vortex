@@ -23,7 +23,7 @@ use vortex_error::VortexResult;
 
 use crate::RowEncoder;
 use crate::RowEncodingOptions;
-use crate::RowSortField;
+use crate::RowSortFieldOptions;
 use crate::compute_row_sizes_with_options;
 use crate::convert_columns;
 use crate::convert_columns_with_options;
@@ -45,7 +45,7 @@ fn collect_row_bytes(array: &ListViewArray) -> Vec<Vec<u8>> {
 fn assert_sort_order_i64(values: Vec<i64>, descending: bool) -> VortexResult<()> {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let col = PrimitiveArray::from_iter(values.clone()).into_array();
-    let field = RowSortField::new(descending, true);
+    let field = RowSortFieldOptions::new(descending, true);
     let encoded = convert_columns(&[col], &[field], &mut ctx)?;
     let rows = collect_row_bytes(&encoded);
 
@@ -80,7 +80,7 @@ fn primitive_u32_sort_order() -> VortexResult<()> {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let values: Vec<u32> = vec![0, 1, 100, u32::MAX, 42, 17];
     let col = PrimitiveArray::from_iter(values.clone()).into_array();
-    let encoded = convert_columns(&[col], &[RowSortField::default()], &mut ctx)?;
+    let encoded = convert_columns(&[col], &[RowSortFieldOptions::default()], &mut ctx)?;
     let rows = collect_row_bytes(&encoded);
 
     let mut sorted_rows = rows.clone();
@@ -100,7 +100,7 @@ fn reject_temporal_extension_dtype_early() -> VortexResult<()> {
     let ext_dtype = Date::new(TimeUnit::Days, Nullability::NonNullable).erased();
     let col = ExtensionArray::new(ext_dtype, storage).into_array();
 
-    let err = convert_columns(&[col], &[RowSortField::ascending()], &mut ctx)
+    let err = convert_columns(&[col], &[RowSortFieldOptions::ascending()], &mut ctx)
         .expect_err("temporal extensions should be rejected");
     assert!(
         err.to_string().contains("Extension arrays yet"),
@@ -119,7 +119,7 @@ fn reject_nested_temporal_extension_dtype_early() -> VortexResult<()> {
     let struct_col =
         StructArray::from_fields(&[("date", date_col), ("tag", tag_col)])?.into_array();
 
-    let err = convert_columns(&[struct_col], &[RowSortField::ascending()], &mut ctx)
+    let err = convert_columns(&[struct_col], &[RowSortFieldOptions::ascending()], &mut ctx)
         .expect_err("nested temporal extensions should be rejected");
     assert!(
         err.to_string().contains("Extension arrays yet"),
@@ -136,7 +136,7 @@ fn primitive_f64_sort_order() -> VortexResult<()> {
     // -0.0 == 0.0.
     let values: Vec<f64> = vec![-1.5, 0.0, 1.5, f64::INFINITY, f64::NEG_INFINITY, PI];
     let col = PrimitiveArray::from_iter(values.clone()).into_array();
-    let encoded = convert_columns(&[col], &[RowSortField::default()], &mut ctx)?;
+    let encoded = convert_columns(&[col], &[RowSortFieldOptions::default()], &mut ctx)?;
     let rows = collect_row_bytes(&encoded);
 
     let mut sorted_rows = rows.clone();
@@ -153,7 +153,7 @@ fn primitive_f64_sort_order() -> VortexResult<()> {
 fn bool_sort_order() -> VortexResult<()> {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let col = BoolArray::from_iter([true, false, true, false]).into_array();
-    let encoded = convert_columns(&[col], &[RowSortField::default()], &mut ctx)?;
+    let encoded = convert_columns(&[col], &[RowSortFieldOptions::default()], &mut ctx)?;
     let rows = collect_row_bytes(&encoded);
 
     let mut sorted = rows.clone();
@@ -178,7 +178,7 @@ fn utf8_sort_order() -> VortexResult<()> {
         "banana_loaf_for_test",
     ];
     let col = VarBinViewArray::from_iter_str(values.clone()).into_array();
-    let encoded = convert_columns(&[col], &[RowSortField::default()], &mut ctx)?;
+    let encoded = convert_columns(&[col], &[RowSortFieldOptions::default()], &mut ctx)?;
     let rows = collect_row_bytes(&encoded);
 
     let mut sorted = rows.clone();
@@ -200,7 +200,10 @@ fn multi_column_sort() -> VortexResult<()> {
     let col1 = VarBinViewArray::from_iter_str(strs.clone()).into_array();
     let encoded = convert_columns(
         &[col0, col1],
-        &[RowSortField::default(), RowSortField::default()],
+        &[
+            RowSortFieldOptions::default(),
+            RowSortFieldOptions::default(),
+        ],
         &mut ctx,
     )?;
     let rows = collect_row_bytes(&encoded);
@@ -223,7 +226,7 @@ fn nulls_first_and_last() -> VortexResult<()> {
     // nulls_first=true
     let encoded = convert_columns(
         std::slice::from_ref(&col),
-        &[RowSortField::ascending()],
+        &[RowSortFieldOptions::ascending()],
         &mut ctx,
     )?;
     let rows = collect_row_bytes(&encoded);
@@ -236,7 +239,11 @@ fn nulls_first_and_last() -> VortexResult<()> {
         assert_eq!(sorted[i][0], 0x00);
     }
     // nulls_first=false
-    let encoded = convert_columns(&[col], &[RowSortField::ascending().nulls_last()], &mut ctx)?;
+    let encoded = convert_columns(
+        &[col],
+        &[RowSortFieldOptions::ascending().nulls_last()],
+        &mut ctx,
+    )?;
     let rows = collect_row_bytes(&encoded);
     let mut sorted = rows;
     sorted.sort();
@@ -251,12 +258,12 @@ fn nulls_first_and_last() -> VortexResult<()> {
 #[test]
 fn reusable_options_helpers() -> VortexResult<()> {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
-    let options = RowEncodingOptions::new([RowSortField::descending().nulls_last()]);
+    let options = RowEncodingOptions::new([RowSortFieldOptions::descending().nulls_last()]);
     assert_eq!(options.len(), 1);
     assert!(!options.is_empty());
     assert_eq!(
         options.fields(),
-        &[RowSortField {
+        &[RowSortFieldOptions {
             descending: true,
             nulls_first: false
         }]
@@ -283,7 +290,7 @@ fn reusable_options_helpers() -> VortexResult<()> {
 #[test]
 fn row_encoder_new_accepts_sort_fields() -> VortexResult<()> {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
-    let encoder = RowEncoder::new([RowSortField::ascending()]);
+    let encoder = RowEncoder::new([RowSortFieldOptions::ascending()]);
     let col = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
 
     let encoded = encoder.encode(std::slice::from_ref(&col), &mut ctx)?;
@@ -312,7 +319,7 @@ fn struct_sort_order() -> VortexResult<()> {
     let name_arr = VarBinViewArray::from_iter_str(names.clone()).into_array();
     let struct_arr = StructArray::from_fields(&[("id", id_arr), ("name", name_arr)])?.into_array();
 
-    let encoded = convert_columns(&[struct_arr], &[RowSortField::default()], &mut ctx)?;
+    let encoded = convert_columns(&[struct_arr], &[RowSortFieldOptions::default()], &mut ctx)?;
     let rows = collect_row_bytes(&encoded);
 
     let mut sorted = rows.clone();
@@ -340,7 +347,10 @@ fn row_size_struct_shape() -> VortexResult<()> {
 
     let sizes = compute_row_sizes(
         &[col0, col1],
-        &[RowSortField::default(), RowSortField::default()],
+        &[
+            RowSortFieldOptions::default(),
+            RowSortFieldOptions::default(),
+        ],
         &mut ctx,
     )?;
     // Shape must be Struct { fixed, var }
@@ -384,7 +394,10 @@ fn single_buffer_invariant() -> VortexResult<()> {
     let col1 = VarBinViewArray::from_iter_str(strings.iter().map(String::as_str)).into_array();
     let encoded = convert_columns(
         &[col0, col1],
-        &[RowSortField::default(), RowSortField::default()],
+        &[
+            RowSortFieldOptions::default(),
+            RowSortFieldOptions::default(),
+        ],
         &mut ctx,
     )?;
 
@@ -417,7 +430,10 @@ fn multi_column_varlen_empty_vs_nul_byte_string() -> VortexResult<()> {
     let col2 = PrimitiveArray::from_iter([1i32, 1, 1, 1]).into_array();
     let encoded = convert_columns(
         &[col1, col2],
-        &[RowSortField::default(), RowSortField::default()],
+        &[
+            RowSortFieldOptions::default(),
+            RowSortFieldOptions::default(),
+        ],
         &mut ctx,
     )?;
     let rows = collect_row_bytes(&encoded);
@@ -454,7 +470,10 @@ fn multi_column_varlen_null_vs_empty() -> VortexResult<()> {
     let col2 = PrimitiveArray::from_iter([1i32, 1, 1, 1, 1]).into_array();
     let encoded = convert_columns(
         &[col1, col2],
-        &[RowSortField::ascending(), RowSortField::ascending()],
+        &[
+            RowSortFieldOptions::ascending(),
+            RowSortFieldOptions::ascending(),
+        ],
         &mut ctx,
     )?;
     let rows = collect_row_bytes(&encoded);
@@ -507,7 +526,7 @@ fn multi_column_varlen_null_vs_empty() -> VortexResult<()> {
 fn varlen_descending_empty_vs_non_empty() -> VortexResult<()> {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let col = VarBinViewArray::from_iter_str(["a", "", "abc"]).into_array();
-    let encoded = convert_columns(&[col], &[RowSortField::descending()], &mut ctx)?;
+    let encoded = convert_columns(&[col], &[RowSortFieldOptions::descending()], &mut ctx)?;
     let rows = collect_row_bytes(&encoded);
 
     // Natural order: "" < "a" < "abc"; descending byte sort: "abc" first, "" last.
@@ -541,7 +560,7 @@ fn null_struct_rows_with_varying_child_lengths_are_byte_equal() -> VortexResult<
     let validity = Validity::from(bits);
     let struct_arr = StructArray::try_new(field_names, vec![names], 3, validity)?.into_array();
 
-    let encoded = convert_columns(&[struct_arr], &[RowSortField::ascending()], &mut ctx)?;
+    let encoded = convert_columns(&[struct_arr], &[RowSortFieldOptions::ascending()], &mut ctx)?;
     let rows = collect_row_bytes(&encoded);
     assert_eq!(rows.len(), 3);
     // Both null parent rows must produce identical bytes despite the divergent children.
@@ -559,7 +578,7 @@ fn primitive_f32_sort_order() -> VortexResult<()> {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let values: Vec<f32> = vec![-1.5, 0.0, 1.5, f32::INFINITY, f32::NEG_INFINITY];
     let col = PrimitiveArray::from_iter(values.clone()).into_array();
-    let encoded = convert_columns(&[col], &[RowSortField::default()], &mut ctx)?;
+    let encoded = convert_columns(&[col], &[RowSortFieldOptions::default()], &mut ctx)?;
     let rows = collect_row_bytes(&encoded);
     let mut sorted_rows = rows.clone();
     sorted_rows.sort();
@@ -582,7 +601,7 @@ fn primitive_f16_sort_order() -> VortexResult<()> {
         f16::NEG_INFINITY,
     ];
     let col = PrimitiveArray::from_iter(values.clone()).into_array();
-    let encoded = convert_columns(&[col], &[RowSortField::default()], &mut ctx)?;
+    let encoded = convert_columns(&[col], &[RowSortFieldOptions::default()], &mut ctx)?;
     let rows = collect_row_bytes(&encoded);
     let mut sorted_rows = rows.clone();
     sorted_rows.sort();
@@ -590,6 +609,77 @@ fn primitive_f16_sort_order() -> VortexResult<()> {
     sorted_idx.sort_by(|a, b| values[*a].partial_cmp(&values[*b]).unwrap());
     let expected: Vec<Vec<u8>> = sorted_idx.iter().map(|&i| rows[i].clone()).collect();
     assert_eq!(sorted_rows, expected);
+    Ok(())
+}
+
+#[test]
+fn decimal_nullable_sort_order() -> VortexResult<()> {
+    use vortex_array::arrays::DecimalArray;
+    use vortex_array::dtype::DecimalDType;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::BitBuffer;
+    use vortex_buffer::Buffer;
+
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    // precision=9 -> minimal physical type I32; row 1 is null.
+    let dt = DecimalDType::new(9, 3);
+    let values: Vec<i32> = vec![5, 0, -7, 0, 123];
+    let validity = Validity::from(BitBuffer::from_iter([true, false, true, false, true]));
+    let col =
+        DecimalArray::new::<i32>(Buffer::<i32>::copy_from(&values), dt, validity).into_array();
+
+    let encoded = convert_columns(&[col], &[RowSortFieldOptions::ascending()], &mut ctx)?;
+    let mut sorted = collect_row_bytes(&encoded);
+    sorted.sort();
+    // nulls_first: the two null rows sort to the front and are byte-equal.
+    assert_eq!(sorted[0][0], 0x00, "null sentinel sorts first");
+    assert_eq!(sorted[0], sorted[1], "null decimal rows are byte-equal");
+    assert_eq!(sorted[1][0], 0x00);
+    assert_eq!(sorted[2][0], 0x01, "non-null sentinel");
+    Ok(())
+}
+
+/// Regression: a decimal column whose physical `values_type` is wider than its precision
+/// requires (precision 5 fits in `I32` but is stored as `i64`) must still encode correctly.
+/// The size pass reserves the precision-minimal width, so the encode pass must narrow the
+/// physical values to that same width rather than writing the wider physical bytes (which
+/// previously overran the per-row slot). Byte order must still match the natural value order.
+#[rstest]
+#[case::ascending(false)]
+#[case::descending(true)]
+fn decimal_wide_physical_storage_sort_order(#[case] descending: bool) -> VortexResult<()> {
+    use vortex_array::arrays::DecimalArray;
+    use vortex_array::dtype::DecimalDType;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    // precision=5 fits in I32 (4 bytes), but store physically as i64 (8 bytes).
+    let dt = DecimalDType::new(5, 2);
+    let values: Vec<i64> = vec![1, -4, 0, 99_999, -99_999, 42, -42];
+    let col =
+        DecimalArray::new::<i64>(Buffer::<i64>::copy_from(&values), dt, Validity::NonNullable)
+            .into_array();
+    let field = RowSortFieldOptions::new(descending, true);
+    let encoded = convert_columns(&[col], &[field], &mut ctx)?;
+    let rows = collect_row_bytes(&encoded);
+
+    // Each encoded row is the precision-minimal width: sentinel(1) + I32(4) = 5 bytes.
+    assert!(rows.iter().all(|r| r.len() == 5), "row lens: {:?}", rows);
+
+    let mut idx: Vec<usize> = (0..values.len()).collect();
+    if descending {
+        idx.sort_by(|a, b| values[*b].cmp(&values[*a]));
+    } else {
+        idx.sort_by(|a, b| values[*a].cmp(&values[*b]));
+    }
+    let expected: Vec<Vec<u8>> = idx.iter().map(|&i| rows[i].clone()).collect();
+    let mut sorted = rows;
+    sorted.sort();
+    assert_eq!(
+        sorted, expected,
+        "decimal byte order must match value order"
+    );
     Ok(())
 }
 
@@ -606,7 +696,7 @@ fn reject_list_dtype_early() {
     let list: ArrayRef = ListArray::try_new(elements, offsets, Validity::NonNullable)
         .unwrap()
         .into_array();
-    let err = convert_columns(&[list], &[RowSortField::default()], &mut ctx)
+    let err = convert_columns(&[list], &[RowSortFieldOptions::default()], &mut ctx)
         .expect_err("List should not be accepted");
     assert!(
         err.to_string().contains("List"),
