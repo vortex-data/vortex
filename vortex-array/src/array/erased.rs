@@ -390,16 +390,19 @@ impl ArrayRef {
     }
 
     /// Does the array match the given matcher.
+    #[inline]
     pub fn is<M: Matcher>(&self) -> bool {
         M::matches(self)
     }
 
     /// Returns the array downcast by the given matcher.
+    #[inline]
     pub fn as_<M: Matcher>(&self) -> M::Match<'_> {
         self.as_opt::<M>().vortex_expect("Failed to downcast")
     }
 
     /// Returns the array downcast by the given matcher.
+    #[inline]
     pub fn as_opt<M: Matcher>(&self) -> Option<M::Match<'_>> {
         M::try_match(self)
     }
@@ -738,10 +741,12 @@ impl IntoArray for ArrayRef {
 impl<V: VTable> Matcher for V {
     type Match<'a> = ArrayView<'a, V>;
 
+    #[inline]
     fn matches(array: &ArrayRef) -> bool {
         array.0.data.as_any().is::<ArrayData<V>>()
     }
 
+    #[inline]
     fn try_match(array: &'_ ArrayRef) -> Option<ArrayView<'_, V>> {
         let inner = array.0.data.as_any().downcast_ref::<ArrayData<V>>()?;
         // # Safety checked by `downcast_ref`.
