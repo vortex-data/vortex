@@ -85,6 +85,7 @@ impl FileLocation {
                 let (store, path) = DEFAULT_REGISTRY.resolve(&url)?;
                 Ok(FileLocation::Remote { store, path })
             }
+            // Not a URL: treat the input as a local filesystem path.
             Err(_) => Ok(FileLocation::Local(PathBuf::from(url_or_path))),
         }
     }
@@ -151,7 +152,7 @@ pub fn make_object_store(
         if let Some(cached) = OBJECT_STORES.lock().get(&cache_key) {
             return Ok(Arc::clone(cached));
         }
-        // Guard dropped at close of scope.
+        // guard dropped at close of scope
     }
 
     let store: Arc<dyn ObjectStore> = match scheme {
@@ -166,7 +167,7 @@ pub fn make_object_store(
                 // Use a generic S3 endpoint to avoid DNS resolution issues with
                 // region-specific endpoints.
                 .with_endpoint("https://s3.amazonaws.com")
-                // Use path-style URLs.
+                // Use path-style URLs
                 .with_virtual_hosted_style_request(false)
                 // Allow overriding to HTTP endpoints, e.g. LocalStack, MinIO.
                 .with_allow_http(true);

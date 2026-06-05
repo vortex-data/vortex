@@ -22,21 +22,21 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 #[derive(Debug, Default)]
 struct PathEntry {
-    /// Store, if defined at this path.
+    /// Store, if defined at this path
     store: Option<Arc<dyn ObjectStore>>,
-    /// Child [`PathEntry`], keyed by the next path segment in their path.
+    /// Child [`PathEntry`], keyed by the next path segment in their path
     children: HashMap<String, Self>,
 }
 
 impl PathEntry {
-    /// Lookup a store based on URL path.
+    /// Lookup a store based on URL path
     ///
-    /// Returns the store and its path segment depth.
+    /// Returns the store and its path segment depth
     fn lookup(&self, to_resolve: &Url) -> Option<(&Arc<dyn ObjectStore>, usize)> {
         let mut current = self;
         let mut ret = self.store.as_ref().map(|store| (store, 0));
         let mut depth = 0;
-        // Traverse the PathEntry tree to find the longest match.
+        // Traverse the PathEntry tree to find the longest match
         for segment in path_segments(to_resolve.path()) {
             match current.children.get(segment) {
                 Some(e) => {
@@ -60,7 +60,7 @@ impl PathEntry {
 /// [`parse_url_opts`] using case-insensitive environment variables, then cached.
 #[derive(Debug, Default)]
 pub struct Registry {
-    /// Mapping from [`url_key`] to [`PathEntry`].
+    /// Mapping from [`url_key`] to [`PathEntry`]
     map: RwLock<HashMap<String, PathEntry>>,
 }
 
@@ -99,7 +99,7 @@ impl ObjectStoreRegistry for Registry {
             }
             let store = Arc::clone(match &entry.store {
                 None => entry.store.insert(Arc::from(store)),
-                Some(x) => x, // Racing creation - use existing.
+                Some(x) => x, // Racing creation - use existing
             });
 
             let path = path_suffix(to_resolve, depth)?;
@@ -113,24 +113,24 @@ impl ObjectStoreRegistry for Registry {
     }
 }
 
-/// Extracts the scheme and authority of a URL (components before the path).
+/// Extracts the scheme and authority of a URL (components before the Path)
 fn url_key(url: &Url) -> &str {
     &url[..url::Position::AfterPort]
 }
 
-/// Returns the non-empty segments of a path.
+/// Returns the non-empty segments of a path
 ///
-/// Note: We don't use [`Url::path_segments`] as we only want non-empty paths.
+/// Note: We don't use [`Url::path_segments`] as we only want non-empty paths
 fn path_segments(s: &str) -> impl Iterator<Item = &str> {
     s.split('/').filter(|x| !x.is_empty())
 }
 
-/// Returns the number of non-empty path segments in a path.
+/// Returns the number of non-empty path segments in a path
 fn num_segments(s: &str) -> usize {
     path_segments(s).count()
 }
 
-/// Returns the path of `url` skipping the first `depth` segments.
+/// Returns the path of `url` skipping the first `depth` segments
 fn path_suffix(url: &Url, depth: usize) -> Result<Path, object_store::Error> {
     let segments = path_segments(url.path()).skip(depth);
     let path = segments
@@ -163,7 +163,7 @@ mod tests {
 
         func();
 
-        // Set the variable back to its original value.
+        // Set the variable back to its original value
         match old_val {
             None => {
                 unsafe { std::env::remove_var(key) };
