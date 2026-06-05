@@ -7,6 +7,7 @@ mod array;
 pub mod compress;
 pub mod error;
 pub mod fsst_like;
+pub mod row_order;
 
 // File module only available for native builds (requires vortex-file which uses tokio)
 #[cfg(not(target_arch = "wasm32"))]
@@ -31,6 +32,8 @@ pub use fsst_like::run_fsst_like_fuzz;
 pub use gpu::FuzzCompressGpu;
 #[cfg(feature = "cuda")]
 pub use gpu::run_compress_gpu;
+pub use row_order::FuzzRowOrder;
+pub use row_order::run_row_order_fuzz;
 
 pub const FUZZ_ARRAY_MAX_LEN: usize = 2048;
 pub const FUZZ_FILE_ARRAY_MAX_LEN: usize = 16_384;

@@ -39,6 +39,7 @@ vortex-error = { workspace = true }
 vortex-fsst = { workspace = true }
 vortex-io = { workspace = true }
 vortex-mask = { workspace = true }
+vortex-row = { workspace = true }
 vortex-runend = { workspace = true, features = ["arbitrary"] }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
@@ -94,6 +95,14 @@ bench = false
 doc = false
 name = "fsst_like"
 path = "fuzz_targets/fsst_like.rs"
+test = false
+required-features = ["native"]
+
+[[bin]]
+bench = false
+doc = false
+name = "row_order"
+path = "fuzz_targets/row_order.rs"
 test = false
 required-features = ["native"]
 
