@@ -1028,12 +1028,23 @@ fn encode_bool_arith(
 
     match resolve_validity(arr.as_ref().validity()?, arr.len(), ctx)? {
         ValidityKind::AllValid => {
-            for (i, chunk) in out.chunks_exact_mut(stride).enumerate() {
-                let slot = &mut chunk[prefix..prefix + slot_size];
-                slot[0] = non_null;
-                // false=0x01, true=0x02 so false < true; XOR for descending.
-                let raw = if bits.value(i) { 0x02u8 } else { 0x01u8 };
-                slot[1] = raw ^ xor;
+            // `false`=0x01, `true`=0x02 so `false < true`; `0x01 + bit` is branchless. XOR for
+            // descending. The value byte is computed without a data-dependent branch so the
+            // writes vectorize.
+            if prefix == 0 && stride == slot_size {
+                // Contiguous single-column layout: `out` is exactly back-to-back 2-byte slots.
+                // Iterating fixed `[u8; 2]` chunks elides the `ChunksExactMut` per-row split.
+                let (pairs, _rem) = out.as_chunks_mut::<2>();
+                for (i, pair) in pairs.iter_mut().enumerate() {
+                    pair[0] = non_null;
+                    pair[1] = (0x01u8 + bits.value(i) as u8) ^ xor;
+                }
+            } else {
+                for (i, chunk) in out.chunks_exact_mut(stride).enumerate() {
+                    let slot = &mut chunk[prefix..prefix + slot_size];
+                    slot[0] = non_null;
+                    slot[1] = (0x01u8 + bits.value(i) as u8) ^ xor;
+                }
             }
         }
         ValidityKind::Mask(mask) => {
@@ -1042,8 +1053,7 @@ fn encode_bool_arith(
                 let slot = &mut chunk[prefix..prefix + slot_size];
                 if mask.value(i) {
                     slot[0] = non_null;
-                    let raw = if bits.value(i) { 0x02u8 } else { 0x01u8 };
-                    slot[1] = raw ^ xor;
+                    slot[1] = (0x01u8 + bits.value(i) as u8) ^ xor;
                 } else {
                     slot[0] = null;
                     slot[1] = 0;
