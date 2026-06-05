@@ -5733,8 +5733,6 @@ checksum = "cfe21416a02c693fb9f980befcb230ecc70b0b3d1cc4abf88b9675c4c1457f0c"
 [[package]]
 name = "onpair"
 version = "0.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7f54ca0079320b4b43a7502822b8a2e8a2c713adb7fc65ae4e65f940921a7eb"
 dependencies = [
  "hashbrown 0.16.1",
  "rand 0.9.4",
