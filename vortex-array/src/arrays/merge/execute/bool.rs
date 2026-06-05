@@ -7,6 +7,7 @@ use vortex_buffer::BitBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use super::super::Merge;
@@ -26,6 +27,15 @@ pub(super) fn execute(
     array: Array<Merge>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ExecutionResult> {
+    // This kernel currently implements only the boolean (two-branch) selector form; routing
+    // boolean branches with an unsigned-integer selector is left for the generic-`T` work.
+    if !array.selector().dtype().is_boolean() {
+        vortex_panic!(
+            "merge over boolean branches currently requires a boolean selector, got {} (todo: \
+             support integer selectors)",
+            array.selector().dtype()
+        );
+    }
     debug_assert_eq!(
         array.num_branches(),
         2,

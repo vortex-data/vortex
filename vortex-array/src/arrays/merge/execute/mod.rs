@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Execution logic for [`Merge`](super::Merge), dispatched on the selector type.
+//! Execution logic for [`Merge`](super::Merge), dispatched on the branch value type.
 //!
-//! Only the boolean-selector case is implemented today (see [`bool`]); integer selectors
-//! construct but panic here until the N-branch path is wired up.
+//! All branches share a value type (validated in [`Merge::check`](super::Merge::check)), so the
+//! physical merge kernel is chosen from the first branch. The selector type is an orthogonal
+//! concern handled within each kernel. Only boolean branches are implemented today (see [`bool`]).
 
 mod bool;
 
@@ -17,19 +18,19 @@ use crate::array::Array;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
 
-/// Executes a [`MergeArray`](super::MergeArray) by dispatching on the selector type.
+/// Executes a [`MergeArray`](super::MergeArray) by dispatching on the branch value type.
 pub(super) fn execute(
     array: Array<Merge>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ExecutionResult> {
-    if array.selector().dtype().is_boolean() {
+    if array.branch(0).dtype().is_boolean() {
         bool::execute(array, ctx)
     } else {
-        let selector_dtype = array.selector().dtype().clone();
+        let branch_dtype = array.branch(0).dtype().clone();
         vortex_panic!(
-            "merge execution is only implemented for boolean selectors; selector dtype {} is \
-             not yet supported",
-            selector_dtype
+            "merge execution is only implemented for boolean branches; branch dtype {} is not yet \
+             supported",
+            branch_dtype
         )
     }
 }

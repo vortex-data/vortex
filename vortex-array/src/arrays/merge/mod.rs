@@ -474,7 +474,7 @@ mod tests {
     }
 
     #[test]
-    fn mergeon_nullable_mixed() -> VortexResult<()> {
+    fn merge_non_nullable_mixed() -> VortexResult<()> {
         // selector:  F     T     F      T     T
         // branch0:  true,        false
         // branch1:        false,       true, true
@@ -499,7 +499,7 @@ mod tests {
     }
 
     #[test]
-    fn mergeullable_with_nulls_in_both_branches() -> VortexResult<()> {
+    fn merge_nullable_with_nulls_in_both_branches() -> VortexResult<()> {
         check(
             &[None, Some(true), None, Some(false), None, Some(true)],
             &[false, true, true, false, true, false],
@@ -558,15 +558,30 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "only implemented for boolean")]
-    fn primitive_selector_execution_panics() {
+    #[should_panic(expected = "only implemented for boolean branches")]
+    fn non_boolean_branch_execution_panics() {
+        // Execution dispatches on the branch value type: primitive branches have no kernel yet.
+        let b0 = PrimitiveArray::from_iter([1u32]).into_array();
+        let b1 = PrimitiveArray::from_iter([2u32]).into_array();
+        let selector = BoolArray::from_iter([true, false]).into_array();
+        let merged = MergeArray::try_new(vec![b0, b1], selector)
+            .vortex_expect("primitive branches with a boolean selector should construct")
+            .into_array();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        // Dispatch panics before returning; the trailing `.ok()` just avoids an unused-result let.
+        merged.execute::<Canonical>(&mut ctx).ok();
+    }
+
+    #[test]
+    #[should_panic(expected = "boolean selector")]
+    fn boolean_branches_with_integer_selector_unimplemented() {
+        // Boolean branches dispatch to the bool kernel, which only handles a boolean selector.
         let branch = BoolArray::from_iter([true]).into_array();
         let selector = PrimitiveArray::from_iter([0u32, 1, 2]).into_array();
         let merged = MergeArray::try_new(vec![branch.clone(), branch.clone(), branch], selector)
             .vortex_expect("unsigned-integer selector should construct")
             .into_array();
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        // Dispatch panics before returning; the trailing `.ok()` just avoids an unused-result let.
         merged.execute::<Canonical>(&mut ctx).ok();
     }
 }
