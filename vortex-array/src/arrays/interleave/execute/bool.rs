@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Boolean-value execution: the optimized two-value [`Interleave`](super::super::Interleave) path.
+//! Boolean-value execution: the optimized [`Interleave`](super::super::Interleave) path for
+//! boolean values.
 
 use num_traits::AsPrimitive;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_panic;
-use vortex_mask::Mask;
 
 use super::super::Interleave;
 use super::super::InterleaveArrayExt;
+use crate::ArrayRef;
 use crate::array::Array;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
@@ -24,97 +24,68 @@ use crate::match_each_unsigned_integer_ptype;
 use crate::require_child;
 use crate::validity::Validity;
 
-/// Gathers two boolean values under a non-nullable boolean `array_indices` selector and an unsigned
-/// `row_indices` selector, scattering each selected bit (and its validity) into the output.
+/// Gathers `N` boolean values under unsigned `array_indices` / `row_indices` selectors, scattering
+/// each selected bit (and its validity) into the output position it routes to.
 pub(super) fn execute(
     array: Array<Interleave>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ExecutionResult> {
-    // This kernel currently implements only the boolean (two-value) `array_indices` form; routing
-    // boolean values with an unsigned-integer selector is left for the generic-`T` work.
-    if !array.array_indices().dtype().is_boolean() {
-        vortex_panic!(
-            "interleave over boolean values currently requires a boolean array_indices, got {} \
-             (todo: support integer selectors)",
-            array.array_indices().dtype()
-        );
-    }
-    debug_assert_eq!(
-        array.num_values(),
-        2,
-        "a boolean array_indices implies exactly two values"
-    );
+    let num_values = array.num_values();
 
-    // Drive the values and selectors to canonical encodings so we can operate on raw bits.
-    let array = require_child!(array, array.value(0), 0 => Bool);
-    let array = require_child!(array, array.value(1), 1 => Bool);
-    let array = require_child!(array, array.array_indices(), 2 => Bool);
-    let array = require_child!(array, array.row_indices(), 3 => Primitive);
+    // Drive every value and both selectors to canonical encodings so we can operate on raw bits.
+    let mut array = array;
+    for i in 0..num_values {
+        array = require_child!(array, array.value(i), i => Bool);
+    }
+    array = require_child!(array, array.array_indices(), num_values => Primitive);
+    array = require_child!(array, array.row_indices(), num_values + 1 => Primitive);
 
     let dtype = array.as_ref().dtype().clone();
     let len = array.as_ref().len();
     let nullable = dtype.is_nullable();
 
-    let v0 = array.value(0).as_::<Bool>();
-    let v1 = array.value(1).as_::<Bool>();
-    // The selector is non-nullable (enforced at construction), so its bits route directly: `false`
-    // selects value 0, `true` selects value 1.
-    let array_indices = Mask::from_buffer(array.array_indices().as_::<Bool>().to_bit_buffer());
-    let row_indices = array.row_indices().as_::<Primitive>();
+    // Materialize each value's bits, and its validity mask only when the output can be null.
+    let mut value_bits = Vec::with_capacity(num_values);
+    let mut value_validity = Vec::with_capacity(num_values);
+    for i in 0..num_values {
+        let value = array.value(i).as_::<Bool>();
+        let bits = value.to_bit_buffer();
+        let validity = nullable
+            .then(|| value.validity()?.execute_mask(bits.len(), ctx))
+            .transpose()?;
+        value_bits.push(bits);
+        value_validity.push(validity);
+    }
 
-    let v0_bits = v0.to_bit_buffer();
-    let v1_bits = v1.to_bit_buffer();
-
-    // Value validity is only materialized when the output can be null.
-    let (valid0, valid1) = if nullable {
-        (
-            Some(v0.validity()?.execute_mask(v0_bits.len(), ctx)?),
-            Some(v1.validity()?.execute_mask(v1_bits.len(), ctx)?),
-        )
-    } else {
-        (None, None)
-    };
+    // Decode the selectors once so the scatter loop indexes plain `usize`s.
+    let branch_of = selector_to_usize(array.array_indices());
+    let row_of = selector_to_usize(array.row_indices());
 
     let mut values = BitBufferMut::new_unset(len);
     let mut validity = nullable.then(|| BitBufferMut::new_set(len));
 
-    match_each_unsigned_integer_ptype!(row_indices.ptype(), |R| {
-        let rows = row_indices.as_slice::<R>();
-        for i in 0..len {
-            // Random access: gather one bit (and its validity) from the selected value at the
-            // position `row_indices` names — no cursor is advanced.
-            let row: usize = rows[i].as_();
-            let (bit, valid) = if array_indices.value(i) {
-                vortex_ensure!(
-                    row < v1_bits.len(),
-                    "interleave row index out of bounds for value 1"
-                );
-                (
-                    v1_bits.value(row),
-                    valid1.as_ref().is_none_or(|m| m.value(row)),
-                )
-            } else {
-                vortex_ensure!(
-                    row < v0_bits.len(),
-                    "interleave row index out of bounds for value 0"
-                );
-                (
-                    v0_bits.value(row),
-                    valid0.as_ref().is_none_or(|m| m.value(row)),
-                )
-            };
-            if bit {
-                values.set(i);
-            }
-            // `validity` is `Some` exactly when `nullable`, and `valid` is always true otherwise.
-            if !valid {
-                validity
-                    .as_mut()
-                    .vortex_expect("validity buffer present when nullable")
-                    .unset(i);
-            }
+    for i in 0..len {
+        // Random access: gather one bit (and its validity) from the selected value at the position
+        // `row_indices` names — no cursor is advanced.
+        let branch = branch_of[i];
+        let row = row_of[i];
+        vortex_ensure!(branch < num_values, "interleave array index out of bounds");
+        let bits = &value_bits[branch];
+        vortex_ensure!(row < bits.len(), "interleave row index out of bounds");
+
+        if bits.value(row) {
+            values.set(i);
         }
-    });
+        // A missing per-value mask means every row of that value is valid; `validity` is `Some`
+        // exactly when `nullable`.
+        let valid = value_validity[branch].as_ref().is_none_or(|m| m.value(row));
+        if !valid {
+            validity
+                .as_mut()
+                .vortex_expect("validity buffer present when nullable")
+                .unset(i);
+        }
+    }
 
     let validity = match validity {
         Some(bits) => Validity::from(bits.freeze()),
@@ -124,4 +95,12 @@ pub(super) fn execute(
         values.freeze(),
         validity,
     )?))
+}
+
+/// Decodes a canonical, non-nullable unsigned-integer selector into a `usize` vector.
+fn selector_to_usize(selector: &ArrayRef) -> Vec<usize> {
+    let selector = selector.as_::<Primitive>();
+    match_each_unsigned_integer_ptype!(selector.ptype(), |T| {
+        selector.as_slice::<T>().iter().map(|&v| v.as_()).collect()
+    })
 }
