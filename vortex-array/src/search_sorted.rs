@@ -113,12 +113,10 @@ pub trait IndexOrd<V> {
         Ok(matches!(self.index_cmp(idx, elem)?, Some(Less | Equal)))
     }
 
-    #[inline]
     fn index_gt(&self, idx: usize, elem: &V) -> VortexResult<bool> {
         Ok(matches!(self.index_cmp(idx, elem)?, Some(Greater)))
     }
 
-    #[inline]
     fn index_ge(&self, idx: usize, elem: &V) -> VortexResult<bool> {
         Ok(matches!(self.index_cmp(idx, elem)?, Some(Greater | Equal)))
     }

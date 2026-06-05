@@ -392,7 +392,6 @@ impl From<Vec<bool>> for BitBuffer {
 }
 
 impl FromIterator<bool> for BitBuffer {
-    #[inline]
     fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
         BitBufferMut::from_iter(iter).freeze()
     }
