@@ -33,7 +33,7 @@ jobs:
           - suite: tests
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-large/image=ubuntu24-full-x64-pre-v2/tag=rust-coverage-suite-{1}', github.run_id, matrix.suite)
+          && format('runs-on={0}/runner=amd64-large/disk=large/image=ubuntu24-full-x64-pre-v2/tag=rust-coverage-suite-{1}', github.run_id, matrix.suite)
           || 'ubuntu-latest' }}
     env:
       RUSTFLAGS: "-Cinstrument-coverage -A warnings"
@@ -68,13 +68,13 @@ jobs:
       - name: Rust Tests
         if: ${{ matrix.suite == 'tests' }}
         run: |
-          cargo nextest run --locked --workspace --all-features --no-fail-fast
+          cargo nextest run --cargo-profile ci --locked --workspace --all-features --no-fail-fast
       - name: Generate coverage report
         run: |
           RUST_SYSROOT="$(rustc --print sysroot)"
           RUST_HOST="$(rustc --print host-tuple)"
           LLVM_TOOLS_BIN="${RUST_SYSROOT}/lib/rustlib/${RUST_HOST}/bin"
-          grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
+          grcov . --binary-path target/ci/ -s . -t lcov --llvm --ignore-not-existing \
             --llvm-path "${LLVM_TOOLS_BIN}" \
             --threads $(nproc) \
             --ignore '../*' --ignore '/*' --ignore 'fuzz/*' --ignore 'vortex-bench/*' \
