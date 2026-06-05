@@ -14,6 +14,8 @@ pub use arbitrary::ArbitraryDictArray;
 mod array;
 pub use array::*;
 
+mod compaction;
+
 pub(crate) mod compute;
 mod execute;
 

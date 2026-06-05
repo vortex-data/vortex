@@ -23,6 +23,10 @@ pub mod chunked;
 pub use chunked::Chunked;
 pub use chunked::ChunkedArray;
 
+pub mod compaction;
+pub use compaction::Compaction;
+pub use compaction::CompactionArray;
+
 pub mod constant;
 pub use constant::Constant;
 pub use constant::ConstantArray;
