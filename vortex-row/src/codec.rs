@@ -1006,6 +1006,86 @@ fn encode_variable_child(
 /// Arithmetic-write primitive encoder: writes each row's `sentinel + value` slot at a
 /// constant within-row offset, iterating the output in `row_stride`-sized chunks so the
 /// compiler can drop the per-row offset/cursor indirection.
+/// Spread the low 8 bits of `b` into 8 bytes, LSB-first: bit `j` becomes byte `j` (value 0 or
+/// 1). Standard branchless bit-interleave — no per-bit memory addressing.
+#[inline]
+fn spread_bits_to_bytes(b: u8) -> u64 {
+    let mut x = b as u64;
+    x = (x | (x << 28)) & 0x0000_000F_0000_000F;
+    x = (x | (x << 14)) & 0x0003_0003_0003_0003;
+    x = (x | (x << 7)) & 0x0101_0101_0101_0101;
+    x
+}
+
+/// Spread the 4 low bytes of `x` into the even byte lanes (byte `i` -> byte `2*i`).
+#[inline]
+fn spread_bytes_to_even(x: u32) -> u64 {
+    let mut y = x as u64;
+    y = (y | (y << 16)) & 0x0000_FFFF_0000_FFFF;
+    y = (y | (y << 8)) & 0x00FF_00FF_00FF_00FF;
+    y
+}
+
+/// Word-at-a-time bool encoder for the contiguous, bit-offset-0, all-valid layout.
+///
+/// Reads the bitmap 64 bits (8 bytes) at a time and splats each input byte (8 bools) into 8
+/// `[sentinel, value]` pairs (16 output bytes) with branchless `u64` bit tricks, avoiding the
+/// per-row `get_bit` + `chunks_exact_mut` of the scalar path. `value = (0x01 + bit) ^ xor`; the
+/// sentinel byte is left unflipped. Produces byte-identical output to [`encode_bool`].
+// The `as u32` / `as u8` casts are intentional low-bit extraction (a byte from the 64-bit word,
+// and the low/high 4 value bytes for the two output halves).
+#[allow(clippy::cast_possible_truncation)]
+fn encode_bool_contiguous_splat(src: &[u8], nrows: usize, non_null: u8, xor: u8, out: &mut [u8]) {
+    const ONES: u64 = 0x0101_0101_0101_0101;
+    // Sentinel occupies the even byte lane (leading byte) of each pair; value lanes added below.
+    let sent_even = (non_null as u64).wrapping_mul(ONES) & 0x00FF_00FF_00FF_00FF;
+    let xor_u64 = if xor == 0xFF { u64::MAX } else { 0 };
+
+    let full_bytes = nrows / 8;
+    let mut o = 0usize;
+    let mut k = 0usize;
+
+    let emit = |b: u8, out: &mut [u8], o: usize| {
+        // Each byte becomes 0x01/0x02 (= 0x01 + bit); flip the value bytes for descending.
+        let vals = spread_bits_to_bytes(b).wrapping_add(ONES) ^ xor_u64;
+        let lo = sent_even | (spread_bytes_to_even(vals as u32) << 8);
+        let hi = sent_even | (spread_bytes_to_even((vals >> 32) as u32) << 8);
+        out[o..o + 8].copy_from_slice(&lo.to_le_bytes());
+        out[o + 8..o + 16].copy_from_slice(&hi.to_le_bytes());
+    };
+
+    // Consume the bitmap 64 bits at a time.
+    while k + 8 <= full_bytes {
+        let word = u64::from_le_bytes([
+            src[k],
+            src[k + 1],
+            src[k + 2],
+            src[k + 3],
+            src[k + 4],
+            src[k + 5],
+            src[k + 6],
+            src[k + 7],
+        ]);
+        for shift in 0..8 {
+            emit((word >> (8 * shift)) as u8, out, o);
+            o += 16;
+        }
+        k += 8;
+    }
+    while k < full_bytes {
+        emit(src[k], out, o);
+        o += 16;
+        k += 1;
+    }
+    // Bit tail (`nrows % 8`).
+    for i in (full_bytes * 8)..nrows {
+        let bit = (src[i / 8] >> (i % 8)) & 1;
+        out[o] = non_null;
+        out[o + 1] = (0x01 + bit) ^ xor;
+        o += 2;
+    }
+}
+
 /// Arithmetic (cursor-free) bool encoder, the `Canonical::Bool` analogue of
 /// [`encode_primitive_arith`]. Each row's 2-byte slot lives at a constant `col_prefix` within
 /// its `row_stride`-sized chunk, so iterating `chunks_exact_mut` avoids the per-row offset and
@@ -1031,9 +1111,19 @@ fn encode_bool_arith(
             // `false`=0x01, `true`=0x02 so `false < true`; `0x01 + bit` is branchless. XOR for
             // descending. The value byte is computed without a data-dependent branch so the
             // writes vectorize.
-            if prefix == 0 && stride == slot_size {
-                // Contiguous single-column layout: `out` is exactly back-to-back 2-byte slots.
-                // Iterating fixed `[u8; 2]` chunks elides the `ChunksExactMut` per-row split.
+            if prefix == 0 && stride == slot_size && bits.offset() == 0 {
+                // Contiguous single-column layout, byte-aligned bitmap: splat the bitmap a
+                // `u64` (64 bools) at a time straight into the output.
+                encode_bool_contiguous_splat(
+                    bits.inner().as_slice(),
+                    arr.len(),
+                    non_null,
+                    xor,
+                    out,
+                );
+            } else if prefix == 0 && stride == slot_size {
+                // Contiguous but the bitmap starts mid-byte: fixed `[u8; 2]` chunks still elide
+                // the `ChunksExactMut` per-row split.
                 let (pairs, _rem) = out.as_chunks_mut::<2>();
                 for (i, pair) in pairs.iter_mut().enumerate() {
                     pair[0] = non_null;
@@ -1390,6 +1480,12 @@ mod tests {
         // Single-column layout (prefix 0, stride 2) and embedded-in-wider-row layout.
         assert_arith_matches_cursor(arr.clone(), field, 0, BOOL_ENCODED_SIZE)?;
         assert_arith_matches_cursor(arr, field, 1, BOOL_ENCODED_SIZE + 3)?;
+
+        // 100 bits: exercises the contiguous splat's full 64-bit word, trailing full bytes, and
+        // the sub-byte tail (100 = 12 bytes + 4 bits), alongside the strided path.
+        let long = BoolArray::from_iter((0..100).map(|i| i % 3 == 0 || i % 7 == 1));
+        assert_arith_matches_cursor(long.clone(), field, 0, BOOL_ENCODED_SIZE)?;
+        assert_arith_matches_cursor(long, field, 1, BOOL_ENCODED_SIZE + 3)?;
         Ok(())
     }
 
