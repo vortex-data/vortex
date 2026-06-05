@@ -1,0 +1,27 @@
+-- SPDX-License-Identifier: Apache-2.0
+-- SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+-- Grant the `migrator` role the privileges it needs to operate the migration
+-- ledger when CI runs `migrate-schema.py apply` AS `migrator` -- the only role
+-- CI can IAM-auth as, since the OIDC role `GitHubBenchmarkSchemaRole` carries no
+-- master credential (see `benchmarks-website/infra/README.md`).
+--
+-- The `public._applied_migrations` ledger table is created by the runner itself
+-- (`migrate-schema.py`'s `_applied_set`), not by a migration file, and the
+-- runner creates it before applying any pending file -- so it already exists by
+-- the time this migration runs. When the bootstrap apply is run by the RDS
+-- master user, the ledger is master-owned and `migrator` cannot INSERT applied
+-- rows or SELECT them in `status` without these grants; when the ledger is
+-- instead created by a `migrator`-run apply, these grants are harmless
+-- self-grants.
+--
+-- Scope is intentionally minimal: SELECT + INSERT on the ledger only. The ledger
+-- is append-only (the runner never UPDATEs or DELETEs rows), so no broader DML is
+-- needed, and withholding DELETE keeps the least-privilege posture. Privileges on
+-- the six data tables for the ingest write path are a separate, deferred concern
+-- resolved in PR-2.1 alongside the ingest role design.
+--
+-- Idempotent: re-granting an existing privilege is a no-op in Postgres, and
+-- `migrator` always exists here because `002_iam_db_user.sql` creates it and runs
+-- first under the runner's filename ordering.
+GRANT SELECT, INSERT ON public._applied_migrations TO migrator;
