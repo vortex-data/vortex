@@ -30,9 +30,15 @@ dev = [
     "testcontainers[postgres]>=4.9",
     # `scripts/_measurement_id.py` (PR-1.5) ports the server's xxhash64 measurement_id
     # to Python; `scripts/test_measurement_id.py` checks it against Rust-generated golden
-    # vectors. The PR-2.1 ingest writer that imports the port declares the same dep in
-    # its own PEP 723 block for standalone `uv run`.
+    # vectors. `scripts/post-ingest.py` (PR-2.2) `--postgres` mode imports the port but
+    # intentionally keeps `dependencies = []` in its own PEP 723 block (so the v3 `--server`
+    # path stays standard-library-only under a bare `python3`); its `--postgres` mode is run
+    # from this project's uv environment, which provides xxhash.
     "xxhash>=3.5",
+    # `scripts/post-ingest.py` (PR-2.2) `--postgres` mode mints an RDS IAM auth token via
+    # boto3 to connect as `bench_ingest`; `scripts/test_post_ingest_postgres.py` exercises
+    # the writer against a Postgres testcontainer (boto3 mocked for the IAM-token unit test).
+    "boto3>=1.34",
     # forced transitive bumps
     "urllib3>=2.6.3",
     "filelock>=3.20.3",

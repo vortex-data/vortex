@@ -30,13 +30,17 @@
 #   6. Waits for the instance to reach `available`.
 #   7. Creates the RDS Proxy `vortex-bench-proxy` in front of the RDS
 #      instance, also with IAM auth.
-#   8. Creates the IAM role `GitHubBenchmarkSchemaRole` trusted to
-#      `token.actions.githubusercontent.com` for the
-#      `vortex-data/vortex` repo, with `rds-db:connect` on the future
-#      `migrator` Postgres user (created by migration 002 in PR-1.3).
+#   8. Creates two GitHub Actions OIDC IAM roles trusted to
+#      `token.actions.githubusercontent.com` for the `vortex-data/vortex` repo
+#      (branches `develop` + `ct/bench-v4`), each scoped to an instance dbuser:
+#        - `GitHubBenchmarkSchemaRole`: `rds-db:connect` on the `migrator`
+#          Postgres user (schema deploys; migration 002 in PR-1.3).
+#        - `GitHubBenchmarkIngestRole`: `rds-db:connect` on the `bench_ingest`
+#          Postgres user (Phase-2 CI dual-write ingest; migration 004 in PR-2.1).
+#      Both grant the instance resource only; the VPC-internal proxy is Vercel-only.
 #   9. Prints a summary: the GitHub Actions vars to set (instance endpoint,
-#      region, DB name, role ARN) plus the proxy endpoint to carry into Vercel
-#      env (PR-4.2; not a GitHub variable).
+#      region, DB name, both role ARNs) plus the proxy endpoint to carry into
+#      Vercel env (PR-4.2; not a GitHub variable).
 #
 # Re-run safety: every aws-cli mutation goes through `ensure_*`
 # functions that check for an existing resource first. A partially
@@ -60,6 +64,7 @@ readonly DB_ENGINE_VERSION="${DB_ENGINE_VERSION:-16.4}"
 readonly DB_ALLOCATED_STORAGE_GB="${DB_ALLOCATED_STORAGE_GB:-20}"
 readonly DB_MASTER_USERNAME="${DB_MASTER_USERNAME:-postgres}"
 readonly SCHEMA_ROLE_NAME="${SCHEMA_ROLE_NAME:-GitHubBenchmarkSchemaRole}"
+readonly INGEST_ROLE_NAME="${INGEST_ROLE_NAME:-GitHubBenchmarkIngestRole}"
 readonly PROXY_ROLE_NAME="${PROXY_ROLE_NAME:-vortex-bench-proxy-role}"
 readonly GITHUB_REPO="${GITHUB_REPO:-vortex-data/vortex}"
 # Postgres role created by migrations/002 in PR-1.3; the OIDC role's
@@ -69,6 +74,13 @@ readonly GITHUB_REPO="${GITHUB_REPO:-vortex-data/vortex}"
 # as `migrator`, so an env override here would scope the IAM grant to a user the
 # migration never creates and silently break deploy auth.
 readonly PG_MIGRATOR_ROLE="migrator"
+# Postgres role created by migrations/004 in PR-2.1; the ingest OIDC role's
+# rds-db:connect permission is scoped to this user. NOT overridable, same
+# rationale as PG_MIGRATOR_ROLE: the role name is hardcoded in migrations/004
+# (`CREATE ROLE bench_ingest`, static SQL) and the dual-write CI workflows
+# authenticate as `bench_ingest`, so an env override would scope the IAM grant to
+# a user the migration never creates and silently break ingest auth.
+readonly PG_INGEST_ROLE="bench_ingest"
 
 readonly TAG_KEY_PROJECT="Project"
 readonly TAG_VAL_PROJECT="vortex-benchmarks"
@@ -442,20 +454,14 @@ EOF
         log "  created: ${SCHEMA_ROLE_ARN}"
     fi
 
-    # rds-db:connect for the migrator Postgres user, scoped to BOTH the
-    # instance resource (used by CI for schema deploys) and the proxy resource
-    # (also granted today but unused by this role — dead surface pending PR-2.1
-    # least-privilege cleanup). The Postgres user `migrator` is created in PR-1.3
-    # migrations/002.
-    #
-    # DBProxyArn shape: `arn:aws:rds:<region>:<account>:db-proxy:prx-<id>` —
-    # so `awk -F: '{print $NF}'` already returns `prx-<id>` including the
-    # `prx-` prefix. Do NOT prepend another `prx-` (would produce
-    # `prx-prx-<id>` and break IAM token issuance through the proxy).
+    # rds-db:connect for the migrator Postgres user, scoped to the INSTANCE
+    # resource only (CI schema deploys connect to the public instance endpoint).
+    # The VPC-internal RDS Proxy serves only the Vercel reader (PR-4.2), never
+    # this schema-deploy role, so the proxy resource is deliberately NOT granted.
+    # (The dead proxy grant present through PR-1.6 was dropped here in PR-2.1's
+    # least-privilege cleanup, along with its now-unused proxy-ARN lookup.)
+    # The Postgres user `migrator` is created in PR-1.3 migrations/002.
     local rds_arn_account="$TARGET_ACCOUNT"
-    local proxy_resource_id
-    proxy_resource_id=$(aws rds describe-db-proxies --db-proxy-name "$DB_PROXY_NAME" \
-        --query 'DBProxies[0].DBProxyArn' --output text | awk -F: '{print $NF}')
 
     local permissions_policy
     permissions_policy=$(cat <<EOF
@@ -465,8 +471,7 @@ EOF
     "Effect": "Allow",
     "Action": ["rds-db:connect"],
     "Resource": [
-      "arn:aws:rds-db:${TARGET_REGION}:${rds_arn_account}:dbuser:${DB_RESOURCE_ID}/${PG_MIGRATOR_ROLE}",
-      "arn:aws:rds-db:${TARGET_REGION}:${rds_arn_account}:dbuser:${proxy_resource_id}/${PG_MIGRATOR_ROLE}"
+      "arn:aws:rds-db:${TARGET_REGION}:${rds_arn_account}:dbuser:${DB_RESOURCE_ID}/${PG_MIGRATOR_ROLE}"
     ]
   }]
 }
@@ -478,7 +483,81 @@ EOF
         --policy-name "rds-db-connect-migrator" \
         --policy-document "$permissions_policy" \
         >/dev/null
-    log "  inline permissions policy applied (rds-db:connect for ${PG_MIGRATOR_ROLE})."
+    log "  inline permissions policy applied (rds-db:connect for ${PG_MIGRATOR_ROLE} on instance)."
+}
+
+ensure_ingest_role() {
+    log "Step 6b: GitHub Actions OIDC role ${INGEST_ROLE_NAME}."
+    ensure_oidc_provider
+
+    # Same branch-scoped trust as the schema role: the Phase-2 dual-write CI
+    # workflows (bench.yml / sql-benchmarks.yml / v3-commit-metadata.yml) ingest on
+    # push to `develop`, plus `ct/bench-v4` during the migration's dual-write soak.
+    # The sub-claim restriction is the gate against unauthorized role assumption.
+    local trust_policy
+    trust_policy=$(cat <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {"Federated": "${OIDC_PROVIDER_ARN}"},
+    "Action": "sts:AssumeRoleWithWebIdentity",
+    "Condition": {
+      "StringEquals": {"token.actions.githubusercontent.com:aud": "sts.amazonaws.com"},
+      "StringLike":   {"token.actions.githubusercontent.com:sub": [
+        "repo:${GITHUB_REPO}:ref:refs/heads/develop",
+        "repo:${GITHUB_REPO}:ref:refs/heads/ct/bench-v4"
+      ]}
+    }
+  }]
+}
+EOF
+)
+
+    if INGEST_ROLE_ARN=$(aws iam get-role --role-name "$INGEST_ROLE_NAME" \
+            --query 'Role.Arn' --output text 2>/dev/null); then
+        log "  exists: ${INGEST_ROLE_ARN}; updating trust policy."
+        aws iam update-assume-role-policy \
+            --role-name "$INGEST_ROLE_NAME" \
+            --policy-document "$trust_policy"
+    else
+        INGEST_ROLE_ARN=$(aws iam create-role \
+            --role-name "$INGEST_ROLE_NAME" \
+            --assume-role-policy-document "$trust_policy" \
+            --description "GitHub Actions OIDC role for benchmarks-website Postgres dual-write ingest" \
+            --tags "Key=${TAG_KEY_PROJECT},Value=${TAG_VAL_PROJECT}" \
+                   "Key=${TAG_KEY_OWNER},Value=${TAG_VAL_OWNER}" \
+            --query 'Role.Arn' --output text)
+        log "  created: ${INGEST_ROLE_ARN}"
+    fi
+
+    # rds-db:connect for the bench_ingest Postgres user on the INSTANCE resource
+    # only (CI ingest connects to the public instance endpoint, same as schema
+    # deploys; the proxy is Vercel-only). The Postgres user `bench_ingest` is
+    # created in PR-2.1 migrations/004 with data-DML-only grants.
+    local rds_arn_account="$TARGET_ACCOUNT"
+
+    local permissions_policy
+    permissions_policy=$(cat <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": ["rds-db:connect"],
+    "Resource": [
+      "arn:aws:rds-db:${TARGET_REGION}:${rds_arn_account}:dbuser:${DB_RESOURCE_ID}/${PG_INGEST_ROLE}"
+    ]
+  }]
+}
+EOF
+)
+
+    aws iam put-role-policy \
+        --role-name "$INGEST_ROLE_NAME" \
+        --policy-name "rds-db-connect-ingest" \
+        --policy-document "$permissions_policy" \
+        >/dev/null
+    log "  inline permissions policy applied (rds-db:connect for ${PG_INGEST_ROLE} on instance)."
 }
 
 # -----------------------------------------------------------------------------
@@ -498,6 +577,7 @@ Master secret    : ${DB_MASTER_SECRET_ARN}
 RDS Proxy        : ${DB_PROXY_NAME}
 Proxy endpoint   : ${PROXY_ENDPOINT}:5432
 Schema role ARN  : ${SCHEMA_ROLE_ARN}
+Ingest role ARN  : ${INGEST_ROLE_ARN}
 
 NEXT STEPS:
 
@@ -511,6 +591,7 @@ NEXT STEPS:
      gh variable set RDS_BENCH_REGION   --body "${TARGET_REGION}"
      gh variable set RDS_BENCH_DB_NAME  --body "${DB_NAME}"
      gh variable set GH_BENCH_SCHEMA_ROLE_ARN --body "${SCHEMA_ROLE_ARN}"
+     gh variable set GH_BENCH_INGEST_ROLE_ARN --body "${INGEST_ROLE_ARN}"
 
 2. Carry the RDS Proxy endpoint into the Vercel reader's environment (PR-4.2).
    It is NOT a GitHub Actions variable (Vercel does not read GitHub repo
@@ -528,9 +609,11 @@ NEXT STEPS:
        --query 'DBProxies[0].[Status,Endpoint]'
      # expected: available  <endpoint>
 
-4. PR-1.3 will create the Postgres '${PG_MIGRATOR_ROLE}' user via
-   migrations/002. The OIDC role's permission policy is already
-   scoped to that user; nothing more to do here.
+4. Migrations create the Postgres '${PG_MIGRATOR_ROLE}' (002) and
+   '${PG_INGEST_ROLE}' (004) users; both OIDC roles' permission policies are
+   already scoped to those users. Apply 002 + 004 as the RDS master during the
+   one-time bootstrap (they create roles and grant on master-owned tables), after
+   which schema deploys run as '${PG_MIGRATOR_ROLE}'.
 
 =========================================================================
 EOF
@@ -548,6 +631,7 @@ main() {
     ensure_rds_instance
     ensure_rds_proxy
     ensure_schema_role
+    ensure_ingest_role
     print_summary
 }
 

@@ -42,6 +42,10 @@ lexicographic order, which equals numeric order under this convention.
 - `003_migrator_ledger_grant.sql` — grants `migrator` `SELECT, INSERT` (only,
   no `DELETE`/`UPDATE`) on `public._applied_migrations` so a migrator-role
   apply can record/read the ledger against the master-owned bootstrap (PR-1.4).
+- `004_ingest_role.sql` — `CREATE ROLE` for the least-privilege `bench_ingest`
+  IAM-auth ingest user, its `USAGE` + per-table `SELECT, INSERT, UPDATE` grants on
+  the six data tables, and a default-privilege rule so future `migrator`-created
+  tables auto-grant the ingest role (PR-2.1).
 
-This README + the runner ship in PR-1.2; `001`/`002` land in PR-1.3 and `003`
-in PR-1.4.
+This README + the runner ship in PR-1.2; `001`/`002` land in PR-1.3, `003` in
+PR-1.4, and `004` in PR-2.1.

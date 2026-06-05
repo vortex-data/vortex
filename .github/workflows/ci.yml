@@ -113,6 +113,39 @@ jobs:
           uv run --all-packages make html
         working-directory: docs/
 
+  scripts-test:
+    name: "Python (scripts)"
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-large/image=ubuntu24-full-x64-pre-v2/tag=scripts-test', github.run_id)
+          || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    env:
+      RUST_LOG: "info,maturin=off,uv=debug"
+      MATURIN_PEP517_ARGS: "--profile ci"
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: ./.github/actions/setup-prebuild
+
+      # The scripts/ suites include testcontainer-backed Postgres tests
+      # (test_migrate_schema.py, test_post_ingest_postgres.py). They MUST run in CI rather
+      # than silently skip -- a green job with skipped testcontainer tests would let a writer
+      # or migration-runner regression merge undetected. `docker info` fails the job up front
+      # if the daemon is unavailable, and the CI env var additionally makes the testcontainer
+      # fixtures fail (not skip) if Docker disappears mid-run (see scripts/test_*_postgres /
+      # scripts/test_migrate_schema `_require_docker_for_testcontainers`).
+      - name: Verify Docker is available for testcontainers
+        run: docker info
+
+      # `pytest scripts/` gates ALL test_*.py under scripts/ (including scripts/tests/), so a
+      # future scripts test auto-enrolls here without a workflow edit.
+      - name: Pytest - scripts/
+        run: uv run --all-packages pytest scripts/
+
   rust-docs:
     name: "Rust (docs)"
     timeout-minutes: 30

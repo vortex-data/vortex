@@ -18,9 +18,10 @@ Single one-shot script. Provisions, in order:
 3. An RDS Postgres instance `vortex-bench-prod` on `db.t4g.micro`, Postgres 16, 20 GiB GP3 storage, IAM auth enabled, RDS-managed master password (auto-rotated, stored in Secrets Manager), publicly accessible, single-AZ, 35-day backup window.
 4. An RDS Proxy `vortex-bench-proxy` in front of the instance, `IAMAuth=REQUIRED`, TLS required, pulling the master credential from the Secrets-Manager-managed secret via a service-linked IAM role.
 5. The GitHub OIDC provider `token.actions.githubusercontent.com` (account-scoped — created once if not present).
-6. An IAM role `GitHubBenchmarkSchemaRole` trusted to GitHub Actions OIDC for the `vortex-data/vortex` repo with `sts:AssumeRoleWithWebIdentity`. Permission policy: `rds-db:connect` scoped to the `migrator` Postgres user on the instance resource (used by CI for schema deploys) and the proxy resource. The proxy ARN on this role is unused dead surface — CI authenticates against the instance, and this GitHub-OIDC role is not assumable by the Vercel reader (Vercel uses its own credentials), so the proxy grant is slated for least-privilege cleanup in PR-2.1.
+6. An IAM role `GitHubBenchmarkSchemaRole` trusted to GitHub Actions OIDC for the `vortex-data/vortex` repo (branches `develop` + `ct/bench-v4`) with `sts:AssumeRoleWithWebIdentity`. Permission policy: `rds-db:connect` scoped to the `migrator` Postgres user on the **instance** resource only (CI schema deploys connect to the public instance endpoint). The dead proxy grant this role carried through PR-1.6 was dropped in PR-2.1's least-privilege cleanup; the VPC-internal proxy serves only the Vercel reader.
+7. An IAM role `GitHubBenchmarkIngestRole` (PR-2.1) trusted to the same OIDC provider, repo, and branches. Permission policy: `rds-db:connect` scoped to the `bench_ingest` Postgres user on the instance resource only. This is the dedicated least-privilege identity for the Phase-2 CI dual-write ingest path, deliberately separate from the schema-deploy `migrator` identity so the high-frequency ingest path can write data but never run DDL or migrations.
 
-The `migrator` Postgres user itself is created in PR-1.3 by `migrations/002_iam_db_user.sql`. The OIDC role's permission ARN is already pre-scoped to it; no further IAM work after PR-1.3 lands.
+The `migrator` Postgres user is created by `migrations/002_iam_db_user.sql` (PR-1.3) and the `bench_ingest` user by `migrations/004_ingest_role.sql` (PR-2.1); each OIDC role's permission ARN is pre-scoped to its user. `002` is applied as the RDS master because it creates a role (it needs `CREATEROLE` and grants the `rds_iam` / schema privileges the master holds), while `003` and `004` are applied as the master because they additionally grant on master-owned objects (the ledger and the six data tables, respectively). All three run during the one-time bootstrap; the migrator-run `schema-deploy` path then records them as already-applied.
 
 ## Prerequisites
 
@@ -72,10 +73,11 @@ The script prints the exact `gh variable set` commands; copy them from its outpu
 
 | Variable | Value | Consumed by |
 |---|---|---|
-| `RDS_BENCH_INSTANCE_ENDPOINT` | the public RDS **instance** hostname | CI writers — PR-1.4 schema-deploy.yml; PR-2.2 ingest workflows (direct IAM) |
+| `RDS_BENCH_INSTANCE_ENDPOINT` | the public RDS **instance** hostname | CI writers — PR-1.4 schema-deploy.yml; PR-2.4 ingest workflows (direct IAM) |
 | `RDS_BENCH_REGION` | `us-east-1` (or override) | All AWS-CLI invocations from CI |
 | `RDS_BENCH_DB_NAME` | `vortex_bench` | All Postgres connections |
-| `GH_BENCH_SCHEMA_ROLE_ARN` | the OIDC role ARN | `.github/workflows/schema-deploy.yml` |
+| `GH_BENCH_SCHEMA_ROLE_ARN` | the schema-deploy OIDC role ARN | `.github/workflows/schema-deploy.yml` |
+| `GH_BENCH_INGEST_ROLE_ARN` | the ingest OIDC role ARN | PR-2.4 dual-write ingest workflows (`bench.yml` / `sql-benchmarks.yml` / `v3-commit-metadata.yml`) |
 
 The RDS Proxy hostname is deliberately **not** a GitHub Actions variable: it is
 VPC-internal, serves only the PR-4.2 Next.js reader on Vercel, and Vercel does
@@ -210,6 +212,8 @@ aws rds delete-db-instance --db-instance-identifier vortex-bench-prod \
   --skip-final-snapshot --delete-automated-backups
 aws iam delete-role-policy --role-name GitHubBenchmarkSchemaRole --policy-name rds-db-connect-migrator
 aws iam delete-role --role-name GitHubBenchmarkSchemaRole
+aws iam delete-role-policy --role-name GitHubBenchmarkIngestRole --policy-name rds-db-connect-ingest
+aws iam delete-role --role-name GitHubBenchmarkIngestRole
 aws ec2 delete-security-group --group-name vortex-bench-sg
 aws rds delete-db-subnet-group --db-subnet-group-name vortex-bench-subnet-group
 # OIDC provider (account-scoped): only delete if no other workflow uses it
