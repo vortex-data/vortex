@@ -330,25 +330,30 @@ fn constant_canonical_fixed_size_list_array(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use enum_iterator::all;
     use itertools::Itertools;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
+    use crate::Canonical;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
+    use crate::arrays::FixedSizeListArray;
+    use crate::arrays::ListViewArray;
+    use crate::arrays::NullArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
     use crate::arrays::VarBinArray;
+    use crate::arrays::VarBinViewArray;
     use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
     use crate::arrays::listview::ListViewArrayExt;
     use crate::arrays::listview::ListViewRebuildMode;
     use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
-    #[expect(deprecated)]
-    use crate::canonical::ToCanonical as _;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -356,18 +361,25 @@ mod tests {
     use crate::expr::stats::Stat;
     use crate::expr::stats::StatsProvider;
     use crate::scalar::Scalar;
+    use crate::session::ArraySession;
     use crate::validity::Validity;
+
+    /// A shared session for these constant-array tests, used to create execution contexts.
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[test]
     fn test_canonicalize_null() {
+        let mut ctx = SESSION.create_execution_ctx();
         let const_null = ConstantArray::new(Scalar::null(DType::Null), 42);
-        #[expect(deprecated)]
-        let actual = const_null.as_array().to_null();
+        let actual = const_null
+            .as_array()
+            .clone()
+            .execute::<NullArray>(&mut ctx)
+            .unwrap();
         assert_eq!(actual.len(), 42);
         assert_eq!(
-            actual
-                .execute_scalar(33, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap(),
+            actual.execute_scalar(33, &mut ctx).unwrap(),
             Scalar::null(DType::Null)
         );
     }
@@ -382,14 +394,13 @@ mod tests {
 
     #[test]
     fn test_canonicalize_propagates_stats() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let scalar = Scalar::bool(true, Nullability::NonNullable);
         let const_array = ConstantArray::new(scalar, 4).into_array();
-        let stats = const_array.statistics().compute_all(
-            &all::<Stat>().collect_vec(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )?;
-        #[expect(deprecated)]
-        let canonical = const_array.to_canonical()?.into_array();
+        let stats = const_array
+            .statistics()
+            .compute_all(&all::<Stat>().collect_vec(), &mut ctx)?;
+        let canonical = const_array.execute::<Canonical>(&mut ctx)?.into_array();
         let canonical_stats = canonical.statistics();
 
         let stats_ref = stats.as_typed_ref(canonical.dtype());
@@ -409,47 +420,52 @@ mod tests {
 
     #[test]
     fn test_canonicalize_scalar_values() {
+        let mut ctx = SESSION.create_execution_ctx();
         let f16_value = f16::from_f32(5.722046e-6);
         let f16_scalar = Scalar::primitive(f16_value, Nullability::NonNullable);
 
         // Create a ConstantArray with the f16 scalar
         let const_array = ConstantArray::new(f16_scalar.clone(), 1).into_array();
-        #[expect(deprecated)]
-        let canonical_const = const_array.to_primitive();
+        let canonical_const = const_array.execute::<PrimitiveArray>(&mut ctx).unwrap();
 
         // Verify the scalar value is preserved through canonicalization
         assert_eq!(
-            canonical_const
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap(),
+            canonical_const.execute_scalar(0, &mut ctx).unwrap(),
             f16_scalar
         );
     }
 
     #[test]
     fn test_canonicalize_lists() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let list_scalar = Scalar::list(
             Arc::new(DType::Primitive(PType::U64, Nullability::NonNullable)),
             vec![1u64.into(), 2u64.into()],
             Nullability::NonNullable,
         );
         let const_array = ConstantArray::new(list_scalar, 2).into_array();
-        #[expect(deprecated)]
-        let canonical_const = const_array.to_listview();
-        let list_array = canonical_const.rebuild(ListViewRebuildMode::MakeZeroCopyToList)?;
+        let canonical_const = const_array.execute::<ListViewArray>(&mut ctx)?;
+        let list_array =
+            canonical_const.rebuild(ListViewRebuildMode::MakeZeroCopyToList, &mut ctx)?;
         assert_arrays_eq!(
-            #[expect(deprecated)]
-            list_array.elements().to_primitive(),
+            list_array
+                .elements()
+                .clone()
+                .execute::<PrimitiveArray>(&mut ctx)?,
             PrimitiveArray::from_iter([1u64, 2, 1, 2])
         );
         assert_arrays_eq!(
-            #[expect(deprecated)]
-            list_array.offsets().to_primitive(),
+            list_array
+                .offsets()
+                .clone()
+                .execute::<PrimitiveArray>(&mut ctx)?,
             PrimitiveArray::from_iter([0u64, 2])
         );
         assert_arrays_eq!(
-            #[expect(deprecated)]
-            list_array.sizes().to_primitive(),
+            list_array
+                .sizes()
+                .clone()
+                .execute::<PrimitiveArray>(&mut ctx)?,
             PrimitiveArray::from_iter([2u64, 2])
         );
         Ok(())
@@ -457,55 +473,74 @@ mod tests {
 
     #[test]
     fn test_canonicalize_empty_list() {
+        let mut ctx = SESSION.create_execution_ctx();
         let list_scalar = Scalar::list(
             Arc::new(DType::Primitive(PType::U64, Nullability::NonNullable)),
             vec![],
             Nullability::NonNullable,
         );
         let const_array = ConstantArray::new(list_scalar, 2).into_array();
-        #[expect(deprecated)]
-        let canonical_const = const_array.to_listview();
-        #[expect(deprecated)]
-        let elements_prim = canonical_const.elements().to_primitive();
+        let canonical_const = const_array.execute::<ListViewArray>(&mut ctx).unwrap();
+        let elements_prim = canonical_const
+            .elements()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert!(elements_prim.is_empty());
         assert_arrays_eq!(
-            #[expect(deprecated)]
-            canonical_const.offsets().to_primitive(),
+            canonical_const
+                .offsets()
+                .clone()
+                .execute::<PrimitiveArray>(&mut ctx)
+                .unwrap(),
             PrimitiveArray::from_iter([0u64, 0])
         );
         assert_arrays_eq!(
-            #[expect(deprecated)]
-            canonical_const.sizes().to_primitive(),
+            canonical_const
+                .sizes()
+                .clone()
+                .execute::<PrimitiveArray>(&mut ctx)
+                .unwrap(),
             PrimitiveArray::from_iter([0u64, 0])
         );
     }
 
     #[test]
     fn test_canonicalize_null_list() {
+        let mut ctx = SESSION.create_execution_ctx();
         let list_scalar = Scalar::null(DType::List(
             Arc::new(DType::Primitive(PType::U64, Nullability::NonNullable)),
             Nullability::Nullable,
         ));
         let const_array = ConstantArray::new(list_scalar, 2).into_array();
-        #[expect(deprecated)]
-        let canonical_const = const_array.to_listview();
-        #[expect(deprecated)]
-        let elements_prim = canonical_const.elements().to_primitive();
+        let canonical_const = const_array.execute::<ListViewArray>(&mut ctx).unwrap();
+        let elements_prim = canonical_const
+            .elements()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert!(elements_prim.is_empty());
         assert_arrays_eq!(
-            #[expect(deprecated)]
-            canonical_const.offsets().to_primitive(),
+            canonical_const
+                .offsets()
+                .clone()
+                .execute::<PrimitiveArray>(&mut ctx)
+                .unwrap(),
             PrimitiveArray::from_iter([0u64, 0])
         );
         assert_arrays_eq!(
-            #[expect(deprecated)]
-            canonical_const.sizes().to_primitive(),
+            canonical_const
+                .sizes()
+                .clone()
+                .execute::<PrimitiveArray>(&mut ctx)
+                .unwrap(),
             PrimitiveArray::from_iter([0u64, 0])
         );
     }
 
     #[test]
     fn test_canonicalize_nullable_struct() {
+        let mut ctx = SESSION.create_execution_ctx();
         let array = ConstantArray::new(
             Scalar::null(DType::struct_(
                 [(
@@ -517,15 +552,13 @@ mod tests {
             3,
         );
 
-        #[expect(deprecated)]
-        let struct_array = array.as_array().to_struct();
+        let struct_array = array
+            .as_array()
+            .clone()
+            .execute::<StructArray>(&mut ctx)
+            .unwrap();
         assert_eq!(struct_array.len(), 3);
-        assert_eq!(
-            struct_array
-                .valid_count(&mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap(),
-            0
-        );
+        assert_eq!(struct_array.valid_count(&mut ctx).unwrap(), 0);
 
         let field = struct_array
             .unmasked_field_by_name("non_null_field")
@@ -539,6 +572,7 @@ mod tests {
 
     #[test]
     fn test_canonicalize_fixed_size_list_non_null() {
+        let mut ctx = SESSION.create_execution_ctx();
         // Test with a non-null fixed-size list constant.
         let fsl_scalar = Scalar::fixed_size_list(
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
@@ -551,8 +585,7 @@ mod tests {
         );
 
         let const_array = ConstantArray::new(fsl_scalar, 4).into_array();
-        #[expect(deprecated)]
-        let canonical = const_array.to_fixed_size_list();
+        let canonical = const_array.execute::<FixedSizeListArray>(&mut ctx).unwrap();
 
         assert_eq!(canonical.len(), 4);
         assert_eq!(canonical.list_size(), 3);
@@ -561,14 +594,14 @@ mod tests {
         // Check that each list is [10, 20, 30].
         for i in 0..4 {
             let list = canonical.fixed_size_list_elements_at(i).unwrap();
-            #[expect(deprecated)]
-            let list_primitive = list.to_primitive();
+            let list_primitive = list.execute::<PrimitiveArray>(&mut ctx).unwrap();
             assert_arrays_eq!(list_primitive, PrimitiveArray::from_iter([10i32, 20, 30]));
         }
     }
 
     #[test]
     fn test_canonicalize_fixed_size_list_nullable() {
+        let mut ctx = SESSION.create_execution_ctx();
         // Test with a nullable but non-null fixed-size list constant.
         let fsl_scalar = Scalar::fixed_size_list(
             Arc::new(DType::Primitive(PType::F64, Nullability::NonNullable)),
@@ -580,16 +613,18 @@ mod tests {
         );
 
         let const_array = ConstantArray::new(fsl_scalar, 3).into_array();
-        #[expect(deprecated)]
-        let canonical = const_array.to_fixed_size_list();
+        let canonical = const_array.execute::<FixedSizeListArray>(&mut ctx).unwrap();
 
         assert_eq!(canonical.len(), 3);
         assert_eq!(canonical.list_size(), 2);
         assert!(matches!(canonical.validity(), Ok(Validity::AllValid)));
 
         // Check elements.
-        #[expect(deprecated)]
-        let elements = canonical.elements().to_primitive();
+        let elements = canonical
+            .elements()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_arrays_eq!(
             elements,
             PrimitiveArray::from_iter([1.5f64, 2.5, 1.5, 2.5, 1.5, 2.5])
@@ -598,6 +633,7 @@ mod tests {
 
     #[test]
     fn test_canonicalize_fixed_size_list_null() {
+        let mut ctx = SESSION.create_execution_ctx();
         // Test with a null fixed-size list constant.
         let fsl_scalar = Scalar::null(DType::FixedSizeList(
             Arc::new(DType::Primitive(PType::U64, Nullability::NonNullable)),
@@ -606,22 +642,25 @@ mod tests {
         ));
 
         let const_array = ConstantArray::new(fsl_scalar, 5).into_array();
-        #[expect(deprecated)]
-        let canonical = const_array.to_fixed_size_list();
+        let canonical = const_array.execute::<FixedSizeListArray>(&mut ctx).unwrap();
 
         assert_eq!(canonical.len(), 5);
         assert_eq!(canonical.list_size(), 4);
         assert!(matches!(canonical.validity(), Ok(Validity::AllInvalid)));
 
         // Elements should be defaults (zeros).
-        #[expect(deprecated)]
-        let elements = canonical.elements().to_primitive();
+        let elements = canonical
+            .elements()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_eq!(elements.len(), 20); // 5 lists * 4 elements each
         assert!(elements.as_slice::<u64>().iter().all(|&x| x == 0));
     }
 
     #[test]
     fn test_canonicalize_fixed_size_list_empty() {
+        let mut ctx = SESSION.create_execution_ctx();
         // Test with size-0 lists (edge case).
         let fsl_scalar = Scalar::fixed_size_list(
             Arc::new(DType::Primitive(PType::I8, Nullability::NonNullable)),
@@ -630,8 +669,7 @@ mod tests {
         );
 
         let const_array = ConstantArray::new(fsl_scalar, 10).into_array();
-        #[expect(deprecated)]
-        let canonical = const_array.to_fixed_size_list();
+        let canonical = const_array.execute::<FixedSizeListArray>(&mut ctx).unwrap();
 
         assert_eq!(canonical.len(), 10);
         assert_eq!(canonical.list_size(), 0);
@@ -643,6 +681,7 @@ mod tests {
 
     #[test]
     fn test_canonicalize_fixed_size_list_nested() {
+        let mut ctx = SESSION.create_execution_ctx();
         // Test with nested data types (list of strings).
         let fsl_scalar = Scalar::fixed_size_list(
             Arc::new(DType::Utf8(Nullability::NonNullable)),
@@ -651,43 +690,38 @@ mod tests {
         );
 
         let const_array = ConstantArray::new(fsl_scalar, 2).into_array();
-        #[expect(deprecated)]
-        let canonical = const_array.to_fixed_size_list();
+        let canonical = const_array.execute::<FixedSizeListArray>(&mut ctx).unwrap();
 
         assert_eq!(canonical.len(), 2);
         assert_eq!(canonical.list_size(), 2);
 
         // Check elements are repeated correctly.
-        #[expect(deprecated)]
-        let elements = canonical.elements().to_varbinview();
+        let elements = canonical
+            .elements()
+            .clone()
+            .execute::<VarBinViewArray>(&mut ctx)
+            .unwrap();
         assert_eq!(
-            elements
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap(),
+            elements.execute_scalar(0, &mut ctx).unwrap(),
             "hello".into()
         );
         assert_eq!(
-            elements
-                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap(),
+            elements.execute_scalar(1, &mut ctx).unwrap(),
             "world".into()
         );
         assert_eq!(
-            elements
-                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap(),
+            elements.execute_scalar(2, &mut ctx).unwrap(),
             "hello".into()
         );
         assert_eq!(
-            elements
-                .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap(),
+            elements.execute_scalar(3, &mut ctx).unwrap(),
             "world".into()
         );
     }
 
     #[test]
     fn test_canonicalize_fixed_size_list_single_element() {
+        let mut ctx = SESSION.create_execution_ctx();
         // Test with a single-element list.
         let fsl_scalar = Scalar::fixed_size_list(
             Arc::new(DType::Primitive(PType::I16, Nullability::NonNullable)),
@@ -696,19 +730,22 @@ mod tests {
         );
 
         let const_array = ConstantArray::new(fsl_scalar, 1).into_array();
-        #[expect(deprecated)]
-        let canonical = const_array.to_fixed_size_list();
+        let canonical = const_array.execute::<FixedSizeListArray>(&mut ctx).unwrap();
 
         assert_eq!(canonical.len(), 1);
         assert_eq!(canonical.list_size(), 1);
 
-        #[expect(deprecated)]
-        let elements = canonical.elements().to_primitive();
+        let elements = canonical
+            .elements()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_arrays_eq!(elements, PrimitiveArray::from_iter([42i16]));
     }
 
     #[test]
     fn test_canonicalize_fixed_size_list_with_null_elements() {
+        let mut ctx = SESSION.create_execution_ctx();
         // Test FSL with nullable element type where some elements are null.
         let fsl_scalar = Scalar::fixed_size_list(
             Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
@@ -721,32 +758,28 @@ mod tests {
         );
 
         let const_array = ConstantArray::new(fsl_scalar, 3).into_array();
-        #[expect(deprecated)]
-        let canonical = const_array.to_fixed_size_list();
+        let canonical = const_array.execute::<FixedSizeListArray>(&mut ctx).unwrap();
 
         assert_eq!(canonical.len(), 3);
         assert_eq!(canonical.list_size(), 3);
         assert!(matches!(canonical.validity(), Ok(Validity::NonNullable)));
 
         // Check elements including nulls.
-        #[expect(deprecated)]
-        let elements = canonical.elements().to_primitive();
+        let elements = canonical
+            .elements()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_eq!(
-            elements
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap(),
+            elements.execute_scalar(0, &mut ctx).unwrap(),
             Scalar::from(100i32)
         );
         assert_eq!(
-            elements
-                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap(),
+            elements.execute_scalar(1, &mut ctx).unwrap(),
             Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))
         );
         assert_eq!(
-            elements
-                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap(),
+            elements.execute_scalar(2, &mut ctx).unwrap(),
             Scalar::from(200i32)
         );
 
@@ -766,6 +799,7 @@ mod tests {
 
     #[test]
     fn test_canonicalize_fixed_size_list_large() {
+        let mut ctx = SESSION.create_execution_ctx();
         // Test with a large constant array.
         let fsl_scalar = Scalar::fixed_size_list(
             Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
@@ -780,47 +814,39 @@ mod tests {
         );
 
         let const_array = ConstantArray::new(fsl_scalar, 1000).into_array();
-        #[expect(deprecated)]
-        let canonical = const_array.to_fixed_size_list();
+        let canonical = const_array.execute::<FixedSizeListArray>(&mut ctx).unwrap();
 
         assert_eq!(canonical.len(), 1000);
         assert_eq!(canonical.list_size(), 5);
 
-        #[expect(deprecated)]
-        let elements = canonical.elements().to_primitive();
+        let elements = canonical
+            .elements()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_eq!(elements.len(), 5000);
 
         // Check pattern repeats correctly.
         for i in 0..1000 {
             let base = i * 5;
             assert_eq!(
-                elements
-                    .execute_scalar(base, &mut LEGACY_SESSION.create_execution_ctx())
-                    .unwrap(),
+                elements.execute_scalar(base, &mut ctx).unwrap(),
                 Scalar::from(1u8)
             );
             assert_eq!(
-                elements
-                    .execute_scalar(base + 1, &mut LEGACY_SESSION.create_execution_ctx())
-                    .unwrap(),
+                elements.execute_scalar(base + 1, &mut ctx).unwrap(),
                 Scalar::from(2u8)
             );
             assert_eq!(
-                elements
-                    .execute_scalar(base + 2, &mut LEGACY_SESSION.create_execution_ctx())
-                    .unwrap(),
+                elements.execute_scalar(base + 2, &mut ctx).unwrap(),
                 Scalar::from(3u8)
             );
             assert_eq!(
-                elements
-                    .execute_scalar(base + 3, &mut LEGACY_SESSION.create_execution_ctx())
-                    .unwrap(),
+                elements.execute_scalar(base + 3, &mut ctx).unwrap(),
                 Scalar::from(4u8)
             );
             assert_eq!(
-                elements
-                    .execute_scalar(base + 4, &mut LEGACY_SESSION.create_execution_ctx())
-                    .unwrap(),
+                elements.execute_scalar(base + 4, &mut ctx).unwrap(),
                 Scalar::from(5u8)
             );
         }

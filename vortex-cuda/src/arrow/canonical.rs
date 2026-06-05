@@ -170,7 +170,8 @@ fn export_canonical(
                     return Err(gpu_err);
                 }
 
-                export_list(list_from_list_view(listview)?, ctx).await
+                let list = list_from_list_view(listview, ctx.execution_ctx())?;
+                export_list(list, ctx).await
             }
             Canonical::FixedSizeList(fixed_size_list) => {
                 export_fixed_size_list(fixed_size_list, ctx).await

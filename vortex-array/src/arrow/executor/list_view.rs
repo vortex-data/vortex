@@ -54,7 +54,7 @@ pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
         }
     } else if array.upper_bound_density(ctx)? < DEFAULT_REBUILD_DENSITY_THRESHOLD {
         // Overlaps, gaps, or garbage may be present, so a full rebuild is needed to reclaim waste.
-        array.rebuild(ListViewRebuildMode::MakeZeroCopyToList)?
+        array.rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)?
     } else {
         array
     };
@@ -109,24 +109,31 @@ fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use arrow_array::Array;
     use arrow_array::GenericListViewArray;
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::arrow::ArrowArrayExecutor;
     use crate::arrow::executor::list_view::ListViewArray;
     use crate::arrow::executor::list_view::PrimitiveArray;
+    use crate::session::ArraySession;
     use crate::validity::Validity;
+
+    /// A shared session for these list-view-executor tests, used to create execution contexts.
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[test]
     fn trims_zero_copy_with_significant_trailing_waste() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Zero-copy-to-list array with 10 elements but only [0, 4) referenced -> 60% waste.
         // The conversion should trim the elements buffer down to the referenced range.
         let elements = PrimitiveArray::new(
@@ -161,7 +168,7 @@ mod tests {
 
     #[test]
     fn test_to_arrow_listview_i32() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Create a ListViewArray with overlapping views: [[1, 2], [2, 3], [3, 4]]
         let elements = PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable);
         let offsets = PrimitiveArray::new(buffer![0i32, 1, 2], Validity::NonNullable);
@@ -216,7 +223,7 @@ mod tests {
 
     #[test]
     fn test_to_arrow_listview_i64() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Create a ListViewArray with nullable elements: [[100], null, [200, 300]]
         let elements = PrimitiveArray::new(buffer![100i64, 200, 300], Validity::NonNullable);
         let offsets = PrimitiveArray::new(buffer![0i64, 1, 1], Validity::NonNullable);

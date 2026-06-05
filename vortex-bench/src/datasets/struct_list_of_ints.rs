@@ -16,7 +16,6 @@ use rand::rngs::StdRng;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
-use vortex::array::LEGACY_SESSION;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::Chunked;
 use vortex::array::arrays::ChunkedArray;
@@ -30,6 +29,7 @@ use vortex::array::validity::Validity;
 use vortex::dtype::FieldNames;
 
 use crate::IdempotentPath;
+use crate::SESSION;
 use crate::datasets::Dataset;
 use crate::idempotent_async;
 
@@ -135,7 +135,7 @@ impl Dataset for StructListOfInts {
 
         idempotent_async(&parquet_path, |temp_path| async move {
             // Generate the data
-            let mut ctx = LEGACY_SESSION.create_execution_ctx();
+            let mut ctx = SESSION.create_execution_ctx();
             let array = self.to_vortex_array(&mut ctx).await?;
 
             // Convert to Arrow RecordBatches and write to parquet
@@ -145,14 +145,12 @@ impl Dataset for StructListOfInts {
             let mut writer: Option<ArrowWriter<File>> = None;
 
             for chunk in chunked.iter_chunks() {
-                let converted = recursive_list_from_list_view(chunk.clone())?;
+                let converted = recursive_list_from_list_view(chunk.clone(), &mut ctx)?;
                 let schema = converted.dtype().to_arrow_schema()?;
                 let schema = Field::new_struct("", schema.fields, false);
-                let batch = LEGACY_SESSION.arrow().execute_arrow(
-                    converted,
-                    Some(&schema),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )?;
+                let batch = SESSION
+                    .arrow()
+                    .execute_arrow(converted, Some(&schema), &mut ctx)?;
                 let batch = RecordBatch::from(batch.as_struct());
 
                 if writer.is_none() {

@@ -21,8 +21,6 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::LEGACY_SESSION;
-#[expect(deprecated)]
-use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::array::IntoArray;
 use crate::arrays::ListViewArray;
@@ -294,8 +292,12 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
-        #[expect(deprecated)]
-        let listview = array.to_listview();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
+        let listview = array
+            .clone()
+            .execute::<ListViewArray>(&mut ctx)
+            .vortex_expect("failed to execute array into ListViewArray in extend_from_array");
         if listview.is_empty() {
             return;
         }
@@ -303,7 +305,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         // Normalize to an exact zero-copy-to-list layout and then bulk append. This avoids the
         // very expensive scalar_at-per-list path for overlapping / out-of-order list views.
         let listview = listview
-            .rebuild(ListViewRebuildMode::MakeExact)
+            .rebuild(ListViewRebuildMode::MakeExact, &mut ctx)
             .vortex_expect("ListViewArray::rebuild(MakeExact) failed in extend_from_array");
         debug_assert!(listview.is_zero_copy_to_list());
 
@@ -311,7 +313,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
             &array
                 .validity()
                 .vortex_expect("validity_mask in extend_from_array_unchecked")
-                .execute_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(array.len(), &mut ctx)
                 .vortex_expect("Failed to compute validity mask"),
         );
 
@@ -343,8 +345,11 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         let uninit_range = self.offsets_builder.uninit_range(extend_length);
 
         // This should be cheap because we didn't compress after rebuilding.
-        #[expect(deprecated)]
-        let new_offsets = listview.offsets().to_primitive();
+        let new_offsets = listview
+            .offsets()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .vortex_expect("failed to execute list view offsets into a PrimitiveArray");
 
         match_each_integer_ptype!(new_offsets.ptype(), |A| {
             adjust_and_extend_offsets::<O, A>(
