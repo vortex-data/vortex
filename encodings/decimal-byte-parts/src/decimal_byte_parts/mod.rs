@@ -13,11 +13,11 @@ mod rules;
 mod slice;
 
 use prost::Message as _;
-use vortex_array::Accuracy;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
+use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
@@ -53,11 +53,11 @@ use crate::decimal_byte_parts::rules::PARENT_RULES;
 pub type DecimalBytePartsArray = Array<DecimalByteParts>;
 
 impl ArrayHash for DecimalBytePartsData {
-    fn array_hash<H: Hasher>(&self, _state: &mut H, _accuracy: Accuracy) {}
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _accuracy: EqMode) {}
 }
 
 impl ArrayEq for DecimalBytePartsData {
-    fn array_eq(&self, _other: &Self, _accuracy: Accuracy) -> bool {
+    fn array_eq(&self, _other: &Self, _accuracy: EqMode) -> bool {
         true
     }
 }

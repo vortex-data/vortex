@@ -6,7 +6,6 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hasher;
 
-use vortex_array::Accuracy;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -15,6 +14,7 @@ use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
+use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
@@ -45,13 +45,13 @@ use crate::kernel::PARENT_KERNELS;
 pub type ByteBoolArray = Array<ByteBool>;
 
 impl ArrayHash for ByteBoolData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: Accuracy) {
+    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: EqMode) {
         self.buffer.array_hash(state, accuracy);
     }
 }
 
 impl ArrayEq for ByteBoolData {
-    fn array_eq(&self, other: &Self, accuracy: Accuracy) -> bool {
+    fn array_eq(&self, other: &Self, accuracy: EqMode) -> bool {
         self.buffer.array_eq(&other.buffer, accuracy)
     }
 }

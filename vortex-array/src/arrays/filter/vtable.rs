@@ -13,12 +13,12 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::Accuracy;
 use crate::AnyCanonical;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::EqMode;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayId;
@@ -51,13 +51,13 @@ pub type FilterArray = Array<Filter>;
 pub struct Filter;
 
 impl ArrayHash for FilterData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: Accuracy) {
+    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: EqMode) {
         self.mask.array_hash(state, accuracy);
     }
 }
 
 impl ArrayEq for FilterData {
-    fn array_eq(&self, other: &Self, accuracy: Accuracy) -> bool {
+    fn array_eq(&self, other: &Self, accuracy: EqMode) -> bool {
         self.mask.array_eq(&other.mask, accuracy)
     }
 }

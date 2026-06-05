@@ -14,10 +14,10 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::Accuracy;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
+use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::array::Array;
@@ -59,13 +59,13 @@ pub struct ListViewMetadata {
 }
 
 impl ArrayHash for ListViewData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, _accuracy: Accuracy) {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _accuracy: EqMode) {
         self.is_zero_copy_to_list().hash(state);
     }
 }
 
 impl ArrayEq for ListViewData {
-    fn array_eq(&self, other: &Self, _accuracy: Accuracy) -> bool {
+    fn array_eq(&self, other: &Self, _accuracy: EqMode) -> bool {
         self.is_zero_copy_to_list() == other.is_zero_copy_to_list()
     }
 }

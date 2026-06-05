@@ -29,7 +29,7 @@ use vortex_buffer::Alignment;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::Accuracy;
+use crate::EqMode;
 use crate::array::ArrayId;
 use crate::arrays::primitive::array::SLOT_NAMES;
 use crate::arrays::primitive::compute::rules::RULES;
@@ -40,13 +40,13 @@ use crate::hash::ArrayHash;
 pub type PrimitiveArray = Array<Primitive>;
 
 impl ArrayHash for PrimitiveData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: Accuracy) {
+    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: EqMode) {
         self.buffer.array_hash(state, accuracy);
     }
 }
 
 impl ArrayEq for PrimitiveData {
-    fn array_eq(&self, other: &Self, accuracy: Accuracy) -> bool {
+    fn array_eq(&self, other: &Self, accuracy: EqMode) -> bool {
         self.buffer.array_eq(&other.buffer, accuracy)
     }
 }

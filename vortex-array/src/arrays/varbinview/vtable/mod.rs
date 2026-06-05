@@ -15,8 +15,8 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::Accuracy;
 use crate::ArrayRef;
+use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::array::Array;
@@ -44,7 +44,7 @@ pub type VarBinViewArray = Array<VarBinView>;
 pub struct VarBinView;
 
 impl ArrayHash for VarBinViewData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: Accuracy) {
+    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: EqMode) {
         for buffer in self.buffers.iter() {
             buffer.array_hash(state, accuracy);
         }
@@ -53,7 +53,7 @@ impl ArrayHash for VarBinViewData {
 }
 
 impl ArrayEq for VarBinViewData {
-    fn array_eq(&self, other: &Self, accuracy: Accuracy) -> bool {
+    fn array_eq(&self, other: &Self, accuracy: EqMode) -> bool {
         self.buffers.len() == other.buffers.len()
             && self
                 .buffers

@@ -9,11 +9,11 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::Accuracy;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::array::Array;
@@ -39,11 +39,11 @@ pub type SharedArray = Array<Shared>;
 pub struct Shared;
 
 impl ArrayHash for SharedData {
-    fn array_hash<H: Hasher>(&self, _state: &mut H, _accuracy: Accuracy) {}
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _accuracy: EqMode) {}
 }
 
 impl ArrayEq for SharedData {
-    fn array_eq(&self, _other: &Self, _accuracy: Accuracy) -> bool {
+    fn array_eq(&self, _other: &Self, _accuracy: EqMode) -> bool {
         true
     }
 }

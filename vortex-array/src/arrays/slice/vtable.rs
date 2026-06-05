@@ -15,11 +15,11 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::Accuracy;
 use crate::AnyCanonical;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
+use crate::EqMode;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
@@ -47,14 +47,14 @@ pub type SliceArray = Array<Slice>;
 pub struct Slice;
 
 impl ArrayHash for SliceData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, _accuracy: Accuracy) {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _accuracy: EqMode) {
         self.range.start.hash(state);
         self.range.end.hash(state);
     }
 }
 
 impl ArrayEq for SliceData {
-    fn array_eq(&self, other: &Self, _accuracy: Accuracy) -> bool {
+    fn array_eq(&self, other: &Self, _accuracy: EqMode) -> bool {
         self.range == other.range
     }
 }

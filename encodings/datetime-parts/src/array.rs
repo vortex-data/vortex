@@ -7,7 +7,6 @@ use std::fmt::Formatter;
 use std::hash::Hasher;
 
 use prost::Message;
-use vortex_array::Accuracy;
 use vortex_array::AnyCanonical;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
@@ -16,6 +15,7 @@ use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
+use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
@@ -50,11 +50,11 @@ use crate::split_temporal;
 pub type DateTimePartsArray = Array<DateTimeParts>;
 
 impl ArrayHash for DateTimePartsData {
-    fn array_hash<H: Hasher>(&self, _state: &mut H, _accuracy: Accuracy) {}
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _accuracy: EqMode) {}
 }
 
 impl ArrayEq for DateTimePartsData {
-    fn array_eq(&self, _other: &Self, _accuracy: Accuracy) -> bool {
+    fn array_eq(&self, _other: &Self, _accuracy: EqMode) -> bool {
         true
     }
 }

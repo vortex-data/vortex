@@ -49,7 +49,7 @@ impl Display for ForeignArrayData {
 }
 
 impl ArrayHash for ForeignArrayData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: crate::Accuracy) {
+    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: crate::EqMode) {
         self.metadata.hash(state);
         self.buffers.len().hash(state);
         for buffer in &self.buffers {
@@ -59,7 +59,7 @@ impl ArrayHash for ForeignArrayData {
 }
 
 impl ArrayEq for ForeignArrayData {
-    fn array_eq(&self, other: &Self, accuracy: crate::Accuracy) -> bool {
+    fn array_eq(&self, other: &Self, accuracy: crate::EqMode) -> bool {
         self.metadata == other.metadata
             && self.buffers.len() == other.buffers.len()
             && self

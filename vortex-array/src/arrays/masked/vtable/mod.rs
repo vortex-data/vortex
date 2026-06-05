@@ -15,12 +15,12 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::Accuracy;
 use crate::AnyCanonical;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::EqMode;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
@@ -51,11 +51,11 @@ pub type MaskedArray = Array<Masked>;
 pub struct Masked;
 
 impl ArrayHash for MaskedData {
-    fn array_hash<H: Hasher>(&self, _state: &mut H, _accuracy: Accuracy) {}
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _accuracy: EqMode) {}
 }
 
 impl ArrayEq for MaskedData {
-    fn array_eq(&self, _other: &Self, _accuracy: Accuracy) -> bool {
+    fn array_eq(&self, _other: &Self, _accuracy: EqMode) -> bool {
         true
     }
 }

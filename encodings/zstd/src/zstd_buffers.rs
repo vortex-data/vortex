@@ -9,7 +9,6 @@ use std::hash::Hasher;
 use std::sync::Arc;
 
 use prost::Message as _;
-use vortex_array::Accuracy;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -18,6 +17,7 @@ use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
+use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::buffer::BufferHandle;
@@ -337,7 +337,7 @@ fn array_id_from_string(s: &str) -> ArrayId {
 }
 
 impl ArrayHash for ZstdBuffersData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: Accuracy) {
+    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: EqMode) {
         self.inner_encoding_id.hash(state);
         self.inner_metadata.hash(state);
         for buf in &self.compressed_buffers {
@@ -349,7 +349,7 @@ impl ArrayHash for ZstdBuffersData {
 }
 
 impl ArrayEq for ZstdBuffersData {
-    fn array_eq(&self, other: &Self, accuracy: Accuracy) -> bool {
+    fn array_eq(&self, other: &Self, accuracy: EqMode) -> bool {
         self.inner_encoding_id == other.inner_encoding_id
             && self.inner_metadata == other.inner_metadata
             && self.compressed_buffers.len() == other.compressed_buffers.len()

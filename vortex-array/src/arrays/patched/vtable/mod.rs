@@ -19,9 +19,9 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::Accuracy;
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
@@ -82,14 +82,14 @@ pub struct PatchedMetadata {
 }
 
 impl ArrayHash for PatchedData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, _accuracy: Accuracy) {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _accuracy: EqMode) {
         self.offset.hash(state);
         self.n_lanes.hash(state);
     }
 }
 
 impl ArrayEq for PatchedData {
-    fn array_eq(&self, other: &Self, _accuracy: Accuracy) -> bool {
+    fn array_eq(&self, other: &Self, _accuracy: EqMode) -> bool {
         self.offset == other.offset && self.n_lanes == other.n_lanes
     }
 }

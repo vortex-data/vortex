@@ -34,7 +34,7 @@ mod validity;
 
 use vortex_session::registry::CachedId;
 
-use crate::Accuracy;
+use crate::EqMode;
 use crate::array::ArrayId;
 use crate::arrays::bool::compute::rules::RULES;
 use crate::hash::ArrayEq;
@@ -51,14 +51,14 @@ pub struct BoolMetadata {
 }
 
 impl ArrayHash for BoolData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: Accuracy) {
+    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: EqMode) {
         self.bits.array_hash(state, accuracy);
         self.meta.offset().hash(state);
     }
 }
 
 impl ArrayEq for BoolData {
-    fn array_eq(&self, other: &Self, accuracy: Accuracy) -> bool {
+    fn array_eq(&self, other: &Self, accuracy: EqMode) -> bool {
         self.meta.offset() == other.meta.offset() && self.bits.array_eq(&other.bits, accuracy)
     }
 }

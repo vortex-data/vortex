@@ -155,7 +155,7 @@ impl Debug for ArrayRef {
 }
 
 impl ArrayHash for ArrayRef {
-    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: crate::Accuracy) {
+    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: crate::EqMode) {
         self.0.len.hash(state);
         self.0.dtype.hash(state);
         self.0.encoding_id.hash(state);
@@ -170,7 +170,7 @@ impl ArrayHash for ArrayRef {
 }
 
 impl ArrayEq for ArrayRef {
-    fn array_eq(&self, other: &Self, accuracy: crate::Accuracy) -> bool {
+    fn array_eq(&self, other: &Self, accuracy: crate::EqMode) -> bool {
         self.0.len == other.0.len
             && self.0.dtype == other.0.dtype
             && self.0.encoding_id == other.0.encoding_id

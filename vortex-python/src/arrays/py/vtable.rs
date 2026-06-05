@@ -4,7 +4,6 @@
 use std::hash::Hash;
 use std::sync::Arc;
 
-use vortex::array::Accuracy;
 use vortex::array::Array;
 use vortex::array::ArrayEq;
 use vortex::array::ArrayHash;
@@ -12,6 +11,7 @@ use vortex::array::ArrayId;
 use vortex::array::ArrayParts;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayView;
+use vortex::array::EqMode;
 use vortex::array::ExecutionCtx;
 use vortex::array::ExecutionResult;
 use vortex::array::OperationsVTable;
@@ -37,13 +37,13 @@ pub struct PythonVTable {
 }
 
 impl ArrayHash for PythonArray {
-    fn array_hash<H: std::hash::Hasher>(&self, state: &mut H, _accuracy: Accuracy) {
+    fn array_hash<H: std::hash::Hasher>(&self, state: &mut H, _accuracy: EqMode) {
         Arc::as_ptr(&self.object).hash(state);
     }
 }
 
 impl ArrayEq for PythonArray {
-    fn array_eq(&self, other: &Self, _accuracy: Accuracy) -> bool {
+    fn array_eq(&self, other: &Self, _accuracy: EqMode) -> bool {
         Arc::ptr_eq(&self.object, &other.object)
     }
 }

@@ -9,7 +9,6 @@ use std::hash::Hasher;
 use num_traits::cast::FromPrimitive;
 use prost::Message;
 use smallvec::smallvec;
-use vortex_array::Accuracy;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -17,6 +16,7 @@ use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
+use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::buffer::BufferHandle;
@@ -214,14 +214,14 @@ impl SequenceData {
 }
 
 impl ArrayHash for SequenceData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, _accuracy: Accuracy) {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _accuracy: EqMode) {
         self.base.hash(state);
         self.multiplier.hash(state);
     }
 }
 
 impl ArrayEq for SequenceData {
-    fn array_eq(&self, other: &Self, _accuracy: Accuracy) -> bool {
+    fn array_eq(&self, other: &Self, _accuracy: EqMode) -> bool {
         self.base == other.base && self.multiplier == other.multiplier
     }
 }

@@ -18,11 +18,11 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use crate::Accuracy;
 use crate::Array;
 use crate::ArrayRef;
 use crate::ArrayView;
 use crate::Canonical;
+use crate::EqMode;
 use crate::ExecutionResult;
 use crate::IntoArray;
 pub use crate::array::plugin::*;
@@ -223,12 +223,12 @@ use crate::array::ArrayId;
 pub struct EmptyArrayData;
 
 impl ArrayEq for EmptyArrayData {
-    fn array_eq(&self, _other: &Self, _accuracy: Accuracy) -> bool {
+    fn array_eq(&self, _other: &Self, _accuracy: EqMode) -> bool {
         true
     }
 }
 impl ArrayHash for EmptyArrayData {
-    fn array_hash<H: Hasher>(&self, _state: &mut H, _accuracy: Accuracy) {}
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _accuracy: EqMode) {}
 }
 
 impl Display for EmptyArrayData {

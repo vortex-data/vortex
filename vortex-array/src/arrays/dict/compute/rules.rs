@@ -3,9 +3,9 @@
 
 use vortex_error::VortexResult;
 
-use crate::Accuracy;
 use crate::ArrayEq;
 use crate::ArrayRef;
+use crate::EqMode;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::array::VTable;
@@ -178,7 +178,7 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnCodesPullUpRule {
         if !parent.iter_children().enumerate().all(|(idx, c)| {
             idx == child_idx
                 || c.as_opt::<Dict>()
-                    .is_some_and(|c| c.codes().array_eq(array.codes(), Accuracy::Value))
+                    .is_some_and(|c| c.codes().array_eq(array.codes(), EqMode::Value))
         }) {
             return Ok(None);
         }
