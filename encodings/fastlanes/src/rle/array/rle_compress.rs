@@ -440,7 +440,7 @@ mod tests {
         let mut rng_state: u32 = 0xDEAD_BEEF;
         let validity = indices_prim.validity()?;
         for (i, idx) in indices_data.iter_mut().enumerate() {
-            if !validity.is_valid(i).unwrap_or(true) {
+            if !validity.execute_is_valid(i, ctx).unwrap_or(true) {
                 // xorshift32
                 rng_state ^= rng_state << 13;
                 rng_state ^= rng_state >> 17;

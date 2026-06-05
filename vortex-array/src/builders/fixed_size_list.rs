@@ -474,21 +474,21 @@ mod tests {
             fsl_array
                 .validity()
                 .vortex_expect("fixed-size-list validity should be derivable")
-                .is_valid(0)
+                .execute_is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert!(
             !fsl_array
                 .validity()
                 .vortex_expect("fixed-size-list validity should be derivable")
-                .is_valid(1)
+                .execute_is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert!(
             fsl_array
                 .validity()
                 .vortex_expect("fixed-size-list validity should be derivable")
-                .is_valid(2)
+                .execute_is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
     }
@@ -582,7 +582,7 @@ mod tests {
                 !fsl_array
                     .validity()
                     .vortex_expect("fixed-size-list validity should be derivable")
-                    .is_valid(i)
+                    .execute_is_valid(i, &mut LEGACY_SESSION.create_execution_ctx())
                     .unwrap()
             );
         }
@@ -612,7 +612,7 @@ mod tests {
             !fsl_array
                 .validity()
                 .vortex_expect("fixed-size-list validity should be derivable")
-                .is_valid(0)
+                .execute_is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
     }
@@ -690,42 +690,42 @@ mod tests {
             fsl_array
                 .validity()
                 .vortex_expect("fixed-size-list validity should be derivable")
-                .is_valid(0)
+                .execute_is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert!(
             !fsl_array
                 .validity()
                 .vortex_expect("fixed-size-list validity should be derivable")
-                .is_valid(1)
+                .execute_is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert!(
             fsl_array
                 .validity()
                 .vortex_expect("fixed-size-list validity should be derivable")
-                .is_valid(2)
+                .execute_is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert!(
             fsl_array
                 .validity()
                 .vortex_expect("fixed-size-list validity should be derivable")
-                .is_valid(3)
+                .execute_is_valid(3, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert!(
             !fsl_array
                 .validity()
                 .vortex_expect("fixed-size-list validity should be derivable")
-                .is_valid(4)
+                .execute_is_valid(4, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert!(
             fsl_array
                 .validity()
                 .vortex_expect("fixed-size-list validity should be derivable")
-                .is_valid(5)
+                .execute_is_valid(5, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
     }
@@ -767,35 +767,35 @@ mod tests {
             fsl_array
                 .validity()
                 .vortex_expect("fixed-size-list validity should be derivable")
-                .is_valid(0)
+                .execute_is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert!(
             !fsl_array
                 .validity()
                 .vortex_expect("fixed-size-list validity should be derivable")
-                .is_valid(1)
+                .execute_is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert!(
             fsl_array
                 .validity()
                 .vortex_expect("fixed-size-list validity should be derivable")
-                .is_valid(2)
+                .execute_is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert!(
             !fsl_array
                 .validity()
                 .vortex_expect("fixed-size-list validity should be derivable")
-                .is_valid(3)
+                .execute_is_valid(3, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert!(
             fsl_array
                 .validity()
                 .vortex_expect("fixed-size-list validity should be derivable")
-                .is_valid(4)
+                .execute_is_valid(4, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
     }
@@ -879,42 +879,42 @@ mod tests {
             fsl_array
                 .validity()
                 .vortex_expect("fixed-size-list validity should be derivable")
-                .is_valid(0)
+                .execute_is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         ); // append_value
         assert!(
             !fsl_array
                 .validity()
                 .vortex_expect("fixed-size-list validity should be derivable")
-                .is_valid(1)
+                .execute_is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         ); // append_null
         assert!(
             fsl_array
                 .validity()
                 .vortex_expect("fixed-size-list validity should be derivable")
-                .is_valid(2)
+                .execute_is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         ); // append_zeros
         assert!(
             fsl_array
                 .validity()
                 .vortex_expect("fixed-size-list validity should be derivable")
-                .is_valid(3)
+                .execute_is_valid(3, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         ); // append_zeros
         assert!(
             !fsl_array
                 .validity()
                 .vortex_expect("fixed-size-list validity should be derivable")
-                .is_valid(4)
+                .execute_is_valid(4, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         ); // append_nulls
         assert!(
             fsl_array
                 .validity()
                 .vortex_expect("fixed-size-list validity should be derivable")
-                .is_valid(5)
+                .execute_is_valid(5, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         ); // extend_from_array
     }
@@ -967,21 +967,21 @@ mod tests {
             array
                 .validity()
                 .vortex_expect("fixed-size-list validity should be derivable")
-                .is_valid(0)
+                .execute_is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert!(
             array
                 .validity()
                 .vortex_expect("fixed-size-list validity should be derivable")
-                .is_valid(1)
+                .execute_is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert!(
             !array
                 .validity()
                 .vortex_expect("fixed-size-list validity should be derivable")
-                .is_valid(2)
+                .execute_is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
 

@@ -857,7 +857,7 @@ fn test_set_validity_overrides_validity(
     let validity = builder.finish().validity()?;
     for (i, &valid) in expected.iter().enumerate() {
         assert_eq!(
-            validity.is_valid(i)?,
+            validity.execute_is_valid(i, &mut LEGACY_SESSION.create_execution_ctx())?,
             valid,
             "validity mismatch at index {i}"
         );
@@ -877,7 +877,10 @@ fn test_set_validity_noop_when_non_nullable() -> VortexResult<()> {
 
     let validity = builder.finish().validity()?;
     for i in 0..4 {
-        assert!(validity.is_valid(i)?, "index {i} should remain valid");
+        assert!(
+            validity.execute_is_valid(i, &mut LEGACY_SESSION.create_execution_ctx())?,
+            "index {i} should remain valid"
+        );
     }
     Ok(())
 }

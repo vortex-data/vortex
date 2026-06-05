@@ -613,21 +613,21 @@ mod tests {
             array
                 .validity()
                 .vortex_expect("list validity should be derivable")
-                .is_valid(0)
+                .execute_is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert!(
             array
                 .validity()
                 .vortex_expect("list validity should be derivable")
-                .is_valid(1)
+                .execute_is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert!(
             !array
                 .validity()
                 .vortex_expect("list validity should be derivable")
-                .is_valid(2)
+                .execute_is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
 

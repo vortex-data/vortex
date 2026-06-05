@@ -36,7 +36,7 @@ fn nullable_vectors_roundtrip() -> VortexResult<()> {
     for i in 0..10 {
         let expected = ![2, 5, 7].contains(&i);
         assert_eq!(
-            encoded_validity.is_valid(i)?,
+            encoded_validity.execute_is_valid(i, &mut ctx)?,
             expected,
             "validity mismatch at row {i}"
         );
@@ -95,7 +95,7 @@ fn nullable_norms_match_validity() -> VortexResult<()> {
     for i in 0..5 {
         let expected = i % 2 == 0;
         assert_eq!(
-            norms_validity.is_valid(i)?,
+            norms_validity.execute_is_valid(i, &mut ctx)?,
             expected,
             "norms validity mismatch at row {i}"
         );
@@ -169,7 +169,7 @@ fn nullable_slice_preserves_validity() -> VortexResult<()> {
     let expected = [true, false, true, true, false];
     for (i, &exp) in expected.iter().enumerate() {
         assert_eq!(
-            sliced_validity.is_valid(i)?,
+            sliced_validity.execute_is_valid(i, &mut ctx)?,
             exp,
             "sliced validity mismatch at index {i}"
         );

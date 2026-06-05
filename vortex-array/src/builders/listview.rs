@@ -425,6 +425,8 @@ mod tests {
 
     use super::ListViewBuilder;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::ListArray;
     use crate::arrays::ListViewArray;
     use crate::arrays::listview::ListViewArrayExt;
@@ -497,7 +499,7 @@ mod tests {
             !listview
                 .validity()
                 .vortex_expect("listview validity should be derivable")
-                .is_valid(2)
+                .execute_is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
 
@@ -610,14 +612,14 @@ mod tests {
             !listview
                 .validity()
                 .vortex_expect("listview validity should be derivable")
-                .is_valid(2)
+                .execute_is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert!(
             !listview
                 .validity()
                 .vortex_expect("listview validity should be derivable")
-                .is_valid(3)
+                .execute_is_valid(3, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
 
@@ -679,7 +681,7 @@ mod tests {
             !listview
                 .validity()
                 .vortex_expect("listview validity should be derivable")
-                .is_valid(2)
+                .execute_is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
 
@@ -724,7 +726,7 @@ mod tests {
             !listview
                 .validity()
                 .vortex_expect("listview validity should be derivable")
-                .is_valid(1)
+                .execute_is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert_eq!(listview.list_elements_at(1).unwrap().len(), 0);

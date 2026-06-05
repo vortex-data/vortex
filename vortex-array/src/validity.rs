@@ -19,8 +19,6 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
@@ -128,24 +126,24 @@ impl Validity {
         }
     }
 
-    /// Returns whether the `index` item is valid.
+    /// Returns whether the `index` item is valid, using `ctx` to execute the validity array.
     #[inline]
-    pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
+    pub fn execute_is_valid(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
         Ok(match self {
             Self::NonNullable | Self::AllValid => true,
             Self::AllInvalid => false,
             Self::Array(a) => a
-                .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
-                .vortex_expect("Validity array must support execute_scalar")
+                .execute_scalar(index, ctx)?
                 .as_bool()
                 .value()
-                .vortex_expect("Validity must be non-nullable"),
+                .ok_or_else(|| vortex_err!("validity value at index {index} is null"))?,
         })
     }
 
+    /// Returns whether the `index` item is null, using `ctx` to execute the validity array.
     #[inline]
-    pub fn is_null(&self, index: usize) -> VortexResult<bool> {
-        Ok(!self.is_valid(index)?)
+    pub fn execute_is_null(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+        Ok(!self.execute_is_valid(index, ctx)?)
     }
 
     #[inline]
