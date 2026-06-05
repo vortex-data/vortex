@@ -751,3 +751,22 @@ fn mask_iter_matches_value(#[case] mask: Mask, #[case] expected: Vec<bool>) {
         assert_eq!(it.len(), mask.len() - 1);
     }
 }
+
+#[rstest]
+// Spans multiple full 64-bit words plus a partial remainder word.
+#[case::multi_word(Mask::from_buffer(BitBuffer::from_iter((0..150).map(|i| i % 3 == 0))), 0, 150)]
+// Non-zero bit offset within the first byte (the `BitChunks` `bit_offset` path).
+#[case::offset_small(Mask::from_buffer(BitBuffer::from_iter((0..40).map(|i| i % 5 < 2))), 3, 30)]
+// Offset spanning past a word boundary so the remainder word shifts too.
+#[case::offset_multi_word(
+    Mask::from_buffer(BitBuffer::from_iter((0..200).map(|i| (i * 7) % 11 < 4))), 5, 180
+)]
+fn mask_iter_word_path_matches_value(#[case] mask: Mask, #[case] start: usize, #[case] len: usize) {
+    // Slicing yields a `Mask::Values` with a non-zero bit offset, exercising the word-buffered
+    // decode against the scalar `value` path.
+    let sliced = mask.slice(start..start + len);
+    let collected: Vec<bool> = sliced.iter().collect();
+    let by_value: Vec<bool> = (0..sliced.len()).map(|i| sliced.value(i)).collect();
+    assert_eq!(collected, by_value);
+    assert_eq!(collected.len(), len);
+}
