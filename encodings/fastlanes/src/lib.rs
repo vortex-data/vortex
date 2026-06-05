@@ -20,6 +20,7 @@ mod bitpacking;
 mod delta;
 mod r#for;
 mod rle;
+mod row_encode_common;
 
 pub(crate) const FL_CHUNK_SIZE: usize = 1024;
 

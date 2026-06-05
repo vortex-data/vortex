@@ -8,6 +8,7 @@ pub(crate) mod filter;
 pub(crate) mod is_constant;
 pub(crate) mod is_sorted;
 pub(crate) mod min_max;
+mod row_encode;
 pub(crate) mod take;
 pub(crate) mod take_from;
 

@@ -7,6 +7,7 @@ mod compare;
 mod compare_fused;
 mod filter;
 pub(crate) mod is_constant;
+pub(crate) mod row_encode;
 mod slice;
 mod stream_predicate;
 mod take;

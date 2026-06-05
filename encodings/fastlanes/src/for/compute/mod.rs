@@ -5,6 +5,7 @@ mod cast;
 mod compare;
 pub(crate) mod is_constant;
 pub(crate) mod is_sorted;
+pub(crate) mod row_encode;
 
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;

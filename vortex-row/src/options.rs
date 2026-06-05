@@ -67,15 +67,23 @@ impl RowSortField {
     }
 
     /// Returns the sentinel byte to write for a non-null value.
+    ///
+    /// Public so downstream encoding row-encode kernels (registered via
+    /// [`RowEncodeRegistration`](crate::RowEncodeRegistration)) can write byte-identical
+    /// output to the canonical path.
     #[inline]
-    pub(crate) fn non_null_sentinel(&self) -> u8 {
+    pub fn non_null_sentinel(&self) -> u8 {
         // Non-null is always 0x01. Null choices are < or > 0x01.
         0x01
     }
 
     /// Returns the sentinel byte to write for a null value.
+    ///
+    /// Public so downstream encoding row-encode kernels (registered via
+    /// [`RowEncodeRegistration`](crate::RowEncodeRegistration)) can write byte-identical
+    /// output to the canonical path.
     #[inline]
-    pub(crate) fn null_sentinel(&self) -> u8 {
+    pub fn null_sentinel(&self) -> u8 {
         if self.nulls_first {
             // Nulls before non-nulls (smaller byte sorts first).
             0x00

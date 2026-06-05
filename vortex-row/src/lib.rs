@@ -30,13 +30,17 @@
 mod codec;
 mod encode;
 mod encoder;
+mod kernels;
 mod options;
+mod registry;
 mod size;
 
 #[cfg(test)]
 mod tests;
 
 pub use encode::RowEncode;
+pub use encode::RowEncodeKernel;
+pub use encode::dispatch_encode;
 pub use encoder::RowEncoder;
 pub use encoder::compute_row_sizes;
 pub use encoder::compute_row_sizes_with_options;
@@ -44,7 +48,12 @@ pub use encoder::convert_columns;
 pub use encoder::convert_columns_with_options;
 pub use options::RowEncodingOptions;
 pub use options::RowSortField;
+pub use registry::DynEncodeFn;
+pub use registry::DynSizeFn;
+pub use registry::RowEncodeRegistration;
 pub use size::RowSize;
+pub use size::RowSizeKernel;
+pub use size::dispatch_size;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_session::VortexSession;
 

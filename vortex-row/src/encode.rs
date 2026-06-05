@@ -11,10 +11,16 @@
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VTable;
+use vortex_array::arrays::Constant;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::dict::Dict;
+use vortex_array::arrays::patched::Patched;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -32,9 +38,12 @@ use vortex_session::VortexSession;
 
 use crate::codec;
 use crate::options::RowEncodingOptions;
+use crate::options::RowSortField;
 use crate::options::deserialize_row_encoding_options;
 use crate::options::serialize_row_encoding_options;
+use crate::registry;
 use crate::size::ColKind;
+use crate::size::ColumnEncodeInput;
 use crate::size::compute_sizes;
 
 /// Variadic scalar function that encodes N input columns into a single `List<u8>`
@@ -224,16 +233,20 @@ fn execute_row_encode(
     // Fixed-before-varlen columns take the arithmetic-write path (constant within-row
     // offset, no cursor mutation). Fixed-after-varlen and varlen columns take the cursor
     // path. Each column was canonicalized once during the size pass; reuse that form.
-    for (i, canonical) in columns.iter().enumerate() {
-        match col_kinds[i] {
-            ColKind::Fixed {
-                prefix,
-                before_varlen: true,
-                ..
-            } => {
+    for (i, col_input) in columns.iter().enumerate() {
+        let field = options.fields[i];
+        match (col_kinds[i], col_input) {
+            (
+                ColKind::Fixed {
+                    prefix,
+                    before_varlen: true,
+                    ..
+                },
+                ColumnEncodeInput::Canonical(canonical),
+            ) => {
                 codec::field_encode_fixed_arithmetic(
                     canonical,
-                    options.fields[i],
+                    field,
                     prefix,
                     fixed_per_row,
                     var_prefix_for_arith.as_deref(),
@@ -242,15 +255,29 @@ fn execute_row_encode(
                     ctx,
                 )?;
             }
-            ColKind::Fixed { .. } | ColKind::Variable { .. } => {
+            (ColKind::Fixed { .. }, ColumnEncodeInput::Canonical(canonical))
+            | (ColKind::Variable { .. }, ColumnEncodeInput::Canonical(canonical)) => {
                 codec::field_encode(
                     canonical,
-                    options.fields[i],
+                    field,
                     listview_offsets_slice,
                     row_cursors.as_mut_slice(),
                     &mut out_buf,
                     ctx,
                 )?;
+            }
+            (ColKind::Variable { .. }, ColumnEncodeInput::Kernel(raw)) => {
+                dispatch_encode(
+                    raw,
+                    field,
+                    listview_offsets_slice,
+                    row_cursors.as_mut_slice(),
+                    &mut out_buf,
+                    ctx,
+                )?;
+            }
+            (ColKind::Fixed { .. }, ColumnEncodeInput::Kernel(_)) => {
+                unreachable!("fixed-width columns are always canonicalized in the size pass")
             }
         }
     }
@@ -272,4 +299,61 @@ fn execute_row_encode(
         ListViewArray::new_unchecked(elements, offsets_arr, sizes_arr, Validity::NonNullable)
     }
     .into_array())
+}
+
+/// Dispatch a single column's encoding into the shared `out` buffer at `offsets[i] +
+/// cursors[i]`, advancing each cursor by the bytes written.
+///
+/// Tries the in-crate per-encoding fast paths ([`Constant`], [`Dict`], [`Patched`]) and then
+/// the downstream-encoding [`registry`], falling back to canonicalization. This is the encode
+/// counterpart to [`dispatch_size`](crate::dispatch_size) and is public so downstream encoding
+/// kernels can recurse into a child array's encoding.
+pub fn dispatch_encode(
+    col: &ArrayRef,
+    field: RowSortField,
+    offsets: &[u32],
+    cursors: &mut [u32],
+    out: &mut [u8],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    if let Some(view) = col.as_opt::<Constant>()
+        && Constant::row_encode_into(view, field, offsets, cursors, out, ctx)?.is_some()
+    {
+        return Ok(());
+    }
+    if let Some(view) = col.as_opt::<Dict>()
+        && Dict::row_encode_into(view, field, offsets, cursors, out, ctx)?.is_some()
+    {
+        return Ok(());
+    }
+    if let Some(view) = col.as_opt::<Patched>()
+        && Patched::row_encode_into(view, field, offsets, cursors, out, ctx)?.is_some()
+    {
+        return Ok(());
+    }
+    if let Some((_, encode_fn)) = registry::lookup(&col.encoding_id())
+        && encode_fn(col, field, offsets, cursors, out, ctx)?.is_some()
+    {
+        return Ok(());
+    }
+    let canonical = col.clone().execute::<Canonical>(ctx)?;
+    codec::field_encode(&canonical, field, offsets, cursors, out, ctx)
+}
+
+/// Per-encoding fast path that writes a column's per-row bytes into `out` at `offsets[i] +
+/// cursors[i]`, advancing `cursors[i]` by the bytes written.
+///
+/// Return `Ok(Some(()))` when the kernel handled the column, or `Ok(None)` to decline and let
+/// the dispatcher fall back to the canonical path.
+pub trait RowEncodeKernel: VTable {
+    /// Write this column's per-row bytes into `out` at `offsets[i] + cursors[i]`, advancing
+    /// `cursors[i]` by the bytes written.
+    fn row_encode_into(
+        column: ArrayView<'_, Self>,
+        field: RowSortField,
+        offsets: &[u32],
+        cursors: &mut [u32],
+        out: &mut [u8],
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<()>>;
 }

@@ -9622,6 +9622,7 @@ version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
  "fastlanes",
+ "inventory",
  "itertools 0.14.0",
  "lending-iterator",
  "num-traits",
@@ -9634,6 +9635,7 @@ dependencies = [
  "vortex-error",
  "vortex-fastlanes",
  "vortex-mask",
+ "vortex-row",
  "vortex-session",
 ]
 
@@ -10006,6 +10008,7 @@ dependencies = [
  "arrow-schema",
  "bytes",
  "codspeed-divan-compat",
+ "inventory",
  "mimalloc",
  "rand 0.10.1",
  "rstest",
@@ -10015,6 +10018,7 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-session",
+ "vortex-utils",
 ]
 
 [[package]]
@@ -10025,6 +10029,7 @@ dependencies = [
  "arrow-array",
  "arrow-schema",
  "codspeed-divan-compat",
+ "inventory",
  "itertools 0.14.0",
  "num-traits",
  "prost 0.14.3",
@@ -10034,6 +10039,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-error",
  "vortex-mask",
+ "vortex-row",
  "vortex-session",
 ]
 

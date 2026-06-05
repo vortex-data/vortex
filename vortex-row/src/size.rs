@@ -6,12 +6,17 @@
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VTable;
+use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::dict::Dict;
+use vortex_array::arrays::patched::Patched;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
@@ -33,8 +38,10 @@ use vortex_session::VortexSession;
 use crate::codec;
 use crate::codec::RowWidth;
 use crate::options::RowEncodingOptions;
+use crate::options::RowSortField;
 use crate::options::deserialize_row_encoding_options;
 use crate::options::serialize_row_encoding_options;
+use crate::registry;
 
 /// Classification of a single input column for the size pass.
 ///
@@ -54,18 +61,32 @@ pub(crate) enum ColKind {
     Variable { fixed_prefix: u32 },
 }
 
+/// Per-column representation carried from the size pass into the encode pass.
+///
+/// Most columns are canonicalized exactly once during the size pass and the canonical form is
+/// reused for encoding (no second decode). Columns that a per-encoding kernel claimed during
+/// the size pass are kept in their original encoded form so the matching encode kernel can
+/// write their bytes directly without canonicalizing.
+pub(crate) enum ColumnEncodeInput {
+    /// Column canonicalized during the size pass; reuse for the encode pass.
+    Canonical(Canonical),
+    /// Variable-width column claimed by a per-encoding [`RowSizeKernel`]; the encode pass
+    /// routes it through [`dispatch_encode`](crate::dispatch_encode) on the encoded form.
+    Kernel(ArrayRef),
+}
+
 /// Result of the size pass: enough information for both [`RowSize::execute`] and the
 /// downstream [`RowEncode`](super::encode::RowEncode) pipeline.
 ///
-/// `columns` holds the canonicalized form of each input so the encode pass can write bytes
-/// without re-decoding — a single canonicalization per column is shared between size and
-/// encode.
+/// `columns` holds the form of each input that the encode pass should consume so it can write
+/// bytes without re-decoding — a single canonicalization per fallback column is shared between
+/// size and encode, and kernel-claimed columns retain their encoded form.
 pub(crate) struct SizePassResult {
     pub fixed_per_row: u32,
     pub var_lengths: Option<Vec<u32>>,
     pub col_kinds: Vec<ColKind>,
     pub first_varlen_idx: Option<usize>,
-    pub columns: Vec<Canonical>,
+    pub columns: Vec<ColumnEncodeInput>,
 }
 
 /// Walk N input columns once, classifying each as fixed-width or variable-length and
@@ -96,7 +117,7 @@ pub(crate) fn compute_sizes(
     }
     let nrows = args.row_count();
 
-    let mut columns: Vec<Canonical> = Vec::with_capacity(n_inputs);
+    let mut columns: Vec<ColumnEncodeInput> = Vec::with_capacity(n_inputs);
     let mut col_kinds: Vec<ColKind> = Vec::with_capacity(n_inputs);
     let mut fixed_per_row: u32 = 0;
     let mut var_lengths: Option<Vec<u32>> = None;
@@ -114,8 +135,6 @@ pub(crate) fn compute_sizes(
             );
         }
         let width = codec::row_width_for_dtype(col.dtype())?;
-        // Canonicalize once and reuse for both sizing (variable columns) and encoding.
-        let canonical = col.execute::<Canonical>(ctx)?;
         match width {
             RowWidth::Fixed(w) => {
                 col_kinds.push(ColKind::Fixed {
@@ -126,19 +145,27 @@ pub(crate) fn compute_sizes(
                     || vortex_error::vortex_err!("per-row fixed width overflows u32 at column {i}");
                 fixed_per_row = fixed_per_row.checked_add(w).ok_or_else(overflow)?;
                 running_fixed_prefix = running_fixed_prefix.checked_add(w).ok_or_else(overflow)?;
+                // Fixed-width columns are canonicalized once and reused for the encode pass.
+                let canonical = col.execute::<Canonical>(ctx)?;
+                columns.push(ColumnEncodeInput::Canonical(canonical));
             }
             RowWidth::Variable => {
                 if first_varlen_idx.is_none() {
                     first_varlen_idx = Some(i);
                 }
                 let v = var_lengths.get_or_insert_with(|| vec![0u32; nrows]);
-                codec::field_size(&canonical, options.fields[i], v, ctx)?;
+                // Try a per-encoding size kernel first. When one claims the column we keep its
+                // encoded form for the encode kernel; otherwise the column was canonicalized
+                // and that canonical form is shared with the encode pass.
+                match dispatch_size(&col, options.fields[i], v, ctx)? {
+                    Some(canonical) => columns.push(ColumnEncodeInput::Canonical(canonical)),
+                    None => columns.push(ColumnEncodeInput::Kernel(col)),
+                }
                 col_kinds.push(ColKind::Variable {
                     fixed_prefix: running_fixed_prefix,
                 });
             }
         }
-        columns.push(canonical);
     }
 
     Ok(SizePassResult {
@@ -249,4 +276,57 @@ impl ScalarFnVTable for RowSize {
     fn is_fallible(&self, _options: &Self::Options) -> bool {
         false
     }
+}
+
+/// Dispatch a single column's per-row size contribution into `sizes`.
+///
+/// Tries the in-crate per-encoding fast paths ([`Constant`], [`Dict`], [`Patched`]) and then
+/// the downstream-encoding [`registry`], falling back to canonicalization. Returns the
+/// canonicalized form when it fell back (so the encode pass can reuse it), or `None` when a
+/// per-encoding kernel claimed the column (the matching [`dispatch_encode`](crate::dispatch_encode)
+/// kernel will write its bytes directly from the encoded form).
+pub fn dispatch_size(
+    col: &ArrayRef,
+    field: RowSortField,
+    sizes: &mut [u32],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<Canonical>> {
+    if let Some(view) = col.as_opt::<Constant>()
+        && Constant::row_size_contribution(view, field, sizes, ctx)?.is_some()
+    {
+        return Ok(None);
+    }
+    if let Some(view) = col.as_opt::<Dict>()
+        && Dict::row_size_contribution(view, field, sizes, ctx)?.is_some()
+    {
+        return Ok(None);
+    }
+    if let Some(view) = col.as_opt::<Patched>()
+        && Patched::row_size_contribution(view, field, sizes, ctx)?.is_some()
+    {
+        return Ok(None);
+    }
+    if let Some((size_fn, _)) = registry::lookup(&col.encoding_id())
+        && size_fn(col, field, sizes, ctx)?.is_some()
+    {
+        return Ok(None);
+    }
+    let canonical = col.clone().execute::<Canonical>(ctx)?;
+    codec::field_size(&canonical, field, sizes, ctx)?;
+    Ok(Some(canonical))
+}
+
+/// Per-encoding fast path that adds a column's per-row byte contribution into the shared
+/// `sizes` slice without canonicalizing.
+///
+/// Return `Ok(Some(()))` when the kernel handled the column, or `Ok(None)` to decline and let
+/// the dispatcher fall back to the canonical path.
+pub trait RowSizeKernel: VTable {
+    /// Add this column's per-row byte contribution into `sizes`.
+    fn row_size_contribution(
+        column: ArrayView<'_, Self>,
+        field: RowSortField,
+        sizes: &mut [u32],
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<()>>;
 }
