@@ -1316,8 +1316,10 @@ mod tests {
     #![allow(clippy::cast_possible_truncation)]
 
     use rstest::rstest;
+    use vortex_array::Canonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
-    use vortex_array::{Canonical, LEGACY_SESSION, VortexSessionExecute};
 
     use super::*;
 

@@ -13,11 +13,13 @@ use std::sync::Arc;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::ExecutionArgs;
@@ -217,8 +219,18 @@ fn execute_row_encode(
         },
         None => fixed_per_row,
     };
-    let mut row_cursors: BufferMut<u32> = BufferMut::with_capacity(nrows);
-    row_cursors.push_n(initial_cursor, nrows);
+    // For pure-fixed inputs every row is exactly `fixed_per_row` bytes: no column takes the
+    // cursor write path, and the ListView `sizes` slot is the constant `fixed_per_row`. Skip
+    // materializing (and allocating) an n-element u32 cursor array — a large per-call
+    // allocation + fill for narrow rows — and emit a `ConstantArray` for `sizes` below.
+    let pure_fixed = first_varlen_idx.is_none();
+    let mut row_cursors: BufferMut<u32> = if pure_fixed {
+        BufferMut::with_capacity(0)
+    } else {
+        let mut c = BufferMut::with_capacity(nrows);
+        c.push_n(initial_cursor, nrows);
+        c
+    };
 
     // ===== Phase 4: encode columns =====
     // Fixed-before-varlen columns take the arithmetic-write path (constant within-row
@@ -259,7 +271,14 @@ fn execute_row_encode(
     let elements = PrimitiveArray::new(out_buf.freeze(), Validity::NonNullable).into_array();
     let offsets_arr =
         PrimitiveArray::new(listview_offsets.freeze(), Validity::NonNullable).into_array();
-    let sizes_arr = PrimitiveArray::new(row_cursors.freeze(), Validity::NonNullable).into_array();
+    // Pure-fixed rows all have size `fixed_per_row`; emit a `ConstantArray` instead of an
+    // n-element u32 buffer. Mixed inputs use the materialized per-row cursor (which doubled as
+    // the write cursor during encoding).
+    let sizes_arr = if pure_fixed {
+        ConstantArray::new(Scalar::from(fixed_per_row), nrows).into_array()
+    } else {
+        PrimitiveArray::new(row_cursors.freeze(), Validity::NonNullable).into_array()
+    };
     // SAFETY: this encoder constructs `elements`, `offsets_arr`, and `sizes_arr` itself:
     // - `elements` is a `PrimitiveArray<u8>` of length `total_len`.
     // - `offsets_arr[i]` is `i * fixed_per_row + var_prefix[i]`, monotonically increasing and
