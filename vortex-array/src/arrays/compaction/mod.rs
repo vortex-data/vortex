@@ -45,7 +45,7 @@ use crate::matcher::Matcher;
 /// [`Compaction`] array, instead of being decoded to canonical and compacted structurally.
 ///
 /// Implementations may read buffers. Return `Ok(None)` to decline, in which case the child is
-/// decoded to canonical and [`compact_canonical`] is applied.
+/// decoded to canonical and compacted structurally.
 pub trait CompactKernel: VTable {
     /// Attempt to compact `array` directly. See the trait docs.
     fn compact(
