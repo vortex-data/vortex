@@ -4,7 +4,8 @@
 #![expect(
     clippy::unwrap_used,
     clippy::expect_used,
-    clippy::cast_possible_truncation
+    clippy::cast_possible_truncation,
+    clippy::many_single_char_names
 )]
 
 //! Row-encoding an FSST-compressed string column: the only realizable strategy is
@@ -36,6 +37,8 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinArray;
+use vortex_array::arrays::varbin::VarBinArrayExt;
+use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::match_each_integer_ptype;
@@ -203,8 +206,132 @@ fn fast_fused(fsst: &ArrayRef) -> ArrayRef {
     .into_array()
 }
 
+/// "Scatter right": keep FSST's fast contiguous bulk decompressor, but run it into a
+/// cache-resident scratch one row-batch at a time, then scatter each row into block form from
+/// cache. The decompressed bytes never round-trip through main memory — unlike `fast_fused`,
+/// which materializes the whole 6.4 MB decompressed buffer and reads it back to block-encode.
+fn fast_scatter(fsst: &ArrayRef) -> ArrayRef {
+    // Scratch sized to stay resident in L1/L2; each batch decompresses up to this many bytes.
+    const SCRATCH: usize = 16 * 1024;
+
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let view = fsst.as_opt::<FSST>().expect("FSST array");
+
+    let lens_arr = view
+        .uncompressed_lengths()
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)
+        .unwrap();
+    let lens: Vec<usize> = match_each_integer_ptype!(lens_arr.ptype(), |P| {
+        lens_arr
+            .as_slice::<P>()
+            .iter()
+            .map(|x| *x as usize)
+            .collect()
+    });
+    let nrows = lens.len();
+
+    // Per-row compressed code offsets (relative to the sliced heap start).
+    let codes = view.codes();
+    let heap = codes.sliced_bytes();
+    let code_off_arr = codes
+        .offsets()
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)
+        .unwrap();
+    let base = match_each_integer_ptype!(code_off_arr.ptype(), |P| {
+        code_off_arr.as_slice::<P>()[0] as usize
+    });
+    let code_off: Vec<usize> = match_each_integer_ptype!(code_off_arr.ptype(), |P| {
+        code_off_arr
+            .as_slice::<P>()
+            .iter()
+            .map(|x| *x as usize - base)
+            .collect()
+    });
+
+    // Output sizing (free from stored lengths).
+    let mut offsets: Vec<u32> = Vec::with_capacity(nrows);
+    let mut sizes: Vec<u32> = Vec::with_capacity(nrows);
+    let mut acc: u32 = 0;
+    let mut max_row = 0usize;
+    for &l in &lens {
+        offsets.push(acc);
+        let sz = encoded_len(l);
+        sizes.push(sz);
+        acc += sz;
+        max_row = max_row.max(l);
+    }
+    let mut out = ByteBufferMut::with_capacity(acc as usize);
+    unsafe { out.set_len(acc as usize) };
+    let out_slice = out.as_mut_slice();
+
+    let decompressor = view.decompressor();
+    let scratch_cap = SCRATCH.max(max_row) + 8;
+    let mut scratch = ByteBufferMut::with_capacity(scratch_cap);
+
+    let mut r = 0usize;
+    while r < nrows {
+        // Grow a batch until it would overflow the scratch (always at least one row).
+        let bs = r;
+        let mut batch_bytes = 0usize;
+        while r < nrows && (r == bs || batch_bytes + lens[r] <= SCRATCH) {
+            batch_bytes += lens[r];
+            r += 1;
+        }
+        let be = r;
+
+        // Decompress this batch's codes in one fast call into the cache-resident scratch.
+        let cslice = &heap.as_slice()[code_off[bs]..code_off[be]];
+        let n = decompressor.decompress_into(cslice, scratch.spare_capacity_mut());
+        unsafe { scratch.set_len(n) };
+        let sbytes = scratch.as_slice();
+
+        // Scatter each row from cache into block form.
+        let mut local = 0usize;
+        for i in bs..be {
+            let l = lens[i];
+            let pos = offsets[i] as usize;
+            out_slice[pos] = NON_EMPTY_SENTINEL;
+            if l != 0 {
+                block_encode(&sbytes[local..local + l], &mut out_slice[pos + 1..]);
+            }
+            local += l;
+        }
+        unsafe { scratch.set_len(0) };
+    }
+
+    let elements = PrimitiveArray::new(out.freeze(), Validity::NonNullable);
+    let offsets_arr =
+        PrimitiveArray::new(Buffer::<u32>::copy_from(&offsets), Validity::NonNullable);
+    let sizes_arr = PrimitiveArray::new(Buffer::<u32>::copy_from(&sizes), Validity::NonNullable);
+    ListViewArray::try_new(
+        elements.into_array(),
+        offsets_arr.into_array(),
+        sizes_arr.into_array(),
+        Validity::NonNullable,
+    )
+    .unwrap()
+    .into_array()
+}
+
 fn main() {
+    // Correctness: the batched cache-resident scatter must produce identical row keys to the
+    // straightforward fused path.
+    {
+        let (fsst, _) = build_fsst();
+        assert_arrays_eq!(fast_scatter(&fsst), fast_fused(&fsst));
+    }
     divan::main();
+}
+
+/// "Scatter right" fused path: cache-resident batched decompress + scatter into block form.
+#[divan::bench]
+fn fsst_fast_scatter(bencher: divan::Bencher) {
+    let (fsst, total_bytes) = build_fsst();
+    bencher
+        .counter(BytesCount::new(total_bytes))
+        .bench_local(|| fast_scatter(&fsst));
 }
 
 /// Status quo: decompress FSST to a canonical `VarBinView`, then row-encode it.
