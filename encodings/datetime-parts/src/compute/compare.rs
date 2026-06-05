@@ -200,11 +200,12 @@ fn compare_dtp(
 }
 
 #[cfg(test)]
-#[allow(deprecated)]
 mod test {
     use rstest::rstest;
+    use vortex_array::ArrayRef;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::fns::sum::sum;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::dtype::IntegerPType;
@@ -231,6 +232,16 @@ mod test {
         .expect("Failed to construct DateTimePartsArray from TemporalArray")
     }
 
+    /// Count the true values in a boolean array using an explicit execution context.
+    fn true_count(array: &ArrayRef) -> usize {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        sum(array, &mut ctx)
+            .unwrap()
+            .as_primitive()
+            .as_::<usize>()
+            .unwrap()
+    }
+
     #[rstest]
     #[case(Validity::NonNullable, Validity::NonNullable)]
     #[case(Validity::NonNullable, Validity::AllValid)]
@@ -244,14 +255,14 @@ mod test {
             .into_array()
             .binary(rhs.into_array(), Operator::Eq)
             .unwrap();
-        assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
+        assert_eq!(true_count(&comparison), 1);
 
         let rhs = dtp_array_from_timestamp(0i64, rhs_validity); // January 1, 1970, 00:00:00 UTC
         let comparison = lhs
             .into_array()
             .binary(rhs.into_array(), Operator::Eq)
             .unwrap();
-        assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 0);
+        assert_eq!(true_count(&comparison), 0);
     }
 
     #[rstest]
@@ -267,14 +278,14 @@ mod test {
             .into_array()
             .binary(rhs.into_array(), Operator::NotEq)
             .unwrap();
-        assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
+        assert_eq!(true_count(&comparison), 1);
 
         let rhs = dtp_array_from_timestamp(86400i64, rhs_validity); // January 2, 1970, 00:00:00 UTC
         let comparison = lhs
             .into_array()
             .binary(rhs.into_array(), Operator::NotEq)
             .unwrap();
-        assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 0);
+        assert_eq!(true_count(&comparison), 0);
     }
 
     #[rstest]
@@ -290,7 +301,7 @@ mod test {
             .into_array()
             .binary(rhs.into_array(), Operator::Lt)
             .unwrap();
-        assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
+        assert_eq!(true_count(&comparison), 1);
     }
 
     #[rstest]
@@ -306,7 +317,7 @@ mod test {
             .into_array()
             .binary(rhs.into_array(), Operator::Gt)
             .unwrap();
-        assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
+        assert_eq!(true_count(&comparison), 1);
     }
 
     #[rstest]
@@ -340,27 +351,27 @@ mod test {
             .into_array()
             .binary(rhs.clone().into_array(), Operator::Eq)
             .unwrap();
-        assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 0);
+        assert_eq!(true_count(&comparison), 0);
 
         let comparison = lhs
             .clone()
             .into_array()
             .binary(rhs.clone().into_array(), Operator::NotEq)
             .unwrap();
-        assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
+        assert_eq!(true_count(&comparison), 1);
 
         let comparison = lhs
             .clone()
             .into_array()
             .binary(rhs.clone().into_array(), Operator::Lt)
             .unwrap();
-        assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
+        assert_eq!(true_count(&comparison), 1);
 
         let comparison = lhs
             .into_array()
             .binary(rhs.into_array(), Operator::Lte)
             .unwrap();
-        assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
+        assert_eq!(true_count(&comparison), 1);
 
         // `CompareOperator::Gt` and `CompareOperator::Gte` only cover the case of all lhs values
         // being larger. Therefore, these cases are not covered by unit tests.

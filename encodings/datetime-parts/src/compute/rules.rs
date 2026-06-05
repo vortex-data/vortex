@@ -178,10 +178,11 @@ fn is_constant_zero(array: &ArrayRef) -> bool {
 }
 
 #[cfg(test)]
-#[allow(deprecated)]
 mod tests {
+    use vortex_array::ArrayRef;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::fns::sum::sum;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
@@ -200,6 +201,16 @@ mod tests {
     use crate::DateTimePartsArray;
 
     const SECONDS_PER_DAY: i64 = 86400;
+
+    /// Count the true values in a boolean array using an explicit execution context.
+    fn true_count(array: &ArrayRef) -> usize {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        sum(array, &mut ctx)
+            .unwrap()
+            .as_primitive()
+            .as_::<usize>()
+            .unwrap()
+    }
 
     /// Create a DTP array with the given day values (all at midnight).
     fn dtp_at_midnight(days: &[i64], time_unit: TimeUnit) -> DateTimePartsArray {
@@ -286,7 +297,7 @@ mod tests {
         );
 
         // Verify correctness: days [0, 1, 2] <= 1 should give [true, true, false]
-        assert_eq!(optimized.as_bool_typed().true_count().unwrap(), 2);
+        assert_eq!(true_count(&optimized), 2);
     }
 
     #[test]
@@ -314,7 +325,7 @@ mod tests {
         let optimized = between.optimize().unwrap();
 
         // Verify correctness: days [0, 1, 2, 3, 4] between 1 and 3 should give [false, true, true, true, false]
-        assert_eq!(optimized.as_bool_typed().true_count().unwrap(), 3);
+        assert_eq!(true_count(&optimized), 3);
     }
 
     #[test]
@@ -336,7 +347,7 @@ mod tests {
         // (optimization doesn't apply, so we keep the original structure)
         // Just verify it still computes correctly
         // days [0, 1, 2] at midnight <= day 1 at noon: [true, true, false]
-        assert_eq!(optimized.as_bool_typed().true_count().unwrap(), 2);
+        assert_eq!(true_count(&optimized), 2);
     }
 
     #[test]
@@ -367,6 +378,6 @@ mod tests {
         // Should still compute correctly (just not optimized via pushdown)
         let optimized = comparison.optimize().unwrap();
         // timestamps at 1am on days [0, 1, 2] <= day 1 midnight: [true, false, false]
-        assert_eq!(optimized.as_bool_typed().true_count().unwrap(), 1);
+        assert_eq!(true_count(&optimized), 1);
     }
 }

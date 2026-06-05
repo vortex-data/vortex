@@ -9,8 +9,7 @@
     clippy::cast_possible_truncation,
     clippy::redundant_clone,
     clippy::tests_outside_test_module,
-    clippy::use_debug,
-    deprecated
+    clippy::use_debug
 )]
 
 use std::sync::LazyLock;
@@ -19,6 +18,7 @@ use std::time::Instant;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
+use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -122,6 +122,11 @@ fn smoke_100k_rows() {
         .execute::<vortex_array::Canonical>(&mut ctx)
         .unwrap()
         .into_array();
-    assert_eq!(eq.as_bool_typed().true_count().unwrap(), want_eq);
+    let eq_count = sum(&eq, &mut ctx)
+        .unwrap()
+        .as_primitive()
+        .as_::<usize>()
+        .unwrap();
+    assert_eq!(eq_count, want_eq);
     eprintln!("eq pushdown matches reference count ({})", want_eq);
 }
