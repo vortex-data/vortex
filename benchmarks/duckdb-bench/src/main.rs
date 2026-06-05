@@ -178,6 +178,11 @@ fn main() -> anyhow::Result<()> {
                 args.threads,
             )?;
             ctx.register_tables(&*benchmark, format)?;
+
+            // Duckdb doesn't support octet_length for strings but we need this
+            // in ClickBench.
+            ctx.execute_query_result("create macro if not exists octet_length(a) as strlen(a)")?;
+
             Ok(ctx)
         },
         |ctx, query_idx, format, query| {
