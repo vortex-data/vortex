@@ -1,23 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The [`MergeN`] encoding: a lazy, order-preserving interleave of `N` compact branches into one
+//! The [`Merge`] encoding: a lazy, order-preserving interleave of `N` compact branches into one
 //! array, routed by a selector.
 //!
 //! # Specification
 //!
-//! A [`MergeN`] array has `N + 1` children: `N` *branches* followed by a *selector*. The output
+//! A [`Merge`] array has `N + 1` children: `N` *branches* followed by a *selector*. The output
 //! has `selector.len()` rows, and output row `i` comes from `branches[selector[i]]`. Each branch
 //! is consumed in order: the rows routed to a branch appear in the output in the same order they
-//! appear in that branch. Equivalently, [`MergeN`] interleaves the branches back together in the
+//! appear in that branch. Equivalently, [`Merge`] interleaves the branches back together in the
 //! order dictated by the selector.
 //!
 //! It is the inverse (the "mux") of partitioning rows into branches by a predicate: split rows
-//! into per-branch compact runs, process each branch, then [`MergeN`] re-assembles them in the
+//! into per-branch compact runs, process each branch, then [`Merge`] re-assembles them in the
 //! original order using the selector that recorded each row's branch.
 //!
 //! The branches are **compact**: each holds only the rows it owns, so they are generally shorter
-//! than the output. This distinguishes [`MergeN`] from an element-wise select such as `zip`,
+//! than the output. This distinguishes [`Merge`] from an element-wise select such as `zip`,
 //! whose arguments are all full-length.
 //!
 //! ## Invariants
@@ -33,17 +33,19 @@
 //!   *value* may be null even though its branch assignment is definite.
 //! - The output length equals `selector.len()`.
 //!
-//! ## Boolean selector
+//! ## Selector type
 //!
-//! When there are exactly two branches the selector is a non-nullable boolean array, interpreted
-//! as an index: `false` selects `branches[0]` and `true` selects `branches[1]`. This is the only
-//! case implemented today; see [`MergeNArray::try_new`].
+//! The selector encodes the branch index per row: a non-nullable **boolean** for exactly two
+//! branches (`false` → `branches[0]`, `true` → `branches[1]`), or a non-nullable **unsigned
+//! integer** for two or more branches. Today only the boolean selector is wired into the
+//! [execution path](execute); integer selectors construct but panic on execution.
+
+mod execute;
 
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hasher;
 
-use vortex_buffer::BitBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -68,27 +70,23 @@ use crate::array::OperationsVTable;
 use crate::array::TypedArrayRef;
 use crate::array::VTable;
 use crate::array::ValidityVTable;
-use crate::arrays::Bool;
-use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
-use crate::arrays::bool::BoolArrayExt;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::executor::ExecutionResult;
-use crate::require_child;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 
-/// A [`MergeN`]-encoded Vortex array. See the [module docs](self) for the specification.
-pub type MergeNArray = Array<MergeN>;
+/// A [`Merge`]-encoded Vortex array. See the [module docs](self) for the specification.
+pub type MergeArray = Array<Merge>;
 
-/// The [`MergeN`] encoding. See the [module docs](self).
+/// The [`Merge`] encoding. See the [module docs](self).
 #[derive(Clone, Debug)]
-pub struct MergeN;
+pub struct Merge;
 
-/// Per-array metadata for a [`MergeNArray`].
+/// Per-array metadata for a [`MergeArray`].
 ///
 /// The branches and selector live in the array's slots; only the branch count is stored here so
 /// the selector slot can be located (`slots[num_branches]`).
@@ -115,8 +113,8 @@ impl ArrayEq for MergeData {
     }
 }
 
-/// Accessors for the branches and selector of a [`MergeNArray`].
-pub trait MergeNArrayExt: TypedArrayRef<MergeN> {
+/// Accessors for the branches and selector of a [`MergeArray`].
+pub trait MergeArrayExt: TypedArrayRef<Merge> {
     /// The number of branches (one fewer than the number of children).
     fn num_branches(&self) -> usize {
         self.num_branches
@@ -136,48 +134,57 @@ pub trait MergeNArrayExt: TypedArrayRef<MergeN> {
             .vortex_expect("validated merge selector slot")
     }
 }
-impl<T: TypedArrayRef<MergeN>> MergeNArrayExt for T {}
+impl<T: TypedArrayRef<Merge>> MergeArrayExt for T {}
 
-impl Array<MergeN> {
-    /// Constructs a new [`MergeNArray`] from `branches` and a `selector`.
+impl Merge {
+    /// The single source of truth for [`MergeArray`] invariants.
     ///
-    /// See the [module docs](self) for the full specification and invariants.
-    ///
-    /// Only the two-branch, boolean-selector case is implemented today: `false` routes to
-    /// `branches[0]` and `true` routes to `branches[1]`. Other shapes are rejected.
-    ///
-    /// The selector must be non-nullable: it records a definite branch per row. Null-predicate
-    /// handling (a null condition falling through to "not matched") is the caller's
-    /// responsibility, resolved before the merge is constructed.
-    pub fn try_new(branches: Vec<ArrayRef>, selector: ArrayRef) -> VortexResult<Self> {
-        // TODO(joe): extend MergeN to more than two branches with an integer selector.
-        if branches.len() != 2 {
-            vortex_bail!(
-                "merge_n currently supports exactly 2 branches, got {} (todo: extend this)",
-                branches.len()
-            );
-        }
-        if !selector.dtype().is_boolean() {
-            vortex_bail!(
-                "merge_n currently requires a boolean selector, got {} (todo: extend this)",
-                selector.dtype()
-            );
-        }
-        if selector.dtype().is_nullable() {
-            vortex_bail!(
-                "merge_n requires a non-nullable selector; resolve predicate nullability (e.g. via \
-                 to_mask_fill_null_false) before constructing the merge, got {}",
-                selector.dtype()
-            );
+    /// Validates `branches` and `selector` against the [specification](self) and returns the
+    /// output [`DType`] (the shared branch type with the union of branch nullabilities). Both the
+    /// public constructor and the [`VTable::validate`] hook funnel through here.
+    fn check(branches: &[ArrayRef], selector: &ArrayRef) -> VortexResult<DType> {
+        vortex_ensure!(
+            branches.len() >= 2,
+            "merge requires at least 2 branches, got {}",
+            branches.len()
+        );
+
+        // The selector is non-nullable and indexes the branches: a boolean for exactly two
+        // branches, or an unsigned integer for two or more.
+        match selector.dtype() {
+            DType::Bool(nullability) => {
+                vortex_ensure!(
+                    !nullability.is_nullable(),
+                    "merge selector must be non-nullable, got {}",
+                    selector.dtype()
+                );
+                vortex_ensure!(
+                    branches.len() == 2,
+                    "merge with a boolean selector requires exactly 2 branches, got {}",
+                    branches.len()
+                );
+            }
+            DType::Primitive(ptype, nullability) if ptype.is_unsigned_int() => {
+                vortex_ensure!(
+                    !nullability.is_nullable(),
+                    "merge selector must be non-nullable, got {}",
+                    selector.dtype()
+                );
+            }
+            other => vortex_bail!(
+                "merge selector must be a non-nullable boolean (exactly 2 branches) or unsigned \
+                 integer (2 or more branches), got {}",
+                other
+            ),
         }
 
         let base_dtype = branches[0].dtype();
         let mut nullability = Nullability::NonNullable;
         let mut total = 0;
-        for branch in &branches {
+        for branch in branches {
             vortex_ensure!(
                 branch.dtype().eq_ignore_nullability(base_dtype),
-                "merge_n branches must share a dtype up to nullability: {} vs {}",
+                "merge branches must share a dtype up to nullability: {} vs {}",
                 base_dtype,
                 branch.dtype()
             );
@@ -186,12 +193,24 @@ impl Array<MergeN> {
         }
         vortex_ensure!(
             total == selector.len(),
-            "merge_n branch lengths sum to {} but selector has length {}",
+            "merge branch lengths sum to {} but selector has length {}",
             total,
             selector.len()
         );
 
-        let dtype = base_dtype.with_nullability(nullability);
+        Ok(base_dtype.with_nullability(nullability))
+    }
+}
+
+impl Array<Merge> {
+    /// Constructs a new [`MergeArray`] from `branches` and a `selector`.
+    ///
+    /// See the [module docs](self) for the full specification and invariants. The selector must be
+    /// non-nullable: it records a definite branch per row, so null-predicate handling (a null
+    /// condition falling through to "not matched") is the caller's responsibility, resolved before
+    /// the merge is constructed.
+    pub fn try_new(branches: Vec<ArrayRef>, selector: ArrayRef) -> VortexResult<Self> {
+        let dtype = Merge::check(&branches, &selector)?;
         let len = selector.len();
         let num_branches = branches.len();
 
@@ -200,19 +219,19 @@ impl Array<MergeN> {
 
         Ok(unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(MergeN, dtype, len, MergeData { num_branches }).with_slots(slots),
+                ArrayParts::new(Merge, dtype, len, MergeData { num_branches }).with_slots(slots),
             )
         })
     }
 }
 
-impl VTable for MergeN {
+impl VTable for Merge {
     type TypedArrayData = MergeData;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.merge_n");
+        static ID: CachedId = CachedId::new("vortex.merge");
         *ID
     }
 
@@ -225,54 +244,37 @@ impl VTable for MergeN {
     ) -> VortexResult<()> {
         vortex_ensure!(
             slots.len() == data.num_branches + 1,
-            "MergeNArray expected {} slots (branches + selector), got {}",
+            "MergeArray expected {} slots (branches + selector), got {}",
             data.num_branches + 1,
             slots.len()
         );
         vortex_ensure!(
             slots.iter().all(|s| s.is_some()),
-            "MergeNArray slots must all be present"
+            "MergeArray slots must all be present"
         );
 
+        let branches: Vec<ArrayRef> = slots[..data.num_branches]
+            .iter()
+            .map(|s| s.clone().vortex_expect("validated branch slot"))
+            .collect();
         let selector = slots[data.num_branches]
-            .as_ref()
+            .clone()
             .vortex_expect("validated selector slot");
-        vortex_ensure!(
-            selector.dtype() == &DType::Bool(Nullability::NonNullable),
-            "MergeNArray selector must be a non-nullable boolean, got {}",
-            selector.dtype()
-        );
-        vortex_ensure!(
-            selector.len() == len,
-            "MergeNArray selector length {} does not match outer length {}",
-            selector.len(),
-            len
-        );
 
-        let mut nullability = Nullability::NonNullable;
-        let mut total = 0;
-        for slot in &slots[..data.num_branches] {
-            let branch = slot.as_ref().vortex_expect("validated branch slot");
-            vortex_ensure!(
-                branch.dtype().eq_ignore_nullability(dtype),
-                "MergeNArray branch dtype {} does not match outer dtype {} up to nullability",
-                branch.dtype(),
-                dtype
-            );
-            nullability |= branch.dtype().nullability();
-            total += branch.len();
-        }
+        // All semantic invariants live in `check`; here we only confirm the array's cached `dtype`
+        // and `len` agree with what the children imply.
+        let expected_dtype = Merge::check(&branches, &selector)?;
         vortex_ensure!(
-            dtype.nullability() == nullability,
-            "MergeNArray dtype nullability {} does not match the union of branch nullabilities {}",
-            dtype.nullability(),
-            nullability
+            dtype == &expected_dtype,
+            "MergeArray dtype {} does not match the dtype implied by its children {}",
+            dtype,
+            expected_dtype
         );
         vortex_ensure!(
-            total == len,
-            "MergeNArray branch lengths sum to {} but outer length is {}",
-            total,
-            len
+            len == selector.len(),
+            "MergeArray length {} does not match selector length {}",
+            len,
+            selector.len()
         );
         Ok(())
     }
@@ -282,7 +284,7 @@ impl VTable for MergeN {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, _idx: usize) -> BufferHandle {
-        vortex_panic!("MergeNArray has no buffers")
+        vortex_panic!("MergeArray has no buffers")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
@@ -301,7 +303,7 @@ impl VTable for MergeN {
         _array: ArrayView<'_, Self>,
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
-        vortex_bail!("MergeN array is not serializable")
+        vortex_bail!("Merge array is not serializable")
     }
 
     fn deserialize(
@@ -313,89 +315,17 @@ impl VTable for MergeN {
         _children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("MergeN array is not serializable")
+        vortex_bail!("Merge array is not serializable")
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        debug_assert_eq!(
-            array.num_branches(),
-            2,
-            "MergeN::execute only supports the two-branch boolean-selector case"
-        );
-
-        // Drive the branches and selector to canonical `Bool` so we can operate on raw bits.
-        let array = require_child!(array, array.branch(0), 0 => Bool);
-        let array = require_child!(array, array.branch(1), 1 => Bool);
-        let array = require_child!(array, array.selector(), 2 => Bool);
-
-        let dtype = array.as_ref().dtype().clone();
-        let len = array.as_ref().len();
-        let nullable = dtype.is_nullable();
-
-        let b0 = array.branch(0).as_::<Bool>();
-        let b1 = array.branch(1).as_::<Bool>();
-        // The selector is non-nullable (enforced at construction), so its bits are the routing
-        // mask directly: `false` selects branch 0, `true` selects branch 1.
-        let selector = Mask::from_buffer(array.selector().as_::<Bool>().to_bit_buffer());
-
-        let b0_bits = b0.to_bit_buffer();
-        let b1_bits = b1.to_bit_buffer();
-        vortex_ensure!(
-            selector.true_count() == b1_bits.len() && len - selector.true_count() == b0_bits.len(),
-            "merge_n selector does not partition into the branch lengths"
-        );
-
-        // Branch validity is only materialized when the output can be null.
-        let (v0, v1) = if nullable {
-            (
-                Some(b0.validity()?.execute_mask(b0_bits.len(), ctx)?),
-                Some(b1.validity()?.execute_mask(b1_bits.len(), ctx)?),
-            )
-        } else {
-            (None, None)
-        };
-
-        let mut values = BitBufferMut::new_unset(len);
-        let mut validity = nullable.then(|| BitBufferMut::new_set(len));
-
-        let (mut c0, mut c1) = (0usize, 0usize);
-        for i in 0..len {
-            // Scatter one bit (and its validity) from the selected branch's current cursor.
-            let (bit, valid) = if selector.value(i) {
-                let out = (b1_bits.value(c1), v1.as_ref().is_none_or(|m| m.value(c1)));
-                c1 += 1;
-                out
-            } else {
-                let out = (b0_bits.value(c0), v0.as_ref().is_none_or(|m| m.value(c0)));
-                c0 += 1;
-                out
-            };
-            if bit {
-                values.set(i);
-            }
-            // `validity` is `Some` exactly when `nullable`, and `valid` is always true otherwise.
-            if !valid {
-                validity
-                    .as_mut()
-                    .vortex_expect("validity buffer present when nullable")
-                    .unset(i);
-            }
-        }
-
-        let validity = match validity {
-            Some(bits) => Validity::from(bits.freeze()),
-            None => Validity::NonNullable,
-        };
-        Ok(ExecutionResult::done(BoolArray::try_new(
-            values.freeze(),
-            validity,
-        )?))
+        execute::execute(array, ctx)
     }
 }
 
-impl OperationsVTable<MergeN> for MergeN {
+impl OperationsVTable<Merge> for Merge {
     fn scalar_at(
-        array: ArrayView<'_, MergeN>,
+        array: ArrayView<'_, Merge>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -419,8 +349,8 @@ impl OperationsVTable<MergeN> for MergeN {
     }
 }
 
-impl ValidityVTable<MergeN> for MergeN {
-    fn validity(array: ArrayView<'_, MergeN>) -> VortexResult<Validity> {
+impl ValidityVTable<Merge> for Merge {
+    fn validity(array: ArrayView<'_, Merge>) -> VortexResult<Validity> {
         if !array.as_ref().dtype().is_nullable() {
             return Ok(Validity::NonNullable);
         }
@@ -431,7 +361,7 @@ impl ValidityVTable<MergeN> for MergeN {
         for i in 0..array.num_branches() {
             branch_validities.push(branch_validity_array(array.branch(i))?);
         }
-        let merged = MergeNArray::try_new(branch_validities, array.selector().clone())?;
+        let merged = MergeArray::try_new(branch_validities, array.selector().clone())?;
         Ok(Validity::Array(merged.into_array()))
     }
 }
@@ -453,13 +383,17 @@ mod tests {
     use vortex_error::VortexResult;
 
     use super::*;
+    use crate::Canonical;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::arrays::BoolArray;
+    use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
 
     /// Reference (oracle) implementation of the merge spec, used only to validate the optimized
-    /// [`MergeN::execute`] path. It is intentionally simple and slow: it pulls each output element
-    /// one [`Scalar`] at a time via [`ArrayRef::execute_scalar`] and never touches raw bits.
+    /// [execute](super::execute) path. It is intentionally simple and slow: it pulls each output
+    /// element one [`Scalar`] at a time via [`ArrayRef::execute_scalar`] and never touches raw
+    /// bits.
     ///
     /// This is deliberately *not* wired into the array execution path — it exists purely as a
     /// trustworthy comparison point in tests.
@@ -498,7 +432,7 @@ mod tests {
     }
 
     /// Splits a row-aligned `values`/`selector` pair into the two compact branches a
-    /// [`MergeNArray`] expects.
+    /// [`MergeArray`] expects.
     fn split(values: &[Option<bool>], selector: &[bool]) -> (Vec<Option<bool>>, Vec<Option<bool>>) {
         let mut b0 = Vec::new();
         let mut b1 = Vec::new();
@@ -510,7 +444,7 @@ mod tests {
     }
 
     /// Asserts that the optimized execute path and the reference implementation agree, exercising
-    /// `MergeNArray` construction, `execute`, `scalar_at`, and `validity` (via `assert_arrays_eq`).
+    /// `MergeArray` construction, `execute`, `scalar_at`, and `validity` (via `assert_arrays_eq`).
     fn check(values: &[Option<bool>], selector: &[bool]) -> VortexResult<()> {
         let (b0, b1) = split(values, selector);
         let nullable = values.iter().any(Option::is_none);
@@ -530,7 +464,7 @@ mod tests {
         let branches = vec![to_branch(b0), to_branch(b1)];
         let selector_array = BoolArray::from_iter(selector.iter().copied()).into_array();
 
-        let merged = MergeNArray::try_new(branches.clone(), selector_array.clone())?.into_array();
+        let merged = MergeArray::try_new(branches.clone(), selector_array.clone())?.into_array();
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let reference = merge_reference(&branches, &selector_array, &mut ctx)?;
@@ -540,7 +474,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_non_nullable_mixed() -> VortexResult<()> {
+    fn mergeon_nullable_mixed() -> VortexResult<()> {
         // selector:  F     T     F      T     T
         // branch0:  true,        false
         // branch1:        false,       true, true
@@ -565,7 +499,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_nullable_with_nulls_in_both_branches() -> VortexResult<()> {
+    fn mergeullable_with_nulls_in_both_branches() -> VortexResult<()> {
         check(
             &[None, Some(true), None, Some(false), None, Some(true)],
             &[false, true, true, false, true, false],
@@ -583,23 +517,23 @@ mod tests {
     }
 
     #[test]
-    fn rejects_more_than_two_branches() {
+    fn rejects_boolean_selector_with_three_branches() {
         let branch = BoolArray::from_iter([true]).into_array();
         let selector = BoolArray::from_iter([true, false, true]).into_array();
-        let err = MergeNArray::try_new(vec![branch.clone(), branch.clone(), branch], selector)
+        let err = MergeArray::try_new(vec![branch.clone(), branch.clone(), branch], selector)
             .err()
-            .vortex_expect("expected merge_n to reject more than two branches");
-        assert!(err.to_string().contains("todo"), "{err}");
+            .vortex_expect("expected merge to reject a boolean selector with three branches");
+        assert!(err.to_string().contains("exactly 2 branches"), "{err}");
     }
 
     #[test]
-    fn rejects_non_boolean_selector() {
-        let branch = BoolArray::from_iter([true, false]).into_array();
-        let selector = crate::arrays::PrimitiveArray::from_iter([0u8, 1]).into_array();
-        let err = MergeNArray::try_new(vec![branch.clone(), branch], selector)
+    fn rejects_signed_integer_selector() {
+        let branch = BoolArray::from_iter([true]).into_array();
+        let selector = PrimitiveArray::from_iter([0i32, 1]).into_array();
+        let err = MergeArray::try_new(vec![branch.clone(), branch], selector)
             .err()
-            .vortex_expect("expected merge_n to reject a non-boolean selector");
-        assert!(err.to_string().contains("todo"), "{err}");
+            .vortex_expect("expected merge to reject a signed integer selector");
+        assert!(err.to_string().contains("unsigned integer"), "{err}");
     }
 
     #[test]
@@ -607,9 +541,32 @@ mod tests {
         let branch = BoolArray::from_iter([true, false]).into_array();
         // A nullable boolean selector is ambiguous: predicate nullability must be resolved upstream.
         let selector = BoolArray::from_iter([Some(true), Some(false)]).into_array();
-        let err = MergeNArray::try_new(vec![branch.clone(), branch], selector)
+        let err = MergeArray::try_new(vec![branch.clone(), branch], selector)
             .err()
-            .vortex_expect("expected merge_n to reject a nullable selector");
+            .vortex_expect("expected merge to reject a nullable selector");
         assert!(err.to_string().contains("non-nullable"), "{err}");
+    }
+
+    #[test]
+    fn accepts_unsigned_integer_selector() -> VortexResult<()> {
+        // Construction is permitted for an unsigned-integer selector with 2+ branches, even though
+        // the execute path does not yet handle it (see `primitive_selector_execution_panics`).
+        let branch = BoolArray::from_iter([true]).into_array();
+        let selector = PrimitiveArray::from_iter([0u32, 1, 2]).into_array();
+        MergeArray::try_new(vec![branch.clone(), branch.clone(), branch], selector)?;
+        Ok(())
+    }
+
+    #[test]
+    #[should_panic(expected = "only implemented for boolean")]
+    fn primitive_selector_execution_panics() {
+        let branch = BoolArray::from_iter([true]).into_array();
+        let selector = PrimitiveArray::from_iter([0u32, 1, 2]).into_array();
+        let merged = MergeArray::try_new(vec![branch.clone(), branch.clone(), branch], selector)
+            .vortex_expect("unsigned-integer selector should construct")
+            .into_array();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        // Dispatch panics before returning; the trailing `.ok()` just avoids an unused-result let.
+        merged.execute::<Canonical>(&mut ctx).ok();
     }
 }
