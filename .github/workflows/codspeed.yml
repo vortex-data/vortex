@@ -77,7 +77,7 @@ jobs:
     name: "Benchmark with Codspeed (CUDA Shard #${{ matrix.shard }} - ${{ matrix.name }})"
     timeout-minutes: 30
     runs-on: >-
-      runs-on=${{ github.run_id }}/family=g5/cpu=8/image=ubuntu24-gpu-x64/tag=bench-codspeed-cuda-${{ matrix.shard }}
+      runs-on=${{ github.run_id }}/family=g5/cpu=8/image=ubuntu24-gpu-x64/tag=bench-codspeed-cuda-${{ matrix.shard }}/extras=s3-cache
     steps:
       - uses: runs-on/action@v2
         with:
@@ -86,6 +86,17 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+      # Unlike the CPU bench shards (which run on a prebuilt -pre-v2 AMI), the CUDA shards
+      # run on ephemeral GPU runners with a cold cargo target/ every run. Restore target/
+      # with rust-cache (as publish-dry-runs.yml does), keyed per shard and only saved on
+      # develop so PRs restore from develop's cache. `extras=s3-cache` on the runner above
+      # routes it to the same S3 bucket as sccache (like bench.yml), so there is no separate
+      # GitHub Actions cache backend.
+      - name: Rust target cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32  # v2
+        with:
+          shared-key: "bench-codspeed-cuda-${{ matrix.shard }}"
+          save-if: ${{ github.ref_name == 'develop' }}
       - name: Display NVIDIA SMI details
         run: |
           nvidia-smi
