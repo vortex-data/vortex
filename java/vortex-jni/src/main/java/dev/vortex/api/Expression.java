@@ -3,22 +3,29 @@
 
 package dev.vortex.api;
 
-import com.google.common.base.Preconditions;
-import dev.vortex.VortexCleaner;
-import dev.vortex.jni.NativeExpression;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Arrays;
 import java.util.UUID;
 
+import com.google.common.base.Preconditions;
+
+import dev.vortex.VortexCleaner;
+import dev.vortex.jni.NativeExpression;
+
 /**
  * A Vortex expression node backed by a native pointer.
  *
- * <p>Expressions are composed via the static factories ({@link #root()}, {@link #getItem(String, Expression)}, etc.).
- * Each returned {@code Expression} owns its native pointer; the pointer is released automatically when the
- * {@code Expression} is no longer reachable. Passing an expression as an input to a builder does <em>not</em> transfer
- * ownership — the resulting expression is an independent copy on the native side.
+ * <p>
+ * Expressions are composed via the static factories ({@link #root()},
+ * {@link #getItem(String, Expression)}, etc.).
+ * Each returned {@code Expression} owns its native pointer; the pointer is
+ * released automatically when the
+ * {@code Expression} is no longer reachable. Passing an expression as an input
+ * to a builder does <em>not</em> transfer
+ * ownership — the resulting expression is an independent copy on the native
+ * side.
  */
 public final class Expression {
     /** Number of bytes in a UUID's big-endian representation. */
@@ -42,9 +49,12 @@ public final class Expression {
     }
 
     /**
-     * The row-index expression. When evaluated as part of a Vortex scan it yields, as a non-nullable {@code u64}, each
-     * row's index in the file <em>before</em> filtering: the index is assigned to the unfiltered rows, so filtered-out
-     * rows leave gaps and the surviving rows keep their original positions rather than being renumbered. It cannot be
+     * The row-index expression. When evaluated as part of a Vortex scan it yields,
+     * as a non-nullable {@code u64}, each
+     * row's index in the file <em>before</em> filtering: the index is assigned to
+     * the unfiltered rows, so filtered-out
+     * rows leave gaps and the surviving rows keep their original positions rather
+     * than being renumbered. It cannot be
      * evaluated outside of a scan.
      */
     public static Expression rowIdx() {
@@ -62,7 +72,8 @@ public final class Expression {
     }
 
     /**
-     * Access a nested field by walking {@code fieldNames} starting from the root of the array. With a single name this
+     * Access a nested field by walking {@code fieldNames} starting from the root of
+     * the array. With a single name this
      * is equivalent to {@link #column(String)}.
      */
     public static Expression column(String[] fieldNames) {
@@ -77,6 +88,11 @@ public final class Expression {
     /** Project a subset of fields out of a struct expression. */
     public static Expression select(String[] fieldNames, Expression child) {
         return new Expression(NativeExpression.select(fieldNames, child.nativePointer()));
+    }
+
+    /** Creates an expression that packs values into a struct with named fields. */
+    public static Expression pack(String[] fieldNames, Expression[] expressions, boolean nullable) {
+        return new Expression(NativeExpression.pack(fieldNames, nativePointers(expressions), nullable));
     }
 
     /** Logical AND. Requires at least one operand. */
@@ -110,8 +126,9 @@ public final class Expression {
     /**
      * SQL {@code LIKE} pattern match.
      *
-     * @param negated whether to invert the result (i.e. {@code NOT LIKE})
-     * @param caseInsensitive whether to perform case-insensitive matching ({@code ILIKE})
+     * @param negated         whether to invert the result (i.e. {@code NOT LIKE})
+     * @param caseInsensitive whether to perform case-insensitive matching
+     *                        ({@code ILIKE})
      */
     public static Expression like(Expression child, Expression pattern, boolean negated, boolean caseInsensitive) {
         return new Expression(
@@ -121,8 +138,10 @@ public final class Expression {
     /**
      * {@code value BETWEEN lower AND upper}.
      *
-     * @param lowerStrict {@code true} for {@code lower < value}; {@code false} for {@code lower <= value}.
-     * @param upperStrict {@code true} for {@code value < upper}; {@code false} for {@code value <= upper}.
+     * @param lowerStrict {@code true} for {@code lower < value}; {@code false} for
+     *                    {@code lower <= value}.
+     * @param upperStrict {@code true} for {@code value < upper}; {@code false} for
+     *                    {@code value <= upper}.
      */
     public static Expression between(
             Expression value, Expression lower, Expression upper, boolean lowerStrict, boolean upperStrict) {
@@ -172,7 +191,8 @@ public final class Expression {
     }
 
     /**
-     * Create a decimal literal from its unscaled two's-complement big-endian byte representation (i.e. the value
+     * Create a decimal literal from its unscaled two's-complement big-endian byte
+     * representation (i.e. the value
      * returned by {@link BigInteger#toByteArray()}).
      */
     public static Expression literalDecimal(BigInteger unscaledValue, int precision, int scale) {
@@ -182,41 +202,53 @@ public final class Expression {
 
     /** Create a null decimal literal with the specified precision and scale. */
     public static Expression nullLiteralDecimal(int precision, int scale) {
-        return new Expression(NativeExpression.literalDecimal(new byte[] {0}, precision, scale, true));
+        return new Expression(NativeExpression.literalDecimal(new byte[] { 0 }, precision, scale, true));
     }
 
     /**
-     * Create a Date literal. The {@code value} is the number of {@code unit} units since the Unix epoch.
+     * Create a Date literal. The {@code value} is the number of {@code unit} units
+     * since the Unix epoch.
      *
-     * @param unit only {@link TimeUnit#DAYS} and {@link TimeUnit#MILLISECONDS} are valid for Date.
+     * @param unit only {@link TimeUnit#DAYS} and {@link TimeUnit#MILLISECONDS} are
+     *             valid for Date.
      */
     public static Expression literalDate(long value, TimeUnit unit) {
         return new Expression(NativeExpression.literalDate(value, unit.tag(), false));
     }
 
-    /** Null Date literal. See {@link #literalDate(long, TimeUnit)} for the {@code unit} constraints. */
+    /**
+     * Null Date literal. See {@link #literalDate(long, TimeUnit)} for the
+     * {@code unit} constraints.
+     */
     public static Expression nullLiteralDate(TimeUnit unit) {
         return new Expression(NativeExpression.literalDate(0L, unit.tag(), true));
     }
 
     /**
-     * Create a Timestamp literal. The {@code value} is the number of {@code unit} units since the Unix epoch.
+     * Create a Timestamp literal. The {@code value} is the number of {@code unit}
+     * units since the Unix epoch.
      *
-     * @param timezone optional IANA timezone identifier (e.g. {@code "UTC"}, {@code "America/Los_Angeles"}). Pass
-     *     {@code null} for a local (zone-naive) timestamp.
+     * @param timezone optional IANA timezone identifier (e.g. {@code "UTC"},
+     *                 {@code "America/Los_Angeles"}). Pass
+     *                 {@code null} for a local (zone-naive) timestamp.
      */
     public static Expression literalTimestamp(long value, TimeUnit unit, String timezone) {
         return new Expression(NativeExpression.literalTimestamp(value, unit.tag(), timezone, false));
     }
 
-    /** Null Timestamp literal. See {@link #literalTimestamp(long, TimeUnit, String)} for parameter semantics. */
+    /**
+     * Null Timestamp literal. See {@link #literalTimestamp(long, TimeUnit, String)}
+     * for parameter semantics.
+     */
     public static Expression nullLiteralTimestamp(TimeUnit unit, String timezone) {
         return new Expression(NativeExpression.literalTimestamp(0L, unit.tag(), timezone, true));
     }
 
     /**
-     * Create a UUID literal, enabling predicate pushdown over UUID columns. The value is stored as its 16-byte
-     * big-endian (network order) representation, matching Vortex's UUID extension type and Arrow's canonical UUID type.
+     * Create a UUID literal, enabling predicate pushdown over UUID columns. The
+     * value is stored as its 16-byte
+     * big-endian (network order) representation, matching Vortex's UUID extension
+     * type and Arrow's canonical UUID type.
      */
     public static Expression literal(UUID value) {
         Preconditions.checkArgument(value != null, "use nullLiteralUuid() for a null UUID literal");
@@ -224,10 +256,13 @@ public final class Expression {
     }
 
     /**
-     * Create a UUID literal from its 16-byte big-endian (network order) representation, for example the bytes of
-     * Arrow's canonical UUID type or a {@link UUID} serialized most-significant-bits first.
+     * Create a UUID literal from its 16-byte big-endian (network order)
+     * representation, for example the bytes of
+     * Arrow's canonical UUID type or a {@link UUID} serialized
+     * most-significant-bits first.
      *
-     * @param bigEndianBytes exactly 16 bytes; use {@link #nullLiteralUuid()} for a null literal
+     * @param bigEndianBytes exactly 16 bytes; use {@link #nullLiteralUuid()} for a
+     *                       null literal
      */
     public static Expression literalUuid(byte[] bigEndianBytes) {
         Preconditions.checkArgument(bigEndianBytes != null, "use nullLiteralUuid() for a null UUID literal");
@@ -287,7 +322,10 @@ public final class Expression {
         }
     }
 
-    /** Time units for Date/Timestamp literals. Tag values must match the Rust {@code parse_time_unit} table. */
+    /**
+     * Time units for Date/Timestamp literals. Tag values must match the Rust
+     * {@code parse_time_unit} table.
+     */
     public enum TimeUnit {
         NANOSECONDS((byte) 0),
         MICROSECONDS((byte) 1),
@@ -306,7 +344,10 @@ public final class Expression {
         }
     }
 
-    /** Primitive {@link DType}s that can be used to construct typed null literals via {@link #nullLiteral(DType)}. */
+    /**
+     * Primitive {@link DType}s that can be used to construct typed null literals
+     * via {@link #nullLiteral(DType)}.
+     */
     public enum DType {
         BOOL((byte) 0),
         I8((byte) 1),
