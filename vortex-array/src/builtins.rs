@@ -68,6 +68,8 @@ pub trait ExprBuiltins: Sized {
     /// Conditional selection: `result[i] = if mask[i] then if_true[i] else if_false[i]`.
     fn zip(&self, if_true: Expression, if_false: Expression) -> VortexResult<Expression>;
 
+    // TODO(joe): add a `merge` expression builtin mirroring `ArrayBuiltins::merge`.
+
     /// Apply a binary operator to this expression and another.
     fn binary(&self, rhs: Expression, op: Operator) -> VortexResult<Expression>;
 }
