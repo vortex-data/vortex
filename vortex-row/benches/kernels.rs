@@ -158,14 +158,25 @@ fn runend_i64_fallback(bencher: divan::Bencher) {
 
 // ---------- BitPacked (u32, 10 bits) ----------
 
-fn build_bitpacked() -> ArrayRef {
+fn build_primitive_u32() -> ArrayRef {
     let mut rng = StdRng::seed_from_u64(4);
     let vals: Vec<u32> = (0..N).map(|_| rng.random_range(0..1024u32)).collect();
-    let arr = PrimitiveArray::from_iter(vals).into_array();
+    PrimitiveArray::from_iter(vals).into_array()
+}
+
+fn build_bitpacked() -> ArrayRef {
+    let arr = build_primitive_u32();
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     BitPackedData::encode(&arr, 10, &mut ctx)
         .unwrap()
         .into_array()
+}
+
+/// Baseline: encode the plain canonical `PrimitiveArray<u32>` (no decompression). The gap to
+/// `bitpacked_u32_kernel` is the fused kernel's decompression tax.
+#[divan::bench]
+fn primitive_u32_plain(bencher: divan::Bencher) {
+    run(bencher, build_primitive_u32());
 }
 
 #[divan::bench]
