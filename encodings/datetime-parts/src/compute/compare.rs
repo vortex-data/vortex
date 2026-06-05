@@ -200,6 +200,7 @@ fn compare_dtp(
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod test {
     use rstest::rstest;
     use vortex_array::LEGACY_SESSION;

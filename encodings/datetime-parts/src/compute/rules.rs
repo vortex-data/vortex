@@ -178,6 +178,7 @@ fn is_constant_zero(array: &ArrayRef) -> bool {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;

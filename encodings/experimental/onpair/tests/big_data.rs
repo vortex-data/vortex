@@ -9,7 +9,8 @@
     clippy::cast_possible_truncation,
     clippy::redundant_clone,
     clippy::tests_outside_test_module,
-    clippy::use_debug
+    clippy::use_debug,
+    deprecated
 )]
 
 use std::sync::LazyLock;
