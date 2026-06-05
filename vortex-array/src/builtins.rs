@@ -143,7 +143,7 @@ pub trait ArrayBuiltins: Sized {
 
     /// Order-preserving merge by selector: output row `i` is taken from `branches[selector[i]]`,
     /// where `self` is the (non-nullable) selector. See [`MergeArray`].
-    fn merge(&self, branches: Vec<ArrayRef>) -> VortexResult<ArrayRef>;
+    fn merge(&self, branches: impl IntoIterator<Item = ArrayRef>) -> VortexResult<ArrayRef>;
 
     /// Check if a list contains a value.
     fn list_contains(&self, value: ArrayRef) -> VortexResult<ArrayRef>;
@@ -218,8 +218,8 @@ impl ArrayBuiltins for ArrayRef {
         Zip.try_new_array(self.len(), EmptyOptions, [if_true, if_false, self.clone()])
     }
 
-    fn merge(&self, branches: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
-        Ok(MergeArray::try_new(branches, self.clone())?.into_array())
+    fn merge(&self, branches: impl IntoIterator<Item = ArrayRef>) -> VortexResult<ArrayRef> {
+        Ok(MergeArray::try_new(branches.into_iter().collect(), self.clone())?.into_array())
     }
 
     fn list_contains(&self, value: ArrayRef) -> VortexResult<ArrayRef> {

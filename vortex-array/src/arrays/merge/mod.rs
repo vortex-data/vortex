@@ -38,7 +38,7 @@
 //! The selector encodes the branch index per row: a non-nullable **boolean** for exactly two
 //! branches (`false` → `branches[0]`, `true` → `branches[1]`), or a non-nullable **unsigned
 //! integer** for two or more branches. Today only the boolean selector is wired into the
-//! [execution path](execute); integer selectors construct but panic on execution.
+//! execution path; integer selectors construct but panic on execution.
 
 mod execute;
 
