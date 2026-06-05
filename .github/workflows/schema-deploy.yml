@@ -1,0 +1,105 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+#
+# Apply Postgres schema migrations from `migrations/*.sql` to the
+# benchmarks-website RDS instance via the `scripts/migrate-schema.py` runner.
+# Connects to the public RDS *instance* endpoint as the `migrator` IAM-auth
+# role using a short-lived token generated client-side from the OIDC-assumed
+# `GitHubBenchmarkSchemaRole` credentials. (The RDS Proxy is VPC-internal and
+# unreachable from off-VPC GitHub runners; it is reserved for the Vercel read
+# service. CI writers use the public instance endpoint with direct IAM.)
+#
+# Trigger is `workflow_dispatch` only for now: an operator runs it manually,
+# optionally with `dry_run` as the pre-apply preview. Per the 2026-05-29
+# deploy-model decision, the intended deferred change is to ALSO trigger `apply`
+# on push to the deploy branch under `paths: migrations/** +
+# scripts/migrate-schema.py` (PR merge becomes the deploy gate; the runner path
+# is included so a runner-only change still triggers a deploy) -- NOT a GitHub
+# Environment / manual-approval gate (that only re-confirms authorization
+# already given at merge; execution safety comes from the per-PR testcontainer
+# migration test). See the plan's Deferred work + the "Schema-deploy
+# authorization" Key decision.
+#
+# Bootstrap: CI can only IAM-auth as `migrator` (the OIDC role has no master
+# credential), so the FIRST apply must be run once by the RDS master user
+# out-of-band to create the `migrator` role (002) and grant it ledger access
+# (003). Every subsequent apply runs here as `migrator`. See
+# `benchmarks-website/infra/README.md`.
+
+name: schema-deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run `status` only (report drift, apply nothing)"
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+# Serialize deploys so two operators cannot race `apply` against the same
+# database. `cancel-in-progress: false` lets an in-flight apply finish rather
+# than leaving a migration set half-applied.
+concurrency:
+  group: schema-deploy
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885  # v6
+        with:
+          role-to-assume: ${{ vars.GH_BENCH_SCHEMA_ROLE_ARN }}
+          aws-region: ${{ vars.RDS_BENCH_REGION }}
+
+      - name: Download RDS CA bundle
+        # `sslmode=verify-full` validates the instance certificate chain and
+        # hostname against Amazon's published root CAs.
+        run: |
+          set -Eeuo pipefail
+          curl -fsSL https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
+            -o "${RUNNER_TEMP}/rds-global-bundle.pem"
+
+      - name: Apply migrations and verify status
+        # The IAM auth token is generated client-side (SigV4 signing, no API
+        # call, no IAM permission beyond the role's `rds-db:connect`) and lives
+        # only for the duration of this step. `set -x` is deliberately NOT used
+        # so the token never lands in the workflow log. PGPASSWORD is assigned
+        # on its own line (not `export PGPASSWORD=$(...)`) so a failure of the
+        # token command is not masked by the `export` builtin's exit status
+        # under `set -e`.
+        env:
+          PGHOST: ${{ vars.RDS_BENCH_INSTANCE_ENDPOINT }}
+          PGPORT: "5432"
+          PGDATABASE: ${{ vars.RDS_BENCH_DB_NAME }}
+          PGUSER: migrator
+          PGSSLMODE: verify-full
+          AWS_REGION: ${{ vars.RDS_BENCH_REGION }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -Eeuo pipefail
+          PGPASSWORD="$(aws rds generate-db-auth-token \
+            --hostname "${PGHOST}" \
+            --port "${PGPORT}" \
+            --region "${AWS_REGION}" \
+            --username "${PGUSER}")"
+          export PGPASSWORD
+          export PGSSLROOTCERT="${RUNNER_TEMP}/rds-global-bundle.pem"
+          if [ "${DRY_RUN}" = "true" ]; then
+            echo "dry_run: reporting status only, applying nothing"
+            uv run --no-project scripts/migrate-schema.py status
+          else
+            uv run --no-project scripts/migrate-schema.py apply
+            uv run --no-project scripts/migrate-schema.py status
+          fi
