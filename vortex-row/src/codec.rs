@@ -296,10 +296,16 @@ pub(crate) fn field_encode_fixed_arithmetic(
     out: &mut [u8],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    if var_prefix.is_none()
-        && let Canonical::Primitive(arr) = canonical
-    {
-        return encode_primitive_arith(arr, field, col_prefix, row_stride, out, ctx);
+    if var_prefix.is_none() {
+        match canonical {
+            Canonical::Primitive(arr) => {
+                return encode_primitive_arith(arr, field, col_prefix, row_stride, out, ctx);
+            }
+            Canonical::Bool(arr) => {
+                return encode_bool_arith(arr, field, col_prefix, row_stride, out, ctx);
+            }
+            _ => {}
+        }
     }
 
     // General path: materialize this column's per-row start offsets and reuse the cursor
@@ -1000,6 +1006,54 @@ fn encode_variable_child(
 /// Arithmetic-write primitive encoder: writes each row's `sentinel + value` slot at a
 /// constant within-row offset, iterating the output in `row_stride`-sized chunks so the
 /// compiler can drop the per-row offset/cursor indirection.
+/// Arithmetic (cursor-free) bool encoder, the `Canonical::Bool` analogue of
+/// [`encode_primitive_arith`]. Each row's 2-byte slot lives at a constant `col_prefix` within
+/// its `row_stride`-sized chunk, so iterating `chunks_exact_mut` avoids the per-row offset and
+/// cursor arrays the general [`field_encode`] path allocates, and elides per-write bounds
+/// checks. Produces byte-identical output to [`encode_bool`].
+fn encode_bool_arith(
+    arr: &BoolArray,
+    field: RowSortField,
+    col_prefix: u32,
+    row_stride: u32,
+    out: &mut [u8],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let bits = arr.clone().into_bit_buffer();
+    let non_null = field.non_null_sentinel();
+    let xor = if field.descending { 0xFFu8 } else { 0x00u8 };
+    let stride = row_stride as usize;
+    let prefix = col_prefix as usize;
+    let slot_size = BOOL_ENCODED_SIZE as usize;
+
+    match resolve_validity(arr.as_ref().validity()?, arr.len(), ctx)? {
+        ValidityKind::AllValid => {
+            for (i, chunk) in out.chunks_exact_mut(stride).enumerate() {
+                let slot = &mut chunk[prefix..prefix + slot_size];
+                slot[0] = non_null;
+                // false=0x01, true=0x02 so false < true; XOR for descending.
+                let raw = if bits.value(i) { 0x02u8 } else { 0x01u8 };
+                slot[1] = raw ^ xor;
+            }
+        }
+        ValidityKind::Mask(mask) => {
+            let null = field.null_sentinel();
+            for (i, chunk) in out.chunks_exact_mut(stride).enumerate() {
+                let slot = &mut chunk[prefix..prefix + slot_size];
+                if mask.value(i) {
+                    slot[0] = non_null;
+                    let raw = if bits.value(i) { 0x02u8 } else { 0x01u8 };
+                    slot[1] = raw ^ xor;
+                } else {
+                    slot[0] = null;
+                    slot[1] = 0;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn encode_primitive_arith(
     arr: &PrimitiveArray,
     field: RowSortField,
@@ -1253,5 +1307,104 @@ impl RowEncode for f16 {
             }
         }
         out.copy_from_slice(&bytes);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Test-only: building reference offsets casts the small row count to `u32`.
+    #![allow(clippy::cast_possible_truncation)]
+
+    use rstest::rstest;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::{Canonical, LEGACY_SESSION, VortexSessionExecute};
+
+    use super::*;
+
+    /// Encode the same bool column via the new arithmetic kernel and the trusted cursor path
+    /// ([`field_encode`]), asserting byte-identical output. `prefix`/`stride` simulate the
+    /// column sitting at a within-row offset of a wider fixed row.
+    fn assert_arith_matches_cursor(
+        arr: BoolArray,
+        field: RowSortField,
+        prefix: u32,
+        stride: u32,
+    ) -> VortexResult<()> {
+        let nrows = arr.len();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let canonical = Canonical::Bool(arr);
+        let total = nrows * stride as usize;
+
+        let mut out_arith = vec![0u8; total];
+        let bool_arr = match &canonical {
+            Canonical::Bool(a) => a,
+            _ => unreachable!(),
+        };
+        encode_bool_arith(bool_arr, field, prefix, stride, &mut out_arith, &mut ctx)?;
+
+        let mut out_cursor = vec![0u8; total];
+        let offsets: Vec<u32> = (0..nrows as u32).map(|i| prefix + i * stride).collect();
+        let mut cursors = vec![0u32; nrows];
+        field_encode(
+            &canonical,
+            field,
+            &offsets,
+            &mut cursors,
+            &mut out_cursor,
+            &mut ctx,
+        )?;
+
+        assert_eq!(
+            out_arith, out_cursor,
+            "arith != cursor for field={field:?} prefix={prefix} stride={stride}"
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(false, true)]
+    #[case(true, true)]
+    #[case(false, false)]
+    #[case(true, false)]
+    fn bool_arith_matches_cursor_non_null(
+        #[case] descending: bool,
+        #[case] nulls_first: bool,
+    ) -> VortexResult<()> {
+        let field = RowSortField {
+            descending,
+            nulls_first,
+        };
+        let arr = BoolArray::from_iter([true, false, true, true, false, false, true]);
+        // Single-column layout (prefix 0, stride 2) and embedded-in-wider-row layout.
+        assert_arith_matches_cursor(arr.clone(), field, 0, BOOL_ENCODED_SIZE)?;
+        assert_arith_matches_cursor(arr, field, 1, BOOL_ENCODED_SIZE + 3)?;
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(false, true)]
+    #[case(true, true)]
+    #[case(false, false)]
+    #[case(true, false)]
+    fn bool_arith_matches_cursor_nullable(
+        #[case] descending: bool,
+        #[case] nulls_first: bool,
+    ) -> VortexResult<()> {
+        let field = RowSortField {
+            descending,
+            nulls_first,
+        };
+        let arr = BoolArray::from_iter([
+            Some(true),
+            None,
+            Some(false),
+            Some(true),
+            None,
+            None,
+            Some(false),
+        ]);
+        assert_arith_matches_cursor(arr.clone(), field, 0, BOOL_ENCODED_SIZE)?;
+        assert_arith_matches_cursor(arr, field, 2, BOOL_ENCODED_SIZE + 5)?;
+        Ok(())
     }
 }

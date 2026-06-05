@@ -14,6 +14,7 @@
 
 use std::sync::Arc;
 
+use arrow_array::BooleanArray;
 use arrow_array::Int64Array;
 use arrow_array::StringArray;
 use arrow_array::StructArray as ArrowStructArray;
@@ -30,6 +31,7 @@ use rand::rngs::StdRng;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -49,6 +51,11 @@ fn gen_i64(n: usize, seed: u64) -> Vec<i64> {
     (0..n)
         .map(|_| rng.random_range(i64::MIN..i64::MAX))
         .collect()
+}
+
+fn gen_bool(n: usize, seed: u64) -> Vec<bool> {
+    let mut rng = StdRng::seed_from_u64(seed);
+    (0..n).map(|_| rng.random::<bool>()).collect()
 }
 
 fn gen_words(n: usize, mean_len: usize, seed: u64) -> Vec<String> {
@@ -82,6 +89,31 @@ fn primitive_i64_vortex(bencher: divan::Bencher) {
     let v = gen_i64(N, 0);
     let col = PrimitiveArray::from_iter(v.clone()).into_array();
     let bytes = (N * (1 + 8)) as u64;
+    let encoder = RowEncoder::default();
+    bencher.counter(BytesCount::new(bytes)).bench_local(|| {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        encoder.encode(&[col.clone()], &mut ctx).unwrap()
+    })
+}
+
+// ---------- bool ----------
+
+#[divan::bench]
+fn bool_arrow_row(bencher: divan::Bencher) {
+    let v = gen_bool(N, 0);
+    let arr = Arc::new(BooleanArray::from(v.clone())) as arrow_array::ArrayRef;
+    let conv = RowConverter::new(vec![ArrowSortField::new(DataType::Boolean)]).unwrap();
+    let bytes = (N * (1 + 1)) as u64;
+    bencher
+        .counter(BytesCount::new(bytes))
+        .bench_local(|| conv.convert_columns(&[arr.clone()]).unwrap())
+}
+
+#[divan::bench]
+fn bool_vortex(bencher: divan::Bencher) {
+    let v = gen_bool(N, 0);
+    let col = BoolArray::from_iter(v.clone()).into_array();
+    let bytes = (N * (1 + 1)) as u64;
     let encoder = RowEncoder::default();
     bencher.counter(BytesCount::new(bytes)).bench_local(|| {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
