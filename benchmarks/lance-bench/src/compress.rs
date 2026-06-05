@@ -20,6 +20,7 @@ use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use tempfile::TempDir;
 use vortex_bench::Format;
 use vortex_bench::compress::Compressor;
+use vortex_bench::compress::read_projection;
 
 use crate::convert::convert_utf8view_batch;
 use crate::convert::convert_utf8view_schema;
@@ -28,7 +29,13 @@ use crate::convert::convert_utf8view_schema;
 pub async fn lance_decompress_read(path: &str) -> anyhow::Result<usize> {
     // Open the Lance dataset from the filesystem path.
     let dataset = Dataset::open(path).await?;
-    let scanner = dataset.scan();
+    let mut scanner = dataset.scan();
+
+    // Apply the fixed wide-table read projection, if any. Columns are named "0".."n-1".
+    if let Some(cols) = read_projection(dataset.schema().fields.len()) {
+        let names: Vec<String> = cols.iter().map(|i| i.to_string()).collect();
+        scanner.project(&names)?;
+    }
 
     // Convert to a stream of RecordBatches.
     let mut stream = scanner.try_into_stream().await?;

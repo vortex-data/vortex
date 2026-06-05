@@ -44,11 +44,26 @@ pub struct StructListOfInts {
 
 impl StructListOfInts {
     pub fn new(num_columns: usize, row_count: usize, chunk_count: usize) -> Self {
+        Self::new_with_projection(num_columns, row_count, chunk_count, None)
+    }
+
+    /// Like [`StructListOfInts::new`], but names the dataset for a projected decompress benchmark.
+    pub fn new_with_projection(
+        num_columns: usize,
+        row_count: usize,
+        chunk_count: usize,
+        project_columns: Option<usize>,
+    ) -> Self {
+        let mut name =
+            format!("wide table cols={num_columns} chunks={chunk_count} rows={row_count}");
+        if let Some(count) = project_columns {
+            name.push_str(&format!(" project={count}"));
+        }
         Self {
             num_columns,
             row_count,
             chunk_count,
-            name: format!("wide table cols={num_columns} chunks={chunk_count} rows={row_count}"),
+            name,
         }
     }
 }
