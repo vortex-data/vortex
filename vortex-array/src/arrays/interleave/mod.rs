@@ -10,12 +10,12 @@
 //! selector and a `row_indices` selector. The output has `array_indices.len()` rows, and output
 //! row `i` comes from `values[array_indices[i]][row_indices[i]]`.
 //!
-//! Unlike [`Merge`](super::Merge), which consumes each branch in order under a cursor, an
-//! [`Interleave`] is **random-access**: `row_indices` names an explicit position within the
-//! selected value array, so rows may be reordered, skipped, or repeated. [`Merge`] is the special
-//! case where each value array is consumed front-to-back exactly once.
+//! Unlike a `Merge`, which consumes each branch in order under a cursor, an [`Interleave`] is
+//! **random-access**: `row_indices` names an explicit position within the selected value array, so
+//! rows may be reordered, skipped, or repeated. A `Merge` is the special case where each value
+//! array is consumed front-to-back exactly once.
 //!
-//! Like [`Merge`], the value arrays are independent: each holds only its own rows, and the
+//! Like a `Merge`, the value arrays are independent: each holds only its own rows, and the
 //! selectors stitch them back together. This distinguishes [`Interleave`] from an element-wise
 //! select such as `zip`, whose arguments are all full-length.
 //!
