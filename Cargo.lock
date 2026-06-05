@@ -9752,6 +9752,7 @@ dependencies = [
  "vortex-fsst",
  "vortex-io",
  "vortex-mask",
+ "vortex-row",
  "vortex-runend",
  "vortex-session",
  "vortex-utils",

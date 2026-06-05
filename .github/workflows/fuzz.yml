@@ -178,6 +178,78 @@ jobs:
       incident_io_alert_token: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
 
   # ============================================================================
+  # Row Encode Fuzzer
+  # ============================================================================
+  row_encode_fuzz:
+    name: "Row Encode Fuzz"
+    uses: ./.github/workflows/run-fuzzer.yml
+    with:
+      fuzz_target: row_encode
+      jobs: 4
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+
+  report-row-encode-fuzz-failures:
+    name: "Report Row Encode Fuzz Failures"
+    needs: row_encode_fuzz
+    if: always() && needs.row_encode_fuzz.outputs.crashes_found == 'true'
+    permissions:
+      issues: write
+      contents: read
+      id-token: write
+      pull-requests: read
+    uses: ./.github/workflows/report-fuzz-crash.yml
+    with:
+      fuzz_target: row_encode
+      crash_file: ${{ needs.row_encode_fuzz.outputs.first_crash_name }}
+      artifact_url: ${{ needs.row_encode_fuzz.outputs.artifact_url }}
+      artifact_name: row_encode-crash-artifacts
+      logs_artifact_name: row_encode-logs
+      branch: ${{ github.ref_name }}
+      commit: ${{ github.sha }}
+    secrets:
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      gh_token: ${{ secrets.GITHUB_TOKEN }}
+      incident_io_alert_token: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
+
+  # ============================================================================
+  # Row Encode Compression-Differential Fuzzer
+  # ============================================================================
+  row_encode_compress_fuzz:
+    name: "Row Encode Compress Fuzz"
+    uses: ./.github/workflows/run-fuzzer.yml
+    with:
+      fuzz_target: row_encode_compress
+      jobs: 4
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+
+  report-row-encode-compress-fuzz-failures:
+    name: "Report Row Encode Compress Fuzz Failures"
+    needs: row_encode_compress_fuzz
+    if: always() && needs.row_encode_compress_fuzz.outputs.crashes_found == 'true'
+    permissions:
+      issues: write
+      contents: read
+      id-token: write
+      pull-requests: read
+    uses: ./.github/workflows/report-fuzz-crash.yml
+    with:
+      fuzz_target: row_encode_compress
+      crash_file: ${{ needs.row_encode_compress_fuzz.outputs.first_crash_name }}
+      artifact_url: ${{ needs.row_encode_compress_fuzz.outputs.artifact_url }}
+      artifact_name: row_encode_compress-crash-artifacts
+      logs_artifact_name: row_encode_compress-logs
+      branch: ${{ github.ref_name }}
+      commit: ${{ github.sha }}
+    secrets:
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      gh_token: ${{ secrets.GITHUB_TOKEN }}
+      incident_io_alert_token: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
+
+  # ============================================================================
   # Compress Roundtrip Fuzzer
   # ============================================================================
   compress_fuzz:

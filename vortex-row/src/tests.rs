@@ -593,6 +593,63 @@ fn primitive_f16_sort_order() -> VortexResult<()> {
     Ok(())
 }
 
+/// Regression: a decimal column's encoded width must depend only on the logical decimal
+/// dtype (its smallest value type), not on the physical `values_type`. Compression can
+/// canonicalize a `decimal(19, ...)` array — whose smallest value type is `i128` — down to an
+/// `i64`-backed array. Row-encoding both physical layouts must produce byte-identical rows.
+#[rstest]
+#[case::top_level(false)]
+#[case::fixed_size_list(true)]
+fn decimal_width_independent_of_physical_values_type(
+    #[case] wrap_in_fsl: bool,
+) -> VortexResult<()> {
+    use vortex_array::ArrayRef;
+    use vortex_array::arrays::DecimalArray;
+    use vortex_array::arrays::FixedSizeListArray;
+    use vortex_array::dtype::DecimalDType;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
+    // `decimal(19, -3)`: smallest value type is `i128`, but every value below also fits `i64`.
+    let decimal_dtype = DecimalDType::new(19, -3);
+    let values: Vec<i64> = vec![0, 1, -1, 1234, -5678, i64::MAX, i64::MIN];
+
+    let as_i64: Buffer<i64> = values.iter().copied().collect();
+    let as_i128: Buffer<i128> = values.iter().map(|&v| i128::from(v)).collect();
+
+    // Same logical decimal values, different physical `values_type` (i64 vs i128).
+    let col_i64: ArrayRef =
+        DecimalArray::new(as_i64, decimal_dtype, Validity::NonNullable).into_array();
+    let col_i128: ArrayRef =
+        DecimalArray::new(as_i128, decimal_dtype, Validity::NonNullable).into_array();
+    assert_eq!(col_i64.dtype(), col_i128.dtype());
+
+    let (col_i64, col_i128) = if wrap_in_fsl {
+        let n = values.len() / 2 * 2; // FSL[2] needs an even number of elements.
+        let fsl_i64 =
+            FixedSizeListArray::try_new(col_i64.slice(0..n)?, 2, Validity::NonNullable, n / 2)?
+                .into_array();
+        let fsl_i128 =
+            FixedSizeListArray::try_new(col_i128.slice(0..n)?, 2, Validity::NonNullable, n / 2)?
+                .into_array();
+        (fsl_i64, fsl_i128)
+    } else {
+        (col_i64, col_i128)
+    };
+
+    let field = RowSortField::default();
+    let rows_i64 = collect_row_bytes(&convert_columns(&[col_i64], &[field], &mut ctx)?);
+    let rows_i128 = collect_row_bytes(&convert_columns(&[col_i128], &[field], &mut ctx)?);
+
+    assert_eq!(
+        rows_i64, rows_i128,
+        "i64- and i128-backed decimals of the same dtype must row-encode identically"
+    );
+    Ok(())
+}
+
 #[test]
 fn reject_list_dtype_early() {
     use vortex_array::ArrayRef;

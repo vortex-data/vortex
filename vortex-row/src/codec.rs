@@ -35,10 +35,13 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_array::dtype::BigCast;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalType;
+use vortex_array::dtype::NativeDecimalType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::half::f16;
+use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_native_ptype;
 use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
@@ -384,7 +387,13 @@ fn add_size_primitive(arr: &PrimitiveArray, sizes: &mut [u32]) {
 }
 
 fn add_size_decimal(arr: &DecimalArray, sizes: &mut [u32]) {
-    let width = byte_width_u32(arr.values_type().byte_width());
+    // The encoded width is a pure function of the decimal *dtype* (its smallest value type),
+    // not the physical `values_type`, which a compressed array may canonicalize to a narrower
+    // or wider integer. This keeps the size pass consistent with `row_width_for_dtype` and with
+    // `encode_decimal`, so that row-encoding two physically different arrays of the same decimal
+    // dtype produces byte-identical rows.
+    let target = DecimalType::smallest_decimal_value_type(&arr.decimal_dtype());
+    let width = byte_width_u32(target.byte_width());
     add_size_const(sizes, encoded_size_for_fixed(width));
 }
 
@@ -633,27 +642,79 @@ fn encode_decimal(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
     let mask = arr.as_ref().validity()?.execute_mask(arr.len(), ctx)?;
-    match arr.values_type() {
+
+    // Encode at the dtype's canonical width (its smallest value type), independent of the
+    // physical `values_type`. A compressed array may canonicalize to a narrower or wider
+    // integer than `smallest_decimal_value_type`, but the row format must depend only on the
+    // logical dtype so that the bytes match across physical encodings.
+    let target = DecimalType::smallest_decimal_value_type(&arr.decimal_dtype());
+
+    if arr.values_type() == target {
+        // Fast path: the physical buffer already has the canonical width, so encode it directly.
+        match target {
+            DecimalType::I8 => {
+                encode_decimal_typed::<i8>(arr, &mask, field, row_offsets, col_offset, out)
+            }
+            DecimalType::I16 => {
+                encode_decimal_typed::<i16>(arr, &mask, field, row_offsets, col_offset, out)
+            }
+            DecimalType::I32 => {
+                encode_decimal_typed::<i32>(arr, &mask, field, row_offsets, col_offset, out)
+            }
+            DecimalType::I64 => {
+                encode_decimal_typed::<i64>(arr, &mask, field, row_offsets, col_offset, out)
+            }
+            DecimalType::I128 => {
+                encode_decimal_typed::<i128>(arr, &mask, field, row_offsets, col_offset, out)
+            }
+            DecimalType::I256 => {
+                vortex_bail!("row encoding for Decimal256 is not yet implemented")
+            }
+        }
+        return Ok(());
+    }
+
+    // Slow path: the physical values use a different integer width than the canonical one.
+    // Materialize them as `i128` (always lossless: precision-bounded values fit) and re-encode
+    // at the canonical width.
+    let values = decimal_values_as_i128(arr);
+    match target {
         DecimalType::I8 => {
-            encode_decimal_typed::<i8>(arr, &mask, field, row_offsets, col_offset, out)
+            encode_decimal_widened::<i8>(&values, &mask, field, row_offsets, col_offset, out)
         }
         DecimalType::I16 => {
-            encode_decimal_typed::<i16>(arr, &mask, field, row_offsets, col_offset, out)
+            encode_decimal_widened::<i16>(&values, &mask, field, row_offsets, col_offset, out)
         }
         DecimalType::I32 => {
-            encode_decimal_typed::<i32>(arr, &mask, field, row_offsets, col_offset, out)
+            encode_decimal_widened::<i32>(&values, &mask, field, row_offsets, col_offset, out)
         }
         DecimalType::I64 => {
-            encode_decimal_typed::<i64>(arr, &mask, field, row_offsets, col_offset, out)
+            encode_decimal_widened::<i64>(&values, &mask, field, row_offsets, col_offset, out)
         }
         DecimalType::I128 => {
-            encode_decimal_typed::<i128>(arr, &mask, field, row_offsets, col_offset, out)
+            encode_decimal_widened::<i128>(&values, &mask, field, row_offsets, col_offset, out)
         }
         DecimalType::I256 => {
             vortex_bail!("row encoding for Decimal256 is not yet implemented")
         }
     }
     Ok(())
+}
+
+/// Read every physical decimal value as `i128`. The cast is always lossless because the values
+/// are bounded by the decimal precision, which fits within `i128` for every non-`Decimal256`
+/// dtype that reaches the row encoder.
+fn decimal_values_as_i128(arr: &DecimalArray) -> Vec<i128> {
+    match_each_decimal_value_type!(arr.values_type(), |D| {
+        let buffer = arr.buffer::<D>();
+        buffer
+            .iter()
+            .map(|&v| {
+                <i128 as BigCast>::from(v)
+                    .vortex_expect("decimal value must fit in i128 for row encoding")
+            })
+            .collect()
+    })
 }
 
 fn encode_decimal_typed<T>(
@@ -664,7 +725,7 @@ fn encode_decimal_typed<T>(
     col_offset: &mut [u32],
     out: &mut [u8],
 ) where
-    T: vortex_array::dtype::NativeDecimalType + RowEncode,
+    T: NativeDecimalType + RowEncode,
 {
     let non_null = field.non_null_sentinel();
     let null = field.null_sentinel();
@@ -676,6 +737,40 @@ fn encode_decimal_typed<T>(
         if mask.value(i) {
             out[pos] = non_null;
             slice[i].encode_to(&mut out[pos + 1..pos + 1 + value_bytes], field.descending);
+        } else {
+            out[pos] = null;
+            for b in &mut out[pos + 1..pos + 1 + value_bytes] {
+                *b = 0;
+            }
+        }
+        col_offset[i] += total;
+    }
+}
+
+/// Encode decimal values that have been widened/narrowed to the canonical target integer type
+/// `T`. `values` holds the physical values read as `i128`; each is cast back down to `T` (always
+/// lossless, since the logical value fits the canonical width) before byte-encoding.
+fn encode_decimal_widened<T>(
+    values: &[i128],
+    mask: &vortex_mask::Mask,
+    field: RowSortField,
+    row_offsets: &[u32],
+    col_offset: &mut [u32],
+    out: &mut [u8],
+) where
+    T: NativeDecimalType + RowEncode,
+{
+    let non_null = field.non_null_sentinel();
+    let null = field.null_sentinel();
+    let value_bytes = size_of::<T>();
+    let total = encoded_size_for_fixed(byte_width_u32(value_bytes));
+    for i in 0..values.len() {
+        let pos = (row_offsets[i] + col_offset[i]) as usize;
+        if mask.value(i) {
+            out[pos] = non_null;
+            let v = <T as BigCast>::from(values[i])
+                .vortex_expect("decimal value must fit in its canonical value type");
+            v.encode_to(&mut out[pos + 1..pos + 1 + value_bytes], field.descending);
         } else {
             out[pos] = null;
             for b in &mut out[pos + 1..pos + 1 + value_bytes] {
@@ -884,7 +979,10 @@ fn encode_fsl(
             debug_assert_eq!(elements.len(), nrows * list_size);
             let mut elem_sizes = vec![0u32; nrows * list_size];
             field_size(&elements, field, &mut elem_sizes, ctx)?;
-            let total: u64 = elem_sizes.iter().map(|&s| u64::from(s)).sum();
+            let total: u64 = elem_sizes
+                .iter()
+                .map(|&s| <u64 as From<u32>>::from(s))
+                .sum();
             let total_usize =
                 usize::try_from(total).vortex_expect("FSL scratch buffer size fits usize");
             let mut scratch = vec![0u8; total_usize];
@@ -956,7 +1054,10 @@ fn encode_variable_child(
     // Size and encode the child into a sequential scratch buffer.
     let mut child_sizes = vec![0u32; n];
     field_size(&canonical, field, &mut child_sizes, ctx)?;
-    let total: u64 = child_sizes.iter().map(|&s| u64::from(s)).sum();
+    let total: u64 = child_sizes
+        .iter()
+        .map(|&s| <u64 as From<u32>>::from(s))
+        .sum();
     let total_usize = usize::try_from(total).vortex_expect("child scratch buffer size fits usize");
     let mut scratch = vec![0u8; total_usize];
     let mut scratch_offsets = Vec::with_capacity(n);
