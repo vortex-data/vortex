@@ -69,14 +69,22 @@ pub(crate) const VARLEN_EMPTY_SIZE: u32 = 1;
 ///
 /// Includes the leading sentinel byte plus `ceil(len/32) * 33` block bytes (32 content + 1
 /// continuation/length byte). Callers must use [`VARLEN_NULL_SIZE`] for null values and
-/// [`VARLEN_EMPTY_SIZE`] for empty values. A `u32` always suffices because a `BinaryView`
-/// length is itself a `u32`, so `blocks <= ceil(u32::MAX / 32) < 2^27`.
+/// [`VARLEN_EMPTY_SIZE`] for empty values.
+///
+/// # Errors
+///
+/// Returns an error if the encoded length overflows `u32`. The block count itself always fits
+/// (a `BinaryView` length is a `u32`, so `blocks <= ceil(u32::MAX / 32) < 2^27`), but the
+/// `blocks * 33 + 1` byte total can exceed `u32::MAX` for multi-gigabyte values.
 #[inline]
-fn encoded_size_for_non_empty_varlen(len: usize) -> u32 {
+fn encoded_size_for_non_empty_varlen(len: usize) -> VortexResult<u32> {
     debug_assert!(len > 0);
     let blocks = u32::try_from(len.div_ceil(VARLEN_BLOCK_SIZE))
         .vortex_expect("varlen block count must fit in u32");
-    1 + blocks * VARLEN_BLOCK_TOTAL_U32
+    blocks
+        .checked_mul(VARLEN_BLOCK_TOTAL_U32)
+        .and_then(|b| b.checked_add(1))
+        .ok_or_else(|| vortex_err!("varlen encoded size overflows u32"))
 }
 
 /// Constant per-row size in bytes for fixed-width encodings (including 1-byte sentinel).
@@ -85,14 +93,10 @@ const fn encoded_size_for_fixed(value_bytes: u32) -> u32 {
     1 + value_bytes
 }
 
-/// A native byte width (at most 32 for `i256`) always fits in a `u32`, so a plain cast is fine.
+/// A native byte width (at most 32 for `i256`) always fits in a `u32`.
 #[inline]
-#[allow(
-    clippy::cast_possible_truncation,
-    reason = "native byte widths are at most 32"
-)]
 fn byte_width_u32(width: usize) -> u32 {
-    width as u32
+    u32::try_from(width).vortex_expect("native byte width must fit in u32")
 }
 
 /// Pre-resolved per-row validity for the row encoders.
@@ -279,10 +283,10 @@ pub(crate) fn field_size(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
     match canonical {
-        Canonical::Null(arr) => add_size_null(arr, sizes),
-        Canonical::Bool(_) => add_size_const(sizes, encoded_size_for_fixed(1)),
-        Canonical::Primitive(arr) => add_size_primitive(arr, sizes),
-        Canonical::Decimal(arr) => add_size_decimal(arr, sizes),
+        Canonical::Null(arr) => add_size_null(arr, sizes)?,
+        Canonical::Bool(_) => add_size_const(sizes, encoded_size_for_fixed(1))?,
+        Canonical::Primitive(arr) => add_size_primitive(arr, sizes)?,
+        Canonical::Decimal(arr) => add_size_decimal(arr, sizes)?,
         Canonical::VarBinView(arr) => add_size_varbinview(arr, sizes, ctx)?,
         Canonical::Struct(arr) => add_size_struct(arr, field, sizes, ctx)?,
         Canonical::FixedSizeList(arr) => add_size_fsl(arr, field, sizes, ctx)?,

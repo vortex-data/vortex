@@ -2,31 +2,40 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Size pass leaf kernels: per-row byte-size accumulation for each canonical variant.
+//!
+//! Every accumulator returns [`VortexResult`] and uses checked arithmetic, so an input whose
+//! per-row encoding would exceed `u32::MAX` bytes surfaces a [`VortexError`](vortex_error::VortexError)
+//! instead of overflowing or panicking.
 
 use super::*;
 
-pub(super) fn add_size_const(sizes: &mut [u32], add: u32) {
-    sizes.iter_mut().for_each(|s| *s += add);
+pub(super) fn add_size_const(sizes: &mut [u32], add: u32) -> VortexResult<()> {
+    for s in sizes.iter_mut() {
+        *s = s
+            .checked_add(add)
+            .ok_or_else(|| vortex_err!("per-row size overflow"))?;
+    }
+    Ok(())
 }
 
-pub(super) fn add_size_null(arr: &NullArray, sizes: &mut [u32]) {
+pub(super) fn add_size_null(arr: &NullArray, sizes: &mut [u32]) -> VortexResult<()> {
     debug_assert_eq!(arr.len(), sizes.len());
     // Just a sentinel byte per row.
-    sizes.iter_mut().for_each(|s| *s += 1);
+    add_size_const(sizes, 1)
 }
 
-pub(super) fn add_size_primitive(arr: &PrimitiveArray, sizes: &mut [u32]) {
+pub(super) fn add_size_primitive(arr: &PrimitiveArray, sizes: &mut [u32]) -> VortexResult<()> {
     let width = byte_width_u32(arr.ptype().byte_width());
-    add_size_const(sizes, encoded_size_for_fixed(width));
+    add_size_const(sizes, encoded_size_for_fixed(width))
 }
 
-pub(super) fn add_size_decimal(arr: &DecimalArray, sizes: &mut [u32]) {
+pub(super) fn add_size_decimal(arr: &DecimalArray, sizes: &mut [u32]) -> VortexResult<()> {
     // Size from the precision-minimal type, not the physical `values_type`, so the size pass
     // agrees with `row_width_for_dtype` (and the encode pass) regardless of how the producer
     // stored the values. See `narrow_decimal_to_smallest`.
     let vt = DecimalType::smallest_decimal_value_type(&arr.decimal_dtype());
     let width = byte_width_u32(vt.byte_width());
-    add_size_const(sizes, encoded_size_for_fixed(width));
+    add_size_const(sizes, encoded_size_for_fixed(width))
 }
 
 pub(super) fn add_size_varbinview(
@@ -41,11 +50,11 @@ pub(super) fn add_size_varbinview(
                 let contribution = if view.is_empty() {
                     VARLEN_EMPTY_SIZE
                 } else {
-                    encoded_size_for_non_empty_varlen(view.len() as usize)
+                    encoded_size_for_non_empty_varlen(view.len() as usize)?
                 };
                 sizes[i] = sizes[i]
                     .checked_add(contribution)
-                    .vortex_expect("per-row size overflow");
+                    .ok_or_else(|| vortex_err!("per-row size overflow"))?;
             }
         }
         ValidityKind::Mask(mask) => {
@@ -55,11 +64,11 @@ pub(super) fn add_size_varbinview(
                 } else if view.is_empty() {
                     VARLEN_EMPTY_SIZE
                 } else {
-                    encoded_size_for_non_empty_varlen(view.len() as usize)
+                    encoded_size_for_non_empty_varlen(view.len() as usize)?
                 };
                 sizes[i] = sizes[i]
                     .checked_add(contribution)
-                    .vortex_expect("per-row size overflow");
+                    .ok_or_else(|| vortex_err!("per-row size overflow"))?;
             }
         }
     }
@@ -75,16 +84,14 @@ pub(super) fn add_size_struct(
     let n = arr.len();
     let mask = arr.as_ref().validity()?.execute_mask(n, ctx)?;
     // Outer sentinel: 1 byte per row.
-    sizes
-        .iter_mut()
-        .for_each(|s| *s = s.checked_add(1).vortex_expect("per-row size overflow"));
+    add_size_const(sizes, 1)?;
     // Each child contributes its per-row size when the parent is non-null, and a canonical
     // null contribution when the parent is null. For fixed-width children both are equal,
     // so we can simply add the fixed width to every row. For variable-width children the
     // null contribution collapses to 1 byte, ensuring null parent rows have a constant body.
     for child in arr.iter_unmasked_fields() {
         match row_width_for_dtype(child.dtype())? {
-            RowWidth::Fixed(w) => add_size_const(sizes, w),
+            RowWidth::Fixed(w) => add_size_const(sizes, w)?,
             RowWidth::Variable => {
                 let canonical = child.clone().execute::<Canonical>(ctx)?;
                 let mut child_sizes = vec![0u32; n];
@@ -93,7 +100,7 @@ pub(super) fn add_size_struct(
                     let contribution = if mask.value(i) { child_sizes[i] } else { 1u32 };
                     sizes[i] = sizes[i]
                         .checked_add(contribution)
-                        .vortex_expect("per-row size overflow");
+                        .ok_or_else(|| vortex_err!("per-row size overflow"))?;
                 }
             }
         }
@@ -116,16 +123,14 @@ pub(super) fn add_size_fsl(
     let mask = arr.as_ref().validity()?.execute_mask(n, ctx)?;
     let elem_dtype = arr.elements().dtype();
     // Outer sentinel: 1 byte per row.
-    sizes
-        .iter_mut()
-        .for_each(|s| *s = s.checked_add(1).vortex_expect("per-row size overflow"));
+    add_size_const(sizes, 1)?;
     match row_width_for_dtype(elem_dtype)? {
         RowWidth::Fixed(w) => {
             // Each row has `list_size` fixed-width elements regardless of null parent mask.
             let body = w
                 .checked_mul(list_size_u32)
-                .vortex_expect("FSL body width overflow");
-            add_size_const(sizes, body);
+                .ok_or_else(|| vortex_err!("FSL body width overflow"))?;
+            add_size_const(sizes, body)?;
         }
         RowWidth::Variable => {
             let elements = arr.elements().clone().execute::<Canonical>(ctx)?;
@@ -139,7 +144,7 @@ pub(super) fn add_size_fsl(
                     for j in 0..list_size {
                         sum = sum
                             .checked_add(elem_sizes[base + j])
-                            .vortex_expect("FSL row body overflow");
+                            .ok_or_else(|| vortex_err!("FSL row body overflow"))?;
                     }
                     sum
                 } else {
@@ -149,7 +154,7 @@ pub(super) fn add_size_fsl(
                 };
                 sizes[i] = sizes[i]
                     .checked_add(body)
-                    .vortex_expect("FSL per-row size overflow");
+                    .ok_or_else(|| vortex_err!("FSL per-row size overflow"))?;
             }
         }
     }

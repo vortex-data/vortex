@@ -683,6 +683,94 @@ fn decimal_wide_physical_storage_sort_order(#[case] descending: bool) -> VortexR
     Ok(())
 }
 
+/// Lock-in reference test: encode the worked-example row from `docs/specs/row-encoding.md`
+/// (one row with every supported encoding family, all columns ascending nulls-first) and
+/// assert the exact encoded bytes. This pins the byte layout so any accidental change to the
+/// format is caught, and keeps the spec document honest.
+#[test]
+fn reference_row_bytes_match_spec() -> VortexResult<()> {
+    use vortex_array::arrays::DecimalArray;
+    use vortex_array::arrays::FixedSizeListArray;
+    use vortex_array::arrays::NullArray;
+    use vortex_array::dtype::DecimalDType;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
+    let null_col = NullArray::new(1).into_array();
+    let bool_col = BoolArray::from_iter([true]).into_array();
+    let uint_col = PrimitiveArray::from_iter([258u16]).into_array();
+    let int_col = PrimitiveArray::from_iter([-5i16]).into_array();
+    let float_col = PrimitiveArray::from_iter([1.5f32]).into_array();
+    let decimal_col = DecimalArray::new::<i32>(
+        Buffer::<i32>::copy_from([12345i32]),
+        DecimalDType::new(9, 2),
+        Validity::NonNullable,
+    )
+    .into_array();
+    let utf8_col = VarBinViewArray::from_iter_str(["a"]).into_array();
+    let binary_col = VarBinViewArray::from_iter_bin([[0xDEu8, 0xAD, 0xBE, 0xEF]]).into_array();
+    let struct_col = StructArray::from_fields(&[
+        ("x", PrimitiveArray::from_iter([1i8]).into_array()),
+        ("y", VarBinViewArray::from_iter_str([""]).into_array()),
+    ])?
+    .into_array();
+    let fsl_col = FixedSizeListArray::try_new(
+        PrimitiveArray::from_iter([1u8, 2, 3]).into_array(),
+        3,
+        Validity::NonNullable,
+        1,
+    )?
+    .into_array();
+
+    let cols = [
+        null_col,
+        bool_col,
+        uint_col,
+        int_col,
+        float_col,
+        decimal_col,
+        utf8_col,
+        binary_col,
+        struct_col,
+        fsl_col,
+    ];
+    let fields = vec![RowSortFieldOptions::default(); cols.len()];
+    let encoded = convert_columns(&cols, &fields, &mut ctx)?;
+    let rows = collect_row_bytes(&encoded);
+    assert_eq!(rows.len(), 1);
+
+    // Per-column encodings from the spec's worked example.
+    let mut expected: Vec<u8> = Vec::new();
+    expected.extend_from_slice(&[0x00]); // null_col
+    expected.extend_from_slice(&[0x01, 0x02]); // bool_col: true
+    expected.extend_from_slice(&[0x01, 0x01, 0x02]); // uint_col: 258 u16
+    expected.extend_from_slice(&[0x01, 0x7F, 0xFB]); // int_col: -5 i16 (sign-bit flipped)
+    expected.extend_from_slice(&[0x01, 0xBF, 0xC0, 0x00, 0x00]); // float_col: 1.5 f32
+    expected.extend_from_slice(&[0x01, 0x80, 0x00, 0x30, 0x39]); // decimal_col: 12345 i32
+    // utf8 "a": non-empty sentinel, 'a', zero pad to 32, length marker 1.
+    expected.push(0x02);
+    expected.push(b'a');
+    expected.extend(std::iter::repeat_n(0u8, 31));
+    expected.push(0x01);
+    // binary DE AD BE EF: non-empty sentinel, data, zero pad to 32, length marker 4.
+    expected.push(0x02);
+    expected.extend_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]);
+    expected.extend(std::iter::repeat_n(0u8, 28));
+    expected.push(0x04);
+    // struct { x: 1 i8, y: "" }: outer sentinel, x = 0x01 || 0x81, y = empty sentinel 0x01.
+    expected.extend_from_slice(&[0x01, 0x01, 0x81, 0x01]);
+    // fsl [1, 2, 3] u8: outer sentinel, then per element 0x01 || BE(value).
+    expected.extend_from_slice(&[0x01, 0x01, 0x01, 0x01, 0x02, 0x01, 0x03]);
+
+    assert_eq!(
+        rows[0], expected,
+        "encoded reference row does not match the documented byte layout"
+    );
+    Ok(())
+}
+
 #[test]
 fn reject_list_dtype_early() {
     use vortex_array::ArrayRef;

@@ -258,7 +258,7 @@ pub(super) fn encode_varbinview(
                     &buffers[r.buffer_index as usize][off..off + len]
                 };
                 out[pos] = non_empty_byte;
-                let written = encode_non_empty_varlen_body(bytes, &mut out[pos + 1..], descending);
+                let written = encode_non_empty_varlen_body(bytes, &mut out[pos + 1..], descending)?;
                 col_offset[i] += 1 + written;
             }
         }
@@ -284,7 +284,7 @@ pub(super) fn encode_varbinview(
                     &buffers[r.buffer_index as usize][off..off + len]
                 };
                 out[pos] = non_empty_byte;
-                let written = encode_non_empty_varlen_body(bytes, &mut out[pos + 1..], descending);
+                let written = encode_non_empty_varlen_body(bytes, &mut out[pos + 1..], descending)?;
                 col_offset[i] += 1 + written;
             }
         }
@@ -376,7 +376,7 @@ pub(super) fn encode_fsl(
             debug_assert_eq!(elements.len(), nrows * list_size);
             let row_body_bytes = w
                 .checked_mul(list_size_u32)
-                .vortex_expect("FSL body width overflow");
+                .ok_or_else(|| vortex_err!("FSL body width overflow"))?;
             let mut elem_offsets = vec![0u32; nrows * list_size];
             for i in 0..nrows {
                 let base = row_offsets[i] + col_offset[i];
@@ -389,7 +389,7 @@ pub(super) fn encode_fsl(
             for i in 0..nrows {
                 col_offset[i] = col_offset[i]
                     .checked_add(row_body_bytes)
-                    .vortex_expect("FSL row body overflow");
+                    .ok_or_else(|| vortex_err!("FSL row body overflow"))?;
             }
             // Canonical null body for null parent rows: one null encoding per element.
             let null_byte = child_canonical_null_byte(&elem_dtype, field);
@@ -427,7 +427,7 @@ pub(super) fn encode_fsl(
                 scratch_offsets.push(acc);
                 acc = acc
                     .checked_add(s)
-                    .vortex_expect("FSL scratch offset overflow");
+                    .ok_or_else(|| vortex_err!("FSL scratch offset overflow"))?;
             }
             let mut scratch_cursors = vec![0u32; nrows * list_size];
             field_encode(
@@ -451,18 +451,18 @@ pub(super) fn encode_fsl(
                             .copy_from_slice(&scratch[src..src + sz]);
                         body_bytes = body_bytes
                             .checked_add(elem_sizes[k])
-                            .vortex_expect("FSL body bytes overflow");
+                            .ok_or_else(|| vortex_err!("FSL body bytes overflow"))?;
                     }
                     col_offset[i] = col_offset[i]
                         .checked_add(body_bytes)
-                        .vortex_expect("FSL row offset overflow");
+                        .ok_or_else(|| vortex_err!("FSL row offset overflow"))?;
                 } else {
                     for offset in 0..list_size {
                         out[dst + offset] = null_byte;
                     }
                     col_offset[i] = col_offset[i]
                         .checked_add(list_size_u32)
-                        .vortex_expect("FSL row offset overflow");
+                        .ok_or_else(|| vortex_err!("FSL row offset overflow"))?;
                 }
             }
         }
@@ -498,7 +498,7 @@ fn encode_variable_child(
         scratch_offsets.push(acc);
         acc = acc
             .checked_add(s)
-            .vortex_expect("child scratch offset overflow");
+            .ok_or_else(|| vortex_err!("child scratch offset overflow"))?;
     }
     let mut scratch_cursors = vec![0u32; n];
     field_encode(
@@ -519,12 +519,12 @@ fn encode_variable_child(
             out[dst..dst + sz].copy_from_slice(&scratch[src..src + sz]);
             col_offset[i] = col_offset[i]
                 .checked_add(child_sizes[i])
-                .vortex_expect("col_offset overflow");
+                .ok_or_else(|| vortex_err!("col_offset overflow"))?;
         } else {
             out[dst] = null_byte;
             col_offset[i] = col_offset[i]
                 .checked_add(1)
-                .vortex_expect("col_offset overflow");
+                .ok_or_else(|| vortex_err!("col_offset overflow"))?;
         }
     }
     Ok(())
@@ -599,7 +599,11 @@ fn encode_primitive_arith_typed<T: NativePType + RowEncode>(
 /// For the ascending path the hot loop is a `copy_nonoverlapping` of 32 bytes per block
 /// plus one stamped continuation byte. For the descending path it reads a u64 at a time and
 /// XORs with `0xFF`, giving LLVM a vectorizable inner loop.
-fn encode_non_empty_varlen_body(bytes: &[u8], out: &mut [u8], descending: bool) -> u32 {
+fn encode_non_empty_varlen_body(
+    bytes: &[u8],
+    out: &mut [u8],
+    descending: bool,
+) -> VortexResult<u32> {
     debug_assert!(!bytes.is_empty());
     let len = bytes.len();
     let full_blocks = len / VARLEN_BLOCK_SIZE;
@@ -612,6 +616,10 @@ fn encode_non_empty_varlen_body(bytes: &[u8], out: &mut [u8], descending: bool) 
         (full_blocks, partial)
     };
     let total = (full_to_write + 1) * VARLEN_BLOCK_TOTAL;
+    // The caller reserved this slot from `encoded_size_for_non_empty_varlen`, which already
+    // verified the byte total fits `u32`; re-check here so the conversion never panics.
+    let total_u32 =
+        u32::try_from(total).map_err(|_| vortex_err!("encoded varlen size overflows u32"))?;
     debug_assert!(out.len() >= total);
     // The final block's continuation byte encodes its content length (1..=32).
     let len_byte =
@@ -662,7 +670,7 @@ fn encode_non_empty_varlen_body(bytes: &[u8], out: &mut [u8], descending: bool) 
             *dst.add(VARLEN_BLOCK_SIZE) = len_byte ^ 0xFF;
         }
     }
-    u32::try_from(total).vortex_expect("encoded varlen byte length fits u32")
+    Ok(total_u32)
 }
 
 /// Copy 32 bytes from `src` to `dst`, XORing each with `0xFF`. LLVM auto-vectorizes the
