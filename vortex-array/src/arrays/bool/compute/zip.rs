@@ -18,8 +18,8 @@ use crate::scalar_fn::fns::zip::zip_validity;
 ///
 /// Booleans are bit-packed, so selecting `if_true` where the mask is set and `if_false` where it is
 /// not is a single bitwise blend over the packed words — `(true & mask) | (false & !mask)` — instead
-/// of the generic per-run builder. Validity is combined with [`zip_validity`], which itself reuses
-/// this kernel (terminating immediately, since validity bitmaps are non-nullable).
+/// of the generic per-run builder. Validity is combined with the shared `zip_validity`, which itself
+/// reuses this kernel (terminating immediately, since validity bitmaps are non-nullable).
 impl ZipKernel for Bool {
     fn zip(
         if_true: ArrayView<'_, Bool>,
