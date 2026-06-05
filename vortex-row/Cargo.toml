@@ -37,7 +37,16 @@ mimalloc = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+# Path-only (no version) dev-deps so the kernel benchmark can build encoded inputs. These
+# crates depend on vortex-row, so this is a dev-dependency cycle (allowed by cargo because
+# dev-deps are not part of the normal build graph); the bench is the only consumer.
+vortex-fastlanes = { path = "../encodings/fastlanes" }
+vortex-runend = { path = "../encodings/runend" }
 
 [[bench]]
 name = "row_encode"
+harness = false
+
+[[bench]]
+name = "kernels"
 harness = false

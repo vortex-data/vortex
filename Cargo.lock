@@ -10016,7 +10016,9 @@ dependencies = [
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
+ "vortex-fastlanes",
  "vortex-mask",
+ "vortex-runend",
  "vortex-session",
  "vortex-utils",
 ]
