@@ -217,15 +217,19 @@ For the i32 `> 0` compare, three forms were compiled with `target-cpu=x86-64-v4`
 - **stable scalar** `bits |= ((v>k) as u16) << i`: 0 `vpcmpd`/`kmov`; 16 lines of
   `vpsllv`/`pshufb`/gather (the SLP shift-OR mess).
 - **`core::arch` intrinsic**: `vpcmpltd (mem),%zmm0,%k0` + `kmovw`.
-- **portable `std::simd`** `v.simd_gt(splat).to_bitmask()`: **byte-identical asm to
-  the intrinsic**, with no `unsafe` and no arch-specific code.
+- **portable `std::simd`** `v.simd_gt(splat).to_bitmask()`: **identical hot loop**
+  to the intrinsic (`vmovdqu64`+`vptestmb`/`vpcmp`+`kmov`), with no `unsafe` and no
+  arch-specific code, and equivalent perf. (Not byte-identical end to end:
+  `Simd::from_slice` adds a bounds-check branch and a slightly different induction
+  variable; the `between` form actually lowers *slightly better* via a masked
+  `vpcmpled {k1}` instead of two AND'd masks.)
 
 Timings (64 Ki elems, same binary, `black_box`ed): scalar 1.00x; `std::simd`
 19.73x; intrinsic 19.67x (i32 `>0`). And for u8 `!=0`: 5.59x vs 5.62x. So:
 
 > You cannot make *plain scalar* match — that is the LLVM SLP gap. But you can
-> make it portable, safe, and generic with **zero** perf change via `std::simd`
-> `to_bitmask()`, which lowers to the same `vpcmp`/`vptestmb` + `kmov`.
+> make it portable, safe, and generic with ~zero perf change via `std::simd`
+> `to_bitmask()`, whose hot loop is the same `vpcmp`/`vptestmb` + `kmov`.
 
 Caveat: `portable_simd` is **nightly-only** today, so the stable `vortex-buffer`
 crate cannot adopt it yet. Two productization options for generalizing the impl:
@@ -233,6 +237,28 @@ crate cannot adopt it yet. Two productization options for generalizing the impl:
    generalized across types via a macro. More code, `unsafe`, x86+ARM paths.
 2. **Nightly `std::simd`:** one generic `pack_cmp` for all types and predicates,
    safe and portable, identical perf — requires the crate to build on nightly.
+
+### Correction (adversarial re-review): two stacked causes, not one
+
+A red-team pass disproved the simplification that the scalar slowness is *purely*
+the SLP shift-OR idiom. The in-tree gap is **two stacked factors**:
+
+1. **Bounds-checked closure indexing** in `collect_bool_words` (`|i| d[i] > 0`).
+   Under `target-cpu=native`, n=16K: bounds-checked closure 8076 ns vs a
+   `chunks_exact`/`get_unchecked` scalar ~1465 ns — a **~5.5x** factor that is a
+   *cheap, safe source fix* independent of any SIMD.
+2. **The SLP shift-OR idiom** itself: the bounds-check-free scalar (~1465 ns) is
+   still **~7.9x** slower than the intrinsic (186 ns). This residual is the
+   genuine LLVM vectorizer gap — confirmed not closable by any build flag
+   (`v3`/`v4`/`native`/`+avx512*` never get within 2x; asm still shows
+   `vpmovm2q`+`vpsllvq`+`vpternlogq` reduction even with a known trip count).
+
+So the in-tree headline (~40-70x) is roughly *bounds-check (~5.5x) × shift-OR
+(~8x)*. Important nuance: at the repo **default baseline (x86-64) build**,
+bounds-checks are immaterial — the SSE2 shift-OR dominates and all scalar variants
+are ~equal — which is why the default-build numbers are still 40-70x. The
+practical takeaway: a portion of the win is recoverable with a plain source
+change (`chunks_exact`/`get_unchecked`); the rest needs the mask-compare.
 
 ### In-tree benchmarks (default build, core-pinned, medians)
 
