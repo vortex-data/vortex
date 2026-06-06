@@ -11,6 +11,7 @@ use crate::ByteBufferMut;
 use crate::bit::collect_bool_words;
 use crate::bit::get_bit_unchecked;
 use crate::bit::ops;
+use crate::bit::pack_nonzero_bytes;
 use crate::bit::set_bit_unchecked;
 use crate::bit::unset_bit_unchecked;
 use crate::buffer_mut;
@@ -193,6 +194,28 @@ impl BitBufferMut {
         // inside `collect_bool_words` are pure writes.
         unsafe { buffer.set_len(num_words) };
         collect_bool_words(buffer.as_mut_slice(), len, f);
+
+        let mut bytes = buffer.into_byte_buffer();
+        bytes.truncate(len.div_ceil(8));
+
+        Self {
+            buffer: bytes,
+            offset: 0,
+            len,
+        }
+    }
+
+    /// Build a `BitBufferMut` from a contiguous byte slice, setting bit `i` iff
+    /// `value[i] != 0`. Uses the SIMD [`pack_nonzero_bytes`] fast path.
+    #[inline]
+    pub fn from_nonzero_bytes(value: &[u8]) -> Self {
+        let len = value.len();
+        let num_words = len.div_ceil(64);
+        let mut buffer: BufferMut<u64> = BufferMut::with_capacity(num_words);
+        // SAFETY: `pack_nonzero_bytes` writes every word in `0..num_words` below
+        // before any read; `u64` has no invalid bit patterns.
+        unsafe { buffer.set_len(num_words) };
+        pack_nonzero_bytes(buffer.as_mut_slice(), value);
 
         let mut bytes = buffer.into_byte_buffer();
         bytes.truncate(len.div_ceil(8));
@@ -563,14 +586,19 @@ impl Not for BitBufferMut {
 
 impl From<&[bool]> for BitBufferMut {
     fn from(value: &[bool]) -> Self {
-        BitBufferMut::collect_bool(value.len(), |i| value[i])
+        // SAFETY: `bool` is a single byte guaranteed to be 0 or 1, so it is
+        // sound to view `&[bool]` as `&[u8]`; `pack_nonzero_bytes` sets bit `i`
+        // iff the byte is non-zero, matching `value[i] == true`.
+        let bytes =
+            unsafe { core::slice::from_raw_parts(value.as_ptr().cast::<u8>(), value.len()) };
+        BitBufferMut::from_nonzero_bytes(bytes)
     }
 }
 
 // allow building a buffer from a set of truthy byte values.
 impl From<&[u8]> for BitBufferMut {
     fn from(value: &[u8]) -> Self {
-        BitBufferMut::collect_bool(value.len(), |i| value[i] > 0)
+        BitBufferMut::from_nonzero_bytes(value)
     }
 }
 

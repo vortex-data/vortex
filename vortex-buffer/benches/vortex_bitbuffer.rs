@@ -8,6 +8,45 @@ use arrow_buffer::BooleanBufferBuilder;
 use divan::Bencher;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
+use vortex_buffer::collect_bool_words;
+
+// Sizes spanning L1 -> DRAM for the collect-bool / bitmask-pack benchmarks.
+const PACK_SIZES: &[usize] = &[1024, 16_384, 262_144, 1_048_576];
+
+/// Pure-compute baseline: pack `n` truthy bytes (`b != 0`) into a *reused* word
+/// buffer via the real `collect_bool_words` (the scalar `packed |= (f(i)) << i`
+/// idiom). No allocation in the measured region.
+#[divan::bench(args = PACK_SIZES)]
+fn pack_truthy_bytes(bencher: Bencher, n: usize) {
+    let data: Vec<u8> = (0..n).map(|i| i.is_multiple_of(7) as u8).collect();
+    let mut words = vec![0u64; n.div_ceil(64)];
+    bencher.bench_local(|| {
+        let d = divan::black_box(data.as_slice());
+        collect_bool_words(divan::black_box(&mut words), n, |i| d[i] > 0);
+        divan::black_box(words.as_slice());
+    });
+}
+
+/// SIMD fast path: same pack into a *reused* buffer via `pack_nonzero_bytes`.
+#[divan::bench(args = PACK_SIZES)]
+fn pack_truthy_bytes_simd(bencher: Bencher, n: usize) {
+    let data: Vec<u8> = (0..n).map(|i| i.is_multiple_of(7) as u8).collect();
+    let mut words = vec![0u64; n.div_ceil(64)];
+    bencher.bench_local(|| {
+        let d = divan::black_box(data.as_slice());
+        vortex_buffer::pack_nonzero_bytes(divan::black_box(&mut words), d);
+        divan::black_box(words.as_slice());
+    });
+}
+
+/// End-to-end real caller: `BitBufferMut::from(&[u8])` (includes allocation).
+#[divan::bench(args = PACK_SIZES)]
+fn bitbuffer_from_u8(bencher: Bencher, n: usize) {
+    let data: Vec<u8> = (0..n).map(|i| i.is_multiple_of(7) as u8).collect();
+    bencher
+        .with_inputs(|| data.as_slice())
+        .bench_refs(|s| BitBufferMut::from(divan::black_box(*s)));
+}
 
 fn main() {
     // Pre-warm CPUID feature detection so the one-time probe cost is never
