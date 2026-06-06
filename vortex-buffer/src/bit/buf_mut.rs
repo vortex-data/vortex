@@ -12,6 +12,7 @@ use crate::bit::collect_bool_words;
 use crate::bit::get_bit_unchecked;
 use crate::bit::ops;
 use crate::bit::pack_nonzero_bytes;
+use crate::bit::pack_slice_predicate;
 use crate::bit::set_bit_unchecked;
 use crate::bit::unset_bit_unchecked;
 use crate::buffer_mut;
@@ -194,6 +195,34 @@ impl BitBufferMut {
         // inside `collect_bool_words` are pure writes.
         unsafe { buffer.set_len(num_words) };
         collect_bool_words(buffer.as_mut_slice(), len, f);
+
+        let mut bytes = buffer.into_byte_buffer();
+        bytes.truncate(len.div_ceil(8));
+
+        Self {
+            buffer: bytes,
+            offset: 0,
+            len,
+        }
+    }
+
+    /// Build a `BitBufferMut` of length `values.len()`, setting bit `i` iff
+    /// `pred(&values[i])`.
+    ///
+    /// Prefer this over [`collect_bool`](Self::collect_bool) when the source is a
+    /// contiguous slice: it iterates the slice directly via [`pack_slice_predicate`]
+    /// rather than calling an index closure per element, which lets LLVM
+    /// auto-vectorize the compare and bit-pack. It is also safe — no `get_unchecked`
+    /// in the caller's predicate.
+    #[inline]
+    pub fn collect_bool_slice<T, F: FnMut(&T) -> bool>(values: &[T], pred: F) -> Self {
+        let len = values.len();
+        let num_words = len.div_ceil(64);
+        let mut buffer: BufferMut<u64> = BufferMut::with_capacity(num_words);
+        // SAFETY: `pack_slice_predicate` writes every word in `0..num_words` below
+        // before any read; `u64` has no invalid bit patterns.
+        unsafe { buffer.set_len(num_words) };
+        pack_slice_predicate(buffer.as_mut_slice(), values, pred);
 
         let mut bytes = buffer.into_byte_buffer();
         bytes.truncate(len.div_ceil(8));

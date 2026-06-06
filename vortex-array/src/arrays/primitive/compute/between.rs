@@ -105,11 +105,7 @@ where
 {
     let slice = arr.as_slice::<T>();
     BoolArray::new(
-        BitBuffer::collect_bool(slice.len(), |idx| {
-            // We only iterate upto arr len and |arr| == |slice|.
-            let i = unsafe { *slice.get_unchecked(idx) };
-            lower_fn(lower, i) & upper_fn(i, upper)
-        }),
+        BitBuffer::collect_bool_slice(slice, |&i| lower_fn(lower, i) & upper_fn(i, upper)),
         arr.validity()
             .vortex_expect("validity should be derivable")
             .union_nullability(nullability),

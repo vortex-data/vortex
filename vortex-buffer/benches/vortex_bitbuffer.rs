@@ -103,6 +103,27 @@ fn between_i32_chunked(bencher: Bencher, n: usize) {
     });
 }
 
+/// Current production form of `primitive between`: `collect_bool_words` with an
+/// index closure that does `unsafe { *slice.get_unchecked(idx) }`. Baseline to
+/// confirm `pack_slice_predicate` is not a regression vs the existing `unsafe`.
+#[divan::bench(args = PACK_SIZES)]
+fn between_i32_unchecked(bencher: Bencher, n: usize) {
+    let data: Vec<i32> = (0..n)
+        .map(|i| (i as i32).wrapping_mul(2_654_435_761u32 as i32))
+        .collect();
+    let mut words = vec![0u64; n.div_ceil(64)];
+    let (lo, hi) = (-100_000_000i32, 100_000_000i32);
+    bencher.bench_local(|| {
+        let d = divan::black_box(data.as_slice());
+        collect_bool_words(divan::black_box(&mut words), n, |i| {
+            // SAFETY: i < n == d.len().
+            let v = unsafe { *d.get_unchecked(i) };
+            lo <= v && v <= hi
+        });
+        divan::black_box(words.as_slice());
+    });
+}
+
 /// AVX-512 between: vpcmpd (>= lo) & vpcmpd (<= hi) -> kmovw, 16 i32/iter.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f")]
@@ -135,6 +156,48 @@ fn between_i32_simd(bencher: Bencher, n: usize) {
             unsafe { between_i32_avx512(divan::black_box(&mut masks), d, lo, hi) };
         }
         divan::black_box(masks.as_slice());
+    });
+}
+
+// ---- CodSpeed A/B: production `primitive between` API, original vs new ----
+//
+// These call the exact `BitBuffer` constructors the production code uses (incl.
+// allocation), so CodSpeed's baseline (x86-64/SSE2) instruction counts measure
+// the real change: index-closure `collect_bool` vs slice-iterating
+// `collect_bool_slice`.
+
+fn between_data(n: usize) -> Vec<i32> {
+    (0..n)
+        .map(|i| (i as i32).wrapping_mul(2_654_435_761u32 as i32))
+        .collect()
+}
+
+/// ORIGINAL: `BitBuffer::collect_bool` with an index closure that does
+/// `unsafe { *slice.get_unchecked(idx) }` — exactly what `primitive between` did.
+#[divan::bench(args = PACK_SIZES)]
+fn between_bitbuffer_original(bencher: Bencher, n: usize) {
+    let data = between_data(n);
+    let (lo, hi) = (-100_000_000i32, 100_000_000i32);
+    bencher.bench_local(|| {
+        let d = divan::black_box(data.as_slice());
+        let bb = BitBuffer::collect_bool(d.len(), |idx| {
+            // SAFETY: idx < d.len().
+            let v = unsafe { *d.get_unchecked(idx) };
+            lo <= v && v <= hi
+        });
+        divan::black_box(bb)
+    });
+}
+
+/// NEW: `BitBuffer::collect_bool_slice` (safe, slice-iterating) — the rewired path.
+#[divan::bench(args = PACK_SIZES)]
+fn between_bitbuffer_new(bencher: Bencher, n: usize) {
+    let data = between_data(n);
+    let (lo, hi) = (-100_000_000i32, 100_000_000i32);
+    bencher.bench_local(|| {
+        let d = divan::black_box(data.as_slice());
+        let bb = BitBuffer::collect_bool_slice(d, |&v| lo <= v && v <= hi);
+        divan::black_box(bb)
     });
 }
 

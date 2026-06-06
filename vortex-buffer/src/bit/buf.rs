@@ -165,6 +165,17 @@ impl BitBuffer {
         BitBufferMut::collect_bool(len, f).freeze()
     }
 
+    /// Build a [`BitBuffer`] of length `values.len()`, setting bit `i` iff
+    /// `pred(&values[i])`.
+    ///
+    /// Prefer this over [`collect_bool`](Self::collect_bool) when packing a
+    /// contiguous slice: it iterates the slice directly so LLVM can auto-vectorize
+    /// the compare and bit-pack, and needs no `unsafe` in the caller's predicate.
+    #[inline]
+    pub fn collect_bool_slice<T, F: FnMut(&T) -> bool>(values: &[T], pred: F) -> Self {
+        BitBufferMut::collect_bool_slice(values, pred).freeze()
+    }
+
     /// Maps over each bit in this buffer, calling `f(index, bit_value)` and collecting results.
     ///
     /// This is more efficient than `collect_bool` when you need to read the current bit value,
