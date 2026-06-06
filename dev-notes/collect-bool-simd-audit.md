@@ -191,3 +191,80 @@ unsafe fn collect_gt0_avx512(input: &[i32], out: &mut [u16]) {
     }
 }
 ```
+
+---
+
+## Update: generalization, the `std::simd` finding, and in-tree benchmarks
+
+### The three patterns are one shape, parameterized
+
+Every contiguous site is `load -> vector predicate -> opmask -> store`, differing
+only in lane width and predicate:
+
+| shape | element | lanes/zmm | mask | predicate | instr | example sites |
+| --- | --- | --- | --- | --- | --- |
+| unary test | u8 | 64 | `kmovq` | `b != 0` | `vptestmb` | `pack_nonzero_bytes` |
+| compare-to-scalar | i32/i64 | 16/8 | `kmovw`/`kmovb` | `lo<=v && v<=hi`, `v>k` | `vpcmpd`/`vpcmpq` | `between`, `stream_predicate` |
+| adjacent-pair | i32/i64 | 16/8 | `kmovw`/`kmovb` | `off[i]==off[i+1]` | `vpcmpeqd` | `compare_offsets_to_empty` |
+
+So the impl generalizes: it is "vector predicate -> bitmask" for any lane width
+and predicate.
+
+### Can it be portable/scalar with no perf loss? Tested.
+
+For the i32 `> 0` compare, three forms were compiled with `target-cpu=x86-64-v4`:
+
+- **stable scalar** `bits |= ((v>k) as u16) << i`: 0 `vpcmpd`/`kmov`; 16 lines of
+  `vpsllv`/`pshufb`/gather (the SLP shift-OR mess).
+- **`core::arch` intrinsic**: `vpcmpltd (mem),%zmm0,%k0` + `kmovw`.
+- **portable `std::simd`** `v.simd_gt(splat).to_bitmask()`: **byte-identical asm to
+  the intrinsic**, with no `unsafe` and no arch-specific code.
+
+Timings (64 Ki elems, same binary, `black_box`ed): scalar 1.00x; `std::simd`
+19.73x; intrinsic 19.67x (i32 `>0`). And for u8 `!=0`: 5.59x vs 5.62x. So:
+
+> You cannot make *plain scalar* match — that is the LLVM SLP gap. But you can
+> make it portable, safe, and generic with **zero** perf change via `std::simd`
+> `to_bitmask()`, which lowers to the same `vpcmp`/`vptestmb` + `kmov`.
+
+Caveat: `portable_simd` is **nightly-only** today, so the stable `vortex-buffer`
+crate cannot adopt it yet. Two productization options for generalizing the impl:
+1. **Stable now:** per-width `core::arch` dispatch (like `pack_nonzero_bytes`),
+   generalized across types via a macro. More code, `unsafe`, x86+ARM paths.
+2. **Nightly `std::simd`:** one generic `pack_cmp` for all types and predicates,
+   safe and portable, identical perf — requires the crate to build on nightly.
+
+### In-tree benchmarks (default build, core-pinned, medians)
+
+All measured against the real `vortex-buffer` functions
+(`benches/vortex_bitbuffer.rs`); the scalar columns call the actual
+`collect_bool_words` with the exact predicate each site uses.
+
+| shape / bench | 4 KiB-class | 64 KiB-class | 1 MiB-class | 4 MiB-class |
+| --- | --- | --- | --- | --- |
+| `byte != 0` (`from_u8`, end-to-end incl. alloc) | 10.6x | 55x | 36x | 34x |
+| `between` i32 (`primitive between` predicate) | 71x | 65x | 52x | 29x |
+| adjacent-pair `off[i]==off[i+1]` (varbin) | 14.4x | 7.7x | 6.8x | 5.4x |
+
+`between` wins most (two compares + `&&` branch defeat the scalar autovectorizer
+hardest); adjacent-pair wins least (single compare, two overlapping loads, more
+load-bound). At 1 MiB the `between` scalar path runs ~0.85 GB/s vs ~25 GB/s SIMD.
+
+### Full typed-comparison site ranking (top contiguous, non-already-SIMD)
+
+1. `vortex-array/src/arrays/primitive/compute/between.rs:108` `between_impl_` —
+   all native ptypes; `lo<=v && v<=hi` over `as_slice::<T>()`. **Hottest** (every
+   numeric range filter). Benchmarked: 29-71x.
+2. `encodings/fastlanes/src/bitpacking/compute/stream_predicate.rs:62` — same
+   compare-to-scalar over a decoded contiguous 1024-elem block (BitPacked between
+   / patched path). Same shape/codegen as #1.
+3. `vortex-array/src/arrays/varbin/compute/compare.rs:149`
+   `compare_offsets_to_empty` — adjacent-pair `off[i]==off[i+1]` over contiguous
+   offsets (empty-string filter). Benchmarked: 5.4-14x.
+
+Also-contiguous, lower priority: `decimal between` (decimal/compute/between.rs:135,
+i32/i64/i128), `list_is_not_empty` (list_contains/mod.rs:428, `size != 0`).
+Already-SIMD (do NOT touch): `pack_nonzero_bytes`, FastLanes `stream_compare_fused`
++ `bit_transpose`, bool-filter PEXT/BMI2, `intersect_by_rank` PDEP, `count_ones`.
+Gather-bound (need restructuring): bool `take`/`filter`-by-index, `Patches::mask`,
+run-end filter (loop-carried cursor), FSST DFA scan.

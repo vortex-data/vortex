@@ -97,6 +97,51 @@ fn between_i32_simd(bencher: Bencher, n: usize) {
     });
 }
 
+// ---- Adjacent-pair equality (the varbin `compare_offsets_to_empty` shape) ----
+
+/// Baseline: `collect_bool_words` with the `offsets[i] == offsets[i+1]` predicate.
+#[divan::bench(args = PACK_SIZES)]
+fn offsets_eq_scalar(bencher: Bencher, n: usize) {
+    // n+1 offsets -> n comparisons (empty-string detection).
+    let offsets: Vec<i32> = (0..=n as i32).map(|i| i - (i % 3 == 0) as i32).collect();
+    let mut words = vec![0u64; n.div_ceil(64)];
+    bencher.bench_local(|| {
+        let o = divan::black_box(offsets.as_slice());
+        collect_bool_words(divan::black_box(&mut words), n, |i| o[i] == o[i + 1]);
+        divan::black_box(words.as_slice());
+    });
+}
+
+/// AVX-512: vpcmpeqd of offsets[i..] vs offsets[i+1..] -> kmovw, 16 pairs/iter.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f")]
+fn offsets_eq_avx512(out: &mut [u16], offsets: &[i32]) {
+    use std::arch::x86_64::*;
+    let pairs = offsets.len().saturating_sub(1);
+    let p = offsets.as_ptr() as *const __m512i;
+    for (i, w) in out.iter_mut().take(pairs / 16).enumerate() {
+        // SAFETY: reads offsets[i*16 ..= i*16+16], in bounds since 16*(i+1) < len.
+        let a = unsafe { _mm512_loadu_si512(p.byte_add(i * 64)) };
+        let b = unsafe { _mm512_loadu_si512(p.byte_add(i * 64 + 4)) };
+        *w = _mm512_cmpeq_epi32_mask(a, b);
+    }
+}
+
+#[divan::bench(args = PACK_SIZES)]
+fn offsets_eq_simd(bencher: Bencher, n: usize) {
+    let offsets: Vec<i32> = (0..=n as i32).map(|i| i - (i % 3 == 0) as i32).collect();
+    let mut masks = vec![0u16; n.div_ceil(16)];
+    bencher.bench_local(|| {
+        let o = divan::black_box(offsets.as_slice());
+        #[cfg(target_arch = "x86_64")]
+        if is_x86_feature_detected!("avx512f") {
+            // SAFETY: avx512f confirmed present at runtime.
+            unsafe { offsets_eq_avx512(divan::black_box(&mut masks), o) };
+        }
+        divan::black_box(masks.as_slice());
+    });
+}
+
 fn main() {
     // Pre-warm CPUID feature detection so the one-time probe cost is never
     // included in any benchmark iteration.
