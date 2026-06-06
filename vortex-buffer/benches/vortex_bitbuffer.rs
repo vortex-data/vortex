@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+// Benchmark data generators cast loop indices (`i as i32`); truncation is intentional
+// and harmless for the synthetic inputs.
+#![allow(clippy::cast_possible_truncation)]
+
 use std::iter::Iterator;
 
 use arrow_buffer::BooleanBuffer;
@@ -9,6 +13,7 @@ use divan::Bencher;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::collect_bool_words;
+use vortex_buffer::pack_slice_predicate;
 
 // Sizes spanning L1 -> DRAM for the collect-bool / bitmask-pack benchmarks.
 const PACK_SIZES: &[usize] = &[1024, 16_384, 262_144, 1_048_576];
@@ -39,6 +44,20 @@ fn pack_truthy_bytes_simd(bencher: Bencher, n: usize) {
     });
 }
 
+/// Bounds-check-only fix: same scalar shift-OR idiom, but fed the slice directly
+/// via `pack_slice_predicate` (`chunks_exact`, no per-element bounds check). No SIMD
+/// intrinsics — isolates how much of the gap is the bounds-checked index closure.
+#[divan::bench(args = PACK_SIZES)]
+fn pack_truthy_bytes_chunked(bencher: Bencher, n: usize) {
+    let data: Vec<u8> = (0..n).map(|i| i.is_multiple_of(7) as u8).collect();
+    let mut words = vec![0u64; n.div_ceil(64)];
+    bencher.bench_local(|| {
+        let d = divan::black_box(data.as_slice());
+        pack_slice_predicate(divan::black_box(&mut words), d, |b| *b > 0);
+        divan::black_box(words.as_slice());
+    });
+}
+
 /// End-to-end real caller: `BitBufferMut::from(&[u8])` (includes allocation).
 #[divan::bench(args = PACK_SIZES)]
 fn bitbuffer_from_u8(bencher: Bencher, n: usize) {
@@ -54,12 +73,32 @@ fn bitbuffer_from_u8(bencher: Bencher, n: usize) {
 /// over a contiguous `&[i32]` with the inclusive between predicate.
 #[divan::bench(args = PACK_SIZES)]
 fn between_i32_scalar(bencher: Bencher, n: usize) {
-    let data: Vec<i32> = (0..n).map(|i| (i as i32).wrapping_mul(2_654_435_761u32 as i32)).collect();
+    let data: Vec<i32> = (0..n)
+        .map(|i| (i as i32).wrapping_mul(2_654_435_761u32 as i32))
+        .collect();
     let mut words = vec![0u64; n.div_ceil(64)];
     let (lo, hi) = (-100_000_000i32, 100_000_000i32);
     bencher.bench_local(|| {
         let d = divan::black_box(data.as_slice());
-        collect_bool_words(divan::black_box(&mut words), n, |i| lo <= d[i] && d[i] <= hi);
+        collect_bool_words(divan::black_box(&mut words), n, |i| {
+            lo <= d[i] && d[i] <= hi
+        });
+        divan::black_box(words.as_slice());
+    });
+}
+
+/// Bounds-check-only fix for the between shape: scalar shift-OR over the slice via
+/// `pack_slice_predicate` (no per-element bounds check), no SIMD intrinsics.
+#[divan::bench(args = PACK_SIZES)]
+fn between_i32_chunked(bencher: Bencher, n: usize) {
+    let data: Vec<i32> = (0..n)
+        .map(|i| (i as i32).wrapping_mul(2_654_435_761u32 as i32))
+        .collect();
+    let mut words = vec![0u64; n.div_ceil(64)];
+    let (lo, hi) = (-100_000_000i32, 100_000_000i32);
+    bencher.bench_local(|| {
+        let d = divan::black_box(data.as_slice());
+        pack_slice_predicate(divan::black_box(&mut words), d, |v| lo <= *v && *v <= hi);
         divan::black_box(words.as_slice());
     });
 }
@@ -83,7 +122,9 @@ fn between_i32_avx512(out: &mut [u16], value: &[i32], lo: i32, hi: i32) {
 
 #[divan::bench(args = PACK_SIZES)]
 fn between_i32_simd(bencher: Bencher, n: usize) {
-    let data: Vec<i32> = (0..n).map(|i| (i as i32).wrapping_mul(2_654_435_761u32 as i32)).collect();
+    let data: Vec<i32> = (0..n)
+        .map(|i| (i as i32).wrapping_mul(2_654_435_761u32 as i32))
+        .collect();
     let mut masks = vec![0u16; n.div_ceil(16)];
     let (lo, hi) = (-100_000_000i32, 100_000_000i32);
     bencher.bench_local(|| {
@@ -121,9 +162,9 @@ fn offsets_eq_avx512(out: &mut [u16], offsets: &[i32]) {
     let p = offsets.as_ptr() as *const __m512i;
     for (i, w) in out.iter_mut().take(pairs / 16).enumerate() {
         // SAFETY: reads offsets[i*16 ..= i*16+16], in bounds since 16*(i+1) < len.
-        let a = unsafe { _mm512_loadu_si512(p.byte_add(i * 64)) };
-        let b = unsafe { _mm512_loadu_si512(p.byte_add(i * 64 + 4)) };
-        *w = _mm512_cmpeq_epi32_mask(a, b);
+        let lhs = unsafe { _mm512_loadu_si512(p.byte_add(i * 64)) };
+        let rhs = unsafe { _mm512_loadu_si512(p.byte_add(i * 64 + 4)) };
+        *w = _mm512_cmpeq_epi32_mask(lhs, rhs);
     }
 }
 

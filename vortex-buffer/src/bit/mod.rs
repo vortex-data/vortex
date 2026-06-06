@@ -76,6 +76,61 @@ where
     }
 }
 
+/// Pack one chunk of at most 64 elements into a little-endian `u64`, LSB-first,
+/// by applying `pred` to each element. Iterates the slice directly so there is no
+/// per-element bounds check.
+#[inline]
+fn pack_chunk<T, F>(chunk: &[T], pred: &mut F) -> u64
+where
+    F: FnMut(&T) -> bool,
+{
+    let mut packed = 0u64;
+    for (bit_idx, value) in chunk.iter().enumerate() {
+        packed |= (pred(value) as u64) << bit_idx;
+    }
+    packed
+}
+
+/// Pack a per-element predicate over `values` into the prefix of `words`, LSB-first,
+/// 64 bits per `u64`. Writes via `=` (not `|=`), so the destination need not be
+/// zero-initialised. `words` must have capacity for at least
+/// `values.len().div_ceil(64)` entries.
+///
+/// Unlike [`collect_bool_words`], whose index closure forces a bounds-checked
+/// `values[i]` in the caller's predicate, this iterates the slice directly through
+/// `chunks_exact`. With the per-element bounds check elided and a fixed 64-element
+/// inner trip count, LLVM can auto-vectorize the scalar shift-OR loop — which the
+/// index-closure form prevents. This stays scalar (no SIMD intrinsics), so it does
+/// not reach [`pack_nonzero_bytes`] speed, but it recovers the bounds-check overhead.
+#[inline]
+pub fn pack_slice_predicate<T, F>(words: &mut [u64], values: &[T], mut pred: F)
+where
+    F: FnMut(&T) -> bool,
+{
+    let num_words = values.len().div_ceil(64);
+    assert!(
+        words.len() >= num_words,
+        "words slice has {} entries, need at least {num_words}",
+        words.len(),
+    );
+
+    let mut chunks = values.chunks_exact(64);
+    let mut words_iter = words.iter_mut();
+    // `chunks` must lead the zip: if it leads and is empty, zip short-circuits
+    // without consuming a slot from `words_iter`, leaving it positioned for the
+    // remainder write below. (The reverse order would discard a `words` slot.)
+    for (chunk, word) in chunks.by_ref().zip(words_iter.by_ref()) {
+        *word = pack_chunk(chunk, &mut pred);
+    }
+
+    let remainder = chunks.remainder();
+    if !remainder.is_empty()
+        && let Some(word) = words_iter.next()
+    {
+        *word = pack_chunk(remainder, &mut pred);
+    }
+}
+
 /// Splice a packed word `w` (whose bits above the highest valid bit are zero) into
 /// `words` at the given bit position.
 ///
@@ -178,8 +233,12 @@ pub unsafe fn unset_bit_unchecked(buf: *mut u8, index: usize) {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::collect_bool_word;
+    use super::collect_bool_words;
     use super::pack_bools_into_words;
+    use super::pack_slice_predicate;
 
     #[test]
     fn collect_bool_word_packs_lsb_first() {
@@ -222,6 +281,29 @@ mod tests {
         for i in 0..200 {
             assert_eq!(bits[40 + i], i.is_multiple_of(7), "bit {}", 40 + i);
         }
+    }
+
+    #[rstest]
+    #[case(0)]
+    #[case(1)]
+    #[case(63)]
+    #[case(64)]
+    #[case(65)]
+    #[case(130)]
+    #[case(200)]
+    fn pack_slice_predicate_matches_collect_bool_words(#[case] len: usize) {
+        #[allow(clippy::cast_possible_truncation, reason = "small test indices fit in i32")]
+        let values: Vec<i32> = (0..len as i32).map(|i| i.wrapping_mul(7) - 3).collect();
+        let pred = |v: i32| v % 5 == 0;
+
+        let num_words = len.div_ceil(64);
+        let mut expected = vec![0u64; num_words.max(1)];
+        collect_bool_words(&mut expected, len, |i| pred(values[i]));
+
+        let mut actual = vec![0u64; num_words.max(1)];
+        pack_slice_predicate(&mut actual, &values, |v| pred(*v));
+
+        assert_eq!(actual[..num_words], expected[..num_words], "len {len}");
     }
 
     #[test]

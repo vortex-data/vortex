@@ -260,6 +260,48 @@ are ~equal — which is why the default-build numbers are still 40-70x. The
 practical takeaway: a portion of the win is recoverable with a plain source
 change (`chunks_exact`/`get_unchecked`); the rest needs the mask-compare.
 
+### The bounds-check-only fix, implemented and measured
+
+`pack_slice_predicate(words, values, pred)` was added to `vortex-buffer` (safe,
+stable, **no `unsafe`**, no SIMD intrinsics): it takes a slice + per-element
+predicate and iterates via `chunks_exact(64)`, so there is no per-element bounds
+check and the inner loop keeps the *same* scalar shift-OR idiom. Benches
+(`*_chunked`), core-pinned, medians, vs the bounds-checked closure (`*_scalar`)
+and the AVX-512 intrinsic (`*_simd`):
+
+| shape | size | scalar (idx closure) | **chunked (fix)** | simd (intrinsic) | fix recovery | simd extra over fix |
+| --- | --- | --- | --- | --- | --- | --- |
+| **default build (baseline x86-64)** | | | | | | |
+| byte `!=0` | 16 Ki | 18.9 µs | 19.4 µs | 0.37 µs | **~1.0x** | 52x |
+| byte `!=0` | 1 Mi | 1.29 ms | 1.30 ms | 30 µs | **~1.0x** | 43x |
+| i32 `between` | 16 Ki | 75 µs | 12.2 µs | 1.11 µs | **6.2x** | 11x |
+| i32 `between` | 1 Mi | 4.89 ms | 815 µs | 171 µs | **6.0x** | 4.8x |
+| **`target-cpu=native`** | | | | | | |
+| byte `!=0` | 16 Ki | 6.43 µs | 1.63 µs | 0.37 µs | **3.9x** | 4.4x |
+| byte `!=0` | 1 Mi | 369 µs | 89 µs | 30 µs | **4.2x** | 3.0x |
+| i32 `between` | 16 Ki | 30.1 µs | 3.14 µs | 1.10 µs | **9.6x** | 2.9x |
+| i32 `between` | 1 Mi | 2.03 ms | 177 µs | 170 µs | **11.5x** | **1.04x** |
+
+Key conclusions (these *refine* the red-team's decomposition):
+
+1. **For the realistic comparison predicate (`between`), the safe source fix is the
+   big lever**, and it works *even at the default baseline build* (~6x) — not just
+   under native. Removing the bounds check unblocks auto-vectorization of the
+   `vpcmpd` compare *and* the branchy `&&`, which the index closure prevents. This
+   contradicts the red-team's "bounds-checks immaterial at default build" — that
+   only holds for the trivial `byte != 0` shape, where the SSE2 shift-OR dominates.
+2. **For `byte != 0`**, the fix gives ~nothing at baseline and ~4x under native.
+3. **After the fix, the SIMD intrinsic's remaining advantage collapses** for the
+   `between` shape: at 1 Mi (DRAM-bound) under native the chunked scalar is within
+   **1.04x** of hand AVX-512 — the `unsafe` layer buys essentially nothing there.
+   The intrinsic still wins ~3-11x for cache-resident sizes and for `byte != 0`.
+
+**Recommendation:** adopt `pack_slice_predicate` for the typed compare→bitmask
+callers (`primitive between`, `stream_predicate`, etc.) first — it is safe, stable,
+and recovers 6-11x of the gap. Reserve the `unsafe`/SIMD path
+(`pack_nonzero_bytes`-style) for the cases where it still pays: cache-resident
+data and the `byte != 0`/validity shapes.
+
 ### In-tree benchmarks (default build, core-pinned, medians)
 
 All measured against the real `vortex-buffer` functions
