@@ -292,7 +292,10 @@ mod tests {
     #[case(130)]
     #[case(200)]
     fn pack_slice_predicate_matches_collect_bool_words(#[case] len: usize) {
-        #[allow(clippy::cast_possible_truncation, reason = "small test indices fit in i32")]
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "small test indices fit in i32"
+        )]
         let values: Vec<i32> = (0..len as i32).map(|i| i.wrapping_mul(7) - 3).collect();
         let pred = |v: i32| v % 5 == 0;
 
