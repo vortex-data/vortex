@@ -4,6 +4,8 @@
 // Benchmark data generators cast loop indices (`i as i32`); truncation is intentional
 // and harmless for the synthetic inputs.
 #![allow(clippy::cast_possible_truncation)]
+// Bench-local: terse SIMD/math variable names (lo, hi, v, w, p, ...).
+#![allow(clippy::many_single_char_names)]
 
 use std::iter::Iterator;
 
