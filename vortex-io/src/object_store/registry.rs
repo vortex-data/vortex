@@ -9,6 +9,9 @@
 //!
 //! See also <https://github.com/apache/arrow-rs-object-store/issues/529>
 
+#![expect(clippy::disallowed_types)]
+
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use object_store::ObjectStore;
@@ -18,7 +21,6 @@ use object_store::path::PathPart;
 use object_store::registry::ObjectStoreRegistry;
 use parking_lot::RwLock;
 use url::Url;
-use vortex_utils::aliases::hash_map::HashMap;
 
 #[derive(Debug, Default)]
 struct PathEntry {
