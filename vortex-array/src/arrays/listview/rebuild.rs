@@ -209,9 +209,16 @@ impl ListViewArray {
         let mut new_sizes = BufferMut::<S>::with_capacity(len);
         let mut take_indices = BufferMut::<u64>::with_capacity(self.elements().len());
 
+        // Resolve validity to a mask once instead of probing it per row: `Validity::is_valid`
+        // executes a scalar (and spins up an execution context) on every call for array-backed
+        // validity, which is O(len) work repeated `len` times.
+        let validity = self
+            .validity()?
+            .execute_mask(len, &mut LEGACY_SESSION.create_execution_ctx())?;
+
         let mut n_elements = NewOffset::zero();
         for index in 0..len {
-            if !self.validity()?.is_valid(index)? {
+            if !validity.value(index) {
                 new_offsets.push(n_elements);
                 new_sizes.push(S::zero());
                 continue;
@@ -292,9 +299,14 @@ impl ListViewArray {
         let mut new_elements_builder =
             builder_with_capacity(element_dtype.as_ref(), self.elements().len());
 
+        // Resolve validity to a mask once instead of probing it per row (see `rebuild_with_take`).
+        let validity = self
+            .validity()?
+            .execute_mask(len, &mut LEGACY_SESSION.create_execution_ctx())?;
+
         let mut n_elements = NewOffset::zero();
         for index in 0..len {
-            if !self.validity()?.is_valid(index)? {
+            if !validity.value(index) {
                 // For NULL lists, place them after the previous item's data to maintain the
                 // no-overlap invariant for zero-copy to `ListArray` arrays.
                 new_offsets.push(n_elements);

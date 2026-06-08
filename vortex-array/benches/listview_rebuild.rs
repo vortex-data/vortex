@@ -40,6 +40,17 @@ fn make_primitive_lv(num_lists: usize, list_size: usize, step: usize) -> ListVie
     )
 }
 
+fn make_primitive_lv_nullable(num_lists: usize, list_size: usize, step: usize) -> ListViewArray {
+    let element_count = step * num_lists + list_size;
+    let elements = PrimitiveArray::from_iter(0..element_count as i32).into_array();
+    let offsets: Buffer<u32> = (0..num_lists).map(|i| (i * step) as u32).collect();
+    let sizes: Buffer<u32> = std::iter::repeat_n(list_size as u32, num_lists).collect();
+    // Array-backed validity (every 7th list is null) forces the rebuild loop down the
+    // `Validity::Array` path, where probing validity per row executes a scalar each time.
+    let validity = Validity::from_iter((0..num_lists).map(|i| i % 7 != 0));
+    ListViewArray::new(elements, offsets.into_array(), sizes.into_array(), validity)
+}
+
 fn make_varbinview_lv(num_lists: usize, list_size: usize, step: usize) -> ListViewArray {
     let element_count = step * num_lists + list_size;
     let strings: Vec<String> = (0..element_count)
@@ -149,6 +160,34 @@ fn varbinview_small(bencher: Bencher) {
 #[divan::bench]
 fn struct_small(bencher: Bencher) {
     let lv = make_struct_lv(50, 32, 32);
+    bencher.with_inputs(|| &lv).bench_refs(|lv| {
+        let rebuilt = lv.rebuild(ListViewRebuildMode::MakeZeroCopyToList).unwrap();
+        rebuilt
+            .elements()
+            .clone()
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+    });
+}
+
+#[divan::bench]
+fn i32_small_nullable(bencher: Bencher) {
+    // Small lists -> `rebuild_with_take` path, many rows -> per-row validity probes dominate.
+    let lv = make_primitive_lv_nullable(2_000, 8, 8);
+    bencher.with_inputs(|| &lv).bench_refs(|lv| {
+        let rebuilt = lv.rebuild(ListViewRebuildMode::MakeZeroCopyToList).unwrap();
+        rebuilt
+            .elements()
+            .clone()
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+    });
+}
+
+#[divan::bench]
+fn i32_large_nullable(bencher: Bencher) {
+    // Large lists -> `rebuild_list_by_list` path with array-backed validity.
+    let lv = make_primitive_lv_nullable(2_000, 256, 256);
     bencher.with_inputs(|| &lv).bench_refs(|lv| {
         let rebuilt = lv.rebuild(ListViewRebuildMode::MakeZeroCopyToList).unwrap();
         rebuilt
