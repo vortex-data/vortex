@@ -1260,7 +1260,7 @@ optimize root=vortex.filter(i32, len=4) session=false
         let optimized_filter = traced.output.as_::<Filter>();
         assert!(optimized_filter.child().is::<Primitive>());
         assert_arrays_eq!(traced.output, PrimitiveArray::from_iter([2i32, 3]), &mut ctx);
-        insta::assert_snapshot!(traced.trace.to_string(), @"
+        insta::assert_snapshot!(traced.trace.to_string(), @r"
         optimize root=vortex.filter(i32, len=2) session=false
           reduce_parent static:FilterReduceAdaptor(Filter) slot=0 parent=vortex.filter(i32, len=2) child=vortex.filter(i32, len=4) -> vortex.filter(i32, len=2)
           done output=vortex.filter(i32, len=2)
