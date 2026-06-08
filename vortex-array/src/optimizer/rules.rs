@@ -28,6 +28,7 @@ use crate::ArrayRef;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::matcher::Matcher;
+use crate::trace_op;
 
 /// A metadata-only rewrite rule that transforms an array based on its own structure (Layer 1).
 ///
@@ -133,10 +134,10 @@ impl<V: VTable> ReduceRuleSet<V> {
     pub fn evaluate(&self, array: ArrayView<'_, V>) -> VortexResult<Option<ArrayRef>> {
         for rule in self.rules.iter() {
             if let Some(reduced) = rule.reduce(array)? {
-                crate::trace_op!(record_reduce_applied(array.array(), *rule, &reduced));
+                trace_op!(record_reduce_applied(array.array(), *rule, &reduced));
                 return Ok(Some(reduced));
             }
-            crate::trace_op!(record_reduce_attempt(
+            trace_op!(record_reduce_attempt(
                 array.array(),
                 *rule,
                 crate::test_harness::trace::AttemptOutcome::Declined,
@@ -182,7 +183,7 @@ impl<V: VTable> ParentRuleSet<V> {
     ) -> VortexResult<Option<ArrayRef>> {
         for rule in self.rules.iter() {
             if !rule.matches(parent) {
-                crate::trace_op!(record_parent_reduce_attempt(
+                trace_op!(record_parent_reduce_attempt(
                     parent,
                     child.array(),
                     child_idx,
@@ -212,7 +213,7 @@ impl<V: VTable> ParentRuleSet<V> {
                     );
                 }
 
-                crate::trace_op!(record_parent_reduce_applied(
+                trace_op!(record_parent_reduce_applied(
                     parent,
                     child.array(),
                     child_idx,
@@ -222,7 +223,7 @@ impl<V: VTable> ParentRuleSet<V> {
                 ));
                 return Ok(Some(reduced));
             }
-            crate::trace_op!(record_parent_reduce_attempt(
+            trace_op!(record_parent_reduce_attempt(
                 parent,
                 child.array(),
                 child_idx,

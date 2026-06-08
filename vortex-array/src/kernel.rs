@@ -24,6 +24,7 @@ use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::matcher::Matcher;
+use crate::trace_op;
 
 /// A collection of [`ExecuteParentKernel`]s registered for a specific child encoding.
 ///
@@ -65,9 +66,9 @@ impl<V: VTable> ParentKernelSet<V> {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         for (kernel_idx, kernel) in self.kernels.iter().enumerate() {
-            crate::trace_op!(use(kernel_idx));
+            trace_op!(use(kernel_idx));
             if !kernel.matches(parent) {
-                crate::trace_op!(record_execute_parent_attempt(
+                trace_op!(record_execute_parent_attempt(
                     crate::test_harness::trace::current_execute_parent_phase(),
                     parent,
                     child.array(),
@@ -79,7 +80,7 @@ impl<V: VTable> ParentKernelSet<V> {
                 continue;
             }
             if let Some(reduced) = kernel.execute_parent(child, parent, child_idx, ctx)? {
-                crate::trace_op!(record_execute_parent_applied(
+                trace_op!(record_execute_parent_applied(
                     crate::test_harness::trace::current_execute_parent_phase(),
                     parent,
                     child.array(),
@@ -90,7 +91,7 @@ impl<V: VTable> ParentKernelSet<V> {
                 ));
                 return Ok(Some(reduced));
             }
-            crate::trace_op!(record_execute_parent_attempt(
+            trace_op!(record_execute_parent_attempt(
                 crate::test_harness::trace::current_execute_parent_phase(),
                 parent,
                 child.array(),
