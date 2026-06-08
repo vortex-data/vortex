@@ -318,19 +318,7 @@ impl VarBinViewData {
     where
         F: Fn(&[u8]) -> bool,
     {
-        // Only array-backed validity needs an execution context; the constant variants resolve
-        // null-ness without one, so avoid constructing a context in the common (non-null) case.
-        let mut ctx =
-            matches!(validity, Validity::Array(_)).then(|| LEGACY_SESSION.create_execution_ctx());
-        for (idx, &view) in views.iter().enumerate() {
-            let is_null = match ctx.as_mut() {
-                Some(ctx) => validity.execute_is_null(idx, ctx)?,
-                None => matches!(validity, Validity::AllInvalid),
-            };
-            if is_null {
-                continue;
-            }
-
+        let validate_view = |idx: usize, view: &BinaryView| -> VortexResult<()> {
             if view.is_inlined() {
                 // Validate the inline bytestring
                 let bytes = &view.as_inlined().data[..view.len() as usize];
@@ -373,6 +361,30 @@ impl VarBinViewData {
                     validator(bytes),
                     InvalidArgument: "view at index {idx}: outlined bytes fails utf-8 validation"
                 );
+            }
+            Ok(())
+        };
+
+        match validity {
+            // Array-backed validity is the only variant that needs an execution context: execute it
+            // into a mask once and zip it with the views, validating only the valid (non-null)
+            // entries.
+            Validity::Array(_) => {
+                let mut ctx = LEGACY_SESSION.create_execution_ctx();
+                let mask = validity.execute_mask(views.len(), &mut ctx)?;
+                for ((idx, view), valid) in views.iter().enumerate().zip(mask.iter()) {
+                    if valid {
+                        validate_view(idx, view)?;
+                    }
+                }
+            }
+            // Every entry is null, so there is nothing to validate.
+            Validity::AllInvalid => {}
+            // No nulls: validate every view.
+            Validity::NonNullable | Validity::AllValid => {
+                for (idx, view) in views.iter().enumerate() {
+                    validate_view(idx, view)?;
+                }
             }
         }
 
