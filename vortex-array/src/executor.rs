@@ -175,10 +175,9 @@ impl ArrayRef {
 
         trace_op!(record_execute_until_start::<M>(&current_array));
 
-        for iteration in 0..max_iterations {
-            trace_op!(use(iteration));
+        for _iteration in 0..max_iterations {
             trace_op!(record_execute_until_iteration(
-                iteration,
+                _iteration,
                 &current_array,
                 stack
                     .last()
@@ -205,24 +204,9 @@ impl ArrayRef {
                         return Ok(current_array);
                     }
                     Some(frame) => {
-                        let trace_pop_frame = trace_op!(value(
-                            Some((
-                                frame.parent_array.clone(),
-                                current_array.clone(),
-                                frame.slot_idx
-                            )),
-                            None::<(ArrayRef, ArrayRef, usize)>
-                        ));
+                        let _slot_idx = frame.slot_idx;
                         (current_array, current_builder) = pop_frame(frame, current_array)?;
-                        if let Some((parent_before, child_before, slot_idx)) = trace_pop_frame {
-                            trace_op!(use(parent_before, child_before, slot_idx,));
-                            trace_op!(record_execute_until_pop_frame(
-                                &parent_before,
-                                slot_idx,
-                                &child_before,
-                                &current_array,
-                            ));
-                        }
+                        trace_op!(record_execute_until_pop_frame(_slot_idx, &current_array));
                         continue;
                     }
                 }
@@ -634,11 +618,9 @@ fn execute_parent_for_child(
     kernels: &ParentExecutionKernels,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
-    trace_op!(use(phase));
     let key = execute_parent_key(parent.encoding_id(), child.encoding_id());
     if let Some(plugins) = kernels.get(&key) {
-        for (plugin_idx, plugin) in plugins.as_ref().iter().enumerate() {
-            trace_op!(use(plugin_idx));
+        for (_plugin_idx, plugin) in plugins.as_ref().iter().enumerate() {
             if let Some(result) = plugin.execute_parent(child, parent, slot_idx, ctx)? {
                 if cfg!(debug_assertions) {
                     vortex_ensure!(
@@ -650,25 +632,22 @@ fn execute_parent_for_child(
                         "Executed parent canonical dtype mismatch"
                     );
                 }
-                trace_op!(record_execute_parent_applied(
+                trace_op!(record_session_execute_parent_applied(
                     phase,
                     parent,
                     child,
                     slot_idx,
-                    crate::test_harness::trace::TraceSource::Session(plugin_idx),
-                    "execute_parent_fn",
+                    _plugin_idx,
                     &result,
                 ));
                 return Ok(Some(result));
             }
-            trace_op!(record_execute_parent_attempt(
+            trace_op!(record_session_execute_parent_declined(
                 phase,
                 parent,
                 child,
                 slot_idx,
-                crate::test_harness::trace::TraceSource::Session(plugin_idx),
-                "execute_parent_fn",
-                crate::test_harness::trace::AttemptOutcome::Declined,
+                _plugin_idx,
             ));
         }
     }
@@ -801,7 +780,6 @@ impl ExecutionResult {
     /// The provided array is the (possibly modified) parent that still needs its slot executed.
     pub fn execute_slot<M: Matcher>(array: impl IntoArray, slot_idx: usize) -> Self {
         let array = array.into_array();
-        trace_op!(record_execute_step_request::<M>(&array, slot_idx));
         Self {
             array,
             step: ExecutionStep::ExecuteSlot(slot_idx, M::matches),
@@ -813,7 +791,6 @@ impl ExecutionResult {
     /// `current_array`.
     pub fn append_child(array: impl IntoArray, slot_idx: usize) -> Self {
         let array = array.into_array();
-        trace_op!(record_append_child_request(&array, slot_idx));
         Self {
             array,
             step: ExecutionStep::AppendChild(slot_idx),
