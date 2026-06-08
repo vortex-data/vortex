@@ -98,27 +98,23 @@ fn try_optimize(
                 && let Some(plugins) =
                     array_ref.find_reduce_parent(current_array.encoding_id(), child.encoding_id())
             {
-                for (plugin_idx, plugin) in plugins.as_ref().iter().enumerate() {
-                    trace_op!(use(plugin_idx));
+                for (_plugin_idx, plugin) in plugins.as_ref().iter().enumerate() {
                     if let Some(new_array) = plugin(child, &current_array, slot_idx)? {
-                        trace_op!(record_parent_reduce_applied(
+                        trace_op!(record_session_parent_reduce_applied(
                             &current_array,
                             child,
                             slot_idx,
-                            crate::test_harness::trace::TraceSource::Session(plugin_idx),
-                            "reduce_parent_fn",
+                            _plugin_idx,
                             &new_array,
                         ));
                         parent_reduced = Some(new_array);
                         break;
                     }
-                    trace_op!(record_parent_reduce_attempt(
+                    trace_op!(record_session_parent_reduce_declined(
                         &current_array,
                         child,
                         slot_idx,
-                        crate::test_harness::trace::TraceSource::Session(plugin_idx),
-                        "reduce_parent_fn",
-                        crate::test_harness::trace::AttemptOutcome::Declined,
+                        _plugin_idx,
                     ));
                 }
                 if parent_reduced.is_some() {

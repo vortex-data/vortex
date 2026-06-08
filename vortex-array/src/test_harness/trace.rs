@@ -279,7 +279,7 @@ fn attempts_enabled() -> bool {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) enum TraceSource {
+enum TraceSource {
     Static,
     Session(usize),
 }
@@ -294,7 +294,7 @@ impl Display for TraceSource {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) enum AttemptOutcome {
+enum AttemptOutcome {
     Declined,
     NoMatch,
 }
@@ -421,17 +421,6 @@ pub(crate) fn record_optimize_recursive_slot(slot_idx: usize, input: &ArrayRef, 
     });
 }
 
-pub(crate) fn record_reduce_attempt(array: &ArrayRef, rule: &dyn Debug, outcome: AttemptOutcome) {
-    if !attempts_enabled() {
-        return;
-    }
-    record(TraceEvent::ReduceAttempt {
-        array: ArraySummary::new(array),
-        rule: compact_label(rule),
-        outcome,
-    });
-}
-
 pub(crate) fn record_reduce_applied(array: &ArrayRef, rule: &dyn Debug, output: &ArrayRef) {
     record(TraceEvent::ReduceApplied {
         array: ArraySummary::new(array),
@@ -440,7 +429,100 @@ pub(crate) fn record_reduce_applied(array: &ArrayRef, rule: &dyn Debug, output: 
     });
 }
 
-pub(crate) fn record_parent_reduce_attempt(
+pub(crate) fn record_reduce_declined(array: &ArrayRef, rule: &dyn Debug) {
+    if !attempts_enabled() {
+        return;
+    }
+    record(TraceEvent::ReduceAttempt {
+        array: ArraySummary::new(array),
+        rule: compact_label(rule),
+        outcome: AttemptOutcome::Declined,
+    });
+}
+
+pub(crate) fn record_session_parent_reduce_applied(
+    parent: &ArrayRef,
+    child: &ArrayRef,
+    slot_idx: usize,
+    plugin_idx: usize,
+    output: &ArrayRef,
+) {
+    record_parent_reduce_applied(
+        parent,
+        child,
+        slot_idx,
+        TraceSource::Session(plugin_idx),
+        "reduce_parent_fn",
+        output,
+    );
+}
+
+pub(crate) fn record_session_parent_reduce_declined(
+    parent: &ArrayRef,
+    child: &ArrayRef,
+    slot_idx: usize,
+    plugin_idx: usize,
+) {
+    record_parent_reduce_attempt(
+        parent,
+        child,
+        slot_idx,
+        TraceSource::Session(plugin_idx),
+        "reduce_parent_fn",
+        AttemptOutcome::Declined,
+    );
+}
+
+pub(crate) fn record_static_parent_reduce_no_match(
+    parent: &ArrayRef,
+    child: &ArrayRef,
+    slot_idx: usize,
+    rule: &dyn Debug,
+) {
+    record_parent_reduce_attempt(
+        parent,
+        child,
+        slot_idx,
+        TraceSource::Static,
+        compact_label(rule),
+        AttemptOutcome::NoMatch,
+    );
+}
+
+pub(crate) fn record_static_parent_reduce_applied(
+    parent: &ArrayRef,
+    child: &ArrayRef,
+    slot_idx: usize,
+    rule: &dyn Debug,
+    output: &ArrayRef,
+) {
+    record_parent_reduce_applied(
+        parent,
+        child,
+        slot_idx,
+        TraceSource::Static,
+        compact_label(rule),
+        output,
+    );
+}
+
+pub(crate) fn record_static_parent_reduce_declined(
+    parent: &ArrayRef,
+    child: &ArrayRef,
+    slot_idx: usize,
+    rule: &dyn Debug,
+) {
+    record_parent_reduce_attempt(
+        parent,
+        child,
+        slot_idx,
+        TraceSource::Static,
+        compact_label(rule),
+        AttemptOutcome::Declined,
+    );
+}
+
+fn record_parent_reduce_attempt(
     parent: &ArrayRef,
     child: &ArrayRef,
     slot_idx: usize,
@@ -461,7 +543,7 @@ pub(crate) fn record_parent_reduce_attempt(
     });
 }
 
-pub(crate) fn record_parent_reduce_applied(
+fn record_parent_reduce_applied(
     parent: &ArrayRef,
     child: &ArrayRef,
     slot_idx: usize,
@@ -513,21 +595,103 @@ pub(crate) fn record_execute_until_return(output: &ArrayRef) {
     });
 }
 
-pub(crate) fn record_execute_until_pop_frame(
-    parent: &ArrayRef,
-    slot_idx: usize,
-    child: &ArrayRef,
-    output: &ArrayRef,
-) {
+pub(crate) fn record_execute_until_pop_frame(slot_idx: usize, output: &ArrayRef) {
     record(TraceEvent::ExecuteUntilPopFrame {
-        parent: ArraySummary::new(parent),
         slot_idx,
-        child: ArraySummary::new(child),
         output: ArraySummary::new(output),
     });
 }
 
-pub(crate) fn record_execute_parent_attempt(
+pub(crate) fn record_session_execute_parent_applied(
+    phase: &'static str,
+    parent: &ArrayRef,
+    child: &ArrayRef,
+    slot_idx: usize,
+    plugin_idx: usize,
+    output: &ArrayRef,
+) {
+    record_execute_parent_applied(
+        phase,
+        parent,
+        child,
+        slot_idx,
+        TraceSource::Session(plugin_idx),
+        "execute_parent_fn",
+        output,
+    );
+}
+
+pub(crate) fn record_session_execute_parent_declined(
+    phase: &'static str,
+    parent: &ArrayRef,
+    child: &ArrayRef,
+    slot_idx: usize,
+    plugin_idx: usize,
+) {
+    record_execute_parent_attempt(
+        phase,
+        parent,
+        child,
+        slot_idx,
+        TraceSource::Session(plugin_idx),
+        "execute_parent_fn",
+        AttemptOutcome::Declined,
+    );
+}
+
+pub(crate) fn record_static_execute_parent_no_match(
+    parent: &ArrayRef,
+    child: &ArrayRef,
+    slot_idx: usize,
+    kernel_idx: usize,
+) {
+    record_execute_parent_attempt(
+        current_execute_parent_phase(),
+        parent,
+        child,
+        slot_idx,
+        TraceSource::Static,
+        format!("kernel[{kernel_idx}]"),
+        AttemptOutcome::NoMatch,
+    );
+}
+
+pub(crate) fn record_static_execute_parent_applied(
+    parent: &ArrayRef,
+    child: &ArrayRef,
+    slot_idx: usize,
+    kernel_idx: usize,
+    output: &ArrayRef,
+) {
+    record_execute_parent_applied(
+        current_execute_parent_phase(),
+        parent,
+        child,
+        slot_idx,
+        TraceSource::Static,
+        format!("kernel[{kernel_idx}]"),
+        output,
+    );
+}
+
+pub(crate) fn record_static_execute_parent_declined(
+    parent: &ArrayRef,
+    child: &ArrayRef,
+    slot_idx: usize,
+    kernel_idx: usize,
+) {
+    record_execute_parent_attempt(
+        current_execute_parent_phase(),
+        parent,
+        child,
+        slot_idx,
+        TraceSource::Static,
+        format!("kernel[{kernel_idx}]"),
+        AttemptOutcome::Declined,
+    );
+}
+
+fn record_execute_parent_attempt(
     phase: &'static str,
     parent: &ArrayRef,
     child: &ArrayRef,
@@ -550,7 +714,7 @@ pub(crate) fn record_execute_parent_attempt(
     });
 }
 
-pub(crate) fn record_execute_parent_applied(
+fn record_execute_parent_applied(
     phase: &'static str,
     parent: &ArrayRef,
     child: &ArrayRef,
@@ -600,30 +764,6 @@ pub(crate) fn record_execute_encoding(array: &ArrayRef) {
     }
     record(TraceEvent::ExecuteEncoding {
         array: ArraySummary::new(array),
-    });
-}
-
-pub(crate) fn record_execute_step_request<M>(array: &ArrayRef, slot_idx: usize) {
-    if !attempts_enabled() {
-        return;
-    }
-    record(TraceEvent::ExecutionRequest {
-        step: "ExecuteSlot",
-        parent: ArraySummary::new(array),
-        slot_idx,
-        target: Some(short_type_name::<M>()),
-    });
-}
-
-pub(crate) fn record_append_child_request(array: &ArrayRef, slot_idx: usize) {
-    if !attempts_enabled() {
-        return;
-    }
-    record(TraceEvent::ExecutionRequest {
-        step: "AppendChild",
-        parent: ArraySummary::new(array),
-        slot_idx,
-        target: None,
     });
 }
 
@@ -721,7 +861,7 @@ pub(crate) fn with_execute_parent_phase_if_active<R>(
     }
 }
 
-pub(crate) fn current_execute_parent_phase() -> &'static str {
+fn current_execute_parent_phase() -> &'static str {
     EXECUTE_PARENT_PHASE.with(Cell::get)
 }
 
@@ -733,7 +873,7 @@ fn record(event: TraceEvent) {
     });
 }
 
-pub(crate) fn compact_label(value: &dyn Debug) -> String {
+fn compact_label(value: &dyn Debug) -> String {
     let label = format!("{value:?}");
     if let Some(label) = adapter_field(&label, "rule") {
         return label.to_string();
@@ -874,9 +1014,7 @@ enum TraceEvent {
         output: ArraySummary,
     },
     ExecuteUntilPopFrame {
-        parent: ArraySummary,
         slot_idx: usize,
-        child: ArraySummary,
         output: ArraySummary,
     },
     ExecuteParentAttempt {
@@ -910,12 +1048,6 @@ enum TraceEvent {
     },
     ExecuteEncoding {
         array: ArraySummary,
-    },
-    ExecutionRequest {
-        step: &'static str,
-        parent: ArraySummary,
-        slot_idx: usize,
-        target: Option<String>,
     },
     SlotTransition {
         step: &'static str,
@@ -952,7 +1084,6 @@ impl TraceEvent {
                     | TraceEvent::PhaseNone { .. }
                     | TraceEvent::ExecuteUntilDoneCheck { .. }
                     | TraceEvent::ExecuteEncoding { .. }
-                    | TraceEvent::ExecutionRequest { .. }
                     | TraceEvent::ExecuteOptimized { changed: false, .. }
                     | TraceEvent::ExecuteParentAttempt { .. }
                     | TraceEvent::ReduceAttempt { .. }
@@ -1006,7 +1137,6 @@ impl TraceEvent {
             | TraceEvent::ExecuteParentApplied { .. }
             | TraceEvent::ExecuteOptimized { .. }
             | TraceEvent::ExecuteEncoding { .. }
-            | TraceEvent::ExecutionRequest { .. }
             | TraceEvent::SlotTransition { .. }
             | TraceEvent::BuilderEvent { .. }
             | TraceEvent::ExecuteDone { .. } => 2,
@@ -1112,15 +1242,9 @@ impl TraceEvent {
             TraceEvent::ExecuteUntilReturn { output } => {
                 write!(f, "return output={output}")
             }
-            TraceEvent::ExecuteUntilPopFrame {
-                parent,
-                slot_idx,
-                child,
-                output,
-            } => write!(
-                f,
-                "pop_frame slot={slot_idx} parent={parent} child={child} output={output}"
-            ),
+            TraceEvent::ExecuteUntilPopFrame { slot_idx, output } => {
+                write!(f, "pop_frame slot={slot_idx} output={output}")
+            }
             TraceEvent::ExecuteParentAttempt {
                 phase,
                 parent,
@@ -1172,18 +1296,6 @@ impl TraceEvent {
             },
             TraceEvent::ExecuteEncoding { array } => {
                 write!(f, "execute encoding={array}")
-            }
-            TraceEvent::ExecutionRequest {
-                step,
-                parent,
-                slot_idx,
-                target,
-            } => {
-                write!(f, "request {step} slot={slot_idx}")?;
-                if let Some(target) = target {
-                    write!(f, " target={target}")?;
-                }
-                write!(f, " parent={parent}")
             }
             TraceEvent::SlotTransition {
                 step,
@@ -1619,7 +1731,7 @@ optimize root=vortex.filter(i32, len=4) session=false
           iter 1 current=vortex.filter(i32, len=4) stack_parent=vortex.filter(i32, len=2) slot=0 builder_active=false
             Done array=vortex.primitive(i32, len=4)
           iter 2 current=vortex.primitive(i32, len=4) stack_parent=vortex.filter(i32, len=2) slot=0 builder_active=false
-            pop_frame slot=0 parent=vortex.filter(i32, len=2) child=vortex.primitive(i32, len=4) output=vortex.filter(i32, len=2)
+            pop_frame slot=0 output=vortex.filter(i32, len=2)
           iter 3 current=vortex.filter(i32, len=2) builder_active=false
             Done array=vortex.primitive(i32, len=2)
           iter 4 current=vortex.primitive(i32, len=2) builder_active=false
@@ -1652,7 +1764,6 @@ optimize root=vortex.filter(i32, len=4) session=false
             child_execute_parent attempt slot=0 parent=vortex.test.stack-parent(i32, len=3) child=vortex.test.stack-child(i32, len=3) source=static kernel=kernel[1] outcome=declined
             child_execute_parent none current=vortex.test.stack-parent(i32, len=3)
             execute encoding=vortex.test.stack-parent(i32, len=3)
-            request ExecuteSlot slot=0 target=Primitive parent=vortex.test.stack-parent(i32, len=3)
             ExecuteSlot slot=0 parent=vortex.test.stack-parent(i32, len=3) child=vortex.test.stack-child(i32, len=3)
           iter 1 current=vortex.test.stack-child(i32, len=3) stack_parent=vortex.test.stack-parent(i32, len=3) slot=0 builder_active=false
             done_check target=false canonical=false

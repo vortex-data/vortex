@@ -36,6 +36,7 @@ pub mod aliases;
 mod arc_swap_map;
 mod trace_macros;
 pub(crate) use trace_macros::trace_op;
+pub(crate) use trace_macros::with_execute_parent_trace_phase;
 mod array;
 pub mod arrays;
 pub mod arrow;

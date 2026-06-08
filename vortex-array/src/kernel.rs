@@ -65,40 +65,31 @@ impl<V: VTable> ParentKernelSet<V> {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        for (kernel_idx, kernel) in self.kernels.iter().enumerate() {
-            trace_op!(use(kernel_idx));
+        for (_kernel_idx, kernel) in self.kernels.iter().enumerate() {
             if !kernel.matches(parent) {
-                trace_op!(record_execute_parent_attempt(
-                    crate::test_harness::trace::current_execute_parent_phase(),
+                trace_op!(record_static_execute_parent_no_match(
                     parent,
                     child.array(),
                     child_idx,
-                    crate::test_harness::trace::TraceSource::Static,
-                    format!("kernel[{kernel_idx}]"),
-                    crate::test_harness::trace::AttemptOutcome::NoMatch,
+                    _kernel_idx,
                 ));
                 continue;
             }
             if let Some(reduced) = kernel.execute_parent(child, parent, child_idx, ctx)? {
-                trace_op!(record_execute_parent_applied(
-                    crate::test_harness::trace::current_execute_parent_phase(),
+                trace_op!(record_static_execute_parent_applied(
                     parent,
                     child.array(),
                     child_idx,
-                    crate::test_harness::trace::TraceSource::Static,
-                    format!("kernel[{kernel_idx}]"),
+                    _kernel_idx,
                     &reduced,
                 ));
                 return Ok(Some(reduced));
             }
-            trace_op!(record_execute_parent_attempt(
-                crate::test_harness::trace::current_execute_parent_phase(),
+            trace_op!(record_static_execute_parent_declined(
                 parent,
                 child.array(),
                 child_idx,
-                crate::test_harness::trace::TraceSource::Static,
-                format!("kernel[{kernel_idx}]"),
-                crate::test_harness::trace::AttemptOutcome::Declined,
+                _kernel_idx,
             ));
         }
         Ok(None)

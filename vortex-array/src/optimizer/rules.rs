@@ -137,11 +137,7 @@ impl<V: VTable> ReduceRuleSet<V> {
                 trace_op!(record_reduce_applied(array.array(), *rule, &reduced));
                 return Ok(Some(reduced));
             }
-            trace_op!(record_reduce_attempt(
-                array.array(),
-                *rule,
-                crate::test_harness::trace::AttemptOutcome::Declined,
-            ));
+            trace_op!(record_reduce_declined(array.array(), *rule));
         }
         Ok(None)
     }
@@ -183,13 +179,11 @@ impl<V: VTable> ParentRuleSet<V> {
     ) -> VortexResult<Option<ArrayRef>> {
         for rule in self.rules.iter() {
             if !rule.matches(parent) {
-                trace_op!(record_parent_reduce_attempt(
+                trace_op!(record_static_parent_reduce_no_match(
                     parent,
                     child.array(),
                     child_idx,
-                    crate::test_harness::trace::TraceSource::Static,
-                    crate::test_harness::trace::compact_label(*rule),
-                    crate::test_harness::trace::AttemptOutcome::NoMatch,
+                    *rule,
                 ));
                 continue;
             }
@@ -213,23 +207,20 @@ impl<V: VTable> ParentRuleSet<V> {
                     );
                 }
 
-                trace_op!(record_parent_reduce_applied(
+                trace_op!(record_static_parent_reduce_applied(
                     parent,
                     child.array(),
                     child_idx,
-                    crate::test_harness::trace::TraceSource::Static,
-                    crate::test_harness::trace::compact_label(*rule),
+                    *rule,
                     &reduced,
                 ));
                 return Ok(Some(reduced));
             }
-            trace_op!(record_parent_reduce_attempt(
+            trace_op!(record_static_parent_reduce_declined(
                 parent,
                 child.array(),
                 child_idx,
-                crate::test_harness::trace::TraceSource::Static,
-                crate::test_harness::trace::compact_label(*rule),
-                crate::test_harness::trace::AttemptOutcome::Declined,
+                *rule,
             ));
         }
         Ok(None)
