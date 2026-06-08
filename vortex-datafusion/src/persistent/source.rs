@@ -402,43 +402,6 @@ impl FileSource for VortexSource {
             });
         }
 
-        for prefix_len in 1..order.len() {
-            let prefix = order[..prefix_len].to_vec();
-            if eq_properties.ordering_satisfy(prefix.iter().cloned())? {
-                return Ok(SortOrderPushdownResult::Unsupported);
-            }
-        }
-
-        let sort_order = LexOrdering::new(order.iter().cloned());
-        let column_in_file_schema = sort_order.as_ref().is_some_and(|s| {
-            s.first()
-                .expr
-                .as_any()
-                .downcast_ref::<datafusion_physical_expr::expressions::Column>()
-                .is_some_and(|col| {
-                    self.table_schema
-                        .file_schema()
-                        .field_with_name(col.name())
-                        .is_ok()
-                })
-        });
-
-        if !column_in_file_schema {
-            return Ok(SortOrderPushdownResult::Unsupported);
-        }
-
-        let is_descending = sort_order
-            .as_ref()
-            .is_some_and(|s| s.first().options.descending);
-
-        if !is_descending {
-            let mut this = self.clone();
-            this.ordered = true;
-            return Ok(SortOrderPushdownResult::Inexact {
-                inner: Arc::new(this) as Arc<dyn FileSource>,
-            });
-        }
-
         Ok(SortOrderPushdownResult::Unsupported)
     }
 
