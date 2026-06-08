@@ -242,7 +242,7 @@ smol = "2.0.2"
 static_assertions = "1.1"
 strum = "0.28"
 syn = { version = "2.0.117", features = ["full"] }
-sysinfo = "0.38.0"
+sysinfo = "0.39.0"
 tabled = { version = "0.21.0", default-features = false }
 taffy = "0.10.0"
 take_mut = "0.2.2"
