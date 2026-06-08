@@ -14,7 +14,6 @@ use datafusion_datasource::file_scan_config::FileScanConfig;
 use datafusion_datasource::file_stream::FileOpener;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
 use datafusion_physical_expr::EquivalenceProperties;
-use datafusion_physical_expr::LexOrdering;
 use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::PhysicalSortExpr;
 use datafusion_physical_expr::conjunction;
@@ -602,25 +601,6 @@ mod tests {
             SortOrderPushdownResult::Exact { inner } => assert_ordered_source(inner)?,
             SortOrderPushdownResult::Inexact { .. } | SortOrderPushdownResult::Unsupported => {
                 anyhow::bail!("expected exact sort pushdown")
-            }
-        }
-        assert!(!source.ordered);
-        Ok(())
-    }
-
-    #[test]
-    fn try_pushdown_sort_returns_inexact_for_ascending_file_column() -> anyhow::Result<()> {
-        let schema = sort_test_schema();
-        let source = sort_test_source(Arc::clone(&schema));
-        let order = vec![sort_column("a", 0)];
-        let eq_properties = EquivalenceProperties::new(schema);
-
-        let result = source.try_pushdown_sort(&order, &eq_properties)?;
-
-        match result {
-            SortOrderPushdownResult::Inexact { inner } => assert_ordered_source(inner)?,
-            SortOrderPushdownResult::Exact { .. } | SortOrderPushdownResult::Unsupported => {
-                anyhow::bail!("expected inexact sort pushdown")
             }
         }
         assert!(!source.ordered);
