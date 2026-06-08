@@ -4,11 +4,11 @@
 #![expect(clippy::unwrap_used)]
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use divan::Bencher;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::ListArray;
@@ -25,10 +25,15 @@ use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
+use vortex_array::session::ArraySession;
+use vortex_session::VortexSession;
 
 fn main() {
     divan::main();
 }
+
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 fn schema() -> DType {
     let fields = StructFields::from_iter([
@@ -87,22 +92,17 @@ fn to_arrow_dtype(bencher: Bencher) {
 #[divan::bench]
 fn ArrowExportVTable_to_arrow_field(bencher: Bencher) {
     // Warm the ArrowSession
-    drop(
-        LEGACY_SESSION
-            .arrow()
-            .to_arrow_field("", &schema())
-            .unwrap(),
-    );
+    drop(SESSION.arrow().to_arrow_field("", &schema()).unwrap());
 
     bencher
         .with_inputs(schema)
-        .bench_values(|dtype| LEGACY_SESSION.arrow().to_arrow_field("", &dtype).unwrap())
+        .bench_values(|dtype| SESSION.arrow().to_arrow_field("", &dtype).unwrap())
 }
 
 #[divan::bench]
 fn to_arrow_array(bencher: Bencher) {
     bencher
-        .with_inputs(|| (array(), LEGACY_SESSION.create_execution_ctx()))
+        .with_inputs(|| (array(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| {
             #[expect(deprecated, reason = "benchmarking deprecated code path")]
             array.execute_arrow(None, &mut ctx).unwrap()
@@ -113,16 +113,16 @@ fn to_arrow_array(bencher: Bencher) {
 #[divan::bench]
 fn ArrowExportVTable_execute_arrow(bencher: Bencher) {
     // Warm the ArrowSession
-    drop(LEGACY_SESSION.arrow().execute_arrow(
-        array(),
-        None,
-        &mut LEGACY_SESSION.create_execution_ctx(),
-    ));
+    drop(
+        SESSION
+            .arrow()
+            .execute_arrow(array(), None, &mut SESSION.create_execution_ctx()),
+    );
 
     bencher
-        .with_inputs(|| (array(), LEGACY_SESSION.create_execution_ctx()))
+        .with_inputs(|| (array(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| {
-            LEGACY_SESSION
+            SESSION
                 .arrow()
                 .execute_arrow(array, None, &mut ctx)
                 .unwrap()

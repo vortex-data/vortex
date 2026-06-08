@@ -10,21 +10,27 @@
 #![expect(clippy::cast_possible_truncation)]
 #![expect(clippy::unwrap_used)]
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
+use vortex_session::VortexSession;
 
 fn main() {
     divan::main();
 }
+
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 /// Number of lists in the source array.
 const NUM_LISTS: usize = 500;
@@ -62,7 +68,7 @@ fn take_fsl_random<const LIST_SIZE: usize>(bencher: Bencher, num_indices: usize)
     let indices_array = indices.into_array();
 
     bencher
-        .with_inputs(|| (&fsl, &indices_array, LEGACY_SESSION.create_execution_ctx()))
+        .with_inputs(|| (&fsl, &indices_array, SESSION.create_execution_ctx()))
         .bench_refs(|(array, indices, execution_ctx)| {
             array
                 .clone()
@@ -88,7 +94,7 @@ fn take_fsl_nullable_random<const LIST_SIZE: usize>(bencher: Bencher, num_indice
     let indices_array = indices.into_array();
 
     bencher
-        .with_inputs(|| (&fsl, &indices_array, LEGACY_SESSION.create_execution_ctx()))
+        .with_inputs(|| (&fsl, &indices_array, SESSION.create_execution_ctx()))
         .bench_refs(|(array, indices, execution_ctx)| {
             array
                 .clone()

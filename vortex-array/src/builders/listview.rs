@@ -292,6 +292,10 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
+        // TODO: The `ArrayBuilder` trait does not thread an `ExecutionCtx` through its extend
+        // methods, so we are forced to mint a fresh `LEGACY_SESSION` context here on every call
+        // (which for chunked input means once per chunk). Once the trait carries a `&mut
+        // ExecutionCtx`, the caller's session should be reused instead.
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
         let listview = array

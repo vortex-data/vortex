@@ -117,113 +117,120 @@ fn make_nested_list_lv(
 #[divan::bench]
 fn i32_small(bencher: Bencher) {
     let lv = make_primitive_lv(50, 32, 32);
-    bencher.with_inputs(|| &lv).bench_refs(|lv| {
-        let mut ctx = SESSION.create_execution_ctx();
-        let rebuilt = lv
-            .rebuild(ListViewRebuildMode::MakeZeroCopyToList, &mut ctx)
-            .unwrap();
-        rebuilt
-            .elements()
-            .clone()
-            .execute::<Canonical>(&mut ctx)
-            .unwrap()
-    });
+    bencher
+        .with_inputs(|| (&lv, SESSION.create_execution_ctx()))
+        .bench_refs(|(lv, ctx)| {
+            let rebuilt = lv
+                .rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)
+                .unwrap();
+            rebuilt
+                .elements()
+                .clone()
+                .execute::<Canonical>(ctx)
+                .unwrap()
+        });
 }
 
 #[divan::bench]
 fn i32_small_overlapping(bencher: Bencher) {
     let lv = make_primitive_lv(50, 8, 1);
-    bencher.with_inputs(|| &lv).bench_refs(|lv| {
-        let mut ctx = SESSION.create_execution_ctx();
-        let rebuilt = lv
-            .rebuild(ListViewRebuildMode::MakeZeroCopyToList, &mut ctx)
-            .unwrap();
-        rebuilt
-            .elements()
-            .clone()
-            .execute::<Canonical>(&mut ctx)
-            .unwrap()
-    });
+    bencher
+        .with_inputs(|| (&lv, SESSION.create_execution_ctx()))
+        .bench_refs(|(lv, ctx)| {
+            let rebuilt = lv
+                .rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)
+                .unwrap();
+            rebuilt
+                .elements()
+                .clone()
+                .execute::<Canonical>(ctx)
+                .unwrap()
+        });
 }
 
 #[divan::bench]
 fn varbinview_small(bencher: Bencher) {
     let lv = make_varbinview_lv(50, 32, 32);
-    bencher.with_inputs(|| &lv).bench_refs(|lv| {
-        let mut ctx = SESSION.create_execution_ctx();
-        let rebuilt = lv
-            .rebuild(ListViewRebuildMode::MakeZeroCopyToList, &mut ctx)
-            .unwrap();
-        rebuilt
-            .elements()
-            .clone()
-            .execute::<Canonical>(&mut ctx)
-            .unwrap()
-    });
+    bencher
+        .with_inputs(|| (&lv, SESSION.create_execution_ctx()))
+        .bench_refs(|(lv, ctx)| {
+            let rebuilt = lv
+                .rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)
+                .unwrap();
+            rebuilt
+                .elements()
+                .clone()
+                .execute::<Canonical>(ctx)
+                .unwrap()
+        });
 }
 
 #[divan::bench]
 fn struct_small(bencher: Bencher) {
     let lv = make_struct_lv(50, 32, 32);
-    bencher.with_inputs(|| &lv).bench_refs(|lv| {
-        let mut ctx = SESSION.create_execution_ctx();
-        let rebuilt = lv
-            .rebuild(ListViewRebuildMode::MakeZeroCopyToList, &mut ctx)
-            .unwrap();
-        rebuilt
-            .elements()
-            .clone()
-            .execute::<Canonical>(&mut ctx)
-            .unwrap()
-    });
+    bencher
+        .with_inputs(|| (&lv, SESSION.create_execution_ctx()))
+        .bench_refs(|(lv, ctx)| {
+            let rebuilt = lv
+                .rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)
+                .unwrap();
+            rebuilt
+                .elements()
+                .clone()
+                .execute::<Canonical>(ctx)
+                .unwrap()
+        });
 }
 
 #[divan::bench]
 fn i32_large(bencher: Bencher) {
     let lv = make_primitive_lv(50, 1_024, 1_024);
-    bencher.with_inputs(|| &lv).bench_refs(|lv| {
-        let mut ctx = SESSION.create_execution_ctx();
-        let rebuilt = lv
-            .rebuild(ListViewRebuildMode::MakeZeroCopyToList, &mut ctx)
-            .unwrap();
-        rebuilt
-            .elements()
-            .clone()
-            .execute::<Canonical>(&mut ctx)
-            .unwrap()
-    });
+    bencher
+        .with_inputs(|| (&lv, SESSION.create_execution_ctx()))
+        .bench_refs(|(lv, ctx)| {
+            let rebuilt = lv
+                .rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)
+                .unwrap();
+            rebuilt
+                .elements()
+                .clone()
+                .execute::<Canonical>(ctx)
+                .unwrap()
+        });
 }
 
 #[divan::bench]
 fn varbinview_large(bencher: Bencher) {
     let lv = make_varbinview_lv(5, 1_024, 1_024);
-    bencher.with_inputs(|| &lv).bench_refs(|lv| {
-        let mut ctx = SESSION.create_execution_ctx();
-        let rebuilt = lv
-            .rebuild(ListViewRebuildMode::MakeZeroCopyToList, &mut ctx)
-            .unwrap();
-        rebuilt
-            .elements()
-            .clone()
-            .execute::<Canonical>(&mut ctx)
-            .unwrap()
-    });
+    bencher
+        .with_inputs(|| (&lv, SESSION.create_execution_ctx()))
+        .bench_refs(|(lv, ctx)| {
+            let rebuilt = lv
+                .rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)
+                .unwrap();
+            rebuilt
+                .elements()
+                .clone()
+                .execute::<Canonical>(ctx)
+                .unwrap()
+        });
 }
 
 #[divan::bench]
 fn struct_large(bencher: Bencher) {
     let lv = make_struct_lv(25, 1_024, 1_024);
-    bencher.with_inputs(|| &lv).bench_refs(|lv| {
-        let mut ctx = SESSION.create_execution_ctx();
-        let rebuilt = lv
-            .rebuild(ListViewRebuildMode::MakeZeroCopyToList, &mut ctx)
-            .unwrap();
-        rebuilt
-            .elements()
-            .clone()
-            .execute::<Canonical>(&mut ctx)
-            .unwrap()
-    });
+    bencher
+        .with_inputs(|| (&lv, SESSION.create_execution_ctx()))
+        .bench_refs(|(lv, ctx)| {
+            let rebuilt = lv
+                .rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)
+                .unwrap();
+            rebuilt
+                .elements()
+                .clone()
+                .execute::<Canonical>(ctx)
+                .unwrap()
+        });
 }
 
 #[divan::bench]
@@ -242,31 +249,33 @@ fn fsl_large(bencher: Bencher) {
         sizes.into_array(),
         Validity::NonNullable,
     );
-    bencher.with_inputs(|| &lv).bench_refs(|lv| {
-        let mut ctx = SESSION.create_execution_ctx();
-        let rebuilt = lv
-            .rebuild(ListViewRebuildMode::MakeZeroCopyToList, &mut ctx)
-            .unwrap();
-        rebuilt
-            .elements()
-            .clone()
-            .execute::<Canonical>(&mut ctx)
-            .unwrap()
-    });
+    bencher
+        .with_inputs(|| (&lv, SESSION.create_execution_ctx()))
+        .bench_refs(|(lv, ctx)| {
+            let rebuilt = lv
+                .rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)
+                .unwrap();
+            rebuilt
+                .elements()
+                .clone()
+                .execute::<Canonical>(ctx)
+                .unwrap()
+        });
 }
 
 #[divan::bench]
 fn list_i32_large(bencher: Bencher) {
     let lv = make_nested_list_lv(2, 512, 2);
-    bencher.with_inputs(|| &lv).bench_refs(|lv| {
-        let mut ctx = SESSION.create_execution_ctx();
-        let rebuilt = lv
-            .rebuild(ListViewRebuildMode::MakeZeroCopyToList, &mut ctx)
-            .unwrap();
-        rebuilt
-            .elements()
-            .clone()
-            .execute::<Canonical>(&mut ctx)
-            .unwrap()
-    });
+    bencher
+        .with_inputs(|| (&lv, SESSION.create_execution_ctx()))
+        .bench_refs(|(lv, ctx)| {
+            let rebuilt = lv
+                .rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)
+                .unwrap();
+            rebuilt
+                .elements()
+                .clone()
+                .execute::<Canonical>(ctx)
+                .unwrap()
+        });
 }

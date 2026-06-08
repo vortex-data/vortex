@@ -27,8 +27,8 @@ use crate::match_each_integer_ptype;
 
 /// Creates a `ListViewArray` from a `ListArray` by computing `sizes` from `offsets`.
 ///
-/// The output `ListViewArray` will be zero-copyable back to a `ListArray`, and additionally it
-/// will not have any leading or trailing garbage data.
+/// The output `ListViewArray` will be zero-copyable back to a `ListArray`, and additionally it will
+/// not have any leading or trailing garbage data.
 pub fn list_view_from_list(list: ListArray, ctx: &mut ExecutionCtx) -> VortexResult<ListViewArray> {
     // If the list is empty, create an empty `ListViewArray` with the same offset `DType` as the
     // input.
@@ -39,10 +39,7 @@ pub fn list_view_from_list(list: ListArray, ctx: &mut ExecutionCtx) -> VortexRes
     // We reset the offsets here because mostly for convenience, and also because callers of this
     // function might not expect the output `ListViewArray` to have a bunch of leading and trailing
     // garbage data when they turn it back into a `ListArray`.
-    let list = list
-        .reset_offsets(false, ctx)
-        .vortex_expect("This can't fail");
-
+    let list = list.reset_offsets(false, ctx)?;
     let list_offsets = list.offsets().clone();
 
     // Create `sizes` array by computing differences between consecutive offsets.

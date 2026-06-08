@@ -48,12 +48,11 @@ fn rebuild_naive(bencher: Bencher) {
 
     let list_view = ListViewArray::new(dudes, offsets, sizes, Validity::NonNullable);
 
-    bencher.with_inputs(|| &list_view).bench_refs(|list_view| {
-        list_view.rebuild(
-            ListViewRebuildMode::MakeZeroCopyToList,
-            &mut SESSION.create_execution_ctx(),
-        )
-    })
+    bencher
+        .with_inputs(|| (&list_view, SESSION.create_execution_ctx()))
+        .bench_refs(|(list_view, ctx)| {
+            list_view.rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)
+        })
 }
 
 fn main() {
