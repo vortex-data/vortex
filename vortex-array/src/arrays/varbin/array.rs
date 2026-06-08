@@ -246,12 +246,21 @@ impl VarBinData {
         // TODO(joe): update the created VarBin with this decompressed Array.
         let primitive_offsets = offsets.clone().execute::<PrimitiveArray>(&mut ctx)?;
 
+        // Array-backed validity is the only variant that needs an execution context: execute it into
+        // a mask once. The constant variants resolve null-ness without one. Resolving this before
+        // the per-type dispatch keeps the dtype loop simple.
+        let mask = match validity {
+            Validity::Array(_) => {
+                Some(validity.execute_mask(primitive_offsets.len().saturating_sub(1), &mut ctx)?)
+            }
+            _ => None,
+        };
+        let all_invalid = matches!(validity, Validity::AllInvalid);
+
         match_each_integer_ptype!(primitive_offsets.dtype().as_ptype(), |O| {
             let offsets_slice = primitive_offsets.as_slice::<O>();
-            let windows = offsets_slice.windows(2).map(|o| (o[0].as_(), o[1].as_()));
 
-            let last_offset = usize::try_from(offsets_slice[offsets.len() - 1])
-                .vortex_expect("must fit into usize");
+            let last_offset: usize = offsets_slice[offsets_slice.len() - 1].as_();
             vortex_ensure!(
                 last_offset <= bytes.len(),
                 InvalidArgument: "Last offset {} exceeds bytes length {}",
@@ -259,26 +268,14 @@ impl VarBinData {
                 bytes.len()
             );
 
-            match validity {
-                // Array-backed validity is the only variant that needs an execution context:
-                // execute it into a mask once and zip it with the offset windows, validating only
-                // the valid (non-null) entries.
-                Validity::Array(_) => {
-                    let mask =
-                        validity.execute_mask(offsets_slice.len().saturating_sub(1), &mut ctx)?;
-                    for (i, ((start, end), valid)) in windows.zip(mask.iter()).enumerate() {
-                        if valid {
-                            validate_at(i, start, end)?;
-                        }
-                    }
-                }
-                // Every entry is null, so there is nothing to validate.
-                Validity::AllInvalid => {}
-                // No nulls: validate every entry.
-                Validity::NonNullable | Validity::AllValid => {
-                    for (i, (start, end)) in windows.enumerate() {
-                        validate_at(i, start, end)?;
-                    }
+            for (i, (start, end)) in offsets_slice
+                .windows(2)
+                .map(|o| (o[0].as_(), o[1].as_()))
+                .enumerate()
+            {
+                let valid = mask.as_ref().map_or(!all_invalid, |mask| mask.value(i));
+                if valid {
+                    validate_at(i, start, end)?;
                 }
             }
         });
