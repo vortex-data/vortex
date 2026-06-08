@@ -98,6 +98,7 @@ fn try_optimize(
                 && let Some(plugins) =
                     array_ref.find_reduce_parent(current_array.encoding_id(), child.encoding_id())
             {
+                #[allow(clippy::unused_enumerate_index)]
                 for (_plugin_idx, plugin) in plugins.as_ref().iter().enumerate() {
                     if let Some(new_array) = plugin(child, &current_array, slot_idx)? {
                         trace_op!(record_session_parent_reduce_applied(

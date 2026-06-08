@@ -556,6 +556,7 @@ fn execute_parent_for_child(
         && let Some(plugins) =
             kernels.find_execute_parent(parent.encoding_id(), child.encoding_id())
     {
+        #[allow(clippy::unused_enumerate_index)]
         for (_plugin_idx, plugin) in plugins.as_ref().iter().enumerate() {
             if let Some(result) = plugin(child, parent, slot_idx, ctx)? {
                 trace_op!(record_session_execute_parent_applied(

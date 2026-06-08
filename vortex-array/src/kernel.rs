@@ -65,6 +65,7 @@ impl<V: VTable> ParentKernelSet<V> {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        #[allow(clippy::unused_enumerate_index)]
         for (_kernel_idx, kernel) in self.kernels.iter().enumerate() {
             if !kernel.matches(parent) {
                 trace_op!(record_static_execute_parent_no_match(
