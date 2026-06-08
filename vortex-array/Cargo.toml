@@ -107,6 +107,10 @@ name = "aggregate_sum"
 harness = false
 
 [[bench]]
+name = "aggregate_grouped"
+harness = false
+
+[[bench]]
 name = "cast_primitive"
 harness = false
 
