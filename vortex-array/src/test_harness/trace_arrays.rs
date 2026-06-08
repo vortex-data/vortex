@@ -18,10 +18,10 @@ use vortex_session::registry::CachedId;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
+use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
-use crate::Precision;
 use crate::VTable;
 use crate::array::Array;
 use crate::array::ArrayId;
@@ -89,11 +89,11 @@ impl Display for StackParentData {
 }
 
 impl ArrayHash for StackParentData {
-    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _eq_mode: EqMode) {}
 }
 
 impl ArrayEq for StackParentData {
-    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+    fn array_eq(&self, _other: &Self, _eq_mode: EqMode) -> bool {
         true
     }
 }
@@ -195,11 +195,11 @@ impl Display for StackChildData {
 }
 
 impl ArrayHash for StackChildData {
-    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _eq_mode: EqMode) {}
 }
 
 impl ArrayEq for StackChildData {
-    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+    fn array_eq(&self, _other: &Self, _eq_mode: EqMode) -> bool {
         true
     }
 }

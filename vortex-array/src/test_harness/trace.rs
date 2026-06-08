@@ -1283,10 +1283,10 @@ optimize root=vortex.filter(i32, len=4) session=false
         assert!(optimized_filter.child().is::<Primitive>());
         assert_arrays_eq!(traced.output, PrimitiveArray::from_iter([2i32, 3]));
         insta::assert_snapshot!(traced.trace.to_string(), @r"
-optimize root=vortex.filter(i32, len=2) session=false
-  reduce_parent static:FilterFilterRule slot=0 parent=vortex.filter(i32, len=2) child=vortex.filter(i32, len=4) -> vortex.filter(i32, len=2)
-  done output=vortex.filter(i32, len=2)
-");
+        optimize root=vortex.filter(i32, len=2) session=false
+          reduce_parent static:FilterReduceAdaptor(Filter) slot=0 parent=vortex.filter(i32, len=2) child=vortex.filter(i32, len=4) -> vortex.filter(i32, len=2)
+          done output=vortex.filter(i32, len=2)
+        ");
 
         let mut ctx = ExecutionCtx::new(VortexSession::empty().with::<ArraySession>());
         let traced = trace_op_with(
