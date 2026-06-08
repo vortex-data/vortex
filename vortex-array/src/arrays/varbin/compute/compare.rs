@@ -23,8 +23,7 @@ use crate::arrays::VarBin;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbin::VarBinArrayExt;
 use crate::arrow::Datum;
-#[allow(deprecated)]
-use crate::arrow::from_arrow_array_with_len;
+use crate::arrow::from_arrow_columnar;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
@@ -35,7 +34,6 @@ use crate::scalar_fn::fns::operators::Operator;
 
 // This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
 impl CompareKernel for VarBin {
-    #[allow(deprecated)]
     fn compare(
         lhs: ArrayView<'_, VarBin>,
         rhs: &ArrayRef,
@@ -127,7 +125,7 @@ impl CompareKernel for VarBin {
             }
             .map_err(|err| vortex_err!("Failed to compare VarBin array: {}", err))?;
 
-            Ok(Some(from_arrow_array_with_len(&array, len, nullable)?))
+            Ok(Some(from_arrow_columnar(&array, len, nullable, ctx)?))
         } else if !rhs.is::<VarBin>() {
             // NOTE: If the rhs is not a VarBin array it will be canonicalized to a VarBinView
             // Arrow doesn't support comparing VarBin to VarBinView arrays, so we convert ourselves
