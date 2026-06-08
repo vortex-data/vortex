@@ -67,7 +67,6 @@
 //! [`DataSourceRef`]: vortex::scan::DataSourceRef
 //! [`ScanRequest`]: vortex::scan::ScanRequest
 
-use std::any::Any;
 use std::fmt;
 use std::fmt::Formatter;
 use std::sync::Arc;
@@ -469,10 +468,6 @@ impl DataSource for VortexDataSource {
         )))
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut Formatter) -> fmt::Result {
         write!(
             f,
@@ -509,7 +504,7 @@ impl DataSource for VortexDataSource {
         EquivalenceProperties::new(Arc::clone(&self.leftover_schema))
     }
 
-    fn partition_statistics(&self, _partition: Option<usize>) -> DFResult<Statistics> {
+    fn partition_statistics(&self, _partition: Option<usize>) -> DFResult<Arc<Statistics>> {
         // FIXME(ngates): this should be adjusted based on filters. See DuckDB for heuristics,
         //  and in the future, store the selectivity stats in the session.
         let num_rows = estimate_to_df_precision(&self.data_source.row_count());
@@ -521,11 +516,11 @@ impl DataSource for VortexDataSource {
         // from the initial schema after try_swapping_with_projection adds computed columns.
         let column_statistics = self.leftover_statistics.clone();
 
-        Ok(Statistics {
+        Ok(Arc::new(Statistics {
             num_rows,
             total_byte_size,
             column_statistics,
-        })
+        }))
     }
 
     fn with_fetch(&self, limit: Option<usize>) -> Option<Arc<dyn DataSource>> {
