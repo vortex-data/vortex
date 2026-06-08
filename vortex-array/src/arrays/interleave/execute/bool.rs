@@ -7,7 +7,6 @@
 use num_traits::AsPrimitive;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
@@ -85,9 +84,12 @@ pub(super) fn execute(
     )?))
 }
 
-/// The scatter loop, monomorphized on the selector integer widths so each `(array_index,
-/// row_index)` pair is read straight from its packed buffer. Output bits (and validity) are written
-/// into bit buffers directly.
+/// The scatter, monomorphized on the selector integer widths so each `(array_index, row_index)`
+/// pair is read straight from its packed buffer.
+///
+/// Output bits (and validity) are produced with [`BitBufferMut::collect_bool`], which packs 64
+/// results per word: every output bit is written branchlessly, avoiding a per-row `set`/`unset`
+/// (each of which would bounds-check and branch on the random bit value).
 #[allow(clippy::too_many_arguments)]
 fn gather<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
     len: usize,
@@ -98,32 +100,29 @@ fn gather<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
     rows: &[R],
     nullable: bool,
 ) -> VortexResult<(BitBufferMut, Option<BitBufferMut>)> {
-    let mut values = BitBufferMut::new_unset(len);
-    let mut validity = nullable.then(|| BitBufferMut::new_set(len));
-
+    // Validate the per-row bounds once up front (returning an error rather than panicking), so the
+    // word-packing passes below are tight branchless loops.
     for i in 0..len {
-        // Random access: gather one bit (and its validity) from the selected value at the position
-        // `row_indices` names — no cursor is advanced.
-        let branch: usize = branches[i].as_();
-        let row: usize = rows[i].as_();
+        let branch = branches[i].as_();
         vortex_ensure!(branch < num_values, "interleave array index out of bounds");
-        let bits = &value_bits[branch];
-        vortex_ensure!(row < bits.len(), "interleave row index out of bounds");
-
-        if bits.value(row) {
-            values.set(i);
-        }
-        // A missing per-value mask means every row of that value is valid; `validity` is `Some`
-        // exactly when `nullable`.
-        if let Some(mask) = &value_validity[branch]
-            && !mask.value(row)
-        {
-            validity
-                .as_mut()
-                .vortex_expect("validity buffer present when nullable")
-                .unset(i);
-        }
+        vortex_ensure!(
+            rows[i].as_() < value_bits[branch].len(),
+            "interleave row index out of bounds"
+        );
     }
+
+    let values =
+        BitBufferMut::collect_bool(len, |i| value_bits[branches[i].as_()].value(rows[i].as_()));
+
+    // A missing per-value mask means every row of that value is valid; only materialized when the
+    // output can be null.
+    let validity = nullable.then(|| {
+        BitBufferMut::collect_bool(len, |i| {
+            value_validity[branches[i].as_()]
+                .as_ref()
+                .is_none_or(|mask| mask.value(rows[i].as_()))
+        })
+    });
 
     Ok((values, validity))
 }

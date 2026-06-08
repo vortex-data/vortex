@@ -123,6 +123,10 @@ name = "compare"
 harness = false
 
 [[bench]]
+name = "interleave"
+harness = false
+
+[[bench]]
 name = "take_patches"
 harness = false
 
