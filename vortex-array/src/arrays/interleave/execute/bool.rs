@@ -5,14 +5,15 @@
 //! boolean values.
 
 use num_traits::AsPrimitive;
+use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_mask::Mask;
 
 use super::super::Interleave;
 use super::super::InterleaveArrayExt;
-use crate::ArrayRef;
 use crate::array::Array;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
@@ -57,35 +58,22 @@ pub(super) fn execute(
         value_validity.push(validity);
     }
 
-    // Decode the selectors once so the scatter loop indexes plain `usize`s.
-    let branch_of = selector_to_usize(array.array_indices());
-    let row_of = selector_to_usize(array.row_indices());
-
-    let mut values = BitBufferMut::new_unset(len);
-    let mut validity = nullable.then(|| BitBufferMut::new_set(len));
-
-    for i in 0..len {
-        // Random access: gather one bit (and its validity) from the selected value at the position
-        // `row_indices` names — no cursor is advanced.
-        let branch = branch_of[i];
-        let row = row_of[i];
-        vortex_ensure!(branch < num_values, "interleave array index out of bounds");
-        let bits = &value_bits[branch];
-        vortex_ensure!(row < bits.len(), "interleave row index out of bounds");
-
-        if bits.value(row) {
-            values.set(i);
-        }
-        // A missing per-value mask means every row of that value is valid; `validity` is `Some`
-        // exactly when `nullable`.
-        let valid = value_validity[branch].as_ref().is_none_or(|m| m.value(row));
-        if !valid {
-            validity
-                .as_mut()
-                .vortex_expect("validity buffer present when nullable")
-                .unset(i);
-        }
-    }
+    // Scatter directly from the typed selector buffers — no intermediate `usize` materialization.
+    let array_indices = array.array_indices().as_::<Primitive>();
+    let row_indices = array.row_indices().as_::<Primitive>();
+    let (values, validity) = match_each_unsigned_integer_ptype!(array_indices.ptype(), |A| {
+        match_each_unsigned_integer_ptype!(row_indices.ptype(), |R| {
+            gather(
+                len,
+                num_values,
+                &value_bits,
+                &value_validity,
+                array_indices.as_slice::<A>(),
+                row_indices.as_slice::<R>(),
+                nullable,
+            )?
+        })
+    });
 
     let validity = match validity {
         Some(bits) => Validity::from(bits.freeze()),
@@ -97,10 +85,45 @@ pub(super) fn execute(
     )?))
 }
 
-/// Decodes a canonical, non-nullable unsigned-integer selector into a `usize` vector.
-fn selector_to_usize(selector: &ArrayRef) -> Vec<usize> {
-    let selector = selector.as_::<Primitive>();
-    match_each_unsigned_integer_ptype!(selector.ptype(), |T| {
-        selector.as_slice::<T>().iter().map(|&v| v.as_()).collect()
-    })
+/// The scatter loop, monomorphized on the selector integer widths so each `(array_index,
+/// row_index)` pair is read straight from its packed buffer. Output bits (and validity) are written
+/// into bit buffers directly.
+#[allow(clippy::too_many_arguments)]
+fn gather<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
+    len: usize,
+    num_values: usize,
+    value_bits: &[BitBuffer],
+    value_validity: &[Option<Mask>],
+    branches: &[A],
+    rows: &[R],
+    nullable: bool,
+) -> VortexResult<(BitBufferMut, Option<BitBufferMut>)> {
+    let mut values = BitBufferMut::new_unset(len);
+    let mut validity = nullable.then(|| BitBufferMut::new_set(len));
+
+    for i in 0..len {
+        // Random access: gather one bit (and its validity) from the selected value at the position
+        // `row_indices` names — no cursor is advanced.
+        let branch: usize = branches[i].as_();
+        let row: usize = rows[i].as_();
+        vortex_ensure!(branch < num_values, "interleave array index out of bounds");
+        let bits = &value_bits[branch];
+        vortex_ensure!(row < bits.len(), "interleave row index out of bounds");
+
+        if bits.value(row) {
+            values.set(i);
+        }
+        // A missing per-value mask means every row of that value is valid; `validity` is `Some`
+        // exactly when `nullable`.
+        if let Some(mask) = &value_validity[branch]
+            && !mask.value(row)
+        {
+            validity
+                .as_mut()
+                .vortex_expect("validity buffer present when nullable")
+                .unset(i);
+        }
+    }
+
+    Ok((values, validity))
 }
