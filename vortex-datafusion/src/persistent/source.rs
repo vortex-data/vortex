@@ -557,6 +557,7 @@ mod tests {
     use arrow_schema::Schema;
     use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
     use datafusion_execution::object_store::ObjectStoreUrl;
+    use datafusion_physical_expr::expressions::Column;
     use object_store::memory::InMemory;
     use vortex::VortexSessionDefault;
 
@@ -594,6 +595,73 @@ mod tests {
             self.inner
                 .no_pushdown_projection(source_projection, input_schema)
         }
+    }
+
+    fn sort_column(name: &str, index: usize) -> PhysicalSortExpr {
+        let expr: PhysicalExprRef = Arc::new(Column::new(name, index));
+        PhysicalSortExpr::new_default(expr)
+    }
+
+    fn sort_test_schema() -> Arc<Schema> {
+        Arc::new(Schema::new(vec![
+            Field::new("a", DataType::Int32, false),
+            Field::new("b", DataType::Int32, false),
+        ]))
+    }
+
+    fn sort_test_source(schema: Arc<Schema>) -> VortexSource {
+        VortexSource::new(
+            TableSchema::from_file_schema(schema),
+            VortexSession::default(),
+        )
+    }
+
+    fn assert_ordered_source(inner: Arc<dyn FileSource>) -> anyhow::Result<()> {
+        let source = inner
+            .as_any()
+            .downcast_ref::<VortexSource>()
+            .ok_or_else(|| anyhow::anyhow!("expected VortexSource"))?;
+
+        assert!(source.ordered);
+        Ok(())
+    }
+
+    #[test]
+    fn try_pushdown_sort_returns_exact_when_ordering_is_satisfied() -> anyhow::Result<()> {
+        let schema = sort_test_schema();
+        let source = sort_test_source(Arc::clone(&schema));
+        let order = vec![sort_column("a", 0), sort_column("b", 1)];
+        let eq_properties = EquivalenceProperties::new_with_orderings(schema, [order.clone()]);
+
+        let result = source.try_pushdown_sort(&order, &eq_properties)?;
+
+        match result {
+            SortOrderPushdownResult::Exact { inner } => assert_ordered_source(inner)?,
+            SortOrderPushdownResult::Inexact { .. } | SortOrderPushdownResult::Unsupported => {
+                anyhow::bail!("expected exact sort pushdown")
+            }
+        }
+        assert!(!source.ordered);
+        Ok(())
+    }
+
+    #[test]
+    fn try_pushdown_sort_returns_inexact_for_ascending_file_column() -> anyhow::Result<()> {
+        let schema = sort_test_schema();
+        let source = sort_test_source(Arc::clone(&schema));
+        let order = vec![sort_column("a", 0)];
+        let eq_properties = EquivalenceProperties::new(schema);
+
+        let result = source.try_pushdown_sort(&order, &eq_properties)?;
+
+        match result {
+            SortOrderPushdownResult::Inexact { inner } => assert_ordered_source(inner)?,
+            SortOrderPushdownResult::Exact { .. } | SortOrderPushdownResult::Unsupported => {
+                anyhow::bail!("expected inexact sort pushdown")
+            }
+        }
+        assert!(!source.ordered);
+        Ok(())
     }
 
     #[test]
