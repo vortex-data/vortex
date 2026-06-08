@@ -6,6 +6,7 @@ use std::fmt::Formatter;
 
 use num_traits::AsPrimitive;
 use smallvec::smallvec;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -14,10 +15,7 @@ use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::ArraySlots;
-use crate::ExecutionCtx;
 use crate::LEGACY_SESSION;
-#[expect(deprecated)]
-use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
@@ -209,26 +207,6 @@ impl VarBinData {
             InvalidArgument: "Offsets must have at least one element"
         );
 
-        // Skip host-only validation when offsets/bytes are not host-resident.
-        if offsets.is_host() && bytes.is_on_host() {
-            let last_offset = offsets
-                .execute_scalar(
-                    offsets.len() - 1,
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )?
-                .as_primitive()
-                .as_::<usize>()
-                .ok_or_else(
-                    || vortex_err!(InvalidArgument: "Last offset must be convertible to usize"),
-                )?;
-            vortex_ensure!(
-                last_offset <= bytes.len(),
-                InvalidArgument: "Last offset {} exceeds bytes length {}",
-                last_offset,
-                bytes.len()
-            );
-        }
-
         // Check validity length
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(
@@ -253,45 +231,58 @@ impl VarBinData {
 
     /// Validates that every non-null value is valid UTF-8.
     fn validate_utf8(offsets: &ArrayRef, bytes: &[u8], validity: &Validity) -> VortexResult<()> {
-        #[expect(deprecated)]
-        let primitive_offsets = offsets.to_primitive();
-        // Only array-backed validity needs an execution context; the constant variants resolve
-        // null-ness without one, so avoid constructing a context otherwise.
-        let mut ctx =
-            matches!(validity, Validity::Array(_)).then(|| LEGACY_SESSION.create_execution_ctx());
+        let validate_at = |i: usize, start: usize, end: usize| -> VortexResult<()> {
+            let string_bytes = &bytes[start..end];
+            simdutf8::basic::from_utf8(string_bytes).map_err(|_| {
+                #[expect(clippy::unwrap_used)]
+                // run validation using `compat` package to get more detailed error message
+                let err = simdutf8::compat::from_utf8(string_bytes).unwrap_err();
+                vortex_err!("invalid utf-8: {err} at index {i}")
+            })?;
+            Ok(())
+        };
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        // TODO(joe): update the created VarBin with this decompressed Array.
+        let primitive_offsets = offsets.clone().execute::<PrimitiveArray>(&mut ctx)?;
+
         match_each_integer_ptype!(primitive_offsets.dtype().as_ptype(), |O| {
             let offsets_slice = primitive_offsets.as_slice::<O>();
-            for (i, (start, end)) in offsets_slice
-                .windows(2)
-                .map(|o| (o[0].as_(), o[1].as_()))
-                .enumerate()
-            {
-                if Self::is_null_at(validity, i, ctx.as_mut())? {
-                    continue;
-                }
+            let windows = offsets_slice.windows(2).map(|o| (o[0].as_(), o[1].as_()));
 
-                let string_bytes = &bytes[start..end];
-                simdutf8::basic::from_utf8(string_bytes).map_err(|_| {
-                    #[expect(clippy::unwrap_used)]
-                    // run validation using `compat` package to get more detailed error message
-                    let err = simdutf8::compat::from_utf8(string_bytes).unwrap_err();
-                    vortex_err!("invalid utf-8: {err} at index {i}")
-                })?;
+            let last_offset = usize::try_from(offsets_slice[offsets.len() - 1])
+                .vortex_expect("must fit into usize");
+            vortex_ensure!(
+                last_offset <= bytes.len(),
+                InvalidArgument: "Last offset {} exceeds bytes length {}",
+                last_offset,
+                bytes.len()
+            );
+
+            match validity {
+                // Array-backed validity is the only variant that needs an execution context:
+                // execute it into a mask once and zip it with the offset windows, validating only
+                // the valid (non-null) entries.
+                Validity::Array(_) => {
+                    let mask =
+                        validity.execute_mask(offsets_slice.len().saturating_sub(1), &mut ctx)?;
+                    for (i, ((start, end), valid)) in windows.zip(mask.iter()).enumerate() {
+                        if valid {
+                            validate_at(i, start, end)?;
+                        }
+                    }
+                }
+                // Every entry is null, so there is nothing to validate.
+                Validity::AllInvalid => {}
+                // No nulls: validate every entry.
+                Validity::NonNullable | Validity::AllValid => {
+                    for (i, (start, end)) in windows.enumerate() {
+                        validate_at(i, start, end)?;
+                    }
+                }
             }
         });
         Ok(())
-    }
-
-    /// Resolves null-ness at `index`, using `ctx` only for array-backed validity.
-    fn is_null_at(
-        validity: &Validity,
-        index: usize,
-        ctx: Option<&mut ExecutionCtx>,
-    ) -> VortexResult<bool> {
-        match ctx {
-            Some(ctx) => validity.execute_is_null(index, ctx),
-            None => Ok(matches!(validity, Validity::AllInvalid)),
-        }
     }
 
     /// Access the value bytes child buffer
