@@ -3,7 +3,9 @@
 
 use vortex_error::VortexResult;
 
+use crate::Canonical;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::arrays::FixedSizeList;
@@ -17,7 +19,12 @@ impl OperationsVTable<FixedSizeList> for FixedSizeList {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         // By the preconditions we know that the list scalar is not null.
-        let list = array.fixed_size_list_elements_at(index)?;
+        // Canonicalize the element slice once so the per-element `execute_scalar` calls below do
+        // not re-decode the underlying encoding for every element.
+        let list = array
+            .fixed_size_list_elements_at(index)?
+            .execute::<Canonical>(ctx)?
+            .into_array();
         let children_elements: Vec<Scalar> = (0..list.len())
             .map(|i| list.execute_scalar(i, ctx))
             .collect::<VortexResult<_>>()?;

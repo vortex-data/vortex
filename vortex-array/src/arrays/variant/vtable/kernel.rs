@@ -6,6 +6,7 @@ use vortex_error::VortexResult;
 
 use super::merge_typed_scalar_as_variant;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::Array;
@@ -180,6 +181,13 @@ fn merge_typed_as_variant(
     let dtype = DType::Variant(Nullability::Nullable);
     // TODO(variant): replace this with a Variant builder once one exists.
     // Chunked<Variant> canonicalizes to VariantArray, so this row-wise fallback is safe.
+    // Canonicalize the inputs once up front so the per-row `execute_scalar` calls below do not
+    // re-decode the underlying encodings on every row.
+    let typed = typed.execute::<Canonical>(ctx)?.into_array();
+    let fallback = match fallback {
+        Some(fallback) => Some(fallback.execute::<Canonical>(ctx)?.into_array()),
+        None => None,
+    };
     let mut chunks = Vec::with_capacity(typed.len());
 
     for idx in 0..typed.len() {
