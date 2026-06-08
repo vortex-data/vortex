@@ -14,12 +14,12 @@ use vortex_error::vortex_bail;
 
 use crate::encode::RowEncode;
 use crate::options::RowEncodingOptions;
-use crate::options::RowSortField;
+use crate::options::RowSortFieldOptions;
 use crate::size::RowSize;
 
 /// Encodes N columnar arrays into a single row-oriented [`ListViewArray`] of `u8` whose row
 /// byte slices compare lexicographically in the same order as a tuple comparison of the input
-/// values under the configured [`RowSortField`]s.
+/// values under the configured [`RowSortFieldOptions`]s.
 ///
 /// Construct with [`RowEncoder::new`] or [`RowEncoder::with_options`] to pin the per-column
 /// sort options, or use [`RowEncoder::default`] to apply ascending, nulls-first ordering to
@@ -30,8 +30,8 @@ pub struct RowEncoder {
 }
 
 impl RowEncoder {
-    /// Construct a `RowEncoder` from one [`RowSortField`] per input column.
-    pub fn new(fields: impl IntoIterator<Item = RowSortField>) -> Self {
+    /// Construct a `RowEncoder` from one [`RowSortFieldOptions`] per input column.
+    pub fn new(fields: impl IntoIterator<Item = RowSortFieldOptions>) -> Self {
         Self {
             options: Some(RowEncodingOptions::new(fields)),
         }
@@ -119,43 +119,4 @@ fn reject_extension_dtype(dtype: &DType) -> VortexResult<()> {
         _ => {}
     }
     Ok(())
-}
-
-/// Convert N columnar arrays into a single row-oriented [`ListViewArray`] of `u8` whose bytes
-/// are lexicographically comparable in the same order as a tuple comparison of the input
-/// values according to `fields`. Convenience wrapper over [`RowEncoder::encode`].
-pub fn convert_columns(
-    cols: &[ArrayRef],
-    fields: &[RowSortField],
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ListViewArray> {
-    RowEncoder::new(fields.iter().copied()).encode(cols, ctx)
-}
-
-/// Like [`convert_columns`] but takes a prebuilt [`RowEncodingOptions`].
-pub fn convert_columns_with_options(
-    cols: &[ArrayRef],
-    options: &RowEncodingOptions,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ListViewArray> {
-    RowEncoder::with_options(options.clone()).encode(cols, ctx)
-}
-
-/// Compute only the per-row sizes (in bytes) of the row-encoded form for N columns.
-/// Convenience wrapper over [`RowEncoder::row_sizes`].
-pub fn compute_row_sizes(
-    cols: &[ArrayRef],
-    fields: &[RowSortField],
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    RowEncoder::new(fields.iter().copied()).row_sizes(cols, ctx)
-}
-
-/// Like [`compute_row_sizes`] but takes a prebuilt [`RowEncodingOptions`].
-pub fn compute_row_sizes_with_options(
-    cols: &[ArrayRef],
-    options: &RowEncodingOptions,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    RowEncoder::with_options(options.clone()).row_sizes(cols, ctx)
 }
