@@ -580,7 +580,6 @@ mod tests {
 
     fn assert_ordered_source(inner: Arc<dyn FileSource>) -> anyhow::Result<()> {
         let source = inner
-            .as_any()
             .downcast_ref::<VortexSource>()
             .ok_or_else(|| anyhow::anyhow!("expected VortexSource"))?;
 
