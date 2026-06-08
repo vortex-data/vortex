@@ -21,6 +21,7 @@ use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::between::Between;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::byte_length::ByteLength;
 use crate::scalar_fn::fns::case_when::CaseWhen;
 use crate::scalar_fn::fns::case_when::CaseWhenOptions;
 use crate::scalar_fn::fns::cast::Cast;
@@ -717,4 +718,17 @@ pub fn dynamic(
 /// ```
 pub fn list_contains(list: Expression, value: Expression) -> Expression {
     ListContains.new_expr(EmptyOptions, [list, value])
+}
+
+// ---- ByteLength ----
+
+/// Creates an expression that computes the byte length of each element.
+/// This is akin to ANSI SQL OCTET_LENGTH(), or DuckDB's strlen().
+///
+/// ```rust
+/// # use vortex_array::expr::{byte_length, root};
+/// let expr = byte_length(root());
+/// ```
+pub fn byte_length(input: Expression) -> Expression {
+    ByteLength.new_expr(EmptyOptions, [input])
 }
