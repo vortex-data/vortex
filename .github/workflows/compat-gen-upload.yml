@@ -44,7 +44,7 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@99214aa6889fcddfa57764031d71add364327e59  # v6
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b  # v6
         with:
           role-to-assume: "arn:aws:iam::245040174862:role/GitHubCompatUploadRole"
           aws-region: us-east-1
@@ -94,7 +94,7 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@99214aa6889fcddfa57764031d71add364327e59  # v6
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b  # v6
         with:
           role-to-assume: "arn:aws:iam::245040174862:role/GitHubCompatUploadRole"
           aws-region: us-east-1
