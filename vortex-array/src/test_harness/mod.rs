@@ -15,7 +15,6 @@ use crate::arrays::bool::BoolArrayExt;
 
 #[cfg(not(codspeed))]
 pub mod trace;
-pub mod trace_arrays;
 
 /// Check that a named metadata matches its previous versioning.
 ///

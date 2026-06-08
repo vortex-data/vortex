@@ -167,7 +167,7 @@ impl ArrayRef {
 
         crate::trace_op!(record_execute_until_start::<M>(&current_array));
 
-        for iteration in 1..=max_iterations {
+        for iteration in 0..max_iterations {
             crate::trace_op!(use(iteration));
             crate::trace_op!(record_execute_until_iteration(
                 iteration,
