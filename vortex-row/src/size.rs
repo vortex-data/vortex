@@ -181,7 +181,7 @@ pub(crate) fn row_size_struct_fields() -> StructFields {
             ],
         )
     });
-    *FIELDS
+    FIELDS.clone()
 }
 
 impl ScalarFnVTable for RowSize {
