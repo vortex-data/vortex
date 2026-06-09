@@ -47,12 +47,16 @@ impl ArrayParentReduceRule<Bool> for BoolMaskedValidityRule {
 
         // Merge the parent's validity mask into the child's validity
         // TODO(joe): make this lazy
-        Ok(Some(
-            BoolArray::new(
-                array.to_bit_buffer(),
-                array.validity()?.and(parent.validity()?)?,
-            )
-            .into_array(),
-        ))
+        // Safety:
+        // we know all elements are valid, the AND operation will fail if mismatched.
+        unsafe {
+            Ok(Some(
+                BoolArray::new_unchecked(
+                    array.to_bit_buffer(),
+                    array.validity()?.and(parent.validity()?)?,
+                )
+                .into_array(),
+            ))
+        }
     }
 }
