@@ -787,7 +787,6 @@ mod tests {
         let element_validity = elements
             .validity()
             .vortex_expect("constant canonical element validity should be derivable");
-
         assert!(element_validity.execute_is_valid(0, &mut ctx).unwrap());
         assert!(!element_validity.execute_is_valid(1, &mut ctx).unwrap());
         assert!(element_validity.execute_is_valid(2, &mut ctx).unwrap());

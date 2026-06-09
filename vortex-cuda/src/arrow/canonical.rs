@@ -483,7 +483,7 @@ async fn export_list_view(
 
     // The CPU fallback packs ListView ranges into a contiguous List.
     export_list(
-        list_from_list_view(listview)?,
+        list_from_list_view(listview, ctx.execution_ctx())?,
         ListChildExport::RebuiltListViewChild,
         ctx,
     )
