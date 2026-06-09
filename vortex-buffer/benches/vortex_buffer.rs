@@ -140,6 +140,42 @@ fn push_n_vortex_buffer<T: PrimInt>(bencher: Bencher, length: usize) {
         });
 }
 
+const SLICE_WINDOW: usize = 64;
+
+#[divan::bench(args = &[65_536usize])]
+fn slice_tight_loop_vortex(bencher: Bencher, len: usize) {
+    let buf = Buffer::<i32>::from_iter(
+        (0..i32::try_from(len).vortex_expect("len fits into i32")).map(|i| i % i32::MAX),
+    );
+    bencher.bench(|| {
+        let mut offset = 0;
+        while offset + SLICE_WINDOW <= len {
+            divan::black_box(buf.slice(offset..offset + SLICE_WINDOW));
+            offset += SLICE_WINDOW;
+        }
+    });
+}
+
+#[divan::bench(args = &[65_536usize])]
+fn slice_tight_loop_arrow(bencher: Bencher, len: usize) {
+    let buf = ScalarBuffer::<i32>::from_iter(
+        (0..i32::try_from(len).vortex_expect("len fits into i32")).map(|i| i % i32::MAX),
+    );
+    bencher.bench(|| {
+        let mut offset = 0;
+        while offset + SLICE_WINDOW <= len {
+            divan::black_box(buf.slice(offset, SLICE_WINDOW));
+            offset += SLICE_WINDOW;
+        }
+    });
+}
+
+#[divan::bench]
+fn slice_empty_vortex(bencher: Bencher) {
+    let buf = Buffer::<i32>::from_iter((0..1024).map(|i| i % i32::MAX));
+    bencher.bench(|| divan::black_box(buf.slice(8..8)));
+}
+
 #[divan::bench(args = INPUT_SIZE)]
 fn map_new_output(bencher: Bencher, n: i32) {
     bencher
