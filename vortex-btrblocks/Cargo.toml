@@ -14,8 +14,6 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
-arrow-array = { workspace = true, optional = true }
-arrow-schema = { workspace = true, optional = true }
 itertools = { workspace = true }
 num-traits = { workspace = true }
 parquet-variant-compute = { workspace = true, optional = true }
@@ -35,7 +33,7 @@ vortex-fsst = { workspace = true }
 vortex-json = { workspace = true, optional = true }
 vortex-mask = { workspace = true }
 vortex-onpair = { workspace = true, optional = true }
-vortex-parquet-variant = { workspace = true, optional = true }
+vortex-parquet-variant = { workspace = true, optional = true, features = ["json"] }
 vortex-pco = { workspace = true, optional = true }
 vortex-runend = { workspace = true }
 vortex-sequence = { workspace = true }
@@ -62,8 +60,6 @@ unstable_encodings = [
     "vortex-zstd?/unstable_encodings",
 ]
 parquet-variant = [
-    "dep:arrow-array",
-    "dep:arrow-schema",
     "dep:vortex-parquet-variant",
     "dep:parquet-variant-compute",
     "dep:vortex-session",

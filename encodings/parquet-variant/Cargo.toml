@@ -31,6 +31,7 @@ vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-proto = { workspace = true }
 vortex-session = { workspace = true }
+vortex-json = { workspace = true, optional = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
@@ -39,3 +40,6 @@ vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-file = { workspace = true, features = ["tokio"] }
 vortex-io = { workspace = true, features = ["tokio"] }
 vortex-layout = { workspace = true }
+
+[features]
+json = ["dep:vortex-json"]

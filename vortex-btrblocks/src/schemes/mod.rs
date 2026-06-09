@@ -10,6 +10,8 @@ pub mod float;
 pub mod integer;
 pub mod string;
 pub mod temporal;
+#[cfg(feature = "parquet-variant")]
+pub mod variant;
 
 pub(crate) mod patches;
 

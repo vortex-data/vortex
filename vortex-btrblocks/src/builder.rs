@@ -17,6 +17,8 @@ use crate::schemes::float;
 use crate::schemes::integer;
 use crate::schemes::string;
 use crate::schemes::temporal;
+#[cfg(feature = "parquet-variant")]
+use crate::schemes::variant;
 
 /// All available compression schemes.
 ///
@@ -159,6 +161,15 @@ impl BtrBlocksCompressorBuilder {
         builder
     }
 
+    /// Adds JSON-to-Parquet-Variant compression for [`vortex_json::Json`] extension arrays.
+    ///
+    /// This scheme is opt-in because it produces a Parquet Variant-backed wrapper encoding rather
+    /// than ordinary JSON string storage.
+    #[cfg(feature = "parquet-variant")]
+    pub fn with_json_to_variant(self) -> Self {
+        self.with_new_scheme(&variant::JsonToVariantScheme)
+    }
+
     /// Adds the TurboQuant lossy vector quantization scheme.
     ///
     /// When enabled, [`Vector`] extension arrays are compressed using the TurboQuant algorithm
@@ -239,5 +250,14 @@ mod tests {
     fn default_includes_all_schemes() {
         let builder = BtrBlocksCompressorBuilder::default();
         assert_eq!(builder.schemes.len(), ALL_SCHEMES.len());
+    }
+
+    #[cfg(feature = "parquet-variant")]
+    #[test]
+    fn json_to_variant_builder_method_adds_scheme() {
+        let builder = BtrBlocksCompressorBuilder::empty().with_json_to_variant();
+
+        assert_eq!(builder.schemes.len(), 1);
+        assert_eq!(builder.schemes[0].id(), variant::JsonToVariantScheme.id());
     }
 }

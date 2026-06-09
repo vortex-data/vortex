@@ -26,6 +26,8 @@
 
 mod array;
 mod arrow;
+#[cfg(feature = "json")]
+mod json;
 mod kernel;
 mod operations;
 mod validity;
@@ -34,6 +36,10 @@ mod vtable;
 use std::sync::Arc;
 
 pub use array::ParquetVariantArrayExt;
+#[cfg(feature = "json")]
+pub use json::VariantToJson;
+#[cfg(feature = "json")]
+pub use json::VariantToJsonArray;
 use vortex_array::arrow::ArrowSessionExt;
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
@@ -43,6 +49,8 @@ pub use vtable::ParquetVariantArray;
 /// Register Parquet Variant array and Arrow extension support with a session.
 pub fn initialize(session: &VortexSession) {
     session.arrays().register(ParquetVariant);
+    #[cfg(feature = "json")]
+    session.arrays().register(VariantToJson);
     session.arrow().register_exporter(Arc::new(ParquetVariant));
     session.arrow().register_importer(Arc::new(ParquetVariant));
 }

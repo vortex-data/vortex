@@ -58,7 +58,7 @@ fn parquet_variant_storage_request(fields: &Fields) -> Option<(bool, bool)> {
     (has_metadata && (has_value || has_typed_value)).then_some((has_value, has_typed_value))
 }
 
-fn export_storage_to_target<T: ParquetVariantArrayExt>(
+pub(crate) fn export_storage_to_target<T: ParquetVariantArrayExt>(
     parquet_array: &T,
     target_fields: &Fields,
     ctx: &mut ExecutionCtx,
