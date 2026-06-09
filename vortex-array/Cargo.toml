@@ -193,6 +193,10 @@ name = "varbinview_zip"
 harness = false
 
 [[bench]]
+name = "bool_zip"
+harness = false
+
+[[bench]]
 name = "take_primitive"
 harness = false
 
