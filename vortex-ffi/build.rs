@@ -13,24 +13,30 @@ fn main() {
     println!("cargo:rerun-if-changed=cbindgen.toml");
     println!("cargo:rerun-if-changed=Cargo.toml");
     println!("cargo:rerun-if-changed=build.rs");
-    for env in ["MIRI", "MIRIFLAGS", "CARGO_ENCODED_RUSTFLAGS"] {
+    for env in ["MIRI", "MIRIFLAGS", "CARGO_ENCODED_RUSTFLAGS", "RUSTFLAGS"] {
         println!("cargo:rerun-if-env-changed={env}");
     }
 
-    let is_asan = env::var("CARGO_ENCODED_RUSTFLAGS")
-        .unwrap_or_default()
-        .contains("address");
-    if is_asan {
+    // Sanitizer flags reach this build script through the raw `RUSTFLAGS` env var: under an
+    // explicit `--target` (as the sanitizer CI jobs use), Cargo does not surface them in
+    // `CARGO_ENCODED_RUSTFLAGS` for host build scripts. cbindgen expands macros in a nested build
+    // that carries neither the sanitizer flag nor `-Cunsafe-allow-abi-mismatch`, so it must be
+    // skipped under any sanitizer to avoid an `-Zsanitizer` ABI mismatch against the
+    // sanitizer-built dependencies.
+    let rustflags = format!(
+        "{} {}",
+        env::var("CARGO_ENCODED_RUSTFLAGS").unwrap_or_default(),
+        env::var("RUSTFLAGS").unwrap_or_default(),
+    );
+
+    if rustflags.contains("address") {
         println!("cargo:info=building with asan");
         println!("cargo:rustc-cfg=vortex_asan");
         println!("cargo:info=Skipping header generation due to sanitizers");
         return;
     }
 
-    if env::var("CARGO_ENCODED_RUSTFLAGS")
-        .unwrap_or_default()
-        .contains("sanitizer")
-    {
+    if rustflags.contains("sanitizer") {
         println!("cargo:info=Skipping header generation due to sanitizers");
         return;
     }
