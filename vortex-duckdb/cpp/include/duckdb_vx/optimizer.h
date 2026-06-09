@@ -18,6 +18,7 @@ duckdb_state duckdb_vx_optimizer_extension_register(duckdb_database ffi_db);
 #include "duckdb/planner/expression/bound_columnref_expression.hpp"
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
+#include <optional>
 
 // Only one consumer of this header file, so "using" is fine
 using namespace duckdb;
@@ -60,8 +61,6 @@ struct GetAnalysis {
      * or without function application in the query plan.
      */
     unordered_map<TableColumnScanIndex, const BoundFunctionExpression *> col_to_fn;
-
-    TableColumnStorageIndex storageIndex(TableColumnScanIndex column_index) const;
 };
 
 using Analyses = unordered_map<TableIndex, GetAnalysis>;
@@ -94,26 +93,22 @@ struct ScalarFnCollect final : LogicalOperatorVisitor {
     Analyses &analyses;
     const Projections &projections;
 
-    inline ScalarFnCollect(Analyses &analyses, const Projections &projections)
-        : analyses(analyses), projections(projections) {
-    }
+    ScalarFnCollect(Analyses &analyses, const Projections &projections);
     void VisitOperator(LogicalOperator &op) override;
     ExpressionPtr VisitReplace(BoundColumnRefExpression &expr, ExpressionPtr *ptr) override;
     ExpressionPtr VisitReplace(BoundFunctionExpression &expr, ExpressionPtr *ptr) override;
 };
 
 /*
- * Replace fn(col) without conflicts collected in ScalarFnCollect with "col".
- * Update return types for bound columns as well as logical projections
- * referencing this column.
+ * For "col" in columns collected by ScalarFnCollect, replace fn(col) to "col"
+ * if "col" doesn't have conflicting usage. Update return types for bound
+ * columns and logical projections referencing this column.
  */
 struct ScalarFnReplace final : LogicalOperatorVisitor {
     Analyses &analyses;
     const Projections &projections;
 
-    inline ScalarFnReplace(Analyses &analyses, const Projections &aliases)
-        : analyses(analyses), projections(aliases) {
-    }
+    ScalarFnReplace(Analyses &analyses, const Projections &aliases);
     ExpressionPtr VisitReplace(BoundColumnRefExpression &expr, ExpressionPtr *ptr) override;
     ExpressionPtr VisitReplace(BoundFunctionExpression &expr, ExpressionPtr *ptr) override;
 };
@@ -130,4 +125,17 @@ struct VortexOptimizerExtension final : OptimizerExtension {
     inline VortexOptimizerExtension() : OptimizerExtension(VortexOptimizeFunction, nullptr, {}) {
     }
 };
+
+struct Binding {
+    GetAnalysis &analysis;
+    TableColumnScanIndex column_index;
+};
+
+/*
+ * Given a column binding, resolve it to a GET and a GET's column scan index.
+ * Returns nullopt for virtual columns and columns which are neither part of
+ * GET nor part of PROJECTION wrapping a GET.
+ */
+std::optional<Binding> Resolve(ColumnBinding binding, Analyses &analyses, const Projections &projections);
+
 #endif

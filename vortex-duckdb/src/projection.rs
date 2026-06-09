@@ -14,6 +14,7 @@ use vortex::expr::get_item;
 use vortex::expr::merge;
 use vortex::expr::pack;
 use vortex::expr::root;
+use vortex::expr::select;
 use vortex::layout::layouts::row_idx::row_idx;
 use vortex::scan::selection::Selection;
 use vortex_utils::aliases::hash_set::HashSet;
@@ -69,7 +70,7 @@ impl Projection {
         let mut file_row_number_column_pos = None;
         let mut is_star = true;
         let mut real_column_count = 0;
-        let mut projected_col_count = 0;
+        let mut fn_col_count = 0;
 
         // DuckDB uses u64 as column indices but Rust uses usize
         for (column_pos, &column_id) in ids.iter().enumerate() {
@@ -97,11 +98,11 @@ impl Projection {
             // with (0..column_fields.len()) range.
             is_star &= column_id == real_column_count;
 
-            // If we SELECT len(str), we can't use root() as we try to pushdown
-            // scalar functions.
+            // Example: if we SELECT len(str), we can't use root() as we try to
+            // pushdown scalar functions.
             let column_id: usize = column_id.as_();
             let is_projected_col = column_fields[column_id].projection_fn.is_some();
-            projected_col_count += is_projected_col as usize;
+            fn_col_count += is_projected_col as usize;
             is_star &= !is_projected_col;
 
             real_column_count += 1;
@@ -110,8 +111,9 @@ impl Projection {
         // 5 columns total.
         is_star &= real_column_count == column_fields.len() as u64;
 
+        let has_file_row_number = file_row_number_column_pos.is_some();
         if is_star {
-            let projection = if file_row_number_column_pos.is_some() {
+            let projection = if has_file_row_number {
                 // row_idx will be moved to correct position in scan(), prepend here
                 let row_idx_struct = pack([("file_row_number", row_idx())], false.into());
                 merge([row_idx_struct, root()])
@@ -125,13 +127,13 @@ impl Projection {
             };
         }
 
-        // Build a single ordered list of (name, expr) in column_ids order so that
-        // ArrayExporter exports field[i] to the i-th DuckDB output vector correctly.
-        // Splitting into projected_expressions + named_fields and merging with
-        // projected first breaks the order when functions are pushed down.
-        let mut all_exprs: Vec<(&str, Expression)> = Vec::with_capacity(ids.len() + 1);
+        let has_fn_columns = fn_col_count > 0;
+        let mut all_exprs = Vec::with_capacity(
+            (ids.len() + has_file_row_number as usize) * has_fn_columns as usize,
+        );
+        let mut named_fields = Vec::with_capacity(ids.len() * !has_fn_columns as usize);
 
-        if file_row_number_column_pos.is_some() {
+        if has_file_row_number && has_fn_columns {
             // row_idx will be moved to correct position in scan(), prepend here
             all_exprs.push(("file_row_number", row_idx()));
         }
@@ -147,8 +149,13 @@ impl Projection {
                 continue;
             }
             let column_id: usize = column_id.as_();
-            let column_field = &column_fields[column_id];
             let name = column_fields[column_id].name.as_str();
+            if !has_fn_columns {
+                named_fields.push(name);
+                continue;
+            }
+
+            let column_field = &column_fields[column_id];
             let expr = match &column_field.projection_fn {
                 None => get_item(name, root()),
                 Some(func) => func.clone(),
@@ -156,7 +163,19 @@ impl Projection {
             all_exprs.push((name, expr));
         }
 
-        let projection = pack(all_exprs, false.into());
+        let projection = if has_fn_columns {
+            // If file_row_number was requested, it's in all_exprs as first
+            // element
+            pack(all_exprs, false.into())
+        } else if has_file_row_number {
+            let select = select(named_fields, root());
+            // Here we need to prepend it manually
+            // row_idx will be moved to correct position in scan()
+            let row_idx_struct = pack([("file_row_number", row_idx())], false.into());
+            merge([row_idx_struct, select])
+        } else {
+            select(named_fields, root())
+        };
 
         Self {
             projection,

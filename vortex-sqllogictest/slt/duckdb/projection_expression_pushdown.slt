@@ -15,15 +15,20 @@ include ../setup.slt.no
 
 # We need to test pushdown for column which scan index
 # (i.e. SELECT col) is 0 but which storage index is 1.
+# Table where str has storage_index=1 (not 0): exercises scan_index != storage_index.
 query I
-CREATE TABLE pep_test (before INTERGER, str STRING, after INTEGER);
+CREATE TABLE pep_test (before INTEGER, str VARCHAR, after INTEGER);
 ----
-1
 
 query I
-INSERT INTO pep_test VALUES ()
+INSERT INTO pep_test VALUES (0, 'Hello', 0), (1, 'Hi', 1), (2, 'Hey', 2);
 ----
-1
+3
+
+query I
+COPY (SELECT before, str, after FROM pep_test) TO '$__TEST_DIR__/pe-storage-idx.vortex';
+----
+3
 
 query I
 COPY (SELECT * FROM (VALUES ('Hello'), ('Hi'), ('Hey')) AS t(str)) TO '$__TEST_DIR__/pe-pushdown.vortex';
@@ -44,14 +49,23 @@ SELECT len(str) AS l FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY l DESC;
 3
 2
 
-# Can't push down prefix
+# Can't push down prefix: prefix() is not a supported pushdown function,
+# returns BOOLEAN, result is unaffected by any incorrect pushdown.
 query I
-SELECT prefix(str, 'H') AS l FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY l DESC;
+SELECT prefix(str, 'H')::INTEGER AS l FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY str;
 ----
-5
-3
-2
+1
+1
+1
 
+# len() used in WHERE with bare str in SELECT: conflict on str, no pushdown.
+query TI
+SELECT str, len(str) AS l FROM '$__TEST_DIR__/pe-pushdown.vortex'
+WHERE len(str) > 3 ORDER BY str;
+----
+Hello 5
+
+# str used bare and in len() in the same query: conflict, no pushdown, correct results.
 query TI
 SELECT str, len(str) AS l FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY str;
 ----
@@ -147,3 +161,82 @@ SELECT len(str) FROM cte2;
 5
 3
 2
+
+# --- storage_index != scan_index ---
+# str is the second column in storage (storage_index=1), but scan_index=0 when
+# only str is selected. Verifies that storageIndex() is used correctly for
+# returned_types and projection_expression_pushdown.
+query I
+SELECT len(str) AS l FROM '$__TEST_DIR__/pe-storage-idx.vortex' ORDER BY l DESC;
+----
+5
+3
+2
+
+query II
+SELECT before, len(str) AS l FROM '$__TEST_DIR__/pe-storage-idx.vortex' ORDER BY before;
+----
+0 5
+1 2
+2 3
+
+query II
+SELECT len(str) AS l, after FROM '$__TEST_DIR__/pe-storage-idx.vortex' ORDER BY after;
+----
+5 0
+2 1
+3 2
+
+# --- virtual columns: len() on real column, file_row_number alongside ---
+# Virtual columns must not block pushdown of len() on a real column.
+query II
+SELECT len(str) AS l, file_row_number FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY l DESC;
+----
+5 0
+3 2
+2 1
+
+# len() on real column alongside file_index virtual column.
+query II
+SELECT len(str) AS l, file_index FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY l DESC;
+----
+5 0
+3 0
+2 0
+
+# --- nested VIEW: pushdown is skipped (two levels deep), results still correct ---
+# pe2 is SELECT str FROM pe1, which is SELECT str FROM vortex. Two PROJECTION
+# levels: optimizer only resolves one level, so no pushdown here. Correct output
+# must still be produced by DuckDB computing len() after the scan.
+query I
+SELECT len(str) AS l FROM pe2 ORDER BY l DESC;
+----
+5
+3
+2
+
+# nested VIEW with both str and len(str): no pushdown (two levels), correct results.
+query TI
+SELECT str, len(str) AS l FROM pe2 ORDER BY str;
+----
+Hello 5
+Hey 3
+Hi 2
+
+# nested VIEW via CTE wrapping pe2.
+query I
+WITH cte AS (SELECT str FROM pe2)
+SELECT len(str) FROM cte ORDER BY str;
+----
+5
+3
+2
+
+# --- can't push prefix through VIEW (not a supported function) ---
+# Verifies that an unsupported function in a view does not corrupt the plan.
+query I
+SELECT prefix(str, 'H')::INTEGER FROM pe1 ORDER BY str;
+----
+1
+1
+1
