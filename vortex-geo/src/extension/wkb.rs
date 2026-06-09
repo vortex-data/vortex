@@ -18,12 +18,16 @@ use geoarrow::datatypes::WkbType;
 use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrow::ArrowExport;
 use vortex_array::arrow::ArrowExportVTable;
+use vortex_array::arrow::ArrowImport;
+use vortex_array::arrow::ArrowImportVTable;
 use vortex_array::arrow::ArrowSession;
 use vortex_array::arrow::ArrowSessionExt;
+use vortex_array::arrow::FromArrowArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtId;
@@ -244,6 +248,49 @@ impl ArrowExportVTable for WellKnownBinary {
     }
 }
 
+impl ArrowImportVTable for WellKnownBinary {
+    fn arrow_ext_id(&self) -> Id {
+        *ARROW_WKB
+    }
+
+    fn from_arrow_field(&self, field: &Field) -> VortexResult<Option<DType>> {
+        let Ok(wkb_meta) = field.try_extension_type::<WkbType>() else {
+            return Ok(None);
+        };
+
+        let storage_dtype = DType::Binary(field.is_nullable().into());
+        Ok(Some(DType::Extension(
+            ExtDType::try_with_vtable(WellKnownBinary, geo_metadata(&wkb_meta), storage_dtype)?
+                .erased(),
+        )))
+    }
+
+    fn from_arrow_array(
+        &self,
+        array: ArrowArrayRef,
+        field: &Field,
+        dtype: &DType,
+    ) -> VortexResult<ArrowImport> {
+        let Some(ext_dtype) = dtype.as_extension_opt() else {
+            return Ok(ArrowImport::Unsupported(array));
+        };
+        if !ext_dtype.is::<WellKnownBinary>()
+            || field.try_extension_type::<WkbType>().is_err()
+            || !matches!(
+                array.data_type(),
+                DataType::Binary | DataType::LargeBinary | DataType::BinaryView
+            )
+        {
+            return Ok(ArrowImport::Unsupported(array));
+        }
+
+        let storage = ArrayRef::from_arrow(array.as_ref(), field.is_nullable())?;
+        Ok(ArrowImport::Imported(
+            ExtensionArray::new(ext_dtype.clone(), storage).into_array(),
+        ))
+    }
+}
+
 fn wkb_type(geo_metadata: &GeoMetadata) -> WkbType {
     let metadata = Metadata::new(
         geo_metadata
@@ -254,4 +301,17 @@ fn wkb_type(geo_metadata: &GeoMetadata) -> WkbType {
         None,
     );
     WkbType::new(Arc::new(metadata))
+}
+
+fn geo_metadata(wkb_type: &WkbType) -> GeoMetadata {
+    let crs = wkb_type.metadata().crs().crs_value().map(|value| {
+        // `Crs::from_unknown_crs_type` stores the user's string verbatim as a JSON string
+        // value, so prefer the raw string when available to round-trip cleanly. For other
+        // CRS encodings (PROJJSON object, etc.), fall back to the JSON-encoded form.
+        value
+            .as_str()
+            .map(str::to_string)
+            .unwrap_or_else(|| value.to_string())
+    });
+    GeoMetadata { crs }
 }
