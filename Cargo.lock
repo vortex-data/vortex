@@ -9837,6 +9837,7 @@ dependencies = [
  "vortex-error",
  "vortex-fastlanes",
  "vortex-fsst",
+ "vortex-json",
  "vortex-mask",
  "vortex-onpair",
  "vortex-parquet-variant",

@@ -30,9 +30,6 @@ use vortex_array::arrow::to_arrow_null_buffer;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::extension::ExtDType;
-use vortex_array::dtype::extension::ExtId;
-use vortex_array::dtype::extension::ExtVTable;
-use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::NotSupported;
@@ -49,6 +46,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_json::Json;
 use vortex_parquet_variant::ParquetVariant;
 use vortex_parquet_variant::ParquetVariantArrayExt;
 use vortex_session::VortexSession;
@@ -72,47 +70,6 @@ mod variant_to_json_children {
     pub const VARIANT: usize = 0;
     pub const NUM_SLOTS: usize = 1;
     pub const SLOT_NAMES: [&str; NUM_SLOTS] = ["variant"];
-}
-
-/// JSON logical type backed by UTF-8 string storage.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
-pub struct Json;
-
-impl ExtVTable for Json {
-    type Metadata = EmptyMetadata;
-    type NativeValue<'a> = &'a str;
-
-    fn id(&self) -> ExtId {
-        ExtId::new("vortex.json")
-    }
-
-    fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
-        Ok(Vec::new())
-    }
-
-    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
-        vortex_ensure!(metadata.is_empty(), "JSON metadata must be empty");
-        Ok(EmptyMetadata)
-    }
-
-    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-        vortex_ensure!(
-            ext_dtype.storage_dtype().is_utf8(),
-            "JSON storage dtype must be utf8, got {}",
-            ext_dtype.storage_dtype()
-        );
-        Ok(())
-    }
-
-    fn unpack_native<'a>(
-        _ext_dtype: &'a ExtDType<Self>,
-        storage_value: &'a ScalarValue,
-    ) -> VortexResult<Self::NativeValue<'a>> {
-        let ScalarValue::Utf8(value) = storage_value else {
-            vortex_bail!("JSON storage scalar must be utf8, got {storage_value}");
-        };
-        Ok(value.as_str())
-    }
 }
 
 /// Array that exposes a Variant array as JSON strings.
@@ -440,6 +397,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     use super::*;
+    use crate::schemes::binary;
     use crate::schemes::binary::BinaryFSSTScheme;
     use crate::schemes::integer::BitPackingScheme;
     use crate::schemes::integer::FoRScheme;
@@ -734,9 +692,8 @@ mod tests {
         let variant_compressor = CascadingCompressor::new(vec![
             &JsonToVariantScheme,
             &BinaryDictScheme,
-            // &FSSTScheme,
             &BinaryFSSTScheme,
-            // &crate::schemes::binary::BinaryZstdScheme,
+            &binary::ZstdScheme,
             &IntConstantScheme,
             &StringConstantScheme,
             &FoRScheme,
@@ -748,13 +705,6 @@ mod tests {
         ]);
         let mut exec_ctx = SESSION.create_execution_ctx();
         let compressed = variant_compressor.compress(&array, &mut exec_ctx)?;
-        // let extension = compressed.clone().downcast::<Extension>();
-        // let storage = extension.storage_array();
-        // assert!(
-        //     storage.is::<Zstd>(),
-        //     "expected JSON extension storage fallback to use zstd, got {}",
-        //     storage.encoding_id(),
-        // );
 
         print_comparison_output(&array, &string_compressed, &compressed);
 
