@@ -11,6 +11,20 @@ include ../setup.slt.no
 # + view
 # + nested view
 
+# + virtual columns
+
+# We need to test pushdown for column which scan index
+# (i.e. SELECT col) is 0 but which storage index is 1.
+query I
+CREATE TABLE pep_test (before INTERGER, str STRING, after INTEGER);
+----
+1
+
+query I
+INSERT INTO pep_test VALUES ()
+----
+1
+
 query I
 COPY (SELECT * FROM (VALUES ('Hello'), ('Hi'), ('Hey')) AS t(str)) TO '$__TEST_DIR__/pe-pushdown.vortex';
 ----
@@ -25,6 +39,14 @@ Hi
 
 query I
 SELECT len(str) AS l FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY l DESC;
+----
+5
+3
+2
+
+# Can't push down prefix
+query I
+SELECT prefix(str, 'H') AS l FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY l DESC;
 ----
 5
 3

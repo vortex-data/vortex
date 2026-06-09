@@ -189,7 +189,8 @@ pub fn try_from_projection_expression(
                 // byte_length returns u64 but strlen expects i64
                 // TODO(myrrc): transmute since no one cares about upper but
                 let col = byte_length(get_item(col_name, root()));
-                let col = cast(col, DType::Primitive(PType::I64, false.into()));
+                // This cast is an issue, it decompresses fsst
+                //let col = cast(col, DType::Primitive(PType::I64, false.into()));
                 Some(col)
             }
             _ => None,

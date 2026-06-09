@@ -25,21 +25,46 @@ using namespace duckdb;
 using ExpressionPtr = unique_ptr<Expression>;
 using LogicalOperatorPtr = unique_ptr<LogicalOperator>;
 
-// Compatibility with duckdb's main branch where these are structs
-using TableColumnIndex = idx_t;
-using TableColumnPrimaryIndex = idx_t;
+/**
+ * Column index in requested scan. Example:
+ *
+ * CREATE TABLE t (a1 INTEGER, a2 INTEGER, a3 INTEGER);
+ * SELECT a2, a3 FROM t;
+ *
+ * a2's TableColumnScanIndex is 0, a3's TableColumnScanIndex is 1,
+ * index is index in SELECT clause.
+ */
+using TableColumnScanIndex = idx_t;
+
+/**
+ * Column index in table's storage. Example:
+ *
+ * CREATE TABLE t (a1 INTEGER, a2 INTEGER, a3 INTEGER);
+ * SELECT a2, a3 FROM t;
+ *
+ * a2's TableColumnStorageIndex is 1, a3's TableColumnScanIndex is 2,
+ * index is index of column in table storage.
+ *
+ * for i: TableColumnScanIndex, column_ids[i].GetPrimaryIndex() is
+ * TableColumnStorageIndex
+ */
+using TableColumnStorageIndex = idx_t;
+
+using TableIndex = idx_t;
 
 struct GetAnalysis {
     LogicalGet &get;
     /**
-     * for fn(col), mapping of "col storage index" -> "fn expression".
+     * for fn(col), mapping of "col scan index" -> "fn expression".
      * "fn expression" is nullptr iff column is used with a different function
      * or without function application in the query plan.
      */
-    unordered_map<TableColumnPrimaryIndex, const BoundFunctionExpression *> col_to_fn;
+    unordered_map<TableColumnScanIndex, const BoundFunctionExpression *> col_to_fn;
+
+    TableColumnStorageIndex storageIndex(TableColumnScanIndex column_index) const;
 };
 
-using Analyses = unordered_map<TableColumnIndex, GetAnalysis>;
+using Analyses = unordered_map<TableIndex, GetAnalysis>;
 
 /*
  * Query plans may have PROJECTIONs which wrap GETs. One example is VIEWs for
@@ -58,7 +83,7 @@ using Analyses = unordered_map<TableColumnIndex, GetAnalysis>;
  * For simplicity, current implementation is limited to one level i.e.
  * VIEW -> GET is pushed down but VIEW->VIEW->GET or VIEW->CTE->GET is not.
  */
-using Projections = unordered_map<TableColumnIndex, const LogicalProjection &>;
+using Projections = unordered_map<TableIndex, const LogicalProjection &>;
 
 /**
  * Collect fn(col) expressions i.e. expressions where a single function (not

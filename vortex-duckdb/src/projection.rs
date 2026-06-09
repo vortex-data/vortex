@@ -10,10 +10,10 @@ use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::col;
+use vortex::expr::get_item;
 use vortex::expr::merge;
 use vortex::expr::pack;
 use vortex::expr::root;
-use vortex::expr::select;
 use vortex::layout::layouts::row_idx::row_idx;
 use vortex::scan::selection::Selection;
 use vortex_utils::aliases::hash_set::HashSet;
@@ -125,12 +125,15 @@ impl Projection {
             };
         }
 
-        let mut projected_expressions = Vec::with_capacity(projected_col_count);
-        let mut named_fields = Vec::with_capacity(ids.len() - projected_col_count);
+        // Build a single ordered list of (name, expr) in column_ids order so that
+        // ArrayExporter exports field[i] to the i-th DuckDB output vector correctly.
+        // Splitting into projected_expressions + named_fields and merging with
+        // projected first breaks the order when functions are pushed down.
+        let mut all_exprs: Vec<(&str, Expression)> = Vec::with_capacity(ids.len() + 1);
 
         if file_row_number_column_pos.is_some() {
             // row_idx will be moved to correct position in scan(), prepend here
-            projected_expressions.push(("file_row_number", row_idx()));
+            all_exprs.push(("file_row_number", row_idx()));
         }
 
         for &column_id in ids {
@@ -146,18 +149,14 @@ impl Projection {
             let column_id: usize = column_id.as_();
             let column_field = &column_fields[column_id];
             let name = column_fields[column_id].name.as_str();
-            match &column_field.projection_fn {
-                None => named_fields.push(name),
-                Some(func) => projected_expressions.push((name, func.clone())),
-            }
+            let expr = match &column_field.projection_fn {
+                None => get_item(name, root()),
+                Some(func) => func.clone(),
+            };
+            all_exprs.push((name, expr));
         }
 
-        let select = select(named_fields, root());
-        let projection = if projected_expressions.is_empty() {
-            select
-        } else {
-            merge([pack(projected_expressions, false.into()), select])
-        };
+        let projection = pack(all_exprs, false.into());
 
         Self {
             projection,

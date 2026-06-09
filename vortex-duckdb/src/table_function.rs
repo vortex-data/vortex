@@ -435,7 +435,7 @@ pub fn pushdown_projection_expression(
     projection_id: usize,
 ) -> VortexResult<bool> {
     let col_name = &bind_data.column_fields[projection_id].name;
-    debug!(%expr, %col_name, "pushing down projection expression");
+    debug!(%expr, %projection_id, %col_name, "pushing down projection expression");
     match try_from_projection_expression(expr, col_name)? {
         None => {
             debug!(%expr, "failed to push down expression");

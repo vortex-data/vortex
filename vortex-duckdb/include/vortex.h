@@ -64,7 +64,7 @@ bool duckdb_table_function_pushdown_complex_filter(void *bind_data,
 extern
 bool duckdb_table_function_pushdown_projection_expression(void *bind_data,
                                                           duckdb_vx_expr expr,
-                                                          size_t projection_id,
+                                                          size_t column_id,
                                                           duckdb_vx_error *error_out);
 
 extern

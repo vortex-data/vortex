@@ -96,7 +96,7 @@ impl ScalarFnVTable for ByteLength {
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         match &arg_dtypes[0] {
             DType::Utf8(nullable) | DType::Binary(nullable) => {
-                Ok(DType::Primitive(PType::U64, *nullable))
+                Ok(DType::Primitive(PType::I64, *nullable))
             }
             other => vortex_bail!("byte_length() requires Utf8 or Binary, got {other}"),
         }
@@ -133,7 +133,7 @@ impl ScalarFnVTable for ByteLength {
 
 fn scalar_byte_length(scalar: &Scalar, nullability: Nullability) -> VortexResult<Scalar> {
     if scalar.is_null() {
-        let dtype = DType::Primitive(PType::U64, Nullability::Nullable);
+        let dtype = DType::Primitive(PType::I64, Nullability::Nullable);
         return Ok(Scalar::null(dtype));
     }
     let len = match scalar.dtype() {
@@ -149,7 +149,7 @@ fn scalar_byte_length(scalar: &Scalar, nullability: Nullability) -> VortexResult
             .len(),
         other => vortex_bail!("byte_length() requires Utf8 or Binary, got {other}"),
     };
-    let len: u64 = len.as_();
+    let len: i64 = len.as_();
     Ok(Scalar::primitive(len, nullability))
 }
 
@@ -160,7 +160,7 @@ pub(crate) fn byte_length(
 ) -> VortexResult<ArrayRef> {
     let array = array.clone().execute::<VarBinViewArray>(ctx)?;
     let validity = array.varbinview_validity();
-    let lengths: Buffer<u64> = array.views().iter().map(|v| v.len() as u64).collect();
+    let lengths: Buffer<i64> = array.views().iter().map(|v| v.len() as i64).collect();
     Ok(PrimitiveArray::new(lengths, validity.union_nullability(nullability)).into_array())
 }
 

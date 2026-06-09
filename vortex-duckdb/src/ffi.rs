@@ -116,14 +116,14 @@ unsafe extern "C-unwind" fn duckdb_table_function_pushdown_complex_filter(
 unsafe extern "C-unwind" fn duckdb_table_function_pushdown_projection_expression(
     bind_data: *mut c_void,
     expr: cpp::duckdb_vx_expr,
-    projection_id: usize,
+    column_id: usize,
     error_out: *mut cpp::duckdb_vx_error,
 ) -> bool {
     let bind_data = unsafe { bind_data.cast::<TableFunctionBind>().as_mut() }
         .vortex_expect("bind_data null pointer");
     let expr = unsafe { Expression::borrow(expr) };
     try_or(error_out, || {
-        pushdown_projection_expression(bind_data, expr, projection_id)
+        pushdown_projection_expression(bind_data, expr, column_id)
     })
 }
 
