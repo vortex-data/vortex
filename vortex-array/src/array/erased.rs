@@ -47,13 +47,13 @@ use crate::arrays::VarBinView;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
-use crate::dtype::Nullability;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
 use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
+use crate::scalar::ScalarValue;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 
@@ -239,13 +239,10 @@ impl ArrayRef {
                     matches!(
                         stat,
                         Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
-                    ) && value.as_ref().as_exact().is_some_and(|v| {
-                        Scalar::try_new(DType::Bool(Nullability::NonNullable), Some(v.clone()))
-                            .vortex_expect("A stat that was expected to be a boolean stat was not")
-                            .as_bool()
-                            .value()
-                            .unwrap_or_default()
-                    })
+                    ) && value
+                        .as_ref()
+                        .as_exact()
+                        .is_some_and(|v| matches!(v, ScalarValue::Bool(true)))
                 }));
             });
         }
