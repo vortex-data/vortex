@@ -1,0 +1,10 @@
+allowBuilds:
+  # testcontainers reaches the local Docker daemon over the unix socket via
+  # dockerode; ssh2 (and its optional cpu-features perf addon) is only needed
+  # for remote SSH Docker hosts, and protobufjs's postinstall is a CLI codegen
+  # step. None are required at runtime, so skip their native builds.
+  cpu-features: false
+  protobufjs: false
+  sharp: true
+  ssh2: false
+  unrs-resolver: true
