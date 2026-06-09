@@ -84,6 +84,8 @@ fn select_values<T: NativePType>(
             .values()
             .vortex_expect("mask is Mask::Values")
             .bit_buffer();
+        // TODO(perf): `unaligned_chunks` is a faster single-buffer iterator than `chunks`; switch to
+        // it here, handling its lead/trailing padding.
         let chunks = mask_bits.chunks();
 
         let mut base = 0;
