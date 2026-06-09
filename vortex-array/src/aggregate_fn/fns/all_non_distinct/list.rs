@@ -3,6 +3,7 @@
 
 use vortex_error::VortexResult;
 
+use super::super::list_offsets_to_usize;
 use super::all_non_distinct;
 use super::filter::filter_valid_rows_if_needed;
 use crate::ExecutionCtx;
@@ -31,21 +32,22 @@ pub(super) fn check_list_identical(
     let lhs = list_from_list_view(lhs.clone())?;
     let rhs = list_from_list_view(rhs.clone())?;
 
-    if !check_list_offsets_identical(&lhs, &rhs)? {
+    if !check_list_offsets_identical(&lhs, &rhs, ctx)? {
         return Ok(false);
     }
 
     all_non_distinct(lhs.elements(), rhs.elements(), ctx)
 }
 
-fn check_list_offsets_identical(lhs: &ListArray, rhs: &ListArray) -> VortexResult<bool> {
-    for idx in 0..=lhs.len() {
-        if lhs.offset_at(idx)? != rhs.offset_at(idx)? {
-            return Ok(false);
-        }
-    }
-
-    Ok(true)
+fn check_list_offsets_identical(
+    lhs: &ListArray,
+    rhs: &ListArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<bool> {
+    // Resolve both offset arrays once instead of calling `offset_at` per row.
+    let lhs_offsets = list_offsets_to_usize(lhs.offsets(), ctx)?;
+    let rhs_offsets = list_offsets_to_usize(rhs.offsets(), ctx)?;
+    Ok(lhs_offsets == rhs_offsets)
 }
 
 fn check_zero_copy_list_identical(
@@ -60,21 +62,27 @@ fn check_zero_copy_list_identical(
         return Ok(true);
     }
 
-    let lhs_base = lhs.offset_at(0);
-    let rhs_base = rhs.offset_at(0);
+    // Resolve offsets/sizes once instead of probing `offset_at`/`size_at` per row.
+    let lhs_offsets = list_offsets_to_usize(lhs.offsets(), ctx)?;
+    let lhs_sizes = list_offsets_to_usize(lhs.sizes(), ctx)?;
+    let rhs_offsets = list_offsets_to_usize(rhs.offsets(), ctx)?;
+    let rhs_sizes = list_offsets_to_usize(rhs.sizes(), ctx)?;
+
+    let lhs_base = lhs_offsets[0];
+    let rhs_base = rhs_offsets[0];
 
     for idx in 0..lhs.len() {
-        if lhs.size_at(idx) != rhs.size_at(idx) {
+        if lhs_sizes[idx] != rhs_sizes[idx] {
             return Ok(false);
         }
 
-        if lhs.offset_at(idx) - lhs_base != rhs.offset_at(idx) - rhs_base {
+        if lhs_offsets[idx] - lhs_base != rhs_offsets[idx] - rhs_base {
             return Ok(false);
         }
     }
 
-    let lhs_end = lhs.offset_at(lhs.len() - 1) + lhs.size_at(lhs.len() - 1);
-    let rhs_end = rhs.offset_at(rhs.len() - 1) + rhs.size_at(rhs.len() - 1);
+    let lhs_end = lhs_offsets[lhs.len() - 1] + lhs_sizes[lhs.len() - 1];
+    let rhs_end = rhs_offsets[rhs.len() - 1] + rhs_sizes[rhs.len() - 1];
 
     let lhs_elements = lhs.elements().slice(lhs_base..lhs_end)?;
     let rhs_elements = rhs.elements().slice(rhs_base..rhs_end)?;

@@ -3,6 +3,7 @@
 
 use vortex_error::VortexResult;
 
+use super::super::list_offsets_to_usize;
 use super::arrays_value_equal;
 use super::is_constant;
 use crate::ExecutionCtx;
@@ -26,8 +27,9 @@ pub(super) fn check_listview_constant(
         return Ok(false);
     }
 
-    let first_size = l.size_at(0);
-    if first_size == 0 {
+    // Resolve sizes once instead of probing `size_at` per row below.
+    let sizes = list_offsets_to_usize(l.sizes(), ctx)?;
+    if sizes[0] == 0 {
         return Ok(true);
     }
 
@@ -37,9 +39,15 @@ pub(super) fn check_listview_constant(
     }
 
     // Check each list individually, this can be expensive.
-    let first_elements = l.list_elements_at(0)?;
+    // Resolve offsets once and slice elements directly rather than calling `list_elements_at`
+    // (which probes `offset_at`/`size_at`) per row.
+    let offsets = list_offsets_to_usize(l.offsets(), ctx)?;
+    let elements = l.elements();
+    let element_at = |i: usize| elements.slice(offsets[i]..offsets[i] + sizes[i]);
+
+    let first_elements = element_at(0)?;
     for i in 1..l.len() {
-        let current_elements = l.list_elements_at(i)?;
+        let current_elements = element_at(i)?;
         if !arrays_value_equal(&first_elements, &current_elements, ctx)? {
             return Ok(false);
         }

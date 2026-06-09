@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
+use num_traits::AsPrimitive;
 use num_traits::NumCast;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -199,6 +200,20 @@ fn execute_sparse_lists(
     }))
 }
 
+/// Resolve a list `offsets`/`sizes` child to a `Vec<usize>` in a single pass, avoiding the
+/// per-index `execute_scalar` fallback that `offset_at`/`size_at` take for non-primitive children.
+fn list_offsets_to_usize(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Vec<usize>> {
+    let primitive = array.clone().execute::<PrimitiveArray>(ctx)?;
+    let primitive = primitive.reinterpret_cast(primitive.ptype().to_unsigned());
+    Ok(match_each_unsigned_integer_ptype!(primitive.ptype(), |P| {
+        primitive
+            .as_slice::<P>()
+            .iter()
+            .map(|v| (*v).as_())
+            .collect()
+    }))
+}
+
 #[expect(clippy::too_many_arguments)]
 fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
     patch_indices: &[I],
@@ -224,6 +239,14 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
         .execute_mask(patch_values.len(), ctx)
         .vortex_expect("sparse list validity mask failed to execute");
 
+    // Resolve the patch list offsets/sizes once instead of probing `list_elements_at` (which
+    // calls `offset_at`/`size_at`) per patch.
+    let patch_offsets = list_offsets_to_usize(patch_values.offsets(), ctx)
+        .vortex_expect("resolve patch list offsets");
+    let patch_sizes =
+        list_offsets_to_usize(patch_values.sizes(), ctx).vortex_expect("resolve patch list sizes");
+    let patch_elements = patch_values.elements();
+
     let mut next_index = 0;
 
     for ((patch_idx, sparse_idx), patch_valid) in patch_indices
@@ -242,9 +265,9 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
         );
 
         if patch_valid {
-            let patch_list = patch_values
-                .list_elements_at(patch_idx)
-                .vortex_expect("list_elements_at");
+            let patch_list = patch_elements
+                .slice(patch_offsets[patch_idx]..patch_offsets[patch_idx] + patch_sizes[patch_idx])
+                .vortex_expect("slice patch list elements");
             builder
                 .append_array_as_list(&patch_list)
                 .vortex_expect("Failed to append sparse value");
