@@ -52,7 +52,7 @@ impl FileLocation {
     ///   `props` entries take precedence over same-named environment variables.
     ///
     /// No caching is performed. Callers that need process-level store reuse should maintain
-    /// their own registry (e.g. a `LazyLock<Mutex<HashMap<...>>>`) in their own crate.
+    /// their own registry in their own crate.
     pub fn resolve_with_props<K, V>(
         url_or_path: impl AsRef<str>,
         props: impl IntoIterator<Item = (K, V)>,
