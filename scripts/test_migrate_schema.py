@@ -1430,3 +1430,153 @@ def test_real_migrations_apply_as_non_superuser_createrole_master(
         # Leave the module-scoped container clean for sibling tests.
         with conn.cursor() as cur:
             _scrub_bootstrap_roles(cur)
+
+
+# ---------------------------------------------------------------------------
+# `requires-superuser` bootstrap-ordering guard (gap #4 / PR-3.1 re-plan).
+#
+# The marker-detection tests are pure (no Docker); the rejection test is
+# testcontainer-gated like the rest of the suite.
+# ---------------------------------------------------------------------------
+
+
+def test_migration_requires_superuser_detects_marker() -> None:
+    """The marker is recognised anywhere in the header comment block."""
+    assert runner._migration_requires_superuser(
+        "-- SPDX-License-Identifier: Apache-2.0\n"
+        "-- migrate-schema: requires-superuser\n"
+        "CREATE ROLE foo WITH LOGIN;\n"
+    )
+    # Extra dashes + surrounding whitespace still match the exact directive.
+    assert runner._migration_requires_superuser(
+        "   ---  migrate-schema: requires-superuser  \nSELECT 1;\n"
+    )
+
+
+def test_migration_requires_superuser_false_without_exact_marker() -> None:
+    """Additive migrations, near-misses, and in-string text do NOT match."""
+    assert not runner._migration_requires_superuser(
+        "-- SPDX-License-Identifier: Apache-2.0\nCREATE TABLE t (x int);\n"
+    )
+    # Missing colon -> not the exact directive.
+    assert not runner._migration_requires_superuser(
+        "-- migrate-schema: requires superuser\nSELECT 1;\n"
+    )
+    # The directive text inside a non-comment SQL line must not trigger it.
+    assert not runner._migration_requires_superuser(
+        "INSERT INTO t VALUES ('migrate-schema: requires-superuser');\n"
+    )
+
+
+def test_real_bootstrap_migrations_carry_superuser_marker() -> None:
+    """002 + 004 (role/grant bootstrap) are marked; 001 + 003 (additive / owned-grant) are not."""
+    by_name = {
+        p.name: p.read_text(encoding="utf-8") for p in runner.discover(REPO_MIGRATIONS_DIR)
+    }
+    for marked in ("002_iam_db_user.sql", "004_ingest_role.sql"):
+        assert marked in by_name, f"expected {marked} in migrations/"
+        assert runner._migration_requires_superuser(by_name[marked]), (
+            f"{marked} creates roles / runs ALTER DEFAULT PRIVILEGES and must carry the "
+            "requires-superuser marker"
+        )
+    for unmarked in ("001_initial_schema.sql", "003_migrator_ledger_grant.sql"):
+        assert unmarked in by_name, f"expected {unmarked} in migrations/"
+        assert not runner._migration_requires_superuser(by_name[unmarked]), (
+            f"{unmarked} needs neither superuser nor CREATEROLE and must NOT carry the marker"
+        )
+
+
+_LEAST_PRIV_SIM_PASSWORD = "least_priv_sim_pw"  # noqa: S105 -- test-only literal
+
+
+def _least_priv_sim_dsn(postgres_dsn: str) -> str:
+    """DSN that logs in AS the modeled least-privilege role `least_priv_sim`."""
+    info = conninfo.conninfo_to_dict(postgres_dsn)
+    info["user"] = "least_priv_sim"
+    info["password"] = _LEAST_PRIV_SIM_PASSWORD
+    return conninfo.make_conninfo(**info)
+
+
+def test_master_capable_true_for_superuser_conn(conn: psycopg.Connection) -> None:
+    """Positive control: the testcontainer's superuser login is master-capable."""
+    _require_docker_for_testcontainers()
+    assert runner._role_is_master_capable(conn) is True
+
+
+def test_requires_superuser_migration_rejected_for_non_master_role(
+    conn: psycopg.Connection, postgres_dsn: str, migrations_dir: Path
+) -> None:
+    """A marked migration is rejected BEFORE any DDL when applied by a non-master role.
+
+    Models the misconfiguration the gap-#4 guard exists for: a least-privilege
+    `migrator`-class login (NOSUPERUSER NOCREATEROLE) reaching a `requires-superuser`
+    bootstrap migration. The guard must fail loud + early -- the marked migration's
+    DDL must NOT have run -- so the operator fixes the bootstrap ordering instead of
+    debugging a mid-`DO`-block InsufficientPrivilege rollback. The probe body
+    (`CREATE TABLE`) is one the least-priv role COULD run given CREATE on `public`, so
+    the ONLY thing that can block it is the preflight, not a DDL permission error.
+    """
+    _require_docker_for_testcontainers()
+    conn.autocommit = True
+
+    def _drop_least_priv() -> None:
+        with conn.cursor() as cur:
+            cur.execute("DROP TABLE IF EXISTS probe_marked")
+            # DROP OWNED first: the role may own the ledger it created in `apply`, and
+            # it holds schema privileges -- both block a bare DROP ROLE.
+            cur.execute(
+                "DO $$ BEGIN "
+                "  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'least_priv_sim') THEN "
+                "    EXECUTE 'DROP OWNED BY least_priv_sim CASCADE'; "
+                "    EXECUTE 'DROP ROLE least_priv_sim'; "
+                "  END IF; "
+                "END $$;"
+            )
+
+    _drop_least_priv()
+    with conn.cursor() as cur:
+        cur.execute(
+            pg_sql.SQL(
+                "CREATE ROLE least_priv_sim WITH LOGIN NOSUPERUSER NOCREATEROLE PASSWORD {}"
+            ).format(pg_sql.Literal(_LEAST_PRIV_SIM_PASSWORD))
+        )
+        # CREATE on public so it COULD create the ledger + the probe table; this proves
+        # the rejection is the preflight, not a DDL permission error on the body.
+        cur.execute("GRANT CREATE, USAGE ON SCHEMA public TO least_priv_sim")
+
+    marked = migrations_dir / "001_probe_requires_superuser.sql"
+    marked.write_text(
+        "-- migrate-schema: requires-superuser\nCREATE TABLE probe_marked (x int);\n",
+        encoding="utf-8",
+    )
+
+    try:
+        with psycopg.connect(_least_priv_sim_dsn(postgres_dsn)) as least_priv:
+            least_priv.autocommit = True
+            is_super, can_createrole = least_priv.execute(
+                "SELECT rolsuper, rolcreaterole FROM pg_roles WHERE rolname = current_user"
+            ).fetchone()
+            assert (is_super, can_createrole) == (False, False), (
+                "fidelity requires a NOSUPERUSER NOCREATEROLE login"
+            )
+            assert runner._role_is_master_capable(least_priv) is False
+
+            with pytest.raises(PermissionError, match="requires-superuser"):
+                runner.apply(least_priv, migrations_dir)
+
+        with conn.cursor() as cur:
+            # The marked migration's DDL must NOT have run: the preflight fired first.
+            cur.execute("SELECT to_regclass('public.probe_marked') IS NULL")
+            assert cur.fetchone()[0] is True, (
+                "preflight must reject before the marked migration's CREATE TABLE runs"
+            )
+            # And it must NOT be recorded as applied.
+            cur.execute("SELECT to_regclass('public._applied_migrations') IS NOT NULL")
+            if cur.fetchone()[0]:
+                cur.execute(
+                    "SELECT count(*) FROM public._applied_migrations "
+                    "WHERE filename = '001_probe_requires_superuser.sql'"
+                )
+                assert cur.fetchone()[0] == 0
+    finally:
+        _drop_least_priv()

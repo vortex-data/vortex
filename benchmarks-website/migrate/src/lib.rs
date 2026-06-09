@@ -19,6 +19,8 @@ pub mod classifier;
 pub mod commits;
 /// End-to-end migration of v2 dumps into a v3 DuckDB.
 pub mod migrate;
+/// One-shot bulk load of an existing v3 DuckDB snapshot into Postgres (v4).
+pub mod postgres;
 /// Streaming readers for the v2 S3 bucket and local dumps.
 pub mod source;
 /// Wire shapes of the v2 benchmark dataset.

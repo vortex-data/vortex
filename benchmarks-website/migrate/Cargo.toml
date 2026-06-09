@@ -14,9 +14,9 @@ publish = false
 name = "vortex-bench-migrate"
 path = "src/main.rs"
 
-# Throwaway binary, not part of the vortex-* public API surface.
-# Errors use anyhow, and the crate is intentionally outside the
-# workspace.
+# Throwaway leaf binary, not part of the vortex-* public API surface. It IS a
+# workspace member (so `cargo nextest --workspace` runs its tests, including the
+# Docker-gated `postgres_e2e` rehearsal, in CI). Errors use anyhow.
 
 [dependencies]
 anyhow = { workspace = true }
@@ -24,9 +24,17 @@ arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
 arrow-schema = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
-# track vortex-duckdb's bundled engine version (build.rs)
+# track vortex-duckdb's bundled engine version (build.rs). `appender-arrow`
+# pulls the engine's arrow integration in, which also provides the `query_arrow`
+# read path the Postgres bulk loader uses, aligned with the workspace `arrow-*`.
 duckdb = { version = "1.10502", features = ["bundled", "appender-arrow"] }
 flate2 = "1.1"
+# Sync Postgres client + native-tls for the v3 DuckDB -> Postgres bulk load
+# (PR-3.1). `native-tls` provides the verify-full path against RDS (operator
+# supplies the CA bundle); the local rehearsal connects with `NoTls`.
+postgres = "0.19"
+native-tls = "0.2"
+postgres-native-tls = "0.5"
 reqwest = { workspace = true, features = ["json"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
@@ -39,3 +47,5 @@ vortex-utils = { workspace = true }
 [dev-dependencies]
 rstest = { workspace = true }
 tempfile = { workspace = true }
+testcontainers = { version = "0.27.3", features = ["blocking"] }
+testcontainers-modules = { version = "0.15.0", features = ["postgres", "blocking"] }

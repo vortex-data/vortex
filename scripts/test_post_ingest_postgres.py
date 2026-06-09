@@ -75,6 +75,7 @@ def _load_module(filename: str, modname: str):
 
 post_ingest = _load_module("post-ingest.py", "post_ingest")
 migrate_runner = _load_module("migrate-schema.py", "migrate_schema")
+cross_check_mod = _load_module("cross_check_python_writer.py", "cross_check_python_writer")
 
 
 def _sample_commit() -> dict:
@@ -1107,3 +1108,166 @@ def test_server_mode_requires_benchmark_id(monkeypatch, capsys) -> None:
     monkeypatch.setattr(sys, "argv", _ARGV_NO_BENCH_ID + ["--server", "http://x"])
     assert post_ingest.main() == 2
     assert "--benchmark-id" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# PR-3.5 cross-check harness: the Python --postgres writer UPDATEs (does not
+# duplicate-INSERT) a pre-seeded row and the values round-trip. The local-
+# container tests below validate the harness's discrimination; the PROD run
+# (against the Rust-seeded RDS) is an operator gate.
+# ---------------------------------------------------------------------------
+
+
+def test_cross_check_clean_when_writer_updates_seeded_row(schema_conn: psycopg.Connection) -> None:
+    commit = _sample_commit()
+    rec = _sample_records()[0]  # query_measurement
+    mid = cross_check_mod.measurement_id_for(post_ingest._measurement_id_module(), rec)
+    # Seed the row DIRECTLY (independent of the writer -- a stand-in for a Rust-
+    # loaded row), with a deliberately-different value_ns/all_runtimes_ns so a clean
+    # cross-check proves the writer's UPDATE actually overwrote the seeded values.
+    schema_conn.execute(
+        """
+        INSERT INTO query_measurements
+          (measurement_id, commit_sha, dataset, scale_factor, query_idx, storage,
+           engine, format, value_ns, all_runtimes_ns)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::bigint[])
+        """,
+        (
+            mid,
+            rec["commit_sha"],
+            rec["dataset"],
+            rec["scale_factor"],
+            rec["query_idx"],
+            rec["storage"],
+            rec["engine"],
+            rec["format"],
+            99,
+            [99],
+        ),
+    )
+
+    report = cross_check_mod.cross_check(schema_conn, commit, [rec])
+
+    assert report.is_clean(), str(report)
+    assert (report.inserted, report.updated) == (0, 1)
+    assert _count(schema_conn, "query_measurements") == 1  # UPDATE, not a duplicate
+    # The seeded value_ns (99) was overwritten by the envelope's value.
+    stored = schema_conn.execute(
+        "SELECT value_ns FROM query_measurements WHERE measurement_id = %s", (mid,)
+    ).fetchone()[0]
+    assert stored == rec["value_ns"]
+
+
+def test_cross_check_clean_over_all_kinds(schema_conn: psycopg.Connection) -> None:
+    commit = _sample_commit()
+    records = _sample_records()  # one record per fact-table kind
+    # Seed once (the stand-in for PR-3.4's prod seed), then the harness re-ingests:
+    # every record must UPDATE its seeded row, exercising all five measurement_id
+    # paths + value comparisons.
+    post_ingest.ingest_postgres(schema_conn, commit, records)
+
+    report = cross_check_mod.cross_check(schema_conn, commit, records)
+
+    assert report.is_clean(), str(report)
+    assert (report.inserted, report.updated) == (0, len(records))
+    for table in _FACT_TABLES:
+        assert _count(schema_conn, table) == 1, f"{table} row count drifted"
+
+
+def test_cross_check_flags_insert_when_row_not_seeded(schema_conn: psycopg.Connection) -> None:
+    # No pre-seed: the writer INSERTs (a duplicate, in prod terms) rather than
+    # UPDATEs, so the harness must FLAG it -- this is the discrimination that
+    # catches a Python-vs-Rust measurement_id divergence against the live seed.
+    commit = _sample_commit()
+    rec = _sample_records()[0]
+
+    report = cross_check_mod.cross_check(schema_conn, commit, [rec])
+
+    assert not report.is_clean()
+    assert report.inserted == 1
+    assert any("INSERT" in problem for problem in report.problems), report.problems
+
+
+def test_cross_check_value_mismatches_discriminate() -> None:
+    rec = _sample_records()[0]  # query_measurement: value_ns + all_runtimes_ns
+    matching = {"value_ns": rec["value_ns"], "all_runtimes_ns": rec["all_runtimes_ns"]}
+    assert cross_check_mod.value_mismatches(matching, rec) == []
+
+    wrong = {"value_ns": rec["value_ns"] + 1, "all_runtimes_ns": rec["all_runtimes_ns"]}
+    problems = cross_check_mod.value_mismatches(wrong, rec)
+    assert len(problems) == 1 and "value_ns" in problems[0]
+
+    # all_runtimes_ns is compared element-wise and order-sensitively: a reorder mismatches.
+    reordered = {"value_ns": rec["value_ns"], "all_runtimes_ns": list(reversed(rec["all_runtimes_ns"]))}
+    assert any("all_runtimes_ns" in p for p in cross_check_mod.value_mismatches(reordered, rec))
+
+    # env_triple (omitted by the base sample) is discriminated when a record carries it.
+    rec_env = {**rec, "env_triple": "x86_64-linux"}
+    db_env = {
+        "value_ns": rec["value_ns"],
+        "all_runtimes_ns": rec["all_runtimes_ns"],
+        "env_triple": "aarch64-darwin",
+    }
+    assert any("env_triple" in p for p in cross_check_mod.value_mismatches(db_env, rec_env))
+
+    # vector_search side counters (matches/rows_scanned/bytes_scanned/iterations) discriminate.
+    vsr = _sample_records()[4]
+    counter_cols = ("value_ns", "all_runtimes_ns", "matches", "rows_scanned", "bytes_scanned", "iterations")
+    db_vsr = {c: vsr[c] for c in counter_cols}
+    db_vsr["matches"] = vsr["matches"] + 1
+    assert any("matches" in p for p in cross_check_mod.value_mismatches(db_vsr, vsr))
+
+
+def test_cross_check_compares_env_and_memory_columns(schema_conn: psycopg.Connection) -> None:
+    # The base sample omits env_triple + the memory quartet, so the integration
+    # round-trip (writer UPDATE -> harness re-read -> compare) is otherwise never
+    # exercised on them. Seed a row whose env/memory/value DIFFER from the envelope,
+    # so a clean cross-check proves the writer UPDATEd those columns AND the harness
+    # compared them -- a writer SET-list omission of env_triple/memory would fail it.
+    commit = _sample_commit()
+    rec = {
+        **_sample_records()[0],
+        "env_triple": "aarch64-darwin",
+        "peak_physical": 11,
+        "peak_virtual": 22,
+        "physical_delta": 33,
+        "virtual_delta": 44,
+    }
+    mid = cross_check_mod.measurement_id_for(post_ingest._measurement_id_module(), rec)
+    schema_conn.execute(
+        """
+        INSERT INTO query_measurements
+          (measurement_id, commit_sha, dataset, scale_factor, query_idx, storage, engine,
+           format, value_ns, all_runtimes_ns, peak_physical, peak_virtual, physical_delta,
+           virtual_delta, env_triple)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::bigint[], %s, %s, %s, %s, %s)
+        """,
+        (
+            mid,
+            rec["commit_sha"],
+            rec["dataset"],
+            rec["scale_factor"],
+            rec["query_idx"],
+            rec["storage"],
+            rec["engine"],
+            rec["format"],
+            1,
+            [1],
+            1,
+            1,
+            1,
+            1,
+            "x86_64-linux",
+        ),
+    )
+
+    report = cross_check_mod.cross_check(schema_conn, commit, [rec])
+
+    assert report.is_clean(), str(report)
+    assert (report.inserted, report.updated) == (0, 1)
+    # The seeded env_triple + a memory column were overwritten by the envelope's values.
+    row = schema_conn.execute(
+        "SELECT env_triple, peak_physical FROM query_measurements WHERE measurement_id = %s",
+        (mid,),
+    ).fetchone()
+    assert row == ("aarch64-darwin", 11)
