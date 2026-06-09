@@ -63,6 +63,35 @@ pub use arrow_c_abi::ArrowArray;
 pub use arrow_c_abi::ArrowDeviceArray;
 pub use arrow_c_abi::ArrowDeviceType;
 
+#[cfg(feature = "_test-harness")]
+#[doc(hidden)]
+pub mod test_harness {
+    use vortex::array::buffer::BufferHandle;
+    use vortex::error::VortexResult;
+
+    use crate::CudaExecutionCtx;
+    use crate::arrow::canonical::repack_arrow_validity_buffer as repack_arrow_validity_buffer_impl;
+
+    /// Repack a validity bitmap into Arrow's byte-addressed bitmap layout on the active stream.
+    pub fn repack_arrow_validity_buffer(
+        input_buffer: &BufferHandle,
+        input_offset: usize,
+        len: usize,
+        arrow_offset: usize,
+        output_bytes: usize,
+        ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<BufferHandle> {
+        repack_arrow_validity_buffer_impl(
+            input_buffer,
+            input_offset,
+            len,
+            arrow_offset,
+            output_bytes,
+            ctx,
+        )
+    }
+}
+
 /// CUDA device memory.
 pub const ARROW_DEVICE_CUDA: ArrowDeviceType = arrow_c_abi::ARROW_DEVICE_CUDA as ArrowDeviceType;
 

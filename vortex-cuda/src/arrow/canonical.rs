@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::mem;
+use std::mem::size_of;
 use std::ptr;
 use std::sync::Arc;
 
@@ -39,7 +40,6 @@ use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::match_each_decimal_value_type;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
-use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalType;
 use vortex::dtype::NativeDecimalType;
@@ -53,7 +53,6 @@ use vortex::error::vortex_err;
 use vortex::extension::datetime::AnyTemporal;
 use vortex::mask::Mask;
 
-use super::list_view::export_device_list_view;
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::CudaExecutionCtx;
@@ -65,6 +64,7 @@ use crate::arrow::PrivateData;
 use crate::arrow::SyncEvent;
 use crate::arrow::arrow_device_export_dictionary_codes_dtype;
 use crate::arrow::cuda_decimal_value_type;
+use crate::arrow::list_view::export_device_list_view;
 use crate::executor::CudaArrayExt;
 
 /// An implementation of `ExportDeviceArray` that exports Vortex arrays to `ArrowDeviceArray` by
@@ -437,7 +437,7 @@ where
     Ok(BufferHandle::new_device(Arc::new(output_device)))
 }
 
-/// Export Vortex validity as an Arrow validity byte buffer.
+/// Export Vortex validity as an Arrow validity byte buffer on the CUDA device.
 ///
 /// Returns `None` for the buffer when Arrow can omit validity because all rows are valid.
 pub(super) async fn export_arrow_validity_buffer(
@@ -453,14 +453,91 @@ pub(super) async fn export_arrow_validity_buffer(
 
     let validity_buffer = match mask {
         Mask::AllTrue(_) => return Ok((None, 0)),
-        Mask::AllFalse(_) => ByteBuffer::zeroed(validity_bytes),
-        values @ Mask::Values(_) => values.into_bit_buffer().into_inner().2,
+        Mask::AllFalse(_) => device_zeroed_byte_buffer(validity_bytes, ctx)?,
+        Mask::Values(values) => {
+            let bits = values.bit_buffer();
+            if arrow_offset == 0 && bits.offset() == 0 {
+                // Fast path: the Vortex bitmap already matches Arrow's byte-addressed layout.
+                let (_, _, buffer) = bits.clone().into_inner();
+                ctx.ensure_on_device(BufferHandle::new_host(buffer)).await?
+            } else {
+                // Slow path: bit offsets cannot be represented by the Arrow buffer pointer.
+                // Repack on the GPU so compact/sliced exports keep Arrow offset semantics.
+                let (input_offset, _, input_buffer) = bits.clone().into_inner();
+                let input_buffer = ctx
+                    .ensure_on_device(BufferHandle::new_host(input_buffer))
+                    .await?;
+                repack_arrow_validity_buffer(
+                    &input_buffer,
+                    input_offset,
+                    len,
+                    arrow_offset,
+                    validity_bytes,
+                    ctx,
+                )?
+            }
+        }
     };
-    let validity = ctx
-        .ensure_on_device(BufferHandle::new_host(validity_buffer))
-        .await?;
 
-    Ok((Some(validity), null_count))
+    Ok((Some(validity_buffer), null_count))
+}
+
+/// Allocate a zeroed device buffer with cuDF-safe padding for Arrow validity masks.
+fn device_zeroed_byte_buffer(
+    byte_len: usize,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<BufferHandle> {
+    let allocation_len = byte_len.next_multiple_of(size_of::<u32>()).max(1);
+    let mut buffer = ctx.device_alloc::<u8>(allocation_len)?;
+    ctx.stream()
+        .memset_zeros(&mut buffer)
+        .map_err(|err| vortex_err!("Failed to zero Arrow validity buffer: {err}"))?;
+    Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(buffer))).slice(0..byte_len))
+}
+
+/// Repack a validity bitmap into Arrow layout without copying bitmap bits back to the CPU.
+///
+/// Vortex bitmaps may start at any bit offset. Arrow exposes only a byte-addressed validity buffer
+/// plus an array offset, so sliced compact exports need a GPU rewrite when either side has a
+/// bit-level offset.
+pub(super) fn repack_arrow_validity_buffer(
+    input_buffer: &BufferHandle,
+    input_offset: usize,
+    len: usize,
+    arrow_offset: usize,
+    output_bytes: usize,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<BufferHandle> {
+    let output_allocation_len = output_bytes.next_multiple_of(size_of::<u32>()).max(1);
+    let mut output = ctx.device_alloc::<u8>(output_allocation_len)?;
+    ctx.stream()
+        .memset_zeros(&mut output)
+        .map_err(|err| vortex_err!("Failed to zero Arrow validity buffer padding: {err}"))?;
+    let output_buffer =
+        BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output))).slice(0..output_bytes);
+
+    // Arrow validity buffers are byte-addressed. Repack on-device when either layout has a
+    // bit-level offset so logical row 0 lands at the expected Arrow bit position.
+    let input_view = input_buffer.cuda_view::<u8>()?;
+    let output_view = output_buffer.cuda_view::<u8>()?;
+    let len = u64::try_from(len)?;
+    let input_offset = u64::try_from(input_offset)?;
+    let arrow_offset = u64::try_from(arrow_offset)?;
+    let validity_bits = len
+        .checked_add(arrow_offset)
+        .ok_or_else(|| vortex_err!("Arrow validity bit length overflows u64"))?;
+
+    let kernel = ctx.load_function_with_suffixes("arrow_validity", &["repack"])?;
+    ctx.launch_kernel(&kernel, output_bytes, |args| {
+        args.arg(&input_view)
+            .arg(&output_view)
+            .arg(&len)
+            .arg(&input_offset)
+            .arg(&arrow_offset)
+            .arg(&validity_bits);
+    })?;
+
+    Ok(output_buffer)
 }
 
 /// Export a standard Vortex list as Arrow `List`: validity, offsets, and one child array.
@@ -834,6 +911,7 @@ mod tests {
     use vortex::array::arrays::varbinview::BinaryView;
     use vortex::array::buffer::BufferHandle;
     use vortex::array::validity::Validity;
+    use vortex::buffer::BitBuffer;
     use vortex::buffer::Buffer;
     use vortex::buffer::ByteBuffer;
     use vortex::dtype::DType;
@@ -857,6 +935,9 @@ mod tests {
     use crate::arrow::ArrowDeviceArray;
     use crate::arrow::DeviceArrayExt;
     use crate::arrow::PrivateData;
+    use crate::arrow::canonical::export_arrow_validity_buffer;
+    use crate::arrow::canonical::repack_arrow_validity_buffer;
+    use crate::device_buffer::cuda_backing_allocation;
     use crate::session::CudaSession;
 
     unsafe fn release_exported_array(array: *mut ArrowArray) {
@@ -2163,19 +2244,28 @@ mod tests {
         let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
-        let utf8 = VarBinViewArray::from_iter_str([
-            "skip this out-of-line value before the slice",
-            "hello",
-            "こんにちは",
-            "this out-of-line value remains in the slice",
+        let utf8 = VarBinViewArray::from_iter_nullable_str([
+            Some("skip this out-of-line value before the slice"),
+            Some("hello"),
+            None,
+            Some("this out-of-line value remains in the slice"),
         ])
         .into_array()
         .slice(1..4)?;
         let mut exported = utf8.export_device_array_with_schema(&mut ctx).await?;
         let field = Field::try_from(&exported.schema)?;
-        assert_eq!(field, Field::new("", DataType::Utf8View, false));
-        assert_varbinview_shape(&exported.array.array, 3, 0)?;
+        assert_eq!(field, Field::new("", DataType::Utf8View, true));
+        assert_varbinview_shape(&exported.array.array, 3, 1)?;
         assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+
+        let private_data = unsafe { &*exported.array.array.private_data.cast::<PrivateData>() };
+        let null_buffer = private_data.buffers[0]
+            .as_ref()
+            .vortex_expect("sliced null buffer should be present");
+        let null_bits = BitBuffer::new(null_buffer.to_host_sync(), 3)
+            .iter()
+            .collect::<Vec<_>>();
+        assert_eq!(null_bits, [true, false, true]);
         unsafe { release_exported_array(&raw mut exported.array.array) };
 
         let binary = VarBinViewArray::from_iter_nullable_bin([
@@ -2192,6 +2282,107 @@ mod tests {
         assert_varbinview_shape(&exported.array.array, 3, 1)?;
         assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
         unsafe { release_exported_array(&raw mut exported.array.array) };
+
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_repack_arrow_validity_buffer_offsets() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let input_offset = 5;
+        let arrow_offset = 3;
+        let logical_bits = [true, false, true, true, false, false, true, false, true];
+        let source = BitBuffer::from_iter(
+            std::iter::repeat_n(false, input_offset).chain(logical_bits.iter().copied()),
+        );
+        let sliced = source.slice(input_offset..input_offset + logical_bits.len());
+        let (actual_input_offset, _, input_buffer) = sliced.into_inner();
+        assert_eq!(actual_input_offset, input_offset);
+
+        let input_buffer = ctx
+            .ensure_on_device(BufferHandle::new_host(input_buffer))
+            .await?;
+        let output_bits = logical_bits.len() + arrow_offset;
+        let output = repack_arrow_validity_buffer(
+            &input_buffer,
+            actual_input_offset,
+            logical_bits.len(),
+            arrow_offset,
+            output_bits.div_ceil(8),
+            &mut ctx,
+        )?;
+        ctx.synchronize_stream()?;
+
+        let actual = BitBuffer::new(output.to_host_sync(), output_bits)
+            .iter()
+            .collect::<Vec<_>>();
+        let expected = std::iter::repeat_n(false, arrow_offset)
+            .chain(logical_bits)
+            .collect::<Vec<_>>();
+        assert_eq!(actual, expected);
+
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_repack_arrow_validity_buffer_zeroes_padding() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let len = 9;
+        let arrow_offset = 3;
+        let source = BitBuffer::from_iter(std::iter::repeat_n(true, len));
+        let (input_offset, _, input_buffer) = source.into_inner();
+        let input_buffer = ctx
+            .ensure_on_device(BufferHandle::new_host(input_buffer))
+            .await?;
+        let output_bytes = (len + arrow_offset).div_ceil(8);
+
+        let output = repack_arrow_validity_buffer(
+            &input_buffer,
+            input_offset,
+            len,
+            arrow_offset,
+            output_bytes,
+            &mut ctx,
+        )?;
+        ctx.synchronize_stream()?;
+
+        assert_eq!(output.len(), output_bytes);
+        let backing = cuda_backing_allocation(&output)?;
+        let backing_bytes = backing.to_host_sync();
+        assert_eq!(
+            backing_bytes.len(),
+            output_bytes.next_multiple_of(size_of::<u32>())
+        );
+        assert!(backing_bytes[output_bytes..].iter().all(|byte| *byte == 0));
+
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_export_all_false_validity_buffer_is_zeroed_on_device() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let len = 4;
+        let arrow_offset = 5;
+        let (buffer, null_count) = export_arrow_validity_buffer(
+            Validity::from(BitBuffer::from_iter(std::iter::repeat_n(false, len))),
+            len,
+            arrow_offset,
+            &mut ctx,
+        )
+        .await?;
+        ctx.synchronize_stream()?;
+
+        assert_eq!(null_count, i64::try_from(len)?);
+        let buffer = buffer.vortex_expect("all-false validity should export a null buffer");
+        let bytes = buffer.to_host_sync();
+        assert_eq!(bytes.len(), (len + arrow_offset).div_ceil(8));
+        assert!(bytes.iter().all(|byte| *byte == 0));
 
         Ok(())
     }

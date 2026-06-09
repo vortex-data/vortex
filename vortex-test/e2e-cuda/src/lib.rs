@@ -130,6 +130,21 @@ fn fixed_size_list_as_list_array() -> VortexArrayRef {
     .into_array()
 }
 
+fn sliced_utf8_array() -> VortexArrayRef {
+    VarBinViewArray::from_iter_nullable_str([
+        Some("skip this out-of-line value before the slice"),
+        Some("hello"),
+        Some("こんにちは"),
+        None,
+        Some("this out-of-line value remains in the slice"),
+        Some("é"),
+        Some("skip this out-of-line value after the slice"),
+    ])
+    .into_array()
+    .slice(1..6)
+    .expect("sliced utf8 array")
+}
+
 fn multi_buffer_varbinview(dtype: DType) -> VortexArrayRef {
     let first = ByteBuffer::copy_from("first value stored out-of-line".as_bytes());
     let second = ByteBuffer::copy_from("second value stored out-of-line".as_bytes());
@@ -225,6 +240,7 @@ fn export_array_inner(schema_ptr: &mut FFI_ArrowSchema, array_ptr: &mut ArrowDev
             "decimal64",
             "decimal128",
             "strings",
+            "sliced_utf8",
             "multi_buffer_utf8",
             "dates",
             "dictionary",
@@ -237,6 +253,7 @@ fn export_array_inner(schema_ptr: &mut FFI_ArrowSchema, array_ptr: &mut ArrowDev
             decimal64.into_array(),
             decimal128.into_array(),
             strings.into_array(),
+            sliced_utf8_array(),
             multi_buffer_utf8_array(),
             dates.into_array(),
             dictionary_array(),
@@ -324,6 +341,13 @@ fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowA
         Some("four"),
         None,
     ]);
+    let sliced_utf8 = StringArray::from_iter([
+        Some("hello"),
+        Some("こんにちは"),
+        None,
+        Some("this out-of-line value remains in the slice"),
+        Some("é"),
+    ]);
     let multi_buffer_utf8 = StringArray::from_iter([
         Some("inline"),
         Some("first value stored out-of-line"),
@@ -362,6 +386,7 @@ fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowA
         Field::new("decimal64", decimal64.data_type().clone(), true),
         Field::new("decimal128", decimal128.data_type().clone(), true),
         Field::new("strings", string.data_type().clone(), true),
+        Field::new("sliced_utf8", sliced_utf8.data_type().clone(), true),
         Field::new(
             "multi_buffer_utf8",
             multi_buffer_utf8.data_type().clone(),
@@ -379,12 +404,13 @@ fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowA
         return 1;
     }
 
-    let expected_arrays: [ArrowArrayRef; 8] = [
+    let expected_arrays: [ArrowArrayRef; 9] = [
         primitive,
         Arc::new(decimal32),
         Arc::new(decimal64),
         Arc::new(decimal128),
         Arc::new(string),
+        Arc::new(sliced_utf8),
         Arc::new(multi_buffer_utf8),
         Arc::new(date),
         dictionary,
@@ -401,11 +427,11 @@ fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowA
         }
     }
 
-    if !list_values_eq(list.as_ref(), struct_array.column(8).as_ref()) {
+    if !list_values_eq(list.as_ref(), struct_array.column(9).as_ref()) {
         eprintln!("wrong values for lists column");
         return 1;
     }
-    if !list_values_eq(fixed_size_list.as_ref(), struct_array.column(9).as_ref()) {
+    if !list_values_eq(fixed_size_list.as_ref(), struct_array.column(10).as_ref()) {
         eprintln!("wrong values for fixed_lists column");
         return 1;
     }
