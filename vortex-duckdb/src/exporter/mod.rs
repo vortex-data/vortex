@@ -8,6 +8,7 @@ mod canonical;
 mod constant;
 mod decimal;
 mod dict;
+mod extension;
 mod fixed_size_list;
 mod geo;
 mod list;
