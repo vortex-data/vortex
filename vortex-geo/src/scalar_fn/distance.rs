@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Planar distance between the paired points of two columns.
+//! Planar distance from a point column to a constant query point.
 
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -19,8 +19,10 @@ use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
+use crate::extension::coordinate_from_scalar;
 use crate::extension::xy_columns;
 
 /// Planar Euclidean distance between `(ax, ay)` and `(bx, by)`.
@@ -30,14 +32,17 @@ fn euclidean_distance(ax: f64, ay: f64, bx: f64, by: f64) -> f64 {
     (dx * dx + dy * dy).sqrt()
 }
 
-/// Expression computing the planar distance between the paired points of two columns. A constant
-/// query point is just a [`ConstantArray`](vortex_array::arrays::ConstantArray) operand.
+/// Planar distance from each point in a point column to a single constant query point. The first
+/// operand is the point column, the second the constant query point; column-to-column distance is
+/// not supported.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct GeoDistance;
 
 impl GeoDistance {
-    /// A lazy `ScalarFnArray` computing the distance between each row of `a` and `b`.
-    pub fn try_new_array(a: ArrayRef, b: ArrayRef, len: usize) -> VortexResult<ScalarFnArray> {
+    /// A lazy `ScalarFnArray` computing the distance from each row of the point column `a` to the
+    /// constant query point `b`. The output length is taken from `a`.
+    pub fn try_new_array(a: ArrayRef, b: ArrayRef) -> VortexResult<ScalarFnArray> {
+        let len = a.len();
         ScalarFnArray::try_new(
             TypedScalarFnInstance::new(GeoDistance, EmptyOptions).erased(),
             vec![a, b],
@@ -83,14 +88,18 @@ impl ScalarFnVTable for GeoDistance {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        // Bulk path: one tight loop over the flat x/y slices, straight into the output buffer.
-        let (ax, ay) = xy_columns(&args.get(0)?, ctx)?;
-        let (bx, by) = xy_columns(&args.get(1)?, ctx)?;
-        let a = ax.as_slice::<f64>().iter().zip(ay.as_slice::<f64>());
-        let b = bx.as_slice::<f64>().iter().zip(by.as_slice::<f64>());
-        let distances = a
-            .zip(b)
-            .map(|((&ax, &ay), (&bx, &by))| euclidean_distance(ax, ay, bx, by));
+        // `a` is the point column; `b` is the constant query point, decoded once and broadcast.
+        let points = args.get(0)?;
+        let Some(query) = args.get(1)?.as_constant() else {
+            vortex_bail!("GeoDistance requires a constant query point as its second operand");
+        };
+        let query = coordinate_from_scalar(&query)?;
+        let (xs, ys) = xy_columns(&points, ctx)?;
+        let distances = xs
+            .as_slice::<f64>()
+            .iter()
+            .zip(ys.as_slice::<f64>())
+            .map(|(&x, &y)| euclidean_distance(x, y, query.x, query.y));
         Ok(PrimitiveArray::from_iter(distances).into_array())
     }
 }
@@ -98,6 +107,7 @@ impl ScalarFnVTable for GeoDistance {
 #[cfg(test)]
 mod tests {
     use vortex_array::ArrayRef;
+    use vortex_array::Canonical;
     use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
@@ -140,6 +150,15 @@ mod tests {
         Ok(ConstantArray::new(single, len).into_array())
     }
 
+    /// Execute a `GeoDistance` array and read back its per-row `f64` distances.
+    fn distances(distance: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Vec<f64>> {
+        Ok(distance
+            .execute::<Canonical>(ctx)?
+            .into_primitive()
+            .as_slice::<f64>()
+            .to_vec())
+    }
+
     /// The kernel computes planar Euclidean distance (the 3–4–5 triangle).
     #[test]
     fn euclidean_distance_is_planar() {
@@ -156,12 +175,38 @@ mod tests {
 
         let a = point_column(vec![0.0, 3.0, 0.0, 3.0], vec![0.0, 0.0, 4.0, 4.0])?;
         let b = point_constant(0.0, 0.0, 4, &mut ctx)?;
-        let distance = GeoDistance::try_new_array(a, b, 4)?.into_array();
+        let distance = GeoDistance::try_new_array(a, b)?.into_array();
 
-        let got: Vec<f64> = (0..4)
-            .map(|idx| f64::try_from(&distance.execute_scalar(idx, &mut ctx)?))
-            .collect::<VortexResult<_>>()?;
-        assert_eq!(got, vec![0.0, 3.0, 4.0, 5.0]);
+        assert_eq!(distances(distance, &mut ctx)?, vec![0.0, 3.0, 4.0, 5.0]);
+        Ok(())
+    }
+
+    /// Without a constant query point on either side, column-to-column distance is unsupported and
+    /// the kernel errors rather than computing it.
+    #[test]
+    fn distance_requires_constant_query_point() -> VortexResult<()> {
+        let session = VortexSession::empty().with::<ArraySession>();
+        let mut ctx = session.create_execution_ctx();
+
+        let a = point_column(vec![0.0, 1.0], vec![0.0, 1.0])?;
+        let b = point_column(vec![3.0, 1.0], vec![4.0, 1.0])?;
+        let distance = GeoDistance::try_new_array(a, b)?.into_array();
+
+        assert!(distance.execute::<Canonical>(&mut ctx).is_err());
+        Ok(())
+    }
+
+    /// Two constant operands: every row has the same distance.
+    #[test]
+    fn distance_between_two_constants() -> VortexResult<()> {
+        let session = VortexSession::empty().with::<ArraySession>();
+        let mut ctx = session.create_execution_ctx();
+
+        let a = point_constant(0.0, 0.0, 3, &mut ctx)?;
+        let b = point_constant(3.0, 4.0, 3, &mut ctx)?;
+        let distance = GeoDistance::try_new_array(a, b)?.into_array();
+
+        assert_eq!(distances(distance, &mut ctx)?, vec![5.0, 5.0, 5.0]);
         Ok(())
     }
 }
