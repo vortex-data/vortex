@@ -10226,7 +10226,7 @@ version = "0.1.0"
 dependencies = [
  "geo-traits",
  "geo-types",
- "prost 0.14.3",
+ "prost 0.14.4",
  "vortex-array",
  "vortex-error",
  "vortex-session",
