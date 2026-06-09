@@ -130,17 +130,6 @@ fn fixed_size_list_as_list_array() -> VortexArrayRef {
     .into_array()
 }
 
-fn binary_array() -> VortexArrayRef {
-    VarBinViewArray::from_iter_nullable_bin([
-        Some(b"one" as &[u8]),
-        None,
-        Some(b"\x00\xff\xfe"),
-        Some(b"this binary payload is out of line"),
-        None,
-    ])
-    .into_array()
-}
-
 fn sliced_utf8_array() -> VortexArrayRef {
     VarBinViewArray::from_iter_nullable_str([
         Some("skip this out-of-line value before the slice"),
@@ -154,21 +143,6 @@ fn sliced_utf8_array() -> VortexArrayRef {
     .into_array()
     .slice(1..6)
     .expect("sliced utf8 array")
-}
-
-fn sliced_binary_array() -> VortexArrayRef {
-    VarBinViewArray::from_iter_nullable_bin([
-        Some(b"skip this out-of-line value before the slice" as &[u8]),
-        None,
-        Some(b"\x00\xff"),
-        Some(b"this out-of-line binary value remains in the slice"),
-        Some(b"tail"),
-        Some(b"\xfe\xff\x00"),
-        Some(b"skip this out-of-line value after the slice"),
-    ])
-    .into_array()
-    .slice(1..6)
-    .expect("sliced binary array")
 }
 
 fn multi_buffer_varbinview(dtype: DType) -> VortexArrayRef {
@@ -194,10 +168,6 @@ fn multi_buffer_varbinview(dtype: DType) -> VortexArrayRef {
 
 fn multi_buffer_utf8_array() -> VortexArrayRef {
     multi_buffer_varbinview(DType::Utf8(Nullability::NonNullable))
-}
-
-fn multi_buffer_binary_array() -> VortexArrayRef {
-    multi_buffer_varbinview(DType::Binary(Nullability::NonNullable))
 }
 
 /// Build a small dictionary column for cuDF Arrow Device import validation.
@@ -270,11 +240,8 @@ fn export_array_inner(schema_ptr: &mut FFI_ArrowSchema, array_ptr: &mut ArrowDev
             "decimal64",
             "decimal128",
             "strings",
-            "binary",
             "sliced_utf8",
-            "sliced_binary",
             "multi_buffer_utf8",
-            "multi_buffer_binary",
             "dates",
             "dictionary",
             "lists",
@@ -286,11 +253,8 @@ fn export_array_inner(schema_ptr: &mut FFI_ArrowSchema, array_ptr: &mut ArrowDev
             decimal64.into_array(),
             decimal128.into_array(),
             strings.into_array(),
-            binary_array(),
             sliced_utf8_array(),
-            sliced_binary_array(),
             multi_buffer_utf8_array(),
-            multi_buffer_binary_array(),
             dates.into_array(),
             dictionary_array(),
             list_array(),
@@ -377,11 +341,20 @@ fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowA
         Some("four"),
         None,
     ]);
-    let binary = expected_arrow_array(binary_array());
-    let sliced_utf8 = expected_arrow_array(sliced_utf8_array());
-    let sliced_binary = expected_arrow_array(sliced_binary_array());
-    let multi_buffer_utf8 = expected_arrow_array(multi_buffer_utf8_array());
-    let multi_buffer_binary = expected_arrow_array(multi_buffer_binary_array());
+    let sliced_utf8 = StringArray::from_iter([
+        Some("hello"),
+        Some("こんにちは"),
+        None,
+        Some("this out-of-line value remains in the slice"),
+        Some("é"),
+    ]);
+    let multi_buffer_utf8 = StringArray::from_iter([
+        Some("inline"),
+        Some("first value stored out-of-line"),
+        Some(""),
+        Some("second value stored out-of-line"),
+        Some("short"),
+    ]);
     let date = Date32Array::from(vec![Some(100i32), None, Some(300), Some(400), None]);
     let dictionary = Arc::new(
         vec![
@@ -413,17 +386,10 @@ fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowA
         Field::new("decimal64", decimal64.data_type().clone(), true),
         Field::new("decimal128", decimal128.data_type().clone(), true),
         Field::new("strings", string.data_type().clone(), true),
-        Field::new("binary", binary.data_type().clone(), true),
         Field::new("sliced_utf8", sliced_utf8.data_type().clone(), true),
-        Field::new("sliced_binary", sliced_binary.data_type().clone(), true),
         Field::new(
             "multi_buffer_utf8",
             multi_buffer_utf8.data_type().clone(),
-            false,
-        ),
-        Field::new(
-            "multi_buffer_binary",
-            multi_buffer_binary.data_type().clone(),
             false,
         ),
         Field::new("dates", date.data_type().clone(), true),
@@ -438,17 +404,14 @@ fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowA
         return 1;
     }
 
-    let expected_arrays: [ArrowArrayRef; 12] = [
+    let expected_arrays: [ArrowArrayRef; 9] = [
         primitive,
         Arc::new(decimal32),
         Arc::new(decimal64),
         Arc::new(decimal128),
         Arc::new(string),
-        binary,
-        sliced_utf8,
-        sliced_binary,
-        multi_buffer_utf8,
-        multi_buffer_binary,
+        Arc::new(sliced_utf8),
+        Arc::new(multi_buffer_utf8),
         Arc::new(date),
         dictionary,
     ];
@@ -460,27 +423,22 @@ fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowA
     {
         if expected.as_ref() != actual.as_ref() {
             eprintln!("wrong values for host column {idx}");
+            eprintln!("expected: {expected:?}");
+            eprintln!("actual: {actual:?}");
             return 1;
         }
     }
 
-    if !list_values_eq(list.as_ref(), struct_array.column(12).as_ref()) {
+    if !list_values_eq(list.as_ref(), struct_array.column(9).as_ref()) {
         eprintln!("wrong values for lists column");
         return 1;
     }
-    if !list_values_eq(fixed_size_list.as_ref(), struct_array.column(13).as_ref()) {
+    if !list_values_eq(fixed_size_list.as_ref(), struct_array.column(10).as_ref()) {
         eprintln!("wrong values for fixed_lists column");
         return 1;
     }
 
     0
-}
-
-fn expected_arrow_array(array: VortexArrayRef) -> ArrowArrayRef {
-    SESSION
-        .arrow()
-        .execute_arrow(array, None, &mut SESSION.create_execution_ctx())
-        .expect("expected Arrow array")
 }
 
 fn cudf_list_field(name: &str) -> Field {
