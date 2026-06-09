@@ -72,15 +72,14 @@ pub fn make_object_store(
     session: &SessionContext,
     source: &Url,
 ) -> anyhow::Result<Arc<dyn ObjectStore>> {
-    match source.scheme() {
-        "s3" | "gs" | "az" => {
-            let (store, _) = FileLocation::resolve(source.as_str())?.into_remote()?;
+    match FileLocation::resolve(source.as_str())? {
+        FileLocation::Remote { store, .. } => {
             let authority = &source[url::Position::BeforeHost..url::Position::AfterHost];
             let base = Url::parse(&format!("{}://{authority}/", source.scheme()))?;
             session.register_object_store(&base, Arc::clone(&store));
             Ok(store)
         }
-        _ => {
+        FileLocation::Local(_) => {
             let fs = Arc::new(LocalFileSystem::default());
             session
                 .register_object_store(&Url::parse("file:/")?, Arc::<LocalFileSystem>::clone(&fs));

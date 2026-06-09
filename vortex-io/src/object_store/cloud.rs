@@ -1,49 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! URL-based resolution and construction of cloud [`ObjectStore`]s.
+//! URL-based resolution of cloud [`ObjectStore`]s via [`FileLocation`].
 //!
-//! Two entry points are provided:
-//!
-//! - [`FileLocation::resolve`] — the canonical resolver. It maps a URL or path string to either a
-//!   local filesystem path or a registered/lazily-created [`ObjectStore`], using standard
-//!   `object_store` URL parsing with case-insensitive environment variables. This is the
-//!   recommended entry point for nearly all callers.
-//! - [`make_object_store`] — an opt-in, opinionated per-scheme builder for callers that need
-//!   MinIO/LocalStack-friendly defaults (path-style S3 addressing, generic endpoint,
-//!   `allow_http`) and arbitrary config-key passthrough.
+//! [`FileLocation::resolve`] maps a URL or path string to either a local filesystem path or
+//! a remote [`ObjectStore`] by delegating to [`parse_url_opts`] with case-insensitive
+//! environment variables. No caching is performed here — callers that need process-level
+//! store reuse should maintain their own registry.
 
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::sync::Arc;
-use std::sync::LazyLock;
-use std::time::Duration;
 
-use object_store::ClientOptions;
 use object_store::ObjectStore;
-use object_store::ObjectStoreScheme;
-use object_store::aws::AmazonS3Builder;
-use object_store::aws::AmazonS3ConfigKey;
-use object_store::azure::AzureConfigKey;
-use object_store::azure::MicrosoftAzureBuilder;
-use object_store::gcp::GoogleCloudStorageBuilder;
-use object_store::gcp::GoogleConfigKey;
-use object_store::local::LocalFileSystem;
+use object_store::parse_url_opts;
 use object_store::path::Path;
-use object_store::registry::ObjectStoreRegistry;
-use parking_lot::Mutex;
 use url::Url;
-use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_utils::aliases::hash_map::HashMap;
-
-use crate::object_store::registry::Registry;
-
-/// The process-global registry used by [`FileLocation::resolve`] to cache lazily-constructed
-/// stores.
-static DEFAULT_REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::default);
 
 /// Where the bytes of a file live: on the local filesystem, or in an object store.
 ///
@@ -63,16 +37,30 @@ pub enum FileLocation {
 }
 
 impl FileLocation {
-    /// Resolve a URL or path string to a [`FileLocation`].
+    /// Resolve a URL or path string to a [`FileLocation`] using environment variables.
+    ///
+    /// Equivalent to `resolve_with_props(url, std::iter::empty())`.
+    pub fn resolve(url_or_path: impl AsRef<str>) -> VortexResult<Self> {
+        Self::resolve_with_props(url_or_path, std::iter::empty::<(String, String)>())
+    }
+
+    /// Resolve a URL or path string to a [`FileLocation`], merging `props` with the environment.
     ///
     /// - `file://` URLs and inputs that do not parse as a URL resolve to [`FileLocation::Local`].
-    /// - All other schemes (`s3://`, `gs://`, `az://`, `http(s)://`, ...) resolve through the
-    ///   process-global registry, which lazily constructs and caches the store from the URL and
-    ///   case-insensitive environment variables, returning [`FileLocation::Remote`].
+    /// - All other schemes (`s3://`, `gs://`, `az://`, `http(s)://`, ...) are resolved via
+    ///   [`parse_url_opts`] with case-insensitive environment variables merged with `props`.
+    ///   `props` entries take precedence over same-named environment variables.
     ///
-    /// This is the canonical entry point. Callers needing MinIO/LocalStack-style defaults or
-    /// explicit per-property credentials can use [`make_object_store`] instead.
-    pub fn resolve(url_or_path: impl AsRef<str>) -> VortexResult<Self> {
+    /// No caching is performed. Callers that need process-level store reuse should maintain
+    /// their own registry (e.g. a `LazyLock<Mutex<HashMap<...>>>`) in their own crate.
+    pub fn resolve_with_props<K, V>(
+        url_or_path: impl AsRef<str>,
+        props: impl IntoIterator<Item = (K, V)>,
+    ) -> VortexResult<Self>
+    where
+        K: Into<String>,
+        V: Into<String>,
+    {
         let url_or_path = url_or_path.as_ref();
         match Url::parse(url_or_path) {
             Ok(url) if url.scheme() == "file" => {
@@ -82,11 +70,33 @@ impl FileLocation {
                 Ok(FileLocation::Local(path))
             }
             Ok(url) => {
-                let (store, path) = DEFAULT_REGISTRY.resolve(&url)?;
-                Ok(FileLocation::Remote { store, path })
+                let env_opts = std::env::vars().map(|(k, v)| (k.to_ascii_lowercase(), v));
+                let props_iter = props.into_iter().map(|(k, v)| (k.into(), v.into()));
+                let (store, path) = parse_url_opts(&url, env_opts.chain(props_iter))?;
+                Ok(FileLocation::Remote {
+                    store: Arc::new(store),
+                    path,
+                })
             }
-            // Not a URL: treat the input as a local filesystem path.
+            // Not a URL: treat as a local filesystem path.
             Err(_) => Ok(FileLocation::Local(PathBuf::from(url_or_path))),
+        }
+    }
+
+    /// Returns the local path if this is [`FileLocation::Local`], otherwise `None`.
+    pub fn as_local(&self) -> Option<&std::path::Path> {
+        match self {
+            FileLocation::Local(path) => Some(path.as_path()),
+            FileLocation::Remote { .. } => None,
+        }
+    }
+
+    /// Returns a clone of the store and a reference to the object path if this is
+    /// [`FileLocation::Remote`], otherwise `None`.
+    pub fn as_remote(&self) -> Option<(Arc<dyn ObjectStore>, &Path)> {
+        match self {
+            FileLocation::Remote { store, path } => Some((Arc::clone(store), path)),
+            FileLocation::Local(_) => None,
         }
     }
 
@@ -100,7 +110,19 @@ impl FileLocation {
         matches!(self, FileLocation::Remote { .. })
     }
 
-    /// Require a remote object store, returning the store and object path.
+    /// Unwrap as a local filesystem path.
+    ///
+    /// Returns an error if this is a [`FileLocation::Remote`] location.
+    pub fn into_local(self) -> VortexResult<PathBuf> {
+        match self {
+            FileLocation::Local(path) => Ok(path),
+            FileLocation::Remote { path, .. } => {
+                vortex_bail!("expected a local path, got remote object store path: {path}")
+            }
+        }
+    }
+
+    /// Unwrap as a remote object store, returning the store and object path.
     ///
     /// Returns an error if this is a [`FileLocation::Local`] path.
     pub fn into_remote(self) -> VortexResult<(Arc<dyn ObjectStore>, Path)> {
@@ -114,151 +136,6 @@ impl FileLocation {
             }
         }
     }
-}
-
-/// Build an [`ObjectStore`] for a URL with opinionated, self-hosting-friendly defaults.
-///
-/// Unlike [`FileLocation::resolve`], this constructs the store with explicit per-scheme builders:
-///
-/// - S3 uses a generic endpoint and path-style addressing with `allow_http`, so it works
-///   against MinIO/LocalStack as well as AWS.
-/// - Azure uses an extended client timeout to avoid premature timeouts.
-/// - Credentials are read from `properties` when present, falling back to the environment.
-/// - Any remaining `properties` entries are passed through as scheme-specific config keys.
-///
-/// Resolved stores are cached process-wide, keyed by URL authority and properties.
-///
-/// Prefer [`FileLocation::resolve`] unless you specifically need these opinionated defaults or
-/// per-property configuration passthrough.
-// The cognitive-complexity lint only triggers under some feature unifications (it depends on how
-// the `tracing` macros expand), so we use `allow` rather than `expect` to avoid an unfulfilled
-// expectation in minimal-feature builds.
-#[allow(clippy::cognitive_complexity)]
-pub fn make_object_store(
-    url: &Url,
-    properties: &HashMap<String, String>,
-) -> VortexResult<Arc<dyn ObjectStore>> {
-    static OBJECT_STORES: LazyLock<Mutex<HashMap<String, Arc<dyn ObjectStore>>>> =
-        LazyLock::new(|| Mutex::new(HashMap::new()));
-
-    let start = std::time::Instant::now();
-
-    let (scheme, _) = ObjectStoreScheme::parse(url)
-        .map_err(|error| VortexError::from(object_store::Error::from(error)))?;
-
-    let cache_key = url_cache_key(url, properties);
-
-    {
-        if let Some(cached) = OBJECT_STORES.lock().get(&cache_key) {
-            return Ok(Arc::clone(cached));
-        }
-        // guard dropped at close of scope
-    }
-
-    let store: Arc<dyn ObjectStore> = match scheme {
-        ObjectStoreScheme::Local => {
-            tracing::trace!("using LocalFileSystem object store");
-            Arc::new(LocalFileSystem::default())
-        }
-        ObjectStoreScheme::AmazonS3 => {
-            tracing::trace!("using AmazonS3 object store");
-            let mut builder = AmazonS3Builder::new()
-                .with_url(url.to_string())
-                // Use a generic S3 endpoint to avoid DNS resolution issues with
-                // region-specific endpoints.
-                .with_endpoint("https://s3.amazonaws.com")
-                // Use path-style URLs
-                .with_virtual_hosted_style_request(false)
-                // Allow overriding to HTTP endpoints, e.g. LocalStack, MinIO.
-                .with_allow_http(true);
-
-            // Load credentials from the environment if not provided in properties.
-            if !properties.contains_key("access_key_id")
-                && let Ok(access_key) = std::env::var("AWS_ACCESS_KEY_ID")
-            {
-                builder = builder.with_access_key_id(access_key);
-            }
-            if !properties.contains_key("secret_access_key")
-                && let Ok(secret_key) = std::env::var("AWS_SECRET_ACCESS_KEY")
-            {
-                builder = builder.with_secret_access_key(secret_key);
-            }
-            if !properties.contains_key("region")
-                && let Ok(region) = std::env::var("AWS_DEFAULT_REGION")
-            {
-                builder = builder.with_region(region);
-            }
-
-            for (key, val) in properties {
-                if let Ok(config_key) = AmazonS3ConfigKey::from_str(key.as_str()) {
-                    builder = builder.with_config(config_key, val);
-                } else {
-                    tracing::warn!("Skipping unknown Amazon S3 config key: {key}");
-                }
-            }
-
-            Arc::new(builder.build()?)
-        }
-        ObjectStoreScheme::MicrosoftAzure => {
-            tracing::trace!("using MicrosoftAzure object store");
-
-            // Azure can time out after 30 seconds; bump the client timeout to avoid that.
-            let client_opts = ClientOptions::new().with_timeout(Duration::from_secs(120));
-            let mut builder = MicrosoftAzureBuilder::new()
-                .with_url(url.to_string())
-                .with_client_options(client_opts);
-            for (key, val) in properties {
-                if let Ok(config_key) = AzureConfigKey::from_str(key.as_str()) {
-                    builder = builder.with_config(config_key, val);
-                } else {
-                    tracing::warn!("Skipping unknown Azure config key: {key}");
-                }
-            }
-
-            Arc::new(builder.build()?)
-        }
-        ObjectStoreScheme::GoogleCloudStorage => {
-            tracing::trace!("using GoogleCloudStorage object store");
-
-            let mut builder = GoogleCloudStorageBuilder::new().with_url(url.to_string());
-            for (key, val) in properties {
-                if let Ok(config_key) = GoogleConfigKey::from_str(key.as_str()) {
-                    builder = builder.with_config(config_key, val);
-                } else {
-                    tracing::warn!("Skipping unknown Google Cloud Storage config key: {key}");
-                }
-            }
-
-            Arc::new(builder.build()?)
-        }
-        store => {
-            vortex_bail!("Unsupported store scheme: {store:?}");
-        }
-    };
-
-    OBJECT_STORES.lock().insert(cache_key, Arc::clone(&store));
-
-    let duration = start.elapsed();
-    tracing::debug!("make_object_store latency = {duration:?}");
-
-    Ok(store)
-}
-
-fn url_cache_key(url: &Url, properties: &HashMap<String, String>) -> String {
-    let mut sorted_props: Vec<_> = properties.iter().collect();
-    sorted_props.sort_by_key(|(k, _)| *k);
-
-    let props_str: String = sorted_props
-        .iter()
-        .map(|(k, v)| format!("{k}={v}"))
-        .collect::<Vec<_>>()
-        .join(",");
-    format!(
-        "{}://{};{}",
-        url.scheme(),
-        &url[url::Position::BeforeHost..url::Position::AfterPort],
-        props_str,
-    )
 }
 
 #[cfg(test)]

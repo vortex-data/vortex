@@ -79,11 +79,9 @@ pub(super) fn resolve_filesystem(
 }
 
 fn object_store_fs(base_url: &Url) -> VortexResult<FileSystemRef> {
-    let object_store: Arc<dyn ObjectStore> = if base_url.scheme() == "file" {
-        Arc::new(LocalFileSystem::new())
-    } else {
-        let (store, _) = FileLocation::resolve(base_url.as_str())?.into_remote()?;
-        store
+    let object_store: Arc<dyn ObjectStore> = match FileLocation::resolve(base_url.as_str())? {
+        FileLocation::Local(_) => Arc::new(LocalFileSystem::new()),
+        FileLocation::Remote { store, .. } => store,
     };
 
     let object_store = Arc::new(Compat::new(object_store)) as Arc<dyn ObjectStore>;

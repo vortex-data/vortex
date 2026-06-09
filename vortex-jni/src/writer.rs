@@ -6,7 +6,6 @@
 //! Writes go through an in-flight queue of at most [`WRITE_CHANNEL_CAPACITY`] pending
 //! batches on the same thread that drives the current-thread runtime.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use arrow_array::RecordBatch;
@@ -25,9 +24,6 @@ use jni::sys::JNI_FALSE;
 use jni::sys::JNI_TRUE;
 use jni::sys::jboolean;
 use jni::sys::jlong;
-use object_store::ObjectStore;
-use object_store::path::Path as ObjectStorePath;
-use url::Url;
 use vortex::array::ArrayRef;
 use vortex::array::VTable;
 use vortex::array::arrow::ArrowSessionExt;
@@ -42,8 +38,8 @@ use vortex::file::WriteStrategyBuilder;
 use vortex::file::WriteSummary;
 use vortex::io::VortexWrite;
 use vortex::io::compat::Compat;
+use vortex::io::object_store::FileLocation;
 use vortex::io::object_store::ObjectStoreWrite;
-use vortex::io::object_store::make_object_store;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::Task;
 use vortex::io::session::RuntimeSessionExt;
@@ -61,32 +57,6 @@ use crate::session::session_ref;
 /// Capacity of the in-flight write queue. Small on purpose so that back-pressure from
 /// the writer is felt on the Java thread producing batches.
 const WRITE_CHANNEL_CAPACITY: usize = 4;
-
-enum ResolvedStore {
-    ObjectStore(Arc<dyn ObjectStore>, ObjectStorePath),
-    Path(PathBuf),
-}
-
-fn resolve_store(
-    url_or_path: &str,
-    properties: &HashMap<String, String>,
-) -> VortexResult<ResolvedStore> {
-    match Url::parse(url_or_path) {
-        Ok(url) if url.scheme() == "file" => {
-            let path = url
-                .to_file_path()
-                .map_err(|_| vortex_err!("invalid file URL: {url_or_path}"))?;
-            Ok(ResolvedStore::Path(path))
-        }
-        Ok(url) => {
-            let path = ObjectStorePath::from_url_path(url.path())
-                .map_err(|_| vortex_err!("invalid object_store path: {}", url.path()))?;
-            let store = make_object_store(&url, properties)?;
-            Ok(ResolvedStore::ObjectStore(store, path))
-        }
-        Err(_) => Ok(ResolvedStore::Path(PathBuf::from(url_or_path))),
-    }
-}
 
 fn write_options_for_schema(
     session: &VortexSession,
@@ -222,14 +192,14 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
 
         let file_path: String = uri.try_to_string(env)?;
         let properties: HashMap<String, String> = extract_properties(env, &options)?;
-        let resolved = resolve_store(&file_path, &properties)?;
+        let resolved = FileLocation::resolve_with_props(&file_path, properties)?;
         let (tx, rx) = mpsc::channel(WRITE_CHANNEL_CAPACITY);
         let stream = ArrayStreamAdapter::new(write_schema.clone(), rx);
         let write_options = write_options_for_schema(session, &write_schema);
 
         let handle = session.handle().spawn(async move {
             match resolved {
-                ResolvedStore::Path(path) => {
+                FileLocation::Local(path) => {
                     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
                         async_fs::create_dir_all(parent).await?;
                     }
@@ -238,7 +208,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
                     file.shutdown().await?;
                     Ok(summary)
                 }
-                ResolvedStore::ObjectStore(store, path) => {
+                FileLocation::Remote { store, path } => {
                     let mut write =
                         ObjectStoreWrite::new(Arc::new(Compat::new(store)), &path).await?;
                     let summary = write_options.write(&mut write, stream).await?;

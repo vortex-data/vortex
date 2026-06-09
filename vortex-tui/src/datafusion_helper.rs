@@ -55,9 +55,9 @@ pub async fn create_vortex_context(
 
     // For remote URLs, resolve the object store and register it with the
     // DataFusion context so it can list and read the file. Local paths need no registration.
-    if table_url.scheme() != "file"
-        && let FileLocation::Remote { store, .. } = FileLocation::resolve(file_path)
-            .map_err(|e| format!("Failed to resolve object store: {e}"))?
+    if let Some((store, _)) = FileLocation::resolve(file_path)
+        .map_err(|e| format!("Failed to resolve object store: {e}"))?
+        .as_remote()
     {
         ctx.register_object_store(table_url.as_ref(), store);
     }
