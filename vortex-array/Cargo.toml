@@ -107,6 +107,10 @@ name = "aggregate_sum"
 harness = false
 
 [[bench]]
+name = "aggregate_grouped"
+harness = false
+
+[[bench]]
 name = "cast_primitive"
 harness = false
 
@@ -190,6 +194,10 @@ harness = false
 
 [[bench]]
 name = "varbinview_zip"
+harness = false
+
+[[bench]]
+name = "bool_zip"
 harness = false
 
 [[bench]]

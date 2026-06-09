@@ -11,19 +11,25 @@
 #![expect(clippy::cast_sign_loss)]
 #![expect(clippy::cast_precision_loss)]
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use rand::prelude::*;
 use rand_distr::Zipf;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
+use vortex_array::session::ArraySession;
 use vortex_buffer::BitBuffer;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 
 fn main() {
     divan::main();
 }
+
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 const SIZES: &[usize] = &[1_000, 10_000, 100_000, 250_000];
 const DENSITY_SWEEP_SIZE: usize = 100_000;
@@ -142,7 +148,7 @@ fn filter_random_by_mostly_true(bencher: Bencher, n: usize) {
             (
                 array.clone(),
                 make_mostly_true(n, &mut mask_rng()),
-                LEGACY_SESSION.create_execution_ctx(),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_refs(|(array, m, ctx)| {
@@ -162,7 +168,7 @@ fn filter_random_by_mostly_false(bencher: Bencher, n: usize) {
             (
                 array.clone(),
                 make_mostly_false(n, &mut mask_rng()),
-                LEGACY_SESSION.create_execution_ctx(),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_refs(|(array, m, ctx)| {
@@ -182,7 +188,7 @@ fn filter_random_by_random(bencher: Bencher, n: usize) {
             (
                 array.clone(),
                 make_random(n, &mut mask_rng()),
-                LEGACY_SESSION.create_execution_ctx(),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_refs(|(array, m, ctx)| {
@@ -202,7 +208,7 @@ fn filter_random_by_correlated_runs(bencher: Bencher, n: usize) {
             (
                 array.clone(),
                 make_correlated_runs(n, &mut mask_rng()),
-                LEGACY_SESSION.create_execution_ctx(),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_refs(|(array, m, ctx)| {
@@ -222,7 +228,7 @@ fn filter_random_by_power_law(bencher: Bencher, n: usize) {
             (
                 array.clone(),
                 make_power_law(n, &mut mask_rng()),
-                LEGACY_SESSION.create_execution_ctx(),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_refs(|(array, m, ctx)| {
@@ -244,7 +250,7 @@ fn filter_powerlaw_by_mostly_true(bencher: Bencher, n: usize) {
             (
                 array.clone(),
                 make_mostly_true(n, &mut mask_rng()),
-                LEGACY_SESSION.create_execution_ctx(),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_refs(|(array, m, ctx)| {
@@ -264,7 +270,7 @@ fn filter_powerlaw_by_mostly_false(bencher: Bencher, n: usize) {
             (
                 array.clone(),
                 make_mostly_false(n, &mut mask_rng()),
-                LEGACY_SESSION.create_execution_ctx(),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_refs(|(array, m, ctx)| {
@@ -284,7 +290,7 @@ fn filter_powerlaw_by_random(bencher: Bencher, n: usize) {
             (
                 array.clone(),
                 make_random(n, &mut mask_rng()),
-                LEGACY_SESSION.create_execution_ctx(),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_refs(|(array, m, ctx)| {
@@ -304,7 +310,7 @@ fn filter_powerlaw_by_correlated_runs(bencher: Bencher, n: usize) {
             (
                 array.clone(),
                 make_correlated_runs(n, &mut mask_rng()),
-                LEGACY_SESSION.create_execution_ctx(),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_refs(|(array, m, ctx)| {
@@ -324,7 +330,7 @@ fn filter_powerlaw_by_power_law(bencher: Bencher, n: usize) {
             (
                 array.clone(),
                 make_power_law(n, &mut mask_rng()),
-                LEGACY_SESSION.create_execution_ctx(),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_refs(|(array, m, ctx)| {
@@ -350,7 +356,7 @@ fn density_sweep_random(bencher: Bencher, density: f64) {
             (
                 array.clone(),
                 make_density_mask(DENSITY_SWEEP_SIZE, density, &mut mask_rng()),
-                LEGACY_SESSION.create_execution_ctx(),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_refs(|(array, m, ctx)| {
@@ -371,7 +377,7 @@ fn density_sweep_dense_runs(bencher: Bencher, density: f64) {
             (
                 array.clone(),
                 make_dense_runs(DENSITY_SWEEP_SIZE, false_rate, &mut mask_rng()),
-                LEGACY_SESSION.create_execution_ctx(),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_refs(|(array, m, ctx)| {
@@ -391,7 +397,7 @@ fn density_sweep_single_slice(bencher: Bencher, density: f64) {
             (
                 array.clone(),
                 make_single_slice(DENSITY_SWEEP_SIZE, density),
-                LEGACY_SESSION.create_execution_ctx(),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_refs(|(array, m, ctx)| {
@@ -415,7 +421,7 @@ fn filter_all_true(bencher: Bencher, n: usize) {
             (
                 array.clone(),
                 Mask::new_true(n),
-                LEGACY_SESSION.create_execution_ctx(),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_refs(|(array, m, ctx)| {
@@ -437,7 +443,7 @@ fn filter_one_false(bencher: Bencher, n: usize) {
             (
                 array.clone(),
                 Mask::from_buffer(BitBuffer::from_iter(bits)),
-                LEGACY_SESSION.create_execution_ctx(),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_refs(|(array, m, ctx)| {
@@ -457,7 +463,7 @@ fn filter_ultra_sparse(bencher: Bencher, n: usize) {
             (
                 array.clone(),
                 make_density_mask(n, 0.0001, &mut mask_rng()),
-                LEGACY_SESSION.create_execution_ctx(),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_refs(|(array, m, ctx)| {

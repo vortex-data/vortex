@@ -3,24 +3,30 @@
 
 #![expect(clippy::unwrap_used)]
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::distr::Uniform;
 use rand::rngs::StdRng;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::session::ArraySession;
 use vortex_buffer::Buffer;
+use vortex_session::VortexSession;
 
 fn main() {
     divan::main();
 }
+
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 #[divan::bench]
 fn scalar_subtract(bencher: Bencher) {
@@ -41,7 +47,7 @@ fn scalar_subtract(bencher: Bencher) {
     let chunked = ChunkedArray::from_iter([data1, data2]).into_array();
 
     bencher
-        .with_inputs(|| (&chunked, LEGACY_SESSION.create_execution_ctx()))
+        .with_inputs(|| (&chunked, SESSION.create_execution_ctx()))
         .bench_refs(|(chunked, ctx)| {
             chunked
                 .clone()

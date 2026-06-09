@@ -26,7 +26,7 @@ use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::arrow::ArrowSessionExt;
 use crate::arrow::Datum;
-use crate::arrow::from_arrow_array_with_len;
+use crate::arrow::from_arrow_columnar;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::kernel::ExecuteParentKernel;
@@ -178,7 +178,7 @@ fn arrow_compare_arrays(
         }
     };
 
-    from_arrow_array_with_len(&arrow_array, left.len(), nullable)
+    from_arrow_columnar(&arrow_array, left.len(), nullable, ctx)
 }
 
 pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: CompareOperator) -> VortexResult<Scalar> {

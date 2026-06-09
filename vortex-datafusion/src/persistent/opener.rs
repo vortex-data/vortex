@@ -314,9 +314,7 @@ impl FileOpener for VortexOpener {
 
             let mut scan_builder = ScanBuilder::new(session.clone(), Arc::clone(&layout_reader));
 
-            if let Some(extensions) = file.extensions
-                && let Some(vortex_plan) = extensions.downcast_ref::<VortexAccessPlan>()
-            {
+            if let Some(vortex_plan) = file.extensions.get::<VortexAccessPlan>() {
                 scan_builder = vortex_plan.apply_to_builder(scan_builder);
             }
 
@@ -1149,9 +1147,12 @@ mod tests {
 
         let schema = batch.schema();
         let mut file = PartitionedFile::new(file_path.to_string(), data_size);
-        file.extensions = Some(Arc::new(VortexAccessPlan::default().with_selection(
-            Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 5, 7])),
-        )));
+        file.extensions
+            .insert(
+                VortexAccessPlan::default().with_selection(Selection::IncludeByIndex(
+                    Buffer::from_iter(vec![1, 3, 5, 7]),
+                )),
+            );
 
         let opener = make_test_opener(
             Arc::clone(&object_store),
@@ -1190,9 +1191,12 @@ mod tests {
 
         let schema = batch.schema();
         let mut file = PartitionedFile::new(file_path.to_string(), data_size);
-        file.extensions = Some(Arc::new(VortexAccessPlan::default().with_selection(
-            Selection::ExcludeByIndex(Buffer::from_iter(vec![0, 2, 4, 6, 8])),
-        )));
+        file.extensions
+            .insert(
+                VortexAccessPlan::default().with_selection(Selection::ExcludeByIndex(
+                    Buffer::from_iter(vec![0, 2, 4, 6, 8]),
+                )),
+            );
 
         let opener = make_test_opener(
             Arc::clone(&object_store),
@@ -1234,9 +1238,8 @@ mod tests {
 
         let schema = batch.schema();
         let mut file = PartitionedFile::new(file_path.to_string(), data_size);
-        file.extensions = Some(Arc::new(
-            VortexAccessPlan::default().with_selection(Selection::All),
-        ));
+        file.extensions
+            .insert(VortexAccessPlan::default().with_selection(Selection::All));
 
         let opener = make_test_opener(
             Arc::clone(&object_store),

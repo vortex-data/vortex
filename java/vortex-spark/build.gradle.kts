@@ -70,7 +70,9 @@ mavenPublishing {
 
     publishToMavenCentral()
 
-    signAllPublications()
+    if (!project.hasProperty("skip.signing")) {
+        signAllPublications()
+    }
 
     pom {
         name = "vortex-spark_$scalaVersion"

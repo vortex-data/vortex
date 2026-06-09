@@ -161,6 +161,9 @@ typedef enum {
     PTYPE_F64 = 10,
 } vx_ptype;
 
+/**
+ * Validity representation for arrays constructed through the C FFI.
+ */
 typedef enum {
     /**
      * Items can't be null
@@ -533,7 +536,13 @@ typedef struct vx_struct_fields vx_struct_fields;
  */
 typedef struct vx_struct_fields_builder vx_struct_fields_builder;
 
+/**
+ * Array validity descriptor used by C FFI constructors.
+ */
 typedef struct {
+    /**
+     * The kind of validity represented by this descriptor.
+     */
     vx_validity_type type;
     /**
      * If type is not VX_VALIDITY_ARRAY, this is NULL.

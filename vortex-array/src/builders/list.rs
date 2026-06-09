@@ -579,11 +579,11 @@ mod tests {
         let array = builder.finish_into_list();
         assert_eq!(array.len(), 3);
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
         // Check actual values using scalar_at.
 
-        let scalar0 = array
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap();
+        let scalar0 = array.execute_scalar(0, &mut ctx).unwrap();
         let list0 = scalar0.as_list();
         assert_eq!(list0.len(), 2);
         if let Some(list0_items) = list0.elements() {
@@ -591,9 +591,7 @@ mod tests {
             assert_eq!(list0_items[1].as_primitive().typed_value::<i32>(), Some(2));
         }
 
-        let scalar1 = array
-            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap();
+        let scalar1 = array.execute_scalar(1, &mut ctx).unwrap();
         let list1 = scalar1.as_list();
         assert_eq!(list1.len(), 3);
         if let Some(list1_items) = list1.elements() {
@@ -602,9 +600,7 @@ mod tests {
             assert_eq!(list1_items[2].as_primitive().typed_value::<i32>(), Some(5));
         }
 
-        let scalar2 = array
-            .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap();
+        let scalar2 = array.execute_scalar(2, &mut ctx).unwrap();
         let list2 = scalar2.as_list();
         assert!(list2.is_null()); // This should be null.
 
@@ -613,21 +609,21 @@ mod tests {
             array
                 .validity()
                 .vortex_expect("list validity should be derivable")
-                .is_valid(0)
+                .execute_is_valid(0, &mut ctx)
                 .unwrap()
         );
         assert!(
             array
                 .validity()
                 .vortex_expect("list validity should be derivable")
-                .is_valid(1)
+                .execute_is_valid(1, &mut ctx)
                 .unwrap()
         );
         assert!(
             !array
                 .validity()
                 .vortex_expect("list validity should be derivable")
-                .is_valid(2)
+                .execute_is_valid(2, &mut ctx)
                 .unwrap()
         );
 

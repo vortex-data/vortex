@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::Any;
 use std::fmt::Formatter;
 use std::ops::Range;
 use std::sync::Arc;
@@ -14,13 +13,16 @@ use datafusion_datasource::file::FileSource;
 use datafusion_datasource::file_scan_config::FileScanConfig;
 use datafusion_datasource::file_stream::FileOpener;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
+use datafusion_physical_expr::EquivalenceProperties;
 use datafusion_physical_expr::PhysicalExprRef;
+use datafusion_physical_expr::PhysicalSortExpr;
 use datafusion_physical_expr::conjunction;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr_adapter::DefaultPhysicalExprAdapterFactory;
 use datafusion_physical_expr_common::physical_expr::fmt_sql;
 use datafusion_physical_plan::DisplayFormatType;
 use datafusion_physical_plan::PhysicalExpr;
+use datafusion_physical_plan::SortOrderPushdownResult;
 use datafusion_physical_plan::filter_pushdown::FilterPushdownPropagation;
 use datafusion_physical_plan::filter_pushdown::PushedDown;
 use datafusion_physical_plan::filter_pushdown::PushedDownPredicate;
@@ -190,6 +192,7 @@ pub struct VortexSource {
     natural_split_ranges: Arc<DashMap<Path, Arc<[Range<u64>]>>>,
     expression_convertor: Arc<dyn ExpressionConvertor>,
     pub(crate) vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
+    pub(crate) ordered: bool,
     vx_metrics_registry: Arc<dyn MetricsRegistry>,
     file_metadata_cache: Option<Arc<dyn FileMetadataCache>>,
     /// Whether to enable expression pushdown into the underlying Vortex scan.
@@ -224,6 +227,7 @@ impl VortexSource {
             vortex_reader_factory: None,
             vx_metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             file_metadata_cache: None,
+            ordered: false,
             options: VortexTableOptions::default(),
         }
     }
@@ -336,7 +340,7 @@ impl VortexSource {
             metrics_registry: Arc::clone(&self.vx_metrics_registry),
             layout_readers: Arc::clone(&self.layout_readers),
             natural_split_ranges: Arc::clone(&self.natural_split_ranges),
-            has_output_ordering: !base_config.output_ordering.is_empty(),
+            has_output_ordering: !base_config.output_ordering.is_empty() || self.ordered,
             expression_convertor: Arc::clone(&self.expression_convertor),
             file_metadata_cache: self.file_metadata_cache.clone(),
             projection_pushdown: self.options.projection_pushdown,
@@ -361,10 +365,6 @@ impl FileSource for VortexSource {
         )?))
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn with_batch_size(&self, batch_size: usize) -> Arc<dyn FileSource> {
         let mut source = self.clone();
         source.batch_size = Some(batch_size);
@@ -381,6 +381,27 @@ impl FileSource for VortexSource {
 
     fn file_type(&self) -> &str {
         VORTEX_FILE_EXTENSION
+    }
+
+    fn try_pushdown_sort(
+        &self,
+        order: &[PhysicalSortExpr],
+        eq_properties: &EquivalenceProperties,
+    ) -> DFResult<SortOrderPushdownResult<Arc<dyn FileSource>>> {
+        if order.is_empty() {
+            return Ok(SortOrderPushdownResult::Unsupported);
+        }
+
+        if eq_properties.ordering_satisfy(order.iter().cloned())? {
+            let mut this = self.clone();
+            this.ordered = true;
+
+            return Ok(SortOrderPushdownResult::Exact {
+                inner: Arc::new(this) as Arc<dyn FileSource>,
+            });
+        }
+
+        Ok(SortOrderPushdownResult::Unsupported)
     }
 
     fn fmt_extra(&self, t: DisplayFormatType, f: &mut Formatter) -> std::fmt::Result {
@@ -498,6 +519,7 @@ mod tests {
     use arrow_schema::Schema;
     use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
     use datafusion_execution::object_store::ObjectStoreUrl;
+    use datafusion_physical_expr::expressions::Column;
     use object_store::memory::InMemory;
     use vortex::VortexSessionDefault;
 
@@ -535,6 +557,53 @@ mod tests {
             self.inner
                 .no_pushdown_projection(source_projection, input_schema)
         }
+    }
+
+    fn sort_column(name: &str, index: usize) -> PhysicalSortExpr {
+        let expr: PhysicalExprRef = Arc::new(Column::new(name, index));
+        PhysicalSortExpr::new_default(expr)
+    }
+
+    fn sort_test_schema() -> Arc<Schema> {
+        Arc::new(Schema::new(vec![
+            Field::new("a", DataType::Int32, false),
+            Field::new("b", DataType::Int32, false),
+        ]))
+    }
+
+    fn sort_test_source(schema: Arc<Schema>) -> VortexSource {
+        VortexSource::new(
+            TableSchema::from_file_schema(schema),
+            VortexSession::default(),
+        )
+    }
+
+    fn assert_ordered_source(inner: Arc<dyn FileSource>) -> anyhow::Result<()> {
+        let source = inner
+            .downcast_ref::<VortexSource>()
+            .ok_or_else(|| anyhow::anyhow!("expected VortexSource"))?;
+
+        assert!(source.ordered);
+        Ok(())
+    }
+
+    #[test]
+    fn try_pushdown_sort_returns_exact_when_ordering_is_satisfied() -> anyhow::Result<()> {
+        let schema = sort_test_schema();
+        let source = sort_test_source(Arc::clone(&schema));
+        let order = vec![sort_column("a", 0), sort_column("b", 1)];
+        let eq_properties = EquivalenceProperties::new_with_orderings(schema, [order.clone()]);
+
+        let result = source.try_pushdown_sort(&order, &eq_properties)?;
+
+        match result {
+            SortOrderPushdownResult::Exact { inner } => assert_ordered_source(inner)?,
+            SortOrderPushdownResult::Inexact { .. } | SortOrderPushdownResult::Unsupported => {
+                anyhow::bail!("expected exact sort pushdown")
+            }
+        }
+        assert!(!source.ordered);
+        Ok(())
     }
 
     #[test]

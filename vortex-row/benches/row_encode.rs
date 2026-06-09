@@ -13,6 +13,7 @@
 //! mixed-field struct.
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use arrow_array::Int64Array;
 use arrow_array::StringArray;
@@ -28,17 +29,21 @@ use rand::SeedableRng;
 use rand::distr::Alphanumeric;
 use rand::rngs::StdRng;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::session::ArraySession;
 use vortex_row::RowEncoder;
+use vortex_session::VortexSession;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
 const N: usize = 100_000;
+
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 fn main() {
     divan::main();
@@ -83,10 +88,10 @@ fn primitive_i64_vortex(bencher: divan::Bencher) {
     let col = PrimitiveArray::from_iter(v.clone()).into_array();
     let bytes = (N * (1 + 8)) as u64;
     let encoder = RowEncoder::default();
-    bencher.counter(BytesCount::new(bytes)).bench_local(|| {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        encoder.encode(&[col.clone()], &mut ctx).unwrap()
-    })
+    bencher
+        .counter(BytesCount::new(bytes))
+        .with_inputs(|| SESSION.create_execution_ctx())
+        .bench_local_values(|mut ctx| encoder.encode(&[col.clone()], &mut ctx).unwrap())
 }
 
 // ---------- utf8 ----------
@@ -114,10 +119,10 @@ fn utf8_vortex(bencher: divan::Bencher) {
         .sum();
     let col = VarBinViewArray::from_iter_str(words.iter().map(String::as_str)).into_array();
     let encoder = RowEncoder::default();
-    bencher.counter(BytesCount::new(total)).bench_local(|| {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        encoder.encode(&[col.clone()], &mut ctx).unwrap()
-    })
+    bencher
+        .counter(BytesCount::new(total))
+        .with_inputs(|| SESSION.create_execution_ctx())
+        .bench_local_values(|mut ctx| encoder.encode(&[col.clone()], &mut ctx).unwrap())
 }
 
 // ---------- struct_mixed ----------
@@ -169,8 +174,8 @@ fn struct_mixed_vortex(bencher: divan::Bencher) {
         .unwrap()
         .into_array();
     let encoder = RowEncoder::default();
-    bencher.counter(BytesCount::new(total)).bench_local(|| {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        encoder.encode(&[struct_arr.clone()], &mut ctx).unwrap()
-    })
+    bencher
+        .counter(BytesCount::new(total))
+        .with_inputs(|| SESSION.create_execution_ctx())
+        .bench_local_values(|mut ctx| encoder.encode(&[struct_arr.clone()], &mut ctx).unwrap())
 }

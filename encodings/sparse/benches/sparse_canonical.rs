@@ -4,12 +4,12 @@
 #![expect(clippy::cast_possible_truncation)]
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use divan::Bencher;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListViewArray;
@@ -17,14 +17,19 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::dtype::PType::I32;
 use vortex_array::scalar::Scalar;
+use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
+use vortex_session::VortexSession;
 use vortex_sparse::Sparse;
 
 fn main() {
     divan::main();
 }
+
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 const LIST_ARGS: &[(usize, usize, usize)] = &[
     // len, patch_stride, list_size
@@ -93,7 +98,7 @@ fn canonicalize_sparse_list(
     let sparse = make_sparse_list(len, patch_stride, list_size);
 
     bencher
-        .with_inputs(|| (sparse.clone(), LEGACY_SESSION.create_execution_ctx()))
+        .with_inputs(|| (sparse.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| {
             divan::black_box(
                 array
@@ -111,7 +116,7 @@ fn canonicalize_sparse_fixed_size_list(
     let sparse = make_sparse_fixed_size_list(len, patch_stride, list_size);
 
     bencher
-        .with_inputs(|| (sparse.clone(), LEGACY_SESSION.create_execution_ctx()))
+        .with_inputs(|| (sparse.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| {
             divan::black_box(
                 array

@@ -3,23 +3,29 @@
 
 #![expect(clippy::unwrap_used)]
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::distr::Uniform;
 use rand::rngs::StdRng;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::FieldNames;
+use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
+use vortex_session::VortexSession;
 
 fn main() {
     divan::main();
 }
+
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 const ARRAY_SIZE: usize = 100_000;
 const TAKE_SIZE: usize = 1000;
@@ -54,7 +60,7 @@ fn take_struct_simple(bencher: Bencher) {
             (
                 &struct_array,
                 &indices_array,
-                LEGACY_SESSION.create_execution_ctx(),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_refs(|(array, indices, ctx)| {
@@ -97,7 +103,7 @@ fn take_struct_wide(bencher: Bencher, width: usize) {
             (
                 &struct_array,
                 &indices_array,
-                LEGACY_SESSION.create_execution_ctx(),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_refs(|(array, indices, ctx)| {
@@ -137,7 +143,7 @@ fn take_struct_sequential_indices(bencher: Bencher) {
             (
                 &struct_array,
                 &indices_array,
-                LEGACY_SESSION.create_execution_ctx(),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_refs(|(array, indices, ctx)| {

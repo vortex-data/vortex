@@ -112,6 +112,9 @@ pub struct NullTyped<'a>(&'a ArrayRef);
 pub struct BoolTyped<'a>(&'a ArrayRef);
 
 impl BoolTyped<'_> {
+    #[deprecated(
+        note = "Relies on the hidden global `LEGACY_SESSION`; use `sum(array, ctx)` with an explicit `ExecutionCtx` instead"
+    )]
     pub fn true_count(&self) -> VortexResult<usize> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let true_count = sum(self.0, &mut ctx)?;
@@ -133,6 +136,10 @@ impl PrimitiveTyped<'_> {
     }
 
     /// Return the primitive value at the given index.
+    #[deprecated(
+        note = "Relies on the hidden global `LEGACY_SESSION`; use `is_valid`/`execute_scalar` with an explicit `ExecutionCtx` instead"
+    )]
+    #[allow(deprecated)]
     pub fn value(&self, idx: usize) -> VortexResult<Option<PValue>> {
         self.0
             .is_valid(idx, &mut LEGACY_SESSION.create_execution_ctx())?
@@ -141,6 +148,9 @@ impl PrimitiveTyped<'_> {
     }
 
     /// Return the primitive value at the given index, ignoring nullability.
+    #[deprecated(
+        note = "Relies on the hidden global `LEGACY_SESSION`; use `execute_scalar` with an explicit `ExecutionCtx` instead"
+    )]
     pub fn value_unchecked(&self, idx: usize) -> VortexResult<PValue> {
         Ok(self
             .0
@@ -152,6 +162,7 @@ impl PrimitiveTyped<'_> {
 }
 
 impl IndexOrd<Option<PValue>> for PrimitiveTyped<'_> {
+    #[allow(deprecated)]
     fn index_cmp(&self, idx: usize, elem: &Option<PValue>) -> VortexResult<Option<Ordering>> {
         let value = self.value(idx)?;
         Ok(value.partial_cmp(elem))
@@ -164,6 +175,7 @@ impl IndexOrd<Option<PValue>> for PrimitiveTyped<'_> {
 
 // TODO(ngates): add generics to the `value` function and implement this over T.
 impl IndexOrd<PValue> for PrimitiveTyped<'_> {
+    #[allow(deprecated)]
     fn index_cmp(&self, idx: usize, elem: &PValue) -> VortexResult<Option<Ordering>> {
         assert!(
             self.0
