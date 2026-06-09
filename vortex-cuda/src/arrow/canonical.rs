@@ -12,12 +12,20 @@ use futures::future::BoxFuture;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::arrays::DecimalArray;
+use vortex::array::arrays::Dict;
+use vortex::array::arrays::DictArray;
+use vortex::array::arrays::FixedSizeList;
 use vortex::array::arrays::FixedSizeListArray;
+use vortex::array::arrays::List;
 use vortex::array::arrays::ListArray;
+use vortex::array::arrays::ListView;
+use vortex::array::arrays::ListViewArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::bool::BoolDataParts;
 use vortex::array::arrays::decimal::DecimalDataParts;
+use vortex::array::arrays::dict::DictOwnedExt;
 use vortex::array::arrays::extension::ExtensionArrayExt;
 use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex::array::arrays::fixed_size_list::FixedSizeListDataParts;
@@ -55,6 +63,7 @@ use crate::arrow::ArrowDeviceArray;
 use crate::arrow::ExportDeviceArray;
 use crate::arrow::PrivateData;
 use crate::arrow::SyncEvent;
+use crate::arrow::arrow_device_export_dictionary_codes_dtype;
 use crate::arrow::cuda_decimal_value_type;
 use crate::executor::CudaArrayExt;
 
@@ -71,9 +80,7 @@ impl ExportDeviceArray for CanonicalDeviceArrayExport {
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<ArrowDeviceArray> {
-        let cuda_array = array.execute_cuda(ctx).await?;
-
-        let (arrow_array, sync_event) = export_canonical(cuda_array, ctx).await?;
+        let (arrow_array, sync_event) = export_array(array, ctx).await?;
 
         Ok(ArrowDeviceArray {
             array: arrow_array,
@@ -85,6 +92,43 @@ impl ExportDeviceArray for CanonicalDeviceArrayExport {
     }
 }
 
+/// Export arrays whose Arrow layout depends on their concrete children before CUDA
+/// canonicalization can erase that structure (for example nested dictionaries).
+/// All other arrays are executed on CUDA, then exported directly from the canonical result.
+fn export_array(
+    array: ArrayRef,
+    ctx: &mut CudaExecutionCtx,
+) -> BoxFuture<'_, VortexResult<(ArrowArray, SyncEvent)>> {
+    Box::pin(async {
+        let array = match array.try_downcast::<Dict>() {
+            Ok(dict) => return export_dict(dict, ctx).await,
+            Err(array) => array,
+        };
+        let array = match array.try_downcast::<Struct>() {
+            Ok(struct_array) => return export_struct(struct_array, ctx).await,
+            Err(array) => array,
+        };
+        let array = match array.try_downcast::<List>() {
+            Ok(list) => {
+                return export_list(list, ListChildExport::PreserveConcreteLayout, ctx).await;
+            }
+            Err(array) => array,
+        };
+        let array = match array.try_downcast::<FixedSizeList>() {
+            Ok(fixed_size_list) => return export_fixed_size_list(fixed_size_list, ctx).await,
+            Err(array) => array,
+        };
+        let array = match array.try_downcast::<ListView>() {
+            Ok(list_view) => return export_list_view(list_view, ctx).await,
+            Err(array) => array,
+        };
+
+        let cuda_array = array.execute_cuda(ctx).await?;
+        export_canonical(cuda_array, ctx).await
+    })
+}
+
+/// Export a canonical CUDA array using the Arrow C Device layout for its logical type.
 fn export_canonical(
     cuda_array: Canonical,
     ctx: &mut CudaExecutionCtx,
@@ -156,23 +200,7 @@ fn export_canonical(
                     ctx,
                 )
             }
-            Canonical::List(listview) => {
-                // cuDF imports standard Arrow `List`, while Vortex canonical lists are list-views.
-                // Try the GPU path first; host list-views can fall back to a CPU rebuild.
-                let is_host = listview.as_ref().is_host();
-                let gpu_err = match export_device_list_view(listview.clone(), ctx).await {
-                    Ok(exported) => return Ok(exported),
-                    Err(err) => err,
-                };
-
-                // CPU rebuild requires host-resident buffers; device-resident arrays keep the GPU error.
-                if !is_host {
-                    return Err(gpu_err);
-                }
-
-                let list = list_from_list_view(listview, ctx.execution_ctx())?;
-                export_list(list, ctx).await
-            }
+            Canonical::List(listview) => export_list_view(listview, ctx).await,
             Canonical::FixedSizeList(fixed_size_list) => {
                 export_fixed_size_list(fixed_size_list, ctx).await
             }
@@ -231,6 +259,73 @@ fn export_canonical(
             c => vortex_bail!("unsupported Arrow Device export for {} array", c.dtype()),
         }
     })
+}
+
+/// Export a Vortex dictionary array as an Arrow dictionary array.
+///
+/// Owns the codes buffers and recursively exported dictionary values.
+async fn export_dict(
+    array: DictArray,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<(ArrowArray, SyncEvent)> {
+    let len = array.len();
+    let parts = array.into_parts();
+    let PrimitiveDataParts {
+        buffer, validity, ..
+    } = export_dictionary_codes(parts.codes, ctx).await?;
+    let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
+    let codes_buffer = ctx.ensure_on_device(buffer).await?;
+    let (dictionary, _) = export_array(parts.values, ctx).await?;
+
+    let mut private_data = PrivateData::new_with_dictionary(
+        vec![validity_buffer, Some(codes_buffer)],
+        vec![],
+        Some(dictionary),
+        ctx,
+    )?;
+    let sync_event = private_data.sync_event();
+    let dictionary = private_data.dictionary;
+
+    let arrow_array = ArrowArray {
+        length: len as i64,
+        null_count,
+        offset: 0,
+        n_buffers: 2,
+        buffers: private_data.buffer_ptrs.as_mut_ptr(),
+        n_children: 0,
+        children: ptr::null_mut(),
+        release: Some(release_array),
+        dictionary,
+        private_data: Box::into_raw(private_data).cast(),
+    };
+
+    Ok((arrow_array, sync_event))
+}
+
+async fn export_dictionary_codes(
+    codes: ArrayRef,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<PrimitiveDataParts> {
+    let target_dtype = arrow_device_export_dictionary_codes_dtype(codes.dtype())?;
+    let target_ptype = target_dtype.as_ptype();
+    let codes = if codes.dtype() == &target_dtype {
+        codes
+    } else {
+        codes.cast(target_dtype)?
+    }
+    .execute_cuda(ctx)
+    .await?;
+    let Canonical::Primitive(codes) = codes else {
+        vortex_bail!("dictionary codes must be primitive, got {}", codes.dtype());
+    };
+
+    let parts = codes.into_data_parts();
+    vortex_ensure!(
+        parts.ptype == target_ptype,
+        "dictionary codes export produced {}",
+        parts.ptype
+    );
+    Ok(parts)
 }
 
 /// Exports decimals with value buffers cast to Arrow's Decimal32/64/128/256 layout.
@@ -369,10 +464,55 @@ pub(super) async fn export_arrow_validity_buffer(
 }
 
 /// Export a standard Vortex list as Arrow `List`: validity, offsets, and one child array.
-async fn export_list(
-    array: ListArray,
+async fn export_list_view(
+    listview: ListViewArray,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<(ArrowArray, SyncEvent)> {
+    // cuDF imports standard Arrow `List`, while Vortex canonical lists are list-views.
+    // Try the GPU path first; host list-views can fall back to a CPU rebuild.
+    let is_host = listview.as_ref().is_host();
+    let gpu_err = match export_device_list_view(listview.clone(), ctx).await {
+        Ok(exported) => return Ok(exported),
+        Err(err) => err,
+    };
+
+    // CPU rebuild requires host-resident buffers; device-resident arrays keep the GPU error.
+    if !is_host {
+        return Err(gpu_err);
+    }
+
+    // The CPU fallback packs ListView ranges into a contiguous List.
+    export_list(
+        list_from_list_view(listview, ctx.execution_ctx())?,
+        ListChildExport::RebuiltListViewChild,
+        ctx,
+    )
+    .await
+}
+
+async fn export_list(
+    array: ListArray,
+    child_export: ListChildExport,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<(ArrowArray, SyncEvent)> {
+    let (elements, len, validity_buffer, null_count, offsets_buffer) =
+        list_layout_parts(array, ctx).await?;
+    export_list_layout(
+        elements,
+        len,
+        validity_buffer,
+        null_count,
+        offsets_buffer,
+        child_export,
+        ctx,
+    )
+    .await
+}
+
+async fn list_layout_parts(
+    array: ListArray,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<(ArrayRef, usize, Option<BufferHandle>, i64, BufferHandle)> {
     let len = array.len();
     let ListDataParts {
         elements,
@@ -383,16 +523,36 @@ async fn export_list(
 
     let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
     let offsets_buffer = export_arrow_list_offsets(offsets, ctx).await?;
+    Ok((elements, len, validity_buffer, null_count, offsets_buffer))
+}
 
-    export_list_layout(
-        elements,
-        len,
-        validity_buffer,
-        null_count,
-        offsets_buffer,
-        ctx,
-    )
-    .await
+#[derive(Clone, Copy)]
+pub(super) enum ListChildExport {
+    /// Preserve concrete child layouts, such as dictionaries,
+    /// so exported data matches the schema.
+    PreserveConcreteLayout,
+    /// Canonicalize temporary encodings introduced by the host ListView
+    /// rebuild, while still preserving rebuilt dictionary children.
+    RebuiltListViewChild,
+}
+
+impl ListChildExport {
+    async fn export(
+        self,
+        elements: ArrayRef,
+        ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<ArrowArray> {
+        let (elements_child, _) = match self {
+            ListChildExport::PreserveConcreteLayout => export_array(elements, ctx).await?,
+            ListChildExport::RebuiltListViewChild if elements.as_opt::<Dict>().is_some() => {
+                export_array(elements, ctx).await?
+            }
+            ListChildExport::RebuiltListViewChild => {
+                export_canonical(elements.execute_cuda(ctx).await?, ctx).await?
+            }
+        };
+        Ok(elements_child)
+    }
 }
 
 /// Build the shared Arrow `List` parent once offsets and validity are ready on device.
@@ -402,11 +562,28 @@ pub(super) async fn export_list_layout(
     validity_buffer: Option<BufferHandle>,
     null_count: i64,
     offsets_buffer: BufferHandle,
+    child_export: ListChildExport,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<(ArrowArray, SyncEvent)> {
-    let cuda_elements = elements.execute_cuda(ctx).await?;
-    let (elements_child, _) = export_canonical(cuda_elements, ctx).await?;
+    let elements_child = child_export.export(elements, ctx).await?;
+    export_list_layout_with_child(
+        elements_child,
+        len,
+        validity_buffer,
+        null_count,
+        offsets_buffer,
+        ctx,
+    )
+}
 
+fn export_list_layout_with_child(
+    elements_child: ArrowArray,
+    len: usize,
+    validity_buffer: Option<BufferHandle>,
+    null_count: i64,
+    offsets_buffer: BufferHandle,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<(ArrowArray, SyncEvent)> {
     let mut private_data = PrivateData::new(
         vec![validity_buffer, Some(offsets_buffer)],
         vec![elements_child],
@@ -450,6 +627,7 @@ async fn export_fixed_size_list(
         validity_buffer,
         null_count,
         offsets_buffer,
+        ListChildExport::PreserveConcreteLayout,
         ctx,
     )
     .await
@@ -517,8 +695,7 @@ async fn export_struct(
     let mut children = Vec::with_capacity(fields.len());
 
     for field in fields.iter() {
-        let cuda_field = field.clone().execute_cuda(ctx).await?;
-        let (arrow_field, _) = export_canonical(cuda_field, ctx).await?;
+        let (arrow_field, _) = export_array(field.clone(), ctx).await?;
         children.push(arrow_field);
     }
 
@@ -590,6 +767,7 @@ unsafe extern "C" fn release_array(array: *mut ArrowArray) {
         if !private_data_ptr.is_null() {
             let mut private_data = Box::from_raw(private_data_ptr.cast::<PrivateData>());
             release_children(&mut private_data);
+            release_dictionary(&mut private_data);
         }
 
         // update the release function to NULL to avoid any possibility of double-frees.
@@ -597,18 +775,34 @@ unsafe extern "C" fn release_array(array: *mut ArrowArray) {
     }
 }
 
+/// Release all owned child arrays stored in private data.
 unsafe fn release_children(private_data: &mut PrivateData) {
     unsafe {
         let children = mem::take(&mut private_data.children);
         for child in children {
-            if !child.is_null() {
-                if let Some(release) = (*child).release {
-                    release(child);
-                }
-                // Children are allocated with Box::into_raw in PrivateData::new, so the
-                // release callback must also reclaim the ArrowArray allocation itself.
-                drop(Box::from_raw(child));
+            release_array_ptr(child);
+        }
+    }
+}
+
+/// Release the owned dictionary array, if this Arrow array has one.
+unsafe fn release_dictionary(private_data: &mut PrivateData) {
+    unsafe {
+        let dictionary = ptr::replace(&raw mut private_data.dictionary, ptr::null_mut());
+        release_array_ptr(dictionary);
+    }
+}
+
+/// Release an ArrowArray pointer allocated for private data.
+unsafe fn release_array_ptr(array: *mut ArrowArray) {
+    unsafe {
+        if !array.is_null() {
+            if let Some(release) = (*array).release {
+                release(array);
             }
+            // Owned arrays are allocated with Box::into_raw in PrivateData, so the release callback
+            // must also reclaim the ArrowArray allocation itself.
+            drop(Box::from_raw(array));
         }
     }
 }
@@ -627,6 +821,7 @@ mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::DecimalArray;
+    use vortex::array::arrays::DictArray;
     use vortex::array::arrays::FixedSizeListArray;
     use vortex::array::arrays::ListArray;
     use vortex::array::arrays::ListViewArray;
@@ -864,6 +1059,20 @@ mod tests {
             .collect())
     }
 
+    fn private_data_buffer_i16_values(
+        array: &ArrowArray,
+        buffer_idx: usize,
+    ) -> VortexResult<Vec<i16>> {
+        let private_data = unsafe { &*array.private_data.cast::<PrivateData>() };
+        let buffer = private_data.buffers[buffer_idx]
+            .as_ref()
+            .vortex_expect("buffer should be present");
+        Ok(Buffer::<i16>::from_byte_buffer(buffer.to_host_sync())
+            .iter()
+            .copied()
+            .collect())
+    }
+
     fn assert_exported_decimal_values<T: NativeDecimalType>(
         value_buffer: &BufferHandle,
         expected: &[T],
@@ -963,6 +1172,127 @@ mod tests {
         assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
 
         unsafe { release_exported_array(&raw mut device_array.array) };
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_export_dictionary() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let out_of_line = "a dictionary value stored out-of-line";
+        let array = DictArray::try_new(
+            PrimitiveArray::from_option_iter([Some(0u8), None, Some(1), Some(0)]).into_array(),
+            VarBinViewArray::from_iter_str(["alpha", out_of_line]).into_array(),
+        )?
+        .into_array();
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+
+        let field = Field::try_from(&exported.schema)?;
+        assert_eq!(
+            field,
+            Field::new(
+                "",
+                DataType::Dictionary(Box::new(DataType::Int16), Box::new(DataType::Utf8View)),
+                true,
+            )
+        );
+        assert_eq!(exported.array.array.length, 4);
+        assert_eq!(exported.array.array.null_count, 1);
+        assert_eq!(exported.array.array.n_buffers, 2);
+        assert_eq!(exported.array.array.n_children, 0);
+        assert!(!exported.array.array.dictionary.is_null());
+        assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+
+        let private_data = unsafe { &*exported.array.array.private_data.cast::<PrivateData>() };
+        assert_eq!(
+            private_data.buffers[1]
+                .as_ref()
+                .vortex_expect("codes buffer should be present")
+                .len(),
+            4 * size_of::<i16>()
+        );
+
+        let dictionary = unsafe { &*exported.array.array.dictionary };
+        assert_varbinview_layout(dictionary, 2, 0, &[out_of_line.len()])?;
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_export_struct_preserves_dictionary_child() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let dictionary = DictArray::try_new(
+            PrimitiveArray::from_option_iter([Some(0u8), None, Some(1)]).into_array(),
+            VarBinViewArray::from_iter_str(["alpha", "beta"]).into_array(),
+        )?
+        .into_array();
+        let array = StructArray::new(
+            FieldNames::from_iter(["dict"]),
+            vec![dictionary],
+            3,
+            Validity::NonNullable,
+        )
+        .into_array();
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+
+        let field = Field::try_from(&exported.schema)?;
+        assert_eq!(
+            field,
+            Field::new(
+                "",
+                DataType::Struct(Fields::from(vec![Field::new(
+                    "dict",
+                    DataType::Dictionary(Box::new(DataType::Int16), Box::new(DataType::Utf8View)),
+                    true,
+                )])),
+                false,
+            )
+        );
+        assert_eq!(exported.array.array.n_children, 1);
+        let children = unsafe { std::slice::from_raw_parts(exported.array.array.children, 1) };
+        let dict_child = unsafe { &*children[0] };
+        assert!(!dict_child.dictionary.is_null());
+        assert_eq!(dict_child.null_count, 1);
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_export_dictionary_with_nullable_values() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let array = DictArray::try_new(
+            PrimitiveArray::from_iter([0u8, 1, 0]).into_array(),
+            PrimitiveArray::from_option_iter([Some(10i32), None]).into_array(),
+        )?
+        .into_array();
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+
+        let field = Field::try_from(&exported.schema)?;
+        assert_eq!(
+            field,
+            Field::new(
+                "",
+                DataType::Dictionary(Box::new(DataType::Int16), Box::new(DataType::Int32)),
+                true,
+            )
+        );
+        assert_eq!(exported.array.array.null_count, 0);
+        assert_eq!(
+            private_data_buffer_i16_values(&exported.array.array, 1)?,
+            [0, 1, 0]
+        );
+        let dictionary = unsafe { &*exported.array.array.dictionary };
+        assert_eq!(dictionary.null_count, 1);
+        assert_eq!(private_data_buffer_i32_values(dictionary, 1)?.len(), 2);
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
     }
 
@@ -1347,6 +1677,53 @@ mod tests {
         Ok(())
     }
 
+    #[crate::test]
+    async fn test_export_host_non_contiguous_dictionary_list_view_preserves_dictionary_child()
+    -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let elements = DictArray::try_new(
+            PrimitiveArray::from_option_iter([Some(0u8), None, Some(1), Some(2)]).into_array(),
+            PrimitiveArray::from_iter([10i32, 20, 30]).into_array(),
+        )?
+        .into_array();
+        let array = ListViewArray::new(
+            elements,
+            PrimitiveArray::from_iter([0i32, 1]).into_array(),
+            PrimitiveArray::from_iter([3i32, 2]).into_array(),
+            Validity::NonNullable,
+        )
+        .into_array();
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+
+        let field = Field::try_from(&exported.schema)?;
+        assert_eq!(
+            field,
+            Field::new_list(
+                "",
+                Field::new(
+                    Field::LIST_FIELD_DEFAULT_NAME,
+                    DataType::Dictionary(Box::new(DataType::Int16), Box::new(DataType::Int32)),
+                    true,
+                ),
+                false,
+            )
+        );
+        assert_eq!(
+            private_data_buffer_i32_values(&exported.array.array, 1)?,
+            [0, 3, 5]
+        );
+        let list_children = unsafe { std::slice::from_raw_parts(exported.array.array.children, 1) };
+        let dict_child = unsafe { &*list_children[0] };
+        assert!(!dict_child.dictionary.is_null());
+        assert_eq!(dict_child.length, 5);
+        assert_eq!(dict_child.n_buffers, 2);
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
     #[rstest]
     #[case::i32_i32(PType::I32, PType::I32)]
     #[case::u32_u16(PType::U32, PType::U16)]
@@ -1478,6 +1855,114 @@ mod tests {
         assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_export_device_non_contiguous_dictionary_list_view() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let codes = primitive_on_device([0u8, 1, 2, 0, 1], &mut ctx).await?;
+        let values = PrimitiveArray::from_iter([10i32, 20, 30]).into_array();
+        let elements = DictArray::try_new(codes, values)?.into_array();
+        let offsets = primitive_i32_on_device([3, 0, 2], &mut ctx).await?;
+        let sizes = primitive_i32_on_device([2, 2, 1], &mut ctx).await?;
+        let array =
+            ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+
+        let field = Field::try_from(&exported.schema)?;
+        assert_eq!(
+            field,
+            Field::new_list(
+                "",
+                Field::new(
+                    Field::LIST_FIELD_DEFAULT_NAME,
+                    DataType::Dictionary(Box::new(DataType::Int16), Box::new(DataType::Int32)),
+                    false,
+                ),
+                false,
+            )
+        );
+        assert_eq!(exported.array.array.length, 3);
+        assert_eq!(
+            private_data_buffer_i32_values(&exported.array.array, 1)?,
+            [0, 2, 4, 5]
+        );
+        let children = unsafe { std::slice::from_raw_parts(exported.array.array.children, 1) };
+        let elements = unsafe { &*children[0] };
+        assert!(!elements.dictionary.is_null());
+        assert_eq!(
+            private_data_buffer_i16_values(elements, 1)?,
+            [0, 1, 0, 1, 2]
+        );
+        let dictionary = unsafe { &*elements.dictionary };
+        assert_eq!(private_data_buffer_i32_values(dictionary, 1)?, [10, 20, 30]);
+        assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_export_device_non_contiguous_dictionary_list_view_nullable_values()
+    -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let codes = primitive_on_device([0u8, 1, 2, 0, 1], &mut ctx).await?;
+        let values = PrimitiveArray::from_option_iter([Some(10i32), None, Some(30)]).into_array();
+        let elements = DictArray::try_new(codes, values)?.into_array();
+        let offsets = primitive_i32_on_device([3, 0, 2], &mut ctx).await?;
+        let sizes = primitive_i32_on_device([2, 2, 1], &mut ctx).await?;
+        let array =
+            ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+
+        let children = unsafe { std::slice::from_raw_parts(exported.array.array.children, 1) };
+        let elements = unsafe { &*children[0] };
+        assert_eq!(elements.null_count, 0);
+        assert_eq!(
+            private_data_buffer_i16_values(elements, 1)?,
+            [0, 1, 0, 1, 2]
+        );
+        let dictionary = unsafe { &*elements.dictionary };
+        assert_eq!(dictionary.null_count, 1);
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_export_device_non_contiguous_dictionary_list_view_nullable_codes_errors()
+    -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let codes = PrimitiveArray::from_option_iter([Some(0u8), None, Some(2), Some(0), Some(1)]);
+        let codes_handle = ctx.ensure_on_device(codes.buffer_handle().clone()).await?;
+        let codes = PrimitiveArray::from_buffer_handle(codes_handle, PType::U8, codes.validity()?)
+            .into_array();
+        let values =
+            PrimitiveArray::from_option_iter([Some(10i32), Some(20), Some(30)]).into_array();
+        let elements = DictArray::try_new(codes, values)?.into_array();
+        let offsets = primitive_i32_on_device([3, 0, 2], &mut ctx).await?;
+        let sizes = primitive_i32_on_device([2, 2, 1], &mut ctx).await?;
+        let array =
+            ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
+        let err = match array.export_device_array(&mut ctx).await {
+            Ok(mut exported) => {
+                unsafe { release_exported_array(&raw mut exported.array) };
+                vortex_bail!("nullable dictionary codes should be unsupported")
+            }
+            Err(err) => err,
+        };
+
+        assert!(
+            err.to_string().contains("nullable dictionary codes"),
+            "unexpected error: {err}"
+        );
         Ok(())
     }
 
