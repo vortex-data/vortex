@@ -16,6 +16,7 @@ use clap::Subcommand;
 use clap::ValueEnum;
 use tracing_subscriber::EnvFilter;
 use vortex_bench_migrate::migrate;
+use vortex_bench_migrate::postgres;
 use vortex_bench_migrate::source::Source;
 use vortex_bench_migrate::verify;
 
@@ -52,16 +53,45 @@ enum Command {
         #[arg(long, default_value_t = false)]
         allow_missing_file_sizes: bool,
     },
-    /// Diff a migrated DuckDB against the live v2 `/api/metadata`
-    /// endpoint. Exits 0 if every v2 group is present in v3, 1
-    /// otherwise so this can gate a CI step.
+    /// Verify a migrated v3 DuckDB. Two modes: `--against` diffs it against the
+    /// live v2 `/api/metadata` endpoint (group / chart structure); or
+    /// `--postgres-target` value-verifies it against a loaded Postgres target per
+    /// `measurement_id` (the PR-3.2 primary v4-correctness gate). Exactly one mode
+    /// is required; exits non-zero on a diff so this can gate a CI step.
     Verify {
-        /// HTTPS root of a running v2 server (e.g. `https://bench.vortex.dev`).
+        /// Structural-diff mode: HTTPS root of a running v2 server (e.g.
+        /// `https://bench.vortex.dev`). Mutually exclusive with `--postgres-target`.
         #[arg(long)]
-        against: String,
-        /// Path to the migrated v3 DuckDB.
+        against: Option<String>,
+        /// Path to the v3 DuckDB to verify (the migrated DB for `--against`, or the
+        /// loaded source snapshot for `--postgres-target`).
         #[arg(long)]
         duckdb: PathBuf,
+        /// Value-verify mode: Postgres DSN whose loaded rows are compared against
+        /// `--duckdb` per `measurement_id`. Mutually exclusive with `--against`.
+        #[arg(long)]
+        postgres_target: Option<String>,
+        /// PEM CA bundle for a host-verifying TLS connection to `--postgres-target`
+        /// (the RDS CA for the prod check). Omit for a plaintext local connection.
+        #[arg(long, requires = "postgres_target")]
+        ca_cert: Option<PathBuf>,
+    },
+    /// Bulk-load an existing v3 DuckDB snapshot into Postgres in one
+    /// atomic transaction (the v3 -> v4 historical-data load). Reads each
+    /// table and `COPY`s it; `measurement_id` is preserved verbatim.
+    Load {
+        /// Path to the source v3 DuckDB snapshot (read-only input).
+        #[arg(long)]
+        duckdb: PathBuf,
+        /// Postgres connection string to load into. For the prod RDS load this
+        /// is the operator-local master-password DSN (`sslmode=require` + a
+        /// `--ca-cert`); for the local rehearsal a plain `postgresql://.../db`.
+        #[arg(long)]
+        postgres_target: String,
+        /// PEM CA bundle to trust for a host-verifying TLS connection (the RDS
+        /// CA for the prod load). Omit for a plaintext local connection.
+        #[arg(long)]
+        ca_cert: Option<PathBuf>,
     },
 }
 
@@ -119,12 +149,43 @@ fn run() -> Result<()> {
             }
             Ok(())
         }
-        Command::Verify { against, duckdb } => {
-            let report = verify::run(&against, &duckdb)?;
-            print!("{report}");
-            if !report.v2_groups_covered() {
-                std::process::exit(1);
+        Command::Verify {
+            against,
+            duckdb,
+            postgres_target,
+            ca_cert,
+        } => match (against, postgres_target) {
+            (Some(server), None) => {
+                let report = verify::run(&server, &duckdb)?;
+                print!("{report}");
+                if !report.v2_groups_covered() {
+                    std::process::exit(1);
+                }
+                Ok(())
             }
+            (None, Some(dsn)) => {
+                let report = verify::run_postgres_value_verify(&duckdb, &dsn, ca_cert.as_deref())?;
+                print!("{report}");
+                if !report.is_clean() {
+                    std::process::exit(1);
+                }
+                Ok(())
+            }
+            (Some(_), Some(_)) => {
+                anyhow::bail!("--against and --postgres-target are mutually exclusive")
+            }
+            (None, None) => anyhow::bail!(
+                "verify requires exactly one of --against (v2 structural diff) or \
+                 --postgres-target (DuckDB -> Postgres value verify)"
+            ),
+        },
+        Command::Load {
+            duckdb,
+            postgres_target,
+            ca_cert,
+        } => {
+            let summary = postgres::load(&duckdb, &postgres_target, ca_cert.as_deref())?;
+            print!("{summary}");
             Ok(())
         }
     }

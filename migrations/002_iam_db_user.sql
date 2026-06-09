@@ -1,6 +1,13 @@
 -- SPDX-License-Identifier: Apache-2.0
 -- SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+-- migrate-schema: requires-superuser
+-- This migration creates a login role (`CREATE ROLE migrator`), which requires
+-- the executing role to be a superuser or hold CREATEROLE. The schema-deploy
+-- `migrator` role holds neither; this is a one-time bootstrap migration the RDS
+-- master applies (see the header below). The marker makes `migrate-schema.py`
+-- reject a non-master `apply` of this file loudly and early.
+
 -- Create the `migrator` login role used by the CI schema-deploy workflow.
 -- CI authenticates to the public RDS instance endpoint with a short-lived IAM
 -- auth token (no password); on real RDS, membership in the built-in `rds_iam`

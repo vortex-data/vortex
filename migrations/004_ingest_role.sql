@@ -1,6 +1,14 @@
 -- SPDX-License-Identifier: Apache-2.0
 -- SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+-- migrate-schema: requires-superuser
+-- This migration creates a login role (`CREATE ROLE bench_ingest`), self-grants
+-- `migrator` membership, and runs `ALTER DEFAULT PRIVILEGES FOR ROLE migrator` --
+-- all requiring a master-capable executing role. It is a one-time bootstrap
+-- migration the RDS master applies alongside 002 (see the header below). The
+-- marker makes `migrate-schema.py` reject a non-master `apply` loudly and early,
+-- before the `DO` blocks below would otherwise roll back with InsufficientPrivilege.
+
 -- Create the `bench_ingest` login role used by the CI dual-write ingest path
 -- (Phase 2) and grant it data-DML-only access to the six data tables. This role
 -- is deliberately SEPARATE from the schema-deploy `migrator` role (002): the

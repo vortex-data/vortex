@@ -25,7 +25,7 @@ lexicographic order, which equals numeric order under this convention.
   runner does not currently support `CREATE INDEX CONCURRENTLY` or any
   other DDL that cannot run inside a transaction block. If a future
   migration genuinely needs CONCURRENTLY, extend the runner first (e.g.
-  honor a `-- migrate: no-transaction` directive) rather than splitting
+  honor a `-- migrate-schema: no-transaction` directive) rather than splitting
   the DDL across files -- a half-applied non-transactional migration is
   hard to recover from at 2 AM.
 - Never edit a file after it has been applied to production. To revise
@@ -49,3 +49,25 @@ lexicographic order, which equals numeric order under this convention.
 
 This README + the runner ship in PR-1.2; `001`/`002` land in PR-1.3, `003` in
 PR-1.4, and `004` in PR-2.1.
+
+## Bootstrap ordering — `requires-superuser` migrations (002 / 004)
+
+Migrations `002_iam_db_user.sql` and `004_ingest_role.sql` carry a
+`-- migrate-schema: requires-superuser` marker comment. Before applying a marked
+file, the runner ([`scripts/migrate-schema.py`](../scripts/migrate-schema.py))
+asserts the connected role is **master-capable** — the capability proxy is
+`rolsuper OR rolcreaterole` (a true superuser locally, or the RDS master, which
+has `CREATEROLE`). If the connected role has neither, the runner raises
+`PermissionError` and refuses to apply the file, rather than failing partway
+through its privileged `CREATE ROLE` / `GRANT` / `ALTER DEFAULT PRIVILEGES`
+statements.
+
+The ordering contract this enforces: **apply the bootstrap migrations (002/004)
+as the RDS master before any `migrator`-role deploy.** The `migrator` IAM user
+that `schema-deploy.yml` assumes into is itself created by `002` and is not
+master-capable, so it cannot apply `002`/`004`; those must land first under the
+master. `001` (plain DDL) and `003` (a ledger grant) carry no marker and apply
+under either role. A future migration that needs a master-capable role (another
+`CREATE ROLE`, `ALTER DEFAULT PRIVILEGES`, or other superuser-only DDL) should
+carry `-- migrate-schema: requires-superuser` on a comment line so the same
+preflight guards it.

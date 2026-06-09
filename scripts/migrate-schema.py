@@ -58,6 +58,76 @@ CREATE TABLE IF NOT EXISTS public._applied_migrations (
 )
 """
 
+# A migration may require privileges a least-privilege deploy role (the
+# `migrator` IAM role) does not hold: creating login roles, self-granting role
+# membership, or `ALTER DEFAULT PRIVILEGES FOR ROLE`. The bootstrap migrations
+# `002_iam_db_user.sql` and `004_ingest_role.sql` are exactly this class and MUST
+# be applied by a master-capable role (the RDS master, or a superuser locally) in
+# the one-time bootstrap, BEFORE any `migrator`-connected deploy. That ordering is
+# documented in each migration's header but was previously enforced nowhere: a
+# `migrator`-connected `apply` reaching `004` would fail deep inside a `DO` block
+# with an opaque `InsufficientPrivilege` and roll the migration back mid-statement.
+# Such migrations now declare a marker comment so the runner can fail loud + early,
+# before any DDL runs. The directive is a `--` line comment whose text (after the
+# leading dashes + whitespace) is exactly `migrate-schema: requires-superuser`.
+_REQUIRES_SUPERUSER_DIRECTIVE = "migrate-schema: requires-superuser"
+
+
+def _migration_requires_superuser(sql: str) -> bool:
+    """Return whether `sql` carries the `requires-superuser` marker comment.
+
+    Matched per-line so the directive can sit anywhere in the file's header
+    comment block. Only `--`-style line comments are recognised (the bootstrap
+    migrations use them); `/* ... */` blocks are not. The match is exact after
+    stripping the leading dashes and surrounding whitespace, so a near-miss such
+    as `requires superuser` (no colon) does not trigger it.
+    """
+    for raw in sql.splitlines():
+        line = raw.strip()
+        if line.startswith("--") and line.lstrip("-").strip() == _REQUIRES_SUPERUSER_DIRECTIVE:
+            return True
+    return False
+
+
+def _role_is_master_capable(conn: psycopg.Connection) -> bool:
+    """Whether the connected role can run a `requires-superuser` migration.
+
+    The capability proxy is `rolsuper OR rolcreaterole`: a true superuser (local
+    dev + the testcontainer suite) or a CREATEROLE login (the RDS master, which is
+    `NOSUPERUSER CREATEROLE` with `rds_superuser` membership). This is a NECESSARY
+    early guard, not a full sufficiency proof: a marked migration also needs
+    ownership / ADMIN on the roles it grants, which Postgres still enforces at
+    execution. The guard's job is to reject the obvious misconfiguration -- a
+    least-privilege `migrator` / `bench_ingest` role, which holds neither attribute
+    -- loudly and before any DDL in the marked migration runs.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT rolsuper OR rolcreaterole FROM pg_roles WHERE rolname = current_user"
+        )
+        row = cur.fetchone()
+        return bool(row and row[0])
+
+
+def _assert_master_capable(conn: psycopg.Connection, filename: str) -> None:
+    """Raise `PermissionError` if the connected role cannot apply a marked migration.
+
+    Enforces the documented bootstrap ordering (`002` + `004` are applied by the
+    master before any `migrator` run) with a clear, actionable message instead of
+    an opaque mid-`DO`-block `InsufficientPrivilege` rollback.
+    """
+    if _role_is_master_capable(conn):
+        return
+    with conn.cursor() as cur:
+        current_user = cur.execute("SELECT current_user").fetchone()[0]
+    raise PermissionError(
+        f"migration {filename} is marked `{_REQUIRES_SUPERUSER_DIRECTIVE}` and must be "
+        f"applied by a master-capable role (a superuser, or the RDS master with "
+        f"CREATEROLE), but the connected role `{current_user}` has neither rolsuper nor "
+        f"rolcreaterole. Apply the bootstrap migrations (002/004) as the RDS master "
+        f"before any migrator deploy; see migrations/README.md and the migration header."
+    )
+
 
 def discover(migrations_dir: Path) -> list[Path]:
     """Return migration files sorted by filename (lexicographic == numeric under
@@ -147,6 +217,13 @@ def apply(conn: psycopg.Connection, migrations_dir: Path) -> int:
                 "least one SQL statement; delete the file or add the intended "
                 "DDL."
             )
+        # Bootstrap ordering guard: a migration marked `requires-superuser`
+        # (002/004) must be applied by a master-capable role. Check BEFORE
+        # opening the migration's transaction so a least-privilege `migrator`
+        # connection fails loud + early with no partial DDL, rather than rolling
+        # back mid-`DO`-block with an opaque InsufficientPrivilege.
+        if _migration_requires_superuser(sql):
+            _assert_master_capable(conn, path.name)
         # Each migration runs in its OWN top-level transaction (autocommit is
         # True on the connection, so `conn.transaction()` opens a fresh
         # transaction here). On success the transaction commits before the
