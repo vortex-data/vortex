@@ -11,12 +11,32 @@ use super::primitive::sum_unsigned_all;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::GroupRanges;
 use crate::aggregate_fn::GroupedArray;
+use crate::aggregate_fn::kernels::DynGroupedAggregateKernel;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
+
+/// Grouped [`Sum`](super::Sum) kernel for primitive element arrays.
+#[derive(Debug)]
+pub(crate) struct PrimitiveGroupedSumKernel;
+
+impl DynGroupedAggregateKernel for PrimitiveGroupedSumKernel {
+    fn grouped_aggregate(
+        &self,
+        aggregate_fn: &AggregateFnRef,
+        groups: &GroupedArray,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if !aggregate_fn.is::<super::Sum>() {
+            return Ok(None);
+        }
+        try_grouped_sum(groups, ctx)
+    }
+}
 
 /// Grouped [`Sum`](super::Sum) implementation for canonical primitive elements.
 ///

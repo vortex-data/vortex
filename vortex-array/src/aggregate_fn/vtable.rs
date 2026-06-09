@@ -18,7 +18,6 @@ use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnSatisfaction;
-use crate::aggregate_fn::GroupedArray;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 
@@ -137,20 +136,6 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
         Ok(false)
-    }
-
-    /// Try to accumulate many list groups in one batch.
-    ///
-    /// The returned array must contain one partial state per group and have the dtype returned by
-    /// [`Self::partial_dtype`]. Returning `Ok(None)` falls back to the default per-group accumulator
-    /// loop.
-    fn try_accumulate_grouped(
-        &self,
-        _options: &Self::Options,
-        _groups: &GroupedArray,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        Ok(None)
     }
 
     /// Accumulate a new canonical array into the accumulator state.

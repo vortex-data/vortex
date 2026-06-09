@@ -11,7 +11,6 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
-use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::Columnar;
@@ -30,6 +29,7 @@ use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
+use crate::columnar::AnyColumnar;
 use crate::dtype::DType;
 use crate::executor::max_iterations;
 use crate::match_each_integer_ptype;
@@ -300,15 +300,19 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         let mut elements = groups.elements().clone();
         let session = ctx.session().clone();
 
-        for _ in 0..max_iterations() {
-            if elements.is::<AnyCanonical>() {
-                break;
-            }
+        if let Some(kernel) = session
+            .aggregate_fns()
+            .find_grouped_kernel(self.aggregate_fn.id())
+            && let Some(result) = kernel.grouped_aggregate(&self.aggregate_fn, &groups, ctx)?
+        {
+            return self.push_result(result);
+        }
 
-            // Try a registered grouped kernel for the current non-canonical element encoding.
+        for _ in 0..max_iterations() {
+            // Try a registered grouped kernel for the current element encoding.
             if let Some(kernel) = session
                 .aggregate_fns()
-                .find_grouped_kernel(elements.encoding_id(), self.aggregate_fn.id())
+                .find_grouped_encoding_kernel(elements.encoding_id(), self.aggregate_fn.id())
             {
                 // SAFETY: we assume that elements execution is safe
                 let kernel_groups = unsafe { groups.with_elements_unchecked(elements.clone())? };
@@ -319,6 +323,10 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
                 }
             }
 
+            if elements.is::<AnyColumnar>() {
+                break;
+            }
+
             // Execute one step and try again
             elements = elements.execute(ctx)?;
         }
@@ -327,13 +335,6 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         // SAFETY: we preserve the grouped shape and validity while replacing the elements with an
         // executed form of the same logical array.
         let grouped = unsafe { groups.with_elements_unchecked(elements)? };
-
-        if let Some(result) = self
-            .vtable
-            .try_accumulate_grouped(&self.options, &grouped, ctx)?
-        {
-            return self.push_result(result);
-        }
 
         // Otherwise, we iterate the offsets and sizes and accumulate each group one by one.
         self.accumulate_grouped_fallback(&grouped, ctx)

@@ -29,9 +29,11 @@ pub trait DynAggregateKernel: 'static + Send + Sync + Debug {
 
 /// A pluggable kernel for batch aggregation of many groups.
 ///
-/// The kernel is matched on the encoding of the _elements_ array, which is the inner array of the
-/// provided grouped array. This is more pragmatic than having every kernel match on the outer list
-/// encoding and having to deal with the possibility of multiple list encodings.
+/// A kernel can be registered either for an aggregate function regardless of the element encoding,
+/// or for a specific aggregate function and element encoding. Element-encoding kernels are matched
+/// on the inner array of the provided grouped array, not on the outer list encoding. This is more
+/// pragmatic than having every kernel match on the outer list encoding and having to deal with the
+/// possibility of multiple list encodings.
 ///
 /// Each value in the grouped array represents a group and the result of the grouped aggregate
 /// should be an array of the same length, where each element is the aggregate state of the

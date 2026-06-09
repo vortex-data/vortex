@@ -8,10 +8,30 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::GroupRanges;
 use crate::aggregate_fn::GroupedArray;
+use crate::aggregate_fn::kernels::DynGroupedAggregateKernel;
 use crate::arrays::PrimitiveArray;
 use crate::validity::Validity;
+
+/// Encoding-independent grouped [`Count`](super::Count) kernel.
+#[derive(Debug)]
+pub(crate) struct CountGroupedKernel;
+
+impl DynGroupedAggregateKernel for CountGroupedKernel {
+    fn grouped_aggregate(
+        &self,
+        aggregate_fn: &AggregateFnRef,
+        groups: &GroupedArray,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if !aggregate_fn.is::<super::Count>() {
+            return Ok(None);
+        }
+        try_grouped_count(groups, ctx)
+    }
+}
 
 /// Count each valid group from the element validity mask.
 ///
