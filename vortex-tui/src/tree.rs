@@ -21,6 +21,10 @@ pub struct TreeArgs {
     /// Which kind of tree to display.
     #[clap(subcommand)]
     pub mode: TreeMode,
+
+    /// Object store options for remote files (see `--store-option`).
+    #[command(flatten)]
+    pub store: crate::store_options::StoreOptions,
 }
 
 /// What kind of tree to display.
@@ -80,25 +84,31 @@ pub struct LayoutTreeNodeWithName {
 ///
 /// Returns an error if the file cannot be opened or read.
 pub async fn exec_tree(session: &VortexSession, args: TreeArgs) -> VortexResult<()> {
+    let store = args.store.props();
     match args.mode {
-        TreeMode::Array { file, json } => exec_array_tree(session, &file, json).await?,
+        TreeMode::Array { file, json } => exec_array_tree(session, &file, json, store).await?,
         TreeMode::Layout {
             file,
             verbose,
             json,
-        } => exec_layout_tree(session, &file, verbose, json).await?,
+        } => exec_layout_tree(session, &file, verbose, json, store).await?,
     }
 
     Ok(())
 }
 
-async fn exec_array_tree(session: &VortexSession, file: &Path, _json: bool) -> VortexResult<()> {
+async fn exec_array_tree(
+    session: &VortexSession,
+    file: &Path,
+    _json: bool,
+    store: Vec<(String, String)>,
+) -> VortexResult<()> {
     let url = file
         .to_str()
         .ok_or_else(|| vortex_err!("path is not valid UTF-8: {}", file.display()))?;
     let full = session
         .open_options()
-        .open_url(url)
+        .open_url_with_props(url, store)
         .await?
         .scan()?
         .into_array_stream()?
@@ -115,11 +125,15 @@ async fn exec_layout_tree(
     file: &Path,
     verbose: bool,
     json: bool,
+    store: Vec<(String, String)>,
 ) -> VortexResult<()> {
     let url = file
         .to_str()
         .ok_or_else(|| vortex_err!("path is not valid UTF-8: {}", file.display()))?;
-    let vxf = session.open_options().open_url(url).await?;
+    let vxf = session
+        .open_options()
+        .open_url_with_props(url, store)
+        .await?;
     let footer = vxf.footer();
 
     if json {

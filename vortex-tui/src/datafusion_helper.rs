@@ -28,8 +28,9 @@ pub async fn execute_vortex_query(
     session: &VortexSession,
     file_path: &str,
     sql: &str,
+    store_options: Vec<(String, String)>,
 ) -> Result<Vec<RecordBatch>, String> {
-    let ctx = create_vortex_context(session, file_path).await?;
+    let ctx = create_vortex_context(session, file_path, store_options).await?;
 
     let df = ctx.sql(sql).await.map_err(|e| format!("SQL error: {e}"))?;
 
@@ -40,12 +41,16 @@ pub async fn execute_vortex_query(
 
 /// Create a DataFusion SessionContext with a Vortex file registered as "data".
 ///
+/// `store_options` are forwarded to the object store for remote URLs; they are ignored for
+/// local paths.
+///
 /// # Errors
 ///
 /// Returns an error if the context cannot be created.
 pub async fn create_vortex_context(
     session: &VortexSession,
     file_path: &str,
+    store_options: Vec<(String, String)>,
 ) -> Result<SessionContext, String> {
     let ctx = SessionContext::new();
     let format = Arc::new(VortexFormat::new(session.clone()));
@@ -55,7 +60,7 @@ pub async fn create_vortex_context(
 
     // For remote URLs, resolve the object store and register it with the
     // DataFusion context so it can list and read the file. Local paths need no registration.
-    if let Some((store, _)) = FileLocation::resolve(file_path)
+    if let Some((store, _)) = FileLocation::resolve_with_props(file_path, store_options)
         .map_err(|e| format!("Failed to resolve object store: {e}"))?
         .as_remote()
     {

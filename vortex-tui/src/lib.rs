@@ -16,7 +16,7 @@
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {
 //!     let session = VortexSession::default().with_tokio();
-//!     browse::exec_tui(&session, "my_file.vortex").await?;
+//!     browse::exec_tui(&session, "my_file.vortex", vec![]).await?;
 //!     Ok(())
 //! }
 //! ```
@@ -43,6 +43,8 @@ pub mod inspect;
 pub mod query;
 #[cfg(feature = "native")]
 pub mod segments;
+#[cfg(feature = "native")]
+pub mod store_options;
 #[cfg(feature = "native")]
 pub mod tree;
 
@@ -73,7 +75,12 @@ mod native_cli {
         /// Convert a Parquet file to a Vortex file. Chunking occurs on Parquet RowGroup boundaries.
         Convert(#[command(flatten)] super::convert::ConvertArgs),
         /// Interactively browse the Vortex file.
-        Browse { file: PathBuf },
+        Browse {
+            file: PathBuf,
+            /// Object store options for remote files (see `--store-option`).
+            #[command(flatten)]
+            store: super::store_options::StoreOptions,
+        },
         /// Inspect Vortex file footer and metadata
         Inspect(super::inspect::InspectArgs),
         /// Execute a SQL query against a Vortex file using DataFusion
@@ -89,7 +96,7 @@ mod native_cli {
                     super::tree::TreeMode::Array { file, .. } => file,
                     super::tree::TreeMode::Layout { file, .. } => file,
                 },
-                Commands::Browse { file } => file,
+                Commands::Browse { file, .. } => file,
                 Commands::Convert(flags) => &flags.file,
                 Commands::Inspect(args) => &args.file,
                 Commands::Query(args) => &args.file,
@@ -148,7 +155,9 @@ mod native_cli {
         match cli.command {
             Commands::Tree(args) => super::tree::exec_tree(session, args).await?,
             Commands::Convert(flags) => super::convert::exec_convert(session, flags).await?,
-            Commands::Browse { file } => super::browse::exec_tui(session, file).await?,
+            Commands::Browse { file, store } => {
+                super::browse::exec_tui(session, file, store.props()).await?
+            }
             Commands::Inspect(args) => super::inspect::exec_inspect(session, args).await?,
             Commands::Query(args) => super::query::exec_query(session, args).await?,
             Commands::Segments(args) => super::segments::exec_segments(session, args).await?,

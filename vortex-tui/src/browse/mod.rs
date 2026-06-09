@@ -417,7 +417,8 @@ mod native {
                 }
 
                 // Spawn any pending query execution as a background task.
-                app.query_state.spawn_pending(&app.session, &app.file_path);
+                app.query_state
+                    .spawn_pending(&app.session, &app.file_path, &app.store_options);
             }
         }
         Ok(())
@@ -431,8 +432,9 @@ mod native {
     pub async fn exec_tui(
         session: &VortexSession,
         file: impl AsRef<std::path::Path>,
+        store_options: Vec<(String, String)>,
     ) -> VortexResult<()> {
-        let app = AppState::new(session, file).await?;
+        let app = AppState::new(session, file, store_options).await?;
 
         let mut terminal = ratatui::init();
         terminal.clear()?;

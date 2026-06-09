@@ -24,6 +24,10 @@ pub struct QueryArgs {
     /// Example: "SELECT * FROM data WHERE col > 10 LIMIT 100"
     #[arg(long, short)]
     pub sql: String,
+
+    /// Object store options for remote files (see `--store-option`).
+    #[command(flatten)]
+    pub store: crate::store_options::StoreOptions,
 }
 
 #[derive(Serialize)]
@@ -56,9 +60,10 @@ pub async fn exec_query(session: &VortexSession, args: QueryArgs) -> VortexResul
         .to_str()
         .ok_or_else(|| vortex_err!("Path is not valid UTF-8"))?;
 
-    let batches: Vec<RecordBatch> = execute_vortex_query(session, file_path, &args.sql)
-        .await
-        .map_err(|e| vortex_err!("{e}"))?;
+    let batches: Vec<RecordBatch> =
+        execute_vortex_query(session, file_path, &args.sql, args.store.props())
+            .await
+            .map_err(|e| vortex_err!("{e}"))?;
 
     // Build schema info from the result
     let schema = if let Some(batch) = batches.first() {

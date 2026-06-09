@@ -275,7 +275,12 @@ impl QueryState {
     /// After calling `prepare_*` methods, call this to kick off execution.
     /// The result will arrive on [`pending_rx`] and should be applied with
     /// [`apply_query_result`].
-    pub(crate) fn spawn_pending(&mut self, session: &VortexSession, file_path: &str) {
+    pub(crate) fn spawn_pending(
+        &mut self,
+        session: &VortexSession,
+        file_path: &str,
+        store_options: &[(String, String)],
+    ) {
         if !self.pending_execution {
             return;
         }
@@ -284,6 +289,7 @@ impl QueryState {
         let (tx, rx) = oneshot::channel();
         let session = session.clone();
         let file_path = file_path.to_string();
+        let store_options = store_options.to_vec();
         let sql = self.sql_input.clone();
         let base_query = self.base_query.clone();
         let needs_row_count = self.needs_row_count;
@@ -291,10 +297,12 @@ impl QueryState {
 
         tokio::spawn(async move {
             let row_count = match needs_row_count {
-                true => Some(get_row_count(&session, &file_path, &base_query).await),
+                true => Some(
+                    get_row_count(&session, &file_path, &base_query, store_options.clone()).await,
+                ),
                 false => None,
             };
-            let query_result = execute_query(&session, &file_path, &sql).await;
+            let query_result = execute_query(&session, &file_path, &sql, store_options).await;
             drop(tx.send(PendingQueryResult {
                 row_count,
                 query_result,
@@ -445,8 +453,9 @@ async fn execute_query(
     session: &VortexSession,
     file_path: &str,
     sql: &str,
+    store_options: Vec<(String, String)>,
 ) -> Result<QueryResults, String> {
-    let batches = execute_vortex_query(session, file_path, sql).await?;
+    let batches = execute_vortex_query(session, file_path, sql, store_options).await?;
 
     let total_rows: usize = batches.iter().map(|b| b.num_rows()).sum();
 
@@ -469,10 +478,11 @@ async fn get_row_count(
     session: &VortexSession,
     file_path: &str,
     base_query: &str,
+    store_options: Vec<(String, String)>,
 ) -> Result<usize, String> {
     let count_sql = format!("SELECT COUNT(*) as count FROM ({base_query}) AS subquery");
 
-    let batches = execute_vortex_query(session, file_path, &count_sql).await?;
+    let batches = execute_vortex_query(session, file_path, &count_sql, store_options).await?;
 
     // Extract count from result
     if let Some(batch) = batches.first()

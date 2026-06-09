@@ -18,6 +18,10 @@ use crate::segment_tree::collect_segment_tree;
 pub struct SegmentsArgs {
     /// Path to the Vortex file
     pub file: PathBuf,
+
+    /// Object store options for remote files (see `--store-option`).
+    #[command(flatten)]
+    pub store: crate::store_options::StoreOptions,
 }
 
 #[derive(Serialize)]
@@ -62,7 +66,10 @@ pub async fn exec_segments(session: &VortexSession, args: SegmentsArgs) -> Vorte
         .file
         .to_str()
         .ok_or_else(|| vortex_err!("path is not valid UTF-8: {}", args.file.display()))?;
-    let vxf = session.open_options().open_url(url).await?;
+    let vxf = session
+        .open_options()
+        .open_url_with_props(url, args.store.props())
+        .await?;
     let footer = vxf.footer();
 
     let mut segment_tree = collect_segment_tree(footer.layout().as_ref(), footer.segment_map());

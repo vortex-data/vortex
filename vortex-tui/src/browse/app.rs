@@ -253,6 +253,10 @@ pub struct AppState {
     /// File path for use in query execution.
     #[cfg(feature = "native")]
     pub file_path: String,
+
+    /// Object store options for the file, reused when running in-browser SQL queries.
+    #[cfg(feature = "native")]
+    pub store_options: Vec<(String, String)>,
 }
 
 impl AppState {
@@ -265,6 +269,7 @@ impl AppState {
     pub async fn new(
         session: &VortexSession,
         path: impl AsRef<std::path::Path>,
+        store_options: Vec<(String, String)>,
     ) -> vortex::error::VortexResult<AppState> {
         use vortex::error::vortex_err;
         use vortex::file::OpenOptionsSessionExt;
@@ -274,7 +279,10 @@ impl AppState {
             .as_ref()
             .to_str()
             .ok_or_else(|| vortex_err!("path is not valid UTF-8: {}", path.as_ref().display()))?;
-        let vxf = session.open_options().open_url(url).await?;
+        let vxf = session
+            .open_options()
+            .open_url_with_props(url, store_options.clone())
+            .await?;
 
         let cursor = LayoutCursor::new(vxf.footer().clone(), vxf.segment_source());
 
@@ -300,6 +308,7 @@ impl AppState {
             cached_flatbuffer_size: None,
             query_state: super::ui::QueryState::default(),
             file_path,
+            store_options,
         })
     }
 
