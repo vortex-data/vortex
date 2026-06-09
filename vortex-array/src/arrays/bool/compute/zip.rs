@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_buffer::BitBuffer;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -40,10 +42,11 @@ impl ZipKernel for Bool {
         };
         let mask_bits = mask_values.bit_buffer();
 
-        // Branchless blend of the packed value bits: `(true & mask) | (false & !mask)`.
-        let true_bits = if_true.to_bit_buffer();
-        let false_bits = if_false.to_bit_buffer();
-        let values = (&true_bits & mask_bits) | false_bits.bitand_not(mask_bits);
+        let values = zip_value_bits(
+            &if_true.to_bit_buffer(),
+            &if_false.to_bit_buffer(),
+            mask_bits,
+        );
 
         let validity = zip_validity(if_true.validity()?, if_false.validity()?, &mask)?;
 
@@ -51,11 +54,39 @@ impl ZipKernel for Bool {
     }
 }
 
+fn zip_value_bits(if_true: &BitBuffer, if_false: &BitBuffer, mask: &BitBuffer) -> BitBuffer {
+    assert_eq!(if_true.len(), if_false.len());
+    assert_eq!(if_true.len(), mask.len());
+
+    let true_chunks = if_true.chunks();
+    let false_chunks = if_false.chunks();
+    let mask_chunks = mask.chunks();
+
+    let mut values = BufferMut::<u64>::with_capacity(true_chunks.num_u64s());
+    for ((true_bits, false_bits), mask_bits) in true_chunks
+        .iter()
+        .zip(false_chunks.iter())
+        .zip(mask_chunks.iter())
+    {
+        values.push((true_bits & mask_bits) | (false_bits & !mask_bits));
+    }
+
+    if true_chunks.remainder_len() != 0 {
+        let true_bits = true_chunks.remainder_bits();
+        let false_bits = false_chunks.remainder_bits();
+        let mask_bits = mask_chunks.remainder_bits();
+        values.push((true_bits & mask_bits) | (false_bits & !mask_bits));
+    }
+
+    BitBuffer::new(values.freeze().into_byte_buffer(), if_true.len())
+}
+
 #[cfg(test)]
 mod tests {
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
+    use super::zip_value_bits;
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
@@ -64,6 +95,32 @@ mod tests {
     use crate::arrays::BoolArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
+
+    #[test]
+    fn blend_value_bits_boundaries() {
+        for len in [0usize, 1, 2, 7, 8, 9, 63, 64, 65, 127, 128] {
+            let if_true = (0..len).map(|i| i.is_multiple_of(2)).collect();
+            let if_false = (0..len).map(|i| i.is_multiple_of(3)).collect();
+            let mask = (0..len).map(|i| i % 3 != 1).collect();
+
+            let values = zip_value_bits(&if_true, &if_false, &mask);
+
+            assert_eq!(values.len(), len);
+            assert_eq!(
+                values.iter().collect::<Vec<_>>(),
+                (0..len)
+                    .map(|i| {
+                        if i % 3 != 1 {
+                            i.is_multiple_of(2)
+                        } else {
+                            i.is_multiple_of(3)
+                        }
+                    })
+                    .collect::<Vec<_>>(),
+                "failed for len {len}",
+            );
+        }
+    }
 
     /// Blend two non-nullable bool arrays across the 64-bit mask chunk boundary + remainder.
     #[test]
