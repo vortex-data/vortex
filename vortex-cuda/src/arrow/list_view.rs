@@ -11,8 +11,11 @@ use cudarc::driver::PushKernelArg;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
+use vortex::array::arrays::Dict;
+use vortex::array::arrays::DictArray;
 use vortex::array::arrays::ListViewArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::dict::DictOwnedExt;
 use vortex::array::arrays::listview::ListViewDataParts;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::buffer::BufferHandle;
@@ -27,6 +30,7 @@ use vortex::error::vortex_err;
 
 use super::ArrowArray;
 use super::SyncEvent;
+use super::canonical::ListChildExport;
 use super::canonical::export_arrow_validity_buffer;
 use super::canonical::export_list_layout;
 use crate::CudaBufferExt;
@@ -37,8 +41,7 @@ use crate::executor::CudaArrayExt;
 
 /// Export a Vortex list-view as Arrow `List` using device kernels.
 ///
-/// Contiguous list-views reuse their child elements. Non-contiguous list-views are rebuilt on GPU
-/// only when the child is primitive and non-nullable/non-null; other child shapes are rejected.
+/// Reuses contiguous children; rebuilds non-contiguous primitive or dictionary-code children.
 pub(super) async fn export_device_list_view(
     array: ListViewArray,
     ctx: &mut CudaExecutionCtx,
@@ -75,24 +78,41 @@ pub(super) async fn export_device_list_view(
                 validity_buffer,
                 null_count,
                 offsets_buffer,
+                ListChildExport::PreserveConcreteLayout,
                 ctx,
             )
             .await
         }
-        DeviceListViewOffsets::RequiresRebuild => {
-            export_rebuilt_primitive_list_view(
-                elements,
-                offsets_ptype,
-                offsets_buffer,
-                sizes_ptype,
-                sizes_buffer,
-                len,
-                validity_buffer,
-                null_count,
-                ctx,
-            )
-            .await
-        }
+        DeviceListViewOffsets::RequiresRebuild => match elements.try_downcast::<Dict>() {
+            Ok(dict) => {
+                export_rebuilt_dict_list_view(
+                    dict,
+                    offsets_ptype,
+                    offsets_buffer,
+                    sizes_ptype,
+                    sizes_buffer,
+                    len,
+                    validity_buffer,
+                    null_count,
+                    ctx,
+                )
+                .await
+            }
+            Err(elements) => {
+                export_rebuilt_primitive_list_view(
+                    elements,
+                    offsets_ptype,
+                    offsets_buffer,
+                    sizes_ptype,
+                    sizes_buffer,
+                    len,
+                    validity_buffer,
+                    null_count,
+                    ctx,
+                )
+                .await
+            }
+        },
     }
 }
 
@@ -128,6 +148,7 @@ async fn export_device_list_view_offsets(
     })
 }
 
+/// Rebuild primitive list-view offsets and values for concrete offset and size types.
 async fn rebuild_primitive_list_view_typed<O, S>(
     offsets: BufferHandle,
     sizes: BufferHandle,
@@ -177,6 +198,7 @@ where
     Ok((output_offsets, values))
 }
 
+/// Allocate the device status word used by list-view rebuild kernels.
 async fn new_list_view_status(ctx: &mut CudaExecutionCtx) -> VortexResult<BufferHandle> {
     ctx.ensure_on_device(BufferHandle::new_host(
         Buffer::from(vec![0u32]).into_byte_buffer(),
@@ -184,6 +206,7 @@ async fn new_list_view_status(ctx: &mut CudaExecutionCtx) -> VortexResult<Buffer
     .await
 }
 
+/// Convert the list-view rebuild status word into a Vortex error.
 async fn check_list_view_rebuild_status(status: &BufferHandle) -> VortexResult<()> {
     match Buffer::<u32>::from_byte_buffer(status.try_to_host()?.await?)[0] {
         0 => Ok(()),
@@ -197,6 +220,7 @@ async fn check_list_view_rebuild_status(status: &BufferHandle) -> VortexResult<(
     }
 }
 
+/// Initialize the exclusive-scan input for rebuilt Arrow List offsets.
 fn init_list_view_rebuild_scan<S>(
     sizes: &BufferHandle,
     status: &BufferHandle,
@@ -226,6 +250,7 @@ where
     Ok(scan_input)
 }
 
+/// Validate rebuilt Arrow List offsets and flag invalid views on device.
 fn validate_list_view_rebuild_offsets<S>(
     sizes: &BufferHandle,
     output_offsets: &BufferHandle,
@@ -253,6 +278,7 @@ where
     })
 }
 
+/// Read the final rebuilt offset to determine the output child length.
 async fn total_values_from_offsets(
     output_offsets: &BufferHandle,
     list_len: usize,
@@ -267,6 +293,7 @@ async fn total_values_from_offsets(
     usize::try_from(total_values).map_err(Into::into)
 }
 
+/// Gather primitive child bytes from each list-view range into contiguous list order.
 #[expect(clippy::too_many_arguments)]
 fn gather_rebuilt_primitive_values<O, S>(
     offsets: &BufferHandle,
@@ -317,7 +344,55 @@ where
     Ok(output_values)
 }
 
-#[expect(clippy::cognitive_complexity, clippy::too_many_arguments)]
+/// Rebuild non-contiguous dictionary list-view codes while reusing the dictionary values.
+#[expect(clippy::too_many_arguments)]
+async fn export_rebuilt_dict_list_view(
+    dict: DictArray,
+    offsets_ptype: PType,
+    offsets_buffer: BufferHandle,
+    sizes_ptype: PType,
+    sizes_buffer: BufferHandle,
+    len: usize,
+    validity_buffer: Option<BufferHandle>,
+    null_count: i64,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<(ArrowArray, SyncEvent)> {
+    let parts = dict.into_parts();
+    let canonical_codes = parts.codes.execute_cuda(ctx).await?;
+    let Canonical::Primitive(codes) = canonical_codes else {
+        vortex_bail!(
+            "cannot export non-contiguous device-resident ListViewArray with dictionary codes of {}: GPU child rebuild only supports primitive dictionary codes",
+            canonical_codes.dtype()
+        );
+    };
+
+    let (offsets_buffer, rebuilt_codes) = rebuild_primitive_list_view_child(
+        codes,
+        "dictionary codes",
+        offsets_ptype,
+        offsets_buffer,
+        sizes_ptype,
+        sizes_buffer,
+        len,
+        ctx,
+    )
+    .await?;
+    let rebuilt_dict = DictArray::try_new(rebuilt_codes.into_array(), parts.values)?.into_array();
+
+    export_list_layout(
+        rebuilt_dict,
+        len,
+        validity_buffer,
+        null_count,
+        offsets_buffer,
+        ListChildExport::PreserveConcreteLayout,
+        ctx,
+    )
+    .await
+}
+
+/// Rebuild a non-contiguous primitive list-view child and export it as an Arrow List.
+#[expect(clippy::too_many_arguments)]
 async fn export_rebuilt_primitive_list_view(
     elements: ArrayRef,
     offsets_ptype: PType,
@@ -336,6 +411,43 @@ async fn export_rebuilt_primitive_list_view(
             canonical_elements.dtype()
         );
     };
+
+    let (offsets_buffer, rebuilt_elements) = rebuild_primitive_list_view_child(
+        elements,
+        "primitive child",
+        offsets_ptype,
+        offsets_buffer,
+        sizes_ptype,
+        sizes_buffer,
+        len,
+        ctx,
+    )
+    .await?;
+
+    export_list_layout(
+        rebuilt_elements.into_array(),
+        len,
+        validity_buffer,
+        null_count,
+        offsets_buffer,
+        ListChildExport::PreserveConcreteLayout,
+        ctx,
+    )
+    .await
+}
+
+/// Gather a non-contiguous primitive child into list order and return new offsets and values.
+#[expect(clippy::cognitive_complexity, clippy::too_many_arguments)]
+async fn rebuild_primitive_list_view_child(
+    elements: PrimitiveArray,
+    child_name: &str,
+    offsets_ptype: PType,
+    offsets_buffer: BufferHandle,
+    sizes_ptype: PType,
+    sizes_buffer: BufferHandle,
+    len: usize,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<(BufferHandle, PrimitiveArray)> {
     let elements_len = elements.len();
     let PrimitiveDataParts {
         ptype,
@@ -346,7 +458,7 @@ async fn export_rebuilt_primitive_list_view(
 
     vortex_ensure!(
         validity.no_nulls(),
-        "cannot export non-contiguous device-resident ListViewArray with nullable primitive child: GPU child validity rebuild is not implemented"
+        "cannot export non-contiguous device-resident ListViewArray with nullable {child_name}: GPU child validity rebuild is not implemented"
     );
 
     let values_buffer = ctx.ensure_on_device(buffer).await?;
@@ -365,20 +477,13 @@ async fn export_rebuilt_primitive_list_view(
         })
     })?;
 
-    let rebuilt_elements =
-        PrimitiveArray::from_buffer_handle(values_buffer, ptype, validity).into_array();
-
-    export_list_layout(
-        rebuilt_elements,
-        len,
-        validity_buffer,
-        null_count,
+    Ok((
         offsets_buffer,
-        ctx,
-    )
-    .await
+        PrimitiveArray::from_buffer_handle(values_buffer, ptype, validity),
+    ))
 }
 
+/// Execute an integer array on CUDA and return its primitive type and device buffer.
 async fn primitive_device_buffer(
     array: ArrayRef,
     name: &str,
@@ -395,6 +500,7 @@ async fn primitive_device_buffer(
     Ok((ptype, ctx.ensure_on_device(buffer).await?))
 }
 
+/// Compute Arrow List offsets and report whether child values must be rebuilt.
 async fn export_device_list_view_offsets_typed<O, S>(
     offsets: BufferHandle,
     sizes: BufferHandle,

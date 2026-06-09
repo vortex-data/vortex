@@ -75,7 +75,7 @@ pub(crate) fn new_exporter(
         }
     } else if array.upper_bound_density(ctx)? < DEFAULT_REBUILD_DENSITY_THRESHOLD {
         // Overlaps, gaps, or garbage may be present, so a full rebuild is needed to reclaim waste.
-        array.rebuild(ListViewRebuildMode::MakeZeroCopyToList)?
+        array.rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)?
     } else {
         array
     };

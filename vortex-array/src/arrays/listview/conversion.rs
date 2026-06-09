@@ -8,8 +8,6 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-#[expect(deprecated)]
-use crate::ToCanonical as _;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListArray;
@@ -29,8 +27,8 @@ use crate::match_each_integer_ptype;
 
 /// Creates a `ListViewArray` from a `ListArray` by computing `sizes` from `offsets`.
 ///
-/// The output `ListViewArray` will be zero-copyable back to a `ListArray`, and additionally it
-/// will not have any leading or trailing garbage data.
+/// The output `ListViewArray` will be zero-copyable back to a `ListArray`, and additionally it will
+/// not have any leading or trailing garbage data.
 pub fn list_view_from_list(list: ListArray, ctx: &mut ExecutionCtx) -> VortexResult<ListViewArray> {
     // If the list is empty, create an empty `ListViewArray` with the same offset `DType` as the
     // input.
@@ -41,8 +39,7 @@ pub fn list_view_from_list(list: ListArray, ctx: &mut ExecutionCtx) -> VortexRes
     // We reset the offsets here because mostly for convenience, and also because callers of this
     // function might not expect the output `ListViewArray` to have a bunch of leading and trailing
     // garbage data when they turn it back into a `ListArray`.
-    let list = list.reset_offsets(false).vortex_expect("This can't fail");
-
+    let list = list.reset_offsets(false, ctx)?;
     let list_offsets = list.offsets().clone();
 
     // Create `sizes` array by computing differences between consecutive offsets.
@@ -108,15 +105,18 @@ fn build_sizes_from_offsets<O: IntegerPType>(
 ///
 /// Otherwise, this function fall back to the (very) expensive path and will rebuild the
 /// `ListArray` from scratch.
-pub fn list_from_list_view(list_view: ListViewArray) -> VortexResult<ListArray> {
+pub fn list_from_list_view(
+    list_view: ListViewArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ListArray> {
     // Rebuild as zero-copyable to list array and also trim all leading and trailing elements.
-    let zctl_array = list_view.rebuild(ListViewRebuildMode::MakeExact)?;
+    let zctl_array = list_view.rebuild(ListViewRebuildMode::MakeExact, ctx)?;
     debug_assert!(zctl_array.is_zero_copy_to_list());
 
     let list_offsets = match_each_integer_ptype!(zctl_array.offsets().dtype().as_ptype(), |O| {
         // SAFETY: We just made the array zero-copyable to `ListArray`, so the safety contract is
         // upheld.
-        unsafe { build_list_offsets_from_list_view::<O>(&zctl_array) }
+        unsafe { build_list_offsets_from_list_view::<O>(&zctl_array, ctx) }
     });
 
     // SAFETY: Because the shape of the `ListViewArray` is zero-copyable to a `ListArray`, we
@@ -142,6 +142,7 @@ pub fn list_from_list_view(list_view: ListViewArray) -> VortexResult<ListArray> 
 /// between `offset[i]` and `offset[i + 1]`.
 unsafe fn build_list_offsets_from_list_view<O: IntegerPType>(
     list_view: &ListViewArray,
+    ctx: &mut ExecutionCtx,
 ) -> ArrayRef {
     let len = list_view.len();
     let mut offsets_builder =
@@ -150,8 +151,11 @@ unsafe fn build_list_offsets_from_list_view<O: IntegerPType>(
     // Create uninit range for direct memory access.
     let mut offsets_range = offsets_builder.uninit_range(len + 1);
 
-    #[expect(deprecated)]
-    let offsets = list_view.offsets().to_primitive();
+    let offsets = list_view
+        .offsets()
+        .clone()
+        .execute::<PrimitiveArray>(ctx)
+        .vortex_expect("list view offsets must be primitive after rebuild");
     let offsets_slice = offsets.as_slice::<O>();
     debug_assert!(offsets_slice.is_sorted());
 
@@ -184,17 +188,20 @@ unsafe fn build_list_offsets_from_list_view<O: IntegerPType>(
 /// Recursively converts all `ListViewArray`s to `ListArray`s in a nested array structure.
 ///
 /// The conversion happens bottom-up, processing children before parents.
-pub fn recursive_list_from_list_view(array: ArrayRef) -> VortexResult<ArrayRef> {
+pub fn recursive_list_from_list_view(
+    array: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
     if !array.dtype().is_nested() {
         return Ok(array);
     }
 
-    #[expect(deprecated)]
-    let canonical = array.to_canonical()?;
+    let canonical = array.execute::<Canonical>(ctx)?;
 
     Ok(match canonical {
         Canonical::List(listview) => {
-            let converted_elements = recursive_list_from_list_view(listview.elements().clone())?;
+            let converted_elements =
+                recursive_list_from_list_view(listview.elements().clone(), ctx)?;
             debug_assert_eq!(converted_elements.len(), listview.elements().len());
 
             // Avoid cloning if elements didn't change.
@@ -216,12 +223,12 @@ pub fn recursive_list_from_list_view(array: ArrayRef) -> VortexResult<ArrayRef> 
                 };
 
             // Make the conversion to `ListArray`.
-            let list_array = list_from_list_view(listview_with_converted_elements)?;
+            let list_array = list_from_list_view(listview_with_converted_elements, ctx)?;
             list_array.into_array()
         }
         Canonical::FixedSizeList(fixed_size_list) => {
             let converted_elements =
-                recursive_list_from_list_view(fixed_size_list.elements().clone())?;
+                recursive_list_from_list_view(fixed_size_list.elements().clone(), ctx)?;
 
             // Avoid cloning if elements didn't change.
             if !ArrayRef::ptr_eq(&converted_elements, fixed_size_list.elements()) {
@@ -245,7 +252,7 @@ pub fn recursive_list_from_list_view(array: ArrayRef) -> VortexResult<ArrayRef> 
             let mut any_changed = false;
 
             for field in fields.iter() {
-                let converted_field = recursive_list_from_list_view(field.clone())?;
+                let converted_field = recursive_list_from_list_view(field.clone(), ctx)?;
                 // Avoid cloning if elements didn't change.
                 any_changed |= !ArrayRef::ptr_eq(&converted_field, field);
                 converted_fields.push(converted_field);
@@ -266,7 +273,7 @@ pub fn recursive_list_from_list_view(array: ArrayRef) -> VortexResult<ArrayRef> 
         }
         Canonical::Extension(ext_array) => {
             let converted_storage =
-                recursive_list_from_list_view(ext_array.storage_array().clone())?;
+                recursive_list_from_list_view(ext_array.storage_array().clone(), ctx)?;
 
             // Avoid cloning if elements didn't change.
             if !ArrayRef::ptr_eq(&converted_storage, ext_array.storage_array()) {
@@ -286,6 +293,7 @@ mod tests {
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
 
+    use super::super::tests::common::SESSION;
     use super::super::tests::common::create_basic_listview;
     use super::super::tests::common::create_empty_lists_listview;
     use super::super::tests::common::create_nullable_listview;
@@ -295,7 +303,6 @@ mod tests {
     use crate::ArrayRef;
     use crate::EqMode;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::FixedSizeListArray;
@@ -319,7 +326,7 @@ mod tests {
         let offsets = buffer![0u32, 3, 5, 7, 10].into_array();
         let list_array = ListArray::try_new(elements.clone(), offsets, Validity::NonNullable)?;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let list_view = list_view_from_list(list_array.clone(), &mut ctx)?;
 
         // Verify structure.
@@ -342,7 +349,8 @@ mod tests {
     #[test]
     fn test_listview_to_list_zero_copy() -> VortexResult<()> {
         let list_view = create_basic_listview();
-        let list_array = list_from_list_view(list_view.clone())?;
+        let list_array =
+            list_from_list_view(list_view.clone(), &mut SESSION.create_execution_ctx())?;
 
         // Should have same elements.
         assert_arrays_eq!(list_view.elements().clone(), list_array.elements().clone());
@@ -366,12 +374,12 @@ mod tests {
 
         // This conversion will create an empty ListViewArray.
         // Note: list_view_from_list handles the empty case specially.
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let empty_list_view = list_view_from_list(empty_list.clone(), &mut ctx)?;
         assert_eq!(empty_list_view.len(), 0);
 
         // Convert back.
-        let converted_back = list_from_list_view(empty_list_view)?;
+        let converted_back = list_from_list_view(empty_list_view, &mut ctx)?;
         assert_eq!(converted_back.len(), 0);
         // For empty arrays, we can't use assert_arrays_eq directly since the offsets might differ.
         // Just check that it's empty.
@@ -387,7 +395,7 @@ mod tests {
         let validity = Validity::Array(BoolArray::from_iter(vec![true, false, true]).into_array());
         let nullable_list = ListArray::try_new(elements, offsets, validity.clone())?;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let nullable_list_view = list_view_from_list(nullable_list.clone(), &mut ctx)?;
 
         // Verify validity is preserved.
@@ -400,7 +408,7 @@ mod tests {
         assert_eq!(nullable_list_view.len(), 3);
 
         // Round-trip conversion.
-        let converted_back = list_from_list_view(nullable_list_view)?;
+        let converted_back = list_from_list_view(nullable_list_view, &mut ctx)?;
         assert_arrays_eq!(nullable_list, converted_back);
         Ok(())
     }
@@ -409,7 +417,8 @@ mod tests {
     fn test_non_zero_copy_listview_to_list() -> VortexResult<()> {
         // Create ListViewArray with overlapping lists (not zero-copyable).
         let list_view = create_overlapping_listview();
-        let list_array = list_from_list_view(list_view.clone())?;
+        let list_array =
+            list_from_list_view(list_view.clone(), &mut SESSION.create_execution_ctx())?;
 
         // The resulting ListArray should have monotonic offsets.
         for i in 0..list_array.len() {
@@ -425,10 +434,11 @@ mod tests {
 
     #[test]
     fn test_empty_sublists() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let empty_lists_view = create_empty_lists_listview();
 
         // Convert to ListArray.
-        let list_array = list_from_list_view(empty_lists_view.clone())?;
+        let list_array = list_from_list_view(empty_lists_view.clone(), &mut ctx)?;
         assert_eq!(list_array.len(), 4);
 
         // All sublists should be empty.
@@ -437,7 +447,6 @@ mod tests {
         }
 
         // Round-trip.
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let converted_back = list_view_from_list(list_array, &mut ctx)?;
         assert_arrays_eq!(empty_lists_view, converted_back);
         Ok(())
@@ -451,7 +460,7 @@ mod tests {
         let list_i32 =
             ListArray::try_new(elements.clone(), i32_offsets.clone(), Validity::NonNullable)?;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let list_view_i32 = list_view_from_list(list_i32.clone(), &mut ctx)?;
         assert_eq!(list_view_i32.offsets().dtype(), i32_offsets.dtype());
         assert_eq!(list_view_i32.sizes().dtype(), i32_offsets.dtype());
@@ -472,24 +481,24 @@ mod tests {
 
     #[test]
     fn test_round_trip_conversions() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         // Test 1: Basic round-trip.
         let original = create_basic_listview();
-        let to_list = list_from_list_view(original.clone())?;
+        let to_list = list_from_list_view(original.clone(), &mut ctx)?;
         let back_to_view = list_view_from_list(to_list, &mut ctx)?;
         assert_arrays_eq!(original, back_to_view);
 
         // Test 2: Nullable round-trip.
         let nullable = create_nullable_listview();
-        let nullable_to_list = list_from_list_view(nullable.clone())?;
+        let nullable_to_list = list_from_list_view(nullable.clone(), &mut ctx)?;
         let nullable_back = list_view_from_list(nullable_to_list, &mut ctx)?;
         assert_arrays_eq!(nullable, nullable_back);
 
         // Test 3: Non-zero-copyable round-trip.
         let overlapping = create_overlapping_listview();
 
-        let overlapping_to_list = list_from_list_view(overlapping.clone())?;
+        let overlapping_to_list = list_from_list_view(overlapping.clone(), &mut ctx)?;
         let overlapping_back = list_view_from_list(overlapping_to_list, &mut ctx)?;
         assert_arrays_eq!(overlapping, overlapping_back);
         Ok(())
@@ -502,7 +511,7 @@ mod tests {
         let offsets = buffer![0u32, 1, 2, 3].into_array();
         let single_elem_list = ListArray::try_new(elements, offsets, Validity::NonNullable)?;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let list_view = list_view_from_list(single_elem_list.clone(), &mut ctx)?;
         assert_eq!(list_view.len(), 3);
 
@@ -511,7 +520,7 @@ mod tests {
         assert_arrays_eq!(expected_sizes, list_view.sizes().clone());
 
         // Round-trip.
-        let converted_back = list_from_list_view(list_view)?;
+        let converted_back = list_from_list_view(list_view, &mut ctx)?;
         assert_arrays_eq!(single_elem_list, converted_back);
         Ok(())
     }
@@ -523,7 +532,7 @@ mod tests {
         let offsets = buffer![0u32, 2, 2, 3, 3, 6].into_array();
         let mixed_list = ListArray::try_new(elements, offsets, Validity::NonNullable)?;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let list_view = list_view_from_list(mixed_list.clone(), &mut ctx)?;
         assert_eq!(list_view.len(), 5);
 
@@ -532,7 +541,7 @@ mod tests {
         assert_arrays_eq!(expected_sizes, list_view.sizes().clone());
 
         // Round-trip.
-        let converted_back = list_from_list_view(list_view)?;
+        let converted_back = list_from_list_view(list_view, &mut ctx)?;
         assert_arrays_eq!(mixed_list, converted_back);
         Ok(())
     }
@@ -540,7 +549,10 @@ mod tests {
     #[test]
     fn test_recursive_simple_listview() -> VortexResult<()> {
         let list_view = create_basic_listview();
-        let result = recursive_list_from_list_view(list_view.clone().into_array())?;
+        let result = recursive_list_from_list_view(
+            list_view.clone().into_array(),
+            &mut SESSION.create_execution_ctx(),
+        )?;
 
         assert_eq!(result.len(), list_view.len());
         assert_arrays_eq!(list_view.into_array(), result);
@@ -574,7 +586,10 @@ mod tests {
             .with_zero_copy_to_list(true)
         };
 
-        let result = recursive_list_from_list_view(outer_listview.clone().into_array())?;
+        let result = recursive_list_from_list_view(
+            outer_listview.clone().into_array(),
+            &mut SESSION.create_execution_ctx(),
+        )?;
 
         assert_eq!(result.len(), 2);
         assert_arrays_eq!(outer_listview.into_array(), result);
@@ -593,7 +608,10 @@ mod tests {
             Validity::NonNullable,
         )?;
 
-        let result = recursive_list_from_list_view(struct_array.clone().into_array())?;
+        let result = recursive_list_from_list_view(
+            struct_array.clone().into_array(),
+            &mut SESSION.create_execution_ctx(),
+        )?;
 
         assert_eq!(result.len(), 4);
         assert_arrays_eq!(struct_array.into_array(), result);
@@ -635,7 +653,10 @@ mod tests {
         let fixed_list =
             FixedSizeListArray::new(chunked_listviews.into_array(), 1, Validity::NonNullable, 2);
 
-        let result = recursive_list_from_list_view(fixed_list.clone().into_array())?;
+        let result = recursive_list_from_list_view(
+            fixed_list.clone().into_array(),
+            &mut SESSION.create_execution_ctx(),
+        )?;
 
         assert_eq!(result.len(), 2);
         assert_arrays_eq!(fixed_list.into_array(), result);
@@ -676,7 +697,10 @@ mod tests {
             .with_zero_copy_to_list(true)
         };
 
-        let result = recursive_list_from_list_view(outer_listview.clone().into_array())?;
+        let result = recursive_list_from_list_view(
+            outer_listview.clone().into_array(),
+            &mut SESSION.create_execution_ctx(),
+        )?;
 
         assert_eq!(result.len(), 2);
         assert_arrays_eq!(outer_listview.into_array(), result);
@@ -687,7 +711,7 @@ mod tests {
     fn test_recursive_primitive_unchanged() -> VortexResult<()> {
         let prim = buffer![1i32, 2, 3].into_array();
         let prim_clone = prim.clone();
-        let result = recursive_list_from_list_view(prim)?;
+        let result = recursive_list_from_list_view(prim, &mut SESSION.create_execution_ctx())?;
 
         assert!(ArrayRef::ptr_eq(&result, &prim_clone));
         Ok(())
@@ -695,8 +719,9 @@ mod tests {
 
     #[test]
     fn test_recursive_mixed_listview_and_list() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let listview = create_basic_listview();
-        let list = list_from_list_view(listview.clone())?;
+        let list = list_from_list_view(listview.clone(), &mut ctx)?;
 
         let struct_array = StructArray::try_new(
             FieldNames::from(["listview_field", "list_field"]),
@@ -705,7 +730,7 @@ mod tests {
             Validity::NonNullable,
         )?;
 
-        let result = recursive_list_from_list_view(struct_array.clone().into_array())?;
+        let result = recursive_list_from_list_view(struct_array.clone().into_array(), &mut ctx)?;
 
         assert_eq!(result.len(), 4);
         assert_arrays_eq!(struct_array.into_array(), result);
@@ -727,7 +752,7 @@ mod tests {
         // `try_new` sets `is_zero_copy_to_list: false`.
         assert!(!list_view.is_zero_copy_to_list());
 
-        let list_array = list_from_list_view(list_view)?;
+        let list_array = list_from_list_view(list_view, &mut SESSION.create_execution_ctx())?;
         assert_eq!(list_array.len(), 0);
         Ok(())
     }

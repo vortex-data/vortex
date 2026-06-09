@@ -28,8 +28,8 @@ pub(super) fn check_list_identical(
         return check_zero_copy_list_identical(lhs, rhs, ctx);
     }
 
-    let lhs = list_from_list_view(lhs.clone())?;
-    let rhs = list_from_list_view(rhs.clone())?;
+    let lhs = list_from_list_view(lhs.clone(), ctx)?;
+    let rhs = list_from_list_view(rhs.clone(), ctx)?;
 
     if !check_list_offsets_identical(&lhs, &rhs)? {
         return Ok(false);

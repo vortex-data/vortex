@@ -209,7 +209,7 @@ TEST_CASE("Creating datasources", "[datasource]") {
     ds = vx_data_source_new(session, &opts, &error);
     REQUIRE(ds == nullptr);
     REQUIRE(error != nullptr);
-    REQUIRE_THAT(to_string(error), ContainsSubstring("No such file or directory"));
+    REQUIRE_THAT(to_string(error), ContainsSubstring("No files matched the glob pattern"));
     vx_error_free(error);
 
     opts.paths = "/tmp2/*.vortex";

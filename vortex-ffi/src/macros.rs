@@ -287,6 +287,10 @@ macro_rules! box_wrapper {
             }
 
             #[doc = r" Free an owned [`" $ffi_ident "`] object."]
+            // These allows only matter once the destructor is re-exported (e.g. `vx_error_free`):
+            // its `# Safety` lives at the C boundary, and its doc links a private wrapper type.
+            #[allow(clippy::missing_safety_doc)]
+            #[allow(rustdoc::private_intra_doc_links)]
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<$ffi_ident _free>](ptr: *mut $ffi_ident) {
                 if ptr.is_null() {

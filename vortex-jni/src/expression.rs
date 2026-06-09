@@ -39,6 +39,7 @@ use vortex::expr::get_item;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::lit;
+use vortex::expr::merge_opts;
 use vortex::expr::not;
 use vortex::expr::or_collect;
 use vortex::expr::pack;
@@ -59,6 +60,7 @@ use vortex::scalar_fn::fns::between::StrictComparison;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
+use vortex::scalar_fn::fns::merge::DuplicateHandling;
 use vortex::scalar_fn::fns::operators::Operator;
 
 use crate::errors::JNIError;
@@ -95,6 +97,17 @@ fn parse_op(op: jbyte) -> Result<Operator, JNIError> {
 /// Parse a Vortex [`TimeUnit`] from the wire-encoded byte tag.
 fn parse_time_unit(tag: jbyte) -> Result<TimeUnit, JNIError> {
     TimeUnit::try_from(tag as u8).map_err(JNIError::from)
+}
+
+/// Parse a merge [`DuplicateHandling`] strategy from its wire-encoded byte tag.
+///
+/// See `dev.vortex.api.Expression.DuplicateHandling` on the Java side for the source of truth.
+fn parse_duplicate_handling(tag: jbyte) -> Result<DuplicateHandling, JNIError> {
+    Ok(match tag {
+        0 => DuplicateHandling::RightMost,
+        1 => DuplicateHandling::Error,
+        other => throw_runtime!("unknown duplicate handling code: {other}"),
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -189,6 +202,24 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_pack(
         }
 
         Ok(into_raw(pack(elements, nullable.into())))
+    })
+}
+
+/// Merge zero or more struct-returning expressions into a single struct.
+///
+/// `duplicate_handling` selects how shared field names are resolved (see
+/// [`parse_duplicate_handling`]). An empty `expressions` array yields an empty struct.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_merge(
+    mut env: EnvUnowned,
+    _class: JClass,
+    expressions: JLongArray,
+    duplicate_handling: jbyte,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        let exprs = collect_operands(env, &expressions)?;
+        let handling = parse_duplicate_handling(duplicate_handling)?;
+        Ok(into_raw(merge_opts(exprs, handling)))
     })
 }
 

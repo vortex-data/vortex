@@ -1,0 +1,28 @@
+[package]
+name = "vortex-geo"
+description = "Geospatial encodings and layouts for Vortex files"
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+include.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+prost = { workspace = true }
+vortex-array = { workspace = true }
+vortex-error = { workspace = true }
+vortex-session = { workspace = true }
+wkb = { workspace = true }
+
+[dev-dependencies]
+geo-traits = { workspace = true }
+geo-types = { workspace = true }
+
+[lints]
+workspace = true

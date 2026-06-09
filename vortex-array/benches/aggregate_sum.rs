@@ -26,11 +26,13 @@ fn sum_i32(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(1);
     let data: Vec<i32> = (0..N).map(|_| rng.random_range(-1000..1000)).collect();
     bencher
-        .with_inputs(|| PrimitiveArray::from_iter(data.iter().copied()).into_array())
-        .bench_refs(|a| {
-            a.statistics()
-                .compute_as::<i64>(Stat::Sum, &mut SESSION.create_execution_ctx())
-        });
+        .with_inputs(|| {
+            (
+                PrimitiveArray::from_iter(data.iter().copied()).into_array(),
+                SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(a, ctx)| a.statistics().compute_as::<i64>(Stat::Sum, ctx));
 }
 
 #[divan::bench]
@@ -38,11 +40,13 @@ fn sum_u32(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(2);
     let data: Vec<u32> = (0..N).map(|_| rng.random_range(0..2000)).collect();
     bencher
-        .with_inputs(|| PrimitiveArray::from_iter(data.iter().copied()).into_array())
-        .bench_refs(|a| {
-            a.statistics()
-                .compute_as::<u64>(Stat::Sum, &mut SESSION.create_execution_ctx())
-        });
+        .with_inputs(|| {
+            (
+                PrimitiveArray::from_iter(data.iter().copied()).into_array(),
+                SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(a, ctx)| a.statistics().compute_as::<u64>(Stat::Sum, ctx));
 }
 
 #[divan::bench]
@@ -50,11 +54,13 @@ fn sum_i64(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(3);
     let data: Vec<i64> = (0..N).map(|_| rng.random_range(-1000..1000)).collect();
     bencher
-        .with_inputs(|| PrimitiveArray::from_iter(data.iter().copied()).into_array())
-        .bench_refs(|a| {
-            a.statistics()
-                .compute_as::<i64>(Stat::Sum, &mut SESSION.create_execution_ctx())
-        });
+        .with_inputs(|| {
+            (
+                PrimitiveArray::from_iter(data.iter().copied()).into_array(),
+                SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(a, ctx)| a.statistics().compute_as::<i64>(Stat::Sum, ctx));
 }
 
 // Clustered nulls: long runs of valid values broken up by occasional null blocks. This is the
@@ -72,11 +78,13 @@ fn sum_i32_nulls_clustered(bencher: Bencher) {
         })
         .collect();
     bencher
-        .with_inputs(|| PrimitiveArray::from_option_iter(data.iter().copied()).into_array())
-        .bench_refs(|a| {
-            a.statistics()
-                .compute_as::<i64>(Stat::Sum, &mut SESSION.create_execution_ctx())
-        });
+        .with_inputs(|| {
+            (
+                PrimitiveArray::from_option_iter(data.iter().copied()).into_array(),
+                SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(a, ctx)| a.statistics().compute_as::<i64>(Stat::Sum, ctx));
 }
 
 // Scattered nulls: ~50% nulls placed at random, producing many short runs. This is the worst case
@@ -88,9 +96,11 @@ fn sum_i32_nulls_scattered(bencher: Bencher) {
         .map(|_| rng.random_bool(0.5).then(|| rng.random_range(-1000..1000)))
         .collect();
     bencher
-        .with_inputs(|| PrimitiveArray::from_option_iter(data.iter().copied()).into_array())
-        .bench_refs(|a| {
-            a.statistics()
-                .compute_as::<i64>(Stat::Sum, &mut SESSION.create_execution_ctx())
-        });
+        .with_inputs(|| {
+            (
+                PrimitiveArray::from_option_iter(data.iter().copied()).into_array(),
+                SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(a, ctx)| a.statistics().compute_as::<i64>(Stat::Sum, ctx));
 }

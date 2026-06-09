@@ -18,7 +18,7 @@ use vortex_session::registry::CachedId;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrow::Datum;
-use crate::arrow::from_arrow_array_with_len;
+use crate::arrow::from_arrow_columnar;
 use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
@@ -237,7 +237,7 @@ pub(crate) fn arrow_like(
         (true, true) => arrow_string::like::nilike(&lhs, &rhs)?,
     };
 
-    from_arrow_array_with_len(&result, len, nullable)
+    from_arrow_columnar(&result, len, nullable, ctx)
 }
 
 /// Variants of the LIKE filter that we know how to turn into a stats pruning predicate.

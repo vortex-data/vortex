@@ -32,6 +32,7 @@ use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::SimplifyCtx;
 use crate::scalar_fn::fns::literal::Literal;
+use crate::validity::Validity;
 
 /// An expression that conditionally selects between two arrays based on a boolean mask.
 ///
@@ -234,6 +235,34 @@ fn zip_impl_with_builder(
             .append_to_builder(builder.as_mut(), ctx)?;
     }
     Ok(builder.finish())
+}
+
+/// Combine two validities for a row-wise zip: take `if_true`'s validity where `mask` is set and
+/// `if_false`'s where it is not.
+///
+/// That selection is itself a zip over the two boolean validity bitmaps, so it is built as a (lazy)
+/// zip array — reusing the zip machinery rather than re-deriving the mask algebra. Trivial cases
+/// where both sides' validity already agrees skip the zip. `mask` must already be null-filled so the
+/// selection matches the accompanying value selection. Shared by the per-encoding zip kernels (e.g.
+/// `Bool`, `Primitive`) that build their result directly.
+pub(crate) fn zip_validity(
+    if_true: Validity,
+    if_false: Validity,
+    mask: &Mask,
+) -> VortexResult<Validity> {
+    match (&if_true, &if_false) {
+        (Validity::NonNullable, Validity::NonNullable) => return Ok(Validity::NonNullable),
+        (Validity::AllValid, Validity::AllValid) => return Ok(Validity::AllValid),
+        (Validity::AllInvalid, Validity::AllInvalid) => return Ok(Validity::AllInvalid),
+        _ => {}
+    }
+
+    let len = mask.len();
+    let validity = mask
+        .clone()
+        .into_array()
+        .zip(if_true.to_array(len), if_false.to_array(len))?;
+    Ok(Validity::Array(validity))
 }
 
 #[cfg(test)]

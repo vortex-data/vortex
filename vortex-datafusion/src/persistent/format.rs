@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::Any;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::sync::Arc;
@@ -299,10 +298,6 @@ impl FileFormatFactory for VortexFormatFactory {
     fn default(&self) -> Arc<dyn FileFormat> {
         Arc::new(VortexFormat::new(self.session.clone()))
     }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
 }
 
 impl VortexFormat {
@@ -330,10 +325,6 @@ impl VortexFormat {
 
 #[async_trait]
 impl FileFormat for VortexFormat {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn compression_type(&self) -> Option<FileCompressionType> {
         None
     }
@@ -594,7 +585,6 @@ impl FileFormat for VortexFormat {
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
         let mut source = file_scan_config
             .file_source()
-            .as_any()
             .downcast_ref::<VortexSource>()
             .cloned()
             .ok_or_else(|| internal_datafusion_err!("Expected VortexSource"))?;

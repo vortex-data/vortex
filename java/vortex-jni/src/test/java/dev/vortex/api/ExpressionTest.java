@@ -42,6 +42,17 @@ public final class ExpressionTest {
         assertNotNull(Expression.pack(
                 new String[] {"x", "y", "z"},
                 new Expression[] {Expression.column("a"), Expression.literal(5L), Expression.rowIdx()},
-            true));
+                true));
+    }
+
+    @Test
+    public void mergeComposes() {
+        // Default duplicate handling (ERROR).
+        assertNotNull(Expression.merge(Expression.column("a"), Expression.column("b")));
+        // Explicit duplicate handling.
+        assertNotNull(Expression.merge(
+                Expression.DuplicateHandling.RIGHT_MOST, Expression.column("a"), Expression.column("b")));
+        // Merging zero expressions is valid and yields an empty struct.
+        assertNotNull(Expression.merge());
     }
 }

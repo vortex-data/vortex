@@ -188,7 +188,7 @@ fn swizzle_list_chunks(
         let chunk_array = chunk.clone().execute::<ListViewArray>(ctx)?;
         // By rebuilding as zero-copy to `List` and trimming all elements (to prevent gaps), we make
         // the final output `ListView` also zero-copyable to `List`.
-        let chunk_array = chunk_array.rebuild(ListViewRebuildMode::MakeExact)?;
+        let chunk_array = chunk_array.rebuild(ListViewRebuildMode::MakeExact, ctx)?;
 
         // Add the `elements` of the current array as a new chunk.
         list_elements_chunks.push(chunk_array.elements().clone());
@@ -285,6 +285,7 @@ fn swizzle_fixed_size_list_chunks(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
@@ -298,15 +299,13 @@ mod tests {
     use crate::Canonical;
     use crate::ExecutionCtx;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::accessor::ArrayAccessor;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::FixedSizeListArray;
     use crate::arrays::ListArray;
+    use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinViewArray;
@@ -324,7 +323,12 @@ mod tests {
     use crate::memory::MemorySessionExt;
     use crate::memory::WritableHostBuffer;
     use crate::scalar::Scalar;
+    use crate::session::ArraySession;
     use crate::validity::Validity;
+
+    /// A shared session for these chunked-array tests, used to create execution contexts.
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[derive(Debug)]
     struct CountingAllocator {
@@ -375,7 +379,7 @@ mod tests {
 
     fn assert_variant_values(array: &VariantArray, expected: &[i32]) -> VortexResult<()> {
         assert_eq!(array.len(), expected.len());
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         for (idx, expected) in expected.iter().copied().enumerate() {
             let scalar = array.execute_scalar(idx, &mut ctx)?;
@@ -391,6 +395,7 @@ mod tests {
 
     #[test]
     fn pack_variant_chunks_without_shredded() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let chunked = ChunkedArray::try_new(
             vec![
                 variant_chunk([1, 2])?.into_array(),
@@ -400,9 +405,7 @@ mod tests {
         )?
         .into_array();
 
-        let variant = into_variant(
-            chunked.execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?,
-        )?;
+        let variant = into_variant(chunked.execute::<Canonical>(&mut ctx)?)?;
 
         assert_eq!(variant.len(), 3);
         assert!(variant.shredded().is_none());
@@ -411,6 +414,7 @@ mod tests {
 
     #[test]
     fn pack_variant_chunks_all_shredded_same_dtype() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let chunked = ChunkedArray::try_new(
             vec![
                 variant_chunk_with_shredded(
@@ -425,9 +429,7 @@ mod tests {
         )?
         .into_array();
 
-        let variant = into_variant(
-            chunked.execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?,
-        )?;
+        let variant = into_variant(chunked.execute::<Canonical>(&mut ctx)?)?;
         let shredded = variant
             .shredded()
             .ok_or_else(|| vortex_err!("expected shredded child"))?;
@@ -436,15 +438,14 @@ mod tests {
         assert_eq!(shredded.len(), 3);
         assert_variant_values(&variant, &[10, 20, 30])?;
 
-        let shredded = shredded
-            .clone()
-            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
+        let shredded = shredded.clone().execute::<PrimitiveArray>(&mut ctx)?;
         assert_arrays_eq!(shredded, PrimitiveArray::from_iter([10i32, 20, 30]));
         Ok(())
     }
 
     #[test]
     fn pack_variant_chunks_mixed_shredded_presence_errors() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let chunked = ChunkedArray::try_new(
             vec![
                 variant_chunk_with_shredded([1], PrimitiveArray::from_iter([10i32]).into_array())?
@@ -455,9 +456,7 @@ mod tests {
         )?
         .into_array();
 
-        let err = chunked
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap_err();
+        let err = chunked.execute::<Canonical>(&mut ctx).unwrap_err();
         assert!(
             err.to_string()
                 .contains("chunks disagree on shredded presence")
@@ -467,6 +466,7 @@ mod tests {
 
     #[test]
     fn pack_variant_chunks_mismatched_shredded_dtype_errors() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let chunked = ChunkedArray::try_new(
             vec![
                 variant_chunk_with_shredded([1], PrimitiveArray::from_iter([10i32]).into_array())?
@@ -478,20 +478,17 @@ mod tests {
         )?
         .into_array();
 
-        let err = chunked
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap_err();
+        let err = chunked.execute::<Canonical>(&mut ctx).unwrap_err();
         assert!(err.to_string().contains("shredded dtype mismatch"));
         Ok(())
     }
 
     #[test]
     fn pack_variant_chunks_empty() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let chunked = ChunkedArray::try_new(vec![], VariantDType(NonNullable))?.into_array();
 
-        let variant = into_variant(
-            chunked.execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?,
-        )?;
+        let variant = into_variant(chunked.execute::<Canonical>(&mut ctx)?)?;
 
         assert_eq!(variant.len(), 0);
         assert!(variant.shredded().is_none());
@@ -500,6 +497,7 @@ mod tests {
 
     #[test]
     fn pack_variant_chunks_single_chunk() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let chunked = ChunkedArray::try_new(
             vec![
                 variant_chunk_with_shredded(
@@ -512,9 +510,7 @@ mod tests {
         )?
         .into_array();
 
-        let variant = into_variant(
-            chunked.execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?,
-        )?;
+        let variant = into_variant(chunked.execute::<Canonical>(&mut ctx)?)?;
 
         assert_eq!(variant.len(), 2);
         assert!(variant.shredded().is_some());
@@ -523,6 +519,7 @@ mod tests {
 
     #[test]
     pub fn pack_nested_structs() {
+        let mut ctx = SESSION.create_execution_ctx();
         let struct_array = StructArray::try_new(
             ["a"].into(),
             vec![VarBinViewArray::from_iter_str(["foo", "bar", "baz", "quak"]).into_array()],
@@ -541,12 +538,17 @@ mod tests {
         )
         .unwrap()
         .into_array();
-        #[expect(deprecated)]
-        let canonical_struct = chunked.to_struct();
-        #[expect(deprecated)]
-        let canonical_varbin = canonical_struct.unmasked_field(0).to_varbinview();
-        #[expect(deprecated)]
-        let original_varbin = struct_array.unmasked_field(0).to_varbinview();
+        let canonical_struct = chunked.execute::<StructArray>(&mut ctx).unwrap();
+        let canonical_varbin = canonical_struct
+            .unmasked_field(0)
+            .clone()
+            .execute::<VarBinViewArray>(&mut ctx)
+            .unwrap();
+        let original_varbin = struct_array
+            .unmasked_field(0)
+            .clone()
+            .execute::<VarBinViewArray>(&mut ctx)
+            .unwrap();
         let orig_values = original_varbin
             .with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>());
         let canon_values = canonical_varbin
@@ -556,6 +558,7 @@ mod tests {
 
     #[test]
     pub fn pack_nested_lists() {
+        let mut ctx = SESSION.create_execution_ctx();
         let l1 = ListArray::try_new(
             buffer![1, 2, 3, 4].into_array(),
             buffer![0, 3].into_array(),
@@ -575,27 +578,26 @@ mod tests {
             List(Arc::new(Primitive(I32, NonNullable)), NonNullable),
         );
 
-        #[expect(deprecated)]
-        let canon_values = chunked_list.unwrap().as_array().to_listview();
+        let canon_values = chunked_list
+            .unwrap()
+            .as_array()
+            .clone()
+            .execute::<ListViewArray>(&mut ctx)
+            .unwrap();
 
         assert_eq!(
-            l1.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap(),
-            canon_values
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap()
+            l1.execute_scalar(0, &mut ctx).unwrap(),
+            canon_values.execute_scalar(0, &mut ctx).unwrap()
         );
         assert_eq!(
-            l2.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap(),
-            canon_values
-                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap()
+            l2.execute_scalar(0, &mut ctx).unwrap(),
+            canon_values.execute_scalar(1, &mut ctx).unwrap()
         );
     }
 
     #[test]
     fn pack_fixed_size_lists() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let f1 = FixedSizeListArray::try_new(
             buffer![1, 2, 3, 4, 5, 6].into_array(),
             2,
@@ -613,9 +615,7 @@ mod tests {
         let chunked =
             ChunkedArray::try_new(vec![f1.into_array(), f2.into_array()], dtype)?.into_array();
 
-        let canonical = chunked
-            .clone()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?;
+        let canonical = chunked.clone().execute::<Canonical>(&mut ctx)?;
         let fsl = match canonical {
             Canonical::FixedSizeList(fsl) => fsl,
             other => vortex_bail!("expected FixedSizeList canonical array, got {other:?}"),
@@ -630,8 +630,8 @@ mod tests {
         )?;
         for idx in 0..5 {
             assert_eq!(
-                chunked.execute_scalar(idx, &mut LEGACY_SESSION.create_execution_ctx())?,
-                expected.execute_scalar(idx, &mut LEGACY_SESSION.create_execution_ctx())?,
+                chunked.execute_scalar(idx, &mut ctx)?,
+                expected.execute_scalar(idx, &mut ctx)?,
             );
         }
         Ok(())

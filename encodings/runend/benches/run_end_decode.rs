@@ -4,20 +4,25 @@
 #![expect(clippy::cast_possible_truncation)]
 
 use std::fmt;
+use std::sync::LazyLock;
 
 use divan::Bencher;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferMut;
 use vortex_runend::decompress_bool::runend_decode_bools;
+use vortex_session::VortexSession;
 
 fn main() {
     divan::main();
 }
+
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 /// Distribution types for bool benchmarks
 #[derive(Clone, Copy)]
@@ -210,13 +215,7 @@ fn decode_bool(bencher: Bencher, args: BoolBenchArgs) {
     } = args;
     let (ends, values) = create_bool_test_data(total_length, avg_run_length, distribution);
     bencher
-        .with_inputs(|| {
-            (
-                ends.clone(),
-                values.clone(),
-                LEGACY_SESSION.create_execution_ctx(),
-            )
-        })
+        .with_inputs(|| (ends.clone(), values.clone(), SESSION.create_execution_ctx()))
         .bench_refs(|(ends, values, ctx)| {
             runend_decode_bools(ends.clone(), values.clone(), 0, total_length, ctx)
         });
@@ -379,13 +378,7 @@ fn decode_bool_nullable(bencher: Bencher, args: NullableBoolBenchArgs) {
     let (ends, values) =
         create_nullable_bool_test_data(total_length, avg_run_length, distribution, validity);
     bencher
-        .with_inputs(|| {
-            (
-                ends.clone(),
-                values.clone(),
-                LEGACY_SESSION.create_execution_ctx(),
-            )
-        })
+        .with_inputs(|| (ends.clone(), values.clone(), SESSION.create_execution_ctx()))
         .bench_refs(|(ends, values, ctx)| {
             runend_decode_bools(ends.clone(), values.clone(), 0, total_length, ctx)
         });

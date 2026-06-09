@@ -3,13 +3,22 @@
 
 //! Common test utilities for ListView tests.
 
+use std::sync::LazyLock;
+
 use vortex_buffer::buffer;
+use vortex_session::VortexSession;
 
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
+use crate::session::ArraySession;
 use crate::validity::Validity;
+
+/// A shared session for `ListView` tests, used to create execution contexts via
+/// [`create_execution_ctx`](crate::VortexSessionExecute::create_execution_ctx).
+pub static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 /// Creates a basic ListView for testing: [[0,1,2], [3,4], [5,6], [7,8,9]]
 pub fn create_basic_listview() -> ListViewArray {

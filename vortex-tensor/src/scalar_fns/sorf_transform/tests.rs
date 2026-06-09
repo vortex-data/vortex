@@ -250,8 +250,8 @@ fn nullable_validity_propagation() -> VortexResult<()> {
     let output_validity = result_fsl.validity()?;
     for row in 0..num_rows {
         assert_eq!(
-            output_validity.is_valid(row)?,
-            validity.is_valid(row)?,
+            output_validity.execute_is_valid(row, &mut ctx)?,
+            validity.execute_is_valid(row, &mut ctx)?,
             "validity mismatch at row {row}"
         );
     }

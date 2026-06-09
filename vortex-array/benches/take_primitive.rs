@@ -8,16 +8,19 @@
 #![expect(clippy::cast_possible_truncation)]
 #![expect(clippy::unwrap_used)]
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use rand::distr::Uniform;
 use rand::prelude::*;
 use rand_distr::Zipf;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::session::ArraySession;
+use vortex_session::VortexSession;
 
 fn main() {
     divan::main();
@@ -28,6 +31,9 @@ const NUM_INDICES: &[usize] = &[1_000, 10_000, 100_000];
 
 /// Size of the source vector / dictionary values.
 const VECTOR_SIZE: &[usize] = &[16, 256, 2048, 8192];
+
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 // --- DictArray canonicalization benchmarks ---
 
@@ -41,12 +47,9 @@ fn dict_canonicalize_uniform<const NUM_VALUES: usize>(bencher: Bencher, num_indi
 
     let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
 
-    bencher.with_inputs(|| &dict).bench_refs(|dict| {
-        (*dict)
-            .clone()
-            .into_array()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
-    });
+    bencher
+        .with_inputs(|| (&dict, SESSION.create_execution_ctx()))
+        .bench_refs(|(dict, ctx)| (*dict).clone().into_array().execute::<Canonical>(ctx));
 }
 
 #[divan::bench(args = NUM_INDICES, consts = VECTOR_SIZE, sample_count = 100_000)]
@@ -63,10 +66,7 @@ fn dict_canonicalize_zipfian<const NUM_VALUES: usize>(bencher: Bencher, num_indi
 
     let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
 
-    bencher.with_inputs(|| &dict).bench_refs(|dict| {
-        (*dict)
-            .clone()
-            .into_array()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
-    });
+    bencher
+        .with_inputs(|| (&dict, SESSION.create_execution_ctx()))
+        .bench_refs(|(dict, ctx)| (*dict).clone().into_array().execute::<Canonical>(ctx));
 }

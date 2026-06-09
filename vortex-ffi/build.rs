@@ -17,21 +17,20 @@ fn main() {
         println!("cargo:rerun-if-env-changed={env}");
     }
 
-    let is_asan = env::var("CARGO_ENCODED_RUSTFLAGS")
-        .unwrap_or_default()
-        .contains("address");
-    if is_asan {
+    // Skip cbindgen under sanitizers: its nested expansion build drops the sanitizer flag and
+    // mismatches the sanitizer-built deps.
+    let rustflags = env::var("CARGO_ENCODED_RUSTFLAGS").unwrap_or_default();
+
+    if rustflags.contains("address") {
         println!("cargo:info=building with asan");
         println!("cargo:rustc-cfg=vortex_asan");
         println!("cargo:info=Skipping header generation due to sanitizers");
         return;
     }
 
-    if env::var("CARGO_ENCODED_RUSTFLAGS")
-        .unwrap_or_default()
-        .contains("sanitizer")
-    {
+    if rustflags.contains("sanitizer") {
         println!("cargo:info=Skipping header generation due to sanitizers");
+        return;
     }
 
     if env::var("MIRI").is_ok() || env::var("MIRIFLAGS").is_ok() {

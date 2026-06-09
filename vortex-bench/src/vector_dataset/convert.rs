@@ -6,6 +6,7 @@
 use vortex::array::ArrayRef;
 use vortex::array::EmptyMetadata;
 use vortex::array::IntoArray;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::Chunked;
 use vortex::array::arrays::ChunkedArray;
 use vortex::array::arrays::ExtensionArray;
@@ -25,6 +26,8 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex_tensor::vector::Vector;
+
+use crate::SESSION;
 
 /// Rewrap a list-of-float column as a [`vortex_tensor::vector::Vector`] extension array.
 ///
@@ -75,7 +78,7 @@ pub fn list_to_vector_ext(input: ArrayRef) -> VortexResult<ArrayRef> {
     // `parquet_to_vortex_chunks` produces `ListView` arrays for list columns by default;
     // materialize them into a flat `List` representation before we validate offsets.
     if input.as_opt::<ListView>().is_some() {
-        let flat = recursive_list_from_list_view(input)?;
+        let flat = recursive_list_from_list_view(input, &mut SESSION.create_execution_ctx())?;
         return list_to_vector_ext(flat);
     }
 

@@ -31,6 +31,7 @@
 use std::ffi::CString;
 use std::sync::Arc;
 
+use vortex::array::dtype::extension::ExtDType;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
 use vortex::dtype::Nullability;
@@ -56,6 +57,8 @@ use vortex::extension::datetime::TemporalMetadata;
 use vortex::extension::datetime::Time;
 use vortex::extension::datetime::TimeUnit;
 use vortex::extension::datetime::Timestamp;
+use vortex_geo::extension::GeoMetadata;
+use vortex_geo::extension::WellKnownBinary;
 
 use crate::cpp::DUCKDB_TYPE;
 use crate::duckdb::LogicalType;
@@ -159,6 +162,16 @@ impl FromLogicalType for DType {
                     .collect::<VortexResult<_>>()?,
                 nullability,
             ),
+            DUCKDB_TYPE::DUCKDB_TYPE_GEOMETRY => {
+                let crs = logical_type.geometry_crs().map(|crs| crs.to_string());
+                DType::Extension(
+                    ExtDType::<WellKnownBinary>::try_new(
+                        GeoMetadata { crs },
+                        DType::Binary(nullability),
+                    )?
+                    .erased(),
+                )
+            }
             DUCKDB_TYPE::DUCKDB_TYPE_VARIANT => DType::Variant(nullability),
             DUCKDB_TYPE::DUCKDB_TYPE_TIME_TZ => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_INTERVAL => todo!(),
@@ -171,7 +184,6 @@ impl FromLogicalType for DType {
             DUCKDB_TYPE::DUCKDB_TYPE_BIGNUM => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_STRING_LITERAL => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_INTEGER_LITERAL => todo!(),
-            DUCKDB_TYPE::DUCKDB_TYPE_GEOMETRY => todo!(),
         })
     }
 }
@@ -228,45 +240,57 @@ impl TryFrom<&DType> for LogicalType {
                 vortex_bail!("Vortex Variant array aren't supported in DuckDB")
             }
             DType::Extension(ext_dtype) => {
-                let Some(temporal) = ext_dtype.metadata_opt::<AnyTemporal>() else {
-                    vortex_bail!("Unsupported extension type \"{}\"", ext_dtype.id());
-                };
-
-                match temporal {
-                    TemporalMetadata::Timestamp(unit, None) => match unit {
-                        TimeUnit::Nanoseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS,
-                        TimeUnit::Microseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP,
-                        TimeUnit::Milliseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS,
-                        TimeUnit::Seconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S,
-                        _ => vortex_bail!("Invalid TimeUnit {} for timestamp", unit),
-                    },
-                    TemporalMetadata::Timestamp(unit, Some(tz)) => {
-                        if tz.as_ref() != "UTC" {
-                            vortex_bail!("Invalid timezone for timestamp_tz {tz}, must be UTC");
-                        }
-                        if unit != &TimeUnit::Microseconds {
-                            vortex_bail!(
-                                "Invalid TimeUnit {} for timestamp_tz, must be Microseconds",
-                                unit
-                            );
-                        }
-                        DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ
-                    }
-                    TemporalMetadata::Date(unit) => match unit {
-                        TimeUnit::Days => DUCKDB_TYPE::DUCKDB_TYPE_DATE,
-                        _ => vortex_bail!("Invalid TimeUnit {} for date", unit),
-                    },
-                    TemporalMetadata::Time(unit) => match unit {
-                        TimeUnit::Microseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIME,
-                        TimeUnit::Nanoseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIME_NS,
-                        _ => vortex_bail!("Invalid TimeUnit {} for time", unit),
-                    },
+                // Handle first-party extension types that have DuckDB equivalents.
+                if let Some(temporal) = ext_dtype.metadata_opt::<AnyTemporal>() {
+                    return temporal_to_duckdb(temporal);
                 }
+
+                if let Some(wkb) = ext_dtype.metadata_opt::<WellKnownBinary>() {
+                    let crs = wkb.crs.as_ref();
+                    return LogicalType::geometry_type(crs.map(|crs| crs.as_str()));
+                }
+
+                vortex_bail!("Unsupported extension type \"{}\"", ext_dtype.id());
             }
         };
 
         Ok(LogicalType::new(duckdb_type))
     }
+}
+
+fn temporal_to_duckdb(temporal: TemporalMetadata) -> VortexResult<LogicalType> {
+    let duckdb_type = match temporal {
+        TemporalMetadata::Timestamp(unit, None) => match unit {
+            TimeUnit::Nanoseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS,
+            TimeUnit::Microseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP,
+            TimeUnit::Milliseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS,
+            TimeUnit::Seconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S,
+            _ => vortex_bail!("Invalid TimeUnit {} for timestamp", unit),
+        },
+        TemporalMetadata::Timestamp(unit, Some(tz)) => {
+            if tz.as_ref() != "UTC" {
+                vortex_bail!("Invalid timezone for timestamp_tz {tz}, must be UTC");
+            }
+            if unit != &TimeUnit::Microseconds {
+                vortex_bail!(
+                    "Invalid TimeUnit {} for timestamp_tz, must be Microseconds",
+                    unit
+                );
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ
+        }
+        TemporalMetadata::Date(unit) => match unit {
+            TimeUnit::Days => DUCKDB_TYPE::DUCKDB_TYPE_DATE,
+            _ => vortex_bail!("Invalid TimeUnit {} for date", unit),
+        },
+        TemporalMetadata::Time(unit) => match unit {
+            TimeUnit::Microseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIME,
+            TimeUnit::Nanoseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIME_NS,
+            _ => vortex_bail!("Invalid TimeUnit {} for time", unit),
+        },
+    };
+
+    Ok(LogicalType::new(duckdb_type))
 }
 
 impl TryFrom<StructFields> for LogicalType {
@@ -339,7 +363,10 @@ mod tests {
     use vortex::extension::datetime::Time;
     use vortex::extension::datetime::Timestamp;
     use vortex::scalar::ScalarValue;
+    use vortex_geo::extension::GeoMetadata;
+    use vortex_geo::extension::WellKnownBinary;
 
+    use crate::convert::dtype::FromLogicalType;
     use crate::cpp;
     use crate::duckdb::LogicalType;
 
@@ -560,6 +587,34 @@ mod tests {
         let dtype =
             DType::Extension(Time::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased());
         assert!(LogicalType::try_from(&dtype).is_err());
+    }
+
+    #[test]
+    fn test_geometry_roundtrip() -> VortexResult<()> {
+        let vortex_geometry = DType::Extension(
+            ExtDType::<WellKnownBinary>::try_new(
+                GeoMetadata {
+                    crs: Some("EPSG:4326".to_string()),
+                },
+                DType::Binary(Nullability::NonNullable),
+            )?
+            .erased(),
+        );
+
+        let duckdb_geometry = LogicalType::try_from(&vortex_geometry)?;
+        assert_eq!(
+            duckdb_geometry.as_type_id(),
+            cpp::DUCKDB_TYPE::DUCKDB_TYPE_GEOMETRY
+        );
+        assert_eq!(
+            duckdb_geometry.geometry_crs().map(|crs| crs.to_string()),
+            Some("EPSG:4326".to_string())
+        );
+
+        let original = DType::from_logical_type(&duckdb_geometry, Nullability::NonNullable)?;
+        assert_eq!(original, vortex_geometry);
+
+        Ok(())
     }
 
     #[test]

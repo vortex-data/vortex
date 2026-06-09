@@ -12,12 +12,13 @@
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation)]
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use divan::counter::ItemsCount;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
@@ -26,13 +27,18 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::NativePType;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_fastlanes::BitPackedData;
+use vortex_session::VortexSession;
 
 fn main() {
     divan::main();
 }
+
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 /// Number of elements per benchmarked array (64 full FastLanes blocks).
 const LEN: usize = 64 * 1024;
@@ -62,7 +68,7 @@ impl_bench_int!(u8, u16, u32, u64, i8, i16, i32, i64);
 /// Encode `LEN` in-range values of type `T` at the given bit width, returning the packed array, a
 /// mid-range constant to compare against, and an execution context.
 fn setup<T: BenchInt>(width: usize) -> (ArrayRef, ArrayRef, ExecutionCtx) {
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let cap = 1u64 << width;
     let buf: BufferMut<T> = (0..LEN)
         .map(|i| T::from_counter((i as u64) % cap))

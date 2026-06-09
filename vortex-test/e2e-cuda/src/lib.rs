@@ -17,11 +17,13 @@ use arrow_array::Date32Array;
 use arrow_array::Decimal32Array;
 use arrow_array::Decimal64Array;
 use arrow_array::Decimal128Array;
+use arrow_array::DictionaryArray;
 use arrow_array::StringArray;
 use arrow_array::cast::AsArray;
 use arrow_array::ffi::FFI_ArrowArray;
 use arrow_array::ffi::from_ffi;
 use arrow_array::make_array;
+use arrow_array::types::Int16Type;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Fields;
@@ -31,18 +33,24 @@ use vortex::array::ArrayRef as VortexArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::DecimalArray;
+use vortex::array::arrays::DictArray as VortexDictArray;
 use vortex::array::arrays::FixedSizeListArray;
 use vortex::array::arrays::ListArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::TemporalArray;
 use vortex::array::arrays::VarBinViewArray;
+use vortex::array::arrays::varbinview::BinaryView;
 use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::session::ArraySession;
 use vortex::array::validity::Validity;
+use vortex::buffer::Buffer;
+use vortex::buffer::ByteBuffer;
+use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
 use vortex::dtype::FieldNames;
 use vortex::dtype::NativePType;
+use vortex::dtype::Nullability;
 use vortex::extension::datetime::TimeUnit;
 use vortex::io::session::RuntimeSession;
 use vortex::layout::session::LayoutSession;
@@ -122,6 +130,41 @@ fn fixed_size_list_as_list_array() -> VortexArrayRef {
     .into_array()
 }
 
+fn multi_buffer_varbinview(dtype: DType) -> VortexArrayRef {
+    let first = ByteBuffer::copy_from("first value stored out-of-line".as_bytes());
+    let second = ByteBuffer::copy_from("second value stored out-of-line".as_bytes());
+    let views = Buffer::from_iter([
+        BinaryView::make_view(b"inline", 0, 0),
+        BinaryView::make_view(&first, 0, 0),
+        BinaryView::make_view(b"", 0, 0),
+        BinaryView::make_view(&second, 1, 0),
+        BinaryView::make_view(b"short", 0, 0),
+    ]);
+
+    VarBinViewArray::try_new(
+        views,
+        Arc::from([first, second]),
+        dtype,
+        Validity::NonNullable,
+    )
+    .expect("multi-buffer VarBinViewArray")
+    .into_array()
+}
+
+fn multi_buffer_utf8_array() -> VortexArrayRef {
+    multi_buffer_varbinview(DType::Utf8(Nullability::NonNullable))
+}
+
+/// Build a small dictionary column for cuDF Arrow Device import validation.
+fn dictionary_array() -> VortexArrayRef {
+    VortexDictArray::try_new(
+        PrimitiveArray::from_option_iter([Some(0u8), Some(1), None, Some(2), Some(1)]).into_array(),
+        VarBinViewArray::from_iter_str(["apple", "banana", "cherry"]).into_array(),
+    )
+    .expect("dictionary array")
+    .into_array()
+}
+
 /// # Safety
 /// `schema_ptr` and `array_ptr` must be valid writable pointers.
 #[unsafe(no_mangle)]
@@ -182,7 +225,9 @@ fn export_array_inner(schema_ptr: &mut FFI_ArrowSchema, array_ptr: &mut ArrowDev
             "decimal64",
             "decimal128",
             "strings",
+            "multi_buffer_utf8",
             "dates",
+            "dictionary",
             "lists",
             "fixed_lists",
         ]),
@@ -192,7 +237,9 @@ fn export_array_inner(schema_ptr: &mut FFI_ArrowSchema, array_ptr: &mut ArrowDev
             decimal64.into_array(),
             decimal128.into_array(),
             strings.into_array(),
+            multi_buffer_utf8_array(),
             dates.into_array(),
+            dictionary_array(),
             list_array(),
             fixed_size_list_array(),
         ],
@@ -277,7 +324,25 @@ fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowA
         Some("four"),
         None,
     ]);
+    let multi_buffer_utf8 = StringArray::from_iter([
+        Some("inline"),
+        Some("first value stored out-of-line"),
+        Some(""),
+        Some("second value stored out-of-line"),
+        Some("short"),
+    ]);
     let date = Date32Array::from(vec![Some(100i32), None, Some(300), Some(400), None]);
+    let dictionary = Arc::new(
+        vec![
+            Some("apple"),
+            Some("banana"),
+            None,
+            Some("cherry"),
+            Some("banana"),
+        ]
+        .into_iter()
+        .collect::<DictionaryArray<Int16Type>>(),
+    );
     let list = SESSION
         .arrow()
         .execute_arrow(list_array(), None, &mut SESSION.create_execution_ctx())
@@ -297,7 +362,13 @@ fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowA
         Field::new("decimal64", decimal64.data_type().clone(), true),
         Field::new("decimal128", decimal128.data_type().clone(), true),
         Field::new("strings", string.data_type().clone(), true),
+        Field::new(
+            "multi_buffer_utf8",
+            multi_buffer_utf8.data_type().clone(),
+            false,
+        ),
         Field::new("dates", date.data_type().clone(), true),
+        Field::new("dictionary", dictionary.data_type().clone(), true),
         cudf_list_field("lists"),
         cudf_list_field("fixed_lists"),
     ]);
@@ -308,13 +379,15 @@ fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowA
         return 1;
     }
 
-    let expected_arrays: [ArrowArrayRef; 6] = [
+    let expected_arrays: [ArrowArrayRef; 8] = [
         primitive,
         Arc::new(decimal32),
         Arc::new(decimal64),
         Arc::new(decimal128),
         Arc::new(string),
+        Arc::new(multi_buffer_utf8),
         Arc::new(date),
+        dictionary,
     ];
 
     for (idx, (expected, actual)) in expected_arrays
@@ -328,11 +401,11 @@ fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowA
         }
     }
 
-    if !list_values_eq(list.as_ref(), struct_array.column(6).as_ref()) {
+    if !list_values_eq(list.as_ref(), struct_array.column(8).as_ref()) {
         eprintln!("wrong values for lists column");
         return 1;
     }
-    if !list_values_eq(fixed_size_list.as_ref(), struct_array.column(7).as_ref()) {
+    if !list_values_eq(fixed_size_list.as_ref(), struct_array.column(9).as_ref()) {
         eprintln!("wrong values for fixed_lists column");
         return 1;
     }

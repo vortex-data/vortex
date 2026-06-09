@@ -213,9 +213,8 @@ fn canonicalize_to_varbinview(bencher: Bencher, case: (Shape, usize)) {
     let (shape, n) = case;
     let arr = compress(n, shape);
     bencher
-        .with_inputs(|| arr.clone().into_array())
-        .bench_local_values(|arr| {
-            let mut ctx = SESSION.create_execution_ctx();
+        .with_inputs(|| (arr.clone().into_array(), SESSION.create_execution_ctx()))
+        .bench_local_values(|(arr, mut ctx)| {
             divan::black_box(
                 arr.execute::<VarBinViewArray>(&mut ctx)
                     .unwrap_or_else(|e| panic!("canonicalize failed: {e}")),
@@ -234,13 +233,14 @@ fn filter_share_dict(bencher: Bencher, case: (Shape, usize)) {
     let (shape, n) = case;
     let arr = compress(n, shape);
     let mask = Mask::from_iter((0..n).map(|i| i % 7 == 0));
-    bencher.bench_local(|| {
-        let mut ctx = SESSION.create_execution_ctx();
-        let result = <OnPair as FilterKernel>::filter(arr.as_view(), &mask, &mut ctx)
-            .unwrap()
-            .unwrap();
-        divan::black_box(result);
-    });
+    bencher
+        .with_inputs(|| SESSION.create_execution_ctx())
+        .bench_local_values(|mut ctx| {
+            let result = <OnPair as FilterKernel>::filter(arr.as_view(), &mask, &mut ctx)
+                .unwrap()
+                .unwrap();
+            divan::black_box(result);
+        });
 }
 
 fn main() {

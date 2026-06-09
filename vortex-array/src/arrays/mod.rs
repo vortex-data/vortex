@@ -50,6 +50,10 @@ pub mod fixed_size_list;
 pub use fixed_size_list::FixedSizeList;
 pub use fixed_size_list::FixedSizeListArray;
 
+pub mod interleave;
+pub use interleave::Interleave;
+pub use interleave::InterleaveArray;
+
 pub mod list;
 pub use list::List;
 pub use list::ListArray;
