@@ -10,6 +10,7 @@
 use vortex_error::VortexExpect;
 
 use super::build_code_transitions;
+use super::byte_mask;
 use super::n_codes;
 
 /// Flat per-code transition table DFA for prefix matching on OnPair codes.
@@ -46,12 +47,15 @@ impl FlatPrefixDfa {
         let n_states = usize::from(fail_state) + 1;
 
         let byte_table = build_prefix_byte_table(prefix, accept_state, fail_state);
+        // A byte not in the prefix fails from every live state, so tokens with no
+        // prefix byte have an all-fail column.
         let transitions = build_code_transitions(
             dict_bytes,
             dict_offsets,
             &byte_table,
             n_states,
-            accept_state,
+            fail_state,
+            &byte_mask(prefix),
         );
 
         Self {

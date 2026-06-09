@@ -255,40 +255,64 @@ fn n_codes(dict_offsets: &[u32]) -> usize {
     dict_offsets.len().saturating_sub(1)
 }
 
-/// Lift a byte-level transition table to a per-code table.
+/// Lift a byte-level transition table to a per-code table, indexed as
+/// `[state * n_codes + code]`.
 ///
-/// For each `(state, code)` pair, feed the code's token bytes through
-/// `byte_table` and record the resulting state. `accept_state` is sticky in
-/// `byte_table`, so we can short-circuit once it is reached.
+/// ## Only the relevant codes are built
 ///
-/// Returns a flat `Vec<u8>` indexed as `[state * n_codes + code]`.
+/// The needle/prefix can only interact with the (usually tiny) set of dictionary
+/// tokens that contain one of its bytes. A token whose bytes are **all** absent
+/// from `relevant` drives the byte table from every live state to the same
+/// `skip_value` (for contains: a non-needle byte falls all the way back to 0
+/// via KMP from any non-accept state; for prefix: it fails). The accept/fail
+/// rows are never read — the scan returns the instant it reaches them — so such
+/// a token's whole column is just `skip_value`. We pre-fill the table with
+/// `skip_value` and only compute columns for codes that contain a relevant byte.
+///
+/// For a column that *is* built, the token is read once while advancing all
+/// `n_states` starting states in lockstep (`cur[s] = byte_table[cur[s]*256+b]`),
+/// a per-byte gather over the independent states.
 fn build_code_transitions(
     dict_bytes: &[u8],
     dict_offsets: &[u32],
     byte_table: &[u8],
     n_states: usize,
-    accept_state: u8,
+    skip_value: u8,
+    relevant: &[bool; 256],
 ) -> Vec<u8> {
     let n_codes = n_codes(dict_offsets);
-    let mut trans = vec![0u8; n_states * n_codes];
-    for state in 0..n_states {
-        let state = u8::try_from(state).vortex_expect("state fits in u8");
-        for code in 0..n_codes {
-            let begin = dict_offsets[code] as usize;
-            let end = dict_offsets[code + 1] as usize;
-            let mut s = state;
-            if s != accept_state {
-                for &b in &dict_bytes[begin..end] {
-                    s = byte_table[usize::from(s) * 256 + usize::from(b)];
-                    if s == accept_state {
-                        break;
-                    }
-                }
+    let mut trans = vec![skip_value; n_states * n_codes];
+    let n_states_u8 = u8::try_from(n_states).vortex_expect("n_states fits in u8");
+    let identity: Vec<u8> = (0..n_states_u8).collect();
+    let mut cur = identity.clone();
+    for code in 0..n_codes {
+        let begin = dict_offsets[code] as usize;
+        let end = dict_offsets[code + 1] as usize;
+        let token = &dict_bytes[begin..end];
+        if !token.iter().any(|&b| relevant[usize::from(b)]) {
+            continue; // column is entirely `skip_value` (already filled)
+        }
+        cur.copy_from_slice(&identity);
+        for &b in token {
+            let col = usize::from(b);
+            for c in &mut cur {
+                *c = byte_table[usize::from(*c) * 256 + col];
             }
-            trans[usize::from(state) * n_codes + code] = s;
+        }
+        for (s, &c) in cur.iter().enumerate() {
+            trans[s * n_codes + code] = c;
         }
     }
     trans
+}
+
+/// Build a 256-entry presence mask of the bytes that appear in `bytes`.
+fn byte_mask(bytes: &[u8]) -> [bool; 256] {
+    let mut mask = [false; 256];
+    for &b in bytes {
+        mask[usize::from(b)] = true;
+    }
+    mask
 }
 
 // ---------------------------------------------------------------------------

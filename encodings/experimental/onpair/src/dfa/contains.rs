@@ -10,6 +10,7 @@
 use vortex_error::VortexExpect;
 
 use super::build_code_transitions;
+use super::byte_mask;
 use super::kmp_byte_transitions;
 use super::n_codes;
 
@@ -36,12 +37,15 @@ impl FlatContainsDfa {
         let n_states = usize::from(accept_state) + 1;
 
         let byte_table = kmp_byte_transitions(needle);
+        // A non-needle byte resets the KMP automaton to state 0 from any live
+        // state, so tokens with no needle byte have an all-zero column.
         let transitions = build_code_transitions(
             dict_bytes,
             dict_offsets,
             &byte_table,
             n_states,
-            accept_state,
+            0,
+            &byte_mask(needle),
         );
 
         Self {

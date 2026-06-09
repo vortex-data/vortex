@@ -95,8 +95,46 @@ static CORPUS: LazyLock<OnPairArray> = LazyLock::new(|| {
     onpair_compress(&varbin, len, &dtype, DEFAULT_DICT12_CONFIG).unwrap()
 });
 
+/// A small (4k-row) corpus with a full-sized dictionary, so the per-call DFA
+/// table construction dominates — the dict-encoded ClickBench regime, where the
+/// kernel scans only the deduplicated values.
+static CORPUS_SMALL: LazyLock<OnPairArray> = LazyLock::new(|| {
+    let rows: Vec<String> = (0..4000)
+        .map(|i| {
+            format!(
+                "https://host{}.example.com/path/{}/item/{}?ref={}",
+                i % 89,
+                (i * 7) % 1000,
+                (i * 13) % 5000,
+                i
+            )
+        })
+        .collect();
+    let refs: Vec<Option<&str>> = rows.iter().map(|s| Some(s.as_str())).collect();
+    let varbin = VarBinArray::from_iter(refs, DType::Utf8(Nullability::NonNullable));
+    let len = varbin.len();
+    let dtype = varbin.dtype().clone();
+    onpair_compress(&varbin, len, &dtype, DEFAULT_DICT12_CONFIG).unwrap()
+});
+
 fn pattern_array(pattern: &str) -> ArrayRef {
     ConstantArray::new(pattern, CORPUS.len()).into_array()
+}
+
+/// Run the pushdown kernel on a given corpus (build + scan).
+fn run_pushdown_on(corpus: &OnPairArray, pattern: &str) -> ArrayRef {
+    let mut ctx = ctx();
+    let p = ConstantArray::new(pattern, corpus.len()).into_array();
+    <OnPair as LikeKernel>::like(corpus.as_view(), &p, LikeOptions::default(), &mut ctx)
+        .unwrap()
+        .expect("OnPair pushdown should handle this pattern")
+}
+
+/// Build-dominated: needles range from common bytes (many relevant codes) to
+/// rare bytes (almost all codes skipped).
+#[divan::bench(args = ["%google%", "%example%", "%zqxj%"])]
+fn contains_pushdown_buildheavy(bencher: Bencher, pattern: &str) {
+    bencher.bench(|| black_box(run_pushdown_on(&CORPUS_SMALL, pattern)));
 }
 
 /// Compressed-domain pushdown: the DFA kernel, no decompression.
