@@ -193,9 +193,18 @@ impl Flavor {
             Flavor::Partitioned => {
                 // The clickbench-provided file is missing some higher-level type info, so we reprocess it
                 // to add that info, see https://github.com/ClickHouse/ClickBench/issues/7.
-                info!("Downloading 100 ClickBench parquet shards");
+                //
+                // The full benchmark uses all 100 shards. For local/iterative runs the
+                // `CLICKBENCH_PARTITIONS` env var caps how many shards are fetched (and,
+                // since the directory is converted as-is, how many are queried).
+                let n_shards: u32 = std::env::var("CLICKBENCH_PARTITIONS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .map(|n: u32| n.clamp(1, 100))
+                    .unwrap_or(100);
+                info!("Downloading {n_shards} ClickBench parquet shards");
                 let parquet_dir = basepath.join(Format::Parquet.name());
-                let downloads = (0_u32..100).map(|idx| {
+                let downloads = (0_u32..n_shards).map(|idx| {
                     let output_path = parquet_dir.join(format!("hits_{idx}.parquet"));
                     let url = format!("https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_many/hits_{idx}.parquet");
                     (output_path, url)

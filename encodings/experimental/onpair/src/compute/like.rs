@@ -4,6 +4,8 @@
 //! `LIKE` pushdown for OnPair, evaluating `prefix%` and `%needle%` patterns
 //! directly on the compressed code stream via a per-code DFA (see [`crate::dfa`]).
 
+use std::sync::LazyLock;
+
 use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -22,6 +24,16 @@ use crate::decode::collect_widened;
 use crate::dfa::OnPairMatcher;
 use crate::dfa::dfa_scan_to_bitbuf;
 
+/// Escape hatch for measuring or debugging the compressed-domain LIKE pushdown:
+/// set `VORTEX_ONPAIR_LIKE_PUSHDOWN=0` (or `off`/`false`) to force the kernel to
+/// decline, falling back to canonical decompression + LIKE. Read once.
+static PUSHDOWN_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    matches!(
+        std::env::var("VORTEX_ONPAIR_LIKE_PUSHDOWN").as_deref(),
+        Ok("0") | Ok("off") | Ok("false")
+    )
+});
+
 impl LikeKernel for OnPair {
     fn like(
         array: ArrayView<'_, Self>,
@@ -29,6 +41,10 @@ impl LikeKernel for OnPair {
         options: LikeOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        if *PUSHDOWN_DISABLED {
+            return Ok(None);
+        }
+
         let Some(pattern_scalar) = pattern.as_constant() else {
             return Ok(None);
         };
