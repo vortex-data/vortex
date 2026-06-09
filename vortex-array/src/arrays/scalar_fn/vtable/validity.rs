@@ -22,9 +22,15 @@ use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::root::Root;
 use crate::validity::Validity;
 
-/// Execute an expression tree recursively.
+/// Execute a validity expression tree recursively.
 ///
 /// This assumes all leaf expressions are either ArrayExpr (wrapping actual arrays) or Literals.
+///
+/// Evaluation is eager on purpose: it lets a validity expression that is in fact fully valid (or
+/// fully invalid) fold down to a constant, which the caller then collapses into the most specific
+/// [`Validity`] variant. That keeps `Validity::no_nulls` (and friends) precise. A lazy tree would
+/// hide such constants behind an unevaluated `ScalarFn` array, leaving `no_nulls` conservatively
+/// false even when there are provably no nulls.
 fn execute_expr(expr: &Expression, row_count: usize) -> VortexResult<ArrayRef> {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
@@ -110,5 +116,33 @@ impl ValidityVTable<ScalarFn> for ScalarFn {
         }
 
         Ok(Validity::Array(validity_array))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_error::VortexResult;
+
+    use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
+    use crate::arrays::BoolArray;
+    use crate::arrays::StructArray;
+    use crate::expr::col;
+    use crate::expr::eq;
+
+    #[test]
+    fn compound_validity_evaluates_correctly() -> VortexResult<()> {
+        let a = BoolArray::from_iter([Some(true), None, Some(false)]).into_array();
+        let b = BoolArray::from_iter([Some(true), Some(true), None]).into_array();
+        let struct_arr = StructArray::from_fields(&[("a", a), ("b", b)])?.into_array();
+
+        // `a == b` has validity `and(valid(a), valid(b))`: null in either operand is null.
+        let result = struct_arr.apply(&eq(col("a"), col("b")))?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        assert!(result.is_valid(0, &mut ctx)?);
+        assert!(!result.is_valid(1, &mut ctx)?);
+        assert!(!result.is_valid(2, &mut ctx)?);
+        Ok(())
     }
 }
