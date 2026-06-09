@@ -12,7 +12,6 @@ readme = { workspace = true }
 repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
-publish = true
 
 [lints]
 workspace = true
@@ -28,10 +27,10 @@ prost = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
+vortex-json = { workspace = true, optional = true }
 vortex-mask = { workspace = true }
 vortex-proto = { workspace = true }
 vortex-session = { workspace = true }
-vortex-json = { workspace = true, optional = true }
 
 [dev-dependencies]
 rstest = { workspace = true }

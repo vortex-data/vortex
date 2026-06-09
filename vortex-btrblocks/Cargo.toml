@@ -48,7 +48,6 @@ vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
 divan = { workspace = true }
-rand = { workspace = true }
 rstest = { workspace = true }
 test-with = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
@@ -66,7 +65,6 @@ parquet-variant = [
     "dep:parquet-variant-compute",
     "dep:vortex-session",
     "dep:vortex-json",
-    "zstd",
 ]
 pco = ["dep:pco", "dep:vortex-pco"]
 zstd = ["dep:vortex-zstd"]

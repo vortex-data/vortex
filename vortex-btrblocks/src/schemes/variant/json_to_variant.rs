@@ -36,11 +36,13 @@ mod parquet_variant_children {
     pub const METADATA: usize = 0;
     /// The raw Parquet Variant value child.
     pub const VALUE: usize = 1;
+    /// The raw Parquet Variant typed_value child.
+    pub const TYPED_VALUE: usize = 2;
 }
 
 impl Scheme for JsonToVariantScheme {
     fn scheme_name(&self) -> &'static str {
-        "json_to_variant"
+        "vortex.variant.pq.json"
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
@@ -109,6 +111,21 @@ impl Scheme for JsonToVariantScheme {
             })
             .transpose()?;
 
+        // This is currently always none, but we should make sure to compress it
+        // if it exists
+        let typed_value = parquet_variant
+            .typed_value_array()
+            .map(|typed| {
+                compressor.compress_child(
+                    typed,
+                    &compress_ctx,
+                    self.id(),
+                    parquet_variant_children::TYPED_VALUE,
+                    exec_ctx,
+                )
+            })
+            .transpose()?;
+
         let variant_validity = parquet_variant
             .validity()?
             .union_nullability(output_nullability);
@@ -116,7 +133,7 @@ impl Scheme for JsonToVariantScheme {
             variant_validity,
             compressed_metadata,
             compressed_value,
-            parquet_variant.typed_value_array().cloned(),
+            typed_value,
         )?
         .into_array();
 

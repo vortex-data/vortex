@@ -24,7 +24,6 @@ use vortex_session::VortexSession;
 
 use super::*;
 use crate::CascadingCompressor;
-use crate::schemes::binary;
 use crate::schemes::binary::BinaryFSSTScheme;
 use crate::schemes::integer::BitPackingScheme;
 use crate::schemes::integer::FoRScheme;
@@ -302,7 +301,6 @@ fn prefers_smaller_extension_storage_over_variant_scheme() -> vortex_error::Vort
         &JsonToVariantScheme,
         &BinaryDictScheme,
         &BinaryFSSTScheme,
-        &binary::ZstdScheme,
         &IntConstantScheme,
         &StringConstantScheme,
         &FoRScheme,
