@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::collections::BTreeSet;
 use std::ops::Range;
 
 use vortex_scan::selection::Selection;
@@ -18,7 +17,9 @@ const MIN_GAP_BETWEEN_RANGES: u64 = IDEAL_SPLIT_SIZE / 2;
 pub enum Splits {
     /// Natural splits computed by the layout reader (e.g., computing splits across different-sized
     /// column chunks).
-    Natural(BTreeSet<u64>),
+    ///
+    /// The vec is sorted in ascending order and deduplicated.
+    Natural(Vec<u64>),
 
     /// Exact split ranges.
     ///

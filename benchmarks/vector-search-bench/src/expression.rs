@@ -19,11 +19,11 @@
 //! size.
 
 use anyhow::Result;
+use vortex::array::EmptyMetadata;
 use vortex::array::expr::Expression;
 use vortex::array::expr::col;
 use vortex::array::expr::gt;
 use vortex::array::expr::lit;
-use vortex::array::extension::EmptyMetadata;
 use vortex::array::scalar::Scalar;
 use vortex::array::scalar_fn::EmptyOptions;
 use vortex::array::scalar_fn::ScalarFnVTableExt;

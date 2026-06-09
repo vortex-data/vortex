@@ -278,7 +278,14 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
                     None => config.infer_schema(&session.state()).await?,
                 };
 
-                let listing_table = Arc::new(ListingTable::try_new(config)?);
+                let listing_table = Arc::new(
+                    ListingTable::try_new(config)?.with_cache(
+                        session
+                            .runtime_env()
+                            .cache_manager
+                            .get_file_statistic_cache(),
+                    ),
+                );
 
                 session.register_table(table.name, listing_table)?;
             }

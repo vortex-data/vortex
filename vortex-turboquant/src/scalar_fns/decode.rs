@@ -10,6 +10,7 @@ use std::sync::Arc;
 use num_traits::Float;
 use num_traits::FromPrimitive;
 use vortex_array::ArrayRef;
+use vortex_array::EmptyMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::FixedSizeListArray;
@@ -20,7 +21,6 @@ use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::expr::Expression;
-use vortex_array::extension::EmptyMetadata;
 use vortex_array::match_each_float_ptype;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
@@ -36,6 +36,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 use vortex_tensor::vector::Vector;
 
 use crate::centroids::compute_or_get_centroids;
@@ -66,7 +67,8 @@ impl ScalarFnVTable for TQDecode {
     type Options = EmptyMetadata;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new("vortex.turboquant.decode")
+        static ID: CachedId = CachedId::new("vortex.turboquant.decode");
+        *ID
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

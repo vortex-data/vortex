@@ -155,22 +155,22 @@ impl Debug for ArrayRef {
 }
 
 impl ArrayHash for ArrayRef {
-    fn array_hash<H: Hasher>(&self, state: &mut H, precision: crate::Precision) {
+    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: crate::EqMode) {
         self.0.len.hash(state);
         self.0.dtype.hash(state);
         self.0.encoding_id.hash(state);
         self.0.slots.len().hash(state);
         for slot in &self.0.slots {
-            slot.array_hash(state, precision);
+            slot.array_hash(state, accuracy);
         }
         self.0
             .data
-            .dyn_array_hash(state as &mut dyn Hasher, precision);
+            .dyn_array_hash(state as &mut dyn Hasher, accuracy);
     }
 }
 
 impl ArrayEq for ArrayRef {
-    fn array_eq(&self, other: &Self, precision: crate::Precision) -> bool {
+    fn array_eq(&self, other: &Self, accuracy: crate::EqMode) -> bool {
         self.0.len == other.0.len
             && self.0.dtype == other.0.dtype
             && self.0.encoding_id == other.0.encoding_id
@@ -180,8 +180,8 @@ impl ArrayEq for ArrayRef {
                 .slots
                 .iter()
                 .zip(other.0.slots.iter())
-                .all(|(slot, other_slot)| slot.array_eq(other_slot, precision))
-            && self.0.data.dyn_array_eq(other, precision)
+                .all(|(slot, other_slot)| slot.array_eq(other_slot, accuracy))
+            && self.0.data.dyn_array_eq(other, accuracy)
     }
 }
 impl ArrayRef {
@@ -390,16 +390,19 @@ impl ArrayRef {
     }
 
     /// Does the array match the given matcher.
+    #[inline]
     pub fn is<M: Matcher>(&self) -> bool {
         M::matches(self)
     }
 
     /// Returns the array downcast by the given matcher.
+    #[inline]
     pub fn as_<M: Matcher>(&self) -> M::Match<'_> {
         self.as_opt::<M>().vortex_expect("Failed to downcast")
     }
 
     /// Returns the array downcast by the given matcher.
+    #[inline]
     pub fn as_opt<M: Matcher>(&self) -> Option<M::Match<'_>> {
         M::try_match(self)
     }
@@ -738,10 +741,12 @@ impl IntoArray for ArrayRef {
 impl<V: VTable> Matcher for V {
     type Match<'a> = ArrayView<'a, V>;
 
+    #[inline]
     fn matches(array: &ArrayRef) -> bool {
         array.0.data.as_any().is::<ArrayData<V>>()
     }
 
+    #[inline]
     fn try_match(array: &'_ ArrayRef) -> Option<ArrayView<'_, V>> {
         let inner = array.0.data.as_any().downcast_ref::<ArrayData<V>>()?;
         // # Safety checked by `downcast_ref`.

@@ -19,10 +19,10 @@ use vortex_array::ArrayRef;
 use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
+use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::Precision;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Primitive;
@@ -165,7 +165,7 @@ pub struct SparseMetadata {
 }
 
 impl ArrayHash for SparseData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _accuracy: EqMode) {
         self.array_len.hash(state);
         self.patches_data.hash(state);
         self.fill_value.hash(state);
@@ -173,7 +173,7 @@ impl ArrayHash for SparseData {
 }
 
 impl ArrayEq for SparseData {
-    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+    fn array_eq(&self, other: &Self, _accuracy: EqMode) -> bool {
         self.array_len == other.array_len
             && self.patches_data == other.patches_data
             && self.fill_value == other.fill_value

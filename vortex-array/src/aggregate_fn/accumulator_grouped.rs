@@ -163,17 +163,15 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         let mut elements = groups.elements().clone();
         let groups_validity = groups.validity()?;
         let session = ctx.session().clone();
-        let kernels = &session.aggregate_fns().grouped_kernels;
 
         for _ in 0..max_iterations() {
             if elements.is::<AnyCanonical>() {
                 break;
             }
 
-            let kernels_r = kernels.read();
-            if let Some(result) = kernels_r
-                .get(&(elements.encoding_id(), Some(self.aggregate_fn.id())))
-                .or_else(|| kernels_r.get(&(elements.encoding_id(), None)))
+            if let Some(result) = session
+                .aggregate_fns()
+                .find_grouped_kernel(elements.encoding_id(), self.aggregate_fn.id())
                 .and_then(|kernel| {
                     // SAFETY: we assume that elements execution is safe
                     let groups = unsafe {
@@ -231,11 +229,13 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         )?;
         let mut states = builder_with_capacity(&self.partial_dtype, offsets.len());
 
-        for (offset, size) in offsets.iter().zip(sizes.iter()) {
+        // `validity` is the per-group list-view validity, so it is zipped element-wise with the
+        // offsets and sizes (one entry per group).
+        for ((offset, size), valid) in offsets.iter().zip(sizes.iter()).zip(validity.iter()) {
             let offset = offset.to_usize().vortex_expect("Offset value is not usize");
             let size = size.to_usize().vortex_expect("Size value is not usize");
 
-            if validity.value(offset) {
+            if valid {
                 let group = elements.slice(offset..offset + size)?;
                 accumulator.accumulate(&group, ctx)?;
                 states.append_scalar(&accumulator.flush()?)?;
@@ -255,17 +255,15 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         let mut elements = groups.elements().clone();
         let groups_validity = groups.validity()?;
         let session = ctx.session().clone();
-        let kernels = &session.aggregate_fns().grouped_kernels;
 
         for _ in 0..64 {
             if elements.is::<AnyCanonical>() {
                 break;
             }
 
-            let kernels_r = kernels.read();
-            if let Some(result) = kernels_r
-                .get(&(elements.encoding_id(), Some(self.aggregate_fn.id())))
-                .or_else(|| kernels_r.get(&(elements.encoding_id(), None)))
+            if let Some(result) = session
+                .aggregate_fns()
+                .find_grouped_kernel(elements.encoding_id(), self.aggregate_fn.id())
                 .and_then(|kernel| {
                     // SAFETY: we assume that elements execution is safe
                     let groups = unsafe {
@@ -307,8 +305,8 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
             .to_usize()
             .vortex_expect("List size is not usize");
 
-        for i in 0..groups.len() {
-            if validity.value(i) {
+        for valid in validity.iter() {
+            if valid {
                 let group = elements.slice(offset..offset + size)?;
                 accumulator.accumulate(&group, ctx)?;
                 states.append_scalar(&accumulator.flush()?)?;

@@ -394,7 +394,7 @@ pub mod test_helpers {
         elements: &[T],
         len: usize,
     ) -> ArrayRef {
-        use vortex_array::extension::EmptyMetadata;
+        use vortex_array::EmptyMetadata;
         let ext_scalar = Scalar::extension::<Vector>(EmptyMetadata, fsl_scalar(elements));
         ConstantArray::new(ext_scalar, len).into_array()
     }

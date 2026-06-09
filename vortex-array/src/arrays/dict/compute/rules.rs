@@ -5,8 +5,8 @@ use vortex_error::VortexResult;
 
 use crate::ArrayEq;
 use crate::ArrayRef;
+use crate::EqMode;
 use crate::IntoArray;
-use crate::Precision;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::Constant;
@@ -175,11 +175,10 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnCodesPullUpRule {
         }
 
         // Now run the slightly more expensive check that all siblings have the same codes as us.
-        // We use the cheaper Precision::Ptr to avoid doing data comparisons.
         if !parent.iter_children().enumerate().all(|(idx, c)| {
             idx == child_idx
                 || c.as_opt::<Dict>()
-                    .is_some_and(|c| c.codes().array_eq(array.codes(), Precision::Value))
+                    .is_some_and(|c| c.codes().array_eq(array.codes(), EqMode::Value))
         }) {
             return Ok(None);
         }

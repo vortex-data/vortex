@@ -455,7 +455,11 @@ mod tests {
 
         let validity = vector.validity_ref(len);
         let validity = validity.to_validity();
-        assert!(validity.is_null(0).unwrap());
+        assert!(
+            validity
+                .execute_is_null(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
     }
 
     #[test]
@@ -468,7 +472,11 @@ mod tests {
 
         let validity = vector.validity_ref(len);
         let validity = validity.to_validity();
-        assert!(validity.is_valid(0).unwrap());
+        assert!(
+            validity
+                .execute_is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
     }
 
     #[test]

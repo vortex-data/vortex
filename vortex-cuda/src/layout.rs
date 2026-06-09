@@ -4,7 +4,6 @@
 //! A CUDA-optimized flat layout that inlines small constant array buffers into layout metadata.
 
 use std::any::Any;
-use std::collections::BTreeSet;
 use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
@@ -49,6 +48,7 @@ use vortex::layout::LayoutReader;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::LayoutRef;
 use vortex::layout::LayoutStrategy;
+use vortex::layout::RowSplits;
 use vortex::layout::SplitRange;
 use vortex::layout::VTable;
 use vortex::layout::layouts::SharedArrayFuture;
@@ -180,6 +180,7 @@ impl VTable for CudaFlat {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
+        _ctx: &vortex::layout::LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(CudaFlatReader {
             layout: layout.clone(),
@@ -286,10 +287,10 @@ impl LayoutReader for CudaFlatReader {
         &self,
         _field_mask: &[FieldMask],
         split_range: &SplitRange,
-        splits: &mut BTreeSet<u64>,
+        splits: &mut RowSplits,
     ) -> VortexResult<()> {
         split_range.check_bounds(self.layout.row_count)?;
-        splits.insert(split_range.root_row_range().end);
+        splits.push(split_range.root_row_range().end);
         Ok(())
     }
 

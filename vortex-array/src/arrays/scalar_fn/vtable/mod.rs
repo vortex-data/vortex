@@ -21,8 +21,8 @@ use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::ArraySlots;
+use crate::EqMode;
 use crate::IntoArray;
-use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayParts;
@@ -56,13 +56,13 @@ pub struct ScalarFn {
 }
 
 impl ArrayHash for ScalarFnData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _accuracy: EqMode) {
         self.scalar_fn().hash(state);
     }
 }
 
 impl ArrayEq for ScalarFnData {
-    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+    fn array_eq(&self, other: &Self, _accuracy: EqMode) -> bool {
         self.scalar_fn() == other.scalar_fn()
     }
 }

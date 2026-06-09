@@ -75,11 +75,13 @@ impl CanonicalCudaExt for Canonical {
                 // Also update other method to copy validity to host.
                 let len = bool.len();
                 let validity = bool.validity()?;
-                let BoolDataParts {
-                    bits, offset, len, ..
-                } = bool.into_data().into_parts(len);
+                let BoolDataParts { bits, meta } = bool.into_data().into_parts(len);
 
-                let bits = BitBuffer::new_with_offset(bits.try_into_host()?.await?, offset, len);
+                let bits = BitBuffer::new_with_offset(
+                    bits.try_into_host()?.await?,
+                    meta.len(),
+                    meta.offset(),
+                );
                 Ok(Canonical::Bool(BoolArray::new(bits, validity)))
             }
             Canonical::Primitive(prim) => {

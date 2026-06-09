@@ -17,7 +17,7 @@ use crate::buffer_mut;
 
 /// Sets all bits in the bit-range `[start_bit, end_bit)` of `slice` to `value`.
 #[inline(always)]
-fn fill_bits(slice: &mut [u8], start_bit: usize, end_bit: usize, value: bool) {
+pub(crate) fn fill_bits(slice: &mut [u8], start_bit: usize, end_bit: usize, value: bool) {
     if start_bit >= end_bit {
         return;
     }
@@ -581,6 +581,7 @@ impl From<Vec<bool>> for BitBufferMut {
 }
 
 impl FromIterator<bool> for BitBufferMut {
+    #[inline]
     fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
         let mut iter = iter.into_iter();
 

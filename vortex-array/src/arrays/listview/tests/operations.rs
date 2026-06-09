@@ -5,11 +5,13 @@ use std::sync::Arc;
 
 use rstest::rstest;
 use vortex_buffer::buffer;
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use super::common::create_basic_listview;
 use super::common::create_large_listview;
 use super::common::create_nullable_listview;
+use crate::ArrayRef;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 #[expect(deprecated)]
@@ -380,6 +382,100 @@ fn test_cast_large_dataset() {
     for i in 0..20 {
         assert_eq!(result_list.size_at(i), 4);
     }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Zip tests
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[test]
+fn test_zip_widens_false_element_nullability() -> VortexResult<()> {
+    // [[1, 2], [3], [4]]
+    let if_true = ListViewArray::new(
+        buffer![1i32, 2, 3, 4].into_array(),
+        buffer![0u32, 2, 3].into_array(),
+        buffer![2u32, 1, 1].into_array(),
+        Validity::NonNullable,
+    )
+    .into_array();
+    // [[10, null], [30], [40]]
+    let if_false = ListViewArray::new(
+        PrimitiveArray::from_option_iter([Some(10i32), None, Some(30), Some(40)]).into_array(),
+        buffer![0u32, 2, 3].into_array(),
+        buffer![2u32, 1, 1].into_array(),
+        Validity::NonNullable,
+    )
+    .into_array();
+    let mask = Mask::from_iter([false, true, false]);
+
+    let result = mask
+        .into_array()
+        .zip(if_true, if_false)?
+        .execute::<ArrayRef>(&mut LEGACY_SESSION.create_execution_ctx())?;
+    assert!(result.is::<ListView>());
+    assert_eq!(
+        result.dtype(),
+        &DType::List(
+            Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
+            Nullability::NonNullable,
+        )
+    );
+
+    // [[10, null], [3], [40]]
+    let expected = ListViewArray::new(
+        PrimitiveArray::from_option_iter([Some(10i32), None, Some(3), Some(40)]).into_array(),
+        buffer![0u32, 2, 3].into_array(),
+        buffer![2u32, 1, 1].into_array(),
+        Validity::NonNullable,
+    )
+    .into_array();
+    assert_arrays_eq!(result, expected);
+    Ok(())
+}
+
+#[test]
+fn test_zip_widens_true_element_nullability() -> VortexResult<()> {
+    // [[1, null], [3], [4]]
+    let if_true = ListViewArray::new(
+        PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4)]).into_array(),
+        buffer![0u32, 2, 3].into_array(),
+        buffer![2u32, 1, 1].into_array(),
+        Validity::NonNullable,
+    )
+    .into_array();
+    // [[10], [20], [30]]
+    let if_false = ListViewArray::new(
+        buffer![10i32, 20, 30].into_array(),
+        buffer![0u32, 1, 2].into_array(),
+        buffer![1u32, 1, 1].into_array(),
+        Validity::NonNullable,
+    )
+    .into_array();
+    let mask = Mask::from_iter([true, false, true]);
+
+    let result = mask
+        .into_array()
+        .zip(if_true, if_false)?
+        .execute::<ArrayRef>(&mut LEGACY_SESSION.create_execution_ctx())?;
+    assert!(result.is::<ListView>());
+    assert_eq!(
+        result.dtype(),
+        &DType::List(
+            Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
+            Nullability::NonNullable,
+        )
+    );
+
+    // [[1, null], [20], [4]]
+    let expected = ListViewArray::new(
+        PrimitiveArray::from_option_iter([Some(1i32), None, Some(20), Some(4)]).into_array(),
+        buffer![0u32, 2, 3].into_array(),
+        buffer![2u32, 1, 1].into_array(),
+        Validity::NonNullable,
+    )
+    .into_array();
+    assert_arrays_eq!(result, expected);
+    Ok(())
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

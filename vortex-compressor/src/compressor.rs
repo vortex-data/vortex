@@ -120,7 +120,7 @@ impl CascadingCompressor {
         let _enter = span.enter();
 
         let canonical = array.clone().execute::<CanonicalValidity>(exec_ctx)?.0;
-        let compact = canonical.compact()?;
+        let compact = canonical.compact(exec_ctx)?;
         let compressed = self.compress_canonical(compact, CompressorContext::new(), exec_ctx)?;
 
         trace::record_compress_outcome(&span, before_nbytes, compressed.nbytes());
@@ -151,7 +151,7 @@ impl CascadingCompressor {
         }
 
         let canonical = child.clone().execute::<CanonicalValidity>(exec_ctx)?.0;
-        let compact = canonical.compact()?;
+        let compact = canonical.compact(exec_ctx)?;
 
         let child_ctx = parent_ctx
             .clone()
@@ -197,7 +197,7 @@ impl CascadingCompressor {
             }
             Canonical::List(list_view_array) => {
                 if list_view_array.is_zero_copy_to_list() || list_view_array.elements().is_empty() {
-                    let list_array = list_from_list_view(list_view_array)?;
+                    let list_array = list_from_list_view(list_view_array, exec_ctx)?;
                     self.compress_list_array(list_array, compress_ctx, exec_ctx)
                 } else {
                     self.compress_list_view_array(list_view_array, compress_ctx, exec_ctx)
@@ -495,7 +495,7 @@ impl CascadingCompressor {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let list_array = list_array.reset_offsets(true)?;
+        let list_array = list_array.reset_offsets(true, exec_ctx)?;
 
         let compressed_elems = self.compress(list_array.elements(), exec_ctx)?;
 

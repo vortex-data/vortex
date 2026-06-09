@@ -20,9 +20,9 @@ use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::EqMode;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
-use crate::Precision;
 use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayId;
@@ -51,11 +51,11 @@ pub type MaskedArray = Array<Masked>;
 pub struct Masked;
 
 impl ArrayHash for MaskedData {
-    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _accuracy: EqMode) {}
 }
 
 impl ArrayEq for MaskedData {
-    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+    fn array_eq(&self, _other: &Self, _accuracy: EqMode) -> bool {
         true
     }
 }

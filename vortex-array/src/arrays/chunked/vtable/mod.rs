@@ -18,10 +18,10 @@ use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
-use crate::Precision;
 #[expect(deprecated)]
 use crate::ToCanonical as _;
 use crate::array::Array;
@@ -53,14 +53,14 @@ pub type ChunkedArray = Array<Chunked>;
 pub struct Chunked;
 
 impl ArrayHash for ChunkedData {
-    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _accuracy: EqMode) {
         // Chunk offsets are cached derived data. Slot 0 already stores the logical offsets array,
         // and ArrayData hashing includes every slot before TypedArrayData.
     }
 }
 
 impl ArrayEq for ChunkedData {
-    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+    fn array_eq(&self, _other: &Self, _accuracy: EqMode) -> bool {
         // Chunk offsets are cached derived data. Slot 0 already stores the logical offsets array,
         // and ArrayData equality compares every slot before TypedArrayData.
         true

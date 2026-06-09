@@ -3,12 +3,15 @@
 
 use std::any::Any;
 use std::fmt::Debug;
+use std::panic::AssertUnwindSafe;
+use std::panic::catch_unwind;
 use std::sync::Arc;
 
 use cudarc::driver::CudaContext;
 use vortex::array::ArrayId;
 use vortex::array::VortexSessionExecute;
 use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 use vortex::session::Ref;
 use vortex::session::SessionExt;
 use vortex::session::SessionVar;
@@ -60,6 +63,27 @@ impl CudaSession {
             kernel_loader: Arc::new(KernelLoader::new()),
             export_device_array: Arc::new(CanonicalDeviceArrayExport),
             stream_pool,
+        }
+    }
+
+    /// Creates a default CUDA session using device 0, with all GPU array kernels preloaded.
+    ///
+    /// Unlike [`Default::default`], this returns an error instead of panicking when CUDA cannot be
+    /// initialized.
+    pub fn try_default() -> VortexResult<Self> {
+        // cudarc panics rather than returning an error when the CUDA driver library cannot be
+        // loaded, so catch any unwind here to uphold this constructor's no-panic contract.
+        match catch_unwind(AssertUnwindSafe(|| -> VortexResult<Self> {
+            let context = CudaContext::new(0)
+                .map_err(|err| vortex_err!("failed to initialize CUDA device 0: {err}"))?;
+            let this = Self::new(context);
+            initialize_cuda(&this);
+            Ok(this)
+        })) {
+            Ok(result) => result,
+            Err(_) => Err(vortex_err!(
+                "failed to initialize CUDA: the driver library is unavailable"
+            )),
         }
     }
 
@@ -140,12 +164,9 @@ impl Default for CudaSession {
     /// # Panics
     ///
     /// Panics if CUDA device 0 cannot be initialized.
+    #[expect(clippy::expect_used)]
     fn default() -> Self {
-        #[expect(clippy::expect_used)]
-        let context = CudaContext::new(0).expect("Failed to initialize CUDA device 0");
-        let this = Self::new(context);
-        initialize_cuda(&this);
-        this
+        Self::try_default().expect("Failed to initialize CUDA device 0")
     }
 }
 

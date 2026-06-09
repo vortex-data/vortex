@@ -61,7 +61,7 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
             let zctl = if array.is_zero_copy_to_list() {
                 array
             } else {
-                array.rebuild(ListViewRebuildMode::MakeZeroCopyToList)?
+                array.rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)?
             };
             return list_view_zctl::<O>(zctl, elements_field, ctx);
         }
@@ -76,7 +76,7 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
     let zctl = if list_view.is_zero_copy_to_list() {
         list_view
     } else {
-        list_view.rebuild(ListViewRebuildMode::MakeZeroCopyToList)?
+        list_view.rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)?
     };
     list_view_zctl::<O>(zctl, elements_field, ctx)
 }
@@ -201,6 +201,7 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use arrow_array::Array;
     use arrow_array::GenericListArray;
@@ -209,21 +210,26 @@ mod tests {
     use arrow_schema::Field;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::Canonical;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::arrow::ArrowArrayExecutor;
     use crate::arrow::executor::list::ListViewArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability::NonNullable;
+    use crate::session::ArraySession;
     use crate::validity::Validity;
+
+    /// A shared session for these list-executor tests, used to create execution contexts.
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[test]
     fn test_to_arrow_list_i32() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Create a ListViewArray with i32 elements: [[1, 2, 3], [4, 5]]
         let elements = PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5], Validity::NonNullable);
         let offsets = PrimitiveArray::new(buffer![0i32, 3], Validity::NonNullable);
@@ -278,7 +284,7 @@ mod tests {
 
     #[test]
     fn test_to_arrow_list_i64() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Create a ListViewArray with i64 offsets: [[10, 20], [30]]
         let elements = PrimitiveArray::new(buffer![10i64, 20, 30], Validity::NonNullable);
         let offsets = PrimitiveArray::new(buffer![0i64, 2], Validity::NonNullable);
@@ -318,7 +324,7 @@ mod tests {
 
     #[test]
     fn test_to_arrow_list_non_zctl() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Overlapping lists are NOT zero-copy-to-list, so this exercises the rebuild path.
         // Elements: [1, 2, 3, 4], List 0: [1,2,3], List 1: [2,3,4] (overlap at indices 1-2)
         let elements = PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable);
@@ -360,7 +366,7 @@ mod tests {
 
     #[test]
     fn test_to_arrow_list_empty_zctl() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::List(
             Arc::new(DType::Primitive(crate::dtype::PType::I32, NonNullable)),
             NonNullable,

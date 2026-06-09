@@ -119,10 +119,10 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
     fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
 
     /// Hashes the array contents including len, dtype, and encoding id.
-    fn dyn_array_hash(&self, state: &mut dyn Hasher, precision: crate::Precision);
+    fn dyn_array_hash(&self, state: &mut dyn Hasher, accuracy: crate::EqMode);
 
     /// Compares two arrays of the same concrete type for equality.
-    fn dyn_array_eq(&self, other: &ArrayRef, precision: crate::Precision) -> bool;
+    fn dyn_array_eq(&self, other: &ArrayRef, accuracy: crate::EqMode) -> bool;
 
     /// Returns a new array with the given slots.
     fn with_slots(&self, this: &ArrayRef, slots: ArraySlots) -> VortexResult<ArrayRef>;
@@ -341,19 +341,19 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
         std::fmt::Display::fmt(&self.data, f)
     }
 
-    fn dyn_array_hash(&self, state: &mut dyn Hasher, precision: crate::Precision) {
+    fn dyn_array_hash(&self, state: &mut dyn Hasher, accuracy: crate::EqMode) {
         let mut wrapper = HasherWrapper(state);
         // Note: metadata (len, dtype, encoding_id) and slots are hashed by ArrayRef.
-        self.data.array_hash(&mut wrapper, precision);
+        self.data.array_hash(&mut wrapper, accuracy);
     }
 
-    fn dyn_array_eq(&self, other: &ArrayRef, precision: crate::Precision) -> bool {
+    fn dyn_array_eq(&self, other: &ArrayRef, accuracy: crate::EqMode) -> bool {
         // Note: metadata (len, dtype, encoding_id) and slots are compared by ArrayRef.
         other
             .dyn_array()
             .as_any()
             .downcast_ref::<Self>()
-            .is_some_and(|other_inner| self.data.array_eq(&other_inner.data, precision))
+            .is_some_and(|other_inner| self.data.array_eq(&other_inner.data, accuracy))
     }
 
     fn with_slots(&self, this: &ArrayRef, slots: ArraySlots) -> VortexResult<ArrayRef> {

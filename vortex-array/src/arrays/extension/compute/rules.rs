@@ -85,6 +85,7 @@ mod tests {
     use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
+    use crate::EmptyMetadata;
     use crate::IntoArray;
     #[expect(deprecated)]
     use crate::ToCanonical as _;
@@ -105,7 +106,6 @@ mod tests {
     use crate::dtype::extension::ExtDTypeRef;
     use crate::dtype::extension::ExtId;
     use crate::dtype::extension::ExtVTable;
-    use crate::extension::EmptyMetadata;
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;

@@ -12,8 +12,10 @@ mod buf;
 mod buf_mut;
 mod count_ones;
 mod macros;
+mod meta;
 mod ops;
 mod select;
+mod view;
 
 pub use arrow_buffer::bit_chunk_iterator::BitChunkIterator;
 pub use arrow_buffer::bit_chunk_iterator::BitChunks;
@@ -24,6 +26,8 @@ pub use arrow_buffer::bit_iterator::BitIterator;
 pub use arrow_buffer::bit_iterator::BitSliceIterator;
 pub use buf::*;
 pub use buf_mut::*;
+pub use meta::*;
+pub use view::*;
 
 /// Packs up to 64 boolean values into a little-endian `u64` word.
 #[inline]

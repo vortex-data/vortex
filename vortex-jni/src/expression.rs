@@ -41,6 +41,7 @@ use vortex::expr::is_null;
 use vortex::expr::lit;
 use vortex::expr::not;
 use vortex::expr::or_collect;
+use vortex::expr::pack;
 use vortex::expr::root;
 use vortex::expr::select;
 use vortex::extension::datetime::Date;
@@ -48,6 +49,7 @@ use vortex::extension::datetime::TimeUnit;
 use vortex::extension::datetime::Timestamp;
 use vortex::extension::uuid::Uuid;
 use vortex::extension::uuid::UuidMetadata;
+use vortex::layout::layouts::row_idx::row_idx;
 use vortex::scalar::DecimalValue;
 use vortex::scalar::Scalar;
 use vortex::scalar::ScalarValue;
@@ -117,6 +119,14 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_root(
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_rowIdx(
+    _env: EnvUnowned,
+    _class: JClass,
+) -> jlong {
+    into_raw(row_idx())
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_vortex_jni_NativeExpression_getItem(
     mut env: EnvUnowned,
     _class: JClass,
@@ -149,6 +159,36 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_select(
         }
         let child = unsafe { expr_ref(child) }.clone();
         Ok(into_raw(select(fields, child)))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_pack(
+    mut env: EnvUnowned,
+    _class: JClass,
+    field_names: JObjectArray,
+    expressions: JLongArray,
+    nullable: jboolean,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        let count = field_names.len(env)?;
+        let expressions = unsafe { expressions.get_elements(env, ReleaseMode::NoCopyBack)? };
+        let mut elements = Vec::with_capacity(count);
+
+        for idx in 0..count {
+            let obj = field_names.get_element(env, idx)?;
+            let s = env.cast_local::<JString>(obj)?;
+            let name: FieldName = s.try_to_string(env)?.into();
+
+            let expr_ptr = *expressions.get(idx).ok_or_else(|| -> JNIError {
+                vortex_err!("missing pack expression child").into()
+            })?;
+            let expr = unsafe { expr_ref(expr_ptr) }.clone();
+
+            elements.push((name, expr));
+        }
+
+        Ok(into_raw(pack(elements, nullable.into())))
     })
 }
 

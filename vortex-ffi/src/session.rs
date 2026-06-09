@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex::VortexSessionDefault;
+use vortex::error::VortexResult;
+use vortex::error::vortex_ensure;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
@@ -30,6 +32,19 @@ pub unsafe extern "C-unwind" fn vx_session_new() -> *mut vx_session {
 pub unsafe extern "C-unwind" fn vx_session_clone(session: *const vx_session) -> *mut vx_session {
     let session = vx_session::as_ref(session);
     vx_session::new(session.clone())
+}
+
+/// Borrow the [`VortexSession`] behind a [`vx_session`] handle, erroring on a null pointer.
+///
+/// A building block for FFI crates layered on top of the base Vortex C API.
+///
+/// # Safety
+///
+/// `session` must be null or a valid `vx_session` pointer created by this crate, and must stay
+/// valid for the returned reference.
+pub unsafe fn vx_session_ref<'a>(session: *const vx_session) -> VortexResult<&'a VortexSession> {
+    vortex_ensure!(!session.is_null(), "null vx_session");
+    Ok(vx_session::as_ref(session))
 }
 
 #[cfg(test)]

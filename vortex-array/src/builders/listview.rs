@@ -21,8 +21,6 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::LEGACY_SESSION;
-#[expect(deprecated)]
-use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::array::IntoArray;
 use crate::arrays::ListViewArray;
@@ -294,8 +292,16 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
-        #[expect(deprecated)]
-        let listview = array.to_listview();
+        // TODO: The `ArrayBuilder` trait does not thread an `ExecutionCtx` through its extend
+        // methods, so we are forced to mint a fresh `LEGACY_SESSION` context here on every call
+        // (which for chunked input means once per chunk). Once the trait carries a `&mut
+        // ExecutionCtx`, the caller's session should be reused instead.
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
+        let listview = array
+            .clone()
+            .execute::<ListViewArray>(&mut ctx)
+            .vortex_expect("failed to execute array into ListViewArray in extend_from_array");
         if listview.is_empty() {
             return;
         }
@@ -303,15 +309,15 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         // Normalize to an exact zero-copy-to-list layout and then bulk append. This avoids the
         // very expensive scalar_at-per-list path for overlapping / out-of-order list views.
         let listview = listview
-            .rebuild(ListViewRebuildMode::MakeExact)
+            .rebuild(ListViewRebuildMode::MakeExact, &mut ctx)
             .vortex_expect("ListViewArray::rebuild(MakeExact) failed in extend_from_array");
         debug_assert!(listview.is_zero_copy_to_list());
 
         self.nulls.append_validity_mask(
-            array
+            &array
                 .validity()
                 .vortex_expect("validity_mask in extend_from_array_unchecked")
-                .execute_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(array.len(), &mut ctx)
                 .vortex_expect("Failed to compute validity mask"),
         );
 
@@ -343,8 +349,11 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         let uninit_range = self.offsets_builder.uninit_range(extend_length);
 
         // This should be cheap because we didn't compress after rebuilding.
-        #[expect(deprecated)]
-        let new_offsets = listview.offsets().to_primitive();
+        let new_offsets = listview
+            .offsets()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .vortex_expect("failed to execute list view offsets into a PrimitiveArray");
 
         match_each_integer_ptype!(new_offsets.ptype(), |A| {
             adjust_and_extend_offsets::<O, A>(
@@ -364,8 +373,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.nulls = LazyBitBufferBuilder::new(validity.len());
-        self.nulls.append_validity_mask(validity);
+        self.nulls = LazyBitBufferBuilder::from_validity_mask(validity);
     }
 
     fn finish(&mut self) -> ArrayRef {
@@ -426,6 +434,8 @@ mod tests {
 
     use super::ListViewBuilder;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::ListArray;
     use crate::arrays::ListViewArray;
     use crate::arrays::listview::ListViewArrayExt;
@@ -450,6 +460,7 @@ mod tests {
 
     #[test]
     fn test_basic_append_and_nulls() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder =
             ListViewBuilder::<u32, u32>::with_capacity(Arc::clone(&dtype), Nullable, 0, 0);
@@ -498,7 +509,7 @@ mod tests {
             !listview
                 .validity()
                 .vortex_expect("listview validity should be derivable")
-                .is_valid(2)
+                .execute_is_valid(2, &mut ctx)
                 .unwrap()
         );
 
@@ -580,6 +591,7 @@ mod tests {
 
     #[test]
     fn test_builder_trait_methods() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder =
             ListViewBuilder::<u32, u32>::with_capacity(Arc::clone(&dtype), Nullable, 0, 0);
@@ -611,14 +623,14 @@ mod tests {
             !listview
                 .validity()
                 .vortex_expect("listview validity should be derivable")
-                .is_valid(2)
+                .execute_is_valid(2, &mut ctx)
                 .unwrap()
         );
         assert!(
             !listview
                 .validity()
                 .vortex_expect("listview validity should be derivable")
-                .is_valid(3)
+                .execute_is_valid(3, &mut ctx)
                 .unwrap()
         );
 
@@ -631,6 +643,7 @@ mod tests {
 
     #[test]
     fn test_extend_from_array() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
 
         // Create a source ListArray.
@@ -680,7 +693,7 @@ mod tests {
             !listview
                 .validity()
                 .vortex_expect("listview validity should be derivable")
-                .is_valid(2)
+                .execute_is_valid(2, &mut ctx)
                 .unwrap()
         );
 
@@ -693,6 +706,7 @@ mod tests {
 
     #[test]
     fn test_extend_from_array_overlapping_listview() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
 
         // Non-ZCTL source:
@@ -725,7 +739,7 @@ mod tests {
             !listview
                 .validity()
                 .vortex_expect("listview validity should be derivable")
-                .is_valid(1)
+                .execute_is_valid(1, &mut ctx)
                 .unwrap()
         );
         assert_eq!(listview.list_elements_at(1).unwrap().len(), 0);

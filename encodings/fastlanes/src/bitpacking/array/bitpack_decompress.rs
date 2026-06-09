@@ -113,7 +113,7 @@ where
 
     // SAFETY: We initialize all `len` values below via `decode` and the patch loop.
     unsafe {
-        uninit_range.append_mask(array.validity()?.execute_mask(len, ctx)?);
+        uninit_range.append_mask(&array.validity()?.execute_mask(len, ctx)?);
     }
 
     // SAFETY: `decode` writes a value to every slot in this range.

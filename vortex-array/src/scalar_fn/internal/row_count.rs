@@ -21,6 +21,7 @@ use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_session::registry::CachedId;
 
 /// Zero-argument placeholder for the row count of the current evaluation scope.
 ///
@@ -48,7 +49,8 @@ impl ScalarFnVTable for RowCount {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.row_count")
+        static ID: CachedId = CachedId::new("vortex.row_count");
+        *ID
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {

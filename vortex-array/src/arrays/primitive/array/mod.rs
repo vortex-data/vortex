@@ -549,7 +549,7 @@ impl PrimitiveData {
             Validity::Array(is_valid) => {
                 #[expect(deprecated)]
                 let bool_array = is_valid.to_bool();
-                let bool_buffer = bool_array.to_bit_buffer();
+                let bool_buffer = bool_array.bit_buffer_view();
                 let mut bytes = ByteBufferMut::zeroed_aligned(n_rows * byte_width, alignment);
                 for (i, valid_i) in bool_buffer.set_indices().enumerate() {
                     bytes[valid_i * byte_width..(valid_i + 1) * byte_width]

@@ -17,7 +17,7 @@ impl OperationsVTable<Bool> for Bool {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         Ok(Scalar::bool(
-            array.to_bit_buffer().value(index),
+            array.bit_buffer_view().value(index),
             array.dtype().nullability(),
         ))
     }

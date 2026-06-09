@@ -92,12 +92,14 @@ impl VTable for Dict {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
+        ctx: &crate::LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(DictReader::try_new(
             layout.clone(),
             name,
             segment_source,
             session.clone(),
+            ctx.clone(),
         )?))
     }
 

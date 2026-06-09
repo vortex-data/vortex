@@ -23,6 +23,7 @@ pub mod sys;
 
 mod error;
 pub mod filter;
+pub mod scan;
 
 pub use error::CubError;
 

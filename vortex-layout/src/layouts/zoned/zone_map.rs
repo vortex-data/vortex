@@ -39,7 +39,6 @@ use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_runend::RunEnd;
 use vortex_session::VortexSession;
@@ -180,16 +179,14 @@ impl ZoneMap {
             return Ok(lit(0u64));
         }
 
-        let return_dtype = options
-            .aggregate_fn()
-            .return_dtype(&input_dtype)
-            .ok_or_else(|| {
-                vortex_err!(
-                    "Aggregate function {} does not support input dtype {}",
-                    options.aggregate_fn(),
-                    input_dtype
-                )
-            })?;
+        let return_dtype = match options.aggregate_fn().return_dtype(&input_dtype) {
+            Some(return_dtype) => return_dtype,
+            None => vortex_bail!(
+                "Aggregate function {} does not support input dtype {}",
+                options.aggregate_fn(),
+                input_dtype
+            ),
+        };
 
         if !input_is_root {
             return Ok(null_expr(return_dtype));
@@ -280,6 +277,7 @@ mod tests {
     use vortex_array::arrays::StructArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
@@ -288,6 +286,7 @@ mod tests {
     use vortex_array::expr::gt;
     use vortex_array::expr::gt_eq;
     use vortex_array::expr::is_not_null;
+    use vortex_array::expr::is_null;
     use vortex_array::expr::lit;
     use vortex_array::expr::lt;
     use vortex_array::expr::not_eq;
@@ -605,6 +604,61 @@ mod tests {
 
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(mask.into_array(), BoolArray::from_iter([false, true]));
+    }
+
+    #[test]
+    fn fixed_size_list_min_max_stat_fn_lowers_to_unknown_mask() {
+        // Regression test for issue #8189: Min/Max is defined for FixedSizeList<T>
+        // when T is orderable. If the zone map does not carry the requested stat,
+        // lowering should produce an unknown typed null rather than rejecting the dtype.
+        let elem_dtype = Arc::new(DType::Decimal(
+            DecimalDType::new(10, 2),
+            Nullability::Nullable,
+        ));
+        let column_dtype = DType::FixedSizeList(elem_dtype, 1, Nullability::Nullable);
+
+        let zone_map = ZoneMap::try_new(
+            column_dtype,
+            StructArray::try_new(FieldNames::empty(), vec![], 3, Validity::NonNullable).unwrap(),
+            Arc::new([]),
+            4,
+            10,
+        )
+        .unwrap();
+
+        let max_fn = Stat::Max
+            .aggregate_fn()
+            .expect("max should have an aggregate function");
+        let predicate = is_null(vortex_array::stats::stat(root(), max_fn));
+
+        // Missing StatFn lowers to a nullable null literal, so `is_null(...)` is true for every zone.
+        let mask = zone_map.prune(&predicate, &SESSION).unwrap();
+        assert_arrays_eq!(mask.into_array(), BoolArray::from_iter([true, true, true]));
+    }
+
+    #[test]
+    fn unsupported_aggregate_input_dtype_errors() {
+        let zone_map = ZoneMap::try_new(
+            DType::Null,
+            StructArray::try_new(FieldNames::empty(), vec![], 3, Validity::NonNullable).unwrap(),
+            Arc::new([]),
+            4,
+            10,
+        )
+        .unwrap();
+
+        let max_fn = Stat::Max
+            .aggregate_fn()
+            .expect("max should have an aggregate function");
+        let predicate = is_null(vortex_array::stats::stat(root(), max_fn));
+        let error = zone_map.prune(&predicate, &SESSION).unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("Aggregate function vortex.max() does not support input dtype null"),
+            "{error}"
+        );
     }
 
     #[test]

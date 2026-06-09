@@ -54,6 +54,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::l2_norm::L2Norm;
@@ -149,7 +150,8 @@ impl ScalarFnVTable for L2Denorm {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new("vortex.tensor.l2_denorm")
+        static ID: CachedId = CachedId::new("vortex.tensor.l2_denorm");
+        *ID
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {
@@ -446,7 +448,7 @@ pub fn normalize_as_l2_denorm(
         let total_elements = row_count * tensor_flat_size;
         let mut elements = BufferMut::<T>::with_capacity(total_elements);
         for i in 0..row_count {
-            let is_valid = norms_validity.is_valid(i)?;
+            let is_valid = norms_validity.execute_is_valid(i, ctx)?;
             let norm = norm_values[i];
 
             // SAFETY: We allocated `row_count * tensor_flat_size` capacity and push exactly
@@ -640,7 +642,7 @@ pub fn validate_l2_normalized_rows_against_norms(
         let stored_norms = norms.as_ref().map(|norms| norms.as_slice::<T>());
 
         for i in 0..row_count {
-            if !combined_validity.is_valid(i)? {
+            if !combined_validity.execute_is_valid(i, ctx)? {
                 continue;
             }
 

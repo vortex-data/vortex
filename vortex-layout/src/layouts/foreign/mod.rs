@@ -171,6 +171,7 @@ impl Layout for ForeignLayout {
         _name: Arc<str>,
         _segment_source: Arc<dyn SegmentSource>,
         _session: &VortexSession,
+        _ctx: &crate::LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef> {
         vortex_bail!(
             "Cannot read unknown layout encoding '{}'",

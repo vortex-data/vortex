@@ -12,6 +12,7 @@ use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -31,6 +32,7 @@ use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::SimplifyCtx;
 use crate::scalar_fn::fns::literal::Literal;
+use crate::validity::Validity;
 
 /// An expression that conditionally selects between two arrays based on a boolean mask.
 ///
@@ -46,7 +48,8 @@ impl ScalarFnVTable for Zip {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new("vortex.zip")
+        static ID: CachedId = CachedId::new("vortex.zip");
+        *ID
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -91,19 +94,11 @@ impl ScalarFnVTable for Zip {
 
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         vortex_ensure!(
-            arg_dtypes[0].eq_ignore_nullability(&arg_dtypes[1]),
-            "zip requires if_true and if_false to have the same base type, got {} and {}",
-            arg_dtypes[0],
-            arg_dtypes[1]
-        );
-        vortex_ensure!(
             matches!(arg_dtypes[2], DType::Bool(_)),
             "zip requires mask to be a boolean type, got {}",
             arg_dtypes[2]
         );
-        Ok(arg_dtypes[0]
-            .clone()
-            .union_nullability(arg_dtypes[1].nullability()))
+        zip_return_dtype(&arg_dtypes[0], &arg_dtypes[1])
     }
 
     fn execute(
@@ -120,10 +115,7 @@ impl ScalarFnVTable for Zip {
             .execute::<BoolArray>(ctx)?
             .to_mask_fill_null_false(ctx);
 
-        let return_dtype = if_true
-            .dtype()
-            .clone()
-            .union_nullability(if_false.dtype().nullability());
+        let return_dtype = zip_return_dtype(if_true.dtype(), if_false.dtype())?;
 
         if mask.all_true() {
             return if_true.cast(return_dtype)?.execute(ctx);
@@ -184,10 +176,7 @@ pub(crate) fn zip_impl(
         "zip requires arrays to have the same size"
     );
 
-    let return_type = if_true
-        .dtype()
-        .clone()
-        .union_nullability(if_false.dtype().nullability());
+    let return_type = zip_return_dtype(if_true.dtype(), if_false.dtype())?;
 
     if mask.all_true() {
         return if_true.cast(return_type);
@@ -209,6 +198,18 @@ pub(crate) fn zip_impl(
         builder_with_capacity(&return_type, if_true.len()),
         ctx,
     )
+}
+
+fn zip_return_dtype(if_true: &DType, if_false: &DType) -> VortexResult<DType> {
+    vortex_ensure!(
+        if_true.eq_ignore_nullability(if_false),
+        "zip requires if_true and if_false to have the same base type, got {} and {}",
+        if_true,
+        if_false
+    );
+    Ok(if_true
+        .least_supertype(if_false)
+        .vortex_expect("zip inputs with the same base type must have a common dtype"))
 }
 
 fn zip_impl_with_builder(
@@ -234,6 +235,34 @@ fn zip_impl_with_builder(
             .append_to_builder(builder.as_mut(), ctx)?;
     }
     Ok(builder.finish())
+}
+
+/// Combine two validities for a row-wise zip: take `if_true`'s validity where `mask` is set and
+/// `if_false`'s where it is not.
+///
+/// That selection is itself a zip over the two boolean validity bitmaps, so it is built as a (lazy)
+/// zip array — reusing the zip machinery rather than re-deriving the mask algebra. Trivial cases
+/// where both sides' validity already agrees skip the zip. `mask` must already be null-filled so the
+/// selection matches the accompanying value selection. Shared by the per-encoding zip kernels (e.g.
+/// `Bool`, `Primitive`) that build their result directly.
+pub(crate) fn zip_validity(
+    if_true: Validity,
+    if_false: Validity,
+    mask: &Mask,
+) -> VortexResult<Validity> {
+    match (&if_true, &if_false) {
+        (Validity::NonNullable, Validity::NonNullable) => return Ok(Validity::NonNullable),
+        (Validity::AllValid, Validity::AllValid) => return Ok(Validity::AllValid),
+        (Validity::AllInvalid, Validity::AllInvalid) => return Ok(Validity::AllInvalid),
+        _ => {}
+    }
+
+    let len = mask.len();
+    let validity = mask
+        .clone()
+        .into_array()
+        .zip(if_true.to_array(len), if_false.to_array(len))?;
+    Ok(Validity::Array(validity))
 }
 
 #[cfg(test)]

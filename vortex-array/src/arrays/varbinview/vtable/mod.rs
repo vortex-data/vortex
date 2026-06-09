@@ -16,9 +16,9 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
+use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
-use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
@@ -44,23 +44,23 @@ pub type VarBinViewArray = Array<VarBinView>;
 pub struct VarBinView;
 
 impl ArrayHash for VarBinViewData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: EqMode) {
         for buffer in self.buffers.iter() {
-            buffer.array_hash(state, precision);
+            buffer.array_hash(state, accuracy);
         }
-        self.views.array_hash(state, precision);
+        self.views.array_hash(state, accuracy);
     }
 }
 
 impl ArrayEq for VarBinViewData {
-    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+    fn array_eq(&self, other: &Self, accuracy: EqMode) -> bool {
         self.buffers.len() == other.buffers.len()
             && self
                 .buffers
                 .iter()
                 .zip(other.buffers.iter())
-                .all(|(a, b)| a.array_eq(b, precision))
-            && self.views.array_eq(&other.views, precision)
+                .all(|(a, b)| a.array_eq(b, accuracy))
+            && self.views.array_eq(&other.views, accuracy)
     }
 }
 

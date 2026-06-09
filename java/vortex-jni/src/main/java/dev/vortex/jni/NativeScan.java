@@ -21,8 +21,10 @@ public final class NativeScan {
      * @param rowRangeBegin inclusive start of the row range, 0 for "unbounded"
      * @param rowRangeEnd exclusive end of the row range, 0 for "unbounded"
      * @param selectionIndices sorted row indices; may be null
+     * @param selectionRoaringBitmap portable serialized Roaring64 bitmap; may be null
      * @param selectionInclude {@code 0} (all), {@code 1} (include {@code selectionIndices}), {@code 2} (exclude
-     *     {@code selectionIndices})
+     *     {@code selectionIndices}), {@code 3} (include {@code selectionRoaringBitmap}), {@code 4} (exclude
+     *     {@code selectionRoaringBitmap})
      * @param limit max rows to return, or {@code 0} for "no limit"
      * @param ordered true to preserve row order across partitions
      */
@@ -33,6 +35,7 @@ public final class NativeScan {
             long rowRangeBegin,
             long rowRangeEnd,
             long[] selectionIndices,
+            byte[] selectionRoaringBitmap,
             byte selectionInclude,
             long limit,
             boolean ordered);

@@ -19,13 +19,17 @@ box_wrapper!(
     vx_error
 );
 
+/// Create an owned Vortex FFI error from a message.
+pub(crate) fn vx_error_new(message: &str) -> *mut vx_error {
+    vx_error::new(VortexError {
+        message: message.into(),
+    })
+}
+
 /// Write an error message to `error` which has not been populated before.
 pub(crate) fn write_error(error: *mut *mut vx_error, message: &str) {
     assert!(!error.is_null());
-    let err = vx_error::new(VortexError {
-        message: message.into(),
-    });
-    unsafe { error.write(err) };
+    unsafe { error.write(vx_error_new(message)) };
 }
 
 #[inline]
@@ -45,6 +49,13 @@ pub fn try_or_default<T: Default>(
     }
 }
 
+/// Run `function`, returning its value on success and `error_value` on failure.
+///
+/// On success `*error_out` is cleared to null; on failure the error is written to `*error_out`
+/// when it is non-null.
+// Writes through `error_out` but stays safe like the other error-out helpers here; the raw-pointer
+// contract is documented at the C boundary.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn try_or<T>(
     error_out: *mut *mut vx_error,
     error_value: T,

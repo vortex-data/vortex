@@ -41,6 +41,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::l2_denorm::L2Denorm;
@@ -83,7 +84,8 @@ impl ScalarFnVTable for L2Norm {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new("vortex.tensor.l2_norm")
+        static ID: CachedId = CachedId::new("vortex.tensor.l2_norm");
+        *ID
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {
@@ -254,6 +256,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::ArrayPlugin;
     use vortex_array::ArrayRef;
+    use vortex_array::EmptyMetadata;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::Constant;
@@ -266,7 +269,6 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::extension::ExtDType;
-    use vortex_array::extension::EmptyMetadata;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;

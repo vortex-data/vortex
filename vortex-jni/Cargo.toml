@@ -24,11 +24,13 @@ futures = { workspace = true }
 jni = { workspace = true }
 object_store = { workspace = true, features = ["aws", "azure", "gcp"] }
 parking_lot = { workspace = true }
+roaring = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true, features = ["std", "log"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "files"] }
+vortex-parquet-variant = { workspace = true }
 
 [dev-dependencies]
 jni = { workspace = true, features = ["invocation"] }

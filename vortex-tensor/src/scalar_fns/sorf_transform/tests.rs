@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
+use vortex_array::EmptyMetadata;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ExtensionArray;
@@ -22,7 +23,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDType;
-use vortex_array::extension::EmptyMetadata;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -250,8 +250,8 @@ fn nullable_validity_propagation() -> VortexResult<()> {
     let output_validity = result_fsl.validity()?;
     for row in 0..num_rows {
         assert_eq!(
-            output_validity.is_valid(row)?,
-            validity.is_valid(row)?,
+            output_validity.execute_is_valid(row, &mut ctx)?,
+            validity.execute_is_valid(row, &mut ctx)?,
             "validity mismatch at row {row}"
         );
     }

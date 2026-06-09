@@ -12,6 +12,7 @@ use parking_lot::Mutex;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -46,7 +47,8 @@ impl ScalarFnVTable for DynamicComparison {
     type Options = DynamicComparisonExpr;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.dynamic")
+        static ID: CachedId = CachedId::new("vortex.dynamic");
+        *ID
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {

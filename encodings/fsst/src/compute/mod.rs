@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod byte_length;
 mod cast;
 mod compare;
 mod filter;
@@ -28,13 +29,12 @@ impl TakeExecute for FSST {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
-            FSST::try_new(
+            FSST::try_new_with_symbol_table(
                 array
                     .dtype()
                     .clone()
                     .union_nullability(indices.dtype().nullability()),
-                array.symbols().clone(),
-                array.symbol_lengths().clone(),
+                array.symbol_table(),
                 {
                     let codes = array.codes();
                     let codes = codes.as_view();
