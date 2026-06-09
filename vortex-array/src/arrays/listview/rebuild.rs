@@ -486,7 +486,7 @@ mod tests {
 
         // Verify nullability is preserved
         assert_eq!(flattened.dtype().nullability(), Nullability::Nullable);
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert!(flattened.validity()?.execute_is_valid(0, &mut ctx)?);
         assert!(!flattened.validity()?.execute_is_valid(1, &mut ctx)?);
         assert!(flattened.validity()?.execute_is_valid(2, &mut ctx)?);
