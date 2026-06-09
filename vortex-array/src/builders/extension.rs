@@ -8,9 +8,8 @@ use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
 use crate::arrays::ExtensionArray;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::builders::ArrayBuilder;
@@ -99,10 +98,14 @@ impl ArrayBuilder for ExtensionBuilder {
         self.append_value(scalar.as_extension())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let ext_array = array.clone().execute::<ExtensionArray>(&mut ctx)?;
-        self.storage.extend_from_array(ext_array.storage_array())
+    unsafe fn extend_from_array_unchecked(
+        &mut self,
+        array: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let ext_array = array.clone().execute::<ExtensionArray>(ctx)?;
+        self.storage
+            .extend_from_array(ext_array.storage_array(), ctx)
     }
 
     fn reserve_exact(&mut self, capacity: usize) {

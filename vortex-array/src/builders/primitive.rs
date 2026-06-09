@@ -10,9 +10,8 @@ use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
@@ -174,9 +173,12 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         Ok(())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let array = array.clone().execute::<PrimitiveArray>(&mut ctx)?;
+    unsafe fn extend_from_array_unchecked(
+        &mut self,
+        array: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let array = array.clone().execute::<PrimitiveArray>(ctx)?;
 
         // This should be checked in `extend_from_array` but we can check it again.
         debug_assert_eq!(
@@ -190,7 +192,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
             &array
                 .as_ref()
                 .validity()?
-                .execute_mask(array.as_ref().len(), &mut ctx)?,
+                .execute_mask(array.as_ref().len(), ctx)?,
         );
 
         Ok(())
@@ -364,6 +366,8 @@ mod tests {
     use vortex_error::VortexExpect;
 
     use super::*;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::assert_arrays_eq;
 
     /// REGRESSION TEST: This test verifies that multiple sequential ranges have correct offsets.

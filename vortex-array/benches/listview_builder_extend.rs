@@ -8,6 +8,8 @@ use std::sync::Arc;
 
 use divan::Bencher;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::ArrayBuilder;
@@ -71,7 +73,7 @@ fn extend_from_array_zctl(bencher: Bencher, (num_lists, list_size): (usize, usiz
             num_lists,
         );
         builder
-            .extend_from_array(source)
+            .extend_from_array(source, &mut LEGACY_SESSION.create_execution_ctx())
             .vortex_expect("extend_from_array");
         divan::black_box(builder.finish_into_listview())
     });
@@ -95,7 +97,7 @@ fn extend_from_array_non_zctl_overlapping(
             num_lists,
         );
         builder
-            .extend_from_array(source)
+            .extend_from_array(source, &mut LEGACY_SESSION.create_execution_ctx())
             .vortex_expect("extend_from_array");
         divan::black_box(builder.finish_into_listview())
     });

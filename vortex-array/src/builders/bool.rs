@@ -10,9 +10,8 @@ use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::builders::ArrayBuilder;
@@ -112,16 +111,19 @@ impl ArrayBuilder for BoolBuilder {
         Ok(())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let bool_array = array.clone().execute::<BoolArray>(&mut ctx)?;
+    unsafe fn extend_from_array_unchecked(
+        &mut self,
+        array: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let bool_array = array.clone().execute::<BoolArray>(ctx)?;
 
         self.inner.append_buffer(&bool_array.to_bit_buffer());
         self.nulls.append_validity_mask(
             &bool_array
                 .as_ref()
                 .validity()?
-                .execute_mask(bool_array.as_ref().len(), &mut ctx)?,
+                .execute_mask(bool_array.as_ref().len(), ctx)?,
         );
 
         Ok(())

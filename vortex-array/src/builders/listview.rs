@@ -20,8 +20,7 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
+use crate::ExecutionCtx;
 use crate::array::IntoArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
@@ -117,7 +116,11 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
     ///
     /// Note that the list entry will be non-null but the elements themselves are allowed to be null
     /// (only if the elements [`DType`] is nullable, of course).
-    pub fn append_array_as_list(&mut self, array: &ArrayRef) -> VortexResult<()> {
+    pub fn append_array_as_list(
+        &mut self,
+        array: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         vortex_ensure!(
             array.dtype() == self.element_dtype(),
             "Array dtype {:?} does not match list element dtype {:?}",
@@ -135,7 +138,7 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
             "appending this list would cause an offset overflow"
         );
 
-        self.elements_builder.extend_from_array(array)?;
+        self.elements_builder.extend_from_array(array, ctx)?;
         self.nulls.append_non_null();
 
         self.offsets_builder.append_value(
@@ -291,32 +294,30 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         self.append_value(list_scalar)
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) -> VortexResult<()> {
-        // TODO: The `ArrayBuilder` trait does not thread an `ExecutionCtx` through its extend
-        // methods, so we are forced to mint a fresh `LEGACY_SESSION` context here on every call
-        // (which for chunked input means once per chunk). Once the trait carries a `&mut
-        // ExecutionCtx`, the caller's session should be reused instead.
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-
-        let listview = array.clone().execute::<ListViewArray>(&mut ctx)?;
+    unsafe fn extend_from_array_unchecked(
+        &mut self,
+        array: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let listview = array.clone().execute::<ListViewArray>(ctx)?;
         if listview.is_empty() {
             return Ok(());
         }
 
         // Normalize to an exact zero-copy-to-list layout and then bulk append. This avoids the
         // very expensive scalar_at-per-list path for overlapping / out-of-order list views.
-        let listview = listview.rebuild(ListViewRebuildMode::MakeExact, &mut ctx)?;
+        let listview = listview.rebuild(ListViewRebuildMode::MakeExact, ctx)?;
         debug_assert!(listview.is_zero_copy_to_list());
 
         self.nulls
-            .append_validity_mask(&array.validity()?.execute_mask(array.len(), &mut ctx)?);
+            .append_validity_mask(&array.validity()?.execute_mask(array.len(), ctx)?);
 
         // Bulk append the new elements (which should have no gaps or overlaps).
         let old_elements_len = self.elements_builder.len();
         self.elements_builder
             .reserve_exact(listview.elements().len());
         self.elements_builder
-            .extend_from_array(listview.elements())?;
+            .extend_from_array(listview.elements(), ctx)?;
         let new_elements_len = self.elements_builder.len();
 
         // Reserve enough space for the new views.
@@ -329,7 +330,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
             .sizes()
             .clone()
             .cast(self.sizes_builder.dtype().clone())?;
-        self.sizes_builder.extend_from_array(&cast_sizes)?;
+        self.sizes_builder.extend_from_array(&cast_sizes, ctx)?;
 
         // Now we need to adjust all of the offsets by adding the current number of elements in the
         // builder.
@@ -337,10 +338,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         let uninit_range = self.offsets_builder.uninit_range(extend_length);
 
         // This should be cheap because we didn't compress after rebuilding.
-        let new_offsets = listview
-            .offsets()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)?;
+        let new_offsets = listview.offsets().clone().execute::<PrimitiveArray>(ctx)?;
 
         match_each_integer_ptype!(new_offsets.ptype(), |A| {
             adjust_and_extend_offsets::<O, A>(
@@ -423,6 +421,8 @@ mod tests {
 
     use super::ListViewBuilder;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::ListArray;
     use crate::arrays::ListViewArray;
     use crate::arrays::listview::ListViewArrayExt;
@@ -646,7 +646,12 @@ mod tests {
             .unwrap();
 
         // Extend from the ListArray.
-        builder.extend_from_array(&source.into_array()).unwrap();
+        builder
+            .extend_from_array(
+                &source.into_array(),
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
+            .unwrap();
 
         // Extend from empty array (should be no-op).
         let empty_source = ListArray::from_iter_opt_slow::<u32, _, Vec<i32>>(
@@ -655,7 +660,10 @@ mod tests {
         )
         .unwrap();
         builder
-            .extend_from_array(&empty_source.into_array())
+            .extend_from_array(
+                &empty_source.into_array(),
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
             .unwrap();
 
         let listview = builder.finish_into_listview();
@@ -710,7 +718,12 @@ mod tests {
 
         let mut builder =
             ListViewBuilder::<u32, u8>::with_capacity(Arc::clone(&dtype), Nullable, 0, 0);
-        builder.extend_from_array(&source.into_array()).unwrap();
+        builder
+            .extend_from_array(
+                &source.into_array(),
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
+            .unwrap();
 
         let listview = builder.finish_into_listview();
         assert_eq!(listview.len(), 3);
@@ -763,7 +776,9 @@ mod tests {
 
         // Append a primitive array as a single list entry.
         let arr1 = buffer![1i32, 2, 3].into_array();
-        builder.append_array_as_list(&arr1).unwrap();
+        builder
+            .append_array_as_list(&arr1, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
 
         // Interleave with a list scalar.
         builder
@@ -779,11 +794,15 @@ mod tests {
 
         // Append another primitive array as a single list entry.
         let arr2 = buffer![4i32, 5].into_array();
-        builder.append_array_as_list(&arr2).unwrap();
+        builder
+            .append_array_as_list(&arr2, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
 
         // Append an empty array as a single list entry (empty list).
         let arr3 = buffer![0i32; 0].into_array();
-        builder.append_array_as_list(&arr3).unwrap();
+        builder
+            .append_array_as_list(&arr3, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
 
         // Interleave with another list scalar.
         builder
@@ -814,6 +833,10 @@ mod tests {
         // Test dtype mismatch error.
         let mut builder = ListViewBuilder::<u32, u32>::with_capacity(dtype, NonNullable, 20, 10);
         let wrong_dtype_arr = buffer![1i64, 2, 3].into_array();
-        assert!(builder.append_array_as_list(&wrong_dtype_arr).is_err());
+        assert!(
+            builder
+                .append_array_as_list(&wrong_dtype_arr, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_err()
+        );
     }
 }

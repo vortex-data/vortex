@@ -19,9 +19,8 @@ use vortex_utils::aliases::hash_map::Entry;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::build_views::BinaryView;
 use crate::arrays::varbinview::compact::BufferUtilization;
@@ -292,12 +291,15 @@ impl ArrayBuilder for VarBinViewBuilder {
         Ok(())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let array = array.clone().execute::<VarBinViewArray>(&mut ctx)?;
+    unsafe fn extend_from_array_unchecked(
+        &mut self,
+        array: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let array = array.clone().execute::<VarBinViewArray>(ctx)?;
         self.flush_in_progress();
 
-        let mask = array.validity()?.execute_mask(array.len(), &mut ctx)?;
+        let mask = array.validity()?.execute_mask(array.len(), ctx)?;
 
         self.push_only_validity_mask(&mask);
 
@@ -886,7 +888,9 @@ mod tests {
         let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
 
         builder.append_value("Hello1");
-        builder.extend_from_array(&array).unwrap();
+        builder
+            .extend_from_array(&array, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         builder.append_nulls(2);
         builder.append_value("Hello3");
 

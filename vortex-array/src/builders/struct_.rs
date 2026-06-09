@@ -12,9 +12,8 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
 use crate::arrays::StructArray;
 use crate::arrays::struct_::StructArrayExt;
 use crate::builders::ArrayBuilder;
@@ -166,19 +165,22 @@ impl ArrayBuilder for StructBuilder {
         self.append_value(scalar.as_struct())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let array = array.clone().execute::<StructArray>(&mut ctx)?;
+    unsafe fn extend_from_array_unchecked(
+        &mut self,
+        array: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let array = array.clone().execute::<StructArray>(ctx)?;
 
         for (a, builder) in array
             .iter_unmasked_fields()
             .zip_eq(self.builders.iter_mut())
         {
-            builder.extend_from_array(a)?;
+            builder.extend_from_array(a, ctx)?;
         }
 
         self.nulls
-            .append_validity_mask(&array.validity()?.execute_mask(array.len(), &mut ctx)?);
+            .append_validity_mask(&array.validity()?.execute_mask(array.len(), ctx)?);
 
         Ok(())
     }
