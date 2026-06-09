@@ -166,9 +166,8 @@ impl AggregateFnSession {
 
     /// Returns the grouped aggregate kernel registered for `agg_fn_id`, if any.
     ///
-    /// These kernels are independent of the element encoding and are checked once before the
-    /// grouped accumulator executes the element array, after any kernel registered for the initial
-    /// element encoding.
+    /// These kernels are independent of the element encoding and are checked for each element
+    /// representation, after any kernel registered for the current element encoding.
     pub fn find_grouped_kernel(
         &self,
         agg_fn_id: impl Into<AggregateFnId>,
