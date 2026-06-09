@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod coordinate;
+mod point;
 mod wkb;
 
 use std::fmt::Display;
 
+pub(crate) use coordinate::xy_columns;
+pub use coordinate::*;
+pub use point::*;
 pub use wkb::*;
 
 /// Extension metadata that is common to all the geospatial extension types.
