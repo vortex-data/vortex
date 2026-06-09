@@ -38,12 +38,13 @@ jobs:
         with:
           command: >-
             cargo build --profile ci --locked --all-features --all-targets
-            -p vortex-cuda -p vortex-cub -p vortex-nvcomp
+            -p vortex-cuda -p vortex-cuda-ffi -p vortex-cub -p vortex-nvcomp
             -p gpu-scan-cli -p vortex-test-e2e-cuda
       - name: Clippy CUDA crates
         run: |
           cargo clippy --profile ci --locked --all-features --all-targets \
             -p vortex-cuda \
+            -p vortex-cuda-ffi \
             -p vortex-cub \
             -p vortex-nvcomp \
             -p gpu-scan-cli \
@@ -81,6 +82,7 @@ jobs:
             --locked \
             -p vortex-file \
             -p vortex-cuda \
+            -p vortex-cuda-ffi \
             -p vortex-cub \
             -p vortex-nvcomp \
             -p vortex-test-e2e-cuda \
