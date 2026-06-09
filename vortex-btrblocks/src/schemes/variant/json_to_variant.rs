@@ -69,6 +69,7 @@ impl Scheme for JsonToVariantScheme {
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let array = data.array().clone().execute::<ExtensionArray>(exec_ctx)?;
+        let output_nullability = array.dtype().nullability();
         let storage = array.storage_array().clone();
 
         if !storage.dtype().is_utf8() {
@@ -105,8 +106,11 @@ impl Scheme for JsonToVariantScheme {
             })
             .transpose()?;
 
+        let variant_validity = parquet_variant
+            .validity()?
+            .union_nullability(output_nullability);
         let variant = ParquetVariant::try_new(
-            parquet_variant.validity()?,
+            variant_validity,
             compressed_metadata,
             compressed_value,
             parquet_variant.typed_value_array().cloned(),

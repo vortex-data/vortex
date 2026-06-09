@@ -13,6 +13,7 @@ use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::session::ArraySession;
+use vortex_array::validity::Validity;
 use vortex_compressor::builtins::BinaryDictScheme;
 use vortex_compressor::builtins::IntConstantScheme;
 use vortex_compressor::builtins::StringConstantScheme;
@@ -116,6 +117,25 @@ fn json_array(values: &[String]) -> vortex_error::VortexResult<ArrayRef> {
     )
 }
 
+fn all_valid_nullable_json_array(
+    values: impl IntoIterator<Item = &'static str>,
+) -> vortex_error::VortexResult<ArrayRef> {
+    let storage = VarBinViewArray::from_iter_str(values);
+    let parts = storage.into_data_parts();
+    let storage = VarBinViewArray::new_handle(
+        parts.views,
+        parts.buffers,
+        parts.dtype.as_nullable(),
+        Validity::AllValid,
+    )
+    .into_array();
+
+    Ok(
+        ExtensionArray::try_new_from_vtable(Json, vortex_array::EmptyMetadata, storage)?
+            .into_array(),
+    )
+}
+
 fn parquet_variant_child_compressor() -> CascadingCompressor {
     CascadingCompressor::new(vec![
         &JsonToVariantScheme,
@@ -145,6 +165,36 @@ fn json_to_variant_scheme_wraps_output_as_json() -> vortex_error::VortexResult<(
     let json = compressed.execute::<ExtensionArray>(&mut exec_ctx)?;
     assert_eq!(json.dtype(), array.dtype());
     assert!(json.storage_array().dtype().is_utf8());
+
+    Ok(())
+}
+
+#[test]
+fn preserves_nullable_json_dtype_for_all_valid_storage() -> vortex_error::VortexResult<()> {
+    let values = [r#"{"a":1}"#, r#"{"b":2}"#];
+    let storage = VarBinViewArray::from_iter_str(values);
+    let parts = storage.into_data_parts();
+    let storage = VarBinViewArray::new_handle(
+        parts.views,
+        parts.buffers,
+        parts.dtype.as_nullable(),
+        Validity::AllValid,
+    )
+    .into_array();
+
+    let array = ExtensionArray::try_new_from_vtable(Json, vortex_array::EmptyMetadata, storage)?
+        .into_array();
+
+    assert!(array.dtype().is_nullable());
+
+    let variant_compressor = CascadingCompressor::new(vec![&JsonToVariantScheme]);
+    let mut exec_ctx = SESSION.create_execution_ctx();
+    let compressed = variant_compressor.compress(&array, &mut exec_ctx)?;
+
+    assert_eq!(compressed.dtype(), array.dtype());
+
+    let json = compressed.execute::<ExtensionArray>(&mut exec_ctx)?;
+    assert_eq!(json.dtype(), array.dtype());
 
     Ok(())
 }
