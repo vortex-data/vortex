@@ -404,14 +404,14 @@ fn test_pushdown_fires_through_dict_and_shared() -> VortexResult<()> {
     assert!(hits_a >= 1, "bare OnPair LIKE should fire the pushdown");
     assert!(hits_b >= 1, "Dict(OnPair) LIKE should fire the pushdown");
 
-    // KNOWN GAP: `Dict(Shared(OnPair))` — the shape a dict-encoded column takes
-    // when read back from a multi-chunk file — does NOT fire the pushdown, because
-    // `Shared` has no parent-reduce forwarding: a `LIKE` over it canonicalizes
-    // (decompresses) the source instead of pushing the predicate into the OnPair
-    // array. This is why the compressed-domain LIKE pushdown does not move
-    // end-to-end ClickBench/TPC-H numbers, and it affects FSST identically. The
-    // fix lives in `vortex-array`'s `Shared` (forward scalar-fn reduces to the
-    // source); when that lands, `hits_c` becomes >= 1 and this guard should flip.
+    // At the *array* level, `LIKE` over `Dict(Shared(OnPair))` still does NOT push
+    // down: `Shared` has no parent-reduce forwarding, so the predicate
+    // canonicalizes (decompresses) the source instead of reaching the OnPair
+    // kernel. The fix is at the *layout* level: the dict reader applies predicates
+    // to the bare (non-`Shared`) values so a column read back from a multi-chunk
+    // file fires the pushdown (verified end-to-end) — see
+    // `vortex-layout`'s `DictReader::values_array_uncanonical`. This guard pins the
+    // array-level behavior that motivates that layout choice.
     assert_eq!(
         hits_c, 0,
         "Dict(Shared(OnPair)) unexpectedly fired the pushdown ({hits_c}); if Shared \
