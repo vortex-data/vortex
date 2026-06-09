@@ -197,6 +197,7 @@ mod tests {
     use crate::expr::byte_length;
     use crate::expr::root;
     use crate::scalar::Scalar;
+    use crate::validity::Validity;
 
     #[rstest]
     #[case(VarBinArray::from_strs(vec!["hello", "world", ""]).into_array(), vec![5u64, 5, 0])]
@@ -268,6 +269,36 @@ mod tests {
         // the validity mask.
         let validity = byte_length(root()).validity()?;
         assert_eq!(validity.to_string(), "is_not_null($)");
+        Ok(())
+    }
+
+    #[test]
+    fn test_non_nullable_validity_is_non_nullable() -> VortexResult<()> {
+        // A non-nullable result dtype short-circuits to `NonNullable` without evaluating any
+        // validity expression.
+        let array = VarBinViewArray::from_iter_str(["a", "bb"]).into_array();
+        let result = array.apply(&byte_length(root()))?;
+        assert!(matches!(result.validity()?, Validity::NonNullable));
+        Ok(())
+    }
+
+    #[test]
+    fn test_nullable_all_valid_validity_collapses_to_all_valid() -> VortexResult<()> {
+        // A non-null nullable constant is all-valid, which should collapse to `AllValid` rather
+        // than a constant-true validity array.
+        let array =
+            ConstantArray::new(Scalar::utf8("hello", Nullability::Nullable), 3).into_array();
+        let result = array.apply(&byte_length(root()))?;
+        assert!(matches!(result.validity()?, Validity::AllValid));
+        Ok(())
+    }
+
+    #[test]
+    fn test_null_constant_validity_collapses_to_all_invalid() -> VortexResult<()> {
+        let null_scalar = Scalar::null(DType::Utf8(Nullability::Nullable));
+        let array = ConstantArray::new(null_scalar, 2).into_array();
+        let result = array.apply(&byte_length(root()))?;
+        assert!(matches!(result.validity()?, Validity::AllInvalid));
         Ok(())
     }
 }

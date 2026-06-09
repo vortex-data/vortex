@@ -15,6 +15,7 @@ use crate::arrays::scalar_fn::vtable::FakeEq;
 use crate::arrays::scalar_fn::vtable::ScalarFn;
 use crate::expr::Expression;
 use crate::expr::lit;
+use crate::scalar::Scalar;
 use crate::scalar_fn::TypedScalarFnInstance;
 use crate::scalar_fn::VecExecutionArgs;
 use crate::scalar_fn::fns::literal::Literal;
@@ -50,8 +51,29 @@ fn execute_expr(expr: &Expression, row_count: usize) -> VortexResult<ArrayRef> {
     Ok(expr.scalar_fn().execute(&args, &mut ctx)?.into_array())
 }
 
+/// Collapse a constant boolean validity scalar into the most specific [`Validity`] variant.
+///
+/// Returns `None` if the scalar is not a definite boolean (e.g. a null), in which case the caller
+/// should keep the validity as an array.
+fn constant_validity(scalar: &Scalar) -> Option<Validity> {
+    scalar.as_bool().value().map(|valid| {
+        if valid {
+            Validity::AllValid
+        } else {
+            Validity::AllInvalid
+        }
+    })
+}
+
 impl ValidityVTable<ScalarFn> for ScalarFn {
     fn validity(array: ArrayView<'_, ScalarFn>) -> VortexResult<Validity> {
+        // A non-nullable result dtype guarantees there are no nulls, so we can skip building and
+        // evaluating any validity expression entirely. This also keeps downstream `no_nulls`
+        // fast-paths intact instead of handing them a constant-true validity array.
+        if !array.dtype().is_nullable() {
+            return Ok(Validity::NonNullable);
+        }
+
         let inputs: Vec<_> = array
             .iter_children()
             .map(|child| {
@@ -68,7 +90,25 @@ impl ValidityVTable<ScalarFn> for ScalarFn {
         let expr = Expression::try_new(array.scalar_fn().clone(), inputs)?;
         let validity_expr = array.scalar_fn().validity(&expr)?;
 
-        // Execute the validity expression. All leaves are ArrayExpr nodes.
-        Ok(Validity::Array(execute_expr(&validity_expr, array.len())?))
+        // A literal validity expression collapses to a constant validity without evaluating
+        // anything (e.g. functions whose result is always valid return `lit(true)`).
+        if let Some(scalar) = validity_expr.as_opt::<Literal>()
+            && let Some(validity) = constant_validity(scalar)
+        {
+            return Ok(validity);
+        }
+
+        // Otherwise evaluate the validity expression. All leaves are ArrayExpr or Literal nodes.
+        let validity_array = execute_expr(&validity_expr, array.len())?;
+
+        // Collapse a constant result into the most specific variant so that fast-paths keying off
+        // `Validity::NonNullable | AllValid | AllInvalid` are not defeated by a constant array.
+        if let Some(scalar) = validity_array.as_constant()
+            && let Some(validity) = constant_validity(&scalar)
+        {
+            return Ok(validity);
+        }
+
+        Ok(Validity::Array(validity_array))
     }
 }
