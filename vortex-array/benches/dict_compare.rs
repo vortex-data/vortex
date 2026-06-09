@@ -48,9 +48,6 @@ const LENGTH_AND_UNIQUE_VALUES: &[(usize, usize)] = &[
     (100_000, 2048),
 ];
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
-
 #[divan::bench(args = LENGTH_AND_UNIQUE_VALUES)]
 fn bench_compare_primitive(bencher: divan::Bencher, (len, uniqueness): (usize, usize)) {
     let primitive_arr = gen_primitive_for_dict::<i32>(len, uniqueness);
