@@ -299,14 +299,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
     ) -> VortexResult<()> {
         let mut elements = groups.elements().clone();
         let session = ctx.session().clone();
-
-        if let Some(kernel) = session
-            .aggregate_fns()
-            .find_grouped_kernel(self.aggregate_fn.id())
-            && let Some(result) = kernel.grouped_aggregate(&self.aggregate_fn, &groups, ctx)?
-        {
-            return self.push_result(result);
-        }
+        let mut checked_aggregate_kernel = false;
 
         for _ in 0..max_iterations() {
             // Try a registered grouped kernel for the current element encoding.
@@ -318,6 +311,21 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
                 let kernel_groups = unsafe { groups.with_elements_unchecked(elements.clone())? };
                 if let Some(result) =
                     kernel.grouped_aggregate(&self.aggregate_fn, &kernel_groups, ctx)?
+                {
+                    return self.push_result(result);
+                }
+            }
+
+            if !checked_aggregate_kernel {
+                // check the aggregate function kernel once if any. This is done in this loop
+                // so the encoding specific kernel check above takes precedence, and we get
+                // to check the aggregate kernel before decompressing the world
+                checked_aggregate_kernel = true;
+                if let Some(kernel) = session
+                    .aggregate_fns()
+                    .find_grouped_kernel(self.aggregate_fn.id())
+                    && let Some(result) =
+                        kernel.grouped_aggregate(&self.aggregate_fn, &groups, ctx)?
                 {
                     return self.push_result(result);
                 }
