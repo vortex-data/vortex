@@ -351,11 +351,33 @@ impl VortexOpenOptions {
     /// from the local filesystem, while `s3://`, `gs://`, `az://`, and `http(s)://` URLs resolve
     /// to the appropriate cloud object store using standard environment-based credentials.
     ///
+    /// To pass explicit credentials or object store config, use [`open_url_with_props`].
+    ///
     /// [`FileLocation::resolve`]: vortex_io::object_store::FileLocation::resolve
+    /// [`open_url_with_props`]: Self::open_url_with_props
     pub async fn open_url(self, url: impl AsRef<str>) -> VortexResult<VortexFile> {
+        self.open_url_with_props(url, std::iter::empty::<(String, String)>())
+            .await
+    }
+
+    /// Open a Vortex file from a URL or filesystem path, merging `props` with the environment.
+    ///
+    /// Like [`open_url`], but `props` are forwarded to the object store and take precedence over same-named
+    /// environment variables. `props` are ignored for local paths and `file://` URLs.
+    ///
+    /// [`open_url`]: Self::open_url
+    pub async fn open_url_with_props<K, V>(
+        self,
+        url: impl AsRef<str>,
+        props: impl IntoIterator<Item = (K, V)>,
+    ) -> VortexResult<VortexFile>
+    where
+        K: Into<String>,
+        V: Into<String>,
+    {
         use vortex_io::object_store::FileLocation;
 
-        match FileLocation::resolve(url)? {
+        match FileLocation::resolve_with_props(url, props)? {
             FileLocation::Local(path) => self.open_path(path).await,
             FileLocation::Remote { store, path } => {
                 self.open_object_store(&store, path.as_ref()).await
@@ -532,5 +554,42 @@ mod tests {
             allocations.load(Ordering::Relaxed) > 0,
             "expected at least one host allocation from MemorySession"
         );
+    }
+
+    #[cfg(all(feature = "cloud", not(target_arch = "wasm32")))]
+    #[tokio::test]
+    async fn test_open_url_with_props_local_ignores_props() {
+        let session = VortexSession::empty()
+            .with::<DTypeSession>()
+            .with::<ArraySession>()
+            .with::<LayoutSession>()
+            .with::<ScalarFnSession>()
+            .with::<RuntimeSession>();
+
+        crate::register_default_encodings(&session);
+
+        let mut buf = ByteBufferMut::empty();
+        let array = Buffer::from((0i32..16_384).collect::<Vec<i32>>()).into_array();
+        session
+            .write_options()
+            .write(&mut buf, array.to_array_stream())
+            .await
+            .unwrap();
+
+        let file_path =
+            std::env::temp_dir().join(format!("vortex-open-url-props-{}.vx", std::process::id()));
+        std::fs::write(&file_path, ByteBuffer::from(buf).as_slice()).unwrap();
+
+        // `props` are ignored for local paths: this must route through the local branch and open
+        // successfully even though `allow_http` is an object-store-only option.
+        let path_str = file_path.to_str().unwrap();
+        let file = session
+            .open_options()
+            .open_url_with_props(path_str, [("allow_http", "true")])
+            .await
+            .unwrap();
+        std::fs::remove_file(&file_path).unwrap();
+
+        assert_eq!(file.dtype(), array.dtype());
     }
 }

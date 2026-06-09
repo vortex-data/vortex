@@ -143,6 +143,7 @@ mod tests {
     use std::path::PathBuf;
 
     use object_store::path::Path;
+    use vortex_error::VortexResult;
 
     use super::FileLocation;
 
@@ -155,8 +156,20 @@ mod tests {
         }
     }
 
+    /// Run `func` with `key` set to `value`, restoring the previous value afterwards.
+    fn with_var<F: FnOnce()>(key: &str, value: &str, func: F) {
+        let old = std::env::var(key).ok();
+        // SAFETY: these unit tests run single-threaded (one process per test under nextest).
+        unsafe { std::env::set_var(key, value) };
+        func();
+        match old {
+            None => unsafe { std::env::remove_var(key) },
+            Some(val) => unsafe { std::env::set_var(key, val) },
+        }
+    }
+
     #[test]
-    fn test_resolve() -> vortex_error::VortexResult<()> {
+    fn test_resolve() -> VortexResult<()> {
         assert_eq!(
             FileLocation::resolve("/my/absolute/path")?.unwrap_local(),
             PathBuf::from("/my/absolute/path")
@@ -170,6 +183,93 @@ mod tests {
         let (_store, path) =
             FileLocation::resolve("s3://my-bucket/first/second/third/")?.into_remote()?;
         assert_eq!(path, Path::from("first/second/third"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_accessors_local() -> VortexResult<()> {
+        let local = FileLocation::resolve("/tmp/data.vortex")?;
+        assert!(local.is_local());
+        assert!(!local.is_remote());
+        assert_eq!(
+            local.as_local(),
+            Some(std::path::Path::new("/tmp/data.vortex"))
+        );
+        assert!(local.as_remote().is_none());
+        assert_eq!(local.into_local()?, PathBuf::from("/tmp/data.vortex"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_accessors_remote() -> VortexResult<()> {
+        let remote = FileLocation::resolve("s3://bucket/key")?;
+        assert!(remote.is_remote());
+        assert!(!remote.is_local());
+        assert!(remote.as_local().is_none());
+
+        let (_store, path) = remote.as_remote().expect("expected remote");
+        assert_eq!(path, &Path::from("key"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_into_local_on_remote_errors() -> VortexResult<()> {
+        assert!(
+            FileLocation::resolve("s3://bucket/key")?
+                .into_local()
+                .is_err()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_into_remote_on_local_errors() -> VortexResult<()> {
+        assert!(FileLocation::resolve("/tmp/local")?.into_remote().is_err());
+        Ok(())
+    }
+
+    #[test]
+    #[expect(clippy::use_debug)]
+    fn test_resolve_with_props_applies_config() -> VortexResult<()> {
+        let (store, _) = FileLocation::resolve_with_props(
+            "s3://my-bucket/key",
+            [("region".to_string(), "us-west-2".to_string())],
+        )?
+        .into_remote()?;
+
+        // object_store does not expose store config for inspection, so we assert via Debug,
+        // matching the approach used elsewhere for object store configuration tests.
+        assert!(format!("{store:?}").contains("us-west-2"));
+
+        Ok(())
+    }
+
+    #[test]
+    #[expect(clippy::use_debug)]
+    fn test_resolve_with_props_overrides_env() -> VortexResult<()> {
+        with_var("AWS_REGION", "eu-central-1", || {
+            // No props: the environment region is used.
+            let env_store = FileLocation::resolve("s3://my-bucket/key")
+                .unwrap()
+                .into_remote()
+                .unwrap()
+                .0;
+            assert!(format!("{env_store:?}").contains("eu-central-1"));
+
+            // Props take precedence over the same-named environment variable.
+            let prop_store =
+                FileLocation::resolve_with_props("s3://my-bucket/key", [("region", "ap-south-1")])
+                    .unwrap()
+                    .into_remote()
+                    .unwrap()
+                    .0;
+            let debug = format!("{prop_store:?}");
+            assert!(debug.contains("ap-south-1"));
+            assert!(!debug.contains("eu-central-1"));
+        });
 
         Ok(())
     }
