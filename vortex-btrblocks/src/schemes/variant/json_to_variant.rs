@@ -24,6 +24,9 @@ use vortex_parquet_variant::VariantToJson;
 use crate::CascadingCompressor;
 
 /// Compression scheme that converts JSON string extension arrays to Parquet Variant arrays.
+///
+/// When decompressed, the resulting JSON array might not be byte-to-byte identical, as this
+/// compression doesn't maintain whitespaces.
 #[derive(Debug)]
 pub struct JsonToVariantScheme;
 
