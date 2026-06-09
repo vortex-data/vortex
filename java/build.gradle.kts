@@ -61,7 +61,7 @@ allprojects {
         }
 
         tasks.withType<Javadoc> {
-            (options as StandardJavadocDocletOptions).addStringOption("Xdoclint:-missing")
+            (options as StandardJavadocDocletOptions).addBooleanOption("Xdoclint:-missing", true)
         }
 
         the<JavaPluginExtension>().toolchain {
