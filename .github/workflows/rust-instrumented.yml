@@ -152,12 +152,15 @@ jobs:
         # Mimalloc which interferes with sanitizers
         # cargo nextest reports less sanitizer issues than cargo test
         # TODO(myrrc): remove --no-default-features once we make Mimalloc opt-in
+        # --tests skips doctests: rustdoc ignores RUSTFLAGS (it uses RUSTDOCFLAGS),
+        # so doctests would build vortex-ffi without -Zsanitizer and mismatch the
+        # sanitizer-built deps.
       - name: Run vortex-ffi tests with sanitizer
         run: |
           RUSTFLAGS="${RUSTFLAGS} ${{ matrix.sanitizer_flags }}" \
           cargo +$NIGHTLY_TOOLCHAIN test --locked --no-default-features \
             --target x86_64-unknown-linux-gnu --no-fail-fast -Zbuild-std \
-            -p vortex-ffi -- --no-capture
+            -p vortex-ffi --tests -- --no-capture
 
   rust-ffi-test-sanitizer:
     strategy:

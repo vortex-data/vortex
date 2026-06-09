@@ -39,18 +39,13 @@ fn session_with_cuda(session: &VortexSession) -> VortexResult<VortexSession> {
 
 /// Export a borrowed Vortex array for cuDF's Arrow Device import path.
 ///
-/// On success, returns `0` and writes independently releasable `out_schema` and `out_array`
-/// values. This function does not create a cuDF object; the caller passes these outputs to cuDF
-/// and releases both with their embedded Arrow callbacks after cuDF is done importing.
+/// On success returns `0` and writes independently releasable `out_schema` and `out_array`; the
+/// caller passes them to cuDF and releases both via their embedded Arrow callbacks after import. On
+/// error returns `1` and, when `error_out` is non-null, writes a `vx_error` (free with
+/// `vx_error_free`).
 ///
-/// Guarantees:
-///
-/// - `out_array->device_type == ARROW_DEVICE_CUDA`.
-/// - `out_array->device_id` identifies the CUDA device for exported device buffers.
-/// - Struct arrays export as table-shaped schemas; non-struct arrays export as column fields.
-/// - Schema/layout remapping matches Vortex's CUDA exporter.
-///
-/// On error, returns `1` and writes a `vx_error` to `*error_out` when it is not null.
+/// `out_array` is exported on `ARROW_DEVICE_CUDA`; struct arrays become table-shaped schemas,
+/// non-struct arrays a single column field.
 ///
 /// # Safety
 ///

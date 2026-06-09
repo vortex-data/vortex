@@ -287,10 +287,8 @@ macro_rules! box_wrapper {
             }
 
             #[doc = r" Free an owned [`" $ffi_ident "`] object."]
-            // FFI destructor. Its safety contract is documented at the C boundary, not via a
-            // rustdoc `# Safety` section, and its doc links to the wrapper type which lives in a
-            // private module. Both lints only fire once the function is re-exported for a sibling
-            // FFI crate (e.g. `vx_error_free`).
+            // These allows only matter once the destructor is re-exported (e.g. `vx_error_free`):
+            // its `# Safety` lives at the C boundary, and its doc links a private wrapper type.
             #[allow(clippy::missing_safety_doc)]
             #[allow(rustdoc::private_intra_doc_links)]
             #[unsafe(no_mangle)]

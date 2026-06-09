@@ -53,9 +53,8 @@ pub fn try_or_default<T: Default>(
 ///
 /// On success `*error_out` is cleared to null; on failure the error is written to `*error_out`
 /// when it is non-null.
-// Writes through the caller-provided `error_out`; the pointer contract is shared with the other
-// error-out helpers in this module and documented at the C boundary rather than marking this
-// pervasively-used helper `unsafe`.
+// Writes through `error_out` but stays safe like the other error-out helpers here; the raw-pointer
+// contract is documented at the C boundary.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn try_or<T>(
     error_out: *mut *mut vx_error,

@@ -13,21 +13,13 @@ fn main() {
     println!("cargo:rerun-if-changed=cbindgen.toml");
     println!("cargo:rerun-if-changed=Cargo.toml");
     println!("cargo:rerun-if-changed=build.rs");
-    for env in ["MIRI", "MIRIFLAGS", "CARGO_ENCODED_RUSTFLAGS", "RUSTFLAGS"] {
+    for env in ["MIRI", "MIRIFLAGS", "CARGO_ENCODED_RUSTFLAGS"] {
         println!("cargo:rerun-if-env-changed={env}");
     }
 
-    // Sanitizer flags reach this build script through the raw `RUSTFLAGS` env var: under an
-    // explicit `--target` (as the sanitizer CI jobs use), Cargo does not surface them in
-    // `CARGO_ENCODED_RUSTFLAGS` for host build scripts. cbindgen expands macros in a nested build
-    // that carries neither the sanitizer flag nor `-Cunsafe-allow-abi-mismatch`, so it must be
-    // skipped under any sanitizer to avoid an `-Zsanitizer` ABI mismatch against the
-    // sanitizer-built dependencies.
-    let rustflags = format!(
-        "{} {}",
-        env::var("CARGO_ENCODED_RUSTFLAGS").unwrap_or_default(),
-        env::var("RUSTFLAGS").unwrap_or_default(),
-    );
+    // Skip cbindgen under sanitizers: its nested expansion build drops the sanitizer flag and
+    // mismatches the sanitizer-built deps.
+    let rustflags = env::var("CARGO_ENCODED_RUSTFLAGS").unwrap_or_default();
 
     if rustflags.contains("address") {
         println!("cargo:info=building with asan");
