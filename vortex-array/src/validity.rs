@@ -128,24 +128,38 @@ impl Validity {
         }
     }
 
-    /// Returns whether the `index` item is valid.
+    /// Returns whether the `index` item is valid, using `ctx` to execute the validity array.
     #[inline]
-    pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
+    pub fn execute_is_valid(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
         Ok(match self {
             Self::NonNullable | Self::AllValid => true,
             Self::AllInvalid => false,
             Self::Array(a) => a
-                .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
-                .vortex_expect("Validity array must support execute_scalar")
+                .execute_scalar(index, ctx)?
                 .as_bool()
                 .value()
-                .vortex_expect("Validity must be non-nullable"),
+                .ok_or_else(|| vortex_err!("validity value at index {index} is null"))?,
         })
     }
 
+    /// Returns whether the `index` item is null, using `ctx` to execute the validity array.
+    #[inline]
+    pub fn execute_is_null(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+        Ok(!self.execute_is_valid(index, ctx)?)
+    }
+
+    /// Returns whether the `index` item is valid.
+    #[deprecated(note = "use `execute_is_valid` with an explicit `ExecutionCtx`")]
+    #[inline]
+    pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
+        self.execute_is_valid(index, &mut LEGACY_SESSION.create_execution_ctx())
+    }
+
+    /// Returns whether the `index` item is null.
+    #[deprecated(note = "use `execute_is_null` with an explicit `ExecutionCtx`")]
     #[inline]
     pub fn is_null(&self, index: usize) -> VortexResult<bool> {
-        Ok(!self.is_valid(index)?)
+        self.execute_is_null(index, &mut LEGACY_SESSION.create_execution_ctx())
     }
 
     #[inline]

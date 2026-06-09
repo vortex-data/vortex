@@ -670,25 +670,26 @@ mod tests {
         // values[2] might be any value since it's null.
 
         // Check validity - first two should be valid, third should be null.
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         assert!(
             array
                 .validity()
                 .vortex_expect("primitive validity should be derivable")
-                .is_valid(0)
+                .execute_is_valid(0, &mut ctx)
                 .unwrap()
         );
         assert!(
             array
                 .validity()
                 .vortex_expect("primitive validity should be derivable")
-                .is_valid(1)
+                .execute_is_valid(1, &mut ctx)
                 .unwrap()
         );
         assert!(
             !array
                 .validity()
                 .vortex_expect("primitive validity should be derivable")
-                .is_valid(2)
+                .execute_is_valid(2, &mut ctx)
                 .unwrap()
         );
 
