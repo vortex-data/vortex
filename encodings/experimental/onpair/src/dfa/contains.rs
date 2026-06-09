@@ -51,6 +51,7 @@ impl FlatContainsDfa {
         }
     }
 
+    #[inline]
     pub(crate) fn matches(&self, codes: &[u16]) -> bool {
         let mut state = 0u8;
         for &code in codes {

@@ -6,21 +6,27 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use std::sync::LazyLock;
+use std::sync::atomic::Ordering::Relaxed;
 
+use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::DictArray;
+use vortex_array::arrays::SharedArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar_fn::fns::like::Like;
 use vortex_array::scalar_fn::fns::like::LikeKernel;
 use vortex_array::scalar_fn::fns::like::LikeOptions;
 use vortex_array::session::ArraySession;
+use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
@@ -28,6 +34,7 @@ use crate::OnPair;
 use crate::OnPairArray;
 use crate::compress::DEFAULT_DICT12_CONFIG;
 use crate::compress::onpair_compress;
+use crate::compute::like::PUSHDOWN_HITS;
 
 static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
@@ -334,6 +341,83 @@ fn test_like_matches_ground_truth_fuzz() -> VortexResult<()> {
             assert_arrays_eq!(&got, &BoolArray::from_iter(expected.clone()));
         }
     }
+    Ok(())
+}
+
+/// Prove the pushdown *fires through the execution engine* — not just when the
+/// kernel is called directly — for a bare OnPair array, a `Dict(OnPair)`, and a
+/// `Dict(Shared(OnPair))` (the shape a dict-encoded column takes when read back
+/// from a file, where the layout wraps shared dictionary values in `Shared`).
+///
+/// Correct results alone can't distinguish "pushdown ran" from "decompressed and
+/// matched", so this asserts on the kernel's hit counter.
+#[test]
+fn test_pushdown_fires_through_dict_and_shared() -> VortexResult<()> {
+    let values = make_onpair(
+        &[
+            Some("https://google.com"),
+            Some("http://yandex.ru"),
+            Some("https://google.com/maps"),
+        ],
+        Nullability::NonNullable,
+    );
+    // 5 rows referencing the 3 dictionary values; values.len() <= codes.len() so
+    // Dict's LikeReduce pushes the predicate down to the values.
+    let codes = buffer![0u8, 1, 2, 0, 1].into_array();
+    // `%google%` over the 3 dictionary values, then over the 5 dict rows.
+    let expected_values = BoolArray::from_iter([true, false, true]);
+    let expected_rows = BoolArray::from_iter([true, false, true, true, false]);
+
+    let run = |arr: ArrayRef| -> VortexResult<(BoolArray, usize)> {
+        let before = PUSHDOWN_HITS.load(Relaxed);
+        let len = arr.len();
+        let pattern = ConstantArray::new("%google%", len).into_array();
+        // Optimize first (as the engine does): this runs Dict's LIKE reduce,
+        // which pushes the predicate down to the dictionary values.
+        let result = Like
+            .try_new_array(len, LikeOptions::default(), [arr, pattern])?
+            .into_array()
+            .optimize()?
+            .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
+            .into_bool();
+        Ok((result, PUSHDOWN_HITS.load(Relaxed) - before))
+    };
+
+    // (a) bare OnPair — the predicate dispatches straight to our kernel.
+    let (ra, hits_a) = run(values.clone().into_array())?;
+    assert_arrays_eq!(&ra, &expected_values);
+
+    // (b) Dict(OnPair) — Dict::like pushes the predicate to the OnPair values.
+    let dict = DictArray::try_new(codes.clone(), values.clone().into_array())?;
+    let (rb, hits_b) = run(dict.into_array())?;
+    assert_arrays_eq!(&rb, &expected_rows);
+
+    // (c) Dict(Shared(OnPair)) — the read-back shape.
+    let shared = SharedArray::new(values.into_array()).into_array();
+    let dict = DictArray::try_new(codes, shared)?;
+    let (rc, hits_c) = run(dict.into_array())?;
+    assert_arrays_eq!(&rc, &expected_rows);
+
+    eprintln!("pushdown hits: bare={hits_a} dict={hits_b} dict_shared={hits_c}");
+
+    // Bare OnPair and Dict(OnPair) both route the predicate to our kernel.
+    assert!(hits_a >= 1, "bare OnPair LIKE should fire the pushdown");
+    assert!(hits_b >= 1, "Dict(OnPair) LIKE should fire the pushdown");
+
+    // KNOWN GAP: `Dict(Shared(OnPair))` — the shape a dict-encoded column takes
+    // when read back from a multi-chunk file — does NOT fire the pushdown, because
+    // `Shared` has no parent-reduce forwarding: a `LIKE` over it canonicalizes
+    // (decompresses) the source instead of pushing the predicate into the OnPair
+    // array. This is why the compressed-domain LIKE pushdown does not move
+    // end-to-end ClickBench/TPC-H numbers, and it affects FSST identically. The
+    // fix lives in `vortex-array`'s `Shared` (forward scalar-fn reduces to the
+    // source); when that lands, `hits_c` becomes >= 1 and this guard should flip.
+    assert_eq!(
+        hits_c, 0,
+        "Dict(Shared(OnPair)) unexpectedly fired the pushdown ({hits_c}); if Shared \
+         now forwards LIKE to its source, update this characterization assertion"
+    );
+
     Ok(())
 }
 

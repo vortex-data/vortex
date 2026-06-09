@@ -5,6 +5,10 @@
 //! directly on the compressed code stream via a per-code DFA (see [`crate::dfa`]).
 
 use std::sync::LazyLock;
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize;
+#[cfg(test)]
+use std::sync::atomic::Ordering;
 
 use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
@@ -22,7 +26,13 @@ use crate::OnPair;
 use crate::OnPairArraySlotsExt;
 use crate::decode::collect_widened;
 use crate::dfa::OnPairMatcher;
-use crate::dfa::dfa_scan_to_bitbuf;
+
+/// Test-only counter of how many times the kernel actually committed to the
+/// compressed-domain pushdown (i.e. returned `Some` via the DFA path). Lets
+/// tests assert that the pushdown genuinely fires through the execution engine,
+/// including through wrappers like `Dict` and `Shared`.
+#[cfg(test)]
+pub(crate) static PUSHDOWN_HITS: AtomicUsize = AtomicUsize::new(0);
 
 /// Escape hatch for measuring or debugging the compressed-domain LIKE pushdown:
 /// set `VORTEX_ONPAIR_LIKE_PUSHDOWN=0` (or `off`/`false`) to force the kernel to
@@ -79,6 +89,9 @@ impl LikeKernel for OnPair {
             return Ok(None);
         };
 
+        #[cfg(test)]
+        PUSHDOWN_HITS.fetch_add(1, Ordering::Relaxed);
+
         let negated = options.negated;
         let n = array.len();
 
@@ -105,7 +118,7 @@ impl LikeKernel for OnPair {
 
         let result = match_each_integer_ptype!(offsets.ptype(), |T| {
             let off = offsets.as_slice::<T>();
-            dfa_scan_to_bitbuf(n, off, code_start, codes, negated, |c| matcher.matches(c))
+            matcher.scan_to_bitbuf(n, off, code_start, codes, negated)
         });
 
         let validity = array

@@ -3,5 +3,5 @@
 
 mod cast;
 mod filter;
-mod like;
+pub(crate) mod like;
 mod slice;

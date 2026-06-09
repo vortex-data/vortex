@@ -123,12 +123,31 @@ impl OnPairMatcher {
         Ok(Some(Self { inner }))
     }
 
-    /// Run the matcher on a single row's OnPair code sequence.
-    pub(crate) fn matches(&self, codes: &[u16]) -> bool {
+    /// Evaluate every row of an OnPair `codes` window into a [`BitBuffer`].
+    ///
+    /// `offsets` are the per-row boundaries into the *original* `codes` child;
+    /// `code_start` is the absolute index the sliced `codes` window begins at,
+    /// so `offsets[i] - code_start` indexes `codes`.
+    ///
+    /// The matcher variant is selected once, outside the row loop, so the
+    /// concrete DFA's `matches` inlines into a monomorphic scan rather than
+    /// re-dispatching the enum per row.
+    pub(crate) fn scan_to_bitbuf<T: IntegerPType>(
+        &self,
+        n: usize,
+        offsets: &[T],
+        code_start: usize,
+        codes: &[u16],
+        negated: bool,
+    ) -> BitBuffer {
         match &self.inner {
-            MatcherInner::MatchAll => true,
-            MatcherInner::Prefix(dfa) => dfa.matches(codes),
-            MatcherInner::Contains(dfa) => dfa.matches(codes),
+            MatcherInner::MatchAll => BitBuffer::collect_bool(n, |_| !negated),
+            MatcherInner::Prefix(dfa) => {
+                scan_rows(n, offsets, code_start, codes, negated, |c| dfa.matches(c))
+            }
+            MatcherInner::Contains(dfa) => {
+                scan_rows(n, offsets, code_start, codes, negated, |c| dfa.matches(c))
+            }
         }
     }
 }
@@ -203,27 +222,27 @@ impl<'a> LikeKind<'a> {
 // Scan helper
 // ---------------------------------------------------------------------------
 
-/// Evaluate `matcher` against every row of an OnPair `codes` window.
-///
-/// `offsets` are the per-row boundaries into the *original* `codes` child;
-/// `code_start` is the absolute index the sliced `codes` window begins at, so
-/// `offsets[i] - code_start` indexes `codes`.
-pub(crate) fn dfa_scan_to_bitbuf<T, F>(
+/// Walk a `codes` window row by row with a single concrete row matcher,
+/// carrying a running start cursor (consecutive rows are contiguous in
+/// `codes`) instead of re-reading both boundaries each row.
+fn scan_rows<T, F>(
     n: usize,
     offsets: &[T],
     code_start: usize,
     codes: &[u16],
     negated: bool,
-    matcher: F,
+    row_matches: F,
 ) -> BitBuffer
 where
     T: IntegerPType,
     F: Fn(&[u16]) -> bool,
 {
+    let mut start: usize = offsets[0].as_() - code_start;
     BitBuffer::collect_bool(n, |i| {
-        let start: usize = offsets[i].as_() - code_start;
         let end: usize = offsets[i + 1].as_() - code_start;
-        matcher(&codes[start..end]) != negated
+        let result = row_matches(&codes[start..end]) != negated;
+        start = end;
+        result
     })
 }
 
