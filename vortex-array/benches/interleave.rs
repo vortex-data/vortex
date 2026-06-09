@@ -20,7 +20,7 @@ fn main() {
     divan::main();
 }
 
-const ARRAY_SIZE: usize = 65_536;
+const ARRAY_SIZE: usize = 8_192;
 
 /// Builds `num_branches` boolean value arrays plus random `(array_indices, row_indices)` selectors
 /// describing a full random-access gather of `ARRAY_SIZE` output rows.
