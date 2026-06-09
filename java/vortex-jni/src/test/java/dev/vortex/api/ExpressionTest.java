@@ -42,6 +42,6 @@ public final class ExpressionTest {
         assertNotNull(Expression.pack(
                 new String[] {"x", "y", "z"},
                 new Expression[] {Expression.column("a"), Expression.literal(5L), Expression.rowIdx()},
-            true));
+                true));
     }
 }
