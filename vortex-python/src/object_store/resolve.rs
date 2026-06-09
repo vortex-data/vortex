@@ -11,6 +11,7 @@ use object_store::registry::ObjectStoreRegistry;
 use url::Url;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
+use vortex::io::compat::Compat;
 
 use crate::object_store::registry::Registry;
 
@@ -29,7 +30,7 @@ pub(crate) fn resolve_store(
 ) -> VortexResult<ResolvedStore> {
     match store {
         // If explicit store is provided use that
-        Some(store) => Ok(ResolvedStore::ObjectStore(store, Path::from(url_or_path))),
+        Some(store) => Ok(ResolvedStore::object_store(store, Path::from(url_or_path))),
         None => {
             // If the URL does not parse
             match Url::parse(url_or_path) {
@@ -41,7 +42,7 @@ pub(crate) fn resolve_store(
                 }
                 Ok(url) => {
                     let (store, path) = REGISTRY.resolve(&url)?;
-                    Ok(ResolvedStore::ObjectStore(store, path))
+                    Ok(ResolvedStore::object_store(store, path))
                 }
                 Err(_) => {
                     // Treat the input string as a local file system path, which may be
@@ -59,6 +60,18 @@ pub(crate) enum ResolvedStore {
 }
 
 impl ResolvedStore {
+    /// Build an [`ObjectStore`](ResolvedStore::ObjectStore) variant, wrapping `store` in
+    /// [`Compat`].
+    ///
+    /// The Python bindings drive all I/O on a `smol`-based current-thread runtime, but the
+    /// `object_store` implementations (e.g. `AmazonS3`) are built on Tokio (reqwest/hyper) and
+    /// panic with "there is no reactor running" when polled outside a Tokio runtime. `Compat`
+    /// enters a Tokio runtime handle on every poll, falling back to a global single-thread runtime
+    /// when none is active. See <https://github.com/vortex-data/vortex/issues/8279>.
+    fn object_store(store: Arc<dyn ObjectStore>, path: Path) -> Self {
+        ResolvedStore::ObjectStore(Arc::new(Compat::new(store)), path)
+    }
+
     #[cfg(test)]
     fn unwrap_store(self) -> (Arc<dyn ObjectStore>, Path) {
         match self {
@@ -118,5 +131,32 @@ mod test {
             .unwrap_store();
 
         assert_eq!(path, Path::from("root/test"));
+    }
+
+    #[test]
+    fn test_object_stores_are_compat_wrapped() {
+        // Object stores must be wrapped in `Compat` so the bindings' smol-based current-thread
+        // runtime can drive Tokio-based stores (e.g. S3) without panicking with "there is no
+        // reactor running". Regression test for
+        // https://github.com/vortex-data/vortex/issues/8279.
+        //
+        // `Compat`'s `Display` impl prefixes the inner store with "Compat<", which we use here to
+        // assert the wrapping is in place for both the registry-resolved and explicit-store paths.
+        let (registry_store, _) = resolve_store("s3://my-bucket/path", None)
+            .unwrap()
+            .unwrap_store();
+        assert!(
+            format!("{registry_store}").starts_with("Compat<"),
+            "registry-resolved store should be Compat-wrapped, got: {registry_store}"
+        );
+
+        let explicit = Arc::new(LocalFileSystem::default());
+        let (explicit_store, _) = resolve_store("/root/test", Some(explicit))
+            .unwrap()
+            .unwrap_store();
+        assert!(
+            format!("{explicit_store}").starts_with("Compat<"),
+            "explicit store should be Compat-wrapped, got: {explicit_store}"
+        );
     }
 }
