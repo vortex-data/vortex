@@ -24,6 +24,7 @@ use crate::arrays::varbinview::VarBinViewArrayExt;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::expr::Expression;
 use crate::kernel::ExecuteParentKernel;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
@@ -120,6 +121,19 @@ impl ScalarFnVTable for ByteLength {
             DType::Utf8(_) | DType::Binary(_) => byte_length(&input, nullability, ctx),
             other => vortex_bail!("byte_length() requires Utf8 or Binary, got {other}"),
         }
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        expression: &Expression,
+    ) -> VortexResult<Option<Expression>> {
+        // byte_length is null-preserving: the result is null exactly when the input is null, so
+        // the result's validity is the input's validity. Returning the input's validity directly
+        // avoids computing any byte lengths just to extract the validity mask. For encodings like
+        // FSST this means the validity buffer is read straight from the array (via is_not_null)
+        // instead of decompressing the codes into a canonical VarBinView.
+        Ok(Some(expression.child(0).validity()?))
     }
 
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {
@@ -244,5 +258,16 @@ mod tests {
     fn test_display() {
         let expr = byte_length(root());
         assert_eq!(expr.to_string(), "vortex.byte_length($)");
+    }
+
+    #[test]
+    fn test_validity_pushes_down_to_input() -> VortexResult<()> {
+        // byte_length is null-preserving, so its validity must push down to the input's validity
+        // rather than wrapping the whole `byte_length` call in `is_not_null`. The latter would
+        // force the function to be evaluated (and any compressed input decompressed) just to read
+        // the validity mask.
+        let validity = byte_length(root()).validity()?;
+        assert_eq!(validity.to_string(), "is_not_null($)");
+        Ok(())
     }
 }

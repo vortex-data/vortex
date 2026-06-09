@@ -30,6 +30,7 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::FilterArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::ScalarFn;
     use vortex_array::arrays::varbin::builder::VarBinBuilder;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
@@ -228,6 +229,40 @@ mod tests {
         let result = fsst.apply(&byte_length(root()))?;
         let expected = PrimitiveArray::from_iter(vec![5u64, 7, 18, 0]);
         assert_arrays_eq!(result, expected);
+        Ok(())
+    }
+
+    /// The validity of `byte_length(fsst)` is exactly the validity of the FSST input, so computing
+    /// it must read the FSST validity buffer directly rather than decompressing the codes into a
+    /// canonical `VarBinView` just to extract the validity mask.
+    #[test]
+    fn test_fsst_byte_length_validity() -> VortexResult<()> {
+        let mut builder = VarBinBuilder::<i32>::with_capacity(5);
+        builder.append_value(b"hello");
+        builder.append_null();
+        builder.append_value("Пуховички");
+        builder.append_null();
+        builder.append_value(b"");
+
+        let varbin = builder.finish(DType::Utf8(Nullability::Nullable));
+        let compressor = fsst_train_compressor(&varbin);
+        let len = varbin.len();
+        let dtype = varbin.dtype().clone();
+        let mut ctx = SESSION.create_execution_ctx();
+        let fsst = fsst_compress(varbin, len, &dtype, &compressor, &mut ctx).into_array();
+        assert!(fsst.is::<FSST>());
+
+        // `apply` keeps `byte_length` lazy as a `ScalarFnArray` wrapping the FSST child, so asking
+        // for its validity exercises the `ByteLength::validity` rule rather than executing the
+        // function over canonical data.
+        let result = fsst.clone().apply(&byte_length(root()))?;
+        assert!(result.is::<ScalarFn>());
+
+        // The result validity matches the FSST's own validity, sourced straight from the array.
+        let result_validity = result.validity()?.to_array(len);
+        let fsst_validity = fsst.validity()?.to_array(len);
+        assert_arrays_eq!(result_validity, fsst_validity);
+
         Ok(())
     }
 }
