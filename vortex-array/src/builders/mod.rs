@@ -34,7 +34,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
-use vortex_error::vortex_panic;
+use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
@@ -155,18 +155,24 @@ pub trait ArrayBuilder: Send {
 
     /// The inner part of `extend_from_array`.
     ///
+    /// Canonicalizing the array (and computing its validity mask) is fallible, so this method
+    /// returns a [`VortexResult`].
+    ///
     /// # Safety
     ///
     /// The array that must have an equal [`DType`] to the array builder's `DType` (with nullability
     /// superset semantics).
-    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef);
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) -> VortexResult<()>;
 
     /// Extends the array with the provided array, canonicalizing if necessary.
     ///
     /// Implementors must validate that the passed in [`ArrayRef`] has the correct [`DType`].
-    fn extend_from_array(&mut self, array: &ArrayRef) {
+    ///
+    /// Canonicalizing the array (and computing its validity mask) is fallible, so this method
+    /// returns a [`VortexResult`].
+    fn extend_from_array(&mut self, array: &ArrayRef) -> VortexResult<()> {
         if !self.dtype().eq_with_nullability_superset(array.dtype()) {
-            vortex_panic!(
+            vortex_bail!(
                 "tried to extend a builder with `DType` {} with an array with `DType {}",
                 self.dtype(),
                 array.dtype()

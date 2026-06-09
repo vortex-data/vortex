@@ -345,7 +345,7 @@ mod tests {
     fn materialized_uncompressed_size_in_bytes(array: &ArrayRef) -> u64 {
         let mut builder = builder_with_capacity(array.dtype(), array.len());
         unsafe {
-            builder.extend_from_array_unchecked(array);
+            builder.extend_from_array_unchecked(array).unwrap();
         }
         builder.finish().nbytes()
     }

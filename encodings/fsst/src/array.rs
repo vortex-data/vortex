@@ -292,7 +292,7 @@ impl VTable for FSST {
                     .clone()
                     .execute::<Canonical>(ctx)?
                     .into_array(),
-            );
+            )?;
             return Ok(());
         };
 

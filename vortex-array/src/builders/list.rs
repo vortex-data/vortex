@@ -17,6 +17,8 @@ use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::ListArray;
+use crate::arrays::ListViewArray;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
@@ -103,7 +105,7 @@ impl<O: IntegerPType> ListBuilder<O> {
             self.element_dtype()
         );
 
-        self.elements_builder.extend_from_array(array);
+        self.elements_builder.extend_from_array(array)?;
         self.nulls.append_non_null();
         self.offsets_builder.append_value(
             O::from_usize(self.elements_builder.len())
@@ -217,35 +219,29 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
         self.append_value(scalar.as_list())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
-        #[expect(deprecated)]
-        let list = array.to_listview();
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let list = array.clone().execute::<ListViewArray>(&mut ctx)?;
         if list.is_empty() {
-            return;
+            return Ok(());
         }
 
         // Append validity information.
-        self.nulls.append_validity_mask(
-            &array
-                .validity()
-                .vortex_expect("validity_mask in extend_from_array_unchecked")
-                .execute_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
-                .vortex_expect("Failed to compute validity mask"),
-        );
+        self.nulls
+            .append_validity_mask(&array.validity()?.execute_mask(array.len(), &mut ctx)?);
 
         // Note that `ListViewArray` has `n` offsets and sizes, not `n+1` offsets like `ListArray`.
         let elements = list.elements();
-        #[expect(deprecated)]
-        let offsets = list.offsets().to_primitive();
-        #[expect(deprecated)]
-        let sizes = list.sizes().to_primitive();
+        let offsets = list.offsets().clone().execute::<PrimitiveArray>(&mut ctx)?;
+        let sizes = list.sizes().clone().execute::<PrimitiveArray>(&mut ctx)?;
 
         fn extend_inner<O, OffsetType, SizeType>(
             builder: &mut ListBuilder<O>,
             new_elements: &ArrayRef,
             new_offsets: &[OffsetType],
             new_sizes: &[SizeType],
-        ) where
+        ) -> VortexResult<()>
+        where
             O: IntegerPType,
             OffsetType: IntegerPType,
             SizeType: IntegerPType,
@@ -263,10 +259,8 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
                 let size: usize = new_sizes[i].as_();
 
                 if size > 0 {
-                    let list_elements = new_elements
-                        .slice(offset..offset + size)
-                        .vortex_expect("list builder slice");
-                    builder.elements_builder.extend_from_array(&list_elements);
+                    let list_elements = new_elements.slice(offset..offset + size)?;
+                    builder.elements_builder.extend_from_array(&list_elements)?;
                     curr_offset += size;
                 }
 
@@ -279,6 +273,8 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
             // SAFETY: We have initialized all `num_lists` values, and since the `offsets` array is
             // non-nullable, we are done.
             unsafe { offsets_range.finish() };
+
+            Ok(())
         }
 
         match_each_integer_ptype!(offsets.ptype(), |OffsetType| {
@@ -454,10 +450,14 @@ mod tests {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
         let mut builder = ListBuilder::<O>::with_capacity(Arc::new(I32.into()), Nullable, 18, 9);
-        builder.extend_from_array(&list);
-        builder.extend_from_array(&list);
-        builder.extend_from_array(&list.slice(0..0).unwrap());
-        builder.extend_from_array(&list.slice(1..3).unwrap());
+        builder.extend_from_array(&list).unwrap();
+        builder.extend_from_array(&list).unwrap();
+        builder
+            .extend_from_array(&list.slice(0..0).unwrap())
+            .unwrap();
+        builder
+            .extend_from_array(&list.slice(1..3).unwrap())
+            .unwrap();
 
         #[expect(deprecated)]
         let expected = ListArray::from_iter_opt_slow::<O, _, _>(

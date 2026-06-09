@@ -69,8 +69,9 @@ impl ArrayBuilder for NullBuilder {
         Ok(())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) -> VortexResult<()> {
         self.append_nulls(array.len());
+        Ok(())
     }
 
     fn reserve_exact(&mut self, _additional: usize) {}

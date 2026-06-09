@@ -5,7 +5,6 @@ use std::any::Any;
 use std::mem::MaybeUninit;
 
 use vortex_buffer::BufferMut;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
@@ -19,8 +18,6 @@ use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
-#[expect(deprecated)]
-use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
@@ -177,9 +174,9 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         Ok(())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
-        #[expect(deprecated)]
-        let array = array.to_primitive();
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let array = array.clone().execute::<PrimitiveArray>(&mut ctx)?;
 
         // This should be checked in `extend_from_array` but we can check it again.
         debug_assert_eq!(
@@ -192,14 +189,11 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         self.nulls.append_validity_mask(
             &array
                 .as_ref()
-                .validity()
-                .vortex_expect("validity_mask")
-                .execute_mask(
-                    array.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )
-                .vortex_expect("Failed to compute validity mask"),
+                .validity()?
+                .execute_mask(array.as_ref().len(), &mut ctx)?,
         );
+
+        Ok(())
     }
 
     fn reserve_exact(&mut self, additional: usize) {

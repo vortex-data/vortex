@@ -5,7 +5,6 @@ use std::any::Any;
 use std::mem;
 
 use vortex_buffer::BitBufferMut;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
@@ -20,8 +19,6 @@ use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
-#[expect(deprecated)]
-use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::scalar::Scalar;
@@ -115,22 +112,19 @@ impl ArrayBuilder for BoolBuilder {
         Ok(())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
-        #[expect(deprecated)]
-        let bool_array = array.to_bool();
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let bool_array = array.clone().execute::<BoolArray>(&mut ctx)?;
 
         self.inner.append_buffer(&bool_array.to_bit_buffer());
         self.nulls.append_validity_mask(
             &bool_array
                 .as_ref()
-                .validity()
-                .vortex_expect("validity_mask")
-                .execute_mask(
-                    bool_array.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )
-                .vortex_expect("Failed to compute validity mask"),
+                .validity()?
+                .execute_mask(bool_array.as_ref().len(), &mut ctx)?,
         );
+
+        Ok(())
     }
 
     fn reserve_exact(&mut self, additional: usize) {

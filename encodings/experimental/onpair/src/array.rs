@@ -482,7 +482,7 @@ impl VTable for OnPair {
                     .clone()
                     .execute::<Canonical>(ctx)?
                     .into_array(),
-            );
+            )?;
             return Ok(());
         };
 

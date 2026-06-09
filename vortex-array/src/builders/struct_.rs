@@ -22,8 +22,6 @@ use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::builders::builder_with_capacity;
 use crate::canonical::Canonical;
-#[expect(deprecated)]
-use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
@@ -168,24 +166,21 @@ impl ArrayBuilder for StructBuilder {
         self.append_value(scalar.as_struct())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
-        #[expect(deprecated)]
-        let array = array.to_struct();
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let array = array.clone().execute::<StructArray>(&mut ctx)?;
 
         for (a, builder) in array
             .iter_unmasked_fields()
             .zip_eq(self.builders.iter_mut())
         {
-            builder.extend_from_array(a);
+            builder.extend_from_array(a)?;
         }
 
-        self.nulls.append_validity_mask(
-            &array
-                .validity()
-                .vortex_expect("validity_mask")
-                .execute_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
-                .vortex_expect("Failed to compute validity mask"),
-        );
+        self.nulls
+            .append_validity_mask(&array.validity()?.execute_mask(array.len(), &mut ctx)?);
+
+        Ok(())
     }
 
     fn reserve_exact(&mut self, capacity: usize) {

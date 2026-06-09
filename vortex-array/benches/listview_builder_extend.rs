@@ -18,6 +18,7 @@ use vortex_array::dtype::Nullability::Nullable;
 use vortex_array::dtype::PType::I32;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
+use vortex_error::VortexExpect;
 
 fn main() {
     divan::main();
@@ -69,7 +70,9 @@ fn extend_from_array_zctl(bencher: Bencher, (num_lists, list_size): (usize, usiz
             num_lists * list_size,
             num_lists,
         );
-        builder.extend_from_array(source);
+        builder
+            .extend_from_array(source)
+            .vortex_expect("extend_from_array");
         divan::black_box(builder.finish_into_listview())
     });
 }
@@ -91,7 +94,9 @@ fn extend_from_array_non_zctl_overlapping(
             num_lists * list_size,
             num_lists,
         );
-        builder.extend_from_array(source);
+        builder
+            .extend_from_array(source)
+            .vortex_expect("extend_from_array");
         divan::black_box(builder.finish_into_listview())
     });
 }

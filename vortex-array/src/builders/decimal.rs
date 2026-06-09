@@ -14,8 +14,6 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
-#[expect(deprecated)]
-use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::arrays::DecimalArray;
 use crate::builders::ArrayBuilder;
@@ -195,9 +193,9 @@ impl ArrayBuilder for DecimalBuilder {
         Ok(())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
-        #[expect(deprecated)]
-        let decimal_array = array.to_decimal();
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let decimal_array = array.clone().execute::<DecimalArray>(&mut ctx)?;
 
         match_each_decimal_value_type!(decimal_array.values_type(), |D| {
             // Extends the values buffer from another buffer of type D where D can be coerced to the
@@ -209,14 +207,11 @@ impl ArrayBuilder for DecimalBuilder {
         self.nulls.append_validity_mask(
             &decimal_array
                 .as_ref()
-                .validity()
-                .vortex_expect("validity_mask")
-                .execute_mask(
-                    decimal_array.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )
-                .vortex_expect("Failed to compute validity mask"),
+                .validity()?
+                .execute_mask(decimal_array.as_ref().len(), &mut ctx)?,
         );
+
+        Ok(())
     }
 
     fn reserve_exact(&mut self, additional: usize) {
@@ -328,7 +323,7 @@ mod tests {
         let i8s = i8s.finish();
 
         let mut i128s = DecimalBuilder::new::<i128>(DecimalDType::new(2, 1), false.into());
-        i128s.extend_from_array(&i8s);
+        i128s.extend_from_array(&i8s).unwrap();
         let i128s = i128s.finish();
 
         for i in 0..i8s.len() {
