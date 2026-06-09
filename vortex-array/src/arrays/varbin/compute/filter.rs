@@ -24,7 +24,6 @@ use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::match_each_integer_ptype;
-use crate::validity::Validity;
 
 impl FilterKernel for VarBin {
     fn filter(
@@ -170,9 +169,11 @@ fn filter_select_var_bin_by_index(
             offsets.as_slice::<O>(),
             values.bytes().as_slice(),
             mask_indices,
-            values.validity()?,
+            values
+                .varbin_validity()
+                .execute_mask(values.as_ref().len(), ctx)
+                .vortex_expect("Failed to compute validity mask"),
             selection_count,
-            ctx,
         )
     })
 }
@@ -182,25 +183,37 @@ fn filter_select_var_bin_by_index_primitive_offset<O: IntegerPType>(
     offsets: &[O],
     data: &[u8],
     mask_indices: &[usize],
-    // TODO(ngates): pass LogicalValidity instead
-    validity: Validity,
+    mask: Mask,
     selection_count: usize,
-    ctx: &mut ExecutionCtx,
 ) -> VortexResult<VarBinArray> {
+    let value_at = |idx: usize| -> VortexResult<&[u8]> {
+        let start = offsets[idx]
+            .to_usize()
+            .ok_or_else(|| vortex_err!("Failed to convert offset to usize: {}", offsets[idx]))?;
+        let end = offsets[idx + 1].to_usize().ok_or_else(|| {
+            vortex_err!("Failed to convert offset to usize: {}", offsets[idx + 1])
+        })?;
+        Ok(&data[start..end])
+    };
+
     let mut builder = VarBinBuilder::<O>::with_capacity(selection_count);
-    for idx in mask_indices.iter().copied() {
-        if validity.execute_is_valid(idx, ctx)? {
-            let (start, end) = (
-                offsets[idx].to_usize().ok_or_else(|| {
-                    vortex_err!("Failed to convert offset to usize: {}", offsets[idx])
-                })?,
-                offsets[idx + 1].to_usize().ok_or_else(|| {
-                    vortex_err!("Failed to convert offset to usize: {}", offsets[idx + 1])
-                })?,
-            );
-            builder.append_value(&data[start..end])
-        } else {
-            builder.append_null()
+    match mask.bit_buffer() {
+        AllOr::All => {
+            for idx in mask_indices.iter().copied() {
+                builder.append_value(value_at(idx)?)
+            }
+        }
+        AllOr::None => {
+            builder.append_n_nulls(selection_count);
+        }
+        AllOr::Some(validity) => {
+            for idx in mask_indices.iter().copied() {
+                if validity.value(idx) {
+                    builder.append_value(value_at(idx)?)
+                } else {
+                    builder.append_null()
+                }
+            }
         }
     }
     Ok(builder.finish(dtype))

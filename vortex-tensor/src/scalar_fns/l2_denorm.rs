@@ -441,6 +441,10 @@ pub fn normalize_as_l2_denorm(
     let normalized_dtype = input.dtype().as_nonnullable();
     let flat = extract_flat_elements(input.storage_array(), tensor_flat_size, ctx)?;
 
+    // Resolve validity to a mask once rather than probing it per row (each `Validity::is_valid`
+    // executes a scalar for array-backed validity).
+    let norms_valid = norms_validity.execute_mask(row_count, ctx)?;
+
     // Normalize all of the vectors.
     let normalized = match_each_float_ptype!(flat.ptype(), |T| {
         let norm_values = primitive_norms.as_slice::<T>();
@@ -448,7 +452,7 @@ pub fn normalize_as_l2_denorm(
         let total_elements = row_count * tensor_flat_size;
         let mut elements = BufferMut::<T>::with_capacity(total_elements);
         for i in 0..row_count {
-            let is_valid = norms_validity.execute_is_valid(i, ctx)?;
+            let is_valid = norms_valid.value(i);
             let norm = norm_values[i];
 
             // SAFETY: We allocated `row_count * tensor_flat_size` capacity and push exactly
@@ -637,12 +641,14 @@ pub fn validate_l2_normalized_rows_against_norms(
         Some(norms) => normalized_validity.and(norms.validity()?)?,
         None => normalized_validity,
     };
+    // Resolve validity to a mask once rather than probing it per row.
+    let combined_valid = combined_validity.execute_mask(row_count, ctx)?;
 
     match_each_float_ptype!(element_ptype, |T| {
         let stored_norms = norms.as_ref().map(|norms| norms.as_slice::<T>());
 
         for i in 0..row_count {
-            if !combined_validity.execute_is_valid(i, ctx)? {
+            if !combined_valid.value(i) {
                 continue;
             }
 
