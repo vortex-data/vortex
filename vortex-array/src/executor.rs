@@ -29,6 +29,7 @@ use vortex_error::vortex_panic;
 use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::VortexSession;
+use vortex_session::registry::Id;
 
 use crate::AnyCanonical;
 use crate::ArrayRef;
@@ -228,8 +229,11 @@ impl ArrayRef {
             let expected_dtype = current_array.dtype().clone();
             let stats = current_array.statistics().to_array_stats();
             let encoding_id = current_array.encoding_id();
-            let result = current_array.execute_encoding_unchecked(ctx)?;
+            let result = current_array.clone().execute_encoding_unchecked(ctx)?;
             let (array, step) = result.into_parts();
+            //if current_array.encoding_id() == Id::new("vortex.fsst") {
+            //    panic!("current: {current_array}, array: {array}, step: {step:?}");
+            //}
             match step {
                 ExecutionStep::ExecuteSlot(i, done) => {
                     let (parent, child) = unsafe { array.take_slot_unchecked(i) }?;
@@ -427,24 +431,27 @@ impl Executable for ArrayRef {
         let tmp_session = ctx.session().clone();
         let kernels = tmp_session.get_opt::<ArrayKernels>();
 
-        for (slot_idx, slot) in array.slots().iter().enumerate() {
-            let Some(child) = slot else { continue };
-            if let Some(executed_parent) =
-                execute_parent_for_child(&array, child, slot_idx, kernels.as_ref(), ctx)?
-            {
-                ctx.log(format_args!(
-                    "execute_parent: slot[{}]({}) rewrote {} -> {}",
-                    slot_idx,
-                    child.encoding_id(),
-                    array,
-                    executed_parent
-                ));
-                executed_parent
-                    .statistics()
-                    .inherit_from(array.statistics());
-                return Ok(executed_parent);
-            }
-        }
+        //for (slot_idx, slot) in array.slots().iter().enumerate() {
+        //  let Some(child) = slot else { continue };
+
+        try_execute_parent(&array, ctx)?;
+
+        //if let Some(executed_parent) =
+        //    execute_parent_for_child(&array, child, slot_idx, kernels.as_ref(), ctx)?
+        //{
+        //    ctx.log(format_args!(
+        //        "execute_parent: slot[{}]({}) rewrote {} -> {}",
+        //        slot_idx,
+        //        child.encoding_id(),
+        //        array,
+        //        executed_parent
+        //    ));
+        //    executed_parent
+        //        .statistics()
+        //        .inherit_from(array.statistics());
+        //    return Ok(executed_parent);
+        //}
+        //}
 
         ctx.log(format_args!("executing {}", array));
         let result = array.execute_encoding(ctx)?;
@@ -567,7 +574,10 @@ fn try_execute_parent(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<
     for (slot_idx, slot) in array.slots().iter().enumerate() {
         let Some(child) = slot else { continue };
         if let Some(executed_parent) =
-            execute_parent_for_child(array, child, slot_idx, kernels.as_ref(), ctx)?
+            execute_parent_for_child(array, child, slot_idx, kernels.as_ref(), ctx)?.map_or_else(
+                || child.execute_parent(array, slot_idx, ctx),
+                |t| Ok(Some(t)),
+            )?
         {
             ctx.log(format_args!(
                 "execute_parent: slot[{}]({}) rewrote {} -> {}",
