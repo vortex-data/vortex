@@ -242,6 +242,9 @@ fn export_array_inner(schema_ptr: &mut FFI_ArrowSchema, array_ptr: &mut ArrowDev
             "strings",
             "sliced_utf8",
             "multi_buffer_utf8",
+            // Arrow Binary is intentionally omitted from the cuDF harness for now: cuDF's
+            // Arrow Device import path rejects NANOARROW_TYPE_BINARY, and treating arbitrary
+            // bytes as strings would be semantically incorrect.
             "dates",
             "dictionary",
             "lists",

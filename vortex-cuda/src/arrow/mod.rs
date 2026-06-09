@@ -405,6 +405,7 @@ fn arrow_device_export_field(
         .to_arrow_field(name.as_ref(), dtype)?;
 
     let data_type = match dtype {
+        DType::Binary(_) => DataType::Binary,
         DType::Decimal(decimal_dtype, _) => arrow_device_export_decimal_data_type(*decimal_dtype),
         DType::Struct(struct_dtype, _) => {
             DataType::Struct(arrow_device_export_struct_fields(struct_dtype, ctx)?.into())

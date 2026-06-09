@@ -112,3 +112,7 @@ harness = false
 [[bench]]
 name = "arrow_validity_cuda"
 harness = false
+
+[[bench]]
+name = "arrow_binary_cuda"
+harness = false
