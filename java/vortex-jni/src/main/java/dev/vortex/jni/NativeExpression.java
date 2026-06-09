@@ -21,6 +21,8 @@ public final class NativeExpression {
 
     public static native long pack(String[] fieldNames, long[] expressions, boolean nullable);
 
+    public static native long merge(long[] expressions, byte duplicateHandling);
+
     public static native long and(long[] operandPointers);
 
     public static native long or(long[] operandPointers);

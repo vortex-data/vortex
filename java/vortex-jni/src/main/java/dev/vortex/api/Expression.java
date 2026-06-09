@@ -84,6 +84,25 @@ public final class Expression {
         return new Expression(NativeExpression.pack(fieldNames, nativePointers(expressions), nullable));
     }
 
+    /**
+     * Merge struct expressions into a single struct, combining their fields in order.
+     *
+     * <p>Every input must evaluate to a non-nullable struct. When the same field name appears in more than one input,
+     * {@code duplicateHandling} decides the result. Fields are <em>not</em> merged recursively — a later field replaces
+     * an earlier one with the same name. Merging zero expressions yields an empty struct.
+     */
+    public static Expression merge(DuplicateHandling duplicateHandling, Expression... expressions) {
+        return new Expression(NativeExpression.merge(nativePointers(expressions), duplicateHandling.tag()));
+    }
+
+    /**
+     * Merge struct expressions, failing if any field name is duplicated. Equivalent to {@link #merge(DuplicateHandling,
+     * Expression...)} with {@link DuplicateHandling#ERROR}.
+     */
+    public static Expression merge(Expression... expressions) {
+        return merge(DuplicateHandling.ERROR, expressions);
+    }
+
     /** Logical AND. Requires at least one operand. */
     public static Expression and(Expression... operands) {
         Preconditions.checkArgument(operands.length > 0, "and requires at least one operand");
@@ -289,6 +308,27 @@ public final class Expression {
 
         public byte code() {
             return code;
+        }
+    }
+
+    /**
+     * Strategy for resolving duplicate field names in {@link #merge(DuplicateHandling, Expression...)}. Tag values must
+     * match the Rust {@code parse_duplicate_handling} table.
+     */
+    public enum DuplicateHandling {
+        /** When two structs share a field name, keep the value from the right-most (later) struct. */
+        RIGHT_MOST((byte) 0),
+        /** When two structs share a field name, fail with an error. */
+        ERROR((byte) 1);
+
+        private final byte tag;
+
+        DuplicateHandling(byte tag) {
+            this.tag = tag;
+        }
+
+        public byte tag() {
+            return tag;
         }
     }
 
