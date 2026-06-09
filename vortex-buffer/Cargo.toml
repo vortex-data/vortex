@@ -24,7 +24,6 @@ warn-copy = ["dep:tracing"]
 
 [dependencies]
 arrow-buffer = { workspace = true }
-bitvec = { workspace = true }
 bytes = { workspace = true }
 itertools = { workspace = true }
 memmap2 = { workspace = true, optional = true }
