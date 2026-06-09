@@ -9,6 +9,7 @@ use vortex_error::VortexResult;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
@@ -19,6 +20,7 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::executor::VortexSessionExecute;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::scalar::Scalar;
@@ -210,9 +212,11 @@ impl ListViewArray {
         let mut new_sizes = BufferMut::<S>::with_capacity(len);
         let mut take_indices = BufferMut::<u64>::with_capacity(self.elements().len());
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let validity = self.validity()?;
         let mut n_elements = NewOffset::zero();
         for index in 0..len {
-            if !self.validity()?.is_valid(index)? {
+            if !validity.execute_is_valid(index, &mut ctx)? {
                 new_offsets.push(n_elements);
                 new_sizes.push(S::zero());
                 continue;
@@ -291,9 +295,11 @@ impl ListViewArray {
         let mut new_elements_builder =
             builder_with_capacity(element_dtype.as_ref(), self.elements().len());
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let validity = self.validity()?;
         let mut n_elements = NewOffset::zero();
         for index in 0..len {
-            if !self.validity()?.is_valid(index)? {
+            if !validity.execute_is_valid(index, &mut ctx)? {
                 // For NULL lists, place them after the previous item's data to maintain the
                 // no-overlap invariant for zero-copy to `ListArray` arrays.
                 new_offsets.push(n_elements);
@@ -480,9 +486,10 @@ mod tests {
 
         // Verify nullability is preserved
         assert_eq!(flattened.dtype().nullability(), Nullability::Nullable);
-        assert!(flattened.validity()?.is_valid(0)?);
-        assert!(!flattened.validity()?.is_valid(1)?);
-        assert!(flattened.validity()?.is_valid(2)?);
+        let mut ctx = SESSION.create_execution_ctx();
+        assert!(flattened.validity()?.execute_is_valid(0, &mut ctx)?);
+        assert!(!flattened.validity()?.execute_is_valid(1, &mut ctx)?);
+        assert!(flattened.validity()?.execute_is_valid(2, &mut ctx)?);
 
         // Verify valid lists contain correct data
         assert_arrays_eq!(

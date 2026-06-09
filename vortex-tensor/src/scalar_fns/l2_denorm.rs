@@ -448,7 +448,7 @@ pub fn normalize_as_l2_denorm(
         let total_elements = row_count * tensor_flat_size;
         let mut elements = BufferMut::<T>::with_capacity(total_elements);
         for i in 0..row_count {
-            let is_valid = norms_validity.is_valid(i)?;
+            let is_valid = norms_validity.execute_is_valid(i, ctx)?;
             let norm = norm_values[i];
 
             // SAFETY: We allocated `row_count * tensor_flat_size` capacity and push exactly
@@ -642,7 +642,7 @@ pub fn validate_l2_normalized_rows_against_norms(
         let stored_norms = norms.as_ref().map(|norms| norms.as_slice::<T>());
 
         for i in 0..row_count {
-            if !combined_validity.is_valid(i)? {
+            if !combined_validity.execute_is_valid(i, ctx)? {
                 continue;
             }
 

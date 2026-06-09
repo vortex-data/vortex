@@ -855,9 +855,10 @@ fn test_set_validity_overrides_validity(
     builder.set_validity(mask);
 
     let validity = builder.finish().validity()?;
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     for (i, &valid) in expected.iter().enumerate() {
         assert_eq!(
-            validity.is_valid(i)?,
+            validity.execute_is_valid(i, &mut ctx)?,
             valid,
             "validity mismatch at index {i}"
         );
@@ -876,8 +877,12 @@ fn test_set_validity_noop_when_non_nullable() -> VortexResult<()> {
     builder.set_validity(Mask::new_false(4));
 
     let validity = builder.finish().validity()?;
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     for i in 0..4 {
-        assert!(validity.is_valid(i)?, "index {i} should remain valid");
+        assert!(
+            validity.execute_is_valid(i, &mut ctx)?,
+            "index {i} should remain valid"
+        );
     }
     Ok(())
 }

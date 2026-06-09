@@ -447,6 +447,7 @@ mod tests {
 
     #[test]
     fn test_basic_append_and_nulls() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder =
             ListViewBuilder::<u32, u32>::with_capacity(Arc::clone(&dtype), Nullable, 0, 0);
@@ -495,7 +496,7 @@ mod tests {
             !listview
                 .validity()
                 .vortex_expect("listview validity should be derivable")
-                .is_valid(2)
+                .execute_is_valid(2, &mut ctx)
                 .unwrap()
         );
 
@@ -577,6 +578,7 @@ mod tests {
 
     #[test]
     fn test_builder_trait_methods() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder =
             ListViewBuilder::<u32, u32>::with_capacity(Arc::clone(&dtype), Nullable, 0, 0);
@@ -608,14 +610,14 @@ mod tests {
             !listview
                 .validity()
                 .vortex_expect("listview validity should be derivable")
-                .is_valid(2)
+                .execute_is_valid(2, &mut ctx)
                 .unwrap()
         );
         assert!(
             !listview
                 .validity()
                 .vortex_expect("listview validity should be derivable")
-                .is_valid(3)
+                .execute_is_valid(3, &mut ctx)
                 .unwrap()
         );
 
@@ -628,6 +630,7 @@ mod tests {
 
     #[test]
     fn test_extend_from_array() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
 
         // Create a source ListArray.
@@ -687,7 +690,7 @@ mod tests {
             !listview
                 .validity()
                 .vortex_expect("listview validity should be derivable")
-                .is_valid(2)
+                .execute_is_valid(2, &mut ctx)
                 .unwrap()
         );
 
@@ -700,6 +703,7 @@ mod tests {
 
     #[test]
     fn test_extend_from_array_overlapping_listview() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
 
         // Non-ZCTL source:
@@ -737,7 +741,7 @@ mod tests {
             !listview
                 .validity()
                 .vortex_expect("listview validity should be derivable")
-                .is_valid(1)
+                .execute_is_valid(1, &mut ctx)
                 .unwrap()
         );
         assert_eq!(listview.list_elements_at(1).unwrap().len(), 0);

@@ -9,8 +9,7 @@ public final class NativeExpression {
         NativeLoader.loadJni();
     }
 
-    private NativeExpression() {
-    }
+    private NativeExpression() {}
 
     public static native long root();
 
