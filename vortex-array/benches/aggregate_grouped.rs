@@ -29,7 +29,7 @@ fn main() {
     divan::main();
 }
 
-const GROUP_COUNT: usize = 8_192;
+const GROUP_COUNT: usize = 128;
 const GROUP_SIZE_SEED: u64 = 42;
 const MIN_VALUES_PER_GROUP: usize = 1;
 const MAX_VALUES_PER_GROUP: usize = 15;
