@@ -117,25 +117,6 @@ fn json_array(values: &[String]) -> vortex_error::VortexResult<ArrayRef> {
     )
 }
 
-fn all_valid_nullable_json_array(
-    values: impl IntoIterator<Item = &'static str>,
-) -> vortex_error::VortexResult<ArrayRef> {
-    let storage = VarBinViewArray::from_iter_str(values);
-    let parts = storage.into_data_parts();
-    let storage = VarBinViewArray::new_handle(
-        parts.views,
-        parts.buffers,
-        parts.dtype.as_nullable(),
-        Validity::AllValid,
-    )
-    .into_array();
-
-    Ok(
-        ExtensionArray::try_new_from_vtable(Json, vortex_array::EmptyMetadata, storage)?
-            .into_array(),
-    )
-}
-
 fn parquet_variant_child_compressor() -> CascadingCompressor {
     CascadingCompressor::new(vec![
         &JsonToVariantScheme,

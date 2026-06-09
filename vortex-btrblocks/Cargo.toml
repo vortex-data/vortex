@@ -33,7 +33,9 @@ vortex-fsst = { workspace = true }
 vortex-json = { workspace = true, optional = true }
 vortex-mask = { workspace = true }
 vortex-onpair = { workspace = true, optional = true }
-vortex-parquet-variant = { workspace = true, optional = true, features = ["json"] }
+vortex-parquet-variant = { workspace = true, optional = true, features = [
+    "json",
+] }
 vortex-pco = { workspace = true, optional = true }
 vortex-runend = { workspace = true }
 vortex-sequence = { workspace = true }
