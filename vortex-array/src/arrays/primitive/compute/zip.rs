@@ -55,6 +55,11 @@ impl ZipKernel for Primitive {
 
         let validity = zip_validity(if_true.validity()?, if_false.validity()?, &mask)?;
 
+        // TODO(perf): inspect the mask's true_count (and validity) to special-case heavily-skewed
+        // masks. When one side dominates (true_count near 0 or near len), it is cheaper to bulk
+        // copy — or mutate in place, if the dominant side is uniquely owned — that side's values
+        // and validity, then conditionally pull in only the minority rows from the other side,
+        // rather than blending every row.
         let array = match_each_native_ptype!(if_true.ptype(), |T| {
             let values =
                 select_values::<T>(if_true.as_slice::<T>(), if_false.as_slice::<T>(), &mask);
