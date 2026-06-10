@@ -11,9 +11,14 @@
 These tests generate random (but reproducible) Arrow tables, write them to disk as
 Vortex files, read them back, and compare the round-tripped values via Arrow.
 
-Run with a higher budget via::
+Two Hypothesis profiles are registered:
 
-    VORTEX_FUZZ_MAX_EXAMPLES=2000 pytest test/test_fuzz_file_roundtrip.py
+- ``default``: a small, fully deterministic smoke test that runs in the per-PR CI gate
+  and local test runs.
+- ``fuzz``: a randomized exploration used by the scheduled fuzz workflow
+  (``.github/workflows/fuzz.yml``). Run it locally via::
+
+      VORTEX_FUZZ_PROFILE=fuzz VORTEX_FUZZ_MAX_EXAMPLES=2000 pytest test/test_fuzz_file_roundtrip.py
 """
 
 import datetime
@@ -31,13 +36,23 @@ from hypothesis import strategies as st
 
 import vortex as vx
 
-MAX_EXAMPLES = int(os.environ.get("VORTEX_FUZZ_MAX_EXAMPLES", "100"))
+_HEALTH_CHECKS = [HealthCheck.too_slow, HealthCheck.data_too_large, HealthCheck.filter_too_much]
 
-FUZZ_SETTINGS = settings(
-    max_examples=MAX_EXAMPLES,
+settings.register_profile(
+    "default",
+    max_examples=25,
+    derandomize=True,
     deadline=None,
-    suppress_health_check=[HealthCheck.too_slow, HealthCheck.data_too_large, HealthCheck.filter_too_much],
+    suppress_health_check=_HEALTH_CHECKS,
 )
+settings.register_profile(
+    "fuzz",
+    max_examples=int(os.environ.get("VORTEX_FUZZ_MAX_EXAMPLES", "1000")),
+    deadline=None,
+    suppress_health_check=_HEALTH_CHECKS,
+    print_blob=True,
+)
+settings.load_profile(os.environ.get("VORTEX_FUZZ_PROFILE", "default"))
 
 # ---------------------------------------------------------------------------
 # Arrow type strategies
@@ -67,6 +82,7 @@ FLAT_TYPES: list[pa.DataType] = INT_TYPES + [
     pa.binary_view(),
     # pa.binary(3) (fixed-size binary) excluded: DType::from_arrow panics with
     # `unimplemented!()` (vortex-array/src/dtype/arrow.rs) instead of raising a clean error.
+    # See https://github.com/vortex-data/vortex/issues/8346.
     pa.decimal128(38, 9),
     pa.decimal128(5, 2),
     pa.date32(),
@@ -82,6 +98,7 @@ FLAT_TYPES: list[pa.DataType] = INT_TYPES + [
     pa.timestamp("us", tz="UTC"),
     # pa.duration(..) excluded: DType::from_arrow panics with `unimplemented!()`
     # (vortex-array/src/dtype/arrow.rs) instead of raising a clean error.
+    # See https://github.com/vortex-data/vortex/issues/8346.
     pa.dictionary(pa.int32(), pa.string()),
 ]
 
@@ -210,7 +227,7 @@ def arrow_tables(draw: st.DrawFn) -> pa.Table:
     table = pa.table(dict(zip(names, columns)))
 
     # Sometimes re-chunk so the writer sees multiple batches.
-    # TODO(https://github.com/vortex-data/vortex/issues): sliced fixed_size_list<struct>
+    # TODO(https://github.com/vortex-data/vortex/issues/8349): sliced fixed_size_list<struct>
     # arrays panic in from_arrow with "end <= self.len()", so don't slice those.
     if nrows > 1 and not any(_has_fsl_of_struct(t) for t in types) and draw(st.booleans()):
         split = draw(st.integers(1, nrows - 1))
@@ -311,11 +328,11 @@ def _has_struct_of_struct(t: pa.DataType) -> bool:
 
 def vortex_array_or_skip(table: pa.Table) -> vx.Array:
     """Convert to a Vortex array, skipping the example on a clean "unsupported type" error."""
-    # TODO(https://github.com/vortex-data/vortex/issues): writing an empty table with a
+    # TODO(https://github.com/vortex-data/vortex/issues/8347): writing an empty table with a
     # top-level struct column panics with "must have visited at least one chunk"
     # (vortex-layout/src/layouts/collect.rs). Remove this guard once fixed.
     assume(not (table.num_rows == 0 and any(pa.types.is_struct(f.type) for f in table.schema)))
-    # TODO(https://github.com/vortex-data/vortex/issues): a struct field directly nested in
+    # TODO(https://github.com/vortex-data/vortex/issues/8348): a struct field directly nested in
     # another struct loses its nullability on file roundtrip when it contains nulls
     # (debug_assert in vortex-array/src/stream/adapter.rs). Remove this guard once fixed.
     assume(not any(_has_struct_of_struct(f.type) for f in table.schema))
@@ -344,7 +361,6 @@ def _report_unsupported():
 # ---------------------------------------------------------------------------
 
 
-@FUZZ_SETTINGS
 @given(table=arrow_tables())
 def test_write_scan_roundtrip(table: pa.Table) -> None:
     if os.environ.get("VORTEX_FUZZ_DEBUG"):
@@ -362,7 +378,6 @@ def test_write_scan_roundtrip(table: pa.Table) -> None:
         assert_tables_equal(table, result)
 
 
-@FUZZ_SETTINGS
 @given(table=arrow_tables())
 def test_write_to_arrow_reader_roundtrip(table: pa.Table) -> None:
     vortex_array_or_skip(table)
@@ -375,7 +390,6 @@ def test_write_to_arrow_reader_roundtrip(table: pa.Table) -> None:
         assert_tables_equal(table, result)
 
 
-@FUZZ_SETTINGS
 @given(table=arrow_tables())
 def test_compressed_write_roundtrip(table: pa.Table) -> None:
     arr = vortex_array_or_skip(table)
@@ -389,7 +403,6 @@ def test_compressed_write_roundtrip(table: pa.Table) -> None:
         assert_tables_equal(table, result)
 
 
-@FUZZ_SETTINGS
 @given(table=patterned_tables())
 def test_compressed_patterned_roundtrip(table: pa.Table) -> None:
     arr = vortex_array_or_skip(table)
@@ -402,7 +415,6 @@ def test_compressed_patterned_roundtrip(table: pa.Table) -> None:
         assert_tables_equal(table, result)
 
 
-@FUZZ_SETTINGS
 @given(table=arrow_tables(), data=st.data())
 def test_scan_parameters(table: pa.Table, data: st.DataObject) -> None:
     vortex_array_or_skip(table)
@@ -453,7 +465,6 @@ def test_scan_parameters(table: pa.Table, data: st.DataObject) -> None:
         assert_rows_equal(expected, result)
 
 
-@FUZZ_SETTINGS
 @given(table=arrow_tables(), data=st.data())
 def test_read_url_row_range(table: pa.Table, data: st.DataObject) -> None:
     vortex_array_or_skip(table)
