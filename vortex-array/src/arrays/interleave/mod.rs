@@ -29,8 +29,9 @@
 //!   every `i`. These per-row bounds depend on the selector *values* and so are a runtime
 //!   precondition of the caller, checked in the execution kernels rather than at construction.
 //! - All values share a logical type up to nullability. The output type is that shared type with
-//!   the union of the values' nullabilities. This is orthogonal to the selectors: a row's *value*
-//!   may be null even though its `(array_index, row_index)` is definite.
+//!   the union of the values' nullabilities, applied recursively for nested types (list elements,
+//!   struct fields). This is orthogonal to the selectors: a row's *value* may be null even though
+//!   its `(array_index, row_index)` is definite.
 //! - The output length equals `array_indices.len()` (`== row_indices.len()`).
 //!
 //! ## Selector types
@@ -44,7 +45,9 @@ mod execute;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hasher;
+use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -71,7 +74,7 @@ use crate::array::ValidityVTable;
 use crate::arrays::ConstantArray;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
-use crate::dtype::Nullability;
+use crate::dtype::StructFields;
 use crate::executor::ExecutionResult;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
@@ -186,18 +189,45 @@ impl Interleave {
         );
 
         let base_dtype = values[0].dtype();
-        let mut nullability = Nullability::NonNullable;
-        for value in values {
+        let mut dtype = base_dtype.clone();
+        for value in &values[1..] {
             vortex_ensure!(
                 value.dtype().eq_ignore_nullability(base_dtype),
                 "interleave values must share a dtype up to nullability: {} vs {}",
                 base_dtype,
                 value.dtype()
             );
-            nullability |= value.dtype().nullability();
+            dtype = union_nullability(&dtype, value.dtype());
         }
 
-        Ok(base_dtype.with_nullability(nullability))
+        Ok(dtype)
+    }
+}
+
+/// Returns `dtype` with its nullability unioned with `other`'s, recursing into nested types so
+/// that list elements and struct fields also take the union of the two sides' nullabilities.
+///
+/// The two dtypes must already be equal up to (recursive) nullability.
+fn union_nullability(dtype: &DType, other: &DType) -> DType {
+    let nullability = dtype.nullability() | other.nullability();
+    match (dtype, other) {
+        (DType::List(lhs, _), DType::List(rhs, _)) => {
+            DType::List(Arc::new(union_nullability(lhs, rhs)), nullability)
+        }
+        (DType::FixedSizeList(lhs, size, _), DType::FixedSizeList(rhs, ..)) => {
+            DType::FixedSizeList(Arc::new(union_nullability(lhs, rhs)), *size, nullability)
+        }
+        (DType::Struct(lhs, _), DType::Struct(rhs, _)) => DType::Struct(
+            StructFields::new(
+                lhs.names().clone(),
+                lhs.fields()
+                    .zip_eq(rhs.fields())
+                    .map(|(l, r)| union_nullability(&l, &r))
+                    .collect::<Vec<_>>(),
+            ),
+            nullability,
+        ),
+        _ => dtype.with_nullability(nullability),
     }
 }
 
@@ -356,12 +386,9 @@ impl OperationsVTable<Interleave> for Interleave {
             .vortex_expect("interleave row_indices is non-nullable");
 
         let scalar = array.value(branch_idx).execute_scalar(row, ctx)?;
-        // The value may be non-nullable while the interleaved output is nullable; align the dtype.
-        Ok(if array.as_ref().dtype().is_nullable() {
-            scalar.into_nullable()
-        } else {
-            scalar
-        })
+        // The selected value's dtype may be narrower than the interleaved output's (a non-nullable
+        // value of a nullable output, including nested nullability); align the scalar's dtype.
+        scalar.cast(array.dtype())
     }
 }
 
@@ -603,8 +630,8 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "only implemented for boolean values")]
-    fn non_boolean_value_execution_panics() {
+    #[should_panic(expected = "not yet implemented")]
+    fn unsupported_value_dtype_execution_panics() {
         // Execution dispatches on the value type: primitive values have no kernel yet.
         let v0 = PrimitiveArray::from_iter([1u32]).into_array();
         let v1 = PrimitiveArray::from_iter([2u32]).into_array();

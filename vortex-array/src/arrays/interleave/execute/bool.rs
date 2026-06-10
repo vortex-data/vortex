@@ -8,11 +8,11 @@ use num_traits::AsPrimitive;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
 use super::super::Interleave;
 use super::super::InterleaveArrayExt;
+use super::check_selector_bounds;
 use crate::array::Array;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
@@ -64,7 +64,6 @@ pub(super) fn execute(
         match_each_unsigned_integer_ptype!(row_indices.ptype(), |R| {
             gather(
                 len,
-                num_values,
                 &value_bits,
                 &value_validity,
                 array_indices.as_slice::<A>(),
@@ -93,7 +92,6 @@ pub(super) fn execute(
 #[allow(clippy::too_many_arguments)]
 fn gather<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
     len: usize,
-    num_values: usize,
     value_bits: &[BitBuffer],
     value_validity: &[Option<Mask>],
     branches: &[A],
@@ -102,14 +100,8 @@ fn gather<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
 ) -> VortexResult<(BitBufferMut, Option<BitBufferMut>)> {
     // Validate the per-row bounds once up front (returning an error rather than panicking), so the
     // word-packing passes below are tight branchless loops.
-    for i in 0..len {
-        let branch = branches[i].as_();
-        vortex_ensure!(branch < num_values, "interleave array index out of bounds");
-        vortex_ensure!(
-            rows[i].as_() < value_bits[branch].len(),
-            "interleave row index out of bounds"
-        );
-    }
+    let value_lens: Vec<usize> = value_bits.iter().map(|b| b.len()).collect();
+    check_selector_bounds(branches, rows, &value_lens)?;
 
     let values =
         BitBufferMut::collect_bool(len, |i| value_bits[branches[i].as_()].value(rows[i].as_()));
