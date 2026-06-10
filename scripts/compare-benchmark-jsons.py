@@ -77,6 +77,63 @@ def split_file_size_rows(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     return df[mask].copy(), df[~mask].copy()
 
 
+def identity_value(value: Any) -> Any:
+    """Normalize missing values so benchmark identities compare reliably."""
+
+    return None if pd.isna(value) else value
+
+
+def benchmark_identity_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Return timing rows with the identity used to match a PR benchmark."""
+
+    _file_size_rows, timing_rows = split_file_size_rows(df)
+    if timing_rows.empty or "name" not in timing_rows.columns:
+        return pd.DataFrame(columns=["commit_id", "benchmark_identity"])
+
+    timing_rows = timing_rows.copy()
+    if "storage" not in timing_rows.columns:
+        timing_rows["storage"] = pd.NA
+    if "commit_id" not in timing_rows.columns:
+        timing_rows["commit_id"] = pd.NA
+
+    timing_rows = extract_dataset_key(timing_rows)
+    timing_rows["benchmark_identity"] = [
+        tuple(identity_value(row[column]) for column in ("name", "storage", "dataset_key"))
+        for _, row in timing_rows.iterrows()
+    ]
+
+    return timing_rows[["commit_id", "benchmark_identity"]]
+
+
+def select_latest_baseline_rows(base: pd.DataFrame, pr: pd.DataFrame) -> pd.DataFrame:
+    """Select rows from the latest baseline commit containing this benchmark.
+
+    The persisted benchmark history is append-only. A row only appears after
+    that benchmark job uploaded results, so the newest commit with matching row
+    identities is the latest successful baseline for the benchmark under test.
+    """
+
+    if base.empty or "commit_id" not in base.columns:
+        return base
+
+    commit_ids = base["commit_id"].dropna().unique()
+    if len(commit_ids) <= 1:
+        return base
+
+    pr_identities = set(benchmark_identity_rows(pr)["benchmark_identity"])
+    if not pr_identities:
+        return base
+
+    base_identities = benchmark_identity_rows(base)
+    matches = base_identities[base_identities["benchmark_identity"].isin(pr_identities)]
+    matches = matches[matches["commit_id"].notna()]
+    if matches.empty:
+        raise ValueError("No baseline rows found for the benchmark under test")
+
+    baseline_commit_id = matches["commit_id"].iloc[-1]
+    return base[base["commit_id"] == baseline_commit_id].copy()
+
+
 def extract_target_fields(name: str) -> pd.Series:
     """Parse query, engine, and format from the benchmark name."""
 
@@ -704,6 +761,7 @@ def main() -> None:
 
     base = pd.read_json(sys.argv[1], lines=True)
     pr = pd.read_json(sys.argv[2], lines=True)
+    base = select_latest_baseline_rows(base, pr)
 
     base_commit_id = set(base["commit_id"].unique())
     pr_commit_id = set(pr["commit_id"].unique())

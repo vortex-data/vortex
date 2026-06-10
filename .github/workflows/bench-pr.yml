@@ -98,16 +98,8 @@ jobs:
         run: |
           set -Eeu -o pipefail -x
 
-          base_commit_sha=$(\
-            curl -L \
-              -H "Accept: application/vnd.github+json" \
-              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-              https://api.github.com/repos/vortex-data/vortex/actions/workflows/bench.yml/runs\?branch\=develop\&status\=success\&per_page\=1 \
-            | jq -r '.workflow_runs[].head_sha' \
-          )
-
           python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/data.json.gz data.json.gz --no-sign-request
-          gzip -d -c data.json.gz | grep $base_commit_sha > base.json
+          gzip -d -c data.json.gz > base.json
 
           echo '# Benchmarks: ${{ matrix.benchmark.name }}' > comment.md
           echo '' >> comment.md
