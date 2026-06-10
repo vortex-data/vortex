@@ -17,6 +17,7 @@ use vortex_session::registry::CachedId;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
+use crate::dtype::DecimalDType;
 use crate::expr::StatsCatalog;
 use crate::expr::and;
 use crate::expr::and_collect;
@@ -45,6 +46,47 @@ mod numeric;
 pub(crate) use numeric::*;
 
 use crate::scalar::NumericOperator;
+
+/// Output decimal type of an arithmetic `operator` over two operands that
+/// have already been coerced to the same decimal type.
+///
+/// Mirrors the Hive-style rules `arrow-arith` applies at execution time
+/// (see `arrow_arith::numeric::decimal_op`), including precision saturation
+/// at the physical width's maximum: vortex lowers precisions `<= 38` to
+/// Arrow `Decimal128` and wider decimals to `Decimal256`.
+fn decimal_arithmetic_dtype(
+    operator: Operator,
+    operand: DecimalDType,
+) -> VortexResult<DecimalDType> {
+    let p = u16::from(operand.precision());
+    let s = i16::from(operand.scale());
+    let (max_precision, max_scale): (u16, i16) = if p <= 38 { (38, 38) } else { (76, 76) };
+    let (precision, scale) = match operator {
+        // scale = max(s, s); precision = max(p - s, p - s) + scale + 1
+        Operator::Add | Operator::Sub => ((p + 1).min(max_precision), s),
+        // scale = s + s; precision = p + p + 1
+        Operator::Mul => {
+            let scale = s + s;
+            if scale > max_scale {
+                vortex_bail!(
+                    "output scale of {operand} {operator} {operand} exceeds the maximum scale \
+                     {max_scale}"
+                );
+            }
+            ((p + p + 1).min(max_precision), scale)
+        }
+        // scale = min(s + 4, max); precision = p - s + s + scale
+        Operator::Div => {
+            let scale = (s + 4).min(max_scale);
+            (((p + scale.unsigned_abs()).min(max_precision)), scale)
+        }
+        _ => vortex_bail!("operator {operator} is not arithmetic"),
+    };
+    Ok(DecimalDType::new(
+        u8::try_from(precision).unwrap_or(u8::MAX),
+        i8::try_from(scale).unwrap_or(i8::MAX),
+    ))
+}
 
 #[derive(Clone)]
 pub struct Binary;
@@ -121,6 +163,15 @@ impl ScalarFnVTable for Binary {
         if operator.is_arithmetic() {
             if lhs.is_primitive() && lhs.eq_ignore_nullability(rhs) {
                 return Ok(lhs.with_nullability(lhs.nullability() | rhs.nullability()));
+            }
+            if let (DType::Decimal(l, _), DType::Decimal(r, _)) = (lhs, rhs)
+                && l == r
+            {
+                let result = decimal_arithmetic_dtype(*operator, *l)?;
+                return Ok(DType::Decimal(
+                    result,
+                    lhs.nullability() | rhs.nullability(),
+                ));
             }
             vortex_bail!(
                 "incompatible types for arithmetic operation: {} {}",
@@ -332,6 +383,47 @@ mod tests {
     use crate::expr::or_collect;
     use crate::expr::test_harness;
     use crate::scalar::Scalar;
+
+    /// The decimal arithmetic dtypes derived at plan time must match what
+    /// arrow produces at execution time (see `decimal_arithmetic_dtype`).
+    #[test]
+    fn decimal_arithmetic_dtype_matches_execution() -> VortexResult<()> {
+        use vortex_buffer::buffer;
+
+        use crate::Canonical;
+        use crate::IntoArray;
+        use crate::arrays::DecimalArray;
+        use crate::dtype::DecimalDType;
+        use crate::scalar::DecimalValue;
+        use crate::scalar_fn::ScalarFnVTableExt;
+        use crate::validity::Validity;
+
+        let dec = DecimalDType::new(15, 2);
+        let values =
+            DecimalArray::new(buffer![100i128, 250, 1099], dec, Validity::NonNullable).into_array();
+        let rhs = lit(Scalar::decimal(
+            DecimalValue::I128(50),
+            dec,
+            Nullability::NonNullable,
+        ));
+        for op in [Operator::Add, Operator::Sub, Operator::Mul, Operator::Div] {
+            let expr = Binary.try_new_expr(op, [crate::expr::root(), rhs.clone()])?;
+            let derived = expr.return_dtype(values.dtype())?;
+            let mut ctx = LEGACY_SESSION.create_execution_ctx();
+            let executed = values
+                .clone()
+                .apply(&expr)?
+                .execute::<Canonical>(&mut ctx)?
+                .into_array();
+            assert_eq!(
+                executed.dtype(),
+                &derived,
+                "derived dtype diverges from execution for {op}"
+            );
+        }
+        Ok(())
+    }
+
     #[test]
     fn and_collect_balanced() {
         let values = vec![lit(1), lit(2), lit(3), lit(4), lit(5)];

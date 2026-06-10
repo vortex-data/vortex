@@ -77,8 +77,8 @@ impl CastKernel for Decimal {
             );
         };
 
-        // Scale changes are not yet supported
-        if from_decimal_dtype.scale() != to_decimal_dtype.scale() {
+        // Narrowing the scale (dropping fractional digits) is not supported.
+        if from_decimal_dtype.scale() > to_decimal_dtype.scale() {
             vortex_bail!(
                 "Casting decimal with scale {} to scale {} not yet implemented",
                 from_decimal_dtype.scale(),
@@ -86,8 +86,12 @@ impl CastKernel for Decimal {
             );
         }
 
-        // Downcasting precision is not yet supported
-        if to_decimal_dtype.precision() < from_decimal_dtype.precision() {
+        // The target must retain at least the source's integer digits.
+        let from_integer_digits =
+            i16::from(from_decimal_dtype.precision()) - i16::from(from_decimal_dtype.scale());
+        let to_integer_digits =
+            i16::from(to_decimal_dtype.precision()) - i16::from(to_decimal_dtype.scale());
+        if to_integer_digits < from_integer_digits {
             vortex_bail!(
                 "Downcasting decimal from precision {} to {} not yet implemented",
                 from_decimal_dtype.precision(),
@@ -104,6 +108,12 @@ impl CastKernel for Decimal {
         let new_validity = array
             .validity()?
             .cast_nullability(*to_nullability, array.len(), ctx)?;
+
+        // Widening the scale multiplies unscaled values by a power of ten.
+        if from_decimal_dtype.scale() < to_decimal_dtype.scale() {
+            let rescaled = rescale_decimal_values(array, *to_decimal_dtype, new_validity)?;
+            return Ok(Some(rescaled.into_array()));
+        }
 
         // If the target needs a wider physical type, upcast the values
         let target_values_type = DecimalType::smallest_decimal_value_type(to_decimal_dtype);
@@ -124,6 +134,73 @@ impl CastKernel for Decimal {
                 )
                 .into_array(),
             ))
+        }
+    }
+}
+
+/// Rescale a DecimalArray to a wider scale (e.g. `(16,2)` → `(31,4)`),
+/// multiplying unscaled values by the corresponding power of ten. The
+/// result is stored at the width the target precision requires.
+fn rescale_decimal_values(
+    array: ArrayView<'_, Decimal>,
+    to: crate::dtype::DecimalDType,
+    validity: crate::validity::Validity,
+) -> VortexResult<DecimalArray> {
+    let from = array.decimal_dtype();
+    let scale_up = u32::try_from(to.scale() - from.scale())
+        .map_err(|_| vortex_error::vortex_err!("rescale requires a widening scale"))?;
+    let factor = 10i128
+        .checked_pow(scale_up)
+        .ok_or_else(|| vortex_error::vortex_err!("rescale factor overflows i128"))?;
+
+    // Gather unscaled values as i128 (i256 sources are unsupported).
+    let values: Vec<i128> = match array.values_type() {
+        DecimalType::I8 => array
+            .buffer::<i8>()
+            .iter()
+            .map(|&v| i128::from(v))
+            .collect(),
+        DecimalType::I16 => array
+            .buffer::<i16>()
+            .iter()
+            .map(|&v| i128::from(v))
+            .collect(),
+        DecimalType::I32 => array
+            .buffer::<i32>()
+            .iter()
+            .map(|&v| i128::from(v))
+            .collect(),
+        DecimalType::I64 => array
+            .buffer::<i64>()
+            .iter()
+            .map(|&v| i128::from(v))
+            .collect(),
+        DecimalType::I128 => array.buffer::<i128>().iter().copied().collect(),
+        DecimalType::I256 => vortex_bail!("rescaling i256 decimals is not supported"),
+    };
+
+    let rescaled = values
+        .into_iter()
+        .map(|v| {
+            v.checked_mul(factor)
+                .ok_or_else(|| vortex_error::vortex_err!("decimal rescale overflows i128"))
+        })
+        .collect::<VortexResult<Vec<i128>>>()?;
+
+    match DecimalType::smallest_decimal_value_type(&to) {
+        DecimalType::I256 => vortex_bail!("rescaling into i256 decimals is not supported"),
+        DecimalType::I128 => Ok(DecimalArray::new(Buffer::from_iter(rescaled), to, validity)),
+        // Narrow storage targets: the values fit by the precision check.
+        DecimalType::I64 | DecimalType::I32 | DecimalType::I16 | DecimalType::I8 => {
+            let narrowed = rescaled
+                .into_iter()
+                .map(|v| {
+                    i64::try_from(v).map_err(|_| {
+                        vortex_error::vortex_err!("rescaled decimal exceeds target width")
+                    })
+                })
+                .collect::<VortexResult<Vec<i64>>>()?;
+            Ok(DecimalArray::new(Buffer::from_iter(narrowed), to, validity))
         }
     }
 }
@@ -262,19 +339,35 @@ mod tests {
     }
 
     #[test]
-    fn cast_different_scale_fails() {
+    fn cast_widening_scale_rescales() {
+        let array = DecimalArray::new(
+            buffer![100i32, -250],
+            DecimalDType::new(10, 2),
+            Validity::NonNullable,
+        );
+
+        // 1.00 and -2.50 at scale 2 become 1.000 and -2.500 at scale 3.
+        let wider = DType::Decimal(DecimalDType::new(15, 3), Nullability::NonNullable);
+        #[expect(deprecated)]
+        let casted = array.into_array().cast(wider.clone()).unwrap().to_decimal();
+        assert_eq!(casted.dtype(), &wider);
+        assert_eq!(casted.buffer::<i64>().as_ref(), &[1000i64, -2500]);
+    }
+
+    #[test]
+    fn cast_narrowing_scale_fails() {
         let array = DecimalArray::new(
             buffer![100i32],
             DecimalDType::new(10, 2),
             Validity::NonNullable,
         );
 
-        // Try to cast to different scale - not supported
-        let different_dtype = DType::Decimal(DecimalDType::new(15, 3), Nullability::NonNullable);
+        // Dropping fractional digits is not supported.
+        let narrower = DType::Decimal(DecimalDType::new(15, 1), Nullability::NonNullable);
         #[expect(deprecated)]
         let result = array
             .into_array()
-            .cast(different_dtype)
+            .cast(narrower)
             .and_then(|a| a.to_canonical().map(|c| c.into_array()));
 
         assert!(result.is_err());
@@ -282,7 +375,7 @@ mod tests {
             result
                 .unwrap_err()
                 .to_string()
-                .contains("Casting decimal with scale 2 to scale 3 not yet implemented")
+                .contains("Casting decimal with scale 2 to scale 1 not yet implemented")
         );
     }
 
