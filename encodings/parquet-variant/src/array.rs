@@ -241,7 +241,7 @@ fn logical_shredded_from_parquet_field(
         let validity = field_struct.validity()?;
         // `unmasked_field_by_name_opt` intentionally ignores the parent struct validity.
         // Reapply it here so null wrapper rows become null typed/raw rows downstream.
-        let typed_value = if validity.no_nulls() {
+        let typed_value = if validity.definitely_no_nulls() {
             typed_value.clone()
         } else {
             typed_value
@@ -251,7 +251,7 @@ fn logical_shredded_from_parquet_field(
         let value = field_struct
             .unmasked_field_by_name_opt("value")
             .map(|value| {
-                if validity.no_nulls() {
+                if validity.definitely_no_nulls() {
                     Ok(value.clone())
                 } else {
                     value.clone().mask(validity.to_array(value.len()))

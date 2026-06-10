@@ -112,11 +112,28 @@ impl Validity {
         }
     }
 
-    /// Returns `true` if this validity guarantees no null values, i.e. it is either
+    /// Returns `true` if this validity *definitely* contains no null values, i.e. it is either
     /// [`Validity::NonNullable`] or [`Validity::AllValid`].
+    ///
+    /// Returning `false` does not prove the presence of nulls: a [`Validity::Array`] may still
+    /// resolve to all-valid once executed. Callers must treat `false` as "unknown without
+    /// compute" and either fall back to a null-handling path or execute the validity.
     #[inline]
-    pub fn no_nulls(&self) -> bool {
+    pub fn definitely_no_nulls(&self) -> bool {
         matches!(self, Self::NonNullable | Self::AllValid)
+    }
+
+    /// Returns whether this validity contains no null values, executing the validity array if
+    /// necessary.
+    ///
+    /// This is the exact counterpart to [`Self::definitely_no_nulls`]: use it when the caller
+    /// needs a definitive answer rather than a cheap, conservative one.
+    pub fn execute_no_nulls(&self, length: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+        match self {
+            Self::NonNullable | Self::AllValid => Ok(true),
+            Self::AllInvalid => Ok(length == 0),
+            Self::Array(_) => Ok(self.execute_mask(length, ctx)?.all_true()),
+        }
     }
 
     /// The union nullability and validity.

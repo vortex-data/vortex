@@ -14,7 +14,7 @@ pub(super) fn shared_validity_mask(
 ) -> VortexResult<Option<Mask>> {
     let lhs_validity = lhs.validity()?;
     let rhs_validity = rhs.validity()?;
-    if lhs_validity.no_nulls() && rhs_validity.no_nulls() {
+    if lhs_validity.definitely_no_nulls() && rhs_validity.definitely_no_nulls() {
         return Ok(Some(Mask::new_true(lhs.len())));
     }
 
@@ -33,7 +33,7 @@ pub(super) fn filter_valid_rows_if_needed(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<(ArrayRef, ArrayRef)>> {
     let validity = lhs.validity()?;
-    if validity.no_nulls() {
+    if validity.definitely_no_nulls() {
         return Ok(None);
     }
 

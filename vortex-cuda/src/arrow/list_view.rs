@@ -457,7 +457,7 @@ async fn rebuild_primitive_list_view_child(
     } = elements.into_data_parts();
 
     vortex_ensure!(
-        validity.no_nulls(),
+        validity.execute_no_nulls(elements_len, ctx.execution_ctx())?,
         "cannot export non-contiguous device-resident ListViewArray with nullable {child_name}: GPU child validity rebuild is not implemented"
     );
 
