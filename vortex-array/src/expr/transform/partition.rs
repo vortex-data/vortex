@@ -20,12 +20,62 @@ use crate::expr::analysis::AnnotationFn;
 use crate::expr::analysis::Annotations;
 use crate::expr::analysis::descendent_annotations;
 use crate::expr::get_item;
+use crate::expr::is_root;
+use crate::expr::label_is_fallible;
+use crate::expr::label_null_sensitive;
 use crate::expr::pack;
 use crate::expr::root;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::NodeRewriter;
 use crate::expr::traversal::Transformed;
 use crate::expr::traversal::TraversalOrder;
+use crate::scalar_fn::is_negative_cost;
+
+fn references_root(expr: &Expression) -> bool {
+    is_root(expr) || expr.children().iter().any(references_root)
+}
+
+/// Split expression into two parts:
+///
+/// left is the optional outer part that we want to apply to array after
+/// canonicalizing.
+/// right is the optional inner part that we want to apply to array before
+/// canonicalizing.
+///
+/// We want to push to array only if expression has a negative cost, is
+/// infallible and null-insensitive.
+///
+/// TODO(myrrc): This is a specialized version of partition(), and we want to
+/// unify this with expression partitioning logic.
+pub fn split_expression_for_pushdown(expr: Expression) -> (Option<Expression>, Option<Expression>) {
+    let labelled_expr = expr.clone();
+    let fallible = label_is_fallible(&labelled_expr);
+    let null_sensitive = label_null_sensitive(&labelled_expr);
+    let mut inner: Option<Expression> = None;
+
+    let outer = expr
+        .transform_down(|node| {
+            if is_negative_cost(node.id())
+                && references_root(&node)
+                && !fallible.get(&node).copied().unwrap_or(true)
+                && !null_sensitive.get(&node).copied().unwrap_or(true)
+            {
+                inner = Some(node);
+                Ok(Transformed {
+                    value: root(),
+                    changed: true,
+                    order: TraversalOrder::Skip,
+                })
+            } else {
+                Ok(Transformed::no(node))
+            }
+        })
+        .vortex_expect("infallible")
+        .into_inner();
+
+    let outer = (!is_root(&outer)).then_some(outer);
+    (outer, inner)
+}
 
 /// Partition an expression into sub-expressions that are uniquely associated with an annotation.
 /// A root expression is also returned that can be used to recombine the results of the partitions
@@ -205,10 +255,19 @@ where
 mod tests {
     use rstest::fixture;
     use rstest::rstest;
+    use vortex_array::expr::Expression;
+    use vortex_array::expr::byte_length;
+    use vortex_array::expr::cast;
+    use vortex_array::expr::like;
+    use vortex_array::expr::traversal::NodeExt;
+    use vortex_array::expr::traversal::Transformed;
+    use vortex_array::expr::traversal::TraversalOrder;
 
+    use super::split_expression_for_pushdown;
     use super::*;
     use crate::dtype::DType;
     use crate::dtype::Nullability::NonNullable;
+    use crate::dtype::PType;
     use crate::dtype::PType::I32;
     use crate::dtype::StructFields;
     use crate::expr::analysis::make_free_field_annotator;
@@ -347,5 +406,62 @@ mod tests {
         let part_b = partitioned.find_partition(&"b".into()).unwrap();
         let expected_b = pack([("b_0", pack([("b", col("b"))], NonNullable))], NonNullable);
         assert_eq!(part_b, &expected_b, "{part_b} {expected_b}");
+    }
+
+    fn join_split_expr(initial: &Expression, outer: Option<Expression>, inner: Option<Expression>) {
+        let outer_expr = outer.unwrap_or_else(root);
+        let inner_expr = inner.unwrap_or_else(root);
+        let expected = outer_expr
+            .transform_down(|node| {
+                if !is_root(&node) {
+                    return Ok(Transformed::no(node));
+                }
+                Ok(Transformed {
+                    value: inner_expr.clone(),
+                    changed: true,
+                    order: TraversalOrder::Skip,
+                })
+            })
+            .vortex_expect("infallible");
+        assert_eq!(&expected.into_inner(), initial);
+    }
+
+    #[test]
+    fn split_expr_cast_root() {
+        let (outer, inner) = split_expression_for_pushdown(root());
+        assert_eq!(outer, None);
+        assert_eq!(inner, None); // Applying root to array is useless work
+    }
+
+    #[test]
+    fn split_expr_partial_pushdown() {
+        let dtype = DType::Primitive(PType::U64, NonNullable);
+        let expr = cast(byte_length(root()), dtype.clone());
+        let (outer, inner) = split_expression_for_pushdown(expr.clone());
+        // [0] = cast([1], dtype)
+        // [1] = byte_length(root)
+        assert_eq!(outer, Some(cast(root(), dtype)));
+        assert_eq!(inner, Some(byte_length(root())));
+        join_split_expr(&expr, outer, inner);
+    }
+
+    #[test]
+    fn split_expr_full_pushdown() {
+        let expr = byte_length(root());
+        let (outer, inner) = split_expression_for_pushdown(expr.clone());
+        assert_eq!(outer, None);
+        assert_eq!(inner, Some(byte_length(root())));
+        join_split_expr(&expr, outer, inner);
+    }
+
+    #[test]
+    fn split_expr_no_pushdown() {
+        // We can push down lit(), but it we replace
+        // lit() with root(), the semantics change.
+        let expr = like(root(), lit(1u64));
+        let (outer, inner) = split_expression_for_pushdown(expr.clone());
+        assert_eq!(outer, Some(expr.clone()));
+        assert_eq!(inner, None);
+        join_split_expr(&expr, outer, inner);
     }
 }

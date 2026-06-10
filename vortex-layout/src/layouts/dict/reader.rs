@@ -20,6 +20,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
 use vortex_array::expr::root;
+use vortex_array::expr::transform::split_expression_for_pushdown;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
@@ -100,10 +101,7 @@ impl DictReader {
                     )
                     .vortex_expect("must construct dict values array evaluation")
                     .map_err(Arc::new)
-                    .map(move |array| {
-                        let array = array?;
-                        Ok(SharedArray::new(array).into_array())
-                    })
+                    .map(move |array| Ok(SharedArray::new(array?).into_array()))
                     .boxed()
                     .shared()
             })
@@ -229,13 +227,18 @@ impl LayoutReader for DictReader {
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         // TODO: fix up expr partitioning with fallible & null sensitive annotations
-        let values_eval = self.values_array();
         let codes_eval = self
             .codes
             .projection_evaluation(row_range, &root(), mask)
             .map_err(|err| err.with_context("While evaluating projection on codes"))?;
-        let expr = expr.clone();
 
+        let (expr_outer, expr_inner) = split_expression_for_pushdown(expr.clone());
+
+        let values_eval = if let Some(inner) = expr_inner {
+            self.values_eval(inner)
+        } else {
+            self.values_array()
+        };
         let all_values_referenced = self.layout.has_all_values_referenced();
         Ok(async move {
             let (values, codes) = try_join!(values_eval.map_err(VortexError::from), codes_eval)?;
@@ -252,7 +255,11 @@ impl LayoutReader for DictReader {
             .into_array()
             .optimize()?;
 
-            array.apply(&expr)
+            if let Some(expr) = expr_outer {
+                array.apply(&expr)
+            } else {
+                Ok(array)
+            }
         }
         .boxed())
     }
