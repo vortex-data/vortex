@@ -434,7 +434,7 @@ impl MaterializedPlan {
         let output_ptype = self.dispatch_plan.output_ptype();
 
         // All values are null — no need to touch the GPU.
-        if matches!(self.validity, Validity::AllInvalid) {
+        if self.validity.definitely_all_invalid() {
             let dtype = DType::Primitive(output_ptype, Nullability::Nullable);
             return ConstantArray::new(Scalar::null(dtype), len)
                 .into_array()
