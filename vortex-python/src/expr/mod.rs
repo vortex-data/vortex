@@ -417,7 +417,6 @@ pub fn cast(child: PyExpr, dtype: PyDType) -> PyResult<PyExpr> {
 /// Returns
 /// -------
 /// :class:`vortex.Expr`
-/// ```
 #[pyfunction]
 pub fn is_null(child: PyExpr) -> PyResult<PyExpr> {
     Ok(PyExpr {
