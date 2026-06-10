@@ -32,17 +32,20 @@ pub struct Buffer<T> {
     pub(crate) _marker: PhantomData<T>,
 }
 
-/// Zero-length backing memory for empty buffers, aligned to [`Alignment::MAX`] so it satisfies
-/// any valid alignment without allocating.
-#[repr(align(32768))]
-struct EmptyBacking([u8; 0]);
-
-static EMPTY_BACKING: EmptyBacking = EmptyBacking([]);
+/// Zero-length backing for empty buffers, "aligned" to [`Alignment::MAX`] so it satisfies any
+/// valid alignment without allocating. A zero-length slice never reads memory, so it may use a
+/// dangling pointer as long as it is non-null and aligned.
+const EMPTY_BACKING: &[u8] = {
+    let addr = 1usize << 15;
+    assert!(Alignment::MAX.is_offset_aligned(addr));
+    // SAFETY: the pointer is non-null and aligned, and the slice is zero-length.
+    unsafe { std::slice::from_raw_parts(std::ptr::without_provenance(addr), 0) }
+};
 
 impl<T> Default for Buffer<T> {
     fn default() -> Self {
         Self {
-            bytes: Bytes::from_static(&EMPTY_BACKING.0),
+            bytes: Bytes::from_static(EMPTY_BACKING),
             length: 0,
             alignment: Alignment::of::<T>(),
             _marker: PhantomData,
@@ -113,7 +116,7 @@ impl<T> Buffer<T> {
 
     /// Create a new empty `ByteBuffer` with the provided alignment.
     ///
-    /// This does not allocate: empty buffers are backed by a shared static allocation that is
+    /// This does not allocate: empty buffers are backed by a zero-length `Bytes` that is
     /// aligned to [`Alignment::MAX`].
     pub fn empty_aligned(alignment: Alignment) -> Self {
         if !alignment.is_aligned_to(Alignment::of::<T>()) {
@@ -124,7 +127,7 @@ impl<T> Buffer<T> {
             );
         }
         Self {
-            bytes: Bytes::from_static(&EMPTY_BACKING.0),
+            bytes: Bytes::from_static(EMPTY_BACKING),
             length: 0,
             alignment,
             _marker: PhantomData,

@@ -650,6 +650,8 @@ impl FromIterator<bool> for BitBufferMut {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use crate::BufferMut;
     use crate::bit::buf_mut::BitBufferMut;
     use crate::bitbuffer;
@@ -925,6 +927,20 @@ mod tests {
     }
 
     #[test]
+    fn append_after_clear_reads_back_false() {
+        // `clear` must not leave stale set bits behind: `append_false` and `append_buffer`
+        // rely on bits beyond `len` being zero.
+        let mut bools = BitBufferMut::new_set(16);
+        bools.clear();
+        bools.append_false();
+        bools.append_buffer(&crate::BitBuffer::new_unset(8));
+
+        let bools = bools.freeze();
+        assert_eq!(bools.len(), 9);
+        assert_eq!(bools.true_count(), 0);
+    }
+
+    #[test]
     fn test_append_buffer_after_truncate() {
         // Truncating leaves stale set bits in the last partial byte; an append after that
         // must overwrite them rather than OR into them.
@@ -942,22 +958,27 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_append_buffer_misaligned_long() {
-        // Force mismatched source/destination bit offsets across many words.
+    #[rstest]
+    #[case::both_aligned(0, 0)]
+    #[case::dst_unaligned(3, 0)]
+    #[case::src_unaligned(0, 5)]
+    #[case::mismatched(3, 5)]
+    #[case::equal_nonzero(5, 5)]
+    fn test_append_buffer_long(#[case] dst_prefix: usize, #[case] src_start: usize) {
+        // Exercise every alignment combination across many words.
         let source = crate::BitBuffer::from_iter((0..301).map(|i| i % 3 == 0));
-        let source = source.slice(5..301);
+        let source = source.slice(src_start..301);
 
         let mut dest = BitBufferMut::with_capacity(512);
-        dest.append_n(true, 3);
+        dest.append_n(true, dst_prefix);
         dest.append_buffer(&source);
 
-        assert_eq!(dest.len(), 3 + source.len());
-        for i in 0..3 {
+        assert_eq!(dest.len(), dst_prefix + source.len());
+        for i in 0..dst_prefix {
             assert!(dest.value(i), "prefix bit {i}");
         }
         for i in 0..source.len() {
-            assert_eq!(dest.value(3 + i), source.value(i), "bit {i}");
+            assert_eq!(dest.value(dst_prefix + i), source.value(i), "bit {i}");
         }
     }
 
