@@ -14,6 +14,7 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+use geoarrow::datatypes::Dimension as GeoArrowDimension;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::ExtensionArray;
@@ -25,6 +26,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::dtype::StructFields;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -62,6 +64,38 @@ impl Dimension {
             ["x", "y", "z", "m"] => Dimension::Xyzm,
             _ => vortex_bail!("not a valid GeoArrow coordinate dimension: {names:?}"),
         })
+    }
+
+    /// The coordinate field names of this dimension, in GeoArrow order.
+    pub(crate) fn field_names(self) -> &'static [&'static str] {
+        match self {
+            Dimension::Xy => &["x", "y"],
+            Dimension::Xyz => &["x", "y", "z"],
+            Dimension::Xym => &["x", "y", "m"],
+            Dimension::Xyzm => &["x", "y", "z", "m"],
+        }
+    }
+}
+
+impl From<GeoArrowDimension> for Dimension {
+    fn from(dim: GeoArrowDimension) -> Self {
+        match dim {
+            GeoArrowDimension::XY => Dimension::Xy,
+            GeoArrowDimension::XYZ => Dimension::Xyz,
+            GeoArrowDimension::XYM => Dimension::Xym,
+            GeoArrowDimension::XYZM => Dimension::Xyzm,
+        }
+    }
+}
+
+impl From<Dimension> for GeoArrowDimension {
+    fn from(dim: Dimension) -> Self {
+        match dim {
+            Dimension::Xy => GeoArrowDimension::XY,
+            Dimension::Xyz => GeoArrowDimension::XYZ,
+            Dimension::Xym => GeoArrowDimension::XYM,
+            Dimension::Xyzm => GeoArrowDimension::XYZM,
+        }
     }
 }
 
@@ -120,6 +154,21 @@ pub(crate) fn coordinate_dimension(dtype: &DType) -> VortexResult<Dimension> {
         );
     }
     Dimension::from_field_names(fields.names())
+}
+
+/// The canonical storage dtype for `dim`: a `Struct` of non-nullable `f64` coordinate fields,
+/// with `nullability` at the struct (per-point) level. Inverse of [`coordinate_dimension`].
+pub(crate) fn coordinate_storage_dtype(dim: Dimension, nullability: Nullability) -> DType {
+    let names = dim.field_names();
+    let fields = std::iter::repeat_n(
+        DType::Primitive(PType::F64, Nullability::NonNullable),
+        names.len(),
+    )
+    .collect::<Vec<_>>();
+    DType::Struct(
+        StructFields::new(FieldNames::from(names), fields),
+        nullability,
+    )
 }
 
 /// Decode a [`Coordinate`] from a coordinate `Struct<x, y[, z][, m]>` scalar (`z`/`m` read iff
@@ -202,6 +251,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::dtype::FieldNames;
+    use vortex_array::dtype::Nullability;
     use vortex_array::dtype::extension::ExtDType;
     use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
@@ -209,9 +259,29 @@ mod tests {
     use vortex_session::VortexSession;
 
     use super::Coordinate;
+    use super::Dimension;
+    use super::coordinate_dimension;
+    use super::coordinate_storage_dtype;
     use super::parse_storage;
     use crate::extension::GeoMetadata;
     use crate::extension::Point;
+
+    /// Each dimension round-trips through its field names and canonical storage dtype.
+    #[test]
+    fn storage_dtype_roundtrips_dimension() -> VortexResult<()> {
+        let cases = [
+            (Dimension::Xy, ["x", "y"].as_slice()),
+            (Dimension::Xyz, ["x", "y", "z"].as_slice()),
+            (Dimension::Xym, ["x", "y", "m"].as_slice()),
+            (Dimension::Xyzm, ["x", "y", "z", "m"].as_slice()),
+        ];
+        for (dim, names) in cases {
+            assert_eq!(dim.field_names(), names);
+            let dtype = coordinate_storage_dtype(dim, Nullability::NonNullable);
+            assert_eq!(coordinate_dimension(&dtype)?, dim);
+        }
+        Ok(())
+    }
 
     /// Display emits WKT, including `z`/`m` when present.
     #[test]

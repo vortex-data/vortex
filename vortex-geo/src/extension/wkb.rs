@@ -12,8 +12,6 @@ use arrow_schema::extension::ExtensionType;
 use geoarrow::array::GenericWkbArray;
 use geoarrow::array::IntoArrow;
 use geoarrow::array::WkbViewArray;
-use geoarrow::datatypes::Crs;
-use geoarrow::datatypes::Metadata;
 use geoarrow::datatypes::WkbType;
 use prost::Message;
 use vortex_array::ArrayRef;
@@ -43,6 +41,8 @@ use vortex_session::registry::Id;
 use wkb::reader::GeometryType;
 
 use crate::extension::GeoMetadata;
+use crate::extension::geo_metadata_from_arrow;
+use crate::extension::geoarrow_metadata;
 
 /// A typed handle to an [`ExtensionArray`] that contains WKB-encoded data.
 ///
@@ -292,26 +292,9 @@ impl ArrowImportVTable for WellKnownBinary {
 }
 
 fn wkb_type(geo_metadata: &GeoMetadata) -> WkbType {
-    let metadata = Metadata::new(
-        geo_metadata
-            .crs
-            .as_ref()
-            .map(|crs| Crs::from_unknown_crs_type(crs.to_string()))
-            .unwrap_or_default(),
-        None,
-    );
-    WkbType::new(Arc::new(metadata))
+    WkbType::new(geoarrow_metadata(geo_metadata))
 }
 
 fn geo_metadata(wkb_type: &WkbType) -> GeoMetadata {
-    let crs = wkb_type.metadata().crs().crs_value().map(|value| {
-        // `Crs::from_unknown_crs_type` stores the user's string verbatim as a JSON string
-        // value, so prefer the raw string when available to round-trip cleanly. For other
-        // CRS encodings (PROJJSON object, etc.), fall back to the JSON-encoded form.
-        value
-            .as_str()
-            .map(str::to_string)
-            .unwrap_or_else(|| value.to_string())
-    });
-    GeoMetadata { crs }
+    geo_metadata_from_arrow(wkb_type.metadata())
 }
