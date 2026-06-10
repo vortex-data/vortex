@@ -50,7 +50,9 @@ jobs:
         run: |
           set -Eeu -o pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cmake
+          # cmake to configure the build; systemtap-sdt-dev provides the `dtrace`
+          # probe generator that parcagpu's USDT probes require.
+          sudo apt-get install -y --no-install-recommends cmake systemtap-sdt-dev
           git clone --depth 1 --branch v0.3.0 https://github.com/parca-dev/parcagpu.git
           make -C parcagpu local
           shim="$(find "$PWD/parcagpu" -name libparcagpucupti.so -print -quit)"
