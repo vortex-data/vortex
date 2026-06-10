@@ -16,20 +16,19 @@ use crate::arrays::varbinview::BinaryView;
 
 impl SliceReduce for VarBinView {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        let views = array
+            .views_handle()
+            .slice_typed::<BinaryView>(range.clone());
+        let data_buffers = Arc::clone(array.data_buffers());
+        let dtype = array.dtype().clone();
+        let validity = array.validity()?.slice(range)?;
+
         // Safety:
         // range is validated within bounds, and is shared between all children.
-        unsafe {
-            Ok(Some(
-                VarBinViewArray::new_handle_unchecked(
-                    array
-                        .views_handle()
-                        .slice_typed::<BinaryView>(range.clone()),
-                    Arc::clone(array.data_buffers()),
-                    array.dtype().clone(),
-                    array.validity()?.slice(range)?,
-                )
-                .into_array(),
-            ))
-        }
+        let array = unsafe {
+            VarBinViewArray::new_handle_unchecked(views, data_buffers, dtype, validity).into_array()
+        };
+
+        Ok(Some(array))
     }
 }

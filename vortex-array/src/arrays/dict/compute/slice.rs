@@ -30,6 +30,7 @@ impl SliceReduce for Dict {
         let sliced_code = if let Some(codes) = array.codes().as_typed::<Primitive>() {
             let sliced_code = <Primitive as SliceReduce>::slice(codes, range)?
                 .vortex_expect("Primitive SliceReduce should always return Some");
+            // Because we specialize the primitive branch here, we have to make sure to handle the stat inheritance
             inherit_slice_stats(array.codes(), &sliced_code);
             sliced_code
         } else {
@@ -41,9 +42,10 @@ impl SliceReduce for Dict {
             return slice_constant_code(array, code.scalar(), sliced_code.len());
         }
         // SAFETY: slicing the codes preserves invariants.
-        Ok(Some(
-            unsafe { DictArray::new_unchecked(sliced_code, array.values().clone()) }.into_array(),
-        ))
+        let array =
+            unsafe { DictArray::new_unchecked(sliced_code, array.values().clone()).into_array() };
+
+        Ok(Some(array))
     }
 }
 
