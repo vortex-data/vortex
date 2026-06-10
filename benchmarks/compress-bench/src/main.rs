@@ -20,8 +20,6 @@ use vortex_bench::Target;
 use vortex_bench::compress::CompressMeasurements;
 use vortex_bench::compress::CompressOp;
 use vortex_bench::compress::Compressor;
-use vortex_bench::compress::READ_PROJECTION_COLUMNS;
-use vortex_bench::compress::READ_PROJECTION_ROOT_COLUMNS;
 use vortex_bench::compress::benchmark_compress;
 use vortex_bench::compress::benchmark_decompress;
 use vortex_bench::compress::calculate_ratios;
@@ -136,13 +134,14 @@ async fn run_compress(
         StructListOfInts::new(100, 1000, 50),
         StructListOfInts::new(1000, 1000, 50),
         StructListOfInts::new(10000, 1000, 50),
+        // See https://github.com/vortex-data/vortex/issues/8330
         // Very wide file: project a fixed 10k columns out of 100k, across 10 chunks.
-        StructListOfInts::new_with_projection(
-            READ_PROJECTION_ROOT_COLUMNS,
-            1000,
-            10,
-            Some(READ_PROJECTION_COLUMNS),
-        ),
+        // StructListOfInts::new_with_projection(
+        //     READ_PROJECTION_ROOT_COLUMNS,
+        //     1000,
+        //     10,
+        //     Some(READ_PROJECTION_COLUMNS),
+        // ),
     ];
 
     let datasets: Vec<&dyn Dataset> = [
