@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Display;
+use std::path::Path;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -9,11 +10,14 @@ use serde::Deserialize;
 use serde::Serialize;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
+use vortex::array::IntoArray;
 
 use crate::clickbench::Flavor;
+use crate::conversions::parquet_to_vortex_chunks;
 
 pub mod data_downloads;
 pub mod feature_vectors;
+pub mod jsonbench;
 pub mod nested_lists;
 pub mod nested_structs;
 pub mod struct_list_of_ints;
@@ -34,7 +38,7 @@ pub(crate) fn normalize_benchmark_runner_id(benchmark_runner: &str) -> String {
 }
 
 #[async_trait]
-pub trait Dataset {
+pub trait Dataset: Send + Sync {
     fn name(&self) -> &str;
 
     /// Map this dataset to the v3 `(dataset, dataset_variant)` pair emitted
@@ -49,6 +53,21 @@ pub trait Dataset {
     }
 
     async fn to_vortex_array(&self, ctx: &mut ExecutionCtx) -> Result<ArrayRef>;
+
+    /// Build the uncompressed Vortex array used by the compression benchmark.
+    ///
+    /// The default keeps the historical compression-benchmark behavior: read the generated
+    /// Parquet file and convert it to Vortex arrays. Datasets can override this when their
+    /// Vortex benchmark input has semantics not representable in Parquet alone.
+    async fn to_vortex_compression_array(
+        &self,
+        _ctx: &mut ExecutionCtx,
+        parquet_path: &Path,
+    ) -> Result<ArrayRef> {
+        Ok(parquet_to_vortex_chunks(parquet_path.to_path_buf())
+            .await?
+            .into_array())
+    }
 
     /// Get the path to the parquet file for this dataset.
     ///

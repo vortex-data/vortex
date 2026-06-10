@@ -25,6 +25,7 @@ use vortex_bench::compress::benchmark_decompress;
 use vortex_bench::compress::calculate_ratios;
 use vortex_bench::create_output_writer;
 use vortex_bench::datasets::Dataset;
+use vortex_bench::datasets::jsonbench::JsonBench;
 use vortex_bench::datasets::struct_list_of_ints::StructListOfInts;
 use vortex_bench::datasets::taxi_data::TaxiData;
 use vortex_bench::datasets::tpch_l_comment::TPCHLCommentCanonical;
@@ -161,6 +162,7 @@ async fn run_compress(
         &TPCHLCommentCanonical,
         &DownloadableDataset::RPlace,
         &DownloadableDataset::AirQuality,
+        &JsonBench,
     ]
     .into_iter()
     .chain(structlistofints.iter().map(|d| d as &dyn Dataset))
@@ -246,6 +248,7 @@ async fn run_benchmark_for_dataset(
                 CompressOp::Compress => {
                     let result = benchmark_compress(
                         compressor.as_ref(),
+                        dataset_handle,
                         &parquet_path,
                         iterations,
                         bench_name,
@@ -277,6 +280,7 @@ async fn run_benchmark_for_dataset(
                 CompressOp::Decompress => {
                     let result = benchmark_decompress(
                         compressor.as_ref(),
+                        dataset_handle,
                         &parquet_path,
                         iterations,
                         bench_name,

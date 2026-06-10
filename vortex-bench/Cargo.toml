@@ -23,6 +23,7 @@ vortex = { workspace = true, features = [
     "tokio",
     "zstd",
 ] }
+vortex-json = { workspace = true }
 vortex-tensor = { workspace = true } # TODO(connor): In the future, this might be inside vortex.
 
 anyhow = { workspace = true }
@@ -33,6 +34,7 @@ async-trait = { workspace = true }
 bytes = { workspace = true }
 bzip2 = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
+flate2 = { workspace = true }
 futures = { workspace = true }
 get_dir = { workspace = true }
 glob = { workspace = true }

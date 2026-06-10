@@ -13,6 +13,7 @@ use serde::Serialize;
 use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::Format;
+use crate::datasets::Dataset;
 use crate::measurements::CompressionTimingMeasurement;
 use crate::measurements::CustomUnitMeasurement;
 
@@ -115,11 +116,12 @@ pub trait Compressor: Send + Sync {
     /// The format this compressor handles.
     fn format(&self) -> Format;
 
-    /// Compress data from a Parquet file, returning the compressed size in bytes and elapsed time.
+    /// Compress data from a dataset, returning the compressed size in bytes and elapsed time.
     ///
-    /// The implementation should read the Parquet file and compress it
-    /// to the target format.
-    async fn compress(&self, parquet_path: &Path) -> Result<(u64, Duration)>;
+    /// Most implementations read the Parquet path. Vortex can instead use dataset-specific
+    /// Vortex array semantics via [`Dataset::to_vortex_compression_array`].
+    async fn compress(&self, dataset: &dyn Dataset, parquet_path: &Path)
+    -> Result<(u64, Duration)>;
 
     /// Decompress data from the Parquet file (after compressing), returning the decompressed size.
     ///
@@ -128,7 +130,7 @@ pub trait Compressor: Send + Sync {
     ///
     /// Format implementations apply the fixed wide-table read projection when the input schema
     /// matches the projection benchmark.
-    async fn decompress(&self, parquet_path: &Path) -> Result<Duration>;
+    async fn decompress(&self, dataset: &dyn Dataset, parquet_path: &Path) -> Result<Duration>;
 }
 
 /// Run a compression benchmark for the given compressor.
@@ -136,6 +138,7 @@ pub trait Compressor: Send + Sync {
 /// Executes compression `iterations` times and returns timing statistics.
 pub async fn benchmark_compress(
     compressor: &dyn Compressor,
+    dataset: &dyn Dataset,
     parquet_path: &Path,
     iterations: usize,
     bench_name: &str,
@@ -146,7 +149,7 @@ pub async fn benchmark_compress(
     let mut all_runs = Vec::with_capacity(iterations);
 
     for _ in 0..iterations {
-        let (size, elapsed) = compressor.compress(parquet_path).await?;
+        let (size, elapsed) = compressor.compress(dataset, parquet_path).await?;
 
         compressed_size = size;
         fastest = fastest.min(elapsed);
@@ -180,6 +183,7 @@ pub async fn benchmark_compress(
 /// Benchmarks decompression `iterations` times.
 pub async fn benchmark_decompress(
     compressor: &dyn Compressor,
+    dataset: &dyn Dataset,
     parquet_path: &Path,
     iterations: usize,
     bench_name: &str,
@@ -189,7 +193,7 @@ pub async fn benchmark_decompress(
     let mut all_runs = Vec::with_capacity(iterations);
 
     for _ in 0..iterations {
-        let elapsed = compressor.decompress(parquet_path).await?;
+        let elapsed = compressor.decompress(dataset, parquet_path).await?;
 
         fastest = fastest.min(elapsed);
         all_runs.push(elapsed);

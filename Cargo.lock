@@ -9685,6 +9685,7 @@ dependencies = [
  "bytes",
  "bzip2",
  "clap",
+ "flate2",
  "futures",
  "get_dir",
  "glob",
@@ -9716,6 +9717,7 @@ dependencies = [
  "url",
  "uuid",
  "vortex",
+ "vortex-json",
  "vortex-tensor",
 ]
 
