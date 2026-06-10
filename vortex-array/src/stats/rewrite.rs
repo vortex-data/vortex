@@ -21,7 +21,7 @@ mod builtins;
 pub(crate) use builtins::register_builtins;
 
 /// Shared reference to a stats rewrite rule.
-pub(crate) type StatsRewriteRuleRef = Arc<dyn StatsRewriteRule>;
+pub type StatsRewriteRuleRef = Arc<dyn StatsRewriteRule>;
 
 /// A plugin-provided rule that rewrites predicates into stats-backed proof expressions.
 ///
@@ -29,8 +29,7 @@ pub(crate) type StatsRewriteRuleRef = Arc<dyn StatsRewriteRule>;
 /// current stats scope. A satisfier evaluates to `true` only when the original predicate is
 /// definitely true for the current stats scope. Returning `None` means the rule cannot prove
 /// anything for the expression.
-#[allow(dead_code)]
-pub(crate) trait StatsRewriteRule: Debug + Send + Sync + 'static {
+pub trait StatsRewriteRule: Debug + Send + Sync + 'static {
     /// The scalar function ID this rule applies to.
     fn scalar_fn_id(&self) -> ScalarFnId;
 
@@ -58,35 +57,35 @@ pub(crate) trait StatsRewriteRule: Debug + Send + Sync + 'static {
 }
 
 /// Context passed to stats rewrite rules.
-pub(crate) struct StatsRewriteCtx<'a> {
+pub struct StatsRewriteCtx<'a> {
     session: &'a VortexSession,
     scope: &'a DType,
 }
 
 impl<'a> StatsRewriteCtx<'a> {
     /// Create a rewrite context for `session`.
-    pub(crate) fn new(session: &'a VortexSession, scope: &'a DType) -> Self {
+    pub fn new(session: &'a VortexSession, scope: &'a DType) -> Self {
         Self { session, scope }
     }
 
     /// Returns the session that owns the rewrite registry.
-    pub(crate) fn session(&self) -> &'a VortexSession {
+    pub fn session(&self) -> &'a VortexSession {
         self.session
     }
 
     /// Return the dtype of `expr` within this rewrite scope.
-    pub(crate) fn return_dtype(&self, expr: &Expression) -> VortexResult<DType> {
+    pub fn return_dtype(&self, expr: &Expression) -> VortexResult<DType> {
         expr.return_dtype(self.scope)
     }
 
     /// Rewrite `expr` into a stats-backed falsifier.
-    pub(crate) fn falsify(&self, expr: &Expression) -> VortexResult<Option<Expression>> {
+    pub fn falsify(&self, expr: &Expression) -> VortexResult<Option<Expression>> {
         self.ensure_predicate(expr)?;
         rewrite(expr, self, StatsRewriteRule::falsify)
     }
 
     /// Rewrite `expr` into a stats-backed satisfier.
-    pub(crate) fn satisfy(&self, expr: &Expression) -> VortexResult<Option<Expression>> {
+    pub fn satisfy(&self, expr: &Expression) -> VortexResult<Option<Expression>> {
         self.ensure_predicate(expr)?;
         rewrite(expr, self, StatsRewriteRule::satisfy)
     }
