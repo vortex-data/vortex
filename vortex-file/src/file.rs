@@ -22,7 +22,7 @@ use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::FieldPathSet;
 use vortex_array::expr::Expression;
-use vortex_array::expr::pruning::checked_pruning_expr;
+use vortex_array::expr::pruning::checked_pruning_expr_with_session;
 use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
 use vortex_error::VortexResult;
 use vortex_layout::LayoutReader;
@@ -217,7 +217,9 @@ impl VortexFile {
                 }),
         );
 
-        let Some((predicate, required_stats)) = checked_pruning_expr(filter, &set) else {
+        let Some((predicate, required_stats)) =
+            checked_pruning_expr_with_session(filter, self.footer.dtype(), &set, &self.session)?
+        else {
             return Ok(false);
         };
 

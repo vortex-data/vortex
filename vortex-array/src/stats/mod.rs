@@ -21,7 +21,7 @@ pub use stats_set::*;
 mod array;
 pub mod expr;
 pub mod flatbuffers;
-pub(crate) mod rewrite;
+pub mod rewrite;
 pub mod session;
 mod stats_set;
 
