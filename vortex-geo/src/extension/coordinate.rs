@@ -1,8 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Coordinate building blocks for geometry extension types: the `Struct<x, y, [z], [m]>` storage,
+//! Coordinate building blocks for geometry extension types: the `Struct<x, y, z?, m?>` storage,
 //! its [`Dimension`], and the decoded [`Coordinate`] value.
+//!
+//! The coordinate fields, where `?` marks an optional field, are:
+//! - `x` — longitude or easting
+//! - `y` — latitude or northing
+//! - `z?` — elevation
+//! - `m?` — measure: an arbitrary per-point value such as distance along a route or a timestamp
 
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -22,7 +28,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
-/// Coordinate dimensions, matching GeoArrow. Field order is fixed: x, y, then z before m.
+/// Coordinate dimensions, matching GeoArrow. Field order is fixed: `x`, `y`, then `z` before `m`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Dimension {
     /// 2D: `x`, `y`.
@@ -48,7 +54,7 @@ impl Dimension {
     }
 }
 
-/// A decoded coordinate. `z`/`m` are `Some` iff the storage dimension includes them.
+/// A decoded coordinate. `z?`/`m?` are `Some` iff the storage dimension includes them.
 ///
 /// This is the native value produced when unpacking a [`Point`](crate::extension::Point) scalar;
 /// the rest of the coordinate machinery is crate-internal.
@@ -58,14 +64,14 @@ pub struct Coordinate {
     x: f64,
     /// The y (latitude/northing) ordinate.
     y: f64,
-    /// The optional z (elevation) ordinate.
+    /// The optional `z?` (elevation) ordinate.
     z: Option<f64>,
-    /// The optional m (measure) ordinate.
+    /// The optional `m?` (measure) ordinate.
     m: Option<f64>,
 }
 
 impl Coordinate {
-    /// A 2D coordinate (no `z`/`m`).
+    /// A 2D coordinate (`z?`/`m?` unset).
     pub fn xy(x: f64, y: f64) -> Self {
         Coordinate {
             x,
@@ -85,12 +91,12 @@ impl Coordinate {
         self.y
     }
 
-    /// The z (elevation) ordinate, if the dimension includes one.
+    /// The `z?` (elevation) ordinate, if the dimension includes one.
     pub fn z(&self) -> Option<f64> {
         self.z
     }
 
-    /// The m (measure) ordinate, if the dimension includes one.
+    /// The `m?` (measure) ordinate, if the dimension includes one.
     pub fn m(&self) -> Option<f64> {
         self.m
     }
@@ -123,7 +129,7 @@ pub(crate) fn coordinate_dimension(dtype: &DType) -> VortexResult<Dimension> {
     Dimension::from_field_names(&names)
 }
 
-/// Decode a [`Coordinate`] from a coordinate `Struct<x, y, [z], [m]>` scalar (`z`/`m` read iff
+/// Decode a [`Coordinate`] from a coordinate `Struct<x, y, z?, m?>` scalar (`z?`/`m?` read iff
 /// present, so the same decoder serves every dimension).
 pub(crate) fn coordinate_from_struct(scalar: &Scalar) -> VortexResult<Coordinate> {
     let fields = scalar.as_struct();
@@ -158,7 +164,7 @@ pub(crate) fn coordinate_from_scalar(scalar: &Scalar) -> VortexResult<Coordinate
 }
 
 /// Canonicalize a point column once and return its flat `x`/`y` `f64` columns. The bulk counterpart
-/// to [`coordinate_from_scalar`]; distances use only `x`/`y`, so `z`/`m` are ignored.
+/// to [`coordinate_from_scalar`]; distances use only `x`/`y`, so `z?`/`m?` are ignored.
 pub(crate) fn xy_columns(
     points: &ArrayRef,
     ctx: &mut ExecutionCtx,
