@@ -4,6 +4,7 @@
 #   "numpy",
 #   "pandas",
 #   "tabulate",
+#   "orjson"
 # ]
 # ///
 
@@ -18,6 +19,7 @@ from io import StringIO
 from typing import Any
 
 import numpy as np
+import orjson
 import pandas as pd
 
 # Analysis overview:
@@ -59,9 +61,7 @@ def extract_dataset_key(df: pd.DataFrame) -> pd.DataFrame:
     if "dataset" not in df.columns:
         df["dataset_key"] = pd.NA
     else:
-        df["dataset_key"] = df["dataset"].apply(
-            lambda x: str(sorted(x.items())) if pd.notna(x) and isinstance(x, dict) else pd.NA
-        )
+        df["dataset_key"] = df["dataset"].apply(dataset_key)
     return df
 
 
@@ -81,6 +81,31 @@ def identity_value(value: Any) -> Any:
     """Normalize missing values so benchmark identities compare reliably."""
 
     return None if pd.isna(value) else value
+
+
+def dataset_key(value: Any) -> str | None:
+    """Normalize dataset metadata into the join-key representation."""
+
+    if isinstance(value, dict):
+        return str(sorted(value.items()))
+    return None
+
+
+def benchmark_identity(row: Any) -> tuple[Any, Any, Any] | None:
+    """Return the timing-row identity used to find a matching baseline."""
+
+    if row.get("metric") == FILE_SIZE_METRIC or row.get("file_size") is not None:
+        return None
+
+    name = row.get("name")
+    if name is None:
+        return None
+
+    return (
+        identity_value(name),
+        identity_value(row.get("storage")),
+        dataset_key(row.get("dataset")),
+    )
 
 
 def benchmark_identity_rows(df: pd.DataFrame) -> pd.DataFrame:
@@ -103,6 +128,44 @@ def benchmark_identity_rows(df: pd.DataFrame) -> pd.DataFrame:
     ]
 
     return timing_rows[["commit_id", "benchmark_identity"]]
+
+
+def read_jsonl_rows_for_commit(path: str, commit_id: str) -> pd.DataFrame:
+    """Read only rows matching a commit from a JSONL benchmark history."""
+
+    rows = []
+    with open(path, encoding="utf-8") as lines:
+        for line in lines:
+            if '"commit_id"' not in line or f'"{commit_id}"' not in line:
+                continue
+            record = orjson.loads(line)
+            if record.get("commit_id") == commit_id:
+                rows.append(record)
+    return pd.DataFrame(rows)
+
+
+def read_latest_baseline_rows(path: str, pr: pd.DataFrame) -> pd.DataFrame:
+    """Read rows from the latest history commit matching the PR benchmark."""
+
+    pr_identities = set(benchmark_identity_rows(pr)["benchmark_identity"])
+    if not pr_identities:
+        return pd.read_json(path, lines=True)
+
+    baseline_commit_id = None
+    with open(path, encoding="utf-8") as lines:
+        for line in lines:
+            if '"name"' not in line or '"commit_id"' not in line:
+                continue
+            record = orjson.loads(line)
+            if benchmark_identity(record) in pr_identities:
+                commit_id = record.get("commit_id")
+                if commit_id is not None:
+                    baseline_commit_id = commit_id
+
+    if baseline_commit_id is None:
+        raise ValueError("No baseline rows found for the benchmark under test")
+
+    return read_jsonl_rows_for_commit(path, baseline_commit_id)
 
 
 def select_latest_baseline_rows(base: pd.DataFrame, pr: pd.DataFrame) -> pd.DataFrame:
@@ -759,9 +822,8 @@ def main() -> None:
 
     benchmark_name = sys.argv[3] if len(sys.argv) > 3 else ""
 
-    base = pd.read_json(sys.argv[1], lines=True)
     pr = pd.read_json(sys.argv[2], lines=True)
-    base = select_latest_baseline_rows(base, pr)
+    base = read_latest_baseline_rows(sys.argv[1], pr)
 
     base_commit_id = set(base["commit_id"].unique())
     pr_commit_id = set(pr["commit_id"].unique())

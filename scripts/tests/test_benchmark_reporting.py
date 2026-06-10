@@ -95,6 +95,50 @@ def test_select_latest_baseline_rows_uses_latest_matching_benchmark_commit() -> 
     assert len(selected) == 2
 
 
+def test_read_latest_baseline_rows_streams_latest_matching_benchmark_commit(tmp_path: Path) -> None:
+    compare = load_compare_module()
+    history_path = tmp_path / "history.jsonl"
+    history_rows = [
+        stored_timing_row(
+            "base-old",
+            "tpch_q01/datafusion:parquet",
+            100,
+            "nvme",
+            {"scale_factor": "1.0"},
+        ),
+        file_size_record_for("base-old", 100, "tpch", "1.0", "vortex-file-compressed", "part-0.vortex"),
+        stored_timing_row(
+            "base-current",
+            "tpch_q01/datafusion:parquet",
+            110,
+            "nvme",
+            {"scale_factor": "1.0"},
+        ),
+        file_size_record_for("base-current", 120, "tpch", "1.0", "vortex-file-compressed", "part-0.vortex"),
+        stored_timing_row("base-other", "clickbench_q01/datafusion:parquet", 200, "nvme"),
+    ]
+    history_path.write_text(
+        "".join(f"{json.dumps(row)}\n" for row in history_rows),
+        encoding="utf-8",
+    )
+    pr = pd.DataFrame(
+        [
+            stored_timing_row(
+                "pr-sha",
+                "tpch_q01/datafusion:parquet",
+                115,
+                "nvme",
+                {"scale_factor": "1.0"},
+            ),
+        ]
+    )
+
+    selected = compare.read_latest_baseline_rows(history_path, pr)
+
+    assert set(selected["commit_id"]) == {"base-current"}
+    assert len(selected) == 2
+
+
 def test_within_engine_analysis_uses_each_engines_own_parquet_control() -> None:
     compare = load_compare_module()
     rows = [
