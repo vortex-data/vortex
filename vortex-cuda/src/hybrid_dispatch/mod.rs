@@ -151,23 +151,46 @@ pub async fn try_gpu_dispatch(
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+    use vortex::array::ArrayRef;
     use vortex::array::IntoArray;
+    use vortex::array::arrays::ExtensionArray;
     use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::extension::ExtensionArrayExt;
     use vortex::array::assert_arrays_eq;
+    use vortex::array::extension::datetime::Date;
+    use vortex::array::extension::datetime::TimeUnit;
+    use vortex::array::extension::datetime::Timestamp;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
+    use vortex::dtype::NativePType;
+    use vortex::dtype::Nullability;
     use vortex::encodings::fastlanes::BitPacked;
     use vortex::encodings::fastlanes::FoR;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::mask::Mask;
+    use vortex::scalar::Scalar;
     use vortex::session::VortexSession;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
 
     use crate::CanonicalCudaExt;
+    use crate::canonicalize_cpu;
     use crate::executor::CudaArrayExt;
     use crate::session::CudaSession;
+
+    fn for_bp<T: NativePType + Into<Scalar>>(values: Vec<T>, reference: T) -> ArrayRef {
+        let bp = BitPacked::encode(
+            &PrimitiveArray::new(Buffer::from(values), NonNullable).into_array(),
+            7,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .vortex_expect("bp");
+        FoR::try_new(bp.into_array(), reference.into())
+            .vortex_expect("for")
+            .into_array()
+    }
 
     /// FoR(BitPacked) u32 — entire tree compiles into a single fused plan.
     #[crate::test]
@@ -183,7 +206,7 @@ mod tests {
         .vortex_expect("bp");
         let arr = FoR::try_new(bp.into_array(), 1000u32.into()).vortex_expect("for");
 
-        let cpu = crate::canonicalize_cpu(arr.clone())?.into_array();
+        let cpu = canonicalize_cpu(arr.clone())?.into_array();
         let gpu = arr
             .into_array()
             .execute_cuda(&mut ctx)
@@ -219,7 +242,7 @@ mod tests {
             None,
         )?;
 
-        let cpu = crate::canonicalize_cpu(alp.clone())?.into_array();
+        let cpu = canonicalize_cpu(alp.clone())?.into_array();
         let gpu = alp
             .into_array()
             .execute_cuda(&mut ctx)
@@ -257,7 +280,7 @@ mod tests {
         .unwrap();
         let arr = ALP::try_new(encoded, Exponents { e: 0, f: 2 }, Some(patches))?;
 
-        let cpu = crate::canonicalize_cpu(arr.clone())?.into_array();
+        let cpu = canonicalize_cpu(arr.clone())?.into_array();
         let gpu = arr
             .into_array()
             .execute_cuda(&mut ctx)
@@ -364,6 +387,64 @@ mod tests {
             .await?
             .into_array();
         assert_arrays_eq!(cpu, gpu);
+        Ok(())
+    }
+
+    /// Ext(FoR(BitPacked)) — extension-typed columns must decode their
+    /// compressed storage on the GPU instead of being treated as already
+    /// canonical (#8143).
+    #[rstest]
+    #[case::date(ExtensionArray::new(
+        Date::new(TimeUnit::Days, Nullability::NonNullable).erased(),
+        for_bp((0..2048i32).map(|i| i % 128).collect(), 10_000i32),
+    ))]
+    #[case::timestamp(ExtensionArray::new(
+        Timestamp::new(TimeUnit::Microseconds, Nullability::NonNullable).erased(),
+        for_bp((0..2048i64).map(|i| i % 128).collect(), 1_000_000i64),
+    ))]
+    #[crate::test]
+    async fn test_ext_storage_gpu_decode(#[case] ext: ExtensionArray) -> VortexResult<()> {
+        let mut ctx =
+            CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+
+        let expected_storage = canonicalize_cpu(ext.storage_array().clone())?.into_array();
+        let expected = ExtensionArray::new(ext.ext_dtype().clone(), expected_storage).into_array();
+
+        let actual = ext.into_array().execute_cuda(&mut ctx).await?;
+        let storage = actual.as_extension().storage_array();
+        assert!(
+            storage.is_canonical(),
+            "storage still encoded as {}",
+            storage.encoding_id()
+        );
+        assert!(!storage.is_host(), "storage was not decoded on the device");
+
+        let actual = actual.into_host().await?.into_array();
+        assert_arrays_eq!(expected, actual);
+        Ok(())
+    }
+
+    /// Extension over already-canonical storage executes unchanged.
+    #[crate::test]
+    async fn test_ext_canonical_storage() -> VortexResult<()> {
+        let mut ctx =
+            CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+
+        let ext = ExtensionArray::new(
+            Date::new(TimeUnit::Days, Nullability::NonNullable).erased(),
+            PrimitiveArray::new(Buffer::from((0..128i32).collect::<Vec<_>>()), NonNullable)
+                .into_array(),
+        );
+
+        let actual = ext
+            .clone()
+            .into_array()
+            .execute_cuda(&mut ctx)
+            .await?
+            .into_host()
+            .await?
+            .into_array();
+        assert_arrays_eq!(ext.into_array(), actual);
         Ok(())
     }
 }
