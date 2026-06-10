@@ -42,6 +42,7 @@ fn main() {
     );
 
     println!("cargo:rerun-if-env-changed=PROFILE");
+    println!("cargo:rerun-if-env-changed=VORTEX_CUDA_LINEINFO");
 
     // Regenerate bit_unpack kernels only when the generator changes
     println!(
@@ -146,6 +147,15 @@ fn nvcc_compile_ptx(
         // - synchronize: https://docs.nvidia.com/compute-sanitizer/ComputeSanitizer/index.html#using-synccheck
     } else {
         cmd.arg("-O3");
+
+        // Generate line-number information for device code when requested. This lets
+        // PC-sampling profilers (e.g. CUDA PC sampling collected via Polar Signals)
+        // symbolize samples back to source. `-lineinfo` does not affect execution
+        // performance; gate it behind an env var so default release builds are
+        // unchanged.
+        if env::var_os("VORTEX_CUDA_LINEINFO").is_some() {
+            cmd.arg("-lineinfo");
+        }
     }
 
     // Output PTX file goes to output_dir with same base name
