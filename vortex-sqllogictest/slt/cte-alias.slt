@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+include ./setup.slt.no
+
+query I
+COPY (SELECT * FROM (VALUES ('1'), ('2'), (NULL), ('3')) AS col(col)) TO '$__TEST_DIR__/cte-alias.vortex';
+----
+4
+
+# datafusion fails with "Schema error: No field named other"
+query T
+SELECT col AS other FROM '$__TEST_DIR__/cte-alias.vortex'
+WHERE other IS NOT NULL;
+----
+1
+2
+3
+
+# duckdb fails with "Couldn't find the other field in the input scope"
+query T
+WITH cte AS (SELECT col AS other FROM '$__TEST_DIR__/cte-alias.vortex')
+SELECT * FROM cte WHERE other IS NOT NULL ORDER BY other;
+----
+1
+2
+3
