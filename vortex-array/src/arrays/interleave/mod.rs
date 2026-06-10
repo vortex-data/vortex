@@ -408,6 +408,7 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
 
     /// Reference (oracle) implementation of the interleave spec, used only to validate the optimized
@@ -603,15 +604,15 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "only implemented for boolean values")]
-    fn non_boolean_value_execution_panics() {
-        // Execution dispatches on the value type: primitive values have no kernel yet.
-        let v0 = PrimitiveArray::from_iter([1u32]).into_array();
-        let v1 = PrimitiveArray::from_iter([2u32]).into_array();
+    #[should_panic(expected = "only implemented for boolean and primitive values")]
+    fn unsupported_value_execution_panics() {
+        // Execution dispatches on the value type: string values have no kernel yet.
+        let v0 = VarBinViewArray::from_iter_str(["a"]).into_array();
+        let v1 = VarBinViewArray::from_iter_str(["b"]).into_array();
         let array_indices = PrimitiveArray::from_iter([0u32, 1]).into_array();
         let row_indices = PrimitiveArray::from_iter([0u32, 0]).into_array();
         let interleaved = InterleaveArray::try_new(vec![v0, v1], array_indices, row_indices)
-            .vortex_expect("primitive values should construct")
+            .vortex_expect("string values should construct")
             .into_array();
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         interleaved.execute::<Canonical>(&mut ctx).ok();
