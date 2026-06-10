@@ -10306,8 +10306,11 @@ dependencies = [
 name = "vortex-json"
 version = "0.1.0"
 dependencies = [
+ "arrow-array",
+ "arrow-schema",
  "vortex-array",
  "vortex-error",
+ "vortex-session",
 ]
 
 [[package]]
