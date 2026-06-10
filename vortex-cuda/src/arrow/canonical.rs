@@ -7,9 +7,11 @@ use std::ptr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use cudarc::driver::CudaSlice;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::LaunchConfig;
 use cudarc::driver::PushKernelArg;
+use cudarc::driver::result as cuda_driver;
 use futures::future::BoxFuture;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
@@ -25,6 +27,7 @@ use vortex::array::arrays::ListViewArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
+use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::bool::BoolDataParts;
 use vortex::array::arrays::decimal::DecimalDataParts;
 use vortex::array::arrays::dict::DictOwnedExt;
@@ -66,6 +69,7 @@ use crate::arrow::SyncEvent;
 use crate::arrow::arrow_device_export_dictionary_codes_dtype;
 use crate::arrow::cuda_decimal_value_type;
 use crate::arrow::list_view::export_device_list_view;
+use crate::cub::exclusive_sum_i32;
 use crate::executor::CudaArrayExt;
 
 /// An implementation of `ExportDeviceArray` that exports Vortex arrays to `ArrowDeviceArray` by
@@ -206,6 +210,10 @@ fn export_canonical(
                 export_fixed_size_list(fixed_size_list, ctx).await
             }
             Canonical::VarBinView(varbinview) => {
+                if matches!(varbinview.dtype(), DType::Binary(_)) {
+                    return export_binary(varbinview, ctx).await;
+                }
+
                 let len = varbinview.len();
                 let VarBinViewDataParts {
                     views,
@@ -436,6 +444,236 @@ where
     })?;
 
     Ok(BufferHandle::new_device(Arc::new(output_device)))
+}
+
+/// Export Vortex binary views as standard Arrow `Binary`.
+///
+/// cuDF imports Arrow `Binary` through the Arrow Device path, but does not currently accept
+/// Arrow `BinaryView`. This path keeps conversion on the CUDA stream by building `i32` offsets
+/// from view sizes and gathering inline/out-of-line view bytes into one contiguous values buffer.
+async fn export_binary(
+    varbinview: VarBinViewArray,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<(ArrowArray, SyncEvent)> {
+    let len = varbinview.len();
+    let VarBinViewDataParts {
+        views,
+        buffers: data_buffers,
+        validity,
+        ..
+    } = varbinview.into_data_parts();
+
+    let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
+    let views = ctx.ensure_on_device(views).await?;
+    let (offsets, values) =
+        export_binary_buffers(&views, &data_buffers, validity_buffer.as_ref(), len, ctx).await?;
+
+    let buffers = vec![validity_buffer, Some(offsets), Some(values)];
+
+    let mut private_data = PrivateData::new(buffers, vec![], ctx)?;
+    let sync_event = private_data.sync_event();
+    let arrow_array = ArrowArray {
+        length: len as i64,
+        null_count,
+        offset: 0,
+        // Arrow Binary layout: optional null bitmap, i32 offsets, contiguous bytes.
+        n_buffers: 3,
+        buffers: private_data.buffer_ptrs.as_mut_ptr(),
+        n_children: 0,
+        children: ptr::null_mut(),
+        release: Some(release_array),
+        dictionary: ptr::null_mut(),
+        private_data: Box::into_raw(private_data).cast(),
+    };
+
+    Ok((arrow_array, sync_event))
+}
+
+/// Build Arrow Binary offsets and values from VarBinView buffers on the active CUDA stream.
+async fn export_binary_buffers(
+    views: &BufferHandle,
+    data_buffers: &[BufferHandle],
+    validity: Option<&BufferHandle>,
+    len: usize,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<(BufferHandle, BufferHandle)> {
+    let mut device_data_buffers = Vec::with_capacity(data_buffers.len());
+    for buffer in data_buffers {
+        device_data_buffers.push(ctx.ensure_on_device(buffer.clone()).await?);
+    }
+
+    let mut ptr_values = Vec::with_capacity(device_data_buffers.len());
+    let mut len_values = Vec::with_capacity(device_data_buffers.len());
+    for buffer in &device_data_buffers {
+        ptr_values.push(buffer.cuda_device_ptr()?);
+        len_values.push(u64::try_from(buffer.len())?);
+    }
+    if device_data_buffers.is_empty() {
+        // Kernels never dereference these when data_buffer_count is zero, but the arguments
+        // still need a real device allocation.
+        ptr_values.push(0);
+        len_values.push(0);
+    }
+    let data_buffer_ptrs = device_buffer_from(ptr_values, ctx).await?;
+    let data_buffer_lens = device_buffer_from(len_values, ctx).await?;
+    let status = device_buffer_from(vec![0u32], ctx).await?;
+
+    let scan_input = init_binary_scan(
+        views,
+        validity,
+        &data_buffer_lens,
+        device_data_buffers.len(),
+        &status,
+        len,
+        ctx,
+    )?;
+    let output_offsets = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
+        exclusive_sum_i32(&scan_input, len + 1, ctx)?,
+    )));
+    validate_binary_offsets(&output_offsets, len, &status, ctx)?;
+
+    // One status read covers init_scan and offset validation. Both must pass before gather may
+    // dereference view payloads through the scanned offsets.
+    check_binary_status(&status).await?;
+
+    let total_bytes = total_binary_bytes(&output_offsets, len).await?;
+    let output_values = gather_binary_values(
+        views,
+        &data_buffer_ptrs,
+        &output_offsets,
+        total_bytes,
+        len,
+        ctx,
+    )?;
+
+    Ok((output_offsets, output_values))
+}
+
+/// Copy a small host vector to a device-resident buffer.
+async fn device_buffer_from<T>(
+    values: Vec<T>,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<BufferHandle>
+where
+    Buffer<T>: From<Vec<T>>,
+{
+    ctx.ensure_on_device(BufferHandle::new_host(
+        Buffer::from(values).into_byte_buffer(),
+    ))
+    .await
+}
+
+async fn check_binary_status(status: &BufferHandle) -> VortexResult<()> {
+    match Buffer::<u32>::from_byte_buffer(status.try_to_host()?.await?)[0] {
+        0 => Ok(()),
+        1 => vortex_bail!(
+            "cannot export BinaryView as Arrow Binary: a view references an invalid data buffer"
+        ),
+        2 => vortex_bail!(
+            "cannot export BinaryView as Arrow Binary: offsets exceed i32 range required by Arrow Binary"
+        ),
+        status => vortex_bail!("unexpected Arrow Binary export status {status}"),
+    }
+}
+
+fn init_binary_scan(
+    views: &BufferHandle,
+    validity: Option<&BufferHandle>,
+    data_buffer_lens: &BufferHandle,
+    data_buffer_count: usize,
+    status: &BufferHandle,
+    len: usize,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<CudaSlice<i32>> {
+    let scan_len = len + 1;
+    let views_view = views.cuda_view::<u8>()?;
+    // A null pointer signals an all-valid array to the kernel.
+    let validity_ptr = validity
+        .map(|v| v.cuda_device_ptr())
+        .transpose()?
+        .unwrap_or(0);
+    let lens_view = data_buffer_lens.cuda_view::<u64>()?;
+    let status_view = status.cuda_view::<u32>()?;
+    let data_buffer_count_u64 = data_buffer_count as u64;
+    let len_u64 = len as u64;
+    let scan_input = ctx.device_alloc::<i32>(scan_len)?;
+    let kernel = ctx.load_function_with_suffixes("arrow_binary", &["init_scan"])?;
+
+    ctx.launch_kernel(&kernel, scan_len, |args| {
+        args.arg(&views_view)
+            .arg(&validity_ptr)
+            .arg(&lens_view)
+            .arg(&scan_input)
+            .arg(&status_view)
+            .arg(&data_buffer_count_u64)
+            .arg(&len_u64);
+    })?;
+
+    Ok(scan_input)
+}
+
+/// Flag scanned offsets that overflowed i32. A negative offset is proof of overflow because
+/// init_scan caps every row size at `i32::MAX`, so the first overflowing prefix sum always wraps
+/// into the negative range.
+fn validate_binary_offsets(
+    offsets: &BufferHandle,
+    len: usize,
+    status: &BufferHandle,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<()> {
+    let scan_len = len + 1;
+    let offsets_view = offsets.cuda_view::<i32>()?;
+    let status_view = status.cuda_view::<u32>()?;
+    let scan_len_u64 = scan_len as u64;
+    let kernel = ctx.load_function_with_suffixes("arrow_binary", &["validate_offsets"])?;
+
+    ctx.launch_kernel(&kernel, scan_len, |args| {
+        args.arg(&offsets_view).arg(&status_view).arg(&scan_len_u64);
+    })
+}
+
+async fn total_binary_bytes(offsets: &BufferHandle, len: usize) -> VortexResult<usize> {
+    let total = Buffer::<i32>::from_byte_buffer(
+        offsets
+            .slice_typed::<i32>(len..len + 1)
+            .try_to_host()?
+            .await?,
+    )[0];
+    usize::try_from(total).map_err(Into::into)
+}
+
+fn gather_binary_values(
+    views: &BufferHandle,
+    data_buffer_ptrs: &BufferHandle,
+    offsets: &BufferHandle,
+    total_bytes: usize,
+    len: usize,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<BufferHandle> {
+    let output_values = ctx.device_alloc::<u8>(total_bytes.max(1))?;
+
+    if total_bytes != 0 {
+        let views_view = views.cuda_view::<u8>()?;
+        let ptrs_view = data_buffer_ptrs.cuda_view::<u64>()?;
+        let offsets_view = offsets.cuda_view::<i32>()?;
+        let len_u64 = len as u64;
+        let total_bytes_u64 = total_bytes as u64;
+        let kernel = ctx.load_function_with_suffixes("arrow_binary", &["gather"])?;
+
+        ctx.launch_kernel(&kernel, total_bytes, |args| {
+            args.arg(&views_view)
+                .arg(&ptrs_view)
+                .arg(&offsets_view)
+                .arg(&output_values)
+                .arg(&len_u64)
+                .arg(&total_bytes_u64);
+        })?;
+    }
+
+    Ok(
+        BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output_values)))
+            .slice(0..total_bytes),
+    )
 }
 
 /// Export Vortex validity as an Arrow validity byte buffer on the CUDA device.
@@ -853,6 +1091,13 @@ unsafe extern "C" fn release_array(array: *mut ArrowArray) {
 
         if !private_data_ptr.is_null() {
             let mut private_data = Box::from_raw(private_data_ptr.cast::<PrivateData>());
+            // Release may run on a foreign thread; bind this array's context before synchronizing
+            // so async frees cannot race consumer-side reads.
+            let cuda_context = Arc::clone(private_data.cuda_stream.context());
+            match cuda_context.bind_to_thread() {
+                Ok(()) => cuda_context.record_err(cuda_driver::ctx::synchronize()),
+                Err(err) => cuda_context.record_err(Err::<(), _>(err)),
+            }
             release_children(&mut private_data);
             release_dictionary(&mut private_data);
         }
@@ -1162,6 +1407,47 @@ mod tests {
             .iter()
             .copied()
             .collect())
+    }
+
+    fn private_data_buffer_bytes(
+        array: &ArrowArray,
+        buffer_idx: usize,
+    ) -> VortexResult<ByteBuffer> {
+        let private_data = unsafe { &*array.private_data.cast::<PrivateData>() };
+        let buffer = private_data.buffers[buffer_idx]
+            .as_ref()
+            .vortex_expect("buffer should be present");
+        Ok(buffer.to_host_sync())
+    }
+
+    // Assert Arrow Binary export uses the standard null bitmap, i32 offsets, and values layout.
+    fn assert_binary_layout(
+        array: &ArrowArray,
+        expected_len: i64,
+        expected_null_count: i64,
+        expected_offsets: &[i32],
+        expected_values: &[u8],
+    ) -> VortexResult<()> {
+        assert_eq!(array.length, expected_len);
+        assert_eq!(array.null_count, expected_null_count);
+        assert_eq!(array.offset, 0);
+        assert_eq!(array.n_buffers, 3);
+        assert_eq!(array.n_children, 0);
+        assert!(array.release.is_some());
+        assert!(!array.private_data.is_null());
+
+        let buffers =
+            unsafe { std::slice::from_raw_parts(array.buffers, usize::try_from(array.n_buffers)?) };
+        assert_eq!(buffers[0].is_null(), expected_null_count == 0);
+        assert!(!buffers[1].is_null());
+        assert!(!buffers[2].is_null());
+        assert_eq!(private_data_buffer_i32_values(array, 1)?, expected_offsets);
+        assert_eq!(
+            private_data_buffer_bytes(array, 2)?.as_ref(),
+            expected_values
+        );
+
+        Ok(())
     }
 
     fn assert_exported_decimal_values<T: NativeDecimalType>(
@@ -1637,7 +1923,7 @@ mod tests {
     }
 
     #[crate::test]
-    async fn test_export_binaryview_inline_outline_values() -> VortexResult<()> {
+    async fn test_export_binary_inline_outline_values() -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
@@ -1653,11 +1939,95 @@ mod tests {
         let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
 
         let field = Field::try_from(&exported.schema)?;
-        assert_eq!(field, Field::new("", DataType::BinaryView, true));
-        assert_varbinview_layout(&exported.array.array, 5, 1, &[out_of_line.len()])?;
+        assert_eq!(field, Field::new("", DataType::Binary, true));
+        assert_binary_layout(
+            &exported.array.array,
+            5,
+            1,
+            &[0, 0, 3, 3, 8, i32::try_from(8 + out_of_line.len())?],
+            &[b"\x00\xff\xfe".as_slice(), b"short", out_of_line].concat(),
+        )?;
         assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_export_binary_empty_and_all_null() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let empty = VarBinViewArray::from_iter_nullable_bin(std::iter::empty::<Option<&[u8]>>())
+            .into_array();
+        let mut exported = empty.export_device_array_with_schema(&mut ctx).await?;
+        let field = Field::try_from(&exported.schema)?;
+        assert_eq!(field, Field::new("", DataType::Binary, true));
+        assert_binary_layout(&exported.array.array, 0, 0, &[0], b"")?;
+        assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+
+        let all_null =
+            VarBinViewArray::from_iter_nullable_bin([None::<&[u8]>, None::<&[u8]>]).into_array();
+        let mut exported = all_null.export_device_array_with_schema(&mut ctx).await?;
+        let field = Field::try_from(&exported.schema)?;
+        assert_eq!(field, Field::new("", DataType::Binary, true));
+        assert_binary_layout(&exported.array.array, 2, 2, &[0, 0, 0], b"")?;
+        assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_export_binary_invalid_data_buffer_ref_errors() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let view = BinaryView::make_view(b"this references a missing data buffer", 0, 0);
+        let array = VarBinViewArray::new_handle(
+            BufferHandle::new_host(Buffer::from_iter([view]).into_byte_buffer()),
+            Arc::from([]),
+            DType::Binary(Nullability::NonNullable),
+            Validity::NonNullable,
+        )
+        .into_array();
+
+        let err = array
+            .export_device_array_with_schema(&mut ctx)
+            .await
+            .expect_err("missing binary data buffer should fail");
+        assert!(
+            err.to_string()
+                .contains("a view references an invalid data buffer")
+        );
+
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_export_binary_i32_offset_overflow_errors() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let view = BinaryView::new_ref(i32::MAX as u32 + 1, [0; 4], 0, 0);
+        let array = VarBinViewArray::new_handle(
+            BufferHandle::new_host(Buffer::from_iter([view]).into_byte_buffer()),
+            Arc::from([]),
+            DType::Binary(Nullability::NonNullable),
+            Validity::NonNullable,
+        )
+        .into_array();
+
+        let err = array
+            .export_device_array_with_schema(&mut ctx)
+            .await
+            .expect_err("oversized binary value should fail Arrow Binary export");
+        assert!(
+            err.to_string()
+                .contains("offsets exceed i32 range required by Arrow Binary")
+        );
+
         Ok(())
     }
 
@@ -1863,7 +2233,7 @@ mod tests {
     )]
     #[case::binary(
         multi_buffer_varbinview(DType::Binary(Nullability::NonNullable)),
-        DataType::BinaryView
+        DataType::Binary
     )]
     #[crate::test]
     async fn test_export_varbinview_multiple_variadic_buffers(
@@ -1877,8 +2247,19 @@ mod tests {
         let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
 
         let field = Field::try_from(&exported.schema)?;
+        let is_binary = expected_data_type == DataType::Binary;
         assert_eq!(field, Field::new("", expected_data_type, false));
-        assert_varbinview_layout(&exported.array.array, 3, 0, &expected_data_buffer_lengths)?;
+        if is_binary {
+            assert_binary_layout(
+                &exported.array.array,
+                3,
+                0,
+                &[0, 6, 36, 67],
+                b"inlinefirst value stored out-of-linesecond value stored out-of-line",
+            )?;
+        } else {
+            assert_varbinview_layout(&exported.array.array, 3, 0, &expected_data_buffer_lengths)?;
+        }
         assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
@@ -2288,8 +2669,15 @@ mod tests {
         .slice(1..4)?;
         let mut exported = binary.export_device_array_with_schema(&mut ctx).await?;
         let field = Field::try_from(&exported.schema)?;
-        assert_eq!(field, Field::new("", DataType::BinaryView, true));
-        assert_varbinview_shape(&exported.array.array, 3, 1)?;
+        assert_eq!(field, Field::new("", DataType::Binary, true));
+        let sliced_out_of_line = b"this out-of-line binary value remains in the slice";
+        assert_binary_layout(
+            &exported.array.array,
+            3,
+            1,
+            &[0, 0, 2, i32::try_from(2 + sliced_out_of_line.len())?],
+            &[b"\x00\xff".as_slice(), sliced_out_of_line].concat(),
+        )?;
         assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
         unsafe { release_exported_array(&raw mut exported.array.array) };
 
