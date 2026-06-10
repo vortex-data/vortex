@@ -26,6 +26,7 @@ use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 /// Coordinate dimensions, matching GeoArrow. Field order is fixed: `x`, `y`, then `z` before `m`.
@@ -61,13 +62,13 @@ impl Dimension {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Coordinate {
     /// The x (longitude/easting) ordinate.
-    x: f64,
+    pub x: f64,
     /// The y (latitude/northing) ordinate.
-    y: f64,
+    pub y: f64,
     /// The optional `z?` (elevation) ordinate.
-    z: Option<f64>,
+    pub z: Option<f64>,
     /// The optional `m?` (measure) ordinate.
-    m: Option<f64>,
+    pub m: Option<f64>,
 }
 
 impl Coordinate {
@@ -80,31 +81,16 @@ impl Coordinate {
             m: None,
         }
     }
-
-    /// The x (longitude/easting) ordinate.
-    pub fn x(&self) -> f64 {
-        self.x
-    }
-
-    /// The y (latitude/northing) ordinate.
-    pub fn y(&self) -> f64 {
-        self.y
-    }
-
-    /// The `z?` (elevation) ordinate, if the dimension includes one.
-    pub fn z(&self) -> Option<f64> {
-        self.z
-    }
-
-    /// The `m?` (measure) ordinate, if the dimension includes one.
-    pub fn m(&self) -> Option<f64> {
-        self.m
-    }
 }
 
 impl Display for Coordinate {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "POINT({} {})", self.x, self.y)
+    fn fmt(&self, fmt: &mut Formatter<'_>) -> std::fmt::Result {
+        match (self.z, self.m) {
+            (None, None) => write!(fmt, "POINT({} {})", self.x, self.y),
+            (Some(z), None) => write!(fmt, "POINT Z ({} {} {})", self.x, self.y, z),
+            (None, Some(m)) => write!(fmt, "POINT M ({} {} {})", self.x, self.y, m),
+            (Some(z), Some(m)) => write!(fmt, "POINT ZM ({} {} {} {})", self.x, self.y, z, m),
+        }
     }
 }
 
@@ -116,15 +102,14 @@ pub(crate) fn coordinate_dimension(dtype: &DType) -> VortexResult<Dimension> {
     };
     let names: Vec<&str> = fields.names().iter().map(|n| n.as_ref()).collect();
     for (i, field) in fields.fields().enumerate() {
-        if !matches!(
-            field,
-            DType::Primitive(PType::F64, Nullability::NonNullable)
-        ) {
-            vortex_bail!(
-                "coordinate field {} must be non-nullable f64, was {field}",
-                names[i]
-            );
-        }
+        vortex_ensure!(
+            matches!(
+                field,
+                DType::Primitive(PType::F64, Nullability::NonNullable)
+            ),
+            "coordinate field {} must be non-nullable f64, was {field}",
+            names[i]
+        );
     }
     Dimension::from_field_names(&names)
 }
@@ -157,8 +142,8 @@ pub(crate) fn coordinate_from_struct(scalar: &Scalar) -> VortexResult<Coordinate
 /// Decode a [`Coordinate`] from an extension-typed point scalar (unwrapped to its coordinate
 /// storage) or a bare coordinate `Struct` scalar. The per-row decode used by the distance fns.
 pub(crate) fn coordinate_from_scalar(scalar: &Scalar) -> VortexResult<Coordinate> {
-    match scalar.dtype().as_extension_opt() {
-        Some(_) => coordinate_from_struct(&scalar.as_extension().to_storage_scalar()),
+    match scalar.as_extension_opt() {
+        Some(ext_scalar) => coordinate_from_struct(&ext_scalar.to_storage_scalar()),
         None => coordinate_from_struct(scalar),
     }
 }
@@ -184,4 +169,27 @@ pub(crate) fn xy_columns(
         .clone()
         .execute::<PrimitiveArray>(ctx)?;
     Ok((xs, ys))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Coordinate;
+
+    /// Display emits WKT, including `z?`/`m?` when present.
+    #[test]
+    fn display_is_wkt() {
+        let coordinate = |z, m| Coordinate {
+            x: 1.0,
+            y: 2.0,
+            z,
+            m,
+        };
+        assert_eq!(coordinate(None, None).to_string(), "POINT(1 2)");
+        assert_eq!(coordinate(Some(3.0), None).to_string(), "POINT Z (1 2 3)");
+        assert_eq!(coordinate(None, Some(4.0)).to_string(), "POINT M (1 2 4)");
+        assert_eq!(
+            coordinate(Some(3.0), Some(4.0)).to_string(),
+            "POINT ZM (1 2 3 4)"
+        );
+    }
 }

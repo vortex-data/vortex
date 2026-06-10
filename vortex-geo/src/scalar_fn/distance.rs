@@ -6,6 +6,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::ScalarFnArray;
@@ -93,19 +94,19 @@ impl ScalarFnVTable for GeoDistance {
     ) -> VortexResult<ArrayRef> {
         let a = args.get(0)?;
         let b = args.get(1)?;
-        match (a.as_constant(), b.as_constant()) {
+        match (a.as_opt::<Constant>(), b.as_opt::<Constant>()) {
             (Some(qa), Some(qb)) => {
-                let qa = coordinate_from_scalar(&qa)?;
-                let qb = coordinate_from_scalar(&qb)?;
-                let distance = euclidean_distance(qa.x(), qa.y(), qb.x(), qb.y());
+                let qa = coordinate_from_scalar(qa.scalar())?;
+                let qb = coordinate_from_scalar(qb.scalar())?;
+                let distance = euclidean_distance(qa.x, qa.y, qb.x, qb.y);
                 Ok(ConstantArray::new(
                     Scalar::primitive(distance, Nullability::NonNullable),
                     a.len(),
                 )
                 .into_array())
             }
-            (Some(query), None) => distances_to_constant(&b, &query, ctx),
-            (None, Some(query)) => distances_to_constant(&a, &query, ctx),
+            (Some(query), None) => distances_to_constant(&b, query.scalar(), ctx),
+            (None, Some(query)) => distances_to_constant(&a, query.scalar(), ctx),
             (None, None) => {
                 let (axs, ays) = xy_columns(&a, ctx)?;
                 let (bxs, bys) = xy_columns(&b, ctx)?;
@@ -134,7 +135,7 @@ fn distances_to_constant(
         .as_slice::<f64>()
         .iter()
         .zip(ys.as_slice::<f64>())
-        .map(|(&x, &y)| euclidean_distance(x, y, query.x(), query.y()));
+        .map(|(&x, &y)| euclidean_distance(x, y, query.x, query.y));
     Ok(PrimitiveArray::from_iter(distances).into_array())
 }
 
