@@ -50,7 +50,6 @@ fn benchmark_arrow_validity_repack(c: &mut Criterion) {
                     let input_buffer =
                         block_on(cuda_ctx.ensure_on_device(BufferHandle::new_host(input_buffer)))
                             .vortex_expect("failed to copy validity input to device");
-                    let output_bytes = (len + ARROW_OFFSET).div_ceil(8);
 
                     for _ in 0..iters {
                         let output = test_harness::repack_arrow_validity_buffer(
@@ -58,7 +57,6 @@ fn benchmark_arrow_validity_repack(c: &mut Criterion) {
                             input_offset,
                             len,
                             ARROW_OFFSET,
-                            output_bytes,
                             &mut cuda_ctx,
                         )
                         .vortex_expect("failed to repack Arrow validity");

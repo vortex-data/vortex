@@ -78,17 +78,9 @@ pub mod test_harness {
         input_offset: usize,
         len: usize,
         arrow_offset: usize,
-        output_bytes: usize,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<BufferHandle> {
-        repack_arrow_validity_buffer_impl(
-            input_buffer,
-            input_offset,
-            len,
-            arrow_offset,
-            output_bytes,
-            ctx,
-        )
+        repack_arrow_validity_buffer_impl(input_buffer, input_offset, len, arrow_offset, ctx)
     }
 }
 
