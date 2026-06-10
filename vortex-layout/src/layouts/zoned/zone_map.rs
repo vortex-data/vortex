@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::all_nan::AllNan;
@@ -25,6 +26,7 @@ use vortex_array::expr::get_item;
 use vortex_array::expr::is_root;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
+use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::traversal::NodeExt;
 use vortex_array::expr::traversal::Transformed;
@@ -43,6 +45,8 @@ use vortex_mask::Mask;
 use vortex_runend::RunEnd;
 use vortex_session::VortexSession;
 
+use crate::layouts::zoned::schema::MAX_IS_TRUNCATED;
+use crate::layouts::zoned::schema::MIN_IS_TRUNCATED;
 use crate::layouts::zoned::schema::stats_table_dtype;
 
 /// A zone map containing statistics for a column.
@@ -100,6 +104,56 @@ impl ZoneMap {
     #[deprecated(note = "zone-map stats table dtypes are an internal layout detail")]
     pub fn dtype_for_stats_table(column_dtype: &DType, present_stats: &[Stat]) -> DType {
         stats_table_dtype(column_dtype, present_stats)
+    }
+
+    /// The number of zones in this map.
+    pub fn num_zones(&self) -> usize {
+        self.array.len()
+    }
+
+    /// The number of rows covered by `zone`. Every zone spans the nominal
+    /// zone length except the last, which may be shorter.
+    pub fn zone_row_count(&self, zone: usize) -> u64 {
+        debug_assert!(zone < self.num_zones());
+        if zone + 1 == self.num_zones() {
+            self.row_count - self.zone_len * (zone as u64)
+        } else {
+            self.zone_len
+        }
+    }
+
+    /// The stored value of `stat` for `zone`.
+    ///
+    /// Returns [`Precision::Absent`] when the stat is not stored in this map
+    /// or is null for the zone, and an inexact value when a stored min/max is
+    /// truncated — a bound on the true extremum rather than the extremum
+    /// itself. Exact values carry the dtype of [`Stat::dtype`] over the
+    /// column dtype, nullable per the stats-table schema.
+    pub fn zone_stat(
+        &self,
+        zone: usize,
+        stat: Stat,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Precision<Scalar>> {
+        let Some(values) = self.array.unmasked_field_by_name_opt(stat.name()) else {
+            return Ok(Precision::Absent);
+        };
+        let value = values.execute_scalar(zone, ctx)?;
+        if value.is_null() {
+            return Ok(Precision::Absent);
+        }
+        let truncated_field = match stat {
+            Stat::Min => Some(MIN_IS_TRUNCATED),
+            Stat::Max => Some(MAX_IS_TRUNCATED),
+            _ => None,
+        };
+        if let Some(field) = truncated_field
+            && let Some(flags) = self.array.unmasked_field_by_name_opt(field)
+            && flags.execute_scalar(zone, ctx)?.as_bool().value() == Some(true)
+        {
+            return Ok(Precision::Inexact(value));
+        }
+        Ok(Precision::Exact(value))
     }
 
     /// Apply a pruning predicate to this zone map.
@@ -272,6 +326,7 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
@@ -658,6 +713,66 @@ mod tests {
                 .to_string()
                 .contains("Aggregate function vortex.max() does not support input dtype null"),
             "{error}"
+        );
+    }
+
+    #[test]
+    fn zone_stat_reads_values_and_truncation() {
+        use vortex_array::expr::stats::Precision;
+        use vortex_array::scalar::Scalar;
+
+        let zone_map = ZoneMap::try_new(
+            PType::I32.into(),
+            StructArray::from_fields(&[
+                (
+                    "max",
+                    PrimitiveArray::new(buffer![5i32, 6i32, 7i32], Validity::AllValid).into_array(),
+                ),
+                (
+                    "max_is_truncated",
+                    BoolArray::from_iter([false, true, false]).into_array(),
+                ),
+                (
+                    "sum",
+                    PrimitiveArray::new(buffer![10i64, 20i64, 30i64], Validity::AllValid)
+                        .into_array(),
+                ),
+            ])
+            .unwrap(),
+            Arc::new([Stat::Max, Stat::Sum]),
+            4,
+            10,
+        )
+        .unwrap();
+
+        let mut ctx = SESSION.create_execution_ctx();
+
+        assert_eq!(zone_map.num_zones(), 3);
+        assert_eq!(zone_map.zone_row_count(0), 4);
+        assert_eq!(zone_map.zone_row_count(2), 2);
+
+        // Exact stat values come back exact, with the schema's nullable dtype.
+        let sum = zone_map.zone_stat(1, Stat::Sum, &mut ctx).unwrap();
+        assert_eq!(
+            sum,
+            Precision::Exact(Scalar::primitive(20i64, Nullability::Nullable))
+        );
+
+        // A truncated max is a bound, not the extremum.
+        let max = zone_map.zone_stat(1, Stat::Max, &mut ctx).unwrap();
+        assert_eq!(
+            max,
+            Precision::Inexact(Scalar::primitive(6i32, Nullability::Nullable))
+        );
+        assert_eq!(
+            zone_map.zone_stat(0, Stat::Max, &mut ctx).unwrap(),
+            Precision::Exact(Scalar::primitive(5i32, Nullability::Nullable))
+        );
+
+        // Stats absent from the table are absent.
+        assert_eq!(
+            zone_map.zone_stat(0, Stat::Min, &mut ctx).unwrap(),
+            Precision::Absent
         );
     }
 
