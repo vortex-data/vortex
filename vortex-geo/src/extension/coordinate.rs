@@ -1,24 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The coordinate building block shared by geometry extension types: the `Struct<x, y, [z], [m]>`
-//! storage, its [`Dimension`], the decoded [`Coordinate`] value, and the readers that decode it.
-//! `z`/`m` are optional, so all four GeoArrow dimensions share one value type — no third-party deps.
+//! Coordinate building blocks for geometry extension types: the `Struct<x, y, [z], [m]>` storage,
+//! its [`Dimension`], and the decoded [`Coordinate`] value.
 
 use std::fmt::Display;
 use std::fmt::Formatter;
 
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::StructArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::dtype::StructFields;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -26,7 +24,7 @@ use vortex_error::vortex_err;
 
 /// Coordinate dimensions, matching GeoArrow. Field order is fixed: x, y, then z before m.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Dimension {
+pub(crate) enum Dimension {
     /// 2D: `x`, `y`.
     Xy,
     /// 3D with elevation: `x`, `y`, `z`.
@@ -38,18 +36,8 @@ pub enum Dimension {
 }
 
 impl Dimension {
-    /// The coordinate struct field names for this dimension, in GeoArrow order.
-    pub fn field_names(self) -> &'static [&'static str] {
-        match self {
-            Dimension::Xy => &["x", "y"],
-            Dimension::Xyz => &["x", "y", "z"],
-            Dimension::Xym => &["x", "y", "m"],
-            Dimension::Xyzm => &["x", "y", "z", "m"],
-        }
-    }
-
     /// Recover the dimension from a coordinate's field names, in GeoArrow order.
-    pub fn from_field_names(names: &[&str]) -> VortexResult<Dimension> {
+    pub(crate) fn from_field_names(names: &[&str]) -> VortexResult<Dimension> {
         Ok(match names {
             ["x", "y"] => Dimension::Xy,
             ["x", "y", "z"] => Dimension::Xyz,
@@ -61,16 +49,19 @@ impl Dimension {
 }
 
 /// A decoded coordinate. `z`/`m` are `Some` iff the storage dimension includes them.
+///
+/// This is the native value produced when unpacking a [`Point`](crate::extension::Point) scalar;
+/// the rest of the coordinate machinery is crate-internal.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Coordinate {
     /// The x (longitude/easting) ordinate.
-    pub x: f64,
+    x: f64,
     /// The y (latitude/northing) ordinate.
-    pub y: f64,
+    y: f64,
     /// The optional z (elevation) ordinate.
-    pub z: Option<f64>,
+    z: Option<f64>,
     /// The optional m (measure) ordinate.
-    pub m: Option<f64>,
+    m: Option<f64>,
 }
 
 impl Coordinate {
@@ -83,6 +74,26 @@ impl Coordinate {
             m: None,
         }
     }
+
+    /// The x (longitude/easting) ordinate.
+    pub fn x(&self) -> f64 {
+        self.x
+    }
+
+    /// The y (latitude/northing) ordinate.
+    pub fn y(&self) -> f64 {
+        self.y
+    }
+
+    /// The z (elevation) ordinate, if the dimension includes one.
+    pub fn z(&self) -> Option<f64> {
+        self.z
+    }
+
+    /// The m (measure) ordinate, if the dimension includes one.
+    pub fn m(&self) -> Option<f64> {
+        self.m
+    }
 }
 
 impl Display for Coordinate {
@@ -91,23 +102,9 @@ impl Display for Coordinate {
     }
 }
 
-/// The coordinate storage dtype for a dimension: `Struct<x, y, [z], [m]>` of non-nullable f64.
-pub fn coordinate_dtype(dim: Dimension, nullability: Nullability) -> DType {
-    let names = dim.field_names();
-    let fields = std::iter::repeat_n(
-        DType::Primitive(PType::F64, Nullability::NonNullable),
-        names.len(),
-    )
-    .collect::<Vec<_>>();
-    DType::Struct(
-        StructFields::new(FieldNames::from(names), fields),
-        nullability,
-    )
-}
-
 /// Validate that `dtype` is a coordinate struct of non-nullable `f64` fields, returning its
 /// [`Dimension`]. Any of the four GeoArrow dimensions validates.
-pub fn coordinate_dimension(dtype: &DType) -> VortexResult<Dimension> {
+pub(crate) fn coordinate_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::Struct(fields, _) = dtype else {
         vortex_bail!("coordinate storage must be a Struct, was {dtype}");
     };
@@ -153,7 +150,7 @@ pub(crate) fn coordinate_from_struct(scalar: &Scalar) -> VortexResult<Coordinate
 
 /// Decode a [`Coordinate`] from an extension-typed point scalar (unwrapped to its coordinate
 /// storage) or a bare coordinate `Struct` scalar. The per-row decode used by the distance fns.
-pub fn coordinate_from_scalar(scalar: &Scalar) -> VortexResult<Coordinate> {
+pub(crate) fn coordinate_from_scalar(scalar: &Scalar) -> VortexResult<Coordinate> {
     match scalar.dtype().as_extension_opt() {
         Some(_) => coordinate_from_struct(&scalar.as_extension().to_storage_scalar()),
         None => coordinate_from_struct(scalar),
@@ -161,28 +158,24 @@ pub fn coordinate_from_scalar(scalar: &Scalar) -> VortexResult<Coordinate> {
 }
 
 /// Canonicalize a point column once and return its flat `x`/`y` `f64` columns. The bulk counterpart
-/// to [`coordinate_from_scalar`]; distance is planar, so `z`/`m` are ignored.
+/// to [`coordinate_from_scalar`]; distances use only `x`/`y`, so `z`/`m` are ignored.
 pub(crate) fn xy_columns(
     points: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<(PrimitiveArray, PrimitiveArray)> {
     let storage = points
         .clone()
-        .execute::<Canonical>(ctx)?
-        .into_extension()
+        .execute::<ExtensionArray>(ctx)?
         .storage_array()
         .clone()
-        .execute::<Canonical>(ctx)?
-        .into_struct();
+        .execute::<StructArray>(ctx)?;
     let xs = storage
         .unmasked_field_by_name("x")?
         .clone()
-        .execute::<Canonical>(ctx)?
-        .into_primitive();
+        .execute::<PrimitiveArray>(ctx)?;
     let ys = storage
         .unmasked_field_by_name("y")?
         .clone()
-        .execute::<Canonical>(ctx)?
-        .into_primitive();
+        .execute::<PrimitiveArray>(ctx)?;
     Ok((xs, ys))
 }

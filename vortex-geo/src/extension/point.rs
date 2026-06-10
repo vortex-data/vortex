@@ -61,20 +61,21 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
     use vortex_array::dtype::extension::ExtDType;
     use vortex_array::session::ArraySession;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use super::Point;
-    use crate::extension::Coordinate;
-    use crate::extension::Dimension;
     use crate::extension::GeoMetadata;
-    use crate::extension::coordinate_dimension;
-    use crate::extension::coordinate_dtype;
-    use crate::extension::coordinate_from_scalar;
+    use crate::extension::coordinate::Coordinate;
+    use crate::extension::coordinate::Dimension;
+    use crate::extension::coordinate::coordinate_dimension;
+    use crate::extension::coordinate::coordinate_from_scalar;
 
     fn geo_meta() -> GeoMetadata {
         GeoMetadata {
@@ -82,8 +83,21 @@ mod tests {
         }
     }
 
-    /// `Point` accepts every GeoArrow dimension; the storage carries the canonical field names and
-    /// the dimension round-trips, so a z/m swap or a mislabel would be caught.
+    /// A coordinate storage dtype with the given field names, non-nullable `f64` per field.
+    fn coordinate_dtype(names: &[&'static str]) -> DType {
+        let fields = std::iter::repeat_n(
+            DType::Primitive(PType::F64, Nullability::NonNullable),
+            names.len(),
+        )
+        .collect::<Vec<_>>();
+        DType::Struct(
+            StructFields::new(FieldNames::from(names), fields),
+            Nullability::NonNullable,
+        )
+    }
+
+    /// `Point` accepts every GeoArrow dimension; the canonical field names round-trip to their
+    /// dimension, so a z/m swap or a mislabel would be caught.
     #[test]
     fn point_validates_every_dimension() -> VortexResult<()> {
         let cases = [
@@ -92,13 +106,8 @@ mod tests {
             (Dimension::Xym, ["x", "y", "m"].as_slice()),
             (Dimension::Xyzm, ["x", "y", "z", "m"].as_slice()),
         ];
-        for (dim, expected_fields) in cases {
-            let storage = coordinate_dtype(dim, Nullability::NonNullable);
-            let DType::Struct(fields, _) = &storage else {
-                unreachable!("coordinate_dtype builds a struct");
-            };
-            let names: Vec<&str> = fields.names().iter().map(|n| n.as_ref()).collect();
-            assert_eq!(names.as_slice(), expected_fields);
+        for (dim, names) in cases {
+            let storage = coordinate_dtype(names);
             assert_eq!(coordinate_dimension(&storage)?, dim);
             ExtDType::<Point>::try_new(geo_meta(), storage)?;
         }

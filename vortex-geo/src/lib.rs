@@ -10,7 +10,7 @@ use vortex_session::VortexSession;
 
 use crate::extension::Point;
 use crate::extension::WellKnownBinary;
-use crate::scalar_fn::GeoDistance;
+use crate::scalar_fn::distance::GeoDistance;
 
 pub mod extension;
 pub mod scalar_fn;
