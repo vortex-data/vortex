@@ -103,15 +103,15 @@ def test_scan_is_in(vxf: VortexFile):
 def test_is_in_apply():
     a = vx.array([1, 2, 3, 4])
     mask = a.apply(ve.is_in(ve.root(), [1, 4]))
-    assert mask.to_arrow_array().to_pylist() == [True, False, False, True]
+    assert mask.to_arrow_array() == pa.array([True, False, False, True])
 
 
 def test_is_in_strings():
     a = vx.array(["a", "b", "c"])
     mask = a.apply(ve.is_in(ve.root(), ["b", "c"]))
-    assert mask.to_arrow_array().to_pylist() == [False, True, True]
+    assert mask.to_arrow_array() == pa.array([False, True, True])
 
 
 def test_is_in_empty_values():
     with pytest.raises(ValueError):
-        ve.is_in(ve.column("index"), [])
+        _ = ve.is_in(ve.column("index"), [])

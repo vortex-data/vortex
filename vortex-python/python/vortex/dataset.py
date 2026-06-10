@@ -184,15 +184,12 @@ class VortexDataset(pyarrow.dataset.Dataset):
         del memory_pool
 
         with _temporary_worker_threads(use_threads):
-            return (
-                self._dataset.to_array(
-                    columns=columns,
-                    row_filter=self._filter_expression(filter),
-                    row_range=_row_range,
-                )
-                .slice(0, num_rows)
-                .to_arrow_table()
+            array = self._dataset.to_array(
+                columns=columns,
+                row_filter=self._filter_expression(filter),
+                row_range=_row_range,
             )
+            return array.slice(0, min(num_rows, len(array))).to_arrow_table()
 
     @override
     def join(
@@ -1184,15 +1181,17 @@ class VortexMultiDataset(pyarrow.dataset.Dataset):
         tables: list[pyarrow.Table] = []
         for child in self._children:
             length = child.count_rows(use_threads=use_threads)
+            lower = pa.scalar(total, pa.int64())
+            upper = pa.scalar(total + length, pa.int64())
             in_child = pc.and_(  # pyright: ignore[reportUnknownMemberType]
-                pc.greater_equal(sorted_indices, total),  # pyright: ignore[reportUnknownMemberType]
-                pc.less(sorted_indices, total + length),  # pyright: ignore[reportUnknownMemberType]
+                pc.greater_equal(sorted_indices, lower),  # pyright: ignore[reportUnknownMemberType]
+                pc.less(sorted_indices, upper),  # pyright: ignore[reportUnknownMemberType]
             )
-            local = pc.subtract(sorted_indices.filter(in_child), total)  # pyright: ignore[reportUnknownMemberType]
+            local = pc.subtract(sorted_indices.filter(in_child), lower)  # pyright: ignore[reportUnknownMemberType]
             if len(local) > 0:
                 tables.append(
                     child.take(
-                        local,
+                        local,  # pyright: ignore[reportArgumentType]
                         columns,
                         batch_size=batch_size,
                         batch_readahead=batch_readahead,
@@ -1212,8 +1211,10 @@ class VortexMultiDataset(pyarrow.dataset.Dataset):
             return self._projected_schema(columns).empty_table()
 
         combined = pyarrow.concat_tables(tables)
+        # `inverse` undoes the argsort: row k of `combined` holds the row for `indices[order[k]]`.
         inverse = pc.sort_indices(order)  # pyright: ignore[reportUnknownMemberType]
-        return combined.take(inverse)
+        # PyArrow has no take kernel for view types such as string_view, so reorder via Vortex.
+        return array(combined).take(array(inverse)).to_arrow_table()
 
     def to_record_batch_reader(
         self,

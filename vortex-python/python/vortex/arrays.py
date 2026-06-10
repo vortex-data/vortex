@@ -351,7 +351,7 @@ def _Array_getitem(self: _arrays.Array, key: int | slice) -> Scalar | _arrays.Ar
     return self.scalar_at(index)
 
 
-Array.__getitem__ = _Array_getitem
+setattr(Array, "__getitem__", _Array_getitem)
 
 
 def _Array__arrow_c_array__(self: _arrays.Array, requested_schema: object | None = None) -> tuple[object, object]:

@@ -316,7 +316,7 @@ def multi_ds(tmpdir_factory) -> vx.dataset.VortexMultiDataset:  # pyright: ignor
     return ds
 
 
-def test_dataset_single_file(multi_ds: vx.dataset.VortexMultiDataset, tmpdir_factory):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
+def test_dataset_single_file(tmpdir_factory):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
     fname = tmpdir_factory.mktemp("single") / "single.vortex"  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
     vx.io.write(vx.array(pa.array([record(x) for x in range(10)])), str(fname))  # pyright: ignore[reportUnknownArgumentType]
     ds = vx_dataset.dataset(str(fname))  # pyright: ignore[reportUnknownArgumentType]
@@ -327,7 +327,7 @@ def test_dataset_single_file(multi_ds: vx.dataset.VortexMultiDataset, tmpdir_fac
 def test_dataset_empty_directory(tmpdir_factory):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
     data_dir = tmpdir_factory.mktemp("empty")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
     with pytest.raises(ValueError):
-        vx_dataset.dataset(str(data_dir))  # pyright: ignore[reportUnknownArgumentType]
+        _ = vx_dataset.dataset(str(data_dir))  # pyright: ignore[reportUnknownArgumentType]
 
 
 def test_multi_dataset_schema(multi_ds: vx.dataset.VortexMultiDataset):
@@ -371,7 +371,7 @@ def test_multi_dataset_take(multi_ds: vx.dataset.VortexMultiDataset):
 
 def test_multi_dataset_take_out_of_bounds(multi_ds: vx.dataset.VortexMultiDataset):
     with pytest.raises(IndexError):
-        multi_ds.take(pa.array([250]))
+        _ = multi_ds.take(pa.array([250]))
 
 
 def test_multi_dataset_to_batches(multi_ds: vx.dataset.VortexMultiDataset):
@@ -386,6 +386,7 @@ def test_multi_dataset_scanner(multi_ds: vx.dataset.VortexMultiDataset):
 
 
 def test_multi_dataset_duckdb(multi_ds: vx.dataset.VortexMultiDataset):
+    assert multi_ds  # pyright cannot determine that multi_ds is used by duckdb.sql
     assert duckdb.sql("SELECT COUNT(*) AS c FROM multi_ds").fetchall() == [(250,)]
 
 
@@ -399,4 +400,8 @@ def test_multi_dataset_schema_mismatch(tmpdir_factory):  # pyright: ignore[repor
     vx.io.write(vx.array(pa.array([record(x) for x in range(10)])), str(data_dir / "a.vortex"))  # pyright: ignore[reportUnknownArgumentType]
     vx.io.write(vx.array(pa.array([{"other": 1}])), str(data_dir / "b.vortex"))  # pyright: ignore[reportUnknownArgumentType]
     with pytest.raises(ValueError):
-        vx_dataset.dataset(str(data_dir))  # pyright: ignore[reportUnknownArgumentType]
+        _ = vx_dataset.dataset(str(data_dir))  # pyright: ignore[reportUnknownArgumentType]
+
+
+def test_head_more_than_row_count(ds: vx.dataset.VortexDataset):
+    assert len(ds.head(2_000_000)) == 1_000_000

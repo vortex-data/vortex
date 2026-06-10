@@ -54,7 +54,7 @@ def test_getitem_int():
     with pytest.raises(IndexError):
         a[-5]
     with pytest.raises(TypeError):
-        a["nope"]  # pyright: ignore[reportArgumentType, reportUnusedExpression]
+        a["nope"]  # pyright: ignore[reportArgumentType, reportCallIssue, reportUnusedExpression]
 
 
 def test_getitem_slice():
@@ -79,7 +79,7 @@ def test_cast():
 def test_fill_null():
     a = vortex.array([1, None, 3]).fill_null(0)
     assert a.null_count == 0
-    assert a.to_arrow_array().to_pylist() == [1, 0, 3]
+    assert a.to_arrow_array() == pa.array([1, 0, 3])
 
 
 def test_is_null():
@@ -90,18 +90,18 @@ def test_is_null():
 
 def test_arrow_c_array():
     a = vortex.array([1, None, 3])
-    assert pa.array(a) == pa.array([1, None, 3])
+    assert pa.array(a) == pa.array([1, None, 3])  # pyright: ignore[reportCallIssue, reportArgumentType]
 
 
 def test_arrow_c_array_chunked():
     chunked = pa.chunked_array([[1, 2], [3]])
     a = vortex.array(chunked)
-    assert pa.array(a) == pa.array([1, 2, 3])
+    assert pa.array(a) == pa.array([1, 2, 3])  # pyright: ignore[reportCallIssue, reportArgumentType]
 
 
 def test_arrow_c_stream():
     a = vortex.array([1, None, 3])
-    assert pa.chunked_array(a) == pa.chunked_array([[1, None, 3]])
+    assert pa.chunked_array(a) == pa.chunked_array([[1, None, 3]])  # pyright: ignore[reportCallIssue, reportArgumentType]
 
 
 def test_array_iterator_arrow_c_stream():
