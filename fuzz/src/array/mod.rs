@@ -13,6 +13,7 @@ pub(crate) use slice::*;
 pub use sort::sort_canonical_array;
 pub(crate) use sum::*;
 pub(crate) use take::*;
+pub(crate) use to_arrow::*;
 
 mod cast;
 mod compare;
@@ -26,6 +27,7 @@ mod slice;
 mod sort;
 mod sum;
 mod take;
+mod to_arrow;
 
 use std::iter;
 use std::ops::Range;
@@ -112,6 +114,8 @@ impl<'a> Arbitrary<'a> for CompressorStrategy {
 #[strum_discriminants(name(ActionType))]
 pub enum Action {
     Compress(CompressorStrategy),
+    /// Execute the array into Arrow and import it back, expecting an identical array.
+    ArrowRoundtrip,
     Slice(Range<usize>),
     Take(ArrayRef),
     SearchSorted(Scalar, SearchSortedSide),
@@ -208,6 +212,19 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     let strategy = CompressorStrategy::arbitrary(u)?;
                     (
                         Action::Compress(strategy),
+                        ExpectedValue::Array(current_array.clone()),
+                    )
+                }
+                ActionType::ArrowRoundtrip => {
+                    // Probe the round trip on the canonical array so we skip dtypes Arrow
+                    // cannot represent (e.g. decimal scales out of range for the Arrow
+                    // decimal width chosen for the precision). The round trip is an
+                    // identity operation, so the expected value is the current array.
+                    if arrow_roundtrip_array(&current_array, &mut ctx).is_err() {
+                        return Err(EmptyChoose);
+                    }
+                    (
+                        Action::ArrowRoundtrip,
                         ExpectedValue::Array(current_array.clone()),
                     )
                 }
@@ -468,6 +485,7 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
             // Null arrays support most operations but not Sum or MinMax (return None for dtype)
             [
                 Compress,
+                ArrowRoundtrip,
                 Slice,
                 Take,
                 SearchSorted,
@@ -486,9 +504,9 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
         }
         DType::Utf8(_) | DType::Binary(_) => {
             // Utf8/Binary supports everything except Sum and FillNull
-            // Actions: Compress, Slice, Take, SearchSorted, Filter, Compare, Cast, MinMax, Mask, ScalarAt
             [
                 Compress,
+                ArrowRoundtrip,
                 Slice,
                 Take,
                 SearchSorted,
@@ -502,14 +520,34 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
             .into()
         }
         DType::List(..) | DType::FixedSizeList(..) => {
-            // List supports: Compress, Slice, Take, Filter, MinMax, Mask, ScalarAt
+            // List supports: Compress, ArrowRoundtrip, Slice, Take, Filter, MinMax, Mask, ScalarAt
             // Does NOT support: SearchSorted, Compare, Cast, Sum, FillNull
-            [Compress, Slice, Take, Filter, MinMax, Mask, ScalarAt].into()
+            [
+                Compress,
+                ArrowRoundtrip,
+                Slice,
+                Take,
+                Filter,
+                MinMax,
+                Mask,
+                ScalarAt,
+            ]
+            .into()
         }
         DType::Struct(sdt, _) => {
-            // Struct supports: Compress, Slice, Take, Filter, MinMax, Mask, ScalarAt
-            // Does NOT support: SearchSorted (requires scalar comparison), Compare, Cast, Sum, FillNull
-            let struct_actions = [Compress, Slice, Take, Filter, MinMax, Mask, ScalarAt];
+            // Struct supports: Compress, ArrowRoundtrip, Slice, Take, Filter, MinMax, Mask,
+            // ScalarAt. Does NOT support: SearchSorted (requires scalar comparison), Compare,
+            // Cast, Sum, FillNull
+            let struct_actions = [
+                Compress,
+                ArrowRoundtrip,
+                Slice,
+                Take,
+                Filter,
+                MinMax,
+                Mask,
+                ScalarAt,
+            ];
             sdt.fields()
                 .map(|child| actions_for_dtype(&child))
                 .fold(struct_actions.into(), |acc, actions| {
@@ -603,6 +641,17 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
                     .vortex_expect("execute canonical should succeed in fuzz test");
                 current_array = compress_array(&canonical.into_array(), strategy);
                 assert_array_eq(&expected.array(), &current_array, i)?;
+            }
+            Action::ArrowRoundtrip => {
+                let roundtripped = arrow_roundtrip_array(&current_array, &mut ctx)
+                    .vortex_expect("arrow round trip should succeed in fuzz test");
+                if let Err(e) = assert_array_eq(&expected.array(), &roundtripped, i) {
+                    vortex_panic!(
+                        "Failed to round trip {}through Arrow\nError: {e}",
+                        current_array.display_tree()
+                    )
+                }
+                current_array = roundtripped;
             }
             Action::Slice(range) => {
                 current_array = current_array
