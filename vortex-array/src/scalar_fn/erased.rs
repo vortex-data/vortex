@@ -134,10 +134,20 @@ impl ScalarFnRef {
 
     /// Transforms the expression into one representing the validity of this expression.
     pub fn validity(&self, expr: &Expression) -> VortexResult<Expression> {
-        Ok(self.0.validity(expr)?.unwrap_or_else(|| {
+        Ok(self.validity_opt(expr)?.unwrap_or_else(|| {
             // TODO(ngates): make validity a mandatory method on VTable to avoid this fallback.
             IsNotNull.new_expr(EmptyOptions, [expr.clone()])
         }))
+    }
+
+    /// Transforms the expression into one representing the validity of this expression,
+    /// returning `None` if the function does not define a validity expression.
+    ///
+    /// When `None` is returned, the validity can only be determined by executing the
+    /// expression itself (e.g. Kleene logic `and`/`or`), and [`Self::validity`] falls back to
+    /// `is_not_null` over the expression.
+    pub fn validity_opt(&self, expr: &Expression) -> VortexResult<Option<Expression>> {
+        self.0.validity(expr)
     }
 
     /// Execute the expression given the input arguments.
