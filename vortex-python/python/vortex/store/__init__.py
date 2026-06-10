@@ -91,6 +91,8 @@ def from_url(  # type: ignore[misc] # docstring in pyi file
       supports ``adl``, ``azure``, ``abfs``, ``abfss``)
     - ``http://mydomain/path`` -> :class:`~vortex.store.HTTPStore`
     - ``https://mydomain/path`` -> :class:`~vortex.store.HTTPStore`
+    - ``hf://datasets/namespace/name/path`` -> :class:`~vortex.store.HTTPStore` rooted
+      at the Hugging Face Hub ``resolve`` URL, see :mod:`vortex.hf`
 
     There are also special cases for AWS and Azure for ``https://{host?}/path`` paths:
 
@@ -116,6 +118,13 @@ def from_url(  # type: ignore[misc] # docstring in pyi file
         kwargs: per-store configuration passed down to store-specific builders.
 
     """
+    if url.startswith("hf://"):
+        from ..hf._resolve import http_store
+
+        if config is not None or credential_provider is not None or kwargs:
+            raise ValueError("hf:// URLs only accept the client_options and retry_config arguments")
+        return http_store(url, client_options=client_options, retry_config=retry_config)
+
     return _store.from_url(  # pyright: ignore[reportCallIssue, reportUnknownVariableType]
         url,
         config=config,  # pyright: ignore[reportArgumentType]

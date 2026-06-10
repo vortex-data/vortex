@@ -3,7 +3,7 @@
 
 import importlib.metadata
 
-from . import _lib, arrays, dataset, expr, file, io, ray, registry, scan
+from . import _lib, arrays, dataset, expr, file, hf, io, ray, registry, scan
 from ._lib.arrays import (  # pyright: ignore[reportMissingModuleSource]
     AlpArray,
     AlpRdArray,
@@ -106,6 +106,7 @@ __all__ = [
     "dataset",
     "expr",
     "file",
+    "hf",
     "scan",
     "io",
     "registry",

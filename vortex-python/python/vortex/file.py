@@ -41,7 +41,8 @@ def open(
     Parameters
     ----------
     path : :class:`str`
-        A local path or URL to the Vortex file.
+        A local path or URL to the Vortex file. ``hf://`` URLs are read from the
+        Hugging Face Hub, see :mod:`vortex.hf`.
     store :
         An object store created from the `vortex.store` package. By default
         the store is inferred based on the path
@@ -56,8 +57,16 @@ def open(
     >>> vxf = vx.open("data.vortex") # doctest: +SKIP
     >>> array_iterator = vxf.scan() # doctest: +SKIP
 
+    Open a Vortex file hosted in a Hugging Face Hub dataset repository:
+
+    >>> vxf = vx.open("hf://datasets/my-org/my-dataset/data/train.vortex") # doctest: +SKIP
+
     See also: :class:`vortex.dataset.VortexDataset`
     """
+    if store is None and path.startswith("hf://"):
+        from .hf._resolve import store_and_path
+
+        store, path = store_and_path(path)
 
     return VortexFile(_file.open(path, store=store, without_segment_cache=without_segment_cache))
 

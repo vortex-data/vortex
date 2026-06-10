@@ -9,7 +9,7 @@ from typing_extensions import override
 from .dtype import DType
 from .scalar import ScalarPyType
 
-IntoExpr: TypeAlias = Expr | int | str | date | datetime | None
+IntoExpr: TypeAlias = Expr | int | float | str | date | datetime | None
 
 @final
 class Expr:
