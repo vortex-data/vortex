@@ -1,13 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::cell::RefCell;
 use std::iter;
 
 use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
-use vortex_utils::aliases::hash_map::HashMap;
 
 use super::relation::Relation;
 use crate::aggregate_fn::fns::all_nan::AllNan;
@@ -21,7 +19,6 @@ use crate::dtype::FieldName;
 use crate::dtype::FieldPath;
 use crate::dtype::FieldPathSet;
 use crate::expr::Expression;
-use crate::expr::StatsCatalog;
 use crate::expr::analysis::referenced_field_paths;
 use crate::expr::eq;
 use crate::expr::get_item;
@@ -33,55 +30,11 @@ use crate::expr::traversal::Transformed;
 use crate::scalar::Scalar;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::get_item::GetItem;
 use crate::scalar_fn::fns::stat::StatFn;
 use crate::scalar_fn::internal::row_count::RowCount;
 
 pub type RequiredStats = Relation<FieldPath, Stat>;
-
-// A catalog that return a stat column whenever it is required, tracking all accessed
-// stats and returning them later.
-#[derive(Default)]
-pub(crate) struct TrackingStatsCatalog {
-    usage: RefCell<HashMap<(FieldPath, Stat), Expression>>,
-}
-
-impl TrackingStatsCatalog {
-    /// Consume the catalog, yielding a map of field statistics that were required
-    /// for each expression.
-    fn into_usages(self) -> HashMap<(FieldPath, Stat), Expression> {
-        self.usage.into_inner()
-    }
-}
-
-// A catalog that return a stat column if it exists in the given scope.
-struct ScopeStatsCatalog<'a> {
-    inner: TrackingStatsCatalog,
-    available_stats: &'a FieldPathSet,
-}
-
-impl StatsCatalog for ScopeStatsCatalog<'_> {
-    fn stats_ref(&self, field_path: &FieldPath, stat: Stat) -> Option<Expression> {
-        let stat_path = field_path.clone().push(stat.name());
-
-        if self.available_stats.contains(&stat_path) {
-            self.inner.stats_ref(field_path, stat)
-        } else {
-            None
-        }
-    }
-}
-
-impl StatsCatalog for TrackingStatsCatalog {
-    fn stats_ref(&self, field_path: &FieldPath, stat: Stat) -> Option<Expression> {
-        let mut expr = root();
-        let name = field_path_stat_field_name(field_path, stat);
-        expr = get_item(name, expr);
-        self.usage
-            .borrow_mut()
-            .insert((field_path.clone(), stat), expr.clone());
-        Some(expr)
-    }
-}
 
 #[doc(hidden)]
 pub fn field_path_stat_field_name(field_path: &FieldPath, stat: Stat) -> FieldName {
@@ -95,40 +48,6 @@ pub fn field_path_stat_field_name(field_path: &FieldPath, stat: Stat) -> FieldNa
         .chain(iter::once(stat.name()))
         .join("_")
         .into()
-}
-
-/// Build a pruning expr mask, using an existing set of stats.
-/// The available stats are provided as a set of [`FieldPath`].
-///
-/// A pruning expression is one that returns `true` for all positions where the original expression
-/// cannot hold, and false if it cannot be determined from stats alone whether the positions can
-/// be pruned.
-///
-/// Some rewrites, such as `is_not_null(...)`, emit
-/// [`row_count`][crate::scalar_fn::internal::row_count] placeholders. The evaluation layer must
-/// replace those placeholders with the row count for its current scope before
-/// executing the returned expression.
-///
-/// If the falsification logic attempts to access an unknown stat,
-/// this function will return `None`.
-pub fn checked_pruning_expr(
-    expr: &Expression,
-    available_stats: &FieldPathSet,
-) -> Option<(Expression, RequiredStats)> {
-    let catalog = ScopeStatsCatalog {
-        inner: Default::default(),
-        available_stats,
-    };
-
-    let expr = expr.stat_falsification(&catalog)?;
-
-    // TODO(joe): filter access by used exprs
-    let mut relation: Relation<FieldPath, Stat> = Relation::new();
-    for ((field_path, stat), _) in catalog.inner.into_usages() {
-        relation.insert(field_path, stat)
-    }
-
-    Some((expr, relation))
 }
 
 /// Build a pruning expression using session-registered stats rewrite rules.
@@ -260,8 +179,7 @@ fn lower_stat_ref(
     available_stats: &FieldPathSet,
     required_stats: &mut RequiredStats,
 ) -> VortexResult<Option<Expression>> {
-    let field_paths = referenced_field_paths(input, scope)?;
-    let Some(field_path) = field_paths.iter().exactly_one().ok() else {
+    let Some(field_path) = stat_field_path(input, scope)? else {
         return Ok(None);
     };
     let stat_path = field_path.clone().push(stat.name());
@@ -271,9 +189,20 @@ fn lower_stat_ref(
 
     required_stats.insert(field_path.clone(), stat);
     Ok(Some(get_item(
-        field_path_stat_field_name(field_path, stat),
+        field_path_stat_field_name(&field_path, stat),
         root(),
     )))
+}
+
+fn stat_field_path(input: &Expression, scope: &DType) -> VortexResult<Option<FieldPath>> {
+    // Preserve the legacy top-level GetItem pruning behavior while moving the rewrite itself
+    // out of ScalarFnVTable.
+    if let Some(field_name) = input.as_opt::<GetItem>() {
+        return Ok(Some(FieldPath::from_name(field_name.clone())));
+    }
+
+    let field_paths = referenced_field_paths(input, scope)?;
+    Ok(field_paths.iter().exactly_one().ok().cloned())
 }
 
 fn row_count_expr() -> Expression {
@@ -290,18 +219,24 @@ fn has_nans(dtype: &DType) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::fixture;
     use rstest::rstest;
+    use vortex_session::VortexSession;
+    use vortex_utils::aliases::hash_map::HashMap;
     use vortex_utils::aliases::hash_set::HashSet;
 
-    use super::HashMap;
+    use super::RequiredStats;
     use crate::dtype::DType;
     use crate::dtype::FieldName;
     use crate::dtype::FieldNames;
     use crate::dtype::FieldPath;
     use crate::dtype::FieldPathSet;
     use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::dtype::StructFields;
+    use crate::expr::Expression;
     use crate::expr::and;
     use crate::expr::between;
     use crate::expr::cast;
@@ -315,12 +250,44 @@ mod tests {
     use crate::expr::lt_eq;
     use crate::expr::not_eq;
     use crate::expr::or;
-    use crate::expr::pruning::checked_pruning_expr;
+    use crate::expr::pruning::checked_pruning_expr_with_session;
     use crate::expr::pruning::field_path_stat_field_name;
     use crate::expr::root;
     use crate::expr::stats::Stat;
     use crate::scalar_fn::fns::between::BetweenOptions;
     use crate::scalar_fn::fns::between::StrictComparison;
+    use crate::stats::session::StatsSession;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<StatsSession>());
+
+    fn scope() -> DType {
+        DType::Struct(
+            StructFields::from_iter([
+                ("a", DType::Primitive(PType::I32, Nullability::Nullable)),
+                ("b", DType::Primitive(PType::I32, Nullability::Nullable)),
+                ("x", DType::Bool(Nullability::Nullable)),
+                ("y", DType::Primitive(PType::I32, Nullability::Nullable)),
+                ("z", DType::Primitive(PType::I32, Nullability::Nullable)),
+                (
+                    "float_col",
+                    DType::Primitive(PType::F32, Nullability::Nullable),
+                ),
+                (
+                    "int_col",
+                    DType::Primitive(PType::I32, Nullability::Nullable),
+                ),
+            ]),
+            Nullability::NonNullable,
+        )
+    }
+
+    fn checked_pruning_expr(
+        expr: &Expression,
+        available_stats: &FieldPathSet,
+    ) -> Option<(Expression, RequiredStats)> {
+        checked_pruning_expr_with_session(expr, &scope(), available_stats, &SESSION).unwrap()
+    }
 
     // Implement some checked pruning expressions.
     #[fixture]
@@ -640,8 +607,8 @@ mod tests {
             &and(
                 and(
                     eq(col("float_col_nan_count"), lit(0u64)),
-                    // NaNCount of NaN is 1
-                    eq(lit(1u64), lit(0u64)),
+                    // A NaN literal is never all-non-NaN.
+                    lit(false),
                 ),
                 // This is the standard conversion of the >= operator. Comparing NAN to a max
                 // stat is nonsensical, as min/max stats ignore NaNs, but this should be short-circuited
@@ -663,11 +630,7 @@ mod tests {
             &or(
                 // NaNCount check is enforced for the float column
                 and(
-                    and(
-                        eq(col("float_col_nan_count"), lit(0u64)),
-                        // NanCount of a non-NaN float literal is 0
-                        eq(lit(0u64), lit(0u64)),
-                    ),
+                    eq(col("float_col_nan_count"), lit(0u64)),
                     // We want the opposite: we can prune IF either one is false.
                     lt_eq(col("float_col_max"), lit(10f32)),
                 ),

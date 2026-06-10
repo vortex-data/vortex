@@ -33,13 +33,6 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
-use crate::expr::Expression;
-use crate::expr::StatsCatalog;
-use crate::expr::and_collect;
-use crate::expr::gt;
-use crate::expr::lit;
-use crate::expr::lt;
-use crate::expr::or;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::scalar::ListScalar;
@@ -51,7 +44,6 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
 
@@ -127,43 +119,6 @@ impl ScalarFnVTable for ListContains {
         }
 
         compute_list_contains(&list_array, &value_array, ctx)
-    }
-
-    fn stat_falsification(
-        &self,
-        _options: &Self::Options,
-        expr: &Expression,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        let list = expr.child(0);
-        let needle = expr.child(1);
-
-        // falsification(contains([1,2,5], x)) =>
-        //   falsification(x != 1) and falsification(x != 2) and falsification(x != 5)
-        let min = list.stat_min(catalog)?;
-        let max = list.stat_max(catalog)?;
-        // If the list is constant when we can compare each element to the value
-        if min == max {
-            let list_ = min
-                .as_opt::<Literal>()
-                .and_then(|l| l.as_list_opt())
-                .and_then(|l| l.elements())?;
-            if list_.is_empty() {
-                // contains([], x) is always false.
-                return Some(lit(true));
-            }
-            let value_max = needle.stat_max(catalog)?;
-            let value_min = needle.stat_min(catalog)?;
-
-            return and_collect(list_.iter().map(move |v| {
-                or(
-                    lt(value_max.clone(), lit(v.clone())),
-                    gt(value_min.clone(), lit(v.clone())),
-                )
-            }));
-        }
-
-        None
     }
 
     // Nullability matters for contains([], x) where x is false.
@@ -439,11 +394,13 @@ fn list_is_not_empty(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use itertools::Itertools;
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::Buffer;
+    use vortex_session::VortexSession;
     use vortex_utils::aliases::hash_map::HashMap;
     use vortex_utils::aliases::hash_set::HashSet;
 
@@ -463,6 +420,7 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType::I32;
     use crate::dtype::StructFields;
+    use crate::expr::Expression;
     use crate::expr::and;
     use crate::expr::col;
     use crate::expr::get_item;
@@ -471,7 +429,8 @@ mod tests {
     use crate::expr::lit;
     use crate::expr::lt;
     use crate::expr::or;
-    use crate::expr::pruning::checked_pruning_expr;
+    use crate::expr::pruning::RequiredStats;
+    use crate::expr::pruning::checked_pruning_expr_with_session;
     use crate::expr::root;
     use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
@@ -479,7 +438,22 @@ mod tests {
     use crate::scalar_fn::fns::list_contains::ConstantArray;
     use crate::scalar_fn::fns::list_contains::ListViewArray;
     use crate::scalar_fn::fns::list_contains::PrimitiveArray;
+    use crate::stats::session::StatsSession;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<StatsSession>());
+
+    fn checked_pruning_expr(
+        expr: &Expression,
+        available_stats: &FieldPathSet,
+    ) -> Option<(Expression, RequiredStats)> {
+        let scope = DType::Struct(
+            StructFields::from_iter([("a", DType::Primitive(I32, Nullability::Nullable))]),
+            Nullability::NonNullable,
+        );
+        checked_pruning_expr_with_session(expr, &scope, available_stats, &SESSION).unwrap()
+    }
 
     fn test_array() -> ArrayRef {
         ListArray::try_new(

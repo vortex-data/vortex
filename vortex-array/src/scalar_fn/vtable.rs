@@ -179,19 +179,6 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
         Ok(None)
     }
 
-    /// See [`Expression::stat_falsification`].
-    fn stat_falsification(
-        &self,
-        options: &Self::Options,
-        expr: &Expression,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        _ = options;
-        _ = expr;
-        _ = catalog;
-        None
-    }
-
     /// See [`Expression::stat_expression`].
     fn stat_expression(
         &self,

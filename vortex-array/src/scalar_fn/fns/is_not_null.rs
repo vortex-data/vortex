@@ -3,7 +3,6 @@
 
 use std::fmt::Formatter;
 
-use vortex_array::scalar_fn::internal::row_count::RowCount;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -15,16 +14,12 @@ use crate::arrays::ConstantArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::expr::Expression;
-use crate::expr::StatsCatalog;
-use crate::expr::eq;
-use crate::expr::stats::Stat;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
 use crate::validity::Validity;
 
 /// Expression that checks for non-null values.
@@ -100,24 +95,15 @@ impl ScalarFnVTable for IsNotNull {
     fn is_fallible(&self, _instance: &Self::Options) -> bool {
         false
     }
-
-    fn stat_falsification(
-        &self,
-        _options: &Self::Options,
-        expr: &Expression,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        // is_not_null is falsified when ALL values are null, i.e. null_count == row_count.
-        let child = expr.child(0);
-        let null_count_expr = child.stat_expression(Stat::NullCount, catalog)?;
-        Some(eq(null_count_expr, RowCount.new_expr(EmptyOptions, [])))
-    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect as _;
+    use vortex_session::VortexSession;
     use vortex_utils::aliases::hash_map::HashMap;
     use vortex_utils::aliases::hash_set::HashSet;
 
@@ -131,11 +117,14 @@ mod tests {
     use crate::dtype::FieldPath;
     use crate::dtype::FieldPathSet;
     use crate::dtype::Nullability;
+    use crate::expr::Expression;
     use crate::expr::col;
     use crate::expr::eq;
     use crate::expr::get_item;
     use crate::expr::is_not_null;
-    use crate::expr::pruning::checked_pruning_expr;
+    use crate::expr::or;
+    use crate::expr::pruning::RequiredStats;
+    use crate::expr::pruning::checked_pruning_expr_with_session;
     use crate::expr::root;
     use crate::expr::stats::Stat;
     use crate::expr::test_harness;
@@ -143,6 +132,23 @@ mod tests {
     use crate::scalar_fn::EmptyOptions;
     use crate::scalar_fn::internal::row_count::RowCount;
     use crate::scalar_fn::vtable::ScalarFnVTableExt;
+    use crate::stats::session::StatsSession;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<StatsSession>());
+
+    fn checked_pruning_expr(
+        expr: &Expression,
+        available_stats: &FieldPathSet,
+    ) -> Option<(Expression, RequiredStats)> {
+        checked_pruning_expr_with_session(
+            expr,
+            &test_harness::struct_dtype(),
+            available_stats,
+            &SESSION,
+        )
+        .unwrap()
+    }
 
     #[test]
     fn dtype() {
@@ -274,10 +280,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            &pruning_expr,
-            &eq(col("a_null_count"), RowCount.new_expr(EmptyOptions, []))
-        );
+        let expected = eq(col("a_null_count"), RowCount.new_expr(EmptyOptions, []));
+        assert_eq!(&pruning_expr, &or(expected.clone(), expected));
         assert_eq!(
             st.map(),
             &HashMap::from_iter([(FieldPath::from_name("a"), HashSet::from([Stat::NullCount]))])

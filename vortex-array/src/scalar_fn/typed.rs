@@ -101,11 +101,6 @@ pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
     ) -> VortexResult<Option<Expression>>;
     fn simplify_untyped(&self, expression: &Expression) -> VortexResult<Option<Expression>>;
     fn validity(&self, expression: &Expression) -> VortexResult<Option<Expression>>;
-    fn stat_falsification(
-        &self,
-        expression: &Expression,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<Expression>;
     fn stat_expression(
         &self,
         expression: &Expression,
@@ -221,14 +216,6 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
 
     fn validity(&self, expression: &Expression) -> VortexResult<Option<Expression>> {
         V::validity(&self.vtable, &self.options, expression)
-    }
-
-    fn stat_falsification(
-        &self,
-        expression: &Expression,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        V::stat_falsification(&self.vtable, &self.options, expression, catalog)
     }
 
     fn stat_expression(

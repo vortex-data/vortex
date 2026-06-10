@@ -38,6 +38,7 @@ use vortex_array::expr::traversal::Transformed;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_array::scalar_fn::fns::get_item::GetItem;
 use vortex_array::scalar_fn::fns::literal::Literal;
 use vortex_array::scalar_fn::fns::stat::StatFn;
 use vortex_array::scalar_fn::internal::row_count::RowCount;
@@ -198,11 +199,19 @@ impl FileStatsLayoutReader {
     }
 
     fn stat_ref(&self, input: &Expression, stat: Stat) -> VortexResult<Option<Expression>> {
-        let field_paths = referenced_field_paths(input, self.child.dtype())?;
-        let Some(field_path) = field_paths.iter().exactly_one().ok() else {
+        let Some(field_path) = self.stat_field_path(input)? else {
             return Ok(None);
         };
-        Ok(self.stats_ref(field_path, stat))
+        Ok(self.stats_ref(&field_path, stat))
+    }
+
+    fn stat_field_path(&self, input: &Expression) -> VortexResult<Option<FieldPath>> {
+        if let Some(field_name) = input.as_opt::<GetItem>() {
+            return Ok(Some(FieldPath::from_name(field_name.clone())));
+        }
+
+        let field_paths = referenced_field_paths(input, self.child.dtype())?;
+        Ok(field_paths.iter().exactly_one().ok().cloned())
     }
 
     pub fn file_stats(&self) -> &FileStatistics {
