@@ -72,6 +72,7 @@ include = [
 [dependency-groups]
 dev = [
     "duckdb>=1.1.2",
+    "hypothesis>=6.100",
     "maturin>=1.10.2",
     "numpy>=2.2.2",
     "pandas-stubs>=2.2.3.241126",
