@@ -9,9 +9,7 @@ namespace {
 
 // Load the `word_idx`-th little-endian u64 of `input`, treating bytes outside
 // `[0, input_bytes)` as zero. `input` must be 8-byte aligned.
-__device__ uint64_t load_input_word(const uint8_t *const input,
-                                    int64_t word_idx,
-                                    uint64_t input_bytes) {
+__device__ uint64_t load_input_word(const uint8_t *const input, int64_t word_idx, uint64_t input_bytes) {
     if (word_idx < 0) {
         return 0;
     }
@@ -45,14 +43,14 @@ __device__ uint64_t repack_word(const uint8_t *const input,
 
     // Bits before Arrow's array offset are padding from the consumer's point of view.
     // Tail bits beyond len + offset stay zero so word-at-a-time mask readers are safe.
-    uint64_t mask = ~uint64_t{0};
+    uint64_t mask = ~uint64_t {0};
     if (word_start < arrow_offset) {
         const uint64_t lead = arrow_offset - word_start;
         mask = lead >= 64 ? 0 : mask << lead;
     }
     const uint64_t remaining = validity_bits - word_start;
     if (remaining < 64) {
-        mask &= (uint64_t{1} << remaining) - 1;
+        mask &= (uint64_t {1} << remaining) - 1;
     }
     if (mask == 0) {
         return 0;
@@ -95,8 +93,7 @@ __device__ void arrow_validity_repack_device(const uint8_t *const input,
     const int64_t shift = static_cast<int64_t>(input_offset) - static_cast<int64_t>(arrow_offset);
 
     for (uint64_t word_idx = worker; word_idx < output_words; word_idx += stride) {
-        output[word_idx] =
-            repack_word(input, word_idx, shift, arrow_offset, validity_bits, input_bytes);
+        output[word_idx] = repack_word(input, word_idx, shift, arrow_offset, validity_bits, input_bytes);
     }
 }
 
