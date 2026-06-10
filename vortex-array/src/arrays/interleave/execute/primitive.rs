@@ -99,59 +99,63 @@ pub(super) fn execute(
 
 /// The gather, monomorphized on the value width and the selector integer widths so each element
 /// and `(array_index, row_index)` pair is read straight from its packed buffer.
-fn gather<W: NativePType, A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
+///
+/// The loop body is deliberately a plain zipped `collect`: `BufferMut`'s size-hinted extend
+/// writes through a raw pointer with no per-item capacity check, and out-of-order execution
+/// already overlaps the random-access loads across iterations. A manually unrolled
+/// "N independent loads then N stores" variant (as in arrow-rs) measured *slower* here because
+/// the in-loop bounds checks are potential panics whose order the compiler must preserve,
+/// turning the unroll into eight in-flight check chains and register spills.
+fn gather<W: NativePType, A: AsPrimitive<usize> + Ord, R: AsPrimitive<usize> + Ord>(
     values: &[&[W]],
     branches: &[A],
     rows: &[R],
 ) -> VortexResult<BufferMut<W>> {
-    let len = branches.len();
+    validate_bounds(values, branches, rows)?;
+    Ok(branches
+        .iter()
+        .zip(rows)
+        .map(|(b, r)| values[b.as_()][r.as_()])
+        .collect())
+}
 
-    // Validate the per-row bounds once up front (returning an error rather than panicking), so the
-    // bounds checks in the gather passes below always pass and predict perfectly.
-    for i in 0..len {
-        let branch = branches[i].as_();
+/// Validates every `(array_index, row_index)` pair, returning an error rather than panicking.
+///
+/// The hot path is a branchless max-fold over both selectors, which auto-vectorizes (an
+/// early-exit per-row check measured ~40% of the whole gather's runtime). `max_row < min(len)`
+/// proves all rows in bounds exactly when the values share a length; only ragged value lengths
+/// fall back to the exact per-row scan.
+fn validate_bounds<W: NativePType, A: AsPrimitive<usize> + Ord, R: AsPrimitive<usize> + Ord>(
+    values: &[&[W]],
+    branches: &[A],
+    rows: &[R],
+) -> VortexResult<()> {
+    if branches.is_empty() {
+        return Ok(());
+    }
+    // Fold in the native selector type so the lanes stay narrow enough to vectorize.
+    let mut max_branch = branches[0];
+    let mut max_row = rows[0];
+    for (b, r) in branches.iter().zip(rows) {
+        max_branch = max_branch.max(*b);
+        max_row = max_row.max(*r);
+    }
+    vortex_ensure!(
+        max_branch.as_() < values.len(),
+        "interleave array index out of bounds"
+    );
+
+    let min_len = values.iter().map(|v| v.len()).min().unwrap_or(0);
+    if max_row.as_() < min_len {
+        return Ok(());
+    }
+    for (b, r) in branches.iter().zip(rows) {
         vortex_ensure!(
-            branch < values.len(),
-            "interleave array index out of bounds"
-        );
-        vortex_ensure!(
-            rows[i].as_() < values[branch].len(),
+            r.as_() < values[b.as_()].len(),
             "interleave row index out of bounds"
         );
     }
-
-    // Process 8 elements at a time, issuing 8 independent loads before any store: a random-access
-    // gather is latency-bound, and this keeps multiple cache misses in flight (memory-level
-    // parallelism) instead of serializing on each one.
-    let mut out = BufferMut::<W>::zeroed(len);
-    let mut out_chunks = out.chunks_exact_mut(8);
-    let idx_chunks = branches.chunks_exact(8).zip(rows.chunks_exact(8));
-    for (out_chunk, (b, r)) in (&mut out_chunks).zip(idx_chunks) {
-        let v0 = values[b[0].as_()][r[0].as_()];
-        let v1 = values[b[1].as_()][r[1].as_()];
-        let v2 = values[b[2].as_()][r[2].as_()];
-        let v3 = values[b[3].as_()][r[3].as_()];
-        let v4 = values[b[4].as_()][r[4].as_()];
-        let v5 = values[b[5].as_()][r[5].as_()];
-        let v6 = values[b[6].as_()][r[6].as_()];
-        let v7 = values[b[7].as_()][r[7].as_()];
-        out_chunk[0] = v0;
-        out_chunk[1] = v1;
-        out_chunk[2] = v2;
-        out_chunk[3] = v3;
-        out_chunk[4] = v4;
-        out_chunk[5] = v5;
-        out_chunk[6] = v6;
-        out_chunk[7] = v7;
-    }
-
-    let tail = out_chunks.into_remainder();
-    let start = len - tail.len();
-    for (slot, i) in tail.iter_mut().zip(start..len) {
-        *slot = values[branches[i].as_()][rows[i].as_()];
-    }
-
-    Ok(out)
+    Ok(())
 }
 
 #[cfg(test)]
