@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import abc
+import operator
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -11,6 +12,8 @@ from typing_extensions import override
 
 import vortex._lib.arrays as _arrays  # pyright: ignore[reportMissingModuleSource]
 from vortex._lib.dtype import DType  # pyright: ignore[reportMissingModuleSource]
+from vortex._lib.iter import ArrayIterator  # pyright: ignore[reportMissingModuleSource]
+from vortex._lib.scalar import Scalar  # pyright: ignore[reportMissingModuleSource]
 from vortex._lib.serde import (  # pyright: ignore[reportMissingModuleSource]
     ArrayContext,
     SerializedArray,
@@ -314,6 +317,92 @@ def _Array_to_pylist(self: _arrays.Array) -> list[Any]:  # pyright: ignore[repor
 
 
 Array.to_pylist = _Array_to_pylist
+
+
+def _Array_getitem(self: _arrays.Array, key: int | slice) -> Scalar | _arrays.Array:
+    """Retrieve a row by its index, or a zero-copy view of a contiguous range of rows.
+
+    Integer keys (including negative indices) return a :class:`vortex.Scalar`, equivalent to
+    :meth:`.scalar_at`. Slice keys with step 1 return a :class:`vortex.Array`, equivalent to
+    :meth:`.slice`.
+
+    Examples
+    --------
+
+    >>> array = vortex.array([10, 42, 999, 1992])
+    >>> array[2].as_py()
+    999
+    >>> array[-1].as_py()
+    1992
+    >>> array[1:3].to_pylist()
+    [42, 999]
+
+    """
+    if isinstance(key, slice):
+        start, stop, step = key.indices(len(self))
+        if step != 1:
+            raise ValueError(f"slices with step {step} are not supported, use take instead")
+        return self.slice(start, max(start, stop))
+    index = operator.index(key)
+    if index < 0:
+        index += len(self)
+    if index < 0 or index >= len(self):
+        raise IndexError(f"index {key} out of bounds for array of length {len(self)}")
+    return self.scalar_at(index)
+
+
+Array.__getitem__ = _Array_getitem
+
+
+def _Array__arrow_c_array__(self: _arrays.Array, requested_schema: object | None = None) -> tuple[object, object]:
+    """Export this array over the Arrow PyCapsule interface.
+
+    This allows zero-copy hand-off to any library that understands Arrow data, for example
+    ``pyarrow.array(vortex_array)``.
+
+    Examples
+    --------
+
+    >>> pyarrow.array(vortex.array([1, None, 3]))
+    <pyarrow.lib.Int64Array object at ...>
+    [
+      1,
+      null,
+      3
+    ]
+
+    """
+    array = self.to_arrow_array()
+    if isinstance(array, pyarrow.ChunkedArray):
+        array = array.combine_chunks()
+    return array.__arrow_c_array__(requested_schema)
+
+
+Array.__arrow_c_array__ = _Array__arrow_c_array__
+
+
+def _Array__arrow_c_stream__(self: _arrays.Array, requested_schema: object | None = None) -> object:
+    """Export this array as an Arrow PyCapsule stream of chunks."""
+    array = self.to_arrow_array()
+    if not isinstance(array, pyarrow.ChunkedArray):
+        array = pyarrow.chunked_array([array])
+    return array.__arrow_c_stream__(requested_schema)
+
+
+Array.__arrow_c_stream__ = _Array__arrow_c_stream__
+
+
+def _ArrayIterator__arrow_c_stream__(self: ArrayIterator, requested_schema: object | None = None) -> object:
+    """Export this iterator over the Arrow PyCapsule stream interface.
+
+    This allows any library that understands Arrow streams to consume a Vortex scan directly,
+    for example ``pyarrow.RecordBatchReader.from_stream(iterator)`` or
+    ``pyarrow.table(iterator)``.
+    """
+    return self.to_arrow().__arrow_c_stream__(requested_schema)
+
+
+ArrayIterator.__arrow_c_stream__ = _ArrayIterator__arrow_c_stream__
 
 
 def array(

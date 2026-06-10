@@ -37,6 +37,10 @@ of the array, and are also zero-copy to Apache Arrow.
      :members:
 
 
+.. autoclass:: vortex.DecimalArray
+     :members:
+
+
 .. autoclass:: vortex.VarBinArray
     :members:
 

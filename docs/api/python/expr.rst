@@ -31,6 +31,14 @@ the following expression represents the set of rows for which the `age` column l
 
 .. autofunction:: vortex.expr.literal
 
+.. autofunction:: vortex.expr.cast
+
+.. autofunction:: vortex.expr.is_null
+
+.. autofunction:: vortex.expr.is_not_null
+
+.. autofunction:: vortex.expr.is_in
+
 .. autoclass:: vortex.expr.Expr
    :members:
 

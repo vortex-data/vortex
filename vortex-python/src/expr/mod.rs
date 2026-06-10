@@ -36,6 +36,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(cast, &m)?)?;
     m.add_function(wrap_pyfunction!(is_null, &m)?)?;
     m.add_function(wrap_pyfunction!(is_not_null, &m)?)?;
+    m.add_function(wrap_pyfunction!(is_in, &m)?)?;
     m.add_class::<PyExpr>()?;
 
     Ok(())
@@ -437,5 +438,39 @@ pub fn is_null(child: PyExpr) -> PyResult<PyExpr> {
 pub fn is_not_null(child: PyExpr) -> PyResult<PyExpr> {
     Ok(PyExpr {
         inner: expr::is_not_null(child.into_inner()),
+    })
+}
+
+/// Creates an expression that checks whether each value is a member of the given list.
+///
+/// Parameters
+/// ----------
+/// child : :class:`vortex.Expr`
+///     The expression whose values are tested for membership.
+/// values : :class:`list`
+///     A non-empty list of candidate values.
+///
+/// Returns
+/// -------
+/// :class:`vortex.Expr`
+///
+/// Examples
+/// --------
+///
+/// ```python
+/// >>> import vortex.expr as ve
+/// >>> ve.is_in(ve.column("age"), [25, 31, 57])
+/// <vortex.Expr object at ...>
+/// ```
+#[pyfunction]
+pub fn is_in(child: PyExpr, values: &Bound<'_, PyList>) -> PyResult<PyExpr> {
+    if values.is_empty() {
+        return Err(PyValueError::new_err(
+            "is_in requires a non-empty list of values",
+        ));
+    }
+    let values = scalar_helper(values.as_any(), None)?;
+    Ok(PyExpr {
+        inner: expr::list_contains(lit(values), child.into_inner()),
     })
 }

@@ -8,6 +8,7 @@ import pyarrow as pa
 import pytest
 
 import vortex as vx
+import vortex.expr as ve
 from vortex.file import VortexFile
 
 
@@ -92,3 +93,25 @@ def test_stream_pyarrow(tmpdir_factory):  # pyright: ignore[reportUnknownParamet
 
     df = pq.read_table(str(data_dir / "names.parquet"))  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType]
     vx.io.write(df, str(data_dir / "names.vortex"))  # pyright: ignore[reportUnknownArgumentType]
+
+
+def test_scan_is_in(vxf: VortexFile):
+    result = vxf.scan(expr=ve.is_in(ve.column("index"), [3, 5, 999_999])).read_all().to_arrow_table()
+    assert result["index"].to_pylist() == [3, 5, 999_999]
+
+
+def test_is_in_apply():
+    a = vx.array([1, 2, 3, 4])
+    mask = a.apply(ve.is_in(ve.root(), [1, 4]))
+    assert mask.to_arrow_array().to_pylist() == [True, False, False, True]
+
+
+def test_is_in_strings():
+    a = vx.array(["a", "b", "c"])
+    mask = a.apply(ve.is_in(ve.root(), ["b", "c"]))
+    assert mask.to_arrow_array().to_pylist() == [False, True, True]
+
+
+def test_is_in_empty_values():
+    with pytest.raises(ValueError):
+        ve.is_in(ve.column("index"), [])

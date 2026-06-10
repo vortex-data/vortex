@@ -53,6 +53,7 @@ use crate::expr::PyExpr;
 use crate::install_module;
 use crate::python_repr::PythonRepr;
 use crate::scalar::PyScalar;
+use crate::scalar::factory::scalar_helper;
 use crate::serde::context::PyArrayContext;
 use crate::session::session;
 
@@ -69,6 +70,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<builtins::PyNullArray>()?;
     m.add_class::<builtins::PyBoolArray>()?;
     m.add_class::<builtins::PyPrimitiveArray>()?;
+    m.add_class::<builtins::PyDecimalArray>()?;
     m.add_class::<builtins::PyVarBinArray>()?;
     m.add_class::<builtins::PyVarBinViewArray>()?;
     m.add_class::<builtins::PyStructArray>()?;
@@ -702,6 +704,136 @@ impl PyArray {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
         let inner = slf.slice(start..end)?;
         Ok(PyArrayRef::from(inner))
+    }
+
+    /// Cast this array to another data type.
+    ///
+    /// Parameters
+    /// ----------
+    /// dtype : :class:`~vortex.DType`
+    ///     The target data type.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`~vortex.Array`
+    ///
+    /// Examples
+    /// --------
+    ///
+    /// Cast an integer array to a wider floating-point type:
+    ///
+    /// ```python
+    /// >>> import vortex as vx
+    /// >>> vx.array([1, 2, 3]).cast(vx.float_(64)).to_arrow_array()
+    /// <pyarrow.lib.DoubleArray object at ...>
+    /// [
+    ///   1,
+    ///   2,
+    ///   3
+    /// ]
+    /// ```
+    fn cast(slf: Bound<Self>, dtype: PyDType) -> PyVortexResult<PyArrayRef> {
+        let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
+        let inner = slf.cast(dtype.into_inner())?;
+        Ok(PyArrayRef::from(inner))
+    }
+
+    /// Replace all null values with the given value.
+    ///
+    /// Parameters
+    /// ----------
+    /// value : :class:`~vortex.Scalar` | :class:`int` | :class:`float` | :class:`str` | :class:`bytes` | :class:`bool`
+    ///     The value used to fill nulls. It must be castable to the array's data type.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`~vortex.Array`
+    ///
+    /// Examples
+    /// --------
+    ///
+    /// ```python
+    /// >>> import vortex as vx
+    /// >>> vx.array([1, None, 3]).fill_null(0).to_arrow_array()
+    /// <pyarrow.lib.Int64Array object at ...>
+    /// [
+    ///   1,
+    ///   0,
+    ///   3
+    /// ]
+    /// ```
+    fn fill_null(slf: Bound<Self>, value: &Bound<'_, PyAny>) -> PyVortexResult<PyArrayRef> {
+        let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
+        let fill_value = scalar_helper(value, Some(&slf.dtype().as_nonnullable()))?;
+        let inner = slf.fill_null(fill_value)?;
+        Ok(PyArrayRef::from(inner))
+    }
+
+    /// Return a Boolean array indicating which elements are null.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`~vortex.Array`
+    ///
+    /// Examples
+    /// --------
+    ///
+    /// ```python
+    /// >>> import vortex as vx
+    /// >>> vx.array([1, None, 3]).is_null().to_arrow_array()
+    /// <pyarrow.lib.BooleanArray object at ...>
+    /// [
+    ///   false,
+    ///   true,
+    ///   false
+    /// ]
+    /// ```
+    fn is_null(slf: Bound<Self>) -> PyVortexResult<PyArrayRef> {
+        let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
+        let inner = slf.is_null()?;
+        Ok(PyArrayRef::from(inner))
+    }
+
+    /// Return a Boolean array indicating which elements are non-null.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`~vortex.Array`
+    ///
+    /// Examples
+    /// --------
+    ///
+    /// ```python
+    /// >>> import vortex as vx
+    /// >>> vx.array([1, None, 3]).is_not_null().to_arrow_array()
+    /// <pyarrow.lib.BooleanArray object at ...>
+    /// [
+    ///   true,
+    ///   false,
+    ///   true
+    /// ]
+    /// ```
+    fn is_not_null(slf: Bound<Self>) -> PyVortexResult<PyArrayRef> {
+        let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
+        let inner = slf.is_not_null()?;
+        Ok(PyArrayRef::from(inner))
+    }
+
+    /// Returns the number of null elements in this array.
+    ///
+    /// Examples
+    /// --------
+    ///
+    /// ```python
+    /// >>> import vortex as vx
+    /// >>> vx.array([1, None, 3, None]).null_count
+    /// 2
+    /// ```
+    #[getter]
+    fn null_count(slf: Bound<Self>) -> PyVortexResult<usize> {
+        let mut ctx = session().create_execution_ctx();
+        let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
+        Ok(slf.invalid_count(&mut ctx)?)
     }
 
     /// Internal technical details about the encoding of this Array.

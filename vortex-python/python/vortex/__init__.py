@@ -12,7 +12,7 @@ from ._lib.arrays import (  # pyright: ignore[reportMissingModuleSource]
     ChunkedArray,
     ConstantArray,
     DateTimePartsArray,
-    # DecimalArray # TODO(connor): Is this missing a `DecimalArray`?
+    DecimalArray,
     DictArray,
     ExtensionArray,
     FastLanesBitPackedArray,
@@ -68,7 +68,7 @@ from ._lib.runtime import (  # pyright: ignore[reportMissingModuleSource]
 from ._lib.scalar import (  # pyright: ignore[reportMissingModuleSource]
     BinaryScalar,
     BoolScalar,
-    # TODO(connor): Is this missing a `DecimalScalar`?
+    DecimalScalar,
     ExtensionScalar,
     ListScalar,
     NullScalar,
@@ -150,6 +150,7 @@ __all__ = [
     "BoolArray",
     "ByteBoolArray",
     "PrimitiveArray",
+    "DecimalArray",
     "VarBinArray",
     "VarBinViewArray",
     "StructArray",
@@ -174,6 +175,7 @@ __all__ = [
     "NullScalar",
     "BoolScalar",
     "PrimitiveScalar",
+    "DecimalScalar",
     "Utf8Scalar",
     "BinaryScalar",
     "StructScalar",

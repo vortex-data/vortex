@@ -304,3 +304,99 @@ def test_get_fragments(ds: vx.dataset.VortexDataset):
 
     assert ds.to_table() == pa.concat_tables(f.to_table() for f in ds.get_fragments())
     assert ds_filtered.to_table() == pa.concat_tables(f.to_table() for f in ds_filtered.get_fragments())
+
+
+@pytest.fixture(scope="session")
+def multi_ds(tmpdir_factory) -> vx.dataset.VortexMultiDataset:  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
+    data_dir = tmpdir_factory.mktemp("multi")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+    vx.io.write(vx.array(pa.array([record(x) for x in range(100)])), str(data_dir / "a.vortex"))  # pyright: ignore[reportUnknownArgumentType]
+    vx.io.write(vx.array(pa.array([record(x) for x in range(100, 250)])), str(data_dir / "b.vortex"))  # pyright: ignore[reportUnknownArgumentType]
+    ds = vx_dataset.dataset(str(data_dir))  # pyright: ignore[reportUnknownArgumentType]
+    assert isinstance(ds, vx_dataset.VortexMultiDataset)
+    return ds
+
+
+def test_dataset_single_file(multi_ds: vx.dataset.VortexMultiDataset, tmpdir_factory):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
+    fname = tmpdir_factory.mktemp("single") / "single.vortex"  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+    vx.io.write(vx.array(pa.array([record(x) for x in range(10)])), str(fname))  # pyright: ignore[reportUnknownArgumentType]
+    ds = vx_dataset.dataset(str(fname))  # pyright: ignore[reportUnknownArgumentType]
+    assert isinstance(ds, vx_dataset.VortexDataset)
+    assert ds.count_rows() == 10
+
+
+def test_dataset_empty_directory(tmpdir_factory):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
+    data_dir = tmpdir_factory.mktemp("empty")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+    with pytest.raises(ValueError):
+        vx_dataset.dataset(str(data_dir))  # pyright: ignore[reportUnknownArgumentType]
+
+
+def test_multi_dataset_schema(multi_ds: vx.dataset.VortexMultiDataset):
+    assert multi_ds.schema == pa.schema(
+        [("bool", pa.bool_()), ("float", pa.float64()), ("index", pa.int64()), ("string", pa.string_view())]
+    )
+
+
+def test_multi_dataset_count_rows(multi_ds: vx.dataset.VortexMultiDataset):
+    assert multi_ds.count_rows() == 250
+    assert multi_ds.count_rows(filter=pc.field("index") < 120) == 120
+
+
+def test_multi_dataset_to_table(multi_ds: vx.dataset.VortexMultiDataset):
+    table = multi_ds.to_table()
+    assert len(table) == 250
+    assert table["index"].to_pylist() == list(range(250))
+
+
+def test_multi_dataset_to_table_filter(multi_ds: vx.dataset.VortexMultiDataset):
+    table = multi_ds.to_table(columns=["index"], filter=pc.field("index") >= 95)
+    assert table.column_names == ["index"]
+    assert table["index"].to_pylist() == list(range(95, 250))
+
+
+def test_multi_dataset_filter_then_to_table(multi_ds: vx.dataset.VortexMultiDataset):
+    table = multi_ds.filter(pc.field("index") < 110).filter(pc.field("index") >= 90).to_table()
+    assert table["index"].to_pylist() == list(range(90, 110))
+
+
+def test_multi_dataset_head(multi_ds: vx.dataset.VortexMultiDataset):
+    table = multi_ds.head(150)
+    assert table["index"].to_pylist() == list(range(150))
+    assert len(multi_ds.head(0)) == 0
+
+
+def test_multi_dataset_take(multi_ds: vx.dataset.VortexMultiDataset):
+    table = multi_ds.take(pa.array([5, 200, 7, 110]))
+    assert table["index"].to_pylist() == [5, 200, 7, 110]
+
+
+def test_multi_dataset_take_out_of_bounds(multi_ds: vx.dataset.VortexMultiDataset):
+    with pytest.raises(IndexError):
+        multi_ds.take(pa.array([250]))
+
+
+def test_multi_dataset_to_batches(multi_ds: vx.dataset.VortexMultiDataset):
+    total = sum(len(batch) for batch in multi_ds.to_batches())
+    assert total == 250
+
+
+def test_multi_dataset_scanner(multi_ds: vx.dataset.VortexMultiDataset):
+    scanner = multi_ds.scanner(columns=["index"], filter=pc.field("index") < 5)
+    assert scanner.to_table()["index"].to_pylist() == list(range(5))
+    assert scanner.count_rows() == 5
+
+
+def test_multi_dataset_duckdb(multi_ds: vx.dataset.VortexMultiDataset):
+    assert duckdb.sql("SELECT COUNT(*) AS c FROM multi_ds").fetchall() == [(250,)]
+
+
+def test_multi_dataset_polars(multi_ds: vx.dataset.VortexMultiDataset):
+    lazy = polars.scan_pyarrow_dataset(multi_ds)
+    assert lazy.filter(polars.col("index") < 130).collect().height == 130
+
+
+def test_multi_dataset_schema_mismatch(tmpdir_factory):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
+    data_dir = tmpdir_factory.mktemp("mismatch")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+    vx.io.write(vx.array(pa.array([record(x) for x in range(10)])), str(data_dir / "a.vortex"))  # pyright: ignore[reportUnknownArgumentType]
+    vx.io.write(vx.array(pa.array([{"other": 1}])), str(data_dir / "b.vortex"))  # pyright: ignore[reportUnknownArgumentType]
+    with pytest.raises(ValueError):
+        vx_dataset.dataset(str(data_dir))  # pyright: ignore[reportUnknownArgumentType]

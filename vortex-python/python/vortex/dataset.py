@@ -3,13 +3,16 @@
 
 from __future__ import annotations
 
+import os
 import warnings
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from functools import reduce
+from pathlib import Path
 from typing import final
 
 import pyarrow as pa
+import pyarrow.compute
 import pyarrow.dataset
 from typing_extensions import override
 
@@ -789,7 +792,7 @@ class VortexScanner(pyarrow.dataset.Scanner):
 
     def __init__(
         self,
-        dataset: VortexDataset,
+        dataset: VortexDataset | VortexMultiDataset,
         columns: list[str] | None = None,
         filter: pyarrow.dataset.Expression | Expr | None = None,
         batch_size: int | None = None,
@@ -947,3 +950,419 @@ class VortexScanner(pyarrow.dataset.Scanner):
             self._memory_pool,
             self._row_range,
         )
+
+
+@final
+class VortexMultiDataset(pyarrow.dataset.Dataset):
+    """Read multiple Vortex files sharing one schema as a single :class:`pyarrow.dataset.Dataset`.
+
+    Use :func:`vortex.dataset.dataset` to construct one from a list of paths or a directory.
+    """
+
+    def __init__(self, datasets: list[VortexDataset]):
+        if not datasets:
+            raise ValueError("VortexMultiDataset requires at least one dataset")
+        schema = datasets[0].schema
+        for child in datasets[1:]:
+            if not child.schema.equals(schema):
+                raise ValueError("all files in a Vortex dataset must share the same schema")
+        self._children = datasets
+
+    @property
+    @override
+    def schema(self) -> pyarrow.Schema:
+        return self._children[0].schema
+
+    def _projected_schema(self, columns: list[str] | None) -> pyarrow.Schema:
+        if columns is None:
+            return self.schema
+        fields: list[pa.Field[pa.DataType]] = [
+            self.schema.field(c)  # pyright: ignore[reportUnknownMemberType]
+            for c in columns
+        ]
+        return pyarrow.schema(fields)
+
+    @override
+    def filter(self, expression: pyarrow.dataset.Expression | Expr) -> VortexMultiDataset:
+        """A new Dataset with a filter condition applied to every file.
+
+        Successively calling this method conjuncts all the filter expressions together.
+        """
+        return VortexMultiDataset([child.filter(expression) for child in self._children])
+
+    @override
+    def count_rows(
+        self,
+        filter: pyarrow.dataset.Expression | Expr | None = None,
+        batch_size: int | None = None,
+        batch_readahead: int | None = None,
+        fragment_readahead: int | None = None,
+        fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
+        use_threads: bool = True,
+        cache_metadata: bool | None = None,
+        memory_pool: pyarrow.MemoryPool | None = None,
+        _row_range: tuple[int, int] | None = None,
+    ) -> int:
+        """Count the number of rows across all files in this dataset."""
+        if _row_range is not None:
+            raise ValueError("_row_range is not supported on multi-file datasets")
+        return sum(
+            child.count_rows(
+                filter,
+                batch_size,
+                batch_readahead,
+                fragment_readahead,
+                fragment_scan_options,
+                use_threads,
+                cache_metadata,
+                memory_pool,
+            )
+            for child in self._children
+        )
+
+    @override
+    def get_fragments(self, filter: pyarrow.dataset.Expression | Expr | None = None) -> Iterator[VortexFragment]:
+        """A fragment for each split of each file in the Dataset."""
+        for child in self._children:
+            yield from child.get_fragments(filter)
+
+    @override
+    def head(
+        self,
+        num_rows: int,
+        columns: list[str] | None = None,
+        filter: pyarrow.dataset.Expression | Expr | None = None,
+        batch_size: int | None = None,
+        batch_readahead: int | None = None,
+        fragment_readahead: int | None = None,
+        fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
+        use_threads: bool = True,
+        cache_metadata: bool | None = None,
+        memory_pool: pyarrow.MemoryPool | None = None,
+        _row_range: tuple[int, int] | None = None,
+    ) -> pyarrow.Table:
+        """Load the first `num_rows` of the dataset, reading from as few files as possible.
+
+        See :meth:`VortexDataset.head` for parameter documentation.
+        """
+        if _row_range is not None:
+            raise ValueError("_row_range is not supported on multi-file datasets")
+        tables: list[pyarrow.Table] = []
+        remaining = num_rows
+        for child in self._children:
+            if remaining <= 0:
+                break
+            table = child.head(
+                remaining,
+                columns,
+                filter,
+                batch_size,
+                batch_readahead,
+                fragment_readahead,
+                fragment_scan_options,
+                use_threads,
+                cache_metadata,
+                memory_pool,
+            )
+            if len(table) > 0:
+                tables.append(table)
+                remaining -= len(table)
+        if not tables:
+            return self._projected_schema(columns).empty_table()
+        return pyarrow.concat_tables(tables)
+
+    @override
+    def join(
+        self,
+        right_dataset: pyarrow.dataset.Dataset,
+        keys: str | list[str],
+        right_keys: str | list[str] | None = None,
+        join_type: str = "left outer",
+        left_suffix: str | None = None,
+        right_suffix: str | None = None,
+        coalesce_keys: bool = True,
+        use_threads: bool = True,
+    ) -> pyarrow.dataset.InMemoryDataset:
+        """Not implemented."""
+        raise NotImplementedError("join")
+
+    @override
+    def join_asof(
+        self,
+        right_dataset: pyarrow.dataset.Dataset,
+        on: str,
+        by: str | list[str],
+        tolerance: int,
+        right_on: str | list[str] | None = None,
+        right_by: str | list[str] | None = None,
+    ) -> pyarrow.dataset.InMemoryDataset:
+        """Not implemented."""
+        raise NotImplementedError("join_asof")
+
+    @override
+    def replace_schema(self, schema: pyarrow.Schema) -> None:
+        """Not implemented."""
+        raise NotImplementedError("replace_schema")
+
+    @override
+    def scanner(
+        self,
+        columns: list[str] | None = None,
+        filter: pyarrow.dataset.Expression | Expr | None = None,
+        batch_size: int | None = None,
+        batch_readahead: int | None = None,
+        fragment_readahead: int | None = None,
+        fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
+        use_threads: bool = True,
+        cache_metadata: bool | None = None,
+        memory_pool: pyarrow.MemoryPool | None = None,
+    ) -> pyarrow.dataset.Scanner:
+        """Construct a :class:`.pyarrow.dataset.Scanner` over all files.
+
+        See :meth:`VortexDataset.scanner` for parameter documentation.
+        """
+        return VortexScanner(
+            self,
+            columns,
+            filter,
+            batch_size,
+            batch_readahead,
+            fragment_readahead,
+            fragment_scan_options,
+            use_threads,
+            cache_metadata,
+            memory_pool,
+        )
+
+    @override
+    def sort_by(self, sorting: str | list[tuple[str, str]], **kwargs) -> pyarrow.dataset.InMemoryDataset:  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType, reportIncompatibleMethodOverride]
+        """Not implemented."""
+        raise NotImplementedError("sort_by")
+
+    @override
+    def take(  # pyright: ignore[reportIncompatibleMethodOverride]
+        self,
+        indices: pyarrow.Array[
+            pyarrow.Int8Scalar
+            | pyarrow.Int16Scalar
+            | pyarrow.Int32Scalar
+            | pyarrow.Int64Scalar
+            | pyarrow.UInt8Scalar
+            | pyarrow.UInt16Scalar
+            | pyarrow.UInt32Scalar
+            | pyarrow.UInt64Scalar
+        ],
+        columns: list[str] | None = None,
+        filter: pyarrow.dataset.Expression | Expr | None = None,
+        batch_size: int | None = None,
+        batch_readahead: int | None = None,
+        fragment_readahead: int | None = None,
+        fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
+        use_threads: bool = True,
+        cache_metadata: bool | None = None,
+        memory_pool: pyarrow.MemoryPool | None = None,
+        _row_range: tuple[int, int] | None = None,
+    ) -> pyarrow.Table:
+        """Load a subset of rows identified by their absolute indices into the whole dataset.
+
+        Indices are interpreted over the concatenation of all files, in order. The returned rows
+        are in the same order as `indices`, which need not be sorted.
+
+        See :meth:`VortexDataset.take` for parameter documentation.
+        """
+        if _row_range is not None:
+            raise ValueError("_row_range is not supported on multi-file datasets")
+        if filter is not None or any(child._filters for child in self._children):  # pyright: ignore[reportPrivateUsage]
+            raise NotImplementedError("take with a filter is not supported on multi-file datasets")
+
+        pc = pyarrow.compute
+        indices64 = indices.cast(pa.int64())
+        order = pc.sort_indices(indices64)  # pyright: ignore[reportUnknownMemberType]
+        sorted_indices = indices64.take(order)
+
+        total = 0
+        tables: list[pyarrow.Table] = []
+        for child in self._children:
+            length = child.count_rows(use_threads=use_threads)
+            in_child = pc.and_(  # pyright: ignore[reportUnknownMemberType]
+                pc.greater_equal(sorted_indices, total),  # pyright: ignore[reportUnknownMemberType]
+                pc.less(sorted_indices, total + length),  # pyright: ignore[reportUnknownMemberType]
+            )
+            local = pc.subtract(sorted_indices.filter(in_child), total)  # pyright: ignore[reportUnknownMemberType]
+            if len(local) > 0:
+                tables.append(
+                    child.take(
+                        local,
+                        columns,
+                        batch_size=batch_size,
+                        batch_readahead=batch_readahead,
+                        fragment_readahead=fragment_readahead,
+                        fragment_scan_options=fragment_scan_options,
+                        use_threads=use_threads,
+                        cache_metadata=cache_metadata,
+                        memory_pool=memory_pool,
+                    )
+                )
+            total += length
+
+        taken = sum(len(t) for t in tables)
+        if taken != len(indices64):
+            raise IndexError(f"indices out of bounds for dataset of {total} rows")
+        if not tables:
+            return self._projected_schema(columns).empty_table()
+
+        combined = pyarrow.concat_tables(tables)
+        inverse = pc.sort_indices(order)  # pyright: ignore[reportUnknownMemberType]
+        return combined.take(inverse)
+
+    def to_record_batch_reader(
+        self,
+        columns: list[str] | None = None,
+        filter: pyarrow.dataset.Expression | Expr | None = None,
+        batch_size: int | None = None,
+        batch_readahead: int | None = None,
+        fragment_readahead: int | None = None,
+        fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
+        use_threads: bool = True,
+        cache_metadata: bool | None = None,
+        memory_pool: pyarrow.MemoryPool | None = None,
+        _row_range: tuple[int, int] | None = None,
+    ) -> pyarrow.RecordBatchReader:
+        """Construct a :class:`.pyarrow.RecordBatchReader` over all files, in order.
+
+        See :meth:`VortexDataset.to_record_batch_reader` for parameter documentation.
+        """
+        if _row_range is not None:
+            raise ValueError("_row_range is not supported on multi-file datasets")
+
+        def batches() -> Iterator[pyarrow.RecordBatch]:
+            for child in self._children:
+                yield from child.to_record_batch_reader(
+                    columns,
+                    filter,
+                    batch_size,
+                    batch_readahead,
+                    fragment_readahead,
+                    fragment_scan_options,
+                    use_threads,
+                    cache_metadata,
+                    memory_pool,
+                )
+
+        return pyarrow.RecordBatchReader.from_batches(self._projected_schema(columns), batches())
+
+    @override
+    def to_batches(
+        self,
+        columns: list[str] | None = None,
+        filter: pyarrow.dataset.Expression | Expr | None = None,
+        batch_size: int | None = None,
+        batch_readahead: int | None = None,
+        fragment_readahead: int | None = None,
+        fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
+        use_threads: bool = True,
+        cache_metadata: bool | None = None,
+        memory_pool: pyarrow.MemoryPool | None = None,
+        _row_range: tuple[int, int] | None = None,
+    ) -> Iterator[pyarrow.RecordBatch]:
+        """Construct an iterator of :class:`.pyarrow.RecordBatch` over all files, in order.
+
+        See :meth:`VortexDataset.to_batches` for parameter documentation.
+        """
+        yield from self.to_record_batch_reader(
+            columns,
+            filter,
+            batch_size,
+            batch_readahead,
+            fragment_readahead,
+            fragment_scan_options,
+            use_threads,
+            cache_metadata,
+            memory_pool,
+            _row_range,
+        )
+
+    @override
+    def to_table(
+        self,
+        columns: list[str] | dict[str, pyarrow.dataset.Expression] | None = None,
+        filter: pyarrow.dataset.Expression | Expr | None = None,
+        batch_size: int | None = None,
+        batch_readahead: int | None = None,
+        fragment_readahead: int | None = None,
+        fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
+        use_threads: bool = True,
+        cache_metadata: bool | None = None,
+        memory_pool: pyarrow.MemoryPool | None = None,
+        _row_range: tuple[int, int] | None = None,
+    ) -> pyarrow.Table:
+        """Construct an Arrow :class:`.pyarrow.Table` from all files, in order.
+
+        See :meth:`VortexDataset.to_table` for parameter documentation.
+        """
+        if isinstance(columns, dict):
+            raise ValueError(
+                "VortexMultiDataset does not currently support a dict of expressions as the 'column' parameter."
+            )
+        return self.to_record_batch_reader(
+            columns,
+            filter,
+            batch_size,
+            batch_readahead,
+            fragment_readahead,
+            fragment_scan_options,
+            use_threads,
+            cache_metadata,
+            memory_pool,
+            _row_range,
+        ).read_all()
+
+
+def dataset(
+    source: str | os.PathLike[str] | Sequence[str | os.PathLike[str]],
+) -> VortexDataset | VortexMultiDataset:
+    """Open one or more Vortex files as a :class:`pyarrow.dataset.Dataset`.
+
+    Parameters
+    ----------
+    source : :class:`str`, :class:`os.PathLike`, or a sequence of them
+        A path or URL to a Vortex file, a local directory (which is searched recursively for
+        ``*.vortex`` files), or a sequence of paths and URLs. All files must share the same
+        schema. Partition key discovery (e.g. Hive-style paths) is not currently supported.
+
+    Returns
+    -------
+    :class:`VortexDataset` for a single file, :class:`VortexMultiDataset` otherwise.
+
+    Examples
+    --------
+
+    Open every Vortex file in a directory and read them as one table:
+
+    >>> import vortex as vx
+    >>> ds = vx.dataset.dataset("data/") # doctest: +SKIP
+    >>> ds.to_table() # doctest: +SKIP
+    """
+    if isinstance(source, str | os.PathLike):
+        path = os.fspath(source)
+        if "://" in path:
+            return VortexDataset.from_url(path)
+        if os.path.isdir(path):
+            files = sorted(str(file) for file in Path(path).rglob("*.vortex"))
+            if not files:
+                raise ValueError(f"no .vortex files found under directory {path!r}")
+            return dataset(files)
+        return VortexDataset.from_path(path)
+
+    children: list[VortexDataset] = []
+    for child_source in source:
+        child = dataset(child_source)
+        if isinstance(child, VortexMultiDataset):
+            children.extend(child._children)  # pyright: ignore[reportPrivateUsage]
+        else:
+            children.append(child)
+    if not children:
+        raise ValueError("expected at least one path")
+    if len(children) == 1:
+        return children[0]
+    return VortexMultiDataset(children)
