@@ -17,6 +17,7 @@ use vortex_session::registry::CachedId;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::expr::StatsCatalog;
 use crate::expr::and;
 use crate::expr::and_collect;
@@ -34,6 +35,7 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
 
@@ -45,9 +47,44 @@ mod numeric;
 pub(crate) use numeric::*;
 
 use crate::scalar::NumericOperator;
+use crate::scalar::Scalar;
 
 #[derive(Clone)]
 pub struct Binary;
+
+fn simplify_and(lhs: &Expression, rhs: &Expression) -> Option<Expression> {
+    match (bool_literal(lhs), bool_literal(rhs)) {
+        (Some(Some(false)), _) | (_, Some(Some(false))) => Some(lit(false)),
+        (Some(Some(true)), _) => Some(rhs.clone()),
+        (_, Some(Some(true))) => Some(lhs.clone()),
+        (Some(None), Some(None)) => Some(lhs.clone()),
+        _ => None,
+    }
+}
+
+fn simplify_or(lhs: &Expression, rhs: &Expression) -> Option<Expression> {
+    match (bool_literal(lhs), bool_literal(rhs)) {
+        (Some(Some(true)), _) | (_, Some(Some(true))) => Some(lit(true)),
+        (Some(Some(false)), _) => Some(rhs.clone()),
+        (_, Some(Some(false))) => Some(lhs.clone()),
+        (Some(None), Some(None)) => Some(lhs.clone()),
+        _ => None,
+    }
+}
+
+fn bool_literal(expr: &Expression) -> Option<Option<bool>> {
+    expr.as_opt::<Literal>()?
+        .as_bool_opt()
+        .map(|value| value.value())
+}
+
+fn is_null_literal(expr: &Expression) -> bool {
+    expr.as_opt::<Literal>().is_some_and(Scalar::is_null)
+}
+
+fn null_bool() -> Expression {
+    lit(Scalar::null(DType::Bool(Nullability::Nullable)))
+}
 
 impl ScalarFnVTable for Binary {
     type Options = Operator;
@@ -163,6 +200,25 @@ impl ScalarFnVTable for Binary {
             Operator::Mul => execute_numeric(&lhs, &rhs, NumericOperator::Mul, ctx),
             Operator::Div => execute_numeric(&lhs, &rhs, NumericOperator::Div, ctx),
         }
+    }
+
+    fn simplify_untyped(
+        &self,
+        operator: &Operator,
+        expr: &Expression,
+    ) -> VortexResult<Option<Expression>> {
+        let lhs = expr.child(0);
+        let rhs = expr.child(1);
+
+        if operator.is_comparison() && (is_null_literal(lhs) || is_null_literal(rhs)) {
+            return Ok(Some(null_bool()));
+        }
+
+        Ok(match operator {
+            Operator::And => simplify_and(lhs, rhs),
+            Operator::Or => simplify_or(lhs, rhs),
+            _ => None,
+        })
     }
 
     fn stat_falsification(

@@ -10,6 +10,7 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 #[cfg(test)]
 use vortex_utils::aliases::hash_map::HashMap;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use super::relation::Relation;
 use crate::dtype::DType;
@@ -27,6 +28,7 @@ use crate::expr::root;
 use crate::expr::stats::Stat;
 use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::get_item::GetItem;
+use crate::scalar_fn::fns::literal::Literal;
 use crate::stats::bind::StatBinder;
 use crate::stats::bind::bind_stats;
 
@@ -78,9 +80,9 @@ pub fn field_path_stat_field_name(field_path: &FieldPath, stat: Stat) -> FieldNa
 /// replace those placeholders with the row count for its current scope before
 /// executing the returned expression.
 ///
-/// The returned expression is lowered to stats-table field references. Proof branches that require
-/// stats not present in `available_stats` are discarded; this returns `Ok(None)` if no usable proof
-/// remains.
+/// The returned expression is lowered to stats-table field references. Stats not present in
+/// `available_stats` are replaced with typed null literals, preserving three-valued pruning
+/// semantics without requiring callers to materialize unavailable stats.
 pub fn checked_pruning_expr(
     expr: &Expression,
     scope: &DType,
@@ -99,8 +101,12 @@ pub fn checked_pruning_expr(
     let Some(lowered) = bind_stats(predicate, &mut binder)? else {
         return Ok(None);
     };
+    let required_stats = filter_required_stats(&lowered, binder.required_stats);
+    if required_stats.map().is_empty() && !matches!(bool_literal(&lowered), Some(Some(true))) {
+        return Ok(None);
+    }
 
-    Ok(Some((lowered, binder.required_stats)))
+    Ok(Some((lowered, required_stats)))
 }
 
 struct RequiredStatsBinder<'a> {
@@ -141,23 +147,6 @@ impl StatBinder for RequiredStatsBinder<'_> {
             root(),
         )))
     }
-
-    fn missing_stat(&mut self, _dtype: DType) -> VortexResult<Option<Expression>> {
-        Ok(None)
-    }
-
-    fn bind_branch<F>(&mut self, bind: F) -> VortexResult<Option<Expression>>
-    where
-        Self: Sized,
-        F: FnOnce(&mut Self) -> VortexResult<Option<Expression>>,
-    {
-        let required_stats = self.required_stats.clone();
-        let bound = bind(self)?;
-        if bound.is_none() {
-            self.required_stats = required_stats;
-        }
-        Ok(bound)
-    }
 }
 
 fn direct_stat_field_path(expr: &Expression) -> Option<FieldPath> {
@@ -171,6 +160,44 @@ fn direct_stat_field_path(expr: &Expression) -> Option<FieldPath> {
 
     let field_name = expr.as_opt::<GetItem>()?;
     direct_stat_field_path(expr.child(0)).map(|path| path.push(field_name.clone()))
+}
+
+fn filter_required_stats(expr: &Expression, required_stats: RequiredStats) -> RequiredStats {
+    let referenced_names = referenced_stat_field_names(expr);
+    let mut filtered = Relation::new();
+    for (field_path, stats) in required_stats {
+        for stat in stats {
+            if referenced_names.contains(&field_path_stat_field_name(&field_path, stat)) {
+                filtered.insert(field_path.clone(), stat);
+            }
+        }
+    }
+    filtered
+}
+
+fn referenced_stat_field_names(expr: &Expression) -> HashSet<FieldName> {
+    let mut refs = HashSet::new();
+    collect_referenced_stat_field_names(expr, &mut refs);
+    refs
+}
+
+fn collect_referenced_stat_field_names(expr: &Expression, refs: &mut HashSet<FieldName>) {
+    if let Some(field_name) = expr.as_opt::<GetItem>()
+        && is_root(expr.child(0))
+    {
+        refs.insert(field_name.clone());
+        return;
+    }
+
+    for child in expr.children().iter() {
+        collect_referenced_stat_field_names(child, refs);
+    }
+}
+
+fn bool_literal(expr: &Expression) -> Option<Option<bool>> {
+    expr.as_opt::<Literal>()?
+        .as_bool_opt()
+        .map(|value| value.value())
 }
 
 #[cfg(test)]
@@ -210,6 +237,7 @@ mod tests {
     use crate::expr::pruning::field_path_stat_field_name;
     use crate::expr::root;
     use crate::expr::stats::Stat;
+    use crate::scalar::Scalar;
     use crate::scalar_fn::fns::between::BetweenOptions;
     use crate::scalar_fn::fns::between::StrictComparison;
     use crate::stats::session::StatsSession;
@@ -568,16 +596,26 @@ mod tests {
         let (converted, refs) = checked(&expr, &available_stats_with_nans).unwrap();
         assert_eq!(
             refs.map(),
-            &HashMap::from_iter([(
-                FieldPath::from_name("int_col"),
-                HashSet::from_iter([Stat::Min])
-            )])
+            &HashMap::from_iter([
+                (
+                    FieldPath::from_name("float_col"),
+                    HashSet::from_iter([Stat::Max])
+                ),
+                (
+                    FieldPath::from_name("int_col"),
+                    HashSet::from_iter([Stat::Min])
+                )
+            ])
         );
         assert_eq!(
             &converted,
-            // The float branch cannot be proven without AllNonNan stats, so the
-            // remaining proof is the int branch.
-            &gt_eq(col("int_col_min"), lit(10))
+            &or(
+                and(
+                    lit(Scalar::null(DType::Bool(Nullability::Nullable))),
+                    lt_eq(col("float_col_max"), lit(10f32)),
+                ),
+                gt_eq(col("int_col_min"), lit(10)),
+            )
         )
     }
 

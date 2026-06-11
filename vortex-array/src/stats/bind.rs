@@ -10,9 +10,9 @@ use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::expr::lit;
 use crate::expr::stats::Stat;
+use crate::expr::traversal::NodeExt;
+use crate::expr::traversal::Transformed;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::operators::Operator;
 use crate::scalar_fn::fns::stat::StatFn;
 
 /// A target that can bind abstract statistics to concrete expressions.
@@ -57,20 +57,6 @@ pub trait StatBinder {
     fn missing_stat(&mut self, dtype: DType) -> VortexResult<Option<Expression>> {
         Ok(Some(null_expr(dtype)))
     }
-
-    /// Bind a proof branch, rolling back any binder-local bookkeeping when the
-    /// branch cannot be bound.
-    ///
-    /// Binders that only substitute expressions can use the default
-    /// implementation. Binders that track required stats should override this
-    /// so discarded proof branches do not leak requirements.
-    fn bind_branch<F>(&mut self, bind: F) -> VortexResult<Option<Expression>>
-    where
-        Self: Sized,
-        F: FnOnce(&mut Self) -> VortexResult<Option<Expression>>,
-    {
-        bind(self)
-    }
 }
 
 /// Bind all `vortex.stat` expressions in `predicate`.
@@ -83,75 +69,28 @@ pub fn bind_stats(
     binder: &mut impl StatBinder,
 ) -> VortexResult<Option<Expression>> {
     let scope = binder.scope().clone();
-    bind_stats_expr(predicate, &scope, binder)
-}
-
-fn bind_stats_expr(
-    expr: Expression,
-    scope: &DType,
-    binder: &mut impl StatBinder,
-) -> VortexResult<Option<Expression>> {
-    if expr.is::<StatFn>() {
-        return match bind_stat_fn(&expr, scope, binder)? {
-            Some(bound) => Ok(Some(bound)),
-            None => {
-                let dtype = expr.return_dtype(scope)?;
-                binder.missing_stat(dtype)
+    let lowered = predicate
+        .transform_down(|expr| {
+            if !expr.is::<StatFn>() {
+                return Ok(Transformed::no(expr));
             }
-        };
-    }
 
-    if expr.is::<Binary>() {
-        return bind_binary_expr(expr, scope, binder);
-    }
-
-    let mut children = Vec::with_capacity(expr.children().len());
-    for child in expr.children().iter() {
-        let Some(child) = bind_stats_expr(child.clone(), scope, binder)? else {
-            return Ok(None);
-        };
-        children.push(child);
-    }
-
-    Ok(Some(expr.with_children(children)?))
-}
-
-fn bind_binary_expr(
-    expr: Expression,
-    scope: &DType,
-    binder: &mut impl StatBinder,
-) -> VortexResult<Option<Expression>> {
-    let operator = expr.as_::<Binary>();
-
-    match operator {
-        Operator::Or => {
-            let lhs = binder
-                .bind_branch(|binder| bind_stats_expr(expr.child(0).clone(), scope, binder))?;
-            let rhs = binder
-                .bind_branch(|binder| bind_stats_expr(expr.child(1).clone(), scope, binder))?;
-            match (lhs, rhs) {
-                (Some(lhs), Some(rhs)) => Ok(Some(expr.with_children([lhs, rhs])?)),
-                (Some(expr), None) | (None, Some(expr)) => Ok(Some(expr)),
-                (None, None) => Ok(None),
+            match bind_stat_fn(&expr, &scope, binder)? {
+                Some(bound) => Ok(Transformed::yes(bound)),
+                None => {
+                    let dtype = expr.return_dtype(&scope)?;
+                    match binder.missing_stat(dtype.clone())? {
+                        Some(missing) => Ok(Transformed::yes(missing)),
+                        None => Ok(Transformed::yes(null_expr(dtype))),
+                    }
+                }
             }
-        }
-        Operator::And => binder.bind_branch(|binder| {
-            let lhs = bind_stats_expr(expr.child(0).clone(), scope, binder)?;
-            let rhs = bind_stats_expr(expr.child(1).clone(), scope, binder)?;
-            match (lhs, rhs) {
-                (Some(lhs), Some(rhs)) => Ok(Some(expr.with_children([lhs, rhs])?)),
-                _ => Ok(None),
-            }
-        }),
-        _ => binder.bind_branch(|binder| {
-            let lhs = bind_stats_expr(expr.child(0).clone(), scope, binder)?;
-            let rhs = bind_stats_expr(expr.child(1).clone(), scope, binder)?;
-            match (lhs, rhs) {
-                (Some(lhs), Some(rhs)) => Ok(Some(expr.with_children([lhs, rhs])?)),
-                _ => Ok(None),
-            }
-        }),
-    }
+        })?
+        .into_inner();
+
+    #[expect(deprecated)]
+    let lowered = lowered.simplify_untyped()?;
+    Ok(Some(lowered))
 }
 
 fn bind_stat_fn(

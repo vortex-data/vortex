@@ -125,6 +125,7 @@ mod tests {
     use crate::expr::get_item;
     use crate::expr::is_null;
     use crate::expr::lit;
+    use crate::expr::or;
     use crate::expr::pruning::checked_pruning_expr;
     use crate::expr::root;
     use crate::expr::stats::Stat;
@@ -261,7 +262,13 @@ mod tests {
         .unwrap()
         .unwrap();
 
-        assert_eq!(&pruning_expr, &eq(col("a_null_count"), lit(0u64)));
+        assert_eq!(
+            &pruning_expr,
+            &or(
+                eq(col("a_null_count"), lit(0u64)),
+                lit(Scalar::null(DType::Bool(Nullability::Nullable))),
+            )
+        );
         assert_eq!(
             st.map(),
             &HashMap::from_iter([(FieldPath::from_name("a"), HashSet::from([Stat::NullCount]))])
