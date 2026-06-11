@@ -34,10 +34,28 @@ fn main() {
 
 const ARRAY_SIZE: usize = 8_192;
 
+/// The access pattern used to generate the `(array_index, row_index)` selectors.
+#[derive(Clone, Copy)]
+enum Pattern {
+    /// A merge: `array_index = i % N`, `row_index = i / N`.
+    RoundRobin,
+    /// Fully random `(array_index, row_index)` per output row.
+    Random,
+}
+
+impl Display for Pattern {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Pattern::RoundRobin => "round_robin",
+            Pattern::Random => "random",
+        })
+    }
+}
+
 /// A single benchmark configuration: access pattern, branch count, and nullability.
 #[derive(Clone, Copy)]
 struct Combo {
-    pattern: &'static str,
+    pattern: Pattern,
     branches: usize,
     nullable: bool,
 }
@@ -59,7 +77,11 @@ impl Display for Combo {
 fn combos() -> Vec<Combo> {
     let mut out = Vec::new();
     for nullable in [false, true] {
-        for (pattern, branches) in [("round_robin", 2), ("random", 2), ("random", 64)] {
+        for (pattern, branches) in [
+            (Pattern::RoundRobin, 2),
+            (Pattern::Random, 2),
+            (Pattern::Random, 64),
+        ] {
             out.push(Combo {
                 pattern,
                 branches,
@@ -94,16 +116,14 @@ fn vortex_inputs(combo: Combo) -> (Vec<ArrayRef>, Buffer<u32>, Buffer<u32>) {
     let row = Uniform::new(0u32, u32::try_from(ARRAY_SIZE).unwrap()).unwrap();
     let array_indices: Buffer<u32> = (0..ARRAY_SIZE)
         .map(|i| match combo.pattern {
-            "random" => rng.sample(branch),
-            "round_robin" => u32::try_from(i % combo.branches).unwrap(),
-            other => unreachable!("unknown pattern {other}"),
+            Pattern::Random => rng.sample(branch),
+            Pattern::RoundRobin => u32::try_from(i % combo.branches).unwrap(),
         })
         .collect();
     let row_indices: Buffer<u32> = (0..ARRAY_SIZE)
         .map(|i| match combo.pattern {
-            "random" => rng.sample(row),
-            "round_robin" => u32::try_from((i / combo.branches) % ARRAY_SIZE).unwrap(),
-            other => unreachable!("unknown pattern {other}"),
+            Pattern::Random => rng.sample(row),
+            Pattern::RoundRobin => u32::try_from((i / combo.branches) % ARRAY_SIZE).unwrap(),
         })
         .collect();
     (values, array_indices, row_indices)
