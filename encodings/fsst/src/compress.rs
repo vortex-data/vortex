@@ -130,7 +130,7 @@ fn compress_varbin_array(
 fn train_varbinview(strings: &VarBinViewArray, ctx: &mut ExecutionCtx) -> VortexResult<Compressor> {
     let mask = strings.validity()?.execute_mask(strings.len(), ctx)?;
     let views = strings.views();
-    let mut lines: Vec<&[u8]> = Vec::with_capacity(views.len());
+    let mut lines: Vec<&[u8]> = Vec::with_capacity(mask.true_count());
 
     match mask.bit_buffer() {
         AllOr::All => {
@@ -155,7 +155,7 @@ fn train_varbin_array(strings: &VarBinArray, ctx: &mut ExecutionCtx) -> VortexRe
     let mask = strings.validity()?.execute_mask(strings.len(), ctx)?;
     let offsets = strings.offsets().clone().execute::<PrimitiveArray>(ctx)?;
     let bytes = strings.bytes().as_slice();
-    let mut lines: Vec<&[u8]> = Vec::with_capacity(strings.len());
+    let mut lines: Vec<&[u8]> = Vec::with_capacity(mask.true_count());
 
     match_each_integer_ptype!(offsets.ptype(), |I| {
         let off = offsets.as_slice::<I>();
