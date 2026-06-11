@@ -98,6 +98,36 @@ fn i32_clustered_nulls_input() -> ArrayRef {
     )
 }
 
+fn f64_all_valid_input() -> ArrayRef {
+    let group_sizes = random_group_sizes();
+    let element_count = total_element_count(&group_sizes);
+    let mut rng = StdRng::seed_from_u64(GROUP_SIZE_SEED);
+    let values: Buffer<f64> = (0..element_count)
+        .map(|_| rng.random_range(-1000.0..1000.0))
+        .collect();
+    contiguous_list_view(
+        PrimitiveArray::new(values, Validity::NonNullable).into_array(),
+        &group_sizes,
+    )
+}
+
+fn f64_clustered_nulls_input() -> ArrayRef {
+    let group_sizes = random_group_sizes();
+    let element_count = total_element_count(&group_sizes);
+    let mut rng = StdRng::seed_from_u64(GROUP_SIZE_SEED);
+    let values = (0..element_count).map(|i| {
+        if (i / 16) % 8 == 0 {
+            None
+        } else {
+            Some(rng.random_range(-1000.0f64..1000.0))
+        }
+    });
+    contiguous_list_view(
+        PrimitiveArray::from_option_iter(values).into_array(),
+        &group_sizes,
+    )
+}
+
 fn varbinview_input() -> ArrayRef {
     let group_sizes = random_group_sizes();
     let element_count = total_element_count(&group_sizes);
@@ -139,6 +169,22 @@ fn sum_i32_nullable_all_valid(bencher: Bencher) {
 #[divan::bench]
 fn sum_i32_clustered_nulls(bencher: Bencher) {
     let input = i32_clustered_nulls_input();
+    bencher
+        .with_inputs(|| &input)
+        .bench_refs(|input| grouped_accumulator(input, Sum));
+}
+
+#[divan::bench]
+fn sum_f64_all_valid(bencher: Bencher) {
+    let input = f64_all_valid_input();
+    bencher
+        .with_inputs(|| &input)
+        .bench_refs(|input| grouped_accumulator(input, Sum));
+}
+
+#[divan::bench]
+fn sum_f64_clustered_nulls(bencher: Bencher) {
+    let input = f64_clustered_nulls_input();
     bencher
         .with_inputs(|| &input)
         .bench_refs(|input| grouped_accumulator(input, Sum));
