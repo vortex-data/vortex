@@ -181,15 +181,6 @@ impl ScalarFnRef {
         self.0.simplify_untyped(expr)
     }
 
-    /// Compute stat falsification expression.
-    pub(crate) fn stat_falsification(
-        &self,
-        expr: &Expression,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        self.0.stat_falsification(expr, catalog)
-    }
-
     /// Compute stat expression.
     pub(crate) fn stat_expression(
         &self,

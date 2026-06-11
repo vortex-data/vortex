@@ -3,7 +3,6 @@
 
 use std::fmt::Formatter;
 
-use vortex_array::scalar_fn::internal::row_count::RowCount;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -15,16 +14,12 @@ use crate::arrays::ConstantArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::expr::Expression;
-use crate::expr::StatsCatalog;
-use crate::expr::eq;
-use crate::expr::stats::Stat;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
 use crate::validity::Validity;
 
 /// Expression that checks for non-null values.
@@ -99,18 +94,6 @@ impl ScalarFnVTable for IsNotNull {
 
     fn is_fallible(&self, _instance: &Self::Options) -> bool {
         false
-    }
-
-    fn stat_falsification(
-        &self,
-        _options: &Self::Options,
-        expr: &Expression,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        // is_not_null is falsified when ALL values are null, i.e. null_count == row_count.
-        let child = expr.child(0);
-        let null_count_expr = child.stat_expression(Stat::NullCount, catalog)?;
-        Some(eq(null_count_expr, RowCount.new_expr(EmptyOptions, [])))
     }
 }
 

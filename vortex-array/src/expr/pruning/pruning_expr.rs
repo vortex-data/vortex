@@ -1,15 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#[cfg(test)]
-use std::cell::RefCell;
 use std::iter;
 
 use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
-#[cfg(test)]
-use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use super::relation::Relation;
@@ -19,8 +15,6 @@ use crate::dtype::FieldName;
 use crate::dtype::FieldPath;
 use crate::dtype::FieldPathSet;
 use crate::expr::Expression;
-#[cfg(test)]
-use crate::expr::StatsCatalog;
 use crate::expr::analysis::referenced_field_paths;
 use crate::expr::get_item;
 use crate::expr::is_root;
@@ -33,27 +27,6 @@ use crate::stats::bind::StatBinder;
 use crate::stats::bind::bind_stats;
 
 pub type RequiredStats = Relation<FieldPath, Stat>;
-
-// A catalog that returns a stat column whenever it is required, tracking all accessed
-// stats and returning them later.
-#[cfg(test)]
-#[derive(Default)]
-pub(crate) struct TrackingStatsCatalog {
-    usage: RefCell<HashMap<(FieldPath, Stat), Expression>>,
-}
-
-#[cfg(test)]
-impl StatsCatalog for TrackingStatsCatalog {
-    fn stats_ref(&self, field_path: &FieldPath, stat: Stat) -> Option<Expression> {
-        let mut expr = root();
-        let name = field_path_stat_field_name(field_path, stat);
-        expr = get_item(name, expr);
-        self.usage
-            .borrow_mut()
-            .insert((field_path.clone(), stat), expr.clone());
-        Some(expr)
-    }
-}
 
 #[doc(hidden)]
 pub fn field_path_stat_field_name(field_path: &FieldPath, stat: Stat) -> FieldName {

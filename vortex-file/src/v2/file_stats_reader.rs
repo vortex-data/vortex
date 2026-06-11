@@ -21,7 +21,6 @@ use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::Expression;
-use vortex_array::expr::StatsCatalog;
 use vortex_array::expr::is_root;
 use vortex_array::expr::lit;
 use vortex_array::expr::stats::Stat;
@@ -94,9 +93,8 @@ impl FileStatsLayoutReader {
         };
         let pruning_expr = self.lower_stats(pruning_expr)?;
 
-        // Given how we implemented the StatsCatalog, we know the expression must be all literals
-        // or row_count placeholders. We can therefore optimize with a null scope since there are
-        // no field references that need to be resolved.
+        // Stats lowering replaces available stats with literals and unavailable stats with nulls,
+        // so only row_count placeholders remain unresolved here.
         let simplified = pruning_expr.optimize_recursive(&DType::Null)?;
         if let Some(result) = simplified.as_opt::<Literal>() {
             // Can prune if the result is non-nullable and true
@@ -152,7 +150,7 @@ impl StatBinder for FileStatsBinder<'_> {
         let Some(field_path) = direct_field_path(input) else {
             return Ok(None);
         };
-        Ok(self.reader.stats_ref(&field_path, stat))
+        Ok(self.reader.stat_ref(&field_path, stat))
     }
 }
 
@@ -165,9 +163,8 @@ fn direct_field_path(expr: &Expression) -> Option<FieldPath> {
     direct_field_path(expr.child(0)).map(|path| path.push(field_name.clone()))
 }
 
-/// Implements [`StatsCatalog`] to provide file-level stats to expressions during pruning evaluation.
-impl StatsCatalog for FileStatsLayoutReader {
-    fn stats_ref(&self, field_path: &FieldPath, stat: Stat) -> Option<Expression> {
+impl FileStatsLayoutReader {
+    fn stat_ref(&self, field_path: &FieldPath, stat: Stat) -> Option<Expression> {
         // FileStats currently only holds top-level field statistics.
         if field_path.parts().len() != 1 {
             return None;

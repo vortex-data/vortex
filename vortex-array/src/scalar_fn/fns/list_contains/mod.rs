@@ -33,13 +33,6 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
-use crate::expr::Expression;
-use crate::expr::StatsCatalog;
-use crate::expr::and_collect;
-use crate::expr::gt;
-use crate::expr::lit;
-use crate::expr::lt;
-use crate::expr::or;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::scalar::ListScalar;
@@ -51,7 +44,6 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
 
@@ -127,43 +119,6 @@ impl ScalarFnVTable for ListContains {
         }
 
         compute_list_contains(&list_array, &value_array, ctx)
-    }
-
-    fn stat_falsification(
-        &self,
-        _options: &Self::Options,
-        expr: &Expression,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        let list = expr.child(0);
-        let needle = expr.child(1);
-
-        // falsification(contains([1,2,5], x)) =>
-        //   falsification(x != 1) and falsification(x != 2) and falsification(x != 5)
-        let min = list.stat_min(catalog)?;
-        let max = list.stat_max(catalog)?;
-        // If the list is constant when we can compare each element to the value
-        if min == max {
-            let list_ = min
-                .as_opt::<Literal>()
-                .and_then(|l| l.as_list_opt())
-                .and_then(|l| l.elements())?;
-            if list_.is_empty() {
-                // contains([], x) is always false.
-                return Some(lit(true));
-            }
-            let value_max = needle.stat_max(catalog)?;
-            let value_min = needle.stat_min(catalog)?;
-
-            return and_collect(list_.iter().map(move |v| {
-                or(
-                    lt(value_max.clone(), lit(v.clone())),
-                    gt(value_min.clone(), lit(v.clone())),
-                )
-            }));
-        }
-
-        None
     }
 
     // Nullability matters for contains([], x) where x is false.

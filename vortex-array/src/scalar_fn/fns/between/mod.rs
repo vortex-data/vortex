@@ -25,7 +25,6 @@ use crate::arrays::Primitive;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::DType::Bool;
-use crate::expr::StatsCatalog;
 use crate::expr::expression::Expression;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
@@ -33,8 +32,6 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::binary::execute_boolean;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
@@ -296,22 +293,6 @@ impl ScalarFnVTable for Between {
         }
 
         between_canonical(&arr, &lower, &upper, options, ctx)
-    }
-
-    fn stat_falsification(
-        &self,
-        options: &Self::Options,
-        expr: &Expression,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        let arr = expr.child(0).clone();
-        let lower = expr.child(1).clone();
-        let upper = expr.child(2).clone();
-
-        let lhs = Binary.new_expr(options.lower_strict.to_operator(), [lower, arr.clone()]);
-        let rhs = Binary.new_expr(options.upper_strict.to_operator(), [arr, upper]);
-
-        and(lhs, rhs).stat_falsification(catalog)
     }
 
     fn validity(

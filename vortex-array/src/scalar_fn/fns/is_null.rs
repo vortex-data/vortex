@@ -12,11 +12,6 @@ use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
-use crate::expr::Expression;
-use crate::expr::StatsCatalog;
-use crate::expr::eq;
-use crate::expr::lit;
-use crate::expr::stats::Stat;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
@@ -82,16 +77,6 @@ impl ScalarFnVTable for IsNull {
             Validity::AllInvalid => Ok(ConstantArray::new(true, args.row_count()).into_array()),
             Validity::Array(a) => a.not(),
         }
-    }
-
-    fn stat_falsification(
-        &self,
-        _options: &Self::Options,
-        expr: &Expression,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        let null_count_expr = expr.child(0).stat_expression(Stat::NullCount, catalog)?;
-        Some(eq(null_count_expr, lit(0u64)))
     }
 
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
