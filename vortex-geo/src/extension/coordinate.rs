@@ -22,6 +22,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
@@ -45,8 +46,16 @@ pub(crate) enum Dimension {
 
 impl Dimension {
     /// Recover the dimension from a coordinate's field names, in GeoArrow order.
-    pub(crate) fn from_field_names(names: &[&str]) -> VortexResult<Dimension> {
-        Ok(match names {
+    pub(crate) fn from_field_names(names: &FieldNames) -> VortexResult<Dimension> {
+        let mut strs = [""; 4];
+        vortex_ensure!(
+            names.len() <= strs.len(),
+            "not a valid GeoArrow coordinate dimension: {names:?}"
+        );
+        for (slot, name) in strs.iter_mut().zip(names.iter()) {
+            *slot = name.as_ref();
+        }
+        Ok(match &strs[..names.len()] {
             ["x", "y"] => Dimension::Xy,
             ["x", "y", "z"] => Dimension::Xyz,
             ["x", "y", "m"] => Dimension::Xym,
@@ -101,18 +110,16 @@ pub(crate) fn coordinate_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::Struct(fields, _) = dtype else {
         vortex_bail!("coordinate storage must be a Struct, was {dtype}");
     };
-    let names: Vec<&str> = fields.names().iter().map(|n| n.as_ref()).collect();
-    for (i, field) in fields.fields().enumerate() {
+    for (name, field) in fields.names().iter().zip(fields.fields()) {
         vortex_ensure!(
             matches!(
                 field,
                 DType::Primitive(PType::F64, Nullability::NonNullable)
             ),
-            "coordinate field {} must be non-nullable f64, was {field}",
-            names[i]
+            "coordinate field {name} must be non-nullable f64, was {field}"
         );
     }
-    Dimension::from_field_names(&names)
+    Dimension::from_field_names(fields.names())
 }
 
 /// Decode a [`Coordinate`] from a coordinate `Struct<x, y, z?, m?>` scalar (`z?`/`m?` read iff
