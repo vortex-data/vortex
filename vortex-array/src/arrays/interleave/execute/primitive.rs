@@ -97,45 +97,55 @@ pub(super) fn execute(
     Ok(ExecutionResult::done(gathered.reinterpret_cast(ptype)))
 }
 
+/// Selector rows validated (and then gathered) per chunk, sized so a chunk of both selectors
+/// stays L1-resident between the two passes.
+const VALIDATE_CHUNK: usize = 1024;
+
 /// The gather, monomorphized on the value width and the selector integer widths so each element
 /// and `(array_index, row_index)` pair is read straight from its packed buffer.
 ///
-/// The loop body is deliberately a plain zipped `collect`: `BufferMut`'s size-hinted extend
-/// writes through a raw pointer with no per-item capacity check, and out-of-order execution
-/// already overlaps the random-access loads across iterations. A manually unrolled
-/// "N independent loads then N stores" variant (as in arrow-rs) measured *slower* here because
-/// the in-loop bounds checks are potential panics whose order the compiler must preserve,
-/// turning the unroll into eight in-flight check chains and register spills.
+/// Bounds are validated (returning an error rather than panicking) and gathered chunk by chunk:
+/// the validation max-fold pulls a chunk of selectors into L1 and the gather re-reads them from
+/// there, so the selectors only cross memory once. The gather body is deliberately a plain
+/// zipped `extend_trusted`: it writes through a raw pointer with no per-item capacity check, and
+/// out-of-order execution already overlaps the random-access loads across iterations. A manually
+/// unrolled "N independent loads then N stores" variant (as in arrow-rs) measured *slower* here
+/// because the in-loop bounds checks are potential panics whose order the compiler must
+/// preserve, turning the unroll into eight in-flight check chains and register spills.
 fn gather<W: NativePType, A: AsPrimitive<usize> + Ord, R: AsPrimitive<usize> + Ord>(
     values: &[&[W]],
     branches: &[A],
     rows: &[R],
 ) -> VortexResult<BufferMut<W>> {
-    validate_bounds(values, branches, rows)?;
-    Ok(branches
-        .iter()
-        .zip(rows)
-        .map(|(b, r)| values[b.as_()][r.as_()])
-        .collect())
+    let min_len = values.iter().map(|v| v.len()).min().unwrap_or(0);
+    let mut out = BufferMut::with_capacity(branches.len());
+    for (bc, rc) in branches
+        .chunks(VALIDATE_CHUNK)
+        .zip(rows.chunks(VALIDATE_CHUNK))
+    {
+        validate_chunk(values, bc, rc, min_len)?;
+        out.extend_trusted(bc.iter().zip(rc).map(|(b, r)| values[b.as_()][r.as_()]));
+    }
+    Ok(out)
 }
 
-/// Validates every `(array_index, row_index)` pair, returning an error rather than panicking.
+/// Validates every `(array_index, row_index)` pair in one selector chunk.
 ///
-/// The hot path is a branchless max-fold over both selectors, which auto-vectorizes (an
-/// early-exit per-row check measured ~40% of the whole gather's runtime). `max_row < min(len)`
-/// proves all rows in bounds exactly when the values share a length; only ragged value lengths
-/// fall back to the exact per-row scan.
-fn validate_bounds<W: NativePType, A: AsPrimitive<usize> + Ord, R: AsPrimitive<usize> + Ord>(
+/// The hot path is a branchless max-fold, which auto-vectorizes (an early-exit per-row check
+/// measured ~20% of the whole gather's runtime). The fold stays in the native selector types so
+/// the lanes are narrow enough to vectorize. `max_row < min_len` proves all rows in bounds
+/// exactly when the values share a length; only ragged value lengths fall back to the exact
+/// per-row scan.
+fn validate_chunk<W: NativePType, A: AsPrimitive<usize> + Ord, R: AsPrimitive<usize> + Ord>(
     values: &[&[W]],
     branches: &[A],
     rows: &[R],
+    min_len: usize,
 ) -> VortexResult<()> {
-    if branches.is_empty() {
+    let Some((&b0, &r0)) = branches.first().zip(rows.first()) else {
         return Ok(());
-    }
-    // Fold in the native selector type so the lanes stay narrow enough to vectorize.
-    let mut max_branch = branches[0];
-    let mut max_row = rows[0];
+    };
+    let (mut max_branch, mut max_row) = (b0, r0);
     for (b, r) in branches.iter().zip(rows) {
         max_branch = max_branch.max(*b);
         max_row = max_row.max(*r);
@@ -145,7 +155,6 @@ fn validate_bounds<W: NativePType, A: AsPrimitive<usize> + Ord, R: AsPrimitive<u
         "interleave array index out of bounds"
     );
 
-    let min_len = values.iter().map(|v| v.len()).min().unwrap_or(0);
     if max_row.as_() < min_len {
         return Ok(());
     }
@@ -228,7 +237,7 @@ mod tests {
 
     #[test]
     fn interleave_longer_than_unroll() -> VortexResult<()> {
-        // 19 rows: exercises both the 8-wide unrolled chunks and the 3-row remainder.
+        // 19 rows: exercises a partial validation chunk.
         let branches = vec![
             (0..7i64).collect::<Vec<_>>(),
             (100..105i64).collect::<Vec<_>>(),
@@ -241,6 +250,37 @@ mod tests {
             })
             .collect();
         check(&branches, &indices)
+    }
+
+    #[test]
+    fn interleave_multiple_chunks() -> VortexResult<()> {
+        // Spans several validation chunks plus a partial tail.
+        let branches = vec![
+            (0..2000u32).collect::<Vec<_>>(),
+            (10_000..11_500u32).collect::<Vec<_>>(),
+        ];
+        let indices: Vec<(usize, usize)> = (0..3333)
+            .map(|i| {
+                let a = i % 2;
+                (a, (i * 7 + 3) % branches[a].len())
+            })
+            .collect();
+        check(&branches, &indices)
+    }
+
+    #[test]
+    fn rejects_out_of_bounds_in_later_chunk() -> VortexResult<()> {
+        // The bad row index sits beyond the first validation chunk.
+        let mut indices: Vec<(usize, usize)> = (0..2000).map(|i| (i % 2, i % 5)).collect();
+        indices[1700] = (1, 999);
+        let interleaved = build::<i32>(&[vec![1, 2, 3, 4, 5], vec![6, 7, 8, 9, 10]], &indices)?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let err = interleaved
+            .execute::<Canonical>(&mut ctx)
+            .err()
+            .vortex_expect("expected an out-of-bounds row index in a later chunk to error");
+        assert!(err.to_string().contains("row index out of bounds"), "{err}");
+        Ok(())
     }
 
     #[test]
