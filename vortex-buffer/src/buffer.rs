@@ -847,4 +847,12 @@ mod test {
         // to be aligned.
         aligned_buffer.slice(0..1);
     }
+
+    #[test]
+    fn test_empty_equality() {
+        let a = Buffer::<u16>::empty();
+        let b = Buffer::<u16>::empty();
+
+        assert_eq!(a, b);
+    }
 }
