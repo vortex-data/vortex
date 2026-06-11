@@ -397,17 +397,40 @@ fn cbindgen_rust2c(crate_dir: &Path) {
 }
 
 fn main() {
-    println!("cargo:rerun-if-env-changed=DUCKDB_VERSION");
+    println!("cargo:rerun-if-changed=cpp/include");
     println!("cargo:rerun-if-env-changed=VX_DUCKDB_DEBUG");
     println!("cargo:rerun-if-env-changed=VX_DUCKDB_SAN");
     println!("cargo:rerun-if-env-changed=CARGO_HTTP_TIMEOUT");
     println!("cargo:rerun-if-env-changed=HTTP_TIMEOUT");
     println!("cargo:rerun-if-env-changed=TARGET");
 
-    // `DUCKDB_VERSION` is set by the extension build in CI.
-    // This is to ensure we don't implicitly build against a different DuckDB
-    // version during an extension build which might lead to subtle ABI breaks,
-    // e.g. reordering fields in C++ structs.
+    // These two variables are set in duckdb-vortex's CI. Don't download
+    // duckdb if they are present
+    println!("cargo:rerun-if-env-changed=DUCKDB_SOURCE_DIR");
+    println!("cargo:rerun-if-env-changed=DUCKDB_VERSION");
+
+    // sanity check that either none or both are provided
+    assert_eq!(
+        env::var("DUCKDB_VERSION").is_ok(),
+        env::var("DUCKDB_SOURCE_DIR").is_ok()
+    );
+    // If variables are not set, we are either running locally or
+    // in vortex's CI.
+
+    let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    if let Some(source_dir) = env::var_os("DUCKDB_SOURCE_DIR") {
+        let source_dir = PathBuf::from(source_dir);
+        let duckdb_include_dir = source_dir.join("src").join("include");
+        println!(
+            "cargo:info=Using DuckDB source from DUCKDB_SOURCE_DIR={}",
+            source_dir.display()
+        );
+        bindgen_c2rust(&crate_dir, &duckdb_include_dir);
+        cbindgen_rust2c(&crate_dir);
+        compile_cpp(&duckdb_include_dir);
+        return;
+    }
+
     let version = env::var("DUCKDB_VERSION")
         // You can also change this version to a commit hash
         .unwrap_or_else(|_| DEFAULT_DUCKDB_VERSION.to_owned());
@@ -417,7 +440,6 @@ fn main() {
         DuckDBVersion::Commit(c) => println!("cargo:info=Using DuckDB commit: {c}"),
     }
 
-    let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let duckdb_dir = crate_dir.join("duckdb");
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let library_dir = out_dir.join(format!("duckdb-lib-{version}"));
@@ -486,7 +508,6 @@ fn main() {
     };
 
     let duckdb_include_dir = inner_dir.join("src").join("include");
-    println!("cargo:rerun-if-changed=cpp/include");
     bindgen_c2rust(&crate_dir, &duckdb_include_dir);
     cbindgen_rust2c(&crate_dir);
     compile_cpp(&duckdb_include_dir);
