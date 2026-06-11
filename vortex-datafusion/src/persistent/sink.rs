@@ -100,24 +100,26 @@ impl FileSink for VortexSink {
         object_store: Arc<dyn ObjectStore>,
     ) -> DFResult<u64> {
         let mut file_write_tasks: JoinSet<DFResult<(Path, WriteSummary)>> = JoinSet::new();
+        let writer_schema = get_writer_schema(&self.config);
+        let dtype = self
+            .session
+            .arrow()
+            .from_arrow_schema(&writer_schema)
+            .map_err(|e| {
+                exec_datafusion_err!("Failed to derive Vortex DType from writer schema: {e}")
+            })?;
 
         // TODO(adamg):
         // 1. We can probably be better at signaling how much memory we're consuming (potentially when reading too), see ParquetSink::spawn_writer_tasks_and_join.
         while let Some((path, rx)) = file_stream_rx.recv().await {
             let session = self.session.clone();
             let object_store = Arc::clone(&object_store);
-            let writer_schema = get_writer_schema(&self.config);
-            let dtype = session
-                .arrow()
-                .from_arrow_schema(&writer_schema)
-                .map_err(|e| {
-                    exec_datafusion_err!("Failed to derive Vortex DType from writer schema: {e}")
-                })?;
 
             // We need to spawn work because there's a dependency between the different files. If one file has too many batches buffered,
             // the demux task might deadlock itself.
             let arrow_session = session.clone();
             let import_schema = Arc::clone(&writer_schema);
+            let dtype = dtype.clone();
             file_write_tasks.spawn(async move {
                 let stream = ReceiverStream::new(rx).map(move |rb| {
                     arrow_session
