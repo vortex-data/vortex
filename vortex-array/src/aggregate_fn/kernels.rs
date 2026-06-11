@@ -6,13 +6,12 @@
 
 use std::fmt::Debug;
 
+use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnRef;
-use crate::arrays::FixedSizeListArray;
-use crate::arrays::ListViewArray;
 use crate::scalar::Scalar;
 
 /// A pluggable kernel for an aggregate function.
@@ -28,36 +27,49 @@ pub trait DynAggregateKernel: 'static + Send + Sync + Debug {
     ) -> VortexResult<Option<Scalar>>;
 }
 
+/// Partial grouped aggregate output produced by an encoding-specific grouped kernel.
+///
+/// `group_ids` is parallel to `partials`: each row in `partials` is a partial state for the
+/// corresponding dense group id. The grouped accumulator merges this batch through
+/// `accumulate_partials`.
+#[derive(Clone, Debug)]
+pub struct GroupedAggregateKernelResult {
+    group_ids: Buffer<u32>,
+    partials: ArrayRef,
+}
+
+impl GroupedAggregateKernelResult {
+    pub fn new(group_ids: Buffer<u32>, partials: ArrayRef) -> Self {
+        Self {
+            group_ids,
+            partials,
+        }
+    }
+
+    pub fn group_ids(&self) -> &[u32] {
+        self.group_ids.as_ref()
+    }
+
+    pub fn partials(&self) -> &ArrayRef {
+        &self.partials
+    }
+}
+
 /// A pluggable kernel for batch aggregation of many groups.
 ///
-/// The kernel is matched on the encoding of the _elements_ array, which is the inner array of the
-/// provided `ListViewArray`. This is more pragmatic than having every kernel match on the outer
-/// list encoding and having to deal with the possibility of multiple list encodings.
-///
-/// Each element of the list array represents a group and the result of the grouped aggregate
-/// should be an array of the same length, where each element is the aggregate state of the
-/// corresponding group.
+/// The kernel is matched on the encoding of the values array. It receives the same dense group ids
+/// that the caller passed to the grouped accumulator and may aggregate directly in the encoded
+/// domain.
 ///
 /// Return `Ok(None)` if the kernel cannot be applied to the given aggregate function.
 pub trait DynGroupedAggregateKernel: 'static + Send + Sync + Debug {
-    /// Aggregate each group in the provided `ListViewArray` and return an array of the
-    /// aggregate states.
+    /// Aggregate values into a partial-state batch keyed by dense group id.
     fn grouped_aggregate(
         &self,
         aggregate_fn: &AggregateFnRef,
-        groups: &ListViewArray,
-    ) -> VortexResult<Option<ArrayRef>>;
-
-    /// Aggregate each group in the provided `FixedSizeListArray` and return an array of the
-    /// aggregate states.
-    fn grouped_aggregate_fixed_size(
-        &self,
-        aggregate_fn: &AggregateFnRef,
-        groups: &FixedSizeListArray,
-    ) -> VortexResult<Option<ArrayRef>> {
-        // TODO(ngates): we could automatically delegate to `grouped_aggregate` if SequenceArray
-        //  was in the vortex-array crate
-        let _ = (aggregate_fn, groups);
-        Ok(None)
-    }
+        batch: &ArrayRef,
+        group_ids: &[u32],
+        num_groups: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<GroupedAggregateKernelResult>>;
 }

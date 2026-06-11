@@ -1,19 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_buffer::ArrowNativeType;
 use vortex_buffer::Buffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
-use vortex_mask::Mask;
 
-use crate::AnyCanonical;
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -22,26 +15,21 @@ use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
+use crate::aggregate_fn::kernels::GroupedAggregateKernelResult;
 use crate::aggregate_fn::session::AggregateFnSessionExt;
-use crate::arrays::ChunkedArray;
-use crate::arrays::FixedSizeListArray;
-use crate::arrays::ListViewArray;
-use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
-use crate::arrays::listview::ListViewArrayExt;
 use crate::builders::builder_with_capacity;
-use crate::builtins::ArrayBuiltins;
+use crate::columnar::AnyColumnar;
 use crate::dtype::DType;
-use crate::dtype::IntegerPType;
 use crate::executor::max_iterations;
-use crate::match_each_integer_ptype;
+use crate::scalar::Scalar;
 
 /// Reference-counted type-erased grouped accumulator.
 pub type GroupedAccumulatorRef = Box<dyn DynGroupedAccumulator>;
 
-/// An accumulator used for computing grouped aggregates.
+/// An accumulator used for computing aggregates over dense group ids.
 ///
-/// Note that the groups must be processed in order, and the accumulator does not support random
-/// access to groups.
+/// Group ids are dense `u32` slots in the range `0..num_groups`. The accumulator keeps one partial
+/// state per slot, so ordered and unordered grouping only differ in how the caller assigns ids.
 pub struct GroupedAccumulator<V: AggregateFnVTable> {
     /// The vtable of the aggregate function.
     vtable: V,
@@ -55,8 +43,8 @@ pub struct GroupedAccumulator<V: AggregateFnVTable> {
     return_dtype: DType,
     /// The DType of the partial accumulator state.
     partial_dtype: DType,
-    /// The accumulated state for prior batches of groups.
-    partials: Vec<ArrayRef>,
+    /// Dense per-group partial state.
+    partials: Vec<V::Partial>,
 }
 
 impl<V: AggregateFnVTable> GroupedAccumulator<V> {
@@ -84,63 +72,306 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
             dtype,
             return_dtype,
             partial_dtype,
-            partials: vec![],
+            partials: Vec::new(),
         })
+    }
+
+    fn ensure_groups(&mut self, num_groups: usize) -> VortexResult<()> {
+        vortex_ensure!(
+            num_groups <= (u32::MAX as usize) + 1,
+            "num_groups {} exceeds dense u32 group id capacity",
+            num_groups
+        );
+
+        while self.partials.len() < num_groups {
+            self.partials
+                .push(self.vtable.empty_partial(&self.options, &self.dtype)?);
+        }
+        Ok(())
+    }
+
+    fn validate_group_ids(&self, group_ids: &[u32], num_groups: usize) -> VortexResult<()> {
+        vortex_ensure!(
+            num_groups <= (u32::MAX as usize) + 1,
+            "num_groups {} exceeds dense u32 group id capacity",
+            num_groups
+        );
+        for &group_id in group_ids {
+            vortex_ensure!(
+                (group_id as usize) < num_groups,
+                "Group id {} out of range for {} groups",
+                group_id,
+                num_groups
+            );
+        }
+        Ok(())
+    }
+
+    fn accumulate_kernel_result(
+        &mut self,
+        result: GroupedAggregateKernelResult,
+        num_groups: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        self.accumulate_partials(result.partials(), result.group_ids(), num_groups, ctx)
+    }
+
+    fn accumulate_fallback(
+        &mut self,
+        batch: &ArrayRef,
+        group_ids: &[u32],
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let Some((&first, rest)) = group_ids.split_first() else {
+            return Ok(());
+        };
+        let mut first = first;
+        let mut last = first;
+        for &group_id in rest {
+            first = first.min(group_id);
+            last = last.max(group_id);
+        }
+
+        let first = first as usize;
+        let mut buckets = vec![Vec::new(); last as usize - first + 1];
+        for (row_idx, &group_id) in group_ids.iter().enumerate() {
+            buckets[group_id as usize - first].push(row_idx as u64);
+        }
+
+        for (offset, rows) in buckets.into_iter().enumerate() {
+            if rows.is_empty() {
+                continue;
+            }
+
+            let group = first + offset;
+            if self.vtable.is_saturated(&self.partials[group]) {
+                continue;
+            }
+
+            let taken = batch.clone().take(Buffer::from_iter(rows).into_array())?;
+            let mut accumulator = Accumulator::try_new(
+                self.vtable.clone(),
+                self.options.clone(),
+                self.dtype.clone(),
+            )?;
+            accumulator.accumulate(&taken, ctx)?;
+            let partial = accumulator.flush()?;
+            self.vtable
+                .combine_partials(&mut self.partials[group], partial)?;
+        }
+        Ok(())
     }
 }
 
-/// A trait object for type-erased grouped accumulators, used for dynamic dispatch when the aggregate
-/// function is not known at compile time.
+/// A trait object for type-erased grouped accumulators, used for dynamic dispatch when the
+/// aggregate function is not known at compile time.
 pub trait DynGroupedAccumulator: 'static + Send {
-    /// Accumulate a list of groups into the accumulator.
-    fn accumulate_list(&mut self, groups: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()>;
+    /// Accumulate a values batch into dense group state.
+    fn accumulate(
+        &mut self,
+        batch: &ArrayRef,
+        group_ids: &[u32],
+        num_groups: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()>;
 
-    /// Finish the accumulation and return the partial aggregate results for all groups.
-    /// Resets the accumulator state for the next round of accumulation.
-    fn flush(&mut self) -> VortexResult<ArrayRef>;
+    /// Fold columnar partial states into dense group state.
+    fn accumulate_partials(
+        &mut self,
+        partials: &ArrayRef,
+        group_ids: &[u32],
+        num_groups: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()>;
 
-    /// Finish the accumulation and return the final aggregate results for all groups.
+    /// Merge one group from another grouped accumulator into this accumulator.
+    fn merge_group(
+        &mut self,
+        into: u32,
+        other: &dyn DynGroupedAccumulator,
+        from: u32,
+    ) -> VortexResult<()>;
+
+    /// Return this accumulator's partial dtype.
+    fn partial_dtype(&self) -> &DType;
+
+    /// Read one group's current partial state.
+    fn partial_scalar(&self, group_id: u32) -> VortexResult<Scalar>;
+
+    /// Finish the accumulation and return partial aggregate results for all groups.
+    ///
     /// Resets the accumulator state for the next round of accumulation.
-    fn finish(&mut self) -> VortexResult<ArrayRef>;
+    fn flush_partials(&mut self, num_groups: usize) -> VortexResult<ArrayRef>;
+
+    /// Finish the accumulation and return final aggregate results for all groups.
+    ///
+    /// Resets the accumulator state for the next round of accumulation.
+    fn finish(&mut self, num_groups: usize) -> VortexResult<ArrayRef>;
 }
 
 impl<V: AggregateFnVTable> DynGroupedAccumulator for GroupedAccumulator<V> {
-    fn accumulate_list(&mut self, groups: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
-        let elements_dtype = match groups.dtype() {
-            DType::List(elem, _) => elem,
-            DType::FixedSizeList(elem, ..) => elem,
-            _ => vortex_bail!(
-                "Input DType mismatch: expected List or FixedSizeList, got {}",
-                groups.dtype()
-            ),
-        };
+    fn accumulate(
+        &mut self,
+        batch: &ArrayRef,
+        group_ids: &[u32],
+        num_groups: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         vortex_ensure!(
-            elements_dtype.as_ref() == &self.dtype,
+            batch.dtype() == &self.dtype,
             "Input DType mismatch: expected {}, got {}",
             self.dtype,
-            elements_dtype
+            batch.dtype()
+        );
+        vortex_ensure!(
+            batch.len() == group_ids.len(),
+            "Grouped aggregate input length mismatch: {} values, {} group ids",
+            batch.len(),
+            group_ids.len()
         );
 
-        // We first execute the groups until it is a ListView or FixedSizeList, since we only
-        // dispatch the aggregate kernel over the elements of these arrays.
-        let canonical = match groups.clone().execute::<Columnar>(ctx)? {
-            Columnar::Canonical(c) => c,
-            Columnar::Constant(c) => c.into_array().execute::<Canonical>(ctx)?,
-        };
-        match canonical {
-            Canonical::List(groups) => self.accumulate_list_view(&groups, ctx),
-            Canonical::FixedSizeList(groups) => self.accumulate_fixed_size_list(&groups, ctx),
-            _ => vortex_panic!("We checked the DType above, so this should never happen"),
+        self.validate_group_ids(group_ids, num_groups)?;
+        self.ensure_groups(num_groups)?;
+
+        let session = ctx.session().clone();
+
+        if let Some(kernel) = session
+            .aggregate_fns()
+            .find_grouped_kernel(batch.encoding_id(), self.aggregate_fn.id())
+            && let Some(result) =
+                kernel.grouped_aggregate(&self.aggregate_fn, batch, group_ids, num_groups, ctx)?
+        {
+            return self.accumulate_kernel_result(result, num_groups, ctx);
+        }
+
+        if self.vtable.try_accumulate_grouped(
+            &mut self.partials[..num_groups],
+            batch,
+            group_ids,
+            ctx,
+        )? {
+            return Ok(());
+        }
+
+        let input = batch.clone();
+        let mut batch = batch.clone();
+        for _ in 0..max_iterations() {
+            if batch.is::<AnyColumnar>() {
+                break;
+            }
+
+            if let Some(kernel) = session
+                .aggregate_fns()
+                .find_grouped_kernel(batch.encoding_id(), self.aggregate_fn.id())
+                && let Some(result) = kernel.grouped_aggregate(
+                    &self.aggregate_fn,
+                    &batch,
+                    group_ids,
+                    num_groups,
+                    ctx,
+                )?
+            {
+                return self.accumulate_kernel_result(result, num_groups, ctx);
+            }
+
+            batch = batch.execute(ctx)?;
+        }
+
+        let columnar = batch.clone().execute::<Columnar>(ctx)?;
+        if self.vtable.accumulate_grouped(
+            &mut self.partials[..num_groups],
+            &columnar,
+            group_ids,
+            ctx,
+        )? {
+            return Ok(());
+        }
+
+        self.accumulate_fallback(&input, group_ids, ctx)
+    }
+
+    fn accumulate_partials(
+        &mut self,
+        partials: &ArrayRef,
+        group_ids: &[u32],
+        num_groups: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            partials.dtype() == &self.partial_dtype,
+            "Partial DType mismatch: expected {}, got {}",
+            self.partial_dtype,
+            partials.dtype()
+        );
+        vortex_ensure!(
+            partials.len() == group_ids.len(),
+            "Grouped aggregate partial length mismatch: {} partials, {} group ids",
+            partials.len(),
+            group_ids.len()
+        );
+
+        self.validate_group_ids(group_ids, num_groups)?;
+        self.ensure_groups(num_groups)?;
+
+        for (row_idx, &group_id) in group_ids.iter().enumerate() {
+            let partial = partials.execute_scalar(row_idx, ctx)?;
+            self.vtable
+                .combine_partials(&mut self.partials[group_id as usize], partial)?;
+        }
+        Ok(())
+    }
+
+    fn merge_group(
+        &mut self,
+        into: u32,
+        other: &dyn DynGroupedAccumulator,
+        from: u32,
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            other.partial_dtype() == &self.partial_dtype,
+            "Partial DType mismatch: expected {}, got {}",
+            self.partial_dtype,
+            other.partial_dtype()
+        );
+        self.ensure_groups((into as usize) + 1)?;
+        let partial = other.partial_scalar(from)?;
+        self.vtable
+            .combine_partials(&mut self.partials[into as usize], partial)
+    }
+
+    fn partial_dtype(&self) -> &DType {
+        &self.partial_dtype
+    }
+
+    fn partial_scalar(&self, group_id: u32) -> VortexResult<Scalar> {
+        if let Some(partial) = self.partials.get(group_id as usize) {
+            self.vtable.to_scalar(partial)
+        } else {
+            let partial = self.vtable.empty_partial(&self.options, &self.dtype)?;
+            self.vtable.to_scalar(&partial)
         }
     }
 
-    fn flush(&mut self) -> VortexResult<ArrayRef> {
-        let states = std::mem::take(&mut self.partials);
-        Ok(ChunkedArray::try_new(states, self.partial_dtype.clone())?.into_array())
+    fn flush_partials(&mut self, num_groups: usize) -> VortexResult<ArrayRef> {
+        vortex_ensure!(
+            num_groups >= self.partials.len(),
+            "Cannot flush {} groups after accumulating {} groups",
+            num_groups,
+            self.partials.len()
+        );
+        self.ensure_groups(num_groups)?;
+
+        let mut states = builder_with_capacity(&self.partial_dtype, num_groups);
+        for partial in &self.partials {
+            states.append_scalar(&self.vtable.to_scalar(partial)?)?;
+        }
+        self.partials.clear();
+
+        Ok(states.finish())
     }
 
-    fn finish(&mut self) -> VortexResult<ArrayRef> {
-        let states = self.flush()?;
+    fn finish(&mut self, num_groups: usize) -> VortexResult<ArrayRef> {
+        let states = self.flush_partials(num_groups)?;
         let results = self.vtable.finalize(states)?;
 
         vortex_ensure!(
@@ -151,182 +382,5 @@ impl<V: AggregateFnVTable> DynGroupedAccumulator for GroupedAccumulator<V> {
         );
 
         Ok(results)
-    }
-}
-
-impl<V: AggregateFnVTable> GroupedAccumulator<V> {
-    fn accumulate_list_view(
-        &mut self,
-        groups: &ListViewArray,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<()> {
-        let mut elements = groups.elements().clone();
-        let groups_validity = groups.validity()?;
-        let session = ctx.session().clone();
-
-        for _ in 0..max_iterations() {
-            if elements.is::<AnyCanonical>() {
-                break;
-            }
-
-            if let Some(result) = session
-                .aggregate_fns()
-                .find_grouped_kernel(elements.encoding_id(), self.aggregate_fn.id())
-                .and_then(|kernel| {
-                    // SAFETY: we assume that elements execution is safe
-                    let groups = unsafe {
-                        ListViewArray::new_unchecked(
-                            elements.clone(),
-                            groups.offsets().clone(),
-                            groups.sizes().clone(),
-                            groups_validity.clone(),
-                        )
-                    };
-                    kernel
-                        .grouped_aggregate(&self.aggregate_fn, &groups)
-                        .transpose()
-                })
-                .transpose()?
-            {
-                return self.push_result(result);
-            }
-
-            // Execute one step and try again
-            elements = elements.execute(ctx)?;
-        }
-
-        // Otherwise, we iterate the offsets and sizes and accumulate each group one by one.
-        let elements = elements.execute::<Columnar>(ctx)?.into_array();
-        let offsets = groups.offsets();
-        let sizes = groups.sizes().cast(offsets.dtype().clone())?;
-        let validity = groups_validity.execute_mask(offsets.len(), ctx)?;
-
-        match_each_integer_ptype!(offsets.dtype().as_ptype(), |O| {
-            let offsets = offsets.clone().execute::<Buffer<O>>(ctx)?;
-            let sizes = sizes.execute::<Buffer<O>>(ctx)?;
-            self.accumulate_list_view_typed(
-                &elements,
-                offsets.as_ref(),
-                sizes.as_ref(),
-                &validity,
-                ctx,
-            )
-        })
-    }
-
-    fn accumulate_list_view_typed<O: IntegerPType>(
-        &mut self,
-        elements: &ArrayRef,
-        offsets: &[O],
-        sizes: &[O],
-        validity: &Mask,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<()> {
-        let mut accumulator = Accumulator::try_new(
-            self.vtable.clone(),
-            self.options.clone(),
-            self.dtype.clone(),
-        )?;
-        let mut states = builder_with_capacity(&self.partial_dtype, offsets.len());
-
-        // `validity` is the per-group list-view validity, so it is zipped element-wise with the
-        // offsets and sizes (one entry per group).
-        for ((offset, size), valid) in offsets.iter().zip(sizes.iter()).zip(validity.iter()) {
-            let offset = offset.to_usize().vortex_expect("Offset value is not usize");
-            let size = size.to_usize().vortex_expect("Size value is not usize");
-
-            if valid {
-                let group = elements.slice(offset..offset + size)?;
-                accumulator.accumulate(&group, ctx)?;
-                states.append_scalar(&accumulator.flush()?)?;
-            } else {
-                states.append_null()
-            }
-        }
-
-        self.push_result(states.finish())
-    }
-
-    fn accumulate_fixed_size_list(
-        &mut self,
-        groups: &FixedSizeListArray,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<()> {
-        let mut elements = groups.elements().clone();
-        let groups_validity = groups.validity()?;
-        let session = ctx.session().clone();
-
-        for _ in 0..64 {
-            if elements.is::<AnyCanonical>() {
-                break;
-            }
-
-            if let Some(result) = session
-                .aggregate_fns()
-                .find_grouped_kernel(elements.encoding_id(), self.aggregate_fn.id())
-                .and_then(|kernel| {
-                    // SAFETY: we assume that elements execution is safe
-                    let groups = unsafe {
-                        FixedSizeListArray::new_unchecked(
-                            elements.clone(),
-                            groups.list_size(),
-                            groups_validity.clone(),
-                            groups.len(),
-                        )
-                    };
-
-                    kernel
-                        .grouped_aggregate_fixed_size(&self.aggregate_fn, &groups)
-                        .transpose()
-                })
-                .transpose()?
-            {
-                return self.push_result(result);
-            }
-
-            // Execute one step and try again
-            elements = elements.execute(ctx)?;
-        }
-
-        // Otherwise, we iterate the offsets and sizes and accumulate each group one by one.
-        let elements = elements.execute::<Columnar>(ctx)?.into_array();
-        let validity = groups_validity.execute_mask(groups.len(), ctx)?;
-
-        let mut accumulator = Accumulator::try_new(
-            self.vtable.clone(),
-            self.options.clone(),
-            self.dtype.clone(),
-        )?;
-        let mut states = builder_with_capacity(&self.partial_dtype, groups.len());
-
-        let mut offset = 0;
-        let size = groups
-            .list_size()
-            .to_usize()
-            .vortex_expect("List size is not usize");
-
-        for valid in validity.iter() {
-            if valid {
-                let group = elements.slice(offset..offset + size)?;
-                accumulator.accumulate(&group, ctx)?;
-                states.append_scalar(&accumulator.flush()?)?;
-            } else {
-                states.append_null()
-            }
-            offset += size;
-        }
-
-        self.push_result(states.finish())
-    }
-
-    fn push_result(&mut self, state: ArrayRef) -> VortexResult<()> {
-        vortex_ensure!(
-            state.dtype() == &self.partial_dtype,
-            "State DType mismatch: expected {}, got {}",
-            self.partial_dtype,
-            state.dtype()
-        );
-        self.partials.push(state);
-        Ok(())
     }
 }

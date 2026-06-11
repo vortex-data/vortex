@@ -82,6 +82,22 @@ impl AggregateFnVTable for Count {
         Ok(true)
     }
 
+    fn try_accumulate_grouped(
+        &self,
+        states: &mut [Self::Partial],
+        batch: &ArrayRef,
+        group_ids: &[u32],
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        let validity = batch.validity()?.execute_mask(batch.len(), ctx)?;
+        for (&group_id, valid) in group_ids.iter().zip(validity.iter()) {
+            if valid {
+                states[group_id as usize] += 1;
+            }
+        }
+        Ok(true)
+    }
+
     fn accumulate(
         &self,
         _partial: &mut Self::Partial,
@@ -114,11 +130,14 @@ mod tests {
     use crate::aggregate_fn::Accumulator;
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynAccumulator;
+    use crate::aggregate_fn::DynGroupedAccumulator;
     use crate::aggregate_fn::EmptyOptions;
+    use crate::aggregate_fn::GroupedAccumulator;
     use crate::aggregate_fn::fns::count::Count;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -222,6 +241,43 @@ mod tests {
         let result = Count.to_scalar(&state)?;
         Count.reset(&mut state);
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(8));
+        Ok(())
+    }
+
+    #[test]
+    fn grouped_count_dense_ids() -> VortexResult<()> {
+        let values =
+            PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None, Some(6)])
+                .into_array();
+        let mut acc = GroupedAccumulator::try_new(Count, EmptyOptions, values.dtype().clone())?;
+        acc.accumulate(
+            &values,
+            &[0, 0, 1, 1, 2, 2],
+            3,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
+
+        let actual = acc.finish(3)?;
+        let expected = PrimitiveArray::from_iter([1u64, 2, 1]).into_array();
+        assert_arrays_eq!(&actual, &expected);
+        Ok(())
+    }
+
+    #[test]
+    fn grouped_count_accumulate_partials_and_merge_group() -> VortexResult<()> {
+        let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
+        let partials = PrimitiveArray::from_iter([2u64, 3, 5]).into_array();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
+        let mut left = GroupedAccumulator::try_new(Count, EmptyOptions, dtype.clone())?;
+        left.accumulate_partials(&partials, &[0, 1, 1], 2, &mut ctx)?;
+
+        let mut right = GroupedAccumulator::try_new(Count, EmptyOptions, dtype)?;
+        right.merge_group(0, &left, 1)?;
+
+        let actual = right.finish(1)?;
+        let expected = PrimitiveArray::from_iter([8u64]).into_array();
+        assert_arrays_eq!(&actual, &expected);
         Ok(())
     }
 

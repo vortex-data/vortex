@@ -146,6 +146,35 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()>;
 
+    /// Try to accumulate a raw values batch into dense per-group states before decompression.
+    ///
+    /// `group_ids` is parallel to `batch` and contains dense ids in `0..states.len()`. Returns
+    /// `true` when the batch was fully handled.
+    fn try_accumulate_grouped(
+        &self,
+        _states: &mut [Self::Partial],
+        _batch: &ArrayRef,
+        _group_ids: &[u32],
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        Ok(false)
+    }
+
+    /// Accumulate a canonical values batch into dense per-group states.
+    ///
+    /// `group_ids` is parallel to `batch` and contains dense ids in `0..states.len()`. Returns
+    /// `true` when the batch was fully handled. The provided default preserves universal
+    /// correctness through [`GroupedAccumulator`]'s fallback.
+    fn accumulate_grouped(
+        &self,
+        _states: &mut [Self::Partial],
+        _batch: &Columnar,
+        _group_ids: &[u32],
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        Ok(false)
+    }
+
     /// Finalize an array of accumulator states into an array of aggregate results.
     ///
     /// The provides `states` array has dtype as specified by `state_dtype`, the result array

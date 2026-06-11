@@ -172,7 +172,7 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
         }
 
         // 3. Iteratively check the registry against each intermediate encoding, executing one
-        //    step between checks. Mirrors the loop in `GroupedAccumulator::accumulate_list_view`.
+        //    step between checks. Mirrors the loop in `GroupedAccumulator::accumulate`.
         //    Iteration 0 re-checks the initial encoding — a redundant HashMap miss, the price of
         //    keeping the loop body uniform. Terminates on `AnyColumnar` (Canonical or Constant)
         //    since the vtable's `accumulate(&Columnar)` handles both cases directly.

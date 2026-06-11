@@ -6,11 +6,15 @@ mod constant;
 mod decimal;
 mod primitive;
 
+use num_traits::AsPrimitive;
+use num_traits::ToPrimitive;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_mask::AllOr;
+use vortex_mask::Mask;
 
 use self::bool::accumulate_bool;
 use self::constant::multiply_constant;
@@ -25,14 +29,19 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
+use crate::arrays::BoolArray;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::bool::BoolArrayExt;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::MAX_PRECISION;
+use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
+use crate::match_each_native_ptype;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 
@@ -253,6 +262,30 @@ impl AggregateFnVTable for Sum {
         Ok(())
     }
 
+    fn accumulate_grouped(
+        &self,
+        partials: &mut [Self::Partial],
+        batch: &Columnar,
+        group_ids: &[u32],
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        match batch {
+            Columnar::Canonical(Canonical::Primitive(p)) => {
+                accumulate_grouped_primitive(partials, p, group_ids, ctx)?;
+                Ok(true)
+            }
+            Columnar::Canonical(Canonical::Bool(b)) => {
+                accumulate_grouped_bool(partials, b, group_ids, ctx)?;
+                Ok(true)
+            }
+            // Decimal and constants still use the universal grouped fallback.
+            Columnar::Canonical(Canonical::Decimal(_)) | Columnar::Constant(_) => Ok(false),
+            Columnar::Canonical(_) => {
+                vortex_bail!("Unsupported canonical type for sum: {}", batch.dtype())
+            }
+        }
+    }
+
     fn finalize(&self, partials: ArrayRef) -> VortexResult<ArrayRef> {
         Ok(partials)
     }
@@ -297,6 +330,146 @@ fn make_zero_state(return_dtype: &DType) -> SumState {
         },
         _ => vortex_panic!("Unsupported sum type"),
     }
+}
+
+fn for_each_valid_idx(validity: &Mask, len: usize, mut f: impl FnMut(usize)) {
+    match validity.indices() {
+        AllOr::All => {
+            for idx in 0..len {
+                f(idx);
+            }
+        }
+        AllOr::None => {}
+        AllOr::Some(indices) => {
+            for &idx in indices {
+                f(idx);
+            }
+        }
+    }
+}
+
+fn accumulate_grouped_unsigned(partials: &mut [SumPartial], group_id: u32, value: u64) {
+    let partial = &mut partials[group_id as usize];
+    let saturated = match partial.current.as_mut() {
+        None => return,
+        Some(SumState::Unsigned(acc)) => checked_add_u64(acc, value),
+        Some(_) => vortex_panic!("unsigned sum state with non-unsigned input"),
+    };
+    if saturated {
+        partial.current = None;
+    }
+}
+
+fn accumulate_grouped_signed(partials: &mut [SumPartial], group_id: u32, value: i64) {
+    let partial = &mut partials[group_id as usize];
+    let saturated = match partial.current.as_mut() {
+        None => return,
+        Some(SumState::Signed(acc)) => checked_add_i64(acc, value),
+        Some(_) => vortex_panic!("signed sum state with non-signed input"),
+    };
+    if saturated {
+        partial.current = None;
+    }
+}
+
+fn accumulate_grouped_float(partials: &mut [SumPartial], group_id: u32, value: f64) {
+    if value.is_nan() {
+        return;
+    }
+
+    match partials[group_id as usize].current.as_mut() {
+        None => {}
+        Some(SumState::Float(acc)) => *acc += value,
+        Some(_) => vortex_panic!("float sum state with non-float input"),
+    }
+}
+
+fn accumulate_grouped_primitive(
+    partials: &mut [SumPartial],
+    primitive: &PrimitiveArray,
+    group_ids: &[u32],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let validity = primitive
+        .as_ref()
+        .validity()?
+        .execute_mask(primitive.as_ref().len(), ctx)?;
+    match_each_native_ptype!(primitive.ptype(),
+        unsigned: |T| {
+            accumulate_grouped_primitive_unsigned::<T>(partials, primitive, group_ids, &validity);
+            Ok(())
+        },
+        signed: |T| {
+            accumulate_grouped_primitive_signed::<T>(partials, primitive, group_ids, &validity);
+            Ok(())
+        },
+        floating: |T| {
+            accumulate_grouped_primitive_float::<T>(partials, primitive, group_ids, &validity);
+            Ok(())
+        }
+    )
+}
+
+fn accumulate_grouped_primitive_unsigned<T>(
+    partials: &mut [SumPartial],
+    primitive: &PrimitiveArray,
+    group_ids: &[u32],
+    validity: &Mask,
+) where
+    T: NativePType + AsPrimitive<u64>,
+{
+    let values = primitive.as_slice::<T>();
+    for_each_valid_idx(validity, values.len(), |idx| {
+        accumulate_grouped_unsigned(partials, group_ids[idx], values[idx].as_());
+    });
+}
+
+fn accumulate_grouped_primitive_signed<T>(
+    partials: &mut [SumPartial],
+    primitive: &PrimitiveArray,
+    group_ids: &[u32],
+    validity: &Mask,
+) where
+    T: NativePType + AsPrimitive<i64>,
+{
+    let values = primitive.as_slice::<T>();
+    for_each_valid_idx(validity, values.len(), |idx| {
+        accumulate_grouped_signed(partials, group_ids[idx], values[idx].as_());
+    });
+}
+
+fn accumulate_grouped_primitive_float<T>(
+    partials: &mut [SumPartial],
+    primitive: &PrimitiveArray,
+    group_ids: &[u32],
+    validity: &Mask,
+) where
+    T: NativePType + ToPrimitive,
+{
+    let values = primitive.as_slice::<T>();
+    for_each_valid_idx(validity, values.len(), |idx| {
+        let value = values[idx].to_f64().vortex_expect("float to f64");
+        accumulate_grouped_float(partials, group_ids[idx], value);
+    });
+}
+
+fn accumulate_grouped_bool(
+    partials: &mut [SumPartial],
+    bools: &BoolArray,
+    group_ids: &[u32],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let validity = bools
+        .as_ref()
+        .validity()?
+        .execute_mask(bools.as_ref().len(), ctx)?;
+    let values = bools.to_bit_buffer();
+    for_each_valid_idx(&validity, values.len(), |idx| {
+        if values.value(idx) {
+            accumulate_grouped_unsigned(partials, group_ids[idx], 1);
+        }
+    });
+    Ok(())
 }
 
 /// Checked add for u64, returning true if overflow occurred.
@@ -346,8 +519,6 @@ mod tests {
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::DecimalArray;
-    use crate::arrays::FixedSizeListArray;
-    use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
@@ -512,20 +683,26 @@ mod tests {
 
     // Grouped sum tests
 
-    fn run_grouped_sum(groups: &ArrayRef, elem_dtype: &DType) -> VortexResult<ArrayRef> {
-        let mut acc = GroupedAccumulator::try_new(Sum, EmptyOptions, elem_dtype.clone())?;
-        acc.accumulate_list(groups, &mut LEGACY_SESSION.create_execution_ctx())?;
-        acc.finish()
+    fn run_grouped_sum(
+        values: &ArrayRef,
+        group_ids: &[u32],
+        num_groups: usize,
+    ) -> VortexResult<ArrayRef> {
+        let mut acc = GroupedAccumulator::try_new(Sum, EmptyOptions, values.dtype().clone())?;
+        acc.accumulate(
+            values,
+            group_ids,
+            num_groups,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
+        acc.finish(num_groups)
     }
 
     #[test]
-    fn grouped_sum_fixed_size_list() -> VortexResult<()> {
-        let elements =
+    fn grouped_sum_dense_ids() -> VortexResult<()> {
+        let values =
             PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5, 6], Validity::NonNullable).into_array();
-        let groups = FixedSizeListArray::try_new(elements, 3, Validity::NonNullable, 2)?;
-
-        let elem_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let result = run_grouped_sum(&groups.into_array(), &elem_dtype)?;
+        let result = run_grouped_sum(&values, &[0, 0, 0, 1, 1, 1], 2)?;
 
         let expected = PrimitiveArray::from_option_iter([Some(6i64), Some(15i64)]).into_array();
         assert_arrays_eq!(&result, &expected);
@@ -534,13 +711,10 @@ mod tests {
 
     #[test]
     fn grouped_sum_with_null_elements() -> VortexResult<()> {
-        let elements =
+        let values =
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None, Some(5), Some(6)])
                 .into_array();
-        let groups = FixedSizeListArray::try_new(elements, 3, Validity::NonNullable, 2)?;
-
-        let elem_dtype = DType::Primitive(PType::I32, Nullable);
-        let result = run_grouped_sum(&groups.into_array(), &elem_dtype)?;
+        let result = run_grouped_sum(&values, &[0, 0, 0, 1, 1, 1], 2)?;
 
         let expected = PrimitiveArray::from_option_iter([Some(4i64), Some(11i64)]).into_array();
         assert_arrays_eq!(&result, &expected);
@@ -548,30 +722,22 @@ mod tests {
     }
 
     #[test]
-    fn grouped_sum_with_null_group() -> VortexResult<()> {
-        let elements =
-            PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9], Validity::NonNullable)
-                .into_array();
-        let validity = Validity::from_iter([true, false, true]);
-        let groups = FixedSizeListArray::try_new(elements, 3, validity, 3)?;
-
-        let elem_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let result = run_grouped_sum(&groups.into_array(), &elem_dtype)?;
+    fn grouped_sum_empty_group() -> VortexResult<()> {
+        let values =
+            PrimitiveArray::new(buffer![1i32, 2, 3, 7, 8, 9], Validity::NonNullable).into_array();
+        let result = run_grouped_sum(&values, &[0, 0, 0, 2, 2, 2], 3)?;
 
         let expected =
-            PrimitiveArray::from_option_iter([Some(6i64), None, Some(24i64)]).into_array();
+            PrimitiveArray::from_option_iter([Some(6i64), Some(0i64), Some(24i64)]).into_array();
         assert_arrays_eq!(&result, &expected);
         Ok(())
     }
 
     #[test]
     fn grouped_sum_all_null_elements_in_group() -> VortexResult<()> {
-        let elements =
+        let values =
             PrimitiveArray::from_option_iter([None::<i32>, None, Some(3), Some(4)]).into_array();
-        let groups = FixedSizeListArray::try_new(elements, 2, Validity::NonNullable, 2)?;
-
-        let elem_dtype = DType::Primitive(PType::I32, Nullable);
-        let result = run_grouped_sum(&groups.into_array(), &elem_dtype)?;
+        let result = run_grouped_sum(&values, &[0, 0, 1, 1], 2)?;
 
         let expected = PrimitiveArray::from_option_iter([Some(0i64), Some(7i64)]).into_array();
         assert_arrays_eq!(&result, &expected);
@@ -580,12 +746,8 @@ mod tests {
 
     #[test]
     fn grouped_sum_bool() -> VortexResult<()> {
-        let elements: BoolArray = [true, false, true, true, true, true].into_iter().collect();
-        let groups =
-            FixedSizeListArray::try_new(elements.into_array(), 3, Validity::NonNullable, 2)?;
-
-        let elem_dtype = DType::Bool(Nullability::NonNullable);
-        let result = run_grouped_sum(&groups.into_array(), &elem_dtype)?;
+        let values: BoolArray = [true, false, true, true, true, true].into_iter().collect();
+        let result = run_grouped_sum(&values.into_array(), &[0, 0, 0, 1, 1, 1], 2)?;
 
         let expected = PrimitiveArray::from_option_iter([Some(2u64), Some(3u64)]).into_array();
         assert_arrays_eq!(&result, &expected);
@@ -598,19 +760,17 @@ mod tests {
         let elem_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let mut acc = GroupedAccumulator::try_new(Sum, EmptyOptions, elem_dtype)?;
 
-        let elements1 =
+        let values1 =
             PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable).into_array();
-        let groups1 = FixedSizeListArray::try_new(elements1, 2, Validity::NonNullable, 2)?;
-        acc.accumulate_list(&groups1.into_array(), &mut ctx)?;
-        let result1 = acc.finish()?;
+        acc.accumulate(&values1, &[0, 0, 1, 1], 2, &mut ctx)?;
+        let result1 = acc.finish(2)?;
 
         let expected1 = PrimitiveArray::from_option_iter([Some(3i64), Some(7i64)]).into_array();
         assert_arrays_eq!(&result1, &expected1);
 
-        let elements2 = PrimitiveArray::new(buffer![10i32, 20], Validity::NonNullable).into_array();
-        let groups2 = FixedSizeListArray::try_new(elements2, 2, Validity::NonNullable, 1)?;
-        acc.accumulate_list(&groups2.into_array(), &mut ctx)?;
-        let result2 = acc.finish()?;
+        let values2 = PrimitiveArray::new(buffer![10i32, 20], Validity::NonNullable).into_array();
+        acc.accumulate(&values2, &[0, 0], 1, &mut ctx)?;
+        let result2 = acc.finish(1)?;
 
         let expected2 = PrimitiveArray::from_option_iter([Some(30i64)]).into_array();
         assert_arrays_eq!(&result2, &expected2);
@@ -618,20 +778,13 @@ mod tests {
     }
 
     #[test]
-    fn grouped_sum_listview_out_of_order_offsets_with_null_group() -> VortexResult<()> {
-        let elements =
+    fn grouped_sum_out_of_order_group_ids() -> VortexResult<()> {
+        let values =
             PrimitiveArray::new(buffer![100i32, 200, 300], Validity::NonNullable).into_array();
-        let offsets = PrimitiveArray::new(buffer![2i32, 0, 1], Validity::NonNullable).into_array();
-        let sizes = PrimitiveArray::new(buffer![1i32, 1, 1], Validity::NonNullable).into_array();
-        let validity = Validity::from_iter([true, false, true]);
-        let groups = ListViewArray::try_new(elements, offsets, sizes, validity)?.into_array();
+        let result = run_grouped_sum(&values, &[2, 0, 1], 3)?;
 
-        let elem_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let result = run_grouped_sum(&groups, &elem_dtype)?;
-
-        // group 0 -> elements[2..3] = 300; group 1 -> null; group 2 -> elements[1..2] = 200.
         let expected =
-            PrimitiveArray::from_option_iter([Some(300i64), None, Some(200i64)]).into_array();
+            PrimitiveArray::from_option_iter([Some(200i64), Some(300), Some(100)]).into_array();
         assert_arrays_eq!(&result, &expected);
         Ok(())
     }
