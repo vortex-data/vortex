@@ -285,9 +285,7 @@ impl Validity {
             | (Validity::AllInvalid, Validity::AllInvalid) => Ok(true),
             // Constant variants with opposite masks: only equal when empty.
             (Validity::NonNullable | Validity::AllValid, Validity::AllInvalid)
-            | (Validity::AllInvalid, Validity::NonNullable | Validity::AllValid) => {
-                Ok(length == 0)
-            }
+            | (Validity::AllInvalid, Validity::NonNullable | Validity::AllValid) => Ok(length == 0),
             // Array vs all-valid: equal iff the array's minimum is true.
             (Validity::Array(a), Validity::NonNullable | Validity::AllValid)
             | (Validity::NonNullable | Validity::AllValid, Validity::Array(a)) => {
