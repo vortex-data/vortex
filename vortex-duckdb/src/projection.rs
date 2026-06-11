@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 use std::ops::Range;
-use std::sync::Arc;
 
 use num_traits::AsPrimitive as _;
 use vortex::dtype::DType;
-use vortex::dtype::FieldNames;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::col;
+use vortex::expr::get_item;
 use vortex::expr::merge;
 use vortex::expr::pack;
 use vortex::expr::root;
@@ -43,6 +42,9 @@ pub struct DuckdbField {
     pub name: String,
     pub logical_type: LogicalType,
     pub dtype: DType,
+    /// Function to use instead of get_item(col, root()), e.g. len(col).
+    /// It does not include column name so it's just "len" and not "len(col)"
+    pub projection_fn: Option<Expression>,
 }
 
 pub struct Projection {
@@ -68,6 +70,7 @@ impl Projection {
         let mut file_row_number_column_pos = None;
         let mut is_star = true;
         let mut real_column_count = 0;
+        let mut fn_col_count = 0;
 
         // DuckDB uses u64 as column indices but Rust uses usize
         for (column_pos, &column_id) in ids.iter().enumerate() {
@@ -86,47 +89,92 @@ impl Projection {
                 file_row_number_column_pos = Some(column_pos);
                 continue;
             }
+            if is_virtual_column(column_id) {
+                continue;
+            }
 
             // In SELECT * DuckDB requests all columns from 0 to column_fields in
             // increasing order. After removing virtual columns, compare column_id
             // with (0..column_fields.len()) range.
             is_star &= column_id == real_column_count;
+
+            // Example: if we SELECT len(str), we can't use root() as we try to
+            // pushdown scalar functions.
+            let column_id: usize = column_id.as_();
+            let is_projected_col = column_fields[column_id].projection_fn.is_some();
+            fn_col_count += is_projected_col as usize;
+            is_star &= !is_projected_col;
+
             real_column_count += 1;
         }
         // Duckdb can request less columns than there are in table i.e. [0, 1] with
         // 5 columns total.
         is_star &= real_column_count == column_fields.len() as u64;
 
-        let select = if is_star {
-            root()
-        } else {
-            let names = ids
-                .iter()
-                .map(|&column_id| {
-                    if has_projection_ids {
-                        let column_id: usize = column_id.as_();
-                        column_ids[column_id]
-                    } else {
-                        column_id
-                    }
-                })
-                .filter(|&col_id| !is_virtual_column(col_id))
-                .map(|column_id| {
-                    let column_id: usize = column_id.as_();
-                    Arc::from(column_fields[column_id].name.as_str())
-                })
-                .collect::<FieldNames>();
+        let has_file_row_number = file_row_number_column_pos.is_some();
+        if is_star {
+            let projection = if has_file_row_number {
+                // row_idx will be moved to correct position in scan(), prepend here
+                let row_idx_struct = pack([("file_row_number", row_idx())], false.into());
+                merge([row_idx_struct, root()])
+            } else {
+                root()
+            };
+            return Projection {
+                projection,
+                file_index_column_pos,
+                file_row_number_column_pos,
+            };
+        }
 
-            select(names, root())
-        };
+        let has_fn_columns = fn_col_count > 0;
+        let mut all_exprs = Vec::with_capacity(
+            (ids.len() + has_file_row_number as usize) * has_fn_columns as usize,
+        );
+        let mut named_fields = Vec::with_capacity(ids.len() * !has_fn_columns as usize);
 
-        // file_index column will be filled later when exporting the chunk.
-        let projection = if file_row_number_column_pos.is_some() {
+        if has_file_row_number && has_fn_columns {
             // row_idx will be moved to correct position in scan(), prepend here
+            all_exprs.push(("file_row_number", row_idx()));
+        }
+
+        for &column_id in ids {
+            let column_id = if has_projection_ids {
+                let column_id: usize = column_id.as_();
+                column_ids[column_id]
+            } else {
+                column_id
+            };
+            if is_virtual_column(column_id) {
+                continue;
+            }
+            let column_id: usize = column_id.as_();
+            let name = column_fields[column_id].name.as_str();
+            if !has_fn_columns {
+                named_fields.push(name);
+                continue;
+            }
+
+            let column_field = &column_fields[column_id];
+            let expr = match &column_field.projection_fn {
+                None => get_item(name, root()),
+                Some(func) => func.clone(),
+            };
+            all_exprs.push((name, expr));
+        }
+
+        let projection = if has_fn_columns {
+            // If file_row_number was requested, it's in all_exprs as first
+            // element
+            pack(all_exprs, false.into())
+        } else if has_file_row_number {
+            let select = select(named_fields, root());
+            // Here we need to prepend it manually
+            // row_idx will be moved to correct position in scan()
             let row_idx_struct = pack([("file_row_number", row_idx())], false.into());
             merge([row_idx_struct, select])
         } else {
-            select
+            select(named_fields, root())
         };
 
         Self {
@@ -224,6 +272,7 @@ pub fn extract_schema_from_dtype(dtype: &DType) -> VortexResult<Vec<DuckdbField>
             name: field_name.to_string(),
             logical_type,
             dtype: field_dtype,
+            projection_fn: None,
         });
     }
     Ok(fields)
@@ -232,6 +281,7 @@ pub fn extract_schema_from_dtype(dtype: &DType) -> VortexResult<Vec<DuckdbField>
 #[cfg(test)]
 mod tests {
     use vortex::dtype::DType;
+    use vortex::expr::lit;
     use vortex::expr::merge;
     use vortex::expr::pack;
     use vortex::expr::root;
@@ -242,21 +292,24 @@ mod tests {
     #[test]
     fn test_select_star() {
         let ids = [0, 1, 2];
-        let fields = [
+        let mut fields = [
             DuckdbField {
                 name: "".to_owned(),
                 logical_type: LogicalType::null(),
                 dtype: DType::Null,
+                projection_fn: None,
             },
             DuckdbField {
                 name: "".to_owned(),
                 logical_type: LogicalType::null(),
                 dtype: DType::Null,
+                projection_fn: None,
             },
             DuckdbField {
                 name: "".to_owned(),
                 logical_type: LogicalType::null(),
                 dtype: DType::Null,
+                projection_fn: None,
             },
         ];
 
@@ -284,6 +337,11 @@ mod tests {
         assert_ne!(Projection::new(None, &ids, &fields).projection, root());
 
         let ids = [2, 1, 0];
+        assert_ne!(Projection::new(None, &ids, &fields).projection, root());
+
+        // If any column has a projection expression, we can't use SELECT *
+        fields[0].projection_fn = Some(lit(true));
+        let ids = [0, 1, 2];
         assert_ne!(Projection::new(None, &ids, &fields).projection, root());
     }
 }

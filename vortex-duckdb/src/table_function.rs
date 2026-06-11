@@ -46,6 +46,7 @@ use crate::SESSION;
 use crate::column_statistics::ColumnStatistics;
 use crate::column_statistics::ColumnStatisticsAggregate;
 use crate::convert::try_from_bound_expression;
+use crate::convert::try_from_projection_expression;
 use crate::duckdb::BindInputRef;
 use crate::duckdb::BindResultRef;
 use crate::duckdb::ClientContextRef;
@@ -429,6 +430,26 @@ pub fn pushdown_complex_filter(
     Ok(report_pushed)
 }
 
+pub fn pushdown_projection_expression(
+    bind_data: &mut TableFunctionBind,
+    expr: &ExpressionRef,
+    projection_id: usize,
+) -> VortexResult<bool> {
+    let field = &bind_data.column_fields[projection_id];
+    debug!(%expr, %projection_id, col_name=field.name, "pushing down projection expression");
+    match try_from_projection_expression(expr, field)? {
+        None => {
+            debug!(%expr, "failed to push down expression");
+            Ok(false)
+        }
+        Some(vx_expr) => {
+            debug!(%expr, "pushed down expression");
+            bind_data.column_fields[projection_id].projection_fn = Some(vx_expr);
+            Ok(true)
+        }
+    }
+}
+
 /// Get column-wise statistics. Available only if we're reading a single file.
 pub fn statistics(bind_data: &TableFunctionBind, column_index: usize) -> Option<ColumnStatistics> {
     let children = bind_data.data_source.children();
@@ -494,6 +515,19 @@ pub fn to_string(bind_data: &TableFunctionBind, map: &mut DuckdbStringMapRef) {
     if !bind_data.filter_exprs.is_empty() {
         let mut filters = bind_data.filter_exprs.iter().map(|f| format!("{f}"));
         map.push("Filters", &filters.join("\n"));
+    }
+    let projections = bind_data
+        .column_fields
+        .iter()
+        .filter_map(|field| {
+            field
+                .projection_fn
+                .as_ref()
+                .map(|expr| format!("{}: {expr}", field.name))
+        })
+        .join("\n");
+    if !projections.is_empty() {
+        map.push("SELECT projections", &projections);
     }
 }
 
