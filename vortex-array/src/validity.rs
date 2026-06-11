@@ -263,18 +263,22 @@ impl Validity {
         }
     }
 
-    /// Compare two Validity values of the same length by executing them into masks if necessary.
-    pub fn mask_eq(&self, other: &Validity, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+    /// Compare the logical masks of two Validity values of the given length, executing them
+    /// into [`Mask`]s if necessary.
+    pub fn mask_eq(
+        &self,
+        other: &Validity,
+        length: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
         match (self, other) {
-            (Validity::NonNullable, Validity::NonNullable) => Ok(true),
-            (Validity::AllValid, Validity::AllValid) => Ok(true),
-            (Validity::AllInvalid, Validity::AllInvalid) => Ok(true),
-            (Validity::Array(a), Validity::Array(b)) => {
-                let a = a.clone().execute::<Mask>(ctx)?;
-                let b = b.clone().execute::<Mask>(ctx)?;
-                Ok(a == b)
-            }
-            _ => Ok(false),
+            // Fast paths that avoid executing: constant variants with known-equal masks.
+            (
+                Validity::NonNullable | Validity::AllValid,
+                Validity::NonNullable | Validity::AllValid,
+            )
+            | (Validity::AllInvalid, Validity::AllInvalid) => Ok(true),
+            _ => Ok(self.execute_mask(length, ctx)? == other.execute_mask(length, ctx)?),
         }
     }
 
@@ -703,7 +707,7 @@ mod tests {
             validity
                 .patch(len, 0, &indices, &patches, &mut ctx,)
                 .unwrap()
-                .mask_eq(&expected, &mut ctx)
+                .mask_eq(&expected, len, &mut ctx)
                 .unwrap()
         );
     }
@@ -768,8 +772,50 @@ mod tests {
             validity
                 .take(&indices)
                 .unwrap()
-                .mask_eq(&expected, &mut ctx)
+                .mask_eq(&expected, indices.len(), &mut ctx)
                 .unwrap()
         );
+    }
+
+    #[rstest]
+    // Mixed constant variants with equal masks.
+    #[case(Validity::NonNullable, Validity::AllValid, true)]
+    #[case(Validity::AllValid, Validity::NonNullable, true)]
+    #[case(Validity::AllValid, Validity::AllInvalid, false)]
+    #[case(Validity::NonNullable, Validity::AllInvalid, false)]
+    // An array that resolves to a constant mask must equal the constant variant.
+    #[case(
+        Validity::Array(BoolArray::from_iter([true, true, true]).into_array()),
+        Validity::AllValid,
+        true
+    )]
+    #[case(
+        Validity::NonNullable,
+        Validity::Array(BoolArray::from_iter([true, true, true]).into_array()),
+        true
+    )]
+    #[case(
+        Validity::Array(BoolArray::from_iter([false, false, false]).into_array()),
+        Validity::AllInvalid,
+        true
+    )]
+    #[case(
+        Validity::Array(BoolArray::from_iter([true, false, true]).into_array()),
+        Validity::AllValid,
+        false
+    )]
+    #[case(
+        Validity::Array(BoolArray::from_iter([true, false, true]).into_array()),
+        Validity::AllInvalid,
+        false
+    )]
+    fn mask_eq_mixed_variants(
+        #[case] lhs: Validity,
+        #[case] rhs: Validity,
+        #[case] expected: bool,
+    ) -> vortex_error::VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        assert_eq!(lhs.mask_eq(&rhs, 3, &mut ctx)?, expected);
+        Ok(())
     }
 }

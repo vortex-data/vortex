@@ -209,11 +209,11 @@ mod tests {
         #[expect(deprecated)]
         let into_canon = chunk.to_bool();
 
-        assert!(
-            canon_into
-                .validity()?
-                .mask_eq(&into_canon.validity()?, &mut ctx)?
-        );
+        assert!(canon_into.validity()?.mask_eq(
+            &into_canon.validity()?,
+            canon_into.len(),
+            &mut ctx
+        )?);
         assert_eq!(canon_into.to_bit_buffer(), into_canon.to_bit_buffer());
         Ok(())
     }

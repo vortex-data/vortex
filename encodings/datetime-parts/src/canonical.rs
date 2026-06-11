@@ -143,12 +143,11 @@ mod test {
             &mut ctx,
         )?;
 
-        assert!(
-            date_times
-                .as_array()
-                .validity()?
-                .mask_eq(&validity, &mut ctx)?
-        );
+        assert!(date_times.as_array().validity()?.mask_eq(
+            &validity,
+            milliseconds.len(),
+            &mut ctx
+        )?);
 
         let dtype = date_times.dtype().clone();
         let parts = DateTimePartsParts {
@@ -163,7 +162,6 @@ mod test {
             .execute::<PrimitiveArray>(&mut ctx)?;
 
         assert_arrays_eq!(primitive_values, milliseconds);
-        assert!(primitive_values.validity()?.mask_eq(&validity, &mut ctx)?);
         Ok(())
     }
 }

@@ -103,7 +103,7 @@ mod tests {
             days_prim
                 .validity()
                 .vortex_expect("days validity should be derivable")
-                .mask_eq(&validity, &mut ctx)
+                .mask_eq(&validity, days_prim.len(), &mut ctx)
                 .unwrap()
         );
         let seconds_prim = seconds.execute::<PrimitiveArray>(&mut ctx).unwrap();

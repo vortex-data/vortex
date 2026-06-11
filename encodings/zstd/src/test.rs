@@ -89,7 +89,7 @@ fn test_zstd_with_validity_and_multi_frame() {
         decompressed
             .validity()
             .unwrap()
-            .mask_eq(&array.validity().unwrap(), &mut ctx)
+            .mask_eq(&array.validity().unwrap(), decompressed.len(), &mut ctx)
             .unwrap()
     );
 
@@ -106,6 +106,7 @@ fn test_zstd_with_validity_and_multi_frame() {
             .unwrap()
             .mask_eq(
                 &Validity::Array(BoolArray::from_iter(vec![false, true, false]).into_array()),
+                primitive.len(),
                 &mut ctx
             )
             .unwrap()
