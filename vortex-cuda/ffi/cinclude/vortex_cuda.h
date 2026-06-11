@@ -13,7 +13,11 @@
 extern "C" {
 #endif
 
-#ifndef USE_OWN_ARROW_DEVICE
+/* Definitions from the Arrow C Device data interface. Define USE_OWN_ARROW_DEVICE to skip them.
+ * https://arrow.apache.org/docs/format/CDeviceDataInterface.html */
+#if !defined(ARROW_C_DEVICE_DATA_INTERFACE) && !defined(USE_OWN_ARROW_DEVICE)
+#define ARROW_C_DEVICE_DATA_INTERFACE
+
 typedef int32_t ArrowDeviceType;
 #define ARROW_DEVICE_CPU          1
 #define ARROW_DEVICE_CUDA         2
@@ -40,6 +44,14 @@ struct ArrowDeviceArray {
 #endif
 
 /**
+ * Create a CUDA Vortex session.
+ *
+ * Repeated `vx_cuda_array_export_arrow_device` calls reuse this CUDA state. Returns an owned
+ * session handle, or NULL and an optional `vx_error` on failure.
+ */
+vx_session *vx_cuda_session_new(vx_error **error_out);
+
+/**
  * Export a borrowed Vortex array for cuDF's Arrow Device import path.
  *
  * On success returns 0 and writes independently releasable `out_schema` and `out_array`; the caller
@@ -48,6 +60,8 @@ struct ArrowDeviceArray {
  *
  * `out_array` is exported on `ARROW_DEVICE_CUDA`; struct arrays become table-shaped schemas,
  * non-struct arrays a single column field.
+ *
+ * Export is stream-ordered; `out_array->sync_event` is valid until `out_array` is released.
  */
 int vx_cuda_array_export_arrow_device(const vx_session *session,
                                       const vx_array *array,

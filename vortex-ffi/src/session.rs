@@ -17,12 +17,21 @@ box_wrapper!(
     vx_session
 );
 
+/// Create an FFI session from a configured default session.
+pub fn vx_session_new_with(
+    configure: impl FnOnce(VortexSession) -> VortexSession,
+) -> *mut vx_session {
+    vx_session::new(configure(
+        VortexSession::default().with_handle(RUNTIME.handle()),
+    ))
+}
+
 /// Create a new Vortex session.
 ///
 /// The caller is responsible for freeing the session with [`vx_session_free`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_session_new() -> *mut vx_session {
-    vx_session::new(VortexSession::default().with_handle(RUNTIME.handle()))
+    vx_session_new_with(|session| session)
 }
 
 /// Clone a Vortex session, returning an owned copy.
