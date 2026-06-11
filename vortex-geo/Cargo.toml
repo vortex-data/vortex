@@ -26,6 +26,7 @@ wkb = { workspace = true }
 [dev-dependencies]
 geo-traits = { workspace = true }
 geo-types = { workspace = true }
+rstest = { workspace = true }
 
 [lints]
 workspace = true

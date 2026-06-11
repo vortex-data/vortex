@@ -313,5 +313,8 @@ fn geo_metadata(wkb_type: &WkbType) -> GeoMetadata {
             .map(str::to_string)
             .unwrap_or_else(|| value.to_string())
     });
-    GeoMetadata { crs }
+    GeoMetadata {
+        crs,
+        ..Default::default()
+    }
 }

@@ -10269,6 +10269,7 @@ dependencies = [
  "geo-types",
  "geoarrow",
  "prost 0.14.4",
+ "rstest",
  "vortex-array",
  "vortex-error",
  "vortex-session",

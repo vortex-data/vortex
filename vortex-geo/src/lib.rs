@@ -5,17 +5,26 @@ use std::sync::Arc;
 
 use vortex_array::arrow::ArrowSessionExt;
 use vortex_array::dtype::session::DTypeSessionExt;
+use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_session::VortexSession;
 
+use crate::extension::Geometry;
 use crate::extension::WellKnownBinary;
+use crate::scalar_fn::distance::GeoDistance;
 
 pub mod extension;
+pub mod scalar_fn;
+
 /// Set up a session with support for geospatial extension types, encodings and layouts.
 pub fn initialize(session: &VortexSession) {
-    // register geospatial extension types
+    // Register the geospatial extension types.
     session.dtypes().register(WellKnownBinary);
     session.arrow().register_exporter(Arc::new(WellKnownBinary));
     session.arrow().register_importer(Arc::new(WellKnownBinary));
+    session.dtypes().register(Geometry);
+
+    // Register the geometry scalar functions.
+    session.scalar_fns().register(GeoDistance);
 }
 
 #[cfg(test)]
@@ -95,6 +104,7 @@ mod tests {
         let dtype = ExtDType::<WellKnownBinary>::try_new(
             GeoMetadata {
                 crs: Some("EPSG:4326".to_string()),
+                ..Default::default()
             },
             DType::Binary(Nullability::NonNullable),
         )?;
@@ -135,6 +145,7 @@ mod tests {
         let dtype = ExtDType::<WellKnownBinary>::try_new(
             GeoMetadata {
                 crs: Some("EPSG:4326".to_string()),
+                ..Default::default()
             },
             DType::Binary(Nullability::NonNullable),
         )?;
