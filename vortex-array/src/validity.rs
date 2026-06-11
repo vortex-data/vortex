@@ -244,6 +244,7 @@ impl Validity {
         }
     }
 
+    #[inline]
     pub fn execute_mask(&self, length: usize, ctx: &mut ExecutionCtx) -> VortexResult<Mask> {
         match self {
             Self::NonNullable | Self::AllValid => Ok(Mask::AllTrue(length)),
