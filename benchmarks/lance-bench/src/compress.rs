@@ -21,6 +21,7 @@ use tempfile::TempDir;
 use vortex_bench::Format;
 use vortex_bench::compress::Compressor;
 use vortex_bench::compress::read_projection;
+use vortex_bench::datasets::Dataset as BenchDataset;
 
 use crate::convert::convert_utf8view_batch;
 use crate::convert::convert_utf8view_schema;
@@ -96,7 +97,11 @@ impl Compressor for LanceCompressor {
         Format::Lance
     }
 
-    async fn compress(&self, parquet_path: &Path) -> anyhow::Result<(u64, Duration)> {
+    async fn compress(
+        &self,
+        _dataset: &dyn BenchDataset,
+        parquet_path: &Path,
+    ) -> anyhow::Result<(u64, Duration)> {
         // Read the input parquet file
         let file = File::open(parquet_path)?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
@@ -135,7 +140,11 @@ impl Compressor for LanceCompressor {
         Ok((size, elapsed))
     }
 
-    async fn decompress(&self, parquet_path: &Path) -> anyhow::Result<Duration> {
+    async fn decompress(
+        &self,
+        _dataset: &dyn BenchDataset,
+        parquet_path: &Path,
+    ) -> anyhow::Result<Duration> {
         // First compress to get the Lance dataset
         let file = File::open(parquet_path)?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;

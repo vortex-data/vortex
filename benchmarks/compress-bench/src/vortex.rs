@@ -13,6 +13,8 @@ use bytes::Bytes;
 use futures::StreamExt;
 use futures::pin_mut;
 use vortex::array::IntoArray;
+use vortex::array::VortexSessionExecute;
+use vortex::array::arrow::ArrowSessionExt;
 use vortex::dtype::FieldNames;
 use vortex::expr::root;
 use vortex::expr::select;
@@ -22,7 +24,7 @@ use vortex_bench::Format;
 use vortex_bench::SESSION;
 use vortex_bench::compress::Compressor;
 use vortex_bench::compress::read_projection;
-use vortex_bench::conversions::parquet_to_vortex_chunks;
+use vortex_bench::datasets::Dataset;
 
 /// Compressor implementation for Vortex format.
 pub struct VortexCompressor;
@@ -33,9 +35,15 @@ impl Compressor for VortexCompressor {
         Format::OnDiskVortex
     }
 
-    async fn compress(&self, parquet_path: &Path) -> Result<(u64, Duration)> {
-        // Read the parquet file as an array stream
-        let uncompressed = parquet_to_vortex_chunks(parquet_path.to_path_buf()).await?;
+    async fn compress(
+        &self,
+        dataset: &dyn Dataset,
+        parquet_path: &Path,
+    ) -> Result<(u64, Duration)> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let uncompressed = dataset
+            .to_vortex_compression_array(&mut ctx, parquet_path)
+            .await?;
 
         let mut buf = Vec::new();
         let start = Instant::now();
@@ -49,9 +57,12 @@ impl Compressor for VortexCompressor {
         Ok((buf.len() as u64, elapsed))
     }
 
-    async fn decompress(&self, parquet_path: &Path) -> Result<Duration> {
+    async fn decompress(&self, dataset: &dyn Dataset, parquet_path: &Path) -> Result<Duration> {
         // First compress to get the bytes we'll decompress
-        let uncompressed = parquet_to_vortex_chunks(parquet_path.to_path_buf()).await?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let uncompressed = dataset
+            .to_vortex_compression_array(&mut ctx, parquet_path)
+            .await?;
         let mut buf = Vec::new();
         let mut cursor = Cursor::new(&mut buf);
         SESSION
@@ -72,7 +83,7 @@ impl Compressor for VortexCompressor {
             let names: FieldNames = cols.iter().map(|i| i.to_string()).collect();
             scan = scan.with_projection(select(names, root()));
         }
-        let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
+        let schema = Arc::new(SESSION.arrow().to_arrow_schema(&scan.dtype()?)?);
 
         let stream = scan.into_record_batch_stream(schema)?;
         pin_mut!(stream);

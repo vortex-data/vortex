@@ -21,6 +21,7 @@ use parquet::file::properties::WriterProperties;
 use vortex_bench::Format;
 use vortex_bench::compress::Compressor;
 use vortex_bench::compress::read_projection;
+use vortex_bench::datasets::Dataset;
 
 /// Compressor implementation for Parquet format with ZSTD compression.
 pub struct ParquetCompressor {
@@ -51,7 +52,11 @@ impl Compressor for ParquetCompressor {
         Format::Parquet
     }
 
-    async fn compress(&self, parquet_path: &Path) -> anyhow::Result<(u64, Duration)> {
+    async fn compress(
+        &self,
+        _dataset: &dyn Dataset,
+        parquet_path: &Path,
+    ) -> anyhow::Result<(u64, Duration)> {
         // Read the input parquet file
         let file = File::open(parquet_path)?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
@@ -67,7 +72,11 @@ impl Compressor for ParquetCompressor {
         Ok((size as u64, elapsed))
     }
 
-    async fn decompress(&self, parquet_path: &Path) -> anyhow::Result<Duration> {
+    async fn decompress(
+        &self,
+        _dataset: &dyn Dataset,
+        parquet_path: &Path,
+    ) -> anyhow::Result<Duration> {
         // First compress to get the bytes we'll decompress
         let file = File::open(parquet_path)?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
