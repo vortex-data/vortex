@@ -63,6 +63,42 @@ fn sum_i64(bencher: Bencher) {
         .bench_refs(|(a, ctx)| a.statistics().compute_as::<i64>(Stat::Sum, ctx));
 }
 
+#[divan::bench]
+fn sum_f64(bencher: Bencher) {
+    let mut rng = StdRng::seed_from_u64(6);
+    let data: Vec<f64> = (0..N).map(|_| rng.random_range(-1000.0..1000.0)).collect();
+    bencher
+        .with_inputs(|| {
+            (
+                PrimitiveArray::from_iter(data.iter().copied()).into_array(),
+                SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(a, ctx)| a.statistics().compute_as::<f64>(Stat::Sum, ctx));
+}
+
+#[divan::bench]
+fn sum_f64_nulls_clustered(bencher: Bencher) {
+    let mut rng = StdRng::seed_from_u64(7);
+    let data: Vec<Option<f64>> = (0..N)
+        .map(|i| {
+            if (i / 64) % 10 == 0 {
+                None
+            } else {
+                Some(rng.random_range(-1000.0..1000.0))
+            }
+        })
+        .collect();
+    bencher
+        .with_inputs(|| {
+            (
+                PrimitiveArray::from_option_iter(data.iter().copied()).into_array(),
+                SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(a, ctx)| a.statistics().compute_as::<f64>(Stat::Sum, ctx));
+}
+
 // Clustered nulls: long runs of valid values broken up by occasional null blocks. This is the
 // case the run-based valid path is expected to accelerate.
 #[divan::bench]
