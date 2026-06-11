@@ -19,6 +19,8 @@ use crate::dtype::DecimalDType;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::PType;
 use crate::dtype::half::f16;
+use crate::extension::datetime::AnyTemporal;
+use crate::extension::datetime::random_temporal_storage_value;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
 use crate::scalar::PValue;
@@ -97,8 +99,24 @@ pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
         .vortex_expect("unable to construct random `Scalar`_"),
         DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
         DType::Variant(_) => todo!(),
-        DType::Extension(..) => {
-            unreachable!("Can't yet generate arbitrary scalars for ext dtype")
+        DType::Extension(ext) => {
+            let metadata = ext.metadata_opt::<AnyTemporal>().unwrap_or_else(|| {
+                unreachable!("Can't yet generate arbitrary scalars for non-temporal ext dtype")
+            });
+            let value = random_temporal_storage_value(u, &metadata)?;
+            let pvalue = match ext.storage_dtype() {
+                DType::Primitive(PType::I32, _) => PValue::I32(
+                    i32::try_from(value).vortex_expect("temporal i32 storage value in range"),
+                ),
+                DType::Primitive(PType::I64, _) => PValue::I64(value),
+                d => unreachable!("unexpected temporal storage dtype {d}"),
+            };
+            let storage = Scalar::try_new(
+                ext.storage_dtype().clone(),
+                Some(ScalarValue::Primitive(pvalue)),
+            )
+            .vortex_expect("unable to construct random temporal storage `Scalar`");
+            Scalar::extension_ref(ext.clone(), storage)
         }
     })
 }

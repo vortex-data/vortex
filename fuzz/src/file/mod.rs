@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#[cfg(test)]
+mod tests;
+
 use arbitrary::Arbitrary;
 use arbitrary::Unstructured;
 use vortex_array::ArrayRef;

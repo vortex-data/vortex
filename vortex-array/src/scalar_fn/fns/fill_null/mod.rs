@@ -18,6 +18,7 @@ use crate::ColumnarView;
 use crate::ExecutionCtx;
 use crate::arrays::Bool;
 use crate::arrays::Decimal;
+use crate::arrays::Extension;
 use crate::arrays::Primitive;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -166,6 +167,10 @@ fn fill_null_canonical(
         }
         CanonicalView::Decimal(a) => <Decimal as FillNullKernel>::fill_null(a, fill_value, ctx)?
             .ok_or_else(|| vortex_err!("FillNullKernel for DecimalArray returned None")),
+        CanonicalView::Extension(a) => {
+            <Extension as FillNullKernel>::fill_null(a, fill_value, ctx)?
+                .ok_or_else(|| vortex_err!("FillNullKernel for ExtensionArray returned None"))
+        }
         other => vortex_bail!(
             "No FillNullKernel for canonical array {}",
             other.to_array_ref().encoding_id()

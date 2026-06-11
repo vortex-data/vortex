@@ -5,8 +5,10 @@ use crate::arrays::Extension;
 use crate::arrays::dict::TakeExecuteAdaptor;
 use crate::kernel::ParentKernelSet;
 use crate::scalar_fn::fns::binary::CompareExecuteAdaptor;
+use crate::scalar_fn::fns::fill_null::FillNullExecuteAdaptor;
 
 pub(super) const PARENT_KERNELS: ParentKernelSet<Extension> = ParentKernelSet::new(&[
     ParentKernelSet::lift(&CompareExecuteAdaptor(Extension)),
     ParentKernelSet::lift(&TakeExecuteAdaptor(Extension)),
+    ParentKernelSet::lift(&FillNullExecuteAdaptor(Extension)),
 ]);

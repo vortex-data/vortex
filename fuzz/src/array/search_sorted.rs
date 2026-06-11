@@ -5,6 +5,7 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
@@ -12,6 +13,7 @@ use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
+use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_decimal_value_type;
@@ -148,7 +150,14 @@ pub fn search_sorted_canonical_array(
                 .collect::<VortexResult<Vec<_>>>()?;
             scalar_vals.search_sorted(&scalar.cast(array.dtype())?, side)
         }
-        d @ (DType::Null | DType::Union(..) | DType::Variant(_) | DType::Extension(_)) => {
+        DType::Extension(_) => {
+            let Canonical::Extension(ext) = array.clone().execute::<Canonical>(ctx)? else {
+                unreachable!("extension dtype must canonicalize to an extension array")
+            };
+            let storage_scalar = scalar.as_extension().to_storage_scalar();
+            search_sorted_canonical_array(ext.storage_array(), &storage_scalar, side, ctx)
+        }
+        d @ (DType::Null | DType::Union(..) | DType::Variant(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }
     }

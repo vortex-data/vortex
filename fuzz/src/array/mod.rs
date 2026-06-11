@@ -26,6 +26,8 @@ mod slice;
 mod sort;
 mod sum;
 mod take;
+#[cfg(test)]
+mod tests;
 
 use std::iter;
 use std::ops::Range;
@@ -520,8 +522,21 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
         // Currently, no support at all
         DType::Variant(_) => unreachable!("Variant dtype shouldn't be fuzzed"),
         DType::Extension(_) => {
-            // Extension types delegate to storage dtype, support most operations
-            ActionType::iter().collect()
+            // Temporal extension types delegate to their integer storage.
+            // Does NOT support: Sum (not a numeric dtype), Cast (no canonical cast baseline)
+            [
+                Compress,
+                Slice,
+                Take,
+                SearchSorted,
+                Filter,
+                Compare,
+                MinMax,
+                FillNull,
+                Mask,
+                ScalarAt,
+            ]
+            .into()
         }
     }
 }

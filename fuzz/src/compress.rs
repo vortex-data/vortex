@@ -111,3 +111,42 @@ pub fn run_compress_roundtrip(fuzz: FuzzCompressRoundtrip) -> crate::error::Vort
 
     Ok(true)
 }
+
+#[cfg(test)]
+mod tests {
+    use arbitrary::Arbitrary;
+    use arbitrary::Unstructured;
+
+    use super::FuzzCompressRoundtrip;
+    use super::run_compress_roundtrip;
+
+    /// Deterministic pseudo-random bytes for driving [`Unstructured`].
+    fn pseudo_random_bytes(len: usize, seed: u32) -> Vec<u8> {
+        let mut state = seed.wrapping_mul(2654435761).wrapping_add(1);
+        (0..len)
+            .map(|_| {
+                state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+                (state >> 24) as u8
+            })
+            .collect()
+    }
+
+    /// End-to-end smoke test of the compress roundtrip pipeline, covering the arbitrary
+    /// dtypes (including temporal extension dtypes) without needing a fuzzing engine.
+    #[test]
+    fn compress_roundtrip_pipeline_smoke() {
+        let mut ran = 0;
+        for seed in 0..256 {
+            let bytes = pseudo_random_bytes(16 * 1024, seed);
+            let mut u = Unstructured::new(&bytes);
+            let Ok(fuzz) = FuzzCompressRoundtrip::arbitrary(&mut u) else {
+                continue;
+            };
+            if let Err(e) = run_compress_roundtrip(fuzz) {
+                panic!("seed {seed}: {e}");
+            }
+            ran += 1;
+        }
+        assert!(ran > 0, "no compress roundtrips were generated");
+    }
+}

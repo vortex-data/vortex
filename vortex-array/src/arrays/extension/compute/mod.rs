@@ -3,6 +3,7 @@
 
 mod cast;
 mod compare;
+mod fill_null;
 mod filter;
 mod mask;
 pub(crate) mod rules;

@@ -3,12 +3,16 @@
 
 //! Datetime extension DTypes, compatible with Apache Arrow.
 
+#[cfg(feature = "arbitrary")]
+mod arbitrary;
 mod date;
 mod matcher;
 mod time;
 mod timestamp;
 mod unit;
 
+#[cfg(feature = "arbitrary")]
+pub use arbitrary::*;
 pub use date::*;
 pub use matcher::*;
 pub use time::*;

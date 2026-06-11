@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::accessor::ArrayAccessor;
@@ -10,6 +11,7 @@ use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
+use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -173,7 +175,18 @@ pub fn compare_canonical_array(
             }))
             .into_array()
         }
-        d @ (DType::Null | DType::Union(..) | DType::Variant(_) | DType::Extension(_)) => {
+        DType::Extension(_) => {
+            let Canonical::Extension(ext) = array
+                .clone()
+                .execute::<Canonical>(ctx)
+                .vortex_expect("to canonical")
+            else {
+                unreachable!("extension dtype must canonicalize to an extension array")
+            };
+            let storage_scalar = value.as_extension().to_storage_scalar();
+            compare_canonical_array(ext.storage_array(), &storage_scalar, operator, ctx)
+        }
+        d @ (DType::Null | DType::Union(..) | DType::Variant(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }
     }

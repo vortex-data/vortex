@@ -19,6 +19,7 @@ use crate::IntoArray;
 use crate::ToCanonical as _;
 use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
+use crate::arrays::ExtensionArray;
 use crate::arrays::NullArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
@@ -34,6 +35,9 @@ use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::dtype::extension::ExtDTypeRef;
+use crate::extension::datetime::AnyTemporal;
+use crate::extension::datetime::random_temporal_storage_value;
 use crate::match_each_decimal_value_type;
 use crate::scalar::Scalar;
 use crate::scalar::arbitrary::random_scalar;
@@ -193,10 +197,46 @@ fn random_array_chunk(
         DType::Variant(_) => {
             unimplemented!("Variant arrays are not implemented")
         }
-        DType::Extension(..) => {
-            unimplemented!("Extension arrays are not implemented")
-        }
+        DType::Extension(ext) => random_temporal(u, ext, chunk_len),
     }
+}
+
+/// Creates a random temporal extension array with storage values that are valid for the
+/// temporal type, so every element unpacks to a valid jiff temporal value.
+fn random_temporal(
+    u: &mut Unstructured<'_>,
+    ext: &ExtDTypeRef,
+    chunk_len: Option<usize>,
+) -> Result<ArrayRef> {
+    let metadata = ext
+        .metadata_opt::<AnyTemporal>()
+        .unwrap_or_else(|| unimplemented!("Only temporal extension arrays are implemented"));
+    let len = chunk_len
+        .map(Ok)
+        .unwrap_or_else(|| u.int_in_range(0..=100))?;
+    let validity = random_validity(u, ext.storage_dtype().nullability(), len)?;
+
+    let storage = match ext.storage_dtype() {
+        DType::Primitive(PType::I32, _) => PrimitiveArray::new(
+            (0..len)
+                .map(|_| {
+                    random_temporal_storage_value(u, &metadata).map(|v| {
+                        i32::try_from(v).vortex_expect("temporal i32 storage value in range")
+                    })
+                })
+                .collect::<Result<Buffer<i32>>>()?,
+            validity,
+        ),
+        DType::Primitive(PType::I64, _) => PrimitiveArray::new(
+            (0..len)
+                .map(|_| random_temporal_storage_value(u, &metadata))
+                .collect::<Result<Buffer<i64>>>()?,
+            validity,
+        ),
+        d => unreachable!("unexpected temporal storage dtype {d}"),
+    };
+
+    Ok(ExtensionArray::new(ext.clone(), storage.into_array()).into_array())
 }
 
 /// Creates a random fixed-size list array.

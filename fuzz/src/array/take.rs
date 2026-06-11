@@ -2,15 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
+use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::dtype::DType;
@@ -147,7 +150,17 @@ pub fn take_canonical_array(
             )
             .map(|a| a.into_array())
         }
-        d @ (DType::Null | DType::Union(..) | DType::Variant(_) | DType::Extension(_)) => {
+        DType::Extension(_) => {
+            let Canonical::Extension(ext) = array.clone().execute::<Canonical>(ctx)? else {
+                unreachable!("extension dtype must canonicalize to an extension array")
+            };
+            let taken_storage = take_canonical_array(ext.storage_array(), indices, ctx)?;
+            let ext_dtype = ext
+                .ext_dtype()
+                .with_nullability(taken_storage.dtype().nullability());
+            Ok(ExtensionArray::new(ext_dtype, taken_storage).into_array())
+        }
+        d @ (DType::Null | DType::Union(..) | DType::Variant(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }
     }
