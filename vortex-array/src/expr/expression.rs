@@ -15,9 +15,7 @@ use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
 use crate::dtype::DType;
-use crate::expr::StatsCatalog;
 use crate::expr::display::DisplayTreeExpr;
-use crate::expr::stats::Stat;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::fns::root::Root;
 
@@ -140,28 +138,6 @@ impl Expression {
         session: &VortexSession,
     ) -> VortexResult<Option<Expression>> {
         crate::stats::rewrite::StatsRewriteCtx::new(session, scope).satisfy(self)
-    }
-
-    /// Returns an expression representing the zoned statistic for the given stat, if available.
-    ///
-    /// The [`StatsCatalog`] returns expressions that can be evaluated using the zone map as a
-    /// scope. Expressions can implement this function to propagate such statistics through the
-    /// expression tree. For example, the `a + 10` expression could propagate `min: min(a) + 10`.
-    ///
-    /// NOTE(gatesn): we currently cannot represent statistics over nested fields. Please file an
-    /// issue to discuss a solution to this.
-    pub fn stat_expression(&self, stat: Stat, catalog: &dyn StatsCatalog) -> Option<Expression> {
-        self.scalar_fn().stat_expression(self, stat, catalog)
-    }
-
-    /// Returns an expression representing the zoned maximum statistic, if available.
-    pub fn stat_min(&self, catalog: &dyn StatsCatalog) -> Option<Expression> {
-        self.stat_expression(Stat::Min, catalog)
-    }
-
-    /// Returns an expression representing the zoned maximum statistic, if available.
-    pub fn stat_max(&self, catalog: &dyn StatsCatalog) -> Option<Expression> {
-        self.stat_expression(Stat::Max, catalog)
     }
 
     /// Format the expression as a compact string.

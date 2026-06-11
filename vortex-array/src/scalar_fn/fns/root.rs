@@ -11,10 +11,7 @@ use vortex_session::registry::CachedId;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
-use crate::dtype::FieldPath;
-use crate::expr::StatsCatalog;
 use crate::expr::expression::Expression;
-use crate::expr::stats::Stat;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
@@ -78,16 +75,6 @@ impl ScalarFnVTable for Root {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         vortex_bail!("Root expression is not executable")
-    }
-
-    fn stat_expression(
-        &self,
-        _options: &Self::Options,
-        _expr: &Expression,
-        stat: Stat,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        catalog.stats_ref(&FieldPath::root(), stat)
     }
 
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {
