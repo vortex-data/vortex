@@ -630,14 +630,24 @@ mod tests {
             )),
             col("a"),
         );
+        let scope = DType::Struct(
+            StructFields::new(
+                ["a"].into(),
+                vec![DType::Primitive(I32, Nullability::NonNullable)],
+            ),
+            Nullability::NonNullable,
+        );
 
         let (expr, st) = checked_pruning_expr(
             &expr,
+            &scope,
             &FieldPathSet::from_iter([
                 FieldPath::from_iter([Field::Name("a".into()), Field::Name("max".into())]),
                 FieldPath::from_iter([Field::Name("a".into()), Field::Name("min".into())]),
             ]),
+            &LEGACY_SESSION,
         )
+        .unwrap()
         .unwrap();
 
         assert_eq!(

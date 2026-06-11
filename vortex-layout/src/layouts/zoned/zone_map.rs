@@ -344,7 +344,7 @@ mod tests {
     }
 
     #[test]
-    fn all_null_stat_fn_lowers_to_null_count_and_row_count() {
+    fn all_null_stat_fn_lowers_to_unknown_mask() {
         let zone_map = ZoneMap::try_new(
             PType::U64.into(),
             StructArray::from_fields(&[(
@@ -359,11 +359,14 @@ mod tests {
         .unwrap();
 
         let mask = zone_map.prune(&all_null(root()), &SESSION).unwrap();
-        assert_arrays_eq!(mask.into_array(), BoolArray::from_iter([false, true, true]));
+        assert_arrays_eq!(
+            mask.into_array(),
+            BoolArray::from_iter([false, false, false])
+        );
     }
 
     #[test]
-    fn all_non_null_stat_fn_lowers_to_null_count() {
+    fn all_non_null_stat_fn_lowers_to_unknown_mask() {
         let zone_map = ZoneMap::try_new(
             PType::U64.into(),
             StructArray::from_fields(&[(
@@ -380,12 +383,12 @@ mod tests {
         let mask = zone_map.prune(&all_non_null(root()), &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
-            BoolArray::from_iter([true, false, false])
+            BoolArray::from_iter([false, false, false])
         );
     }
 
     #[test]
-    fn non_float_nan_stat_fns_lower_to_constants() {
+    fn non_float_nan_stat_fns_error() {
         let zone_map = ZoneMap::try_new(
             PType::I32.into(),
             StructArray::try_new(FieldNames::empty(), vec![], 2, Validity::NonNullable).unwrap(),
@@ -395,11 +398,8 @@ mod tests {
         )
         .unwrap();
 
-        let mask = zone_map.prune(&all_nan(root()), &SESSION).unwrap();
-        assert_arrays_eq!(mask.into_array(), BoolArray::from_iter([false, false]));
-
-        let mask = zone_map.prune(&all_non_nan(root()), &SESSION).unwrap();
-        assert_arrays_eq!(mask.into_array(), BoolArray::from_iter([true, true]));
+        assert!(zone_map.prune(&all_nan(root()), &SESSION).is_err());
+        assert!(zone_map.prune(&all_non_nan(root()), &SESSION).is_err());
     }
 
     #[test]
@@ -429,7 +429,7 @@ mod tests {
     }
 
     #[test]
-    fn float_min_max_stat_fn_requires_nan_count() {
+    fn float_min_max_stat_fn_requires_all_non_nan() {
         let zone_map = ZoneMap::try_new(
             PType::F32.into(),
             StructArray::from_fields(&[
@@ -483,12 +483,12 @@ mod tests {
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
-            BoolArray::from_iter([true, false, false])
+            BoolArray::from_iter([false, false, false])
         );
     }
 
     #[test]
-    fn float_cast_min_max_stat_fn_uses_source_nan_count() {
+    fn float_cast_min_max_stat_fn_requires_all_non_nan() {
         let zone_map = ZoneMap::try_new(
             PType::F32.into(),
             StructArray::from_fields(&[
@@ -525,7 +525,7 @@ mod tests {
         let pruning_expr = falsify(&expr, PType::F32.into());
 
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
-        assert_arrays_eq!(mask.into_array(), BoolArray::from_iter([false, true]));
+        assert_arrays_eq!(mask.into_array(), BoolArray::from_iter([false, false]));
     }
 
     #[test]

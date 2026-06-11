@@ -267,11 +267,14 @@ mod tests {
 
         let (pruning_expr, st) = checked_pruning_expr(
             &expr,
+            &test_harness::struct_dtype(),
             &FieldPathSet::from_iter([FieldPath::from_iter([
                 Field::Name("a".into()),
                 Field::Name("null_count".into()),
             ])]),
+            &LEGACY_SESSION,
         )
+        .unwrap()
         .unwrap();
 
         assert_eq!(
