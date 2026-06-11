@@ -3,10 +3,12 @@
 
 #include "expr.h"
 #include "duckdb/function/scalar_function.hpp"
+#include "duckdb/function/aggregate_function.hpp"
 #include "duckdb/planner/expression/bound_between_expression.hpp"
 #include "duckdb/planner/expression/bound_columnref_expression.hpp"
 #include "duckdb/planner/expression/bound_comparison_expression.hpp"
 #include "duckdb/planner/expression/bound_constant_expression.hpp"
+#include "duckdb/planner/expression/bound_aggregate_expression.hpp"
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 #include "duckdb/planner/expression/bound_operator_expression.hpp"
 #include "duckdb/planner/expression/bound_conjunction_expression.hpp"
@@ -19,6 +21,11 @@ extern "C" const char *duckdb_vx_sfunc_name(duckdb_vx_sfunc ffi_func) {
     }
     auto func = reinterpret_cast<ScalarFunction *>(ffi_func);
     return func->name.c_str();
+}
+
+extern "C" const char *duckdb_vx_agg_func_name(duckdb_vx_agg_func ffi) {
+    D_ASSERT(ffi);
+    return reinterpret_cast<AggregateFunction *>(ffi)->name.c_str();
 }
 
 extern "C" const char *duckdb_vx_expr_to_string(duckdb_vx_expr ffi_expr) {
@@ -128,4 +135,12 @@ extern "C" void duckdb_vx_expr_get_bound_function(duckdb_vx_expr ffi_expr,
     out->children = reinterpret_cast<duckdb_vx_expr *>(expr.children.data());
     out->scalar_function = reinterpret_cast<duckdb_vx_sfunc>(&expr.function);
     out->bind_info = expr.bind_info.get();
+}
+
+extern "C" duckdb_vx_agg_func duckdb_vx_expr_get_bound_aggregate_function(duckdb_vx_expr ffi_expr) {
+    if (!ffi_expr) {
+        return nullptr;
+    }
+    auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundAggregateExpression>();
+    return reinterpret_cast<duckdb_vx_agg_func>(&expr.function);
 }

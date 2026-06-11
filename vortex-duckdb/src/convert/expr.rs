@@ -4,6 +4,16 @@
 use std::sync::Arc;
 
 use tracing::debug;
+use vortex::aggregate_fn::Accumulator;
+use vortex::aggregate_fn::DynAccumulator;
+use vortex::aggregate_fn::EmptyOptions;
+use vortex::aggregate_fn::NumericalAggregateOpts;
+use vortex::aggregate_fn::combined::PairOptions;
+use vortex::aggregate_fn::fns::first::First;
+use vortex::aggregate_fn::fns::max::Max;
+use vortex::aggregate_fn::fns::mean::Mean;
+use vortex::aggregate_fn::fns::min::Min;
+use vortex::aggregate_fn::fns::sum::Sum;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
@@ -40,7 +50,6 @@ use vortex::scalar_fn::fns::operators::Operator;
 
 use crate::cpp::DUCKDB_TYPE;
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
-use crate::duckdb;
 use crate::duckdb::BoundFunction;
 use crate::duckdb::BoundOperator;
 use crate::duckdb::ExpressionClass;
@@ -50,9 +59,10 @@ use crate::duckdb::ExpressionClass::BoundComparison;
 use crate::duckdb::ExpressionClass::BoundConjunction;
 use crate::duckdb::ExpressionClass::BoundConstant;
 use crate::duckdb::ExpressionClass::BoundRef;
+use crate::duckdb::ExpressionRef;
 use crate::projection::DuckdbField;
 
-fn from_bound_str(value: &duckdb::ExpressionRef) -> VortexResult<String> {
+fn from_bound_str(value: &ExpressionRef) -> VortexResult<String> {
     match value.as_class().vortex_expect("unknown class") {
         BoundConstant(constant) => Ok(constant.value.as_string().as_str().to_owned()),
         _ => vortex_bail!("Expected string expression, got {:?}", value.as_class_id()),
@@ -60,7 +70,7 @@ fn from_bound_str(value: &duckdb::ExpressionRef) -> VortexResult<String> {
 }
 
 /// Whether the expression's return type is a `LIST` or fixed-size `ARRAY`.
-fn returns_a_list(expr: &duckdb::ExpressionRef) -> bool {
+fn returns_a_list(expr: &ExpressionRef) -> bool {
     matches!(
         expr.return_type().as_type_id(),
         DUCKDB_TYPE::DUCKDB_TYPE_LIST | DUCKDB_TYPE::DUCKDB_TYPE_ARRAY
@@ -171,14 +181,12 @@ fn try_from_bound_function(
     Ok(Some(expr))
 }
 
-pub fn try_from_bound_expression(
-    value: &duckdb::ExpressionRef,
-) -> VortexResult<Option<Expression>> {
+pub fn try_from_bound_expression(value: &ExpressionRef) -> VortexResult<Option<Expression>> {
     try_from_expression_inner(value, None)
 }
 
 pub(super) fn try_from_bound_expression_with_col_sub(
-    value: &duckdb::ExpressionRef,
+    value: &ExpressionRef,
     col_sub: &Expression,
 ) -> VortexResult<Option<Expression>> {
     try_from_expression_inner(value, Some(col_sub))
@@ -201,7 +209,7 @@ fn is_supported_length_alias(func: &BoundFunction) -> bool {
 // push it.
 // Example: optional filters may fail to parse on our side (we return
 // Ok(None)), so we don't allow pushing these.
-pub fn can_push_expression(value: &duckdb::ExpressionRef) -> bool {
+pub fn can_push_expression(value: &ExpressionRef) -> bool {
     let Some(value) = value.as_class() else {
         return false;
     };
@@ -241,6 +249,7 @@ pub fn can_push_expression(value: &duckdb::ExpressionRef) -> bool {
             }
             op.children().all(can_push_expression)
         }
+        ExpressionClass::BoundAggregate(_) => false,
     }
 }
 
@@ -252,7 +261,7 @@ fn list_length_on_field(field: &DuckdbField) -> Expression {
 }
 
 pub fn try_from_projection_expression(
-    value: &duckdb::ExpressionRef,
+    value: &ExpressionRef,
     field: &DuckdbField,
 ) -> VortexResult<Option<Expression>> {
     let Some(value) = value.as_class() else {
@@ -280,10 +289,59 @@ pub fn try_from_projection_expression(
     })
 }
 
+/// A pushed-down aggregate kind. Plain data so it can be stored in [`DuckdbField`] and the
+/// bind data (which must be `Clone`/`Send`) without carrying a `dyn DynAccumulator`. The
+/// actual accumulators are built from it via [`PushedAggregate::build`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PushedAggregate {
+    Min,
+    Max,
+    Sum,
+    Mean,
+    AnyValue,
+}
+
+impl PushedAggregate {
+    /// Builds a fresh, empty accumulator for this aggregate over `dtype`.
+    pub fn build(self, dtype: DType) -> VortexResult<Box<dyn DynAccumulator>> {
+        let opts = NumericalAggregateOpts::default();
+        Ok(match self {
+            Self::Min => Box::new(Accumulator::try_new(Min, opts, dtype)?),
+            Self::Max => Box::new(Accumulator::try_new(Max, opts, dtype)?),
+            Self::Sum => Box::new(Accumulator::try_new(Sum, opts, dtype)?),
+            Self::Mean => Box::new(Accumulator::try_new(
+                Mean::combined(),
+                PairOptions(opts, opts),
+                dtype,
+            )?),
+            Self::AnyValue => Box::new(Accumulator::try_new(First, EmptyOptions, dtype)?),
+        })
+    }
+}
+
+pub fn try_from_projection_aggregate(
+    expr: &ExpressionRef,
+) -> VortexResult<Option<PushedAggregate>> {
+    let Some(expr) = expr.as_class() else {
+        return Ok(None);
+    };
+    let ExpressionClass::BoundAggregate(agg) = expr else {
+        return Ok(None);
+    };
+    Ok(Some(match agg.aggregate_function.name() {
+        "min" => PushedAggregate::Min,
+        "max" => PushedAggregate::Max,
+        "sum" | "sum_no_overflow" => PushedAggregate::Sum,
+        "avg" | "mean" => PushedAggregate::Mean,
+        "any_value" => PushedAggregate::AnyValue,
+        _ => return Ok(None),
+    }))
+}
+
 // If you want to add support for other expressions, also change
 // can_push_expression
 fn try_from_expression_inner(
-    value: &duckdb::ExpressionRef,
+    value: &ExpressionRef,
     col_sub: Option<&Expression>,
 ) -> VortexResult<Option<Expression>> {
     let Some(value) = value.as_class() else {
@@ -390,6 +448,7 @@ fn try_from_expression_inner(
                 _ => vortex_bail!("unexpected operator {:?} in bound conjunction", conj.op),
             }
         }
+        ExpressionClass::BoundAggregate(_) => return Ok(None),
     }))
 }
 

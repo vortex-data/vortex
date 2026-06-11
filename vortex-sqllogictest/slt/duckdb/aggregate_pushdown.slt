@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+COPY (SELECT generate_series AS i FROM generate_series(100000))
+TO '${WORK_DIR}/agg-pushdown.vortex';
+
+query IIIRR
+SELECT sum(i), min(i), max(i), avg(i), mean(i) FROM '${WORK_DIR}/agg-pushdown.vortex';
+----
+5000050000 0 100000 50000 50000
+
+query TT
+EXPLAIN
+SELECT sum(i), min(i), max(i), avg(i), mean(i) FROM '${WORK_DIR}/agg-pushdown.vortex';
+----
+<!REGEX>:.*UNGROUPED_AGGREGATE.*
+
+query TT
+EXPLAIN
+SELECT sum(i), any_value(i) FROM '${WORK_DIR}/agg-pushdown.vortex';
+----
+<!REGEX>:.*UNGROUPED_AGGREGATE.*
+
+# aggregate over scalar i.e. SELECT mean(strlen(str))
+# + cte
+# + view + recursive view
+# + cte referencing any_value()

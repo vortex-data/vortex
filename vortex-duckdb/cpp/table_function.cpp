@@ -191,6 +191,34 @@ bool projection_expression_pushdown(ClientContext &, const TableFunctionProjecti
     return ret;
 }
 
+using Projections = duckdb::vector<std::pair<idx_t, const duckdb::Expression &>>;
+
+extern "C" {
+idx_t duckdb_vx_aggregate_len(duckdb_vx_agg_input ffi) {
+    const Projections &projections = *reinterpret_cast<const Projections *>(ffi);
+    return projections.size();
+}
+
+duckdb_vx_expr duckdb_vx_aggregate_i(duckdb_vx_agg_input ffi, idx_t i, idx_t *proj_idx) {
+    const Projections &projections = *reinterpret_cast<const Projections *>(ffi);
+    *proj_idx = projections[i].first;
+    return reinterpret_cast<duckdb_vx_expr>(const_cast<Expression *>(&projections[i].second));
+}
+}
+
+bool aggregate_pushdown(ClientContext &, const TableFunctionUngroupedAggregateInput &input) {
+    const auto &bind = input.get.bind_data->Cast<CTableBindData>();
+    void *const ffi_bind = bind.ffi_data->DataPtr();
+    duckdb_vx_error error_out = nullptr;
+    const auto ffi_input =
+        reinterpret_cast<duckdb_vx_agg_input>(const_cast<Projections *>(&input.projections));
+    const bool res = duckdb_table_function_pushdown_projection_aggregates(ffi_bind, ffi_input, &error_out);
+    if (error_out) {
+        throw BinderException(IntoErrString(error_out));
+    }
+    return res;
+}
+
 /**
  * Called for every new query. For example, if there is a VIEW over *.vortex,
  * and after a query another file is added matching the glob, for second query

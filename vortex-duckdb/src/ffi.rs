@@ -17,6 +17,7 @@ use crate::copy::copy_to_finalize;
 use crate::copy::copy_to_initialize_global;
 use crate::copy::copy_to_sink;
 use crate::cpp;
+use crate::duckdb::AggInput;
 use crate::duckdb::BindInput;
 use crate::duckdb::BindResult;
 use crate::duckdb::Data;
@@ -38,6 +39,7 @@ use crate::table_function::get_partition_data;
 use crate::table_function::init_global;
 use crate::table_function::init_local;
 use crate::table_function::pushdown_complex_filter;
+use crate::table_function::pushdown_projection_aggregates;
 use crate::table_function::pushdown_projection_expression;
 use crate::table_function::scan;
 use crate::table_function::statistics;
@@ -123,6 +125,20 @@ unsafe extern "C-unwind" fn duckdb_table_function_pushdown_projection_expression
     let expr = unsafe { Expression::borrow(expr) };
     try_or(error_out, || {
         pushdown_projection_expression(bind_data, expr, column_id)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn duckdb_table_function_pushdown_projection_aggregates(
+    bind_data: *mut c_void,
+    input: cpp::duckdb_vx_agg_input,
+    error_out: *mut cpp::duckdb_vx_error,
+) -> bool {
+    let bind_data = unsafe { bind_data.cast::<TableFunctionBind>().as_mut() }
+        .vortex_expect("bind_data null pointer");
+    let input = unsafe { AggInput::borrow(input) };
+    try_or(error_out, || {
+        pushdown_projection_aggregates(bind_data, &input)
     })
 }
 

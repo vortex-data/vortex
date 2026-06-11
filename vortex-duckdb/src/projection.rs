@@ -18,6 +18,7 @@ use vortex::expr::select;
 use vortex::layout::layouts::row_idx::row_idx;
 use vortex::scan::selection::Selection;
 
+use crate::convert::PushedAggregate;
 use crate::convert::try_from_table_filter;
 use crate::convert::try_from_virtual_column_filter;
 use crate::duckdb::LogicalType;
@@ -44,6 +45,10 @@ pub struct DuckdbField {
     /// Expression to use instead of get_item(col, root()), e.g. len(col).
     /// It does not include column name so it's just "len" and not "len(col)"
     pub projection_expr: Option<Expression>,
+    /// Pushed-down aggregate for this column, if any. Either set for all or none
+    /// fields. The accumulators are built from it (plus `dtype`) via
+    /// `PushedAggregate::build`.
+    pub accumulator: Option<PushedAggregate>,
 }
 
 pub struct Projection {
@@ -280,6 +285,7 @@ pub fn extract_schema_from_dtype(dtype: &DType) -> VortexResult<Vec<DuckdbField>
             logical_type,
             dtype: field_dtype,
             projection_expr: None,
+            accumulator: None,
         });
     }
     Ok(fields)
@@ -305,18 +311,21 @@ mod tests {
                 logical_type: LogicalType::null(),
                 dtype: DType::Null,
                 projection_expr: None,
+                accumulator: None,
             },
             DuckdbField {
                 name: "".to_owned(),
                 logical_type: LogicalType::null(),
                 dtype: DType::Null,
                 projection_expr: None,
+                accumulator: None,
             },
             DuckdbField {
                 name: "".to_owned(),
                 logical_type: LogicalType::null(),
                 dtype: DType::Null,
                 projection_expr: None,
+                accumulator: None,
             },
         ];
 
@@ -363,5 +372,19 @@ mod tests {
         push_filter_expr(&mut filter_exprs, &first);
 
         assert_eq!(filter_exprs, vec![first, second]);
+    }
+
+    #[test]
+    fn test_select_multiple_same_columns() {
+        let ids = [0, 0, 0];
+        let fields = [DuckdbField {
+            name: "foo".to_string(),
+            logical_type: LogicalType::null(),
+            dtype: DType::Null,
+            projection_expr: None,
+            accumulator: None,
+        }];
+        let expected = select(["foo", "foo", "foo"], root());
+        assert_eq!(Projection::new(None, &ids, &fields).projection, expected);
     }
 }

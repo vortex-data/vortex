@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#include "aggregate_fn_pushdown.hpp"
 #include "data.hpp"
 #include "error.hpp"
 #include "scalar_fn_pushdown.hpp"
@@ -269,6 +270,7 @@ extern "C" duckdb_blob duckdb_vx_value_get_geometry(duckdb_value value) {
 
 static void VortexOptimizeFunction(OptimizerExtensionInput &input, unique_ptr<LogicalOperator> &plan) {
     plan = TryPushdownScalarFunctions(input.context, std::move(plan));
+    plan = TryPushdownAggregateFunctions(input.context, std::move(plan));
 }
 
 struct VortexOptimizerExtension final : OptimizerExtension {

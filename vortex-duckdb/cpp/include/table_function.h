@@ -10,6 +10,10 @@
 extern "C" {
 #endif
 
+typedef struct duckdb_vx_agg_input_ *duckdb_vx_agg_input;
+idx_t duckdb_vx_aggregate_len(duckdb_vx_agg_input ffi);
+duckdb_vx_expr duckdb_vx_aggregate_i(duckdb_vx_agg_input ffi, idx_t i, idx_t *proj_idx);
+
 // Info passed into the bind callback. The callback should set error or else add result columns.
 typedef struct duckdb_vx_tfunc_bind_input_ *duckdb_vx_tfunc_bind_input;
 typedef struct duckdb_vx_tfunc_bind_result_ *duckdb_vx_tfunc_bind_result;

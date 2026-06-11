@@ -25,3 +25,12 @@ struct TableFunctionProjectionExpressionInput {
 // true if we can push down the expression, false otherwise
 bool projection_expression_pushdown(duckdb::ClientContext &context,
                                     const TableFunctionProjectionExpressionInput &input);
+
+// API is subject to change, but you can push only none or all aggregates since
+// this changes output chunk cardinality
+struct TableFunctionUngroupedAggregateInput {
+    const duckdb::LogicalGet &get;
+    const duckdb::vector<std::pair<idx_t, const duckdb::Expression &>> &projections;
+};
+
+bool aggregate_pushdown(duckdb::ClientContext &context, const TableFunctionUngroupedAggregateInput &input);

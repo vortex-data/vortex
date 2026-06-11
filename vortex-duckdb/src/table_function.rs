@@ -13,18 +13,26 @@ use custom_labels::CURRENT_LABELSET;
 use futures::StreamExt;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
+use parking_lot::Mutex;
 use static_assertions::assert_impl_all;
 use tracing::debug;
+use vortex::aggregate_fn::DynAccumulator;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+use vortex::array::ExecutionCtx;
 use vortex::array::VortexSessionExecute as _;
 use vortex::array::arrays::ScalarFn;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::scalar_fn::ScalarFnArrayExt;
+use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::array::optimizer::ArrayOptimizer;
+use vortex::dtype::DType;
+use vortex::error::VortexError;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
+use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::stats::Precision;
 use vortex::file::v2::FileStatsLayoutReader;
@@ -34,6 +42,9 @@ use vortex::io::runtime::current::ThreadSafeIterator;
 use vortex::layout::scan::multi::MultiLayoutChild;
 use vortex::layout::scan::multi::MultiLayoutDataSource;
 use vortex::metrics::tracing::get_global_labels;
+use vortex::scalar::PValue;
+use vortex::scalar::Scalar;
+use vortex::scalar::ScalarValue;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::operators::Operator;
 use vortex::scalar_fn::fns::pack::Pack;
@@ -45,13 +56,18 @@ use crate::RUNTIME;
 use crate::SESSION;
 use crate::column_statistics::ColumnStatistics;
 use crate::column_statistics::ColumnStatisticsAggregate;
+use crate::convert::PushedAggregate;
 use crate::convert::try_from_bound_expression;
+use crate::convert::try_from_projection_aggregate;
 use crate::convert::try_from_projection_expression;
+use crate::duckdb::AggInputRef;
+use crate::duckdb::AggregateExpression;
 use crate::duckdb::BindInputRef;
 use crate::duckdb::BindResultRef;
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::DuckdbStringMapRef;
 use crate::duckdb::ExpressionRef;
+use crate::duckdb::LogicalType;
 use crate::duckdb::TableInitInput;
 use crate::duckdb::Value;
 use crate::exporter::ArrayExporter;
@@ -69,6 +85,8 @@ pub struct TableFunctionBind {
     // There exists at least one non-optional table filter or at least one
     // complex filter is pushed down.
     has_non_optional_filter: AtomicBool,
+    // true if all fields in column_fields have an accumulator set
+    aggregates_pushed: bool,
 }
 assert_impl_all!(TableFunctionBind: Send, Clone);
 
@@ -82,6 +100,7 @@ impl Clone for TableFunctionBind {
             has_non_optional_filter: AtomicBool::new(
                 self.has_non_optional_filter.load(Ordering::Relaxed),
             ),
+            aggregates_pushed: self.aggregates_pushed,
         }
     }
 }
@@ -117,6 +136,21 @@ pub struct TableFunctionGlobal {
     bytes_read: AtomicU64,
     file_index_column_pos: Option<usize>,
     file_row_number_column_pos: Option<usize>,
+    /// Whether pushed-down aggregates should be computed by this scan.
+    aggregates_pushed: bool,
+    /// Aggregate pushdown: chunks dispatched by producers but not yet folded into
+    /// `merged`. A consumer that sees the iterator drained (`None`) while this is
+    /// zero knows all data has been merged and may emit the result row.
+    pending: Arc<AtomicU64>,
+    /// Aggregate pushdown: set once by the single thread that emits the result row.
+    aggregate_finisher: AtomicBool,
+    /// Aggregate pushdown: per-column (aggregate, source column name, input dtype),
+    /// used to build each thread's local accumulators and to extract the input column
+    /// from the scan result struct. Empty unless `aggregates_pushed`.
+    agg_specs: Vec<AggSpec>,
+    /// Aggregate pushdown: per-column accumulators that thread-local partials are
+    /// merged into. Empty unless `aggregates_pushed`.
+    merged: Mutex<Vec<Box<dyn DynAccumulator>>>,
 }
 assert_impl_all!(TableFunctionGlobal: Send, Sync);
 
@@ -126,12 +160,21 @@ pub struct TableFunctionLocal {
     exporter: Option<ArrayExporter>,
     partition_index: u64,
     file_index: usize,
+    /// Aggregate pushdown: per-thread accumulators, built lazily on the first
+    /// aggregate scan and merged into `TableFunctionGlobal::merged`.
+    local_accs: Vec<Box<dyn DynAccumulator>>,
 }
 
 pub struct PartitionData {
     pub partition_index: u64,
     pub file_index_column_pos: Option<usize>,
     pub file_index: usize,
+}
+
+struct AggSpec {
+    aggregate: PushedAggregate,
+    name: String,
+    dtype: DType,
 }
 
 #[derive(Debug)]
@@ -155,6 +198,7 @@ pub fn bind(input: &BindInputRef, result: &mut BindResultRef) -> VortexResult<Ta
         filter_exprs: vec![],
         column_fields,
         has_non_optional_filter: AtomicBool::new(false),
+        aggregates_pushed: false,
     })
 }
 
@@ -224,6 +268,12 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
     // available array chunk regardless of which partition it came from.
     let (tx, rx) = kanal::bounded_async(num_workers * 2);
 
+    // Counts chunks dispatched to the channel but not yet folded into the merged
+    // aggregate. Incremented by the producer before each send so that, once the
+    // channel is drained, `pending == 0` proves every chunk has been merged.
+    let pending = Arc::new(AtomicU64::new(0));
+    let producer_pending = Arc::clone(&pending);
+
     // We drive one partition per worker thread. Each partition is driven as a spawned task
     // that pushes array chunks into the shared channel as they are produced. This spawning
     // allows all worker threads to drive the polling of all partitions, and then return the
@@ -232,6 +282,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
         .partitions()
         .map(move |partition| {
             let tx = tx.clone();
+            let pending = Arc::clone(&producer_pending);
             RUNTIME.handle().spawn(async move {
                 let partition = match partition {
                     Ok(partition) => partition,
@@ -254,6 +305,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
                     }
                 };
                 while let Some(item) = stream.next().await {
+                    pending.fetch_add(1, Ordering::Release);
                     if tx
                         .send(item.map(|a| (a, Arc::clone(&cache))))
                         .await
@@ -273,6 +325,25 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
 
     let iterator = RUNTIME.block_on_stream_thread_safe(|_handle| rx.into_stream());
 
+    // Per-column (aggregate, name, dtype) specs, and the shared merge target built from them.
+    // `name` resolves the input column inside the scan result struct, since pushdown may
+    // duplicate the same storage column across multiple aggregates.
+    let agg_specs: Vec<AggSpec> = bind_data
+        .column_fields
+        .iter()
+        .filter_map(|f| {
+            f.accumulator.map(|agg| AggSpec {
+                aggregate: agg,
+                name: f.name.clone(),
+                dtype: f.dtype.clone(),
+            })
+        })
+        .collect();
+    let merged = agg_specs
+        .iter()
+        .map(|spec| spec.aggregate.build(spec.dtype.clone()))
+        .collect::<VortexResult<Vec<_>>>()?;
+
     Ok(TableFunctionGlobal {
         iterator,
         batch_id: AtomicU64::new(0),
@@ -280,6 +351,11 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
         bytes_read: AtomicU64::new(0),
         file_index_column_pos,
         file_row_number_column_pos,
+        aggregates_pushed: bind_data.aggregates_pushed,
+        pending,
+        aggregate_finisher: AtomicBool::new(false),
+        agg_specs,
+        merged: Mutex::new(merged),
     })
 }
 
@@ -304,6 +380,127 @@ pub fn init_local(global: &TableFunctionGlobal) -> TableFunctionLocal {
         exporter: None,
         partition_index: 0,
         file_index: 0,
+        local_accs: Vec::new(),
+    }
+}
+
+fn convert_result(array: ArrayRef, mut ctx: &mut ExecutionCtx) -> VortexResult<StructArray> {
+    let array_result = array.optimize_recursive(ctx.session())?;
+    Ok(if let Some(array) = array_result.as_opt::<Struct>() {
+        array.into_owned()
+    } else if let Some(array) = array_result.as_opt::<ScalarFn>()
+        && let Some(pack_options) = array.scalar_fn().as_opt::<Pack>()
+    {
+        StructArray::new(
+            pack_options.names.clone(),
+            array.children(),
+            array.len(),
+            pack_options.nullability.into(),
+        )
+    } else {
+        array_result.execute::<Canonical>(&mut ctx)?.into_struct()
+    })
+}
+
+// Converts an aggregate result scalar into a DuckDB value.
+impl TryFrom<Scalar> for Value {
+    type Error = VortexError;
+
+    fn try_from(scalar: Scalar) -> Result<Self, Self::Error> {
+        let Some(value) = scalar.value() else {
+            let logical_type = LogicalType::try_from(scalar.dtype())?;
+            return Ok(Value::null(&logical_type));
+        };
+        Ok(match value {
+            ScalarValue::Bool(b) => Value::from(*b),
+            ScalarValue::Primitive(pvalue) => match pvalue {
+                PValue::U8(v) => Value::from(*v),
+                PValue::U16(v) => Value::from(*v),
+                PValue::U32(v) => Value::from(*v),
+                PValue::U64(v) => Value::from(*v),
+                PValue::I8(v) => Value::from(*v),
+                PValue::I16(v) => Value::from(*v),
+                PValue::I32(v) => Value::from(*v),
+                PValue::I64(v) => Value::from(*v),
+                PValue::F16(v) => Value::from(v.to_f32()),
+                PValue::F32(v) => Value::from(*v),
+                PValue::F64(v) => Value::from(*v),
+            },
+            ScalarValue::Decimal(decimal_value) => {
+                let DType::Decimal(decimal_dtype, _) = scalar.dtype() else {
+                    vortex_bail!("decimal scalar has non-decimal dtype {}", scalar.dtype());
+                };
+                let int_value = decimal_value
+                    .cast::<i128>()
+                    .ok_or_else(|| vortex_err!("decimal value does not fit in an i128"))?;
+                Value::new_decimal(decimal_dtype.precision(), decimal_dtype.scale(), int_value)
+            }
+            ScalarValue::Utf8(buffer_string) => Value::from(buffer_string.as_str()),
+            other => vortex_bail!("Can't convert scalar value {other} to a DuckDB value"),
+        })
+    }
+}
+
+fn scan_aggregate(
+    local_state: &mut TableFunctionLocal,
+    global_state: &TableFunctionGlobal,
+    chunk: &mut DataChunkRef,
+) -> VortexResult<()> {
+    // Per-thread accumulators, built once from the column specs. The heavy `accumulate`
+    // (decode/optimize/execute) runs here without holding any lock; only the cheap
+    // `combine_partials` into `merged` is serialized.
+    if local_state.local_accs.is_empty() {
+        local_state.local_accs = global_state
+            .agg_specs
+            .iter()
+            .map(|spec| spec.aggregate.build(spec.dtype.clone()))
+            .collect::<VortexResult<Vec<_>>>()?;
+    }
+
+    let mut ctx = SESSION.create_execution_ctx();
+    loop {
+        let Some(result) = local_state.iterator.next() else {
+            // Channel drained. If every dispatched chunk has been merged, exactly one
+            // thread (the CAS winner) emits the single aggregate row; the rest return
+            // an empty chunk. A thread that took the last chunk decrements `pending`
+            // only after merging, then loops back here and becomes the finisher.
+            if global_state.pending.load(Ordering::Acquire) == 0
+                && global_state
+                    .aggregate_finisher
+                    .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok()
+            {
+                let mut merged = global_state.merged.lock();
+                for (i, accum) in merged.iter_mut().enumerate() {
+                    let value = Value::try_from(accum.finish()?)?;
+                    chunk.get_vector_mut(i).reference_value(&value);
+                }
+                chunk.set_len(1);
+            }
+            return Ok(());
+        };
+        let array_result = result?.0;
+        let array_result = convert_result(array_result, &mut ctx)?;
+
+        // TODO count(*) and zero-column projection?
+        // Pushdown may duplicate the same storage column across multiple aggregates, so
+        // each accumulator looks up its input column by name from the scan result struct.
+        for (spec, accum) in global_state
+            .agg_specs
+            .iter()
+            .zip(local_state.local_accs.iter_mut())
+        {
+            let column = array_result.unmasked_field_by_name(&spec.name)?;
+            accum.accumulate(column, &mut ctx)?;
+        }
+        {
+            let mut merged = global_state.merged.lock();
+            for (global, local) in merged.iter_mut().zip(&mut local_state.local_accs) {
+                global.combine_partials(local.flush()?)?;
+            }
+        }
+        // Only now is the chunk fully reflected in `merged`.
+        global_state.pending.fetch_sub(1, Ordering::Release);
     }
 }
 
@@ -312,6 +509,10 @@ pub fn scan(
     global_state: &TableFunctionGlobal,
     chunk: &mut DataChunkRef,
 ) -> VortexResult<()> {
+    if global_state.aggregates_pushed {
+        return scan_aggregate(local_state, global_state, chunk);
+    }
+
     loop {
         if local_state.exporter.is_none() {
             let mut ctx = SESSION.create_execution_ctx();
@@ -319,23 +520,8 @@ pub fn scan(
                 return Ok(());
             };
             let (array_result, conversion_cache) = result?;
-            let array_result = array_result.optimize_recursive(ctx.session())?;
             local_state.file_index = conversion_cache.file_index;
-
-            let array_result: StructArray = if let Some(array) = array_result.as_opt::<Struct>() {
-                array.into_owned()
-            } else if let Some(array) = array_result.as_opt::<ScalarFn>()
-                && let Some(pack_options) = array.scalar_fn().as_opt::<Pack>()
-            {
-                StructArray::new(
-                    pack_options.names.clone(),
-                    array.children(),
-                    array.len(),
-                    pack_options.nullability.into(),
-                )
-            } else {
-                array_result.execute::<Canonical>(&mut ctx)?.into_struct()
-            };
+            let array_result = convert_result(array_result, &mut ctx)?;
 
             local_state.exporter = Some(ArrayExporter::try_new(
                 &array_result,
@@ -447,6 +633,39 @@ pub fn pushdown_projection_expression(
     }
 }
 
+pub fn pushdown_projection_aggregates(
+    bind_data: &mut TableFunctionBind,
+    input: &AggInputRef,
+) -> VortexResult<bool> {
+    let size = input.get_size();
+    debug!("Pushing down {size} projection aggregates");
+
+    let mut fields = Vec::with_capacity(size);
+    for i in 0..size {
+        let AggregateExpression {
+            expr,
+            projection_id,
+        } = input.get_i(i);
+        let field = &mut bind_data.column_fields[projection_id];
+        debug!(%expr, %projection_id, col_name=field.name, "Pushing down projection aggregate");
+
+        match try_from_projection_aggregate(expr)? {
+            None => {
+                debug!(%expr, "failed to push down aggregate");
+                return Ok(false);
+            }
+            Some(accumulator) => {
+                debug!(%expr, "pushed down aggregate");
+                field.accumulator = Some(accumulator);
+                fields.push(field.clone());
+            }
+        }
+    }
+    bind_data.aggregates_pushed = true;
+    bind_data.column_fields = fields;
+    Ok(true)
+}
+
 /// Get column-wise statistics. Available only if we're reading a single file.
 pub fn statistics(bind_data: &TableFunctionBind, column_index: usize) -> Option<ColumnStatistics> {
     let children = bind_data.data_source.children();
@@ -480,6 +699,7 @@ pub fn statistics(bind_data: &TableFunctionBind, column_index: usize) -> Option<
 /// here.
 const DEFAULT_SELECTIVITY: f64 = 0.2;
 pub fn cardinality(bind_data: &TableFunctionBind) -> Cardinality {
+    // TODO on aggregates, return the number of available cores
     let has_non_optional_filter = bind_data.has_non_optional_filter.load(Ordering::Relaxed);
     match bind_data.data_source.row_count() {
         Precision::Exact(v) => {

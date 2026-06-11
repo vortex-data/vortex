@@ -2,13 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ffi::CStr;
-use std::ffi::c_void;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::ptr;
 
 use crate::cpp;
 use crate::cpp::duckdb_vx_expr_class;
+use crate::duckdb::AggregateFunction;
+use crate::duckdb::AggregateFunctionRef;
 use crate::duckdb::DDBString;
 use crate::duckdb::LogicalType;
 use crate::duckdb::LogicalTypeRef;
@@ -143,8 +144,14 @@ impl ExpressionRef {
                     ExpressionClass::BoundFunction(BoundFunction {
                         children,
                         scalar_function: unsafe { ScalarFunction::borrow(out.scalar_function) },
-                        bind_info: out.bind_info,
                     })
+                }
+                cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_AGGREGATE => {
+                    let aggregate_function = unsafe {
+                        let ptr = cpp::duckdb_vx_expr_get_bound_aggregate_function(self.as_ptr());
+                        AggregateFunction::borrow(ptr)
+                    };
+                    ExpressionClass::BoundAggregate(BoundAggregate { aggregate_function })
                 }
                 cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_REF => {
                     ExpressionClass::BoundRef
@@ -165,12 +172,17 @@ pub enum ExpressionClass<'a> {
     BoundBetween(BoundBetween<'a>),
     BoundOperator(BoundOperator<'a>),
     BoundFunction(BoundFunction<'a>),
+    BoundAggregate(BoundAggregate<'a>),
     /// Column inside ExpressionFilter for expression pushed down to Vortex.
     BoundRef,
 }
 
 pub struct BoundColumnRef {
     pub name: DDBString,
+}
+
+pub struct BoundAggregate<'a> {
+    pub aggregate_function: &'a AggregateFunctionRef,
 }
 
 pub struct BoundConstant<'a> {
@@ -222,7 +234,6 @@ impl<'a> BoundOperator<'a> {
 pub struct BoundFunction<'a> {
     children: &'a [cpp::duckdb_vx_expr],
     pub scalar_function: &'a ScalarFunctionRef,
-    pub bind_info: *const c_void,
 }
 
 impl<'a> BoundFunction<'a> {
