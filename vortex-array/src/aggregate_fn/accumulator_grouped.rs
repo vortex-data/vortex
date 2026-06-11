@@ -79,11 +79,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
     }
 
     fn ensure_groups(&mut self, num_groups: usize) -> VortexResult<()> {
-        vortex_ensure!(
-            num_groups <= (u32::MAX as usize) + 1,
-            "num_groups {} exceeds dense u32 group id capacity",
-            num_groups
-        );
+        validate_num_groups(num_groups)?;
 
         while self.partials.len() < num_groups {
             self.partials
@@ -93,11 +89,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
     }
 
     fn validate_group_ids(&self, group_ids: &[u32], num_groups: usize) -> VortexResult<()> {
-        vortex_ensure!(
-            num_groups <= (u32::MAX as usize) + 1,
-            "num_groups {} exceeds dense u32 group id capacity",
-            num_groups
-        );
+        validate_num_groups(num_groups)?;
         for &group_id in group_ids {
             vortex_ensure!(
                 (group_id as usize) < num_groups,
@@ -163,6 +155,15 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         }
         Ok(())
     }
+}
+
+fn validate_num_groups(num_groups: usize) -> VortexResult<()> {
+    vortex_ensure!(
+        num_groups == 0 || u32::try_from(num_groups - 1).is_ok(),
+        "num_groups {} exceeds dense u32 group id capacity",
+        num_groups
+    );
+    Ok(())
 }
 
 /// A trait object for type-erased grouped accumulators, used for dynamic dispatch when the

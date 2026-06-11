@@ -113,6 +113,14 @@ cargo +nightly fmt --all
 cargo clippy --all-targets --all-features
 ```
 
+Do not push Rust code changes before running the applicable lint command above. If the change adds
+or edits Rustdoc on public APIs, also run the CI docs command so broken intra-doc links are caught
+locally:
+
+```bash
+RUSTDOCFLAGS="-D warnings" cargo doc --profile ci --no-deps
+```
+
 Notes:
 
 - For `.github/` changes, follow `.github/AGENTS.md` and run

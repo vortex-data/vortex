@@ -166,7 +166,7 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     /// `group_ids` is parallel to `batch` and contains caller-assigned dense ordinals in
     /// `0..states.len()`. Ids may repeat, appear out of order, or be absent from the batch.
     /// Returns `true` when the batch was fully handled. The provided default preserves universal
-    /// correctness through [`GroupedAccumulator`]'s fallback.
+    /// correctness through [`crate::aggregate_fn::GroupedAccumulator`]'s fallback.
     fn accumulate_grouped(
         &self,
         _states: &mut [Self::Partial],
