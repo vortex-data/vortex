@@ -26,13 +26,26 @@ cache by default, or may be passed explicitly:
 
 >>> import vortex.hf
 >>> vxf = vortex.hf.open("hf://datasets/my-org/private/data.vortex", token="hf_...") # doctest: +SKIP
+
+Use :func:`register_datasets` to teach the :mod:`datasets` library how to load
+``.vortex`` files with ``datasets.load_dataset``:
+
+>>> import vortex.hf
+>>> vortex.hf.register_datasets() # doctest: +SKIP
+>>> import datasets
+>>> ds = datasets.load_dataset("vortex", data_files="data/*.vortex") # doctest: +SKIP
 """
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+import pyarrow as pa
+
 from ..file import VortexFile
 from ..file import open as _open_file
-from ..store import ClientConfig, RetryConfig
+from ..io import write as _write
+from ..store import ClientConfig, ObjectStore, RetryConfig
 from ._resolve import (
     DEFAULT_ENDPOINT,
     DEFAULT_REVISION,
@@ -44,6 +57,9 @@ from ._resolve import (
     store_and_path,
     token,
 )
+
+if TYPE_CHECKING:
+    import datasets as hf_datasets
 
 
 def open(
@@ -77,14 +93,69 @@ def open(
     return _open_file(path, store=store, without_segment_cache=without_segment_cache)
 
 
+def dataset_to_vortex(dataset: hf_datasets.Dataset, path: str, *, store: ObjectStore | None = None) -> None:
+    """Write a Hugging Face :class:`datasets.Dataset` to a Vortex file.
+
+    The dataset's backing Arrow table is written directly, preserving the schema.
+
+    Examples
+    --------
+    >>> import datasets # doctest: +SKIP
+    >>> ds = datasets.load_dataset("my-org/my-dataset", split="train") # doctest: +SKIP
+    >>> import vortex.hf
+    >>> vortex.hf.dataset_to_vortex(ds, "train.vortex") # doctest: +SKIP
+    """
+    table = dataset.data
+    # datasets wraps the backing pyarrow.Table in datasets.table.Table.
+    arrow_table = cast(pa.Table, getattr(table, "table", table))
+    _write(arrow_table, path, store=store)
+
+
+def register_datasets() -> None:
+    """Register the Vortex builder with the :mod:`datasets` library.
+
+    After calling this, ``datasets.load_dataset`` understands the ``"vortex"`` builder
+    name as well as ``.vortex`` data files::
+
+        import vortex.hf
+        vortex.hf.register_datasets()
+
+        import datasets
+        ds = datasets.load_dataset("vortex", data_files={"train": "data/*.vortex"})
+
+    Requires the ``datasets`` package (``pip install vortex-data[huggingface]``).
+    """
+    import inspect
+
+    import datasets.packaged_modules as packaged_modules
+
+    from . import builder as builder_module
+
+    module_hash = packaged_modules._hash_python_lines(  # pyright: ignore[reportPrivateUsage]
+        inspect.getsource(builder_module).splitlines()
+    )
+    packaged_modules._PACKAGED_DATASETS_MODULES["vortex"] = (  # pyright: ignore[reportPrivateUsage]
+        builder_module.__name__,
+        module_hash,
+    )
+    packaged_modules._EXTENSION_TO_MODULE[".vortex"] = ("vortex", {})  # pyright: ignore[reportPrivateUsage]
+    # Older and newer versions of `datasets` index slightly different metadata tables.
+    if hasattr(packaged_modules, "_MODULE_TO_EXTENSIONS"):
+        packaged_modules._MODULE_TO_EXTENSIONS["vortex"] = [".vortex"]  # pyright: ignore[reportPrivateUsage]
+    if hasattr(packaged_modules, "_MODULE_TO_METADATA_FILE_NAMES"):
+        packaged_modules._MODULE_TO_METADATA_FILE_NAMES["vortex"] = []  # pyright: ignore[reportPrivateUsage]
+
+
 __all__ = [
     "DEFAULT_ENDPOINT",
     "DEFAULT_REVISION",
     "HF_SCHEME",
     "HFLocation",
+    "dataset_to_vortex",
     "endpoint",
     "http_store",
     "open",
+    "register_datasets",
     "resolve_url",
     "store_and_path",
     "token",
