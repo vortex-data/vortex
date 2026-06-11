@@ -161,7 +161,7 @@ impl AggregateFnVTable for Sum {
                     .as_primitive()
                     .typed_value::<f64>()
                     .vortex_expect("checked non-null");
-                *acc += val;
+                acc.add(val);
                 false
             }
             SumState::Decimal { value, dtype } => {
@@ -189,7 +189,7 @@ impl AggregateFnVTable for Sum {
             None => Scalar::null(partial.return_dtype.as_nullable()),
             Some(SumState::Unsigned(v)) => Scalar::primitive(*v, Nullability::Nullable),
             Some(SumState::Signed(v)) => Scalar::primitive(*v, Nullability::Nullable),
-            Some(SumState::Float(v)) => Scalar::primitive(*v, Nullability::Nullable),
+            Some(SumState::Float(v)) => Scalar::primitive(v.value(), Nullability::Nullable),
             Some(SumState::Decimal { value, .. }) => {
                 let decimal_dtype = *partial
                     .return_dtype
@@ -208,7 +208,7 @@ impl AggregateFnVTable for Sum {
     fn is_saturated(&self, partial: &Self::Partial) -> bool {
         match partial.current.as_ref() {
             None => true,
-            Some(SumState::Float(v)) => v.is_nan(),
+            Some(SumState::Float(v)) => v.value().is_nan(),
             Some(_) => false,
         }
     }
@@ -277,11 +277,48 @@ pub struct SumPartial {
 pub enum SumState {
     Unsigned(u64),
     Signed(i64),
-    Float(f64),
+    Float(KahanSum),
     Decimal {
         value: DecimalValue,
         dtype: DecimalDType,
     },
+}
+
+/// Floating point sum state using the Neumaier variant of Kahan compensated summation.
+///
+/// A running compensation term captures the low-order bits that are lost when adding values of
+/// differing magnitude, greatly reducing the accumulated rounding error of naive recursive
+/// summation.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct KahanSum {
+    sum: f64,
+    compensation: f64,
+}
+
+impl KahanSum {
+    /// Add a value to the running sum, folding the rounding error of the addition into the
+    /// compensation term.
+    #[inline]
+    pub fn add(&mut self, value: f64) {
+        let t = self.sum + value;
+        // When `t` is non-finite (overflow to infinity, or inf + -inf = NaN) the error term
+        // below would itself be NaN and poison the compensation. The non-finite result is
+        // sticky in `sum` instead, so skip the compensation update.
+        if t.is_finite() {
+            self.compensation += if self.sum.abs() >= value.abs() {
+                (self.sum - t) + value
+            } else {
+                (value - t) + self.sum
+            };
+        }
+        self.sum = t;
+    }
+
+    /// The compensated value of the sum.
+    #[inline]
+    pub fn value(&self) -> f64 {
+        self.sum + self.compensation
+    }
 }
 
 fn make_zero_state(return_dtype: &DType) -> SumState {
@@ -289,7 +326,7 @@ fn make_zero_state(return_dtype: &DType) -> SumState {
         DType::Primitive(ptype, _) => match ptype {
             PType::U8 | PType::U16 | PType::U32 | PType::U64 => SumState::Unsigned(0),
             PType::I8 | PType::I16 | PType::I32 | PType::I64 => SumState::Signed(0),
-            PType::F16 | PType::F32 | PType::F64 => SumState::Float(0.0),
+            PType::F16 | PType::F32 | PType::F64 => SumState::Float(KahanSum::default()),
         },
         DType::Decimal(decimal, _) => SumState::Decimal {
             value: DecimalValue::zero(decimal),

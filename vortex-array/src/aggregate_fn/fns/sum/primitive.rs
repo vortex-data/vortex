@@ -52,7 +52,7 @@ fn accumulate_primitive_all(inner: &mut SumState, p: &PrimitiveArray) -> VortexR
             floating: |T| {
                 for &v in p.as_slice::<T>() {
                     if !v.is_nan() {
-                        *acc += ToPrimitive::to_f64(&v).vortex_expect("float to f64");
+                        acc.add(ToPrimitive::to_f64(&v).vortex_expect("float to f64"));
                     }
                 }
                 Ok(false)
@@ -152,7 +152,7 @@ fn accumulate_primitive_valid(
                 for &(start, end) in slices {
                     for &v in &values[start..end] {
                         if !v.is_nan() {
-                            *acc += ToPrimitive::to_f64(&v).vortex_expect("float to f64");
+                            acc.add(ToPrimitive::to_f64(&v).vortex_expect("float to f64"));
                         }
                     }
                 }
@@ -323,6 +323,46 @@ mod tests {
             PrimitiveArray::new(buffer![f64::NAN, f64::NAN], Validity::NonNullable).into_array();
         let result = sum(&arr, &mut LEGACY_SESSION.create_execution_ctx())?;
         assert_eq!(result.as_primitive().typed_value::<f64>(), Some(0.0));
+        Ok(())
+    }
+
+    #[test]
+    fn sum_f64_kahan_compensation() -> VortexResult<()> {
+        // Naive recursive summation loses the two 1.0s next to 1e100 and returns 0.0.
+        let arr = PrimitiveArray::new(buffer![1.0f64, 1e100, 1.0, -1e100], Validity::NonNullable)
+            .into_array();
+        let result = sum(&arr, &mut LEGACY_SESSION.create_execution_ctx())?;
+        assert_eq!(result.as_primitive().typed_value::<f64>(), Some(2.0));
+        Ok(())
+    }
+
+    #[test]
+    fn sum_f64_kahan_compensation_across_batches() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
+        let mut acc = Accumulator::try_new(Sum, EmptyOptions, dtype)?;
+
+        let batch1 =
+            PrimitiveArray::new(buffer![1.0f64, 1e100], Validity::NonNullable).into_array();
+        acc.accumulate(&batch1, &mut ctx)?;
+        let batch2 =
+            PrimitiveArray::new(buffer![1.0f64, -1e100], Validity::NonNullable).into_array();
+        acc.accumulate(&batch2, &mut ctx)?;
+
+        let result = acc.finish()?;
+        assert_eq!(result.as_primitive().typed_value::<f64>(), Some(2.0));
+        Ok(())
+    }
+
+    #[test]
+    fn sum_f64_overflow_to_infinity() -> VortexResult<()> {
+        let arr = PrimitiveArray::new(buffer![f64::MAX, f64::MAX, 1.0], Validity::NonNullable)
+            .into_array();
+        let result = sum(&arr, &mut LEGACY_SESSION.create_execution_ctx())?;
+        assert_eq!(
+            result.as_primitive().typed_value::<f64>(),
+            Some(f64::INFINITY)
+        );
         Ok(())
     }
 
