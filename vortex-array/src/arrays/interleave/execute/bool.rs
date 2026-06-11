@@ -6,6 +6,7 @@
 use num_traits::AsPrimitive;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
+use vortex_buffer::get_bit_unchecked;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
@@ -87,8 +88,13 @@ pub(super) fn execute(
 /// pair is read straight from its packed buffer.
 ///
 /// Output bits (and validity) are produced with [`BitBufferMut::collect_bool`], which packs 64
-/// results per word: every output bit is written branchlessly, avoiding a per-row `set`/`unset`
-/// (each of which would bounds-check and branch on the random bit value).
+/// results per word. For a random-access gather there is no word-level shortcut on the read side —
+/// consecutive outputs read unrelated source words — so the work is one bit read per output. The
+/// per-read overhead is what we trim: a raw `(ptr, bit_offset)` is hoisted per value buffer and the
+/// bit is read with [`get_bit_unchecked`], avoiding the wide `&[BitBuffer]` struct index and the
+/// redundant bounds assert in `BitBuffer::value`. Validity is materialized into one full-length
+/// [`BitBuffer`] per branch so its gather is the same uniform unchecked read rather than a per-row
+/// `Option`/`Mask`-variant dispatch.
 #[allow(clippy::too_many_arguments)]
 fn gather<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
     len: usize,
@@ -100,7 +106,7 @@ fn gather<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
     nullable: bool,
 ) -> VortexResult<(BitBufferMut, Option<BitBufferMut>)> {
     // Validate the per-row bounds once up front (returning an error rather than panicking), so the
-    // word-packing passes below are tight branchless loops.
+    // word-packing passes below are tight unchecked loops.
     for i in 0..len {
         let branch = branches[i].as_();
         vortex_ensure!(branch < num_values, "interleave array index out of bounds");
@@ -110,16 +116,40 @@ fn gather<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
         );
     }
 
-    let values =
-        BitBufferMut::collect_bool(len, |i| value_bits[branches[i].as_()].value(rows[i].as_()));
+    // Raw (byte pointer, bit offset) per value buffer; the offset folds the buffer's own bit offset
+    // into the index so the read is a single `get_bit_unchecked`.
+    let val_ptrs: Vec<(*const u8, usize)> = value_bits
+        .iter()
+        .map(|b| (b.inner().as_ptr(), b.offset()))
+        .collect();
 
-    // A missing per-value mask means every row of that value is valid; only materialized when the
-    // output can be null.
+    // SAFETY (both passes): `i < len`, `branches`/`rows` have length `len`, and the loop above
+    // proved `branches[i] < num_values` and `rows[i] < value_bits[branches[i]].len()`, which equals
+    // the validity length for that branch. So every `get_unchecked` / `get_bit_unchecked` is in
+    // bounds.
+    let values = BitBufferMut::collect_bool(len, |i| unsafe {
+        let (ptr, off) = *val_ptrs.get_unchecked(branches.get_unchecked(i).as_());
+        get_bit_unchecked(ptr, rows.get_unchecked(i).as_() + off)
+    });
+
+    // A missing per-value mask means every row of that value is valid; validity is only materialized
+    // when the output can be null.
     let validity = nullable.then(|| {
-        BitBufferMut::collect_bool(len, |i| {
-            value_validity[branches[i].as_()]
-                .as_ref()
-                .is_none_or(|mask| mask.value(rows[i].as_()))
+        let validity_bits: Vec<BitBuffer> = value_validity
+            .iter()
+            .enumerate()
+            .map(|(j, mask)| match mask {
+                Some(mask) => mask.to_bit_buffer(),
+                None => BitBuffer::new_set(value_bits[j].len()),
+            })
+            .collect();
+        let vld_ptrs: Vec<(*const u8, usize)> = validity_bits
+            .iter()
+            .map(|b| (b.inner().as_ptr(), b.offset()))
+            .collect();
+        BitBufferMut::collect_bool(len, |i| unsafe {
+            let (ptr, off) = *vld_ptrs.get_unchecked(branches.get_unchecked(i).as_());
+            get_bit_unchecked(ptr, rows.get_unchecked(i).as_() + off)
         })
     });
 

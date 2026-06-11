@@ -525,6 +525,29 @@ mod tests {
     }
 
     #[test]
+    fn interleave_binary_spans_word_boundary() -> VortexResult<()> {
+        // Exercises a two-value gather across more than one 64-bit packing word, with out-of-order
+        // routing into both branches so neither buffer is consumed contiguously.
+        let branch0: Vec<Option<bool>> = (0..100).map(|i| Some(i % 3 == 0)).collect();
+        let branch1: Vec<Option<bool>> = (0..100).map(|i| Some(i % 5 == 0)).collect();
+        let indices: Vec<(usize, usize)> = (0..200).map(|i| (i % 2, (i * 7) % 100)).collect();
+        check(&[&branch0, &branch1], &indices)
+    }
+
+    #[test]
+    fn interleave_binary_nullable_spans_word_boundary() -> VortexResult<()> {
+        // Same two-value gather, now with nulls so the validity packing is exercised too.
+        let branch0: Vec<Option<bool>> = (0..70)
+            .map(|i| (i % 4 != 0).then_some(i % 2 == 0))
+            .collect();
+        let branch1: Vec<Option<bool>> = (0..70)
+            .map(|i| (i % 3 != 0).then_some(i % 2 == 1))
+            .collect();
+        let indices: Vec<(usize, usize)> = (0..150).map(|i| (i % 2, (i * 11) % 70)).collect();
+        check(&[&branch0, &branch1], &indices)
+    }
+
+    #[test]
     fn interleave_three_values() -> VortexResult<()> {
         // An unsigned `array_indices` routes among three values with full random access.
         check(
