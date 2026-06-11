@@ -53,6 +53,35 @@ is an optional dependency upstream, and a `token` config option is forwarded to
 Strip the `SPDX-License-Identifier` header lines when copying files upstream; `datasets`
 source files carry no license headers (both projects are Apache-2.0).
 
+## Supported `load_dataset` options
+
+Every `VortexConfig` field is accepted as a `load_dataset(...)` keyword argument:
+
+| Option | Type | Behavior |
+|---|---|---|
+| `columns` | `list[str]` | Column projection, pushed down to the Vortex scan. |
+| `filters` | DNF tuples or `vortex.expr.Expr` | Predicate pushdown: `[("x", ">", 1)]` is an AND group, `[[...], [...]]` is an OR of AND groups; ops are `==`/`=`, `!=`, `<`, `<=`, `>`, `>=`, `in`, `not in`. Vortex evaluates predicates with zone maps and lazy segment reads, so in streaming mode non-matching segments are never downloaded. |
+| `limit` | `int` | Maximum rows across all files (after filtering). Pushed down when no filter is set; otherwise the filter is pushed down and the limit is enforced in the builder (Vortex scans cannot combine both). |
+| `indices` | `list[int]` | Explicit row indices, global across the split's files in listed order; deduplicated, rows returned in ascending order. Cannot be combined with `filters`/`limit`. |
+| `batch_size` | `int` | Rows per generated Arrow batch. |
+| `features` | `datasets.Features` | Explicit features instead of schema inference. |
+| `token` | `str` | Hugging Face token for `hf://` data files (upstream copy only). |
+| `on_bad_files` | `"error"` / `"warn"` / `"skip"` | Policy for files that fail to open as Vortex. |
+
+The builder also implements `datasets.builder._CountableBuilderMixin`:
+`_generate_num_examples` reads row counts from file footers without scanning data
+(raises `NotImplementedError` when `filters`/`limit`/`indices` are set, since the
+result count cannot be derived from footer metadata).
+
+Two implementation notes worth knowing when reviewing:
+
+- `datasets` requires the shard ids in keys yielded by `_generate_tables` to be dense
+  (a file that yields no tables must not leave a gap), so the builder numbers *yielding*
+  files, not files.
+- `datasets` hashes non-default config kwargs with pickle for the cache fingerprint, and
+  `vortex.Expr` is not picklable, so `VortexConfig.create_config_id` hashes the
+  expression's stable string form instead.
+
 ## Step-by-step: making the upstream PR
 
 1. **Fork and clone** `huggingface/datasets`, create a branch, and `pip install -e ".[dev]"`.

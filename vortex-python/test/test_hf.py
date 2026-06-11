@@ -412,3 +412,134 @@ def test_dataset_to_vortex_roundtrip(tmp_path: Path) -> None:
     result = vx.open(str(path)).scan().read_all().to_arrow_table()
     assert result.column("x").to_pylist() == [1, 2, 3]
     assert result.column("s").to_pylist() == ["a", "b", "c"]
+
+
+# --- Builder pushdown options: filters, limit, indices, on_bad_files, counting ---
+
+
+def _write_two_shards(tmp_path: Path) -> list[str]:
+    """Two shards with global rows x=[1..5], s=[a..e]."""
+    shard1, shard2 = tmp_path / "part-0.vortex", tmp_path / "part-1.vortex"
+    vx.io.write(pa.table({"x": [1, 2, 3], "s": ["a", "b", "c"]}), str(shard1))
+    vx.io.write(pa.table({"x": [4, 5], "s": ["d", "e"]}), str(shard2))
+    return [str(shard1), str(shard2)]
+
+
+def _load(tmp_path: Path, **kwargs):
+    datasets = pytest.importorskip("datasets")
+    vx.hf.register_datasets()
+    return datasets.load_dataset(
+        "vortex",
+        data_files=_write_two_shards(tmp_path),
+        cache_dir=str(tmp_path / "cache"),
+        **kwargs,
+    )["train"]
+
+
+def test_builder_filters_and(tmp_path: Path) -> None:
+    ds = _load(tmp_path, filters=[("x", ">", 1), ("x", "<", 5)])
+    assert ds["x"] == [2, 3, 4]
+
+
+def test_builder_filters_or(tmp_path: Path) -> None:
+    ds = _load(tmp_path, filters=[[("x", "==", 1)], [("x", "==", 5)]])
+    assert ds["x"] == [1, 5]
+
+
+def test_builder_filters_in(tmp_path: Path) -> None:
+    ds = _load(tmp_path, filters=[("s", "in", ["a", "e"])])
+    assert ds["x"] == [1, 5]
+
+
+def test_builder_filters_not_in(tmp_path: Path) -> None:
+    ds = _load(tmp_path, filters=[("s", "not in", ["a", "e"])])
+    assert ds["x"] == [2, 3, 4]
+
+
+def test_builder_filters_expr(tmp_path: Path) -> None:
+    import vortex.expr as ve
+
+    ds = _load(tmp_path, filters=ve.column("x") >= 4)
+    assert ds["x"] == [4, 5]
+
+
+def test_builder_filters_invalid(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="filter operator"):
+        _load(tmp_path, filters=[("x", "~", 1)])
+
+
+def test_builder_filters_streaming(tmp_path: Path) -> None:
+    ds = _load(tmp_path, filters=[("x", ">", 1), ("x", "<", 5)], streaming=True)
+    assert [row["x"] for row in ds] == [2, 3, 4]
+
+
+def test_builder_limit_across_shards(tmp_path: Path) -> None:
+    ds = _load(tmp_path, limit=4)
+    assert ds["x"] == [1, 2, 3, 4]
+
+
+def test_builder_limit_with_filters(tmp_path: Path) -> None:
+    ds = _load(tmp_path, filters=[("x", ">", 1)], limit=2)
+    assert ds["x"] == [2, 3]
+
+
+def test_builder_indices_across_shards(tmp_path: Path) -> None:
+    # Unsorted on purpose: rows come back in ascending row order.
+    ds = _load(tmp_path, indices=[4, 0, 2])
+    assert ds["x"] == [1, 3, 5]
+
+
+def test_builder_indices_out_of_range(tmp_path: Path) -> None:
+    ds = _load(tmp_path, indices=[0, 99], streaming=True)
+    with pytest.raises(IndexError, match="total row count"):
+        list(ds)
+
+
+def test_builder_indices_with_filters_raises(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="indices cannot be combined"):
+        _load(tmp_path, indices=[0], filters=[("x", ">", 1)])
+
+
+def test_builder_on_bad_files(tmp_path: Path) -> None:
+    datasets = pytest.importorskip("datasets")
+    vx.hf.register_datasets()
+    bad = tmp_path / "bad.vortex"
+    bad.write_bytes(b"this is not a vortex file")
+    good = tmp_path / "good.vortex"
+    vx.io.write(pa.table({"x": [1, 2, 3]}), str(good))
+    data_files = [str(bad), str(good)]
+
+    ds = datasets.load_dataset(
+        "vortex", data_files=data_files, on_bad_files="skip", cache_dir=str(tmp_path / "c1")
+    )["train"]
+    assert ds["x"] == [1, 2, 3]
+
+    ds = datasets.load_dataset(
+        "vortex", data_files=data_files, on_bad_files="warn", cache_dir=str(tmp_path / "c2")
+    )["train"]
+    assert ds["x"] == [1, 2, 3]
+
+    with pytest.raises(Exception):  # noqa: B017 - datasets wraps the underlying error
+        datasets.load_dataset("vortex", data_files=data_files, cache_dir=str(tmp_path / "c3"))
+
+    with pytest.raises(ValueError, match="on_bad_files"):
+        datasets.load_dataset(
+            "vortex", data_files=data_files, on_bad_files="bogus", cache_dir=str(tmp_path / "c4")
+        )
+
+
+def test_builder_generate_num_examples(tmp_path: Path) -> None:
+    datasets = pytest.importorskip("datasets")
+    vx.hf.register_datasets()
+    shards = _write_two_shards(tmp_path)
+
+    builder = datasets.load_dataset_builder(
+        "vortex", data_files=shards, cache_dir=str(tmp_path / "cache")
+    )
+    assert list(builder._generate_num_examples(files=[[shards[0]], [shards[1]]])) == [3, 2]
+
+    limited = datasets.load_dataset_builder(
+        "vortex", data_files=shards, limit=2, cache_dir=str(tmp_path / "cache2")
+    )
+    with pytest.raises(NotImplementedError):
+        list(limited._generate_num_examples(files=[[shards[0]]]))
