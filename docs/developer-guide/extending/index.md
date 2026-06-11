@@ -3,7 +3,7 @@
 :::{warning}
 This section is under construction. For guidance on extending Vortex, please join the
 [Vortex Slack channel](https://vortex.dev/slack)
-or start a [GitHub Discussion](https://github.com/spiraldb/vortex/discussions).
+or start a [GitHub Discussion](https://github.com/vortex-data/vortex/discussions).
 :::
 
 Vortex is designed to be extended with custom types, encodings, layouts, and compute functions.
