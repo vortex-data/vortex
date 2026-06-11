@@ -98,9 +98,10 @@ class VortexFile:
         limit : :class:`int` | None
             The maximum number of rows to read after filtering. If None, read all rows.
         indices : :class:`vortex.Array` | None
-            The indices of the rows to read. Must be sorted and non-null.
+            The indices of the rows to read. Must be sorted in ascending order and non-null;
+            unsorted indices raise an error. Duplicate indices are returned only once.
         batch_size : :class:`int` | None
-            The number of rows to read per chunk.
+            The number of rows to read per chunk. Must be a positive integer.
 
         Examples
         --------
@@ -187,9 +188,10 @@ class VortexFile:
         expr : :class:`vortex.Expr` | None
             The predicate used to filter rows. The filter columns do not need to be in the projection.
         indices : :class:`vortex.Array` | None
-            The indices of the rows to read. Must be sorted and non-null.
+            The indices of the rows to read. Must be sorted in ascending order and non-null;
+            unsorted indices raise an error. Duplicate indices are returned only once.
         batch_size : :class:`int` | None
-            The number of rows to read per chunk.
+            The number of rows to read per chunk. Must be a positive integer.
         """
         return RepeatedScan(
             self._file.prepare(projection, expr=expr, limit=limit, indices=indices, batch_size=batch_size)
@@ -237,14 +239,36 @@ class VortexFile:
             n_rows: int | None,
             _batch_size: int | None,
         ) -> Iterator[pl.DataFrame]:
-            vx_predicate: Expr | None = None if predicate is None else polars_to_vortex(predicate)
+            vx_predicate: Expr | None = None
+            if predicate is not None:
+                try:
+                    vx_predicate = polars_to_vortex(predicate)
+                except (NotImplementedError, ValueError):
+                    # The predicate cannot be expressed in Vortex; read unfiltered rows and
+                    # apply the Polars filter here instead of failing the whole query.
+                    vx_predicate = None
+            apply_filter_here = predicate is not None and vx_predicate is None
 
-            reader = self.to_arrow(projection=with_columns, expr=vx_predicate, limit=n_rows)
+            # If the filter runs here, the row limit must be applied after filtering.
+            reader = self.to_arrow(
+                projection=with_columns,
+                expr=vx_predicate,
+                limit=None if apply_filter_here else n_rows,
+            )
 
+            remaining = n_rows
             for batch in reader:
                 batch = pl.DataFrame._from_arrow(batch, rechunk=False)  # pyright: ignore[reportPrivateUsage]
                 # TODO(ngates): set sortedness on DataFrame based on stats?
+                if apply_filter_here:
+                    assert predicate is not None
+                    batch = batch.filter(predicate)
+                    if remaining is not None:
+                        batch = batch.head(remaining)
+                        remaining -= batch.height
                 yield batch
+                if apply_filter_here and remaining is not None and remaining <= 0:
+                    break
 
             # Make sure we always yield at least one empty DataFrame
             yield pl.DataFrame._from_arrow(  # pyright: ignore[reportPrivateUsage]

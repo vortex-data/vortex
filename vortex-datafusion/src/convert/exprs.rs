@@ -224,7 +224,8 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
         }
 
         if let Some(cast_expr) = df.downcast_ref::<df_expr::CastExpr>() {
-            let cast_dtype = DType::from_arrow(cast_expr.target_field().as_ref());
+            let cast_dtype = DType::from_arrow(cast_expr.target_field().as_ref())
+                .map_err(|e| exec_datafusion_err!("{e}"))?;
             let child = self.convert(cast_expr.expr().as_ref())?;
             return Ok(cast(child, cast_dtype));
         }

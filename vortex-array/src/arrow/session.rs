@@ -346,7 +346,7 @@ impl ArrowSession {
                     .collect::<VortexResult<Vec<_>>>()?;
                 DType::Struct(StructFields::from_iter(entries), nullability)
             }
-            _ => DType::from_arrow(field),
+            _ => DType::from_arrow(field)?,
         })
     }
 

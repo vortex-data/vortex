@@ -71,7 +71,7 @@ pub async fn exec_convert(session: &VortexSession, flags: ConvertArgs) -> anyhow
         .with_batch_size(BATCH_SIZE);
     let num_rows = parquet.metadata().file_metadata().num_rows();
 
-    let dtype = DType::from_arrow(parquet.schema().as_ref());
+    let dtype = DType::from_arrow(parquet.schema().as_ref())?;
     let mut vortex_stream = parquet
         .build()?
         .map(|record_batch| {

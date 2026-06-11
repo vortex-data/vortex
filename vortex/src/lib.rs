@@ -230,7 +230,7 @@ mod test {
         )?)?
         .build()?;
 
-        let dtype = DType::from_arrow(reader.schema());
+        let dtype = DType::from_arrow(reader.schema())?;
         let chunks: Vec<_> = reader
             .map(|record_batch| {
                 let batch = record_batch?;

@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_array::RecordBatchReader;
-use arrow_array::ffi_stream::ArrowArrayStreamReader;
 use async_fs::File;
 use pyo3::exceptions::PyTypeError;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::pyfunction;
 use pyo3_object_store::PyObjectStore;
@@ -31,6 +30,7 @@ use crate::RUNTIME;
 use crate::arrays::PyArray;
 use crate::arrays::PyArrayRef;
 use crate::arrow::FromPyArrow;
+use crate::arrow::NormalizedArrayStreamReader;
 use crate::classes::record_batch_reader_class;
 use crate::classes::table_class;
 use crate::dataset::PyVortexDataset;
@@ -407,8 +407,9 @@ fn try_arrow_stream_to_iterator(
 
     if ob.is_instance(pa_table)? || ob.is_instance(pa_record_batch_reader)? {
         // Convert to Arrow stream using FFI
-        let arrow_stream = ArrowArrayStreamReader::from_pyarrow(ob)?;
-        let dtype = DType::from_arrow(arrow_stream.schema());
+        let arrow_stream = NormalizedArrayStreamReader::from_pyarrow(ob)?;
+        let dtype = DType::from_arrow(arrow_stream.schema())
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
         // Convert Arrow RecordBatch stream to Vortex ArrayIterator
         let vortex_iter = arrow_stream

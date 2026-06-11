@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_array::RecordBatchReader;
-use arrow_array::ffi_stream::ArrowArrayStreamReader;
 use arrow_array::make_array;
 use arrow_data::ArrayData as ArrowArrayData;
 use arrow_schema::DataType;
@@ -21,6 +19,7 @@ use vortex::error::VortexResult;
 
 use crate::arrays::PyArrayRef;
 use crate::arrow::FromPyArrow;
+use crate::arrow::NormalizedArrayStreamReader;
 use crate::classes::array_class;
 use crate::classes::chunked_array_class;
 use crate::classes::table_class;
@@ -48,16 +47,16 @@ pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyVortexResult<PyArra
                 ArrayRef::from_arrow(arrow_array.as_ref(), false).map_err(PyVortexError::from)
             })
             .collect::<PyVortexResult<Vec<_>>>()?;
-        let dtype: DType = obj
+        let arrow_dtype = obj
             .getattr(intern!(py, "type"))
-            .and_then(|v| DataType::from_pyarrow(&v.as_borrowed()))
-            .map(|dt| DType::from_arrow(&Field::new("_", dt, false)))?;
+            .and_then(|v| DataType::from_pyarrow(&v.as_borrowed()))?;
+        let dtype = DType::from_arrow(&Field::new("_", arrow_dtype, false))?;
         Ok(PyArrayRef::from(
             ChunkedArray::try_new(encoded_chunks, dtype)?.into_array(),
         ))
     } else if obj.is_instance(table)? {
-        let array_stream = ArrowArrayStreamReader::from_pyarrow(&obj.as_borrowed())?;
-        let dtype = DType::from_arrow(array_stream.schema());
+        let array_stream = NormalizedArrayStreamReader::from_pyarrow(&obj.as_borrowed())?;
+        let dtype = DType::from_arrow(array_stream.schema()).map_err(PyVortexError::from)?;
         let chunks = array_stream
             .into_iter()
             .map(|b| {

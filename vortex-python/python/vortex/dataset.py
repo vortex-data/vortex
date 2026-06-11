@@ -10,6 +10,7 @@ from functools import reduce
 from typing import final
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.dataset
 from typing_extensions import override
 
@@ -342,12 +343,32 @@ class VortexDataset(pyarrow.dataset.Dataset):
 
         """
         with _temporary_worker_threads(use_threads):
-            return self._dataset.to_array(
+            indices_u64 = indices.cast(pa.uint64())
+            if isinstance(indices_u64, pa.ChunkedArray):
+                indices_u64 = indices_u64.combine_chunks()  # pyright: ignore[reportUnknownVariableType]
+            unique_sorted = pc.unique(indices_u64).sort()  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType, reportUnknownArgumentType]
+            row_filter = self._filter_expression(filter)
+
+            if unique_sorted.equals(indices_u64):  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+                return self._dataset.to_array(
+                    columns=columns,
+                    row_filter=row_filter,
+                    indices=array(indices_u64),  # pyright: ignore[reportUnknownArgumentType]
+                    row_range=_row_range,
+                ).to_arrow_table()
+
+            # Vortex scans require sorted, unique indices. Scan those and then re-order the
+            # result to preserve take semantics: rows follow `indices`, duplicates included.
+            if row_filter is not None:
+                raise ValueError("take with unsorted or duplicated indices cannot be combined with a filter")
+            table = self._dataset.to_array(
                 columns=columns,
-                row_filter=self._filter_expression(filter),
-                indices=array(indices.cast(pa.uint64())),
+                row_filter=None,
+                indices=array(unique_sorted),  # pyright: ignore[reportUnknownArgumentType]
                 row_range=_row_range,
             ).to_arrow_table()
+            positions = pc.index_in(indices_u64, value_set=unique_sorted)  # pyright: ignore[reportUnknownMemberType]
+            return table.take(positions)
 
     def to_record_batch_reader(
         self,

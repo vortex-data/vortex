@@ -11,6 +11,7 @@ mod convert;
 mod datum;
 mod executor;
 mod iter;
+mod normalize;
 mod null_buffer;
 mod session;
 
@@ -18,6 +19,7 @@ pub(crate) use convert::nulls;
 pub use datum::*;
 pub use executor::*;
 pub use iter::*;
+pub use normalize::normalize_array_data;
 pub use null_buffer::to_arrow_null_buffer;
 pub use null_buffer::to_null_buffer;
 pub use session::*;

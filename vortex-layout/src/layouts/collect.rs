@@ -10,7 +10,6 @@ use futures::pin_mut;
 use vortex_array::ArrayContext;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
@@ -43,11 +42,16 @@ impl LayoutStrategy for CollectStrategy {
         ctx: ArrayContext,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
-        eof: SequencePointer,
+        mut eof: SequencePointer,
         session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
         // Read the whole stream, then write one Chunked stream to the inner thing
         let dtype = stream.dtype().clone();
+
+        // The stream may yield no chunks at all (e.g. when writing an empty file, empty chunks
+        // are filtered out upstream). We still emit a single empty chunk so the child strategy
+        // writes a valid zero-row layout, using a sequence id minted just before eof.
+        let empty_stream_pointer = eof.split_off();
 
         let _dtype = dtype.clone();
         let collected_stream = try_stream! {
@@ -62,7 +66,8 @@ impl LayoutStrategy for CollectStrategy {
             }
 
             let collected = ChunkedArray::try_new(chunks, _dtype)?.into_array();
-            yield (latest_sequence_id.vortex_expect("must have visited at least one chunk"), collected);
+            let sequence_id = latest_sequence_id.unwrap_or_else(|| empty_stream_pointer.downgrade());
+            yield (sequence_id, collected);
         };
 
         let adapted = Box::pin(SequentialStreamAdapter::new(dtype, collected_stream));

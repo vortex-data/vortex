@@ -242,6 +242,18 @@ impl<A: 'static + Send> ScanBuilder<A> {
             vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
         }
 
+        if let SplitBy::RowCount(row_count) = self.split_by
+            && row_count == 0
+        {
+            vortex_bail!("scan batch size must be greater than zero");
+        }
+
+        if let Selection::IncludeByIndex(indices) = &self.selection
+            && !indices.as_slice().is_sorted()
+        {
+            vortex_bail!("scan indices must be sorted in ascending order");
+        }
+
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
         // conjunction splitting if a filter is provided.
         let mut layout_reader = self.layout_reader;
@@ -456,6 +468,7 @@ mod test {
     use vortex_array::expr::is_not_null;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
+    use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_io::runtime::BlockingRuntime;
@@ -468,6 +481,7 @@ mod test {
     use crate::LayoutReader;
     use crate::RowSplits;
     use crate::SplitRange;
+    use crate::scan::split_by::SplitBy;
     use crate::scan::test::SCAN_SESSION;
     use crate::scan::test::session_with_handle;
 
@@ -612,6 +626,30 @@ mod test {
         let _stream = ScanBuilder::new(session, reader).into_stream().unwrap();
 
         assert_eq!(calls.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn batch_size_zero_returns_error() {
+        let reader = Arc::new(CountingLayoutReader::new(Default::default()));
+        let err = ScanBuilder::new(SCAN_SESSION.clone(), reader)
+            .with_split_by(SplitBy::RowCount(0))
+            .prepare()
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(err.contains("batch size"), "{err}");
+    }
+
+    #[test]
+    fn unsorted_indices_return_error() {
+        let reader = Arc::new(CountingLayoutReader::new(Default::default()));
+        let err = ScanBuilder::new(SCAN_SESSION.clone(), reader)
+            .with_row_indices(buffer![2u64, 0])
+            .prepare()
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(err.contains("sorted"), "{err}");
     }
 
     #[derive(Debug)]

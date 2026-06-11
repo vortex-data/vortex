@@ -22,13 +22,13 @@ use vortex_array::dtype::StructFields;
 use vortex_array::expr::ExactExpr;
 use vortex_array::expr::Expression;
 use vortex_array::expr::col;
+use vortex_array::expr::is_root;
 use vortex_array::expr::make_free_field_annotator;
 use vortex_array::expr::root;
 use vortex_array::expr::transform::PartitionedExpr;
 use vortex_array::expr::transform::partition;
 use vortex_array::expr::transform::replace;
 use vortex_array::expr::transform::replace_root_fields;
-use vortex_array::scalar_fn::fns::merge::Merge;
 use vortex_array::scalar_fn::fns::pack::Pack;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -210,6 +210,50 @@ impl StructReader {
     }
 }
 
+/// Apply this struct's validity to the result of evaluating `expr` over it.
+///
+/// `expr` may re-nest this struct's value arbitrarily deep inside `Pack` expressions (a parent
+/// struct reader pushes its re-nesting pack down into child readers when it partitions its own
+/// projection), so the validity must be applied at exactly the positions that reference this
+/// reader's root scope, not at the first level of the result.
+fn apply_validity(
+    session: &VortexSession,
+    array: ArrayRef,
+    expr: &Expression,
+    validity: &ArrayRef,
+) -> VortexResult<ArrayRef> {
+    if !references_root(expr) {
+        return Ok(array);
+    }
+
+    if expr.is::<Pack>() {
+        let mut ctx = session.create_execution_ctx();
+        let struct_array = array.execute::<StructArray>(&mut ctx)?;
+        let masked_fields: Vec<ArrayRef> = struct_array
+            .iter_unmasked_fields()
+            .zip_eq(expr.children().iter())
+            .map(|(field, child)| apply_validity(session, field.clone(), child, validity))
+            .try_collect()?;
+
+        Ok(StructArray::try_new(
+            struct_array.names().clone(),
+            masked_fields,
+            struct_array.len(),
+            struct_array.validity()?,
+        )?
+        .into_array())
+    } else {
+        // The expression consumes this struct's value directly (e.g. a get_item or the root
+        // itself), so the validity applies to the whole result.
+        array.mask(validity.clone())
+    }
+}
+
+/// Returns whether the expression references the root scope anywhere in its tree.
+fn references_root(expr: &Expression) -> bool {
+    is_root(expr) || expr.children().iter().any(references_root)
+}
+
 /// When partitioning an expression, in the case it only has a single partition we can avoid
 /// some cost and just delegate to the child reader directly.
 // TODO(joe): this is a duplicate of the Partitioned enum in arrays/expr/vtable/rules
@@ -325,17 +369,15 @@ impl LayoutReader for StructReader {
             .transpose()?;
 
         // Partition the expression into expressions that can be evaluated over individual fields
-        let (projected, is_pack_merge) = match &self.partition_expr(expr.clone())? {
-            Partitioned::Single(name, partition) => (
-                self.field_reader(name)?
-                    .projection_evaluation(row_range, partition, mask_fut)
-                    .map_err(|err| {
-                        err.with_context(format!("While evaluating projection partition {name}"))
-                    })?,
-                partition.is::<Pack>() || partition.is::<Merge>(),
-            ),
+        let projected = match &self.partition_expr(expr.clone())? {
+            Partitioned::Single(name, partition) => self
+                .field_reader(name)?
+                .projection_evaluation(row_range, partition, mask_fut)
+                .map_err(|err| {
+                    err.with_context(format!("While evaluating projection partition {name}"))
+                })?,
 
-            Partitioned::Multi(partitioned) => (
+            Partitioned::Multi(partitioned) => {
                 Arc::clone(partitioned).into_array_future(mask_fut, |name, expr, mask| {
                     self.field_reader(name)?
                         .projection_evaluation(row_range, expr, mask)
@@ -344,37 +386,16 @@ impl LayoutReader for StructReader {
                                 "While evaluating projection partition {name}"
                             ))
                         })
-                })?,
-                partitioned.root.is::<Pack>() || partitioned.root.is::<Merge>(),
-            ),
+                })?
+            }
         };
 
         let session = self.session.clone();
+        let expr = expr.clone();
         Ok(Box::pin(async move {
             if let Some(validity_fut) = validity_fut {
                 let (array, validity) = try_join!(projected, validity_fut)?;
-
-                // If root expression was a pack, then we apply the validity to each child field
-                if is_pack_merge {
-                    let mut ctx = session.create_execution_ctx();
-                    let struct_array = array.execute::<StructArray>(&mut ctx)?;
-                    let masked_fields: Vec<ArrayRef> = struct_array
-                        .iter_unmasked_fields()
-                        .map(|a| a.clone().mask(validity.clone()))
-                        .try_collect()?;
-
-                    Ok(StructArray::try_new(
-                        struct_array.names().clone(),
-                        masked_fields,
-                        struct_array.len(),
-                        struct_array.validity()?,
-                    )?
-                    .into_array())
-                } else {
-                    // If the root expression was not a pack or merge, e.g. if it's something like
-                    // a get_item, then we apply the validity directly to the result
-                    array.mask(validity)
-                }
+                apply_validity(&session, array, &expr, &validity)
             } else {
                 projected.await
             }
@@ -807,6 +828,87 @@ mod tests {
                 .unwrap(),
             Scalar::primitive(6, Nullability::NonNullable)
         );
+    }
+
+    /// Regression test: a struct field nested directly inside another struct must keep its own
+    /// nullability (and null rows) when the whole struct is projected back out of a layout.
+    /// Previously the inner struct's validity was applied one pack level too high, marking the
+    /// *outer* struct null and reporting the inner struct as non-nullable.
+    #[test]
+    fn test_struct_of_struct_validity_roundtrip() {
+        let ctx = ArrayContext::empty();
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
+        let strategy = TableStrategy::new(
+            Arc::new(FlatLayoutStrategy::default()),
+            Arc::new(FlatLayoutStrategy::default()),
+        );
+
+        // {c0: {a: {c}?}?} where `a` is null at row 1 while `c0` is valid at every row.
+        let inner = StructArray::try_from_iter_with_validity(
+            [("c", buffer![1, 2].into_array())],
+            Validity::Array(BoolArray::from_iter([true, false]).into_array()),
+        )
+        .unwrap();
+        let outer = StructArray::try_from_iter_with_validity(
+            [("a", inner.into_array())],
+            Validity::Array(BoolArray::from_iter([true, true]).into_array()),
+        )
+        .unwrap();
+        let root_array = StructArray::try_from_iter_with_validity(
+            [("c0", outer.into_array())],
+            Validity::NonNullable,
+        )
+        .unwrap()
+        .into_array();
+        let expected_dtype = root_array.dtype().clone();
+
+        let segments2 = Arc::<TestSegments>::clone(&segments);
+        let layout = block_on(|handle| async move {
+            let session = SESSION.clone().with_handle(handle);
+            strategy
+                .write_stream(
+                    ctx,
+                    segments2,
+                    root_array.to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await
+        })
+        .unwrap();
+
+        let reader = layout
+            .new_reader("".into(), segments, &SESSION, &Default::default())
+            .unwrap();
+        let project = reader
+            .projection_evaluation(&(0..2), &root(), MaskFuture::new_true(2))
+            .unwrap();
+        let result = block_on(move |_| project).unwrap();
+
+        assert_eq!(result.dtype(), &expected_dtype);
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
+        // Row 0: c0 is valid and a == {c: 1}.
+        let row0_c0 = result
+            .execute_scalar(0, &mut ctx)
+            .unwrap()
+            .as_struct()
+            .field_by_idx(0)
+            .unwrap();
+        assert!(!row0_c0.is_null());
+        assert!(!row0_c0.as_struct().field_by_idx(0).unwrap().is_null());
+
+        // Row 1: c0 is still valid, but its field a is null.
+        let row1_c0 = result
+            .execute_scalar(1, &mut ctx)
+            .unwrap()
+            .as_struct()
+            .field_by_idx(0)
+            .unwrap();
+        assert!(!row1_c0.is_null(), "c0 must not inherit a's nulls");
+        assert!(row1_c0.as_struct().field_by_idx(0).unwrap().is_null());
     }
 
     #[rstest]

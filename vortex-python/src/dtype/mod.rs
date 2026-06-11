@@ -200,7 +200,8 @@ impl PyDType {
     ) -> PyResult<Bound<'py, PyDType>> {
         Self::init(
             cls.py(),
-            DType::from_arrow(&Field::new("_", arrow_dtype, !non_nullable)),
+            DType::from_arrow(&Field::new("_", arrow_dtype, !non_nullable))
+                .map_err(crate::error::PyVortexError::from)?,
         )
     }
 }

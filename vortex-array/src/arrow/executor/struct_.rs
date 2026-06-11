@@ -87,7 +87,7 @@ pub(super) fn to_arrow_struct(
 
     // Otherwise, we fall back to executing to a StructArray.
     let array = if let Some(fields) = target_fields {
-        let vx_fields = StructFields::from_arrow(fields);
+        let vx_fields = StructFields::from_arrow(fields)?;
         // We apply a cast to ensure we push down casting where possible into the struct fields.
         array.cast(DType::Struct(
             vx_fields,

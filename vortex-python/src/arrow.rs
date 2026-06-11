@@ -26,6 +26,7 @@ use arrow_schema::ArrowError;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Schema;
+use arrow_schema::SchemaRef;
 use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::ffi::Py_uintptr_t;
@@ -35,6 +36,7 @@ use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::PyCapsule;
 use pyo3::types::PyTuple;
+use vortex::array::arrow::normalize_array_data;
 
 use crate::classes::array_class;
 use crate::classes::data_type_class;
@@ -211,7 +213,9 @@ impl<'py> FromPyArrow<'_, 'py> for ArrayData {
             .as_ptr();
 
         let array = unsafe { FFI_ArrowArray::from_raw(array_ptr) };
-        unsafe { ffi::from_ffi(array, schema_ptr) }.map_err(to_py_err)
+        let data = unsafe { ffi::from_ffi(array, schema_ptr) }.map_err(to_py_err)?;
+        // Rewrite sliced struct/fixed-size-list nodes that `make_array` would misinterpret.
+        normalize_array_data(data).map_err(|e| PyValueError::new_err(e.to_string()))
     }
 }
 
@@ -302,30 +306,139 @@ impl ToPyArrow for RecordBatch {
     }
 }
 
+/// Import a `FFI_ArrowArrayStream` from a Python object exposing `__arrow_c_stream__`.
+fn ffi_stream_from_pyarrow(value: &Borrowed<'_, '_, PyAny>) -> PyResult<FFI_ArrowArrayStream> {
+    let py = value.py();
+    if !value.hasattr(intern!(py, "__arrow_c_stream__"))? {
+        return Err(PyValueError::new_err(
+            "Expected __arrow_c_stream__ attribute to be set.",
+        ));
+    }
+
+    let capsule = value.getattr(intern!(py, "__arrow_c_stream__"))?.call0()?;
+    let capsule = capsule.cast::<PyCapsule>()?;
+
+    let array_ptr = capsule
+        .pointer_checked(Some(ARRAY_STREAM_NAME))?
+        .cast::<FFI_ArrowArrayStream>()
+        .as_ptr();
+
+    Ok(unsafe { FFI_ArrowArrayStream::from_raw(array_ptr) })
+}
+
 /// Supports conversion from `pyarrow.RecordBatchReader` to [ArrowArrayStreamReader].
 impl<'py> FromPyArrow<'_, 'py> for ArrowArrayStreamReader {
     fn from_pyarrow(value: &Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-        let py = value.py();
-        if !value.hasattr(intern!(py, "__arrow_c_stream__"))? {
-            return Err(PyValueError::new_err(
-                "Expected __arrow_c_stream__ attribute to be set.",
+        let stream = ffi_stream_from_pyarrow(value)?;
+        ArrowArrayStreamReader::try_new(stream)
+            .map_err(|err| PyValueError::new_err(err.to_string()))
+    }
+}
+
+/// A replacement for [`ArrowArrayStreamReader`] that normalizes each imported batch with
+/// [`normalize_array_data`] before constructing the record batch.
+///
+/// arrow-rs (up to at least v59) panics when importing record batches that contain sliced
+/// struct or fixed-size-list columns, because `ArrayData::slice` and `StructArray::from`
+/// disagree on the meaning of a struct's offset. Prefer this reader for any stream coming
+/// from pyarrow.
+pub struct NormalizedArrayStreamReader {
+    stream: FFI_ArrowArrayStream,
+    schema: SchemaRef,
+}
+
+impl NormalizedArrayStreamReader {
+    fn try_new(mut stream: FFI_ArrowArrayStream) -> Result<Self, ArrowError> {
+        if stream.release.is_none() {
+            return Err(ArrowError::CDataInterface(
+                "input stream is already released".to_string(),
             ));
         }
 
-        let capsule = value.getattr(intern!(py, "__arrow_c_stream__"))?.call0()?;
-        let capsule = capsule.cast::<PyCapsule>()?;
+        let mut ffi_schema = FFI_ArrowSchema::empty();
+        let get_schema = stream.get_schema.ok_or_else(|| {
+            ArrowError::CDataInterface("input stream has no get_schema function".to_string())
+        })?;
+        let ret_code = unsafe { get_schema(&raw mut stream, &raw mut ffi_schema) };
+        if ret_code != 0 {
+            return Err(ArrowError::CDataInterface(format!(
+                "Cannot get schema from input stream. Error code: {ret_code:?}"
+            )));
+        }
+        let schema = Arc::new(Schema::try_from(&ffi_schema)?);
 
-        let array_ptr = capsule
-            .pointer_checked(Some(ARRAY_STREAM_NAME))?
-            .cast::<FFI_ArrowArrayStream>()
-            .as_ptr();
+        Ok(Self { stream, schema })
+    }
 
-        let stream = unsafe { FFI_ArrowArrayStream::from_raw(array_ptr) };
+    fn get_stream_last_error(&mut self) -> Option<String> {
+        let get_last_error = self.stream.get_last_error?;
 
-        let stream_reader = ArrowArrayStreamReader::try_new(stream)
-            .map_err(|err| PyValueError::new_err(err.to_string()))?;
+        let error_str = unsafe { get_last_error(&raw mut self.stream) };
+        if error_str.is_null() {
+            return None;
+        }
 
-        Ok(stream_reader)
+        let error_str = unsafe { CStr::from_ptr(error_str) };
+        Some(error_str.to_string_lossy().to_string())
+    }
+
+    /// The schema of the record batches produced by this reader.
+    pub fn schema(&self) -> SchemaRef {
+        Arc::clone(&self.schema)
+    }
+}
+
+impl Iterator for NormalizedArrayStreamReader {
+    type Item = Result<RecordBatch, ArrowError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut array = FFI_ArrowArray::empty();
+        let get_next = self.stream.get_next?;
+        let ret_code = unsafe { get_next(&raw mut self.stream, &raw mut array) };
+
+        if ret_code != 0 {
+            let last_error = self
+                .get_stream_last_error()
+                .unwrap_or_else(|| format!("error code {ret_code}"));
+            return Some(Err(ArrowError::CDataInterface(last_error)));
+        }
+
+        // The end of the stream has been reached.
+        if array.is_released() {
+            return None;
+        }
+
+        let result = unsafe {
+            ffi::from_ffi_and_data_type(array, DataType::Struct(self.schema.fields().clone()))
+        }
+        .and_then(|data| {
+            normalize_array_data(data).map_err(|e| ArrowError::CDataInterface(e.to_string()))
+        })
+        .and_then(|data| {
+            let len = data.len();
+            RecordBatch::try_new_with_options(
+                self.schema(),
+                StructArray::from(data).into_parts().1,
+                &RecordBatchOptions::new().with_row_count(Some(len)),
+            )
+        });
+        Some(result)
+    }
+}
+
+impl RecordBatchReader for NormalizedArrayStreamReader {
+    fn schema(&self) -> SchemaRef {
+        NormalizedArrayStreamReader::schema(self)
+    }
+}
+
+/// Supports conversion from `pyarrow.RecordBatchReader` (or any object exposing
+/// `__arrow_c_stream__`) to [`NormalizedArrayStreamReader`].
+impl<'py> FromPyArrow<'_, 'py> for NormalizedArrayStreamReader {
+    fn from_pyarrow(value: &Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+        let stream = ffi_stream_from_pyarrow(value)?;
+        NormalizedArrayStreamReader::try_new(stream)
+            .map_err(|err| PyValueError::new_err(err.to_string()))
     }
 }
 

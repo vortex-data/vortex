@@ -131,7 +131,7 @@ impl ArrowImportVTable for Vector {
         }
 
         let storage_dtype = DType::FixedSizeList(
-            Arc::new(DType::from_arrow(elem.as_ref())),
+            Arc::new(DType::from_arrow(elem.as_ref())?),
             *list_size as u32,
             field.is_nullable().into(),
         );

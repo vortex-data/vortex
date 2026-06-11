@@ -476,6 +476,46 @@ async fn test_empty_varbin_array_roundtrip() {
     assert_eq!(result.dtype(), &dtype);
 }
 
+/// Regression test: writing an empty file whose schema contains a struct column used to panic
+/// with "must have visited at least one chunk", because empty chunks are filtered out before
+/// reaching the struct validity writer.
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_empty_struct_column_roundtrip() {
+    let inner = StructArray::try_from_iter_with_validity(
+        [(
+            "c",
+            PrimitiveArray::from_iter(iter::empty::<i64>()).into_array(),
+        )],
+        Validity::AllValid,
+    )
+    .unwrap();
+
+    let st = StructArray::from_fields(&[("c0", inner.into_array())]).unwrap();
+    let dtype = st.dtype().clone();
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, st.into_array().to_array_stream())
+        .await
+        .unwrap();
+
+    let file = SESSION.open_options().open_buffer(buf).unwrap();
+
+    let result = file
+        .scan()
+        .unwrap()
+        .into_array_stream()
+        .unwrap()
+        .read_all()
+        .await
+        .unwrap();
+
+    assert_eq!(result.len(), 0);
+    assert_eq!(result.dtype(), &dtype);
+}
+
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn issue_5385_filter_casted_column() {

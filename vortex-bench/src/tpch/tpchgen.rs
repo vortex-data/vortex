@@ -403,7 +403,7 @@ impl VortexWriter {
     ) -> Result<Self> {
         // Increase buffer size to avoid backpressure issues
         let (sender, receiver) = mpsc::channel(2);
-        let dtype = DType::from_arrow(schema);
+        let dtype = DType::from_arrow(schema)?;
         let file_path = path;
         let write_task = Some(tokio::spawn(async move {
             let stream = ArrayStreamAdapter::new(dtype, ReceiverStream::new(receiver));

@@ -72,3 +72,24 @@ def test_to_polars_with_projection_and_filter(vxf: vx.VortexFile):
     df = vxf.to_polars().select("index", "value").filter(pl.col("index") < 100).collect()
     assert df.columns == ["index", "value"]
     assert len(df) == 100
+
+
+@pytest.fixture(scope="session")
+def small_vxf(tmpdir_factory):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
+    fname = tmpdir_factory.mktemp("data") / "polars_small.vortex"  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+    table = pa.table({"a": pa.array([1, 2, 3]), "s": pa.array(["xa", "yb", "zc"])})
+    vx.io.write(table, str(fname))  # pyright: ignore[reportUnknownArgumentType]
+    return vx.open(str(fname))  # pyright: ignore[reportUnknownArgumentType]
+
+
+def test_to_polars_with_unsupported_predicate(small_vxf: vx.VortexFile):
+    # Regression test: predicates that cannot be converted to Vortex expressions (e.g.
+    # str.contains) used to fail the whole query instead of being applied by Polars.
+    df = small_vxf.to_polars().filter(pl.col("s").str.contains("a")).collect()
+    assert df.to_dicts() == [{"a": 1, "s": "xa"}]
+
+
+def test_to_polars_with_unsupported_predicate_and_limit(small_vxf: vx.VortexFile):
+    # The row limit must apply after a fallback filter, not before.
+    df = small_vxf.to_polars().filter(pl.col("s").str.contains("a") | (pl.col("a") > 1)).head(2).collect()
+    assert len(df) == 2

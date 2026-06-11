@@ -263,8 +263,9 @@ where
         DataType::Time64(time_unit) => TemporalArray::new_time(arr, time_unit.into()).into(),
         DataType::Date32 => TemporalArray::new_date(arr, TimeUnit::Days).into(),
         DataType::Date64 => TemporalArray::new_date(arr, TimeUnit::Milliseconds).into(),
-        DataType::Duration(_) => unimplemented!(),
-        DataType::Interval(_) => unimplemented!(),
+        DataType::Duration(_) | DataType::Interval(_) => {
+            vortex_bail!("Arrow data type not yet supported: {}", value.data_type())
+        }
         _ => vortex_panic!("Invalid temporal type: {}", value.data_type()),
     })
 }

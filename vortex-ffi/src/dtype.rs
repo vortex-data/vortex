@@ -369,7 +369,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_from_arrow_schema(
         let ffi_schema = unsafe { ptr::replace(schema, FFI_ArrowSchema::empty()) };
         let arrow_schema = Schema::try_from(&ffi_schema)?;
         drop(ffi_schema);
-        Ok(vx_dtype::new(Arc::new(DType::from_arrow(&arrow_schema))))
+        Ok(vx_dtype::new(Arc::new(DType::from_arrow(&arrow_schema)?)))
     })
 }
 

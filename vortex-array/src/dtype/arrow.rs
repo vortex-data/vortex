@@ -45,8 +45,9 @@ use crate::extension::datetime::Timestamp;
 
 /// Trait for converting Arrow types to Vortex types.
 pub trait FromArrowType<T>: Sized {
-    /// Convert the Arrow type to a Vortex type.
-    fn from_arrow(value: T) -> Self;
+    /// Convert the Arrow type to a Vortex type, returning an error for Arrow types that have
+    /// no Vortex equivalent (e.g. `Duration`, `Interval`, `FixedSizeBinary`).
+    fn from_arrow(value: T) -> VortexResult<Self>;
 }
 
 /// Trait for converting Vortex types to Arrow types.
@@ -125,41 +126,44 @@ impl TryFrom<TimeUnit> for ArrowTimeUnit {
 }
 
 impl FromArrowType<SchemaRef> for DType {
-    fn from_arrow(value: SchemaRef) -> Self {
+    fn from_arrow(value: SchemaRef) -> VortexResult<Self> {
         Self::from_arrow(value.as_ref())
     }
 }
 
 impl FromArrowType<&Schema> for DType {
-    fn from_arrow(value: &Schema) -> Self {
-        Self::Struct(
-            StructFields::from_arrow(value.fields()),
+    fn from_arrow(value: &Schema) -> VortexResult<Self> {
+        Ok(Self::Struct(
+            StructFields::from_arrow(value.fields())?,
             Nullability::NonNullable, // Must match From<RecordBatch> for Array
-        )
+        ))
     }
 }
 
 impl FromArrowType<&Fields> for StructFields {
-    fn from_arrow(value: &Fields) -> Self {
-        StructFields::from_iter(value.into_iter().map(|f| {
-            (
-                FieldName::from(f.name().as_str()),
-                DType::from_arrow(f.as_ref()),
-            )
-        }))
+    fn from_arrow(value: &Fields) -> VortexResult<Self> {
+        Ok(StructFields::from_iter(
+            value
+                .into_iter()
+                .map(|f| {
+                    DType::from_arrow(f.as_ref())
+                        .map(|dtype| (FieldName::from(f.name().as_str()), dtype))
+                })
+                .collect::<VortexResult<Vec<_>>>()?,
+        ))
     }
 }
 
 impl FromArrowType<(&DataType, Nullability)> for DType {
-    fn from_arrow((data_type, nullability): (&DataType, Nullability)) -> Self {
+    fn from_arrow((data_type, nullability): (&DataType, Nullability)) -> VortexResult<Self> {
         if data_type.is_integer() || data_type.is_floating() {
-            return DType::Primitive(
+            return Ok(DType::Primitive(
                 PType::try_from_arrow(data_type).vortex_expect("arrow float/integer to ptype"),
                 nullability,
-            );
+            ));
         }
 
-        match data_type {
+        Ok(match data_type {
             DataType::Null => DType::Null,
             DataType::Decimal32(precision, scale)
             | DataType::Decimal64(precision, scale)
@@ -189,34 +193,34 @@ impl FromArrowType<(&DataType, Nullability)> for DType {
             | DataType::LargeList(e)
             | DataType::ListView(e)
             | DataType::LargeListView(e) => {
-                DType::List(Arc::new(Self::from_arrow(e.as_ref())), nullability)
+                DType::List(Arc::new(Self::from_arrow(e.as_ref())?), nullability)
             }
             DataType::FixedSizeList(e, size) => DType::FixedSizeList(
-                Arc::new(Self::from_arrow(e.as_ref())),
+                Arc::new(Self::from_arrow(e.as_ref())?),
                 *size as u32,
                 nullability,
             ),
-            DataType::Struct(f) => DType::Struct(StructFields::from_arrow(f), nullability),
+            DataType::Struct(f) => DType::Struct(StructFields::from_arrow(f)?, nullability),
             DataType::Dictionary(_, value_type) => {
-                Self::from_arrow((value_type.as_ref(), nullability))
+                Self::from_arrow((value_type.as_ref(), nullability))?
             }
             DataType::RunEndEncoded(_, value_type) => {
-                Self::from_arrow((value_type.data_type(), nullability))
+                Self::from_arrow((value_type.data_type(), nullability))?
             }
-            _ => unimplemented!("Arrow data type not yet supported: {:?}", data_type),
-        }
+            _ => vortex_bail!("Arrow data type not yet supported: {:?}", data_type),
+        })
     }
 }
 
 impl FromArrowType<&Field> for DType {
-    fn from_arrow(field: &Field) -> Self {
+    fn from_arrow(field: &Field) -> VortexResult<Self> {
         if field
             .metadata()
             .get("ARROW:extension:name")
             .map(|s| s.as_str())
             == Some("arrow.parquet.variant")
         {
-            return DType::Variant(field.is_nullable().into());
+            return Ok(DType::Variant(field.is_nullable().into()));
         }
         Self::from_arrow((field.data_type(), field.is_nullable().into()))
     }
@@ -569,7 +573,8 @@ mod test {
         );
 
         let arrow_dtype = original_dtype.to_arrow_dtype().unwrap();
-        let roundtripped_dtype = DType::from_arrow((&arrow_dtype, Nullability::NonNullable));
+        let roundtripped_dtype =
+            DType::from_arrow((&arrow_dtype, Nullability::NonNullable)).unwrap();
 
         assert_eq!(original_dtype, roundtripped_dtype);
     }
@@ -590,8 +595,25 @@ mod test {
             DType::struct_([("\u{7}=outer", inner_struct)], Nullability::NonNullable);
 
         let arrow_dtype = original_dtype.to_arrow_dtype().unwrap();
-        let roundtripped_dtype = DType::from_arrow((&arrow_dtype, Nullability::NonNullable));
+        let roundtripped_dtype =
+            DType::from_arrow((&arrow_dtype, Nullability::NonNullable)).unwrap();
 
         assert_eq!(original_dtype, roundtripped_dtype);
+    }
+
+    #[rstest]
+    #[case(DataType::Duration(arrow_schema::TimeUnit::Microsecond))]
+    #[case(DataType::Interval(arrow_schema::IntervalUnit::DayTime))]
+    #[case(DataType::FixedSizeBinary(3))]
+    fn test_unsupported_arrow_types_error(#[case] arrow_dtype: DataType) {
+        // Unsupported Arrow types must produce an error, not a panic.
+        let err = DType::from_arrow((&arrow_dtype, Nullability::Nullable))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("not yet supported"), "{err}");
+
+        // The same holds when the type is nested inside a struct field.
+        let fields = Fields::from(vec![Field::new("x", arrow_dtype, true)]);
+        assert!(StructFields::from_arrow(&fields).is_err());
     }
 }

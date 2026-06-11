@@ -89,6 +89,6 @@ pub(crate) unsafe fn from_arrow(ffi_schema: *mut u8, non_nullable: bool) -> Resu
     let arrow_schema = unsafe { FFI_ArrowSchema::from_raw(ffi_schema as *mut FFI_ArrowSchema) };
     let arrow_dtype = arrow_schema::DataType::try_from(&arrow_schema)?;
     Ok(Box::new(DType {
-        inner: RustDType::from_arrow(&Field::new("_", arrow_dtype, !non_nullable)),
+        inner: RustDType::from_arrow(&Field::new("_", arrow_dtype, !non_nullable))?,
     }))
 }

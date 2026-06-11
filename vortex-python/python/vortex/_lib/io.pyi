@@ -10,7 +10,7 @@ def read_url(
     url: str,
     *,
     store: ObjectStore | None = None,
-    projection: list[str] | list[int] | None = None,
+    projection: list[str] | None = None,
     row_filter: Expr | None = None,
     indices: Array | None = None,
     row_range: tuple[int, int] | None = None,

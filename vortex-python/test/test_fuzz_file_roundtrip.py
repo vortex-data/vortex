@@ -65,8 +65,7 @@ FLAT_TYPES: list[pa.DataType] = INT_TYPES + [
     pa.binary(),
     pa.large_binary(),
     pa.binary_view(),
-    # pa.binary(3) (fixed-size binary) excluded: DType::from_arrow panics with
-    # `unimplemented!()` (vortex-array/src/dtype/arrow.rs) instead of raising a clean error.
+    pa.binary(3),  # fixed-size binary: unsupported by Vortex, must raise cleanly
     pa.decimal128(38, 9),
     pa.decimal128(5, 2),
     pa.date32(),
@@ -80,8 +79,7 @@ FLAT_TYPES: list[pa.DataType] = INT_TYPES + [
     pa.timestamp("us"),
     pa.timestamp("ns"),
     pa.timestamp("us", tz="UTC"),
-    # pa.duration(..) excluded: DType::from_arrow panics with `unimplemented!()`
-    # (vortex-array/src/dtype/arrow.rs) instead of raising a clean error.
+    pa.duration("us"),  # unsupported by Vortex, must raise cleanly
     pa.dictionary(pa.int32(), pa.string()),
 ]
 
@@ -210,18 +208,10 @@ def arrow_tables(draw: st.DrawFn) -> pa.Table:
     table = pa.table(dict(zip(names, columns)))
 
     # Sometimes re-chunk so the writer sees multiple batches.
-    # TODO(https://github.com/vortex-data/vortex/issues): sliced fixed_size_list<struct>
-    # arrays panic in from_arrow with "end <= self.len()", so don't slice those.
-    if nrows > 1 and not any(_has_fsl_of_struct(t) for t in types) and draw(st.booleans()):
+    if nrows > 1 and draw(st.booleans()):
         split = draw(st.integers(1, nrows - 1))
         table = pa.concat_tables([table.slice(0, split), table.slice(split)])
     return table
-
-
-def _has_fsl_of_struct(t: pa.DataType) -> bool:
-    if pa.types.is_fixed_size_list(t) and pa.types.is_struct(t.value_type):
-        return True
-    return any(_has_fsl_of_struct(t.field(i).type) for i in range(t.num_fields))
 
 
 @st.composite
@@ -299,29 +289,15 @@ def assert_tables_equal(expected: pa.Table, actual: pa.Table) -> None:
 
 # Types that Vortex cleanly reports as unsupported are recorded here (and the example is
 # skipped) so the fuzzer keeps exploring instead of failing on a known clean error.
-UNSUPPORTED_MARKERS = ("not implemented", "unsupported", "not supported", "unimplemented")
+UNSUPPORTED_MARKERS = ("not implemented", "unsupported", "not supported", "not yet supported", "unimplemented")
 SKIPPED_UNSUPPORTED: set[str] = set()
-
-
-def _has_struct_of_struct(t: pa.DataType) -> bool:
-    if pa.types.is_struct(t) and any(pa.types.is_struct(f.type) for f in t):
-        return True
-    return any(_has_struct_of_struct(t.field(i).type) for i in range(t.num_fields))
 
 
 def vortex_array_or_skip(table: pa.Table) -> vx.Array:
     """Convert to a Vortex array, skipping the example on a clean "unsupported type" error."""
-    # TODO(https://github.com/vortex-data/vortex/issues): writing an empty table with a
-    # top-level struct column panics with "must have visited at least one chunk"
-    # (vortex-layout/src/layouts/collect.rs). Remove this guard once fixed.
-    assume(not (table.num_rows == 0 and any(pa.types.is_struct(f.type) for f in table.schema)))
-    # TODO(https://github.com/vortex-data/vortex/issues): a struct field directly nested in
-    # another struct loses its nullability on file roundtrip when it contains nulls
-    # (debug_assert in vortex-array/src/stream/adapter.rs). Remove this guard once fixed.
-    assume(not any(_has_struct_of_struct(f.type) for f in table.schema))
     try:
         return vx.array(table)
-    except ValueError as e:
+    except (ValueError, RuntimeError) as e:
         msg = str(e).lower()
         if any(marker in msg for marker in UNSUPPORTED_MARKERS):
             SKIPPED_UNSUPPORTED.add(str(table.schema))

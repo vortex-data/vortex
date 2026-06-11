@@ -115,7 +115,7 @@ pub async fn convert_parquet_file_to_vortex(
 ) -> anyhow::Result<()> {
     let file = File::open(parquet_path).await?;
     let builder = ParquetRecordBatchStreamBuilder::new(file).await?;
-    let dtype = DType::from_arrow(builder.schema().as_ref());
+    let dtype = DType::from_arrow(builder.schema().as_ref())?;
 
     let stream = parquet_to_vortex_stream(builder.build()?);
 

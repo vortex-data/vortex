@@ -220,7 +220,8 @@ impl FromDataFusion<ScalarValue> for Scalar {
             ScalarValue::Date32(v)
             | ScalarValue::Time32Second(v)
             | ScalarValue::Time32Millisecond(v) => {
-                let dtype = DType::from_arrow((&value.data_type(), Nullability::Nullable));
+                let dtype = DType::from_arrow((&value.data_type(), Nullability::Nullable))
+                    .vortex_expect("datafusion temporal type to DType");
                 Scalar::try_new(dtype, v.map(vortex::scalar::ScalarValue::from))
                     .vortex_expect("unable to create a time `Scalar`")
             }
@@ -231,7 +232,8 @@ impl FromDataFusion<ScalarValue> for Scalar {
             | ScalarValue::TimestampMillisecond(v, _)
             | ScalarValue::TimestampMicrosecond(v, _)
             | ScalarValue::TimestampNanosecond(v, _) => {
-                let dtype = DType::from_arrow((&value.data_type(), Nullability::Nullable));
+                let dtype = DType::from_arrow((&value.data_type(), Nullability::Nullable))
+                    .vortex_expect("datafusion temporal type to DType");
                 Scalar::try_new(dtype, v.map(vortex::scalar::ScalarValue::from))
                     .vortex_expect("unable to create a time `Scalar`")
             }

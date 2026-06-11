@@ -100,7 +100,8 @@ class VortexDatasource(Datasource):
                 paths,
                 self._columns,
                 self._filter,
-                per_task_row_limit if per_task_row_limit is not None else self._batch_size,
+                self._batch_size,
+                row_limit=per_task_row_limit,
             )
             for paths in partition(parallelism, self._paths)
             if len(paths) > 0
@@ -118,6 +119,7 @@ def _read_task(
     columns: IntoProjection,
     filter: pc.Expression | VortexExpr | None,
     batch_size: int | None,
+    row_limit: int | None = None,
 ) -> ReadTask:
     if not paths:
         raise ValueError("no paths specified")
@@ -128,6 +130,8 @@ def _read_task(
     assert all(s == schema for s in schemas[1:])
 
     num_rows = sum(len(f) for f in files)
+    if row_limit is not None:
+        num_rows = min(num_rows, row_limit)
 
     metadata = BlockMetadata(
         num_rows=num_rows,
@@ -140,13 +144,22 @@ def _read_task(
         # If we could serialize a PyVortexFile and a PyExpr, we could set those up earlier.
 
         vx_filter = ensure_vortex_expression(filter, schema=schema)
+        remaining = row_limit
         for path in paths:
+            if remaining is not None and remaining <= 0:
+                return
             f = vx_open(path)
             for rb in f.to_arrow(columns, expr=vx_filter, batch_size=batch_size):
                 # We would prefer to generate Arrow, but we run into this issue: https://github.com/apache/arrow/issues/47279
                 #
                 # yield pa.Table.from_batches([rb])
                 #
-                yield rb.to_pandas()  # pyright: ignore[reportUnknownMemberType]
+                df = rb.to_pandas()  # pyright: ignore[reportUnknownMemberType]
+                if remaining is not None:
+                    df = df.head(remaining)
+                    remaining -= len(df)
+                yield df
+                if remaining is not None and remaining <= 0:
+                    return
 
     return ReadTask(read, metadata, schema)

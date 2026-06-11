@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use arrow_array::RecordBatchReader;
 use pyo3::exceptions::PyTypeError;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 use pyo3_object_store::PyObjectStore;
@@ -106,9 +107,9 @@ impl PyVortexFile {
         slf: Bound<Self>,
         projection: Option<PyIntoProjection>,
         expr: Option<PyExpr>,
-        limit: Option<u64>,
+        limit: Option<PyLimit>,
         indices: Option<PyArrayRef>,
-        batch_size: Option<usize>,
+        batch_size: Option<PyBatchSize>,
     ) -> PyVortexResult<PyArrayIterator> {
         let vxf = slf.get().vxf.clone();
         let projection = projection.map(|p| p.0);
@@ -118,8 +119,15 @@ impl PyVortexFile {
         slf.py().detach(move || {
             let session = session();
             let mut ctx = session.create_execution_ctx();
-            let builder =
-                scan_builder(&vxf, projection, expr, limit, indices, batch_size, &mut ctx)?;
+            let builder = scan_builder(
+                &vxf,
+                projection,
+                expr,
+                limit.map(|l| l.0),
+                indices,
+                batch_size.map(|b| b.0),
+                &mut ctx,
+            )?;
             Ok(PyArrayIterator::new(Box::new(
                 builder.into_array_iter(&*RUNTIME)?,
             )))
@@ -131,9 +139,9 @@ impl PyVortexFile {
         slf: Bound<Self>,
         projection: Option<PyIntoProjection>,
         expr: Option<PyExpr>,
-        limit: Option<u64>,
+        limit: Option<PyLimit>,
         indices: Option<PyArrayRef>,
-        batch_size: Option<usize>,
+        batch_size: Option<PyBatchSize>,
     ) -> PyVortexResult<PyRepeatedScan> {
         let vxf = slf.get().vxf.clone();
         let projection = projection.map(|p| p.0);
@@ -143,7 +151,16 @@ impl PyVortexFile {
         let scan = slf.py().detach(move || {
             let session = session();
             let mut ctx = session.create_execution_ctx();
-            scan_builder(&vxf, projection, expr, limit, indices, batch_size, &mut ctx)?.prepare()
+            scan_builder(
+                &vxf,
+                projection,
+                expr,
+                limit.map(|l| l.0),
+                indices,
+                batch_size.map(|b| b.0),
+                &mut ctx,
+            )?
+            .prepare()
         })?;
 
         Ok(PyRepeatedScan {
@@ -157,8 +174,8 @@ impl PyVortexFile {
         slf: Bound<Self>,
         projection: Option<PyIntoProjection>,
         expr: Option<PyExpr>,
-        limit: Option<u64>,
-        batch_size: Option<usize>,
+        limit: Option<PyLimit>,
+        batch_size: Option<PyBatchSize>,
     ) -> PyVortexResult<Py<PyAny>> {
         let vxf = slf.get().vxf.clone();
 
@@ -169,11 +186,11 @@ impl PyVortexFile {
                 .with_projection(projection.map(|p| p.0).unwrap_or_else(root));
 
             if let Some(limit) = limit {
-                builder = builder.with_limit(limit);
+                builder = builder.with_limit(limit.0);
             }
 
             if let Some(batch_size) = batch_size {
-                builder = builder.with_split_by(SplitBy::RowCount(batch_size));
+                builder = builder.with_split_by(SplitBy::RowCount(batch_size.0));
             }
 
             let schema = Arc::new(builder.dtype()?.to_arrow_schema()?);
@@ -228,6 +245,40 @@ fn scan_builder(
     }
 
     Ok(builder)
+}
+
+/// A scan `limit` argument: a non-negative integer.
+pub struct PyLimit(u64);
+
+impl<'py> FromPyObject<'_, 'py> for PyLimit {
+    type Error = PyErr;
+
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let value = ob.extract::<i64>()?;
+        u64::try_from(value)
+            .map(PyLimit)
+            .map_err(|_| PyValueError::new_err(format!("limit must be non-negative, got {value}")))
+    }
+}
+
+/// A scan `batch_size` argument: a positive integer.
+pub struct PyBatchSize(usize);
+
+impl<'py> FromPyObject<'_, 'py> for PyBatchSize {
+    type Error = PyErr;
+
+    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let value = ob.extract::<i64>()?;
+        usize::try_from(value)
+            .ok()
+            .filter(|v| *v > 0)
+            .map(PyBatchSize)
+            .ok_or_else(|| {
+                PyValueError::new_err(format!(
+                    "batch_size must be a positive integer, got {value}"
+                ))
+            })
+    }
 }
 
 pub struct PyIntoProjection(Expression);

@@ -127,7 +127,7 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:  # pyright: ignore[repor
             else:
                 raise NotImplementedError(f"Unsupported Polars date time unit: {unit}")
 
-            dtype = _dtype.timestamp(unit, tz=tz, nullable=value)  # pyright: ignore[reportAny]
+            dtype = _dtype.timestamp(unit, tz=tz, nullable=value is None)  # pyright: ignore[reportAny]
             return ve.literal(dtype, value)  # pyright: ignore[reportAny]
 
         # Unwrap 'Dyn' scalars, whose type hasn't been established yet.
