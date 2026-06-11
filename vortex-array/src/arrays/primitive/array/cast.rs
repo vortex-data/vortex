@@ -33,6 +33,33 @@ impl PrimitiveData {
         // SAFETY: alignment of Buffer is checked on construction
         unsafe { std::slice::from_raw_parts(raw_slice.cast(), byte_buffer.len() / size_of::<T>()) }
     }
+
+    /// Like [`as_slice`](Self::as_slice), but requires only that `T` match the array's byte
+    /// width rather than its exact ptype, for width-collapsed kernels that gather same-width
+    /// values through a single unsigned type.
+    ///
+    /// # Panic
+    ///
+    /// Panics if the widths differ or the array is not backed by host memory.
+    pub(crate) fn as_slice_same_width<T: NativePType>(&self) -> &[T] {
+        if size_of::<T>() != self.ptype().byte_width() {
+            vortex_panic!(
+                "Attempted to get same-width slice of type {} from array of type {}",
+                T::PTYPE,
+                self.ptype()
+            )
+        }
+
+        let byte_buffer = self
+            .buffer
+            .as_host_opt()
+            .vortex_expect("as_slice_same_width must be called on host buffer");
+        let raw_slice = byte_buffer.as_ptr();
+
+        // SAFETY: the buffer's alignment is checked on construction against the declared ptype,
+        // and equal byte width implies equal alignment for native  ptypes.
+        unsafe { std::slice::from_raw_parts(raw_slice.cast(), byte_buffer.len() / size_of::<T>()) }
+    }
 }
 
 #[cfg(test)]

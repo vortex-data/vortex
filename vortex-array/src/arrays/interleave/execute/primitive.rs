@@ -5,10 +5,8 @@
 //! primitive values.
 
 use num_traits::AsPrimitive;
-use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
@@ -16,6 +14,7 @@ use vortex_error::vortex_panic;
 use super::super::Interleave;
 use super::super::InterleaveArrayExt;
 use crate::array::Array;
+use crate::array::ArrayView;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::PrimitiveArrayExt;
@@ -71,22 +70,16 @@ pub(super) fn execute(
     // Gather directly from the typed selector buffers — no intermediate `usize` materialization.
     let array_indices = array.array_indices().as_::<Primitive>();
     let row_indices = array.row_indices().as_::<Primitive>();
+    let value_views: Vec<ArrayView<'_, Primitive>> = (0..num_values)
+        .map(|i| array.value(i).as_::<Primitive>())
+        .collect();
     let gathered: ByteBuffer = match_each_unsigned_integer_ptype!(gather_ptype, |W| {
-        // View each value's bytes as the same-width unsigned type, zero-copy and without
-        // constructing intermediate arrays (which costs at high fan-out).
-        let value_buffers: Vec<Buffer<W>> = (0..num_values)
-            .map(|i| {
-                let value = array.value(i).as_::<Primitive>();
-                Buffer::from_byte_buffer(
-                    value
-                        .buffer_handle()
-                        .as_host_opt()
-                        .vortex_expect("canonical primitive value must be host memory")
-                        .clone(),
-                )
-            })
+        // Borrow each value's bytes as the same-width unsigned type: no clones, no intermediate
+        // arrays (both cost at high fan-out).
+        let value_slices: Vec<&[W]> = value_views
+            .iter()
+            .map(|v| v.as_slice_same_width::<W>())
             .collect();
-        let value_slices: Vec<&[W]> = value_buffers.iter().map(|b| b.as_slice()).collect();
         match_each_unsigned_integer_ptype!(array_indices.ptype(), |A| {
             match_each_unsigned_integer_ptype!(row_indices.ptype(), |R| {
                 gather(

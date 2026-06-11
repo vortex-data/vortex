@@ -3,7 +3,6 @@
 
 #![expect(clippy::unwrap_used)]
 
-use arrow_array::Array as ArrowArray;
 use divan::Bencher;
 use rand::RngExt;
 use rand::SeedableRng;
@@ -100,7 +99,7 @@ fn f64_values(num_branches: usize, len: usize) -> Vec<Buffer<f64>> {
 
 /// Benches executing a vortex `InterleaveArray` to canonical; construction is untimed.
 /// `execute` consumes the array, so the input array is rebuilt per sample in `with_inputs` to
-/// keep that out of the timed region (arrow's `interleave` borrows its inputs).
+/// keep that out of the timed region.
 fn bench_vortex(bencher: Bencher, values: Vec<ArrayRef>, num_branches: usize, len: usize) {
     let (array_indices, row_indices) = selectors(num_branches, len);
     let session = VortexSession::empty();
@@ -118,24 +117,6 @@ fn bench_vortex(bencher: Bencher, values: Vec<ArrayRef>, num_branches: usize, le
             )
         })
         .bench_values(|(array, mut ctx)| array.execute::<Canonical>(&mut ctx));
-}
-
-/// Benches `arrow_select::interleave::interleave` over the same gather pattern as [`bench_vortex`]
-/// (same selector seed), with arrow's native `&[(usize, usize)]` indices built untimed.
-fn bench_arrow(
-    bencher: Bencher,
-    values: Vec<arrow_array::ArrayRef>,
-    num_branches: usize,
-    len: usize,
-) {
-    let (array_indices, row_indices) = selectors(num_branches, len);
-    let indices: Vec<(usize, usize)> = array_indices
-        .iter()
-        .zip(row_indices.iter())
-        .map(|(&a, &r)| (a as usize, r as usize))
-        .collect();
-    let refs: Vec<&dyn ArrowArray> = values.iter().map(|v| v.as_ref()).collect();
-    bencher.bench(|| arrow_select::interleave::interleave(&refs, &indices));
 }
 
 #[divan::bench(args = [2, 4, 128])]
@@ -163,48 +144,6 @@ fn interleave_f64_large(bencher: Bencher, num_branches: usize) {
         .map(IntoArray::into_array)
         .collect();
     bench_vortex(bencher, values, num_branches, LARGE_ARRAY_SIZE);
-}
-
-#[divan::bench(args = [2, 4, 128])]
-fn arrow_interleave_u32(bencher: Bencher, num_branches: usize) {
-    let values = u32_values(num_branches, ARRAY_SIZE)
-        .into_iter()
-        .map(|b| {
-            std::sync::Arc::new(arrow_array::UInt32Array::new(
-                b.into_arrow_scalar_buffer(),
-                None,
-            )) as arrow_array::ArrayRef
-        })
-        .collect();
-    bench_arrow(bencher, values, num_branches, ARRAY_SIZE);
-}
-
-#[divan::bench(args = [2, 4])]
-fn arrow_interleave_u32_large(bencher: Bencher, num_branches: usize) {
-    let values = u32_values(num_branches, LARGE_ARRAY_SIZE)
-        .into_iter()
-        .map(|b| {
-            std::sync::Arc::new(arrow_array::UInt32Array::new(
-                b.into_arrow_scalar_buffer(),
-                None,
-            )) as arrow_array::ArrayRef
-        })
-        .collect();
-    bench_arrow(bencher, values, num_branches, LARGE_ARRAY_SIZE);
-}
-
-#[divan::bench(args = [2, 4])]
-fn arrow_interleave_f64_large(bencher: Bencher, num_branches: usize) {
-    let values = f64_values(num_branches, LARGE_ARRAY_SIZE)
-        .into_iter()
-        .map(|b| {
-            std::sync::Arc::new(arrow_array::Float64Array::new(
-                b.into_arrow_scalar_buffer(),
-                None,
-            )) as arrow_array::ArrayRef
-        })
-        .collect();
-    bench_arrow(bencher, values, num_branches, LARGE_ARRAY_SIZE);
 }
 
 #[divan::bench(args = [2, 4])]
