@@ -45,6 +45,11 @@ broad refactor:
 cargo build --workspace
 ```
 
+cargo build, cargo clippy, cargo nextest run without -p or --workspace don't
+cover crates that are not in "default-members" in Cargo.toml. If you change
+crates that are not in "default-members", build and test them using "-p" or
+"--workspace".
+
 ## Testing
 
 Run tests for the crate or binding you touched before broader checks:

@@ -70,6 +70,52 @@ members = [
     "vortex-geo",
 ]
 exclude = ["java/testfiles", "wasm-test"]
+
+# Benchmark harnesses and fuzzing account for 40% of a cold workspace build
+# and they aren't needed for ordinary builds.
+default-members = [
+    "vortex-array-macros",
+    "vortex-error",
+    "vortex-buffer",
+    "vortex-mask",
+    "vortex-utils",
+    "vortex-session",
+    "vortex-flatbuffers",
+    "vortex-metrics",
+    "vortex-io",
+    "vortex-proto",
+    "vortex-array",
+    "vortex-tensor",
+    "vortex-json",
+    "vortex-compressor",
+    "vortex-btrblocks",
+    "vortex-layout",
+    "vortex-scan",
+    "vortex-file",
+    "vortex-ipc",
+    "vortex",
+    "vortex-datafusion",
+    "vortex-duckdb",
+    "vortex-cuda",
+    "vortex-cuda/cub",
+    "vortex-cuda/ffi",
+    "vortex-cuda/gpu-scan-cli",
+    "vortex-cuda/macros",
+    "vortex-cuda/nvcomp",
+    "vortex-cxx",
+    "vortex-ffi",
+    "vortex-jni",
+    "vortex-python",
+    "vortex-tui",
+    "vortex-web/crate",
+    "vortex-sqllogictest",
+    "vortex-test/compat-gen",
+    "vortex-test/e2e-cuda",
+    "xtask",
+    "encodings/*",
+    "encodings/experimental/*",
+    "vortex-geo",
+]
 resolver = "2"
 
 [workspace.package]

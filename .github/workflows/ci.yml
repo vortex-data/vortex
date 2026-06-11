@@ -134,7 +134,7 @@ jobs:
         run: |
           # Build docs for the whole workspace (aside from vortex-python that is having hard time with the python-docs syntax),
           # including all private docs.
-          cargo doc --profile ci --no-deps --document-private-items --workspace --exclude vortex-python
+          cargo doc --profile ci --no-deps --workspace --document-private-items --workspace --exclude vortex-python
           # nextest doesn't support doc tests, so we run it here
           cargo test --profile ci --doc --workspace --all-features --exclude vortex-cxx --exclude vortex-jni --exclude vortex-ffi --exclude xtask --no-fail-fast
 
@@ -225,19 +225,19 @@ jobs:
       - name: Rustc check
         id: check
         continue-on-error: true
-        run: RUSTFLAGS="-D warnings" cargo check --profile ci --locked --all-features --all-targets
+        run: RUSTFLAGS="-D warnings" cargo check --workspace --profile ci --locked --all-features --all-targets
       - name: Rustc check (release)
         id: check-release
         continue-on-error: true
-        run: RUSTFLAGS="-D warnings" cargo check --locked --all-features --all-targets --release
+        run: RUSTFLAGS="-D warnings" cargo check --workspace --locked --all-features --all-targets --release
       - name: Rust Lint - Clippy All Features
         id: clippy-all
         continue-on-error: true
-        run: cargo clippy --profile ci --locked --all-features --all-targets -- -D warnings
+        run: cargo clippy --workspace --profile ci --locked --all-features --all-targets -- -D warnings
       - name: Rust Lint - Clippy Default Features
         id: clippy-default
         continue-on-error: true
-        run: cargo clippy --profile ci --locked --all-targets -- -D warnings
+        run: cargo clippy --workspace --profile ci --locked --all-targets -- -D warnings
       - name: Check lint results
         if: always()
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
