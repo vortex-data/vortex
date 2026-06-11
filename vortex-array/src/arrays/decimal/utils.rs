@@ -11,85 +11,126 @@ use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::i256;
 
-/// Compute the `(min, max)` of the array's values, interpreted as `T`.
+/// Compute the `(min, max)` of the array's values, widened to [`i256`].
 ///
+/// The values are read as `Src` (their physical storage type) and each bound is upcast to `i256`,
+/// the widest decimal type, so the range can be examined independently of the storage type.
 /// Returns `None` when the array has fewer than two elements, in which case there is nothing to
 /// narrow.
-fn min_max<T: NativeDecimalType>(array: &DecimalArray) -> Option<(T, T)> {
-    match array.buffer::<T>().iter().copied().minmax() {
-        MinMaxResult::MinMax(min, max) => Some((min, max)),
+fn upcast_minmax<Src: NativeDecimalType>(array: &DecimalArray) -> Option<(i256, i256)> {
+    match array.buffer::<Src>().iter().copied().minmax() {
+        MinMaxResult::MinMax(min, max) => Some((
+            min.to_i256()
+                .vortex_expect("native decimal value fits in i256"),
+            max.to_i256()
+                .vortex_expect("native decimal value fits in i256"),
+        )),
         MinMaxResult::NoElements | MinMaxResult::OneElement(_) => None,
     }
 }
 
-/// Attempt to narrow `array` (holding values of type `Src`) to the smaller `Dst` type.
+/// Find the smallest decimal type whose value range contains both `min` and `max`.
 ///
-/// Returns the narrowed array if both `min` and `max` are representable in `Dst`, otherwise `None`.
-fn try_downcast<Src, Dst>(array: &DecimalArray, min: Src, max: Src) -> Option<DecimalArray>
-where
-    Src: NativeDecimalType,
-    Dst: NativeDecimalType,
-{
-    (<Dst as BigCast>::from(min).is_some() && <Dst as BigCast>::from(max).is_some()).then(|| {
-        DecimalArray::new::<Dst>(
-            array
-                .buffer::<Src>()
-                .into_iter()
-                .map(|v| <Dst as BigCast>::from(v).vortex_expect("decimal conversion failure"))
-                .collect(),
-            array.decimal_dtype(),
-            array
-                .validity()
-                .vortex_expect("decimal validity should be derivable"),
-        )
-    })
+/// The native types form a total order (`i8` ⊂ `i16` ⊂ ... ⊂ `i256`), so this scans from smallest
+/// to largest and returns the first that fits. Since every value already fits its own storage type,
+/// the result is never wider than the array's current type.
+fn smallest_fitting_type(min: i256, max: i256) -> DecimalType {
+    fn fits<T: BigCast>(min: i256, max: i256) -> bool {
+        <T as BigCast>::from(min).is_some() && <T as BigCast>::from(max).is_some()
+    }
+
+    if fits::<i8>(min, max) {
+        DecimalType::I8
+    } else if fits::<i16>(min, max) {
+        DecimalType::I16
+    } else if fits::<i32>(min, max) {
+        DecimalType::I32
+    } else if fits::<i64>(min, max) {
+        DecimalType::I64
+    } else if fits::<i128>(min, max) {
+        DecimalType::I128
+    } else {
+        DecimalType::I256
+    }
 }
 
-/// Build the `narrowed_decimal` match from a single ordered list of native decimal types.
+/// Infallibly cast every value of `array` from `Src` to the narrower `Dst`.
 ///
-/// The native types form a total order (each is losslessly representable in the next), so for any
-/// type `T` the set of "smaller" types is exactly the prefix of the list before `T`. The macro
-/// walks the list left to right, accumulating that prefix, and for each type emits a match arm that
-/// tries [`try_downcast`] against every smaller type, smallest first. The first arm (no smaller
-/// types) cannot narrow and is returned as-is.
-macro_rules! narrow_to_smallest {
-    // Entry point: seed the walk with an empty prefix, the full ordered list, and no arms yet.
-    ($array:ident) => {
-        narrow_to_smallest!(@build $array; smaller: [];
-            rest: [(i8, I8), (i16, I16), (i32, I32), (i64, I64), (i128, I128), (i256, I256)];
-            arms: [])
-    };
-
-    // List exhausted: emit the assembled match.
-    (@build $array:ident; smaller: $smaller:tt; rest: []; arms: [$($arm:tt)*]) => {
-        match $array.values_type() {
-            $($arm)*
-        }
-    };
-
-    // Head type has no smaller types: it cannot be narrowed.
-    (@build $array:ident; smaller: []; rest: [($t:ty, $variant:ident) $(, $rest:tt)*]; arms: [$($arm:tt)*]) => {
-        narrow_to_smallest!(@build $array; smaller: [$t]; rest: [$($rest),*];
-            arms: [$($arm)* DecimalType::$variant => $array,])
-    };
-
-    // Head type with a non-empty prefix of smaller types: try each, smallest first.
-    (@build $array:ident; smaller: [$($smaller:ty),+]; rest: [($t:ty, $variant:ident) $(, $rest:tt)*]; arms: [$($arm:tt)*]) => {
-        narrow_to_smallest!(@build $array; smaller: [$($smaller,)+ $t]; rest: [$($rest),*];
-            arms: [$($arm)*
-                DecimalType::$variant => match min_max::<$t>(&$array) {
-                    None => $array,
-                    Some((min, max)) => Option::<DecimalArray>::None
-                        $(.or_else(|| try_downcast::<$t, $smaller>(&$array, min, max)))+
-                        .unwrap_or($array),
-                },
-            ])
-    };
+/// The caller must have established that all values fit in `Dst` (see [`smallest_fitting_type`]),
+/// so the per-element conversion cannot fail.
+fn cast_values<Src: NativeDecimalType, Dst: NativeDecimalType>(
+    array: &DecimalArray,
+) -> DecimalArray {
+    DecimalArray::new::<Dst>(
+        array
+            .buffer::<Src>()
+            .into_iter()
+            .map(|v| <Dst as BigCast>::from(v).vortex_expect("value fits the chosen decimal type"))
+            .collect(),
+        array.decimal_dtype(),
+        array
+            .validity()
+            .vortex_expect("decimal validity should be derivable"),
+    )
 }
 
 /// Attempt to narrow the decimal array to the smallest supported type that fits its values.
+///
+/// First the value range is computed as [`i256`], then the smallest fitting type is chosen, and
+/// finally the array is cast to that type via an infallible double dispatch over the source and
+/// target types.
 pub fn narrowed_decimal(decimal_array: DecimalArray) -> DecimalArray {
-    narrow_to_smallest!(decimal_array)
+    // Step 1: compute the value range, widened to i256, dispatching on the storage type.
+    let minmax = match decimal_array.values_type() {
+        DecimalType::I8 => upcast_minmax::<i8>(&decimal_array),
+        DecimalType::I16 => upcast_minmax::<i16>(&decimal_array),
+        DecimalType::I32 => upcast_minmax::<i32>(&decimal_array),
+        DecimalType::I64 => upcast_minmax::<i64>(&decimal_array),
+        DecimalType::I128 => upcast_minmax::<i128>(&decimal_array),
+        DecimalType::I256 => upcast_minmax::<i256>(&decimal_array),
+    };
+    let Some((min, max)) = minmax else {
+        return decimal_array;
+    };
+
+    // Step 2: pick the smallest type that can hold the whole range.
+    let target = smallest_fitting_type(min, max);
+
+    // Step 3: infallibly cast to the target. The outer match selects the source type, the inner
+    // match selects the (smaller) target type; equal-or-wider targets need no work.
+    match decimal_array.values_type() {
+        DecimalType::I8 => decimal_array,
+        DecimalType::I16 => match target {
+            DecimalType::I8 => cast_values::<i16, i8>(&decimal_array),
+            _ => decimal_array,
+        },
+        DecimalType::I32 => match target {
+            DecimalType::I8 => cast_values::<i32, i8>(&decimal_array),
+            DecimalType::I16 => cast_values::<i32, i16>(&decimal_array),
+            _ => decimal_array,
+        },
+        DecimalType::I64 => match target {
+            DecimalType::I8 => cast_values::<i64, i8>(&decimal_array),
+            DecimalType::I16 => cast_values::<i64, i16>(&decimal_array),
+            DecimalType::I32 => cast_values::<i64, i32>(&decimal_array),
+            _ => decimal_array,
+        },
+        DecimalType::I128 => match target {
+            DecimalType::I8 => cast_values::<i128, i8>(&decimal_array),
+            DecimalType::I16 => cast_values::<i128, i16>(&decimal_array),
+            DecimalType::I32 => cast_values::<i128, i32>(&decimal_array),
+            DecimalType::I64 => cast_values::<i128, i64>(&decimal_array),
+            _ => decimal_array,
+        },
+        DecimalType::I256 => match target {
+            DecimalType::I8 => cast_values::<i256, i8>(&decimal_array),
+            DecimalType::I16 => cast_values::<i256, i16>(&decimal_array),
+            DecimalType::I32 => cast_values::<i256, i32>(&decimal_array),
+            DecimalType::I64 => cast_values::<i256, i64>(&decimal_array),
+            DecimalType::I128 => cast_values::<i256, i128>(&decimal_array),
+            _ => decimal_array,
+        },
+    }
 }
 
 #[cfg(test)]
@@ -139,6 +180,18 @@ mod tests {
         let array = DecimalArray::new(
             buffer![1i32],
             DecimalDType::new(9, 2),
+            Validity::NonNullable,
+        );
+        assert_eq!(narrowed_decimal(array).values_type(), DecimalType::I32);
+    }
+
+    #[test]
+    fn narrows_from_widest_type() {
+        // i256 values that fit within i32 (but not i16) should land on i32, exercising the i256
+        // upcast and the widest source dispatch arm.
+        let array = DecimalArray::new(
+            buffer![i256::from_i128(-100_000), i256::from_i128(100_000)],
+            DecimalDType::new(76, 2),
             Validity::NonNullable,
         );
         assert_eq!(narrowed_decimal(array).values_type(), DecimalType::I32);
