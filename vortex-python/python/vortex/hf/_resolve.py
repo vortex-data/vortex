@@ -107,10 +107,8 @@ class HFLocation:
             segments = segments[1:]
 
         if len(segments) < 2:
-            raise ValueError(
-                f"invalid Hugging Face URL {url!r}: expected "
-                f"hf://[datasets/|spaces/]namespace/name[@revision]/path/in/repo"
-            )
+            expected = "hf://[datasets/|spaces/]namespace/name[@revision]/path/in/repo"
+            raise ValueError(f"invalid Hugging Face URL {url!r}: expected {expected}")
 
         namespace = segments[0]
         name, _, revision = segments[1].partition("@")
@@ -158,12 +156,12 @@ def _client_options(url: str, client_options: ClientConfig | None, explicit_toke
     if client_options is not None:
         options.update(client_options)
     if url.startswith("http://"):
-        options.setdefault("allow_http", True)
+        _ = options.setdefault("allow_http", True)
     resolved = token(explicit_token)
     if resolved is not None:
         headers = {str(k): v for k, v in options.get("default_headers", {}).items()}
-        headers.setdefault("authorization", f"Bearer {resolved}")
-        options["default_headers"] = headers  # pyright: ignore
+        _ = headers.setdefault("authorization", f"Bearer {resolved}")
+        options["default_headers"] = headers  # pyright: ignore[reportGeneralTypeIssues]
     return options or None
 
 

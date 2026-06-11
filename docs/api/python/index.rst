@@ -65,6 +65,7 @@ API Reference
    registry
    io
    store
+   hf
    dataset
    runtime
    type_aliases

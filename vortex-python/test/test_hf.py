@@ -60,7 +60,7 @@ def test_parse(url: str, expected: HFLocation) -> None:
 )
 def test_parse_invalid(url: str) -> None:
     with pytest.raises(ValueError):
-        HFLocation.parse(url)
+        _ = HFLocation.parse(url)
 
 
 def test_resolve_url() -> None:
@@ -92,7 +92,7 @@ def test_token_resolution(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     assert hf_token() is None
     assert hf_token("hf_explicit") == "hf_explicit"
 
-    (tmp_path / "token").write_text("hf_from_file\n")
+    _ = (tmp_path / "token").write_text("hf_from_file\n")
     assert hf_token() == "hf_from_file"
 
     monkeypatch.setenv("HF_TOKEN", "hf_from_env")
@@ -108,12 +108,12 @@ def test_store_from_url() -> None:
 
 def test_store_from_url_rejects_store_config() -> None:
     with pytest.raises(ValueError, match="client_options"):
-        vortex.store.from_url("hf://datasets/my-org/my-data", mkdir=True)
+        _ = vortex.store.from_url("hf://datasets/my-org/my-data", mkdir=True)
 
 
 def test_store_and_path_requires_file_path() -> None:
     with pytest.raises(ValueError, match="file path"):
-        store_and_path("hf://datasets/my-org/my-data")
+        _ = store_and_path("hf://datasets/my-org/my-data")
 
 
 def test_auth_header_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -130,7 +130,7 @@ def test_auth_header_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_open_hf_url(local_hub: HubState) -> None:
     table = sample_table()
-    local_hub.publish("datasets/test-org/test-repo/resolve/main/data/train.vortex", table)
+    _ = local_hub.publish("datasets/test-org/test-repo/resolve/main/data/train.vortex", table)
 
     vxf = vx.open("hf://datasets/test-org/test-repo/data/train.vortex")
     assert len(vxf) == table.num_rows
@@ -142,7 +142,7 @@ def test_open_hf_url(local_hub: HubState) -> None:
 
 def test_open_hf_url_revision(local_hub: HubState) -> None:
     table = sample_table(num_rows=10)
-    local_hub.publish("datasets/test-org/test-repo/resolve/v1.0/data.vortex", table)
+    _ = local_hub.publish("datasets/test-org/test-repo/resolve/v1.0/data.vortex", table)
 
     vxf = vx.open("hf://datasets/test-org/test-repo@v1.0/data.vortex")
     assert len(vxf) == 10
@@ -166,10 +166,10 @@ def test_open_hf_url_is_lazy(local_hub: HubState) -> None:
 def test_open_hf_url_with_token(local_hub: HubState, monkeypatch: pytest.MonkeyPatch) -> None:
     local_hub.required_token = "hf_test_token"
     table = sample_table(num_rows=10)
-    local_hub.publish("datasets/test-org/gated-repo/resolve/main/data.vortex", table)
+    _ = local_hub.publish("datasets/test-org/gated-repo/resolve/main/data.vortex", table)
 
     with pytest.raises(Exception, match="401|Unauthorized"):
-        vx.open("hf://datasets/test-org/gated-repo/data.vortex")
+        _ = vx.open("hf://datasets/test-org/gated-repo/data.vortex")
 
     monkeypatch.setenv("HF_TOKEN", "hf_test_token")
     vxf = vx.open("hf://datasets/test-org/gated-repo/data.vortex")
@@ -179,7 +179,7 @@ def test_open_hf_url_with_token(local_hub: HubState, monkeypatch: pytest.MonkeyP
 def test_vortex_hf_open_explicit_token(local_hub: HubState) -> None:
     local_hub.required_token = "hf_explicit_token"
     table = sample_table(num_rows=10)
-    local_hub.publish("datasets/test-org/gated-repo/resolve/main/data.vortex", table)
+    _ = local_hub.publish("datasets/test-org/gated-repo/resolve/main/data.vortex", table)
 
     vxf = vx.hf.open("hf://datasets/test-org/gated-repo/data.vortex", token="hf_explicit_token")
     assert len(vxf) == 10

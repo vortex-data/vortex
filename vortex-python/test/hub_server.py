@@ -19,6 +19,7 @@ from typing import ClassVar
 from urllib.parse import unquote, urlsplit
 
 import pyarrow as pa
+from typing_extensions import override
 
 import vortex as vx
 
@@ -61,9 +62,10 @@ class HubState:
 class HubRequestHandler(BaseHTTPRequestHandler):
     """Serves files from a directory with HTTP Range support, like the Hub's resolve endpoint."""
 
-    protocol_version = "HTTP/1.1"
+    protocol_version: str = "HTTP/1.1"
     state: ClassVar[HubState]  # assigned on the handler subclass per server
 
+    @override
     def log_message(self, format: str, *args: object) -> None:  # noqa: A002
         pass
 
@@ -121,7 +123,7 @@ class HubRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
         self.end_headers()
         if send_body:
-            self.wfile.write(body)
+            _ = self.wfile.write(body)
         self._record(status, len(body) if send_body else 0)
 
 
