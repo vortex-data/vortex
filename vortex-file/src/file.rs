@@ -12,7 +12,7 @@ use std::sync::OnceLock;
 
 use itertools::Itertools;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
+use vortex_array::Columnar;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
@@ -245,12 +245,16 @@ impl VortexFile {
         let applied = substitute_row_count(applied, &row_count_replacement)?;
 
         let mut ctx = self.session.create_execution_ctx();
-        let result = applied
-            .execute::<Canonical>(&mut ctx)?
-            .into_bool()
-            .into_array()
-            .execute_scalar(0, &mut ctx)?;
-        Ok(result.as_bool().value() == Some(true))
+        Ok(match applied.execute::<Columnar>(&mut ctx)? {
+            Columnar::Constant(s) => s.scalar().as_bool().value() == Some(true),
+            Columnar::Canonical(c) => {
+                c.into_array()
+                    .execute_scalar(0, &mut ctx)?
+                    .as_bool()
+                    .value()
+                    == Some(true)
+            }
+        })
     }
 
     pub fn splits(&self) -> VortexResult<Vec<Range<u64>>> {
