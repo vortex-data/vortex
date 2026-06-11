@@ -104,7 +104,9 @@ impl BinaryCombined for Mean {
         let sum = sum_cast.as_primitive().typed_value::<f64>();
         let count = count_cast.as_primitive().typed_value::<f64>();
         let value = match (sum, count) {
-            (None, _) | (_, None) | (_, Some(0.0)) => return Ok(Scalar::null(target)), // Sum overflowed
+            (None, _) | (_, None) => return Ok(Scalar::null(target)), // Sum overflowed
+            // A count of zero yields 0/0 = NaN, matching the array `finalize` path: nulls are
+            // skipped during accumulation, so an all-null input is an empty mean, not null.
             (Some(s), Some(c)) => s / c,
         };
         Ok(Scalar::primitive(value, Nullability::Nullable))
@@ -230,11 +232,11 @@ mod tests {
     }
 
     #[test]
-    fn mean_all_null_returns_null() -> VortexResult<()> {
+    fn mean_all_null_returns_nan() -> VortexResult<()> {
         let array = PrimitiveArray::from_option_iter::<f64, _>([None, None, None]).into_array();
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let result = mean(&array, &mut ctx)?;
-        assert_eq!(result.as_primitive().as_::<f64>(), None);
+        assert!(result.as_primitive().as_::<f64>().is_some_and(f64::is_nan));
         Ok(())
     }
 
