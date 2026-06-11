@@ -9,24 +9,27 @@ use crate::arrays::DecimalArray;
 use crate::dtype::BigCast;
 use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
+use crate::dtype::ToI256;
 use crate::dtype::i256;
+use crate::match_each_decimal_value_type;
 
 /// Compute the `(min, max)` of the array's values, widened to [`i256`].
 ///
-/// The values are read as `Src` (their physical storage type) and each bound is upcast to `i256`,
-/// the widest decimal type, so the range can be examined independently of the storage type.
-/// Returns `None` when the array has fewer than two elements, in which case there is nothing to
-/// narrow.
-fn upcast_minmax<Src: NativeDecimalType>(array: &DecimalArray) -> Option<(i256, i256)> {
-    match array.buffer::<Src>().iter().copied().minmax() {
-        MinMaxResult::MinMax(min, max) => Some((
-            min.to_i256()
-                .vortex_expect("native decimal value fits in i256"),
-            max.to_i256()
-                .vortex_expect("native decimal value fits in i256"),
-        )),
-        MinMaxResult::NoElements | MinMaxResult::OneElement(_) => None,
-    }
+/// The values are read as their physical storage type and each bound is upcast to `i256`, the
+/// widest decimal type, so the range can be examined independently of the storage type. Returns
+/// `None` when the array has fewer than two elements, in which case there is nothing to narrow.
+fn upcast_minmax(array: &DecimalArray) -> Option<(i256, i256)> {
+    match_each_decimal_value_type!(array.values_type(), |Src| {
+        match array.buffer::<Src>().iter().copied().minmax() {
+            MinMaxResult::MinMax(min, max) => Some((
+                min.to_i256()
+                    .vortex_expect("native decimal value fits in i256"),
+                max.to_i256()
+                    .vortex_expect("native decimal value fits in i256"),
+            )),
+            MinMaxResult::NoElements | MinMaxResult::OneElement(_) => None,
+        }
+    })
 }
 
 /// Find the smallest decimal type whose value range contains both `min` and `max`.
@@ -54,7 +57,7 @@ fn smallest_fitting_type(min: i256, max: i256) -> DecimalType {
     }
 }
 
-/// Infallibly cast every value of `array` from `Src` to the narrower `Dst`.
+/// Infallibly cast every value of `array` from `Src` to `Dst`.
 ///
 /// The caller must have established that all values fit in `Dst` (see [`smallest_fitting_type`]),
 /// so the per-element conversion cannot fail.
@@ -75,62 +78,19 @@ fn cast_values<Src: NativeDecimalType, Dst: NativeDecimalType>(
 }
 
 /// Attempt to narrow the decimal array to the smallest supported type that fits its values.
-///
-/// First the value range is computed as [`i256`], then the smallest fitting type is chosen, and
-/// finally the array is cast to that type via an infallible double dispatch over the source and
-/// target types.
 pub fn narrowed_decimal(decimal_array: DecimalArray) -> DecimalArray {
-    // Step 1: compute the value range, widened to i256, dispatching on the storage type.
-    let minmax = match decimal_array.values_type() {
-        DecimalType::I8 => upcast_minmax::<i8>(&decimal_array),
-        DecimalType::I16 => upcast_minmax::<i16>(&decimal_array),
-        DecimalType::I32 => upcast_minmax::<i32>(&decimal_array),
-        DecimalType::I64 => upcast_minmax::<i64>(&decimal_array),
-        DecimalType::I128 => upcast_minmax::<i128>(&decimal_array),
-        DecimalType::I256 => upcast_minmax::<i256>(&decimal_array),
-    };
-    let Some((min, max)) = minmax else {
+    let source = decimal_array.values_type();
+    let Some((min, max)) = upcast_minmax(&decimal_array) else {
         return decimal_array;
     };
-
-    // Step 2: pick the smallest type that can hold the whole range.
     let target = smallest_fitting_type(min, max);
-
-    // Step 3: infallibly cast to the target. The outer match selects the source type, the inner
-    // match selects the (smaller) target type; equal-or-wider targets need no work.
-    match decimal_array.values_type() {
-        DecimalType::I8 => decimal_array,
-        DecimalType::I16 => match target {
-            DecimalType::I8 => cast_values::<i16, i8>(&decimal_array),
-            _ => decimal_array,
-        },
-        DecimalType::I32 => match target {
-            DecimalType::I8 => cast_values::<i32, i8>(&decimal_array),
-            DecimalType::I16 => cast_values::<i32, i16>(&decimal_array),
-            _ => decimal_array,
-        },
-        DecimalType::I64 => match target {
-            DecimalType::I8 => cast_values::<i64, i8>(&decimal_array),
-            DecimalType::I16 => cast_values::<i64, i16>(&decimal_array),
-            DecimalType::I32 => cast_values::<i64, i32>(&decimal_array),
-            _ => decimal_array,
-        },
-        DecimalType::I128 => match target {
-            DecimalType::I8 => cast_values::<i128, i8>(&decimal_array),
-            DecimalType::I16 => cast_values::<i128, i16>(&decimal_array),
-            DecimalType::I32 => cast_values::<i128, i32>(&decimal_array),
-            DecimalType::I64 => cast_values::<i128, i64>(&decimal_array),
-            _ => decimal_array,
-        },
-        DecimalType::I256 => match target {
-            DecimalType::I8 => cast_values::<i256, i8>(&decimal_array),
-            DecimalType::I16 => cast_values::<i256, i16>(&decimal_array),
-            DecimalType::I32 => cast_values::<i256, i32>(&decimal_array),
-            DecimalType::I64 => cast_values::<i256, i64>(&decimal_array),
-            DecimalType::I128 => cast_values::<i256, i128>(&decimal_array),
-            _ => decimal_array,
-        },
+    if target == source {
+        return decimal_array;
     }
+
+    match_each_decimal_value_type!(source, |Src| {
+        match_each_decimal_value_type!(target, |Dst| { cast_values::<Src, Dst>(&decimal_array) })
+    })
 }
 
 #[cfg(test)]
