@@ -6,7 +6,7 @@ mod constant;
 mod decimal;
 mod grouped;
 mod primitive;
-pub(crate) use grouped::PrimitiveGroupedSumKernel;
+pub(crate) use grouped::PrimitiveGroupedSumEncodingKernel;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;

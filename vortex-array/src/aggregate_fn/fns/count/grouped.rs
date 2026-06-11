@@ -5,6 +5,7 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use super::Count;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -15,7 +16,7 @@ use crate::aggregate_fn::kernels::DynGroupedAggregateKernel;
 use crate::arrays::PrimitiveArray;
 use crate::validity::Validity;
 
-/// Encoding-independent grouped [`Count`](super::Count) kernel.
+/// Encoding-independent grouped [`Count`] kernel.
 #[derive(Debug)]
 pub(crate) struct CountGroupedKernel;
 
@@ -26,7 +27,7 @@ impl DynGroupedAggregateKernel for CountGroupedKernel {
         groups: &GroupedArray,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        if !aggregate_fn.is::<super::Count>() {
+        if !aggregate_fn.is::<Count>() {
             return Ok(None);
         }
         try_grouped_count(groups, ctx)
@@ -35,9 +36,9 @@ impl DynGroupedAggregateKernel for CountGroupedKernel {
 
 /// Count each valid group from the element validity mask.
 ///
-/// The [`Count`](super::Count) partial dtype is non-nullable `U64`, so a null outer group cannot be
-/// represented as a partial state. If any outer group is invalid, this returns `Ok(None)` and lets
-/// the caller use the existing fallback behavior.
+/// The [`Count`] partial dtype is non-nullable `U64`, so a null outer group cannot be represented
+/// as a partial state. If any outer group is invalid, this returns `Ok(None)` and lets the caller
+/// use the existing fallback behavior.
 pub(super) fn try_grouped_count(
     groups: &GroupedArray,
     ctx: &mut ExecutionCtx,

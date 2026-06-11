@@ -5,6 +5,7 @@ use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
+use super::Sum;
 use super::primitive::sum_float_all;
 use super::primitive::sum_signed_all;
 use super::primitive::sum_unsigned_all;
@@ -20,25 +21,25 @@ use crate::arrays::PrimitiveArray;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
 
-/// Grouped [`Sum`](super::Sum) kernel for primitive element arrays.
+/// Encoding-specific grouped [`Sum`] kernel for primitive element arrays.
 #[derive(Debug)]
-pub(crate) struct PrimitiveGroupedSumKernel;
+pub(crate) struct PrimitiveGroupedSumEncodingKernel;
 
-impl DynGroupedAggregateKernel for PrimitiveGroupedSumKernel {
+impl DynGroupedAggregateKernel for PrimitiveGroupedSumEncodingKernel {
     fn grouped_aggregate(
         &self,
         aggregate_fn: &AggregateFnRef,
         groups: &GroupedArray,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        if !aggregate_fn.is::<super::Sum>() {
+        if !aggregate_fn.is::<Sum>() {
             return Ok(None);
         }
         try_grouped_sum(groups, ctx)
     }
 }
 
-/// Grouped [`Sum`](super::Sum) implementation for canonical primitive elements.
+/// Grouped [`Sum`] implementation for canonical primitive elements.
 ///
 /// Reuses the scalar primitive-sum reductions ([`sum_unsigned_all`]/[`sum_signed_all`]/
 /// [`sum_float_all`]) so the per-group semantics match scalar `sum` exactly (overflow saturates to
