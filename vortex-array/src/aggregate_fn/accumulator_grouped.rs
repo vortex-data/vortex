@@ -28,8 +28,10 @@ pub type GroupedAccumulatorRef = Box<dyn DynGroupedAccumulator>;
 
 /// An accumulator used for computing aggregates over dense group ids.
 ///
-/// Group ids are dense `u32` slots in the range `0..num_groups`. The accumulator keeps one partial
-/// state per slot, so ordered and unordered grouping only differ in how the caller assigns ids.
+/// Group ids are caller-assigned `u32` ordinals in the dense range `0..num_groups`. Input batches
+/// may repeat, omit, and reorder those ids, but every id must identify a state slot rather than a
+/// raw group key. The accumulator keeps one partial state per slot, so ordered and unordered
+/// grouping only differ in how the caller assigns ids.
 pub struct GroupedAccumulator<V: AggregateFnVTable> {
     /// The vtable of the aggregate function.
     vtable: V,
@@ -167,6 +169,9 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
 /// aggregate function is not known at compile time.
 pub trait DynGroupedAccumulator: 'static + Send {
     /// Accumulate a values batch into dense group state.
+    ///
+    /// `group_ids` is parallel to `batch`. Each id must be a caller-assigned group ordinal in
+    /// `0..num_groups`; ids may repeat, appear out of order, or be absent from a given batch.
     fn accumulate(
         &mut self,
         batch: &ArrayRef,
@@ -176,6 +181,9 @@ pub trait DynGroupedAccumulator: 'static + Send {
     ) -> VortexResult<()>;
 
     /// Fold columnar partial states into dense group state.
+    ///
+    /// `group_ids` is parallel to `partials` and follows the same dense ordinal contract as
+    /// [`Self::accumulate`].
     fn accumulate_partials(
         &mut self,
         partials: &ArrayRef,

@@ -264,6 +264,16 @@ mod tests {
     }
 
     #[test]
+    fn grouped_count_rejects_out_of_range_group_id() -> VortexResult<()> {
+        let values = PrimitiveArray::new(buffer![1i32, 2], Validity::NonNullable).into_array();
+        let mut acc = GroupedAccumulator::try_new(Count, EmptyOptions, values.dtype().clone())?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
+        assert!(acc.accumulate(&values, &[0, 2], 2, &mut ctx).is_err());
+        Ok(())
+    }
+
+    #[test]
     fn grouped_count_accumulate_partials_and_merge_group() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
         let partials = PrimitiveArray::from_iter([2u64, 3, 5]).into_array();

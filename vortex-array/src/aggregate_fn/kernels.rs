@@ -30,8 +30,9 @@ pub trait DynAggregateKernel: 'static + Send + Sync + Debug {
 /// Partial grouped aggregate output produced by an encoding-specific grouped kernel.
 ///
 /// `group_ids` is parallel to `partials`: each row in `partials` is a partial state for the
-/// corresponding dense group id. The grouped accumulator merges this batch through
-/// `accumulate_partials`.
+/// corresponding dense group ordinal. The ids may repeat, omit, and reorder groups, but must be
+/// valid slots in the accumulator's `0..num_groups` range. The grouped accumulator merges this
+/// batch through `accumulate_partials`.
 #[derive(Clone, Debug)]
 pub struct GroupedAggregateKernelResult {
     group_ids: Buffer<u32>,
@@ -57,13 +58,13 @@ impl GroupedAggregateKernelResult {
 
 /// A pluggable kernel for batch aggregation of many groups.
 ///
-/// The kernel is matched on the encoding of the values array. It receives the same dense group ids
-/// that the caller passed to the grouped accumulator and may aggregate directly in the encoded
-/// domain.
+/// The kernel is matched on the encoding of the values array. It receives the same dense group
+/// ordinals that the caller passed to the grouped accumulator and may aggregate directly in the
+/// encoded domain.
 ///
 /// Return `Ok(None)` if the kernel cannot be applied to the given aggregate function.
 pub trait DynGroupedAggregateKernel: 'static + Send + Sync + Debug {
-    /// Aggregate values into a partial-state batch keyed by dense group id.
+    /// Aggregate values into a partial-state batch keyed by dense group ordinal.
     fn grouped_aggregate(
         &self,
         aggregate_fn: &AggregateFnRef,

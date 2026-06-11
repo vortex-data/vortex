@@ -148,8 +148,9 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
 
     /// Try to accumulate a raw values batch into dense per-group states before decompression.
     ///
-    /// `group_ids` is parallel to `batch` and contains dense ids in `0..states.len()`. Returns
-    /// `true` when the batch was fully handled.
+    /// `group_ids` is parallel to `batch` and contains caller-assigned dense ordinals in
+    /// `0..states.len()`. Ids may repeat, appear out of order, or be absent from the batch.
+    /// Returns `true` when the batch was fully handled.
     fn try_accumulate_grouped(
         &self,
         _states: &mut [Self::Partial],
@@ -162,8 +163,9 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
 
     /// Accumulate a canonical values batch into dense per-group states.
     ///
-    /// `group_ids` is parallel to `batch` and contains dense ids in `0..states.len()`. Returns
-    /// `true` when the batch was fully handled. The provided default preserves universal
+    /// `group_ids` is parallel to `batch` and contains caller-assigned dense ordinals in
+    /// `0..states.len()`. Ids may repeat, appear out of order, or be absent from the batch.
+    /// Returns `true` when the batch was fully handled. The provided default preserves universal
     /// correctness through [`GroupedAccumulator`]'s fallback.
     fn accumulate_grouped(
         &self,
