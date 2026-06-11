@@ -13,6 +13,7 @@ use cudarc::driver::LaunchConfig;
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::result as cuda_driver;
 use futures::future::BoxFuture;
+use futures::future::join;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::arrays::DecimalArray;
@@ -533,10 +534,16 @@ async fn export_binary_buffers(
     validate_binary_offsets(&output_offsets, len, &status, ctx)?;
 
     // One status read covers init_scan and offset validation. Both must pass before gather may
-    // dereference view payloads through the scanned offsets.
-    check_binary_status(&status).await?;
+    // dereference view payloads through the scanned offsets. Enqueue both copies up front so the
+    // readbacks share one stream round-trip; await both so an error cannot drop a copy mid-flight.
+    let status_copy = status.try_to_host()?;
+    let total_copy = output_offsets
+        .slice_typed::<i32>(len..len + 1)
+        .try_to_host()?;
+    let (status_value, total_value) = join(status_copy, total_copy).await;
 
-    let total_bytes = total_binary_bytes(&output_offsets, len).await?;
+    check_binary_status(Buffer::<u32>::from_byte_buffer(status_value?)[0])?;
+    let total_bytes = usize::try_from(Buffer::<i32>::from_byte_buffer(total_value?)[0])?;
     let output_values = gather_binary_values(
         views,
         &data_buffer_ptrs,
@@ -563,8 +570,8 @@ where
     .await
 }
 
-async fn check_binary_status(status: &BufferHandle) -> VortexResult<()> {
-    match Buffer::<u32>::from_byte_buffer(status.try_to_host()?.await?)[0] {
+fn check_binary_status(status: u32) -> VortexResult<()> {
+    match status {
         0 => Ok(()),
         1 => vortex_bail!(
             "cannot export BinaryView as Arrow Binary: a view references an invalid data buffer"
@@ -630,16 +637,6 @@ fn validate_binary_offsets(
     ctx.launch_kernel(&kernel, scan_len, |args| {
         args.arg(&offsets_view).arg(&status_view).arg(&scan_len_u64);
     })
-}
-
-async fn total_binary_bytes(offsets: &BufferHandle, len: usize) -> VortexResult<usize> {
-    let total = Buffer::<i32>::from_byte_buffer(
-        offsets
-            .slice_typed::<i32>(len..len + 1)
-            .try_to_host()?
-            .await?,
-    )[0];
-    usize::try_from(total).map_err(Into::into)
 }
 
 fn gather_binary_values(
