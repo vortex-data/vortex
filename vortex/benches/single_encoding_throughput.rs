@@ -408,28 +408,24 @@ fn bench_dict_decompress_string(bencher: Bencher) {
 #[divan::bench(name = "fsst_compress_string")]
 fn bench_fsst_compress_string(bencher: Bencher) {
     let varbinview_arr =
-        VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005));
-    let fsst_compressor = fsst_train_compressor(&varbinview_arr);
+        VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005)).into_array();
+    let fsst_compressor =
+        fsst_train_compressor(varbinview_arr.clone(), &mut SESSION.create_execution_ctx()).unwrap();
     let nbytes = varbinview_arr.nbytes() as u64;
 
     with_byte_counter(bencher, nbytes)
-        .with_inputs(|| (&varbinview_arr, SESSION.create_execution_ctx()))
-        .bench_refs(|(a, ctx)| fsst_compress(*a, a.len(), a.dtype(), &fsst_compressor, ctx));
+        .with_inputs(|| (varbinview_arr.clone(), SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| fsst_compress(a.clone(), &fsst_compressor, ctx).unwrap());
 }
 
 #[divan::bench(name = "fsst_decompress_string")]
 fn bench_fsst_decompress_string(bencher: Bencher) {
     let varbinview_arr =
-        VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005));
-    let fsst_compressor = fsst_train_compressor(&varbinview_arr);
-    let fsst_array = fsst_compress(
-        &varbinview_arr,
-        varbinview_arr.len(),
-        varbinview_arr.dtype(),
-        &fsst_compressor,
-        &mut SESSION.create_execution_ctx(),
-    );
-    let nbytes = varbinview_arr.into_array().nbytes() as u64;
+        VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005)).into_array();
+    let mut ctx = SESSION.create_execution_ctx();
+    let fsst_compressor = fsst_train_compressor(varbinview_arr.clone(), &mut ctx).unwrap();
+    let fsst_array = fsst_compress(varbinview_arr.clone(), &fsst_compressor, &mut ctx).unwrap();
+    let nbytes = varbinview_arr.nbytes() as u64;
 
     with_byte_counter(bencher, nbytes)
         .with_inputs(|| (&fsst_array, SESSION.create_execution_ctx()))
