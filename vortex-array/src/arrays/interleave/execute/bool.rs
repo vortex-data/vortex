@@ -3,7 +3,6 @@
 
 //! Optimized [`Interleave`] implementation for boolean values.
 
-use num_traits::AsPrimitive;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::get_bit_unchecked;
@@ -58,19 +57,30 @@ pub(super) fn execute(
     }
 
     // Scatter directly from the typed selector buffers — no intermediate `usize` materialization.
+    // Both selectors are dispatched over their concrete unsigned width, and each value is converted
+    // to an index with a plain `as usize` cast on that concrete type (no `AsPrimitive`).
     let array_indices = array.array_indices().as_::<Primitive>();
     let row_indices = array.row_indices().as_::<Primitive>();
     let (values, validity) = match_each_unsigned_integer_ptype!(array_indices.ptype(), |A| {
         match_each_unsigned_integer_ptype!(row_indices.ptype(), |R| {
-            gather(
+            let branches = array_indices.as_slice::<A>();
+            let rows = row_indices.as_slice::<R>();
+            // SAFETY: both accessors are only ever called with `i < len`, and `branches`/`rows`
+            // each have length `len` (the selectors are equal-length and equal to the output len).
+            //
+            // The `as usize` widens a concrete unsigned selector (`u8`..`u64`) to an index. Selector
+            // values index in-memory arrays, so they always fit in `usize`; the cast is lossless.
+            #[allow(clippy::cast_possible_truncation)]
+            let result = gather(
                 len,
                 num_values,
                 &value_bits,
                 &value_validity,
-                array_indices.as_slice::<A>(),
-                row_indices.as_slice::<R>(),
+                |i| unsafe { *branches.get_unchecked(i) as usize },
+                |i| unsafe { *rows.get_unchecked(i) as usize },
                 nullable,
-            )?
+            )?;
+            result
         })
     });
 
@@ -84,8 +94,9 @@ pub(super) fn execute(
     )?))
 }
 
-/// The scatter, monomorphized on the selector integer widths so each `(array_index, row_index)`
-/// pair is read straight from its packed buffer.
+/// The scatter, monomorphized on the selector integer widths via the `branch_at` / `row_at`
+/// accessors so each `(array_index, row_index)` pair is read straight from its packed buffer at its
+/// native width and cast to an index with a concrete `as usize`.
 ///
 /// Output bits (and validity) are produced with [`BitBufferMut::collect_bool`], which packs 64
 /// results per word. For a random-access gather there is no word-level shortcut on the read side —
@@ -96,22 +107,22 @@ pub(super) fn execute(
 /// [`BitBuffer`] per branch so its gather is the same uniform unchecked read rather than a per-row
 /// `Option`/`Mask`-variant dispatch.
 #[allow(clippy::too_many_arguments)]
-fn gather<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
+fn gather(
     len: usize,
     num_values: usize,
     value_bits: &[BitBuffer],
     value_validity: &[Option<Mask>],
-    branches: &[A],
-    rows: &[R],
+    branch_at: impl Fn(usize) -> usize,
+    row_at: impl Fn(usize) -> usize,
     nullable: bool,
 ) -> VortexResult<(BitBufferMut, Option<BitBufferMut>)> {
     // Validate the per-row bounds once up front (returning an error rather than panicking), so the
     // word-packing passes below are tight unchecked loops.
     for i in 0..len {
-        let branch = branches[i].as_();
+        let branch = branch_at(i);
         vortex_ensure!(branch < num_values, "interleave array index out of bounds");
         vortex_ensure!(
-            rows[i].as_() < value_bits[branch].len(),
+            row_at(i) < value_bits[branch].len(),
             "interleave row index out of bounds"
         );
     }
@@ -123,13 +134,12 @@ fn gather<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
         .map(|b| (b.inner().as_ptr(), b.offset()))
         .collect();
 
-    // SAFETY (both passes): `i < len`, `branches`/`rows` have length `len`, and the loop above
-    // proved `branches[i] < num_values` and `rows[i] < value_bits[branches[i]].len()`, which equals
-    // the validity length for that branch. So every `get_unchecked` / `get_bit_unchecked` is in
-    // bounds.
+    // SAFETY (both passes): `i < len`, and the loop above proved `branch_at(i) < num_values` and
+    // `row_at(i) < value_bits[branch_at(i)].len()`, which equals the validity length for that
+    // branch. So every `get_unchecked` / `get_bit_unchecked` is in bounds.
     let values = BitBufferMut::collect_bool(len, |i| unsafe {
-        let (ptr, off) = *val_ptrs.get_unchecked(branches.get_unchecked(i).as_());
-        get_bit_unchecked(ptr, rows.get_unchecked(i).as_() + off)
+        let (ptr, off) = *val_ptrs.get_unchecked(branch_at(i));
+        get_bit_unchecked(ptr, row_at(i) + off)
     });
 
     // A missing per-value mask means every row of that value is valid; validity is only materialized
@@ -148,8 +158,8 @@ fn gather<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
             .map(|b| (b.inner().as_ptr(), b.offset()))
             .collect();
         BitBufferMut::collect_bool(len, |i| unsafe {
-            let (ptr, off) = *vld_ptrs.get_unchecked(branches.get_unchecked(i).as_());
-            get_bit_unchecked(ptr, rows.get_unchecked(i).as_() + off)
+            let (ptr, off) = *vld_ptrs.get_unchecked(branch_at(i));
+            get_bit_unchecked(ptr, row_at(i) + off)
         })
     });
 
