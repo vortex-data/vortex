@@ -285,7 +285,7 @@ impl FileFormatFactory for VortexFormatFactory {
             if let Some(key) = key.strip_prefix("format.") {
                 opts.set(key, value)?;
             } else {
-                tracing::trace!("Ignoring options '{key}'");
+                tracing::trace!("Ignoring option '{key}'");
             }
         }
 
