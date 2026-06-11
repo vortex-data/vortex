@@ -329,15 +329,20 @@ jobs:
       - name: Rust Tests (Windows)
         if: matrix.os == 'windows-x64'
         run: |
+          # TEMP: full Windows workspace serial run while debugging PR #8322 hangs.
+          # Targeted packages and both package-split runs pass quickly, so test whether the
+          # original full workspace only hangs under nextest parallelism.
           cargo nextest run --cargo-profile ci --locked --workspace --all-features --no-fail-fast `
-            --exclude vortex-bench `
+            --test-threads 1 `
+            --exclude vortex-bench --exclude vortex-bench-server `
             --exclude vortex-python --exclude vortex-duckdb `
             --exclude vortex-fuzz --exclude vortex-cuda --exclude vortex-cuda-ffi `
             --exclude vortex-nvcomp --exclude vortex-cub --exclude vortex-test-e2e-cuda `
             --exclude duckdb-bench `
             --exclude lance-bench --exclude datafusion-bench --exclude random-access-bench `
             --exclude compress-bench --exclude xtask --exclude vortex-datafusion `
-            --exclude gpu-scan-cli --exclude vortex-sqllogictest
+            --exclude gpu-scan-cli --exclude vortex-sqllogictest `
+            --status-level all --final-status-level all
       - name: Rust Tests (Other)
         if: matrix.os != 'windows-x64'
         run: |
