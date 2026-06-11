@@ -82,7 +82,7 @@ impl<V: ScalarFnVTable + ScalarFnArrayVTable> ArrayPlugin for ScalarFnArrayPlugi
         let parts = <V as ScalarFnArrayVTable>::deserialize(
             &self.0, dtype, len, metadata, children, session,
         )?;
-        Ok(ScalarFnArray::try_new(
+        Ok(ScalarFnArray::try_new_with_len(
             TypedScalarFnInstance::new(self.0.clone(), parts.options).erased(),
             parts.children,
             len,

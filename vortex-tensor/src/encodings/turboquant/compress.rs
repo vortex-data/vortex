@@ -91,7 +91,6 @@ pub fn turboquant_encode(
     let l2_denorm = normalize_as_l2_denorm(input, ctx)?;
     let normalized = l2_denorm.child_at(0).clone();
     let norms = l2_denorm.child_at(1).clone();
-    let num_rows = l2_denorm.len();
 
     let normalized_ext = normalized
         .as_opt::<Extension>()
@@ -102,7 +101,7 @@ pub fn turboquant_encode(
 
     // SAFETY: TurboQuant is a lossy approximation of the normalized child, so we intentionally
     // bypass the strict normalized-row validation when reattaching the stored norms.
-    Ok(unsafe { L2Denorm::new_array_unchecked(tq, norms, num_rows) }?.into_array())
+    Ok(unsafe { L2Denorm::new_array_unchecked(tq, norms) }?.into_array())
 }
 
 /// Encode a non-nullable, L2-normalized [`Vector`](crate::vector::Vector) extension array into a
@@ -164,9 +163,7 @@ pub unsafe fn turboquant_encode_unchecked(
             dimensions: dimension,
             element_ptype,
         };
-        return Ok(
-            SorfTransform::try_new_array(&sorf_options, empty_padded_vector, 0)?.into_array(),
-        );
+        return Ok(SorfTransform::try_new_array(&sorf_options, empty_padded_vector)?.into_array());
     }
 
     let core = turboquant_quantize_core(&fsl, seed, config.bit_width, config.num_rounds, ctx)?;
@@ -180,7 +177,7 @@ pub unsafe fn turboquant_encode_unchecked(
         dimensions: dimension,
         element_ptype,
     };
-    Ok(SorfTransform::try_new_array(&sorf_options, padded_vector, num_rows)?.into_array())
+    Ok(SorfTransform::try_new_array(&sorf_options, padded_vector)?.into_array())
 }
 
 /// Shared intermediate results from the quantization loop.

@@ -83,7 +83,7 @@ pub fn build_similarity_search_tree<T: NativePType + Into<PValue>>(
     let num_rows = data.len();
     let query_vec = Vector::constant_array(query, num_rows)?;
 
-    let cosine = CosineSimilarity::try_new_array(data, query_vec, num_rows)?.into_array();
+    let cosine = CosineSimilarity::try_new_array(data, query_vec)?.into_array();
 
     let threshold_scalar = Scalar::primitive(threshold, Nullability::NonNullable);
     let threshold_array = ConstantArray::new(threshold_scalar, num_rows).into_array();

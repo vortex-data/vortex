@@ -52,7 +52,7 @@ pub(crate) fn tq_normalize_as_l2_denorm(
     let vector_validity = input.validity()?;
 
     // Use `L2Norm` to calculate the normals for each vector.
-    let norms: ArrayRef = L2Norm::try_new_array(input.clone(), row_count)?
+    let norms: ArrayRef = L2Norm::try_new_array(input.clone())?
         .into_array()
         .execute(ctx)?;
     let primitive_norms: PrimitiveArray = norms.clone().execute(ctx)?;
@@ -84,7 +84,7 @@ pub(crate) fn tq_normalize_as_l2_denorm(
     // match the vector element type and row count. Valid nonzero rows are divided by their stored
     // norm and are unit-norm. Valid zero-norm rows and invalid rows use physical zero placeholders;
     // invalid rows remain guarded by row-level invalid validity.
-    unsafe { L2Denorm::new_array_unchecked(normalized, norms, row_count) }
+    unsafe { L2Denorm::new_array_unchecked(normalized, norms) }
 }
 
 fn normalize_vectors<T>(

@@ -303,8 +303,7 @@ fn sorf_transform_roundtrip_isolation() -> VortexResult<()> {
         dimensions: dim as u32,
         element_ptype: vortex_array::dtype::PType::F32,
     };
-    let sorf_array =
-        SorfTransform::try_new_array(&sorf_options, padded_vector.into_array(), num_rows)?;
+    let sorf_array = SorfTransform::try_new_array(&sorf_options, padded_vector.into_array())?;
 
     let mut ctx = SESSION.create_execution_ctx();
     let result: ExtensionArray = sorf_array.into_array().execute(&mut ctx)?;

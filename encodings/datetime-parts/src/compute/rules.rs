@@ -133,10 +133,9 @@ impl ArrayParentReduceRule<DateTimeParts> for DTPComparisonPushDownRule {
             }
         }
 
-        let result =
-            ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children, parent.len())?
-                .into_array()
-                .optimize()?;
+        let result = ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children)?
+            .into_array()
+            .optimize()?;
 
         Ok(Some(result))
     }

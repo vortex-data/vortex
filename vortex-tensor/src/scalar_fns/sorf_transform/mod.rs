@@ -106,14 +106,10 @@ impl SorfTransform {
     /// `options.element_ptype`.
     ///
     /// [`Vector`]: crate::vector::Vector
-    pub fn try_new_array(
-        options: &SorfOptions,
-        child: ArrayRef,
-        len: usize,
-    ) -> VortexResult<ScalarFnArray> {
+    pub fn try_new_array(options: &SorfOptions, child: ArrayRef) -> VortexResult<ScalarFnArray> {
         validate_sorf_options(options)?;
 
-        ScalarFnArray::try_new(SorfTransform::new(options).erased(), vec![child], len)
+        ScalarFnArray::try_new(SorfTransform::new(options).erased(), vec![child])
     }
 }
 

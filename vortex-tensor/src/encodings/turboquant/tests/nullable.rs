@@ -120,7 +120,7 @@ fn nullable_l2_norm_readthrough() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let encoded = turboquant_encode(ext, &config, &mut ctx)?;
 
-    let norm_sfn = L2Norm::try_new_array(encoded, 5)?;
+    let norm_sfn = L2Norm::try_new_array(encoded)?;
     let norms: PrimitiveArray = norm_sfn.into_array().execute(&mut ctx)?;
 
     let orig_prim = fsl.elements().clone().execute::<PrimitiveArray>(&mut ctx)?;

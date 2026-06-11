@@ -408,11 +408,10 @@ pub mod test_helpers {
         norms: &[T],
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let len = norms.len();
         let normalized = tensor_array(shape, normalized_elements)?;
         let norms =
             PrimitiveArray::new(Buffer::copy_from(norms), Validity::NonNullable).into_array();
-        Ok(L2Denorm::try_new_array(normalized, norms, len, ctx)?.into_array())
+        Ok(L2Denorm::try_new_array(normalized, norms, ctx)?.into_array())
     }
 
     /// Asserts that each element in `actual` is within `1e-10` of the corresponding `expected`

@@ -270,7 +270,6 @@ fn test_fsl_of_fsl_with_nulls() {
 
 #[test]
 fn test_deeply_nested_fsl() {
-    let _len = 2;
     let list_size = 2;
 
     // Create a 3-level nested FSL: FSL[FSL[FSL[i32]]].

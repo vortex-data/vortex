@@ -58,8 +58,7 @@ impl TQDecode {
 
     /// Constructs a [`ScalarFnArray`] that lazily decodes a `TurboQuant` child into a `Vector`.
     pub fn try_new_array(child: ArrayRef) -> VortexResult<ScalarFnArray> {
-        let len = child.len();
-        ScalarFnArray::try_new(TQDecode::new().erased(), vec![child], len)
+        ScalarFnArray::try_new(TQDecode::new().erased(), vec![child])
     }
 }
 

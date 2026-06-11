@@ -66,8 +66,7 @@ impl TQEncode {
         child: ArrayRef,
         config: &TurboQuantConfig,
     ) -> VortexResult<ScalarFnArray> {
-        let len = child.len();
-        ScalarFnArray::try_new(TQEncode::new(config).erased(), vec![child], len)
+        ScalarFnArray::try_new(TQEncode::new(config).erased(), vec![child])
     }
 }
 

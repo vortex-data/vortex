@@ -77,8 +77,7 @@ impl ArrayParentReduceRule<RunEnd> for RunEndScalarFnRule {
         }
 
         let new_values =
-            ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children, values_len)?
-                .into_array();
+            ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children)?.into_array();
 
         Ok(Some(
             unsafe {

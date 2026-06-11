@@ -17,19 +17,17 @@ use crate::scalar_fns::l2_norm::L2Norm;
 
 fn execute_l2_norm(
     input: ArrayRef,
-    len: usize,
     ctx: &mut vortex_array::ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
-    L2Norm::try_new_array(input, len)?.into_array().execute(ctx)
+    L2Norm::try_new_array(input)?.into_array().execute(ctx)
 }
 
 fn execute_cosine_similarity(
     lhs: ArrayRef,
     rhs: ArrayRef,
-    len: usize,
     ctx: &mut vortex_array::ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
-    CosineSimilarity::try_new_array(lhs, rhs, len)?
+    CosineSimilarity::try_new_array(lhs, rhs)?
         .into_array()
         .execute(ctx)
 }
@@ -133,7 +131,7 @@ fn l2_norm_readthrough() -> VortexResult<()> {
     }
 
     // Also verify L2Norm readthrough shortcut works.
-    let norms = execute_l2_norm(encoded, 10, &mut ctx)?;
+    let norms = execute_l2_norm(encoded, &mut ctx)?;
     assert_eq!(norms.as_slice::<f32>(), stored_norms);
     assert_eq!(norms.len(), 10);
     Ok(())
@@ -154,14 +152,14 @@ fn l2_norm_readthrough_is_authoritative_for_lossy_storage() -> VortexResult<()> 
     let (_sorf_child, norms_child) = unwrap_l2denorm(&encoded);
 
     let stored_norms: PrimitiveArray = norms_child.execute(&mut ctx)?;
-    let encoded_norms = execute_l2_norm(encoded.clone(), num_rows, &mut ctx)?;
+    let encoded_norms = execute_l2_norm(encoded.clone(), &mut ctx)?;
     assert_eq!(
         encoded_norms.as_slice::<f32>(),
         stored_norms.as_slice::<f32>()
     );
 
     let decoded = encoded.execute::<ExtensionArray>(&mut ctx)?.into_array();
-    let decoded_norms = execute_l2_norm(decoded, num_rows, &mut ctx)?;
+    let decoded_norms = execute_l2_norm(decoded, &mut ctx)?;
     let max_gap = stored_norms
         .as_slice::<f32>()
         .iter()
@@ -189,10 +187,9 @@ fn cosine_similarity_readthrough_is_authoritative_for_lossy_storage() -> VortexR
     let mut ctx = SESSION.create_execution_ctx();
     let encoded = turboquant_encode(ext, &config, &mut ctx)?;
 
-    let encoded_cos =
-        execute_cosine_similarity(encoded.clone(), encoded.clone(), num_rows, &mut ctx)?;
+    let encoded_cos = execute_cosine_similarity(encoded.clone(), encoded.clone(), &mut ctx)?;
     let decoded = encoded.execute::<ExtensionArray>(&mut ctx)?.into_array();
-    let decoded_cos = execute_cosine_similarity(decoded.clone(), decoded, num_rows, &mut ctx)?;
+    let decoded_cos = execute_cosine_similarity(decoded.clone(), decoded, &mut ctx)?;
 
     let decoded_values = decoded_cos.as_slice::<f32>();
     assert!(
