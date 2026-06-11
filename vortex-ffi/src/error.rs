@@ -27,9 +27,20 @@ pub(crate) fn vx_error_new(message: &str) -> *mut vx_error {
 }
 
 /// Write an error message to `error` which has not been populated before.
+/// A null `error` pointer discards the message.
 pub(crate) fn write_error(error: *mut *mut vx_error, message: &str) {
-    assert!(!error.is_null());
+    if error.is_null() {
+        return;
+    }
     unsafe { error.write(vx_error_new(message)) };
+}
+
+/// Clear `*error_out` to null unless `error_out` itself is null.
+fn clear_error(error_out: *mut *mut vx_error) {
+    if error_out.is_null() {
+        return;
+    }
+    unsafe { error_out.write(ptr::null_mut()) };
 }
 
 #[inline]
@@ -39,7 +50,7 @@ pub fn try_or_default<T: Default>(
 ) -> T {
     match function() {
         Ok(value) => {
-            unsafe { error_out.write(ptr::null_mut()) };
+            clear_error(error_out);
             value
         }
         Err(err) => {
@@ -51,11 +62,8 @@ pub fn try_or_default<T: Default>(
 
 /// Run `function`, returning its value on success and `error_value` on failure.
 ///
-/// On success `*error_out` is cleared to null; on failure the error is written to `*error_out`
-/// when it is non-null.
-// Writes through `error_out` but stays safe like the other error-out helpers here; the raw-pointer
-// contract is documented at the C boundary.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// `error_out` may be null, in which case error details are discarded. When it is non-null,
+/// `*error_out` is cleared to null on success and set to an owned `vx_error` on failure.
 pub fn try_or<T>(
     error_out: *mut *mut vx_error,
     error_value: T,
@@ -63,7 +71,7 @@ pub fn try_or<T>(
 ) -> T {
     match function() {
         Ok(value) => {
-            unsafe { error_out.write(ptr::null_mut()) };
+            clear_error(error_out);
             value
         }
         Err(err) => {
@@ -80,4 +88,42 @@ pub fn try_or<T>(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_error_get_message(error: *const vx_error) -> *const vx_string {
     vx_string::new_ref(&vx_error::as_ref(error).message)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ptr;
+
+    use vortex::error::vortex_err;
+
+    use super::*;
+    use crate::error::vx_error_free;
+
+    #[test]
+    fn test_try_or_null_error_out() {
+        // A null error_out must be tolerated on both the success and failure paths.
+        assert_eq!(try_or(ptr::null_mut(), -1, || Ok(42)), 42);
+        assert_eq!(try_or(ptr::null_mut(), -1, || Err(vortex_err!("boom"))), -1);
+    }
+
+    #[test]
+    fn test_try_or_default_null_error_out() {
+        assert_eq!(try_or_default(ptr::null_mut(), || Ok(42)), 42);
+        assert_eq!(
+            try_or_default::<i32>(ptr::null_mut(), || Err(vortex_err!("boom"))),
+            0
+        );
+    }
+
+    #[test]
+    fn test_try_or_writes_and_clears_error_out() {
+        let mut error: *mut vx_error = ptr::null_mut();
+
+        assert_eq!(try_or(&raw mut error, -1, || Err(vortex_err!("boom"))), -1);
+        assert!(!error.is_null());
+        unsafe { vx_error_free(error) };
+
+        assert_eq!(try_or(&raw mut error, -1, || Ok(42)), 42);
+        assert!(error.is_null());
+    }
 }

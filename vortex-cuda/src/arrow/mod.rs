@@ -255,14 +255,13 @@ impl DeviceArrayExt for ArrayRef {
         self,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<ArrowDeviceArrayWithSchema> {
-        let schema = arrow_schema_for_array(&self, ctx)?;
-        let array = self.export_device_array(ctx).await?;
-        Ok(ArrowDeviceArrayWithSchema { schema, array })
+        let exporter = Arc::clone(ctx.exporter());
+        exporter.export_device_array_with_schema(self, ctx).await
     }
 }
 
 /// Build the Arrow C schema that describes the exported device array.
-fn arrow_schema_for_array(
+pub(crate) fn arrow_schema_for_array(
     array: &ArrayRef,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<FFI_ArrowSchema> {
@@ -479,4 +478,15 @@ pub trait ExportDeviceArray: Debug + Send + Sync + 'static {
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<ArrowDeviceArray>;
+
+    /// Export a Vortex array as an [`ArrowDeviceArray`] with a matching Arrow C schema.
+    async fn export_device_array_with_schema(
+        &self,
+        array: ArrayRef,
+        ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<ArrowDeviceArrayWithSchema> {
+        let schema = arrow_schema_for_array(&array, ctx)?;
+        let array = self.export_device_array(array, ctx).await?;
+        Ok(ArrowDeviceArrayWithSchema { schema, array })
+    }
 }
