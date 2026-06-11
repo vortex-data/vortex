@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Benchmarks the Vortex [`Interleave`](vortex_array::arrays::Interleave) boolean execute path
-//! across several access patterns:
+//! Benchmarks the Vortex [`Interleave`](vortex_array::arrays::Interleave) boolean execute path on a
+//! focused set of configurations:
 //!
-//! - `random`: fully random `(array_index, row_index)` per output row.
-//! - `round_robin`: a merge — `array_index = i % N`, `row_index = i / N`, each branch consumed
-//!   front-to-back.
-//! - `single_branch`: every row routed to branch 0 with a random row (a degenerate gather).
+//! - `round_robin`, 2 children: a merge — `array_index = i % N`, `row_index = i / N`.
+//! - `random`, 2 children: fully random `(array_index, row_index)` per output row.
+//! - `random`, 64 children: the same random gather spread over many value arrays.
 //!
-//! Each pattern is run for `N = 2` and `N = 4`, nullable and non-nullable.
+//! Each is run nullable and non-nullable.
 
 #![expect(clippy::unwrap_used)]
 
@@ -55,18 +54,17 @@ impl Display for Combo {
     }
 }
 
-/// The full cross product of patterns × branch counts × nullability that the benchmark covers.
+/// The configurations the benchmark covers: 2-child round-robin, 2-child random, and 64-child
+/// random — each nullable and non-nullable.
 fn combos() -> Vec<Combo> {
     let mut out = Vec::new();
-    for pattern in ["random", "round_robin", "single_branch"] {
-        for branches in [2, 4] {
-            for nullable in [false, true] {
-                out.push(Combo {
-                    pattern,
-                    branches,
-                    nullable,
-                });
-            }
+    for nullable in [false, true] {
+        for (pattern, branches) in [("round_robin", 2), ("random", 2), ("random", 64)] {
+            out.push(Combo {
+                pattern,
+                branches,
+                nullable,
+            });
         }
     }
     out
@@ -98,13 +96,12 @@ fn vortex_inputs(combo: Combo) -> (Vec<ArrayRef>, Buffer<u32>, Buffer<u32>) {
         .map(|i| match combo.pattern {
             "random" => rng.sample(branch),
             "round_robin" => u32::try_from(i % combo.branches).unwrap(),
-            "single_branch" => 0,
             other => unreachable!("unknown pattern {other}"),
         })
         .collect();
     let row_indices: Buffer<u32> = (0..ARRAY_SIZE)
         .map(|i| match combo.pattern {
-            "random" | "single_branch" => rng.sample(row),
+            "random" => rng.sample(row),
             "round_robin" => u32::try_from((i / combo.branches) % ARRAY_SIZE).unwrap(),
             other => unreachable!("unknown pattern {other}"),
         })
