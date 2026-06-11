@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Coordinate building blocks for geometry extension types: the `Struct<x, y, z?, m?>` storage,
-//! its [`Dimension`], and the decoded [`Coordinate`] value.
+//! Coordinate building blocks for geometry extension types: the
+//! `Struct<x: f64, y: f64, z?: f64, m?: f64>` storage, its [`Dimension`], and the decoded
+//! [`Coordinate`] value.
 //!
 //! The coordinate fields, where `?` marks an optional field, are:
 //! - `x` — longitude or easting
@@ -160,6 +161,11 @@ pub(crate) fn xy_columns(
         .storage_array()
         .clone()
         .execute::<StructArray>(ctx)?;
+    vortex_ensure!(
+        !storage.dtype().is_nullable(),
+        "point storage must be non-nullable to read unmasked x/y, was {}",
+        storage.dtype()
+    );
     let xs = storage
         .unmasked_field_by_name("x")?
         .clone()
@@ -173,7 +179,22 @@ pub(crate) fn xy_columns(
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::ExtensionArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::StructArray;
+    use vortex_array::dtype::FieldNames;
+    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::session::ArraySession;
+    use vortex_array::validity::Validity;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
     use super::Coordinate;
+    use super::xy_columns;
+    use crate::extension::GeoMetadata;
+    use crate::extension::Point;
 
     /// Display emits WKT, including `z?`/`m?` when present.
     #[test]
@@ -191,5 +212,29 @@ mod tests {
             coordinate(Some(3.0), Some(4.0)).to_string(),
             "POINT ZM (1 2 3 4)"
         );
+    }
+
+    /// `xy_columns` reads the coordinate fields unmasked, so a nullable point column must be
+    /// rejected rather than decoding null rows as garbage ordinates.
+    #[test]
+    fn xy_columns_rejects_nullable_points() -> VortexResult<()> {
+        let session = VortexSession::empty().with::<ArraySession>();
+        let mut ctx = session.create_execution_ctx();
+
+        let storage = StructArray::try_new(
+            FieldNames::from(["x", "y"]),
+            vec![
+                PrimitiveArray::from_iter(vec![1.0f64]).into_array(),
+                PrimitiveArray::from_iter(vec![2.0f64]).into_array(),
+            ],
+            1,
+            Validity::AllValid,
+        )?
+        .into_array();
+        let dtype = ExtDType::<Point>::try_new(GeoMetadata { crs: None }, storage.dtype().clone())?;
+        let points = ExtensionArray::new(dtype.erased(), storage).into_array();
+
+        assert!(xy_columns(&points, &mut ctx).is_err());
+        Ok(())
     }
 }
