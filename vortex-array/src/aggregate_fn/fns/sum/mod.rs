@@ -25,16 +25,21 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
+use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
+use crate::dtype::FieldName;
+use crate::dtype::FieldNames;
 use crate::dtype::MAX_PRECISION;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::dtype::StructFields;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
+use crate::scalar_fn::fns::operators::Operator;
 
 /// Return the sum of an array.
 ///
@@ -113,7 +118,13 @@ impl AggregateFnVTable for Sum {
     }
 
     fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
-        self.return_dtype(options, input_dtype)
+        let return_dtype = self.return_dtype(options, input_dtype)?;
+        Some(match &return_dtype {
+            // Float partials carry the Kahan compensation term so that precision is preserved
+            // when partial sums are flushed and re-combined.
+            DType::Primitive(ptype, _) if ptype.is_float() => float_partial_dtype(),
+            _ => return_dtype,
+        })
     }
 
     fn empty_partial(
@@ -124,10 +135,14 @@ impl AggregateFnVTable for Sum {
         let return_dtype = self
             .return_dtype(options, input_dtype)
             .ok_or_else(|| vortex_err!("Unsupported sum dtype: {}", input_dtype))?;
+        let partial_dtype = self
+            .partial_dtype(options, input_dtype)
+            .ok_or_else(|| vortex_err!("Unsupported sum dtype: {}", input_dtype))?;
         let initial = make_zero_state(&return_dtype);
 
         Ok(SumPartial {
             return_dtype,
+            partial_dtype,
             current: Some(initial),
         })
     }
@@ -157,11 +172,27 @@ impl AggregateFnVTable for Sum {
                 checked_add_i64(acc, val)
             }
             SumState::Float(acc) => {
-                let val = other
-                    .as_primitive()
-                    .typed_value::<f64>()
-                    .vortex_expect("checked non-null");
-                acc.add(val);
+                // Partials produced by `to_scalar` and kernels carry the compensation term as a
+                // struct; the constant-multiply path feeds a plain f64 scalar.
+                if matches!(other.dtype(), DType::Struct(..)) {
+                    let s = other.as_struct();
+                    let sum = s
+                        .field("sum")
+                        .and_then(|f| f.as_primitive().typed_value::<f64>())
+                        .vortex_expect("checked non-null");
+                    let compensation = s
+                        .field("compensation")
+                        .and_then(|f| f.as_primitive().typed_value::<f64>())
+                        .vortex_expect("checked non-null");
+                    acc.add(sum);
+                    acc.add(compensation);
+                } else {
+                    let val = other
+                        .as_primitive()
+                        .typed_value::<f64>()
+                        .vortex_expect("checked non-null");
+                    acc.add(val);
+                }
                 false
             }
             SumState::Decimal { value, dtype } => {
@@ -186,10 +217,16 @@ impl AggregateFnVTable for Sum {
 
     fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
         Ok(match &partial.current {
-            None => Scalar::null(partial.return_dtype.as_nullable()),
+            None => Scalar::null(partial.partial_dtype.as_nullable()),
             Some(SumState::Unsigned(v)) => Scalar::primitive(*v, Nullability::Nullable),
             Some(SumState::Signed(v)) => Scalar::primitive(*v, Nullability::Nullable),
-            Some(SumState::Float(v)) => Scalar::primitive(v.value(), Nullability::Nullable),
+            Some(SumState::Float(v)) => Scalar::struct_(
+                partial.partial_dtype.clone(),
+                vec![
+                    Scalar::primitive(v.sum, Nullability::Nullable),
+                    Scalar::primitive(v.compensation, Nullability::Nullable),
+                ],
+            ),
             Some(SumState::Decimal { value, .. }) => {
                 let decimal_dtype = *partial
                     .return_dtype
@@ -211,6 +248,32 @@ impl AggregateFnVTable for Sum {
             Some(SumState::Float(v)) => v.value().is_nan(),
             Some(_) => false,
         }
+    }
+
+    fn try_accumulate(
+        &self,
+        partial: &mut Self::Partial,
+        batch: &ArrayRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        // The generic legacy-stat bridge in `Accumulator::accumulate` only fires when the cached
+        // stat dtype matches the partial dtype. Float partials carry a compensation term, so the
+        // cached f64 `Stat::Sum` no longer matches; consume it here instead.
+        let Some(SumState::Float(acc)) = partial.current.as_mut() else {
+            return Ok(false);
+        };
+        let Precision::Exact(stat) = batch.statistics().get(Stat::Sum) else {
+            return Ok(false);
+        };
+        if !stat.dtype().eq_ignore_nullability(&partial.return_dtype) {
+            return Ok(false);
+        }
+        match stat.as_primitive().typed_value::<f64>() {
+            Some(v) => acc.add(v),
+            // A null cached sum means the sum saturated.
+            None => partial.current = None,
+        }
+        Ok(true)
     }
 
     fn accumulate(
@@ -254,11 +317,23 @@ impl AggregateFnVTable for Sum {
     }
 
     fn finalize(&self, partials: ArrayRef) -> VortexResult<ArrayRef> {
+        // Float partials carry the compensation term as a struct; collapse them to
+        // `sum + compensation`. The struct-level validity (null groups, saturation) propagates
+        // through `get_item` into both fields.
+        if matches!(partials.dtype(), DType::Struct(..)) {
+            let sum = partials.get_item(FieldName::from("sum"))?;
+            let compensation = partials.get_item(FieldName::from("compensation"))?;
+            return sum.binary(compensation, Operator::Add);
+        }
         Ok(partials)
     }
 
     fn finalize_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
-        self.to_scalar(partial)
+        match &partial.current {
+            None => Ok(Scalar::null(partial.return_dtype.as_nullable())),
+            Some(SumState::Float(v)) => Ok(Scalar::primitive(v.value(), Nullability::Nullable)),
+            Some(_) => self.to_scalar(partial),
+        }
     }
 }
 
@@ -266,8 +341,28 @@ impl AggregateFnVTable for Sum {
 /// needed for reset/result without external context.
 pub struct SumPartial {
     return_dtype: DType,
+    /// The DType of the partial state. Differs from `return_dtype` for floats, where partials
+    /// are a struct carrying the Kahan compensation term alongside the sum.
+    partial_dtype: DType,
     /// The current accumulated state, or `None` if saturated (checked overflow).
     current: Option<SumState>,
+}
+
+/// The partial dtype for float sums: a struct carrying the running sum and the Kahan
+/// compensation term, so that precision survives partial flush/combine boundaries.
+fn float_partial_dtype() -> DType {
+    // The fields are nullable so that projecting them out of the (nullable) struct in
+    // `finalize` keeps the field dtype unchanged.
+    DType::Struct(
+        StructFields::new(
+            FieldNames::from_iter([FieldName::from("sum"), FieldName::from("compensation")]),
+            vec![
+                DType::Primitive(PType::F64, Nullability::Nullable),
+                DType::Primitive(PType::F64, Nullability::Nullable),
+            ],
+        ),
+        Nullability::Nullable,
+    )
 }
 
 /// The accumulated sum value.
@@ -511,6 +606,57 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn sum_partial_preserves_compensation() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
+
+        // Each sub-accumulator's partial carries a compensation of 1.0 next to a sum of
+        // ±1e100. With plain f64 partials the merged sum would collapse to 0.0.
+        let mut acc1 = Accumulator::try_new(Sum, EmptyOptions, dtype.clone())?;
+        let batch1 =
+            PrimitiveArray::new(buffer![1.0f64, 1e100], Validity::NonNullable).into_array();
+        acc1.accumulate(&batch1, &mut ctx)?;
+
+        let mut acc2 = Accumulator::try_new(Sum, EmptyOptions, dtype.clone())?;
+        let batch2 =
+            PrimitiveArray::new(buffer![1.0f64, -1e100], Validity::NonNullable).into_array();
+        acc2.accumulate(&batch2, &mut ctx)?;
+
+        let mut merged = Accumulator::try_new(Sum, EmptyOptions, dtype)?;
+        merged.combine_partials(acc1.flush()?)?;
+        merged.combine_partials(acc2.flush()?)?;
+
+        let result = merged.finish()?;
+        assert_eq!(result.as_primitive().typed_value::<f64>(), Some(2.0));
+        Ok(())
+    }
+
+    #[test]
+    fn sum_f64_consumes_cached_stat() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let array = PrimitiveArray::new(buffer![1.0f64, 2.0], Validity::NonNullable).into_array();
+        // Seed a deliberately wrong cached sum so we can observe it being consumed instead of
+        // the data being recomputed.
+        array.statistics().set(
+            Stat::Sum,
+            Precision::Exact(
+                Scalar::primitive(42.0f64, Nullable)
+                    .value()
+                    .cloned()
+                    .vortex_expect("non-null"),
+            ),
+        );
+
+        let mut acc = Accumulator::try_new(Sum, EmptyOptions, array.dtype().clone())?;
+        acc.accumulate(&array, &mut ctx)?;
+        assert_eq!(
+            acc.finish()?.as_primitive().typed_value::<f64>(),
+            Some(42.0)
+        );
+        Ok(())
+    }
+
     // Stats caching test
 
     #[test]
@@ -611,6 +757,39 @@ mod tests {
         let result = run_grouped_sum(&groups.into_array(), &elem_dtype)?;
 
         let expected = PrimitiveArray::from_option_iter([Some(0i64), Some(7i64)]).into_array();
+        assert_arrays_eq!(&result, &expected);
+        Ok(())
+    }
+
+    #[test]
+    fn grouped_sum_f64_kahan() -> VortexResult<()> {
+        // Group 0 sums [1.0, 1e100, -1e100]: naive summation loses the 1.0 and returns 0.0.
+        let elements = PrimitiveArray::new(
+            buffer![1.0f64, 1e100, -1e100, 1.0, 2.0, 3.0],
+            Validity::NonNullable,
+        )
+        .into_array();
+        let groups = FixedSizeListArray::try_new(elements, 3, Validity::NonNullable, 2)?;
+
+        let elem_dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
+        let result = run_grouped_sum(&groups.into_array(), &elem_dtype)?;
+
+        let expected = PrimitiveArray::from_option_iter([Some(1.0f64), Some(6.0)]).into_array();
+        assert_arrays_eq!(&result, &expected);
+        Ok(())
+    }
+
+    #[test]
+    fn grouped_sum_f64_with_null_group() -> VortexResult<()> {
+        let elements =
+            PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0, 4.0], Validity::NonNullable).into_array();
+        let validity = Validity::from_iter([true, false]);
+        let groups = FixedSizeListArray::try_new(elements, 2, validity, 2)?;
+
+        let elem_dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
+        let result = run_grouped_sum(&groups.into_array(), &elem_dtype)?;
+
+        let expected = PrimitiveArray::from_option_iter([Some(3.0f64), None]).into_array();
         assert_arrays_eq!(&result, &expected);
         Ok(())
     }
