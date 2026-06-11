@@ -136,7 +136,7 @@ fn bench_arrow(
     bencher.bench(|| arrow_select::interleave::interleave(&refs, &indices));
 }
 
-#[divan::bench(args = [2, 4])]
+#[divan::bench(args = [2, 4, 128])]
 fn interleave_u32(bencher: Bencher, num_branches: usize) {
     let values = u32_values(num_branches, ARRAY_SIZE)
         .into_iter()
@@ -163,7 +163,7 @@ fn interleave_f64_large(bencher: Bencher, num_branches: usize) {
     bench_vortex(bencher, values, num_branches, LARGE_ARRAY_SIZE);
 }
 
-#[divan::bench(args = [2, 4])]
+#[divan::bench(args = [2, 4, 128])]
 fn arrow_interleave_u32(bencher: Bencher, num_branches: usize) {
     let values = u32_values(num_branches, ARRAY_SIZE)
         .into_iter()
