@@ -18,11 +18,15 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::expr::Expression;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
+use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_array::scalar_fn::fns::is_not_null::IsNotNull;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
@@ -96,6 +100,15 @@ impl ScalarFnVTable for RowEncode {
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {
         false
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        expression: &Expression,
+    ) -> VortexResult<Expression> {
+        // TODO(joe): replace this with a precise validity expr
+        Ok(IsNotNull.new_expr(EmptyOptions, [expression.clone()]))
     }
 }
 

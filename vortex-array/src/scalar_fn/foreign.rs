@@ -16,11 +16,14 @@ use crate::dtype::Nullability;
 use crate::expr::Expression;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
+use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::TypedScalarFnInstance;
+use crate::scalar_fn::fns::is_not_null::IsNotNull;
 
 /// Options payload for a foreign scalar function.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -117,5 +120,14 @@ impl ScalarFnVTable for ForeignScalarFnVTable {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         vortex_bail!("Cannot execute unknown scalar function '{}'", self.id);
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        expression: &Expression,
+    ) -> VortexResult<Expression> {
+        // TODO(joe): replace this with a precise validity expr
+        Ok(IsNotNull.new_expr(EmptyOptions, [expression.clone()]))
     }
 }

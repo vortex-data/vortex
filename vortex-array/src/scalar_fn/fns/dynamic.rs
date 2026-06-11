@@ -28,12 +28,14 @@ use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
+use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::VecExecutionArgs;
 use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::is_not_null::IsNotNull;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
 
@@ -167,6 +169,14 @@ impl ScalarFnVTable for DynamicComparison {
     // Defer to the child
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
         false
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        expression: &Expression,
+    ) -> VortexResult<Expression> {
+        Ok(IsNotNull.new_expr(EmptyOptions, [expression.clone()]))
     }
 }
 

@@ -127,11 +127,11 @@ impl ScalarFnVTable for Mask {
         &self,
         _options: &Self::Options,
         expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        Ok(Some(and(
+    ) -> VortexResult<Expression> {
+        Ok(and(
             expression.child(0).validity()?,
             expression.child(1).clone(),
-        )))
+        ))
     }
 }
 

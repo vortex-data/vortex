@@ -155,8 +155,8 @@ impl ScalarFnVTable for TQEncode {
         &self,
         _options: &Self::Options,
         expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        Ok(Some(expression.child(0).validity()?))
+    ) -> VortexResult<Expression> {
+        expression.child(0).validity()
     }
 
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {

@@ -237,8 +237,8 @@ impl ScalarFnVTable for Merge {
         &self,
         _options: &Self::Options,
         _expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        Ok(Some(lit(true)))
+    ) -> VortexResult<Expression> {
+        Ok(lit(true))
     }
 
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {

@@ -43,6 +43,7 @@ use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
+use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::VecExecutionArgs;
 use crate::serde::ArrayChildren;
@@ -168,7 +169,7 @@ impl VTable for ScalarFn {
 }
 
 /// Array factory functions for scalar functions.
-pub trait ScalarFnFactoryExt: scalar_fn::ScalarFnVTable {
+pub trait ScalarFnFactoryExt: ScalarFnVTable {
     fn try_new_array(
         &self,
         len: usize,
@@ -199,7 +200,7 @@ pub trait ScalarFnFactoryExt: scalar_fn::ScalarFnVTable {
         .into_array())
     }
 }
-impl<V: scalar_fn::ScalarFnVTable> ScalarFnFactoryExt for V {}
+impl<V: ScalarFnVTable> ScalarFnFactoryExt for V {}
 
 /// A matcher that matches any scalar function expression.
 #[derive(Debug)]
@@ -218,9 +219,9 @@ impl Matcher for AnyScalarFn {
 
 /// A matcher that matches a specific scalar function expression.
 #[derive(Debug, Default)]
-pub struct ExactScalarFn<F: scalar_fn::ScalarFnVTable>(PhantomData<F>);
+pub struct ExactScalarFn<F: ScalarFnVTable>(PhantomData<F>);
 
-impl<F: scalar_fn::ScalarFnVTable> Matcher for ExactScalarFn<F> {
+impl<F: ScalarFnVTable> Matcher for ExactScalarFn<F> {
     type Match<'a> = ScalarFnArrayView<'a, F>;
 
     fn matches(array: &ArrayRef) -> bool {
@@ -243,13 +244,13 @@ impl<F: scalar_fn::ScalarFnVTable> Matcher for ExactScalarFn<F> {
     }
 }
 
-pub struct ScalarFnArrayView<'a, F: scalar_fn::ScalarFnVTable> {
+pub struct ScalarFnArrayView<'a, F: ScalarFnVTable> {
     array: &'a ArrayRef,
     pub vtable: &'a F,
     pub options: &'a F::Options,
 }
 
-impl<F: scalar_fn::ScalarFnVTable> Deref for ScalarFnArrayView<'_, F> {
+impl<F: ScalarFnVTable> Deref for ScalarFnArrayView<'_, F> {
     type Target = ArrayRef;
 
     fn deref(&self) -> &Self::Target {
@@ -282,7 +283,7 @@ impl Display for FakeEq<ArrayRef> {
     }
 }
 
-impl scalar_fn::ScalarFnVTable for ArrayExpr {
+impl ScalarFnVTable for ArrayExpr {
     type Options = FakeEq<ArrayRef>;
 
     fn id(&self) -> ScalarFnId {
@@ -324,8 +325,8 @@ impl scalar_fn::ScalarFnVTable for ArrayExpr {
         &self,
         options: &Self::Options,
         _expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Expression> {
         let validity_array = options.0.validity()?.to_array(options.0.len());
-        Ok(Some(ArrayExpr.new_expr(FakeEq(validity_array), [])))
+        Ok(ArrayExpr.new_expr(FakeEq(validity_array), []))
     }
 }

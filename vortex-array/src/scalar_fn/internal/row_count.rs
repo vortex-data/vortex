@@ -23,6 +23,8 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_session::registry::CachedId;
 
+use crate::expr::lit;
+
 /// Zero-argument placeholder for the row count of the current evaluation scope.
 ///
 /// This is a legacy pruning hack for readers that only have a `null_count`
@@ -89,6 +91,14 @@ impl ScalarFnVTable for RowCount {
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {
         false
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        _expression: &Expression,
+    ) -> VortexResult<Expression> {
+        Ok(lit(true))
     }
 }
 

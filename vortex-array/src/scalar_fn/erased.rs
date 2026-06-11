@@ -22,16 +22,13 @@ use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
 use crate::expr::stats::Stat;
-use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ReduceCtx;
 use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ReduceNodeRef;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::SimplifyCtx;
-use crate::scalar_fn::fns::is_not_null::IsNotNull;
 use crate::scalar_fn::options::ScalarFnOptions;
 use crate::scalar_fn::signature::ScalarFnSignature;
 use crate::scalar_fn::typed::DynScalarFn;
@@ -134,10 +131,7 @@ impl ScalarFnRef {
 
     /// Transforms the expression into one representing the validity of this expression.
     pub fn validity(&self, expr: &Expression) -> VortexResult<Expression> {
-        Ok(self.0.validity(expr)?.unwrap_or_else(|| {
-            // TODO(ngates): make validity a mandatory method on VTable to avoid this fallback.
-            IsNotNull.new_expr(EmptyOptions, [expr.clone()])
-        }))
+        self.0.validity(expr)
     }
 
     /// Execute the expression given the input arguments.

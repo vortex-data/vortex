@@ -31,9 +31,12 @@ use crate::expr::or_collect;
 use crate::expr::stats::Stat;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
+use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::is_not_null::IsNotNull;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
 
@@ -271,20 +274,17 @@ impl ScalarFnVTable for Binary {
 
     fn validity(
         &self,
-        operator: &Operator,
+        options: &Self::Options,
         expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Expression> {
         let lhs = expression.child(0).validity()?;
         let rhs = expression.child(1).validity()?;
 
-        Ok(match operator {
+        Ok(match options {
             // AND and OR are kleene logic.
-            Operator::And => None,
-            Operator::Or => None,
-            _ => {
-                // All other binary operators are null if either side is null.
-                Some(and(lhs, rhs))
-            }
+            Operator::And | Operator::Or => IsNotNull.new_expr(EmptyOptions, [expression.clone()]),
+            // All other binary operators are null if either side is null.
+            _ => and(lhs, rhs),
         })
     }
 

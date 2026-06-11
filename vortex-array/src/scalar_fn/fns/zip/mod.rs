@@ -162,6 +162,14 @@ impl ScalarFnVTable for Zip {
     fn is_fallible(&self, _options: &Self::Options) -> bool {
         false
     }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        expression: &Expression,
+    ) -> VortexResult<Expression> {
+        expression.child(0).validity()
+    }
 }
 
 pub(crate) fn zip_impl(

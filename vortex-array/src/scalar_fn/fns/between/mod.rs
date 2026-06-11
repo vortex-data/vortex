@@ -318,11 +318,11 @@ impl ScalarFnVTable for Between {
         &self,
         _options: &Self::Options,
         expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Expression> {
         let arr = expression.child(0).validity()?;
         let lower = expression.child(1).validity()?;
         let upper = expression.child(2).validity()?;
-        Ok(Some(and(and(arr, lower), upper)))
+        Ok(and(and(arr, lower), upper))
     }
 
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {

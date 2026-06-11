@@ -18,6 +18,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::expr::Expression;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -104,6 +105,14 @@ impl ScalarFnVTable for Not {
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {
         false
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        expression: &Expression,
+    ) -> VortexResult<Expression> {
+        expression.child(0).validity()
     }
 }
 

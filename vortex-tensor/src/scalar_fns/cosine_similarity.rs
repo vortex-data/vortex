@@ -178,12 +178,12 @@ impl ScalarFnVTable for CosineSimilarity {
         &self,
         _options: &Self::Options,
         expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Expression> {
         // The result is null if either input tensor is null.
         let lhs_validity = expression.child(0).validity()?;
         let rhs_validity = expression.child(1).validity()?;
 
-        Ok(Some(and(lhs_validity, rhs_validity)))
+        Ok(and(lhs_validity, rhs_validity))
     }
 
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {

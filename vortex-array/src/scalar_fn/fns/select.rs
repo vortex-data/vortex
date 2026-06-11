@@ -30,10 +30,13 @@ use crate::expr::get_item;
 use crate::expr::pack;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
+use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::SimplifyCtx;
+use crate::scalar_fn::fns::is_not_null::IsNotNull;
 use crate::scalar_fn::fns::pack::Pack;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -239,6 +242,14 @@ impl ScalarFnVTable for Select {
     fn is_fallible(&self, _instance: &FieldSelection) -> bool {
         // If this type-checks its infallible.
         false
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        expression: &Expression,
+    ) -> VortexResult<Expression> {
+        Ok(IsNotNull.new_expr(EmptyOptions, [expression.clone()]))
     }
 }
 

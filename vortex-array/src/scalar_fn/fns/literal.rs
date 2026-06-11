@@ -142,10 +142,10 @@ impl ScalarFnVTable for Literal {
 
     fn validity(
         &self,
-        scalar: &Scalar,
+        options: &Self::Options,
         _expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        Ok(Some(lit(scalar.is_valid())))
+    ) -> VortexResult<Expression> {
+        Ok(lit(options.is_valid()))
     }
 
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {

@@ -21,6 +21,8 @@ use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::is_not_null::IsNotNull;
 
 /// An expression that returns the full scope of the expression evaluation.
 // TODO(ngates): rename to "Scope"
@@ -96,5 +98,14 @@ impl ScalarFnVTable for Root {
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {
         false
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        expression: &Expression,
+    ) -> VortexResult<Expression> {
+        // TODO(joe): make this more precise
+        Ok(IsNotNull.new_expr(EmptyOptions, [expression.clone()]))
     }
 }

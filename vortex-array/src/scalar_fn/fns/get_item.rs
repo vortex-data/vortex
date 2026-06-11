@@ -34,6 +34,7 @@ use crate::scalar_fn::ReduceNodeRef;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::is_not_null::IsNotNull;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::pack::Pack;
@@ -214,6 +215,15 @@ impl ScalarFnVTable for GetItem {
     fn is_fallible(&self, _field_name: &FieldName) -> bool {
         // If this type-checks its infallible.
         false
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        expression: &Expression,
+    ) -> VortexResult<Expression> {
+        // TODO(joe): make this more precise
+        Ok(IsNotNull.new_expr(EmptyOptions, [expression.clone()]))
     }
 }
 

@@ -29,9 +29,12 @@ use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
+use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::is_not_null::IsNotNull;
 
 /// Options for the `stat` scalar function.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -122,6 +125,14 @@ impl ScalarFnVTable for StatFn {
         let input = args.get(0)?;
         let dtype = stat_dtype(options.aggregate_fn(), input.dtype())?;
         stat_array(&input, options.aggregate_fn(), dtype, args.row_count())
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        expression: &Expression,
+    ) -> VortexResult<Expression> {
+        Ok(IsNotNull.new_expr(EmptyOptions, [expression.clone()]))
     }
 }
 

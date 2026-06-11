@@ -17,6 +17,7 @@ use crate::dtype::Nullability;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
 use crate::expr::eq;
+use crate::expr::lit;
 use crate::expr::stats::Stat;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -112,12 +113,21 @@ impl ScalarFnVTable for IsNotNull {
         let null_count_expr = child.stat_expression(Stat::NullCount, catalog)?;
         Some(eq(null_count_expr, RowCount.new_expr(EmptyOptions, [])))
     }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        _expression: &Expression,
+    ) -> VortexResult<Expression> {
+        Ok(lit(true))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect as _;
+    use vortex_error::VortexResult;
     use vortex_utils::aliases::hash_map::HashMap;
     use vortex_utils::aliases::hash_set::HashSet;
 
@@ -126,6 +136,7 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
+    use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Field;
     use crate::dtype::FieldPath;
@@ -180,6 +191,20 @@ mod tests {
                 Scalar::bool(*expected_value, Nullability::NonNullable)
             );
         }
+    }
+
+    #[test]
+    fn validity_matches_execute_validity() -> VortexResult<()> {
+        let test_array =
+            PrimitiveArray::from_option_iter(vec![Some(1), None, Some(2), None, Some(3)])
+                .into_array();
+        let expr = is_not_null(root());
+
+        let result = test_array.clone().apply(&expr)?;
+        let validity = test_array.apply(&expr.validity()?)?;
+
+        assert_arrays_eq!(validity, result.validity()?.to_array(result.len()));
+        Ok(())
     }
 
     #[test]

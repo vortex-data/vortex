@@ -29,9 +29,12 @@ use crate::expr::Expression;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
+use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::is_not_null::IsNotNull;
 
 /// Extracts a field/index path from Variant values.
 ///
@@ -162,6 +165,15 @@ impl ScalarFnVTable for VariantGet {
 
         let array = ChunkedArray::try_new(chunks, dtype)?.into_array();
         VariantArray::try_new(array, None).map(|array| array.into_array())
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        expression: &Expression,
+    ) -> VortexResult<Expression> {
+        // TODO(joe): make this more precise
+        Ok(IsNotNull.new_expr(EmptyOptions, [expression.clone()]))
     }
 }
 
