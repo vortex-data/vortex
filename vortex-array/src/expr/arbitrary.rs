@@ -3,11 +3,15 @@
 
 //! Type-directed synthesis of arbitrary, well-typed [`Expression`] trees.
 //!
-//! Generation runs "backwards" from a target [`DType`]: for every target dtype we enumerate the
-//! scalar functions whose return type can be made equal to it (type synthesis), pick one, and
-//! recursively synthesize children for the argument dtypes that production demands. Every
+//! Generation runs "backwards" from a target [`DType`]: for every target dtype the
+//! [`Synthesizer`] collects the [`Rule`]s that can produce it (type synthesis), picks one, and
+//! the rule recursively synthesizes children for the argument dtypes it demands. Every
 //! synthesized tree is then verified with [`Expression::return_dtype`] (type checking), so a
 //! generator bug fails loudly instead of producing an ill-typed expression.
+//!
+//! The rule set is a flat registry: each scalar function is one [`Rule`] entry in
+//! [`builtin_rules`], and new productions are registered with a single
+//! [`Synthesizer::with_rule`] call.
 //!
 //! The default production space covers the serializable, infallible scalar functions: literals,
 //! field access (root/get_item), boolean connectives, comparisons, between, like, is_(not_)null,
@@ -151,394 +155,165 @@ pub fn synthesize_expr_with(
     target: &DType,
     options: SynthesisOptions,
 ) -> AResult<Expression> {
-    let synth = Synthesizer::new(scope, options);
-    let depth = u.int_in_range(0..=MAX_DEPTH)?;
-    let expr = synth.synth(u, target, depth)?;
-
-    let actual = expr
-        .return_dtype(scope)
-        .vortex_expect("synthesized expression must type check against the scope");
-    assert_eq!(
-        &actual, target,
-        "synthesized expression {expr} returned {actual}, expected {target}"
-    );
-    Ok(expr)
+    Synthesizer::new(scope, options).synthesize(u, target)
 }
 
-/// A production for the target dtype: a scalar function (or leaf) whose return dtype can be made
-/// equal to the target.
-#[derive(Clone, Copy)]
-enum Production {
-    Literal,
-    /// A scope path (root or nested get_item chain) whose dtype equals the target.
-    Path(usize),
-    Not,
-    AndOr,
-    Compare,
-    Between,
-    Like,
-    IsNull,
-    IsNotNull,
-    /// `list_contains` over the scope path at this index, which has a list dtype.
-    ListContains(usize),
-    ByteLength,
-    Pack,
-    Select,
-    Merge,
-    GetItem,
-    CaseWhen,
-    Zip,
-    FillNull,
-    MaskNullable,
-    /// Fallible: arithmetic over a primitive target (may overflow or divide by zero).
-    Arithmetic,
-    /// Fallible: cast from an arbitrary comparable dtype to the target.
-    Cast,
+/// Whether a rule can synthesize an expression of the target dtype.
+pub type RuleApplies = fn(&Synthesizer, &DType) -> bool;
+
+/// Synthesizes an expression of exactly the target dtype. The depth is the remaining budget for
+/// child expressions, to be passed through to [`Synthesizer::expr`].
+pub type RuleSynth = fn(&Synthesizer, &mut Unstructured<'_>, &DType, usize) -> AResult<Expression>;
+
+/// A synthesis rule: one production (typically one scalar function) in the expression space.
+///
+/// A rule pairs an applicability predicate over the target dtype with a synthesis function for
+/// it, so registering a new expression is a single [`Synthesizer::with_rule`] call:
+///
+/// ```
+/// use arbitrary::Unstructured;
+/// use vortex_array::dtype::{DType, Nullability};
+/// use vortex_array::expr::arbitrary::{Rule, Synthesizer, SynthesisOptions};
+/// use vortex_array::expr::not;
+///
+/// let scope = DType::Bool(Nullability::NonNullable);
+/// let synthesizer = Synthesizer::new(&scope, SynthesisOptions::default()).with_rule(Rule::new(
+///     "double_not",
+///     |_, target| matches!(target, DType::Bool(_)),
+///     |g, u, target, depth| Ok(not(not(g.expr(u, target, depth)?))),
+/// ));
+/// let mut u = Unstructured::new(&[7u8; 64]);
+/// let expr = synthesizer
+///     .synthesize(&mut u, &DType::Bool(Nullability::NonNullable))
+///     .unwrap();
+/// ```
+pub struct Rule {
+    name: &'static str,
+    /// Leaf rules are the only candidates once the depth budget is exhausted.
+    leaf: bool,
+    /// Fallible rules are only included when [`SynthesisOptions::fallible`] is set.
+    fallible: bool,
+    applies: RuleApplies,
+    synth: RuleSynth,
 }
 
-struct Synthesizer {
+impl Rule {
+    /// An infallible compound rule.
+    pub fn new(name: &'static str, applies: RuleApplies, synth: RuleSynth) -> Self {
+        Self {
+            name,
+            leaf: false,
+            fallible: false,
+            applies,
+            synth,
+        }
+    }
+
+    /// A leaf rule: synthesizes without recursing, so it remains a candidate at depth zero.
+    pub fn leaf(name: &'static str, applies: RuleApplies, synth: RuleSynth) -> Self {
+        Self {
+            leaf: true,
+            ..Self::new(name, applies, synth)
+        }
+    }
+
+    /// A rule that may legitimately error at runtime on valid input. Only included when
+    /// [`SynthesisOptions::fallible`] is set.
+    pub fn fallible(name: &'static str, applies: RuleApplies, synth: RuleSynth) -> Self {
+        Self {
+            fallible: true,
+            ..Self::new(name, applies, synth)
+        }
+    }
+
+    /// The rule's name, for debugging and coverage reporting.
+    pub fn name(&self) -> &'static str {
+        self.name
+    }
+}
+
+/// A type-directed expression synthesizer over a fixed scope dtype and rule set.
+pub struct Synthesizer {
     /// Path expressions into the scope (root plus nested struct fields) and their dtypes.
     paths: Vec<(Expression, DType)>,
     options: SynthesisOptions,
+    rules: Vec<Rule>,
 }
 
 impl Synthesizer {
-    fn new(scope: &DType, options: SynthesisOptions) -> Self {
+    /// Creates a synthesizer over the scope dtype with the builtin rules for `options`.
+    pub fn new(scope: &DType, options: SynthesisOptions) -> Self {
         let mut paths = Vec::new();
         collect_paths(root(), scope, &mut paths);
-        Self { paths, options }
+        let rules = builtin_rules()
+            .into_iter()
+            .filter(|rule| options.fallible || !rule.fallible)
+            .collect();
+        Self {
+            paths,
+            options,
+            rules,
+        }
     }
 
-    fn synth(&self, u: &mut Unstructured<'_>, target: &DType, depth: usize) -> AResult<Expression> {
-        let candidates = self.candidates(target, depth);
-        let depth = depth.saturating_sub(1);
-        let nullability = target.nullability();
-
-        Ok(match *u.choose(&candidates)? {
-            Production::Literal => lit(random_scalar(u, target)?),
-            Production::Path(i) => self.paths[i].0.clone(),
-            Production::Not => not(self.synth(u, target, depth)?),
-            Production::AndOr => {
-                let op = if u.arbitrary()? {
-                    Operator::And
-                } else {
-                    Operator::Or
-                };
-                let (lhs_n, rhs_n) = split_nullability2(u, nullability)?;
-                Binary.new_expr(
-                    op,
-                    [
-                        self.synth(u, &DType::Bool(lhs_n), depth)?,
-                        self.synth(u, &DType::Bool(rhs_n), depth)?,
-                    ],
-                )
-            }
-            Production::Compare => {
-                let op = comparison_operator(u)?;
-                let base = self.comparable_dtype(u)?;
-                let (lhs_n, rhs_n) = split_nullability2(u, nullability)?;
-                Binary.new_expr(
-                    op,
-                    [
-                        self.synth(u, &base.with_nullability(lhs_n), depth)?,
-                        self.synth(u, &base.with_nullability(rhs_n), depth)?,
-                    ],
-                )
-            }
-            Production::Between => {
-                let base = self.comparable_dtype(u)?;
-                let (arr_n, lower_n, upper_n) = split_nullability3(u, nullability)?;
-                between(
-                    self.synth(u, &base.with_nullability(arr_n), depth)?,
-                    self.synth(u, &base.with_nullability(lower_n), depth)?,
-                    self.synth(u, &base.with_nullability(upper_n), depth)?,
-                    BetweenOptions {
-                        lower_strict: strictness(u)?,
-                        upper_strict: strictness(u)?,
-                    },
-                )
-            }
-            Production::Like => {
-                let (child_n, pattern_n) = split_nullability2(u, nullability)?;
-                let child = self.synth(u, &DType::Utf8(child_n), depth)?;
-                // Data-driven patterns can fail to compile (e.g. a trailing escape), so without
-                // fallible mode patterns are escape-free literals.
-                let pattern = if self.options.fallible {
-                    self.synth(u, &DType::Utf8(pattern_n), depth)?
-                } else {
-                    like_pattern(u, pattern_n)?
-                };
-                match u.int_in_range(0..=3)? {
-                    0 => like(child, pattern),
-                    1 => ilike(child, pattern),
-                    2 => not_like(child, pattern),
-                    _ => not_ilike(child, pattern),
-                }
-            }
-            Production::IsNull => {
-                let child_dtype = self.any_dtype(u)?;
-                is_null(self.synth(u, &child_dtype, depth)?)
-            }
-            Production::IsNotNull => {
-                let child_dtype = self.any_dtype(u)?;
-                is_not_null(self.synth(u, &child_dtype, depth)?)
-            }
-            Production::ListContains(i) => {
-                let (list_expr, list_dtype) = &self.paths[i];
-                let DType::List(element, list_nullability) = list_dtype else {
-                    unreachable!("ListContains production requires a list path")
-                };
-                let needle_nullability = match list_nullability {
-                    // The result is nullable regardless of the needle.
-                    Nullability::Nullable => Nullability::arbitrary(u)?,
-                    Nullability::NonNullable => nullability,
-                };
-                let needle = self.synth(u, &element.with_nullability(needle_nullability), depth)?;
-                list_contains(list_expr.clone(), needle)
-            }
-            Production::ByteLength => {
-                let child_dtype = if u.arbitrary()? {
-                    DType::Utf8(nullability)
-                } else {
-                    DType::Binary(nullability)
-                };
-                byte_length(self.synth(u, &child_dtype, depth)?)
-            }
-            Production::Pack => {
-                let fields = target
-                    .as_struct_fields_opt()
-                    .vortex_expect("Pack production requires a struct target");
-                let children = fields
-                    .names()
-                    .iter()
-                    .zip(fields.fields())
-                    .map(|(name, field_dtype)| {
-                        Ok((name.clone(), self.synth(u, &field_dtype, depth)?))
-                    })
-                    .collect::<AResult<Vec<_>>>()?;
-                pack(children, nullability)
-            }
-            Production::Select => {
-                let fields = target
-                    .as_struct_fields_opt()
-                    .vortex_expect("Select production requires a struct target");
-                // Pack a superset of the target fields, then select the target fields back out.
-                let mut names = fields.names().iter().cloned().collect_vec();
-                let mut dtypes = fields.fields().collect::<Vec<_>>();
-                for i in 0..u.int_in_range(0..=2usize)? {
-                    names.push(FieldName::from(format!("__select_extra_{i}")));
-                    dtypes.push(random_scalar_dtype(u)?);
-                }
-                let superset = DType::Struct(StructFields::new(names.into(), dtypes), nullability);
-                select(fields.names().clone(), self.synth(u, &superset, depth)?)
-            }
-            Production::Merge => {
-                let fields = target
-                    .as_struct_fields_opt()
-                    .vortex_expect("Merge production requires a struct target");
-                // Split the fields into contiguous chunks, one non-nullable struct child each.
-                let mut children = Vec::new();
-                let mut remaining = fields.names().iter().zip(fields.fields()).collect_vec();
-                while !remaining.is_empty() {
-                    let take = u.int_in_range(1..=remaining.len())?;
-                    let chunk = remaining.drain(..take).collect_vec();
-                    let (names, dtypes): (Vec<_>, Vec<_>) =
-                        chunk.into_iter().map(|(n, d)| (n.clone(), d)).unzip();
-                    let chunk_dtype = DType::Struct(
-                        StructFields::new(names.into(), dtypes),
-                        Nullability::NonNullable,
-                    );
-                    children.push(self.synth(u, &chunk_dtype, depth)?);
-                }
-                merge(children)
-            }
-            Production::GetItem => {
-                // Wrap the target as a field of a synthesized non-nullable struct.
-                let field = FieldName::from("__get_item_field");
-                let mut names = vec![field.clone()];
-                let mut dtypes = vec![target.clone()];
-                for i in 0..u.int_in_range(0..=2usize)? {
-                    names.push(FieldName::from(format!("__get_item_extra_{i}")));
-                    dtypes.push(random_scalar_dtype(u)?);
-                }
-                let parent = DType::Struct(
-                    StructFields::new(names.into(), dtypes),
-                    Nullability::NonNullable,
-                );
-                get_item(field, self.synth(u, &parent, depth)?)
-            }
-            Production::CaseWhen => self.case_when(u, target, depth)?,
-            Production::Zip => {
-                // Same dtype on both branches so the zip supertype is exactly the target.
-                let if_true = self.synth(u, target, depth)?;
-                let if_false = self.synth(u, target, depth)?;
-                let condition_dtype = DType::Bool(Nullability::arbitrary(u)?);
-                let condition = self.synth(u, &condition_dtype, depth)?;
-                zip_expr(condition, if_true, if_false)
-            }
-            Production::FillNull => {
-                let child =
-                    self.synth(u, &target.with_nullability(Nullability::Nullable), depth)?;
-                // The result takes the nullability of the fill value.
-                let fill = self.synth(u, target, depth)?;
-                fill_null(child, fill)
-            }
-            Production::MaskNullable => {
-                let child_dtype = target.with_nullability(Nullability::arbitrary(u)?);
-                let child = self.synth(u, &child_dtype, depth)?;
-                let mask_child = self.synth(u, &DType::Bool(Nullability::NonNullable), depth)?;
-                mask(child, mask_child)
-            }
-            Production::Arithmetic => {
-                let op = arithmetic_operator(u)?;
-                let (lhs_n, rhs_n) = split_nullability2(u, nullability)?;
-                Binary.new_expr(
-                    op,
-                    [
-                        self.synth(u, &target.with_nullability(lhs_n), depth)?,
-                        self.synth(u, &target.with_nullability(rhs_n), depth)?,
-                    ],
-                )
-            }
-            Production::Cast => {
-                let child_nullability = Nullability::arbitrary(u)?;
-                let child_dtype = self
-                    .comparable_dtype(u)?
-                    .with_nullability(child_nullability);
-                cast(self.synth(u, &child_dtype, depth)?, target.clone())
-            }
-        })
+    /// Registers an additional rule.
+    pub fn with_rule(mut self, rule: Rule) -> Self {
+        self.rules.push(rule);
+        self
     }
 
-    /// Enumerates the productions whose return dtype can be made equal to `target`.
-    fn candidates(&self, target: &DType, depth: usize) -> Vec<Production> {
-        let mut candidates = vec![Production::Literal];
-        candidates.extend(
-            self.paths
-                .iter()
-                .enumerate()
-                .filter(|(_, (_, dtype))| dtype == target)
-                .map(|(i, _)| Production::Path(i)),
+    /// The options this synthesizer was created with.
+    pub fn options(&self) -> SynthesisOptions {
+        self.options
+    }
+
+    /// Path expressions into the scope (root plus nested struct fields) and their dtypes.
+    pub fn paths(&self) -> &[(Expression, DType)] {
+        &self.paths
+    }
+
+    /// Synthesizes an expression of exactly `target` with an arbitrary depth budget, verifying
+    /// that the result type checks.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the synthesized expression fails to type check to `target`, which indicates a
+    /// bug in a rule rather than in the consumed bytes.
+    pub fn synthesize(&self, u: &mut Unstructured<'_>, target: &DType) -> AResult<Expression> {
+        let depth = u.int_in_range(0..=MAX_DEPTH)?;
+        let expr = self.expr(u, target, depth)?;
+
+        let scope = &self.paths[0].1;
+        let actual = expr
+            .return_dtype(scope)
+            .vortex_expect("synthesized expression must type check against the scope");
+        assert_eq!(
+            &actual, target,
+            "synthesized expression {expr} returned {actual}, expected {target}"
         );
-        if depth == 0 {
-            return candidates;
-        }
-
-        let nullability = target.nullability();
-        match target {
-            DType::Bool(_) => {
-                candidates.extend([
-                    Production::Not,
-                    Production::AndOr,
-                    Production::Compare,
-                    Production::Between,
-                    Production::Like,
-                ]);
-                if nullability == Nullability::NonNullable {
-                    candidates.extend([Production::IsNull, Production::IsNotNull]);
-                }
-                for (i, (_, dtype)) in self.paths.iter().enumerate() {
-                    if let DType::List(element, list_nullability) = dtype
-                        && is_comparable_dtype(element)
-                        && (*list_nullability == Nullability::NonNullable
-                            || nullability == Nullability::Nullable)
-                    {
-                        candidates.push(Production::ListContains(i));
-                    }
-                }
-            }
-            DType::Primitive(ptype, _) => {
-                if *ptype == PType::U64 {
-                    candidates.push(Production::ByteLength);
-                }
-                if self.options.fallible {
-                    candidates.push(Production::Arithmetic);
-                }
-            }
-            DType::Struct(fields, _) => {
-                candidates.push(Production::Pack);
-                if fields.names().iter().all_unique() {
-                    candidates.push(Production::Select);
-                    if nullability == Nullability::NonNullable {
-                        candidates.push(Production::Merge);
-                    }
-                }
-            }
-            _ => {}
-        }
-
-        if !matches!(
-            target,
-            DType::Null | DType::Extension(..) | DType::Union(..) | DType::Variant(..)
-        ) {
-            candidates.extend([
-                Production::GetItem,
-                Production::CaseWhen,
-                Production::Zip,
-                Production::FillNull,
-            ]);
-            if nullability == Nullability::Nullable {
-                candidates.push(Production::MaskNullable);
-            }
-        }
-
-        if self.options.fallible && is_comparable_dtype(target) {
-            candidates.push(Production::Cast);
-        }
-
-        candidates
+        Ok(expr)
     }
 
-    fn case_when(
+    /// Synthesizes an expression of exactly `target` by dispatching to an applicable rule.
+    /// Rules call this to synthesize their children.
+    pub fn expr(
         &self,
         u: &mut Unstructured<'_>,
         target: &DType,
         depth: usize,
     ) -> AResult<Expression> {
-        let num_pairs = u.int_in_range(1..=2usize)?;
-        let mut pairs = Vec::with_capacity(num_pairs);
-
-        // The result nullability is the union of all THEN/ELSE branches, or forced nullable when
-        // there is no ELSE.
-        let (branch_nullabilities, else_branch) = match target.nullability() {
-            Nullability::NonNullable => (
-                vec![Nullability::NonNullable; num_pairs],
-                Some(Nullability::NonNullable),
-            ),
-            Nullability::Nullable => {
-                if u.arbitrary()? {
-                    let mut branches = Vec::with_capacity(num_pairs);
-                    for _ in 0..num_pairs {
-                        branches.push(Nullability::arbitrary(u)?);
-                    }
-                    (branches, None)
-                } else {
-                    // Force the first branch nullable so the union is nullable.
-                    let mut branches = vec![Nullability::Nullable];
-                    for _ in 1..num_pairs {
-                        branches.push(Nullability::arbitrary(u)?);
-                    }
-                    (branches, Some(Nullability::arbitrary(u)?))
-                }
-            }
-        };
-
-        for branch_nullability in branch_nullabilities {
-            let condition_dtype = DType::Bool(Nullability::arbitrary(u)?);
-            let condition = self.synth(u, &condition_dtype, depth)?;
-            let then_value = self.synth(u, &target.with_nullability(branch_nullability), depth)?;
-            pairs.push((condition, then_value));
-        }
-        let else_value = else_branch
-            .map(|n| self.synth(u, &target.with_nullability(n), depth))
-            .transpose()?;
-
-        Ok(nested_case_when(pairs, else_value))
+        let candidates = self
+            .rules
+            .iter()
+            .filter(|rule| (depth > 0 || rule.leaf) && (rule.applies)(self, target))
+            .collect_vec();
+        let rule = u.choose_iter(candidates)?;
+        (rule.synth)(self, u, target, depth.saturating_sub(1))
     }
 
     /// Picks a non-nullable comparable dtype, biased towards dtypes present in the scope so that
     /// comparisons usually reference real columns.
-    fn comparable_dtype(&self, u: &mut Unstructured<'_>) -> AResult<DType> {
+    pub fn comparable_dtype(&self, u: &mut Unstructured<'_>) -> AResult<DType> {
         let scope_dtypes = self
             .paths
             .iter()
@@ -554,13 +329,475 @@ impl Synthesizer {
     }
 
     /// Picks any dtype for children whose dtype is unconstrained (e.g. `is_null`).
-    fn any_dtype(&self, u: &mut Unstructured<'_>) -> AResult<DType> {
+    pub fn any_dtype(&self, u: &mut Unstructured<'_>) -> AResult<DType> {
         if !self.paths.is_empty() && u.ratio(1, 2)? {
             return Ok(u.choose_iter(self.paths.iter())?.1.clone());
         }
         random_scalar_dtype(u)
     }
 }
+
+/// The builtin rule set: one [`Rule`] per scalar function the synthesizer can produce.
+pub fn builtin_rules() -> Vec<Rule> {
+    vec![
+        Rule::leaf(
+            "literal",
+            |_, _| true,
+            |_, u, t, _| Ok(lit(random_scalar(u, t)?)),
+        ),
+        Rule::leaf(
+            "column",
+            |g, t| g.paths.iter().any(|(_, dt)| dt == t),
+            column,
+        ),
+        Rule::new("not", bool_target, |g, u, t, d| Ok(not(g.expr(u, t, d)?))),
+        Rule::new("and_or", bool_target, and_or),
+        Rule::new("compare", bool_target, compare),
+        Rule::new("between", bool_target, between_),
+        Rule::new("like", bool_target, like_),
+        Rule::new("is_null", non_nullable_bool_target, is_null_),
+        Rule::new("is_not_null", non_nullable_bool_target, is_not_null_),
+        Rule::new("list_contains", list_contains_applies, list_contains_),
+        Rule::new(
+            "byte_length",
+            |_, t| matches!(t, DType::Primitive(PType::U64, _)),
+            byte_length_,
+        ),
+        Rule::new("pack", struct_target, pack_),
+        Rule::new("select", unique_struct_target, select_),
+        Rule::new(
+            "merge",
+            |g, t| unique_struct_target(g, t) && t.nullability() == Nullability::NonNullable,
+            merge_,
+        ),
+        Rule::new("get_item", supported_target, get_item_),
+        Rule::new("case_when", supported_target, case_when),
+        Rule::new("zip", supported_target, zip),
+        Rule::new("fill_null", supported_target, fill_null_),
+        Rule::new(
+            "mask",
+            |g, t| supported_target(g, t) && t.nullability() == Nullability::Nullable,
+            mask_,
+        ),
+        Rule::fallible(
+            "arithmetic",
+            |_, t| matches!(t, DType::Primitive(..)),
+            arithmetic,
+        ),
+        Rule::fallible("cast", |_, t| is_comparable_dtype(t), cast_),
+    ]
+}
+
+// ---- Rule applicability predicates ----
+
+fn bool_target(_: &Synthesizer, target: &DType) -> bool {
+    matches!(target, DType::Bool(_))
+}
+
+fn non_nullable_bool_target(_: &Synthesizer, target: &DType) -> bool {
+    *target == DType::Bool(Nullability::NonNullable)
+}
+
+fn struct_target(_: &Synthesizer, target: &DType) -> bool {
+    matches!(target, DType::Struct(..))
+}
+
+fn unique_struct_target(_: &Synthesizer, target: &DType) -> bool {
+    target
+        .as_struct_fields_opt()
+        .is_some_and(|fields| fields.names().iter().all_unique())
+}
+
+/// Targets that every dtype-generic rule (get_item, case_when, zip, fill_null, mask) supports.
+fn supported_target(_: &Synthesizer, target: &DType) -> bool {
+    !matches!(
+        target,
+        DType::Null | DType::Extension(..) | DType::Union(..) | DType::Variant(..)
+    )
+}
+
+fn list_contains_applies(g: &Synthesizer, target: &DType) -> bool {
+    matches!(target, DType::Bool(_))
+        && g.paths
+            .iter()
+            .any(|(_, dtype)| is_searchable_list(dtype, target.nullability()))
+}
+
+/// Whether `list_contains` over a list of this dtype can return a boolean of the given
+/// nullability: the result is nullable iff the list or the needle is.
+fn is_searchable_list(dtype: &DType, nullability: Nullability) -> bool {
+    matches!(
+        dtype,
+        DType::List(element, list_nullability) if is_comparable_dtype(element)
+            && (*list_nullability == Nullability::NonNullable
+                || nullability == Nullability::Nullable)
+    )
+}
+
+// ---- Rule synthesis functions ----
+
+fn column(
+    g: &Synthesizer,
+    u: &mut Unstructured<'_>,
+    target: &DType,
+    _: usize,
+) -> AResult<Expression> {
+    let matching = g
+        .paths
+        .iter()
+        .filter(|(_, dtype)| dtype == target)
+        .collect_vec();
+    Ok(u.choose_iter(matching)?.0.clone())
+}
+
+fn and_or(
+    g: &Synthesizer,
+    u: &mut Unstructured<'_>,
+    target: &DType,
+    depth: usize,
+) -> AResult<Expression> {
+    let op = if u.arbitrary()? {
+        Operator::And
+    } else {
+        Operator::Or
+    };
+    let (lhs_n, rhs_n) = split_nullability2(u, target.nullability())?;
+    Ok(Binary.new_expr(
+        op,
+        [
+            g.expr(u, &DType::Bool(lhs_n), depth)?,
+            g.expr(u, &DType::Bool(rhs_n), depth)?,
+        ],
+    ))
+}
+
+fn compare(
+    g: &Synthesizer,
+    u: &mut Unstructured<'_>,
+    target: &DType,
+    depth: usize,
+) -> AResult<Expression> {
+    let op = comparison_operator(u)?;
+    let base = g.comparable_dtype(u)?;
+    let (lhs_n, rhs_n) = split_nullability2(u, target.nullability())?;
+    Ok(Binary.new_expr(
+        op,
+        [
+            g.expr(u, &base.with_nullability(lhs_n), depth)?,
+            g.expr(u, &base.with_nullability(rhs_n), depth)?,
+        ],
+    ))
+}
+
+fn between_(
+    g: &Synthesizer,
+    u: &mut Unstructured<'_>,
+    target: &DType,
+    depth: usize,
+) -> AResult<Expression> {
+    let base = g.comparable_dtype(u)?;
+    let (arr_n, lower_n, upper_n) = split_nullability3(u, target.nullability())?;
+    Ok(between(
+        g.expr(u, &base.with_nullability(arr_n), depth)?,
+        g.expr(u, &base.with_nullability(lower_n), depth)?,
+        g.expr(u, &base.with_nullability(upper_n), depth)?,
+        BetweenOptions {
+            lower_strict: strictness(u)?,
+            upper_strict: strictness(u)?,
+        },
+    ))
+}
+
+fn like_(
+    g: &Synthesizer,
+    u: &mut Unstructured<'_>,
+    target: &DType,
+    depth: usize,
+) -> AResult<Expression> {
+    let (child_n, pattern_n) = split_nullability2(u, target.nullability())?;
+    let child = g.expr(u, &DType::Utf8(child_n), depth)?;
+    // Data-driven patterns can fail to compile (e.g. a trailing escape), so without fallible
+    // mode patterns are escape-free literals.
+    let pattern = if g.options.fallible {
+        g.expr(u, &DType::Utf8(pattern_n), depth)?
+    } else {
+        like_pattern(u, pattern_n)?
+    };
+    Ok(match u.int_in_range(0..=3)? {
+        0 => like(child, pattern),
+        1 => ilike(child, pattern),
+        2 => not_like(child, pattern),
+        _ => not_ilike(child, pattern),
+    })
+}
+
+fn is_null_(
+    g: &Synthesizer,
+    u: &mut Unstructured<'_>,
+    _: &DType,
+    depth: usize,
+) -> AResult<Expression> {
+    let child_dtype = g.any_dtype(u)?;
+    Ok(is_null(g.expr(u, &child_dtype, depth)?))
+}
+
+fn is_not_null_(
+    g: &Synthesizer,
+    u: &mut Unstructured<'_>,
+    _: &DType,
+    depth: usize,
+) -> AResult<Expression> {
+    let child_dtype = g.any_dtype(u)?;
+    Ok(is_not_null(g.expr(u, &child_dtype, depth)?))
+}
+
+fn list_contains_(
+    g: &Synthesizer,
+    u: &mut Unstructured<'_>,
+    target: &DType,
+    depth: usize,
+) -> AResult<Expression> {
+    let nullability = target.nullability();
+    let lists = g
+        .paths
+        .iter()
+        .filter(|(_, dtype)| is_searchable_list(dtype, nullability))
+        .collect_vec();
+    let (list_expr, list_dtype) = u.choose_iter(lists)?;
+    let DType::List(element, list_nullability) = list_dtype else {
+        unreachable!("list_contains rule requires a list path")
+    };
+    let needle_nullability = match list_nullability {
+        // The result is nullable regardless of the needle.
+        Nullability::Nullable => Nullability::arbitrary(u)?,
+        Nullability::NonNullable => nullability,
+    };
+    let needle = g.expr(u, &element.with_nullability(needle_nullability), depth)?;
+    Ok(list_contains(list_expr.clone(), needle))
+}
+
+fn byte_length_(
+    g: &Synthesizer,
+    u: &mut Unstructured<'_>,
+    target: &DType,
+    depth: usize,
+) -> AResult<Expression> {
+    let child_dtype = if u.arbitrary()? {
+        DType::Utf8(target.nullability())
+    } else {
+        DType::Binary(target.nullability())
+    };
+    Ok(byte_length(g.expr(u, &child_dtype, depth)?))
+}
+
+fn pack_(
+    g: &Synthesizer,
+    u: &mut Unstructured<'_>,
+    target: &DType,
+    depth: usize,
+) -> AResult<Expression> {
+    let fields = target
+        .as_struct_fields_opt()
+        .vortex_expect("pack rule requires a struct target");
+    let children = fields
+        .names()
+        .iter()
+        .zip(fields.fields())
+        .map(|(name, field_dtype)| Ok((name.clone(), g.expr(u, &field_dtype, depth)?)))
+        .collect::<AResult<Vec<_>>>()?;
+    Ok(pack(children, target.nullability()))
+}
+
+fn select_(
+    g: &Synthesizer,
+    u: &mut Unstructured<'_>,
+    target: &DType,
+    depth: usize,
+) -> AResult<Expression> {
+    let fields = target
+        .as_struct_fields_opt()
+        .vortex_expect("select rule requires a struct target");
+    // Pack a superset of the target fields, then select the target fields back out.
+    let mut names = fields.names().iter().cloned().collect_vec();
+    let mut dtypes = fields.fields().collect::<Vec<_>>();
+    for i in 0..u.int_in_range(0..=2usize)? {
+        let name = FieldName::from(format!("__select_extra_{i}"));
+        // The extra must not collide with a target field name, or the superset would contain
+        // duplicates and the selection would no longer return the target fields.
+        if fields.field(&name).is_some() {
+            continue;
+        }
+        names.push(name);
+        dtypes.push(random_scalar_dtype(u)?);
+    }
+    let superset = DType::Struct(
+        StructFields::new(names.into(), dtypes),
+        target.nullability(),
+    );
+    Ok(select(fields.names().clone(), g.expr(u, &superset, depth)?))
+}
+
+fn merge_(
+    g: &Synthesizer,
+    u: &mut Unstructured<'_>,
+    target: &DType,
+    depth: usize,
+) -> AResult<Expression> {
+    let fields = target
+        .as_struct_fields_opt()
+        .vortex_expect("merge rule requires a struct target");
+    // Split the fields into contiguous chunks, one non-nullable struct child each.
+    let mut children = Vec::new();
+    let mut remaining = fields.names().iter().zip(fields.fields()).collect_vec();
+    while !remaining.is_empty() {
+        let take = u.int_in_range(1..=remaining.len())?;
+        let chunk = remaining.drain(..take).collect_vec();
+        let (names, dtypes): (Vec<_>, Vec<_>) =
+            chunk.into_iter().map(|(n, d)| (n.clone(), d)).unzip();
+        let chunk_dtype = DType::Struct(
+            StructFields::new(names.into(), dtypes),
+            Nullability::NonNullable,
+        );
+        children.push(g.expr(u, &chunk_dtype, depth)?);
+    }
+    Ok(merge(children))
+}
+
+fn get_item_(
+    g: &Synthesizer,
+    u: &mut Unstructured<'_>,
+    target: &DType,
+    depth: usize,
+) -> AResult<Expression> {
+    // Wrap the target as a field of a synthesized non-nullable struct.
+    let field = FieldName::from("__get_item_field");
+    let mut names = vec![field.clone()];
+    let mut dtypes = vec![target.clone()];
+    for i in 0..u.int_in_range(0..=2usize)? {
+        names.push(FieldName::from(format!("__get_item_extra_{i}")));
+        dtypes.push(random_scalar_dtype(u)?);
+    }
+    let parent = DType::Struct(
+        StructFields::new(names.into(), dtypes),
+        Nullability::NonNullable,
+    );
+    Ok(get_item(field, g.expr(u, &parent, depth)?))
+}
+
+fn case_when(
+    g: &Synthesizer,
+    u: &mut Unstructured<'_>,
+    target: &DType,
+    depth: usize,
+) -> AResult<Expression> {
+    let num_pairs = u.int_in_range(1..=2usize)?;
+    let mut pairs = Vec::with_capacity(num_pairs);
+
+    // The result nullability is the union of all THEN/ELSE branches, or forced nullable when
+    // there is no ELSE.
+    let (branch_nullabilities, else_branch) = match target.nullability() {
+        Nullability::NonNullable => (
+            vec![Nullability::NonNullable; num_pairs],
+            Some(Nullability::NonNullable),
+        ),
+        Nullability::Nullable => {
+            if u.arbitrary()? {
+                let mut branches = Vec::with_capacity(num_pairs);
+                for _ in 0..num_pairs {
+                    branches.push(Nullability::arbitrary(u)?);
+                }
+                (branches, None)
+            } else {
+                // Force the first branch nullable so the union is nullable.
+                let mut branches = vec![Nullability::Nullable];
+                for _ in 1..num_pairs {
+                    branches.push(Nullability::arbitrary(u)?);
+                }
+                (branches, Some(Nullability::arbitrary(u)?))
+            }
+        }
+    };
+
+    for branch_nullability in branch_nullabilities {
+        let condition_dtype = DType::Bool(Nullability::arbitrary(u)?);
+        let condition = g.expr(u, &condition_dtype, depth)?;
+        let then_value = g.expr(u, &target.with_nullability(branch_nullability), depth)?;
+        pairs.push((condition, then_value));
+    }
+    let else_value = else_branch
+        .map(|n| g.expr(u, &target.with_nullability(n), depth))
+        .transpose()?;
+
+    Ok(nested_case_when(pairs, else_value))
+}
+
+fn zip(
+    g: &Synthesizer,
+    u: &mut Unstructured<'_>,
+    target: &DType,
+    depth: usize,
+) -> AResult<Expression> {
+    // Same dtype on both branches so the zip supertype is exactly the target.
+    let if_true = g.expr(u, target, depth)?;
+    let if_false = g.expr(u, target, depth)?;
+    let condition_dtype = DType::Bool(Nullability::arbitrary(u)?);
+    let condition = g.expr(u, &condition_dtype, depth)?;
+    Ok(zip_expr(condition, if_true, if_false))
+}
+
+fn fill_null_(
+    g: &Synthesizer,
+    u: &mut Unstructured<'_>,
+    target: &DType,
+    depth: usize,
+) -> AResult<Expression> {
+    let child = g.expr(u, &target.with_nullability(Nullability::Nullable), depth)?;
+    // The result takes the nullability of the fill value.
+    let fill = g.expr(u, target, depth)?;
+    Ok(fill_null(child, fill))
+}
+
+fn mask_(
+    g: &Synthesizer,
+    u: &mut Unstructured<'_>,
+    target: &DType,
+    depth: usize,
+) -> AResult<Expression> {
+    let child_dtype = target.with_nullability(Nullability::arbitrary(u)?);
+    let child = g.expr(u, &child_dtype, depth)?;
+    let mask_child = g.expr(u, &DType::Bool(Nullability::NonNullable), depth)?;
+    Ok(mask(child, mask_child))
+}
+
+fn arithmetic(
+    g: &Synthesizer,
+    u: &mut Unstructured<'_>,
+    target: &DType,
+    depth: usize,
+) -> AResult<Expression> {
+    let op = arithmetic_operator(u)?;
+    let (lhs_n, rhs_n) = split_nullability2(u, target.nullability())?;
+    Ok(Binary.new_expr(
+        op,
+        [
+            g.expr(u, &target.with_nullability(lhs_n), depth)?,
+            g.expr(u, &target.with_nullability(rhs_n), depth)?,
+        ],
+    ))
+}
+
+fn cast_(
+    g: &Synthesizer,
+    u: &mut Unstructured<'_>,
+    target: &DType,
+    depth: usize,
+) -> AResult<Expression> {
+    let child_nullability = Nullability::arbitrary(u)?;
+    let child_dtype = g.comparable_dtype(u)?.with_nullability(child_nullability);
+    Ok(cast(g.expr(u, &child_dtype, depth)?, target.clone()))
+}
+
+// ---- Shared helpers ----
 
 /// Collects the root path and all nested struct field paths, applying the `get_item` nullability
 /// rule along the way.
@@ -706,7 +943,10 @@ mod tests {
 
     use super::*;
     use crate::expr::eq;
+    use crate::expr::select_exclude;
     use crate::scalar_fn::ScalarFnId;
+    use crate::scalar_fn::fns::select::FieldSelection;
+    use crate::scalar_fn::fns::select::Select;
 
     fn ar<T>(result: AResult<T>) -> VortexResult<T> {
         result.map_err(|e| vortex_err!("arbitrary: {e}"))
@@ -777,7 +1017,7 @@ mod tests {
         }
     }
 
-    /// Synthesized expressions must type check (verified inside `synthesize_expr`) for arbitrary
+    /// Synthesized expressions must type check (verified inside `synthesize`) for arbitrary
     /// scopes and targets, not just struct scopes.
     #[test]
     fn synthesized_expressions_typecheck() -> VortexResult<()> {
@@ -904,6 +1144,74 @@ mod tests {
             missing.is_empty(),
             "synthesis did not cover the full expression space, missing: {missing:?}, saw: {seen:?}"
         );
+        Ok(())
+    }
+
+    /// Registering a new production is a single `with_rule` call.
+    #[test]
+    fn custom_rule_registration() -> VortexResult<()> {
+        fn select_exclude_rule(
+            g: &Synthesizer,
+            u: &mut Unstructured<'_>,
+            target: &DType,
+            depth: usize,
+        ) -> AResult<Expression> {
+            // Pack an extra field alongside the target fields, then exclude it.
+            let fields = target
+                .as_struct_fields_opt()
+                .vortex_expect("select_exclude rule requires a struct target");
+            let extra = FieldName::from("__excluded");
+            let names = fields.names().iter().cloned().chain([extra.clone()]);
+            let dtypes = fields.fields().chain([random_scalar_dtype(u)?]);
+            let superset = DType::Struct(
+                StructFields::new(names.collect(), dtypes.collect()),
+                target.nullability(),
+            );
+            Ok(select_exclude([extra], g.expr(u, &superset, depth)?))
+        }
+
+        fn applies(g: &Synthesizer, target: &DType) -> bool {
+            // The excluded field must not collide with a target field name.
+            unique_struct_target(g, target)
+                && target
+                    .as_struct_fields_opt()
+                    .is_some_and(|fields| fields.field("__excluded").is_none())
+        }
+
+        let scope = rich_scope();
+        let synthesizer = Synthesizer::new(&scope, SynthesisOptions::default())
+            .with_rule(Rule::new("select_exclude", applies, select_exclude_rule));
+
+        let target = DType::Struct(
+            StructFields::new(
+                vec![FieldName::from("a"), FieldName::from("b")].into(),
+                vec![
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                    DType::Utf8(Nullability::Nullable),
+                ],
+            ),
+            Nullability::NonNullable,
+        );
+
+        fn contains_exclude(expr: &Expression) -> bool {
+            expr.scalar_fn()
+                .as_opt::<Select>()
+                .is_some_and(|selection| matches!(selection, FieldSelection::Exclude(_)))
+                || expr.children().iter().any(contains_exclude)
+        }
+
+        let mut rng = StdRng::seed_from_u64(0);
+        let mut excluded = 0;
+        for _ in 0..512 {
+            let bytes = entropy(&mut rng);
+            let mut u = Unstructured::new(&bytes);
+            // synthesize panics if the custom rule produces an ill-typed expression.
+            let expr = ar(synthesizer.synthesize(&mut u, &target))?;
+            if contains_exclude(&expr) {
+                excluded += 1;
+            }
+        }
+        assert!(excluded > 0, "custom rule was never chosen");
         Ok(())
     }
 }
