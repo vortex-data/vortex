@@ -86,7 +86,7 @@ pub(super) fn execute(
                         &value_slices,
                         array_indices.as_slice::<A>(),
                         row_indices.as_slice::<R>(),
-                    )?
+                    )
                     .freeze(),
                     Validity::NonNullable,
                 )
@@ -97,74 +97,33 @@ pub(super) fn execute(
     Ok(ExecutionResult::done(gathered.reinterpret_cast(ptype)))
 }
 
-/// Selector rows validated (and then gathered) per chunk, sized so a chunk of both selectors
-/// stays L1-resident between the two passes.
-const VALIDATE_CHUNK: usize = 1024;
-
 /// The gather, monomorphized on the value width and the selector integer widths so each element
 /// and `(array_index, row_index)` pair is read straight from its packed buffer.
 ///
-/// Bounds are validated (returning an error rather than panicking) and gathered chunk by chunk:
-/// the validation max-fold pulls a chunk of selectors into L1 and the gather re-reads them from
-/// there, so the selectors only cross memory once. The gather body is deliberately a plain
-/// zipped `extend_trusted`: it writes through a raw pointer with no per-item capacity check, and
-/// out-of-order execution already overlaps the random-access loads across iterations. A manually
-/// unrolled "N independent loads then N stores" variant (as in arrow-rs) measured *slower* here
-/// because the in-loop bounds checks are potential panics whose order the compiler must
-/// preserve, turning the unroll into eight in-flight check chains and register spills.
-fn gather<W: NativePType, A: AsPrimitive<usize> + Ord, R: AsPrimitive<usize> + Ord>(
-    values: &[&[W]],
-    branches: &[A],
-    rows: &[R],
-) -> VortexResult<BufferMut<W>> {
-    let min_len = values.iter().map(|v| v.len()).min().unwrap_or(0);
-    let mut out = BufferMut::with_capacity(branches.len());
-    for (bc, rc) in branches
-        .chunks(VALIDATE_CHUNK)
-        .zip(rows.chunks(VALIDATE_CHUNK))
-    {
-        validate_chunk(values, bc, rc, min_len)?;
-        out.extend_trusted(bc.iter().zip(rc).map(|(b, r)| values[b.as_()][r.as_()]));
-    }
-    Ok(out)
-}
-
-/// Validates every `(array_index, row_index)` pair in one selector chunk.
+/// # Panics
 ///
-/// The hot path is a branchless max-fold, which auto-vectorizes (an early-exit per-row check
-/// measured ~20% of the whole gather's runtime). The fold stays in the native selector types so
-/// the lanes are narrow enough to vectorize. `max_row < min_len` proves all rows in bounds
-/// exactly when the values share a length; only ragged value lengths fall back to the exact
-/// per-row scan.
-fn validate_chunk<W: NativePType, A: AsPrimitive<usize> + Ord, R: AsPrimitive<usize> + Ord>(
+/// Panics if a selector is out of bounds, via the slice indexing in the loop body. The per-row
+/// bounds are the caller's precondition (see the [module docs](super::super)); an `Interleave`
+/// is never deserialized from untrusted bytes, so a violation is a caller bug rather than bad
+/// input data, and no error-returning pre-validation pass is performed.
+///
+/// The body is deliberately a plain zipped `extend_trusted`: it writes through a raw pointer
+/// with no per-item capacity check, and out-of-order execution already overlaps the
+/// random-access loads across iterations. A manually unrolled "N independent loads then N
+/// stores" variant (as in arrow-rs) measured *slower* here because the in-loop bounds checks
+/// are potential panics whose order the compiler must preserve, turning the unroll into eight
+/// in-flight check chains and register spills.
+fn gather<W: NativePType, A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
     values: &[&[W]],
     branches: &[A],
     rows: &[R],
-    min_len: usize,
-) -> VortexResult<()> {
-    let Some((&b0, &r0)) = branches.first().zip(rows.first()) else {
-        return Ok(());
-    };
-    let (mut max_branch, mut max_row) = (b0, r0);
-    for (b, r) in branches.iter().zip(rows) {
-        max_branch = max_branch.max(*b);
-        max_row = max_row.max(*r);
-    }
-    vortex_ensure!(
-        max_branch.as_() < values.len(),
-        "interleave array index out of bounds"
-    );
-
-    if max_row.as_() < min_len {
-        return Ok(());
-    }
-    for (b, r) in branches.iter().zip(rows) {
-        vortex_ensure!(
-            r.as_() < values[b.as_()].len(),
-            "interleave row index out of bounds"
-        );
-    }
-    Ok(())
+) -> BufferMut<W> {
+    BufferMut::from_trusted_len_iter(
+        branches
+            .iter()
+            .zip(rows)
+            .map(|(b, r)| values[b.as_()][r.as_()]),
+    )
 }
 
 #[cfg(test)]
@@ -236,8 +195,7 @@ mod tests {
     }
 
     #[test]
-    fn interleave_longer_than_unroll() -> VortexResult<()> {
-        // 19 rows: exercises a partial validation chunk.
+    fn interleave_ragged_branches() -> VortexResult<()> {
         let branches = vec![
             (0..7i64).collect::<Vec<_>>(),
             (100..105i64).collect::<Vec<_>>(),
@@ -253,8 +211,7 @@ mod tests {
     }
 
     #[test]
-    fn interleave_multiple_chunks() -> VortexResult<()> {
-        // Spans several validation chunks plus a partial tail.
+    fn interleave_many_rows() -> VortexResult<()> {
         let branches = vec![
             (0..2000u32).collect::<Vec<_>>(),
             (10_000..11_500u32).collect::<Vec<_>>(),
@@ -266,21 +223,6 @@ mod tests {
             })
             .collect();
         check(&branches, &indices)
-    }
-
-    #[test]
-    fn rejects_out_of_bounds_in_later_chunk() -> VortexResult<()> {
-        // The bad row index sits beyond the first validation chunk.
-        let mut indices: Vec<(usize, usize)> = (0..2000).map(|i| (i % 2, i % 5)).collect();
-        indices[1700] = (1, 999);
-        let interleaved = build::<i32>(&[vec![1, 2, 3, 4, 5], vec![6, 7, 8, 9, 10]], &indices)?;
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let err = interleaved
-            .execute::<Canonical>(&mut ctx)
-            .err()
-            .vortex_expect("expected an out-of-bounds row index in a later chunk to error");
-        assert!(err.to_string().contains("row index out of bounds"), "{err}");
-        Ok(())
     }
 
     #[test]
@@ -303,31 +245,25 @@ mod tests {
         Ok(())
     }
 
+    // Out-of-bounds selectors are a caller bug (an `Interleave` is never deserialized from
+    // untrusted bytes), so the kernel panics via slice indexing rather than returning an error.
+
     #[test]
-    fn rejects_out_of_bounds_array_index() -> VortexResult<()> {
-        let interleaved = build::<i32>(&[vec![1, 2], vec![3, 4]], &[(0, 0), (5, 0)])?;
+    #[should_panic(expected = "index out of bounds")]
+    fn out_of_bounds_array_index_panics() {
+        let interleaved = build::<i32>(&[vec![1, 2], vec![3, 4]], &[(0, 0), (5, 0)])
+            .vortex_expect("constructs fine; bounds are an execution-time precondition");
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let err = interleaved
-            .execute::<Canonical>(&mut ctx)
-            .err()
-            .vortex_expect("expected an out-of-bounds array index to error");
-        assert!(
-            err.to_string().contains("array index out of bounds"),
-            "{err}"
-        );
-        Ok(())
+        interleaved.execute::<Canonical>(&mut ctx).ok();
     }
 
     #[test]
-    fn rejects_out_of_bounds_row_index() -> VortexResult<()> {
-        let interleaved = build::<i32>(&[vec![1, 2], vec![3, 4]], &[(0, 0), (1, 9)])?;
+    #[should_panic(expected = "index out of bounds")]
+    fn out_of_bounds_row_index_panics() {
+        let interleaved = build::<i32>(&[vec![1, 2], vec![3, 4]], &[(0, 0), (1, 9)])
+            .vortex_expect("constructs fine; bounds are an execution-time precondition");
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let err = interleaved
-            .execute::<Canonical>(&mut ctx)
-            .err()
-            .vortex_expect("expected an out-of-bounds row index to error");
-        assert!(err.to_string().contains("row index out of bounds"), "{err}");
-        Ok(())
+        interleaved.execute::<Canonical>(&mut ctx).ok();
     }
 
     #[test]
