@@ -19,7 +19,7 @@ use super::coordinate::Coordinate;
 use super::coordinate::coordinate_dimension;
 use super::coordinate::coordinate_from_struct;
 
-/// A single location: `geoarrow.point`, stored as `Struct<x, y, z?, m?>` of `f64`.
+/// A single location: `geoarrow.point`, stored as `Struct<x: f64, y: f64, z: f64?, m: f64?>`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct Point;
 
