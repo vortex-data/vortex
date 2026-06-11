@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+COPY (
+WITH cte AS (SELECT generate_series AS i FROM generate_series(100000))
+SELECT (CASE WHEN i > 0 THEN i ELSE NULL END) AS i FROM cte
+)
+TO '${WORK_DIR}/agg-pushdown.vortex';
+
+query TT
+EXPLAIN
+SELECT sum(i), min(i), max(i), avg(i), mean(i), any_value(i), first(i), count(*), count(i)
+FROM '${WORK_DIR}/agg-pushdown.vortex';
+----
+<!REGEX>:.*UNGROUPED_AGGREGATE.*
+
+query I
+SELECT sum(i) FROM '${WORK_DIR}/agg-pushdown.vortex';
+----
+5000050000
+
+query II
+SELECT min(i), max(i) FROM '${WORK_DIR}/agg-pushdown.vortex';
+----
+1 100000
+
+query RR
+SELECT avg(i), mean(i) FROM '${WORK_DIR}/agg-pushdown.vortex';
+----
+50000.5 50000.5
+
+query II
+SELECT count(*), count(i) FROM '${WORK_DIR}/agg-pushdown.vortex';
+----
+100001 100000
+
+# inverse order to test count(*) not being first
+query II
+SELECT count(i), count(*) FROM '${WORK_DIR}/agg-pushdown.vortex';
+----
+100000 100001
+
+# Just count() is rejected because not pushing it down is faster:
+# we just set chunk length and don't do any aggregation ourselves
+query TT
+EXPLAIN SELECT count(*) FROM '${WORK_DIR}/agg-pushdown.vortex';
+----
+<REGEX>:.*UNGROUPED_AGGREGATE.*
+
+query TT
+EXPLAIN SELECT count(), count(), count() FROM '${WORK_DIR}/agg-pushdown.vortex';
+----
+<REGEX>:.*UNGROUPED_AGGREGATE.*
+
+query III
+SELECT count(), count(), count() FROM '${WORK_DIR}/agg-pushdown.vortex';
+----
+100001 100001 100001
+
+# aggregate over scalar i.e. SELECT mean(strlen(str))
+# + cte
+# + view + recursive view
+# + cte referencing any_value()

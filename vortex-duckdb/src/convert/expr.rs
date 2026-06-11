@@ -1,9 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::fmt::Result;
 use std::sync::Arc;
 
 use tracing::debug;
+use vortex::aggregate_fn::Accumulator;
+use vortex::aggregate_fn::DynAccumulator;
+use vortex::aggregate_fn::EmptyOptions as AggregateEmptyOptions;
+use vortex::aggregate_fn::NumericalAggregateOpts;
+use vortex::aggregate_fn::combined::PairOptions;
+use vortex::aggregate_fn::fns::count::Count;
+use vortex::aggregate_fn::fns::first::First;
+use vortex::aggregate_fn::fns::max::Max;
+use vortex::aggregate_fn::fns::mean::Mean;
+use vortex::aggregate_fn::fns::min::Min;
+use vortex::aggregate_fn::fns::sum::Sum;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
@@ -28,7 +42,7 @@ use vortex::expr::not;
 use vortex::expr::or_collect;
 use vortex::expr::root;
 use vortex::scalar::Scalar;
-use vortex::scalar_fn::EmptyOptions;
+use vortex::scalar_fn::EmptyOptions as ScalarEmptyOptions;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::between::Between;
 use vortex::scalar_fn::fns::between::BetweenOptions;
@@ -180,7 +194,7 @@ fn try_from_geo_function(
             let Some(distance) = from_bound_f64(children[2])? else {
                 return Ok(None);
             };
-            let geo_distance = GeoDistance.new_expr(EmptyOptions, [a, b]);
+            let geo_distance = GeoDistance.new_expr(ScalarEmptyOptions, [a, b]);
             Binary.new_expr(Operator::Lte, [geo_distance, lit(distance)])
         }
         "st_distance" => {
@@ -193,7 +207,7 @@ fn try_from_geo_function(
             let Some(b) = geo_operand(children[1], ctx)? else {
                 return Ok(None);
             };
-            GeoDistance.new_expr(EmptyOptions, [a, b])
+            GeoDistance.new_expr(ScalarEmptyOptions, [a, b])
         }
         _ => return Ok(None),
     };
@@ -410,6 +424,7 @@ pub fn can_push_expression(value: &duckdb::ExpressionRef) -> bool {
             }
             op.children().all(can_push_expression)
         }
+        ExpressionClass::BoundAggregate(_) => false,
     }
 }
 
@@ -461,6 +476,71 @@ pub fn try_from_projection_expression(
         }
         _ => None,
     })
+}
+
+/// Aggregations we have pushed down in Vortex
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PushedAggregate {
+    Min,
+    Max,
+    Sum,
+    Mean,
+    // Also used for ANY_VALUE() which is allowed by definition
+    First,
+    // Valid values in column
+    Count,
+}
+
+impl Display for PushedAggregate {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self {
+            PushedAggregate::Min => f.write_str("min"),
+            PushedAggregate::Max => f.write_str("max"),
+            PushedAggregate::Sum => f.write_str("sum"),
+            PushedAggregate::Mean => f.write_str("mean"),
+            PushedAggregate::First => f.write_str("first"),
+            PushedAggregate::Count => f.write_str("count"),
+        }
+    }
+}
+
+impl PushedAggregate {
+    pub fn build(self, dtype: DType) -> VortexResult<Box<dyn DynAccumulator>> {
+        let opts = NumericalAggregateOpts::default();
+        Ok(match self {
+            Self::Min => Box::new(Accumulator::try_new(Min, opts, dtype)?),
+            Self::Max => Box::new(Accumulator::try_new(Max, opts, dtype)?),
+            Self::Sum => Box::new(Accumulator::try_new(Sum, opts, dtype)?),
+            Self::Mean => Box::new(Accumulator::try_new(
+                Mean::combined(),
+                PairOptions(opts, opts),
+                dtype,
+            )?),
+            Self::First => Box::new(Accumulator::try_new(First, AggregateEmptyOptions, dtype)?),
+            Self::Count => Box::new(Accumulator::try_new(Count, opts, dtype)?),
+        })
+    }
+}
+
+/// Check if this is an aggregate function we can handle in Vortex
+pub fn try_from_projection_aggregate(
+    expr: &duckdb::ExpressionRef,
+) -> VortexResult<Option<PushedAggregate>> {
+    let Some(expr) = expr.as_class() else {
+        return Ok(None);
+    };
+    let ExpressionClass::BoundAggregate(agg) = expr else {
+        return Ok(None);
+    };
+    Ok(Some(match agg.aggregate_function.name() {
+        "min" => PushedAggregate::Min,
+        "max" => PushedAggregate::Max,
+        "sum" | "sum_no_overflow" => PushedAggregate::Sum,
+        "avg" | "mean" => PushedAggregate::Mean,
+        "first" | "any_value" => PushedAggregate::First,
+        "count" => PushedAggregate::Count,
+        _ => return Ok(None),
+    }))
 }
 
 // If you want to add support for other expressions, also change
@@ -585,6 +665,7 @@ fn try_from_expression_inner(
                 _ => vortex_bail!("unexpected operator {:?} in bound conjunction", conj.op),
             }
         }
+        ExpressionClass::BoundAggregate(_) => return Ok(None),
     }))
 }
 

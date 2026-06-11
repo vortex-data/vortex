@@ -17,12 +17,14 @@ use vortex::expr::root;
 use vortex::expr::select;
 use vortex::layout::layouts::row_idx::row_idx;
 use vortex::scan::selection::Selection;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::convert::try_from_table_filter;
 use crate::convert::try_from_virtual_column_filter;
 use crate::duckdb::LogicalType;
 use crate::duckdb::TableFilterClass;
 use crate::duckdb::TableFilterSetRef;
+use crate::table_function::ColumnAggregate;
 
 // See MultiFileReader for constants
 
@@ -185,6 +187,28 @@ impl Projection {
             projection,
             file_index_column_pos,
             file_row_number_column_pos,
+        }
+    }
+
+    // Create a projection for aggregate scan
+    pub fn new_aggregate(aggregates: &[ColumnAggregate], fields: &[DuckdbField]) -> Self {
+        let mut names = Vec::with_capacity(aggregates.len());
+        let mut seen: HashSet<u64> = HashSet::with_capacity(aggregates.len());
+        for aggregate in aggregates {
+            let ColumnAggregate::Real { projection_id, .. } = aggregate else {
+                continue;
+            };
+            if seen.contains(projection_id) {
+                continue;
+            }
+            seen.insert(*projection_id);
+            let projection_id: usize = projection_id.as_();
+            names.push(fields[projection_id].name.as_str());
+        }
+        Projection {
+            projection: select(names, root()),
+            file_index_column_pos: None,
+            file_row_number_column_pos: None,
         }
     }
 }

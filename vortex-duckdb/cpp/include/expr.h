@@ -10,6 +10,7 @@ extern "C" {
 #endif
 
 typedef struct duckdb_vx_sfunc_ *duckdb_vx_sfunc;
+typedef struct duckdb_vx_agg_func_ *duckdb_vx_agg_func;
 
 const char *duckdb_vx_sfunc_name(duckdb_vx_sfunc ffi_func);
 
@@ -19,6 +20,8 @@ const char *duckdb_vx_sfunc_name(duckdb_vx_sfunc ffi_func);
 duckdb_state duckdb_vx_register_st_dwithin_override(duckdb_database ffi_db);
 
 typedef struct duckdb_vx_expr_ *duckdb_vx_expr;
+
+const char *duckdb_vx_agg_func_name(duckdb_vx_agg_func func);
 
 /// Return the string representation of the expression. Must be freed with `duckdb_free`.
 const char *duckdb_vx_expr_to_string(duckdb_vx_expr expr);
@@ -272,6 +275,8 @@ void duckdb_vx_expr_get_bound_function(duckdb_vx_expr expr, duckdb_vx_expr_bound
 duckdb_vx_expr duckdb_vx_expr_get_bound_cast_child(duckdb_vx_expr expr);
 
 bool duckdb_vx_expr_get_bound_cast_is_try(duckdb_vx_expr expr);
+
+duckdb_vx_agg_func duckdb_vx_expr_get_bound_aggregate_function(duckdb_vx_expr expr);
 
 #ifdef __cplusplus /* End C ABI */
 }
