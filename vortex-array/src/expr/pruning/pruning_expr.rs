@@ -10,11 +10,6 @@ use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use super::relation::Relation;
-use crate::aggregate_fn::fns::all_nan::AllNan;
-use crate::aggregate_fn::fns::all_non_nan::AllNonNan;
-use crate::aggregate_fn::fns::all_non_null::AllNonNull;
-use crate::aggregate_fn::fns::all_null::AllNull;
-use crate::aggregate_fn::fns::nan_count::NanCount;
 use crate::dtype::DType;
 use crate::dtype::Field;
 use crate::dtype::FieldName;
@@ -23,18 +18,11 @@ use crate::dtype::FieldPathSet;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
 use crate::expr::analysis::referenced_field_paths;
-use crate::expr::eq;
 use crate::expr::get_item;
-use crate::expr::lit;
 use crate::expr::root;
 use crate::expr::stats::Stat;
-use crate::expr::traversal::NodeExt;
-use crate::expr::traversal::Transformed;
-use crate::scalar::Scalar;
-use crate::scalar_fn::EmptyOptions;
-use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::fns::stat::StatFn;
-use crate::scalar_fn::internal::row_count::RowCount;
+use crate::stats::bind::StatBinder;
+use crate::stats::bind::bind_stats;
 
 pub type RequiredStats = Relation<FieldPath, Stat>;
 
@@ -146,146 +134,54 @@ pub fn checked_pruning_expr_with_session(
         return Ok(None);
     };
 
-    lower_stat_fns(predicate, scope, available_stats)
-}
-
-fn lower_stat_fns(
-    predicate: Expression,
-    scope: &DType,
-    available_stats: &FieldPathSet,
-) -> VortexResult<Option<(Expression, RequiredStats)>> {
-    let mut required_stats = Relation::new();
-    let mut missing_stat = false;
-    let lowered = predicate
-        .transform_down(|expr| {
-            if !expr.is::<StatFn>() {
-                return Ok(Transformed::no(expr));
-            }
-
-            if let Some(lowered) =
-                lower_stat_fn(&expr, scope, available_stats, &mut required_stats)?
-            {
-                return Ok(Transformed::yes(lowered));
-            }
-
-            missing_stat = true;
-            let dtype = expr.return_dtype(scope)?;
-            Ok(Transformed::yes(null_expr(dtype)))
-        })?
-        .into_inner();
-
-    if missing_stat {
-        return Ok(None);
-    }
-
-    Ok(Some((lowered, required_stats)))
-}
-
-fn lower_stat_fn(
-    expr: &Expression,
-    scope: &DType,
-    available_stats: &FieldPathSet,
-    required_stats: &mut RequiredStats,
-) -> VortexResult<Option<Expression>> {
-    let options = expr.as_::<StatFn>();
-    let aggregate_fn = options.aggregate_fn();
-    let input = expr.child(0);
-    let input_dtype = input.return_dtype(scope)?;
-
-    if aggregate_fn.is::<AllNan>() {
-        if !has_nans(&input_dtype) {
-            return Ok(Some(lit(false)));
-        }
-        return lower_stat_ref(
-            input,
-            Stat::NaNCount,
-            scope,
-            available_stats,
-            required_stats,
-        )
-        .map(|stat| stat.map(|stat| eq(stat, row_count_expr())));
-    }
-
-    if aggregate_fn.is::<AllNonNan>() {
-        if !has_nans(&input_dtype) {
-            return Ok(Some(lit(true)));
-        }
-        return lower_stat_ref(
-            input,
-            Stat::NaNCount,
-            scope,
-            available_stats,
-            required_stats,
-        )
-        .map(|stat| stat.map(|stat| eq(stat, lit(0u64))));
-    }
-
-    if aggregate_fn.is::<NanCount>() && !has_nans(&input_dtype) {
-        return Ok(Some(lit(0u64)));
-    }
-
-    if aggregate_fn.is::<AllNull>() {
-        return lower_stat_ref(
-            input,
-            Stat::NullCount,
-            scope,
-            available_stats,
-            required_stats,
-        )
-        .map(|stat| stat.map(|stat| eq(stat, row_count_expr())));
-    }
-
-    if aggregate_fn.is::<AllNonNull>() {
-        return lower_stat_ref(
-            input,
-            Stat::NullCount,
-            scope,
-            available_stats,
-            required_stats,
-        )
-        .map(|stat| stat.map(|stat| eq(stat, lit(0u64))));
-    }
-
-    let Some(stat) = Stat::from_aggregate_fn(aggregate_fn) else {
+    let mut binder = RequiredStatsBinder {
+        scope,
+        available_stats,
+        required_stats: Relation::new(),
+    };
+    let Some(lowered) = bind_stats(predicate, &mut binder)? else {
         return Ok(None);
     };
 
-    lower_stat_ref(input, stat, scope, available_stats, required_stats)
+    Ok(Some((lowered, binder.required_stats)))
 }
 
-fn lower_stat_ref(
-    input: &Expression,
-    stat: Stat,
-    scope: &DType,
-    available_stats: &FieldPathSet,
-    required_stats: &mut RequiredStats,
-) -> VortexResult<Option<Expression>> {
-    let field_paths = referenced_field_paths(input, scope)?;
-    let Some(field_path) = field_paths.iter().exactly_one().ok() else {
-        return Ok(None);
-    };
-    let stat_path = field_path.clone().push(stat.name());
-    if !available_stats.contains(&stat_path) {
-        return Ok(None);
+struct RequiredStatsBinder<'a> {
+    scope: &'a DType,
+    available_stats: &'a FieldPathSet,
+    required_stats: RequiredStats,
+}
+
+impl StatBinder for RequiredStatsBinder<'_> {
+    fn scope(&self) -> &DType {
+        self.scope
     }
 
-    required_stats.insert(field_path.clone(), stat);
-    Ok(Some(get_item(
-        field_path_stat_field_name(field_path, stat),
-        root(),
-    )))
-}
+    fn bind_stat(
+        &mut self,
+        input: &Expression,
+        stat: Stat,
+        _stat_dtype: &DType,
+    ) -> VortexResult<Option<Expression>> {
+        let field_paths = referenced_field_paths(input, self.scope)?;
+        let Some(field_path) = field_paths.iter().exactly_one().ok() else {
+            return Ok(None);
+        };
+        let stat_path = field_path.clone().push(stat.name());
+        if !self.available_stats.contains(&stat_path) {
+            return Ok(None);
+        }
 
-fn row_count_expr() -> Expression {
-    RowCount.new_expr(EmptyOptions, [])
-}
+        self.required_stats.insert(field_path.clone(), stat);
+        Ok(Some(get_item(
+            field_path_stat_field_name(field_path, stat),
+            root(),
+        )))
+    }
 
-fn null_expr(dtype: DType) -> Expression {
-    lit(Scalar::null(dtype.as_nullable()))
-}
-
-fn has_nans(dtype: &DType) -> bool {
-    matches!(dtype, DType::Primitive(ptype, _) if ptype.is_float())
+    fn missing_stat(&mut self, _dtype: DType) -> VortexResult<Option<Expression>> {
+        Ok(None)
+    }
 }
 
 #[cfg(test)]

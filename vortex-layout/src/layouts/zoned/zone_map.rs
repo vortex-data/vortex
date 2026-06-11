@@ -8,33 +8,20 @@ use std::sync::Arc;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::aggregate_fn::fns::all_nan::AllNan;
-use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
-use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
-use vortex_array::aggregate_fn::fns::all_null::AllNull;
-use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
 use vortex_array::expr::Expression;
-use vortex_array::expr::eq;
 use vortex_array::expr::get_item;
 use vortex_array::expr::is_root;
-use vortex_array::expr::lit;
 use vortex_array::expr::root;
 use vortex_array::expr::stats::Stat;
-use vortex_array::expr::traversal::NodeExt;
-use vortex_array::expr::traversal::Transformed;
-use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::EmptyOptions;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::fns::stat::StatFn;
-use vortex_array::scalar_fn::internal::row_count::RowCount;
 use vortex_array::scalar_fn::internal::row_count::contains_row_count;
 use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
+use vortex_array::stats::bind::StatBinder;
+use vortex_array::stats::bind::bind_stats;
 use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
@@ -132,107 +119,42 @@ impl ZoneMap {
     }
 
     fn lower_stats(&self, predicate: Expression) -> VortexResult<Expression> {
-        // Rewritten predicates are evaluated against the stats table, not the data
-        // column. Lower each StatFn before execution so unavailable stats become
-        // nullable "unknown" constants rather than prune signals.
-        predicate
-            .transform_down(|expr| {
-                if expr.is::<StatFn>() {
-                    return self.lower_stat_fn(expr).map(Transformed::yes);
-                }
-
-                Ok(Transformed::no(expr))
-            })
-            .map(Transformed::into_inner)
-    }
-
-    fn lower_stat_fn(&self, expr: Expression) -> VortexResult<Expression> {
-        // This is the bridge from aggregate-backed bound expressions to the legacy
-        // zoned stats columns. Exact NullCount and NanCount can prove richer
-        // all-* aggregates; non-root or missing stats lower to nullable unknowns.
-        let options = expr.as_::<StatFn>();
-        let input = expr.child(0);
-        let input_dtype = input.return_dtype(&self.column_dtype)?;
-        let input_is_root = is_root(input);
-
-        if options.aggregate_fn().is::<AllNan>() {
-            if !has_nans(&input_dtype) {
-                return Ok(lit(false));
-            }
-            if !input_is_root {
-                return Ok(null_expr(DType::Bool(Nullability::NonNullable)));
-            }
-            return Ok(eq(self.stat_field_expr(Stat::NaNCount)?, row_count_expr()));
-        }
-
-        if options.aggregate_fn().is::<AllNonNan>() {
-            if !has_nans(&input_dtype) {
-                return Ok(lit(true));
-            }
-            if !input_is_root {
-                return Ok(null_expr(DType::Bool(Nullability::NonNullable)));
-            }
-            return Ok(eq(self.stat_field_expr(Stat::NaNCount)?, lit(0u64)));
-        }
-
-        if options.aggregate_fn().is::<NanCount>() && !has_nans(&input_dtype) {
-            return Ok(lit(0u64));
-        }
-
-        let return_dtype = match options.aggregate_fn().return_dtype(&input_dtype) {
-            Some(return_dtype) => return_dtype,
-            None => vortex_bail!(
-                "Aggregate function {} does not support input dtype {}",
-                options.aggregate_fn(),
-                input_dtype
-            ),
+        let mut binder = ZoneMapStatsBinder { zone_map: self };
+        let Some(predicate) = bind_stats(predicate, &mut binder)? else {
+            vortex_bail!("missing stats should lower to null literals");
         };
-
-        if !input_is_root {
-            return Ok(null_expr(return_dtype));
-        }
-
-        if options.aggregate_fn().is::<AllNull>() {
-            return Ok(eq(self.stat_field_expr(Stat::NullCount)?, row_count_expr()));
-        }
-
-        if options.aggregate_fn().is::<AllNonNull>() {
-            return Ok(eq(self.stat_field_expr(Stat::NullCount)?, lit(0u64)));
-        }
-
-        let Some(stat) = Stat::from_aggregate_fn(options.aggregate_fn()) else {
-            return Ok(null_expr(return_dtype));
-        };
-
-        self.stat_field_expr(stat)
-    }
-
-    fn stat_field_expr(&self, stat: Stat) -> VortexResult<Expression> {
-        if self.array.unmasked_field_by_name_opt(stat.name()).is_some() {
-            return Ok(get_item(stat.name(), root()));
-        }
-
-        let Some(dtype) = stat.dtype(&self.column_dtype) else {
-            vortex_bail!(
-                "Stat {} does not support column dtype {}",
-                stat,
-                self.column_dtype
-            );
-        };
-        Ok(null_expr(dtype))
+        Ok(predicate)
     }
 }
 
-fn row_count_expr() -> Expression {
-    RowCount.new_expr(EmptyOptions, [])
+struct ZoneMapStatsBinder<'a> {
+    zone_map: &'a ZoneMap,
 }
 
-fn null_expr(dtype: DType) -> Expression {
-    lit(Scalar::null(dtype.as_nullable()))
-}
+impl StatBinder for ZoneMapStatsBinder<'_> {
+    fn scope(&self) -> &DType {
+        &self.zone_map.column_dtype
+    }
 
-fn has_nans(dtype: &DType) -> bool {
-    matches!(dtype, DType::Primitive(ptype, _) if ptype.is_float())
+    fn bind_stat(
+        &mut self,
+        input: &Expression,
+        stat: Stat,
+        _stat_dtype: &DType,
+    ) -> VortexResult<Option<Expression>> {
+        if !is_root(input) {
+            return Ok(None);
+        }
+        if self
+            .zone_map
+            .array
+            .unmasked_field_by_name_opt(stat.name())
+            .is_none()
+        {
+            return Ok(None);
+        }
+        Ok(Some(get_item(stat.name(), root())))
+    }
 }
 
 /// Build per-zone row counts for a zone map.

@@ -15,34 +15,24 @@ use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
-use vortex_array::aggregate_fn::fns::all_nan::AllNan;
-use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
-use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
-use vortex_array::aggregate_fn::fns::all_null::AllNull;
-use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::NullArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::FieldPath;
-use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::Expression;
 use vortex_array::expr::StatsCatalog;
 use vortex_array::expr::analysis::referenced_field_paths;
-use vortex_array::expr::eq;
 use vortex_array::expr::lit;
 use vortex_array::expr::stats::Stat;
-use vortex_array::expr::traversal::NodeExt;
-use vortex_array::expr::traversal::Transformed;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::EmptyOptions;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::fns::literal::Literal;
-use vortex_array::scalar_fn::fns::stat::StatFn;
-use vortex_array::scalar_fn::internal::row_count::RowCount;
 use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
+use vortex_array::stats::bind::StatBinder;
+use vortex_array::stats::bind::bind_stats;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_layout::ArrayFuture;
 use vortex_layout::LayoutReader;
 use vortex_layout::LayoutReaderRef;
@@ -132,77 +122,11 @@ impl FileStatsLayoutReader {
     }
 
     fn lower_stats(&self, predicate: Expression) -> VortexResult<Expression> {
-        predicate
-            .transform_down(|expr| {
-                if expr.is::<StatFn>() {
-                    return self.lower_stat_fn(expr).map(Transformed::yes);
-                }
-
-                Ok(Transformed::no(expr))
-            })
-            .map(Transformed::into_inner)
-    }
-
-    fn lower_stat_fn(&self, expr: Expression) -> VortexResult<Expression> {
-        let options = expr.as_::<StatFn>();
-        let aggregate_fn = options.aggregate_fn();
-        let input = expr.child(0);
-        let input_dtype = input.return_dtype(self.child.dtype())?;
-
-        if aggregate_fn.is::<AllNan>() {
-            if !has_nans(&input_dtype) {
-                return Ok(lit(false));
-            }
-            return Ok(self
-                .stat_ref(input, Stat::NaNCount)?
-                .map(|stat| eq(stat, row_count_expr()))
-                .unwrap_or_else(null_bool_expr));
-        }
-
-        if aggregate_fn.is::<AllNonNan>() {
-            if !has_nans(&input_dtype) {
-                return Ok(lit(true));
-            }
-            return Ok(self
-                .stat_ref(input, Stat::NaNCount)?
-                .map(|stat| eq(stat, lit(0u64)))
-                .unwrap_or_else(null_bool_expr));
-        }
-
-        if aggregate_fn.is::<NanCount>() && !has_nans(&input_dtype) {
-            return Ok(lit(0u64));
-        }
-
-        if aggregate_fn.is::<AllNull>() {
-            return Ok(self
-                .stat_ref(input, Stat::NullCount)?
-                .map(|stat| eq(stat, row_count_expr()))
-                .unwrap_or_else(null_bool_expr));
-        }
-
-        if aggregate_fn.is::<AllNonNull>() {
-            return Ok(self
-                .stat_ref(input, Stat::NullCount)?
-                .map(|stat| eq(stat, lit(0u64)))
-                .unwrap_or_else(null_bool_expr));
-        }
-
-        let Some(stat) = Stat::from_aggregate_fn(aggregate_fn) else {
-            return Ok(null_expr(expr.return_dtype(self.child.dtype())?));
+        let mut binder = FileStatsBinder { reader: self };
+        let Some(predicate) = bind_stats(predicate, &mut binder)? else {
+            vortex_bail!("missing stats should lower to null literals");
         };
-
-        let return_dtype = expr.return_dtype(self.child.dtype())?;
-        Ok(self
-            .stat_ref(input, stat)?
-            .unwrap_or_else(|| null_expr(return_dtype)))
-    }
-
-    fn stat_ref(&self, input: &Expression, stat: Stat) -> VortexResult<Option<Expression>> {
-        let field_paths = referenced_field_paths(input, self.child.dtype())?;
-        let Some(field_path) = field_paths.iter().exactly_one().ok() else {
-            return Ok(None);
-        };
-        Ok(self.stats_ref(field_path, stat))
+        Ok(predicate)
     }
 
     pub fn file_stats(&self) -> &FileStatistics {
@@ -210,20 +134,27 @@ impl FileStatsLayoutReader {
     }
 }
 
-fn row_count_expr() -> Expression {
-    RowCount.new_expr(EmptyOptions, [])
+struct FileStatsBinder<'a> {
+    reader: &'a FileStatsLayoutReader,
 }
 
-fn null_expr(dtype: DType) -> Expression {
-    lit(Scalar::null(dtype.as_nullable()))
-}
+impl StatBinder for FileStatsBinder<'_> {
+    fn scope(&self) -> &DType {
+        self.reader.child.dtype()
+    }
 
-fn null_bool_expr() -> Expression {
-    null_expr(DType::Bool(Nullability::NonNullable))
-}
-
-fn has_nans(dtype: &DType) -> bool {
-    matches!(dtype, DType::Primitive(ptype, _) if ptype.is_float())
+    fn bind_stat(
+        &mut self,
+        input: &Expression,
+        stat: Stat,
+        _stat_dtype: &DType,
+    ) -> VortexResult<Option<Expression>> {
+        let field_paths = referenced_field_paths(input, self.scope())?;
+        let Some(field_path) = field_paths.iter().exactly_one().ok() else {
+            return Ok(None);
+        };
+        Ok(self.reader.stats_ref(field_path, stat))
+    }
 }
 
 /// Implements [`StatsCatalog`] to provide file-level stats to expressions during pruning evaluation.
