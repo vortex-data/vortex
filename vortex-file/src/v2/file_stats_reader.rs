@@ -10,7 +10,6 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use itertools::Itertools;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
@@ -23,10 +22,11 @@ use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::Expression;
 use vortex_array::expr::StatsCatalog;
-use vortex_array::expr::analysis::referenced_field_paths;
+use vortex_array::expr::is_root;
 use vortex_array::expr::lit;
 use vortex_array::expr::stats::Stat;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::fns::get_item::GetItem;
 use vortex_array::scalar_fn::fns::literal::Literal;
 use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
 use vortex_array::stats::bind::StatBinder;
@@ -149,12 +149,20 @@ impl StatBinder for FileStatsBinder<'_> {
         stat: Stat,
         _stat_dtype: &DType,
     ) -> VortexResult<Option<Expression>> {
-        let field_paths = referenced_field_paths(input, self.scope())?;
-        let Some(field_path) = field_paths.iter().exactly_one().ok() else {
+        let Some(field_path) = direct_field_path(input) else {
             return Ok(None);
         };
-        Ok(self.reader.stats_ref(field_path, stat))
+        Ok(self.reader.stats_ref(&field_path, stat))
     }
+}
+
+fn direct_field_path(expr: &Expression) -> Option<FieldPath> {
+    if is_root(expr) {
+        return Some(FieldPath::root());
+    }
+
+    let field_name = expr.as_opt::<GetItem>()?;
+    direct_field_path(expr.child(0)).map(|path| path.push(field_name.clone()))
 }
 
 /// Implements [`StatsCatalog`] to provide file-level stats to expressions during pruning evaluation.
@@ -261,6 +269,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::expr::checked_add;
     use vortex_array::expr::get_item;
     use vortex_array::expr::gt;
     use vortex_array::expr::is_not_null;
@@ -397,6 +406,43 @@ mod tests {
             let result = reader.pruning_evaluation(&(0..5), &expr, mask)?.await?;
             // Should delegate to child, which returns the mask unchanged (struct reader doesn't prune).
             assert_eq!(result, Mask::new_true(5));
+
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn no_pruning_for_computed_expression_stats() -> VortexResult<()> {
+        block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
+            let ctx = ArrayContext::empty();
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
+            let struct_array =
+                StructArray::from_fields([("col", buffer![0i32, 100].into_array())].as_slice())?;
+            let strategy = TableStrategy::new(
+                Arc::new(FlatLayoutStrategy::default()),
+                Arc::new(FlatLayoutStrategy::default()),
+            );
+            let layout = strategy
+                .write_stream(
+                    ctx,
+                    Arc::<TestSegments>::clone(&segments),
+                    struct_array.into_array().to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+
+            let child = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
+            let reader =
+                FileStatsLayoutReader::new(child, test_file_stats(0, 100), SESSION.clone());
+
+            let expr = gt(checked_add(get_item("col", root()), lit(5i32)), lit(102i32));
+            let mask = Mask::new_true(2);
+            let result = reader.pruning_evaluation(&(0..2), &expr, mask)?.await?;
+
+            assert_eq!(result, Mask::new_true(2));
 
             Ok(())
         })
