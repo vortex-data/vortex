@@ -1,0 +1,41 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files
+.env*
+!.env.example
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# local
+*.local
+
+# The repo-root .gitignore ignores every `lib/` directory (it is the Python
+# packaging-artifacts pattern: build/, dist/, eggs/, lib/, lib64/, wheels/...).
+# Re-include this app's TypeScript source `lib/` directory, which is real
+# committed source, not a build artifact.
+!/lib/

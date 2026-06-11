@@ -61,9 +61,10 @@ CREATE TABLE IF NOT EXISTS public._applied_migrations (
 # A migration may require privileges a least-privilege deploy role (the
 # `migrator` IAM role) does not hold: creating login roles, self-granting role
 # membership, or `ALTER DEFAULT PRIVILEGES FOR ROLE`. The bootstrap migrations
-# `002_iam_db_user.sql` and `004_ingest_role.sql` are exactly this class and MUST
-# be applied by a master-capable role (the RDS master, or a superuser locally) in
-# the one-time bootstrap, BEFORE any `migrator`-connected deploy. That ordering is
+# `002_iam_db_user.sql`, `004_ingest_role.sql`, and `005_read_role.sql` are exactly
+# this class and MUST be applied by a master-capable role (the RDS master, or a
+# superuser locally) in the one-time bootstrap, BEFORE any `migrator`-connected
+# deploy. That ordering is
 # documented in each migration's header but was previously enforced nowhere: a
 # `migrator`-connected `apply` reaching `004` would fail deep inside a `DO` block
 # with an opaque `InsufficientPrivilege` and roll the migration back mid-statement.
@@ -112,8 +113,9 @@ def _role_is_master_capable(conn: psycopg.Connection) -> bool:
 def _assert_master_capable(conn: psycopg.Connection, filename: str) -> None:
     """Raise `PermissionError` if the connected role cannot apply a marked migration.
 
-    Enforces the documented bootstrap ordering (`002` + `004` are applied by the
-    master before any `migrator` run) with a clear, actionable message instead of
+    Enforces the documented bootstrap ordering (the marked `requires-superuser`
+    migrations -- currently `002`/`004`/`005` -- are applied by the master before
+    any `migrator` run) with a clear, actionable message instead of
     an opaque mid-`DO`-block `InsufficientPrivilege` rollback.
     """
     if _role_is_master_capable(conn):
@@ -124,8 +126,9 @@ def _assert_master_capable(conn: psycopg.Connection, filename: str) -> None:
         f"migration {filename} is marked `{_REQUIRES_SUPERUSER_DIRECTIVE}` and must be "
         f"applied by a master-capable role (a superuser, or the RDS master with "
         f"CREATEROLE), but the connected role `{current_user}` has neither rolsuper nor "
-        f"rolcreaterole. Apply the bootstrap migrations (002/004) as the RDS master "
-        f"before any migrator deploy; see migrations/README.md and the migration header."
+        f"rolcreaterole. Apply all marked `requires-superuser` bootstrap migrations "
+        f"(currently 002/004/005) as the RDS master before any migrator deploy; see "
+        f"migrations/README.md and the migration header."
     )
 
 
@@ -218,7 +221,7 @@ def apply(conn: psycopg.Connection, migrations_dir: Path) -> int:
                 "DDL."
             )
         # Bootstrap ordering guard: a migration marked `requires-superuser`
-        # (002/004) must be applied by a master-capable role. Check BEFORE
+        # (002/004/005) must be applied by a master-capable role. Check BEFORE
         # opening the migration's transaction so a least-privilege `migrator`
         # connection fails loud + early with no partial DDL, rather than rolling
         # back mid-`DO`-block with an opaque InsufficientPrivilege.

@@ -46,14 +46,23 @@ lexicographic order, which equals numeric order under this convention.
   IAM-auth ingest user, its `USAGE` + per-table `SELECT, INSERT, UPDATE` grants on
   the six data tables, and a default-privilege rule so future `migrator`-created
   tables auto-grant the ingest role (PR-2.1).
+- `005_read_role.sql` — `CREATE ROLE` for the read-only `bench_read` user the v4
+  Next.js read service on Vercel authenticates as, its `USAGE` + per-table
+  `SELECT`-only grants on the six data tables, and a default-privilege rule so
+  future `migrator`-created tables auto-grant the read role. Unlike 002/004 it
+  carries **NO `rds_iam` grant** and idempotently **revokes** any pre-existing
+  `rds_iam` membership: the read service authenticates with a static password
+  (Vercel has no AWS credentials to mint IAM tokens), and on RDS `rds_iam`
+  membership forces IAM-only auth. Added during the Phase-4 operator-gate work.
 
 This README + the runner ship in PR-1.2; `001`/`002` land in PR-1.3, `003` in
-PR-1.4, and `004` in PR-2.1.
+PR-1.4, `004` in PR-2.1, and `005` in the Phase-4 operator-gate work (the v4
+read-service identity).
 
-## Bootstrap ordering — `requires-superuser` migrations (002 / 004)
+## Bootstrap ordering — `requires-superuser` migrations (002 / 004 / 005)
 
-Migrations `002_iam_db_user.sql` and `004_ingest_role.sql` carry a
-`-- migrate-schema: requires-superuser` marker comment. Before applying a marked
+Migrations `002_iam_db_user.sql`, `004_ingest_role.sql`, and `005_read_role.sql`
+carry a `-- migrate-schema: requires-superuser` marker comment. Before applying a marked
 file, the runner ([`scripts/migrate-schema.py`](../scripts/migrate-schema.py))
 asserts the connected role is **master-capable** — the capability proxy is
 `rolsuper OR rolcreaterole` (a true superuser locally, or the RDS master, which
@@ -62,10 +71,10 @@ has `CREATEROLE`). If the connected role has neither, the runner raises
 through its privileged `CREATE ROLE` / `GRANT` / `ALTER DEFAULT PRIVILEGES`
 statements.
 
-The ordering contract this enforces: **apply the bootstrap migrations (002/004)
+The ordering contract this enforces: **apply the bootstrap migrations (002/004/005)
 as the RDS master before any `migrator`-role deploy.** The `migrator` IAM user
 that `schema-deploy.yml` assumes into is itself created by `002` and is not
-master-capable, so it cannot apply `002`/`004`; those must land first under the
+master-capable, so it cannot apply `002`/`004`/`005`; those must land first under the
 master. `001` (plain DDL) and `003` (a ledger grant) carry no marker and apply
 under either role. A future migration that needs a master-capable role (another
 `CREATE ROLE`, `ALTER DEFAULT PRIVILEGES`, or other superuser-only DDL) should

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "headers": [
+    {
+      "source": "/",
+      "headers": [
+        {
+          "key": "Vercel-CDN-Cache-Control",
+          "value": "max-age=300, stale-while-revalidate=300"
+        }
+      ]
+    },
+    {
+      "source": "/chart/:slug",
+      "headers": [
+        {
+          "key": "Vercel-CDN-Cache-Control",
+          "value": "max-age=300, stale-while-revalidate=300"
+        }
+      ]
+    }
+  ]
+}

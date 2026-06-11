@@ -1,0 +1,39 @@
+{
+  "name": "benchmarks-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "format": "prettier --write '{app,components,lib}/**/*.{ts,tsx,css}' 'css.d.ts' '*.{js,mjs}' 'vitest.config.ts' 'vercel.json'",
+    "format:check": "prettier --check '{app,components,lib}/**/*.{ts,tsx,css}' 'css.d.ts' '*.{js,mjs}' 'vitest.config.ts' 'vercel.json'"
+  },
+  "dependencies": {
+    "@aws-sdk/rds-signer": "^3.1063.0",
+    "chart.js": "^4.5.1",
+    "chartjs-plugin-zoom": "^2.2.0",
+    "next": "15.5.19",
+    "pg": "^8.21.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.0",
+    "@testcontainers/postgresql": "^12.0.1",
+    "@types/node": "^24.3.0",
+    "@types/pg": "^8.20.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "eslint": "^9.39.0",
+    "eslint-config-next": "15.5.19",
+    "jsdom": "^29.1.1",
+    "prettier": "^3.8.0",
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.8"
+  },
+  "packageManager": "pnpm@11.5.2"
+}

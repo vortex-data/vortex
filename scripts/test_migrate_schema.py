@@ -657,11 +657,11 @@ def test_apply_uses_public_schema_under_custom_search_path(
 
 
 def test_real_migrations_apply_cleanly(conn: psycopg.Connection) -> None:
-    """The real migrations (`001` + `002` + `003` + `004`) apply against vanilla
-    Postgres and are recorded in the ledger in order."""
+    """The real migrations (`001` through `005`) apply against vanilla Postgres
+    and are recorded in the ledger in order."""
     applied = runner.apply(conn, REPO_MIGRATIONS_DIR)
 
-    assert applied == 4
+    assert applied == 5
     with conn.cursor() as cur:
         cur.execute("SELECT filename FROM public._applied_migrations ORDER BY filename")
         assert [row[0] for row in cur.fetchall()] == [
@@ -669,6 +669,7 @@ def test_real_migrations_apply_cleanly(conn: psycopg.Connection) -> None:
             "002_iam_db_user.sql",
             "003_migrator_ledger_grant.sql",
             "004_ingest_role.sql",
+            "005_read_role.sql",
         ]
 
 
@@ -677,7 +678,7 @@ def test_real_migrations_idempotent(conn: psycopg.Connection) -> None:
     first = runner.apply(conn, REPO_MIGRATIONS_DIR)
     second = runner.apply(conn, REPO_MIGRATIONS_DIR)
 
-    assert first == 4
+    assert first == 5
     assert second == 0
 
 
@@ -1200,10 +1201,87 @@ def test_bench_ingest_has_dml_only_on_data_tables(conn: psycopg.Connection) -> N
                 )
         cur.execute("SELECT has_schema_privilege('bench_ingest', 'public', 'USAGE')")
         assert cur.fetchone()[0] is True, "bench_ingest needs USAGE on public to reach the tables"
+
+
+def test_real_migrations_create_bench_read_role(conn: psycopg.Connection) -> None:
+    """`005_read_role.sql` creates a login-capable `bench_read` role with NO
+    `rds_iam` grant: on RDS that membership makes IAM auth mandatory (password
+    auth fails), and the read service authenticates with a static password."""
+    runner.apply(conn, REPO_MIGRATIONS_DIR)
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT rolcanlogin FROM pg_roles WHERE rolname = 'bench_read'")
+        row = cur.fetchone()
+        assert row is not None, "bench_read role was not created"
+        assert row[0] is True, "bench_read role must be able to log in"
+
+
+def test_bench_read_select_only_on_data_tables(conn: psycopg.Connection) -> None:
+    """`005_read_role.sql` grants `bench_read` exactly SELECT on the six data
+    tables: every write privilege is withheld (the read service never writes),
+    and USAGE on `public` is present so the tables are reachable."""
+    runner.apply(conn, REPO_MIGRATIONS_DIR)
+
+    with conn.cursor() as cur:
+        for table in _EXPECTED_TABLES:
+            qualified = f"public.{table}"
+            cur.execute("SELECT has_table_privilege('bench_read', %s, 'SELECT')", (qualified,))
+            assert cur.fetchone()[0] is True, f"bench_read needs SELECT on {table}"
+            for priv in ("INSERT", "UPDATE", "DELETE", "TRUNCATE"):
+                cur.execute(
+                    "SELECT has_table_privilege('bench_read', %s, %s)", (qualified, priv)
+                )
+                assert cur.fetchone()[0] is False, (
+                    f"bench_read must NOT have {priv} on {table} (read-only)"
+                )
+        cur.execute("SELECT has_schema_privilege('bench_read', 'public', 'USAGE')")
+        assert cur.fetchone()[0] is True, "bench_read needs USAGE on public to reach the tables"
         cur.execute("SELECT has_schema_privilege('bench_ingest', 'public', 'CREATE')")
         assert cur.fetchone()[0] is False, (
             "bench_ingest must NOT have CREATE on public (no DDL; least-privilege)"
         )
+
+
+def test_005_revokes_rds_iam_from_preexisting_bench_read(conn: psycopg.Connection) -> None:
+    """`005_read_role.sql` enforces its no-`rds_iam` (password-auth) invariant
+    idempotently. The `CREATE ROLE` guard only covers a FRESH role; a `bench_read`
+    that pre-exists as a member of `rds_iam` (an earlier apply that granted it, or
+    manual setup) must end up WITHOUT `rds_iam` after a (re-)apply -- on RDS a
+    lingering `rds_iam` membership forces IAM-only auth and silently breaks the read
+    service's password auth. Models the live failure class that produced 8b85a3d3f."""
+    runner.apply(conn, REPO_MIGRATIONS_DIR)
+    conn.autocommit = True
+
+    sql_005 = next(
+        p.read_text(encoding="utf-8")
+        for p in runner.discover(REPO_MIGRATIONS_DIR)
+        if p.name == "005_read_role.sql"
+    )
+
+    with conn.cursor() as cur:
+        cur.execute("SET search_path TO public")
+        try:
+            # Model the pre-existing bad state: a cluster-global `rds_iam` role (as
+            # on RDS) with `bench_read` already a member.
+            cur.execute("CREATE ROLE rds_iam")
+            cur.execute("GRANT rds_iam TO bench_read")
+            cur.execute("SELECT pg_has_role('bench_read', 'rds_iam', 'MEMBER')")
+            assert cur.fetchone()[0] is True, (
+                "precondition: bench_read should start as an rds_iam member"
+            )
+
+            # Re-applying 005 must REVOKE the membership (idempotent invariant
+            # enforcement), restoring the password-auth contract.
+            cur.execute(sql_005)
+            cur.execute("SELECT pg_has_role('bench_read', 'rds_iam', 'MEMBER')")
+            assert cur.fetchone()[0] is False, (
+                "005 must REVOKE rds_iam from a pre-existing bench_read so password auth keeps working"
+            )
+        finally:
+            # `rds_iam` is cluster-global; drop it so it does not leak into other
+            # tests (whose 002/004/005 applies would otherwise grant it).
+            cur.execute("REVOKE rds_iam FROM bench_read")
+            cur.execute("DROP ROLE IF EXISTS rds_iam")
 
 
 def test_bench_ingest_can_upsert_and_is_denied_ddl_delete(
@@ -1270,6 +1348,45 @@ def test_bench_ingest_default_privileges_cover_future_migrator_tables(
             cur.execute("DROP TABLE IF EXISTS public.future_fact")
 
 
+def test_bench_read_default_privileges_cover_future_migrator_tables(
+    conn: psycopg.Connection,
+) -> None:
+    """`005` sets `ALTER DEFAULT PRIVILEGES FOR ROLE migrator ... GRANT SELECT ON
+    TABLES TO bench_read`, so a future data table created by a `migrator`-run
+    migration auto-grants the read role SELECT -- and nothing else -- without a
+    follow-up explicit grant. Pins that non-obvious clause: deleting 005's ADP
+    block would otherwise leave the existing 005 tests green (the read-role
+    counterpart of `test_bench_ingest_default_privileges_cover_future_migrator_tables`)."""
+    runner.apply(conn, REPO_MIGRATIONS_DIR)
+    conn.autocommit = True
+
+    with conn.cursor() as cur:
+        cur.execute("SET ROLE migrator")
+        try:
+            cur.execute(
+                "CREATE TABLE public.future_read_fact (measurement_id bigint primary key)"
+            )
+        finally:
+            cur.execute("RESET ROLE")
+        try:
+            cur.execute(
+                "SELECT has_table_privilege('bench_read', 'public.future_read_fact', 'SELECT')"
+            )
+            assert cur.fetchone()[0] is True, (
+                "bench_read should auto-receive SELECT on a future migrator-created table"
+            )
+            for priv in ("INSERT", "UPDATE", "DELETE", "TRUNCATE"):
+                cur.execute(
+                    "SELECT has_table_privilege('bench_read', 'public.future_read_fact', %s)",
+                    (priv,),
+                )
+                assert cur.fetchone()[0] is False, (
+                    f"bench_read must NOT auto-receive {priv} on a future migrator-created table (read-only)"
+                )
+        finally:
+            cur.execute("DROP TABLE IF EXISTS public.future_read_fact")
+
+
 # Password for the simulated RDS master login. The testcontainer authenticates
 # host connections with a password, so the modeled master needs one to connect as
 # a REAL login (not `SET ROLE`) -- see the test docstring for why that fidelity
@@ -1299,12 +1416,12 @@ def _scrub_bootstrap_roles(cur: psycopg.Cursor) -> None:
         DO $$
         DECLARE r text;
         BEGIN
-            FOR r IN SELECT unnest(ARRAY['migrator', 'bench_ingest', 'rds_master_sim']) LOOP
+            FOR r IN SELECT unnest(ARRAY['migrator', 'bench_ingest', 'bench_read', 'rds_master_sim']) LOOP
                 IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
                     EXECUTE format('REVOKE ALL PRIVILEGES ON SCHEMA public FROM %I CASCADE', r);
                 END IF;
             END LOOP;
-            FOR r IN SELECT unnest(ARRAY['migrator', 'bench_ingest', 'rds_master_sim']) LOOP
+            FOR r IN SELECT unnest(ARRAY['migrator', 'bench_ingest', 'bench_read', 'rds_master_sim']) LOOP
                 IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
                     EXECUTE format('DROP OWNED BY %I CASCADE', r);
                     EXECUTE format('DROP ROLE %I', r);
@@ -1318,7 +1435,7 @@ def _scrub_bootstrap_roles(cur: psycopg.Cursor) -> None:
 def test_real_migrations_apply_as_non_superuser_createrole_master(
     conn: psycopg.Connection, postgres_dsn: str
 ) -> None:
-    """Apply `001`..`004` AS a real non-superuser CREATEROLE login (the RDS master).
+    """Apply `001`..`005` AS a real non-superuser CREATEROLE login (the RDS master).
 
     The module's `conn` fixture connects as the testcontainer's built-in user, a
     TRUE superuser (`rolsuper = true`) that bypasses every privilege check. Real RDS
@@ -1373,8 +1490,8 @@ def test_real_migrations_apply_as_non_superuser_createrole_master(
             assert is_super is False, "fidelity requires a non-superuser master login"
 
             applied = runner.apply(master, REPO_MIGRATIONS_DIR)
-            assert applied == 4, (
-                "all four real migrations must apply under the non-superuser master"
+            assert applied == 5, (
+                "all five real migrations must apply under the non-superuser master"
             )
 
         # Verify, on the superuser connection, that the bootstrap produced a usable
@@ -1469,11 +1586,11 @@ def test_migration_requires_superuser_false_without_exact_marker() -> None:
 
 
 def test_real_bootstrap_migrations_carry_superuser_marker() -> None:
-    """002 + 004 (role/grant bootstrap) are marked; 001 + 003 (additive / owned-grant) are not."""
+    """002 + 004 + 005 (role/grant bootstrap) are marked; 001 + 003 (additive / owned-grant) are not."""
     by_name = {
         p.name: p.read_text(encoding="utf-8") for p in runner.discover(REPO_MIGRATIONS_DIR)
     }
-    for marked in ("002_iam_db_user.sql", "004_ingest_role.sql"):
+    for marked in ("002_iam_db_user.sql", "004_ingest_role.sql", "005_read_role.sql"):
         assert marked in by_name, f"expected {marked} in migrations/"
         assert runner._migration_requires_superuser(by_name[marked]), (
             f"{marked} creates roles / runs ALTER DEFAULT PRIVILEGES and must carry the "

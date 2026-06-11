@@ -1,0 +1,220 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+#
+# CI checks + Vercel deploys for the benchmarks-website Next.js read service
+# (`benchmarks-website/web/`). This is the v4 deploy pipeline that replaces the
+# v2 GHCR image publish (`publish-benchmarks-website.yml`) at the Phase-5
+# cutover.
+#
+# Every PR and deploy-branch push touching `benchmarks-website/web/**` or
+# `migrations/**` (the integration suite applies that DDL) runs the full check
+# suite: prettier, eslint, a database-independent `next build`, and vitest
+# (including the testcontainers Postgres integration suite; a `docker info`
+# guard fails the job if the daemon is missing so that suite cannot silently
+# self-skip in CI). Deploys are CLI-driven
+# (`vercel pull` / `vercel build` / `vercel deploy --prebuilt`) rather than
+# Vercel-git-integration-driven so they gate on the checks job: PRs from this
+# repo get a preview deploy, pushes to the deploy branch get a production
+# deploy (still behind the dev-only Vercel domain until the Phase-5 DNS
+# cutover; the deploy branch flips to `develop` when `ct/bench-v4`
+# squash-merges).
+#
+# One-time operator setup (documented in `benchmarks-website/web/README.md`):
+# create the Vercel project with Root Directory `benchmarks-website/web` and
+# the git integration DISABLED (CLI deploys would otherwise double up), then
+# set the repo secret `VERCEL_TOKEN` and repo variables `VERCEL_ORG_ID` +
+# `VERCEL_PROJECT_ID`.
+
+name: Benchmarks Web Deploy
+
+concurrency:
+  # One run per PR (a newer preview supersedes the in-flight one); pushes
+  # serialize per branch WITHOUT cancellation so an in-flight production
+  # deploy finishes rather than racing its successor. PR runs are keyed by PR
+  # number (not head_ref: two fork PRs sharing a branch name must not cancel
+  # each other's checks) and the event name is part of the group key so a
+  # pull_request run whose head IS the deploy branch (the eventual
+  # ct/bench-v4 -> develop cutover PR) can never share a group with, and
+  # cancel, a push-triggered production deploy.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+on:
+  pull_request: { }
+  push:
+    branches: ["ct/bench-v4"]
+
+permissions:
+  contents: read
+
+env:
+  # Keep in lockstep with `packageManager` in benchmarks-website/web/package.json.
+  PNPM_VERSION: "11.5.2"
+  VERCEL_CLI_VERSION: "54.10.3"
+
+jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # A job-level permissions block replaces the workflow-level grant rather
+    # than merging into it, so contents: read is restated explicitly for
+    # actions/checkout (public-repo reads happen to work without it, but the
+    # job should not depend on the repo staying public).
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      web: ${{ steps.filter.outputs.web }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d  # v4
+        id: filter
+        with:
+          # On push events the filter's default base is the repo DEFAULT
+          # branch (develop), against which the migration branch always
+          # differs; comparing against the pushed branch itself diffs the
+          # previously-pushed commit instead, making the path gate real for
+          # deploy-branch pushes. The input is ignored on pull_request
+          # events (those diff against the PR base).
+          base: ${{ github.ref_name }}
+          # `migrations/**` is included because the web integration suite
+          # applies the full migration set to its testcontainer, and this
+          # workflow is the only CI consumer of that DDL from the read
+          # side: a schema change must run the read-service tests.
+          filters: |
+            web:
+              - "benchmarks-website/web/**"
+              - "migrations/**"
+              - ".github/workflows/web-deploy.yml"
+              - ".github/actions/verify-cdn-cache/**"
+
+  test:
+    name: Check & Test
+    needs: [changes]
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: benchmarks-website/web
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - name: Install pnpm
+        run: npm install -g "pnpm@${PNPM_VERSION}"
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6
+        with:
+          node-version: "24"
+          cache: "pnpm"
+          cache-dependency-path: benchmarks-website/web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm lint
+      # `next build` must succeed without a reachable database (every page and
+      # route is request-rendered; CDN caching is layered on by headers), so
+      # no `BENCH_DB_*` env vars are provided here on purpose.
+      - run: pnpm build
+      - name: Require Docker for the integration suite
+        # The testcontainers describe self-skips when no Docker daemon is
+        # available (a local-dev convenience); in CI that would silently drop
+        # the only Postgres integration coverage, so fail loudly instead.
+        run: docker info > /dev/null
+      - run: pnpm test
+
+  deploy-preview:
+    name: Deploy Preview
+    needs: [test]
+    # Forked PRs cannot read `VERCEL_TOKEN`; previews deploy only for branches
+    # in this repo.
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      deployments: write
+    environment:
+      name: benchmarks-web-preview
+      url: ${{ steps.deploy.outputs.url }}
+    env:
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - name: Install pnpm and Vercel CLI
+        # `vercel build` shells out to pnpm for the install step, and the
+        # Vercel CLI itself is pinned for reproducible deploys.
+        run: npm install -g "pnpm@${PNPM_VERSION}" "vercel@${VERCEL_CLI_VERSION}"
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6
+        with:
+          node-version: "24"
+          cache: "pnpm"
+          cache-dependency-path: benchmarks-website/web/pnpm-lock.yaml
+      # Vercel commands run from the repo root: the project's Root Directory
+      # setting (`benchmarks-website/web`) is applied by the CLI from the
+      # pulled project settings.
+      - name: Pull Vercel environment
+        run: vercel pull --yes --environment=preview --token="${VERCEL_TOKEN}"
+      - name: Build
+        run: vercel build --token="${VERCEL_TOKEN}"
+      - name: Deploy
+        id: deploy
+        run: |
+          set -Eeuo pipefail
+          url="$(vercel deploy --prebuilt --token="${VERCEL_TOKEN}")"
+          echo "url=${url}" >> "${GITHUB_OUTPUT}"
+          echo "Preview deployed: ${url}" >> "${GITHUB_STEP_SUMMARY}"
+      - name: Verify CDN caching of the landing page
+        uses: ./.github/actions/verify-cdn-cache
+        with:
+          url: ${{ steps.deploy.outputs.url }}
+
+  deploy-production:
+    name: Deploy Production
+    needs: [test]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      deployments: write
+    environment:
+      name: benchmarks-web-production
+      url: ${{ steps.deploy.outputs.url }}
+    env:
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - name: Install pnpm and Vercel CLI
+        run: npm install -g "pnpm@${PNPM_VERSION}" "vercel@${VERCEL_CLI_VERSION}"
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6
+        with:
+          node-version: "24"
+          cache: "pnpm"
+          cache-dependency-path: benchmarks-website/web/pnpm-lock.yaml
+      - name: Pull Vercel environment
+        run: vercel pull --yes --environment=production --token="${VERCEL_TOKEN}"
+      - name: Build
+        run: vercel build --prod --token="${VERCEL_TOKEN}"
+      - name: Deploy
+        id: deploy
+        run: |
+          set -Eeuo pipefail
+          url="$(vercel deploy --prebuilt --prod --token="${VERCEL_TOKEN}")"
+          echo "url=${url}" >> "${GITHUB_OUTPUT}"
+          echo "Production deployed: ${url}" >> "${GITHUB_STEP_SUMMARY}"
+      - name: Verify CDN caching of the landing page
+        uses: ./.github/actions/verify-cdn-cache
+        with:
+          # Prefer the public production alias when the optional repo var is
+          # set: deployment protection never covers the public domain, so the
+          # probe can verify CDN behavior even when the deployment URL is
+          # protected (where it would otherwise skip). When probing the
+          # public domain, a 401/403 means the site is inaccessible, so the
+          # protection-skip is disabled and the step fails loudly instead.
+          url: ${{ vars.BENCHMARKS_WEB_PROD_URL || steps.deploy.outputs.url }}
+          allow-protection-skip: ${{ vars.BENCHMARKS_WEB_PROD_URL == '' }}

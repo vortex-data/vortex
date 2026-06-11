@@ -1,0 +1,94 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+#
+# Probe a deployed benchmarks-web landing page until Vercel's CDN serves it
+# from cache. The page's caching rides on `vercel.json`'s
+# `Vercel-CDN-Cache-Control` rule beating the function-emitted `no-store` at
+# the CDN; that precedence is platform behavior only a live deployment can
+# prove, so this is the automated evidence gate for it. Success requires BOTH
+# `HTTP 200` AND `x-vercel-cache: HIT|STALE` from the same response, so a
+# cached error page can never pass. Vercel deployment protection (enabled by
+# default for previews, and covering production deployment URLs under
+# standard protection) returns 401/403 before the page renders; the probe
+# cannot see CDN behavior through that, so it skips loudly rather than fail
+# the deploy.
+
+name: Verify CDN caching
+description: >-
+  Probe <url>/ until x-vercel-cache reports HIT or STALE on an HTTP 200
+  response; skip loudly on 401/403 (deployment protection).
+
+inputs:
+  url:
+    description: Base URL to probe (the page probed is <url>/).
+    required: true
+  allow-protection-skip:
+    description: >-
+      Whether a 401/403 response counts as a tolerated deployment-protection
+      skip ("true") or as a failure ("false"). Pass "false" when probing a
+      PUBLIC domain: deployment protection never covers public domains, so an
+      auth-gated response there means the site is inaccessible and the deploy
+      must not green.
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Probe x-vercel-cache
+      shell: bash
+      env:
+        PROBE_URL: ${{ inputs.url }}
+        ALLOW_PROTECTION_SKIP: ${{ inputs.allow-protection-skip }}
+      run: |
+        set -Eeuo pipefail
+        # Tolerate a trailing slash in the configured URL (the probe appends
+        # its own).
+        PROBE_URL="${PROBE_URL%/}"
+        headers="$(mktemp)"
+        status=""
+        cache=""
+        for attempt in 1 2 3 4 5; do
+          # One request yields both the status and the headers (truncated
+          # per attempt so a transport failure cannot leave a stale dump); a
+          # transient curl failure consumes a retry attempt (|| true)
+          # instead of aborting the step under set -e. The bounded
+          # --connect-timeout/--max-time keep one hung socket from stalling the
+          # whole gate until the job's timeout-minutes: a stall now consumes a
+          # retry attempt like any other transient failure.
+          : > "${headers}"
+          status="$(curl -sS --connect-timeout 10 --max-time 30 \
+            -D "${headers}" -o /dev/null \
+            -w '%{http_code}' "${PROBE_URL}/" || true)"
+          # Split on the FIRST colon only and trim optional whitespace: the
+          # space after the colon is optional per RFC 9110, so -F': ' would
+          # mis-parse a legal `x-vercel-cache:HIT`.
+          cache="$(tr -d '\r' < "${headers}" \
+            | awk -F':' 'tolower($1) == "x-vercel-cache" { v = substr($0, length($1) + 2) } \
+                END { gsub(/^[ \t]+|[ \t]+$/, "", v); print v }')"
+          if [ "${status}" = "401" ] || [ "${status}" = "403" ]; then
+            if [ "${ALLOW_PROTECTION_SKIP}" = "true" ]; then
+              echo "Deployment protection enabled (HTTP ${status}); CDN cache verification skipped." \
+                | tee -a "${GITHUB_STEP_SUMMARY}"
+              exit 0
+            fi
+            echo "HTTP ${status} from a public URL: the site is auth-gated or inaccessible." >&2
+            exit 1
+          fi
+          echo "attempt ${attempt}: HTTP ${status:-unreachable}, x-vercel-cache=${cache:-absent}"
+          if [ "${status}" = "200" ]; then
+            case "${cache}" in HIT|STALE) exit 0 ;; esac
+          fi
+          if [ "${attempt}" -lt 5 ]; then
+            sleep 5
+          fi
+        done
+        {
+          echo "CDN cache verification failed after 5 attempts:"
+          echo "last response: HTTP ${status:-unreachable}, x-vercel-cache=${cache:-absent}."
+          echo "Expected HTTP 200 with x-vercel-cache HIT or STALE. A non-200 status means"
+          echo "the page itself is broken (check BENCH_DB_* on the Vercel project); a 200"
+          echo "that never reaches HIT means the vercel.json Vercel-CDN-Cache-Control rule"
+          echo "is not taking effect."
+        } >&2
+        exit 1
