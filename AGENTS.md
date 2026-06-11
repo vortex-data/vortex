@@ -198,5 +198,8 @@ you ran and call out any checks you could not run.
 All commits must be signed off by the committers in this form:
 
 ```text
-Signed-off-by: "COMMITTER" <COMMITTER_EMAIL>
+Signed-off-by: COMMITTER <COMMITTER_EMAIL>
 ```
+
+Do not wrap the committer name in quotes; the DCO check expects the exact unquoted name/email
+pair from the commit author.
