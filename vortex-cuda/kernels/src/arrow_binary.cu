@@ -63,8 +63,9 @@ __device__ void init_scan_device(const BinaryView *const __restrict views,
             const BinaryViewRef *const view_ref = reinterpret_cast<const BinaryViewRef *>(&view);
             const uint64_t buffer_index = static_cast<uint64_t>(view_ref->buffer_index);
             const uint64_t offset = static_cast<uint64_t>(view_ref->offset);
+            // Both addends are u32 widened to u64, so the end position cannot wrap.
             const uint64_t end = offset + static_cast<uint64_t>(size);
-            if (buffer_index >= data_buffer_count || end < offset || end > data_buffer_lens[buffer_index]) {
+            if (buffer_index >= data_buffer_count || end > data_buffer_lens[buffer_index]) {
                 scan[idx] = 0;
                 atomicMax(status, 1u);
                 continue;

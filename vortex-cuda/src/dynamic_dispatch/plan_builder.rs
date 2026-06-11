@@ -139,7 +139,9 @@ fn is_dyn_dispatch_cast_compatible(array: &ArrayRef) -> bool {
     let Ok(source_ptype) = PType::try_from(cast.child_at(0).dtype()) else {
         return false;
     };
-    let target_ptype = cast.scalar_fn().as_::<Cast>().as_ptype();
+    let Ok(target_ptype) = PType::try_from(cast.scalar_fn().as_::<Cast>()) else {
+        return false;
+    };
 
     // Implemented as unsigned dictionary-code casts to cuDF's signed index types.
     // LOAD/BITUNPACK materialize directly into the target-width output type.
