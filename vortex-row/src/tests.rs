@@ -656,6 +656,43 @@ fn decimal_wide_physical_storage_sort_order(#[case] descending: bool) -> VortexR
     Ok(())
 }
 
+/// Regression: a nullable decimal stored wider than its precision requires may hold arbitrary
+/// garbage in null slots (`DecimalArray` only constrains *non-null* values to the precision).
+/// The narrowing pass must skip null slots instead of panicking when the garbage does not fit
+/// the precision-minimal type.
+#[test]
+fn decimal_wide_storage_with_garbage_null_slot() -> VortexResult<()> {
+    use vortex_array::arrays::DecimalArray;
+    use vortex_array::dtype::DecimalDType;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::BitBuffer;
+    use vortex_buffer::Buffer;
+
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    // precision=5 -> minimal physical type I32, but stored as i64. Row 1 is null and its slot
+    // holds a value that fits neither i32 nor precision 5.
+    let dt = DecimalDType::new(5, 2);
+    let values: Vec<i64> = vec![7, i64::MAX, -99_999];
+    let validity = Validity::from(BitBuffer::from_iter([true, false, true]));
+    let col =
+        DecimalArray::new::<i64>(Buffer::<i64>::copy_from(&values), dt, validity).into_array();
+
+    let encoded = convert_columns(&[col], &[RowSortFieldOptions::ascending()], &mut ctx)?;
+    let rows = collect_row_bytes(&encoded);
+    // sentinel(1) + i32(4) per row.
+    assert!(rows.iter().all(|r| r.len() == 5), "row lens: {rows:?}");
+    // The null row encodes as the canonical null (sentinel 0x00, zero body), so it sorts first
+    // and carries no trace of the garbage slot value.
+    assert_eq!(rows[1], vec![0x00, 0, 0, 0, 0]);
+    let mut sorted = rows.clone();
+    sorted.sort();
+    assert_eq!(
+        sorted,
+        vec![rows[1].clone(), rows[2].clone(), rows[0].clone()]
+    );
+    Ok(())
+}
+
 /// Lock-in reference test: encode the worked-example row from `docs/specs/row-encoding.md`
 /// (one row with every supported encoding family, all columns ascending nulls-first) and
 /// assert the exact encoded bytes. This pins the byte layout so any accidental change to the

@@ -4,6 +4,8 @@
 //! Encode pass leaf kernels: per-row byte writers for each canonical variant, plus the
 //! variable-length block body encoder.
 
+use vortex_array::arrays::decimal::cast_decimal_values;
+
 use super::*;
 
 pub(super) fn encode_null(
@@ -127,29 +129,18 @@ fn encode_primitive_typed<T: NativePType + RowEncode>(
 /// values. A `DecimalArray` may legally carry a wider `values_type` than its precision requires,
 /// so without this normalization the encode pass would write more bytes than the size pass
 /// reserved. The narrowing is always lossless because a decimal's precision bounds the magnitude
-/// of every valid value, so the precision-minimal type can represent it.
-fn narrow_decimal_to_smallest(arr: &DecimalArray) -> VortexResult<Option<DecimalArray>> {
-    let decimal_dtype = arr.decimal_dtype();
-    let target = DecimalType::smallest_decimal_value_type(&decimal_dtype);
+/// of every valid *non-null* value, so the precision-minimal type can represent it. Null slots
+/// are unconstrained and may hold values that do not fit; [`cast_decimal_values`] narrows them
+/// to zero instead of casting (the encoder zero-fills null bodies anyway).
+fn narrow_decimal_to_smallest(
+    arr: &DecimalArray,
+    mask: &vortex_mask::Mask,
+) -> VortexResult<Option<DecimalArray>> {
+    let target = DecimalType::smallest_decimal_value_type(&arr.decimal_dtype());
     if arr.values_type() == target {
         return Ok(None);
     }
-    let validity = arr.as_ref().validity()?;
-    let narrowed = match_each_decimal_value_type!(arr.values_type(), |P| {
-        let from = arr.buffer::<P>();
-        match_each_decimal_value_type!(target, |Q| {
-            DecimalArray::new::<Q>(narrow_decimal_buffer::<P, Q>(from), decimal_dtype, validity)
-        })
-    });
-    Ok(Some(narrowed))
-}
-
-/// Narrow a buffer of decimal values from type `F` to a smaller type `T`. Lossless because the
-/// caller only narrows to the precision-minimal type, which can represent every valid value.
-fn narrow_decimal_buffer<F: NativeDecimalType, T: NativeDecimalType>(from: Buffer<F>) -> Buffer<T> {
-    from.iter()
-        .map(|&v| T::from(v).vortex_expect("decimal value must fit its precision-minimal type"))
-        .collect()
+    cast_decimal_values(arr, target, mask).map(Some)
 }
 
 pub(super) fn encode_decimal(
@@ -162,9 +153,9 @@ pub(super) fn encode_decimal(
 ) -> VortexResult<()> {
     // Normalize to the precision-minimal physical type so the bytes we write match the width the
     // size pass reserved (see `narrow_decimal_to_smallest`).
-    let narrowed = narrow_decimal_to_smallest(arr)?;
-    let arr = narrowed.as_ref().unwrap_or(arr);
     let mask = arr.as_ref().validity()?.execute_mask(arr.len(), ctx)?;
+    let narrowed = narrow_decimal_to_smallest(arr, &mask)?;
+    let arr = narrowed.as_ref().unwrap_or(arr);
     match arr.values_type() {
         DecimalType::I8 => {
             encode_decimal_typed::<i8>(arr, &mask, field, row_offsets, col_offset, out)
