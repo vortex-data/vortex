@@ -48,7 +48,7 @@ use crate::utils::validate_binary_tensor_float_inputs;
 /// same dtype and a float element type. The output is a float column of the same float type.
 ///
 /// When either input is wrapped in [`L2Denorm`], this operator treats the stored norms and
-/// normalized children as authoritative. For lossy encodings such as TurboQuant, that means the
+/// normalized children as authoritative. For lossy encodings, that means the
 /// optimized readthrough path may intentionally differ slightly from decoding both sides to dense
 /// coordinates and recomputing cosine from scratch.
 ///
@@ -603,7 +603,7 @@ mod tests {
 
     #[test]
     fn both_denorm_lossy_zero_stored_norm_returns_zero() -> VortexResult<()> {
-        // Mimics a lossy encoding (e.g. TurboQuant) where the stored norm is authoritative but
+        // Mimics a lossy encoding where the stored norm is authoritative but
         // the decoded normalized child is physically nonzero. With a stored norm of `0.0`, cosine
         // similarity for that row must be `0.0` even though the dot product of the normalized
         // children is nonzero.
@@ -626,7 +626,7 @@ mod tests {
 
     #[test]
     fn one_side_denorm_lossy_zero_stored_norm_returns_zero() -> VortexResult<()> {
-        // Mimics a lossy encoding (e.g. TurboQuant) where the stored norm is authoritative but
+        // Mimics a lossy encoding where the stored norm is authoritative but
         // the decoded normalized child is physically nonzero. The plain side is a normal nonzero
         // tensor with positive norm. cosine similarity must still be `0.0` because the
         // authoritative stored norm on the denorm side is `0.0`.

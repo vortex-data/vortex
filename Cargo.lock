@@ -9537,31 +9537,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 
 [[package]]
-name = "vector-search-bench"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arrow-array",
- "arrow-buffer",
- "arrow-schema",
- "clap",
- "futures",
- "indicatif",
- "parquet",
- "rand 0.10.1",
- "rand_distr 0.6.0",
- "serde",
- "tabled",
- "tempfile",
- "tokio",
- "tracing",
- "vortex",
- "vortex-bench",
- "vortex-btrblocks",
- "vortex-tensor",
-]
-
-[[package]]
 name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9841,7 +9816,6 @@ dependencies = [
  "vortex-sequence",
  "vortex-session",
  "vortex-sparse",
- "vortex-tensor",
  "vortex-utils",
  "vortex-zigzag",
  "vortex-zstd",
@@ -10705,28 +10679,6 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
-]
-
-[[package]]
-name = "vortex-turboquant"
-version = "0.1.0"
-dependencies = [
- "codspeed-divan-compat",
- "half",
- "num-traits",
- "prost 0.14.4",
- "rand 0.10.1",
- "rstest",
- "vortex-array",
- "vortex-buffer",
- "vortex-error",
- "vortex-file",
- "vortex-io",
- "vortex-layout",
- "vortex-mask",
- "vortex-session",
- "vortex-tensor",
- "vortex-utils",
 ]
 
 [[package]]

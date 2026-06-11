@@ -406,7 +406,7 @@ fn execute_l2_denorm_constant_norms(
 ///
 /// Rows that are null in the original input are **zeroed out** in the normalized output. This is
 /// necessary because null rows may have undefined (garbage) physical storage values, and we do not
-/// want to let those propagate into downstream encodings (like TurboQuant).
+/// want to let those propagate into downstream lossy encodings.
 ///
 /// # Nullability
 ///
