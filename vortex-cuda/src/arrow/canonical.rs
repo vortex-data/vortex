@@ -16,6 +16,8 @@ use futures::future::BoxFuture;
 use futures::future::join;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+use vortex::array::ExecutionCtx;
+use vortex::array::IntoArray;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::DictArray;
@@ -36,6 +38,7 @@ use vortex::array::arrays::extension::ExtensionArrayExt;
 use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex::array::arrays::fixed_size_list::FixedSizeListDataParts;
 use vortex::array::arrays::list::ListDataParts;
+use vortex::array::arrays::listview::ListViewArrayExt;
 use vortex::array::arrays::listview::list_from_list_view;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::arrays::struct_::StructDataParts;
@@ -64,10 +67,12 @@ use crate::CudaExecutionCtx;
 use crate::arrow::ARROW_DEVICE_CUDA;
 use crate::arrow::ArrowArray;
 use crate::arrow::ArrowDeviceArray;
+use crate::arrow::ArrowDeviceArrayWithSchema;
 use crate::arrow::ExportDeviceArray;
 use crate::arrow::PrivateData;
 use crate::arrow::SyncEvent;
 use crate::arrow::arrow_device_export_dictionary_codes_dtype;
+use crate::arrow::arrow_schema_for_array;
 use crate::arrow::cuda_decimal_value_type;
 use crate::arrow::list_view::export_device_list_view;
 use crate::cub::exclusive_sum_i32;
@@ -96,6 +101,92 @@ impl ExportDeviceArray for CanonicalDeviceArrayExport {
             reserved: Default::default(),
         })
     }
+
+    async fn export_device_array_with_schema(
+        &self,
+        array: ArrayRef,
+        ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<ArrowDeviceArrayWithSchema> {
+        let array = rebuild_array_for_export_schema(array, ctx.execution_ctx())?;
+        let schema = arrow_schema_for_array(&array, ctx)?;
+        let array = self.export_device_array(array, ctx).await?;
+        Ok(ArrowDeviceArrayWithSchema { schema, array })
+    }
+}
+
+/// Rebuild arrays whose exported layout differs from their original layout.
+fn rebuild_array_for_export_schema(
+    array: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let array = match array.try_downcast::<Dict>() {
+        Ok(dict) => {
+            let parts = dict.into_parts();
+            let values = rebuild_array_for_export_schema(parts.values, ctx)?;
+            return Ok(DictArray::try_new(parts.codes, values)?.into_array());
+        }
+        Err(array) => array,
+    };
+    let array = match array.try_downcast::<Struct>() {
+        Ok(struct_array) => {
+            let len = struct_array.len();
+            let StructDataParts {
+                struct_fields,
+                fields,
+                validity,
+            } = struct_array.into_data_parts();
+            let fields = fields
+                .iter()
+                .map(|field| rebuild_array_for_export_schema(field.clone(), ctx))
+                .collect::<VortexResult<Vec<_>>>()?;
+            return Ok(
+                StructArray::try_new(struct_fields.names().clone(), fields, len, validity)?
+                    .into_array(),
+            );
+        }
+        Err(array) => array,
+    };
+    let array = match array.try_downcast::<List>() {
+        Ok(list) => {
+            let ListDataParts {
+                elements,
+                offsets,
+                validity,
+                ..
+            } = list.into_data_parts();
+            let elements = rebuild_array_for_export_schema(elements, ctx)?;
+            return Ok(ListArray::try_new(elements, offsets, validity)?.into_array());
+        }
+        Err(array) => array,
+    };
+    let array = match array.try_downcast::<FixedSizeList>() {
+        Ok(fixed_size_list) => {
+            let len = fixed_size_list.len();
+            let list_size = fixed_size_list.list_size();
+            let FixedSizeListDataParts {
+                elements, validity, ..
+            } = fixed_size_list.into_data_parts();
+            let elements = rebuild_array_for_export_schema(elements, ctx)?;
+            return Ok(
+                FixedSizeListArray::try_new(elements, list_size, validity, len)?.into_array(),
+            );
+        }
+        Err(array) => array,
+    };
+    let array = match array.try_downcast::<ListView>() {
+        Ok(listview)
+            if listview.as_ref().is_host() && listview.elements().as_opt::<Dict>().is_some() =>
+        {
+            return rebuild_array_for_export_schema(
+                list_from_list_view(listview, ctx)?.into_array(),
+                ctx,
+            );
+        }
+        Ok(listview) => return Ok(listview.into_array()),
+        Err(array) => array,
+    };
+
+    Ok(array)
 }
 
 /// Export arrays whose Arrow layout depends on their concrete children before CUDA
@@ -2136,7 +2227,7 @@ mod tests {
     }
 
     #[crate::test]
-    async fn test_export_host_non_contiguous_dictionary_list_view_preserves_dictionary_child()
+    async fn test_export_host_non_contiguous_dictionary_list_view_schema_matches_rebuilt_child()
     -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -2162,7 +2253,13 @@ mod tests {
                 "",
                 Field::new(
                     Field::LIST_FIELD_DEFAULT_NAME,
-                    DataType::Dictionary(Box::new(DataType::Int16), Box::new(DataType::Int32)),
+                    DataType::Dictionary(
+                        Box::new(DataType::Int64),
+                        Box::new(DataType::Dictionary(
+                            Box::new(DataType::Int16),
+                            Box::new(DataType::Int32),
+                        )),
+                    ),
                     true,
                 ),
                 false,
@@ -2177,6 +2274,57 @@ mod tests {
         assert!(!dict_child.dictionary.is_null());
         assert_eq!(dict_child.length, 5);
         assert_eq!(dict_child.n_buffers, 2);
+        let nested_dict = unsafe { &*dict_child.dictionary };
+        assert!(!nested_dict.dictionary.is_null());
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    // Regression test: with an average list size >= 128 the host list-view rebuild picks its
+    // list-by-list strategy, which may canonicalize Dict elements. The schema must describe the
+    // rebuilt child layout.
+    #[crate::test]
+    async fn test_export_host_large_lists_dictionary_list_view_schema_matches_rebuilt_child()
+    -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let elements = DictArray::try_new(
+            PrimitiveArray::from_option_iter(
+                (0..256u32).map(|i| (i % 5 != 0).then_some((i % 3) as u8)),
+            )
+            .into_array(),
+            PrimitiveArray::from_iter([10i32, 20, 30]).into_array(),
+        )?
+        .into_array();
+        let array = ListViewArray::new(
+            elements,
+            PrimitiveArray::from_iter([128i32, 0]).into_array(),
+            PrimitiveArray::from_iter([128i32, 128]).into_array(),
+            Validity::NonNullable,
+        )
+        .into_array();
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+
+        let field = Field::try_from(&exported.schema)?;
+        assert_eq!(
+            field,
+            Field::new_list(
+                "",
+                Field::new(Field::LIST_FIELD_DEFAULT_NAME, DataType::Int32, true),
+                false,
+            )
+        );
+        assert_eq!(
+            private_data_buffer_i32_values(&exported.array.array, 1)?,
+            [0, 128, 256]
+        );
+        let list_children = unsafe { std::slice::from_raw_parts(exported.array.array.children, 1) };
+        let child = unsafe { &*list_children[0] };
+        assert!(child.dictionary.is_null());
+        assert_eq!(child.length, 256);
+        assert_eq!(child.n_buffers, 2);
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
