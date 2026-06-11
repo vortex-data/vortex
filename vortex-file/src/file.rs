@@ -12,7 +12,6 @@ use std::sync::OnceLock;
 
 use itertools::Itertools;
 use vortex_array::ArrayRef;
-use vortex_array::Columnar;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
@@ -244,11 +243,11 @@ impl VortexFile {
             ConstantArray::new(self.footer.row_count(), applied.len()).into_array();
         let applied = substitute_row_count(applied, &row_count_replacement)?;
 
+        // The stats array has exactly one row, so evaluate the predicate at row 0. A null
+        // result means the stats cannot prove anything, so only an exact `true` prunes.
         let mut ctx = self.session.create_execution_ctx();
-        Ok(match applied.execute::<Columnar>(&mut ctx)? {
-            Columnar::Constant(s) => s.scalar().as_bool().value() == Some(true),
-            Columnar::Canonical(_) => false,
-        })
+        let pruned = applied.execute_scalar(0, &mut ctx)?;
+        Ok(pruned.as_bool().value() == Some(true))
     }
 
     pub fn splits(&self) -> VortexResult<Vec<Range<u64>>> {

@@ -35,6 +35,7 @@ use vortex_array::dtype::PType::I32;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::and;
 use vortex_array::expr::cast;
+use vortex_array::expr::col;
 use vortex_array::expr::eq;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
@@ -1949,6 +1950,55 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
         &all_data_offsets,
         &all_zones_offsets,
         "global: all data segments should come before all zone map segments",
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_can_prune_composite_predicates() -> VortexResult<()> {
+    let array = StructArray::from_fields(&[
+        ("age", buffer![15i32, 18, 22, 25].into_array()),
+        ("price", buffer![120i32, 130, 140, 150].into_array()),
+    ])?
+    .into_array();
+
+    let mut buf = ByteBufferMut::empty();
+    let mut writer = SESSION
+        .write_options()
+        .with_file_statistics(PRUNING_STATS.to_vec())
+        .writer(&mut buf, array.dtype().clone());
+    writer.push(array).await?;
+    writer.finish().await?;
+
+    let file = SESSION.open_options().open_buffer(buf)?;
+
+    // Control: a bare comparison.
+    assert!(
+        file.can_prune(&gt(col("age"), lit(30)))?,
+        "bare gt should prune"
+    );
+
+    // eq falsification is internally or(min > lit, lit > max).
+    assert!(
+        file.can_prune(&eq(col("age"), lit(5)))?,
+        "eq outside min/max should prune"
+    );
+
+    // Composite and/or trees.
+    assert!(
+        file.can_prune(&and(gt(col("age"), lit(30)), lt(col("price"), lit(100))))?,
+        "and of falsified branches should prune"
+    );
+    assert!(
+        file.can_prune(&or(gt(col("age"), lit(30)), lt(col("age"), lit(10))))?,
+        "or of falsified branches should prune"
+    );
+
+    // Non-prunable predicate: matches data within bounds.
+    assert!(
+        !file.can_prune(&eq(col("age"), lit(18)))?,
+        "eq within min/max must not prune"
     );
 
     Ok(())
