@@ -87,14 +87,10 @@ pub(super) fn execute(
 /// The scatter, monomorphized on the selector integer widths so each `(array_index, row_index)`
 /// pair is read straight from its packed buffer.
 ///
-/// Output bits (and validity) are produced with [`BitBufferMut::collect_bool`], which packs 64
-/// results per word. For a random-access gather there is no word-level shortcut on the read side —
-/// consecutive outputs read unrelated source words — so the work is one bit read per output. The
-/// per-read overhead is what we trim: a raw `(ptr, bit_offset)` is hoisted per value buffer and the
-/// bit is read with [`get_bit_unchecked`], avoiding the wide `&[BitBuffer]` struct index and the
-/// redundant bounds assert in `BitBuffer::value`. Validity is materialized into one full-length
-/// [`BitBuffer`] per branch so its gather is the same uniform unchecked read rather than a per-row
-/// `Option`/`Mask`-variant dispatch.
+/// Values and validity are both gathered with [`gather_bits`]: validity is just another set of
+/// boolean buffers (one per branch) routed by the same selectors, so once each branch's validity is
+/// materialized into a full-length [`BitBuffer`] it runs through the identical kernel rather than a
+/// per-row `Option`/`Mask`-variant dispatch.
 #[allow(clippy::too_many_arguments)]
 fn gather<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
     len: usize,
@@ -106,7 +102,7 @@ fn gather<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
     nullable: bool,
 ) -> VortexResult<(BitBufferMut, Option<BitBufferMut>)> {
     // Validate the per-row bounds once up front (returning an error rather than panicking), so the
-    // word-packing passes below are tight unchecked loops.
+    // word-packing passes in `gather_bits` are tight unchecked loops.
     for i in 0..len {
         let branch = branches[i].as_();
         vortex_ensure!(branch < num_values, "interleave array index out of bounds");
@@ -116,21 +112,9 @@ fn gather<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
         );
     }
 
-    // Raw (byte pointer, bit offset) per value buffer; the offset folds the buffer's own bit offset
-    // into the index so the read is a single `get_bit_unchecked`.
-    let val_ptrs: Vec<(*const u8, usize)> = value_bits
-        .iter()
-        .map(|b| (b.inner().as_ptr(), b.offset()))
-        .collect();
-
-    // SAFETY (both passes): `i < len`, `branches`/`rows` have length `len`, and the loop above
-    // proved `branches[i] < num_values` and `rows[i] < value_bits[branches[i]].len()`, which equals
-    // the validity length for that branch. So every `get_unchecked` / `get_bit_unchecked` is in
-    // bounds.
-    let values = BitBufferMut::collect_bool(len, |i| unsafe {
-        let (ptr, off) = *val_ptrs.get_unchecked(branches.get_unchecked(i).as_());
-        get_bit_unchecked(ptr, rows.get_unchecked(i).as_() + off)
-    });
+    // SAFETY: the loop above proved `branches[i] < num_values == value_bits.len()` and
+    // `rows[i] < value_bits[branches[i]].len()` for every `i < len`.
+    let values = unsafe { gather_bits(len, value_bits, branches, rows) };
 
     // A missing per-value mask means every row of that value is valid; validity is only materialized
     // when the output can be null.
@@ -143,15 +127,41 @@ fn gather<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
                 None => BitBuffer::new_set(value_bits[j].len()),
             })
             .collect();
-        let vld_ptrs: Vec<(*const u8, usize)> = validity_bits
-            .iter()
-            .map(|b| (b.inner().as_ptr(), b.offset()))
-            .collect();
-        BitBufferMut::collect_bool(len, |i| unsafe {
-            let (ptr, off) = *vld_ptrs.get_unchecked(branches.get_unchecked(i).as_());
-            get_bit_unchecked(ptr, rows.get_unchecked(i).as_() + off)
-        })
+        // SAFETY: each validity buffer has its value's length, so the bounds validated above hold.
+        unsafe { gather_bits(len, &validity_bits, branches, rows) }
     });
 
     Ok((values, validity))
+}
+
+/// Gathers one bit per output from `bits[branches[i]]` at position `rows[i]`, packing 64 results per
+/// word with [`BitBufferMut::collect_bool`].
+///
+/// For a random-access gather there is no word-level shortcut on the read side — consecutive outputs
+/// read unrelated source words — so the work is one bit read per output. The per-read overhead is
+/// what we trim: a raw `(ptr, bit_offset)` is hoisted per buffer and the bit is read with
+/// [`get_bit_unchecked`], avoiding the wide `&[BitBuffer]` struct index and the redundant bounds
+/// assert in `BitBuffer::value`.
+///
+/// # Safety
+/// For every `i < len`, `branches[i] < bits.len()` and `rows[i] < bits[branches[i]].len()`.
+unsafe fn gather_bits<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
+    len: usize,
+    bits: &[BitBuffer],
+    branches: &[A],
+    rows: &[R],
+) -> BitBufferMut {
+    // Raw (byte pointer, bit offset) per buffer; the offset folds the buffer's own bit offset into
+    // the index so the read is a single `get_bit_unchecked`.
+    let ptrs: Vec<(*const u8, usize)> = bits
+        .iter()
+        .map(|b| (b.inner().as_ptr(), b.offset()))
+        .collect();
+
+    // SAFETY: `collect_bool` calls this for `i < len`, and the caller guarantees `branches[i]` and
+    // `rows[i]` are in bounds for `ptrs` / the selected buffer.
+    BitBufferMut::collect_bool(len, |i| unsafe {
+        let (ptr, off) = *ptrs.get_unchecked(branches.get_unchecked(i).as_());
+        get_bit_unchecked(ptr, rows.get_unchecked(i).as_() + off)
+    })
 }
