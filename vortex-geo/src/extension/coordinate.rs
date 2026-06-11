@@ -149,21 +149,31 @@ pub(crate) fn coordinate_from_scalar(scalar: &Scalar) -> VortexResult<Coordinate
     }
 }
 
-/// Canonicalize a point column once and return its flat `x`/`y` `f64` columns. The bulk counterpart
-/// to [`coordinate_from_scalar`]; distances use only `x`/`y`, so `z?`/`m?` are ignored.
-pub(crate) fn xy_columns(
+/// Validated, executed `x`/`y` columns of a point array. The bulk counterpart to [`Coordinate`];
+/// `z?`/`m?` are not executed.
+pub(crate) struct ParsedCoordinates {
+    /// The flat `f64` `x` column.
+    pub(crate) xs: PrimitiveArray,
+    /// The flat `f64` `y` column.
+    pub(crate) ys: PrimitiveArray,
+}
+
+/// Validate a point column's coordinate storage (layout and non-nullability) and execute its
+/// `x`/`y` columns.
+pub(crate) fn parse_storage(
     points: &ArrayRef,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<(PrimitiveArray, PrimitiveArray)> {
+) -> VortexResult<ParsedCoordinates> {
     let storage = points
         .clone()
         .execute::<ExtensionArray>(ctx)?
         .storage_array()
         .clone()
         .execute::<StructArray>(ctx)?;
+    coordinate_dimension(storage.dtype())?;
     vortex_ensure!(
         !storage.dtype().is_nullable(),
-        "point storage must be non-nullable to read unmasked x/y, was {}",
+        "coordinate storage must be non-nullable to read unmasked ordinates, was {}",
         storage.dtype()
     );
     let xs = storage
@@ -174,7 +184,7 @@ pub(crate) fn xy_columns(
         .unmasked_field_by_name("y")?
         .clone()
         .execute::<PrimitiveArray>(ctx)?;
-    Ok((xs, ys))
+    Ok(ParsedCoordinates { xs, ys })
 }
 
 #[cfg(test)]
@@ -192,7 +202,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     use super::Coordinate;
-    use super::xy_columns;
+    use super::parse_storage;
     use crate::extension::GeoMetadata;
     use crate::extension::Point;
 
@@ -214,10 +224,10 @@ mod tests {
         );
     }
 
-    /// `xy_columns` reads the coordinate fields unmasked, so a nullable point column must be
-    /// rejected rather than decoding null rows as garbage ordinates.
+    /// [`parse_storage`] reads the coordinate fields unmasked, so a nullable point column must
+    /// be rejected at parse time rather than decoding null rows as garbage ordinates.
     #[test]
-    fn xy_columns_rejects_nullable_points() -> VortexResult<()> {
+    fn parse_rejects_nullable_points() -> VortexResult<()> {
         let session = VortexSession::empty().with::<ArraySession>();
         let mut ctx = session.create_execution_ctx();
 
@@ -234,7 +244,7 @@ mod tests {
         let dtype = ExtDType::<Point>::try_new(GeoMetadata { crs: None }, storage.dtype().clone())?;
         let points = ExtensionArray::new(dtype.erased(), storage).into_array();
 
-        assert!(xy_columns(&points, &mut ctx).is_err());
+        assert!(parse_storage(&points, &mut ctx).is_err());
         Ok(())
     }
 }

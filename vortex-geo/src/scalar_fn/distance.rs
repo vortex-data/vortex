@@ -25,7 +25,7 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::extension::coordinate::coordinate_from_scalar;
-use crate::extension::coordinate::xy_columns;
+use crate::extension::coordinate::parse_storage;
 
 /// Straight-line (L2) distance between `(ax, ay)` and `(bx, by)`.
 fn euclidean_distance(ax: f64, ay: f64, bx: f64, by: f64) -> f64 {
@@ -108,13 +108,20 @@ impl ScalarFnVTable for GeoDistance {
             (Some(query), None) => distances_to_constant(&b, query.scalar(), ctx),
             (None, Some(query)) => distances_to_constant(&a, query.scalar(), ctx),
             (None, None) => {
-                let (axs, ays) = xy_columns(&a, ctx)?;
-                let (bxs, bys) = xy_columns(&b, ctx)?;
-                let distances = axs
+                let a_coords = parse_storage(&a, ctx)?;
+                let b_coords = parse_storage(&b, ctx)?;
+                let distances = a_coords
+                    .xs
                     .as_slice::<f64>()
                     .iter()
-                    .zip(ays.as_slice::<f64>())
-                    .zip(bxs.as_slice::<f64>().iter().zip(bys.as_slice::<f64>()))
+                    .zip(a_coords.ys.as_slice::<f64>())
+                    .zip(
+                        b_coords
+                            .xs
+                            .as_slice::<f64>()
+                            .iter()
+                            .zip(b_coords.ys.as_slice::<f64>()),
+                    )
                     .map(|((&ax, &ay), (&bx, &by))| euclidean_distance(ax, ay, bx, by));
                 Ok(PrimitiveArray::from_iter(distances).into_array())
             }
@@ -130,11 +137,12 @@ fn distances_to_constant(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let query = coordinate_from_scalar(query)?;
-    let (xs, ys) = xy_columns(points, ctx)?;
-    let distances = xs
+    let coords = parse_storage(points, ctx)?;
+    let distances = coords
+        .xs
         .as_slice::<f64>()
         .iter()
-        .zip(ys.as_slice::<f64>())
+        .zip(coords.ys.as_slice::<f64>())
         .map(|(&x, &y)| euclidean_distance(x, y, query.x, query.y));
     Ok(PrimitiveArray::from_iter(distances).into_array())
 }
