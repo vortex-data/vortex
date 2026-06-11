@@ -2,6 +2,11 @@
 # Re-running creates a new attempt on the existing approvals.yml workflow run, which
 # updates the `check-approvals` check_run in place. This avoids the gate getting stuck
 # behind a stale failed check_run from the original `pull_request` event run.
+#
+# Fork PRs are skipped: GitHub caps github.token to read-only for fork events, so the
+# re-run API call would 403, and approvals.yml can only fail for bot authors, whose PRs
+# always come from in-repo branches. Skipping keeps this workflow free of elevated
+# credentials reachable from fork-triggered events.
 
 name: Re-run PR Approval Check on Review
 
@@ -18,7 +23,9 @@ concurrency:
 
 jobs:
   rerun:
-    if: github.event.pull_request.base.ref == 'develop'
+    if: >-
+      github.event.pull_request.base.ref == 'develop' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
