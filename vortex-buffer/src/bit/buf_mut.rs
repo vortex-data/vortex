@@ -275,6 +275,7 @@ impl BitBufferMut {
     /// Set the bit at `index` to the given boolean value.
     ///
     /// This operation is checked so if `index` exceeds the buffer length, this will panic.
+    #[inline]
     pub fn set_to(&mut self, index: usize, value: bool) {
         if value {
             self.set(index);
@@ -288,6 +289,7 @@ impl BitBufferMut {
     /// # Safety
     ///
     /// The caller must ensure that `index` does not exceed the largest bit index in the backing buffer.
+    #[inline]
     pub unsafe fn set_to_unchecked(&mut self, index: usize, value: bool) {
         if value {
             // SAFETY: checked by caller
@@ -301,6 +303,7 @@ impl BitBufferMut {
     /// Set a position to `true`.
     ///
     /// This operation is checked so if `index` exceeds the buffer length, this will panic.
+    #[inline]
     pub fn set(&mut self, index: usize) {
         assert!(index < self.len, "index {index} exceeds len {}", self.len);
 
@@ -373,12 +376,21 @@ impl BitBufferMut {
             return;
         }
 
-        let new_len_bytes = (self.offset + len).div_ceil(8);
+        let end_bit = self.offset + len;
+        let new_len_bytes = end_bit.div_ceil(8);
         self.buffer.truncate(new_len_bytes);
         self.len = len;
+
+        // Clear stale bits in the final partial byte so the "bits beyond len are zero" invariant
+        // holds. `append_false` (and `append_buffer`) rely on it to avoid a read-modify-write.
+        if !end_bit.is_multiple_of(8) {
+            let keep = (1u8 << (end_bit % 8)) - 1;
+            self.buffer.as_mut_slice()[new_len_bytes - 1] &= keep;
+        }
     }
 
     /// Append a new boolean into the bit buffer, incrementing the length.
+    #[inline]
     pub fn append(&mut self, value: bool) {
         if value {
             self.append_true()
@@ -388,6 +400,7 @@ impl BitBufferMut {
     }
 
     /// Append a new true value to the buffer.
+    #[inline]
     pub fn append_true(&mut self) {
         let bit_pos = self.offset + self.len;
         let byte_pos = bit_pos / 8;
@@ -404,21 +417,18 @@ impl BitBufferMut {
     }
 
     /// Append a new false value to the buffer.
+    #[inline]
     pub fn append_false(&mut self) {
         let bit_pos = self.offset + self.len;
         let byte_pos = bit_pos / 8;
-        let bit_in_byte = bit_pos % 8;
 
-        // Ensure buffer has enough bytes
+        // Ensure buffer has enough bytes (pushed as 0x00, so bit is already unset).
         if byte_pos >= self.buffer.len() {
             self.buffer.push(0u8);
         }
 
-        // Bit is already 0 if we just pushed a new byte, otherwise ensure it's unset
-        if bit_in_byte != 0 {
-            self.buffer.as_mut_slice()[byte_pos] &= !(1 << bit_in_byte);
-        }
-
+        // The bit is guaranteed to be 0: new bytes are zero-initialized, and
+        // existing bytes have this bit unset (it's beyond the current length).
         self.len += 1;
     }
 
@@ -487,24 +497,39 @@ impl BitBufferMut {
         let end_bit_pos = start_bit_pos + bit_len;
         let required_bytes = end_bit_pos.div_ceil(8);
 
-        // Ensure buffer has enough bytes
+        // Ensure buffer has enough bytes, zero-initialized for OR-based writes.
         if required_bytes > self.buffer.len() {
             self.buffer.push_n(0x00, required_bytes - self.buffer.len());
         }
 
-        // Use bitvec for efficient bit copying
-        let self_slice = self
-            .buffer
-            .as_mut_slice()
-            .view_bits_mut::<bitvec::prelude::Lsb0>();
-        let other_slice = buffer
-            .inner()
-            .as_slice()
-            .view_bits::<bitvec::prelude::Lsb0>();
+        let dst_bit_offset = start_bit_pos % 8;
+        let src_bit_offset = buffer.offset();
 
-        // Copy from source buffer (accounting for its offset) to destination (accounting for our offset + len)
-        let source_range = buffer.offset()..buffer.offset() + bit_len;
-        self_slice[start_bit_pos..end_bit_pos].copy_from_bitslice(&other_slice[source_range]);
+        if dst_bit_offset == 0 && src_bit_offset == 0 {
+            // Both byte-aligned: use memcpy for full bytes, then mask the tail.
+            let dst_byte = start_bit_pos / 8;
+            let src_bytes = buffer.inner().as_slice();
+            let full_bytes = bit_len / 8;
+            self.buffer.as_mut_slice()[dst_byte..dst_byte + full_bytes]
+                .copy_from_slice(&src_bytes[..full_bytes]);
+            let rem = bit_len % 8;
+            if rem != 0 {
+                let mask = (1u8 << rem) - 1;
+                self.buffer.as_mut_slice()[dst_byte + full_bytes] |= src_bytes[full_bytes] & mask;
+            }
+        } else {
+            // Use bitvec for unaligned bit copying.
+            let self_slice = self
+                .buffer
+                .as_mut_slice()
+                .view_bits_mut::<bitvec::prelude::Lsb0>();
+            let other_slice = buffer
+                .inner()
+                .as_slice()
+                .view_bits::<bitvec::prelude::Lsb0>();
+            let source_range = src_bit_offset..src_bit_offset + bit_len;
+            self_slice[start_bit_pos..end_bit_pos].copy_from_bitslice(&other_slice[source_range]);
+        }
 
         self.len += bit_len;
     }
@@ -612,7 +637,8 @@ impl FromIterator<bool> for BitBufferMut {
             }
         }
 
-        // Append the remaining items (as we do not know how many more there are).
+        // Append any remaining items one at a time, as we do not know how many more there are.
+        // (`append` is already a single branch + bit set, see `append_true`/`append_false`.)
         for v in iter {
             buf.append(v);
         }
@@ -658,6 +684,24 @@ mod tests {
         assert_eq!(bools.true_count(), 2);
         assert!(bools.value(0));
         assert!(bools.value(9));
+    }
+
+    #[test]
+    fn append_false_after_truncate_reads_back_false() {
+        // `truncate` leaves stale bits in the final partial byte; a subsequent `append_false`
+        // must still read back as false. Regression test for the `append_false` fast path.
+        let mut bools = BitBufferMut::new_set(16);
+        bools.truncate(12);
+        bools.append_false();
+        bools.append_true();
+
+        let bools = bools.freeze();
+        assert_eq!(bools.len(), 14);
+        assert!(
+            !bools.value(12),
+            "appended false must read back false after truncate"
+        );
+        assert!(bools.value(13));
     }
 
     #[test]

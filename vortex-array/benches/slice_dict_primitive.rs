@@ -8,7 +8,9 @@ use divan::Bencher;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::slice::SliceReduce;
 
 fn main() {
     divan::main();
@@ -41,6 +43,29 @@ fn slice_primitive_tight_loop(bencher: Bencher, len: usize) {
             let mut offset = 0;
             while offset + slice_len <= len {
                 out.push(arr.slice(offset..offset + slice_len).unwrap());
+                offset += slice_len;
+            }
+        });
+}
+
+#[divan::bench(args = ARRAY_LENGTHS)]
+fn slice_primitive_reduce_tight_loop(bencher: Bencher, len: usize) {
+    let arr = build_primitive(len);
+    let slice_len = 64;
+
+    let num_slices = len / slice_len;
+
+    bencher
+        .with_inputs(|| (&arr, Vec::<ArrayRef>::with_capacity(num_slices)))
+        .bench_refs(|(arr, out)| {
+            out.clear();
+            let mut offset = 0;
+            while offset + slice_len <= len {
+                out.push(
+                    <Primitive as SliceReduce>::slice(arr.as_view(), offset..offset + slice_len)
+                        .unwrap()
+                        .unwrap(),
+                );
                 offset += slice_len;
             }
         });
