@@ -266,6 +266,10 @@ impl Validity {
 
     /// Compare the logical masks of two Validity values of the given length, executing them
     /// into [`Mask`]s if necessary.
+    ///
+    /// Mixed `Array`-vs-constant pairings are answered from statistics where possible (the
+    /// minimum/maximum of the validity array decides all-valid/all-invalid exactly), only
+    /// falling back to executing the validity array when statistics are unavailable.
     pub fn mask_eq(
         &self,
         other: &Validity,
@@ -279,7 +283,30 @@ impl Validity {
                 Validity::NonNullable | Validity::AllValid,
             )
             | (Validity::AllInvalid, Validity::AllInvalid) => Ok(true),
-            _ => Ok(self.execute_mask(length, ctx)? == other.execute_mask(length, ctx)?),
+            // Constant variants with opposite masks: only equal when empty.
+            (Validity::NonNullable | Validity::AllValid, Validity::AllInvalid)
+            | (Validity::AllInvalid, Validity::NonNullable | Validity::AllValid) => {
+                Ok(length == 0)
+            }
+            // Array vs all-valid: equal iff the array's minimum is true.
+            (Validity::Array(a), Validity::NonNullable | Validity::AllValid)
+            | (Validity::NonNullable | Validity::AllValid, Validity::Array(a)) => {
+                match a.statistics().compute_min::<bool>(ctx) {
+                    Some(min) => Ok(min),
+                    None => Ok(a.clone().execute::<Mask>(ctx)?.all_true()),
+                }
+            }
+            // Array vs all-invalid: equal iff the array's maximum is false.
+            (Validity::Array(a), Validity::AllInvalid)
+            | (Validity::AllInvalid, Validity::Array(a)) => {
+                match a.statistics().compute_max::<bool>(ctx) {
+                    Some(max) => Ok(!max),
+                    None => Ok(a.clone().execute::<Mask>(ctx)?.all_false()),
+                }
+            }
+            (Validity::Array(_), Validity::Array(_)) => {
+                Ok(self.execute_mask(length, ctx)? == other.execute_mask(length, ctx)?)
+            }
         }
     }
 
