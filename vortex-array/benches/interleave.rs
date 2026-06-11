@@ -99,6 +99,8 @@ fn f64_values(num_branches: usize, len: usize) -> Vec<Buffer<f64>> {
 }
 
 /// Benches executing a vortex `InterleaveArray` to canonical; construction is untimed.
+/// `execute` consumes the array, so the input array is rebuilt per sample in `with_inputs` to
+/// keep that out of the timed region (arrow's `interleave` borrows its inputs).
 fn bench_vortex(bencher: Bencher, values: Vec<ArrayRef>, num_branches: usize, len: usize) {
     let (array_indices, row_indices) = selectors(num_branches, len);
     let session = VortexSession::empty();
@@ -115,7 +117,7 @@ fn bench_vortex(bencher: Bencher, values: Vec<ArrayRef>, num_branches: usize, le
                 session.create_execution_ctx(),
             )
         })
-        .bench_refs(|(array, ctx)| array.clone().execute::<Canonical>(ctx));
+        .bench_values(|(array, mut ctx)| array.execute::<Canonical>(&mut ctx));
 }
 
 /// Benches `arrow_select::interleave::interleave` over the same gather pattern as [`bench_vortex`]

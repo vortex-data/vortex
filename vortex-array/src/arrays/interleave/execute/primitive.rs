@@ -5,7 +5,10 @@
 //! primitive values.
 
 use num_traits::AsPrimitive;
+use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_buffer::ByteBuffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
@@ -65,36 +68,43 @@ pub(super) fn execute(
         p => p.to_unsigned(),
     };
 
-    let values: Vec<PrimitiveArray> = (0..num_values)
-        .map(|i| {
-            array
-                .value(i)
-                .as_::<Primitive>()
-                .reinterpret_cast(gather_ptype)
-        })
-        .collect();
-
     // Gather directly from the typed selector buffers — no intermediate `usize` materialization.
     let array_indices = array.array_indices().as_::<Primitive>();
     let row_indices = array.row_indices().as_::<Primitive>();
-    let gathered = match_each_unsigned_integer_ptype!(gather_ptype, |W| {
-        let value_slices: Vec<&[W]> = values.iter().map(|v| v.as_slice::<W>()).collect();
+    let gathered: ByteBuffer = match_each_unsigned_integer_ptype!(gather_ptype, |W| {
+        // View each value's bytes as the same-width unsigned type, zero-copy and without
+        // constructing intermediate arrays (which costs at high fan-out).
+        let value_buffers: Vec<Buffer<W>> = (0..num_values)
+            .map(|i| {
+                let value = array.value(i).as_::<Primitive>();
+                Buffer::from_byte_buffer(
+                    value
+                        .buffer_handle()
+                        .as_host_opt()
+                        .vortex_expect("canonical primitive value must be host memory")
+                        .clone(),
+                )
+            })
+            .collect();
+        let value_slices: Vec<&[W]> = value_buffers.iter().map(|b| b.as_slice()).collect();
         match_each_unsigned_integer_ptype!(array_indices.ptype(), |A| {
             match_each_unsigned_integer_ptype!(row_indices.ptype(), |R| {
-                PrimitiveArray::new(
-                    gather(
-                        &value_slices,
-                        array_indices.as_slice::<A>(),
-                        row_indices.as_slice::<R>(),
-                    )
-                    .freeze(),
-                    Validity::NonNullable,
+                gather(
+                    &value_slices,
+                    array_indices.as_slice::<A>(),
+                    row_indices.as_slice::<R>(),
                 )
+                .freeze()
+                .into_byte_buffer()
             })
         })
     });
 
-    Ok(ExecutionResult::done(gathered.reinterpret_cast(ptype)))
+    Ok(ExecutionResult::done(PrimitiveArray::from_byte_buffer(
+        gathered,
+        ptype,
+        Validity::NonNullable,
+    )))
 }
 
 /// The gather, monomorphized on the value width and the selector integer widths so each element
