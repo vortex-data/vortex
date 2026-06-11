@@ -9,12 +9,14 @@
 //! synthesized tree is then verified with [`Expression::return_dtype`] (type checking), so a
 //! generator bug fails loudly instead of producing an ill-typed expression.
 //!
-//! The production space covers the serializable, infallible scalar functions: literals, field
-//! access (root/get_item), boolean connectives, comparisons, between, like, is_(not_)null,
+//! The default production space covers the serializable, infallible scalar functions: literals,
+//! field access (root/get_item), boolean connectives, comparisons, between, like, is_(not_)null,
 //! case_when, zip, fill_null, mask, byte_length, list_contains, pack, select, and merge.
-//! Deliberately excluded are functions that may legitimately error at runtime on valid input
-//! (cast, arithmetic operators) and functions that cannot round trip through a file scan
-//! (dynamic comparisons, stat references).
+//! [`SynthesisOptions::fallible`] additionally enables functions that may legitimately error at
+//! runtime on valid input (cast, arithmetic operators, data-driven like patterns); callers that
+//! enable it must establish a baseline by evaluating the expression eagerly and discarding inputs
+//! whose baseline evaluation fails. Always excluded are functions that cannot round trip through
+//! a file scan (dynamic comparisons, stat references).
 
 use arbitrary::Arbitrary;
 use arbitrary::Result as AResult;
@@ -31,6 +33,7 @@ use crate::dtype::StructFields;
 use crate::expr::Expression;
 use crate::expr::between;
 use crate::expr::byte_length;
+use crate::expr::cast;
 use crate::expr::fill_null;
 use crate::expr::get_item;
 use crate::expr::ilike;
@@ -63,6 +66,17 @@ const MAX_DEPTH: usize = 4;
 /// Maximum number of scope paths (root plus nested struct fields) considered as leaves.
 const MAX_PATHS: usize = 64;
 
+/// Options controlling the synthesized production space.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SynthesisOptions {
+    /// Include functions that may legitimately error at runtime on valid input: cast, the
+    /// arithmetic operators, and like with a data-driven pattern.
+    ///
+    /// Callers enabling this must evaluate the synthesized expression eagerly first and discard
+    /// inputs whose baseline evaluation fails, since a runtime error no longer implies a bug.
+    pub fallible: bool,
+}
+
 /// Generates an arbitrary projection expression returning a struct assembled from scope columns
 /// and synthesized values, or `None` to scan with the identity projection.
 pub fn projection_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Option<Expression>> {
@@ -83,10 +97,9 @@ pub fn projection_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Optio
                 u.choose_iter(struct_dtype.names().iter().zip(struct_dtype.fields()))?;
             (FieldName::from(format!("{name}_{i}")), field_dtype)
         } else {
-            let nullability = Nullability::arbitrary(u)?;
             (
                 FieldName::from(format!("synth_{i}")),
-                random_comparable_dtype(u)?.with_nullability(nullability),
+                random_scalar_dtype(u)?,
             )
         };
         fields.push((name, field_dtype));
@@ -97,11 +110,14 @@ pub fn projection_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Optio
         StructFields::new(names.into(), dtypes),
         Nullability::arbitrary(u)?,
     );
-    synthesize_expr(u, dtype, &target).map(Some)
+    synthesize_expr_with(u, dtype, &target, SynthesisOptions { fallible: true }).map(Some)
 }
 
 /// Generates an arbitrary well-typed boolean filter expression over the scope, or `None` to scan
 /// unfiltered.
+///
+/// Both this and [`projection_expr`] include fallible functions: the file fuzz harness evaluates
+/// the expressions eagerly before writing the file and rejects inputs whose baseline fails.
 pub fn filter_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Option<Expression>> {
     if dtype.as_struct_fields_opt().is_none() {
         return Ok(None);
@@ -110,11 +126,11 @@ pub fn filter_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Option<Ex
         return Ok(None);
     }
     let target = DType::Bool(Nullability::arbitrary(u)?);
-    synthesize_expr(u, dtype, &target).map(Some)
+    synthesize_expr_with(u, dtype, &target, SynthesisOptions { fallible: true }).map(Some)
 }
 
-/// Synthesizes an arbitrary expression that evaluates to exactly `target` when applied to data of
-/// dtype `scope`.
+/// Synthesizes an arbitrary infallible expression that evaluates to exactly `target` when applied
+/// to data of dtype `scope`.
 ///
 /// # Panics
 ///
@@ -125,7 +141,17 @@ pub fn synthesize_expr(
     scope: &DType,
     target: &DType,
 ) -> AResult<Expression> {
-    let synth = Synthesizer::new(scope);
+    synthesize_expr_with(u, scope, target, SynthesisOptions::default())
+}
+
+/// [`synthesize_expr`] with explicit [`SynthesisOptions`].
+pub fn synthesize_expr_with(
+    u: &mut Unstructured<'_>,
+    scope: &DType,
+    target: &DType,
+    options: SynthesisOptions,
+) -> AResult<Expression> {
+    let synth = Synthesizer::new(scope, options);
     let depth = u.int_in_range(0..=MAX_DEPTH)?;
     let expr = synth.synth(u, target, depth)?;
 
@@ -164,18 +190,23 @@ enum Production {
     Zip,
     FillNull,
     MaskNullable,
+    /// Fallible: arithmetic over a primitive target (may overflow or divide by zero).
+    Arithmetic,
+    /// Fallible: cast from an arbitrary comparable dtype to the target.
+    Cast,
 }
 
 struct Synthesizer {
     /// Path expressions into the scope (root plus nested struct fields) and their dtypes.
     paths: Vec<(Expression, DType)>,
+    options: SynthesisOptions,
 }
 
 impl Synthesizer {
-    fn new(scope: &DType) -> Self {
+    fn new(scope: &DType, options: SynthesisOptions) -> Self {
         let mut paths = Vec::new();
         collect_paths(root(), scope, &mut paths);
-        Self { paths }
+        Self { paths, options }
     }
 
     fn synth(&self, u: &mut Unstructured<'_>, target: &DType, depth: usize) -> AResult<Expression> {
@@ -230,7 +261,13 @@ impl Synthesizer {
             Production::Like => {
                 let (child_n, pattern_n) = split_nullability2(u, nullability)?;
                 let child = self.synth(u, &DType::Utf8(child_n), depth)?;
-                let pattern = like_pattern(u, pattern_n)?;
+                // Data-driven patterns can fail to compile (e.g. a trailing escape), so without
+                // fallible mode patterns are escape-free literals.
+                let pattern = if self.options.fallible {
+                    self.synth(u, &DType::Utf8(pattern_n), depth)?
+                } else {
+                    like_pattern(u, pattern_n)?
+                };
                 match u.int_in_range(0..=3)? {
                     0 => like(child, pattern),
                     1 => ilike(child, pattern),
@@ -290,9 +327,7 @@ impl Synthesizer {
                 let mut dtypes = fields.fields().collect::<Vec<_>>();
                 for i in 0..u.int_in_range(0..=2usize)? {
                     names.push(FieldName::from(format!("__select_extra_{i}")));
-                    dtypes.push(
-                        random_comparable_dtype(u)?.with_nullability(Nullability::arbitrary(u)?),
-                    );
+                    dtypes.push(random_scalar_dtype(u)?);
                 }
                 let superset = DType::Struct(StructFields::new(names.into(), dtypes), nullability);
                 select(fields.names().clone(), self.synth(u, &superset, depth)?)
@@ -324,9 +359,7 @@ impl Synthesizer {
                 let mut dtypes = vec![target.clone()];
                 for i in 0..u.int_in_range(0..=2usize)? {
                     names.push(FieldName::from(format!("__get_item_extra_{i}")));
-                    dtypes.push(
-                        random_comparable_dtype(u)?.with_nullability(Nullability::arbitrary(u)?),
-                    );
+                    dtypes.push(random_scalar_dtype(u)?);
                 }
                 let parent = DType::Struct(
                     StructFields::new(names.into(), dtypes),
@@ -355,6 +388,24 @@ impl Synthesizer {
                 let child = self.synth(u, &child_dtype, depth)?;
                 let mask_child = self.synth(u, &DType::Bool(Nullability::NonNullable), depth)?;
                 mask(child, mask_child)
+            }
+            Production::Arithmetic => {
+                let op = arithmetic_operator(u)?;
+                let (lhs_n, rhs_n) = split_nullability2(u, nullability)?;
+                Binary.new_expr(
+                    op,
+                    [
+                        self.synth(u, &target.with_nullability(lhs_n), depth)?,
+                        self.synth(u, &target.with_nullability(rhs_n), depth)?,
+                    ],
+                )
+            }
+            Production::Cast => {
+                let child_nullability = Nullability::arbitrary(u)?;
+                let child_dtype = self
+                    .comparable_dtype(u)?
+                    .with_nullability(child_nullability);
+                cast(self.synth(u, &child_dtype, depth)?, target.clone())
             }
         })
     }
@@ -396,7 +447,14 @@ impl Synthesizer {
                     }
                 }
             }
-            DType::Primitive(PType::U64, _) => candidates.push(Production::ByteLength),
+            DType::Primitive(ptype, _) => {
+                if *ptype == PType::U64 {
+                    candidates.push(Production::ByteLength);
+                }
+                if self.options.fallible {
+                    candidates.push(Production::Arithmetic);
+                }
+            }
             DType::Struct(fields, _) => {
                 candidates.push(Production::Pack);
                 if fields.names().iter().all_unique() {
@@ -422,6 +480,10 @@ impl Synthesizer {
             if nullability == Nullability::Nullable {
                 candidates.push(Production::MaskNullable);
             }
+        }
+
+        if self.options.fallible && is_comparable_dtype(target) {
+            candidates.push(Production::Cast);
         }
 
         candidates
@@ -496,7 +558,7 @@ impl Synthesizer {
         if !self.paths.is_empty() && u.ratio(1, 2)? {
             return Ok(u.choose_iter(self.paths.iter())?.1.clone());
         }
-        Ok(random_comparable_dtype(u)?.with_nullability(Nullability::arbitrary(u)?))
+        random_scalar_dtype(u)
     }
 }
 
@@ -532,6 +594,12 @@ fn is_comparable_dtype(dtype: &DType) -> bool {
     )
 }
 
+/// A random comparable dtype with arbitrary nullability.
+fn random_scalar_dtype(u: &mut Unstructured<'_>) -> AResult<DType> {
+    let nullability = Nullability::arbitrary(u)?;
+    Ok(random_comparable_dtype(u)?.with_nullability(nullability))
+}
+
 fn random_comparable_dtype(u: &mut Unstructured<'_>) -> AResult<DType> {
     Ok(match u.int_in_range(0..=4)? {
         0 => DType::Bool(Nullability::NonNullable),
@@ -550,6 +618,15 @@ fn comparison_operator(u: &mut Unstructured<'_>) -> AResult<Operator> {
         3 => Operator::Gte,
         4 => Operator::Lt,
         _ => Operator::Lte,
+    })
+}
+
+fn arithmetic_operator(u: &mut Unstructured<'_>) -> AResult<Operator> {
+    Ok(match u.int_in_range(0..=3)? {
+        0 => Operator::Add,
+        1 => Operator::Sub,
+        2 => Operator::Mul,
+        _ => Operator::Div,
     })
 }
 
@@ -683,7 +760,18 @@ mod tests {
     }
 
     fn collect_fn_ids(expr: &Expression, ids: &mut BTreeSet<String>) {
-        ids.insert(expr.scalar_fn().id().to_string());
+        let id = expr.scalar_fn().id().to_string();
+        // Distinguish the operator classes that share the binary vtable.
+        if let Some(op) = expr.scalar_fn().as_opt::<Binary>() {
+            if op.is_arithmetic() {
+                ids.insert(format!("{id}#arithmetic"));
+            } else if op.is_comparison() {
+                ids.insert(format!("{id}#comparison"));
+            } else {
+                ids.insert(format!("{id}#boolean"));
+            }
+        }
+        ids.insert(id);
         for child in expr.children().iter() {
             collect_fn_ids(child, ids);
         }
@@ -699,8 +787,11 @@ mod tests {
             let mut u = Unstructured::new(&bytes);
             let scope = ar(DType::arbitrary(&mut u))?;
             let target = ar(DType::arbitrary(&mut u))?;
-            // synthesize_expr panics if the expression does not type check to the target.
-            let expr = ar(synthesize_expr(&mut u, &scope, &target))?;
+            let options = SynthesisOptions {
+                fallible: ar(bool::arbitrary(&mut u))?,
+            };
+            // synthesize_expr_with panics if the expression does not type check to the target.
+            let expr = ar(synthesize_expr_with(&mut u, &scope, &target, options))?;
             assert_eq!(expr.return_dtype(&scope)?, target);
         }
         Ok(())
@@ -715,6 +806,15 @@ mod tests {
             ("root", root().scalar_fn().id()),
             ("get_item", get_item("a", root()).scalar_fn().id()),
             ("binary", eq(lit(0i32), lit(0i32)).scalar_fn().id()),
+            (
+                "cast",
+                cast(
+                    lit(0i32),
+                    DType::Primitive(PType::I64, Nullability::NonNullable),
+                )
+                .scalar_fn()
+                .id(),
+            ),
             ("not", not(lit(true)).scalar_fn().id()),
             ("is_null", is_null(lit(0i32)).scalar_fn().id()),
             ("is_not_null", is_not_null(lit(0i32)).scalar_fn().id()),
@@ -788,11 +888,18 @@ mod tests {
             eprintln!("sample: {sample}");
         }
 
-        let missing = expected
+        let binary_id = eq(lit(0i32), lit(0i32)).scalar_fn().id();
+        let mut missing = expected
             .iter()
             .filter(|(_, id)| !seen.contains(&id.to_string()))
-            .map(|(name, _)| *name)
+            .map(|(name, _)| (*name).to_string())
             .collect_vec();
+        missing.extend(
+            ["arithmetic", "comparison", "boolean"]
+                .iter()
+                .filter(|class| !seen.contains(&format!("{binary_id}#{class}")))
+                .map(|class| format!("binary#{class}")),
+        );
         assert!(
             missing.is_empty(),
             "synthesis did not cover the full expression space, missing: {missing:?}, saw: {seen:?}"

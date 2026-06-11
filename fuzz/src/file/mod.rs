@@ -20,6 +20,8 @@ pub struct FuzzFileAction {
     pub projection_expr: Option<Expression>,
     pub filter_expr: Option<Expression>,
     pub compressor_strategy: CompressorStrategy,
+    /// Open the file with `LayoutReader` caching enabled and scan it twice.
+    pub layout_reader_cache: bool,
 }
 
 impl<'a> Arbitrary<'a> for FuzzFileAction {
@@ -38,6 +40,7 @@ impl<'a> Arbitrary<'a> for FuzzFileAction {
             projection_expr: projection_expr(u, &dtype)?,
             filter_expr: filter_expr(u, &dtype)?,
             compressor_strategy: CompressorStrategy::arbitrary(u)?,
+            layout_reader_cache: bool::arbitrary(u)?,
         })
     }
 }

@@ -6,7 +6,9 @@
 use itertools::Itertools;
 use libfuzzer_sys::Corpus;
 use libfuzzer_sys::fuzz_target;
+use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
@@ -38,6 +40,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
         projection_expr,
         filter_expr,
         compressor_strategy,
+        layout_reader_cache,
     } = fuzz;
     let array_data = array;
 
@@ -46,21 +49,28 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
     }
 
     let mut ctx = SESSION.create_execution_ctx();
-    let expected_array = {
-        let bool_mask = array_data
-            .clone()
-            .apply(&filter_expr.clone().unwrap_or_else(|| lit(true)))
-            .vortex_expect("filter expression evaluation should succeed in fuzz test");
-        let bool_mask_bool = bool_mask
-            .execute::<BoolArray>(&mut ctx)
-            .vortex_expect("execute bool");
-        let mask = bool_mask_bool.to_mask_fill_null_false(&mut ctx);
-        let filtered = array_data
-            .filter(mask)
-            .vortex_expect("filter operation should succeed in fuzz test");
-        filtered
-            .apply(&projection_expr.clone().unwrap_or_else(root))
-            .vortex_expect("projection expression evaluation should succeed in fuzz test")
+
+    // Baseline: evaluate the filter and projection eagerly in memory *before* writing the file.
+    // The expression space includes fallible functions (cast, arithmetic, like), so a runtime
+    // error here is not a bug; reject the input. A successful baseline is the oracle: once it
+    // succeeds, the scan below must succeed and produce the same values.
+    let Ok(bool_mask) = array_data
+        .clone()
+        .apply(&filter_expr.clone().unwrap_or_else(|| lit(true)))
+        .and_then(|m| m.execute::<BoolArray>(&mut ctx))
+    else {
+        return Corpus::Reject;
+    };
+    let mask = bool_mask.to_mask_fill_null_false(&mut ctx);
+    let filtered = array_data
+        .filter(mask)
+        .vortex_expect("filter operation should succeed in fuzz test");
+    let Ok(expected_array) = filtered
+        .apply(&projection_expr.clone().unwrap_or_else(root))
+        .and_then(|a| a.execute::<Canonical>(&mut ctx))
+        .map(Canonical::into_array)
+    else {
+        return Corpus::Reject;
     };
 
     let write_options = match compressor_strategy {
@@ -78,25 +88,49 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
         .write(&mut full_buff, array_data.to_array_iterator())
         .vortex_expect("file write should succeed in fuzz test");
 
-    let mut output = SESSION
-        .open_options()
+    let open_options = if layout_reader_cache {
+        SESSION.open_options().with_layout_reader_cache()
+    } else {
+        SESSION.open_options()
+    };
+    let file = open_options
         .open_buffer(full_buff)
-        .vortex_expect("open_buffer should succeed in fuzz test")
-        .scan()
-        .vortex_expect("scan should succeed in fuzz test")
-        .with_projection(projection_expr.unwrap_or_else(root))
-        .with_some_filter(filter_expr)
-        .into_array_iter(&*RUNTIME)
-        .vortex_expect("into_array_iter should succeed in fuzz test")
-        .try_collect::<_, Vec<_>, _>()
-        .vortex_expect("collect should succeed in fuzz test");
+        .vortex_expect("open_buffer should succeed in fuzz test");
 
-    let output_array = match output.len() {
-        0 => Canonical::empty(expected_array.dtype()).into_array(),
-        1 => output.pop().vortex_expect("one output"),
-        _ => ChunkedArray::from_iter(output).into_array(),
+    let run_scan = || {
+        let mut output = file
+            .scan()
+            .vortex_expect("scan should succeed in fuzz test")
+            .with_projection(projection_expr.clone().unwrap_or_else(root))
+            .with_some_filter(filter_expr.clone())
+            .into_array_iter(&*RUNTIME)
+            .vortex_expect("into_array_iter should succeed in fuzz test")
+            .try_collect::<_, Vec<_>, _>()
+            .vortex_expect("collect should succeed in fuzz test");
+
+        match output.len() {
+            0 => Canonical::empty(expected_array.dtype()).into_array(),
+            1 => output.pop().vortex_expect("one output"),
+            _ => ChunkedArray::from_iter(output).into_array(),
+        }
     };
 
+    assert_outputs_match(&expected_array, &run_scan(), &mut ctx);
+
+    // With layout reader caching enabled, a second scan re-uses the cached LayoutReader and must
+    // produce the same result.
+    if layout_reader_cache {
+        assert_outputs_match(&expected_array, &run_scan(), &mut ctx);
+    }
+
+    Corpus::Keep
+});
+
+fn assert_outputs_match(
+    expected_array: &ArrayRef,
+    output_array: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) {
     assert_eq!(
         expected_array.len(),
         output_array.len(),
@@ -115,17 +149,15 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
     let bool_result = expected_array
         .binary(output_array.clone(), Operator::Eq)
         .vortex_expect("compare operation should succeed in fuzz test")
-        .execute::<BoolArray>(&mut ctx)
+        .execute::<BoolArray>(ctx)
         .vortex_expect("execute bool");
     let true_count = bool_result.to_bit_buffer().true_count();
     if true_count != expected_array.len()
         && (bool_result
             .into_array()
-            .all_valid(&mut ctx)
+            .all_valid(ctx)
             .vortex_expect("all_valid")
-            || expected_array
-                .all_valid(&mut ctx)
-                .vortex_expect("all_valid"))
+            || expected_array.all_valid(ctx).vortex_expect("all_valid"))
     {
         vortex_panic!(
             "Failed to match original array {}with{}",
@@ -133,9 +165,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
             output_array.display_tree()
         );
     }
-
-    Corpus::Keep
-});
+}
 
 fn has_nullable_struct(dtype: &DType) -> bool {
     dtype.is_struct() && dtype.is_nullable()
