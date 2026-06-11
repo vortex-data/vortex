@@ -45,48 +45,51 @@ where
     })
 }
 
-/// Attempt to narrow the decimal array to any smaller supported type.
+/// Build the `narrowed_decimal` match from a single ordered list of native decimal types.
+///
+/// The native types form a total order (each is losslessly representable in the next), so for any
+/// type `T` the set of "smaller" types is exactly the prefix of the list before `T`. The macro
+/// walks the list left to right, accumulating that prefix, and for each type emits a match arm that
+/// tries [`try_downcast`] against every smaller type, smallest first. The first arm (no smaller
+/// types) cannot narrow and is returned as-is.
+macro_rules! narrow_to_smallest {
+    // Entry point: seed the walk with an empty prefix, the full ordered list, and no arms yet.
+    ($array:ident) => {
+        narrow_to_smallest!(@build $array; smaller: [];
+            rest: [(i8, I8), (i16, I16), (i32, I32), (i64, I64), (i128, I128), (i256, I256)];
+            arms: [])
+    };
+
+    // List exhausted: emit the assembled match.
+    (@build $array:ident; smaller: $smaller:tt; rest: []; arms: [$($arm:tt)*]) => {
+        match $array.values_type() {
+            $($arm)*
+        }
+    };
+
+    // Head type has no smaller types: it cannot be narrowed.
+    (@build $array:ident; smaller: []; rest: [($t:ty, $variant:ident) $(, $rest:tt)*]; arms: [$($arm:tt)*]) => {
+        narrow_to_smallest!(@build $array; smaller: [$t]; rest: [$($rest),*];
+            arms: [$($arm)* DecimalType::$variant => $array,])
+    };
+
+    // Head type with a non-empty prefix of smaller types: try each, smallest first.
+    (@build $array:ident; smaller: [$($smaller:ty),+]; rest: [($t:ty, $variant:ident) $(, $rest:tt)*]; arms: [$($arm:tt)*]) => {
+        narrow_to_smallest!(@build $array; smaller: [$($smaller,)+ $t]; rest: [$($rest),*];
+            arms: [$($arm)*
+                DecimalType::$variant => match min_max::<$t>(&$array) {
+                    None => $array,
+                    Some((min, max)) => Option::<DecimalArray>::None
+                        $(.or_else(|| try_downcast::<$t, $smaller>(&$array, min, max)))+
+                        .unwrap_or($array),
+                },
+            ])
+    };
+}
+
+/// Attempt to narrow the decimal array to the smallest supported type that fits its values.
 pub fn narrowed_decimal(decimal_array: DecimalArray) -> DecimalArray {
-    match decimal_array.values_type() {
-        // Cannot narrow any more
-        DecimalType::I8 => decimal_array,
-        DecimalType::I16 => match min_max::<i16>(&decimal_array) {
-            None => decimal_array,
-            Some((min, max)) => {
-                try_downcast::<i16, i8>(&decimal_array, min, max).unwrap_or(decimal_array)
-            }
-        },
-        DecimalType::I32 => match min_max::<i32>(&decimal_array) {
-            None => decimal_array,
-            Some((min, max)) => try_downcast::<i32, i8>(&decimal_array, min, max)
-                .or_else(|| try_downcast::<i32, i16>(&decimal_array, min, max))
-                .unwrap_or(decimal_array),
-        },
-        DecimalType::I64 => match min_max::<i64>(&decimal_array) {
-            None => decimal_array,
-            Some((min, max)) => try_downcast::<i64, i8>(&decimal_array, min, max)
-                .or_else(|| try_downcast::<i64, i16>(&decimal_array, min, max))
-                .or_else(|| try_downcast::<i64, i32>(&decimal_array, min, max))
-                .unwrap_or(decimal_array),
-        },
-        DecimalType::I128 => match min_max::<i128>(&decimal_array) {
-            None => decimal_array,
-            Some((min, max)) => try_downcast::<i128, i8>(&decimal_array, min, max)
-                .or_else(|| try_downcast::<i128, i16>(&decimal_array, min, max))
-                .or_else(|| try_downcast::<i128, i32>(&decimal_array, min, max))
-                .or_else(|| try_downcast::<i128, i64>(&decimal_array, min, max))
-                .unwrap_or(decimal_array),
-        },
-        DecimalType::I256 => match min_max::<i256>(&decimal_array) {
-            None => decimal_array,
-            Some((min, max)) => try_downcast::<i256, i8>(&decimal_array, min, max)
-                .or_else(|| try_downcast::<i256, i16>(&decimal_array, min, max))
-                .or_else(|| try_downcast::<i256, i32>(&decimal_array, min, max))
-                .or_else(|| try_downcast::<i256, i64>(&decimal_array, min, max))
-                .or_else(|| try_downcast::<i256, i128>(&decimal_array, min, max))
-                .unwrap_or(decimal_array),
-        },
-    }
+    narrow_to_smallest!(decimal_array)
 }
 
 #[cfg(test)]
