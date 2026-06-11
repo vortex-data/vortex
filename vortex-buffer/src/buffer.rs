@@ -36,7 +36,7 @@ pub struct Buffer<T> {
 /// valid alignment without allocating. A zero-length slice never reads memory, so it may use a
 /// dangling pointer as long as it is non-null and aligned.
 const EMPTY_BACKING: &[u8] = {
-    let addr = 1usize << 15;
+    let addr = 1usize << 20;
     assert!(Alignment::MAX.is_offset_aligned(addr));
     // SAFETY: the pointer is non-null and aligned, and the slice is zero-length.
     unsafe { std::slice::from_raw_parts(std::ptr::without_provenance(addr), 0) }
