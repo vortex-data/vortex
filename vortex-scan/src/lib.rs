@@ -34,8 +34,7 @@ use futures::stream::BoxStream;
 use selection::Selection;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
-use vortex_array::expr::Expression;
-use vortex_array::expr::root;
+use vortex_array::expr::BoundExpr;
 use vortex_array::expr::stats::Precision;
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::SendableArrayStream;
@@ -122,12 +121,12 @@ pub trait DataSource: 'static + Send + Sync {
 }
 
 /// A request to scan a data source.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ScanRequest {
-    /// Projection expression. Defaults to `root()` which returns all columns.
-    pub projection: Expression,
+    /// Projection expression. `None` means identity projection over the scanned source dtype.
+    pub projection: Option<BoundExpr>,
     /// Filter expression, `None` implies no filter.
-    pub filter: Option<Expression>,
+    pub filter: Option<BoundExpr>,
     /// The per-partition row range to read. Row range will be applied
     /// over every partition you scan.
     pub row_range: Option<Range<u64>>,
@@ -144,21 +143,6 @@ pub struct ScanRequest {
     /// Optional limit on the number of rows returned by scan. Limits are applied after all
     /// filtering and row selection.
     pub limit: Option<u64>,
-}
-
-impl Default for ScanRequest {
-    fn default() -> Self {
-        Self {
-            projection: root(),
-            filter: None,
-            row_range: None,
-            selection: Selection::default(),
-            partition_selection: Selection::default(),
-            ordered: false,
-            limit: None,
-            partition_range: None,
-        }
-    }
 }
 
 /// A boxed data source scan.

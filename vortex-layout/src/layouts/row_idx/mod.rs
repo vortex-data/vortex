@@ -24,9 +24,8 @@ use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::expr::BoundExpr;
 use vortex_array::expr::ExactExpr;
-use vortex_array::expr::Expression;
-use vortex_array::expr::is_root;
 use vortex_array::expr::root;
 use vortex_array::expr::transform::PartitionedExpr;
 use vortex_array::expr::transform::partition;
@@ -65,7 +64,7 @@ impl RowIdxLayoutReader {
         }
     }
 
-    fn partition_expr(&self, expr: &Expression) -> VortexResult<Partitioning> {
+    fn partition_expr(&self, expr: &BoundExpr) -> VortexResult<Partitioning> {
         let key = ExactExpr(expr.clone());
 
         // Check cache first with read-only lock.
@@ -85,12 +84,15 @@ impl RowIdxLayoutReader {
         Ok(result)
     }
 
-    fn compute_partitioning(&self, expr: &Expression) -> VortexResult<Partitioning> {
+    fn compute_partitioning(&self, expr: &BoundExpr) -> VortexResult<Partitioning> {
         // Partition the expression into row idx and child expressions.
         let mut partitioned = partition(expr.clone(), self.dtype(), |expr| {
-            if expr.is::<RowIdx>() {
+            if expr
+                .as_placeholder()
+                .is_some_and(|placeholder| placeholder.is::<RowIdx>())
+            {
                 vec![Partition::RowIdx]
-            } else if is_root(expr) {
+            } else if expr.is_root() {
                 vec![Partition::Child]
             } else {
                 vec![]
@@ -101,7 +103,7 @@ impl RowIdxLayoutReader {
         if partitioned.partitions.len() == 1 {
             return Ok(match &partitioned.partition_annotations[0] {
                 Partition::RowIdx => {
-                    Partitioning::RowIdx(replace(expr.clone(), &row_idx(), root()))
+                    Partitioning::RowIdx(replace(expr.clone(), &row_idx(), row_idx_root())?)
                 }
                 Partition::Child => Partitioning::Child(expr.clone()),
             });
@@ -111,19 +113,24 @@ impl RowIdxLayoutReader {
         partitioned.partitions = partitioned
             .partitions
             .into_iter()
-            .map(|p| replace(p, &row_idx(), root()))
-            .collect();
+            .map(|p| replace(p, &row_idx(), row_idx_root()))
+            .collect::<VortexResult<Vec<_>>>()?
+            .into_boxed_slice();
 
         Ok(Partitioning::Partitioned(Arc::new(partitioned)))
     }
 }
 
+fn row_idx_root() -> BoundExpr {
+    root(DType::Primitive(PType::U64, NonNullable))
+}
+
 #[derive(Clone)]
 enum Partitioning {
     // An expression that only references the row index (e.g., `row_idx == 5`).
-    RowIdx(Expression),
+    RowIdx(BoundExpr),
     // An expression that does not reference the row index.
-    Child(Expression),
+    Child(BoundExpr),
     // Contains both the RowIdx and Child expressions, (e.g., `row_idx < child.some_field`).
     Partitioned(Arc<PartitionedExpr<Partition>>),
 }
@@ -180,7 +187,7 @@ impl LayoutReader for RowIdxLayoutReader {
     fn pruning_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpr,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         Ok(match &self.partition_expr(expr)? {
@@ -199,7 +206,7 @@ impl LayoutReader for RowIdxLayoutReader {
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpr,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         match &self.partition_expr(expr)? {
@@ -237,7 +244,7 @@ impl LayoutReader for RowIdxLayoutReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpr,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         match &self.partition_expr(expr)? {
@@ -285,7 +292,7 @@ fn idx_array(row_offset: u64, row_range: &Range<u64>) -> SequenceArray {
 fn row_idx_mask_future(
     row_offset: u64,
     row_range: &Range<u64>,
-    expr: &Expression,
+    expr: &BoundExpr,
     mask: MaskFuture,
     session: VortexSession,
 ) -> MaskFuture {
@@ -304,7 +311,7 @@ fn row_idx_mask_future(
 fn row_idx_array_future(
     row_offset: u64,
     row_range: &Range<u64>,
-    expr: &Expression,
+    expr: &BoundExpr,
     mask: MaskFuture,
     session: VortexSession,
 ) -> ArrayFuture {
@@ -367,7 +374,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            let expr = eq(root(), lit(3i32));
+            let expr = eq(root(layout.dtype().clone()), lit(3i32));
             let result = RowIdxLayoutReader::new(
                 0,
                 layout
@@ -454,8 +461,11 @@ mod tests {
                 .unwrap();
 
             let expr = or(
-                eq(root(), lit(3i32)),
-                or(gt(row_idx(), lit(3u64)), eq(root(), lit(1i32))),
+                eq(root(layout.dtype().clone()), lit(3i32)),
+                or(
+                    gt(row_idx(), lit(3u64)),
+                    eq(root(layout.dtype().clone()), lit(1i32)),
+                ),
             );
 
             let result = RowIdxLayoutReader::new(

@@ -17,7 +17,7 @@ use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
-use vortex_array::expr::Expression;
+use vortex_array::expr::BoundExpr;
 use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_error::SharedVortexResult;
@@ -34,7 +34,7 @@ use crate::layouts::zoned::zone_map::ZoneMap;
 type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
 pub(super) type SharedPruningResult =
     Shared<BoxFuture<'static, SharedVortexResult<Arc<PruningResult>>>>;
-type PredicateCache = Arc<OnceLock<Option<Expression>>>;
+type PredicateCache = Arc<OnceLock<Option<BoundExpr>>>;
 
 pub(super) struct PruningState {
     zone_count: usize,
@@ -44,9 +44,9 @@ pub(super) struct PruningState {
     lazy_children: Arc<LazyReaderChildren>,
     session: VortexSession,
 
-    pruning_result: LazyLock<DashMap<Expression, Option<SharedPruningResult>>>,
+    pruning_result: LazyLock<DashMap<BoundExpr, Option<SharedPruningResult>>>,
     zone_map: OnceLock<SharedZoneMap>,
-    pruning_predicates: LazyLock<Arc<DashMap<Expression, PredicateCache>>>,
+    pruning_predicates: LazyLock<Arc<DashMap<BoundExpr, PredicateCache>>>,
 }
 
 impl PruningState {
@@ -68,7 +68,7 @@ impl PruningState {
         }
     }
 
-    pub(super) fn pruning_mask_future(&self, expr: Expression) -> Option<SharedPruningResult> {
+    pub(super) fn pruning_mask_future(&self, expr: BoundExpr) -> Option<SharedPruningResult> {
         if let Some(result) = self.pruning_result.get(&expr) {
             return result.value().clone();
         }
@@ -83,7 +83,7 @@ impl PruningState {
                 Some(predicate) => {
                     trace!(%expr, ?predicate, "constructed pruning predicate");
                     let zone_map = self.zone_map();
-                    let dynamic_updates = DynamicExprUpdates::new(&expr);
+                    let dynamic_updates = expr.as_call().and_then(DynamicExprUpdates::new);
                     let session = self.session.clone();
 
                     Some(
@@ -112,11 +112,11 @@ impl PruningState {
             .clone()
     }
 
-    fn pruning_predicate(&self, expr: Expression) -> Option<Expression> {
+    fn pruning_predicate(&self, expr: BoundExpr) -> Option<BoundExpr> {
         self.pruning_predicates
             .entry(expr.clone())
             .or_default()
-            .get_or_init(move || match expr.falsify(&self.dtype, &self.session) {
+            .get_or_init(move || match expr.falsify(&self.session) {
                 Ok(predicate) => predicate,
                 Err(error) => {
                     trace!(%expr, %error, "failed to construct stats rewrite predicate");
@@ -136,7 +136,13 @@ impl PruningState {
                     .vortex_expect("failed to get zone child")
                     .projection_evaluation(
                         &(0..zone_count as u64),
-                        &root(),
+                        &root(
+                            self.lazy_children
+                                .get(1)
+                                .vortex_expect("failed to get zone child")
+                                .dtype()
+                                .clone(),
+                        ),
                         MaskFuture::new_true(zone_count),
                     )
                     .vortex_expect("Failed construct zone map evaluation");
@@ -162,7 +168,7 @@ impl PruningState {
 
 pub(super) struct PruningResult {
     zone_map: ZoneMap,
-    predicate: Expression,
+    predicate: BoundExpr,
     dynamic_updates: Option<DynamicExprUpdates>,
     latest_result: RwLock<(u64, Mask)>,
     session: VortexSession,

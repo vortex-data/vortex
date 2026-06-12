@@ -20,12 +20,11 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr::Expression;
+use vortex_array::expr::BoundExpr;
 use vortex_array::expr::StatsCatalog;
 use vortex_array::expr::lit;
 use vortex_array::expr::stats::Stat;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::literal::Literal;
 use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
 use vortex_error::VortexResult;
 use vortex_layout::ArrayFuture;
@@ -52,7 +51,7 @@ pub struct FileStatsLayoutReader {
     file_stats: FileStatistics,
     struct_fields: StructFields,
     session: VortexSession,
-    prune_cache: DashMap<Expression, bool>,
+    prune_cache: DashMap<BoundExpr, bool>,
 }
 
 impl FileStatsLayoutReader {
@@ -82,17 +81,14 @@ impl FileStatsLayoutReader {
     ///
     /// Row-count placeholders are resolved against the full file row count,
     /// independent of the requested row range.
-    fn evaluate_file_stats(&self, expr: &Expression) -> VortexResult<bool> {
+    fn evaluate_file_stats(&self, expr: &BoundExpr) -> VortexResult<bool> {
         let Some(pruning_expr) = expr.stat_falsification(self) else {
             // If there is no pruning expression, we can't prune.
             return Ok(false);
         };
 
-        // Given how we implemented the StatsCatalog, we know the expression must be all literals
-        // or row_count placeholders. We can therefore optimize with a null scope since there are
-        // no field references that need to be resolved.
-        let simplified = pruning_expr.optimize_recursive(&DType::Null)?;
-        if let Some(result) = simplified.as_opt::<Literal>() {
+        let simplified = pruning_expr.optimize_recursive()?;
+        if let Some(result) = simplified.as_literal() {
             // Can prune if the result is non-nullable and true
             return Ok(result.as_bool().value() == Some(true));
         }
@@ -122,7 +118,7 @@ impl FileStatsLayoutReader {
 
 /// Implements [`StatsCatalog`] to provide file-level stats to expressions during pruning evaluation.
 impl StatsCatalog for FileStatsLayoutReader {
-    fn stats_ref(&self, field_path: &FieldPath, stat: Stat) -> Option<Expression> {
+    fn stats_ref(&self, field_path: &FieldPath, stat: Stat) -> Option<BoundExpr> {
         // FileStats currently only holds top-level field statistics.
         if field_path.parts().len() != 1 {
             return None;
@@ -166,7 +162,7 @@ impl LayoutReader for FileStatsLayoutReader {
     fn pruning_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpr,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         // Check cache first with read-only lock.
@@ -191,7 +187,7 @@ impl LayoutReader for FileStatsLayoutReader {
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpr,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         self.child.filter_evaluation(row_range, expr, mask)
@@ -200,7 +196,7 @@ impl LayoutReader for FileStatsLayoutReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpr,
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         self.child.projection_evaluation(row_range, expr, mask)
@@ -316,7 +312,7 @@ mod tests {
                 FileStatsLayoutReader::new(child, test_file_stats(0, 100), SESSION.clone());
 
             // col > 200 should be prunable since max is 100.
-            let expr = gt(get_item("col", root()), lit(200i32));
+            let expr = gt(get_item("col", root(layout.dtype().clone())), lit(200i32));
             let mask = Mask::new_true(5);
             let result = reader.pruning_evaluation(&(0..5), &expr, mask)?.await?;
             assert_eq!(result, Mask::new_false(5));
@@ -355,7 +351,7 @@ mod tests {
                 FileStatsLayoutReader::new(child, test_file_stats(0, 100), SESSION.clone());
 
             // col > 50 should NOT be prunable since max is 100 (some rows could match).
-            let expr = gt(get_item("col", root()), lit(50i32));
+            let expr = gt(get_item("col", root(layout.dtype().clone())), lit(50i32));
             let mask = Mask::new_true(5);
             let result = reader.pruning_evaluation(&(0..5), &expr, mask)?.await?;
             // Should delegate to child, which returns the mask unchanged (struct reader doesn't prune).
@@ -410,7 +406,7 @@ mod tests {
             let reader = FileStatsLayoutReader::new(child, file_stats, SESSION.clone());
 
             // `is_null(deleted_at)` — should NOT panic or error due to dtype mismatch.
-            let expr = is_null(get_item("deleted_at", root()));
+            let expr = is_null(get_item("deleted_at", root(layout.dtype().clone())));
             let mask = Mask::new_true(3);
             let result = reader.pruning_evaluation(&(0..3), &expr, mask)?.await?;
             // null_count is 1 (non-zero), so is_null is not falsified => not pruned.
@@ -454,7 +450,7 @@ mod tests {
             let reader =
                 FileStatsLayoutReader::new(child, test_file_null_count_stats(5), SESSION.clone());
 
-            let expr = is_not_null(get_item("col", root()));
+            let expr = is_not_null(get_item("col", root(layout.dtype().clone())));
             let mask = Mask::new_true(5);
             let result = reader.pruning_evaluation(&(0..5), &expr, mask)?.await?;
             assert_eq!(result, Mask::new_false(5));

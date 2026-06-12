@@ -12,7 +12,7 @@ use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
-use vortex_array::expr::Expression;
+use vortex_array::expr::BoundExpr;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -120,7 +120,7 @@ impl LayoutReader for ZonedReader {
     fn pruning_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpr,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         trace!("Stats pruning evaluation: {} - {}", &self.name, expr);
@@ -198,7 +198,7 @@ impl LayoutReader for ZonedReader {
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpr,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         self.data_child()?.filter_evaluation(row_range, expr, mask)
@@ -207,7 +207,7 @@ impl LayoutReader for ZonedReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpr,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         // TODO(ngates): there are some projection expressions that we may also be able to
@@ -314,7 +314,7 @@ mod test {
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),
-                    &root(),
+                    &root(layout.dtype().clone()),
                     MaskFuture::new_true(layout.row_count().try_into().unwrap()),
                 )
                 .unwrap()
@@ -338,7 +338,7 @@ mod test {
                 .unwrap();
 
             // Choose a prune-able expression
-            let expr = gt(root(), lit(7));
+            let expr = gt(root(layout.dtype().clone()), lit(7));
 
             let result = reader
                 .pruning_evaluation(
@@ -387,7 +387,7 @@ mod test {
             let result = reader
                 .pruning_evaluation(
                     &(0..row_count),
-                    &gt(root(), lit(7)),
+                    &gt(root(legacy_layout.dtype().clone()), lit(7)),
                     Mask::new_true(row_count.try_into().unwrap()),
                 )?
                 .await?;

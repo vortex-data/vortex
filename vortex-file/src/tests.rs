@@ -281,6 +281,7 @@ async fn test_read_projection() {
     let numbers_dtype = numbers.dtype().clone();
 
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
+    let dtype = st.dtype().clone();
 
     let mut buf = ByteBufferMut::empty();
     SESSION
@@ -293,7 +294,7 @@ async fn test_read_projection() {
     let array = file
         .scan()
         .unwrap()
-        .with_projection(select(["strings"], root()))
+        .with_projection(select(["strings"], root(dtype.clone())))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -319,7 +320,7 @@ async fn test_read_projection() {
     let array = file
         .scan()
         .unwrap()
-        .with_projection(select(["numbers"], root()))
+        .with_projection(select(["numbers"], root(dtype.clone())))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -483,6 +484,7 @@ async fn issue_5385_filter_casted_column() {
     let array = StructArray::try_from_iter([("x", buffer![1u8, 2, 3, 4, 5])])
         .unwrap()
         .into_array();
+    let dtype = array.dtype().clone();
 
     let mut buf = ByteBufferMut::empty();
     SESSION
@@ -499,7 +501,7 @@ async fn issue_5385_filter_casted_column() {
         .unwrap()
         .with_filter(eq(
             cast(
-                get_item("x", root()),
+                get_item("x", root(dtype)),
                 DType::Primitive(PType::U16, Nullability::NonNullable),
             ),
             lit(1u16),
@@ -535,6 +537,7 @@ async fn filter_string() {
     )
     .unwrap()
     .into_array();
+    let dtype = st.dtype().clone();
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
@@ -548,7 +551,7 @@ async fn filter_string() {
         .unwrap()
         .scan()
         .unwrap()
-        .with_filter(eq(get_item("name", root()), lit("Joseph")))
+        .with_filter(eq(get_item("name", root(dtype)), lit("Joseph")))
         .into_array_stream()
         .unwrap()
         .try_collect()
@@ -594,6 +597,7 @@ async fn filter_or() {
     )
     .unwrap()
     .into_array();
+    let dtype = st.dtype().clone();
 
     let mut buf = ByteBufferMut::empty();
     SESSION
@@ -609,10 +613,10 @@ async fn filter_or() {
         .scan()
         .unwrap()
         .with_filter(or(
-            eq(get_item("name", root()), lit("Angela")),
+            eq(get_item("name", root(dtype.clone())), lit("Angela")),
             and(
-                gt_eq(get_item("age", root()), lit(20)),
-                lt_eq(get_item("age", root()), lit(30)),
+                gt_eq(get_item("age", root(dtype.clone())), lit(20)),
+                lt_eq(get_item("age", root(dtype)), lit(30)),
             ),
         ))
         .into_array_stream()
@@ -662,6 +666,7 @@ async fn filter_and() {
     )
     .unwrap()
     .into_array();
+    let dtype = st.dtype().clone();
 
     let mut buf = ByteBufferMut::empty();
     SESSION
@@ -677,8 +682,8 @@ async fn filter_and() {
         .scan()
         .unwrap()
         .with_filter(and(
-            gt(get_item("age", root()), lit(21)),
-            lt_eq(get_item("age", root()), lit(33)),
+            gt(get_item("age", root(dtype.clone())), lit(21)),
+            lt_eq(get_item("age", root(dtype)), lit(33)),
         ))
         .into_array_stream()
         .unwrap()
@@ -880,11 +885,12 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .unwrap();
 
     let file = SESSION.open_options().open_buffer(buf).unwrap();
+    let dtype = file.dtype().clone();
 
     let actual_kept_array = file
         .scan()
         .unwrap()
-        .with_filter(gt(get_item("numbers", root()), lit(50_i16)))
+        .with_filter(gt(get_item("numbers", root(dtype.clone())), lit(50_i16)))
         .with_row_indices(Buffer::empty())
         .into_array_stream()
         .unwrap()
@@ -902,7 +908,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_kept_array = file
         .scan()
         .unwrap()
-        .with_filter(gt(get_item("numbers", root()), lit(50_i16)))
+        .with_filter(gt(get_item("numbers", root(dtype.clone())), lit(50_i16)))
         .with_row_indices(Buffer::from_iter(kept_indices))
         .into_array_stream()
         .unwrap()
@@ -930,7 +936,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_array = file
         .scan()
         .unwrap()
-        .with_filter(gt(get_item("numbers", root()), lit(50_i16)))
+        .with_filter(gt(get_item("numbers", root(dtype)), lit(50_i16)))
         .with_row_indices((0..500).collect::<Buffer<_>>())
         .into_array_stream()
         .unwrap()
@@ -988,11 +994,12 @@ async fn filter_string_chunked() {
         .unwrap();
 
     let file = SESSION.open_options().open_buffer(buf).unwrap();
+    let dtype = file.dtype().clone();
 
     let actual_array = file
         .scan()
         .unwrap()
-        .with_filter(eq(get_item("name", root()), lit("Joseph")))
+        .with_filter(eq(get_item("name", root(dtype)), lit("Joseph")))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -1078,13 +1085,14 @@ async fn test_pruning_with_or() {
         .unwrap();
 
     let file = SESSION.open_options().open_buffer(buf).unwrap();
+    let dtype = file.dtype().clone();
 
     let actual_array = file
         .scan()
         .unwrap()
         .with_filter(or(
-            lt_eq(get_item("letter", root()), lit("J")),
-            lt(get_item("number", root()), lit(25)),
+            lt_eq(get_item("letter", root(dtype.clone())), lit("J")),
+            lt(get_item("number", root(dtype)), lit(25)),
         ))
         .into_array_stream()
         .unwrap()
@@ -1153,11 +1161,12 @@ async fn test_repeated_projection() {
         .unwrap();
 
     let file = SESSION.open_options().open_buffer(buf).unwrap();
+    let dtype = file.dtype().clone();
 
     let actual = file
         .scan()
         .unwrap()
-        .with_projection(select(["strings", "strings"], root()))
+        .with_projection(select(["strings", "strings"], root(dtype)))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -1687,6 +1696,7 @@ async fn timestamp_unit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
     let ts_array = PrimitiveArray::from_iter(vec![1704067200000i64, 1704153600000, 1704240000000])
         .into_array();
     let temporal = TemporalArray::new_timestamp(ts_array, TimeUnit::Milliseconds, None);
+    let dtype = temporal.dtype().clone();
 
     let mut buf = ByteBufferMut::empty();
     SESSION
@@ -1696,7 +1706,7 @@ async fn timestamp_unit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
 
     // Read with SECONDS filter scalar
     let filter_expr = gt(
-        root(),
+        root(dtype),
         lit(Scalar::extension::<Timestamp>(
             TimestampOptions {
                 unit: TimeUnit::Seconds,
@@ -1738,6 +1748,7 @@ async fn timestamp_unit_mismatch_errors_with_constant_children()
     let ts_array = PrimitiveArray::from_iter(vec![1704067200000i64, 1704153600000, 1704240000000])
         .into_array();
     let temporal = TemporalArray::new_timestamp(ts_array, TimeUnit::Milliseconds, None);
+    let dtype = temporal.dtype().clone();
 
     let strategy = crate::strategy::WriteStrategyBuilder::default()
         .with_compressor(compressor)
@@ -1752,7 +1763,7 @@ async fn timestamp_unit_mismatch_errors_with_constant_children()
 
     // Read with SECONDS filter scalar — should error due to time unit mismatch.
     let filter_expr = gt(
-        root(),
+        root(dtype),
         lit(Scalar::extension::<Timestamp>(
             TimestampOptions {
                 unit: TimeUnit::Seconds,
@@ -1973,20 +1984,30 @@ async fn test_can_prune_composite_predicates() -> VortexResult<()> {
         .write(&mut buf, st.into_array().to_array_stream())
         .await?;
     let file = SESSION.open_options().open_buffer(buf)?;
+    let dtype = file.dtype().clone();
 
     // Bare comparisons: falsified directly by min/max stats.
-    assert!(file.can_prune(&gt(col("age"), lit(30)))?);
-    assert!(file.can_prune(&lt(col("price"), lit(100)))?);
+    assert!(file.can_prune(&gt(col("age", &dtype), lit(30)))?);
+    assert!(file.can_prune(&lt(col("price", &dtype), lit(100)))?);
 
     // Composite predicates whose falsifications are boolean trees.
-    assert!(file.can_prune(&and(gt(col("age"), lit(30)), lt(col("price"), lit(100))))?);
-    assert!(file.can_prune(&or(gt(col("age"), lit(30)), lt(col("age"), lit(10))))?);
-    assert!(file.can_prune(&eq(col("age"), lit(5)))?);
+    assert!(file.can_prune(&and(
+        gt(col("age", &dtype), lit(30)),
+        lt(col("price", &dtype), lit(100))
+    ))?);
+    assert!(file.can_prune(&or(
+        gt(col("age", &dtype), lit(30)),
+        lt(col("age", &dtype), lit(10))
+    ))?);
+    assert!(file.can_prune(&eq(col("age", &dtype), lit(5)))?);
 
     // Non-falsifiable controls: rows may match, so pruning must refuse.
-    assert!(!file.can_prune(&gt(col("age"), lit(20)))?);
-    assert!(!file.can_prune(&eq(col("age"), lit(18)))?);
-    assert!(!file.can_prune(&and(gt(col("age"), lit(20)), gt(col("price"), lit(100))))?);
+    assert!(!file.can_prune(&gt(col("age", &dtype), lit(20)))?);
+    assert!(!file.can_prune(&eq(col("age", &dtype), lit(18)))?);
+    assert!(!file.can_prune(&and(
+        gt(col("age", &dtype), lit(20)),
+        gt(col("price", &dtype), lit(100))
+    ))?);
 
     Ok(())
 }

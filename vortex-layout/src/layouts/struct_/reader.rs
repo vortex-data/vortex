@@ -19,8 +19,8 @@ use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
+use vortex_array::expr::BoundExpr;
 use vortex_array::expr::ExactExpr;
-use vortex_array::expr::Expression;
 use vortex_array::expr::col;
 use vortex_array::expr::make_free_field_annotator;
 use vortex_array::expr::root;
@@ -56,7 +56,7 @@ pub struct StructReader {
 
     /// A `pack` expression that holds each individual field of the root DType. This expansion
     /// ensures we can correctly partition expressions over the fields of the struct.
-    expanded_root_expr: Expression,
+    expanded_root_expr: BoundExpr,
 
     field_lookup: Option<HashMap<FieldName, usize>>,
     partitioned_expr_cache: DashMap<ExactExpr, Arc<OnceLock<Partitioned>>>,
@@ -104,7 +104,7 @@ impl StructReader {
         );
 
         // Create an expanded root expression that contains all fields of the struct.
-        let expanded_root_expr = replace_root_fields(root(), struct_dt);
+        let expanded_root_expr = replace_root_fields(root(layout.dtype().clone()), struct_dt)?;
 
         // This is where we need to do some complex things with the scan in order to split it into
         // different scans for different fields.
@@ -155,7 +155,7 @@ impl StructReader {
     }
 
     /// Utility for partitioning an expression over the fields of a struct.
-    fn partition_expr(&self, expr: Expression) -> VortexResult<Partitioned> {
+    fn partition_expr(&self, expr: BoundExpr) -> VortexResult<Partitioned> {
         let key = ExactExpr(expr.clone());
         let binding = self
             .partitioned_expr_cache
@@ -170,11 +170,15 @@ impl StructReader {
         Ok(result.clone())
     }
 
-    fn compute_partitioned_expr(&self, expr: Expression) -> VortexResult<Partitioned> {
+    fn compute_partitioned_expr(&self, expr: BoundExpr) -> VortexResult<Partitioned> {
         // First, we expand the root scope into the fields of the struct to ensure
         // that partitioning works correctly.
-        let expr = replace(expr, &root(), self.expanded_root_expr.clone());
-        let expr = expr.optimize_recursive(self.dtype())?;
+        let expr = replace(
+            expr,
+            &root(self.dtype().clone()),
+            self.expanded_root_expr.clone(),
+        )?;
+        let expr = expr.optimize_recursive()?;
 
         // Partition the expression into expressions that can be evaluated over individual fields
         let mut partitioned = partition(
@@ -190,9 +194,14 @@ impl StructReader {
         if partitioned.partitions.len() == 1 {
             // If there's only one partition, we step into the field scope of the original
             // expression by replacing any `$.a` with `$`.
+            let name = partitioned.partition_names[0].clone();
+            let field_dtype = self
+                .struct_fields()
+                .field(&name)
+                .vortex_expect("partition field must exist");
             return Ok(Partitioned::Single(
-                partitioned.partition_names[0].clone(),
-                replace(expr, &col(partitioned.partition_names[0].clone()), root()),
+                name.clone(),
+                replace(expr, &col(name, self.dtype()), root(field_dtype))?,
             ));
         }
 
@@ -203,8 +212,19 @@ impl StructReader {
             .partitions
             .iter()
             .zip_eq(partitioned.partition_names.iter())
-            .map(|(e, name)| replace(e.clone(), &col(name.clone()), root()))
-            .collect();
+            .map(|(e, name)| {
+                let field_dtype = self
+                    .struct_fields()
+                    .field(name)
+                    .vortex_expect("partition field must exist");
+                replace(
+                    e.clone(),
+                    &col(name.clone(), self.dtype()),
+                    root(field_dtype),
+                )
+            })
+            .collect::<VortexResult<Vec<_>>>()?
+            .into_boxed_slice();
 
         Ok(Partitioned::Multi(Arc::new(partitioned)))
     }
@@ -216,7 +236,7 @@ impl StructReader {
 #[derive(Clone)]
 enum Partitioned {
     /// An expression which only operates over a single field
-    Single(FieldName, Expression),
+    Single(FieldName, BoundExpr),
     /// An expression which operates over multiple fields
     Multi(Arc<PartitionedExpr<FieldName>>),
 }
@@ -257,7 +277,7 @@ impl LayoutReader for StructReader {
     fn pruning_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpr,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         // Partition the expression into expressions that can be evaluated over individual fields
@@ -279,7 +299,7 @@ impl LayoutReader for StructReader {
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpr,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         // Partition the expression into expressions that can be evaluated over individual fields
@@ -316,12 +336,18 @@ impl LayoutReader for StructReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpr,
         mask_fut: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         let validity_fut = self
             .validity()?
-            .map(|reader| reader.projection_evaluation(row_range, &root(), mask_fut.clone()))
+            .map(|reader| {
+                reader.projection_evaluation(
+                    row_range,
+                    &root(reader.dtype().clone()),
+                    mask_fut.clone(),
+                )
+            })
             .transpose()?;
 
         // Partition the expression into expressions that can be evaluated over individual fields
@@ -332,7 +358,7 @@ impl LayoutReader for StructReader {
                     .map_err(|err| {
                         err.with_context(format!("While evaluating projection partition {name}"))
                     })?,
-                partition.is::<Pack>() || partition.is::<Merge>(),
+                is_call::<Pack>(partition) || is_call::<Merge>(partition),
             ),
 
             Partitioned::Multi(partitioned) => (
@@ -345,7 +371,7 @@ impl LayoutReader for StructReader {
                             ))
                         })
                 })?,
-                partitioned.root.is::<Pack>() || partitioned.root.is::<Merge>(),
+                is_call::<Pack>(&partitioned.root) || is_call::<Merge>(&partitioned.root),
             ),
         };
 
@@ -386,6 +412,10 @@ impl LayoutReader for StructReader {
     }
 }
 
+fn is_call<V: vortex_array::scalar_fn::ScalarFnVTable>(expr: &BoundExpr) -> bool {
+    expr.as_call().is_some_and(|call| call.function().is::<V>())
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -408,7 +438,7 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
-    use vortex_array::expr::Expression;
+    use vortex_array::expr::BoundExpr;
     use vortex_array::expr::col;
     use vortex_array::expr::eq;
     use vortex_array::expr::get_item;
@@ -419,6 +449,9 @@ mod tests {
     use vortex_array::expr::root;
     use vortex_array::expr::select;
     use vortex_array::scalar::Scalar;
+    use vortex_array::scalar_fn::ScalarFnVTableExt;
+    use vortex_array::scalar_fn::fns::binary::Binary;
+    use vortex_array::scalar_fn::fns::operators::Operator;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
@@ -618,8 +651,11 @@ mod tests {
             .new_reader("".into(), segments, &SESSION, &Default::default())
             .unwrap();
         let filt = or(
-            eq(col("a"), lit(7)),
-            or(eq(col("b"), lit(5)), eq(col("a"), lit(3))),
+            eq(col("a", layout.dtype()), lit(7)),
+            or(
+                eq(col("b", layout.dtype()), lit(5)),
+                eq(col("a", layout.dtype()), lit(3)),
+            ),
         );
         let result = block_on(|_| {
             reader
@@ -637,7 +673,10 @@ mod tests {
         let reader = layout
             .new_reader("".into(), segments, &SESSION, &Default::default())
             .unwrap();
-        let expr = gt(get_item("a", root()), get_item("b", root()));
+        let expr = gt(
+            get_item("a", root(layout.dtype().clone())),
+            get_item("b", root(layout.dtype().clone())),
+        );
         let result = block_on(|_| {
             reader
                 .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))
@@ -655,7 +694,10 @@ mod tests {
         let reader = layout
             .new_reader("".into(), segments, &SESSION, &Default::default())
             .unwrap();
-        let expr = gt(get_item("a", root()), get_item("b", root()));
+        let expr = gt(
+            get_item("a", root(layout.dtype().clone())),
+            get_item("b", root(layout.dtype().clone())),
+        );
         let result = block_on(|_| {
             reader
                 .projection_evaluation(
@@ -680,7 +722,10 @@ mod tests {
             .new_reader("".into(), segments, &SESSION, &Default::default())
             .unwrap();
         let expr = pack(
-            [("a", get_item("a", root())), ("b", get_item("b", root()))],
+            [
+                ("a", get_item("a", root(layout.dtype().clone()))),
+                ("b", get_item("b", root(layout.dtype().clone()))),
+            ],
             Nullability::NonNullable,
         );
         let result = block_on(|_| {
@@ -720,7 +765,7 @@ mod tests {
         let reader = layout
             .new_reader("".into(), segments, &SESSION, &Default::default())
             .unwrap();
-        let expr = get_item("a", root());
+        let expr = get_item("a", root(layout.dtype().clone()));
         let project = reader
             .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))
             .unwrap();
@@ -755,7 +800,7 @@ mod tests {
             .unwrap();
         let expr = select(
             vec![FieldName::from("c")],
-            get_item("b", get_item("a", root())),
+            get_item("b", get_item("a", root(layout.dtype().clone()))),
         );
 
         let project = reader
@@ -816,7 +861,7 @@ mod tests {
         let reader = layout
             .new_reader("".into(), segments, &SESSION, &Default::default())
             .unwrap();
-        let expr = pack(Vec::<(String, Expression)>::new(), Nullability::Nullable);
+        let expr = pack(Vec::<(String, BoundExpr)>::new(), Nullability::Nullable);
 
         let project = reader
             .projection_evaluation(&(0..5), &expr, MaskFuture::new_true(5))
@@ -831,49 +876,23 @@ mod tests {
     /// Regression test for https://github.com/vortex-data/vortex/issues/7808
     ///
     /// A filter expression whose DType is incompatible with the scanned schema
-    /// (e.g. comparing a u8 column to an i32 literal) must return an error, not panic.
+    /// (e.g. comparing a u8 column to an i32 literal) must return an error, not panic. Bound
+    /// expressions reject this at construction time, before a layout is ever involved.
     #[test]
     fn test_struct_filter_dtype_mismatch_returns_error() {
-        let ctx = ArrayContext::empty();
-        let segments = Arc::new(TestSegments::default());
-        let (ptr, eof) = SequenceId::root().split();
-        let strategy = TableStrategy::new(
-            Arc::new(FlatLayoutStrategy::default()),
-            Arc::new(FlatLayoutStrategy::default()),
+        let scope = DType::Struct(
+            StructFields::from_iter([
+                ("age", DType::Primitive(PType::U8, Nullability::NonNullable)),
+                (
+                    "score",
+                    DType::Primitive(PType::U8, Nullability::NonNullable),
+                ),
+            ]),
+            Nullability::NonNullable,
         );
-        let segments2 = Arc::<TestSegments>::clone(&segments);
-        let layout = block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
-            strategy
-                .write_stream(
-                    ctx,
-                    segments2,
-                    StructArray::from_fields(
-                        [
-                            ("age", buffer![7u8, 2, 3].into_array()),
-                            ("score", buffer![4u8, 5, 6].into_array()),
-                        ]
-                        .as_slice(),
-                    )
-                    .unwrap()
-                    .into_array()
-                    .to_array_stream()
-                    .sequenced(ptr),
-                    eof,
-                    &session,
-                )
-                .await
-        })
-        .unwrap();
 
-        let reader = layout
-            .new_reader("".into(), segments, &SESSION, &Default::default())
-            .unwrap();
-
-        // DType mismatch: "age" is u8 but literal is i32
-        let filt = eq(col("age"), lit(67i32));
-
-        let result = reader.filter_evaluation(&(0..3), &filt, MaskFuture::new_true(3));
+        // DType mismatch: "age" is u8 but literal is i32.
+        let result = Binary.try_new_expr(Operator::Eq, [col("age", &scope), lit(67i32)]);
         assert!(result.is_err());
         let err = result.err().unwrap().to_string();
         assert!(err.contains("Cannot compare different DTypes"), "{err}");

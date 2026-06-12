@@ -18,7 +18,7 @@ use vortex_array::arrays::DictArray;
 use vortex_array::arrays::SharedArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
-use vortex_array::expr::Expression;
+use vortex_array::expr::BoundExpr;
 use vortex_array::expr::root;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_error::VortexError;
@@ -46,7 +46,7 @@ pub struct DictReader {
     /// Cached dict values array
     values_array: OnceLock<SharedArrayFuture>,
     /// Cache of expression evaluation results on the values array by expression
-    values_evals: DashMap<Expression, SharedArrayFuture>,
+    values_evals: DashMap<BoundExpr, SharedArrayFuture>,
 
     values: LayoutReaderRef,
     codes: LayoutReaderRef,
@@ -95,7 +95,7 @@ impl DictReader {
                 self.values
                     .projection_evaluation(
                         &(0..values_len as u64),
-                        &root(),
+                        &root(self.values.dtype().clone()),
                         MaskFuture::new_true(values_len),
                     )
                     .vortex_expect("must construct dict values array evaluation")
@@ -119,7 +119,7 @@ impl DictReader {
             self.values
                 .projection_evaluation(
                     &(0..values_len as u64),
-                    &root(),
+                    &root(self.values.dtype().clone()),
                     MaskFuture::new_true(values_len),
                 )
                 .vortex_expect("must construct dict values array evaluation")
@@ -129,7 +129,7 @@ impl DictReader {
         })
     }
 
-    fn values_eval(&self, expr: Expression) -> SharedArrayFuture {
+    fn values_eval(&self, expr: BoundExpr) -> SharedArrayFuture {
         // This is unsound since we cannot be sure that all the values are referenced in the query
         // after applying the filter, so if the expression is fallible this might fail when it
         // shouldn't.
@@ -180,7 +180,7 @@ impl LayoutReader for DictReader {
     fn pruning_evaluation(
         &self,
         _row_range: &Range<u64>,
-        _expr: &Expression,
+        _expr: &BoundExpr,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         // NOTE: we can get the values here, convert expression to the codes domain, and push down
@@ -193,7 +193,7 @@ impl LayoutReader for DictReader {
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpr,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         // TODO(joe): fix up expr partitioning with fallible & null sensitive annotations
@@ -204,7 +204,7 @@ impl LayoutReader for DictReader {
         // without reading values.
         let codes_eval = self.codes.projection_evaluation(
             row_range,
-            &root(),
+            &root(self.codes.dtype().clone()),
             MaskFuture::new_true(mask.len()),
         )?;
 
@@ -225,14 +225,14 @@ impl LayoutReader for DictReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpr,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         // TODO: fix up expr partitioning with fallible & null sensitive annotations
         let values_eval = self.values_array();
         let codes_eval = self
             .codes
-            .projection_evaluation(row_range, &root(), mask)
+            .projection_evaluation(row_range, &root(self.codes.dtype().clone()), mask)
             .map_err(|err| err.with_context("While evaluating projection on codes"))?;
         let expr = expr.clone();
 
@@ -368,7 +368,13 @@ mod tests {
             let expression = pack(
                 [(
                     "top",
-                    pack([("one", root()), ("two", root())], Nullability::NonNullable),
+                    pack(
+                        [
+                            ("one", root(layout.dtype().clone())),
+                            ("two", root(layout.dtype().clone())),
+                        ],
+                        Nullability::NonNullable,
+                    ),
                 )],
                 Nullability::NonNullable,
             );
@@ -451,7 +457,7 @@ mod tests {
                 .unwrap();
 
             let filter = eq(
-                root(),
+                root(layout.dtype().clone()),
                 lit(vortex_array::scalar::Scalar::utf8(
                     filter_value,
                     Nullability::Nullable,
@@ -516,7 +522,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            let expression = is_not_null(root());
+            let expression = is_not_null(root(layout.dtype().clone()));
             assert_eq!(layout.encoding_id(), LayoutId::new("vortex.dict"));
             let actual = layout
                 .new_reader("".into(), segments, &session, &Default::default())

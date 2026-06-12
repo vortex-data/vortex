@@ -35,6 +35,7 @@ use futures::stream;
 use tracing::Instrument;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
+use vortex_array::expr::root;
 use vortex_array::expr::stats::Precision;
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::ArrayStreamAdapter;
@@ -211,12 +212,20 @@ impl DataSource for MultiLayoutDataSource {
             }
         }
 
-        let dtype = scan_request.projection.return_dtype(&self.dtype)?;
+        let projection = scan_request
+            .projection
+            .clone()
+            .unwrap_or_else(|| root(self.dtype.clone()));
+        let dtype = projection.dtype().clone();
+        let request = ScanRequest {
+            projection: Some(projection),
+            ..scan_request
+        };
 
         Ok(Box::new(MultiLayoutScan {
             session: self.session.clone(),
             dtype,
-            request: scan_request,
+            request,
             ready,
             deferred,
             handle: self.session.handle(),
@@ -424,9 +433,12 @@ impl Partition for MultiLayoutPartition {
 
     fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
         let request = self.request;
+        let projection = request
+            .projection
+            .unwrap_or_else(|| root(self.reader.dtype().clone()));
         let mut builder = ScanBuilder::new(self.session, self.reader)
             .with_selection(request.selection)
-            .with_projection(request.projection)
+            .with_projection(projection)
             .with_some_filter(request.filter)
             .with_some_limit(request.limit)
             .with_ordered(request.ordered);

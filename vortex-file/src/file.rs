@@ -21,7 +21,7 @@ use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::FieldPathSet;
-use vortex_array::expr::Expression;
+use vortex_array::expr::BoundExpr;
 use vortex_array::expr::pruning::checked_pruning_expr;
 use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
 use vortex_error::VortexResult;
@@ -33,6 +33,7 @@ use vortex_layout::segments::SegmentSource;
 use vortex_scan::DataSourceRef;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::FileStatistics;
 use crate::footer::Footer;
@@ -193,7 +194,7 @@ impl VortexFile {
     ///
     /// Row-count-aware pruning predicates are evaluated with the file's total
     /// row count as their scope.
-    pub fn can_prune(&self, filter: &Expression) -> VortexResult<bool> {
+    pub fn can_prune(&self, filter: &BoundExpr) -> VortexResult<bool> {
         let Some((stats, fields)) = self
             .footer
             .statistics()
@@ -202,34 +203,42 @@ impl VortexFile {
             return Ok(false);
         };
 
-        let set = FieldPathSet::from_iter(
+        // Only exact, dtype-derivable stats participate: the bound stats scope and the
+        // materialized stats row must mirror each other exactly, so an inexact or underivable
+        // footer entry (possible in foreign-written files) must be dropped here rather than
+        // poisoning pruning for predicates that never touch it.
+        let available_file_stats = HashMap::from_iter(
             fields
                 .names()
                 .iter()
+                .zip(fields.fields())
                 .zip(stats.stats_sets().iter())
-                .flat_map(|(name, stats)| {
-                    stats.iter().map(|(stat, _)| {
-                        FieldPath::from_iter([
-                            Field::Name(name.clone()),
-                            Field::Name(stat.name().into()),
-                        ])
-                    })
+                .map(|((name, field_dtype), stats)| {
+                    (
+                        FieldPath::from_name(name.clone()),
+                        HashSet::from_iter(stats.iter().filter_map(|(stat, value)| {
+                            (value.is_exact() && stat.dtype(&field_dtype).is_some())
+                                .then_some(*stat)
+                        })),
+                    )
                 }),
         );
 
-        let Some((predicate, required_stats)) = checked_pruning_expr(filter, &set) else {
+        let set =
+            FieldPathSet::from_iter(available_file_stats.iter().flat_map(|(field_path, stats)| {
+                stats
+                    .iter()
+                    .map(|stat| field_path.clone().push(Field::Name(stat.name().into())))
+            }));
+
+        let Some((predicate, _required_stats)) =
+            checked_pruning_expr(filter, self.footer.dtype(), &set)
+        else {
             return Ok(false);
         };
 
-        let required_file_stats = HashMap::from_iter(
-            required_stats
-                .map()
-                .iter()
-                .map(|(path, stats)| (path.clone(), stats.clone())),
-        );
-
         let Some(file_stats) = extract_relevant_file_stats_as_struct_row(
-            &required_file_stats,
+            &available_file_stats,
             stats.stats_sets(),
             fields,
         )?

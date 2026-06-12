@@ -264,7 +264,7 @@ mod tests {
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),
-                    &root(),
+                    &root(layout.dtype().clone()),
                     MaskFuture::new_true(layout.row_count().try_into().unwrap()),
                 )
                 .unwrap()
@@ -315,7 +315,7 @@ mod tests {
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),
-                    &root(),
+                    &root(layout.dtype().clone()),
                     MaskFuture::new_true(layout.row_count().try_into().unwrap()),
                 )
                 .unwrap()
@@ -388,7 +388,7 @@ mod tests {
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),
-                    &root(),
+                    &root(layout.dtype().clone()),
                     MaskFuture::new_true(layout.row_count().try_into().unwrap()),
                 )
                 .unwrap()

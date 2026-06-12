@@ -11,7 +11,7 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
-use vortex_array::expr::Expression;
+use vortex_array::expr::BoundExpr;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scan::row_mask::RowMask;
@@ -159,7 +159,7 @@ pub struct TaskContext<A> {
     /// The layout reader.
     pub reader: Arc<dyn LayoutReader>,
     /// The projection expression to apply to gather the scanned rows.
-    pub projection: Expression,
+    pub projection: BoundExpr,
     /// Function that maps into an A.
     pub mapper: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
 }

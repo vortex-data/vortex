@@ -12,7 +12,7 @@ use itertools::Either;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
-use vortex_array::expr::Expression;
+use vortex_array::expr::BoundExpr;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorAdapter;
 use vortex_array::stream::ArrayStream;
@@ -38,8 +38,8 @@ use crate::scan::tasks::split_exec;
 pub struct RepeatedScan<A: 'static + Send> {
     session: VortexSession,
     layout_reader: LayoutReaderRef,
-    projection: Expression,
-    filter: Option<Expression>,
+    projection: BoundExpr,
+    filter: Option<BoundExpr>,
     ordered: bool,
     /// Optionally read a subset of the rows in the file.
     row_range: Option<Range<u64>>,
@@ -92,8 +92,8 @@ impl<A: 'static + Send> RepeatedScan<A> {
     pub fn new(
         session: VortexSession,
         layout_reader: LayoutReaderRef,
-        projection: Expression,
-        filter: Option<Expression>,
+        projection: BoundExpr,
+        filter: Option<BoundExpr>,
         ordered: bool,
         row_range: Option<Range<u64>>,
         selection: Selection,

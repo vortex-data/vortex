@@ -56,23 +56,64 @@ pub fn extract_relevant_file_stats_as_struct_row(
         let typed_stats = stat_set.as_typed_ref(&field_dtype);
 
         for stat in stats {
-            if matches!(
-                stat,
-                Stat::Max | Stat::Min | Stat::NaNCount | Stat::NullCount
-            ) {
-                let Some(stat_value) = typed_stats.get(*stat).as_exact() else {
-                    vortex_bail!("missing stat {}, {} from stats set", field, stat)
-                };
-                columns.push((
-                    field_path_stat_field_name(field_path, *stat),
-                    ConstantArray::new(stat_value, 1).into_array(),
-                ));
-            } else {
-                todo!("unsupported file prune stat {stat}")
-            }
+            let Some(stat_value) = typed_stats.get(*stat).as_exact() else {
+                vortex_bail!("missing stat {}, {} from stats set", field, stat)
+            };
+            columns.push((
+                field_path_stat_field_name(field_path, *stat),
+                ConstantArray::new(stat_value, 1).into_array(),
+            ));
         }
     }
+    // Every accessible field may still carry an empty stats set (e.g. dtypes that support no
+    // file stats), in which case the scope is the empty struct and the row must match it.
+    if columns.is_empty() {
+        return StructArray::try_new(FieldNames::default(), vec![], 1, Validity::NonNullable)
+            .map(|s| Some(s.into_array()));
+    }
+    columns.sort_by(|(left, _), (right, _)| left.cmp(right));
+
     Ok(Some(
         StructArray::from_fields(columns.as_slice())?.into_array(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldPath;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
+    use vortex_array::stats::StatsSet;
+    use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
+    use vortex_utils::aliases::hash_map::HashMap;
+    use vortex_utils::aliases::hash_set::HashSet;
+
+    use super::extract_relevant_file_stats_as_struct_row;
+
+    /// Fields whose stats sets are all empty must yield the 1-row empty struct (matching the
+    /// empty bound stats scope) rather than erroring on `StructArray::from_fields(&[])`.
+    #[test]
+    fn empty_stat_sets_yield_empty_row() -> VortexResult<()> {
+        let access = HashMap::from_iter([(FieldPath::from_name("a"), HashSet::default())]);
+        let stats_sets: Arc<[StatsSet]> = vec![StatsSet::default()].into();
+        let fields = StructFields::from_iter([(
+            "a",
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+        )]);
+
+        let row = extract_relevant_file_stats_as_struct_row(&access, &stats_sets, &fields)?
+            .ok_or_else(|| vortex_err!("expected a stats row"))?;
+        assert_eq!(row.len(), 1);
+        assert!(
+            row.dtype()
+                .as_struct_fields_opt()
+                .is_some_and(|f| f.nfields() == 0)
+        );
+        Ok(())
+    }
 }

@@ -7,7 +7,7 @@ use bit_vec::BitVec;
 use itertools::Itertools;
 use parking_lot::RwLock;
 use sketches_ddsketch::DDSketch;
-use vortex_array::expr::Expression;
+use vortex_array::expr::BoundExpr;
 use vortex_array::expr::forms::conjuncts;
 use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_error::VortexExpect;
@@ -22,7 +22,7 @@ const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
 /// conjunctions in an attempt to minimize the work done.
 pub struct FilterExpr {
     /// The conjuncts involved in the filter expression.
-    conjuncts: Vec<Expression>,
+    conjuncts: Vec<BoundExpr>,
     /// A histogram for the selectivity of each conjunct.
     conjunct_selectivity: Vec<RwLock<DDSketch>>,
     /// Dynamic expression trackers for each conjunct, incase they contain dynamic expressions.
@@ -34,11 +34,14 @@ pub struct FilterExpr {
 }
 
 impl FilterExpr {
-    pub fn new(expr: Expression) -> Self {
+    pub fn new(expr: BoundExpr) -> Self {
         let conjuncts = conjuncts(&expr);
         let num_conjuncts = conjuncts.len();
 
-        let dynamic_conjuncts = conjuncts.iter().map(DynamicExprUpdates::new).collect_vec();
+        let dynamic_conjuncts = conjuncts
+            .iter()
+            .map(|expr| expr.as_call().and_then(DynamicExprUpdates::new))
+            .collect_vec();
 
         Self {
             conjuncts,
@@ -55,7 +58,7 @@ impl FilterExpr {
 
     /// The conjuncts that make up this filter expression.
     #[inline]
-    pub fn conjuncts(&self) -> &[Expression] {
+    pub fn conjuncts(&self) -> &[BoundExpr] {
         &self.conjuncts
     }
 

@@ -13,7 +13,7 @@ use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
-use vortex_array::expr::Expression;
+use vortex_array::expr::BoundExpr;
 use vortex_array::serde::SerializedArray;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -115,7 +115,7 @@ impl LayoutReader for FlatReader {
     fn pruning_evaluation(
         &self,
         _row_range: &Range<u64>,
-        _expr: &Expression,
+        _expr: &BoundExpr,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         Ok(MaskFuture::ready(mask))
@@ -124,7 +124,7 @@ impl LayoutReader for FlatReader {
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpr,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         let row_range = usize::try_from(row_range.start)
@@ -183,7 +183,7 @@ impl LayoutReader for FlatReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpr,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         let row_range = usize::try_from(row_range.start)
@@ -280,7 +280,7 @@ mod test {
                 .new_reader("".into(), segments, &SESSION, &Default::default())?
                 .projection_evaluation(
                     &(0..layout.row_count()),
-                    &root(),
+                    &root(layout.dtype().clone()),
                     MaskFuture::new_true(layout.row_count().try_into()?),
                 )?
                 .await?;
@@ -312,7 +312,7 @@ mod test {
                 .await
                 .unwrap();
 
-            let expr = gt(root(), lit(3i32));
+            let expr = gt(root(layout.dtype().clone()), lit(3i32));
             let result = layout
                 .new_reader("".into(), segments, &SESSION, &Default::default())
                 .unwrap()
@@ -353,7 +353,11 @@ mod test {
             let result = layout
                 .new_reader("".into(), segments, &SESSION, &Default::default())
                 .unwrap()
-                .projection_evaluation(&(2..4), &root(), MaskFuture::new_true(2))
+                .projection_evaluation(
+                    &(2..4),
+                    &root(layout.dtype().clone()),
+                    MaskFuture::new_true(2),
+                )
                 .unwrap()
                 .await
                 .unwrap();
