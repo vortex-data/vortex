@@ -57,7 +57,7 @@ fn mul_i64_nonnull(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn mul_i8_widening_nonnull(bencher: Bencher) {
+fn mul_i8_nonnull(bencher: Bencher) {
     let lhs = primitive_i8_small_nonnull(1).into_array();
     let rhs = primitive_i8_small_nonnull(7).into_array();
 
@@ -65,7 +65,7 @@ fn mul_i8_widening_nonnull(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn mul_u8_widening_nonnull(bencher: Bencher) {
+fn mul_u8_nonnull(bencher: Bencher) {
     let lhs = primitive_u8_small_nonnull(1).into_array();
     let rhs = primitive_u8_small_nonnull(7).into_array();
 
@@ -73,7 +73,7 @@ fn mul_u8_widening_nonnull(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn mul_i16_widening_nonnull(bencher: Bencher) {
+fn mul_i16_nonnull(bencher: Bencher) {
     let lhs = primitive_i16_small_nonnull(1).into_array();
     let rhs = primitive_i16_small_nonnull(17).into_array();
 
@@ -81,7 +81,7 @@ fn mul_i16_widening_nonnull(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn mul_u16_widening_nonnull(bencher: Bencher) {
+fn mul_u16_nonnull(bencher: Bencher) {
     let lhs = primitive_u16_small_nonnull(1).into_array();
     let rhs = primitive_u16_small_nonnull(17).into_array();
 
@@ -89,7 +89,7 @@ fn mul_u16_widening_nonnull(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn mul_i32_widening_nonnull(bencher: Bencher) {
+fn mul_i32_nonnull(bencher: Bencher) {
     let lhs = primitive_i32_small_nonnull(1).into_array();
     let rhs = primitive_i32_small_nonnull(17).into_array();
 
@@ -97,7 +97,7 @@ fn mul_i32_widening_nonnull(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn mul_u32_widening_nonnull(bencher: Bencher) {
+fn mul_u32_nonnull(bencher: Bencher) {
     let lhs = primitive_u32_small_nonnull(1).into_array();
     let rhs = primitive_u32_small_nonnull(17).into_array();
 
@@ -105,7 +105,7 @@ fn mul_u32_widening_nonnull(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn mul_i32_widening_nullable(bencher: Bencher) {
+fn mul_i32_nullable(bencher: Bencher) {
     let lhs = primitive_i32_small_nullable(1, 7).into_array();
     let rhs = primitive_i32_small_nullable(17, 5).into_array();
 
@@ -113,7 +113,7 @@ fn mul_i32_widening_nullable(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn mul_i32_widening_constant(bencher: Bencher) {
+fn mul_i32_constant(bencher: Bencher) {
     let lhs = primitive_i32_small_nonnull(1).into_array();
     let rhs = ConstantArray::new(31i32, LEN).into_array();
 
