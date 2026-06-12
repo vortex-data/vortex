@@ -144,8 +144,8 @@ jobs:
       - name: Run tests with sanitizer
         run: |
           RUSTFLAGS="${RUSTFLAGS} ${{ matrix.sanitizer_flags }}" \
-          cargo +$NIGHTLY_TOOLCHAIN nextest run --locked --all-features \
-            --target x86_64-unknown-linux-gnu --no-fail-fast -Zbuild-std \
+          cargo +$NIGHTLY_TOOLCHAIN nextest run --locked --all-features --no-fail-fast \
+            --target x86_64-unknown-linux-gnu -Zbuild-std \
             -p vortex-buffer -p vortex-fastlanes -p vortex-fsst -p vortex-alp -p vortex-array
 
         # vortex-ffi requires --no-default-features as otherwise we pull in

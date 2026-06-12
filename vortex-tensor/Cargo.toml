@@ -21,7 +21,6 @@ vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-compressor = { workspace = true }
 vortex-error = { workspace = true }
-vortex-fastlanes = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 
