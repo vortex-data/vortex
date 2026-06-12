@@ -343,16 +343,6 @@ mod tests {
     use crate::ParquetVariant;
     use crate::array::ParquetVariantArrayExt;
 
-    fn debug_step(test: &str, step: &str) {
-        use std::io::Write as _;
-
-        println!(
-            "[parquet_variant::{test}] {step} thread={:?}",
-            std::thread::current().id()
-        );
-        drop(std::io::stdout().flush());
-    }
-
     fn roundtrip(array: ArrayRef) -> VortexResult<ArrayRef> {
         let dtype = array.dtype().clone();
         let len = array.len();
@@ -375,7 +365,6 @@ mod tests {
 
     #[fixture]
     fn typed_value_variant_array() -> VortexResult<ArrayRef> {
-        debug_step("typed_value_variant_array", "building fixture");
         let mut metadata = BinaryViewBuilder::new();
         for _ in 0..3 {
             metadata.append_value(b"\x01\x00");
@@ -392,10 +381,7 @@ mod tests {
             None,
         )?;
 
-        let array =
-            ParquetVariant::from_arrow_variant(&ArrowVariantArray::try_new(&arrow_storage)?);
-        debug_step("typed_value_variant_array", "built fixture");
-        array
+        ParquetVariant::from_arrow_variant(&ArrowVariantArray::try_new(&arrow_storage)?)
     }
 
     #[fixture]
@@ -405,20 +391,16 @@ mod tests {
             .with::<RuntimeSession>();
         vortex_file::register_default_encodings(&session);
         session.arrays().register(ParquetVariant);
-        debug_step("parquet_variant_file_session", "built session");
         session
     }
 
     #[fixture]
     fn write_strategy() -> Arc<dyn LayoutStrategy> {
-        debug_step("write_strategy", "building zoned write strategy");
         let mut allowed = vortex_file::ALLOWED_ENCODINGS.clone();
         allowed.insert(ParquetVariant.id());
-        let strategy = vortex_file::WriteStrategyBuilder::default()
+        vortex_file::WriteStrategyBuilder::default()
             .with_allow_encodings(allowed)
-            .build();
-        debug_step("write_strategy", "built zoned write strategy");
-        strategy
+            .build()
     }
 
     #[test]
@@ -467,63 +449,24 @@ mod tests {
         #[from(typed_value_variant_array)] expected: VortexResult<ArrayRef>,
         parquet_variant_file_session: VortexSession,
     ) -> VortexResult<()> {
-        debug_step(
-            "test_file_roundtrip_typed_value_variant_with_statistics",
-            "start",
-        );
         let expected = expected?;
-        debug_step(
-            "test_file_roundtrip_typed_value_variant_with_statistics",
-            "resolved expected array",
-        );
 
         let mut bytes = ByteBufferMut::empty();
-        debug_step(
-            "test_file_roundtrip_typed_value_variant_with_statistics",
-            "starting flat write",
-        );
         parquet_variant_file_session
             .write_options()
             .with_strategy(Arc::new(FlatLayoutStrategy::default()))
             .write(&mut bytes, expected.to_array_stream())
             .await?;
-        debug_step(
-            "test_file_roundtrip_typed_value_variant_with_statistics",
-            &format!("finished flat write bytes_len={}", bytes.len()),
-        );
 
-        debug_step(
-            "test_file_roundtrip_typed_value_variant_with_statistics",
-            "opening buffer",
-        );
-        let opened = parquet_variant_file_session
+        let actual = parquet_variant_file_session
             .open_options()
-            .open_buffer(bytes)?;
-        debug_step(
-            "test_file_roundtrip_typed_value_variant_with_statistics",
-            "opened buffer",
-        );
-        let scan = opened.scan()?;
-        debug_step(
-            "test_file_roundtrip_typed_value_variant_with_statistics",
-            "created scan",
-        );
-        let stream = scan.into_array_stream()?;
-        debug_step(
-            "test_file_roundtrip_typed_value_variant_with_statistics",
-            "created array stream",
-        );
-        let actual = stream.read_all().await?;
-        debug_step(
-            "test_file_roundtrip_typed_value_variant_with_statistics",
-            "read all arrays",
-        );
+            .open_buffer(bytes)?
+            .scan()?
+            .into_array_stream()?
+            .read_all()
+            .await?;
 
         assert_arrays_eq!(expected, actual);
-        debug_step(
-            "test_file_roundtrip_typed_value_variant_with_statistics",
-            "done",
-        );
         Ok(())
     }
 
@@ -534,63 +477,24 @@ mod tests {
         parquet_variant_file_session: VortexSession,
         write_strategy: Arc<dyn LayoutStrategy>,
     ) -> VortexResult<()> {
-        debug_step(
-            "test_file_roundtrip_typed_value_variant_with_zoned_strategy",
-            "start",
-        );
         let expected = expected?;
-        debug_step(
-            "test_file_roundtrip_typed_value_variant_with_zoned_strategy",
-            "resolved expected array",
-        );
 
         let mut bytes = ByteBufferMut::empty();
-        debug_step(
-            "test_file_roundtrip_typed_value_variant_with_zoned_strategy",
-            "starting zoned write",
-        );
         parquet_variant_file_session
             .write_options()
             .with_strategy(write_strategy)
             .write(&mut bytes, expected.to_array_stream())
             .await?;
-        debug_step(
-            "test_file_roundtrip_typed_value_variant_with_zoned_strategy",
-            &format!("finished zoned write bytes_len={}", bytes.len()),
-        );
 
-        debug_step(
-            "test_file_roundtrip_typed_value_variant_with_zoned_strategy",
-            "opening buffer",
-        );
-        let opened = parquet_variant_file_session
+        let actual = parquet_variant_file_session
             .open_options()
-            .open_buffer(bytes)?;
-        debug_step(
-            "test_file_roundtrip_typed_value_variant_with_zoned_strategy",
-            "opened buffer",
-        );
-        let scan = opened.scan()?;
-        debug_step(
-            "test_file_roundtrip_typed_value_variant_with_zoned_strategy",
-            "created scan",
-        );
-        let stream = scan.into_array_stream()?;
-        debug_step(
-            "test_file_roundtrip_typed_value_variant_with_zoned_strategy",
-            "created array stream",
-        );
-        let actual = stream.read_all().await?;
-        debug_step(
-            "test_file_roundtrip_typed_value_variant_with_zoned_strategy",
-            "read all arrays",
-        );
+            .open_buffer(bytes)?
+            .scan()?
+            .into_array_stream()?
+            .read_all()
+            .await?;
 
         assert_arrays_eq!(expected, actual);
-        debug_step(
-            "test_file_roundtrip_typed_value_variant_with_zoned_strategy",
-            "done",
-        );
         Ok(())
     }
 
