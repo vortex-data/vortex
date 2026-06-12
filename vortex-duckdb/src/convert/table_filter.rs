@@ -2,31 +2,32 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::Range;
-use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
-use vortex::dtype::Nullability;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
-use vortex::expr::Expression;
-use vortex::expr::and_collect;
-use vortex::expr::get_item;
-use vortex::expr::is_not_null;
-use vortex::expr::is_null;
-use vortex::expr::list_contains;
+use vortex::expr::BoundExpr;
 use vortex::expr::lit;
-use vortex::expr::or_collect;
+use vortex::expr::try_dynamic;
+use vortex::expr::try_get_item;
 use vortex::scalar::Scalar;
+use vortex::scalar_fn::EmptyOptions;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
+use vortex::scalar_fn::fns::is_not_null::IsNotNull;
+use vortex::scalar_fn::fns::is_null::IsNull;
+use vortex::scalar_fn::fns::list_contains::ListContains;
 use vortex::scalar_fn::fns::operators::CompareOperator;
+use vortex::scalar_fn::fns::operators::Operator;
 use vortex::scan::selection::Selection;
 
+use super::collect_binary;
 use super::expr::try_from_bound_expression_with_col_sub;
+use super::try_list_scalar;
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
 use crate::duckdb::ExtractedValue;
 use crate::duckdb::TableFilterClass;
@@ -35,14 +36,14 @@ use crate::duckdb::ValueRef;
 
 pub fn try_from_table_filter(
     value: &TableFilterRef,
-    col: &Expression,
+    col: &BoundExpr,
     scope_dtype: &DType,
-) -> VortexResult<Option<Expression>> {
+) -> VortexResult<Option<BoundExpr>> {
     Ok(Some(match value.as_class() {
         TableFilterClass::ConstantComparison(const_) => {
             let scalar: Scalar = const_.value.try_into()?;
 
-            Binary.new_expr(const_.operator.try_into()?, [col.clone(), lit(scalar)])
+            Binary.try_new_expr(const_.operator.try_into()?, [col.clone(), lit(scalar)])?
         }
         TableFilterClass::ConjunctionAnd(conj_and) => {
             let Some(children) = conj_and
@@ -53,7 +54,7 @@ pub fn try_from_table_filter(
                 return Ok(None);
             };
 
-            and_collect(children).unwrap_or_else(|| lit(true))
+            collect_binary(children, Operator::And)?.unwrap_or_else(|| lit(true))
         }
         // This is a disjunction.
         TableFilterClass::ConjunctionOr(disjuction_or) => {
@@ -65,12 +66,16 @@ pub fn try_from_table_filter(
                 return Ok(None);
             };
 
-            or_collect(children).unwrap_or_else(|| lit(false))
+            collect_binary(children, Operator::Or)?.unwrap_or_else(|| lit(false))
         }
-        TableFilterClass::IsNull => is_null(col.clone()),
-        TableFilterClass::IsNotNull => is_not_null(col.clone()),
+        TableFilterClass::IsNull => IsNull.try_new_expr(EmptyOptions, [col.clone()])?,
+        TableFilterClass::IsNotNull => IsNotNull.try_new_expr(EmptyOptions, [col.clone()])?,
         TableFilterClass::StructExtract(name, child_filter) => {
-            return try_from_table_filter(child_filter, &get_item(name, col.clone()), scope_dtype);
+            return try_from_table_filter(
+                child_filter,
+                &try_get_item(name, col.clone())?,
+                scope_dtype,
+            );
         }
         TableFilterClass::Optional(child) => {
             // Optional expressions are optional not yet supported.
@@ -83,13 +88,8 @@ pub fn try_from_table_filter(
             // TODO(ngates): I'm pretty sure we actually need this as ScalarValue with the
             //  scope dtype
             let scalars: Vec<_> = values.iter().map(Scalar::try_from).try_collect()?;
-            assert!(
-                !scalars.is_empty(),
-                "IN filter must have at least one value"
-            );
-            let dtype = scalars[0].dtype().clone();
-            let list_scalar = Scalar::list(Arc::new(dtype), scalars, Nullability::Nullable);
-            list_contains(lit(list_scalar), col.clone())
+            let list_scalar = try_list_scalar(scalars)?;
+            ListContains.try_new_expr(EmptyOptions, [lit(list_scalar), col.clone()])?
         }
         TableFilterClass::Dynamic(dynamic) => {
             let op = match dynamic.operator {
@@ -110,7 +110,7 @@ pub fn try_from_table_filter(
             };
             let data = dynamic.data;
 
-            vortex::expr::dynamic(
+            try_dynamic(
                 op,
                 move || {
                     let value = data.latest()?;
@@ -118,13 +118,13 @@ pub fn try_from_table_filter(
                         .vortex_expect("failed to convert dynamic filter value to scalar");
                     scalar.into_value()
                 },
-                col.return_dtype(scope_dtype)?,
+                col.dtype().clone(),
                 true, // If there is no value, we say that all rows pass the dynamic filter.
                 col.clone(),
-            )
+            )?
         }
         TableFilterClass::ExpressionRef(expr) => {
-            match try_from_bound_expression_with_col_sub(expr, col)? {
+            match try_from_bound_expression_with_col_sub(expr, col, scope_dtype)? {
                 Some(expression) => expression,
                 None => return Ok(None),
             }

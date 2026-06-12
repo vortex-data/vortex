@@ -269,18 +269,21 @@ impl FileOpener for VortexOpener {
                     projection.clone(),
                     &this_file_schema,
                     &projected_physical_schema,
+                    vxf.dtype(),
                 )?
             } else {
                 // When projection pushdown is disabled, read only the required columns
                 // and apply the full projection after the scan.
-                expr_convertor.no_pushdown_projection(projection.clone(), &this_file_schema)?
+                expr_convertor.no_pushdown_projection(
+                    projection.clone(),
+                    &this_file_schema,
+                    vxf.dtype(),
+                )?
             };
 
             // The schema of the stream returned from the vortex scan.
             // We use a reference schema for types that don't roundtrip (Dictionary, Utf8, etc.).
-            let scan_dtype = scan_projection.return_dtype(vxf.dtype()).map_err(|_e| {
-                exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan")
-            })?;
+            let scan_dtype = scan_projection.dtype().clone();
 
             // When projection pushdown is enabled, the scan outputs the projected columns.
             // When disabled, the scan outputs raw columns and the projection is applied after.
@@ -392,7 +395,7 @@ impl FileOpener for VortexOpener {
                         )));
                     }
 
-                    make_vortex_predicate(expr_convertor.as_ref(), &pushed).transpose()
+                    make_vortex_predicate(expr_convertor.as_ref(), &pushed, vxf.dtype()).transpose()
                 })
                 .transpose()?;
 

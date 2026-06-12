@@ -59,7 +59,11 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
             .filter(mask)
             .vortex_expect("filter operation should succeed in fuzz test");
         filtered
-            .apply(&projection_expr.clone().unwrap_or_else(root))
+            .apply(
+                &projection_expr
+                    .clone()
+                    .unwrap_or_else(|| root(array_data.dtype().clone())),
+            )
             .vortex_expect("projection expression evaluation should succeed in fuzz test")
     };
 
@@ -84,7 +88,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
         .vortex_expect("open_buffer should succeed in fuzz test")
         .scan()
         .vortex_expect("scan should succeed in fuzz test")
-        .with_projection(projection_expr.unwrap_or_else(root))
+        .with_projection(projection_expr.unwrap_or_else(|| root(array_data.dtype().clone())))
         .with_some_filter(filter_expr)
         .into_array_iter(&*RUNTIME)
         .vortex_expect("into_array_iter should succeed in fuzz test")

@@ -30,7 +30,8 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::proto::dtype as pb;
-use vortex_array::expr::Expression;
+use vortex_array::expr::BoundCall;
+use vortex_array::expr::BoundExpr;
 use vortex_array::expr::and;
 use vortex_array::match_each_float_ptype;
 use vortex_array::scalar::Scalar;
@@ -254,8 +255,8 @@ impl ScalarFnVTable for L2Denorm {
     fn validity(
         &self,
         _options: &Self::Options,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+        expression: &BoundCall,
+    ) -> VortexResult<Option<BoundExpr>> {
         let normalized_validity = expression.child(0).validity()?;
         let norms_validity = expression.child(1).validity()?;
 

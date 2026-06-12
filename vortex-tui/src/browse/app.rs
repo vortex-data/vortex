@@ -370,7 +370,7 @@ impl AppState {
         let array = reader
             .projection_evaluation(
                 &(0..row_count),
-                &root(),
+                &root(layout.dtype().clone()),
                 MaskFuture::new_true(
                     usize::try_from(row_count).vortex_expect("row_count overflowed usize"),
                 ),

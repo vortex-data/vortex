@@ -414,6 +414,28 @@ where
     iter.into_iter().reduce_balanced(and)
 }
 
+/// Fallible [`and_collect`]: balanced like the panicking form, but surfaces construction
+/// errors instead of panicking. Intended for inputs that are not known to be well-typed,
+/// such as expressions converted from external engines.
+pub fn try_and_collect<I>(iter: I) -> VortexResult<Option<BoundExpr>>
+where
+    I: IntoIterator<Item = BoundExpr>,
+{
+    iter.into_iter()
+        .try_reduce_balanced(|lhs, rhs| Binary.try_new_expr(Operator::And, [lhs, rhs]))
+}
+
+/// Fallible [`or_collect`]: balanced like the panicking form, but surfaces construction
+/// errors instead of panicking. Intended for inputs that are not known to be well-typed,
+/// such as expressions converted from external engines.
+pub fn try_or_collect<I>(iter: I) -> VortexResult<Option<BoundExpr>>
+where
+    I: IntoIterator<Item = BoundExpr>,
+{
+    iter.into_iter()
+        .try_reduce_balanced(|lhs, rhs| Binary.try_new_expr(Operator::Or, [lhs, rhs]))
+}
+
 /// Create a new [`Binary`] using the [`Add`](Operator::Add) operator.
 ///
 /// ## Example usage
@@ -748,7 +770,19 @@ pub fn dynamic(
     default: bool,
     lhs: BoundExpr,
 ) -> BoundExpr {
-    DynamicComparison.new_expr(
+    try_dynamic(operator, rhs_value, rhs_dtype, default, lhs)
+        .vortex_expect("Failed to create DynamicComparison expression")
+}
+
+/// Tries to create a dynamic comparison expression.
+pub fn try_dynamic(
+    operator: CompareOperator,
+    rhs_value: impl Fn() -> Option<ScalarValue> + Send + Sync + 'static,
+    rhs_dtype: DType,
+    default: bool,
+    lhs: BoundExpr,
+) -> VortexResult<BoundExpr> {
+    DynamicComparison.try_new_expr(
         DynamicComparisonExpr {
             operator,
             rhs: Arc::new(Rhs {

@@ -9,17 +9,22 @@ use vortex::dtype::FieldNames;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
-use vortex::expr::Expression;
-use vortex::expr::and_collect;
-use vortex::expr::col;
-use vortex::expr::merge;
-use vortex::expr::pack;
+use vortex::expr::BoundExpr;
 use vortex::expr::root;
-use vortex::expr::select;
+use vortex::expr::try_get_item;
 use vortex::layout::layouts::row_idx::row_idx;
+use vortex::scalar_fn::ScalarFnVTableExt;
+use vortex::scalar_fn::fns::merge::DuplicateHandling;
+use vortex::scalar_fn::fns::merge::Merge;
+use vortex::scalar_fn::fns::operators::Operator;
+use vortex::scalar_fn::fns::pack::Pack;
+use vortex::scalar_fn::fns::pack::PackOptions;
+use vortex::scalar_fn::fns::select::FieldSelection;
+use vortex::scalar_fn::fns::select::Select;
 use vortex::scan::selection::Selection;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::convert::collect_binary;
 use crate::convert::try_from_table_filter;
 use crate::convert::try_from_virtual_column_filter;
 use crate::duckdb::LogicalType;
@@ -46,7 +51,7 @@ pub struct DuckdbField {
 }
 
 pub struct Projection {
-    pub projection: Expression,
+    pub projection: BoundExpr,
     pub file_index_column_pos: Option<usize>,
     pub file_row_number_column_pos: Option<usize>,
 }
@@ -56,7 +61,8 @@ impl Projection {
         projection_ids: Option<&[u64]>,
         column_ids: &[u64],
         column_fields: &[DuckdbField],
-    ) -> Self {
+        dtype: &DType,
+    ) -> VortexResult<Self> {
         // If projection ids are empty, use column_ids.
         // See duckdb/src/planner/operator/logical_get.cpp#L168
         let (ids, has_projection_ids) = match projection_ids {
@@ -98,7 +104,7 @@ impl Projection {
         is_star &= real_column_count == column_fields.len() as u64;
 
         let select = if is_star {
-            root()
+            root(dtype.clone())
         } else {
             let names = ids
                 .iter()
@@ -117,28 +123,34 @@ impl Projection {
                 })
                 .collect::<FieldNames>();
 
-            select(names, root())
+            Select.try_new_expr(FieldSelection::Include(names), [root(dtype.clone())])?
         };
 
         // file_index column will be filled later when exporting the chunk.
         let projection = if file_row_number_column_pos.is_some() {
             // row_idx will be moved to correct position in scan(), prepend here
-            let row_idx_struct = pack([("file_row_number", row_idx())], false.into());
-            merge([row_idx_struct, select])
+            let row_idx_struct = Pack.try_new_expr(
+                PackOptions {
+                    names: FieldNames::from(["file_row_number"]),
+                    nullability: false.into(),
+                },
+                [row_idx()],
+            )?;
+            Merge.try_new_expr(DuplicateHandling::default(), [row_idx_struct, select])?
         } else {
             select
         };
 
-        Self {
+        Ok(Self {
             projection,
             file_index_column_pos,
             file_row_number_column_pos,
-        }
+        })
     }
 }
 
 pub struct Filter {
-    pub filter: Option<Expression>,
+    pub filter: Option<BoundExpr>,
     pub row_selection: Selection,
     pub row_range: Option<Range<u64>>,
     pub file_selection: Selection,
@@ -153,12 +165,12 @@ impl Filter {
         table_filter_set: Option<&TableFilterSetRef>,
         column_ids: &[u64],
         column_fields: &[DuckdbField],
-        additional_filters: &[Expression],
+        additional_filters: &[BoundExpr],
         dtype: &DType,
     ) -> VortexResult<Self> {
         let mut has_non_optional_filter = false;
 
-        let mut table_filter_exprs: HashSet<Expression> = if let Some(filter) = table_filter_set {
+        let mut table_filter_exprs: HashSet<BoundExpr> = if let Some(filter) = table_filter_set {
             filter
                 .into_iter()
                 .filter(|(idx, _)| {
@@ -172,7 +184,11 @@ impl Filter {
                     let idx_u: usize = idx.as_();
                     let col_idx: usize = column_ids[idx_u].as_();
                     let name = &column_fields.get(col_idx).vortex_expect("exists").name;
-                    try_from_table_filter(ex, &col(name.as_str()), dtype)
+                    try_from_table_filter(
+                        ex,
+                        &try_get_item(name.as_str(), root(dtype.clone()))?,
+                        dtype,
+                    )
                 })
                 .collect::<VortexResult<Option<HashSet<_>>>>()?
                 .unwrap_or_else(HashSet::new)
@@ -199,7 +215,7 @@ impl Filter {
         };
 
         let out = Self {
-            filter: and_collect(table_filter_exprs),
+            filter: collect_binary(table_filter_exprs, Operator::And)?,
             row_selection,
             row_range,
             file_selection,
@@ -232,6 +248,7 @@ pub fn extract_schema_from_dtype(dtype: &DType) -> VortexResult<Vec<DuckdbField>
 #[cfg(test)]
 mod tests {
     use vortex::dtype::DType;
+    use vortex::dtype::Nullability;
     use vortex::expr::merge;
     use vortex::expr::pack;
     use vortex::expr::root;
@@ -239,33 +256,46 @@ mod tests {
 
     use super::*;
 
+    fn test_dtype(fields: &[DuckdbField]) -> DType {
+        DType::struct_(
+            fields
+                .iter()
+                .map(|field| (field.name.as_str(), field.dtype.clone())),
+            Nullability::NonNullable,
+        )
+    }
+
     #[test]
-    fn test_select_star() {
+    fn test_select_star() -> VortexResult<()> {
         let ids = [0, 1, 2];
         let fields = [
             DuckdbField {
-                name: "".to_owned(),
+                name: "a".to_owned(),
                 logical_type: LogicalType::null(),
                 dtype: DType::Null,
             },
             DuckdbField {
-                name: "".to_owned(),
+                name: "b".to_owned(),
                 logical_type: LogicalType::null(),
                 dtype: DType::Null,
             },
             DuckdbField {
-                name: "".to_owned(),
+                name: "c".to_owned(),
                 logical_type: LogicalType::null(),
                 dtype: DType::Null,
             },
         ];
+        let dtype = test_dtype(&fields);
 
-        assert_eq!(Projection::new(None, &ids, &fields).projection, root());
+        assert_eq!(
+            Projection::new(None, &ids, &fields, &dtype)?.projection,
+            root(dtype.clone())
+        );
 
         let ids = [FILE_ROW_NUMBER_COLUMN_IDX, 0, 1, FILE_INDEX_COLUMN_IDX, 2];
-        let exprs = Projection::new(None, &ids, &fields);
+        let exprs = Projection::new(None, &ids, &fields, &dtype)?;
         let row_idx_struct = pack([("file_row_number", row_idx())], false.into());
-        let root_with_virtual_cols = merge([row_idx_struct, root()]);
+        let root_with_virtual_cols = merge([row_idx_struct, root(dtype.clone())]);
 
         assert_eq!(exprs.projection, root_with_virtual_cols);
         assert_eq!(exprs.file_index_column_pos, Some(3));
@@ -273,17 +303,27 @@ mod tests {
 
         // projections can't be set in SELECT *.
         assert_ne!(
-            Projection::new(Some(&[0, 1]), &ids, &fields).projection,
-            root()
+            Projection::new(Some(&[0, 1]), &ids, &fields, &dtype)?.projection,
+            root(dtype.clone())
         );
 
         let ids = [0, 1];
-        assert_ne!(Projection::new(None, &ids, &fields).projection, root());
+        assert_ne!(
+            Projection::new(None, &ids, &fields, &dtype)?.projection,
+            root(dtype.clone())
+        );
 
         let ids = [0, 2, 2];
-        assert_ne!(Projection::new(None, &ids, &fields).projection, root());
+        assert_ne!(
+            Projection::new(None, &ids, &fields, &dtype)?.projection,
+            root(dtype.clone())
+        );
 
         let ids = [2, 1, 0];
-        assert_ne!(Projection::new(None, &ids, &fields).projection, root());
+        assert_ne!(
+            Projection::new(None, &ids, &fields, &dtype)?.projection,
+            root(dtype)
+        );
+        Ok(())
     }
 }

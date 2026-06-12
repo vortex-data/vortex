@@ -25,7 +25,7 @@ use vortex::array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex::array::optimizer::ArrayOptimizer;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
-use vortex::expr::Expression;
+use vortex::expr::BoundExpr;
 use vortex::expr::stats::Precision;
 use vortex::file::v2::FileStatsLayoutReader;
 use vortex::io::kanal_ext::KanalExt as _;
@@ -64,7 +64,7 @@ use crate::projection::extract_schema_from_dtype;
 
 pub struct TableFunctionBind {
     data_source: Arc<MultiLayoutDataSource>,
-    filter_exprs: Vec<Expression>,
+    filter_exprs: Vec<BoundExpr>,
     column_fields: Vec<DuckdbField>,
     // There exists at least one non-optional table filter or at least one
     // complex filter is pushed down.
@@ -171,7 +171,12 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
         projection,
         file_index_column_pos,
         file_row_number_column_pos,
-    } = Projection::new(projection_ids, column_ids, &bind_data.column_fields);
+    } = Projection::new(
+        projection_ids,
+        column_ids,
+        &bind_data.column_fields,
+        bind_data.data_source.dtype(),
+    )?;
 
     let Filter {
         filter,
@@ -208,7 +213,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
     );
 
     let request = ScanRequest {
-        projection,
+        projection: Some(projection),
         filter,
         ordered: file_row_number_column_pos.is_some(),
         selection: row_selection,
@@ -393,7 +398,7 @@ pub fn pushdown_complex_filter(
 ) -> VortexResult<bool> {
     debug!(%expr, "pushing down expression");
 
-    let Some(expr) = try_from_bound_expression(expr)? else {
+    let Some(expr) = try_from_bound_expression(expr, bind_data.data_source.dtype())? else {
         debug!(%expr, "failed to push down expression");
         return Ok(false);
     };
@@ -414,7 +419,8 @@ pub fn pushdown_complex_filter(
     // We can also report only the first filter as not pushed, but this
     // has a negative performance impact.
     let report_pushed = !expr
-        .as_opt::<Binary>()
+        .as_call()
+        .and_then(|call| call.function().as_opt::<Binary>())
         .map(|op| *op == Operator::Eq)
         .unwrap_or(false);
 

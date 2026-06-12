@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use arrow_schema::DataType;
 use arrow_schema::Schema;
+use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::exec_datafusion_err;
 use datafusion_common::tree_node::TreeNode;
@@ -20,32 +21,42 @@ use datafusion_physical_expr_common::physical_expr::is_dynamic_physical_expr;
 use datafusion_physical_plan::expressions as df_expr;
 use itertools::Itertools;
 use vortex::dtype::DType;
+use vortex::dtype::FieldName;
+use vortex::dtype::FieldNames;
 use vortex::dtype::Nullability;
 use vortex::dtype::arrow::FromArrowType;
-use vortex::expr::Expression;
-use vortex::expr::and_collect;
-use vortex::expr::cast;
-use vortex::expr::get_item;
-use vortex::expr::is_not_null;
-use vortex::expr::is_null;
-use vortex::expr::list_contains;
+use vortex::error::VortexError;
+use vortex::expr::BoundExpr;
 use vortex::expr::lit;
-use vortex::expr::nested_case_when;
-use vortex::expr::not;
-use vortex::expr::pack;
 use vortex::expr::root;
+use vortex::expr::try_and_collect;
+use vortex::expr::try_get_item;
 use vortex::scalar::Scalar;
+use vortex::scalar::ScalarValue;
+use vortex::scalar_fn::EmptyOptions;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
+use vortex::scalar_fn::fns::case_when::CaseWhen;
+use vortex::scalar_fn::fns::case_when::CaseWhenOptions;
+use vortex::scalar_fn::fns::cast::Cast;
+use vortex::scalar_fn::fns::is_not_null::IsNotNull;
+use vortex::scalar_fn::fns::is_null::IsNull;
 use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
+use vortex::scalar_fn::fns::list_contains::ListContains;
+use vortex::scalar_fn::fns::not::Not;
 use vortex::scalar_fn::fns::operators::Operator;
+use vortex::scalar_fn::fns::pack::Pack;
+use vortex::scalar_fn::fns::pack::PackOptions;
 
 use crate::convert::FromDataFusion;
 
 /// Result of splitting a projection into Vortex expressions and leftover DataFusion projections.
 pub struct ProcessedProjection {
-    pub scan_projection: Expression,
+    /// The pushed-down projection, bound to the `scope_dtype` the caller supplied (the scan
+    /// source's dtype — per-file in the opener, the pre-rebase initial projection in v2).
+    pub scan_projection: BoundExpr,
+    /// Remaining projection logic to evaluate in DataFusion after the scan.
     pub leftover_projection: ProjectionExprs,
 }
 
@@ -53,30 +64,40 @@ pub struct ProcessedProjection {
 pub(crate) fn make_vortex_predicate(
     expr_convertor: &dyn ExpressionConvertor,
     predicate: &[Arc<dyn PhysicalExpr>],
-) -> DFResult<Option<Expression>> {
+    scope_dtype: &DType,
+) -> DFResult<Option<BoundExpr>> {
     let exprs = predicate
         .iter()
-        .map(|e| expr_convertor.convert(e.as_ref()))
+        .map(|e| expr_convertor.convert(e.as_ref(), scope_dtype))
         .collect::<DFResult<Vec<_>>>()?;
 
-    Ok(and_collect(exprs))
+    try_and_collect(exprs).map_err(vortex_to_df)
 }
 
 /// Trait for converting DataFusion expressions to Vortex ones.
+///
+/// Every `scope_dtype` parameter is the Vortex dtype of the scan source the produced
+/// expression will be evaluated against (e.g. the per-file dtype in the opener, or the
+/// pre-rebase initial-projection dtype in the v2 source). It is the dtype the expression's
+/// `Root` is bound to and within which field references are resolved; passing any other
+/// dtype produces expressions bound to the wrong scope.
 pub trait ExpressionConvertor: Send + Sync {
     /// Can an expression be pushed down given a specific schema
     fn can_be_pushed_down(&self, expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> bool;
 
-    /// Try and convert a DataFusion [`PhysicalExpr`] into a Vortex [`Expression`].
-    fn convert(&self, expr: &dyn PhysicalExpr) -> DFResult<Expression>;
+    /// Try and convert a DataFusion [`PhysicalExpr`] into a Vortex [`BoundExpr`] bound to
+    /// `scope_dtype`.
+    fn convert(&self, expr: &dyn PhysicalExpr, scope_dtype: &DType) -> DFResult<BoundExpr>;
 
-    /// Split a projection into Vortex expressions that can be pushed down and leftover
-    /// DataFusion projections that need to be evaluated after the scan.
+    /// Split a projection into Vortex expressions that can be pushed down (bound to
+    /// `scope_dtype`) and leftover DataFusion projections that need to be evaluated after
+    /// the scan.
     fn split_projection(
         &self,
         source_projection: ProjectionExprs,
         input_schema: &Schema,
         output_schema: &Schema,
+        scope_dtype: &DType,
     ) -> DFResult<ProcessedProjection>;
 
     /// Create a projection that reads only the required columns without pushing down
@@ -85,25 +106,101 @@ pub trait ExpressionConvertor: Send + Sync {
         &self,
         source_projection: ProjectionExprs,
         input_schema: &Schema,
+        scope_dtype: &DType,
     ) -> DFResult<ProcessedProjection> {
         // Get all unique column indices referenced by the projection
         let column_indices = source_projection.column_indices();
 
         // Create scan projection that reads the required columns
-        let scan_columns: Vec<(String, Expression)> = column_indices
+        let scan_columns: Vec<(String, BoundExpr)> = column_indices
             .into_iter()
             .map(|idx| {
                 let field = input_schema.field(idx);
                 let name = field.name().clone();
-                (name.clone(), get_item(name, root()))
+                Ok((name.clone(), try_col(name, scope_dtype)?))
             })
-            .collect();
+            .collect::<DFResult<_>>()?;
 
         Ok(ProcessedProjection {
-            scan_projection: pack(scan_columns, Nullability::NonNullable),
+            scan_projection: try_pack(scan_columns, Nullability::NonNullable)?,
             leftover_projection: source_projection,
         })
     }
+}
+
+fn vortex_to_df(error: VortexError) -> DataFusionError {
+    DataFusionError::External(Box::new(error))
+}
+
+fn try_col(field: impl Into<FieldName>, scope_dtype: &DType) -> DFResult<BoundExpr> {
+    try_get_item(field, root(scope_dtype.clone())).map_err(vortex_to_df)
+}
+
+fn try_binary(operator: Operator, lhs: BoundExpr, rhs: BoundExpr) -> DFResult<BoundExpr> {
+    Binary
+        .try_new_expr(operator, [lhs, rhs])
+        .map_err(vortex_to_df)
+}
+
+fn try_pack(fields: Vec<(String, BoundExpr)>, nullability: Nullability) -> DFResult<BoundExpr> {
+    let (names, children): (Vec<_>, Vec<_>) = fields.into_iter().unzip();
+    Pack.try_new_expr(
+        PackOptions {
+            names: names.into_iter().collect::<FieldNames>(),
+            nullability,
+        },
+        children,
+    )
+    .map_err(vortex_to_df)
+}
+
+fn try_not(child: BoundExpr) -> DFResult<BoundExpr> {
+    Not.try_new_expr(EmptyOptions, [child])
+        .map_err(vortex_to_df)
+}
+
+fn try_is_null(child: BoundExpr) -> DFResult<BoundExpr> {
+    IsNull
+        .try_new_expr(EmptyOptions, [child])
+        .map_err(vortex_to_df)
+}
+
+fn try_is_not_null(child: BoundExpr) -> DFResult<BoundExpr> {
+    IsNotNull
+        .try_new_expr(EmptyOptions, [child])
+        .map_err(vortex_to_df)
+}
+
+fn try_list_contains(list: BoundExpr, value: BoundExpr) -> DFResult<BoundExpr> {
+    ListContains
+        .try_new_expr(EmptyOptions, [list, value])
+        .map_err(vortex_to_df)
+}
+
+fn try_list_scalar(elements: Vec<Scalar>) -> DFResult<Scalar> {
+    let Some(dtype) = elements.first().map(|scalar| scalar.dtype().clone()) else {
+        return Err(exec_datafusion_err!("IN list must have at least one value"));
+    };
+
+    let values = elements
+        .into_iter()
+        .map(|scalar| {
+            if scalar.dtype() != &dtype {
+                return Err(exec_datafusion_err!(
+                    "IN list values must have matching dtypes, got {} and {}",
+                    dtype,
+                    scalar.dtype()
+                ));
+            }
+            Ok(scalar.into_value())
+        })
+        .collect::<DFResult<Vec<_>>>()?;
+
+    Scalar::try_new(
+        DType::List(Arc::new(dtype), Nullability::Nullable),
+        Some(ScalarValue::Tuple(values)),
+    )
+    .map_err(vortex_to_df)
 }
 
 /// The default [`ExpressionConvertor`].
@@ -112,7 +209,11 @@ pub struct DefaultExpressionConvertor {}
 
 impl DefaultExpressionConvertor {
     /// Attempts to convert a DataFusion ScalarFunctionExpr to a Vortex expression.
-    fn try_convert_scalar_function(&self, scalar_fn: &ScalarFunctionExpr) -> DFResult<Expression> {
+    fn try_convert_scalar_function(
+        &self,
+        scalar_fn: &ScalarFunctionExpr,
+        scope_dtype: &DType,
+    ) -> DFResult<BoundExpr> {
         if let Some(get_field_fn) = ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn)
         {
             // DataFusion's GetFieldFunc flattens nested field access into a single call
@@ -124,7 +225,7 @@ impl DefaultExpressionConvertor {
                 .split_first()
                 .ok_or_else(|| exec_datafusion_err!("get_field missing source expression"))?;
 
-            let mut result = self.convert(source_expr.as_ref())?;
+            let mut result = self.convert(source_expr.as_ref(), scope_dtype)?;
             for expr in field_names {
                 let field_name = expr
                     .downcast_ref::<df_expr::Literal>()
@@ -135,7 +236,7 @@ impl DefaultExpressionConvertor {
                     .ok_or_else(|| {
                         exec_datafusion_err!("get_field field name must be a UTF-8 string")
                     })?;
-                result = get_item(field_name.to_string(), result);
+                result = try_get_item(field_name.to_string(), result).map_err(vortex_to_df)?;
             }
             return Ok(result);
         }
@@ -147,7 +248,11 @@ impl DefaultExpressionConvertor {
     }
 
     /// Attempts to convert a DataFusion CaseExpr to a Vortex expression.
-    fn try_convert_case_expr(&self, case_expr: &df_expr::CaseExpr) -> DFResult<Expression> {
+    fn try_convert_case_expr(
+        &self,
+        case_expr: &df_expr::CaseExpr,
+        scope_dtype: &DType,
+    ) -> DFResult<BoundExpr> {
         // DataFusion CaseExpr has:
         // - expr(): Optional base expression (for "CASE expr WHEN ..." form)
         // - when_then_expr(): Vec of (when, then) pairs
@@ -170,19 +275,38 @@ impl DefaultExpressionConvertor {
         // Convert all when/then pairs to (condition, value) tuples
         let mut pairs = Vec::with_capacity(when_then_pairs.len());
         for (when_expr, then_expr) in when_then_pairs {
-            let condition = self.convert(when_expr.as_ref())?;
-            let value = self.convert(then_expr.as_ref())?;
+            let condition = self.convert(when_expr.as_ref(), scope_dtype)?;
+            let value = self.convert(then_expr.as_ref(), scope_dtype)?;
             pairs.push((condition, value));
         }
 
         // Convert optional else expression
         let else_value = case_expr
             .else_expr()
-            .map(|e| self.convert(e.as_ref()))
+            .map(|e| self.convert(e.as_ref(), scope_dtype))
             .transpose()?;
 
-        // Build a single n-ary CASE WHEN expression from DataFusion WHEN/THEN pairs
-        Ok(nested_case_when(pairs, else_value))
+        let num_when_then_pairs = u32::try_from(pairs.len())
+            .map_err(|_| exec_datafusion_err!("CASE expression has too many WHEN/THEN pairs"))?;
+        let has_else = else_value.is_some();
+        let mut children = Vec::with_capacity(pairs.len() * 2 + usize::from(has_else));
+        for (condition, value) in pairs {
+            children.push(condition);
+            children.push(value);
+        }
+        if let Some(else_value) = else_value {
+            children.push(else_value);
+        }
+
+        CaseWhen
+            .try_new_expr(
+                CaseWhenOptions {
+                    num_when_then_pairs,
+                    has_else,
+                },
+                children,
+            )
+            .map_err(vortex_to_df)
     }
 }
 
@@ -191,31 +315,33 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
         can_be_pushed_down_impl(expr, schema)
     }
 
-    fn convert(&self, df: &dyn PhysicalExpr) -> DFResult<Expression> {
+    fn convert(&self, df: &dyn PhysicalExpr, scope_dtype: &DType) -> DFResult<BoundExpr> {
         // TODO(joe): Don't return an error when we have an unsupported node, bubble up "TRUE" as in keep
         //  for that node, up to any `and` or `or` node.
         if let Some(binary_expr) = df.downcast_ref::<df_expr::BinaryExpr>() {
-            let left = self.convert(binary_expr.left().as_ref())?;
-            let right = self.convert(binary_expr.right().as_ref())?;
+            let left = self.convert(binary_expr.left().as_ref(), scope_dtype)?;
+            let right = self.convert(binary_expr.right().as_ref(), scope_dtype)?;
             let operator = try_operator_from_df(binary_expr.op())?;
 
-            return Ok(Binary.new_expr(operator, [left, right]));
+            return try_binary(operator, left, right);
         }
 
         if let Some(col_expr) = df.downcast_ref::<df_expr::Column>() {
-            return Ok(get_item(col_expr.name().to_owned(), root()));
+            return try_col(col_expr.name().to_owned(), scope_dtype);
         }
 
         if let Some(like) = df.downcast_ref::<df_expr::LikeExpr>() {
-            let child = self.convert(like.expr().as_ref())?;
-            let pattern = self.convert(like.pattern().as_ref())?;
-            return Ok(Like.new_expr(
-                LikeOptions {
-                    negated: like.negated(),
-                    case_insensitive: like.case_insensitive(),
-                },
-                [child, pattern],
-            ));
+            let child = self.convert(like.expr().as_ref(), scope_dtype)?;
+            let pattern = self.convert(like.pattern().as_ref(), scope_dtype)?;
+            return Like
+                .try_new_expr(
+                    LikeOptions {
+                        negated: like.negated(),
+                        case_insensitive: like.case_insensitive(),
+                    },
+                    [child, pattern],
+                )
+                .map_err(vortex_to_df);
         }
 
         if let Some(literal) = df.downcast_ref::<df_expr::Literal>() {
@@ -225,22 +351,22 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
 
         if let Some(cast_expr) = df.downcast_ref::<df_expr::CastExpr>() {
             let cast_dtype = DType::from_arrow(cast_expr.target_field().as_ref());
-            let child = self.convert(cast_expr.expr().as_ref())?;
-            return Ok(cast(child, cast_dtype));
+            let child = self.convert(cast_expr.expr().as_ref(), scope_dtype)?;
+            return Cast.try_new_expr(cast_dtype, [child]).map_err(vortex_to_df);
         }
 
         if let Some(is_null_expr) = df.downcast_ref::<df_expr::IsNullExpr>() {
-            let arg = self.convert(is_null_expr.arg().as_ref())?;
-            return Ok(is_null(arg));
+            let arg = self.convert(is_null_expr.arg().as_ref(), scope_dtype)?;
+            return try_is_null(arg);
         }
 
         if let Some(is_not_null_expr) = df.downcast_ref::<df_expr::IsNotNullExpr>() {
-            let arg = self.convert(is_not_null_expr.arg().as_ref())?;
-            return Ok(is_not_null(arg));
+            let arg = self.convert(is_not_null_expr.arg().as_ref(), scope_dtype)?;
+            return try_is_not_null(arg);
         }
 
         if let Some(in_list) = df.downcast_ref::<df_expr::InListExpr>() {
-            let value = self.convert(in_list.expr().as_ref())?;
+            let value = self.convert(in_list.expr().as_ref(), scope_dtype)?;
             let list_elements: Vec<_> = in_list
                 .list()
                 .iter()
@@ -253,22 +379,21 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
                 })
                 .try_collect()?;
 
-            let list = Scalar::list(
-                list_elements[0].dtype().clone(),
-                list_elements,
-                Nullability::Nullable,
-            );
-            let expr = list_contains(lit(list), value);
+            let expr = try_list_contains(lit(try_list_scalar(list_elements)?), value)?;
 
-            return Ok(if in_list.negated() { not(expr) } else { expr });
+            return if in_list.negated() {
+                try_not(expr)
+            } else {
+                Ok(expr)
+            };
         }
 
         if let Some(scalar_fn) = df.downcast_ref::<ScalarFunctionExpr>() {
-            return self.try_convert_scalar_function(scalar_fn);
+            return self.try_convert_scalar_function(scalar_fn, scope_dtype);
         }
 
         if let Some(case_expr) = df.downcast_ref::<df_expr::CaseExpr>() {
-            return self.try_convert_case_expr(case_expr);
+            return self.try_convert_case_expr(case_expr, scope_dtype);
         }
 
         Err(exec_datafusion_err!(
@@ -281,6 +406,7 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
         source_projection: ProjectionExprs,
         input_schema: &Schema,
         output_schema: &Schema,
+        scope_dtype: &DType,
     ) -> DFResult<ProcessedProjection> {
         let mut scan_projection = vec![];
         let mut leftover_projection: Vec<ProjectionExpr> = vec![];
@@ -291,11 +417,11 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
                 if let Some(scalar_fn_expr) = node.downcast_ref::<ScalarFunctionExpr>()
                     && !can_scalar_fn_be_pushed_down(scalar_fn_expr)
                 {
-                    scan_projection.extend(
-                        collect_columns(node)
-                            .into_iter()
-                            .map(|c| (c.name().to_string(), get_item(c.name(), root()))),
-                    );
+                    let columns = collect_columns(node)
+                        .into_iter()
+                        .map(|c| Ok((c.name().to_string(), try_col(c.name(), scope_dtype)?)))
+                        .collect::<DFResult<Vec<_>>>()?;
+                    scan_projection.extend(columns);
 
                     leftover_projection.push(projection_expr.clone());
                     return Ok(TreeNodeRecursion::Stop);
@@ -308,11 +434,11 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
                     && (is_decimal(&binary_expr.left().data_type(input_schema)?)
                         && is_decimal(&binary_expr.right().data_type(input_schema)?))
                 {
-                    scan_projection.extend(
-                        collect_columns(node)
-                            .into_iter()
-                            .map(|c| (c.name().to_string(), get_item(c.name(), root()))),
-                    );
+                    let columns = collect_columns(node)
+                        .into_iter()
+                        .map(|c| Ok((c.name().to_string(), try_col(c.name(), scope_dtype)?)))
+                        .collect::<DFResult<Vec<_>>>()?;
+                    scan_projection.extend(columns);
 
                     leftover_projection.push(projection_expr.clone());
                     return Ok(TreeNodeRecursion::Stop);
@@ -325,7 +451,7 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
             if matches!(r, TreeNodeRecursion::Continue) {
                 scan_projection.push((
                     projection_expr.alias.clone(),
-                    self.convert(projection_expr.expr.as_ref())?,
+                    self.convert(projection_expr.expr.as_ref(), scope_dtype)?,
                 ));
                 leftover_projection.push(ProjectionExpr {
                     expr: Arc::new(df_expr::Column::new_with_schema(
@@ -338,7 +464,7 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
         }
 
         Ok(ProcessedProjection {
-            scan_projection: pack(scan_projection, Nullability::NonNullable),
+            scan_projection: try_pack(scan_projection, Nullability::NonNullable)?,
             leftover_projection: leftover_projection.into(),
         })
     }
@@ -558,6 +684,7 @@ mod tests {
     use datafusion_physical_plan::expressions as df_expr;
     use insta::assert_snapshot;
     use rstest::rstest;
+    use vortex::dtype::arrow::FromArrowType;
 
     use super::*;
     use crate::common_tests::TestSessionContext;
@@ -582,27 +709,31 @@ mod tests {
         ])
     }
 
+    fn test_scope() -> DType {
+        DType::from_arrow(&test_schema())
+    }
+
     #[test]
     fn test_make_vortex_predicate_empty() {
         let expr_convertor = DefaultExpressionConvertor::default();
-        let result = make_vortex_predicate(&expr_convertor, &[]).unwrap();
+        let result = make_vortex_predicate(&expr_convertor, &[], &test_scope()).unwrap();
         assert!(result.is_none());
     }
 
     #[test]
     fn test_make_vortex_predicate_single() {
         let expr_convertor = DefaultExpressionConvertor::default();
-        let col_expr = Arc::new(df_expr::Column::new("test", 0)) as Arc<dyn PhysicalExpr>;
-        let result = make_vortex_predicate(&expr_convertor, &[col_expr]).unwrap();
+        let col_expr = Arc::new(df_expr::Column::new("id", 0)) as Arc<dyn PhysicalExpr>;
+        let result = make_vortex_predicate(&expr_convertor, &[col_expr], &test_scope()).unwrap();
         assert!(result.is_some());
     }
 
     #[test]
     fn test_make_vortex_predicate_multiple() {
         let expr_convertor = DefaultExpressionConvertor::default();
-        let col1 = Arc::new(df_expr::Column::new("col1", 0)) as Arc<dyn PhysicalExpr>;
-        let col2 = Arc::new(df_expr::Column::new("col2", 1)) as Arc<dyn PhysicalExpr>;
-        let result = make_vortex_predicate(&expr_convertor, &[col1, col2]).unwrap();
+        let col1 = Arc::new(df_expr::Column::new("active", 3)) as Arc<dyn PhysicalExpr>;
+        let col2 = Arc::new(df_expr::Column::new("active", 3)) as Arc<dyn PhysicalExpr>;
+        let result = make_vortex_predicate(&expr_convertor, &[col1, col2], &test_scope()).unwrap();
         assert!(result.is_some());
         // Result should be an AND expression combining the two columns
     }
@@ -646,13 +777,13 @@ mod tests {
 
     #[test]
     fn test_expr_from_df_column() {
-        let col_expr = df_expr::Column::new("test_column", 0);
+        let col_expr = df_expr::Column::new("id", 0);
         let result = DefaultExpressionConvertor::default()
-            .convert(&col_expr)
+            .convert(&col_expr, &test_scope())
             .unwrap();
 
         assert_snapshot!(result.display_tree().to_string(), @r"
-        vortex.get_item(test_column)
+        vortex.get_item(id)
         └── input: vortex.root()
         ");
     }
@@ -661,7 +792,7 @@ mod tests {
     fn test_expr_from_df_literal() {
         let literal_expr = df_expr::Literal::new(ScalarValue::Int32(Some(42)));
         let result = DefaultExpressionConvertor::default()
-            .convert(&literal_expr)
+            .convert(&literal_expr, &test_scope())
             .unwrap();
 
         assert_snapshot!(result.display_tree().to_string(), @"vortex.literal(42i32)");
@@ -669,18 +800,18 @@ mod tests {
 
     #[test]
     fn test_expr_from_df_binary() {
-        let left = Arc::new(df_expr::Column::new("left", 0)) as Arc<dyn PhysicalExpr>;
+        let left = Arc::new(df_expr::Column::new("id", 0)) as Arc<dyn PhysicalExpr>;
         let right =
             Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(42)))) as Arc<dyn PhysicalExpr>;
         let binary_expr = df_expr::BinaryExpr::new(left, DFOperator::Eq, right);
 
         let result = DefaultExpressionConvertor::default()
-            .convert(&binary_expr)
+            .convert(&binary_expr, &test_scope())
             .unwrap();
 
         assert_snapshot!(result.display_tree().to_string(), @r"
         vortex.binary(=)
-        ├── lhs: vortex.get_item(left)
+        ├── lhs: vortex.get_item(id)
         │   └── input: vortex.root()
         └── rhs: vortex.literal(42i32)
         ");
@@ -692,16 +823,16 @@ mod tests {
     #[case::like_case_insensitive(false, true)]
     #[case::like_negated_case_insensitive(true, true)]
     fn test_expr_from_df_like(#[case] negated: bool, #[case] case_insensitive: bool) {
-        let expr = Arc::new(df_expr::Column::new("text_col", 0)) as Arc<dyn PhysicalExpr>;
+        let expr = Arc::new(df_expr::Column::new("name", 1)) as Arc<dyn PhysicalExpr>;
         let pattern = Arc::new(df_expr::Literal::new(ScalarValue::Utf8(Some(
             "test%".to_string(),
         )))) as Arc<dyn PhysicalExpr>;
         let like_expr = df_expr::LikeExpr::new(negated, case_insensitive, expr, pattern);
 
         let result = DefaultExpressionConvertor::default()
-            .convert(&like_expr)
+            .convert(&like_expr, &test_scope())
             .unwrap();
-        let like_opts = result.as_::<Like>();
+        let like_opts = result.as_call().unwrap().function().as_::<Like>();
         assert_eq!(
             like_opts,
             &LikeOptions {
@@ -919,6 +1050,7 @@ mod tests {
             DataType::Int32,
             false,
         )]));
+        let scope_dtype = DType::from_arrow(schema.as_ref());
         let batch = RecordBatch::try_new(schema, vec![values]).unwrap();
 
         // Build a DataFusion CASE expression:
@@ -954,7 +1086,9 @@ mod tests {
 
         // Convert to Vortex expression
         let expr_convertor = DefaultExpressionConvertor::default();
-        let vortex_expr = expr_convertor.try_convert_case_expr(&case_expr).unwrap();
+        let vortex_expr = expr_convertor
+            .try_convert_case_expr(&case_expr, &scope_dtype)
+            .unwrap();
 
         // Convert batch to Vortex array
         let vortex_array: ArrayRef = ArrayRef::from_arrow(&batch, false).unwrap();

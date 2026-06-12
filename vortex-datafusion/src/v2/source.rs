@@ -100,18 +100,22 @@ use futures::future::try_join_all;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrow::ArrowSessionExt;
 use vortex::dtype::DType;
+use vortex::dtype::FieldNames;
 use vortex::dtype::FieldPath;
 use vortex::dtype::Nullability;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
-use vortex::expr::Expression;
-use vortex::expr::and as vx_and;
-use vortex::expr::get_item;
-use vortex::expr::pack;
+use vortex::expr::BoundExpr;
 use vortex::expr::root;
 use vortex::expr::stats::Precision;
 use vortex::expr::transform::replace;
+use vortex::expr::try_get_item;
 use vortex::io::session::RuntimeSessionExt;
+use vortex::scalar_fn::ScalarFnVTableExt;
+use vortex::scalar_fn::fns::binary::Binary;
+use vortex::scalar_fn::fns::operators::Operator;
+use vortex::scalar_fn::fns::pack::Pack;
+use vortex::scalar_fn::fns::pack::PackOptions;
 use vortex::scan::DataSourceRef;
 use vortex::scan::ScanRequest;
 use vortex::session::VortexSession;
@@ -205,7 +209,8 @@ impl VortexDataSourceBuilder {
     /// statistics before execution begins.
     pub async fn build(self) -> VortexResult<VortexDataSource> {
         // The projection expression
-        let mut projection = root();
+        let source_dtype = self.data_source.dtype().clone();
+        let mut projection = root(source_dtype.clone());
 
         // Resolve the Arrow schema
         let mut arrow_schema = match self.arrow_schema {
@@ -219,14 +224,17 @@ impl VortexDataSourceBuilder {
 
         // Apply any selection and create a projection expression.
         if let Some(indices) = self.projection {
-            let fields = indices.iter().map(|&i| {
-                let name = arrow_schema.field(i).name().clone();
-                let expr = get_item(name.as_str(), root());
-                (name, expr)
-            });
+            let fields = indices
+                .iter()
+                .map(|&i| {
+                    let name = arrow_schema.field(i).name().clone();
+                    let expr = try_get_item(name.as_str(), root(source_dtype.clone()))?;
+                    Ok((name, expr))
+                })
+                .collect::<VortexResult<Vec<_>>>()?;
 
             // Update the projection expression
-            projection = pack(fields, Nullability::NonNullable);
+            projection = try_pack(fields, Nullability::NonNullable)?;
 
             // Update the arrow schema
             arrow_schema = Arc::new(Schema::new(
@@ -237,7 +245,7 @@ impl VortexDataSourceBuilder {
             ));
         }
 
-        let DType::Struct(fields, ..) = projection.return_dtype(self.data_source.dtype())? else {
+        let DType::Struct(fields, ..) = projection.dtype() else {
             vortex_bail!("Projection does not evaluate to a struct");
         };
 
@@ -318,7 +326,7 @@ pub struct VortexDataSource {
     /// The Arrow schema of the data source before any DataFusion projection pushdown.
     initial_schema: SchemaRef,
     /// The initial Vortex projection expression (e.g. column selection from the builder).
-    initial_projection: Expression,
+    initial_projection: BoundExpr,
     /// Column statistics for the initial projection columns.
     #[expect(dead_code)]
     initial_statistics: Vec<ColumnStatistics>,
@@ -326,7 +334,7 @@ pub struct VortexDataSource {
     // --- Phase 2: Projected (pushed into the Vortex scan) ---
     /// The Vortex projection expression sent in the [`ScanRequest`].
     /// Composed with `initial_projection` so it operates on the original source columns.
-    projected_projection: Expression,
+    projected_projection: BoundExpr,
     /// The Arrow schema of the Vortex scan output (before any leftover projection).
     projected_schema: SchemaRef,
     /// Column statistics for the projected (scan output) columns.
@@ -345,7 +353,7 @@ pub struct VortexDataSource {
 
     /// An optional filter expression.
     /// Populated by [`DataSource::try_pushdown_filters`] when DataFusion pushes filters down.
-    filter: Option<Expression>,
+    filter: Option<BoundExpr>,
     /// An optional row limit populated by [`DataSource::with_fetch`].
     limit: Option<usize>,
     /// Whether to preserve the order of the output rows.
@@ -386,7 +394,7 @@ impl DataSource for VortexDataSource {
         // Build the scan request with pushed-down projection, filter, and limit.
         // The projection is included so the scan can prune columns at the I/O level.
         let scan_request = ScanRequest {
-            projection: self.projected_projection.clone(),
+            projection: Some(self.projected_projection.clone()),
             filter: self.filter.clone(),
             limit: self.limit.map(|l| u64::try_from(l).unwrap_or(u64::MAX)),
             ordered: self.ordered,
@@ -554,16 +562,24 @@ impl DataSource for VortexDataSource {
         let ProcessedProjection {
             scan_projection,
             leftover_projection,
-        } = convertor.split_projection(projection.clone(), input_schema, &projected_schema)?;
+        } = convertor.split_projection(
+            projection.clone(),
+            input_schema,
+            &projected_schema,
+            self.initial_projection.dtype(),
+        )?;
 
         // Compose with the initial projection so the scan operates on the original
         // source columns, not the initial projection's output columns.
-        let scan_projection = replace(scan_projection, &root(), self.initial_projection.clone());
+        let scan_projection = replace(
+            scan_projection,
+            &root(self.initial_projection.dtype().clone()),
+            self.initial_projection.clone(),
+        )
+        .map_err(|e| DataFusionError::External(Box::new(e)))?;
 
         // Compute the scan output schema from the Vortex expression's return dtype.
-        let scan_dtype = scan_projection
-            .return_dtype(self.data_source.dtype())
-            .map_err(|e| DataFusionError::External(Box::new(e)))?;
+        let scan_dtype = scan_projection.dtype().clone();
         let scan_output_schema = Arc::new(
             self.session
                 .arrow()
@@ -635,11 +651,15 @@ impl DataSource for VortexDataSource {
             .collect();
 
         // Convert to Vortex conjunction.
-        let vortex_pred = make_vortex_predicate(&convertor, &pushable)?;
+        let vortex_pred = make_vortex_predicate(&convertor, &pushable, self.data_source.dtype())?;
 
         // Combine with existing filter.
         let new_filter = match (&self.filter, vortex_pred) {
-            (Some(existing), Some(new_pred)) => Some(vx_and(existing.clone(), new_pred)),
+            (Some(existing), Some(new_pred)) => Some(
+                Binary
+                    .try_new_expr(Operator::And, [existing.clone(), new_pred])
+                    .map_err(|e| DataFusionError::External(Box::new(e)))?,
+            ),
             (Some(existing), None) => Some(existing.clone()),
             (None, Some(new_pred)) => Some(new_pred),
             (None, None) => None,
@@ -652,6 +672,17 @@ impl DataSource for VortexDataSource {
                 .with_updated_node(Arc::new(this) as _),
         )
     }
+}
+
+fn try_pack(fields: Vec<(String, BoundExpr)>, nullability: Nullability) -> VortexResult<BoundExpr> {
+    let (names, children): (Vec<_>, Vec<_>) = fields.into_iter().unzip();
+    Pack.try_new_expr(
+        PackOptions {
+            names: names.into_iter().collect::<FieldNames>(),
+            nullability,
+        },
+        children,
+    )
 }
 
 /// Convert a Vortex [`Option<Precision>`] to a DataFusion

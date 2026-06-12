@@ -355,7 +355,7 @@ mod tests {
         path: &str,
         dtype: Option<VortexDType>,
     ) -> VortexResult<ArrayRef> {
-        let expr = variant_get(root(), parse_path(path)?, dtype);
+        let expr = variant_get(root(array.dtype().clone()), parse_path(path)?, dtype);
         array
             .apply(&expr)?
             .execute::<ArrayRef>(&mut LEGACY_SESSION.create_execution_ctx())

@@ -225,7 +225,8 @@ mod tests {
         let dtype = varbin.dtype().clone();
         let mut ctx = SESSION.create_execution_ctx();
         let fsst = fsst_compress(varbin, len, &dtype, &compressor, &mut ctx).into_array();
-        let result = fsst.apply(&byte_length(root()))?;
+        let scope = fsst.dtype().clone();
+        let result = fsst.apply(&byte_length(root(scope)))?;
         let expected = PrimitiveArray::from_iter(vec![5u64, 7, 18, 0]);
         assert_arrays_eq!(result, expected);
         Ok(())

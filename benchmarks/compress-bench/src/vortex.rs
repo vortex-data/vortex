@@ -70,7 +70,8 @@ impl Compressor for VortexCompressor {
         if let Some(cols) = read_projection(root_columns) {
             // Columns are named "0".."num_columns-1"; project the given subset.
             let names: FieldNames = cols.iter().map(|i| i.to_string()).collect();
-            scan = scan.with_projection(select(names, root()));
+            let dtype = scan.dtype()?;
+            scan = scan.with_projection(select(names, root(dtype)));
         }
         let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
 

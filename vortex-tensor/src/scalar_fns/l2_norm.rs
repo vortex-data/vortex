@@ -24,7 +24,8 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::proto::dtype as pb;
-use vortex_array::expr::Expression;
+use vortex_array::expr::BoundCall;
+use vortex_array::expr::BoundExpr;
 use vortex_array::match_each_float_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::Arity;
@@ -181,8 +182,8 @@ impl ScalarFnVTable for L2Norm {
     fn validity(
         &self,
         _options: &Self::Options,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+        expression: &BoundCall,
+    ) -> VortexResult<Option<BoundExpr>> {
         // The result is null if the input tensor is null.
         Ok(Some(expression.child(0).validity()?))
     }

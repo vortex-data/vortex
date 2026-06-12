@@ -81,7 +81,7 @@ mod tests {
                 .unwrap()
                 .into_array();
 
-            let expr = list_contains(lit(list_scalar.clone()), root());
+            let expr = list_contains(lit(list_scalar.clone()), root(array.dtype().clone()));
             let result = array.into_array().apply(&expr).unwrap();
             let expected = BoolArray::from_iter([Some(true), Some(false), Some(true)]);
             assert_arrays_eq!(result, expected);
@@ -95,7 +95,7 @@ mod tests {
                 .unwrap()
                 .into_array();
 
-            let expr = list_contains(lit(list_scalar), root());
+            let expr = list_contains(lit(list_scalar), root(array.dtype().clone()));
             let result = array.into_array().apply(&expr).unwrap();
             let expected = BoolArray::from_iter([Some(true), Some(true), Some(false)]);
             assert_arrays_eq!(result, expected);

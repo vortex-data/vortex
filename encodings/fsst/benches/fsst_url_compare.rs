@@ -183,7 +183,7 @@ fn like_substr_high_match(bencher: Bencher) {
         &mut SESSION.create_execution_ctx(),
     );
     let pattern = format!("%{HIGH_MATCH_DOMAIN}%");
-    let expr = like(root(), lit(pattern.as_str()));
+    let expr = like(root(fsst_array.dtype().clone()), lit(pattern.as_str()));
 
     bencher
         .with_inputs(|| (&fsst_array, SESSION.create_execution_ctx()))
@@ -210,7 +210,7 @@ fn like_substr_low_match(bencher: Bencher) {
         &mut SESSION.create_execution_ctx(),
     );
     let pattern = format!("%{LOW_MATCH_DOMAIN}%");
-    let expr = like(root(), lit(pattern.as_str()));
+    let expr = like(root(fsst_array.dtype().clone()), lit(pattern.as_str()));
 
     bencher
         .with_inputs(|| (&fsst_array, SESSION.create_execution_ctx()))

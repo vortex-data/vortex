@@ -17,7 +17,8 @@ use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
-use vortex_array::expr::Expression;
+use vortex_array::expr::BoundCall;
+use vortex_array::expr::BoundExpr;
 use vortex_array::expr::and;
 use vortex_array::match_each_float_ptype;
 use vortex_array::scalar_fn::Arity;
@@ -161,8 +162,8 @@ impl ScalarFnVTable for InnerProduct {
     fn validity(
         &self,
         _options: &Self::Options,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+        expression: &BoundCall,
+    ) -> VortexResult<Option<BoundExpr>> {
         // The result is null if either input tensor is null.
         let lhs_validity = expression.child(0).validity()?;
         let rhs_validity = expression.child(1).validity()?;
