@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! The [`Point`] geometry extension type (`vortex.geo.point`): a location stored columnarly as
-//! `Struct<x, y, z?, m?>` of `f64`, tagged with [`GeoMetadata`] (CRS). `z?` is an optional
-//! elevation and `m?` an optional measure — an arbitrary per-point value such as distance along a
-//! route or a timestamp.
+//! `Struct<x, y[, z][, m]>` of non-nullable `f64` — the four GeoArrow dimensions XY, XYZ, XYM,
+//! XYZM — tagged with [`GeoMetadata`] (CRS). `z` is an optional elevation and `m` an optional
+//! measure: an arbitrary per-point value such as distance along a route or a timestamp.
 
 use prost::Message;
 use vortex_array::dtype::extension::ExtDType;
@@ -19,7 +19,7 @@ use super::coordinate::Coordinate;
 use super::coordinate::coordinate_dimension;
 use super::coordinate::coordinate_from_struct;
 
-/// A single location: `geoarrow.point`, stored as `Struct<x: f64, y: f64, z: f64?, m: f64?>`.
+/// A single location: `geoarrow.point`, stored as `Struct<x, y[, z][, m]>` of non-nullable `f64`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct Point;
 
@@ -99,7 +99,7 @@ mod tests {
     }
 
     /// `Point` accepts every GeoArrow dimension; the canonical field names round-trip to their
-    /// dimension, so a `z?`/`m?` swap or a mislabel would be caught.
+    /// dimension, so a `z`/`m` swap or a mislabel would be caught.
     #[test]
     fn point_validates_every_dimension() -> VortexResult<()> {
         let cases = [

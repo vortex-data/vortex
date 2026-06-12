@@ -35,7 +35,7 @@ fn euclidean_distance(ax: f64, ay: f64, bx: f64, by: f64) -> f64 {
 }
 
 /// Straight-line (Euclidean) distance between two point operands — "planar" distance in GIS terms
-/// (e.g. PostGIS `ST_Distance`). No geodesic correction, and `z?`/`m?` are ignored.
+/// (e.g. PostGIS `ST_Distance`). No geodesic correction, and `z`/`m` are ignored.
 ///
 /// The operands are two point columns of equal length; either (or both) may be constant, in which
 /// case the constant query point is decoded once and broadcast.

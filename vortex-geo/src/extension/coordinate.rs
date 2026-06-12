@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Coordinate building blocks for geometry extension types: the
-//! `Struct<x: f64, y: f64, z?: f64, m?: f64>` storage, its [`Dimension`], and the decoded
-//! [`Coordinate`] value.
+//! Coordinate building blocks for geometry extension types: the `Struct<x, y[, z][, m]>` storage
+//! of non-nullable `f64` fields, its [`Dimension`], and the decoded [`Coordinate`] value.
 //!
-//! The coordinate fields, where `?` marks an optional field, are:
+//! The coordinate fields are:
 //! - `x` — longitude or easting
 //! - `y` — latitude or northing
-//! - `z?` — elevation
-//! - `m?` — measure: an arbitrary per-point value such as distance along a route or a timestamp
+//! - `z` (optional) — elevation
+//! - `m` (optional) — measure: an arbitrary per-point value such as distance along a route or a
+//!   timestamp
 
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -65,7 +65,7 @@ impl Dimension {
     }
 }
 
-/// A decoded coordinate. `z?`/`m?` are `Some` iff the storage dimension includes them.
+/// A decoded coordinate. `z`/`m` are `Some` iff the storage dimension includes them.
 ///
 /// This is the native value produced when unpacking a [`Point`](crate::extension::Point) scalar;
 /// the rest of the coordinate machinery is crate-internal.
@@ -75,14 +75,14 @@ pub struct Coordinate {
     pub x: f64,
     /// The y (latitude/northing) ordinate.
     pub y: f64,
-    /// The optional `z?` (elevation) ordinate.
+    /// The optional `z` (elevation) ordinate.
     pub z: Option<f64>,
-    /// The optional `m?` (measure) ordinate.
+    /// The optional `m` (measure) ordinate.
     pub m: Option<f64>,
 }
 
 impl Coordinate {
-    /// A 2D coordinate (`z?`/`m?` unset).
+    /// A 2D coordinate (`z`/`m` unset).
     pub fn xy(x: f64, y: f64) -> Self {
         Coordinate {
             x,
@@ -122,7 +122,7 @@ pub(crate) fn coordinate_dimension(dtype: &DType) -> VortexResult<Dimension> {
     Dimension::from_field_names(fields.names())
 }
 
-/// Decode a [`Coordinate`] from a coordinate `Struct<x, y, z?, m?>` scalar (`z?`/`m?` read iff
+/// Decode a [`Coordinate`] from a coordinate `Struct<x, y[, z][, m]>` scalar (`z`/`m` read iff
 /// present, so the same decoder serves every dimension).
 pub(crate) fn coordinate_from_struct(scalar: &Scalar) -> VortexResult<Coordinate> {
     let fields = scalar.as_struct();
@@ -157,7 +157,7 @@ pub(crate) fn coordinate_from_scalar(scalar: &Scalar) -> VortexResult<Coordinate
 }
 
 /// Validated, executed `x`/`y` columns of a point array. The bulk counterpart to [`Coordinate`];
-/// `z?`/`m?` are not executed.
+/// `z`/`m` are not executed.
 pub(crate) struct ParsedCoordinates {
     /// The flat `f64` `x` column.
     pub(crate) xs: PrimitiveArray,
@@ -213,7 +213,7 @@ mod tests {
     use crate::extension::GeoMetadata;
     use crate::extension::Point;
 
-    /// Display emits WKT, including `z?`/`m?` when present.
+    /// Display emits WKT, including `z`/`m` when present.
     #[test]
     fn display_is_wkt() {
         let coordinate = |z, m| Coordinate {
