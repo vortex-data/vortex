@@ -762,6 +762,24 @@ future reviewer or agent can quickly recover the intent of the branch.
 - Deferred: `ReduceCtx` has no literal-node constructor, so `GetItem::reduce` skips the
   nullable-pack rewrite (expression-domain `simplify_untyped` still covers it; TODO in
   code). Placeholder serde and `PlaceholderValue`/ExecutionCtx resolution deferred.
+- Standing contingency (ngates): if tests or users that don't know the root scope
+  up-front get annoying to write under bound-only construction, a minimal unbound
+  `Expr` may be pulled forward from Phase 5 — but **avoid this if possible**. Prefer
+  absorbing the friction locally first: per-module test helpers that close over one
+  scope, `Option<BoundExpr>` (None = identity) at context-free API boundaries like
+  `ScanRequest`, and constructing expressions at the point where the scope is known
+  (e.g. inside engine converters). Only if those idioms genuinely break down — the
+  likely place being language bindings, where a Python `col("a") > 3` exists before
+  any file scope — introduce the minimal version: scope-free tree plus a trivial
+  scope-binding pass with concrete `ScalarFnRef`s, no name/overload resolution (the
+  catalog/binder stays Phase 5).
+- Design confirmation (ngates, 2026-06-12): `BoundExpr` stays fully bound (scope in
+  `Root`), and `ScanBuilder` keeps accepting `BoundExpr`. Plan-time machinery
+  (pruning, partitioning, projection masks, type-aware simplification) needs stored
+  dtypes before any array exists, so typing cannot defer to `ScalarFnArray` lowering;
+  coercion-at-lowering would let execution rewrite the plan after pushdown reasoning.
+  Layering: unbound `Expr` (Phase 5, user AST) → bind once per scope → `BoundExpr`
+  (plan IR) → `apply()` per batch → `ScalarFnArray` (execution IR).
 
 ## Tentative PR Split Areas
 
