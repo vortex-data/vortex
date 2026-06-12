@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: Copyright the Vortex contributorsuse crate::dtype::Nullability;
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use rstest::rstest;
 use vortex_buffer::buffer;
