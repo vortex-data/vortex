@@ -55,16 +55,7 @@ impl ScalarFnVTable for VariantGet {
             .path()
             .elements()
             .iter()
-            .map(|element| match element {
-                VariantPathElement::Field(name) => pb::VariantPathElement {
-                    element: Some(variant_path_element::Element::Field(
-                        name.as_ref().to_string(),
-                    )),
-                },
-                VariantPathElement::Index(index) => pb::VariantPathElement {
-                    element: Some(variant_path_element::Element::Index(*index)),
-                },
-            })
+            .map(VariantPathElement::to_proto)
             .collect();
         let dtype = options.dtype().map(TryInto::try_into).transpose()?;
 
@@ -355,13 +346,28 @@ impl VariantPathElement {
         Self::Index(index)
     }
 
-    fn from_proto(value: pb::VariantPathElement) -> VortexResult<Self> {
+    /// Decodes a path element from its protobuf representation.
+    pub fn from_proto(value: pb::VariantPathElement) -> VortexResult<Self> {
         match value
             .element
-            .ok_or_else(|| vortex_err!("VariantGet path element missing value"))?
+            .ok_or_else(|| vortex_err!("Variant path element missing value"))?
         {
             variant_path_element::Element::Field(field) => Ok(Self::field(field)),
             variant_path_element::Element::Index(index) => Ok(Self::index(index)),
+        }
+    }
+
+    /// Encodes this path element into its protobuf representation.
+    pub fn to_proto(&self) -> pb::VariantPathElement {
+        match self {
+            VariantPathElement::Field(name) => pb::VariantPathElement {
+                element: Some(variant_path_element::Element::Field(
+                    name.as_ref().to_string(),
+                )),
+            },
+            VariantPathElement::Index(index) => pb::VariantPathElement {
+                element: Some(variant_path_element::Element::Index(*index)),
+            },
         }
     }
 }

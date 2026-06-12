@@ -106,7 +106,7 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetKernel {
     }
 }
 
-fn to_parquet_variant_path(path: &VariantPath) -> VortexResult<PqVariantPath<'static>> {
+pub(crate) fn to_parquet_variant_path(path: &VariantPath) -> VortexResult<PqVariantPath<'static>> {
     path.elements()
         .iter()
         .map(|element| match element {

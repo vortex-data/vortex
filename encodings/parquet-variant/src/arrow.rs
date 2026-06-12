@@ -58,7 +58,7 @@ fn parquet_variant_storage_request(fields: &Fields) -> Option<(bool, bool)> {
     (has_metadata && (has_value || has_typed_value)).then_some((has_value, has_typed_value))
 }
 
-fn export_storage_to_target<T: ParquetVariantArrayExt>(
+pub(crate) fn export_storage_to_target<T: ParquetVariantArrayExt>(
     parquet_array: &T,
     target_fields: &Fields,
     ctx: &mut ExecutionCtx,
@@ -99,7 +99,7 @@ fn export_storage_to_target<T: ParquetVariantArrayExt>(
     )?))
 }
 
-fn export_unshredded_storage_to_target<T: ParquetVariantArrayExt>(
+pub(crate) fn export_unshredded_storage_to_target<T: ParquetVariantArrayExt>(
     parquet_array: &T,
     target_fields: &Fields,
     ctx: &mut ExecutionCtx,
@@ -115,7 +115,10 @@ fn export_unshredded_storage_to_target<T: ParquetVariantArrayExt>(
     export_storage_to_target(&unshredded_parquet, target_fields, ctx)
 }
 
-fn parquet_variant_for_export(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+pub(crate) fn parquet_variant_for_export(
+    array: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
     let executed = array.execute_until::<ParquetVariant>(ctx)?;
     if executed.is::<ParquetVariant>() {
         return Ok(executed);
