@@ -58,8 +58,8 @@ use vortex::layout::segments::SegmentSource;
 use vortex::layout::sequence::SendableSequentialStream;
 use vortex::layout::sequence::SequencePointer;
 use vortex::layout::vtable;
+use vortex::array::Executor;
 use vortex::mask::Mask;
-use vortex::mask::MaskNullAsFalse;
 use vortex::scalar::Scalar;
 use vortex::scalar::ScalarTruncation;
 use vortex::scalar::lower_bound;
@@ -330,12 +330,12 @@ impl LayoutReader for CudaFlatReader {
                 let array = array.apply(&expr)?;
                 let array = array.filter(mask.clone())?;
                 let mut ctx = session.create_execution_ctx();
-                let array_mask = array.execute::<MaskNullAsFalse>(&mut ctx)?.into_mask();
+                let array_mask = array.null_as_false().execute::<Mask>(&mut ctx)?;
                 mask.intersect_by_rank(&array_mask)
             } else {
                 let array = array.apply(&expr)?;
                 let mut ctx = session.create_execution_ctx();
-                let array_mask = array.execute::<MaskNullAsFalse>(&mut ctx)?.into_mask();
+                let array_mask = array.null_as_false().execute::<Mask>(&mut ctx)?;
                 mask.bitand(&array_mask)
             };
 

@@ -21,7 +21,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
 use vortex_array::expr::root;
-use vortex_array::mask::MaskNullAsFalse;
+use vortex_array::Executor;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
@@ -215,8 +215,7 @@ impl LayoutReader for DictReader {
             let mut ctx = session.create_execution_ctx();
             let dict_mask = values
                 .take(codes)?
-                .execute::<MaskNullAsFalse>(&mut ctx)?
-                .into_mask();
+                .null_as_false().execute::<Mask>(&mut ctx)?;
 
             Ok(mask.bitand(&dict_mask))
         }))

@@ -32,7 +32,7 @@ use vortex_array::expr::root;
 use vortex_array::expr::transform::PartitionedExpr;
 use vortex_array::expr::transform::partition;
 use vortex_array::expr::transform::replace;
-use vortex_array::mask::MaskNullAsFalse;
+use vortex_array::Executor;
 use vortex_array::scalar::PValue;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -298,8 +298,7 @@ fn row_idx_mask_future(
         let mut ctx = session.create_execution_ctx();
         let result_mask = array
             .apply(&expr)?
-            .execute::<MaskNullAsFalse>(&mut ctx)?
-            .into_mask();
+            .null_as_false().execute::<Mask>(&mut ctx)?;
 
         Ok(result_mask.bitand(&mask.await?))
     })

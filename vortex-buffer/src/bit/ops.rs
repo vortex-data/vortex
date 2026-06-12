@@ -87,6 +87,48 @@ pub(super) fn bitwise_unary_op_mut<F: FnMut(u64) -> u64>(buffer: &mut BitBufferM
     }
 }
 
+/// Applies `op` word-wise to `lhs` in place, zipping with the logical words of `rhs`.
+///
+/// `lhs` must be byte-aligned (`offset % 8 == 0`) and have the same length as `rhs`. Bits
+/// beyond `lhs.len()` in the final byte are left unspecified after this call.
+pub(super) fn bitwise_binary_op_mut<F: FnMut(u64, u64) -> u64>(
+    lhs: &mut BitBufferMut,
+    rhs: &BitBuffer,
+    mut op: F,
+) {
+    assert_eq!(lhs.len(), rhs.len(), "Buffers must have the same length");
+    assert!(
+        lhs.offset().is_multiple_of(8),
+        "lhs must be byte-aligned for in-place bitwise ops"
+    );
+
+    let byte_start = lhs.offset() / 8;
+    let byte_len = lhs.len().div_ceil(8);
+    let slice = &mut lhs.as_mut_slice()[byte_start..byte_start + byte_len];
+
+    // `iter_padded` yields exactly `len.div_ceil(64)` logical words, which matches the number
+    // of words consumed below: `byte_len / 8` full words plus one for any remainder bytes.
+    let mut rhs_words = rhs.chunks().iter_padded();
+
+    let mut chunks = slice.chunks_exact_mut(8);
+    for chunk in &mut chunks {
+        let rhs_word = rhs_words.next().unwrap_or(0);
+        let mut bytes = [0u8; 8];
+        bytes.copy_from_slice(chunk);
+        let value = op(u64::from_le_bytes(bytes), rhs_word);
+        chunk.copy_from_slice(&value.to_le_bytes());
+    }
+
+    let remainder = chunks.into_remainder();
+    if !remainder.is_empty() {
+        let rhs_word = rhs_words.next().unwrap_or(0);
+        let mut bytes = [0u8; 8];
+        bytes[..remainder.len()].copy_from_slice(remainder);
+        let value = op(u64::from_le_bytes(bytes), rhs_word);
+        remainder.copy_from_slice(&value.to_le_bytes()[..remainder.len()]);
+    }
+}
+
 pub(super) fn bitwise_binary_op<F: FnMut(u64, u64) -> u64>(
     left: &BitBuffer,
     right: &BitBuffer,

@@ -25,6 +25,7 @@ use crate::bit::collect_bool_word;
 use crate::bit::count_ones::count_ones;
 use crate::bit::get_bit_unchecked;
 use crate::bit::ops::bitwise_binary_op;
+use crate::bit::ops::bitwise_binary_op_mut;
 use crate::bit::ops::bitwise_unary_op;
 use crate::bit::select::bit_select;
 use crate::buffer;
@@ -505,6 +506,27 @@ impl BitBuffer {
         bitwise_binary_op(self, rhs, |a, b| a & !b)
     }
 
+    /// Compute `self & rhs`, reusing `self`'s allocation when it is uniquely owned and
+    /// byte-aligned.
+    ///
+    /// Falls back to an allocating AND when `self` is shared or its offset is not a multiple
+    /// of 8. `rhs` may have any offset.
+    pub fn bitand_in_place(self, rhs: &BitBuffer) -> BitBuffer {
+        assert_eq!(self.len(), rhs.len(), "Buffers must have the same length");
+
+        if !self.offset().is_multiple_of(8) {
+            return &self & rhs;
+        }
+
+        match self.try_into_mut() {
+            Ok(mut lhs) => {
+                bitwise_binary_op_mut(&mut lhs, rhs, |a, b| a & b);
+                lhs.freeze()
+            }
+            Err(this) => &this & rhs,
+        }
+    }
+
     /// Iterate through bits in a buffer.
     ///
     /// # Arguments
@@ -583,6 +605,38 @@ mod tests {
     use crate::ByteBuffer;
     use crate::bit::BitBuffer;
     use crate::buffer;
+
+    #[rstest]
+    #[case(0, 0)] // aligned lhs, aligned rhs
+    #[case(0, 3)] // aligned lhs, misaligned rhs
+    #[case(5, 0)] // misaligned lhs (falls back to allocating path)
+    #[case(11, 7)] // both misaligned
+    fn test_bitand_in_place(#[case] lhs_offset: usize, #[case] rhs_offset: usize) {
+        let len = 200;
+        let lhs = BitBuffer::from_iter((0..len + lhs_offset).map(|i| i % 2 == 0))
+            .slice(lhs_offset..len + lhs_offset);
+        let rhs = BitBuffer::from_iter((0..len + rhs_offset).map(|i| i % 3 == 0))
+            .slice(rhs_offset..len + rhs_offset);
+
+        let expected = &lhs & &rhs;
+        let actual = lhs.bitand_in_place(&rhs);
+
+        assert_eq!(actual.len(), expected.len());
+        assert!(actual.iter().eq(expected.iter()));
+    }
+
+    #[test]
+    fn test_bitand_in_place_shared_falls_back() {
+        let lhs = BitBuffer::from_iter((0..100).map(|i| i % 2 == 0));
+        let shared = lhs.clone();
+        let rhs = BitBuffer::from_iter((0..100).map(|i| i % 5 == 0));
+
+        let actual = lhs.bitand_in_place(&rhs);
+        let expected = &shared & &rhs;
+        assert!(actual.iter().eq(expected.iter()));
+        // The shared copy must be unmodified.
+        assert!(shared.iter().eq((0..100).map(|i| i % 2 == 0)));
+    }
 
     #[test]
     fn test_bool() {
