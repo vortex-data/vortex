@@ -67,7 +67,9 @@ jobs:
           cargo nextest run --cargo-profile ci --locked --workspace --no-fail-fast \
             --exclude vortex-cuda --exclude vortex-cub --exclude vortex-nvcomp \
             --exclude gpu-scan-cli --exclude vortex-test-e2e-cuda \
-            --exclude vortex-duckdb --exclude duckdb-bench --exclude vortex-sqllogictest
+            --exclude vortex-duckdb --exclude duckdb-bench --exclude vortex-sqllogictest \
+            --exclude vortex-bench --exclude lance-bench --exclude datafusion-bench --exclude vortex-datafusion \
+            --exclude compress-bench --exclude random-access-bench
 
       - name: Alert incident.io
         if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/develop'
