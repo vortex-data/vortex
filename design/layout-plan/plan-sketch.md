@@ -87,10 +87,23 @@ impl Demand {
 
 ## Piece 2 — Operator taxonomy & edge types (in progress)
 
-Edges carry exact values; SIP handles are passed to operators by the executor as context, not as
-edges (open question Q2.3).
+**Execution model (D15).** Operators are **stateful stream transformers**; an edge is an
+ordered stream of **patches** — values stamped with the `RowRegion` they cover. Examples that
+motivated this: a flat leaf doing sub-segment I/O emits decoded patches as byte ranges resolve
+(it need not wait for the whole region); a struct operator aligns child streams that advance at
+different rates; a chunked operator buffers child streams for readahead. Aggregates are
+naturally streaming folds emitting one `AccState` per row-index slice.
 
-**Edge value types (draft).**
+**Demand (D14).** Demand is an annotation on edges computed by a backward propagation pass at
+plan/unroll time: outputs declare needs (projection: selected rows of its fields; aggregates:
+inputs at slices ∩ selection); each operator translates output-demand into input-demand
+(`Filter` → source at selection upper bound; `Take` → codes-domain demand; codes→values is
+`Computed` from the codes edge, symmetric with `ReadSegment{Computed}`). Annotations are
+refreshed at phase boundaries from current selection SIP, which is how a projection "sees" dense
+demand and starts whole-segment downloads early. Runtime adaptivity beyond that lives inside
+operators reading SIP (D13).
+
+**Edge value types (draft).** Each edge is a stream of patches of one of:
 
 | Type | Description |
 |------|-------------|
@@ -140,15 +153,21 @@ Aggregation (R2, D8):
   zone-map stats column when slice boundaries align with zones and selection proves the zone
   fully included/excluded.
 
-**Open questions (round 5).**
+**Resolved (rounds 5–6).** Q2.1: operators are stateful streams (D15). Q2.2: provisionally
+opaque `Eval` per conjunct/field-expr (D16). Q2.3: demand propagated along edges at plan time
+(D14). Q2.4: adaptivity inside operators reading SIP (D13).
 
-- Q2.1 Are edges single-shot per unrolled node, or streams of region-stamped morsels?
-- Q2.2 Expression granularity: opaque `Eval{expr}` per conjunct vs. decomposing expressions
-  into the DAG.
-- Q2.3 SIP handles: implicit executor-provided context vs. explicit plan edges.
-- Q2.4 Where adaptive strategies live (e.g. today's `FlatReader` mask-density threshold for
-  filter-then-eval vs. eval-then-filter): inside operators reading SIP, or as optimizer-emitted
-  choice nodes.
+**Open questions (round 7 — stream semantics).**
+
+- Q2.5 Patch ordering/progress invariant: strictly in-order emission per stream; how are
+  skipped regions (selection-killed) communicated to aligners (skip markers vs. watermarks)?
+- Q2.6 Patch boundaries: producer-chosen with consumers slicing (zero-copy) for alignment, or
+  globally agreed boundaries?
+- Q2.7 Shared streams (CSE node with ≥2 consumers): broadcast buffering and backpressure
+  policy.
+- Q2.8 Source of parallelism: with streaming operators, "splits" stop being the external unit —
+  intra-plan parallelism comes from chunked readahead + per-column streams + executor
+  scheduling; repeated execution (R7) instantiates a fresh pipeline from the same plan.
 
 ## Piece 3 — Lowering contract for layouts (not started)
 

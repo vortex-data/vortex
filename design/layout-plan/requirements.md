@@ -110,3 +110,7 @@ Three structural problems follow:
 | D10 | SIP representation: **cheap updates, cheap counts, exact-rows-on-request**; block-level approximation acceptable (e.g. 16-row granularity) on the demand side. | Exactness lives on edges (C2). |
 | D11 | **Phase-driven executor**, demand-aware operators; operators never self-schedule. | |
 | D12 | Masks/booleans **stream on edges as usual**; SIP is advisory only. | Removes any "finality" bookkeeping: correctness gates are dataflow dependencies. |
+| D13 | Bounded runtime adaptivity lives **inside operators reading SIP** (e.g. density-threshold strategy choices, early whole-segment downloads). | DAG structure stays static; strategies are operator implementation details. |
+| D14 | **Demand is a plan-time backward propagation over DAG edges**, refreshed at phase boundaries from current selection SIP; data-dependent demand (codes→values) is `Computed` from an edge. | Selection remains the runtime-refined structure filter results write into. |
+| D15 | **Operators are stateful stream transformers**; edges are ordered streams of region-stamped patches. | Flat leaves emit patches as I/O resolves (sub-segment, incremental); struct aligns child streams; chunked buffers children for readahead. |
+| D16 | *(provisional)* Expression nodes are **conjunct/field-opaque `Eval`s** in v1; shared-subexpression hoisting may be added as an optimizer pass. | Owner undecided; revisit once streaming operator semantics are settled. |
