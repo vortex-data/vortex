@@ -739,6 +739,30 @@ Keep lightweight notes here or in follow-up design docs as the branch evolves:
 Avoid turning this file into a detailed task tracker. It should stay small enough that a
 future reviewer or agent can quickly recover the intent of the branch.
 
+### 2026-06-12: Phase 1 checkpoint — BoundExpr lands in vortex-array
+
+- `Expression` is replaced by the `BoundExpr` enum: `Root(DType)`, `Literal(Scalar)`,
+  `Placeholder(PlaceholderRef)`, `Call(BoundCall)`. Decision: **Root carries its bound
+  scope dtype**, so every node's dtype is self-contained — `BoundExpr::dtype()` takes
+  no scope and `BoundCall` stores `return_dtype` resolved at construction, which is now
+  fallible. Scope params dropped from `simplify`/`optimize*`/`falsify`/`satisfy`.
+- Root/Literal/RowCount are no longer "pretend scalar functions"; RowCount is the first
+  placeholder (RowIdx follows with vortex-layout). Placeholders survive `apply()` via
+  the internal `PlaceholderFn` marker so array-level substitution keeps working.
+- Proto keeps the `vortex.root`/`vortex.literal` wire ids; Root metadata now stores the
+  scope dtype. Wire change: legacy empty-metadata Roots error on read (pb::Expr is not
+  embedded in the file format; in-repo consumers are round-trip tests only).
+- `coerce_expression` deleted — ill-typed trees are unconstructible under bound typing;
+  coercion centralizes in the Phase 5 binder. `checked_pruning_expr` now takes the data
+  scope and synthesizes a deterministic stats-scope struct for bound stat references.
+- Known temporary breakage: all downstream crates (vortex-layout/-scan/-file, engines,
+  bindings) do not compile until the next checkpoints migrate them.
+- Checks passed here: `cargo build/nextest/test --doc/clippy --all-targets` for
+  `vortex-array`, `--features arbitrary` check, `-D warnings` release check, fmt.
+- Deferred: `ReduceCtx` has no literal-node constructor, so `GetItem::reduce` skips the
+  nullable-pack rewrite (expression-domain `simplify_untyped` still covers it; TODO in
+  code). Placeholder serde and `PlaceholderValue`/ExecutionCtx resolution deferred.
+
 ## Tentative PR Split Areas
 
 The final PR boundaries will be chosen from the completed diff, not guessed up front.
