@@ -69,7 +69,7 @@ jobs:
             --exclude gpu-scan-cli --exclude vortex-test-e2e-cuda \
             --exclude vortex-duckdb --exclude duckdb-bench --exclude vortex-sqllogictest \
             --exclude vortex-bench --exclude lance-bench --exclude datafusion-bench --exclude vortex-datafusion \
-            --exclude compress-bench --exclude random-access-bench
+            --exclude compress-bench --exclude random-access-bench --exclude vortex-bench-server
 
       - name: Alert incident.io
         if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/develop'
