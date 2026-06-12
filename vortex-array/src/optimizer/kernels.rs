@@ -35,6 +35,7 @@ use vortex_session::SessionExt;
 use vortex_session::SessionVar;
 use vortex_session::registry::Id;
 use vortex_utils::aliases::DefaultHashBuilder;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -193,6 +194,40 @@ impl ArrayKernels {
     /// functions.
     pub fn find_execute_parent(&self, parent: Id, child: Id) -> Option<Arc<[ExecuteParentFn]>> {
         self.execute_parent.get(&hash_fn_id(parent, child))
+    }
+
+    /// Capture an owned, cheaply-cloneable [`KernelSnapshot`] of the currently-registered
+    /// execute-parent kernels.
+    ///
+    /// The underlying registry map is loaded once into an [`Arc`], so the snapshot is an `Arc`
+    /// clone (no map copy) that outlives the session-variable borrow. Registrations made after
+    /// the snapshot is taken are not visible through it.
+    pub(crate) fn snapshot(&self) -> KernelSnapshot {
+        KernelSnapshot {
+            execute_parent: self.execute_parent.load_full(),
+        }
+    }
+}
+
+/// An owned, point-in-time view of the execute-parent kernels registered on an [`ArrayKernels`]
+/// registry.
+///
+/// Holding the registry map directly (rather than re-probing the session per array node) lets the
+/// executor resolve [`ArrayKernels`] once per execution context. Cloning is one [`Arc`] clone.
+#[derive(Debug, Clone)]
+pub(crate) struct KernelSnapshot {
+    execute_parent: Arc<HashMap<ExecuteParentFnId, Arc<[ExecuteParentFn]>>>,
+}
+
+impl KernelSnapshot {
+    /// Look up the [`ExecuteParentFn`]s registered for `(parent, child)`.
+    pub(crate) fn find_execute_parent(
+        &self,
+        parent: Id,
+        child: Id,
+    ) -> Option<Arc<[ExecuteParentFn]>> {
+        let id = hash_fn_id(parent, child);
+        self.execute_parent.get(&id).cloned()
     }
 }
 

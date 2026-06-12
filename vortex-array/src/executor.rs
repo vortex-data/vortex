@@ -26,7 +26,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
-use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 
@@ -43,6 +42,7 @@ use crate::memory::HostAllocatorRef;
 use crate::memory::MemorySessionExt;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::kernels::ArrayKernels;
+use crate::optimizer::kernels::KernelSnapshot;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSet;
 
@@ -305,6 +305,16 @@ struct StackFrame {
 #[derive(Debug, Clone)]
 pub struct ExecutionCtx {
     session: VortexSession,
+    /// Snapshot of the session's [`ArrayKernels`] execute-parent kernels, resolved once at
+    /// construction.
+    ///
+    /// The registry is session-scoped and mutable through its public `register_*` methods, so
+    /// this context sees the kernels as registered when it was created; later registrations are
+    /// picked up by the next context (contexts are created per evaluation). Caching the snapshot
+    /// avoids a per-array-node session clone plus a sharded `DashMap` `RwLock` probe in the hot
+    /// `execute_until` loop, and avoids holding the session-variable read guard across kernel
+    /// invocation. `None` means the session had no [`ArrayKernels`] when the context was created.
+    kernels: Option<KernelSnapshot>,
     #[cfg(debug_assertions)]
     id: usize,
     #[cfg(debug_assertions)]
@@ -314,8 +324,10 @@ pub struct ExecutionCtx {
 impl ExecutionCtx {
     /// Create a new execution context with the given session.
     pub fn new(session: VortexSession) -> Self {
+        let kernels = session.get_opt::<ArrayKernels>().map(|k| k.snapshot());
         Self {
             session,
+            kernels,
             #[cfg(debug_assertions)]
             id: {
                 static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
@@ -329,6 +341,12 @@ impl ExecutionCtx {
     /// Get the session associated with this execution context.
     pub fn session(&self) -> &VortexSession {
         &self.session
+    }
+
+    /// Get the [`KernelSnapshot`] resolved once for this execution context, if the session had an
+    /// [`ArrayKernels`] registry. Cheap to clone (one `Arc` clone).
+    pub(crate) fn kernels(&self) -> Option<&KernelSnapshot> {
+        self.kernels.as_ref()
     }
 
     /// Get the session-scoped host allocator for this execution context.
@@ -424,8 +442,7 @@ impl Executable for ArrayRef {
             }
         }
 
-        let tmp_session = ctx.session().clone();
-        let kernels = tmp_session.get_opt::<ArrayKernels>();
+        let kernels = ctx.kernels().cloned();
 
         for (slot_idx, slot) in array.slots().iter().enumerate() {
             let Some(child) = slot else { continue };
@@ -542,7 +559,7 @@ fn execute_parent_for_child(
     parent: &ArrayRef,
     child: &ArrayRef,
     slot_idx: usize,
-    kernels: Option<&Ref<ArrayKernels>>,
+    kernels: Option<&KernelSnapshot>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
     if let Some(kernels) = kernels
@@ -561,8 +578,7 @@ fn execute_parent_for_child(
 
 /// Try execute_parent on each occupied slot of the array.
 fn try_execute_parent(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<ArrayRef>> {
-    let tmp_session = ctx.session().clone();
-    let kernels = tmp_session.get_opt::<ArrayKernels>();
+    let kernels = ctx.kernels().cloned();
 
     for (slot_idx, slot) in array.slots().iter().enumerate() {
         let Some(child) = slot else { continue };

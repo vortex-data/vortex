@@ -50,6 +50,14 @@ impl<K, V> ArcSwapMap<K, V> {
         f(&self.inner.load())
     }
 
+    /// Return the current snapshot as a shared [`Arc`], without copying the map.
+    ///
+    /// Unlike [`read`](Self::read), the returned snapshot outlives the call, so callers can
+    /// cache it and keep observing a consistent point-in-time view across many lookups.
+    pub(crate) fn load_full(&self) -> Arc<HashMap<K, V>> {
+        self.inner.load_full()
+    }
+
     /// Replace the map with the result of applying `f` to a private copy.
     ///
     /// Writes are copy-on-write via [`ArcSwap::rcu`], so `f` may run more than
