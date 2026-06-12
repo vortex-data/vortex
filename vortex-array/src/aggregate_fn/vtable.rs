@@ -115,6 +115,17 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     /// options and input dtype used to construct the state.
     fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar>;
 
+    /// Try to convert dense partial states directly into a partial-state array.
+    ///
+    /// Returning `Ok(None)` falls back to scalarizing each partial with [`Self::to_scalar`].
+    fn partials_to_array(
+        &self,
+        _partials: &[Self::Partial],
+        _partial_dtype: &DType,
+    ) -> VortexResult<Option<ArrayRef>> {
+        Ok(None)
+    }
+
     /// Reset the state of the accumulator to an empty group.
     fn reset(&self, partial: &mut Self::Partial);
 

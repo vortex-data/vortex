@@ -7,6 +7,7 @@ mod decimal;
 mod grouped;
 mod primitive;
 
+use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -21,11 +22,13 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::Columnar;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
+use crate::arrays::PrimitiveArray;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::MAX_PRECISION;
@@ -36,6 +39,7 @@ use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
+use crate::validity::Validity;
 
 /// Return the sum of an array.
 ///
@@ -201,6 +205,29 @@ impl AggregateFnVTable for Sum {
         })
     }
 
+    fn partials_to_array(
+        &self,
+        partials: &[Self::Partial],
+        partial_dtype: &DType,
+    ) -> VortexResult<Option<ArrayRef>> {
+        Ok(match partial_dtype {
+            DType::Primitive(PType::U64, _) => Some(sum_primitive_partials_to_array(
+                partials,
+                unsigned_sum_state_value,
+            )),
+            DType::Primitive(PType::I64, _) => Some(sum_primitive_partials_to_array(
+                partials,
+                signed_sum_state_value,
+            )),
+            DType::Primitive(PType::F64, _) => Some(sum_primitive_partials_to_array(
+                partials,
+                float_sum_state_value,
+            )),
+            DType::Decimal(..) => None,
+            _ => vortex_bail!("Unsupported sum partial dtype: {}", partial_dtype),
+        })
+    }
+
     fn reset(&self, partial: &mut Self::Partial) {
         partial.current = Some(make_zero_state(&partial.return_dtype));
     }
@@ -307,6 +334,54 @@ pub enum SumState {
         value: DecimalValue,
         dtype: DecimalDType,
     },
+}
+
+fn sum_primitive_partials_to_array<T>(
+    partials: &[SumPartial],
+    value_from_state: fn(&SumState) -> T,
+) -> ArrayRef
+where
+    T: crate::dtype::NativePType,
+{
+    if partials.iter().all(|partial| partial.current.is_some()) {
+        let values = Buffer::from_iter(partials.iter().map(|partial| {
+            value_from_state(
+                partial
+                    .current
+                    .as_ref()
+                    .vortex_expect("checked non-null partial"),
+            )
+        }));
+        return PrimitiveArray::new(values, Validity::AllValid).into_array();
+    }
+
+    PrimitiveArray::from_option_iter(
+        partials
+            .iter()
+            .map(|partial| partial.current.as_ref().map(value_from_state)),
+    )
+    .into_array()
+}
+
+fn unsigned_sum_state_value(state: &SumState) -> u64 {
+    match state {
+        SumState::Unsigned(v) => *v,
+        _ => vortex_panic!("unsigned sum state with non-unsigned partial dtype"),
+    }
+}
+
+fn signed_sum_state_value(state: &SumState) -> i64 {
+    match state {
+        SumState::Signed(v) => *v,
+        _ => vortex_panic!("signed sum state with non-signed partial dtype"),
+    }
+}
+
+fn float_sum_state_value(state: &SumState) -> f64 {
+    match state {
+        SumState::Float(v) => *v,
+        _ => vortex_panic!("float sum state with non-float partial dtype"),
+    }
 }
 
 fn make_zero_state(return_dtype: &DType) -> SumState {
@@ -637,6 +712,20 @@ mod tests {
 
         let expected =
             PrimitiveArray::from_option_iter([Some(200i64), Some(300), Some(100)]).into_array();
+        assert_arrays_eq!(&result, &expected);
+        Ok(())
+    }
+
+    #[test]
+    fn grouped_sum_contiguous_group_runs() -> VortexResult<()> {
+        let values = PrimitiveArray::new(
+            buffer![1.0f64, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+            Validity::NonNullable,
+        )
+        .into_array();
+        let result = run_grouped_sum(&values, &[0, 0, 0, 0, 1, 1, 1, 1], 2)?;
+
+        let expected = PrimitiveArray::from_option_iter([Some(10.0f64), Some(26.0)]).into_array();
         assert_arrays_eq!(&result, &expected);
         Ok(())
     }

@@ -8,9 +8,11 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::EmptyOptions;
+use crate::arrays::PrimitiveArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -62,6 +64,16 @@ impl AggregateFnVTable for Count {
 
     fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
         Ok(Scalar::primitive(*partial, Nullability::NonNullable))
+    }
+
+    fn partials_to_array(
+        &self,
+        partials: &[Self::Partial],
+        _partial_dtype: &DType,
+    ) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(
+            PrimitiveArray::from_iter(partials.iter().copied()).into_array(),
+        ))
     }
 
     fn reset(&self, partial: &mut Self::Partial) {

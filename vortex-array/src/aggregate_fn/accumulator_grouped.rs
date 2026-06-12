@@ -385,6 +385,20 @@ impl<V: AggregateFnVTable> DynGroupedAccumulator for GroupedAccumulator<V> {
         );
         self.ensure_groups(num_groups)?;
 
+        if let Some(states) = self
+            .vtable
+            .partials_to_array(&self.partials, &self.partial_dtype)?
+        {
+            vortex_ensure!(
+                states.dtype() == &self.partial_dtype,
+                "Partial array DType mismatch: expected {}, got {}",
+                self.partial_dtype,
+                states.dtype()
+            );
+            self.partials.clear();
+            return Ok(states);
+        }
+
         let mut states = builder_with_capacity(&self.partial_dtype, num_groups);
         for partial in &self.partials {
             states.append_scalar(&self.vtable.to_scalar(partial)?)?;
