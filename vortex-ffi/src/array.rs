@@ -208,7 +208,7 @@ pub unsafe extern "C-unwind" fn vx_array_len(array: *const vx_array) -> usize {
     vx_array::as_ref(array).len()
 }
 
-/// Get the [`crate::vx_dtype`] of the array.
+/// Get the [`struct@crate::dtype::vx_dtype`] of the array.
 ///
 /// The returned pointer is valid as long as the array is valid.
 /// Do NOT free the returned dtype pointer - it shares the lifetime of the array.

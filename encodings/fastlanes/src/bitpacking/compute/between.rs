@@ -6,6 +6,8 @@
 //! Reuses the same single-block scratch buffer as the compare kernel and folds a
 //! `lower op_l v op_u upper` predicate per element, so the full primitive never
 //! materialises.
+//!
+//! [`BitPackedArray`]: crate::BitPackedArray
 
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;

@@ -281,7 +281,7 @@ pub struct FusedPlan {
     /// Shared memory reserved by the non-output stages, in bytes.
     smem_byte_cursor: SmemByteOffset,
     /// Source buffers. `None` entries are placeholder slots for pending subtrees,
-    /// filled by [`materialize_with_subtrees`] before device copy.
+    /// filled by [`Self::materialize_with_subtrees`] before device copy.
     source_buffers: Vec<Option<BufferHandle>>,
     /// Bytes per element of the root (output) array.
     output_elem_bytes: u32,
@@ -749,7 +749,7 @@ impl FusedPlan {
 
     /// Reserve a placeholder buffer slot and record the array as a pending subtree.
     ///
-    /// Called from [`walk`] when [`is_dyn_dispatch_compatible`] rejects a child.
+    /// Called from [`Self::walk`] when [`is_dyn_dispatch_compatible`] rejects a child.
     /// Cases that require a separate kernel dispatch:
     ///
     /// - **F16 primitives** — no reinterpret path in the kernel.

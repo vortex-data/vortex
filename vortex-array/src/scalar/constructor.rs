@@ -204,7 +204,7 @@ impl Scalar {
     }
 }
 
-/// A helper enum for creating a [`ListScalar`].
+/// A helper enum for creating a `ListScalar`.
 enum ListKind {
     /// Variable-length list.
     Variable,

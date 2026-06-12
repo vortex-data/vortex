@@ -128,8 +128,13 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
       - uses: ./.github/actions/setup-prebuild
       - name: Docs
+        env:
+          # required to make sure docs build for features
+          RUSTDOCFLAGS: "-D warnings --cfg docsrs"
         run: |
-          RUSTDOCFLAGS="-D warnings" cargo doc --profile ci --no-deps
+          # Build docs for the whole workspace (aside from vortex-python that is having hard time with the python-docs syntax),
+          # including all private docs.
+          cargo doc --profile ci --no-deps --document-private-items --workspace --exclude vortex-python
           # nextest doesn't support doc tests, so we run it here
           cargo test --profile ci --doc --workspace --all-features --exclude vortex-cxx --exclude vortex-jni --exclude vortex-ffi --exclude xtask --no-fail-fast
 

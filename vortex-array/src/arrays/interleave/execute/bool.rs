@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Boolean-value execution: the optimized [`Interleave`](super::super::Interleave) path for
-//! boolean values.
+//! Optimized [`Interleave`] implementation for boolean values.
 
 use num_traits::AsPrimitive;
 use vortex_buffer::BitBuffer;

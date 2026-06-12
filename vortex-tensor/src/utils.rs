@@ -44,7 +44,7 @@ pub(crate) const SAFETY_FACTOR: usize = 10;
 ///
 /// Reference: Croci, Fasi, Higham, Mary, Mikaitis (2022). "Stochastic rounding: implementation,
 /// error analysis and applications." Royal Society Open Science, 9: 211631, §6.1 "Probabilistic
-/// error analysis." https://doi.org/10.1098/rsos.211631
+/// error analysis." <https://doi.org/10.1098/rsos.211631>
 pub fn unit_norm_tolerance(element_ptype: PType, dimensions: usize) -> f64 {
     let machine_epsilon: f64 = match element_ptype {
         PType::F64 => f64::EPSILON,
@@ -224,6 +224,7 @@ pub fn extract_constant_flat_row(
 /// parent's unioned output, so both are persisted.
 ///
 /// [`CosineSimilarity`]: crate::scalar_fns::cosine_similarity::CosineSimilarity
+/// [`InnerProduct`]: crate::scalar_fns::inner_product::InnerProduct
 #[derive(Clone, prost::Message)]
 pub(crate) struct BinaryTensorOpMetadata {
     #[prost(message, optional, tag = "1")]

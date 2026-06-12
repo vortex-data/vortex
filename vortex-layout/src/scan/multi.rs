@@ -382,7 +382,7 @@ fn reader_partition(
 
 /// A partition backed by a single [`LayoutReaderRef`] and a row range.
 ///
-/// On `execute()`, creates a [`ScanBuilder`][crate::ScanBuilder] over the row range, enabling
+/// On `execute()`, creates a [`ScanBuilder`] over the row range, enabling
 /// internal I/O pipelining and split-level parallelism within the reader.
 struct MultiLayoutPartition {
     reader: LayoutReaderRef,

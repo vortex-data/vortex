@@ -420,9 +420,6 @@ typedef struct vx_array vx_array;
  * Once the iterator is finished (returns `null` from [`vx_array_iterator_next`]), it may panic
  * on subsequent calls to [`vx_array_iterator_next`].
  *
- * Even after the iterator is finished, an owned iterator must be released by calling
- * [`vx_array_iter_free`].
- *
  * Iterators may be passed between threads, but calls to [`vx_array_iterator_next`] should be
  * serialized and not invoked concurrently.
  */
@@ -682,7 +679,7 @@ void vx_array_get_validity(const vx_array *array, vx_validity *validity, vx_erro
 size_t vx_array_len(const vx_array *array);
 
 /**
- * Get the [`crate::vx_dtype`] of the array.
+ * Get the [`struct@crate::dtype::vx_dtype`] of the array.
  *
  * The returned pointer is valid as long as the array is valid.
  * Do NOT free the returned dtype pointer - it shares the lifetime of the array.

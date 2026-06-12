@@ -4,8 +4,10 @@
 //! Typed and inner representations of scalar functions.
 //!
 //! - [`ScalarFn<V>`]: The public typed wrapper, parameterized by a concrete [`ScalarFnVTable`].
-//! - [`ScalarFn<V>`]: The private inner struct that holds the vtable + options.
+//! - [`TypedScalarFnInstance<V>`]: The inner struct that holds the vtable + options.
 //! - [`DynScalarFn`]: The private sealed trait for type-erased dispatch (bound, options in self).
+//!
+//! [`ScalarFn<V>`]: crate::arrays::scalar_fn::ScalarFn
 
 use std::any::Any;
 use std::fmt;
@@ -71,7 +73,7 @@ impl<V: ScalarFnVTable> TypedScalarFnInstance<V> {
 
 /// An object-safe, sealed trait for bound scalar function dispatch.
 ///
-/// Options are stored inside the implementing [`ScalarFn<V>`], not passed externally.
+/// Options are stored inside the implementing [`ScalarFn<V>`](crate::arrays::scalar_fn::ScalarFn), not passed externally.
 /// This is the sole trait behind [`ScalarFnRef`]'s `Arc<dyn DynScalarFn>`.
 pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
     fn as_any(&self) -> &dyn Any;
