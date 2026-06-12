@@ -9563,7 +9563,6 @@ dependencies = [
  "vortex",
  "vortex-alp",
  "vortex-array",
- "vortex-bench",
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-bytebool",

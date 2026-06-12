@@ -65,7 +65,6 @@ tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 vortex = { path = ".", features = ["tokio"] }
-vortex-bench = { workspace = true, features = ["unstable_encodings"] }
 vortex-tensor = { workspace = true }
 
 [features]

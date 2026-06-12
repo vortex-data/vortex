@@ -418,6 +418,9 @@ incremental = false
 # This rule only applies to dependencies that are not members of the workspace.
 [profile.ci.package."*"]
 debug = false
-debug-assertions = false
-strip = "debuginfo"
+debug-assertions = true
 incremental = false
+
+# This improved build times significantly for default common cases that we use locally
+[profile.dev.package.vortex-fastlanes]
+debug = false
