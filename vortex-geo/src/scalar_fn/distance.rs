@@ -46,11 +46,9 @@ impl GeoDistance {
     /// A lazy `ScalarFnArray` computing the per-row distance between the point columns `a` and
     /// `b`; either may be constant. The output length is taken from `a`.
     pub fn try_new_array(a: ArrayRef, b: ArrayRef) -> VortexResult<ScalarFnArray> {
-        let len = a.len();
         ScalarFnArray::try_new(
             TypedScalarFnInstance::new(GeoDistance, EmptyOptions).erased(),
             vec![a, b],
-            len,
         )
     }
 }
