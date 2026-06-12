@@ -41,23 +41,25 @@ jobs:
       #     build.rs has no prebuilt DuckDB for musl. The DuckDB extension builds it
       #     against a musl DuckDB it compiles itself, so it is exercised there instead.
       - name: Install Alpine packages
+        # tzdata provides /usr/share/zoneinfo; without it Alpine has no timezone
+        # database and datetime tests fail with "failed to find time zone `UTC`".
         run: |
-          # tzdata provides /usr/share/zoneinfo; without it Alpine has no timezone
-          # database and datetime tests fail with "failed to find time zone `UTC`".
           apk add --no-cache build-base clang clang-dev llvm-dev cmake make perl \
-            pkgconf protobuf protobuf-dev openssl-dev zstd-dev bash git curl ca-certificates \
+            pkgconf protobuf protobuf-dev openssl-dev zstd-dev git curl ca-certificates \
             python3 python3-dev tar tzdata
 
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
 
       - name: Install nextest
+        shell: bash
+        # Prebuilt static musl nextest binary; building it from source would
+        # roughly double the cold-cache compile time of this job.
         run: |
-          # Prebuilt static musl nextest binary; building it from source would
-          # roughly double the cold-cache compile time of this job.
           curl -LsSf https://get.nexte.st/latest/linux-musl \
             | tar zxf - -C "$HOME/.cargo/bin"
 
       - name: Run workspace tests for x86_64-unknown-linux-musl
+        shell: bash
         run: |
           cargo nextest run --cargo-profile ci --locked --workspace --no-fail-fast \
             --exclude vortex-cuda --exclude vortex-cub --exclude vortex-nvcomp \
