@@ -11,7 +11,6 @@ use cudarc::driver::CudaSlice;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::LaunchConfig;
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::result as cuda_driver;
 use futures::future::BoxFuture;
 use futures::future::join;
 use vortex::array::ArrayRef;
@@ -1147,9 +1146,9 @@ fn export_fixed_size(
 }
 
 unsafe extern "C" fn release_array(array: *mut ArrowArray) {
-    // SAFETY: this is only safe if we're dropping an ArrowArray that was created from Rust
-    //  code. This is necessary to ensure that the fields inside the CudaPrivateData
-    //  get dropped to free native/GPU memory.
+    // SAFETY: this is only safe if we're dropping an ArrowArray that was
+    // created from Rust code. This is necessary to ensure that the fields
+    // inside the CudaPrivateData get dropped to free native/GPU memory.
     unsafe {
         if array.is_null() || (*array).release.is_none() {
             return;
@@ -1159,13 +1158,11 @@ unsafe extern "C" fn release_array(array: *mut ArrowArray) {
 
         if !private_data_ptr.is_null() {
             let mut private_data = Box::from_raw(private_data_ptr.cast::<PrivateData>());
-            // Release may run on a foreign thread; bind this array's context before synchronizing
-            // so async frees cannot race consumer-side reads.
-            let cuda_context = Arc::clone(private_data.cuda_stream.context());
-            match cuda_context.bind_to_thread() {
-                Ok(()) => cuda_context.record_err(cuda_driver::ctx::synchronize()),
-                Err(err) => cuda_context.record_err(Err::<(), _>(err)),
-            }
+            // Queue a non-blocking wait so CudaSlice::Drop frees after export work.
+            let wait_result = private_data.cuda_stream.wait(&private_data.export_event);
+            // Arrow release callbacks cannot return errors, so record wait-enqueue
+            // failures for later CUDA operations to observe on this context.
+            private_data.cuda_stream.context().record_err(wait_result);
             release_children(&mut private_data);
             release_dictionary(&mut private_data);
         }
