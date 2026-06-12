@@ -3,7 +3,7 @@
 //
 //! Convert an [`OnPairArray`] to its canonical `VarBinViewArray` by handing
 //! the materialised parts to `onpair::decompress_into`.
-//! 
+//!
 //! [`OnPairArray`]: crate::OnPairArray
 
 use std::sync::Arc;
