@@ -22,6 +22,7 @@ use geo_types::Polygon;
 use geoarrow::datatypes::Crs;
 use geoarrow::datatypes::Metadata;
 use geoarrow::datatypes::WkbType;
+use rstest::rstest;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ExtensionArray;
@@ -129,64 +130,30 @@ fn export_field_carries_extension() -> VortexResult<()> {
 }
 
 /// Export materializes the WKB bytes into the requested binary-family Arrow array.
-#[test]
-fn exports_to_binary() -> VortexResult<()> {
+#[rstest]
+#[case::binary(DataType::Binary)]
+#[case::large_binary(DataType::LargeBinary)]
+#[case::binary_view(DataType::BinaryView)]
+fn exports_to_binary_family(#[case] data_type: DataType) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let (wkb_bytes, array) = wkb_extension_array()?;
 
-    let field = Field::new("geom", DataType::Binary, false)
+    let field = Field::new("geom", data_type.clone(), false)
         .with_extension_type(WkbType::new(Default::default()));
     let exported = SESSION
         .arrow()
         .execute_arrow(array, Some(&field), &mut ctx)?;
 
-    assert_eq!(exported.data_type(), &DataType::Binary);
-    let binary = exported.as_binary::<i32>();
-    assert_eq!(binary.len(), 3);
-    for idx in 0..3 {
-        assert_eq!(binary.value(idx), wkb_bytes.as_slice());
-    }
-    Ok(())
-}
-
-/// Export materializes the WKB bytes into the requested binary-family Arrow array.
-#[test]
-fn exports_to_large_binary() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let (wkb_bytes, array) = wkb_extension_array()?;
-
-    let field = Field::new("geom", DataType::LargeBinary, false)
-        .with_extension_type(WkbType::new(Default::default()));
-    let exported = SESSION
-        .arrow()
-        .execute_arrow(array, Some(&field), &mut ctx)?;
-
-    assert_eq!(exported.data_type(), &DataType::LargeBinary);
-    let binary = exported.as_binary::<i64>();
-    assert_eq!(binary.len(), 3);
-    for idx in 0..3 {
-        assert_eq!(binary.value(idx), wkb_bytes.as_slice());
-    }
-    Ok(())
-}
-
-/// Export materializes the WKB bytes into the requested binary-family Arrow array.
-#[test]
-fn exports_to_binary_view() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let (wkb_bytes, array) = wkb_extension_array()?;
-
-    let field = Field::new("geom", DataType::BinaryView, false)
-        .with_extension_type(WkbType::new(Default::default()));
-    let exported = SESSION
-        .arrow()
-        .execute_arrow(array, Some(&field), &mut ctx)?;
-
-    assert_eq!(exported.data_type(), &DataType::BinaryView);
-    let binary = exported.as_binary_view();
-    assert_eq!(binary.len(), 3);
-    for idx in 0..3 {
-        assert_eq!(binary.value(idx), wkb_bytes.as_slice());
+    assert_eq!(exported.data_type(), &data_type);
+    let values: Vec<&[u8]> = match &data_type {
+        DataType::Binary => exported.as_binary::<i32>().iter().flatten().collect(),
+        DataType::LargeBinary => exported.as_binary::<i64>().iter().flatten().collect(),
+        DataType::BinaryView => exported.as_binary_view().iter().flatten().collect(),
+        _ => unreachable!("cases cover only the binary family"),
+    };
+    assert_eq!(values.len(), 3);
+    for value in values {
+        assert_eq!(value, wkb_bytes.as_slice());
     }
     Ok(())
 }

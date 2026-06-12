@@ -33,7 +33,6 @@ use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::scalar::ScalarValue;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
@@ -71,9 +70,11 @@ impl TryFrom<ExtensionArray> for WellKnownBinaryData {
     type Error = VortexError;
 
     fn try_from(ext: ExtensionArray) -> Result<Self, Self::Error> {
-        if !ext.ext_dtype().is::<WellKnownBinary>() {
-            vortex_bail!("array extension dtype {} is not a WKB", ext.ext_dtype());
-        }
+        vortex_ensure!(
+            ext.ext_dtype().is::<WellKnownBinary>(),
+            "array extension dtype {} is not a WKB",
+            ext.ext_dtype()
+        );
 
         Ok(Self { ext })
     }

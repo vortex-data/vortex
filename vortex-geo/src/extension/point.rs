@@ -34,7 +34,7 @@ use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
@@ -170,12 +170,11 @@ impl ArrowImportVTable for Point {
         let Ok(point_meta) = field.try_extension_type::<PointType>() else {
             return Ok(None);
         };
-        if point_meta.coord_type() != CoordType::Separated {
-            vortex_bail!(
-                "geoarrow.point with interleaved coordinates is not supported; \
-                 re-encode with separated (struct) coordinates"
-            );
-        }
+        vortex_ensure!(
+            point_meta.coord_type() == CoordType::Separated,
+            "geoarrow.point with interleaved coordinates is not supported; \
+             re-encode with separated (struct) coordinates"
+        );
 
         let storage_dtype =
             coordinate_storage_dtype(point_meta.dimension().into(), field.is_nullable().into());
@@ -214,6 +213,7 @@ impl ArrowImportVTable for Point {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
@@ -241,17 +241,14 @@ mod tests {
     }
 
     /// `Point` accepts the canonical coordinate storage of every GeoArrow dimension.
-    #[test]
-    fn point_validates_every_dimension() -> VortexResult<()> {
-        for dim in [
-            Dimension::Xy,
-            Dimension::Xyz,
-            Dimension::Xym,
-            Dimension::Xyzm,
-        ] {
-            let storage = coordinate_storage_dtype(dim, Nullability::NonNullable);
-            ExtDType::<Point>::try_new(geo_meta(), storage)?;
-        }
+    #[rstest]
+    #[case::xy(Dimension::Xy)]
+    #[case::xyz(Dimension::Xyz)]
+    #[case::xym(Dimension::Xym)]
+    #[case::xyzm(Dimension::Xyzm)]
+    fn point_validates_every_dimension(#[case] dim: Dimension) -> VortexResult<()> {
+        let storage = coordinate_storage_dtype(dim, Nullability::NonNullable);
+        ExtDType::<Point>::try_new(geo_meta(), storage)?;
         Ok(())
     }
 

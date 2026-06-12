@@ -245,6 +245,7 @@ pub(crate) fn parse_storage(
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ExtensionArray;
@@ -267,38 +268,35 @@ mod tests {
     use crate::extension::Point;
 
     /// Each dimension round-trips through its field names and canonical storage dtype.
-    #[test]
-    fn storage_dtype_roundtrips_dimension() -> VortexResult<()> {
-        let cases = [
-            (Dimension::Xy, ["x", "y"].as_slice()),
-            (Dimension::Xyz, ["x", "y", "z"].as_slice()),
-            (Dimension::Xym, ["x", "y", "m"].as_slice()),
-            (Dimension::Xyzm, ["x", "y", "z", "m"].as_slice()),
-        ];
-        for (dim, names) in cases {
-            assert_eq!(dim.field_names(), names);
-            let dtype = coordinate_storage_dtype(dim, Nullability::NonNullable);
-            assert_eq!(coordinate_dimension(&dtype)?, dim);
-        }
+    #[rstest]
+    #[case::xy(Dimension::Xy, &["x", "y"])]
+    #[case::xyz(Dimension::Xyz, &["x", "y", "z"])]
+    #[case::xym(Dimension::Xym, &["x", "y", "m"])]
+    #[case::xyzm(Dimension::Xyzm, &["x", "y", "z", "m"])]
+    fn storage_dtype_roundtrips_dimension(
+        #[case] dim: Dimension,
+        #[case] names: &[&str],
+    ) -> VortexResult<()> {
+        assert_eq!(dim.field_names(), names);
+        let dtype = coordinate_storage_dtype(dim, Nullability::NonNullable);
+        assert_eq!(coordinate_dimension(&dtype)?, dim);
         Ok(())
     }
 
     /// Display emits WKT, including `z`/`m` when present.
-    #[test]
-    fn display_is_wkt() {
-        let coordinate = |z, m| Coordinate {
+    #[rstest]
+    #[case::xy(None, None, "POINT(1 2)")]
+    #[case::xyz(Some(3.0), None, "POINT Z (1 2 3)")]
+    #[case::xym(None, Some(4.0), "POINT M (1 2 4)")]
+    #[case::xyzm(Some(3.0), Some(4.0), "POINT ZM (1 2 3 4)")]
+    fn display_is_wkt(#[case] z: Option<f64>, #[case] m: Option<f64>, #[case] expected: &str) {
+        let coordinate = Coordinate {
             x: 1.0,
             y: 2.0,
             z,
             m,
         };
-        assert_eq!(coordinate(None, None).to_string(), "POINT(1 2)");
-        assert_eq!(coordinate(Some(3.0), None).to_string(), "POINT Z (1 2 3)");
-        assert_eq!(coordinate(None, Some(4.0)).to_string(), "POINT M (1 2 4)");
-        assert_eq!(
-            coordinate(Some(3.0), Some(4.0)).to_string(),
-            "POINT ZM (1 2 3 4)"
-        );
+        assert_eq!(coordinate.to_string(), expected);
     }
 
     /// [`parse_storage`] reads the coordinate fields unmasked, so a nullable point column must
