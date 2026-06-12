@@ -17,9 +17,9 @@ use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
+use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
-use vortex_array::Precision;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
@@ -337,11 +337,11 @@ fn array_id_from_string(s: &str) -> ArrayId {
 }
 
 impl ArrayHash for ZstdBuffersData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: EqMode) {
         self.inner_encoding_id.hash(state);
         self.inner_metadata.hash(state);
         for buf in &self.compressed_buffers {
-            buf.array_hash(state, precision);
+            buf.array_hash(state, accuracy);
         }
         self.uncompressed_sizes.hash(state);
         self.buffer_alignments.hash(state);
@@ -349,7 +349,7 @@ impl ArrayHash for ZstdBuffersData {
 }
 
 impl ArrayEq for ZstdBuffersData {
-    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+    fn array_eq(&self, other: &Self, accuracy: EqMode) -> bool {
         self.inner_encoding_id == other.inner_encoding_id
             && self.inner_metadata == other.inner_metadata
             && self.compressed_buffers.len() == other.compressed_buffers.len()
@@ -357,7 +357,7 @@ impl ArrayEq for ZstdBuffersData {
                 .compressed_buffers
                 .iter()
                 .zip(&other.compressed_buffers)
-                .all(|(a, b)| a.array_eq(b, precision))
+                .all(|(a, b)| a.array_eq(b, accuracy))
             && self.uncompressed_sizes == other.uncompressed_sizes
             && self.buffer_alignments == other.buffer_alignments
     }

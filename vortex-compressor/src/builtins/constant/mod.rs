@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Constant encoding schemes for bool, float, integer, and string arrays.
+//! Constant encoding schemes for binary, bool, float, integer, and string arrays.
 
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -12,32 +12,19 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use super::is_float_primitive;
-use super::is_integer_primitive;
-use super::is_utf8_string;
-
-/// Constant encoding for bool arrays where all valid values are the same.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct BoolConstantScheme;
-
-/// Constant encoding for integer arrays with a single distinct value.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct IntConstantScheme;
-
-/// Constant encoding for float arrays with a single distinct value.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct FloatConstantScheme;
-
-/// Constant encoding for string arrays with a single distinct value.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct StringConstantScheme;
-
+mod binary;
 mod bool;
 mod float;
 mod integer;
 mod string;
 
-/// Shared helper for compressing a constant array (bool, int, float, string) into a
+pub use binary::BinaryConstantScheme;
+pub use bool::BoolConstantScheme;
+pub use float::FloatConstantScheme;
+pub use integer::IntConstantScheme;
+pub use string::StringConstantScheme;
+
+/// Shared helper for compressing a constant array (binary, bool, int, float, string) into a
 /// [`ConstantArray`].
 ///
 /// Assumes that the source array has constant valid scalars.

@@ -47,7 +47,7 @@ mimalloc = ["dep:mimalloc"]
 
 [lib]
 name = "vortex_ffi"
-crate-type = ["staticlib", "cdylib"]
+crate-type = ["rlib", "staticlib", "cdylib"]
 
 [lints]
 workspace = true

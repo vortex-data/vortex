@@ -3,6 +3,8 @@
 
 #![expect(clippy::unwrap_used)]
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use rand::RngExt;
 use rand::SeedableRng as _;
@@ -14,13 +16,14 @@ use vortex_alp::alp_encode;
 use vortex_alp::decompress_into_array;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
+use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
+use vortex_session::VortexSession;
 
 fn main() {
     divan::main();
@@ -48,6 +51,9 @@ const BENCH_ARGS: &[(usize, f64, f64)] = &[
     (10_000, 0.1, 1.0),
 ];
 
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+
 #[divan::bench(types = [f32, f64], args = BENCH_ARGS)]
 fn compress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64, f64)) {
     let (n, fraction_patch, fraction_valid) = args;
@@ -68,14 +74,9 @@ fn compress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64, 
     let values = values.freeze();
     let array = PrimitiveArray::new(values, validity);
 
-    bencher.with_inputs(|| &array).bench_values(|array| {
-        alp_encode(
-            array.as_view(),
-            None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
-        .unwrap()
-    })
+    bencher
+        .with_inputs(|| (&array, SESSION.create_execution_ctx()))
+        .bench_values(|(array, mut ctx)| alp_encode(array.as_view(), None, &mut ctx).unwrap())
 }
 
 #[divan::bench(types = [f32, f64], args = BENCH_ARGS)]
@@ -102,10 +103,10 @@ fn decompress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64
                 alp_encode(
                     PrimitiveArray::new(Buffer::copy_from(&values), validity.clone()).as_view(),
                     None,
-                    &mut LEGACY_SESSION.create_execution_ctx(),
+                    &mut SESSION.create_execution_ctx(),
                 )
                 .unwrap(),
-                LEGACY_SESSION.create_execution_ctx(),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_values(|(v, mut ctx)| decompress_into_array(v, &mut ctx));
@@ -143,7 +144,7 @@ fn compress_rd<T: ALPRDFloat + NativePType>(bencher: Bencher, args: (usize, f64)
     let encoder = RDEncoder::new(primitive.as_slice::<T>());
 
     bencher
-        .with_inputs(|| (&primitive, &encoder, LEGACY_SESSION.create_execution_ctx()))
+        .with_inputs(|| (&primitive, &encoder, SESSION.create_execution_ctx()))
         .bench_refs(|(primitive, encoder, ctx)| encoder.encode(primitive.as_view(), ctx))
 }
 
@@ -152,12 +153,9 @@ fn decompress_rd<T: ALPRDFloat + NativePType>(bencher: Bencher, args: (usize, f6
     let (n, fraction_patch) = args;
     let primitive = make_rd_array::<T>(n, fraction_patch);
     let encoder = RDEncoder::new(primitive.as_slice::<T>());
-    let encoded = encoder.encode(
-        primitive.as_view(),
-        &mut LEGACY_SESSION.create_execution_ctx(),
-    );
+    let encoded = encoder.encode(primitive.as_view(), &mut SESSION.create_execution_ctx());
 
     bencher
-        .with_inputs(|| (&encoded, LEGACY_SESSION.create_execution_ctx()))
+        .with_inputs(|| (&encoded, SESSION.create_execution_ctx()))
         .bench_refs(|(encoded, ctx)| (**encoded).clone().into_array().execute::<Canonical>(ctx));
 }

@@ -15,6 +15,8 @@ feature-depth = 1
 ignore = [
     # Paste is no longer maintained because its essentially "finished".
     "RUSTSEC-2024-0436",
+    # proc-macro-error-2 is unmaintained, only used by the `test_with` test dependency
+    "RUSTSEC-2026-0173"
 ]
 
 [licenses]

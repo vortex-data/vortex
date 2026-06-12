@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 #![expect(clippy::unwrap_used)]
 
+use std::sync::LazyLock;
+
 use num_traits::NumCast;
 use rand::RngExt;
 use rand::rngs::StdRng;
@@ -11,16 +13,20 @@ use vortex_alp::ALPArraySlotsExt;
 use vortex_alp::alp_encode;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
+use vortex_array::session::ArraySession;
 use vortex_error::VortexExpect;
 use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width;
+use vortex_session::VortexSession;
 
 fn main() {
     divan::main();
 }
+
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 fn generate_primitive_array<T: NativePType + NumCast>(
     rng: &mut StdRng,
@@ -39,7 +45,7 @@ fn generate_bit_pack_primitive_array<T: NativePType + NumCast>(
         .map(|_| T::from_usize(rng.random_range(0..10_000)).vortex_expect(""))
         .collect::<PrimitiveArray>();
 
-    bitpack_to_best_bit_width(&a, &mut LEGACY_SESSION.create_execution_ctx())
+    bitpack_to_best_bit_width(&a, &mut SESSION.create_execution_ctx())
         .vortex_expect("")
         .into_array()
 }
@@ -52,7 +58,7 @@ fn generate_alp_bit_pack_primitive_array<T: NativePType + NumCast>(
         .map(|_| T::from_usize(rng.random_range(0..10_000)).vortex_expect(""))
         .collect::<PrimitiveArray>();
 
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let alp = alp_encode(a.as_view(), None, &mut ctx).vortex_expect("");
 
     let encoded = alp
@@ -75,7 +81,6 @@ mod primitive {
     use rand::SeedableRng;
     use rand::prelude::StdRng;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::RecursiveCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
@@ -86,6 +91,7 @@ mod primitive {
     use vortex_error::VortexExpect;
 
     use crate::BENCH_ARGS;
+    use crate::SESSION;
     use crate::generate_primitive_array;
 
     #[divan::bench(
@@ -103,7 +109,7 @@ mod primitive {
         let arr = generate_primitive_array::<T>(&mut rng, len);
 
         bencher
-            .with_inputs(|| (&arr, LEGACY_SESSION.create_execution_ctx()))
+            .with_inputs(|| (&arr, SESSION.create_execution_ctx()))
             .bench_refs(|(arr, ctx)| {
                 arr.clone()
                     .into_array()
@@ -128,7 +134,6 @@ mod bitpack {
     use rand::SeedableRng;
     use rand::prelude::StdRng;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::RecursiveCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
@@ -139,6 +144,7 @@ mod bitpack {
     use vortex_error::VortexExpect;
 
     use crate::BENCH_ARGS;
+    use crate::SESSION;
     use crate::generate_bit_pack_primitive_array;
 
     #[divan::bench(
@@ -156,7 +162,7 @@ mod bitpack {
         let arr = generate_bit_pack_primitive_array::<T>(&mut rng, len);
 
         bencher
-            .with_inputs(|| (&arr, LEGACY_SESSION.create_execution_ctx()))
+            .with_inputs(|| (&arr, SESSION.create_execution_ctx()))
             .bench_refs(|(arr, ctx)| {
                 arr.clone()
                     .between(
@@ -180,7 +186,6 @@ mod alp {
     use rand::SeedableRng;
     use rand::prelude::StdRng;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::RecursiveCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
@@ -191,6 +196,7 @@ mod alp {
     use vortex_error::VortexExpect;
 
     use crate::BENCH_ARGS;
+    use crate::SESSION;
     use crate::generate_alp_bit_pack_primitive_array;
 
     #[divan::bench(
@@ -208,7 +214,7 @@ mod alp {
         let arr = generate_alp_bit_pack_primitive_array::<T>(&mut rng, len);
 
         bencher
-            .with_inputs(|| (&arr, LEGACY_SESSION.create_execution_ctx()))
+            .with_inputs(|| (&arr, SESSION.create_execution_ctx()))
             .bench_refs(|(arr, ctx)| {
                 arr.clone()
                     .between(

@@ -4,21 +4,20 @@
 //! Vector extension type for fixed-length float vectors (e.g., embeddings).
 
 use vortex_array::ArrayRef;
+use vortex_array::EmptyMetadata;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
-use vortex_array::extension::EmptyMetadata;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
-/// Validates that `storage` is a valid storage dtype for a [`Vector`] or
-/// [`NormalizedVector`](crate::normalized_vector::NormalizedVector) extension type.
+/// Validates that `storage` is a valid storage dtype for a [`Vector`].
 ///
 /// The storage must be a `FixedSizeList<float, dim, nullability>` with non-nullable float
 /// elements. The outer nullability is not constrained.

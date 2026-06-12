@@ -25,7 +25,7 @@ use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::Precision;
+use crate::EqMode;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayParts;
@@ -59,11 +59,11 @@ pub type DictArray = Array<Dict>;
 pub struct Dict;
 
 impl ArrayHash for DictData {
-    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _accuracy: EqMode) {}
 }
 
 impl ArrayEq for DictData {
-    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+    fn array_eq(&self, _other: &Self, _accuracy: EqMode) -> bool {
         true
     }
 }

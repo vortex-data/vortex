@@ -209,7 +209,7 @@ TEST_CASE("Creating datasources", "[datasource]") {
     ds = vx_data_source_new(session, &opts, &error);
     REQUIRE(ds == nullptr);
     REQUIRE(error != nullptr);
-    REQUIRE_THAT(to_string(error), ContainsSubstring("No such file or directory"));
+    REQUIRE_THAT(to_string(error), ContainsSubstring("No files matched the glob pattern"));
     vx_error_free(error);
 
     opts.paths = "/tmp2/*.vortex";
@@ -374,7 +374,6 @@ TEST_CASE("Requesting scans", "[datasource]") {
     }
 
     vx_scan_options options = {};
-    options.max_threads = 1;
 
     {
         vx_scan *scan = vx_data_source_scan(ds, &options, nullptr, &error);
@@ -924,7 +923,6 @@ TEST_CASE("Broken scan with DType mismatch in filter", "[filter]") {
     };
 
     vx_scan_options scan_opts = {};
-    scan_opts.max_threads = 1;
     scan_opts.filter = filter;
 
     vx_scan *scan = vx_data_source_scan(ds, &scan_opts, nullptr, &error);

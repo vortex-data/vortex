@@ -259,6 +259,34 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
         debug_assert_eq!(local_idx, self.len);
     }
 
+    /// Walk every *packed* chunk in array order, yielding the raw packed FastLanes block and the
+    /// padded bit range it covers, without unpacking it.
+    ///
+    /// Unlike [`Self::for_each_unpacked_chunk`], this does not fill the scratch buffer: it hands
+    /// the still-packed block to the callback so fused kernels (e.g. compare) can unpack and
+    /// consume it in a single pass. Each yielded block holds exactly `elems_per_chunk` packed
+    /// values (the buffer is zero-padded out to a whole final chunk).
+    ///
+    /// The yielded range is in *padded* coordinates: block `c` covers
+    /// `[c * 1024, min((c + 1) * 1024, offset + len))`, so it includes the leading `offset` rows
+    /// that slicing skips. Block starts are therefore always 1024-aligned regardless of `offset`.
+    /// Callers must account for the array's `offset` when mapping a block's rows back to logical
+    /// output positions (e.g. by viewing the output buffer at a bit offset of `offset`).
+    pub(crate) fn for_each_packed_chunk<F>(&self, mut f: F)
+    where
+        F: FnMut(&[T::Physical], Range<usize>),
+    {
+        let packed_slice: &[T::Physical] = buffer_as_slice(&self.packed);
+        let elems_per_chunk = self.elems_per_chunk();
+        let padded_len = self.offset + self.len;
+        for chunk in 0..self.num_chunks {
+            let packed_chunk = &packed_slice[chunk * elems_per_chunk..][..elems_per_chunk];
+            let start = chunk * CHUNK_SIZE;
+            let end = (start + CHUNK_SIZE).min(padded_len);
+            f(packed_chunk, start..end);
+        }
+    }
+
     /// Unpack full chunks into output range starting at the given index.
     fn decode_full_chunks_into_at(
         &mut self,

@@ -21,6 +21,7 @@ use cudarc::driver::CudaView;
 use cudarc::driver::DevicePtr;
 use cudarc::driver::DevicePtrMut;
 use cudarc::driver::DeviceRepr;
+use cudarc::driver::ValidAsZeroBits;
 use cudarc::driver::sys::CUevent_flags;
 use futures::executor::block_on;
 use vortex::error::VortexExpect;
@@ -135,7 +136,15 @@ async fn run_filter_timed<T: CubFilterable + DeviceRepr>(
 /// Benchmark filter for a specific type.
 fn benchmark_filter_type<T>(c: &mut Criterion, type_name: &str)
 where
-    T: CubFilterable + DeviceRepr + From<u8> + Debug + Clone + Send + Sync + 'static,
+    T: CubFilterable
+        + DeviceRepr
+        + ValidAsZeroBits
+        + From<u8>
+        + Debug
+        + Clone
+        + Send
+        + Sync
+        + 'static,
 {
     let mut group = c.benchmark_group("cuda");
 

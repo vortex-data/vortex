@@ -30,7 +30,7 @@ jobs:
       - uses: runs-on/action@v2
         with:
           sccache: s3
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -38,12 +38,13 @@ jobs:
         with:
           command: >-
             cargo build --profile ci --locked --all-features --all-targets
-            -p vortex-cuda -p vortex-cub -p vortex-nvcomp
+            -p vortex-cuda -p vortex-cuda-ffi -p vortex-cub -p vortex-nvcomp
             -p gpu-scan-cli -p vortex-test-e2e-cuda
       - name: Clippy CUDA crates
         run: |
           cargo clippy --profile ci --locked --all-features --all-targets \
             -p vortex-cuda \
+            -p vortex-cuda-ffi \
             -p vortex-cub \
             -p vortex-nvcomp \
             -p gpu-scan-cli \
@@ -64,12 +65,12 @@ jobs:
           nvidia-smi
           nvidia-smi -L
           nvidia-smi -q -d Memory
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install nextest
-        uses: taiki-e/install-action@8f531eaecd1898bc3da7d104ad91bee98d1b97bd  # v2
+        uses: taiki-e/install-action@0631aa6515c7d545823c67cfae7ef4fc7f490154  # v2
         with:
           tool: nextest
       - name: Rust Tests
@@ -81,6 +82,7 @@ jobs:
             --locked \
             -p vortex-file \
             -p vortex-cuda \
+            -p vortex-cuda-ffi \
             -p vortex-cub \
             -p vortex-nvcomp \
             -p vortex-test-e2e-cuda \
@@ -116,7 +118,7 @@ jobs:
           nvidia-smi
           nvidia-smi -L
           nvidia-smi -q -d Memory
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -141,7 +143,7 @@ jobs:
           nvidia-smi
           nvidia-smi -L
           nvidia-smi -q -d Memory
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -150,5 +152,6 @@ jobs:
       - name: Download and run cudf-test-harness
         run: |
           curl -fsSL https://github.com/vortex-data/cudf-test-harness/releases/latest/download/cudf-test-harness-x86_64.tar.gz | tar -xz
-          cd cudf-test-harness-x86_64
-          compute-sanitizer --tool memcheck --error-exitcode 1 ./cudf-test-harness check $GITHUB_WORKSPACE/target/x86_64-unknown-linux-gnu/ci/libvortex_test_e2e_cuda.so
+          $GITHUB_WORKSPACE/target/x86_64-unknown-linux-gnu/ci/cudf_harness_runner \
+            ./cudf-test-harness-x86_64/cudf-test-harness \
+            $GITHUB_WORKSPACE/target/x86_64-unknown-linux-gnu/ci/libvortex_test_e2e_cuda.so

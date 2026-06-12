@@ -14,8 +14,10 @@ use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::Primitive;
+use vortex::array::arrays::ScalarFn;
 use vortex::array::arrays::Slice;
 use vortex::array::arrays::dict::DictArraySlotsExt;
+use vortex::array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex::array::arrays::slice::SliceArrayExt;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::patches::Patches;
@@ -38,6 +40,8 @@ use vortex::encodings::zigzag::ZigZagArrayExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
+use vortex::scalar_fn::ScalarFnVTable;
+use vortex::scalar_fn::fns::cast::Cast;
 
 use super::CudaDispatchPlan;
 use super::MaterializedStage;
@@ -75,6 +79,9 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
     }
 
     let id = array.encoding_id();
+    if id == Cast.id() {
+        return is_dyn_dispatch_cast_compatible(array);
+    }
     if id == ALP.id() {
         let arr = array.as_::<ALP>();
         return matches!(arr.dtype().as_ptype(), PType::F32 | PType::F64);
@@ -124,6 +131,24 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
         || id == Primitive.id()
         || id == Slice.id()
         || id == Sequence.id()
+}
+
+fn is_dyn_dispatch_cast_compatible(array: &ArrayRef) -> bool {
+    let cast = array.as_::<ScalarFn>();
+
+    let Ok(source_ptype) = PType::try_from(cast.child_at(0).dtype()) else {
+        return false;
+    };
+    let Ok(target_ptype) = PType::try_from(cast.scalar_fn().as_::<Cast>()) else {
+        return false;
+    };
+
+    // Implemented as unsigned dictionary-code casts to cuDF's signed index types.
+    // LOAD/BITUNPACK materialize directly into the target-width output type.
+    matches!(
+        (source_ptype, target_ptype),
+        (PType::U8, PType::I16) | (PType::U16, PType::I32) | (PType::U32, PType::I64)
+    )
 }
 
 /// Returns `true` if a registered standalone kernel can decode the entire
@@ -258,7 +283,7 @@ pub struct FusedPlan {
     /// Shared memory reserved by the non-output stages, in bytes.
     smem_byte_cursor: SmemByteOffset,
     /// Source buffers. `None` entries are placeholder slots for pending subtrees,
-    /// filled by [`materialize_with_subtrees`] before device copy.
+    /// filled by [`Self::materialize_with_subtrees`] before device copy.
     source_buffers: Vec<Option<BufferHandle>>,
     /// Bytes per element of the root (output) array.
     output_elem_bytes: u32,
@@ -500,6 +525,8 @@ impl FusedPlan {
             self.walk_slice(array, pending_subtrees)
         } else if id == Sequence.id() {
             self.walk_sequence(array)
+        } else if id == Cast.id() {
+            self.walk_cast(array, pending_subtrees)
         } else {
             vortex_bail!(
                 "Encoding {:?} not supported by dynamic dispatch plan builder",
@@ -724,7 +751,7 @@ impl FusedPlan {
 
     /// Reserve a placeholder buffer slot and record the array as a pending subtree.
     ///
-    /// Called from [`walk`] when [`is_dyn_dispatch_compatible`] rejects a child.
+    /// Called from [`Self::walk`] when [`is_dyn_dispatch_compatible`] rejects a child.
     /// Cases that require a separate kernel dispatch:
     ///
     /// - **F16 primitives** — no reinterpret path in the kernel.
@@ -793,6 +820,21 @@ impl FusedPlan {
         ))
     }
 
+    fn walk_cast(
+        &mut self,
+        array: ArrayRef,
+        pending_subtrees: &mut Vec<ArrayRef>,
+    ) -> VortexResult<Stage> {
+        let cast = array.as_::<ScalarFn>();
+        let target_ptype = ptype_to_tag(cast.scalar_fn().as_::<Cast>().as_ptype());
+        let mut pipeline = self.walk(cast.child_at(0).clone(), pending_subtrees)?;
+        // LOAD/BITUNPACK directly widen into the output type without an additional cast op.
+        pipeline
+            .scalar_ops
+            .push((ScalarOp::cast(target_ptype), None));
+        Ok(pipeline)
+    }
+
     fn walk_runend(
         &mut self,
         array: ArrayRef,
@@ -836,16 +878,45 @@ impl FusedPlan {
         // into smem (reinterpret_cast<T*>), so we must allocate at least
         // output_elem_bytes per element — even if the stage's final ptype
         // is narrower. Otherwise the writes overflow into the next region.
+        let stage_bytes = Self::smem_stage_bytes(&spec, len, self.output_elem_bytes);
+        self.stages.push((spec, smem_byte_offset, len));
+        self.smem_byte_cursor += stage_bytes;
+        smem_byte_offset
+    }
+
+    fn smem_stage_bytes(spec: &Stage, len: u32, output_elem_bytes: u32) -> u32 {
         let final_ptype = spec
             .scalar_ops
             .last()
             .map(|(op, _)| op.output_ptype)
             .unwrap_or(spec.source_ptype);
         let final_elem_bytes = tag_to_ptype(final_ptype).byte_width() as u32;
-        let elem_bytes = final_elem_bytes.max(self.output_elem_bytes);
-        let stage_bytes = len * elem_bytes;
-        self.stages.push((spec, smem_byte_offset, len));
-        self.smem_byte_cursor += stage_bytes;
-        smem_byte_offset
+        len * final_elem_bytes.max(output_elem_bytes)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::builtins::ArrayBuiltins;
+    use vortex::dtype::DType;
+    use vortex::dtype::Nullability;
+
+    use super::*;
+
+    #[test]
+    fn cast_to_non_primitive_target_is_not_dyn_dispatch_compatible() -> VortexResult<()> {
+        let cast = PrimitiveArray::from_iter([0u8, 1])
+            .into_array()
+            .cast(DType::Bool(Nullability::NonNullable))?;
+
+        assert!(!is_dyn_dispatch_cast_compatible(&cast));
+        assert!(matches!(
+            DispatchPlan::new(&cast, CudaDispatchMode::DynDispatchOnly)?,
+            DispatchPlan::Unfused
+        ));
+
+        Ok(())
     }
 }

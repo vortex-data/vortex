@@ -14,7 +14,7 @@ use datafusion::datasource::provider::DefaultTableFactory;
 use datafusion::execution::SessionStateBuilder;
 use datafusion::execution::cache::DefaultListFilesCache;
 use datafusion::execution::cache::cache_manager::CacheManagerConfig;
-use datafusion::execution::cache::cache_unit::DefaultFileStatisticsCache;
+use datafusion::execution::cache::file_statistics_cache::DefaultFileStatisticsCache;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::prelude::SessionConfig;
 use datafusion::prelude::SessionContext;
@@ -37,7 +37,7 @@ pub fn get_session_context() -> SessionContext {
     let file_static_cache = Arc::new(DefaultFileStatisticsCache::default());
     let list_file_cache = Arc::new(DefaultListFilesCache::default());
     let cache_config = CacheManagerConfig::default()
-        .with_files_statistics_cache(Some(file_static_cache))
+        .with_file_statistics_cache(Some(file_static_cache))
         .with_list_files_cache(Some(list_file_cache));
     rt_builder = rt_builder.with_cache_manager(cache_config);
 

@@ -27,6 +27,8 @@ use ratatui::widgets::Table;
 use ratatui::widgets::Widget;
 use ratatui::widgets::Wrap;
 use vortex::array::ArrayRef;
+use vortex::array::Canonical;
+use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::struct_::StructArrayExt;
@@ -161,7 +163,19 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
 
         assert_eq!(app.cursor.dtype(), array.dtype());
 
-        let field_arrays: Vec<ArrayRef> = struct_array.unmasked_fields().to_vec();
+        // Canonicalize each field once so the per-row `execute_scalar` calls below do not
+        // re-decode the field encodings for every row.
+        let field_arrays: Vec<ArrayRef> = struct_array
+            .unmasked_fields()
+            .iter()
+            .map(|field| {
+                field
+                    .clone()
+                    .execute::<Canonical>(&mut ctx)
+                    .vortex_expect("failed to canonicalize field array")
+                    .into_array()
+            })
+            .collect();
 
         // TODO: trim the number of displayed rows and allow paging through column stats.
         let mut rows = Vec::with_capacity(array.len());

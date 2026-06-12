@@ -19,10 +19,9 @@ impl SliceReduce for FSST {
         // SAFETY: slicing the `codes` leaves the symbol table intact
         Ok(Some(
             unsafe {
-                FSST::new_unchecked(
+                FSST::new_unchecked_with_symbol_table(
                     array.dtype().clone(),
-                    array.symbols().clone(),
-                    array.symbol_lengths().clone(),
+                    array.symbol_table(),
                     array
                         .codes()
                         .slice(range.clone())?

@@ -16,10 +16,10 @@ use vortex_session::registry::CachedId;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
+use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
-use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
@@ -53,13 +53,13 @@ pub type ConstantArray = Array<Constant>;
 pub struct Constant;
 
 impl ArrayHash for ConstantData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _accuracy: EqMode) {
         self.scalar.hash(state);
     }
 }
 
 impl ArrayEq for ConstantData {
-    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+    fn array_eq(&self, other: &Self, _accuracy: EqMode) -> bool {
         self.scalar == other.scalar
     }
 }

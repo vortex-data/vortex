@@ -26,7 +26,28 @@ use crate::ArrayRef;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 
+/// Construct a Vortex array from an Arrow array (or other Arrow container) of type `A`.
+///
+/// Implementations reuse the underlying Arrow buffers without copying wherever the Arrow and
+/// Vortex memory layouts allow it.
 pub trait FromArrowArray<A> {
+    /// Convert `array` into a Vortex array whose [`DType`](crate::dtype::DType) has the requested
+    /// `nullable` [`Nullability`](crate::dtype::Nullability).
+    ///
+    /// An Arrow array can carry a validity (null) buffer regardless of whether its schema declares
+    /// the field nullable, so the desired nullability is supplied separately by the caller
+    /// (typically from the corresponding Arrow `Field`'s `is_nullable`). This flag is reconciled
+    /// with the array's physical nulls as follows:
+    ///
+    /// - `nullable == true`: the resulting validity is derived from the array's null buffer, or
+    ///   all-valid when the array has none.
+    /// - `nullable == false`: the array must contain no nulls, and the result is non-nullable.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `nullable` is `false` but `array` physically contains one or more nulls
+    /// (including an Arrow `NullArray`, which is entirely null), or if the Arrow data type is not
+    /// supported.
     fn from_arrow(array: A, nullable: bool) -> VortexResult<Self>
     where
         Self: Sized;

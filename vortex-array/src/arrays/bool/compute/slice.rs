@@ -15,12 +15,13 @@ use crate::arrays::slice::SliceReduce;
 
 impl SliceReduce for Bool {
     fn slice(array: ArrayView<'_, Bool>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(
-            BoolArray::new(
-                array.to_bit_buffer().slice(range.clone()),
-                array.validity()?.slice(range)?,
-            )
-            .into_array(),
-        ))
+        let bit_buffer = array.to_bit_buffer().slice(range.clone());
+        let validity = array.validity()?.slice(range)?;
+
+        // Safety:
+        // range is verified in the callers and is the same for both bits and validity.
+        let array = unsafe { BoolArray::new_unchecked(bit_buffer, validity).into_array() };
+
+        Ok(Some(array))
     }
 }

@@ -28,6 +28,26 @@ impl BitAnd for &Mask {
     }
 }
 
+impl BitAnd<&Mask> for Mask {
+    type Output = Mask;
+
+    /// Owned-left AND: can reuse the left buffer in-place when possible.
+    fn bitand(self, rhs: &Mask) -> Self::Output {
+        if self.len() != rhs.len() {
+            vortex_panic!("Masks must have the same length");
+        }
+
+        match (self.bit_buffer(), rhs.bit_buffer()) {
+            (AllOr::All, _) => rhs.clone(),
+            (AllOr::None, _) | (_, AllOr::None) => Mask::new_false(self.len()),
+            (_, AllOr::All) => self,
+            (AllOr::Some(_), AllOr::Some(rhs_buf)) => {
+                Mask::from_buffer(self.into_bit_buffer() & rhs_buf)
+            }
+        }
+    }
+}
+
 impl BitOr for &Mask {
     type Output = Mask;
 
@@ -46,6 +66,26 @@ impl BitOr for &Mask {
     }
 }
 
+impl BitOr<&Mask> for Mask {
+    type Output = Mask;
+
+    /// Owned-left OR: can reuse the left buffer in-place when possible.
+    fn bitor(self, rhs: &Mask) -> Self::Output {
+        if self.len() != rhs.len() {
+            vortex_panic!("Masks must have the same length");
+        }
+
+        match (self.bit_buffer(), rhs.bit_buffer()) {
+            (AllOr::All, _) | (_, AllOr::All) => Mask::new_true(self.len()),
+            (AllOr::None, _) => rhs.clone(),
+            (_, AllOr::None) => self,
+            (AllOr::Some(_), AllOr::Some(rhs_buf)) => {
+                Mask::from_buffer(self.into_bit_buffer() | rhs_buf)
+            }
+        }
+    }
+}
+
 impl Mask {
     /// Computes `self & !rhs` (AND NOT), equivalent to set difference.
     pub fn bitand_not(self, rhs: &Mask) -> Mask {
@@ -56,7 +96,9 @@ impl Mask {
             (AllOr::None, _) | (_, AllOr::All) => Mask::new_false(self.len()),
             (_, AllOr::None) => self,
             (AllOr::All, _) => !rhs,
-            (AllOr::Some(lhs), AllOr::Some(rhs)) => Mask::from_buffer(lhs.bitand_not(rhs)),
+            (AllOr::Some(_), AllOr::Some(rhs_buf)) => {
+                Mask::from_buffer(self.into_bit_buffer().into_bitand_not(rhs_buf))
+            }
         }
     }
 }

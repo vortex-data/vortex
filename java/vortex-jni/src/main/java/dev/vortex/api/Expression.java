@@ -7,7 +7,10 @@ import com.google.common.base.Preconditions;
 import dev.vortex.VortexCleaner;
 import dev.vortex.jni.NativeExpression;
 import java.math.BigInteger;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.Arrays;
+import java.util.UUID;
 
 /**
  * A Vortex expression node backed by a native pointer.
@@ -18,6 +21,9 @@ import java.util.Arrays;
  * ownership — the resulting expression is an independent copy on the native side.
  */
 public final class Expression {
+    /** Number of bytes in a UUID's big-endian representation. */
+    private static final int UUID_BYTE_LEN = 16;
+
     private final long pointer;
 
     private Expression(long pointer) {
@@ -33,6 +39,16 @@ public final class Expression {
     /** The root expression: applying it to an array yields the array itself. */
     public static Expression root() {
         return new Expression(NativeExpression.root());
+    }
+
+    /**
+     * The row-index expression. When evaluated as part of a Vortex scan it yields, as a non-nullable {@code u64}, each
+     * row's index in the file <em>before</em> filtering: the index is assigned to the unfiltered rows, so filtered-out
+     * rows leave gaps and the surviving rows keep their original positions rather than being renumbered. It cannot be
+     * evaluated outside of a scan.
+     */
+    public static Expression rowIdx() {
+        return new Expression(NativeExpression.rowIdx());
     }
 
     /** Access a named field from a struct expression. */
@@ -61,6 +77,30 @@ public final class Expression {
     /** Project a subset of fields out of a struct expression. */
     public static Expression select(String[] fieldNames, Expression child) {
         return new Expression(NativeExpression.select(fieldNames, child.nativePointer()));
+    }
+
+    /** Creates an expression that packs values into a struct with named fields. */
+    public static Expression pack(String[] fieldNames, Expression[] expressions, boolean nullable) {
+        return new Expression(NativeExpression.pack(fieldNames, nativePointers(expressions), nullable));
+    }
+
+    /**
+     * Merge struct expressions into a single struct, combining their fields in order.
+     *
+     * <p>Every input must evaluate to a non-nullable struct. When the same field name appears in more than one input,
+     * {@code duplicateHandling} decides the result. Fields are <em>not</em> merged recursively — a later field replaces
+     * an earlier one with the same name. Merging zero expressions yields an empty struct.
+     */
+    public static Expression merge(DuplicateHandling duplicateHandling, Expression... expressions) {
+        return new Expression(NativeExpression.merge(nativePointers(expressions), duplicateHandling.tag()));
+    }
+
+    /**
+     * Merge struct expressions, failing if any field name is duplicated. Equivalent to {@link #merge(DuplicateHandling,
+     * Expression...)} with {@link DuplicateHandling#ERROR}.
+     */
+    public static Expression merge(Expression... expressions) {
+        return merge(DuplicateHandling.ERROR, expressions);
     }
 
     /** Logical AND. Requires at least one operand. */
@@ -198,6 +238,44 @@ public final class Expression {
         return new Expression(NativeExpression.literalTimestamp(0L, unit.tag(), timezone, true));
     }
 
+    /**
+     * Create a UUID literal, enabling predicate pushdown over UUID columns. The value is stored as its 16-byte
+     * big-endian (network order) representation, matching Vortex's UUID extension type and Arrow's canonical UUID type.
+     */
+    public static Expression literal(UUID value) {
+        Preconditions.checkArgument(value != null, "use nullLiteralUuid() for a null UUID literal");
+        return literalUuid(uuidToBigEndianBytes(value));
+    }
+
+    /**
+     * Create a UUID literal from its 16-byte big-endian (network order) representation, for example the bytes of
+     * Arrow's canonical UUID type or a {@link UUID} serialized most-significant-bits first.
+     *
+     * @param bigEndianBytes exactly 16 bytes; use {@link #nullLiteralUuid()} for a null literal
+     */
+    public static Expression literalUuid(byte[] bigEndianBytes) {
+        Preconditions.checkArgument(bigEndianBytes != null, "use nullLiteralUuid() for a null UUID literal");
+        Preconditions.checkArgument(
+                bigEndianBytes.length == UUID_BYTE_LEN,
+                "UUID literal must be exactly %s bytes, got %s",
+                UUID_BYTE_LEN,
+                bigEndianBytes.length);
+        return new Expression(NativeExpression.literalUuid(bigEndianBytes, false));
+    }
+
+    /** Create a null UUID literal. */
+    public static Expression nullLiteralUuid() {
+        return new Expression(NativeExpression.literalUuid(new byte[UUID_BYTE_LEN], true));
+    }
+
+    private static byte[] uuidToBigEndianBytes(UUID value) {
+        return ByteBuffer.allocate(UUID_BYTE_LEN)
+                .order(ByteOrder.BIG_ENDIAN)
+                .putLong(value.getMostSignificantBits())
+                .putLong(value.getLeastSignificantBits())
+                .array();
+    }
+
     /** Create a typed null literal of the given primitive {@link DType}. */
     public static Expression nullLiteral(DType dtype) {
         return new Expression(NativeExpression.literalNull(dtype.tag()));
@@ -230,6 +308,27 @@ public final class Expression {
 
         public byte code() {
             return code;
+        }
+    }
+
+    /**
+     * Strategy for resolving duplicate field names in {@link #merge(DuplicateHandling, Expression...)}. Tag values must
+     * match the Rust {@code parse_duplicate_handling} table.
+     */
+    public enum DuplicateHandling {
+        /** When two structs share a field name, keep the value from the right-most (later) struct. */
+        RIGHT_MOST((byte) 0),
+        /** When two structs share a field name, fail with an error. */
+        ERROR((byte) 1);
+
+        private final byte tag;
+
+        DuplicateHandling(byte tag) {
+            this.tag = tag;
+        }
+
+        public byte tag() {
+            return tag;
         }
     }
 

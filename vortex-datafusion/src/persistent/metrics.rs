@@ -73,16 +73,13 @@ impl VortexMetricsFinder {
 impl ExecutionPlanVisitor for VortexMetricsFinder {
     type Error = std::convert::Infallible;
     fn pre_visit(&mut self, plan: &dyn ExecutionPlan) -> Result<bool, Self::Error> {
-        if let Some(exec) = plan.as_any().downcast_ref::<DataSourceExec>() {
+        if let Some(exec) = plan.downcast_ref::<DataSourceExec>() {
             // Start with exec metrics or create a new set
             let mut set = exec.metrics().unwrap_or_default();
 
             // Include our own metrics from VortexSource
-            if let Some(file_scan) = exec.data_source().as_any().downcast_ref::<FileScanConfig>()
-                && let Some(scan) = file_scan
-                    .file_source
-                    .as_any()
-                    .downcast_ref::<VortexSource>()
+            if let Some(file_scan) = exec.data_source().downcast_ref::<FileScanConfig>()
+                && let Some(scan) = file_scan.file_source.downcast_ref::<VortexSource>()
             {
                 for metric in scan
                     .metrics_registry()
@@ -240,7 +237,7 @@ mod tests {
             &mut self,
             plan: &dyn datafusion_physical_plan::ExecutionPlan,
         ) -> Result<bool, Self::Error> {
-            if plan.as_any().downcast_ref::<DataSourceExec>().is_some() {
+            if plan.downcast_ref::<DataSourceExec>().is_some() {
                 self.0 += 1;
                 Ok(false)
             } else {

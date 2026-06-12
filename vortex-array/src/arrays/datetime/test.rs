@@ -6,8 +6,8 @@ use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
+use crate::EqMode;
 use crate::IntoArray;
-use crate::Precision;
 #[expect(deprecated)]
 use crate::ToCanonical as _;
 use crate::arrays::PrimitiveArray;
@@ -201,7 +201,7 @@ fn test_validity_preservation(#[case] validity: Validity) {
     assert!(
         prim.validity()
             .vortex_expect("temporal validity should be derivable")
-            .array_eq(&validity, Precision::Ptr)
+            .array_eq(&validity, EqMode::Ptr)
     );
 }
 

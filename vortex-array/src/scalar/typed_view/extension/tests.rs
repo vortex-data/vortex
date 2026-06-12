@@ -4,13 +4,13 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+use crate::EmptyMetadata;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
-use crate::extension::EmptyMetadata;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 

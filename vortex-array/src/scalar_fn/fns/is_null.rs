@@ -3,6 +3,7 @@
 
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -32,7 +33,8 @@ impl ScalarFnVTable for IsNull {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.is_null")
+        static ID: CachedId = CachedId::new("vortex.is_null");
+        *ID
     }
 
     fn serialize(&self, _instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

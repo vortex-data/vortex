@@ -8,6 +8,7 @@ pub trait Matcher {
     type Match<'a>;
 
     /// Check if the given array matches this matcher type
+    #[inline]
     fn matches(array: &ArrayRef) -> bool {
         Self::try_match(array).is_some()
     }

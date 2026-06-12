@@ -7,7 +7,6 @@
 //! [`DataSourceRef`]: vortex::scan::DataSourceRef
 //! [`TableProvider`]: datafusion_catalog::TableProvider
 
-use std::any::Any;
 use std::fmt;
 use std::sync::Arc;
 
@@ -107,10 +106,6 @@ impl VortexTable {
 
 #[async_trait]
 impl TableProvider for VortexTable {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn schema(&self) -> SchemaRef {
         Arc::clone(&self.arrow_schema)
     }

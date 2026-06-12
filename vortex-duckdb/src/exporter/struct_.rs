@@ -43,7 +43,7 @@ pub(crate) fn new_exporter(
     let children = fields
         .iter()
         .map(|child| {
-            if validity.to_bit_buffer().true_count() != validity.len() {
+            if validity.bit_buffer_view().true_count() != validity.len() {
                 // TODO(joe): use new mask.
                 new_array_exporter(
                     child.clone().mask(validity.clone().into_array())?,

@@ -28,7 +28,7 @@ type StatsEntry = (TypeId, Arc<dyn Any + Send + Sync>);
 
 /// Cache for compression statistics, keyed by concrete type.
 ///
-/// The cache is interior-mutable: entries can be inserted through a shared [`&StatsCache`]
+/// The cache is interior-mutable: entries can be inserted through a shared [`StatsCache`]
 /// borrow. Values are stored as [`Arc<dyn Any + Send + Sync>`] so that cached entries can be
 /// cloned out of the lock cheaply and handed back to callers as [`Arc<T>`].
 struct StatsCache {
@@ -76,14 +76,14 @@ impl StatsCache {
 /// original array are not reused.
 ///
 /// Built-in stats are accessed via typed methods ([`integer_stats`], [`float_stats`],
-/// [`string_stats`]) which generate stats lazily on first access using the stored
+/// [`varbinview_stats`]) which generate stats lazily on first access using the stored
 /// [`GenerateStatsOptions`].
 ///
 /// Extension schemes can use [`get_or_insert_with`] for custom stats types.
 ///
 /// [`integer_stats`]: ArrayAndStats::integer_stats
 /// [`float_stats`]: ArrayAndStats::float_stats
-/// [`string_stats`]: ArrayAndStats::string_stats
+/// [`varbinview_stats`]: ArrayAndStats::varbinview_stats
 /// [`get_or_insert_with`]: ArrayAndStats::get_or_insert_with
 pub struct ArrayAndStats {
     /// The array. This is always in canonical form.
@@ -135,8 +135,8 @@ impl ArrayAndStats {
     ///
     /// # Panics
     ///
-    /// Panics if the array is not a UTF-8 string array.
-    pub fn array_as_utf8(&self) -> ArrayView<'_, VarBinView> {
+    /// Panics if the array is not a varbinview array.
+    pub fn array_as_varbinview(&self) -> ArrayView<'_, VarBinView> {
         self.array
             .as_opt::<VarBinView>()
             .vortex_expect("the array is guaranteed to already be canonical by construction")
@@ -190,8 +190,8 @@ impl ArrayAndStats {
         })
     }
 
-    /// Returns string stats, generating them lazily on first access.
-    pub fn string_stats(&self, ctx: &mut ExecutionCtx) -> Arc<StringStats> {
+    /// Returns varbinview stats, generating them lazily on first access.
+    pub fn varbinview_stats(&self, ctx: &mut ExecutionCtx) -> Arc<StringStats> {
         let array = self.array.clone();
         let opts = self.opts;
         self.cache.get_or_insert_with::<StringStats>(|| {

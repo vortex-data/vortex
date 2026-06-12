@@ -35,3 +35,7 @@ vortex-array = { workspace = true, features = ["_test-harness"] }
 [[bench]]
 name = "sparse_canonical"
 harness = false
+
+[[bench]]
+name = "sparse_pushdown"
+harness = false

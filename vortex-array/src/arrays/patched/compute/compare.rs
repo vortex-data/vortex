@@ -55,9 +55,10 @@ impl CompareKernel for Patched {
 
         let validity = child_to_validity(result.slots()[0].as_ref(), result.dtype().nullability());
         let len = result.len();
-        let BoolDataParts { bits, offset, len } = result.into_data().into_parts(len);
+        let BoolDataParts { bits, meta } = result.into_data().into_parts(len);
 
-        let mut bits = BitBufferMut::from_buffer(bits.unwrap_host().into_mut(), offset, len);
+        let mut bits =
+            BitBufferMut::from_buffer(bits.unwrap_host().into_mut(), meta.offset(), meta.len());
 
         let lane_offsets = lhs.lane_offsets().clone().execute::<PrimitiveArray>(ctx)?;
         let indices = lhs.patch_indices().clone().execute::<PrimitiveArray>(ctx)?;

@@ -15,6 +15,8 @@ use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::ArraySlots;
+use crate::Canonical;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
@@ -329,21 +331,24 @@ pub trait ListArrayExt: TypedArrayRef<List> {
         self.elements().dtype()
     }
 
-    fn reset_offsets(&self, recurse: bool) -> VortexResult<Array<List>> {
+    fn reset_offsets(&self, recurse: bool, ctx: &mut ExecutionCtx) -> VortexResult<Array<List>> {
         let mut elements = self.sliced_elements()?;
         if recurse && elements.is_canonical() {
-            #[expect(deprecated)]
-            let compacted = elements.to_canonical()?.compact()?.into_array();
+            let compacted = elements
+                .clone()
+                .execute::<Canonical>(ctx)?
+                .compact(ctx)?
+                .into_array();
             elements = compacted;
         } else if recurse && let Some(child_list_array) = elements.as_opt::<List>() {
             elements = child_list_array
                 .into_owned()
-                .reset_offsets(recurse)?
+                .reset_offsets(recurse, ctx)?
                 .into_array();
         }
 
         let offsets = self.offsets();
-        let first_offset = offsets.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let first_offset = offsets.execute_scalar(0, ctx)?;
         let adjusted_offsets = offsets.clone().binary(
             ConstantArray::new(first_offset, offsets.len()).into_array(),
             Operator::Sub,

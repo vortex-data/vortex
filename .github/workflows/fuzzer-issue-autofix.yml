@@ -1,0 +1,109 @@
+name: Fuzzer Issue Autofix
+
+# Run the Fuzzer Fix Automation when a fuzzer-labeled issue is opened or gains
+# the "fuzzer" label. This covers issues filed by the fuzz pipeline as well as
+# ones created manually, complementing the in-pipeline attempt-fix-* jobs in
+# fuzz.yml.
+#
+# A gate job runs first, WITHOUT the claude-automation environment, so untrusted
+# triggers are rejected before the write-capable App token is minted. The
+# "fuzzer" label alone is not a trust boundary: applying a label only needs
+# triage permission, which is below write.
+
+concurrency:
+  # Keyed on the issue so repeat triggers (e.g. opened + labeled for the same
+  # issue) collapse into a single in-flight fix attempt.
+  group: fuzzer-fix-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+on:
+  issues:
+    types: [opened, labeled]
+
+jobs:
+  gate:
+    name: "Gate Fuzzer Autofix Trigger"
+    # Cheap pre-filter: only fuzzer-labeled issues are in scope. The trust
+    # decision (who triggered this, is the content trusted) is made in the
+    # script below, before any environment or write-capable token is attached.
+    if: |
+      (github.event.action == 'opened' &&
+        contains(github.event.issue.labels.*.name, 'fuzzer')) ||
+      (github.event.action == 'labeled' && github.event.label.name == 'fuzzer')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      should_run: ${{ steps.gate.outputs.should_run }}
+      reason: ${{ steps.gate.outputs.reason }}
+    steps:
+      - name: Decide whether this trigger is trusted
+        id: gate
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        env:
+          # Optional extra trusted report-author login (e.g. a dedicated
+          # fuzz-report App bot). github-actions[bot] is always trusted.
+          EXTRA_TRUSTED_AUTHOR: ${{ vars.FUZZ_REPORT_BOT_LOGIN }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const issue = context.payload.issue ?? {};
+            const sender = context.payload.sender?.login ?? '';
+            const author = issue.user?.login ?? '';
+
+            // Issues authored by the trusted fuzz-report bot carry trusted
+            // content, so a label event on them is safe regardless of who
+            // applied the label.
+            const trustedAuthors = ['github-actions[bot]'];
+            if (process.env.EXTRA_TRUSTED_AUTHOR) {
+              trustedAuthors.push(process.env.EXTRA_TRUSTED_AUTHOR);
+            }
+
+            let reason = '';
+            if (!trustedAuthors.includes(author)) {
+              // Otherwise the human who opened/labeled the issue must have
+              // write-or-higher access. Triage can apply labels but is not
+              // trusted to run write-capable automation on attacker-controlled
+              // issue content.
+              let permission = 'none';
+              try {
+                const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  username: sender,
+                });
+                permission = data.permission;
+              } catch (error) {
+                if (error.status !== 404) {
+                  throw error;
+                }
+              }
+              if (!['admin', 'maintain', 'write'].includes(permission)) {
+                reason = 'actor_lacks_write';
+              }
+            }
+
+            core.setOutput('should_run', reason ? 'false' : 'true');
+            core.setOutput('reason', reason || 'allowed');
+            core.notice(
+              `fuzzer autofix gate: ${reason || 'allowed'} ` +
+              `(sender=${sender}, author=${author})`
+            );
+
+  autofix:
+    name: "Autofix Fuzzer Issue"
+    needs: gate
+    if: needs.gate.outputs.should_run == 'true'
+    permissions:
+      # actions: read is required so the reusable workflow can download the
+      # crash artifact via `gh run download`.
+      actions: read
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write
+    uses: ./.github/workflows/fuzzer-fix-automation.yml
+    with:
+      issue_number: ${{ github.event.issue.number }}
+    secrets: inherit

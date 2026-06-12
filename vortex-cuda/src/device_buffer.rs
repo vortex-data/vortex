@@ -131,6 +131,27 @@ impl CudaDeviceBuffer {
     }
 }
 
+#[cfg(test)]
+pub(crate) fn cuda_backing_allocation(handle: &BufferHandle) -> VortexResult<BufferHandle> {
+    let device_buffer = handle
+        .as_device_opt()
+        .ok_or_else(|| vortex_err!("Buffer is not on device"))?;
+
+    let cuda_buf = device_buffer
+        .as_any()
+        .downcast_ref::<CudaDeviceBuffer>()
+        .ok_or_else(|| vortex_err!("expected CudaDeviceBuffer, was {device_buffer:?}"))?;
+    let len = cuda_buf.allocation.as_bytes_view().len();
+
+    Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer {
+        allocation: Arc::clone(&cuda_buf.allocation),
+        offset: 0,
+        len,
+        device_ptr: cuda_buf.device_ptr,
+        alignment: cuda_buf.alignment,
+    })))
+}
+
 // TODO(aduffy): we should add cuda_view_mut and enforce the borrow rules. This is a bit tricky
 //  because many executions are async, we should lean into that with ownership and having any
 //  async context actions take ownership of the buffer and return ownership when they're done.

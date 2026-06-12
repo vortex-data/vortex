@@ -135,7 +135,7 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
             }
 
             let referenced_mask = self.compute_referenced_values_mask(true)?;
-            let all_referenced = referenced_mask.iter().all(|v| v);
+            let all_referenced = referenced_mask.true_count() == referenced_mask.len();
 
             vortex_ensure!(all_referenced, "value in dict not referenced");
         }

@@ -3,17 +3,20 @@
 
 #![expect(clippy::unwrap_used)]
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::session::ArraySession;
 use vortex_buffer::Buffer;
 use vortex_runend::RunEnd;
 use vortex_runend::RunEndArray;
+use vortex_session::VortexSession;
 
 fn main() {
     divan::main();
@@ -47,15 +50,16 @@ const BENCH_ARGS: &[(usize, usize, f64)] = &[
     (100_000, 1024, 0.5),
 ];
 
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+
 #[divan::bench(args = BENCH_ARGS)]
 fn null_count_run_end(bencher: Bencher, (n, run_step, valid_density): (usize, usize, f64)) {
     let array = fixture(n, run_step, valid_density).into_array();
 
-    bencher.with_inputs(|| &array).bench_refs(|array| {
-        array
-            .invalid_count(&mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap()
-    });
+    bencher
+        .with_inputs(|| (&array, SESSION.create_execution_ctx()))
+        .bench_refs(|(array, ctx)| array.invalid_count(ctx).unwrap());
 }
 
 fn fixture(n: usize, run_step: usize, valid_density: f64) -> RunEndArray {
@@ -72,5 +76,5 @@ fn fixture(n: usize, run_step: usize, valid_density: f64) -> RunEndArray {
     )
     .into_array();
 
-    RunEnd::new(ends, values, &mut LEGACY_SESSION.create_execution_ctx())
+    RunEnd::new(ends, values, &mut SESSION.create_execution_ctx())
 }

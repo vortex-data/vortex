@@ -10,8 +10,8 @@ use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_schema::DataType;
 use arrow_schema::FieldRef;
 use arrow_schema::Fields;
+use arrow_schema::Schema;
 use vortex::dtype::DType;
-use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexResult;
 
 /// Export a Vortex [`DType`] to the Arrow C Data Interface struct at `schema_addr`. Views
@@ -24,7 +24,7 @@ pub(crate) fn export_dtype_to_arrow(dtype: &DType, schema_addr: i64) -> VortexRe
         DataType::Struct(fields) => fields,
         _ => unreachable!("Vortex DType always exports as a struct"),
     };
-    let schema = arrow_schema::Schema::new(fields);
+    let schema = Schema::new(fields);
     let ffi_schema = FFI_ArrowSchema::try_from(&schema)?;
     unsafe {
         ptr::write(schema_addr as *mut FFI_ArrowSchema, ffi_schema);
@@ -70,9 +70,8 @@ pub(crate) fn strip_views(data_type: DataType) -> DataType {
     }
 }
 
-/// Decode an [`FFI_ArrowSchema`] pointed to by `schema_addr` into a Vortex [`DType`].
-pub(crate) fn import_dtype_from_arrow(schema_addr: i64) -> VortexResult<DType> {
+/// Decode an [`FFI_ArrowSchema`] pointed to by `schema_addr` into an Arrow [`Schema`].
+pub(crate) fn import_arrow_schema(schema_addr: i64) -> VortexResult<Schema> {
     let ffi_schema = unsafe { &*(schema_addr as *const FFI_ArrowSchema) };
-    let arrow_schema = arrow_schema::Schema::try_from(ffi_schema)?;
-    Ok(DType::from_arrow(&arrow_schema))
+    Ok(Schema::try_from(ffi_schema)?)
 }

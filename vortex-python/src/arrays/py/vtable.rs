@@ -11,10 +11,10 @@ use vortex::array::ArrayId;
 use vortex::array::ArrayParts;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayView;
+use vortex::array::EqMode;
 use vortex::array::ExecutionCtx;
 use vortex::array::ExecutionResult;
 use vortex::array::OperationsVTable;
-use vortex::array::Precision;
 use vortex::array::VTable;
 use vortex::array::ValidityVTable;
 use vortex::array::buffer::BufferHandle;
@@ -37,13 +37,13 @@ pub struct PythonVTable {
 }
 
 impl ArrayHash for PythonArray {
-    fn array_hash<H: std::hash::Hasher>(&self, state: &mut H, _precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(&self, state: &mut H, _accuracy: EqMode) {
         Arc::as_ptr(&self.object).hash(state);
     }
 }
 
 impl ArrayEq for PythonArray {
-    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+    fn array_eq(&self, other: &Self, _accuracy: EqMode) -> bool {
         Arc::ptr_eq(&self.object, &other.object)
     }
 }

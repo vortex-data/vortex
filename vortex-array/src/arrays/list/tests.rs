@@ -2,17 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use vortex_buffer::BitBuffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 
 use super::*;
 use crate::Canonical;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::FilterArray;
 use crate::arrays::List;
@@ -24,7 +25,12 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType::I32;
 use crate::scalar::Scalar;
+use crate::session::ArraySession;
 use crate::validity::Validity;
+
+/// A shared session for `List` tests, used to create execution contexts.
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 #[test]
 fn test_empty_list_array() {
@@ -39,6 +45,7 @@ fn test_empty_list_array() {
 
 #[test]
 fn test_simple_list_array() {
+    let mut ctx = SESSION.create_execution_ctx();
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     let offsets = buffer![0, 2, 4, 5].into_array();
     let validity = Validity::AllValid;
@@ -51,8 +58,7 @@ fn test_simple_list_array() {
             vec![1.into(), 2.into()],
             Nullability::Nullable
         ),
-        list.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap()
+        list.execute_scalar(0, &mut ctx).unwrap()
     );
     assert_eq!(
         Scalar::list(
@@ -60,18 +66,17 @@ fn test_simple_list_array() {
             vec![3.into(), 4.into()],
             Nullability::Nullable
         ),
-        list.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap()
+        list.execute_scalar(1, &mut ctx).unwrap()
     );
     assert_eq!(
         Scalar::list(Arc::new(I32.into()), vec![5.into()], Nullability::Nullable),
-        list.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap()
+        list.execute_scalar(2, &mut ctx).unwrap()
     );
 }
 
 #[test]
 fn test_simple_list_array_from_iter() {
+    let mut ctx = SESSION.create_execution_ctx();
     let elements = buffer![1i32, 2, 3].into_array();
     let offsets = buffer![0, 2, 3].into_array();
     let validity = Validity::NonNullable;
@@ -84,18 +89,12 @@ fn test_simple_list_array_from_iter() {
 
     assert_eq!(list.len(), list_from_iter.len());
     assert_eq!(
-        list.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap(),
-        list_from_iter
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap()
+        list.execute_scalar(0, &mut ctx).unwrap(),
+        list_from_iter.execute_scalar(0, &mut ctx).unwrap()
     );
     assert_eq!(
-        list.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap(),
-        list_from_iter
-            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap()
+        list.execute_scalar(1, &mut ctx).unwrap(),
+        list_from_iter.execute_scalar(1, &mut ctx).unwrap()
     );
 }
 
@@ -208,6 +207,7 @@ fn test_list_filter_empty_lists() {
 
 #[test]
 fn test_list_filter_with_nulls() {
+    let mut ctx = SESSION.create_execution_ctx();
     // Test filtering lists with null validity.
     let elements = buffer![0..15].into_array();
     let offsets = buffer![0, 3, 7, 10, 12, 15].into_array();
@@ -227,30 +227,10 @@ fn test_list_filter_with_nulls() {
     assert_eq!(filtered.len(), 4);
 
     // Check validity of filtered array using scalar_at (works on any array).
-    assert!(
-        filtered
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap()
-            .is_valid()
-    );
-    assert!(
-        !filtered
-            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap()
-            .is_valid()
-    ); // Was null.
-    assert!(
-        !filtered
-            .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap()
-            .is_valid()
-    ); // Was null.
-    assert!(
-        filtered
-            .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap()
-            .is_valid()
-    );
+    assert!(filtered.execute_scalar(0, &mut ctx).unwrap().is_valid());
+    assert!(!filtered.execute_scalar(1, &mut ctx).unwrap().is_valid()); // Was null.
+    assert!(!filtered.execute_scalar(2, &mut ctx).unwrap().is_valid()); // Was null.
+    assert!(filtered.execute_scalar(3, &mut ctx).unwrap().is_valid());
 }
 
 #[test]
@@ -655,7 +635,7 @@ fn test_list_of_lists() {
 
     // Test scalar conversion.
     let scalar = list_of_lists
-        .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+        .execute_scalar(0, &mut SESSION.create_execution_ctx())
         .unwrap();
     assert!(matches!(scalar.dtype(), DType::List(_, _)));
     let list_scalar = scalar.as_list();
@@ -679,6 +659,7 @@ fn test_list_of_lists() {
 
 #[test]
 fn test_list_of_lists_nullable_outer() {
+    let mut ctx = SESSION.create_execution_ctx();
     // Create list of lists with nullable outer, non-nullable inner.
     // Structure: [[[1, 2], [3]], null, [[4, 5, 6]], [[7]]]
     let data = vec![
@@ -701,15 +682,11 @@ fn test_list_of_lists_nullable_outer() {
     ));
 
     // First element should be [[1, 2], [3]].
-    let first = list_of_lists
-        .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
-        .unwrap();
+    let first = list_of_lists.execute_scalar(0, &mut ctx).unwrap();
     assert!(!first.is_null());
 
     // Second element should be null.
-    let second = list_of_lists
-        .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
-        .unwrap();
+    let second = list_of_lists.execute_scalar(1, &mut ctx).unwrap();
     assert!(second.is_null());
 
     // Third element should be [[4, 5, 6]].
@@ -764,13 +741,14 @@ fn test_list_of_lists_nullable_inner() {
     // Check that second inner list is null.
     let second_inner = first_list
         .array()
-        .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+        .execute_scalar(1, &mut SESSION.create_execution_ctx())
         .unwrap();
     assert!(second_inner.is_null());
 }
 
 #[test]
 fn test_list_of_lists_both_nullable() {
+    let mut ctx = SESSION.create_execution_ctx();
     // Create list of lists with both nullable.
     // Structure: [[[1, 2], null], null, [[3]], [null]]
     let data = vec![
@@ -793,9 +771,7 @@ fn test_list_of_lists_both_nullable() {
     ));
 
     // First outer list should have 2 elements, second is null inner list.
-    let first_outer = list_of_lists
-        .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
-        .unwrap();
+    let first_outer = list_of_lists.execute_scalar(0, &mut ctx).unwrap();
     assert!(!first_outer.is_null());
     let first_outer_array = list_of_lists.list_elements_at(0).unwrap();
     let first_list = first_outer_array.as_::<List>();
@@ -806,16 +782,11 @@ fn test_list_of_lists_both_nullable() {
     assert_eq!(first_inner.len(), 2);
 
     // Second inner list should be null.
-    let second_inner = first_list
-        .array()
-        .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
-        .unwrap();
+    let second_inner = first_list.array().execute_scalar(1, &mut ctx).unwrap();
     assert!(second_inner.is_null());
 
     // Second outer list should be null.
-    let second_outer = list_of_lists
-        .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
-        .unwrap();
+    let second_outer = list_of_lists.execute_scalar(1, &mut ctx).unwrap();
     assert!(second_outer.is_null());
 
     // Third outer list should have [3].
@@ -829,10 +800,7 @@ fn test_list_of_lists_both_nullable() {
     let fourth_outer = list_of_lists.list_elements_at(3).unwrap();
     let fourth_list = fourth_outer.as_::<List>();
     assert_eq!(fourth_list.len(), 1);
-    let inner = fourth_list
-        .array()
-        .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
-        .unwrap();
+    let inner = fourth_list.array().execute_scalar(0, &mut ctx).unwrap();
     assert!(inner.is_null());
 }
 
@@ -925,6 +893,7 @@ fn test_offsets_constant() {
 
 #[test]
 fn test_recursive_compact_list_of_lists() {
+    let mut ctx = SESSION.create_execution_ctx();
     // Create a nested list structure: [[[1,2,3], [4,5]], [[6,7,8,9]], [[10], [11,12]]]
     let nested_data = vec![
         Some(vec![
@@ -941,9 +910,9 @@ fn test_recursive_compact_list_of_lists() {
     let sliced_list = sliced.as_::<List>();
 
     // Test non-recursive compaction: only resets outer list offsets
-    let non_recursive = sliced_list.reset_offsets(false).unwrap();
+    let non_recursive = sliced_list.reset_offsets(false, &mut ctx).unwrap();
     // Test recursive compaction: resets offsets and compacts inner canonical arrays
-    let recursive = sliced_list.reset_offsets(true).unwrap();
+    let recursive = sliced_list.reset_offsets(true, &mut ctx).unwrap();
 
     assert_eq!(non_recursive.len(), 2);
     assert_eq!(recursive.len(), 2);
@@ -964,12 +933,8 @@ fn test_recursive_compact_list_of_lists() {
     let non_recursive_array = non_recursive.into_array();
     let recursive_array = recursive.into_array();
     assert_eq!(
-        non_recursive_array
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap(),
-        recursive_array
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap()
+        non_recursive_array.execute_scalar(0, &mut ctx).unwrap(),
+        recursive_array.execute_scalar(0, &mut ctx).unwrap()
     );
 }
 
@@ -985,7 +950,7 @@ fn test_filter_sliced_list_array() -> VortexResult<()> {
 
     let mask = Mask::from(BitBuffer::from(vec![true, false, true]));
     let filter_array = FilterArray::new(list, mask).into_array();
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let result = filter_array.execute::<Canonical>(&mut ctx)?;
 
     assert_eq!(result.len(), 2);

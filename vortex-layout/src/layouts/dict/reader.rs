@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::collections::BTreeSet;
 use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
@@ -33,6 +32,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 use super::DictLayout;
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
+use crate::RowSplits;
 use crate::SplitRange;
 use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSource;
@@ -59,17 +59,21 @@ impl DictReader {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: VortexSession,
+        ctx: crate::LayoutReaderContext,
     ) -> VortexResult<Self> {
         let values_len = usize::try_from(layout.values.row_count())?;
         let values = layout.values.new_reader(
             format!("{name}.values").into(),
             Arc::clone(&segment_source),
             &session,
+            &ctx,
         )?;
-        let codes =
-            layout
-                .codes
-                .new_reader(format!("{name}.codes").into(), segment_source, &session)?;
+        let codes = layout.codes.new_reader(
+            format!("{name}.codes").into(),
+            segment_source,
+            &session,
+            &ctx,
+        )?;
 
         Ok(Self {
             layout,
@@ -169,7 +173,7 @@ impl LayoutReader for DictReader {
         &self,
         field_mask: &[FieldMask],
         split_range: &SplitRange,
-        splits: &mut BTreeSet<u64>,
+        splits: &mut RowSplits,
     ) -> VortexResult<()> {
         self.codes.register_splits(field_mask, split_range, splits)
     }
@@ -373,7 +377,7 @@ mod tests {
             );
             assert!(layout.encoding_id() == LayoutId::new("vortex.dict"));
             let actual = layout
-                .new_reader("".into(), segments, &session)
+                .new_reader("".into(), segments, &session, &Default::default())
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -457,7 +461,7 @@ mod tests {
                 )),
             );
             let mask = layout
-                .new_reader("".into(), segments, &session)
+                .new_reader("".into(), segments, &session, &Default::default())
                 .unwrap()
                 .filter_evaluation(&(0..3), &filter, MaskFuture::new_true(3))
                 .unwrap()
@@ -518,7 +522,7 @@ mod tests {
             let expression = is_not_null(root());
             assert_eq!(layout.encoding_id(), LayoutId::new("vortex.dict"));
             let actual = layout
-                .new_reader("".into(), segments, &session)
+                .new_reader("".into(), segments, &session, &Default::default())
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),

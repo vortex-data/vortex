@@ -10,6 +10,8 @@ use crate::duckdb::VectorBuffer;
 use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 
+/// A [`ColumnExporter`] that wraps another exporter with a validity
+/// export, allowing you to write data using something else here.
 struct ValidityExporter {
     mask: Mask,
     /// If the mask's bit buffer is u64-aligned with no sub-byte offset,

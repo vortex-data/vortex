@@ -1,7 +1,8 @@
 name: Fuzzer Fix Automation
 
+# Distinct from the caller's `fuzzer-fix-<issue>` group: this reusable workflow runs inside the caller's run, so sharing the name would make it cancel its own parent (cancel-in-progress).
 concurrency:
-  group: fuzzer-fix-${{ inputs.issue_number || github.run_id }}
+  group: fuzzer-fix-automation-${{ inputs.issue_number || github.run_id }}
   cancel-in-progress: true
 
 on:
@@ -10,13 +11,19 @@ on:
       issue_number:
         description: "Issue number to analyze and fix"
         required: true
-        type: number
+        # Use string, not number: a `number` input is rendered as a float in
+        # expression interpolation (e.g. `8189` becomes `8189.0`), which breaks
+        # `gh issue view`, the fix branch name, and every issue comment.
+        type: string
   workflow_call:
     inputs:
       issue_number:
         description: "Issue number to analyze and fix"
         required: true
-        type: number
+        # See the workflow_dispatch note above: string avoids the `8189.0`
+        # float rendering. The `issues` caller passes
+        # `github.event.issue.number`, which coerces cleanly to a string.
+        type: string
 
 env:
   NIGHTLY_TOOLCHAIN: nightly-2026-02-05
@@ -26,15 +33,29 @@ jobs:
     name: "Attempt to Fix Fuzzer Crash"
     # Only run when:
     # 1. Manually triggered via workflow_dispatch, OR
-    # 2. Called from another workflow (workflow_call)
+    # 2. Called from another workflow (workflow_call), OR
+    # 3. Reached via a reusable-workflow caller triggered by an "issues" event
+    #    (e.g. fuzzer-issue-autofix.yml). A called reusable workflow inherits
+    #    the caller's github.event_name, so the inner job sees "issues" rather
+    #    than "workflow_call" and must allow it explicitly.
     if: |
       github.event_name == 'workflow_call' ||
-      github.event_name == 'workflow_dispatch'
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'issues'
 
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
+    environment:
+      # The GitHub App private key lives only in this environment, so only this
+      # job can mint an App installation token. Using the App token (not
+      # GITHUB_TOKEN) means the draft PR opened below triggers normal CI.
+      name: claude-automation
+      deployment: false
+
     permissions:
+      # actions: read is needed for `gh run download` of the crash artifact.
+      actions: read
       contents: write
       pull-requests: write
       issues: write
@@ -42,7 +63,11 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        with:
+          # Don't leave the built-in GITHUB_TOKEN in git config; the fix is
+          # committed and pushed with the App token so its PR triggers CI.
+          persist-credentials: false
 
       - name: Fetch issue details
         id: fetch_issue
@@ -226,7 +251,19 @@ jobs:
           echo "Crash could not be reproduced - skipping fix attempt"
           exit 0
 
+      - name: Generate short-lived GitHub App token
+        id: app-token
+        if: steps.reproduce.outputs.crash_reproduced == 'true'
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
+
       - name: Attempt to fix crash with Claude
+        id: claude
         if: steps.reproduce.outputs.crash_reproduced == 'true'
         env:
           ISSUE_NUMBER: ${{ inputs.issue_number }}
@@ -236,10 +273,12 @@ jobs:
           CRASH_FILE: ${{ steps.extract.outputs.crash_file }}
           CRASH_FILE_PATH: ${{ steps.download.outputs.crash_file_path }}
           ARTIFACT_URL: ${{ steps.extract.outputs.artifact_url }}
-        uses: anthropics/claude-code-action@787c5a0ce96a9a6cfb050ea0c8f4c05f2447c251  # v1
+        uses: anthropics/claude-code-action@fbda2eb1bdc90d319b8d853f5deb53bca199a7c1  # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # Use the App token (not GITHUB_TOKEN) so the committed fix branch and
+          # its draft PR trigger normal pull_request CI workflows.
+          github_token: ${{ steps.app-token.outputs.token }}
           show_full_output: true
           prompt: |
             # Fuzzer Crash Fix - Issue #${{ env.ISSUE_NUMBER }}
@@ -251,6 +290,11 @@ jobs:
             **Crash file**: `${{ env.CRASH_FILE_PATH }}`
             **Crash log**: `crash_reproduction.log` (already run with RUST_BACKTRACE=full)
             **Target**: ${{ env.TARGET }}
+
+            **Note**: A draft pull request is opened automatically afterwards from
+            the source files you change — do not run git or open a PR yourself.
+            Just make the source edits and write the regression test; a later step
+            commits your changes to tracked files onto a fix branch and opens the PR.
 
             ## Your Task
 
@@ -357,7 +401,7 @@ jobs:
             **Suggested Approach**: [Recommendation with code snippets if possible]
             ```
           claude_args: |
-            --model claude-opus-4-20250514
+            --model claude-opus-4-8
             --max-turns 120
             --allowedTools "Read,Write,Edit,Glob,Grep,Bash(cargo:*),Bash(gh issue comment:*),Bash(gh run download:*),Bash(curl:*),Bash(find:*),Bash(ls:*),Bash(cat:*),Bash(RUST_BACKTRACE=* cargo:*)"
 
@@ -384,3 +428,121 @@ jobs:
             gh api "repos/${{ github.repository }}/issues/$ISSUE_NUM/comments" \
               --jq '.[] | select(.user.login == "claude-code[bot]" or .user.type == "Bot") | "- " + (.body | split("\n") | .[0])'
           fi
+
+      - name: Commit and push fix branch
+        id: commit
+        if: steps.reproduce.outputs.crash_reproduced == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          ISSUE_TITLE: ${{ steps.fetch_issue.outputs.issue_title }}
+        run: |
+          # claude-code-action only auto-creates a branch when it has an issue/PR
+          # event to anchor to. This workflow runs via workflow_dispatch /
+          # workflow_call, so we commit Claude's edits ourselves. `git add -u`
+          # stages only modifications to already-tracked files, which captures the
+          # source fix and regression test while ignoring the downloaded crash
+          # artifacts, build outputs, and logs this job leaves untracked.
+          git config user.name "vortex-claude[bot]"
+          git config user.email "274007616+vortex-claude[bot]@users.noreply.github.com"
+
+          git add -u
+          # Never commit lockfile churn from the fuzz build.
+          git reset -q -- '*Cargo.lock' 2>/dev/null || true
+
+          if git diff --cached --quiet; then
+            echo "No tracked source changes to commit — Claude produced no persistable fix."
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          branch="fuzzer-fix/issue-${ISSUE_NUMBER}"
+          git checkout -b "$branch"
+
+          crash_desc="${ISSUE_TITLE#Fuzzing Crash: }"
+          git commit -s \
+            -m "fix(fuzz): $crash_desc (#$ISSUE_NUMBER)" \
+            -m "Automated fix for fuzzer issue #$ISSUE_NUMBER."
+
+          git push --force \
+            "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" \
+            "HEAD:refs/heads/$branch"
+
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
+      - name: Open draft pull request for fix branch
+        # Only when a fix branch was pushed. The App token ensures the PR triggers
+        # normal CI; a draft keeps the fuzzer firehose low-noise until a maintainer
+        # marks it ready.
+        if: steps.commit.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+          BRANCH_NAME: ${{ steps.commit.outputs.branch }}
+          TARGET: ${{ steps.extract.outputs.target }}
+          CRASH_FILE: ${{ steps.extract.outputs.crash_file }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          ISSUE_TITLE: ${{ steps.fetch_issue.outputs.issue_title }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          existing_pr="$(
+            gh pr list --repo "$REPO" --head "$BRANCH_NAME" --state all \
+              --json url --jq '.[0].url // ""'
+          )"
+
+          if [[ -n "$existing_pr" ]]; then
+            echo "Pull request already exists: $existing_pr"
+            exit 0
+          fi
+
+          # Fuzzer issue titles look like "Fuzzing Crash: <variant> in <target>".
+          # Drop that prefix so the PR title reads "fix(fuzz): <variant> in <target>"
+          # instead of doubling up the "Fuzzing Crash:" wording.
+          crash_desc="${ISSUE_TITLE#Fuzzing Crash: }"
+          pr_title="fix(fuzz): $crash_desc (#$ISSUE_NUMBER)"
+
+          # Deliberately no "Closes #N": the nightly close-fixed-fuzzer-issues
+          # workflow re-runs the crash and closes the issue only once it no longer
+          # reproduces, so merging this PR should not close the issue on its own.
+          pr_body="$(cat <<EOF
+          Automated draft fix for fuzzer issue #$ISSUE_NUMBER.
+
+          - **Target**: \`$TARGET\`
+          - **Crash file**: \`$CRASH_FILE\`
+
+          Claude reproduced the crash, applied a minimal fix, and added a regression
+          test. The full analysis, diff, and test output are posted on issue
+          #$ISSUE_NUMBER.
+
+          This is a **draft**: please review carefully before marking it ready. The
+          linked issue is closed automatically by the nightly retest workflow once
+          the crash no longer reproduces, so this PR does not close it on merge.
+
+          [View Claude run]($RUN_URL)
+          EOF
+          )"
+
+          # changelog/fix satisfies the required changelog-label check; create the owned fuzzer-fix label if missing so a fresh repo/fork doesn't error.
+          gh label create "fuzzer-fix" --repo "$REPO" \
+            --color "b60205" \
+            --description "A fix auto-generated from a fuzzer issue" \
+            2>/dev/null || true
+
+          pr_url="$(
+            gh pr create \
+              --repo "$REPO" \
+              --draft \
+              --base "$BASE_BRANCH" \
+              --head "$BRANCH_NAME" \
+              --title "$pr_title" \
+              --body "$pr_body" \
+              --label "fuzzer-fix" \
+              --label "changelog/fix"
+          )"
+          echo "Created draft pull request: $pr_url"
+
+          gh issue comment "$ISSUE_NUMBER" --repo "$REPO" \
+            --body "🔀 Opened a draft pull request with the proposed fix: $pr_url"

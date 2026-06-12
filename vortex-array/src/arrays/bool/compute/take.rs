@@ -4,6 +4,7 @@
 use itertools::Itertools as _;
 use num_traits::AsPrimitive;
 use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferView;
 use vortex_buffer::get_bit;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -42,7 +43,10 @@ impl TakeExecute for Bool {
         };
         let indices_nulls_zeroed = indices_nulls_zeroed.execute::<PrimitiveArray>(ctx)?;
         let buffer = match_each_integer_ptype!(indices_nulls_zeroed.ptype(), |I| {
-            take_valid_indices(&array.to_bit_buffer(), indices_nulls_zeroed.as_slice::<I>())
+            take_valid_indices(
+                array.bit_buffer_view(),
+                indices_nulls_zeroed.as_slice::<I>(),
+            )
         });
 
         Ok(Some(
@@ -51,7 +55,7 @@ impl TakeExecute for Bool {
     }
 }
 
-fn take_valid_indices<I: AsPrimitive<usize>>(bools: &BitBuffer, indices: &[I]) -> BitBuffer {
+fn take_valid_indices<I: AsPrimitive<usize>>(bools: BitBufferView<'_>, indices: &[I]) -> BitBuffer {
     // For boolean arrays that roughly fit into a single page (at least, on Linux), it's worth
     // the overhead to convert to a Vec<bool>.
     if bools.len() <= 4096 {
@@ -68,9 +72,9 @@ fn take_byte_bool<I: AsPrimitive<usize>>(bools: Vec<bool>, indices: &[I]) -> Bit
     })
 }
 
-fn take_bool_impl<I: AsPrimitive<usize>>(bools: &BitBuffer, indices: &[I]) -> BitBuffer {
+fn take_bool_impl<I: AsPrimitive<usize>>(bools: BitBufferView<'_>, indices: &[I]) -> BitBuffer {
     // We dereference to underlying buffer to avoid access cost on every index.
-    let buffer = bools.inner().as_ref();
+    let buffer = bools.inner();
     BitBuffer::collect_bool(indices.len(), |idx| {
         // SAFETY: we can take from the indices unchecked since collect_bool just iterates len.
         let idx = unsafe { indices.get_unchecked(idx).as_() };

@@ -12,6 +12,7 @@ use vortex_array::dtype::session::DTypeSession;
 // vortex::expr is in the process of having its dependencies inverted, and will eventually be
 // pulled back out into a vortex_expr crate.
 pub use vortex_array::expr;
+use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::ArrayKernels;
 pub use vortex_array::scalar_fn;
 use vortex_array::scalar_fn::session::ScalarFnSession;
@@ -172,6 +173,7 @@ impl VortexSessionDefault for VortexSession {
             .with::<StatsSession>()
             .with::<ArrayKernels>()
             .with::<AggregateFnSession>()
+            .with::<MemorySession>()
             .with::<RuntimeSession>();
 
         #[cfg(feature = "files")]
@@ -344,11 +346,11 @@ mod test {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
         let recovered_primitive = recovered_array.execute::<PrimitiveArray>(&mut ctx)?;
-        assert!(
-            recovered_primitive
-                .validity()?
-                .mask_eq(&array.validity()?, &mut ctx)?
-        );
+        assert!(recovered_primitive.validity()?.mask_eq(
+            &array.validity()?,
+            array.len(),
+            &mut ctx
+        )?);
         assert_eq!(
             recovered_primitive.to_buffer::<u64>(),
             array.to_buffer::<u64>()

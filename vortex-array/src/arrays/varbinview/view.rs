@@ -150,17 +150,15 @@ impl BinaryView {
             12 => Self {
                 inlined: Inlined::new::<12>(value),
             },
-            _ => Self {
-                _ref: Ref {
-                    size: u32::try_from(value.len()).vortex_expect("value length must fit in u32"),
-                    prefix: value[0..4]
-                        .try_into()
-                        .ok()
-                        .vortex_expect("prefix must be exactly 4 bytes"),
-                    buffer_index: block,
-                    offset,
-                },
-            },
+            _ => Self::new_ref(
+                u32::try_from(value.len()).vortex_expect("value length must fit in u32"),
+                value[0..4]
+                    .try_into()
+                    .ok()
+                    .vortex_expect("prefix must be exactly 4 bytes"),
+                block,
+                offset,
+            ),
         }
     }
 
@@ -168,6 +166,27 @@ impl BinaryView {
     #[inline]
     pub fn empty_view() -> Self {
         Self { le_bytes: [0; 16] }
+    }
+
+    /// Create a reference view directly from its components, without inspecting the value.
+    ///
+    /// `size` must be greater than [`MAX_INLINED_SIZE`], and `prefix` must hold the first four
+    /// bytes of the value. This is the fast path for bulk view construction where the caller has
+    /// already established that the value is too long to inline; it assembles the 16-byte view as a
+    /// single `u128` so the compiler can emit one wide store per view.
+    ///
+    /// [`MAX_INLINED_SIZE`]: Self::MAX_INLINED_SIZE
+    #[inline]
+    pub fn new_ref(size: u32, prefix: [u8; 4], buffer_index: u32, offset: u32) -> Self {
+        debug_assert!(size as usize > Self::MAX_INLINED_SIZE);
+        // Matches the little-endian field order of `Ref` (size, prefix, buffer_index, offset),
+        // consistent with `le_bytes` and the `From<u128>`/`as_u128` representation.
+        Self::from(
+            u128::from(size)
+                | (u128::from(u32::from_le_bytes(prefix)) << 32)
+                | (u128::from(buffer_index) << 64)
+                | (u128::from(offset) << 96),
+        )
     }
 
     /// Create a new inlined binary view
@@ -276,5 +295,38 @@ impl fmt::Debug for BinaryView {
             s.field("ref", &self.as_view());
         }
         s.finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[rstest::rstest]
+    // Just past the inline boundary, typical, and large values.
+    #[case(13, 7, 42)]
+    #[case(20, 7, 42)]
+    #[case(255, 7, 42)]
+    #[case(4096, 7, 42)]
+    // Zero buffer index/offset and the `u32` extremes, to confirm the `u128` field assembly does
+    // not overflow into neighbouring fields.
+    #[case(13, 0, 0)]
+    #[case(13, u32::MAX, u32::MAX)]
+    fn new_ref_matches_make_view(#[case] len: u32, #[case] buffer_index: u32, #[case] offset: u32) {
+        // `new_ref` assembles the reference view as a `u128`; it must be byte-identical to the
+        // value-inspecting `make_view` for any value longer than the inline limit.
+        let value: Vec<u8> = (0..len)
+            .map(|i| u8::try_from(i % 251).vortex_expect("i % 251 fits in u8"))
+            .collect();
+        let prefix = [value[0], value[1], value[2], value[3]];
+        let made = BinaryView::make_view(&value, buffer_index, offset);
+        let built = BinaryView::new_ref(len, prefix, buffer_index, offset);
+        assert_eq!(made.as_u128(), built.as_u128(), "mismatch at len {len}");
+        assert!(!built.is_inlined());
+        let r = built.as_view();
+        assert_eq!(r.size, len);
+        assert_eq!(r.prefix, prefix);
+        assert_eq!(r.buffer_index, buffer_index);
+        assert_eq!(r.offset, offset);
     }
 }

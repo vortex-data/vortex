@@ -104,3 +104,15 @@ harness = false
 [[bench]]
 name = "fsst_cuda"
 harness = false
+
+[[bench]]
+name = "list_view_cuda"
+harness = false
+
+[[bench]]
+name = "arrow_validity_cuda"
+harness = false
+
+[[bench]]
+name = "arrow_binary_cuda"
+harness = false

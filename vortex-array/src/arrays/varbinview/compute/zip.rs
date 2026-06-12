@@ -177,6 +177,7 @@ fn push_range(
     }
 }
 
+#[inline]
 fn push_view(
     view: BinaryView,
     buffer_lookup: &[u32],

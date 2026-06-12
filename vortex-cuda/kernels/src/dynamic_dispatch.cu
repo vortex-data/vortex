@@ -199,6 +199,9 @@ scalar_op(T *values, const struct ScalarOp &op, char *__restrict smem, uint64_t 
         }
         break;
     }
+    case ScalarOp::CAST:
+        // Values are casted as part of LOAD as defined by the dispatch plan.
+        break;
     default:
         __builtin_unreachable();
     }

@@ -174,6 +174,20 @@ impl LogicalType {
     pub fn date() -> Self {
         Self::new(DUCKDB_TYPE::DUCKDB_TYPE_DATE)
     }
+
+    /// Creates a DuckDB GEOMETRY logical type with the given CRS (Coordinate Reference System).
+    ///
+    /// Pass `None` for a GEOMETRY with no associated CRS.
+    pub fn geometry_type(crs: Option<&str>) -> VortexResult<Self> {
+        let Ok(crs) = CString::new(crs.unwrap_or("")) else {
+            vortex_bail!("CRS must not contain NUL bytes");
+        };
+        let ptr = unsafe { duckdb_vx_create_geometry(crs.as_ptr()) };
+        if ptr.is_null() {
+            vortex_bail!("Failed to create GEOMETRY logical type");
+        }
+        Ok(unsafe { Self::own(ptr) })
+    }
 }
 
 impl LogicalTypeRef {
@@ -192,6 +206,17 @@ impl LogicalTypeRef {
 
     pub fn is_decimal(&self) -> bool {
         matches!(self.as_type_id(), DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL)
+    }
+
+    pub fn geometry_crs(&self) -> Option<DDBString> {
+        unsafe {
+            let c_string = duckdb_geometry_type_get_crs(self.as_ptr());
+            if c_string.is_null() {
+                None
+            } else {
+                Some(DDBString::own(c_string))
+            }
+        }
     }
 
     pub fn array_child_type(&self) -> LogicalType {
@@ -526,6 +551,16 @@ mod tests {
 
             assert_eq!(original_child_name, cloned_child_name);
         }
+    }
+
+    #[test]
+    fn test_create_geometry_type() -> VortexResult<()> {
+        let no_crs = LogicalType::geometry_type(None)?;
+        assert_eq!(no_crs.as_type_id(), DUCKDB_TYPE::DUCKDB_TYPE_GEOMETRY);
+
+        let with_crs = LogicalType::geometry_type(Some("EPSG:4326"))?;
+        assert_eq!(with_crs.as_type_id(), DUCKDB_TYPE::DUCKDB_TYPE_GEOMETRY);
+        Ok(())
     }
 
     #[test]

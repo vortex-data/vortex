@@ -105,6 +105,9 @@ impl ArrowDatum for Datum {
 /// # Error
 ///
 /// The provided array must have length
+#[deprecated(
+    note = "Relies on the hidden global `LEGACY_SESSION`; use `from_arrow_columnar` with an explicit `ExecutionCtx` instead"
+)]
 pub fn from_arrow_array_with_len<A>(array: A, len: usize, nullable: bool) -> VortexResult<ArrayRef>
 where
     ArrayRef: FromArrowArray<A>,
@@ -130,4 +133,39 @@ where
         len,
     )
     .into_array())
+}
+
+/// Convert an Arrow array to an Array with a specific length, using the provided
+/// [`ExecutionCtx`].
+///
+/// This is useful for compute functions that delegate to Arrow using [Datum],
+/// which will return a scalar (length 1 Arrow array) if the input array is constant.
+///
+/// # Error
+///
+/// The provided array must have length `len` or `1`.
+pub fn from_arrow_columnar<A>(
+    array: A,
+    len: usize,
+    nullable: bool,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef>
+where
+    ArrayRef: FromArrowArray<A>,
+{
+    let array = ArrayRef::from_arrow(array, nullable)?;
+    if array.len() == len {
+        return Ok(array);
+    }
+
+    if array.len() != 1 {
+        vortex_panic!(
+            "Array length mismatch, expected {} got {} for encoding {}",
+            len,
+            array.len(),
+            array.encoding_id()
+        );
+    }
+
+    Ok(ConstantArray::new(array.execute_scalar(0, ctx)?, len).into_array())
 }

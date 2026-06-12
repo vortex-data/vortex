@@ -12,7 +12,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::SharedArray;
 use crate::arrays::shared::SharedArrayExt;
 use crate::hash::ArrayEq;
-use crate::hash::Precision as HashPrecision;
+use crate::hash::EqMode;
 use crate::session::ArraySession;
 use crate::validity::Validity;
 
@@ -29,7 +29,7 @@ fn shared_array_caches_on_canonicalize() -> VortexResult<()> {
     // Second call should return cached without invoking the closure.
     let second = shared.get_or_compute(|_| panic!("should not execute twice"))?;
 
-    assert!(first.array_eq(&second, HashPrecision::Value));
+    assert!(first.array_eq(&second, EqMode::Value));
 
     Ok(())
 }

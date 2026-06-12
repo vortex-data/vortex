@@ -16,10 +16,10 @@ use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
+use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::Precision;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
@@ -55,14 +55,14 @@ use crate::alp::rules::RULES;
 pub type ALPArray = Array<ALP>;
 
 impl ArrayHash for ALPData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _accuracy: EqMode) {
         self.exponents.hash(state);
         self.patches_data.hash(state);
     }
 }
 
 impl ArrayEq for ALPData {
-    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+    fn array_eq(&self, other: &Self, _accuracy: EqMode) -> bool {
         self.exponents == other.exponents && self.patches_data == other.patches_data
     }
 }
@@ -695,22 +695,15 @@ mod tests {
             })
             .collect();
 
+        let mut ctx = SESSION.create_execution_ctx();
         let array = PrimitiveArray::from_option_iter(values.clone());
-        let encoded = alp_encode(
-            array.as_view(),
-            None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let encoded = alp_encode(array.as_view(), None, &mut ctx).unwrap();
 
         let slice_end = size - slice_start;
         let slice_len = slice_end - slice_start;
         let sliced_encoded = encoded.slice(slice_start..slice_end).unwrap();
 
-        let result_canonical = {
-            let mut ctx = SESSION.create_execution_ctx();
-            sliced_encoded.execute::<Canonical>(&mut ctx).unwrap()
-        };
+        let result_canonical = sliced_encoded.execute::<Canonical>(&mut ctx).unwrap();
         let result_primitive = result_canonical.into_primitive();
 
         for idx in 0..slice_len {
@@ -719,7 +712,7 @@ mod tests {
             let result_valid = result_primitive
                 .validity()
                 .vortex_expect("result validity should be derivable")
-                .is_valid(idx)
+                .execute_is_valid(idx, &mut ctx)
                 .unwrap();
             assert_eq!(
                 result_valid,

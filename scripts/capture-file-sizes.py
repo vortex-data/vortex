@@ -73,17 +73,28 @@ def main():
 
                 records.append(
                     {
+                        "metric": "file_size",
+                        "unit": "bytes",
+                        "value": size_bytes,
                         "commit_id": args.commit,
-                        "benchmark": args.benchmark,
-                        "scale_factor": scale_factor,
-                        "format": format_name,
-                        "file": str(relative_path),
-                        "size_bytes": size_bytes,
+                        "file_size": {
+                            "benchmark": args.benchmark,
+                            "scale_factor": scale_factor,
+                            "format": format_name,
+                            "file": str(relative_path),
+                        },
                     }
                 )
 
     # Sort for deterministic output
-    records.sort(key=lambda r: (r["benchmark"], r["scale_factor"], r["format"], r["file"]))
+    records.sort(
+        key=lambda r: (
+            r["file_size"]["benchmark"],
+            r["file_size"]["scale_factor"],
+            r["file_size"]["format"],
+            r["file_size"]["file"],
+        )
+    )
 
     # Write JSONL output
     with open(args.output, "w") as f:
