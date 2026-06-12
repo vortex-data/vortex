@@ -163,6 +163,12 @@ unroll unit), the full operator catalog, demand propagation rules, dispatch poli
 worked example. Stream-semantics points Q2.5–Q2.8 are resolved there as **stated defaults
 (P-Q2.5..P-Q2.8, §7)** pending veto.
 
+**The two planes are specified in [`patches-and-sip.md`](./patches-and-sip.md)**: the data
+plane (`Patch` — region-stamped Vortex arrays with embedded selection, the DataChunk
+analogue; stream invariant; edge typing) and the demand plane (`SelectionSip` / `DemandSip` /
+`EdgeDemand` — concrete representations, writer/reader tables, propagation and refresh,
+dispatch policy, and the cross-plane contract).
+
 ## Piece 3 — Lowering contract for layouts (not started)
 
 How each layout encoding contributes DAG fragments and rewrite rules; how lazy unroll calls into
