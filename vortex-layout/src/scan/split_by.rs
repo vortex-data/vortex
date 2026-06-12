@@ -5,11 +5,19 @@ use std::iter::once;
 use std::ops::Range;
 
 use vortex_array::dtype::FieldMask;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::LayoutReader;
 use crate::RowSplits;
 use crate::SplitRange;
+use crate::scan::IDEAL_SPLIT_SIZE;
+
+/// Chunk-boundary spans wider than this are sub-divided into multiple row-range splits so that a
+/// file with few, large chunks can be decoded across multiple cores rather than one.
+///
+/// Reuses [`IDEAL_SPLIT_SIZE`] as the target span per split.
+const MAX_SPLIT_ROWS: u64 = IDEAL_SPLIT_SIZE;
 
 /// Defines how the Vortex file is split into batches for reading.
 ///
@@ -17,7 +25,9 @@ use crate::SplitRange;
 #[derive(Default, Copy, Clone, Debug)]
 pub enum SplitBy {
     #[default]
-    /// Splits any time there is a chunk boundary in the file.
+    /// Splits any time there is a chunk boundary in the file. Spans between adjacent boundaries
+    /// wider than `MAX_SPLIT_ROWS` are further sub-divided so that a file with few, large chunks
+    /// can still be decoded across multiple cores.
     Layout,
     /// Splits every n rows.
     RowCount(usize),
@@ -44,7 +54,7 @@ impl SplitBy {
                     &SplitRange::root(row_range.clone())?,
                     &mut row_splits,
                 )?;
-                row_splits.into_sorted_deduped()
+                subdivide_large_spans(row_splits.into_sorted_deduped(), MAX_SPLIT_ROWS)
             }
             SplitBy::RowCount(n) => row_range
                 .clone()
@@ -53,6 +63,60 @@ impl SplitBy {
                 .collect(),
         })
     }
+}
+
+/// Sub-divide any gap between adjacent split boundaries that is wider than `max_span` into evenly
+/// sized row-range sub-splits.
+///
+/// `boundaries` is the sorted, deduplicated list of split points produced by the layout (chunk
+/// boundaries). Downstream consumers turn this list into half-open ranges by pairing adjacent
+/// entries (`tuple_windows().map(|(s, e)| s..e)`), so the row coverage is fully determined by the
+/// boundary set. This function only *inserts* points that lie strictly between two existing
+/// adjacent boundaries; it never moves or removes a boundary. Splitting `[lo, hi)` at an interior
+/// point `m` (with `lo < m < hi`) yields exactly `[lo, m) + [m, hi)`, so the union of ranges is
+/// unchanged: the rows are still partitioned contiguously, with no gaps and no overlaps, covering
+/// every row exactly once. The output remains sorted and deduplicated.
+fn subdivide_large_spans(boundaries: Vec<u64>, max_span: u64) -> Vec<u64> {
+    debug_assert!(boundaries.is_sorted(), "boundaries must be sorted");
+    debug_assert!(max_span > 0, "max_span must be non-zero");
+
+    // Fast path: nothing to split (also covers the empty / single-boundary cases).
+    if boundaries.len() < 2 || boundaries.windows(2).all(|w| w[1] - w[0] <= max_span) {
+        return boundaries;
+    }
+
+    let mut out = Vec::with_capacity(boundaries.len() * 2);
+    for window in boundaries.windows(2) {
+        let lo = window[0];
+        let hi = window[1];
+        // Always emit the lower boundary; the final `hi` is appended once after the loop.
+        out.push(lo);
+
+        let span = hi - lo;
+        if span > max_span {
+            // Number of sub-ranges so that each is <= max_span. `span > max_span` and
+            // `max_span >= 1` guarantee `sub_count >= 2`.
+            let sub_count = span.div_ceil(max_span);
+            // Even sub-range size (rounded up); the last sub-range absorbs any remainder and is
+            // bounded by `hi`. Inserted points `lo + k*sub_size` are strictly in `(lo, hi)`.
+            let sub_size = span.div_ceil(sub_count);
+            let mut point = lo + sub_size;
+            while point < hi {
+                out.push(point);
+                // Saturating: a sum past u64::MAX can never be < `hi`, so the loop exits.
+                point = point.saturating_add(sub_size);
+            }
+        }
+    }
+    // Append the final boundary (the `hi` of the last window).
+    out.push(*boundaries.last().vortex_expect("len >= 2 checked above"));
+
+    debug_assert!(out.is_sorted(), "subdivided boundaries must stay sorted");
+    debug_assert!(
+        out.windows(2).all(|w| w[0] < w[1]),
+        "subdivided boundaries must stay strictly increasing (deduped)"
+    );
+    out
 }
 
 #[cfg(test)]
@@ -211,5 +275,82 @@ mod test {
             .splits(&reader, &(0..10), &[FieldMask::All])
             .unwrap();
         assert_eq!(splits, vec![0u64, 5, 10]);
+    }
+
+    #[test]
+    fn subdivide_below_threshold_is_noop() {
+        // Gaps all <= max_span: boundaries returned unchanged.
+        assert_eq!(subdivide_large_spans(vec![0, 5, 10], 100), vec![0, 5, 10]);
+        assert_eq!(subdivide_large_spans(vec![0, 100], 100), vec![0, 100]);
+        assert_eq!(
+            subdivide_large_spans(Vec::<u64>::new(), 100),
+            Vec::<u64>::new()
+        );
+        assert_eq!(subdivide_large_spans(vec![7], 100), vec![7]);
+    }
+
+    #[test]
+    fn subdivide_near_u64_max_does_not_overflow() {
+        // The increment past the last interior point would overflow without saturating math.
+        let hi = u64::MAX;
+        let out = subdivide_large_spans(vec![hi - 3, hi], 2);
+        assert_eq!(out, vec![hi - 3, hi - 1, hi]);
+    }
+
+    #[test]
+    fn subdivide_splits_large_single_chunk() {
+        // One large chunk [0, 1000) with max_span 100 -> 10 contiguous sub-splits.
+        let out = subdivide_large_spans(vec![0, 1000], 100);
+        assert_eq!(
+            out,
+            vec![0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
+        );
+    }
+
+    #[test]
+    fn subdivide_only_large_gaps() {
+        // Mixed: [0,50) stays whole, [50, 350) splits into 100-row pieces, [350, 360) stays whole.
+        let out = subdivide_large_spans(vec![0, 50, 350, 360], 100);
+        assert_eq!(out, vec![0, 50, 150, 250, 350, 360]);
+    }
+
+    /// Property: for any sorted, deduped boundary set, subdivision (a) keeps the first and last
+    /// boundary, (b) stays strictly increasing, and (c) preserves exact row coverage — the union
+    /// of the half-open ranges the consumer derives is identical before and after.
+    #[test]
+    fn subdivide_preserves_exact_coverage() {
+        let cases: Vec<Vec<u64>> = vec![
+            vec![0, 1000],
+            vec![0, 7, 250_001],
+            vec![0, 5, 10, 15, 20, 25, 30],
+            vec![3, 1_000_003],
+            vec![0, 99_999, 100_000, 300_000],
+        ];
+        for boundaries in cases {
+            let out = subdivide_large_spans(boundaries.clone(), MAX_SPLIT_ROWS);
+            // (a) endpoints preserved
+            assert_eq!(out.first(), boundaries.first());
+            assert_eq!(out.last(), boundaries.last());
+            // (b) strictly increasing (sorted + deduped)
+            assert!(
+                out.windows(2).all(|w| w[0] < w[1]),
+                "not strictly increasing: {out:?}"
+            );
+            // (c) exact coverage: ranges from `out` tile the same span with no gap/overlap, and
+            // every original boundary is still present (so original ranges are sub-divided, never
+            // merged or shifted).
+            let total: u64 = out.windows(2).map(|w| w[1] - w[0]).sum();
+            let expected_total = boundaries.last().unwrap() - boundaries.first().unwrap();
+            assert_eq!(
+                total, expected_total,
+                "coverage span changed for {boundaries:?}"
+            );
+            for b in &boundaries {
+                assert!(
+                    out.contains(b),
+                    "original boundary {b} dropped from {out:?}"
+                );
+            }
+        }
     }
 }
