@@ -23,7 +23,7 @@ pub use visitor::pre_order_visit_down;
 pub use visitor::pre_order_visit_up;
 use vortex_error::VortexResult;
 
-use crate::expr::Expression;
+use crate::expr::BoundExpr;
 use crate::expr::traversal::fold::NodeFolderContextWrapper;
 
 /// Signal to control a traversal's flow
@@ -478,7 +478,7 @@ impl<'a, T: 'a, C: NodeContainer<'a, T>> NodeContainer<'a, T> for Vec<C> {
     }
 }
 
-impl<'a> NodeContainer<'a, Self> for Expression {
+impl<'a> NodeContainer<'a, Self> for BoundExpr {
     fn apply_elements<F: FnMut(&'a Self) -> VortexResult<TraversalOrder>>(
         &'a self,
         mut f: F,
@@ -494,12 +494,19 @@ impl<'a> NodeContainer<'a, Self> for Expression {
     }
 }
 
-impl Node for Expression {
+impl Node for BoundExpr {
     fn apply_children<'a, F: FnMut(&'a Self) -> VortexResult<TraversalOrder>>(
         &'a self,
         mut f: F,
     ) -> VortexResult<TraversalOrder> {
-        self.children().as_ref().apply_elements(&mut f)
+        let mut order = TraversalOrder::Continue;
+        for child in self.children() {
+            order = f(child)?;
+            if matches!(order, TraversalOrder::Stop) {
+                return Ok(TraversalOrder::Stop);
+            }
+        }
+        Ok(order)
     }
 
     fn map_children<F: FnMut(Self) -> VortexResult<Transformed<Self>>>(
@@ -544,41 +551,56 @@ mod tests {
     use super::Transformed;
     use super::TraversalOrder;
     use super::visitor::pre_order_visit_down;
-    use crate::expr::Expression;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability::NonNullable;
+    use crate::dtype::PType;
+    use crate::dtype::StructFields;
+    use crate::expr::BoundExpr;
     use crate::expr::and;
     use crate::expr::col;
     use crate::expr::eq;
-    use crate::expr::is_root;
     use crate::expr::lit;
     use crate::expr::not_eq;
     use crate::expr::root;
     use crate::scalar_fn::fns::binary::Binary;
     use crate::scalar_fn::fns::get_item::GetItem;
-    use crate::scalar_fn::fns::literal::Literal;
     use crate::scalar_fn::fns::operators::Operator;
 
+    fn scope() -> DType {
+        let i32_dtype = DType::Primitive(PType::I32, NonNullable);
+        DType::Struct(
+            StructFields::from_iter([
+                ("col1", i32_dtype.clone()),
+                ("col2", i32_dtype.clone()),
+                ("col3", i32_dtype.clone()),
+                ("col4", i32_dtype),
+            ]),
+            NonNullable,
+        )
+    }
+
     #[derive(Default)]
-    pub struct ExprLitCollector<'a>(pub Vec<&'a Expression>);
+    pub struct ExprLitCollector<'a>(pub Vec<&'a BoundExpr>);
 
     impl<'a> NodeVisitor<'a> for ExprLitCollector<'a> {
-        type NodeTy = Expression;
+        type NodeTy = BoundExpr;
 
-        fn visit_down(&mut self, node: &'a Expression) -> VortexResult<TraversalOrder> {
-            if node.is::<Literal>() {
+        fn visit_down(&mut self, node: &'a BoundExpr) -> VortexResult<TraversalOrder> {
+            if node.as_literal().is_some() {
                 self.0.push(node)
             }
             Ok(TraversalOrder::Continue)
         }
 
-        fn visit_up(&mut self, _node: &'a Expression) -> VortexResult<TraversalOrder> {
+        fn visit_up(&mut self, _node: &'a BoundExpr) -> VortexResult<TraversalOrder> {
             Ok(TraversalOrder::Continue)
         }
     }
 
     fn expr_col_to_lit_transform(
-        node: Expression,
+        node: BoundExpr,
         idx: &mut i32,
-    ) -> VortexResult<Transformed<Expression>> {
+    ) -> VortexResult<Transformed<BoundExpr>> {
         if node.is::<GetItem>() {
             let lit_id = *idx;
             *idx += 1;
@@ -592,7 +614,7 @@ mod tests {
     pub struct SkipDownRewriter;
 
     impl NodeRewriter for SkipDownRewriter {
-        type NodeTy = Expression;
+        type NodeTy = BoundExpr;
 
         fn visit_down(&mut self, node: Self::NodeTy) -> VortexResult<Transformed<Self::NodeTy>> {
             Ok(Transformed {
@@ -603,16 +625,17 @@ mod tests {
         }
 
         fn visit_up(&mut self, _node: Self::NodeTy) -> VortexResult<Transformed<Self::NodeTy>> {
-            Ok(Transformed::yes(root()))
+            Ok(Transformed::yes(root(scope())))
         }
     }
 
     #[test]
     fn expr_deep_visitor_test() {
-        let col1: Expression = col("col1");
+        let dtype = scope();
+        let col1: BoundExpr = col("col1", &dtype);
         let lit1 = lit(1);
         let expr = eq(col1, lit1);
-        let lit2 = lit(2);
+        let lit2 = lit(true);
         let expr = and(expr, lit2);
         let mut printer = ExprLitCollector::default();
         expr.accept(&mut printer).unwrap();
@@ -621,10 +644,11 @@ mod tests {
 
     #[test]
     fn expr_deep_mut_visitor_test() {
-        let col1: Expression = col("col1");
-        let col2: Expression = col("col2");
+        let dtype = scope();
+        let col1: BoundExpr = col("col1", &dtype);
+        let col2: BoundExpr = col("col2", &dtype);
         let expr = eq(col1, col2);
-        let lit2 = lit(2);
+        let lit2 = lit(true);
         let expr = and(expr, lit2);
 
         let mut idx = 0_i32;
@@ -642,16 +666,17 @@ mod tests {
 
     #[test]
     fn expr_skip_test() {
-        let col1: Expression = col("col1");
-        let col2: Expression = col("col2");
+        let dtype = scope();
+        let col1: BoundExpr = col("col1", &dtype);
+        let col2: BoundExpr = col("col2", &dtype);
         let expr1 = eq(col1, col2);
-        let col3: Expression = col("col3");
-        let col4: Expression = col("col4");
+        let col3: BoundExpr = col("col3", &dtype);
+        let col4: BoundExpr = col("col4", &dtype);
         let expr2 = not_eq(col3, col4);
         let expr = and(expr1, expr2);
 
         let mut nodes = Vec::new();
-        pre_order_visit_down(&expr, |node: &Expression| {
+        pre_order_visit_down(&expr, |node: &BoundExpr| {
             if node.is::<GetItem>() {
                 nodes.push(node)
             }
@@ -664,22 +689,26 @@ mod tests {
         })
         .unwrap();
 
-        let nodes: HashSet<Expression> = HashSet::from_iter(nodes.into_iter().cloned());
-        assert_eq!(nodes, HashSet::from_iter([col("col3"), col("col4")]));
+        let nodes: HashSet<BoundExpr> = HashSet::from_iter(nodes.into_iter().cloned());
+        assert_eq!(
+            nodes,
+            HashSet::from_iter([col("col3", &dtype), col("col4", &dtype)])
+        );
     }
 
     #[test]
     fn expr_stop_test() {
-        let col1: Expression = col("col1");
-        let col2: Expression = col("col2");
+        let dtype = scope();
+        let col1: BoundExpr = col("col1", &dtype);
+        let col2: BoundExpr = col("col2", &dtype);
         let expr1 = eq(col1, col2);
-        let col3: Expression = col("col3");
-        let col4: Expression = col("col4");
+        let col3: BoundExpr = col("col3", &dtype);
+        let col4: BoundExpr = col("col4", &dtype);
         let expr2 = not_eq(col3, col4);
         let expr = and(expr1, expr2);
 
         let mut nodes = Vec::new();
-        pre_order_visit_down(&expr, |node: &Expression| {
+        pre_order_visit_down(&expr, |node: &BoundExpr| {
             if node.is::<GetItem>() {
                 nodes.push(node)
             }
@@ -697,12 +726,13 @@ mod tests {
 
     #[test]
     fn expr_skip_down_visit_up() {
-        let col = col("col");
+        let dtype = scope();
+        let col = col("col1", &dtype);
 
         let mut visitor = SkipDownRewriter;
         let result = col.rewrite(&mut visitor).unwrap();
 
         assert!(result.changed);
-        assert!(is_root(&result.value));
+        assert!(result.value.is_root());
     }
 }

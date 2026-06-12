@@ -211,10 +211,11 @@ fn test222() -> VortexResult<()> {
     let ts_array = PrimitiveArray::from_iter(vec![1704067200000i64, 1704153600000, 1704240000000])
         .into_array();
     let temporal = TemporalData::new_timestamp(ts_array, TimeUnit::Milliseconds, None);
+    let temporal_dtype = temporal.dtype().clone();
 
     // Read with SECONDS filter scalar
     let filter_expr = gt(
-        root(),
+        root(temporal_dtype),
         lit(Scalar::extension::<Timestamp>(
             TimestampOptions {
                 unit: TimeUnit::Seconds,

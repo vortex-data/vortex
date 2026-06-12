@@ -32,9 +32,10 @@ use crate::arrays::VarBinView;
 use crate::arrays::struct_::compute::cast::struct_cast;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::expr::BoundCall;
+use crate::expr::BoundExpr;
 use crate::expr::StatsCatalog;
 use crate::expr::cast;
-use crate::expr::expression::Expression;
 use crate::expr::lit;
 use crate::expr::stats::Stat;
 use crate::scalar_fn::Arity;
@@ -92,7 +93,7 @@ impl ScalarFnVTable for Cast {
         }
     }
 
-    fn fmt_sql(&self, dtype: &DType, expr: &Expression, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt_sql(&self, dtype: &DType, expr: &BoundCall, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "cast(")?;
         expr.children()[0].fmt_sql(f)?;
         write!(f, " as {}", dtype)?;
@@ -155,10 +156,10 @@ impl ScalarFnVTable for Cast {
     fn stat_expression(
         &self,
         dtype: &DType,
-        expr: &Expression,
+        expr: &BoundCall,
         stat: Stat,
         catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
+    ) -> Option<BoundExpr> {
         match stat {
             Stat::IsConstant
             | Stat::IsSorted
@@ -185,7 +186,7 @@ impl ScalarFnVTable for Cast {
         }
     }
 
-    fn validity(&self, dtype: &DType, expression: &Expression) -> VortexResult<Option<Expression>> {
+    fn validity(&self, dtype: &DType, expression: &BoundCall) -> VortexResult<Option<BoundExpr>> {
         Ok(Some(if dtype.is_nullable() {
             expression.child(0).validity()?
         } else {
@@ -243,7 +244,7 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::Expression;
+    use crate::expr::BoundExpr;
     use crate::expr::cast;
     use crate::expr::get_item;
     use crate::expr::root;
@@ -253,17 +254,18 @@ mod tests {
     fn dtype() {
         let dtype = test_harness::struct_dtype();
         assert_eq!(
-            cast(root(), DType::Bool(Nullability::NonNullable))
-                .return_dtype(&dtype)
-                .unwrap(),
+            cast(root(dtype), DType::Bool(Nullability::NonNullable))
+                .dtype()
+                .clone(),
             DType::Bool(Nullability::NonNullable)
         );
     }
 
     #[test]
     fn replace_children() {
-        let expr = cast(root(), DType::Bool(Nullability::Nullable));
-        expr.with_children(vec![root()])
+        let dtype = DType::Bool(Nullability::NonNullable);
+        let expr = cast(root(dtype.clone()), DType::Bool(Nullability::Nullable));
+        expr.with_children(vec![root(dtype)])
             .vortex_expect("operation should succeed in test");
     }
 
@@ -276,8 +278,8 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let expr: Expression = cast(
-            get_item("a", root()),
+        let expr: BoundExpr = cast(
+            get_item("a", root(test_array.dtype().clone())),
             DType::Primitive(PType::I64, Nullability::NonNullable),
         );
         let result = test_array.apply(&expr).unwrap();
@@ -290,13 +292,23 @@ mod tests {
 
     #[test]
     fn test_display() {
+        let scope = DType::struct_(
+            [(
+                "value",
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+            )],
+            Nullability::NonNullable,
+        );
         let expr = cast(
-            get_item("value", root()),
+            get_item("value", root(scope)),
             DType::Primitive(PType::I64, Nullability::NonNullable),
         );
         assert_eq!(expr.to_string(), "cast($.value as i64)");
 
-        let expr2 = cast(root(), DType::Bool(Nullability::Nullable));
+        let expr2 = cast(
+            root(DType::Bool(Nullability::NonNullable)),
+            DType::Bool(Nullability::Nullable),
+        );
         assert_eq!(expr2.to_string(), "cast($ as bool?)");
     }
 }

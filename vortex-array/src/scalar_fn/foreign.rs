@@ -13,7 +13,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
-use crate::expr::Expression;
+use crate::expr::BoundCall;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
@@ -93,7 +93,7 @@ impl ScalarFnVTable for ForeignScalarFnVTable {
     fn fmt_sql(
         &self,
         _options: &Self::Options,
-        expr: &Expression,
+        expr: &BoundCall,
         f: &mut Formatter<'_>,
     ) -> fmt::Result {
         write!(f, "{}(", self.id)?;

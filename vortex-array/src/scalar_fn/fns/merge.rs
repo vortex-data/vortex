@@ -23,7 +23,8 @@ use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
-use crate::expr::Expression;
+use crate::expr::BoundCall;
+use crate::expr::BoundExpr;
 use crate::expr::lit;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -236,8 +237,8 @@ impl ScalarFnVTable for Merge {
     fn validity(
         &self,
         _options: &Self::Options,
-        _expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+        _expression: &BoundCall,
+    ) -> VortexResult<Option<BoundExpr>> {
         Ok(Some(lit(true)))
     }
 
@@ -288,7 +289,7 @@ mod tests {
     use crate::dtype::PType::I64;
     use crate::dtype::PType::U32;
     use crate::dtype::PType::U64;
-    use crate::expr::Expression;
+    use crate::expr::BoundExpr;
     use crate::expr::get_item;
     use crate::expr::merge;
     use crate::expr::merge_opts;
@@ -316,17 +317,12 @@ mod tests {
         Ok(result)
     }
 
+    fn root_for(array: &ArrayRef) -> BoundExpr {
+        root(array.dtype().clone())
+    }
+
     #[test]
     pub fn test_merge_right_most() {
-        let expr = merge_opts(
-            vec![
-                get_item("0", root()),
-                get_item("1", root()),
-                get_item("2", root()),
-            ],
-            DuplicateHandling::RightMost,
-        );
-
         let test_array = StructArray::from_fields(&[
             (
                 "0",
@@ -358,6 +354,14 @@ mod tests {
         ])
         .unwrap()
         .into_array();
+        let expr = merge_opts(
+            vec![
+                get_item("0", root_for(&test_array)),
+                get_item("1", root_for(&test_array)),
+                get_item("2", root_for(&test_array)),
+            ],
+            DuplicateHandling::RightMost,
+        );
         let actual_array = test_array.apply(&expr).unwrap();
 
         assert_eq!(
@@ -390,10 +394,6 @@ mod tests {
     #[test]
     #[should_panic(expected = "merge: duplicate fields in children")]
     pub fn test_merge_error_on_dupe_return_dtype() {
-        let expr = merge_opts(
-            vec![get_item("0", root()), get_item("1", root())],
-            DuplicateHandling::Error,
-        );
         let test_array = StructArray::try_from_iter([
             (
                 "0",
@@ -407,35 +407,18 @@ mod tests {
         .unwrap()
         .into_array();
 
-        expr.return_dtype(test_array.dtype()).unwrap();
-    }
-
-    #[test]
-    #[should_panic(expected = "merge: duplicate fields in children")]
-    pub fn test_merge_error_on_dupe_evaluate() {
-        let expr = merge_opts(
-            vec![get_item("0", root()), get_item("1", root())],
+        let _expr = merge_opts(
+            vec![
+                get_item("0", root_for(&test_array)),
+                get_item("1", root_for(&test_array)),
+            ],
             DuplicateHandling::Error,
         );
-        let test_array = StructArray::try_from_iter([
-            (
-                "0",
-                StructArray::try_from_iter([("a", buffer![1]), ("b", buffer![1])]).unwrap(),
-            ),
-            (
-                "1",
-                StructArray::try_from_iter([("c", buffer![1]), ("b", buffer![1])]).unwrap(),
-            ),
-        ])
-        .unwrap()
-        .into_array();
-
-        test_array.apply(&expr).unwrap();
     }
 
     #[test]
     pub fn test_empty_merge() {
-        let expr = merge(Vec::<Expression>::new());
+        let expr = merge(Vec::<BoundExpr>::new());
 
         let test_array = StructArray::from_fields(&[("a", buffer![0, 1, 2].into_array())])
             .unwrap()
@@ -448,11 +431,6 @@ mod tests {
     #[test]
     pub fn test_nested_merge() {
         // Nested structs are not merged!
-
-        let expr = merge_opts(
-            vec![get_item("0", root()), get_item("1", root())],
-            DuplicateHandling::RightMost,
-        );
 
         let test_array = StructArray::from_fields(&[
             (
@@ -483,6 +461,13 @@ mod tests {
         ])
         .unwrap()
         .into_array();
+        let expr = merge_opts(
+            vec![
+                get_item("0", root_for(&test_array)),
+                get_item("1", root_for(&test_array)),
+            ],
+            DuplicateHandling::RightMost,
+        );
         #[expect(deprecated)]
         let actual_array = test_array.apply(&expr).unwrap().to_struct();
 
@@ -503,8 +488,6 @@ mod tests {
 
     #[test]
     pub fn test_merge_order() {
-        let expr = merge(vec![get_item("0", root()), get_item("1", root())]);
-
         let test_array = StructArray::from_fields(&[
             (
                 "0",
@@ -527,6 +510,10 @@ mod tests {
         ])
         .unwrap()
         .into_array();
+        let expr = merge(vec![
+            get_item("0", root_for(&test_array)),
+            get_item("1", root_for(&test_array)),
+        ]);
         #[expect(deprecated)]
         let actual_array = test_array.apply(&expr).unwrap().to_struct();
 
@@ -535,13 +522,24 @@ mod tests {
 
     #[test]
     pub fn test_display() {
-        let expr = merge([get_item("struct1", root()), get_item("struct2", root())]);
+        let scope = DType::struct_(
+            [
+                ("struct1", DType::struct_([("a", I32)], NonNullable)),
+                ("struct2", DType::struct_([("b", I64)], NonNullable)),
+                ("a", DType::struct_([("x", I32)], NonNullable)),
+            ],
+            NonNullable,
+        );
+        let expr = merge([
+            get_item("struct1", root(scope.clone())),
+            get_item("struct2", root(scope.clone())),
+        ]);
         assert_eq!(
             expr.to_string(),
             "vortex.merge($.struct1, $.struct2, opts=Error)"
         );
 
-        let expr2 = merge(vec![get_item("a", root())]);
+        let expr2 = merge(vec![get_item("a", root(scope))]);
         assert_eq!(expr2.to_string(), "vortex.merge($.a, opts=Error)");
     }
 
@@ -556,16 +554,19 @@ mod tests {
         );
 
         let e = merge_opts(
-            [get_item("0", root()), get_item("1", root())],
+            [
+                get_item("0", root(dtype.clone())),
+                get_item("1", root(dtype)),
+            ],
             DuplicateHandling::RightMost,
         );
 
-        let result = e.optimize(&dtype).unwrap();
+        let result = e.optimize().unwrap();
 
         assert!(result.is::<Pack>());
         assert_eq!(
-            result.return_dtype(&dtype).unwrap(),
-            DType::struct_([("a", I32), ("b", U32), ("c", U64)], NonNullable)
+            result.dtype(),
+            &DType::struct_([("a", I32), ("b", U32), ("c", U64)], NonNullable)
         );
     }
 }

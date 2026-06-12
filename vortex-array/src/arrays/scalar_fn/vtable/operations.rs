@@ -67,11 +67,11 @@ mod tests {
     use crate::arrays::ScalarFnArray;
     use crate::arrays::scalar_fn::ScalarFnArrayExt;
     use crate::assert_arrays_eq;
-    use crate::scalar::Scalar;
     use crate::scalar_fn::TypedScalarFnInstance;
     use crate::scalar_fn::fns::binary::Binary;
-    use crate::scalar_fn::fns::literal::Literal;
     use crate::scalar_fn::fns::operators::Operator;
+    use crate::scalar_fn::internal::placeholder::PlaceholderFn;
+    use crate::scalar_fn::internal::row_count::row_count_ref;
     use crate::validity::Validity;
 
     #[test]
@@ -111,7 +111,7 @@ mod tests {
 
     #[test]
     fn test_scalar_fn_without_children_requires_explicit_len() -> VortexResult<()> {
-        let scalar_fn = TypedScalarFnInstance::new(Literal, Scalar::from(1i32)).erased();
+        let scalar_fn = TypedScalarFnInstance::new(PlaceholderFn, row_count_ref()).erased();
 
         let Err(err) = ScalarFnArray::try_new(scalar_fn.clone(), vec![]) else {
             panic!("ScalarFnArray::try_new should reject zero children");

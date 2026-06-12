@@ -8,13 +8,12 @@ use crate::dtype::DType;
 use crate::dtype::Field;
 use crate::dtype::FieldPath;
 use crate::dtype::FieldPathSet;
-use crate::expr::Expression;
+use crate::expr::BoundExpr;
 use crate::expr::traversal::FoldDownContext;
 use crate::expr::traversal::FoldUp;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::NodeFolderContext;
 use crate::scalar_fn::fns::get_item::GetItem;
-use crate::scalar_fn::fns::root::Root;
 use crate::scalar_fn::fns::select::Select;
 
 /// Returns the rooted field paths referenced by an expression.
@@ -24,12 +23,10 @@ use crate::scalar_fn::fns::select::Select;
 /// expression is represented by [`FieldPath::root`], which conservatively selects all fields.
 /// Scalar functions other than `GetItem` and `Select` conservatively reference each complete child
 /// output.
-pub fn referenced_field_paths(expr: &Expression, scope: &DType) -> VortexResult<FieldPathSet> {
-    // Validate the whole expression so plain GetItem paths and Select paths behave consistently.
-    expr.return_dtype(scope)?;
-
+// `scope` only feeds the debug-build invariant check below.
+#[cfg_attr(not(debug_assertions), expect(unused_variables))]
+pub fn referenced_field_paths(expr: &BoundExpr, scope: &DType) -> VortexResult<FieldPathSet> {
     let mut collector = ReferencedFieldPaths {
-        scope,
         field_paths: FieldPathSet::default(),
     };
     expr.clone()
@@ -78,22 +75,21 @@ pub fn referenced_field_paths(expr: &Expression, scope: &DType) -> VortexResult<
 /// column projection). Any other function is opaque—we cannot assume it preserves a field's
 /// provenance—so its children conservatively re-request the whole scope, which is what keeps an
 /// expression like `f($).x` reading every field of `$` rather than just `x`.
-struct ReferencedFieldPaths<'a> {
-    scope: &'a DType,
+struct ReferencedFieldPaths {
     field_paths: FieldPathSet,
 }
 
-impl NodeFolderContext for ReferencedFieldPaths<'_> {
-    type NodeTy = Expression;
+impl NodeFolderContext for ReferencedFieldPaths {
+    type NodeTy = BoundExpr;
     type Result = ();
     type Context = Vec<FieldPath>;
 
     fn visit_down(
         &mut self,
         requested: &Self::Context,
-        node: &Expression,
+        node: &BoundExpr,
     ) -> VortexResult<FoldDownContext<Self::Context, ()>> {
-        if node.is::<Root>() {
+        if node.is_root() {
             self.field_paths.extend(
                 requested
                     .iter()
@@ -113,7 +109,7 @@ impl NodeFolderContext for ReferencedFieldPaths<'_> {
         // Keep requested paths whose head is included, expanding a whole-scope request into one
         // path per included field.
         if let Some(selection) = node.as_opt::<Select>() {
-            let child_dtype = node.child(0).return_dtype(self.scope)?;
+            let child_dtype = node.child(0).dtype();
             let child_fields = child_dtype
                 .as_struct_fields_opt()
                 .ok_or_else(|| vortex_err!("Select child is not a struct"))?;
@@ -146,7 +142,7 @@ impl NodeFolderContext for ReferencedFieldPaths<'_> {
 
     fn visit_up(
         &mut self,
-        _node: Expression,
+        _node: BoundExpr,
         _requested: &Self::Context,
         _children: Vec<()>,
     ) -> VortexResult<FoldUp<()>> {
@@ -167,6 +163,7 @@ mod tests {
     use crate::expr::root;
     use crate::expr::select;
     use crate::expr::select_exclude;
+    use crate::expr::try_get_item;
 
     fn scope() -> DType {
         DType::Struct(
@@ -182,7 +179,7 @@ mod tests {
     }
 
     /// Collects the prefix-minimal field paths referenced by `expr` against [`scope`].
-    fn referenced(expr: &Expression) -> VortexResult<HashSet<FieldPath>> {
+    fn referenced(expr: &BoundExpr) -> VortexResult<HashSet<FieldPath>> {
         Ok(referenced_field_paths(expr, &scope())?
             .into_iter()
             .collect())
@@ -190,7 +187,7 @@ mod tests {
 
     #[test]
     fn nested_select_preserves_field_path() -> VortexResult<()> {
-        let expr = select(["x"], get_item("a", root()));
+        let expr = select(["x"], get_item("a", root(scope())));
 
         assert_eq!(
             referenced(&expr)?,
@@ -201,7 +198,7 @@ mod tests {
 
     #[test]
     fn get_item_after_select_only_references_requested_field() -> VortexResult<()> {
-        let expr = get_item("x", select(["x", "y"], get_item("a", root())));
+        let expr = get_item("x", select(["x", "y"], get_item("a", root(scope()))));
 
         assert_eq!(
             referenced(&expr)?,
@@ -212,7 +209,7 @@ mod tests {
 
     #[test]
     fn select_exclude_references_included_fields() -> VortexResult<()> {
-        let expr = select_exclude(["y"], get_item("a", root()));
+        let expr = select_exclude(["y"], get_item("a", root(scope())));
 
         assert_eq!(
             referenced(&expr)?,
@@ -225,8 +222,8 @@ mod tests {
     fn ancestor_path_subsumes_descendant() -> VortexResult<()> {
         let expr = pack(
             [
-                ("a", get_item("a", root())),
-                ("x", get_item("x", get_item("a", root()))),
+                ("a", get_item("a", root(scope()))),
+                ("x", get_item("x", get_item("a", root(scope())))),
             ],
             NonNullable,
         );
@@ -242,7 +239,7 @@ mod tests {
     fn get_item_through_opaque_fn_references_all_fields() -> VortexResult<()> {
         // `pack` is opaque to the path analysis: a `GetItem` of its output must not be pushed down
         // as a scope field access, so the wrapped `root()` conservatively references all fields.
-        let expr = get_item("x", pack([("x", root())], NonNullable));
+        let expr = get_item("x", pack([("x", root(scope()))], NonNullable));
 
         assert_eq!(referenced(&expr)?, HashSet::from_iter([FieldPath::root()]));
         Ok(())
@@ -251,7 +248,7 @@ mod tests {
     #[test]
     fn root_references_all_fields() -> VortexResult<()> {
         assert_eq!(
-            referenced(&root())?,
+            referenced(&root(scope()))?,
             HashSet::from_iter([FieldPath::root()])
         );
         Ok(())
@@ -259,6 +256,6 @@ mod tests {
 
     #[test]
     fn invalid_get_item_path_returns_error() {
-        assert!(referenced_field_paths(&get_item("missing", root()), &scope()).is_err());
+        assert!(try_get_item("missing", root(scope())).is_err());
     }
 }

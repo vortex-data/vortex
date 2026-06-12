@@ -20,22 +20,19 @@ use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldPath;
 use crate::dtype::Nullability;
-use crate::expr::Expression;
+use crate::expr::BoundCall;
+use crate::expr::BoundExpr;
 use crate::expr::StatsCatalog;
 use crate::expr::lit;
 use crate::expr::stats::Stat;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
-use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ReduceCtx;
 use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ReduceNodeRef;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::fns::literal::Literal;
-use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::pack::Pack;
 
 #[derive(Clone)]
@@ -81,7 +78,7 @@ impl ScalarFnVTable for GetItem {
     fn fmt_sql(
         &self,
         field_name: &FieldName,
-        expr: &Expression,
+        expr: &BoundCall,
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
         expr.children()[0].fmt_sql(f)?;
@@ -127,24 +124,23 @@ impl ScalarFnVTable for GetItem {
         &self,
         field_name: &FieldName,
         node: &dyn ReduceNode,
-        ctx: &dyn ReduceCtx,
+        _ctx: &dyn ReduceCtx,
     ) -> VortexResult<Option<ReduceNodeRef>> {
         let child = node.child(0);
         if let Some(child_fn) = child.scalar_fn()
             && let Some(pack) = child_fn.as_opt::<Pack>()
             && let Some(idx) = pack.names.find(field_name)
         {
-            let mut field = child.child(idx);
-
-            // Possibly mask the field if the pack is nullable
             if pack.nullability.is_nullable() {
-                field = ctx.new_node(
-                    Mask.bind(EmptyOptions),
-                    &[field, ctx.new_node(Literal.bind(true.into()), &[])?],
-                )?;
+                // The extracted field would need an all-true Mask wrap to become nullable, but
+                // `ReduceCtx::new_node` only constructs scalar-fn nodes and literals are no
+                // longer scalar fns, so the mask's `true` argument cannot be expressed here.
+                // `simplify_untyped` still performs this rewrite in the expression domain.
+                // TODO(ngates): extend ReduceCtx with a literal/constant node constructor.
+                return Ok(None);
             }
 
-            return Ok(Some(field));
+            return Ok(Some(child.child(idx)));
         }
 
         Ok(None)
@@ -153,8 +149,8 @@ impl ScalarFnVTable for GetItem {
     fn simplify_untyped(
         &self,
         field_name: &FieldName,
-        expr: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+        expr: &BoundCall,
+    ) -> VortexResult<Option<BoundExpr>> {
         let child = expr.child(0);
 
         // If the child is a Pack expression, we can directly return the corresponding child.
@@ -191,10 +187,10 @@ impl ScalarFnVTable for GetItem {
     fn stat_expression(
         &self,
         field_name: &FieldName,
-        _expr: &Expression,
+        _expr: &BoundCall,
         stat: Stat,
         catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
+    ) -> Option<BoundExpr> {
         // TODO(ngates): I think we can do better here and support stats over nested fields.
         //  It would be nice if delegating to our child would return a struct of statistics
         //  matching the nested DType such that we can write:
@@ -227,12 +223,12 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::PType;
-    use crate::dtype::StructFields;
     use crate::expr::checked_add;
     use crate::expr::get_item;
     use crate::expr::lit;
     use crate::expr::pack;
     use crate::expr::root;
+    use crate::expr::try_get_item;
     use crate::scalar_fn::fns::get_item::StructArray;
     use crate::validity::Validity;
 
@@ -246,17 +242,16 @@ mod tests {
 
     #[test]
     fn get_item_by_name() {
-        let st = test_array();
-        let get_item = get_item("a", root());
-        let item = st.into_array().apply(&get_item).unwrap();
+        let st = test_array().into_array();
+        let get_item = get_item("a", root(st.dtype().clone()));
+        let item = st.apply(&get_item).unwrap();
         assert_eq!(item.dtype(), &DType::from(PType::I32))
     }
 
     #[test]
     fn get_item_by_name_none() {
-        let st = test_array();
-        let get_item = get_item("c", root());
-        assert!(st.into_array().apply(&get_item).is_err());
+        let st = test_array().into_array();
+        assert!(try_get_item("c", root(st.dtype().clone())).is_err());
     }
 
     #[test]
@@ -270,7 +265,7 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let get_item_expr = get_item("a", root());
+        let get_item_expr = get_item("a", root(st.dtype().clone()));
         let item = st.apply(&get_item_expr).unwrap();
         // The dtype should be nullable since it inherits struct validity
         assert_eq!(
@@ -285,9 +280,7 @@ mod tests {
         let pack_expr = pack([("a", lit(1)), ("b", lit(2))], NonNullable);
         let get_item_expr = get_item("b", pack_expr);
 
-        let result = get_item_expr
-            .optimize_recursive(&DType::Struct(StructFields::empty(), NonNullable))
-            .unwrap();
+        let result = get_item_expr.optimize_recursive().unwrap();
 
         assert_eq!(result, lit(2));
     }
@@ -300,9 +293,7 @@ mod tests {
         let outer_pack = pack([("x", get_a), ("y", lit(3)), ("z", lit(4))], NonNullable);
         let get_z = get_item("z", outer_pack);
 
-        let dtype = DType::Primitive(PType::I32, NonNullable);
-
-        let result = get_z.optimize_recursive(&dtype).unwrap();
+        let result = get_z.optimize_recursive().unwrap();
         assert_eq!(result, lit(4));
     }
 
@@ -320,9 +311,7 @@ mod tests {
         let outermost = pack([("final", get_c)], NonNullable);
         let get_final = get_item("final", outermost);
 
-        let dtype = DType::Primitive(PType::I32, NonNullable);
-
-        let result = get_final.optimize_recursive(&dtype).unwrap();
+        let result = get_final.optimize_recursive().unwrap();
         assert_eq!(result, lit(42));
     }
 
@@ -335,9 +324,7 @@ mod tests {
         let outer_pack = pack([("result", add_expr)], NonNullable);
         let get_result = get_item("result", outer_pack);
 
-        let dtype = DType::Primitive(PType::I32, NonNullable);
-
-        let result = get_result.optimize_recursive(&dtype).unwrap();
+        let result = get_result.optimize_recursive().unwrap();
         let expected = checked_add(lit(1), lit(10));
         assert_eq!(&result, &expected);
     }
@@ -371,6 +358,8 @@ mod tests {
         )
         .unwrap();
 
-        st.into_array().apply(&get_item("data", root())).unwrap();
+        let array = st.into_array();
+        let expr = get_item("data", root(array.dtype().clone()));
+        array.apply(&expr).unwrap();
     }
 }

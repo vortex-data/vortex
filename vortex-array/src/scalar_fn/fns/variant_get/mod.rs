@@ -25,7 +25,7 @@ use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::Nullability;
-use crate::expr::Expression;
+use crate::expr::BoundCall;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -101,7 +101,7 @@ impl ScalarFnVTable for VariantGet {
     fn fmt_sql(
         &self,
         options: &Self::Options,
-        expr: &Expression,
+        expr: &BoundCall,
         f: &mut Formatter<'_>,
     ) -> fmt::Result {
         write!(f, "variant_get(")?;
@@ -411,17 +411,22 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
-    use crate::expr::Expression;
+    use crate::expr::BoundExpr;
     use crate::expr::proto::ExprSerializeProtoExt;
     use crate::expr::root;
     use crate::expr::variant_get;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
     use crate::scalar_fn::ScalarFnVTable;
+    use crate::scalar_fn::ScalarFnVTableExt;
     use crate::scalar_fn::fns::variant_get::VariantGet;
     use crate::scalar_fn::fns::variant_get::VariantGetOptions;
     use crate::scalar_fn::fns::variant_get::VariantPath;
     use crate::scalar_fn::fns::variant_get::VariantPathElement;
+
+    fn variant_root() -> BoundExpr {
+        root(DType::Variant(Nullability::NonNullable))
+    }
 
     fn variant_object(fields: impl IntoIterator<Item = (&'static str, Scalar)>) -> Scalar {
         let fields = fields.into_iter().collect::<Vec<_>>();
@@ -536,7 +541,7 @@ mod tests {
         path: &str,
         dtype: Option<DType>,
     ) -> VortexResult<ArrayRef> {
-        let expr = variant_get(root(), parse_path(path)?, dtype);
+        let expr = variant_get(root(array.dtype().clone()), parse_path(path)?, dtype);
         array
             .apply(&expr)?
             .execute::<ArrayRef>(&mut LEGACY_SESSION.create_execution_ctx())
@@ -564,30 +569,29 @@ mod tests {
 
     #[test]
     fn variant_get_return_dtype_is_nullable_variant_without_requested_dtype() {
-        let expr = variant_get(root(), VariantPath::field("data"), None);
-        let dtype = expr
-            .return_dtype(&DType::Variant(Nullability::NonNullable))
-            .unwrap();
+        let expr = variant_get(variant_root(), VariantPath::field("data"), None);
 
-        assert_eq!(dtype, DType::Variant(Nullability::Nullable));
+        assert_eq!(expr.dtype(), &DType::Variant(Nullability::Nullable));
     }
 
     #[test]
     fn variant_get_return_dtype_makes_requested_dtype_nullable() {
         let requested = DType::Primitive(PType::I64, Nullability::NonNullable);
-        let expr = variant_get(root(), VariantPath::field("data"), Some(requested));
-        let dtype = expr
-            .return_dtype(&DType::Variant(Nullability::NonNullable))
-            .unwrap();
+        let expr = variant_get(variant_root(), VariantPath::field("data"), Some(requested));
 
-        assert_eq!(dtype, DType::Primitive(PType::I64, Nullability::Nullable));
+        assert_eq!(
+            expr.dtype(),
+            &DType::Primitive(PType::I64, Nullability::Nullable)
+        );
     }
 
     #[test]
     fn variant_get_rejects_non_variant_input() {
-        let expr = variant_get(root(), VariantPath::field("data"), None);
-        let err = expr
-            .return_dtype(&DType::Utf8(Nullability::NonNullable))
+        let err = VariantGet
+            .try_new_expr(
+                VariantGetOptions::new(VariantPath::field("data"), None),
+                [root(DType::Utf8(Nullability::NonNullable))],
+            )
             .unwrap_err();
 
         assert!(err.to_string().contains("VariantGet input must be Variant"));
@@ -596,7 +600,7 @@ mod tests {
     #[test]
     fn variant_get_formats_sql() {
         let expr = variant_get(
-            root(),
+            variant_root(),
             parse_path("$.data[1].a").unwrap(),
             Some(DType::Utf8(Nullability::NonNullable)),
         );
@@ -624,13 +628,13 @@ mod tests {
 
     #[test]
     fn variant_get_expression_roundtrip_serialization() {
-        let expr: Expression = variant_get(
-            root(),
+        let expr: BoundExpr = variant_get(
+            variant_root(),
             parse_path("$.data[1].a").unwrap(),
             Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
         );
         let proto = expr.serialize_proto().unwrap();
-        let actual = Expression::from_proto(&proto, &LEGACY_SESSION).unwrap();
+        let actual = BoundExpr::from_proto(&proto, &LEGACY_SESSION).unwrap();
 
         assert_eq!(actual, expr);
     }

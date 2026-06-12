@@ -12,7 +12,8 @@ use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
-use crate::expr::Expression;
+use crate::expr::BoundCall;
+use crate::expr::BoundExpr;
 use crate::expr::StatsCatalog;
 use crate::expr::eq;
 use crate::expr::lit;
@@ -25,7 +26,7 @@ use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::validity::Validity;
 
-/// Expression that checks for null values.
+/// BoundExpr that checks for null values.
 #[derive(Clone)]
 pub struct IsNull;
 
@@ -87,9 +88,9 @@ impl ScalarFnVTable for IsNull {
     fn stat_falsification(
         &self,
         _options: &Self::Options,
-        expr: &Expression,
+        expr: &BoundCall,
         catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
+    ) -> Option<BoundExpr> {
         let null_count_expr = expr.child(0).stat_expression(Stat::NullCount, catalog)?;
         Some(eq(null_count_expr, lit(0u64)))
     }
@@ -120,6 +121,7 @@ mod tests {
     use crate::dtype::FieldPath;
     use crate::dtype::FieldPathSet;
     use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::expr::col;
     use crate::expr::eq;
     use crate::expr::get_item;
@@ -135,15 +137,16 @@ mod tests {
     fn dtype() {
         let dtype = test_harness::struct_dtype();
         assert_eq!(
-            is_null(root()).return_dtype(&dtype).unwrap(),
-            DType::Bool(Nullability::NonNullable)
+            is_null(root(dtype)).dtype(),
+            &DType::Bool(Nullability::NonNullable)
         );
     }
 
     #[test]
     fn replace_children() {
-        let expr = is_null(root());
-        expr.with_children([root()])
+        let dtype = test_harness::struct_dtype();
+        let expr = is_null(root(dtype.clone()));
+        expr.with_children([root(dtype)])
             .vortex_expect("operation should succeed in test");
     }
 
@@ -154,7 +157,10 @@ mod tests {
                 .into_array();
         let expected = [false, true, false, true, false];
 
-        let result = test_array.clone().apply(&is_null(root())).unwrap();
+        let result = test_array
+            .clone()
+            .apply(&is_null(root(test_array.dtype().clone())))
+            .unwrap();
 
         assert_eq!(result.len(), test_array.len());
         assert_eq!(result.dtype(), &DType::Bool(Nullability::NonNullable));
@@ -173,7 +179,10 @@ mod tests {
     fn evaluate_all_false() {
         let test_array = buffer![1, 2, 3, 4, 5].into_array();
 
-        let result = test_array.clone().apply(&is_null(root())).unwrap();
+        let result = test_array
+            .clone()
+            .apply(&is_null(root(test_array.dtype().clone())))
+            .unwrap();
 
         assert_eq!(result.len(), test_array.len());
         // All values should be false (non-nullable input)
@@ -193,7 +202,10 @@ mod tests {
             PrimitiveArray::from_option_iter(vec![None::<i32>, None, None, None, None])
                 .into_array();
 
-        let result = test_array.clone().apply(&is_null(root())).unwrap();
+        let result = test_array
+            .clone()
+            .apply(&is_null(root(test_array.dtype().clone())))
+            .unwrap();
 
         assert_eq!(result.len(), test_array.len());
         // All values should be true (all nulls)
@@ -220,7 +232,7 @@ mod tests {
 
         let result = test_array
             .clone()
-            .apply(&is_null(get_item("a", root())))
+            .apply(&is_null(get_item("a", root(test_array.dtype().clone()))))
             .unwrap();
 
         assert_eq!(result.len(), test_array.len());
@@ -238,27 +250,42 @@ mod tests {
 
     #[test]
     fn test_display() {
-        let expr = is_null(get_item("name", root()));
+        let scope = DType::struct_(
+            [("name", DType::Utf8(Nullability::Nullable))],
+            Nullability::NonNullable,
+        );
+        let expr = is_null(get_item("name", root(scope)));
         assert_eq!(expr.to_string(), "vortex.is_null($.name)");
 
-        let expr2 = is_null(root());
+        let expr2 = is_null(root(DType::Primitive(PType::I32, Nullability::Nullable)));
         assert_eq!(expr2.to_string(), "vortex.is_null($)");
     }
 
     #[test]
     fn test_is_null_falsification() {
-        let expr = is_null(col("a"));
+        let scope = DType::struct_(
+            [("a", DType::Primitive(PType::I32, Nullability::Nullable))],
+            Nullability::NonNullable,
+        );
+        let expr = is_null(col("a", &scope));
+        let available_stats = FieldPathSet::from_iter([FieldPath::from_iter([
+            Field::Name("a".into()),
+            Field::Name("null_count".into()),
+        ])]);
 
-        let (pruning_expr, st) = checked_pruning_expr(
-            &expr,
-            &FieldPathSet::from_iter([FieldPath::from_iter([
-                Field::Name("a".into()),
-                Field::Name("null_count".into()),
-            ])]),
-        )
-        .unwrap();
+        let (pruning_expr, st) = checked_pruning_expr(&expr, &scope, &available_stats).unwrap();
 
-        assert_eq!(&pruning_expr, &eq(col("a_null_count"), lit(0u64)));
+        let stats_scope = DType::struct_(
+            [(
+                "a_null_count",
+                DType::Primitive(PType::U64, Nullability::NonNullable),
+            )],
+            Nullability::NonNullable,
+        );
+        assert_eq!(
+            &pruning_expr,
+            &eq(col("a_null_count", &stats_scope), lit(0u64))
+        );
         assert_eq!(
             st.map(),
             &HashMap::from_iter([(FieldPath::from_name("a"), HashSet::from([Stat::NullCount]))])
@@ -268,6 +295,10 @@ mod tests {
     #[test]
     fn test_is_null_sensitive() {
         // is_null itself is null-sensitive
-        assert!(is_null(col("a")).signature().is_null_sensitive());
+        let scope = DType::struct_(
+            [("a", DType::Primitive(PType::I32, Nullability::Nullable))],
+            Nullability::NonNullable,
+        );
+        assert!(is_null(col("a", &scope)).is_null_sensitive());
     }
 }

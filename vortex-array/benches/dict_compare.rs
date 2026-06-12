@@ -146,13 +146,14 @@ fn bench_compare_sliced_dict_primitive(
     .unwrap();
     let dict = dict.into_array().slice(0..codes_len).unwrap();
     let value = primitive_arr.as_slice::<i32>()[0];
+    let expr = eq(root(dict.dtype().clone()), lit(value));
     let session = VortexSession::empty();
 
     bencher
         .with_inputs(|| (&dict, session.create_execution_ctx()))
         .bench_refs(|(dict, ctx)| {
             dict.clone()
-                .apply(&eq(root(), lit(value)))
+                .apply(&expr)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()
@@ -173,13 +174,14 @@ fn bench_compare_sliced_dict_varbinview(
     let dict = dict.into_array().slice(0..codes_len).unwrap();
     let bytes = varbin_arr.with_iterator(|i| i.next().unwrap().unwrap().to_vec());
     let value = from_utf8(bytes.as_slice()).unwrap();
+    let expr = eq(root(dict.dtype().clone()), lit(value));
     let session = VortexSession::empty();
 
     bencher
         .with_inputs(|| (&dict, session.create_execution_ctx()))
         .bench_refs(|(dict, ctx)| {
             dict.clone()
-                .apply(&eq(root(), lit(value)))
+                .apply(&expr)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()

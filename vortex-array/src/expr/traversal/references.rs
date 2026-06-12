@@ -5,7 +5,7 @@ use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::dtype::FieldName;
-use crate::expr::Expression;
+use crate::expr::BoundExpr;
 use crate::expr::traversal::NodeVisitor;
 use crate::expr::traversal::TraversalOrder;
 use crate::scalar_fn::fns::get_item::GetItem;
@@ -33,9 +33,9 @@ impl ReferenceCollector {
 }
 
 impl NodeVisitor<'_> for ReferenceCollector {
-    type NodeTy = Expression;
+    type NodeTy = BoundExpr;
 
-    fn visit_up(&mut self, node: &Expression) -> VortexResult<TraversalOrder> {
+    fn visit_up(&mut self, node: &BoundExpr) -> VortexResult<TraversalOrder> {
         if let Some(field_name) = node.as_opt::<GetItem>() {
             self.fields.insert(field_name.clone());
         }

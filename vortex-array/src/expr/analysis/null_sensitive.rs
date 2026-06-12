@@ -4,18 +4,18 @@
 use vortex_utils::aliases::hash_map::HashMap;
 
 use super::labeling::label_tree;
-use crate::expr::Expression;
+use crate::expr::BoundExpr;
 
-pub type BooleanLabels<'a> = HashMap<&'a Expression, bool>;
+pub type BooleanLabels<'a> = HashMap<&'a BoundExpr, bool>;
 
 /// Label each expression in the tree with whether it is null-sensitive.
 ///
 /// See [`crate::scalar_fn::ScalarFnVTable::is_null_sensitive`] for a definition of null sensitivity.
 /// This function operates on a tree of expressions, not just a single expression.
-pub fn label_null_sensitive(expr: &Expression) -> BooleanLabels<'_> {
+pub fn label_null_sensitive(expr: &BoundExpr) -> BooleanLabels<'_> {
     label_tree(
         expr,
-        |expr| expr.signature().is_null_sensitive(),
+        |expr| expr.is_null_sensitive(),
         |acc, &child| acc | child,
     )
 }
@@ -23,14 +23,27 @@ pub fn label_null_sensitive(expr: &Expression) -> BooleanLabels<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability::NonNullable;
+    use crate::dtype::PType;
+    use crate::dtype::StructFields;
     use crate::expr::col;
     use crate::expr::eq;
     use crate::expr::is_null;
     use crate::expr::lit;
 
+    fn scope() -> DType {
+        let i32_dtype = DType::Primitive(PType::I32, NonNullable);
+        DType::Struct(
+            StructFields::from_iter([("col1", i32_dtype.clone()), ("col2", i32_dtype)]),
+            NonNullable,
+        )
+    }
+
     #[test]
     fn test_null_sensitive_with_is_null() {
-        let expr = is_null(col("col1"));
+        let dtype = scope();
+        let expr = is_null(col("col1", &dtype));
         let labels = label_null_sensitive(&expr);
 
         // The root expression should be null-sensitive
@@ -39,7 +52,8 @@ mod tests {
 
     #[test]
     fn test_null_sensitive_without_is_null() {
-        let expr = eq(col("col1"), lit(5));
+        let dtype = scope();
+        let expr = eq(col("col1", &dtype), lit(5));
         let labels = label_null_sensitive(&expr);
 
         // Since the default is conservative (true), all expressions are sensitive
@@ -48,8 +62,9 @@ mod tests {
 
     #[test]
     fn test_null_sensitive_nested() {
-        let left = eq(col("col1"), lit(5));
-        let right = is_null(col("col2"));
+        let dtype = scope();
+        let left = eq(col("col1", &dtype), lit(5));
+        let right = is_null(col("col2", &dtype));
         let expr = eq(left.clone(), right.clone());
 
         let labels = label_null_sensitive(&expr);

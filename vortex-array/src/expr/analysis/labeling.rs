@@ -5,7 +5,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::expr::Expression;
+use crate::expr::BoundExpr;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::NodeVisitor;
 use crate::expr::traversal::TraversalOrder;
@@ -31,10 +31,10 @@ use crate::expr::traversal::TraversalOrder;
 ///   Called once per child, with the initial accumulator being the node's self-label.
 ///
 pub fn label_tree<L: Clone>(
-    expr: &Expression,
-    self_label: impl Fn(&Expression) -> L,
+    expr: &BoundExpr,
+    self_label: impl Fn(&BoundExpr) -> L,
     mut merge_child: impl FnMut(L, &L) -> L,
-) -> HashMap<&Expression, L> {
+) -> HashMap<&BoundExpr, L> {
     let mut visitor = LabelingVisitor {
         labels: Default::default(),
         self_label,
@@ -47,26 +47,26 @@ pub fn label_tree<L: Clone>(
 
 struct LabelingVisitor<'a, 'b, L, F, G>
 where
-    F: Fn(&Expression) -> L,
+    F: Fn(&BoundExpr) -> L,
     G: FnMut(L, &L) -> L,
 {
-    labels: HashMap<&'a Expression, L>,
+    labels: HashMap<&'a BoundExpr, L>,
     self_label: F,
     merge_child: &'b mut G,
 }
 
 impl<'a, 'b, L: Clone, F, G> NodeVisitor<'a> for LabelingVisitor<'a, 'b, L, F, G>
 where
-    F: Fn(&Expression) -> L,
+    F: Fn(&BoundExpr) -> L,
     G: FnMut(L, &L) -> L,
 {
-    type NodeTy = Expression;
+    type NodeTy = BoundExpr;
 
     fn visit_down(&mut self, _node: &'a Self::NodeTy) -> VortexResult<TraversalOrder> {
         Ok(TraversalOrder::Continue)
     }
 
-    fn visit_up(&mut self, node: &'a Expression) -> VortexResult<TraversalOrder> {
+    fn visit_up(&mut self, node: &'a BoundExpr) -> VortexResult<TraversalOrder> {
         let self_label = (self.self_label)(node);
 
         let final_label = node.children().iter().fold(self_label, |acc, child| {
@@ -86,16 +86,28 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability::NonNullable;
+    use crate::dtype::PType;
+    use crate::dtype::StructFields;
     use crate::expr::col;
     use crate::expr::eq;
     use crate::expr::lit;
 
+    fn scope() -> DType {
+        DType::Struct(
+            StructFields::from_iter([("col1", DType::Primitive(PType::I32, NonNullable))]),
+            NonNullable,
+        )
+    }
+
     #[test]
     fn test_tree_depth() {
-        // Expression: $.col1 = 5
+        // BoundExpr: $.col1 = 5
         // Tree: eq(get_item(root(), "col1"), lit(5))
         // Depth: root = 1, get_item = 2, lit = 1, eq = 3
-        let expr = eq(col("col1"), lit(5));
+        let dtype = scope();
+        let expr = eq(col("col1", &dtype), lit(5));
         let depths = label_tree(
             &expr,
             |_node| 1, // Each node has depth 1 by itself
@@ -111,7 +123,8 @@ mod tests {
         // Count total nodes in subtree (including self)
         // Tree: eq(get_item(root(), "col1"), lit(5))
         // Nodes: eq, get_item, root, lit = 4
-        let expr = eq(col("col1"), lit(5));
+        let dtype = scope();
+        let expr = eq(col("col1", &dtype), lit(5));
         let counts = label_tree(
             &expr,
             |_node| 1, // Each node counts as 1

@@ -33,6 +33,7 @@ mod exprs;
 pub(crate) mod field;
 pub mod forms;
 mod optimize;
+pub mod placeholder;
 pub mod proto;
 pub mod pruning;
 pub mod stats;
@@ -49,7 +50,7 @@ pub trait VortexExprExt {
     fn field_references(&self) -> HashSet<FieldName>;
 }
 
-impl VortexExprExt for Expression {
+impl VortexExprExt for BoundExpr {
     fn field_references(&self) -> HashSet<FieldName> {
         let mut collector = ReferenceCollector::new();
         // The collector is infallible, so we can unwrap the result
@@ -60,14 +61,17 @@ impl VortexExprExt for Expression {
 }
 
 /// Splits top level and operations into separate expressions.
-pub fn split_conjunction(expr: &Expression) -> Vec<Expression> {
+pub fn split_conjunction(expr: &BoundExpr) -> Vec<BoundExpr> {
     let mut conjunctions = vec![];
     split_inner(expr, &mut conjunctions);
     conjunctions
 }
 
-fn split_inner(expr: &Expression, exprs: &mut Vec<Expression>) {
-    match expr.as_opt::<Binary>() {
+fn split_inner(expr: &BoundExpr, exprs: &mut Vec<BoundExpr>) {
+    match expr
+        .as_call()
+        .and_then(|call| call.function().as_opt::<Binary>())
+    {
         Some(operator) if *operator == Operator::And => {
             split_inner(expr.child(0), exprs);
             split_inner(expr.child(1), exprs);
@@ -78,13 +82,20 @@ fn split_inner(expr: &Expression, exprs: &mut Vec<Expression>) {
     }
 }
 
-/// An expression wrapper that performs pointer equality on child expressions.
+/// An expression wrapper that performs pointer equality on call children.
+///
+/// Hashing remains structural. Equality uses `(function, Arc::ptr_eq(args))` for calls, while
+/// leaves use structural equality because they do not have shared child storage.
 #[derive(Clone)]
-pub struct ExactExpr(pub Expression);
+pub struct ExactExpr(pub BoundExpr);
 impl PartialEq for ExactExpr {
     fn eq(&self, other: &Self) -> bool {
-        self.0.scalar_fn() == other.0.scalar_fn()
-            && Arc::ptr_eq(self.0.children(), other.0.children())
+        match (&self.0, &other.0) {
+            (BoundExpr::Call(lhs), BoundExpr::Call(rhs)) => {
+                lhs.function() == rhs.function() && Arc::ptr_eq(lhs.args_arc(), rhs.args_arc())
+            }
+            _ => self.0 == other.0,
+        }
     }
 }
 impl Eq for ExactExpr {}
@@ -128,7 +139,7 @@ mod tests {
     use crate::dtype::PType;
     use crate::dtype::StructFields;
     use crate::expr::and;
-    use crate::expr::col;
+    use crate::expr::col as expr_col;
     use crate::expr::eq;
     use crate::expr::get_item;
     use crate::expr::gt;
@@ -139,15 +150,34 @@ mod tests {
     use crate::expr::not;
     use crate::expr::not_eq;
     use crate::expr::or;
-    use crate::expr::root;
+    use crate::expr::root as expr_root;
     use crate::expr::select;
     use crate::expr::select_exclude;
     use crate::scalar::Scalar;
 
+    fn scope() -> DType {
+        DType::Struct(
+            StructFields::from_iter([
+                ("a", DType::Bool(Nullability::NonNullable)),
+                ("col1", DType::Bool(Nullability::NonNullable)),
+                ("col2", DType::Bool(Nullability::NonNullable)),
+            ]),
+            Nullability::NonNullable,
+        )
+    }
+
+    fn root() -> BoundExpr {
+        expr_root(scope())
+    }
+
+    fn col(field: impl Into<FieldName>) -> BoundExpr {
+        expr_col(field, &scope())
+    }
+
     #[test]
     fn basic_expr_split_test() {
         let lhs = get_item("col1", root());
-        let rhs = lit(1);
+        let rhs = lit(true);
         let expr = eq(lhs, rhs);
         let conjunction = split_conjunction(&expr);
         assert_eq!(conjunction.len(), 1);
@@ -155,8 +185,8 @@ mod tests {
 
     #[test]
     fn basic_conjunction_split_test() {
-        let lhs = get_item("col1", root());
-        let rhs = lit(1);
+        let lhs = eq(get_item("col1", root()), lit(true));
+        let rhs = lit(true);
         let expr = and(lhs, rhs);
         let conjunction = split_conjunction(&expr);
         assert_eq!(conjunction.len(), 2, "Conjunction is {conjunction:?}");
@@ -167,8 +197,8 @@ mod tests {
         assert_eq!(col("a").to_string(), "$.a");
         assert_eq!(root().to_string(), "$");
 
-        let col1: Expression = col("col1");
-        let col2: Expression = col("col2");
+        let col1: BoundExpr = col("col1");
+        let col2: BoundExpr = col("col2");
         assert_eq!(
             and(col1.clone(), col2.clone()).to_string(),
             "($.col1 and $.col2)"

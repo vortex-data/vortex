@@ -14,7 +14,7 @@ use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
-use crate::expr::Expression;
+use crate::expr::BoundExpr;
 use crate::expr::analysis::Annotation;
 use crate::expr::analysis::AnnotationFn;
 use crate::expr::analysis::Annotations;
@@ -39,8 +39,8 @@ use crate::expr::traversal::TraversalOrder;
 ///
 /// See <https://github.com/vortex-data/vortex/issues/1907>.
 pub fn partition<A: AnnotationFn>(
-    expr: Expression,
-    scope: &DType,
+    expr: BoundExpr,
+    _scope: &DType,
     annotate_fn: A,
 ) -> VortexResult<PartitionedExpr<A::Annotation>>
 where
@@ -52,14 +52,14 @@ where
 
     // Now we split the original expression into sub-expressions based on the annotations, and
     // generate a root expression to re-assemble the results.
-    let mut splitter = StructFieldExpressionSplitter::<A::Annotation>::new(&annotations);
-    let root = expr.clone().rewrite(&mut splitter)?.value;
+    let mut collector = StructFieldExpressionSplitter::<A::Annotation>::new(&annotations, None);
+    expr.clone().rewrite(&mut collector)?;
 
-    let mut partitions = Vec::with_capacity(splitter.sub_expressions.len());
-    let mut partition_annotations = Vec::with_capacity(splitter.sub_expressions.len());
-    let mut partition_dtypes = Vec::with_capacity(splitter.sub_expressions.len());
+    let mut partitions = Vec::with_capacity(collector.sub_expressions.len());
+    let mut partition_annotations = Vec::with_capacity(collector.sub_expressions.len());
+    let mut partition_dtypes = Vec::with_capacity(collector.sub_expressions.len());
 
-    for (annotation, exprs) in splitter.sub_expressions.into_iter() {
+    for (annotation, exprs) in collector.sub_expressions.into_iter() {
         // We pack all sub-expressions for the same annotation into a single expression.
         let expr = pack(
             exprs.into_iter().enumerate().map(|(idx, expr)| {
@@ -71,8 +71,8 @@ where
             Nullability::NonNullable,
         );
 
-        let expr = expr.optimize_recursive(scope)?;
-        let expr_dtype = expr.return_dtype(scope)?;
+        let expr = expr.optimize_recursive()?;
+        let expr_dtype = expr.dtype().clone();
 
         partitions.push(expr);
         partition_annotations.push(annotation);
@@ -87,9 +87,12 @@ where
         StructFields::new(partition_names.clone(), partition_dtypes.clone()),
         Nullability::NonNullable,
     );
+    let mut splitter =
+        StructFieldExpressionSplitter::<A::Annotation>::new(&annotations, Some(root_scope));
+    let root = expr.clone().rewrite(&mut splitter)?.value;
 
     Ok(PartitionedExpr {
-        root: root.optimize_recursive(&root_scope)?,
+        root: root.optimize_recursive()?,
         partitions: partitions.into_boxed_slice(),
         partition_names,
         partition_dtypes: partition_dtypes.into_boxed_slice(),
@@ -101,9 +104,9 @@ where
 #[derive(Debug)]
 pub struct PartitionedExpr<A> {
     /// The root expression used to re-assemble the results.
-    pub root: Expression,
+    pub root: BoundExpr,
     /// The partition expressions themselves.
-    pub partitions: Box<[Expression]>,
+    pub partitions: Box<[BoundExpr]>,
     /// The field name of each partition as referenced in the root expression.
     pub partition_names: FieldNames,
     /// The return dtype of each partition expression.
@@ -133,7 +136,7 @@ where
 {
     /// Return the partition for a given field, if it exists.
     // FIXME(ngates): this should return an iterator since an annotation may have multiple partitions.
-    pub fn find_partition(&self, id: &A) -> Option<&Expression> {
+    pub fn find_partition(&self, id: &A) -> Option<&BoundExpr> {
         let id = FieldName::from(id.clone());
         self.partition_names
             .iter()
@@ -145,14 +148,16 @@ where
 #[derive(Debug)]
 struct StructFieldExpressionSplitter<'a, A: Annotation> {
     annotations: &'a Annotations<'a, A>,
-    sub_expressions: HashMap<A, Vec<Expression>>,
+    sub_expressions: HashMap<A, Vec<BoundExpr>>,
+    root_scope: Option<DType>,
 }
 
 impl<'a, A: Annotation + Display> StructFieldExpressionSplitter<'a, A> {
-    fn new(annotations: &'a Annotations<'a, A>) -> Self {
+    fn new(annotations: &'a Annotations<'a, A>, root_scope: Option<DType>) -> Self {
         Self {
             sub_expressions: HashMap::new(),
             annotations,
+            root_scope,
         }
     }
 
@@ -167,7 +172,7 @@ impl<A: Annotation + Display> NodeRewriter for StructFieldExpressionSplitter<'_,
 where
     FieldName: From<A>,
 {
-    type NodeTy = Expression;
+    type NodeTy = BoundExpr;
 
     fn visit_down(&mut self, node: Self::NodeTy) -> VortexResult<Transformed<Self::NodeTy>> {
         match self.annotations.get(&node) {
@@ -180,9 +185,19 @@ where
                 let sub_exprs = self.sub_expressions.entry(annotation.clone()).or_default();
                 let idx = sub_exprs.len();
                 sub_exprs.push(node.clone());
+                let Some(root_scope) = &self.root_scope else {
+                    return Ok(Transformed {
+                        value: node,
+                        changed: false,
+                        order: TraversalOrder::Skip,
+                    });
+                };
                 let value = get_item(
                     StructFieldExpressionSplitter::field_name(annotation, idx),
-                    get_item(FieldName::from(annotation.clone()), root()),
+                    get_item(
+                        FieldName::from(annotation.clone()),
+                        root(root_scope.clone()),
+                    ),
                 );
                 Ok(Transformed {
                     value,
@@ -213,12 +228,12 @@ mod tests {
     use crate::dtype::StructFields;
     use crate::expr::analysis::make_free_field_annotator;
     use crate::expr::and;
-    use crate::expr::col;
+    use crate::expr::col as expr_col;
     use crate::expr::get_item;
     use crate::expr::lit;
     use crate::expr::merge;
     use crate::expr::pack;
-    use crate::expr::root;
+    use crate::expr::root as expr_root;
     use crate::expr::transform::replace::replace_root_fields;
 
     #[fixture]
@@ -228,13 +243,34 @@ mod tests {
                 (
                     "a",
                     DType::Struct(
-                        StructFields::from_iter([("x", I32.into()), ("y", DType::from(I32))]),
+                        StructFields::from_iter([
+                            ("x", I32.into()),
+                            ("y", DType::Bool(NonNullable)),
+                        ]),
                         NonNullable,
                     ),
                 ),
-                ("b", I32.into()),
+                ("b", DType::Bool(NonNullable)),
                 ("c", I32.into()),
             ]),
+            NonNullable,
+        )
+    }
+
+    fn root(dtype: &DType) -> BoundExpr {
+        expr_root(dtype.clone())
+    }
+
+    fn col(field: impl Into<FieldName>, dtype: &DType) -> BoundExpr {
+        expr_col(field, dtype)
+    }
+
+    fn partition_scope<A>(partitioned: &PartitionedExpr<A>) -> DType {
+        DType::Struct(
+            StructFields::new(
+                partitioned.partition_names.clone(),
+                partitioned.partition_dtypes.to_vec(),
+            ),
             NonNullable,
         )
     }
@@ -243,16 +279,16 @@ mod tests {
     fn test_expr_top_level_ref(dtype: DType) {
         let fields = dtype.as_struct_fields_opt().unwrap();
 
-        let expr = root();
+        let expr = root(&dtype);
         let partitioned =
             partition(expr.clone(), &dtype, make_free_field_annotator(fields)).unwrap();
 
         // An un-expanded root expression is annotated by all fields, but since it is a single node
         assert_eq!(partitioned.partitions.len(), 0);
-        assert_eq!(&partitioned.root, &root());
+        assert_eq!(&partitioned.root, &root(&dtype));
 
         // Instead, callers must expand the root expression themselves.
-        let expr = replace_root_fields(expr, fields);
+        let expr = replace_root_fields(expr, fields).unwrap();
         let partitioned = partition(expr, &dtype, make_free_field_annotator(fields)).unwrap();
 
         assert_eq!(partitioned.partitions.len(), fields.names().len());
@@ -262,10 +298,14 @@ mod tests {
     fn test_expr_top_level_ref_get_item_and_split(dtype: DType) {
         let fields = dtype.as_struct_fields_opt().unwrap();
 
-        let expr = get_item("y", get_item("a", root()));
+        let expr = get_item("y", get_item("a", root(&dtype)));
 
         let partitioned = partition(expr, &dtype, make_free_field_annotator(fields)).unwrap();
-        assert_eq!(&partitioned.root, &get_item("a_0", get_item("a", root())));
+        let partition_dtype = partition_scope(&partitioned);
+        assert_eq!(
+            &partitioned.root,
+            &get_item("a_0", get_item("a", root(&partition_dtype)))
+        );
     }
 
     #[rstest]
@@ -274,9 +314,9 @@ mod tests {
 
         let expr = pack(
             [
-                ("x", get_item("x", get_item("a", root()))),
-                ("y", get_item("y", get_item("a", root()))),
-                ("c", get_item("c", root())),
+                ("x", get_item("x", get_item("a", root(&dtype)))),
+                ("y", get_item("y", get_item("a", root(&dtype)))),
+                ("c", get_item("c", root(&dtype))),
             ],
             NonNullable,
         );
@@ -284,11 +324,11 @@ mod tests {
 
         let split_a = partitioned.find_partition(&"a".into()).unwrap();
         assert_eq!(
-            &split_a.optimize_recursive(&dtype).unwrap(),
+            &split_a.optimize_recursive().unwrap(),
             &pack(
                 [
-                    ("a_0", get_item("x", get_item("a", root()))),
-                    ("a_1", get_item("y", get_item("a", root())))
+                    ("a_0", get_item("x", get_item("a", root(&dtype)))),
+                    ("a_1", get_item("y", get_item("a", root(&dtype))))
                 ],
                 NonNullable
             )
@@ -299,7 +339,7 @@ mod tests {
     fn test_expr_top_level_ref_get_item_add(dtype: DType) {
         let fields = dtype.as_struct_fields_opt().unwrap();
 
-        let expr = and(get_item("y", get_item("a", root())), lit(1));
+        let expr = and(get_item("y", get_item("a", root(&dtype))), lit(true));
         let partitioned = partition(expr, &dtype, make_free_field_annotator(fields)).unwrap();
 
         // Whole expr is a single split
@@ -310,7 +350,10 @@ mod tests {
     fn test_expr_top_level_ref_get_item_add_cannot_split(dtype: DType) {
         let fields = dtype.as_struct_fields_opt().unwrap();
 
-        let expr = and(get_item("y", get_item("a", root())), get_item("b", root()));
+        let expr = and(
+            get_item("y", get_item("a", root(&dtype))),
+            get_item("b", root(&dtype)),
+        );
         let partitioned = partition(expr, &dtype, make_free_field_annotator(fields)).unwrap();
 
         // One for id.a and id.b
@@ -321,14 +364,27 @@ mod tests {
     fn test_expr_merge(dtype: DType) {
         let fields = dtype.as_struct_fields_opt().unwrap();
 
-        let expr = merge([col("a"), pack([("b", col("b"))], NonNullable)]);
+        let expr = merge([
+            col("a", &dtype),
+            pack([("b", col("b", &dtype))], NonNullable),
+        ]);
 
         let partitioned = partition(expr, &dtype, make_free_field_annotator(fields)).unwrap();
+        let partition_dtype = partition_scope(&partitioned);
         let expected = pack(
             [
-                ("x", get_item("x", get_item("a_0", col("a")))),
-                ("y", get_item("y", get_item("a_0", col("a")))),
-                ("b", get_item("b", get_item("b_0", col("b")))),
+                (
+                    "x",
+                    get_item("x", get_item("a_0", col("a", &partition_dtype))),
+                ),
+                (
+                    "y",
+                    get_item("y", get_item("a_0", col("a", &partition_dtype))),
+                ),
+                (
+                    "b",
+                    get_item("b", get_item("b_0", col("b", &partition_dtype))),
+                ),
             ],
             NonNullable,
         );
@@ -341,11 +397,14 @@ mod tests {
         assert_eq!(partitioned.partitions.len(), 2);
 
         let part_a = partitioned.find_partition(&"a".into()).unwrap();
-        let expected_a = pack([("a_0", col("a"))], NonNullable);
+        let expected_a = pack([("a_0", col("a", &dtype))], NonNullable);
         assert_eq!(part_a, &expected_a, "{part_a} {expected_a}");
 
         let part_b = partitioned.find_partition(&"b".into()).unwrap();
-        let expected_b = pack([("b_0", pack([("b", col("b"))], NonNullable))], NonNullable);
+        let expected_b = pack(
+            [("b_0", pack([("b", col("b", &dtype))], NonNullable))],
+            NonNullable,
+        );
         assert_eq!(part_b, &expected_b, "{part_b} {expected_b}");
     }
 }

@@ -9,7 +9,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr::Expression;
+use vortex_array::expr::BoundExpr;
 use vortex_array::expr::eq;
 use vortex_array::expr::get_item;
 use vortex_array::expr::lit;
@@ -30,16 +30,16 @@ fn struct_scope() -> DType {
     )
 }
 
-fn build_or_chain(n: usize) -> Expression {
-    let base = eq(get_item("x", root()), lit(0i32));
+fn build_or_chain(n: usize, scope: &DType) -> BoundExpr {
+    let base = eq(get_item("x", root(scope.clone())), lit(0i32));
     (1..n).fold(base, |acc, i| {
-        or(acc, eq(get_item("x", root()), lit(i as i32)))
+        or(acc, eq(get_item("x", root(scope.clone())), lit(i as i32)))
     })
 }
 
 #[divan::bench(args = [200])]
 fn optimize_or_chain(bencher: Bencher, n: usize) {
-    let expr = build_or_chain(n);
     let scope = struct_scope();
-    bencher.bench(|| expr.optimize_recursive(&scope).unwrap());
+    let expr = build_or_chain(n, &scope);
+    bencher.bench(|| expr.optimize_recursive().unwrap());
 }

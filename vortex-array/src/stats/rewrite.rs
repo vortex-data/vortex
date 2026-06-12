@@ -11,7 +11,7 @@ use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
 use crate::dtype::DType;
-use crate::expr::Expression;
+use crate::expr::BoundExpr;
 use crate::expr::or_collect;
 use crate::scalar_fn::ScalarFnId;
 use crate::stats::session::StatsSessionExt;
@@ -53,9 +53,9 @@ pub(crate) trait StatsRewriteRule: Debug + Send + Sync + 'static {
     /// Returns `Ok(None)` when this rule cannot construct a sound falsity proof for `expr`.
     fn falsify(
         &self,
-        expr: &Expression,
+        expr: &BoundExpr,
         ctx: &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpr>> {
         _ = expr;
         _ = ctx;
         Ok(None)
@@ -73,9 +73,9 @@ pub(crate) trait StatsRewriteRule: Debug + Send + Sync + 'static {
     /// Returns `Ok(None)` when this rule cannot construct a sound truth proof for `expr`.
     fn satisfy(
         &self,
-        expr: &Expression,
+        expr: &BoundExpr,
         ctx: &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpr>> {
         _ = expr;
         _ = ctx;
         Ok(None)
@@ -85,13 +85,12 @@ pub(crate) trait StatsRewriteRule: Debug + Send + Sync + 'static {
 /// Context passed to stats rewrite rules.
 pub(crate) struct StatsRewriteCtx<'a> {
     session: &'a VortexSession,
-    scope: &'a DType,
 }
 
 impl<'a> StatsRewriteCtx<'a> {
     /// Create a rewrite context for `session`.
-    pub(crate) fn new(session: &'a VortexSession, scope: &'a DType) -> Self {
-        Self { session, scope }
+    pub(crate) fn new(session: &'a VortexSession) -> Self {
+        Self { session }
     }
 
     /// Returns the session that owns the rewrite registry.
@@ -100,23 +99,23 @@ impl<'a> StatsRewriteCtx<'a> {
     }
 
     /// Return the dtype of `expr` within this rewrite scope.
-    pub(crate) fn return_dtype(&self, expr: &Expression) -> VortexResult<DType> {
-        expr.return_dtype(self.scope)
+    pub(crate) fn return_dtype(&self, expr: &BoundExpr) -> VortexResult<DType> {
+        Ok(expr.dtype().clone())
     }
 
     /// Rewrite `expr` into a stats-backed falsifier.
-    pub(crate) fn falsify(&self, expr: &Expression) -> VortexResult<Option<Expression>> {
+    pub(crate) fn falsify(&self, expr: &BoundExpr) -> VortexResult<Option<BoundExpr>> {
         self.ensure_predicate(expr)?;
         rewrite(expr, self, StatsRewriteRule::falsify)
     }
 
     /// Rewrite `expr` into a stats-backed satisfier.
-    pub(crate) fn satisfy(&self, expr: &Expression) -> VortexResult<Option<Expression>> {
+    pub(crate) fn satisfy(&self, expr: &BoundExpr) -> VortexResult<Option<BoundExpr>> {
         self.ensure_predicate(expr)?;
         rewrite(expr, self, StatsRewriteRule::satisfy)
     }
 
-    fn ensure_predicate(&self, expr: &Expression) -> VortexResult<()> {
+    fn ensure_predicate(&self, expr: &BoundExpr) -> VortexResult<()> {
         let dtype = self.return_dtype(expr)?;
         vortex_ensure!(
             matches!(dtype, DType::Bool(_)),
@@ -127,18 +126,21 @@ impl<'a> StatsRewriteCtx<'a> {
 }
 
 fn rewrite(
-    expr: &Expression,
+    expr: &BoundExpr,
     ctx: &StatsRewriteCtx<'_>,
     apply: fn(
         &dyn StatsRewriteRule,
-        &Expression,
+        &BoundExpr,
         &StatsRewriteCtx<'_>,
-    ) -> VortexResult<Option<Expression>>,
-) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpr>>,
+) -> VortexResult<Option<BoundExpr>> {
+    let Some(call) = expr.as_call() else {
+        return Ok(None);
+    };
     let rules = ctx
         .session()
         .stats()
-        .rewrite_rules_for(expr.scalar_fn().id());
+        .rewrite_rules_for(call.function().id());
     let Some(rules) = rules else {
         return Ok(None);
     };
@@ -162,40 +164,41 @@ mod tests {
     use super::StatsRewriteRule;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
-    use crate::dtype::PType;
-    use crate::expr::Expression;
+    use crate::expr::BoundExpr;
     use crate::expr::lit;
+    use crate::expr::not;
     use crate::expr::or;
+    use crate::expr::root;
     use crate::scalar_fn::ScalarFnId;
     use crate::scalar_fn::ScalarFnVTable;
-    use crate::scalar_fn::fns::literal::Literal;
+    use crate::scalar_fn::fns::not::Not;
     use crate::stats::session::StatsSession;
     use crate::stats::session::StatsSessionExt;
 
     #[derive(Debug)]
     struct StaticLiteralRule {
-        falsifier: Option<Expression>,
-        satisfier: Option<Expression>,
+        falsifier: Option<BoundExpr>,
+        satisfier: Option<BoundExpr>,
     }
 
     impl StatsRewriteRule for StaticLiteralRule {
         fn scalar_fn_id(&self) -> ScalarFnId {
-            Literal.id()
+            Not.id()
         }
 
         fn falsify(
             &self,
-            _expr: &Expression,
+            _expr: &BoundExpr,
             _ctx: &StatsRewriteCtx<'_>,
-        ) -> VortexResult<Option<Expression>> {
+        ) -> VortexResult<Option<BoundExpr>> {
             Ok(self.falsifier.clone())
         }
 
         fn satisfy(
             &self,
-            _expr: &Expression,
+            _expr: &BoundExpr,
             _ctx: &StatsRewriteCtx<'_>,
-        ) -> VortexResult<Option<Expression>> {
+        ) -> VortexResult<Option<BoundExpr>> {
             Ok(self.satisfier.clone())
         }
     }
@@ -203,7 +206,8 @@ mod tests {
     #[test]
     fn combines_multiple_falsifiers_with_or() -> VortexResult<()> {
         let session = VortexSession::empty().with::<StatsSession>();
-        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let dtype = DType::Bool(Nullability::NonNullable);
+        let expr = not(root(dtype));
         session.stats().register_rewrite(StaticLiteralRule {
             falsifier: Some(lit(false)),
             satisfier: None,
@@ -213,17 +217,15 @@ mod tests {
             satisfier: None,
         });
 
-        assert_eq!(
-            lit(true).falsify(&dtype, &session)?,
-            Some(or(lit(false), lit(true)))
-        );
+        assert_eq!(expr.falsify(&session)?, Some(or(lit(false), lit(true))));
         Ok(())
     }
 
     #[test]
     fn combines_multiple_satisfiers_with_or() -> VortexResult<()> {
         let session = VortexSession::empty().with::<StatsSession>();
-        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let dtype = DType::Bool(Nullability::NonNullable);
+        let expr = not(root(dtype));
         session.stats().register_rewrite(StaticLiteralRule {
             falsifier: None,
             satisfier: Some(lit(false)),
@@ -233,29 +235,24 @@ mod tests {
             satisfier: Some(lit(true)),
         });
 
-        assert_eq!(
-            lit(true).satisfy(&dtype, &session)?,
-            Some(or(lit(false), lit(true)))
-        );
+        assert_eq!(expr.satisfy(&session)?, Some(or(lit(false), lit(true))));
         Ok(())
     }
 
     #[test]
     fn unregistered_expression_has_no_rewrite() -> VortexResult<()> {
         let session = VortexSession::empty().with::<StatsSession>();
-        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
 
-        assert_eq!(lit(true).falsify(&dtype, &session)?, None);
-        assert_eq!(lit(true).satisfy(&dtype, &session)?, None);
+        assert_eq!(lit(true).falsify(&session)?, None);
+        assert_eq!(lit(true).satisfy(&session)?, None);
         Ok(())
     }
 
     #[test]
     fn non_predicate_expression_errors() {
         let session = VortexSession::empty().with::<StatsSession>();
-        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
 
-        assert!(lit(7).falsify(&dtype, &session).is_err());
-        assert!(lit(7).satisfy(&dtype, &session).is_err());
+        assert!(lit(7).falsify(&session).is_err());
+        assert!(lit(7).satisfy(&session).is_err());
     }
 }

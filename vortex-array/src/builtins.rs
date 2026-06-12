@@ -18,7 +18,7 @@ use crate::arrays::InterleaveArray;
 use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
-use crate::expr::Expression;
+use crate::expr::BoundExpr;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 use crate::scalar_fn::EmptyOptions;
@@ -40,78 +40,78 @@ use crate::scalar_fn::fns::zip::Zip;
 /// A collection of built-in scalar functions that can be applied to expressions or arrays.
 pub trait ExprBuiltins: Sized {
     /// Cast to the given data type.
-    fn cast(&self, dtype: DType) -> VortexResult<Expression>;
+    fn cast(&self, dtype: DType) -> VortexResult<BoundExpr>;
 
     /// Replace null values with the given fill value.
-    fn fill_null(&self, fill_value: Expression) -> VortexResult<Expression>;
+    fn fill_null(&self, fill_value: BoundExpr) -> VortexResult<BoundExpr>;
 
     /// Get item by field name (for struct types).
-    fn get_item(&self, field_name: impl Into<FieldName>) -> VortexResult<Expression>;
+    fn get_item(&self, field_name: impl Into<FieldName>) -> VortexResult<BoundExpr>;
 
     /// Is null check.
-    fn is_null(&self) -> VortexResult<Expression>;
+    fn is_null(&self) -> VortexResult<BoundExpr>;
 
     /// Is not null check.
-    fn is_not_null(&self) -> VortexResult<Expression>;
+    fn is_not_null(&self) -> VortexResult<BoundExpr>;
 
     /// Mask the expression using the given boolean mask.
     /// The resulting expression's validity is the intersection of the original expression's
     /// validity.
-    fn mask(&self, mask: Expression) -> VortexResult<Expression>;
+    fn mask(&self, mask: BoundExpr) -> VortexResult<BoundExpr>;
 
     /// Boolean negation.
-    fn not(&self) -> VortexResult<Expression>;
+    fn not(&self) -> VortexResult<BoundExpr>;
 
     /// Check if a list contains a value.
-    fn list_contains(&self, value: Expression) -> VortexResult<Expression>;
+    fn list_contains(&self, value: BoundExpr) -> VortexResult<BoundExpr>;
 
     /// Conditional selection: `result[i] = if mask[i] then if_true[i] else if_false[i]`.
-    fn zip(&self, if_true: Expression, if_false: Expression) -> VortexResult<Expression>;
+    fn zip(&self, if_true: BoundExpr, if_false: BoundExpr) -> VortexResult<BoundExpr>;
 
     // TODO(joe): add an `interleave` expression builtin mirroring `ArrayBuiltins::interleave`.
 
     /// Apply a binary operator to this expression and another.
-    fn binary(&self, rhs: Expression, op: Operator) -> VortexResult<Expression>;
+    fn binary(&self, rhs: BoundExpr, op: Operator) -> VortexResult<BoundExpr>;
 }
 
-impl ExprBuiltins for Expression {
-    fn cast(&self, dtype: DType) -> VortexResult<Expression> {
+impl ExprBuiltins for BoundExpr {
+    fn cast(&self, dtype: DType) -> VortexResult<BoundExpr> {
         Cast.try_new_expr(dtype, [self.clone()])
     }
 
-    fn fill_null(&self, fill_value: Expression) -> VortexResult<Expression> {
+    fn fill_null(&self, fill_value: BoundExpr) -> VortexResult<BoundExpr> {
         FillNull.try_new_expr(EmptyOptions, [self.clone(), fill_value])
     }
 
-    fn get_item(&self, field_name: impl Into<FieldName>) -> VortexResult<Expression> {
+    fn get_item(&self, field_name: impl Into<FieldName>) -> VortexResult<BoundExpr> {
         GetItem.try_new_expr(field_name.into(), [self.clone()])
     }
 
-    fn is_null(&self) -> VortexResult<Expression> {
+    fn is_null(&self) -> VortexResult<BoundExpr> {
         IsNull.try_new_expr(EmptyOptions, [self.clone()])
     }
 
-    fn is_not_null(&self) -> VortexResult<Expression> {
+    fn is_not_null(&self) -> VortexResult<BoundExpr> {
         IsNotNull.try_new_expr(EmptyOptions, [self.clone()])
     }
 
-    fn mask(&self, mask: Expression) -> VortexResult<Expression> {
+    fn mask(&self, mask: BoundExpr) -> VortexResult<BoundExpr> {
         Mask.try_new_expr(EmptyOptions, [self.clone(), mask])
     }
 
-    fn not(&self) -> VortexResult<Expression> {
+    fn not(&self) -> VortexResult<BoundExpr> {
         Not.try_new_expr(EmptyOptions, [self.clone()])
     }
 
-    fn list_contains(&self, value: Expression) -> VortexResult<Expression> {
+    fn list_contains(&self, value: BoundExpr) -> VortexResult<BoundExpr> {
         ListContains.try_new_expr(EmptyOptions, [self.clone(), value])
     }
 
-    fn zip(&self, if_true: Expression, if_false: Expression) -> VortexResult<Expression> {
+    fn zip(&self, if_true: BoundExpr, if_false: BoundExpr) -> VortexResult<BoundExpr> {
         Zip.try_new_expr(EmptyOptions, [if_true, if_false, self.clone()])
     }
 
-    fn binary(&self, rhs: Expression, op: Operator) -> VortexResult<Expression> {
+    fn binary(&self, rhs: BoundExpr, op: Operator) -> VortexResult<BoundExpr> {
         Binary.try_new_expr(op, [self.clone(), rhs])
     }
 }

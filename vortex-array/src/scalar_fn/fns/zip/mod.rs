@@ -23,7 +23,8 @@ use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
-use crate::expr::Expression;
+use crate::expr::BoundCall;
+use crate::expr::BoundExpr;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
@@ -31,7 +32,6 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::SimplifyCtx;
-use crate::scalar_fn::fns::literal::Literal;
 use crate::validity::Validity;
 
 /// An expression that conditionally selects between two arrays based on a boolean mask.
@@ -80,7 +80,7 @@ impl ScalarFnVTable for Zip {
     fn fmt_sql(
         &self,
         _options: &Self::Options,
-        expr: &Expression,
+        expr: &BoundCall,
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
         write!(f, "zip(")?;
@@ -137,10 +137,10 @@ impl ScalarFnVTable for Zip {
     fn simplify(
         &self,
         _options: &Self::Options,
-        expr: &Expression,
+        expr: &BoundCall,
         _ctx: &dyn SimplifyCtx,
-    ) -> VortexResult<Option<Expression>> {
-        let Some(mask_lit) = expr.child(2).as_opt::<Literal>() else {
+    ) -> VortexResult<Option<BoundExpr>> {
+        let Some(mask_lit) = expr.child(2).as_literal() else {
             return Ok(None);
         };
 
@@ -301,17 +301,21 @@ mod tests {
     #[test]
     fn dtype() {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let expr = zip_expr(lit(true), root(), lit(0i32));
-        let result_dtype = expr.return_dtype(&dtype).unwrap();
+        let expr = zip_expr(lit(true), root(dtype), lit(0i32));
+        let result_dtype = expr.dtype();
         assert_eq!(
             result_dtype,
-            DType::Primitive(PType::I32, Nullability::NonNullable)
+            &DType::Primitive(PType::I32, Nullability::NonNullable)
         );
     }
 
     #[test]
     fn test_display() {
-        let expr = zip_expr(lit(true), root(), lit(0i32));
+        let expr = zip_expr(
+            lit(true),
+            root(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            lit(0i32),
+        );
         assert_eq!(expr.to_string(), "zip($, 0i32, true)");
     }
 

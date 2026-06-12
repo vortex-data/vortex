@@ -23,7 +23,8 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
-use crate::expr::Expression;
+use crate::expr::BoundCall;
+use crate::expr::BoundExpr;
 use crate::expr::StatsCatalog;
 use crate::expr::stats::Stat;
 use crate::scalar_fn::Arity;
@@ -94,26 +95,19 @@ pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
     fn is_null_sensitive(&self) -> bool;
     fn is_fallible(&self) -> bool;
 
-    // Expression methods — take &Expression for tree traversal
-    fn fmt_sql(&self, expression: &Expression, f: &mut Formatter<'_>) -> fmt::Result;
-    fn simplify(
-        &self,
-        expression: &Expression,
-        ctx: &dyn SimplifyCtx,
-    ) -> VortexResult<Option<Expression>>;
-    fn simplify_untyped(&self, expression: &Expression) -> VortexResult<Option<Expression>>;
-    fn validity(&self, expression: &Expression) -> VortexResult<Option<Expression>>;
-    fn stat_falsification(
-        &self,
-        expression: &Expression,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<Expression>;
+    // Bound expression methods — take &BoundCall for call-node traversal.
+    fn fmt_sql(&self, call: &BoundCall, f: &mut Formatter<'_>) -> fmt::Result;
+    fn simplify(&self, call: &BoundCall, ctx: &dyn SimplifyCtx) -> VortexResult<Option<BoundExpr>>;
+    fn simplify_untyped(&self, call: &BoundCall) -> VortexResult<Option<BoundExpr>>;
+    fn validity(&self, call: &BoundCall) -> VortexResult<Option<BoundExpr>>;
+    fn stat_falsification(&self, call: &BoundCall, catalog: &dyn StatsCatalog)
+    -> Option<BoundExpr>;
     fn stat_expression(
         &self,
-        expression: &Expression,
+        call: &BoundCall,
         stat: Stat,
         catalog: &dyn StatsCatalog,
-    ) -> Option<Expression>;
+    ) -> Option<BoundExpr>;
 
     // Options operations — self-contained
     fn options_serialize(&self) -> VortexResult<Option<Vec<u8>>>;
@@ -153,7 +147,7 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
         assert_eq!(
             result.len(),
             expected_row_count,
-            "Expression execution {} returned vector of length {}, but expected {}",
+            "BoundExpr execution {} returned vector of length {}, but expected {}",
             self.vtable.id(),
             result.len(),
             expected_row_count,
@@ -163,7 +157,7 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
         {
             vortex_error::vortex_ensure!(
                 result.dtype() == &expected_dtype,
-                "Expression execution {} returned vector of invalid dtype. Expected {}, got {}",
+                "BoundExpr execution {} returned vector of invalid dtype. Expected {}, got {}",
                 self.vtable.id(),
                 expected_dtype,
                 result.dtype(),
@@ -205,41 +199,37 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
         V::is_fallible(&self.vtable, &self.options)
     }
 
-    fn fmt_sql(&self, expression: &Expression, f: &mut Formatter<'_>) -> fmt::Result {
-        V::fmt_sql(&self.vtable, &self.options, expression, f)
+    fn fmt_sql(&self, call: &BoundCall, f: &mut Formatter<'_>) -> fmt::Result {
+        V::fmt_sql(&self.vtable, &self.options, call, f)
     }
 
-    fn simplify(
-        &self,
-        expression: &Expression,
-        ctx: &dyn SimplifyCtx,
-    ) -> VortexResult<Option<Expression>> {
-        V::simplify(&self.vtable, &self.options, expression, ctx)
+    fn simplify(&self, call: &BoundCall, ctx: &dyn SimplifyCtx) -> VortexResult<Option<BoundExpr>> {
+        V::simplify(&self.vtable, &self.options, call, ctx)
     }
 
-    fn simplify_untyped(&self, expression: &Expression) -> VortexResult<Option<Expression>> {
-        V::simplify_untyped(&self.vtable, &self.options, expression)
+    fn simplify_untyped(&self, call: &BoundCall) -> VortexResult<Option<BoundExpr>> {
+        V::simplify_untyped(&self.vtable, &self.options, call)
     }
 
-    fn validity(&self, expression: &Expression) -> VortexResult<Option<Expression>> {
-        V::validity(&self.vtable, &self.options, expression)
+    fn validity(&self, call: &BoundCall) -> VortexResult<Option<BoundExpr>> {
+        V::validity(&self.vtable, &self.options, call)
     }
 
     fn stat_falsification(
         &self,
-        expression: &Expression,
+        call: &BoundCall,
         catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        V::stat_falsification(&self.vtable, &self.options, expression, catalog)
+    ) -> Option<BoundExpr> {
+        V::stat_falsification(&self.vtable, &self.options, call, catalog)
     }
 
     fn stat_expression(
         &self,
-        expression: &Expression,
+        call: &BoundCall,
         stat: Stat,
         catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        V::stat_expression(&self.vtable, &self.options, expression, stat, catalog)
+    ) -> Option<BoundExpr> {
+        V::stat_expression(&self.vtable, &self.options, call, stat, catalog)
     }
 
     fn options_serialize(&self) -> VortexResult<Option<Vec<u8>>> {

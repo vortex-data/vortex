@@ -8,7 +8,7 @@ use arbitrary::Unstructured;
 
 use crate::dtype::DType;
 use crate::dtype::FieldName;
-use crate::expr::Expression;
+use crate::expr::BoundExpr;
 use crate::expr::and_collect;
 use crate::expr::col;
 use crate::expr::lit;
@@ -18,7 +18,7 @@ use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::operators::Operator;
 
-pub fn projection_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Option<Expression>> {
+pub fn projection_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Option<BoundExpr>> {
     let Some(struct_dtype) = dtype.as_struct_fields_opt() else {
         return Ok(None);
     };
@@ -28,14 +28,14 @@ pub fn projection_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Optio
     let cols = (0..column_count)
         .map(|_| {
             let get_item = u.choose_iter(struct_dtype.names().iter())?;
-            Ok((get_item.clone(), col(get_item.clone())))
+            Ok((get_item.clone(), col(get_item.clone(), dtype)))
         })
         .collect::<AResult<Vec<_>>>()?;
 
     Ok(Some(pack(cols, u.arbitrary()?)))
 }
 
-pub fn filter_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Option<Expression>> {
+pub fn filter_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Option<BoundExpr>> {
     let Some(struct_dtype) = dtype.as_struct_fields_opt() else {
         return Ok(None);
     };
@@ -44,9 +44,9 @@ pub fn filter_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Option<Ex
 
     let filters = (0..filter_count)
         .map(|_| {
-            let (col, dtype) =
+            let (col, field_dtype) =
                 u.choose_iter(struct_dtype.names().iter().zip(struct_dtype.fields()))?;
-            random_comparison(u, col, &dtype)
+            random_comparison(u, dtype, col, &field_dtype)
         })
         .collect::<AResult<Vec<_>>>()?;
 
@@ -55,13 +55,14 @@ pub fn filter_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Option<Ex
 
 fn random_comparison(
     u: &mut Unstructured<'_>,
+    scope: &DType,
     name: &FieldName,
-    dtype: &DType,
-) -> AResult<Expression> {
-    let scalar = random_scalar(u, dtype)?;
+    field_dtype: &DType,
+) -> AResult<BoundExpr> {
+    let scalar = random_scalar(u, field_dtype)?;
     Ok(Binary.new_expr(
         arbitrary_comparison_operator(u)?,
-        [col(name.clone()), lit(scalar)],
+        [col(name.clone(), scope), lit(scalar)],
     ))
 }
 

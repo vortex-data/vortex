@@ -10,7 +10,7 @@ pub use pruning_expr::field_path_stat_field_name;
 pub use relation::Relation;
 
 use crate::dtype::FieldPath;
-use crate::expr::Expression;
+use crate::expr::BoundExpr;
 use crate::expr::stats::Stat;
 
 /// A catalog of available stats that are associated with field paths.
@@ -21,7 +21,7 @@ pub trait StatsCatalog {
     /// This is likely to be a column expression, or a literal.
     ///
     /// Returns `None` if the stat is not available for the field path.
-    fn stats_ref(&self, _field_path: &FieldPath, _stat: Stat) -> Option<Expression> {
+    fn stats_ref(&self, _field_path: &FieldPath, _stat: Stat) -> Option<BoundExpr> {
         None
     }
 }

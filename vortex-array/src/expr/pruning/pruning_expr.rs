@@ -8,11 +8,15 @@ use itertools::Itertools;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use super::relation::Relation;
+use crate::dtype::DType;
 use crate::dtype::Field;
 use crate::dtype::FieldName;
+use crate::dtype::FieldNames;
 use crate::dtype::FieldPath;
 use crate::dtype::FieldPathSet;
-use crate::expr::Expression;
+use crate::dtype::Nullability::NonNullable;
+use crate::dtype::StructFields;
+use crate::expr::BoundExpr;
 use crate::expr::StatsCatalog;
 use crate::expr::get_item;
 use crate::expr::root;
@@ -22,15 +26,22 @@ pub type RequiredStats = Relation<FieldPath, Stat>;
 
 // A catalog that return a stat column whenever it is required, tracking all accessed
 // stats and returning them later.
-#[derive(Default)]
 pub(crate) struct TrackingStatsCatalog {
-    usage: RefCell<HashMap<(FieldPath, Stat), Expression>>,
+    usage: RefCell<HashMap<(FieldPath, Stat), BoundExpr>>,
+    stats_scope: DType,
 }
 
 impl TrackingStatsCatalog {
+    pub(crate) fn new(stats_scope: DType) -> Self {
+        Self {
+            usage: RefCell::default(),
+            stats_scope,
+        }
+    }
+
     /// Consume the catalog, yielding a map of field statistics that were required
     /// for each expression.
-    fn into_usages(self) -> HashMap<(FieldPath, Stat), Expression> {
+    fn into_usages(self) -> HashMap<(FieldPath, Stat), BoundExpr> {
         self.usage.into_inner()
     }
 }
@@ -42,7 +53,7 @@ struct ScopeStatsCatalog<'a> {
 }
 
 impl StatsCatalog for ScopeStatsCatalog<'_> {
-    fn stats_ref(&self, field_path: &FieldPath, stat: Stat) -> Option<Expression> {
+    fn stats_ref(&self, field_path: &FieldPath, stat: Stat) -> Option<BoundExpr> {
         let stat_path = field_path.clone().push(stat.name());
 
         if self.available_stats.contains(&stat_path) {
@@ -54,8 +65,8 @@ impl StatsCatalog for ScopeStatsCatalog<'_> {
 }
 
 impl StatsCatalog for TrackingStatsCatalog {
-    fn stats_ref(&self, field_path: &FieldPath, stat: Stat) -> Option<Expression> {
-        let mut expr = root();
+    fn stats_ref(&self, field_path: &FieldPath, stat: Stat) -> Option<BoundExpr> {
+        let mut expr = root(self.stats_scope.clone());
         let name = field_path_stat_field_name(field_path, stat);
         expr = get_item(name, expr);
         self.usage
@@ -79,6 +90,34 @@ pub fn field_path_stat_field_name(field_path: &FieldPath, stat: Stat) -> FieldNa
         .into()
 }
 
+fn stats_scope(scope: &DType, available_stats: &FieldPathSet) -> Option<DType> {
+    let mut fields = Vec::new();
+
+    for stat_path in available_stats.iter() {
+        let (stat_field, field_path_parts) = stat_path.parts().split_last()?;
+        let stat_name = match stat_field {
+            Field::Name(name) => name,
+            Field::ElementType => return None,
+        };
+        let stat = Stat::all().find(|stat| stat.name() == stat_name.as_ref())?;
+        let field_path = FieldPath::from(field_path_parts.to_vec());
+        let field_dtype = field_path.resolve(scope.clone())?;
+        let stat_dtype = stat.dtype(&field_dtype)?;
+
+        fields.push((field_path_stat_field_name(&field_path, stat), stat_dtype));
+    }
+
+    // `available_stats` iterates in hash order; sort so the synthesized scope (and therefore
+    // Root equality, hashing, and serialized bytes of pruning expressions) is deterministic.
+    fields.sort_by(|(a, _), (b, _)| a.cmp(b));
+    let (names, dtypes): (Vec<_>, Vec<_>) = fields.into_iter().unzip();
+
+    Some(DType::Struct(
+        StructFields::new(FieldNames::from(names), dtypes),
+        NonNullable,
+    ))
+}
+
 /// Build a pruning expr mask, using an existing set of stats.
 /// The available stats are provided as a set of [`FieldPath`].
 ///
@@ -94,11 +133,12 @@ pub fn field_path_stat_field_name(field_path: &FieldPath, stat: Stat) -> FieldNa
 /// If the falsification logic attempts to access an unknown stat,
 /// this function will return `None`.
 pub fn checked_pruning_expr(
-    expr: &Expression,
+    expr: &BoundExpr,
+    scope: &DType,
     available_stats: &FieldPathSet,
-) -> Option<(Expression, RequiredStats)> {
+) -> Option<(BoundExpr, RequiredStats)> {
     let catalog = ScopeStatsCatalog {
-        inner: Default::default(),
+        inner: TrackingStatsCatalog::new(stats_scope(scope, available_stats)?),
         available_stats,
     };
 
@@ -127,10 +167,11 @@ mod tests {
     use crate::dtype::FieldPathSet;
     use crate::dtype::Nullability;
     use crate::dtype::StructFields;
+    use crate::expr::BoundExpr;
     use crate::expr::and;
     use crate::expr::between;
     use crate::expr::cast;
-    use crate::expr::col;
+    use crate::expr::col as expr_col;
     use crate::expr::eq;
     use crate::expr::get_item;
     use crate::expr::gt;
@@ -142,10 +183,63 @@ mod tests {
     use crate::expr::or;
     use crate::expr::pruning::checked_pruning_expr;
     use crate::expr::pruning::field_path_stat_field_name;
-    use crate::expr::root;
+    use crate::expr::root as expr_root;
     use crate::expr::stats::Stat;
     use crate::scalar_fn::fns::between::BetweenOptions;
     use crate::scalar_fn::fns::between::StrictComparison;
+
+    fn numeric_scope() -> DType {
+        DType::Struct(
+            StructFields::from_iter([
+                (
+                    "a",
+                    DType::Primitive(crate::dtype::PType::I32, Nullability::NonNullable),
+                ),
+                (
+                    "b",
+                    DType::Primitive(crate::dtype::PType::I32, Nullability::NonNullable),
+                ),
+                ("x", DType::Bool(Nullability::NonNullable)),
+                (
+                    "y",
+                    DType::Primitive(crate::dtype::PType::I32, Nullability::NonNullable),
+                ),
+                (
+                    "z",
+                    DType::Primitive(crate::dtype::PType::I32, Nullability::NonNullable),
+                ),
+                (
+                    "float_col",
+                    DType::Primitive(crate::dtype::PType::F32, Nullability::NonNullable),
+                ),
+                (
+                    "int_col",
+                    DType::Primitive(crate::dtype::PType::I32, Nullability::NonNullable),
+                ),
+            ]),
+            Nullability::NonNullable,
+        )
+    }
+
+    fn root() -> BoundExpr {
+        expr_root(numeric_scope())
+    }
+
+    fn col(field: impl Into<FieldName>) -> BoundExpr {
+        expr_col(field, &numeric_scope())
+    }
+
+    fn stat_root(scope: &DType, available_stats: &FieldPathSet) -> BoundExpr {
+        expr_root(super::stats_scope(scope, available_stats).unwrap())
+    }
+
+    fn stat_col(
+        field: impl Into<FieldName>,
+        scope: &DType,
+        available_stats: &FieldPathSet,
+    ) -> BoundExpr {
+        expr_col(field, &super::stats_scope(scope, available_stats).unwrap())
+    }
 
     // Implement some checked pruning expressions.
     #[fixture]
@@ -166,21 +260,23 @@ mod tests {
         let name = FieldName::from("a");
         let literal_eq = lit(42);
         let eq_expr = eq(get_item("a", root()), literal_eq.clone());
-        let (converted, _refs) = checked_pruning_expr(&eq_expr, &available_stats).unwrap();
+        let (converted, _refs) =
+            checked_pruning_expr(&eq_expr, &numeric_scope(), &available_stats).unwrap();
         let expected_expr = or(
             gt(
                 get_item(
                     field_path_stat_field_name(&FieldPath::from_name(name.clone()), Stat::Min),
-                    root(),
+                    stat_root(&numeric_scope(), &available_stats),
                 ),
                 literal_eq.clone(),
             ),
             gt(
                 literal_eq,
-                col(field_path_stat_field_name(
-                    &FieldPath::from_name(name),
-                    Stat::Max,
-                )),
+                stat_col(
+                    field_path_stat_field_name(&FieldPath::from_name(name), Stat::Max),
+                    &numeric_scope(),
+                    &available_stats,
+                ),
             ),
         );
         assert_eq!(&converted, &expected_expr);
@@ -192,7 +288,8 @@ mod tests {
         let other_col = FieldName::from("b");
         let eq_expr = eq(col(column.clone()), col(other_col.clone()));
 
-        let (converted, refs) = checked_pruning_expr(&eq_expr, &available_stats).unwrap();
+        let (converted, refs) =
+            checked_pruning_expr(&eq_expr, &numeric_scope(), &available_stats).unwrap();
         assert_eq!(
             refs.map(),
             &HashMap::from_iter([
@@ -208,24 +305,28 @@ mod tests {
         );
         let expected_expr = or(
             gt(
-                col(field_path_stat_field_name(
-                    &FieldPath::from_name(column.clone()),
-                    Stat::Min,
-                )),
-                col(field_path_stat_field_name(
-                    &FieldPath::from_name(other_col.clone()),
-                    Stat::Max,
-                )),
+                stat_col(
+                    field_path_stat_field_name(&FieldPath::from_name(column.clone()), Stat::Min),
+                    &numeric_scope(),
+                    &available_stats,
+                ),
+                stat_col(
+                    field_path_stat_field_name(&FieldPath::from_name(other_col.clone()), Stat::Max),
+                    &numeric_scope(),
+                    &available_stats,
+                ),
             ),
             gt(
-                col(field_path_stat_field_name(
-                    &FieldPath::from_name(other_col),
-                    Stat::Min,
-                )),
-                col(field_path_stat_field_name(
-                    &FieldPath::from_name(column),
-                    Stat::Max,
-                )),
+                stat_col(
+                    field_path_stat_field_name(&FieldPath::from_name(other_col), Stat::Min),
+                    &numeric_scope(),
+                    &available_stats,
+                ),
+                stat_col(
+                    field_path_stat_field_name(&FieldPath::from_name(column), Stat::Max),
+                    &numeric_scope(),
+                    &available_stats,
+                ),
             ),
         );
         assert_eq!(&converted, &expected_expr);
@@ -237,7 +338,8 @@ mod tests {
         let other_col = FieldName::from("b");
         let not_eq_expr = not_eq(col(column.clone()), col(other_col.clone()));
 
-        let (converted, refs) = checked_pruning_expr(&not_eq_expr, &available_stats).unwrap();
+        let (converted, refs) =
+            checked_pruning_expr(&not_eq_expr, &numeric_scope(), &available_stats).unwrap();
         assert_eq!(
             refs.map(),
             &HashMap::from_iter([
@@ -253,24 +355,28 @@ mod tests {
         );
         let expected_expr = and(
             eq(
-                col(field_path_stat_field_name(
-                    &FieldPath::from_name(column.clone()),
-                    Stat::Min,
-                )),
-                col(field_path_stat_field_name(
-                    &FieldPath::from_name(other_col.clone()),
-                    Stat::Max,
-                )),
+                stat_col(
+                    field_path_stat_field_name(&FieldPath::from_name(column.clone()), Stat::Min),
+                    &numeric_scope(),
+                    &available_stats,
+                ),
+                stat_col(
+                    field_path_stat_field_name(&FieldPath::from_name(other_col.clone()), Stat::Max),
+                    &numeric_scope(),
+                    &available_stats,
+                ),
             ),
             eq(
-                col(field_path_stat_field_name(
-                    &FieldPath::from_name(column),
-                    Stat::Max,
-                )),
-                col(field_path_stat_field_name(
-                    &FieldPath::from_name(other_col),
-                    Stat::Min,
-                )),
+                stat_col(
+                    field_path_stat_field_name(&FieldPath::from_name(column), Stat::Max),
+                    &numeric_scope(),
+                    &available_stats,
+                ),
+                stat_col(
+                    field_path_stat_field_name(&FieldPath::from_name(other_col), Stat::Min),
+                    &numeric_scope(),
+                    &available_stats,
+                ),
             ),
         );
 
@@ -284,7 +390,8 @@ mod tests {
         let other_expr = col(other_col.clone());
         let not_eq_expr = gt(col(column.clone()), other_expr);
 
-        let (converted, refs) = checked_pruning_expr(&not_eq_expr, &available_stats).unwrap();
+        let (converted, refs) =
+            checked_pruning_expr(&not_eq_expr, &numeric_scope(), &available_stats).unwrap();
         assert_eq!(
             refs.map(),
             &HashMap::from_iter([
@@ -299,14 +406,16 @@ mod tests {
             ])
         );
         let expected_expr = lt_eq(
-            col(field_path_stat_field_name(
-                &FieldPath::from_name(column),
-                Stat::Max,
-            )),
-            col(field_path_stat_field_name(
-                &FieldPath::from_name(other_col),
-                Stat::Min,
-            )),
+            stat_col(
+                field_path_stat_field_name(&FieldPath::from_name(column), Stat::Max),
+                &numeric_scope(),
+                &available_stats,
+            ),
+            stat_col(
+                field_path_stat_field_name(&FieldPath::from_name(other_col), Stat::Min),
+                &numeric_scope(),
+                &available_stats,
+            ),
         );
         assert_eq!(&converted, &expected_expr);
     }
@@ -317,7 +426,8 @@ mod tests {
         let other_col = lit(42);
         let not_eq_expr = gt(col(column.clone()), other_col.clone());
 
-        let (converted, refs) = checked_pruning_expr(&not_eq_expr, &available_stats).unwrap();
+        let (converted, refs) =
+            checked_pruning_expr(&not_eq_expr, &numeric_scope(), &available_stats).unwrap();
         assert_eq!(
             refs.map(),
             &HashMap::from_iter([(
@@ -326,10 +436,11 @@ mod tests {
             ),])
         );
         let expected_expr = lt_eq(
-            col(field_path_stat_field_name(
-                &FieldPath::from_name(column),
-                Stat::Max,
-            )),
+            stat_col(
+                field_path_stat_field_name(&FieldPath::from_name(column), Stat::Max),
+                &numeric_scope(),
+                &available_stats,
+            ),
             other_col,
         );
         assert_eq!(&converted, &(expected_expr));
@@ -342,7 +453,8 @@ mod tests {
         let other_expr = col(other_col.clone());
         let not_eq_expr = lt(col(column.clone()), other_expr);
 
-        let (converted, refs) = checked_pruning_expr(&not_eq_expr, &available_stats).unwrap();
+        let (converted, refs) =
+            checked_pruning_expr(&not_eq_expr, &numeric_scope(), &available_stats).unwrap();
         assert_eq!(
             refs.map(),
             &HashMap::from_iter([
@@ -357,14 +469,16 @@ mod tests {
             ])
         );
         let expected_expr = gt_eq(
-            col(field_path_stat_field_name(
-                &FieldPath::from_name(column),
-                Stat::Min,
-            )),
-            col(field_path_stat_field_name(
-                &FieldPath::from_name(other_col),
-                Stat::Max,
-            )),
+            stat_col(
+                field_path_stat_field_name(&FieldPath::from_name(column), Stat::Min),
+                &numeric_scope(),
+                &available_stats,
+            ),
+            stat_col(
+                field_path_stat_field_name(&FieldPath::from_name(other_col), Stat::Max),
+                &numeric_scope(),
+                &available_stats,
+            ),
         );
         assert_eq!(&converted, &expected_expr);
     }
@@ -375,21 +489,38 @@ mod tests {
         // pruning expr => a.min >= 42
         let expr = lt(col("a"), lit(42));
 
-        let (converted, refs) = checked_pruning_expr(&expr, &available_stats).unwrap();
+        let (converted, refs) =
+            checked_pruning_expr(&expr, &numeric_scope(), &available_stats).unwrap();
         assert_eq!(
             refs.map(),
             &HashMap::from_iter([(FieldPath::from_name("a"), HashSet::from_iter([Stat::Min]))])
         );
-        assert_eq!(&converted, &gt_eq(col("a_min"), lit(42)));
+        assert_eq!(
+            &converted,
+            &gt_eq(
+                stat_col("a_min", &numeric_scope(), &available_stats),
+                lit(42)
+            )
+        );
     }
 
     #[rstest]
     fn pruning_identity(available_stats: FieldPathSet) {
         let expr = or(lt(col("a"), lit(10)), gt(col("a"), lit(50)));
 
-        let (predicate, _) = checked_pruning_expr(&expr, &available_stats).unwrap();
+        let (predicate, _) =
+            checked_pruning_expr(&expr, &numeric_scope(), &available_stats).unwrap();
 
-        let expected_expr = and(gt_eq(col("a_min"), lit(10)), lt_eq(col("a_max"), lit(50)));
+        let expected_expr = and(
+            gt_eq(
+                stat_col("a_min", &numeric_scope(), &available_stats),
+                lit(10),
+            ),
+            lt_eq(
+                stat_col("a_max", &numeric_scope(), &available_stats),
+                lit(50),
+            ),
+        );
         assert_eq!(&predicate.to_string(), &expected_expr.to_string());
     }
     #[rstest]
@@ -397,14 +528,21 @@ mod tests {
         // Test case: a > 10 AND a < 50
         let column = FieldName::from("a");
         let and_expr = and(gt(col(column.clone()), lit(10)), lt(col(column), lit(50)));
-        let (predicate, _) = checked_pruning_expr(&and_expr, &available_stats).unwrap();
+        let (predicate, _) =
+            checked_pruning_expr(&and_expr, &numeric_scope(), &available_stats).unwrap();
 
         // Expected: a_max <= 10 OR a_min >= 50
         assert_eq!(
             &predicate,
             &or(
-                lt_eq(col(FieldName::from("a_max")), lit(10)),
-                gt_eq(col(FieldName::from("a_min")), lit(50)),
+                lt_eq(
+                    stat_col(FieldName::from("a_max"), &numeric_scope(), &available_stats),
+                    lit(10),
+                ),
+                gt_eq(
+                    stat_col(FieldName::from("a_min"), &numeric_scope(), &available_stats),
+                    lit(50),
+                ),
             ),
         );
     }
@@ -436,7 +574,7 @@ mod tests {
         // True > False
         // True
         let expr = gt_eq(col("x"), gt(col("y"), col("z")));
-        assert!(checked_pruning_expr(&expr, &available_stats).is_none());
+        assert!(checked_pruning_expr(&expr, &numeric_scope(), &available_stats).is_none());
         // TODO(DK): a sufficiently complex pruner would produce: `x_max <= (y_max > z_min)`
     }
 
@@ -459,19 +597,34 @@ mod tests {
     #[rstest]
     fn pruning_checks_nans(available_stats_with_nans: FieldPathSet) {
         let expr = gt_eq(col("float_col"), lit(f32::NAN));
-        let (converted, _) = checked_pruning_expr(&expr, &available_stats_with_nans).unwrap();
+        let (converted, _) =
+            checked_pruning_expr(&expr, &numeric_scope(), &available_stats_with_nans).unwrap();
         assert_eq!(
             &converted,
             &and(
                 and(
-                    eq(col("float_col_nan_count"), lit(0u64)),
+                    eq(
+                        stat_col(
+                            "float_col_nan_count",
+                            &numeric_scope(),
+                            &available_stats_with_nans
+                        ),
+                        lit(0u64)
+                    ),
                     // NaNCount of NaN is 1
                     eq(lit(1u64), lit(0u64)),
                 ),
                 // This is the standard conversion of the >= operator. Comparing NAN to a max
                 // stat is nonsensical, as min/max stats ignore NaNs, but this should be short-circuited
                 // by the previous check for nan_count anyway.
-                lt(col("float_col_max"), lit(f32::NAN)),
+                lt(
+                    stat_col(
+                        "float_col_max",
+                        &numeric_scope(),
+                        &available_stats_with_nans
+                    ),
+                    lit(f32::NAN),
+                ),
             )
         );
 
@@ -481,7 +634,8 @@ mod tests {
             lt(col("int_col"), lit(10)),
         );
 
-        let (converted, _) = checked_pruning_expr(&expr, &available_stats_with_nans).unwrap();
+        let (converted, _) =
+            checked_pruning_expr(&expr, &numeric_scope(), &available_stats_with_nans).unwrap();
 
         assert_eq!(
             &converted,
@@ -489,15 +643,32 @@ mod tests {
                 // NaNCount check is enforced for the float column
                 and(
                     and(
-                        eq(col("float_col_nan_count"), lit(0u64)),
+                        eq(
+                            stat_col(
+                                "float_col_nan_count",
+                                &numeric_scope(),
+                                &available_stats_with_nans
+                            ),
+                            lit(0u64)
+                        ),
                         // NanCount of a non-NaN float literal is 0
                         eq(lit(0u64), lit(0u64)),
                     ),
                     // We want the opposite: we can prune IF either one is false.
-                    lt_eq(col("float_col_max"), lit(10f32)),
+                    lt_eq(
+                        stat_col(
+                            "float_col_max",
+                            &numeric_scope(),
+                            &available_stats_with_nans
+                        ),
+                        lit(10f32),
+                    ),
                 ),
                 // NanCount check is skipped for the int column
-                gt_eq(col("int_col_min"), lit(10)),
+                gt_eq(
+                    stat_col("int_col_min", &numeric_scope(), &available_stats_with_nans),
+                    lit(10),
+                ),
             )
         )
     }
@@ -513,7 +684,8 @@ mod tests {
                 upper_strict: StrictComparison::NonStrict,
             },
         );
-        let (converted, refs) = checked_pruning_expr(&expr, &available_stats).unwrap();
+        let (converted, refs) =
+            checked_pruning_expr(&expr, &numeric_scope(), &available_stats).unwrap();
         assert_eq!(
             refs.map(),
             &HashMap::from_iter([(
@@ -523,7 +695,16 @@ mod tests {
         );
         assert_eq!(
             &converted,
-            &or(gt(lit(10), col("a_max")), gt(col("a_min"), lit(50)))
+            &or(
+                gt(
+                    lit(10),
+                    stat_col("a_max", &numeric_scope(), &available_stats)
+                ),
+                gt(
+                    stat_col("a_min", &numeric_scope(), &available_stats),
+                    lit(50)
+                )
+            )
         );
     }
 
@@ -541,8 +722,15 @@ mod tests {
             ),
             Nullability::NonNullable,
         );
-        let expr = eq(get_item("a", cast(root(), struct_dtype)), lit("value"));
-        let (converted, refs) = checked_pruning_expr(&expr, &available_stats).unwrap();
+        let expr = eq(
+            get_item(
+                "a",
+                cast(expr_root(struct_dtype.clone()), struct_dtype.clone()),
+            ),
+            lit("value"),
+        );
+        let (converted, refs) =
+            checked_pruning_expr(&expr, &struct_dtype, &available_stats).unwrap();
         assert_eq!(
             refs.map(),
             &HashMap::from_iter([(
@@ -553,8 +741,14 @@ mod tests {
         assert_eq!(
             &converted,
             &or(
-                gt(col("a_min"), lit("value")),
-                gt(lit("value"), col("a_max"))
+                gt(
+                    stat_col("a_min", &struct_dtype, &available_stats),
+                    lit("value")
+                ),
+                gt(
+                    lit("value"),
+                    stat_col("a_max", &struct_dtype, &available_stats)
+                )
             )
         );
     }

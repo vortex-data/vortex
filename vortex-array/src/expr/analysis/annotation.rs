@@ -8,7 +8,7 @@ use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::expr::Expression;
+use crate::expr::BoundExpr;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::NodeVisitor;
 use crate::expr::traversal::TraversalOrder;
@@ -17,26 +17,26 @@ pub trait Annotation: Clone + Hash + Eq {}
 
 impl<A> Annotation for A where A: Clone + Hash + Eq {}
 
-pub trait AnnotationFn: Fn(&Expression) -> Vec<Self::Annotation> {
+pub trait AnnotationFn: Fn(&BoundExpr) -> Vec<Self::Annotation> {
     type Annotation: Annotation;
 }
 
 impl<A, F> AnnotationFn for F
 where
     A: Annotation,
-    F: Fn(&Expression) -> Vec<A>,
+    F: Fn(&BoundExpr) -> Vec<A>,
 {
     type Annotation = A;
 }
 
-pub type Annotations<'a, A> = HashMap<&'a Expression, HashSet<A>>;
+pub type Annotations<'a, A> = HashMap<&'a BoundExpr, HashSet<A>>;
 
 /// Walk the expression tree and annotate each expression with zero or more annotations.
 ///
 /// Returns a map of each expression to all annotations that any of its descendent (child)
 /// expressions are annotated with.
 pub fn descendent_annotations<A: AnnotationFn>(
-    expr: &Expression,
+    expr: &BoundExpr,
     annotate: A,
 ) -> Annotations<'_, A::Annotation> {
     let mut visitor = AnnotationVisitor {
@@ -53,7 +53,7 @@ struct AnnotationVisitor<'a, A: AnnotationFn> {
 }
 
 impl<'a, A: AnnotationFn> NodeVisitor<'a> for AnnotationVisitor<'a, A> {
-    type NodeTy = Expression;
+    type NodeTy = BoundExpr;
 
     fn visit_down(&mut self, node: &'a Self::NodeTy) -> VortexResult<TraversalOrder> {
         let annotations = (self.annotate)(node);
@@ -69,7 +69,7 @@ impl<'a, A: AnnotationFn> NodeVisitor<'a> for AnnotationVisitor<'a, A> {
         }
     }
 
-    fn visit_up(&mut self, node: &'a Expression) -> VortexResult<TraversalOrder> {
+    fn visit_up(&mut self, node: &'a BoundExpr) -> VortexResult<TraversalOrder> {
         let child_annotations = node
             .children()
             .iter()

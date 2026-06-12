@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::expr::Expression;
+use crate::expr::BoundExpr;
 use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::operators::Operator;
 
@@ -9,7 +9,7 @@ use crate::scalar_fn::fns::operators::Operator;
 /// nodes.
 /// For now, we will just extract the conjuncts from the expression, and return a vector of conjuncts.
 /// We could look at try cnf with a size cap and otherwise return the original conjuncts.
-pub fn conjuncts(expr: &Expression) -> Vec<Expression> {
+pub fn conjuncts(expr: &BoundExpr) -> Vec<BoundExpr> {
     let mut conjuncts = vec![];
     conjuncts_impl(expr, &mut conjuncts);
     if conjuncts.is_empty() {
@@ -18,7 +18,7 @@ pub fn conjuncts(expr: &Expression) -> Vec<Expression> {
     conjuncts
 }
 
-fn conjuncts_impl(expr: &Expression, conjuncts: &mut Vec<Expression>) {
+fn conjuncts_impl(expr: &BoundExpr, conjuncts: &mut Vec<BoundExpr>) {
     if let Some(operator) = expr.as_opt::<Binary>()
         && *operator == Operator::And
     {

@@ -36,7 +36,8 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
-use crate::expr::Expression;
+use crate::expr::BoundCall;
+use crate::expr::BoundExpr;
 use crate::matcher::Matcher;
 use crate::scalar_fn;
 use crate::scalar_fn::Arity;
@@ -257,7 +258,7 @@ impl<F: scalar_fn::ScalarFnVTable> Deref for ScalarFnArrayView<'_, F> {
     }
 }
 
-// Used only in this method to allow constrained using of Expression evaluate.
+// Used only in this method to allow constrained using of BoundExpr evaluate.
 #[derive(Clone)]
 struct ArrayExpr;
 
@@ -301,7 +302,7 @@ impl scalar_fn::ScalarFnVTable for ArrayExpr {
     fn fmt_sql(
         &self,
         options: &Self::Options,
-        _expr: &Expression,
+        _expr: &BoundCall,
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
         write!(f, "{}", options.0.encoding_id())
@@ -323,8 +324,8 @@ impl scalar_fn::ScalarFnVTable for ArrayExpr {
     fn validity(
         &self,
         options: &Self::Options,
-        _expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+        _expression: &BoundCall,
+    ) -> VortexResult<Option<BoundExpr>> {
         let validity_array = options.0.validity()?.to_array(options.0.len());
         Ok(Some(ArrayExpr.new_expr(FakeEq(validity_array), [])))
     }

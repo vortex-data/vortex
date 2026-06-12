@@ -22,7 +22,8 @@ use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
-use crate::expr::Expression;
+use crate::expr::BoundCall;
+use crate::expr::BoundExpr;
 use crate::expr::lit;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -105,7 +106,7 @@ impl ScalarFnVTable for Pack {
     fn fmt_sql(
         &self,
         options: &Self::Options,
-        expr: &Expression,
+        expr: &BoundCall,
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
         write!(f, "pack(")?;
@@ -129,8 +130,8 @@ impl ScalarFnVTable for Pack {
     fn validity(
         &self,
         _options: &Self::Options,
-        _expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+        _expression: &BoundCall,
+    ) -> VortexResult<Option<BoundExpr>> {
         Ok(Some(lit(true)))
     }
 
@@ -175,8 +176,12 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
+    use crate::dtype::DType;
     use crate::dtype::Nullability;
-    use crate::expr::col;
+    use crate::dtype::PType;
+    use crate::dtype::StructFields;
+    use crate::expr::BoundExpr;
+    use crate::expr::col as expr_col;
     use crate::expr::pack;
     use crate::scalar_fn::ScalarFnVTableExt;
     use crate::scalar_fn::fns::pack::StructArray;
@@ -189,6 +194,23 @@ mod tests {
         ])
         .unwrap()
         .into_array()
+    }
+
+    fn col(field: impl Into<crate::dtype::FieldName>) -> BoundExpr {
+        expr_col(field, test_array().dtype())
+    }
+
+    fn display_scope() -> DType {
+        DType::Struct(
+            StructFields::from_iter([
+                (
+                    "user_id",
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                ),
+                ("username", DType::Utf8(Nullability::NonNullable)),
+            ]),
+            Nullability::NonNullable,
+        )
     }
 
     fn primitive_field(array: &ArrayRef, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
@@ -321,7 +343,10 @@ mod tests {
     #[test]
     pub fn test_display() {
         let expr = pack(
-            [("id", col("user_id")), ("name", col("username"))],
+            [
+                ("id", expr_col("user_id", &display_scope())),
+                ("name", expr_col("username", &display_scope())),
+            ],
             Nullability::NonNullable,
         );
         assert_eq!(expr.to_string(), "pack(id: $.user_id, name: $.username)");

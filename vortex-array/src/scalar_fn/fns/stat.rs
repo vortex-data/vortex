@@ -20,7 +20,7 @@ use crate::aggregate_fn::fns::all_non_null::AllNonNull;
 use crate::aggregate_fn::fns::all_null::AllNull;
 use crate::arrays::ConstantArray;
 use crate::dtype::DType;
-use crate::expr::Expression;
+use crate::expr::BoundCall;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
@@ -101,7 +101,7 @@ impl ScalarFnVTable for StatFn {
     fn fmt_sql(
         &self,
         options: &Self::Options,
-        expr: &Expression,
+        expr: &BoundCall,
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
         write!(f, "stat(")?;

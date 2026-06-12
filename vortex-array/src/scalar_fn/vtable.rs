@@ -19,10 +19,10 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
-use crate::expr::Expression;
+use crate::expr::BoundCall;
+use crate::expr::BoundExpr;
 use crate::expr::StatsCatalog;
 use crate::expr::stats::Stat;
-use crate::expr::traversal::Node;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::TypedScalarFnInstance;
@@ -60,7 +60,7 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
         _metadata: &[u8],
         _session: &VortexSession,
     ) -> VortexResult<Self::Options> {
-        vortex_bail!("Expression {} is not deserializable", self.id());
+        vortex_bail!("BoundExpr {} is not deserializable", self.id());
     }
 
     /// Returns the arity of this expression.
@@ -76,12 +76,12 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     fn fmt_sql(
         &self,
         options: &Self::Options,
-        expr: &Expression,
+        call: &BoundCall,
         f: &mut Formatter<'_>,
     ) -> fmt::Result {
         write!(f, "{}(", self.id())?;
-        let nchildren = expr.children_count();
-        for (i, child) in expr.children().iter().enumerate() {
+        let nchildren = call.args().len();
+        for (i, child) in call.args().iter().enumerate() {
             child.fmt_sql(f)?;
             if i + 1 < nchildren {
                 write!(f, ", ")?;
@@ -112,11 +112,11 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     /// # Preconditions
     ///
     /// The length of `args` must match the [`Arity`] of this function. Callers are responsible
-    /// for validating this (e.g., [`Expression::try_new`] checks arity at construction time).
+    /// for validating this (e.g., [`BoundExpr::try_new`] checks arity at construction time).
     /// Implementations may assume correct arity and will panic or return nonsensical results if
     /// violated.
     ///
-    /// [`Expression::try_new`]: crate::expr::Expression::try_new
+    /// [`BoundExpr::try_new`]: crate::expr::BoundExpr::try_new
     fn return_dtype(&self, options: &Self::Options, args: &[DType]) -> VortexResult<DType>;
 
     /// Execute the expression over the input arguments.
@@ -159,11 +159,11 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     fn simplify(
         &self,
         options: &Self::Options,
-        expr: &Expression,
+        call: &BoundCall,
         ctx: &dyn SimplifyCtx,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpr>> {
         _ = options;
-        _ = expr;
+        _ = call;
         _ = ctx;
         Ok(None)
     }
@@ -172,36 +172,36 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     fn simplify_untyped(
         &self,
         options: &Self::Options,
-        expr: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+        call: &BoundCall,
+    ) -> VortexResult<Option<BoundExpr>> {
         _ = options;
-        _ = expr;
+        _ = call;
         Ok(None)
     }
 
-    /// See [`Expression::stat_falsification`].
+    /// See [`BoundExpr::stat_falsification`].
     fn stat_falsification(
         &self,
         options: &Self::Options,
-        expr: &Expression,
+        call: &BoundCall,
         catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
+    ) -> Option<BoundExpr> {
         _ = options;
-        _ = expr;
+        _ = call;
         _ = catalog;
         None
     }
 
-    /// See [`Expression::stat_expression`].
+    /// See [`BoundExpr::stat_expression`].
     fn stat_expression(
         &self,
         options: &Self::Options,
-        expr: &Expression,
+        call: &BoundCall,
         stat: Stat,
         catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
+    ) -> Option<BoundExpr> {
         _ = options;
-        _ = expr;
+        _ = call;
         _ = stat;
         _ = catalog;
         None
@@ -216,9 +216,9 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     fn validity(
         &self,
         options: &Self::Options,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        _ = (options, expression);
+        call: &BoundCall,
+    ) -> VortexResult<Option<BoundExpr>> {
+        _ = (options, call);
         Ok(None)
     }
 
@@ -343,7 +343,7 @@ impl Arity {
 /// Used to lazily compute input data types where simplification requires them.
 pub trait SimplifyCtx {
     /// Get the data type of the given expression.
-    fn return_dtype(&self, expr: &Expression) -> VortexResult<DType>;
+    fn return_dtype(&self, expr: &BoundExpr) -> VortexResult<DType>;
 }
 
 /// Arguments for expression execution.
@@ -410,8 +410,8 @@ pub trait ScalarFnVTableExt: ScalarFnVTable {
     fn new_expr(
         &self,
         options: Self::Options,
-        children: impl IntoIterator<Item = Expression>,
-    ) -> Expression {
+        children: impl IntoIterator<Item = BoundExpr>,
+    ) -> BoundExpr {
         Self::try_new_expr(self, options, children).vortex_expect("Failed to create expression")
     }
 
@@ -419,9 +419,9 @@ pub trait ScalarFnVTableExt: ScalarFnVTable {
     fn try_new_expr(
         &self,
         options: Self::Options,
-        children: impl IntoIterator<Item = Expression>,
-    ) -> VortexResult<Expression> {
-        Expression::try_new(self.bind(options), children)
+        children: impl IntoIterator<Item = BoundExpr>,
+    ) -> VortexResult<BoundExpr> {
+        BoundExpr::try_new(self.bind(options), children)
     }
 }
 impl<V: ScalarFnVTable> ScalarFnVTableExt for V {}

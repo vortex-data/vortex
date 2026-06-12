@@ -13,6 +13,7 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::expr::BoundExpr;
 use vortex_array::expr::case_when;
 use vortex_array::expr::case_when_no_else;
 use vortex_array::expr::eq;
@@ -57,6 +58,10 @@ fn make_fragmented_array(size: usize) -> ArrayRef {
     .into_array()
 }
 
+fn root_for(array: &ArrayRef) -> BoundExpr {
+    root(array.dtype().clone())
+}
+
 /// Benchmark a simple binary CASE WHEN with varying array sizes.
 #[divan::bench(args = [1000, 10000, 100000])]
 fn case_when_simple(bencher: Bencher, size: usize) {
@@ -64,7 +69,7 @@ fn case_when_simple(bencher: Bencher, size: usize) {
 
     // CASE WHEN value > 500 THEN 100 ELSE 0 END
     let expr = case_when(
-        gt(get_item("value", root()), lit(500i32)),
+        gt(get_item("value", root_for(&array)), lit(500i32)),
         lit(100i32),
         lit(0i32),
     );
@@ -89,9 +94,18 @@ fn case_when_nary_3_conditions(bencher: Bencher, size: usize) {
     // CASE WHEN value > 750 THEN 3 WHEN value > 500 THEN 2 WHEN value > 250 THEN 1 ELSE 0 END
     let expr = nested_case_when(
         vec![
-            (gt(get_item("value", root()), lit(750i32)), lit(3i32)),
-            (gt(get_item("value", root()), lit(500i32)), lit(2i32)),
-            (gt(get_item("value", root()), lit(250i32)), lit(1i32)),
+            (
+                gt(get_item("value", root_for(&array)), lit(750i32)),
+                lit(3i32),
+            ),
+            (
+                gt(get_item("value", root_for(&array)), lit(500i32)),
+                lit(2i32),
+            ),
+            (
+                gt(get_item("value", root_for(&array)), lit(250i32)),
+                lit(1i32),
+            ),
         ],
         Some(lit(0i32)),
     );
@@ -117,7 +131,7 @@ fn case_when_nary_10_conditions(bencher: Bencher, size: usize) {
         .map(|i| {
             let threshold = (i + 1) * (size as i32 / 10);
             (
-                gt(get_item("value", root()), lit(threshold)),
+                gt(get_item("value", root_for(&array)), lit(threshold)),
                 lit((i + 1) * 100),
             )
         })
@@ -143,7 +157,7 @@ fn case_when_nary_equality_lookup(bencher: Bencher, size: usize) {
 
     // Map specific values: CASE WHEN value = 0 THEN 'a' WHEN value = 1 THEN 'b' ... ELSE 'other' END
     let pairs: Vec<_> = (0..5)
-        .map(|i| (eq(get_item("value", root()), lit(i)), lit(i * 10)))
+        .map(|i| (eq(get_item("value", root_for(&array)), lit(i)), lit(i * 10)))
         .collect();
     let expr = nested_case_when(pairs, Some(lit(-1i32)));
 
@@ -165,7 +179,10 @@ fn case_when_without_else(bencher: Bencher, size: usize) {
     let array = make_struct_array(size);
 
     // CASE WHEN value > 500 THEN 100 END
-    let expr = case_when_no_else(gt(get_item("value", root()), lit(500i32)), lit(100i32));
+    let expr = case_when_no_else(
+        gt(get_item("value", root_for(&array)), lit(500i32)),
+        lit(100i32),
+    );
 
     bencher
         .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
@@ -186,7 +203,7 @@ fn case_when_all_true(bencher: Bencher, size: usize) {
 
     // CASE WHEN value >= 0 THEN 100 ELSE 0 END (always true for our data)
     let expr = case_when(
-        gt(get_item("value", root()), lit(-1i32)),
+        gt(get_item("value", root_for(&array)), lit(-1i32)),
         lit(100i32),
         lit(0i32),
     );
@@ -217,9 +234,9 @@ fn case_when_nary_early_dominant(bencher: Bencher, size: usize) {
 
     let expr = nested_case_when(
         vec![
-            (lt(get_item("value", root()), lit(t1)), lit(1i32)),
-            (lt(get_item("value", root()), lit(t2)), lit(2i32)),
-            (lt(get_item("value", root()), lit(t3)), lit(3i32)),
+            (lt(get_item("value", root_for(&array)), lit(t1)), lit(1i32)),
+            (lt(get_item("value", root_for(&array)), lit(t2)), lit(2i32)),
+            (lt(get_item("value", root_for(&array)), lit(t3)), lit(3i32)),
         ],
         Some(lit(4i32)),
     );
@@ -243,7 +260,7 @@ fn case_when_all_false(bencher: Bencher, size: usize) {
 
     // CASE WHEN value > 1000000 THEN 100 ELSE 0 END (always false for our data)
     let expr = case_when(
-        gt(get_item("value", root()), lit(1_000_000i32)),
+        gt(get_item("value", root_for(&array)), lit(1_000_000i32)),
         lit(100i32),
         lit(0i32),
     );
@@ -269,8 +286,8 @@ fn case_when_fragmented(bencher: Bencher, size: usize) {
     // CASE WHEN c0 THEN 0 WHEN c1 THEN 1 ELSE 2 END
     let expr = nested_case_when(
         vec![
-            (get_item("c0", root()), lit(0i32)),
-            (get_item("c1", root()), lit(1i32)),
+            (get_item("c0", root_for(&array)), lit(0i32)),
+            (get_item("c1", root_for(&array)), lit(1i32)),
         ],
         Some(lit(2i32)),
     );

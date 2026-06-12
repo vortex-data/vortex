@@ -6,269 +6,394 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
-use std::ops::Deref;
+use std::hash::Hasher;
 use std::sync::Arc;
 
-use itertools::Itertools;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
 use crate::dtype::DType;
+use crate::dtype::FieldPath;
 use crate::expr::StatsCatalog;
 use crate::expr::display::DisplayTreeExpr;
+use crate::expr::placeholder::PlaceholderRef;
 use crate::expr::stats::Stat;
+use crate::match_each_float_ptype;
+use crate::scalar::Scalar;
 use crate::scalar_fn::ScalarFnRef;
-use crate::scalar_fn::fns::root::Root;
+use crate::scalar_fn::ScalarFnVTable;
 
-/// A node in a Vortex expression tree.
+/// A bound expression tree.
 ///
-/// Expressions represent scalar computations that can be performed on data. Each
-/// expression consists of an encoding (vtable), heap-allocated metadata, and child expressions.
+/// Bound means every node is resolved against a known evaluation scope and knows its dtype.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Expression {
-    /// The scalar fn for this node.
-    scalar_fn: ScalarFnRef,
-    /// Any children of this expression.
-    children: Arc<Vec<Expression>>,
+pub enum BoundExpr {
+    /// The evaluation scope (`$`), bound to the scope's dtype.
+    Root(DType),
+    /// A typed literal value embedded in the tree.
+    Literal(Scalar),
+    /// A value supplied by the execution context.
+    Placeholder(PlaceholderRef),
+    /// A call to an already-selected scalar function.
+    Call(BoundCall),
 }
 
-impl Deref for Expression {
-    type Target = ScalarFnRef;
+/// A bound scalar function call.
+#[derive(Clone, Debug)]
+pub struct BoundCall {
+    function: ScalarFnRef,
+    args: Arc<[BoundExpr]>,
+    return_dtype: DType,
+}
 
-    fn deref(&self) -> &Self::Target {
-        &self.scalar_fn
+impl PartialEq for BoundCall {
+    fn eq(&self, other: &Self) -> bool {
+        self.function == other.function && self.args == other.args
     }
 }
 
-impl Expression {
-    /// Create a new expression node from a scalar_fn expression and its children.
+impl Eq for BoundCall {}
+
+impl Hash for BoundCall {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // `return_dtype` is derived from `(function, args)` at construction time, so it is
+        // intentionally excluded from structural hashing.
+        self.function.hash(state);
+        self.args.hash(state);
+    }
+}
+
+impl BoundCall {
+    /// Create a new bound scalar function call and resolve its return dtype.
     pub fn try_new(
-        scalar_fn: ScalarFnRef,
-        children: impl IntoIterator<Item = Expression>,
+        function: ScalarFnRef,
+        args: impl IntoIterator<Item = BoundExpr>,
     ) -> VortexResult<Self> {
-        let children = Vec::from_iter(children);
+        let args = Vec::from_iter(args);
 
         vortex_ensure!(
-            scalar_fn.signature().arity().matches(children.len()),
-            "Expression arity mismatch: expected {} children but got {}",
-            scalar_fn.signature().arity(),
-            children.len()
+            function.signature().arity().matches(args.len()),
+            "BoundExpr arity mismatch: expected {} children but got {}",
+            function.signature().arity(),
+            args.len()
         );
 
+        let arg_dtypes: Vec<_> = args.iter().map(|arg| arg.dtype().clone()).collect();
+        let return_dtype = function.return_dtype(&arg_dtypes)?;
+
         Ok(Self {
-            scalar_fn,
-            children: children.into(),
+            function,
+            args: args.into(),
+            return_dtype,
         })
     }
 
-    /// Returns the scalar fn vtable for this expression.
-    pub fn scalar_fn(&self) -> &ScalarFnRef {
-        &self.scalar_fn
+    /// Returns the scalar function for this call.
+    pub fn function(&self) -> &ScalarFnRef {
+        &self.function
+    }
+
+    /// Returns this call's arguments.
+    pub fn args(&self) -> &[BoundExpr] {
+        &self.args
+    }
+
+    /// Returns this call's arguments.
+    pub fn children(&self) -> &[BoundExpr] {
+        self.args()
+    }
+
+    /// Returns the n'th argument of this call.
+    pub fn child(&self, n: usize) -> &BoundExpr {
+        &self.args()[n]
+    }
+
+    /// Returns this call's argument count.
+    pub fn children_count(&self) -> usize {
+        self.args().len()
+    }
+
+    /// Returns the shared argument storage for pointer-sensitive cache keys.
+    pub fn args_arc(&self) -> &Arc<[BoundExpr]> {
+        &self.args
+    }
+
+    /// Returns the dtype resolved when this call was constructed.
+    pub fn return_dtype(&self) -> &DType {
+        &self.return_dtype
+    }
+}
+
+impl Drop for BoundCall {
+    fn drop(&mut self) {
+        let Some(args) = Arc::get_mut(&mut self.args) else {
+            return;
+        };
+
+        let mut children_to_drop = Vec::with_capacity(args.len());
+        for arg in args {
+            children_to_drop.push(std::mem::replace(arg, drop_tombstone()));
+        }
+
+        while let Some(mut child) = children_to_drop.pop() {
+            let BoundExpr::Call(call) = &mut child else {
+                continue;
+            };
+            let Some(args) = Arc::get_mut(&mut call.args) else {
+                continue;
+            };
+            for arg in args {
+                children_to_drop.push(std::mem::replace(arg, drop_tombstone()));
+            }
+        }
+    }
+}
+
+fn drop_tombstone() -> BoundExpr {
+    BoundExpr::Literal(Scalar::null(DType::Null))
+}
+
+impl BoundExpr {
+    /// Create a call expression from a scalar function and bound children.
+    pub fn try_new(
+        function: ScalarFnRef,
+        children: impl IntoIterator<Item = BoundExpr>,
+    ) -> VortexResult<Self> {
+        Ok(Self::Call(BoundCall::try_new(function, children)?))
+    }
+
+    /// Returns this expression's dtype.
+    pub fn dtype(&self) -> &DType {
+        match self {
+            Self::Root(dtype) => dtype,
+            Self::Literal(scalar) => scalar.dtype(),
+            Self::Placeholder(placeholder) => placeholder.dtype(),
+            Self::Call(call) => call.return_dtype(),
+        }
     }
 
     /// Returns the children of this expression.
-    pub fn children(&self) -> &Arc<Vec<Expression>> {
-        &self.children
+    pub fn children(&self) -> &[BoundExpr] {
+        match self {
+            Self::Call(call) => call.args(),
+            Self::Root(_) | Self::Literal(_) | Self::Placeholder(_) => &[],
+        }
     }
 
     /// Returns the n'th child of this expression.
-    pub fn child(&self, n: usize) -> &Expression {
-        &self.children[n]
+    pub fn child(&self, n: usize) -> &BoundExpr {
+        &self.children()[n]
     }
 
-    /// Replace the children of this expression with the provided new children.
+    /// Replace this expression's children with the provided new children.
     pub fn with_children(
-        mut self,
-        children: impl IntoIterator<Item = Expression>,
+        self,
+        children: impl IntoIterator<Item = BoundExpr>,
     ) -> VortexResult<Self> {
-        let children = Vec::from_iter(children);
-        vortex_ensure!(
-            self.signature().arity().matches(children.len()),
-            "Expression arity mismatch: expected {} children but got {}",
-            self.signature().arity(),
-            children.len()
-        );
-        self.children = Arc::new(children);
-        Ok(self)
+        match self {
+            Self::Call(call) => BoundCall::try_new(call.function.clone(), children).map(Self::Call),
+            Self::Root(_) | Self::Literal(_) | Self::Placeholder(_) => {
+                let children = Vec::from_iter(children);
+                vortex_ensure!(
+                    children.is_empty(),
+                    "BoundExpr leaf expected 0 children but got {}",
+                    children.len()
+                );
+                Ok(self)
+            }
+        }
     }
 
-    /// Computes the return dtype of this expression given the input dtype.
-    pub fn return_dtype(&self, scope: &DType) -> VortexResult<DType> {
-        if self.is::<Root>() {
-            return Ok(scope.clone());
+    /// Returns this expression as a scalar function call if it is one.
+    pub fn as_call(&self) -> Option<&BoundCall> {
+        match self {
+            Self::Call(call) => Some(call),
+            Self::Root(_) | Self::Literal(_) | Self::Placeholder(_) => None,
         }
+    }
 
-        let dtypes: Vec<_> = self
-            .children
-            .iter()
-            .map(|c| c.return_dtype(scope))
-            .try_collect()?;
-        self.scalar_fn.return_dtype(&dtypes)
+    /// Returns whether this expression is the root scope.
+    pub fn is_root(&self) -> bool {
+        matches!(self, Self::Root(_))
+    }
+
+    /// Returns this expression as a literal scalar if it is one.
+    pub fn as_literal(&self) -> Option<&Scalar> {
+        match self {
+            Self::Literal(scalar) => Some(scalar),
+            Self::Root(_) | Self::Placeholder(_) | Self::Call(_) => None,
+        }
+    }
+
+    /// Returns this expression as a placeholder if it is one.
+    pub fn as_placeholder(&self) -> Option<&PlaceholderRef> {
+        match self {
+            Self::Placeholder(placeholder) => Some(placeholder),
+            Self::Root(_) | Self::Literal(_) | Self::Call(_) => None,
+        }
+    }
+
+    /// Returns whether this node itself is null-sensitive.
+    pub fn is_null_sensitive(&self) -> bool {
+        match self {
+            Self::Root(_) | Self::Literal(_) | Self::Placeholder(_) => false,
+            Self::Call(call) => call.function().signature().is_null_sensitive(),
+        }
+    }
+
+    /// Returns whether this node itself is semantically fallible.
+    pub fn is_fallible(&self) -> bool {
+        match self {
+            Self::Root(_) | Self::Literal(_) | Self::Placeholder(_) => false,
+            Self::Call(call) => call.function().signature().is_fallible(),
+        }
     }
 
     /// Returns a new expression representing the validity mask output of this expression.
-    ///
-    /// The returned expression evaluates to a non-nullable boolean array.
-    pub fn validity(&self) -> VortexResult<Expression> {
-        self.scalar_fn.validity(self)
+    pub fn validity(&self) -> VortexResult<BoundExpr> {
+        match self {
+            Self::Literal(scalar) => Ok(crate::expr::lit(scalar.is_valid())),
+            Self::Root(_) | Self::Placeholder(_) => Ok(crate::expr::is_not_null(self.clone())),
+            Self::Call(call) => Ok(call
+                .function()
+                .validity(call)?
+                .unwrap_or_else(|| crate::expr::is_not_null(self.clone()))),
+        }
     }
 
-    /// An expression over zone-statistics which implies all records in the zone evaluate to false.
-    ///
-    /// Given an expression, `e`, if `e.stat_falsification(..)` evaluates to true, it is guaranteed
-    /// that `e` evaluates to false on all records in the zone. However, the inverse is not
-    /// necessarily true: even if the falsification evaluates to false, `e` need not evaluate to
-    /// true on all records.
-    ///
-    /// The [`StatsCatalog`] can be used to constrain or rename stats used in the final expr.
-    ///
-    /// # Examples
-    ///
-    /// - An expression over one variable: `x > 0` is false for all records in a zone if the maximum
-    ///   value of the column `x` in that zone is less than or equal to zero: `max(x) <= 0`.
-    /// - An expression over two variables: `x > y` becomes `max(x) <= min(y)`.
-    /// - A conjunctive expression: `x > y AND z < x` becomes `max(x) <= min(y) OR min(z) >= max(x).
-    ///
-    /// Some expressions, in theory, have falsifications but this function does not support them
-    /// such as `x < (y < z)` or `x LIKE "needle%"`.
-    pub fn stat_falsification(&self, catalog: &dyn StatsCatalog) -> Option<Expression> {
-        self.scalar_fn().stat_falsification(self, catalog)
+    /// An expression over zone-statistics which implies all records evaluate to false.
+    pub fn stat_falsification(&self, catalog: &dyn StatsCatalog) -> Option<BoundExpr> {
+        match self {
+            Self::Root(_) | Self::Literal(_) | Self::Placeholder(_) => None,
+            Self::Call(call) => call.function().stat_falsification(call, catalog),
+        }
     }
 
     /// Returns an expression that proves this predicate is definitely false from stats.
-    ///
-    /// `scope` is the dtype of the row this expression evaluates over.
-    ///
-    /// If the returned expression evaluates to `true` for a stats scope, this expression is
-    /// guaranteed to be false for every row in that scope. `false` and `null` are unknown.
-    pub fn falsify(
-        &self,
-        scope: &DType,
-        session: &VortexSession,
-    ) -> VortexResult<Option<Expression>> {
-        crate::stats::rewrite::StatsRewriteCtx::new(session, scope).falsify(self)
+    pub fn falsify(&self, session: &VortexSession) -> VortexResult<Option<BoundExpr>> {
+        crate::stats::rewrite::StatsRewriteCtx::new(session).falsify(self)
     }
 
     /// Returns an expression that proves this predicate is definitely true from stats.
-    ///
-    /// `scope` is the dtype of the row this expression evaluates over.
-    ///
-    /// If the returned expression evaluates to `true` for a stats scope, this expression is
-    /// guaranteed to be true for every row in that scope. `false` and `null` are unknown.
-    pub fn satisfy(
-        &self,
-        scope: &DType,
-        session: &VortexSession,
-    ) -> VortexResult<Option<Expression>> {
-        crate::stats::rewrite::StatsRewriteCtx::new(session, scope).satisfy(self)
+    pub fn satisfy(&self, session: &VortexSession) -> VortexResult<Option<BoundExpr>> {
+        crate::stats::rewrite::StatsRewriteCtx::new(session).satisfy(self)
     }
 
     /// Returns an expression representing the zoned statistic for the given stat, if available.
-    ///
-    /// The [`StatsCatalog`] returns expressions that can be evaluated using the zone map as a
-    /// scope. Expressions can implement this function to propagate such statistics through the
-    /// expression tree. For example, the `a + 10` expression could propagate `min: min(a) + 10`.
-    ///
-    /// NOTE(gatesn): we currently cannot represent statistics over nested fields. Please file an
-    /// issue to discuss a solution to this.
-    pub fn stat_expression(&self, stat: Stat, catalog: &dyn StatsCatalog) -> Option<Expression> {
-        self.scalar_fn().stat_expression(self, stat, catalog)
+    pub fn stat_expression(&self, stat: Stat, catalog: &dyn StatsCatalog) -> Option<BoundExpr> {
+        match self {
+            Self::Root(_) => catalog.stats_ref(&FieldPath::root(), stat),
+            Self::Literal(scalar) => literal_stat_expression(scalar, stat),
+            Self::Placeholder(_) => None,
+            Self::Call(call) => call.function().stat_expression(call, stat, catalog),
+        }
     }
 
-    /// Returns an expression representing the zoned maximum statistic, if available.
-    pub fn stat_min(&self, catalog: &dyn StatsCatalog) -> Option<Expression> {
+    /// Returns an expression representing the zoned minimum statistic, if available.
+    pub fn stat_min(&self, catalog: &dyn StatsCatalog) -> Option<BoundExpr> {
         self.stat_expression(Stat::Min, catalog)
     }
 
     /// Returns an expression representing the zoned maximum statistic, if available.
-    pub fn stat_max(&self, catalog: &dyn StatsCatalog) -> Option<Expression> {
+    pub fn stat_max(&self, catalog: &dyn StatsCatalog) -> Option<BoundExpr> {
         self.stat_expression(Stat::Max, catalog)
     }
 
     /// Format the expression as a compact string.
-    ///
-    /// Since this is a recursive formatter, it is exposed on the public Expression type.
-    /// See fmt_data that is only implemented on the vtable trait.
     pub fn fmt_sql(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        self.scalar_fn().fmt_sql(self, f)
+        match self {
+            Self::Root(_) => write!(f, "$"),
+            Self::Literal(scalar) => write!(f, "{}", scalar),
+            Self::Placeholder(placeholder) => write!(f, "{}()", placeholder.display_name()),
+            Self::Call(call) => call.function().fmt_sql(call, f),
+        }
     }
 
     /// Display the expression as a formatted tree structure.
-    ///
-    /// This provides a hierarchical view of the expression that shows the relationships
-    /// between parent and child expressions, making complex nested expressions easier
-    /// to understand and debug.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// # use vortex_array::dtype::{DType, Nullability, PType};
-    /// # use vortex_array::scalar_fn::fns::like::{Like, LikeOptions};
-    /// # use vortex_array::scalar_fn::ScalarFnVTableExt;
-    /// # use vortex_array::expr::{and, cast, eq, get_item, gt, lit, not, root, select};
-    /// // Build a complex nested expression
-    /// let complex_expr = select(
-    ///     ["result"],
-    ///     and(
-    ///         not(eq(get_item("status", root()), lit("inactive"))),
-    ///         and(
-    ///             Like.new_expr(LikeOptions::default(), [get_item("name", root()), lit("%admin%")]),
-    ///             gt(
-    ///                 cast(get_item("score", root()), DType::Primitive(PType::F64, Nullability::NonNullable)),
-    ///                 lit(75.0)
-    ///             )
-    ///         )
-    ///     )
-    /// );
-    ///
-    /// println!("{}", complex_expr.display_tree());
-    /// ```
-    ///
-    /// This produces output like:
-    ///
-    /// ```text
-    /// Select(include): {result}
-    /// └── Binary(and)
-    ///     ├── lhs: Not
-    ///     │   └── Binary(=)
-    ///     │       ├── lhs: GetItem(status)
-    ///     │       │   └── Root
-    ///     │       └── rhs: Literal(value: "inactive", dtype: utf8)
-    ///     └── rhs: Binary(and)
-    ///         ├── lhs: Like
-    ///         │   ├── child: GetItem(name)
-    ///         │   │   └── Root
-    ///         │   └── pattern: Literal(value: "%admin%", dtype: utf8)
-    ///         └── rhs: Binary(>)
-    ///             ├── lhs: Cast(target: f64)
-    ///             │   └── GetItem(score)
-    ///             │       └── Root
-    ///             └── rhs: Literal(value: 75f64, dtype: f64)
-    /// ```
     pub fn display_tree(&self) -> impl Display {
         DisplayTreeExpr(self)
     }
 }
 
-/// The default display implementation for expressions uses the 'SQL'-style format.
-impl Display for Expression {
+fn literal_stat_expression(scalar: &Scalar, stat: Stat) -> Option<BoundExpr> {
+    // NOTE(ngates): we return incorrect `1` values for counts here since we don't have
+    // row-count information. This is only currently used for pruning and does not change the
+    // outcome.
+    match stat {
+        Stat::Min | Stat::Max => Some(crate::expr::lit(scalar.clone())),
+        Stat::IsConstant => Some(crate::expr::lit(true)),
+        Stat::NaNCount => {
+            let value = scalar.as_primitive_opt()?;
+            if !value.ptype().is_float() {
+                return None;
+            }
+
+            match_each_float_ptype!(value.ptype(), |T| {
+                if value.typed_value::<T>().is_some_and(|v| v.is_nan()) {
+                    Some(crate::expr::lit(1u64))
+                } else {
+                    Some(crate::expr::lit(0u64))
+                }
+            })
+        }
+        Stat::NullCount => {
+            if scalar.is_null() {
+                Some(crate::expr::lit(1u64))
+            } else {
+                Some(crate::expr::lit(0u64))
+            }
+        }
+        Stat::IsSorted | Stat::IsStrictSorted | Stat::Sum | Stat::UncompressedSizeInBytes => None,
+    }
+}
+
+impl Display for BoundExpr {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         self.fmt_sql(f)
     }
 }
 
-/// Iterative drop for expression to avoid stack overflows.
-impl Drop for Expression {
-    fn drop(&mut self) {
-        if let Some(children) = Arc::get_mut(&mut self.children) {
-            let mut children_to_drop = std::mem::take(children);
+impl BoundExpr {
+    pub(crate) fn call(&self) -> &BoundCall {
+        self.as_call().vortex_expect("BoundExpr is not a call")
+    }
 
-            while let Some(mut child) = children_to_drop.pop() {
-                if let Some(expr_children) = Arc::get_mut(&mut child.children) {
-                    children_to_drop.append(expr_children);
-                }
-            }
+    pub(crate) fn scalar_fn(&self) -> &ScalarFnRef {
+        self.call().function()
+    }
+
+    pub(crate) fn is<V: ScalarFnVTable>(&self) -> bool {
+        self.as_call().is_some_and(|call| call.function().is::<V>())
+    }
+
+    pub(crate) fn as_opt<V: ScalarFnVTable>(&self) -> Option<&V::Options> {
+        self.as_call()
+            .and_then(|call| call.function().as_opt::<V>())
+    }
+
+    pub(crate) fn as_<V: ScalarFnVTable>(&self) -> &V::Options {
+        self.as_opt::<V>()
+            .vortex_expect("BoundExpr call options type mismatch")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::expr::not;
+    use crate::expr::root;
+
+    /// `BoundCall`'s iterative `Drop` must keep deep trees from overflowing the stack: a naive
+    /// recursive drop of this chain would blow the default test-thread stack.
+    #[test]
+    fn drop_deep_tree() {
+        let mut expr = root(DType::Bool(Nullability::NonNullable));
+        for _ in 0..100_000 {
+            expr = not(expr);
         }
+        drop(expr);
     }
 }

@@ -193,7 +193,8 @@ mod tests {
         #[case] array: ArrayRef,
         #[case] expected_lens: Vec<u64>,
     ) -> VortexResult<()> {
-        let result = array.apply(&byte_length(root()))?;
+        let expr = byte_length(root(array.dtype().clone()));
+        let result = array.apply(&expr)?;
         let expected = PrimitiveArray::from_iter(expected_lens);
         assert_arrays_eq!(result, expected);
         Ok(())
@@ -202,7 +203,8 @@ mod tests {
     #[test]
     fn test_varbinview_byte_length() -> VortexResult<()> {
         let array = VarBinViewArray::from_iter_str(["short", "a longer string here"]).into_array();
-        let result = array.apply(&byte_length(root()))?;
+        let expr = byte_length(root(array.dtype().clone()));
+        let result = array.apply(&expr)?;
         let expected = PrimitiveArray::from_iter(vec![5u64, 20]);
         assert_arrays_eq!(result, expected);
         Ok(())
@@ -212,7 +214,8 @@ mod tests {
     fn test_nullable_string_byte_length() -> VortexResult<()> {
         let array = VarBinArray::from_nullable_strs(vec![Some("hello"), None, Some("Пуховички")])
             .into_array();
-        let result = array.apply(&byte_length(root()))?;
+        let expr = byte_length(root(array.dtype().clone()));
+        let result = array.apply(&expr)?;
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         assert!(result.is_valid(0, &mut ctx)?);
@@ -233,7 +236,8 @@ mod tests {
     fn test_null_scalar_byte_length() -> VortexResult<()> {
         let null_scalar = Scalar::null(DType::Utf8(Nullability::Nullable));
         let array = ConstantArray::new(null_scalar, 2).into_array();
-        let result = array.apply(&byte_length(root()))?;
+        let expr = byte_length(root(array.dtype().clone()));
+        let result = array.apply(&expr)?;
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         assert!(!result.is_valid(0, &mut ctx)?);
         assert!(!result.is_valid(1, &mut ctx)?);
@@ -242,7 +246,7 @@ mod tests {
 
     #[test]
     fn test_display() {
-        let expr = byte_length(root());
+        let expr = byte_length(root(DType::Utf8(Nullability::NonNullable)));
         assert_eq!(expr.to_string(), "vortex.byte_length($)");
     }
 }

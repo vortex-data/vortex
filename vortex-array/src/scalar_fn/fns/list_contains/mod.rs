@@ -33,7 +33,8 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
-use crate::expr::Expression;
+use crate::expr::BoundCall;
+use crate::expr::BoundExpr;
 use crate::expr::StatsCatalog;
 use crate::expr::and_collect;
 use crate::expr::gt;
@@ -51,7 +52,6 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
 
@@ -132,9 +132,9 @@ impl ScalarFnVTable for ListContains {
     fn stat_falsification(
         &self,
         _options: &Self::Options,
-        expr: &Expression,
+        expr: &BoundCall,
         catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
+    ) -> Option<BoundExpr> {
         let list = expr.child(0);
         let needle = expr.child(1);
 
@@ -145,7 +145,7 @@ impl ScalarFnVTable for ListContains {
         // If the list is constant when we can compare each element to the value
         if min == max {
             let list_ = min
-                .as_opt::<Literal>()
+                .as_literal()
                 .and_then(|l| l.as_list_opt())
                 .and_then(|l| l.elements())?;
             if list_.is_empty() {
@@ -463,6 +463,7 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType::I32;
     use crate::dtype::StructFields;
+    use crate::expr::BoundExpr;
     use crate::expr::and;
     use crate::expr::col;
     use crate::expr::get_item;
@@ -491,11 +492,23 @@ mod tests {
         .into_array()
     }
 
+    fn root_for(array: &ArrayRef) -> BoundExpr {
+        root(array.dtype().clone())
+    }
+
+    fn root_dtype(expr: &BoundExpr) -> Option<&DType> {
+        match expr {
+            BoundExpr::Root(dtype) => Some(dtype),
+            BoundExpr::Literal(_) | BoundExpr::Placeholder(_) => None,
+            BoundExpr::Call(call) => call.args().iter().find_map(root_dtype),
+        }
+    }
+
     #[test]
     pub fn test_one() {
         let arr = test_array();
 
-        let expr = list_contains(root(), lit(1));
+        let expr = list_contains(root_for(&arr), lit(1));
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
@@ -514,7 +527,7 @@ mod tests {
     pub fn test_all() {
         let arr = test_array();
 
-        let expr = list_contains(root(), lit(2));
+        let expr = list_contains(root_for(&arr), lit(2));
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
@@ -533,7 +546,7 @@ mod tests {
     pub fn test_none() {
         let arr = test_array();
 
-        let expr = list_contains(root(), lit(4));
+        let expr = list_contains(root_for(&arr), lit(4));
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
@@ -558,7 +571,7 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let expr = list_contains(root(), lit(2));
+        let expr = list_contains(root_for(&arr), lit(2));
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
@@ -583,7 +596,7 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let expr = list_contains(root(), lit(2));
+        let expr = list_contains(root_for(&arr), lit(2));
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
@@ -611,13 +624,10 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let expr = list_contains(get_item("array", root()), lit(2));
+        let expr = list_contains(get_item("array", root(scope)), lit(2));
 
         // Expect nullable, although scope is non-nullable
-        assert_eq!(
-            expr.return_dtype(&scope).unwrap(),
-            DType::Bool(Nullability::Nullable)
-        );
+        assert_eq!(expr.dtype(), &DType::Bool(Nullability::Nullable));
     }
 
     #[test]
@@ -628,26 +638,43 @@ mod tests {
                 vec![1.into(), 2.into(), 3.into()],
                 Nullability::NonNullable,
             )),
-            col("a"),
+            col(
+                "a",
+                &DType::struct_(
+                    [("a", DType::Primitive(I32, Nullability::NonNullable))],
+                    Nullability::NonNullable,
+                ),
+            ),
         );
+        let scope = DType::struct_(
+            [("a", DType::Primitive(I32, Nullability::NonNullable))],
+            Nullability::NonNullable,
+        );
+        let available_stats = FieldPathSet::from_iter([
+            FieldPath::from_iter([Field::Name("a".into()), Field::Name("max".into())]),
+            FieldPath::from_iter([Field::Name("a".into()), Field::Name("min".into())]),
+        ]);
 
-        let (expr, st) = checked_pruning_expr(
-            &expr,
-            &FieldPathSet::from_iter([
-                FieldPath::from_iter([Field::Name("a".into()), Field::Name("max".into())]),
-                FieldPath::from_iter([Field::Name("a".into()), Field::Name("min".into())]),
-            ]),
-        )
-        .unwrap();
+        let (expr, st) = checked_pruning_expr(&expr, &scope, &available_stats).unwrap();
 
+        let stats_scope = root_dtype(&expr).unwrap().clone();
         assert_eq!(
             &expr,
             &and(
                 and(
-                    or(lt(col("a_max"), lit(1i32)), gt(col("a_min"), lit(1i32)),),
-                    or(lt(col("a_max"), lit(2i32)), gt(col("a_min"), lit(2i32)),)
+                    or(
+                        lt(col("a_max", &stats_scope), lit(1i32)),
+                        gt(col("a_min", &stats_scope), lit(1i32)),
+                    ),
+                    or(
+                        lt(col("a_max", &stats_scope), lit(2i32)),
+                        gt(col("a_min", &stats_scope), lit(2i32)),
+                    )
                 ),
-                or(lt(col("a_max"), lit(3i32)), gt(col("a_min"), lit(3i32)),)
+                or(
+                    lt(col("a_max", &stats_scope), lit(3i32)),
+                    gt(col("a_min", &stats_scope), lit(3i32)),
+                )
             )
         );
 
@@ -662,10 +689,26 @@ mod tests {
 
     #[test]
     pub fn test_display() {
-        let expr = list_contains(get_item("tags", root()), lit("urgent"));
+        let scope = DType::struct_(
+            [(
+                "tags",
+                DType::List(
+                    Arc::new(DType::Utf8(Nullability::NonNullable)),
+                    Nullability::NonNullable,
+                ),
+            )],
+            Nullability::NonNullable,
+        );
+        let expr = list_contains(get_item("tags", root(scope)), lit("urgent"));
         assert_eq!(expr.to_string(), "vortex.list.contains($.tags, \"urgent\")");
 
-        let expr2 = list_contains(root(), lit(42));
+        let expr2 = list_contains(
+            root(DType::List(
+                Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
+                Nullability::NonNullable,
+            )),
+            lit(42),
+        );
         assert_eq!(expr2.to_string(), "vortex.list.contains($, 42i32)");
     }
 
@@ -800,7 +843,7 @@ mod tests {
             Some(v) => Scalar::utf8(v, element_nullability),
         };
         let elem = ConstantArray::new(scalar, list_array.len());
-        let expr = list_contains(root(), lit(elem.scalar().clone()));
+        let expr = list_contains(root_for(&list_array), lit(elem.scalar().clone()));
         let result = list_array.apply(&expr).unwrap();
         assert_arrays_eq!(result, expected);
     }
@@ -817,7 +860,7 @@ mod tests {
         )
         .into_array();
 
-        let expr = list_contains(root(), lit(2i32));
+        let expr = list_contains(root_for(&list_array), lit(2i32));
         let contains = list_array.apply(&expr).unwrap();
         let expected = BoolArray::from_iter([true, true]);
         assert_arrays_eq!(contains, expected);
@@ -834,7 +877,7 @@ mod tests {
         )
         .into_array();
 
-        let expr = list_contains(root(), lit(2i32));
+        let expr = list_contains(root_for(&list_array), lit(2i32));
         let contains = list_array.apply(&expr).unwrap();
 
         let expected = BoolArray::new(
@@ -853,7 +896,7 @@ mod tests {
         );
 
         let arr = (0..7).collect::<PrimitiveArray>().into_array();
-        let expr = list_contains(lit(list_scalar), root());
+        let expr = list_contains(lit(list_scalar), root_for(&arr));
         let contains = arr.apply(&expr).unwrap();
 
         let expected = BoolArray::from_iter([false, true, false, true, false, false, true]);
@@ -876,8 +919,9 @@ mod tests {
             .with_zero_copy_to_list(true)
         };
 
-        let expr = list_contains(root(), lit(42i32));
-        let result = list_array.into_array().apply(&expr).unwrap();
+        let array = list_array.into_array();
+        let expr = list_contains(root_for(&array), lit(42i32));
+        let result = array.apply(&expr).unwrap();
 
         let expected = BoolArray::from_iter([false, false, false, false]);
         assert_arrays_eq!(result, expected);
@@ -901,8 +945,9 @@ mod tests {
 
         // Searching for null
         let null_scalar = Scalar::null(DType::Primitive(I32, Nullability::Nullable));
-        let expr = list_contains(root(), lit(null_scalar));
-        let result = list_array.clone().into_array().apply(&expr).unwrap();
+        let array = list_array.clone().into_array();
+        let expr = list_contains(root_for(&array), lit(null_scalar));
+        let result = array.apply(&expr).unwrap();
 
         let expected = BoolArray::new(
             [false, false, false].into_iter().collect(),
@@ -911,8 +956,9 @@ mod tests {
         assert_arrays_eq!(result, expected);
 
         // Searching for non-null
-        let expr2 = list_contains(root(), lit(42i32));
-        let result2 = list_array.into_array().apply(&expr2).unwrap();
+        let array2 = list_array.into_array();
+        let expr2 = list_contains(root_for(&array2), lit(42i32));
+        let result2 = array2.apply(&expr2).unwrap();
 
         let expected2 = BoolArray::from_iter([false, false, false]);
         assert_arrays_eq!(result2, expected2);
@@ -928,14 +974,16 @@ mod tests {
         let list_array =
             ListViewArray::new(elements.into_array(), offsets, sizes, Validity::NonNullable);
 
-        let expr = list_contains(root(), lit(2i32));
-        let result = list_array.clone().into_array().apply(&expr).unwrap();
+        let array = list_array.clone().into_array();
+        let expr = list_contains(root_for(&array), lit(2i32));
+        let result = array.apply(&expr).unwrap();
 
         let expected = BoolArray::from_iter([false, true, false, false]);
         assert_arrays_eq!(result, expected);
 
-        let expr5 = list_contains(root(), lit(5i32));
-        let result5 = list_array.into_array().apply(&expr5).unwrap();
+        let array5 = list_array.into_array();
+        let expr5 = list_contains(root_for(&array5), lit(5i32));
+        let result5 = array5.apply(&expr5).unwrap();
 
         let expected5 = BoolArray::from_iter([false, false, true, false]);
         assert_arrays_eq!(result5, expected5);
@@ -950,14 +998,16 @@ mod tests {
         let list_array =
             ListViewArray::new(elements.into_array(), offsets, sizes, Validity::NonNullable);
 
-        let expr = list_contains(root(), lit(255i32));
-        let result = list_array.clone().into_array().apply(&expr).unwrap();
+        let array = list_array.clone().into_array();
+        let expr = list_contains(root_for(&array), lit(255i32));
+        let result = array.apply(&expr).unwrap();
 
         let expected = BoolArray::from_iter([false, false, false, true]);
         assert_arrays_eq!(result, expected);
 
-        let expr_zero = list_contains(root(), lit(0i32));
-        let result_zero = list_array.into_array().apply(&expr_zero).unwrap();
+        let array_zero = list_array.into_array();
+        let expr_zero = list_contains(root_for(&array_zero), lit(0i32));
+        let result_zero = array_zero.apply(&expr_zero).unwrap();
 
         let expected_zero = BoolArray::from_iter([true, false, false, false]);
         assert_arrays_eq!(result_zero, expected_zero);

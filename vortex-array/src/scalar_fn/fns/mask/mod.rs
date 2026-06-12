@@ -21,7 +21,8 @@ use crate::builtins::ArrayBuiltins;
 use crate::child_to_validity;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
-use crate::expr::Expression;
+use crate::expr::BoundCall;
+use crate::expr::BoundExpr;
 use crate::expr::and;
 use crate::expr::lit;
 use crate::scalar::Scalar;
@@ -32,7 +33,6 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::SimplifyCtx;
-use crate::scalar_fn::fns::literal::Literal;
 
 /// An expression that masks an input based on a boolean mask.
 ///
@@ -101,10 +101,10 @@ impl ScalarFnVTable for Mask {
     fn simplify(
         &self,
         _options: &Self::Options,
-        expr: &Expression,
+        expr: &BoundCall,
         ctx: &dyn SimplifyCtx,
-    ) -> VortexResult<Option<Expression>> {
-        let Some(mask_lit) = expr.child(1).as_opt::<Literal>() else {
+    ) -> VortexResult<Option<BoundExpr>> {
+        let Some(mask_lit) = expr.child(1).as_literal() else {
             return Ok(None);
         };
 
@@ -126,8 +126,8 @@ impl ScalarFnVTable for Mask {
     fn validity(
         &self,
         _options: &Self::Options,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+        expression: &BoundCall,
+    ) -> VortexResult<Option<BoundExpr>> {
         Ok(Some(and(
             expression.child(0).validity()?,
             expression.child(1).clone(),
@@ -192,15 +192,11 @@ mod test {
         let false_mask_expr = lit(false);
 
         let mask_true_expr = mask(input_expr.clone(), true_mask_expr);
-        let simplified_true = mask_true_expr
-            .optimize(&DType::Null)
-            .vortex_expect("Simplification");
+        let simplified_true = mask_true_expr.optimize().vortex_expect("Simplification");
         assert_eq!(&simplified_true, &input_expr);
 
         let mask_false_expr = mask(input_expr, false_mask_expr);
-        let simplified_false = mask_false_expr
-            .optimize(&DType::Null)
-            .vortex_expect("Simplification");
+        let simplified_false = mask_false_expr.optimize().vortex_expect("Simplification");
         let expected_null_expr = lit(Scalar::null(DType::Primitive(PType::U32, Nullable)));
         assert_eq!(&simplified_false, &expected_null_expr);
     }

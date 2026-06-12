@@ -4,7 +4,7 @@
 //! Scalar function vtable machinery.
 //!
 //! This module contains the [`ScalarFnVTable`] trait and all built-in scalar function
-//! implementations. Expressions ([`crate::expr::Expression`]) reference scalar functions
+//! implementations. Expressions ([`crate::expr::BoundExpr`]) reference scalar functions
 //! at each node.
 
 use vortex_session::registry::Id;

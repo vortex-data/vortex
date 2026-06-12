@@ -3,28 +3,33 @@
 
 use std::fmt::Display;
 use std::fmt::Formatter;
-use std::ops::Deref;
 
-use crate::expr::Expression;
-use crate::scalar_fn::ScalarFnRef;
+use crate::expr::BoundExpr;
 
 pub enum DisplayFormat {
     Compact,
     Tree,
 }
 
-pub struct DisplayTreeExpr<'a>(pub &'a Expression);
+pub struct DisplayTreeExpr<'a>(pub &'a BoundExpr);
 
 impl Display for DisplayTreeExpr<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         pub use termtree::Tree;
-        fn make_tree(expr: &Expression) -> Result<Tree<String>, std::fmt::Error> {
-            let scalar_fn: &ScalarFnRef = expr.deref();
-            let node_name = format!("{}", scalar_fn);
+        fn make_tree(expr: &BoundExpr) -> Result<Tree<String>, std::fmt::Error> {
+            let node_name = match expr {
+                BoundExpr::Root(_) => "vortex.root()".to_string(),
+                BoundExpr::Literal(scalar) => format!("vortex.literal({scalar})"),
+                BoundExpr::Placeholder(placeholder) => format!("{}()", placeholder.id()),
+                BoundExpr::Call(call) => format!("{}", call.function()),
+            };
 
-            // Get child names for display purposes
-            let child_names = (0..expr.children().len()).map(|i| expr.signature().child_name(i));
-            let children = expr.children();
+            let Some(call) = expr.as_call() else {
+                return Ok(Tree::new(node_name));
+            };
+            let child_names =
+                (0..call.args().len()).map(|i| call.function().signature().child_name(i));
+            let children = call.args();
 
             let child_trees: Result<Vec<Tree<String>>, std::fmt::Error> = children
                 .iter()
@@ -50,6 +55,8 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::StructFields;
+    use crate::expr::BoundExpr;
     use crate::expr::and;
     use crate::expr::between;
     use crate::expr::cast;
@@ -59,11 +66,51 @@ mod tests {
     use crate::expr::lit;
     use crate::expr::not;
     use crate::expr::pack;
-    use crate::expr::root;
+    use crate::expr::root as expr_root;
     use crate::expr::select;
     use crate::expr::select_exclude;
     use crate::scalar_fn::fns::between::BetweenOptions;
     use crate::scalar_fn::fns::between::StrictComparison;
+
+    fn scope() -> DType {
+        DType::Struct(
+            StructFields::from_iter([
+                ("x", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                (
+                    "score",
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                ),
+                ("name", DType::Utf8(Nullability::NonNullable)),
+                (
+                    "age",
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                ),
+                (
+                    "internal_id",
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                ),
+                ("metadata", DType::Utf8(Nullability::NonNullable)),
+                (
+                    "value",
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                ),
+                ("active", DType::Bool(Nullability::NonNullable)),
+                (
+                    "answer",
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                ),
+                (
+                    "my_field",
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                ),
+            ]),
+            Nullability::NonNullable,
+        )
+    }
+
+    fn root() -> BoundExpr {
+        expr_root(scope())
+    }
 
     #[test]
     fn tree_display_getitem() {
@@ -224,27 +271,34 @@ mod tests {
         use insta::assert_snapshot;
         let nested_expr = select(
             ["result"],
-            cast(
-                between(
-                    get_item("score", root()),
-                    lit(50),
-                    lit(100),
-                    BetweenOptions {
-                        lower_strict: StrictComparison::Strict,
-                        upper_strict: StrictComparison::NonStrict,
-                    },
-                ),
-                DType::Bool(Nullability::NonNullable),
+            pack(
+                [(
+                    "result",
+                    cast(
+                        between(
+                            get_item("score", root()),
+                            lit(50),
+                            lit(100),
+                            BetweenOptions {
+                                lower_strict: StrictComparison::Strict,
+                                upper_strict: StrictComparison::NonStrict,
+                            },
+                        ),
+                        DType::Bool(Nullability::NonNullable),
+                    ),
+                )],
+                Nullability::NonNullable,
             ),
         );
         assert_snapshot!(nested_expr.display_tree().to_string(), @r"
         vortex.select({result})
-        └── child: vortex.cast(bool)
-            └── input: vortex.between(lower_strict: <, upper_strict: <=)
-                ├── array: vortex.get_item(score)
-                │   └── input: vortex.root()
-                ├── lower: vortex.literal(50i32)
-                └── upper: vortex.literal(100i32)
+        └── child: vortex.pack(names: [result], nullability: NonNullable)
+            └── result: vortex.cast(bool)
+                └── input: vortex.between(lower_strict: <, upper_strict: <=)
+                    ├── array: vortex.get_item(score)
+                    │   └── input: vortex.root()
+                    ├── lower: vortex.literal(50i32)
+                    └── upper: vortex.literal(100i32)
         ");
     }
 

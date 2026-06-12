@@ -381,7 +381,7 @@ mod tests {
         )])?;
         let variant = VariantArray::try_new(core_storage, Some(shredded.into_array()))?;
         let expr = variant_get(
-            root(),
+            root(variant.dtype().clone()),
             VariantPath::field("a"),
             Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
         );
@@ -414,7 +414,7 @@ mod tests {
         let variant = VariantArray::try_new(core_storage, Some(shredded.into_array()))?;
 
         let value_expr = variant_get(
-            root(),
+            root(variant.dtype().clone()),
             VariantPath::field("value"),
             Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
         );
@@ -429,7 +429,7 @@ mod tests {
         );
 
         let typed_value_expr = variant_get(
-            root(),
+            root(variant.dtype().clone()),
             VariantPath::field("typed_value"),
             Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
         );

@@ -8,23 +8,32 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArray;
-use crate::expr::Expression;
+use crate::expr::BoundExpr;
 use crate::optimizer::ArrayOptimizer;
-use crate::scalar_fn::fns::literal::Literal;
-use crate::scalar_fn::fns::root::Root;
+use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::internal::placeholder::PlaceholderFn;
 
 impl ArrayRef {
     /// Apply the expression to this array, producing a new array in constant time.
-    pub fn apply(self, expr: &Expression) -> VortexResult<ArrayRef> {
-        // If the expression is a root, return self.
-        if expr.is::<Root>() {
-            return Ok(self);
-        }
-
-        // Manually convert literals to ConstantArray.
-        if let Some(scalar) = expr.as_opt::<Literal>() {
-            return Ok(ConstantArray::new(scalar.clone(), self.len()).into_array());
-        }
+    pub fn apply(self, expr: &BoundExpr) -> VortexResult<ArrayRef> {
+        let BoundExpr::Call(call) = expr else {
+            return Ok(match expr {
+                BoundExpr::Root(dtype) => {
+                    debug_assert!(dtype.eq_ignore_nullability(self.dtype()));
+                    self
+                }
+                BoundExpr::Literal(scalar) => {
+                    ConstantArray::new(scalar.clone(), self.len()).into_array()
+                }
+                BoundExpr::Placeholder(placeholder) => ScalarFnArray::try_new_with_len(
+                    PlaceholderFn.bind(placeholder.clone()),
+                    vec![],
+                    self.len(),
+                )?
+                .into_array(),
+                BoundExpr::Call(_) => unreachable!(),
+            });
+        };
 
         // Otherwise, collect the child arrays.
         let children: Vec<_> = expr
@@ -34,9 +43,8 @@ impl ArrayRef {
             .try_collect()?;
 
         // And wrap the scalar function up in an array.
-        let array =
-            ScalarFnArray::try_new_with_len(expr.scalar_fn().clone(), children, self.len())?
-                .into_array();
+        let array = ScalarFnArray::try_new_with_len(call.function().clone(), children, self.len())?
+            .into_array();
 
         // Optimize the resulting array's root.
         array.optimize()

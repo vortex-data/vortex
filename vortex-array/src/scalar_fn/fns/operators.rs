@@ -20,13 +20,13 @@ pub enum Operator {
     Eq,
     /// Expressions are not equal.
     NotEq,
-    /// Expression is greater than another
+    /// BoundExpr is greater than another
     Gt,
-    /// Expression is greater or equal to another
+    /// BoundExpr is greater or equal to another
     Gte,
-    /// Expression is less than another
+    /// BoundExpr is less than another
     Lt,
-    /// Expression is less or equal to another
+    /// BoundExpr is less or equal to another
     Lte,
     /// Boolean AND (∧).
     // TODO(joe): rename to KleeneAnd
@@ -187,13 +187,13 @@ pub enum CompareOperator {
     Eq,
     /// Expressions are not equal.
     NotEq,
-    /// Expression is greater than another.
+    /// BoundExpr is greater than another.
     Gt,
-    /// Expression is greater or equal to another.
+    /// BoundExpr is greater or equal to another.
     Gte,
-    /// Expression is less than another.
+    /// BoundExpr is less than another.
     Lt,
-    /// Expression is less or equal to another.
+    /// BoundExpr is less or equal to another.
     Lte,
 }
 

@@ -21,7 +21,8 @@ use crate::arrays::Decimal;
 use crate::arrays::Primitive;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
-use crate::expr::Expression;
+use crate::expr::BoundCall;
+use crate::expr::BoundExpr;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -110,9 +111,9 @@ impl ScalarFnVTable for FillNull {
     fn simplify(
         &self,
         _options: &Self::Options,
-        expr: &Expression,
+        expr: &BoundCall,
         ctx: &dyn crate::scalar_fn::SimplifyCtx,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Option<BoundExpr>> {
         let input_dtype = ctx.return_dtype(expr.child(0))?;
 
         if !input_dtype.is_nullable() {
@@ -125,8 +126,8 @@ impl ScalarFnVTable for FillNull {
     fn validity(
         &self,
         _options: &Self::Options,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+        expression: &BoundCall,
+    ) -> VortexResult<Option<BoundExpr>> {
         // After fill_null, the result validity depends on the fill value's nullability.
         // If fill_value is non-nullable, the result is always valid.
         Ok(Some(expression.child(1).validity()?))
@@ -194,15 +195,16 @@ mod tests {
     fn dtype() {
         let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
         assert_eq!(
-            fill_null(root(), lit(0i32)).return_dtype(&dtype).unwrap(),
+            fill_null(root(dtype), lit(0i32)).dtype().clone(),
             DType::Primitive(PType::I32, Nullability::NonNullable)
         );
     }
 
     #[test]
     fn replace_children() {
-        let expr = fill_null(root(), lit(0i32));
-        expr.with_children(vec![root(), lit(0i32)])
+        let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
+        let expr = fill_null(root(dtype.clone()), lit(0i32));
+        expr.with_children(vec![root(dtype), lit(0i32)])
             .vortex_expect("operation should succeed in test");
     }
 
@@ -212,7 +214,7 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None, Some(5)])
                 .into_array();
 
-        let expr = fill_null(root(), lit(42i32));
+        let expr = fill_null(root(test_array.dtype().clone()), lit(42i32));
         let result = test_array.apply(&expr).unwrap();
 
         assert_eq!(
@@ -231,7 +233,7 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let expr = fill_null(get_item("a", root()), lit(0i32));
+        let expr = fill_null(get_item("a", root(test_array.dtype().clone())), lit(0i32));
         let result = test_array.apply(&expr).unwrap();
 
         assert_eq!(
@@ -244,14 +246,18 @@ mod tests {
     #[test]
     fn evaluate_non_nullable_input() {
         let test_array = buffer![1i32, 2, 3].into_array();
-        let expr = fill_null(root(), lit(0i32));
+        let expr = fill_null(root(test_array.dtype().clone()), lit(0i32));
         let result = test_array.apply(&expr).unwrap();
         assert_arrays_eq!(result, PrimitiveArray::from_iter([1i32, 2, 3]));
     }
 
     #[test]
     fn test_display() {
-        let expr = fill_null(get_item("value", root()), lit(0i32));
+        let scope = DType::struct_(
+            [("value", DType::Primitive(PType::I32, Nullability::Nullable))],
+            Nullability::NonNullable,
+        );
+        let expr = fill_null(get_item("value", root(scope)), lit(0i32));
         assert_eq!(expr.to_string(), "vortex.fill_null($.value, 0i32)");
     }
 }

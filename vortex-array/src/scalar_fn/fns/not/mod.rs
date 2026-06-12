@@ -26,7 +26,7 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 
-/// Expression that logically inverts boolean values.
+/// BoundExpr that logically inverts boolean values.
 #[derive(Clone)]
 pub struct Not;
 
@@ -117,14 +117,16 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::expr::col;
     use crate::expr::get_item;
+    use crate::expr::lit;
     use crate::expr::not;
+    use crate::expr::pack;
     use crate::expr::root;
     use crate::expr::test_harness;
     use crate::scalar_fn::fns::not::BoolArray;
 
     #[test]
     fn invert_booleans() {
-        let not_expr = not(root());
+        let not_expr = not(root(DType::Bool(Nullability::NonNullable)));
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
         #[expect(deprecated)]
         let result = bools.into_array().apply(&not_expr).unwrap().to_bool();
@@ -136,26 +138,32 @@ mod tests {
 
     #[test]
     fn test_display_order_of_operations() {
-        let a = not(get_item("a", root()));
-        let b = get_item("a", not(root()));
+        let scope = DType::struct_(
+            [("a", DType::Bool(Nullability::NonNullable))],
+            Nullability::NonNullable,
+        );
+        let a = not(get_item("a", root(scope)));
+        // GetItem renders as a `.field` suffix on its child, including when the child is itself
+        // a call rather than the root.
+        let b = not(get_item(
+            "a",
+            pack([("a", lit(true))], Nullability::NonNullable),
+        ));
         assert_ne!(a.to_string(), b.to_string());
         assert_eq!(a.to_string(), "vortex.not($.a)");
-        assert_eq!(b.to_string(), "vortex.not($).a");
+        assert_eq!(b.to_string(), "vortex.not(pack(a: true).a)");
     }
 
     #[test]
     fn dtype() {
-        let not_expr = not(root());
         let dtype = DType::Bool(Nullability::NonNullable);
-        assert_eq!(
-            not_expr.return_dtype(&dtype).unwrap(),
-            DType::Bool(Nullability::NonNullable)
-        );
+        let not_expr = not(root(dtype));
+        assert_eq!(not_expr.dtype(), &DType::Bool(Nullability::NonNullable));
 
         let dtype = test_harness::struct_dtype();
         assert_eq!(
-            not(col("bool1")).return_dtype(&dtype).unwrap(),
-            DType::Bool(Nullability::NonNullable)
+            not(col("bool1", &dtype)).dtype(),
+            &DType::Bool(Nullability::NonNullable)
         );
     }
 }

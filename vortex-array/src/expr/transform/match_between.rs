@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::expr::Expression;
+use crate::expr::BoundExpr;
 use crate::expr::and_collect;
 use crate::expr::forms::conjuncts;
 use crate::expr::lit;
@@ -11,12 +11,11 @@ use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::between::StrictComparison;
 use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::get_item::GetItem;
-use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::operators::Operator;
 
 /// This pass looks for expression of the form
 ///      `x >= a && x < b` and converts them into x between a and b`
-pub fn find_between(expr: Expression) -> Expression {
+pub fn find_between(expr: BoundExpr) -> BoundExpr {
     // We search all pairs of cnfs to find any pair of expressions can be converted into a between
     // expression.
     let mut conjuncts = conjuncts(&expr);
@@ -48,7 +47,7 @@ pub fn find_between(expr: Expression) -> Expression {
     and_collect(rest).unwrap_or_else(|| lit(true))
 }
 
-fn maybe_match(lhs: &Expression, rhs: &Expression) -> Option<Expression> {
+fn maybe_match(lhs: &BoundExpr, rhs: &BoundExpr) -> Option<BoundExpr> {
     let (Some(lhs_op), Some(rhs_op)) = (lhs.as_opt::<Binary>(), rhs.as_opt::<Binary>()) else {
         return None;
     };
@@ -100,8 +99,8 @@ fn maybe_match(lhs: &Expression, rhs: &Expression) -> Option<Expression> {
     let upper_rhs = upper.child(1);
 
     // Ensure bounds are literals
-    let _ = lower_rhs.as_opt::<Literal>()?;
-    let _ = upper_rhs.as_opt::<Literal>()?;
+    let _ = lower_rhs.as_literal()?;
+    let _ = upper_rhs.as_literal()?;
 
     let lower_strict = is_strict_comparison(*lower_op)?;
     let upper_strict = is_strict_comparison(*upper_op)?;
@@ -126,9 +125,14 @@ fn is_strict_comparison(op: Operator) -> Option<StrictComparison> {
 #[cfg(test)]
 mod tests {
     use super::find_between;
+    use crate::dtype::DType;
+    use crate::dtype::FieldName;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::StructFields;
     use crate::expr::and;
     use crate::expr::between;
-    use crate::expr::col;
+    use crate::expr::col as expr_col;
     use crate::expr::gt;
     use crate::expr::gt_eq;
     use crate::expr::lit;
@@ -136,6 +140,18 @@ mod tests {
     use crate::expr::lt_eq;
     use crate::scalar_fn::fns::between::BetweenOptions;
     use crate::scalar_fn::fns::between::StrictComparison;
+
+    fn scope() -> DType {
+        let i32_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        DType::Struct(
+            StructFields::from_iter([("x", i32_dtype.clone()), ("y", i32_dtype)]),
+            Nullability::NonNullable,
+        )
+    }
+
+    fn col(field: impl Into<FieldName>) -> crate::expr::BoundExpr {
+        expr_col(field, &scope())
+    }
 
     #[test]
     fn test_bad_match() {

@@ -19,19 +19,17 @@ use vortex_utils::debug_with::DebugWith;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
-use crate::expr::Expression;
+use crate::expr::BoundCall;
+use crate::expr::BoundExpr;
 use crate::expr::StatsCatalog;
 use crate::expr::stats::Stat;
-use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ReduceCtx;
 use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ReduceNodeRef;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::SimplifyCtx;
-use crate::scalar_fn::fns::is_not_null::IsNotNull;
 use crate::scalar_fn::options::ScalarFnOptions;
 use crate::scalar_fn::signature::ScalarFnSignature;
 use crate::scalar_fn::typed::DynScalarFn;
@@ -40,7 +38,7 @@ use crate::scalar_fn::typed::TypedScalarFnInstance;
 /// A type-erased scalar function, pairing a vtable with bound options behind a trait object.
 ///
 /// This stores a [`ScalarFnVTable`] and its options behind an `Arc<dyn DynScalarFn>`, allowing
-/// heterogeneous storage inside [`Expression`] and [`crate::arrays::ScalarFnArray`].
+/// heterogeneous storage inside [`BoundExpr`] and [`crate::arrays::ScalarFnArray`].
 ///
 /// Use [`super::TypedScalarFnInstance::new()`] to construct, and [`super::TypedScalarFnInstance::erased()`] to
 /// obtain a [`ScalarFnRef`].
@@ -73,7 +71,7 @@ impl ScalarFnRef {
     /// Panics if the vtable type does not match.
     pub fn as_<V: ScalarFnVTable>(&self) -> &V::Options {
         self.as_opt::<V>()
-            .vortex_expect("Expression options type mismatch")
+            .vortex_expect("BoundExpr options type mismatch")
     }
 
     /// Downcast to the concrete [`TypedScalarFnInstance`].
@@ -132,12 +130,9 @@ impl ScalarFnRef {
         self.0.coerce_args(arg_types)
     }
 
-    /// Transforms the expression into one representing the validity of this expression.
-    pub fn validity(&self, expr: &Expression) -> VortexResult<Expression> {
-        Ok(self.0.validity(expr)?.unwrap_or_else(|| {
-            // TODO(ngates): make validity a mandatory method on VTable to avoid this fallback.
-            IsNotNull.new_expr(EmptyOptions, [expr.clone()])
-        }))
+    /// Returns this call's custom validity expression, if any.
+    pub fn validity(&self, call: &BoundCall) -> VortexResult<Option<BoundExpr>> {
+        self.0.validity(call)
     }
 
     /// Execute the expression given the input arguments.
@@ -159,45 +154,45 @@ impl ScalarFnRef {
     }
 
     // ------------------------------------------------------------------
-    // Expression-taking methods — used by expr/ module via pub(crate)
+    // BoundExpr-taking methods — used by expr/ module via pub(crate)
     // ------------------------------------------------------------------
 
     /// Format this expression in SQL-style format.
-    pub(crate) fn fmt_sql(&self, expr: &Expression, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt_sql(expr, f)
+    pub(crate) fn fmt_sql(&self, call: &BoundCall, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt_sql(call, f)
     }
 
     /// Simplify the expression using type information.
     pub(crate) fn simplify(
         &self,
-        expr: &Expression,
+        call: &BoundCall,
         ctx: &dyn SimplifyCtx,
-    ) -> VortexResult<Option<Expression>> {
-        self.0.simplify(expr, ctx)
+    ) -> VortexResult<Option<BoundExpr>> {
+        self.0.simplify(call, ctx)
     }
 
     /// Simplify the expression without type information.
-    pub(crate) fn simplify_untyped(&self, expr: &Expression) -> VortexResult<Option<Expression>> {
-        self.0.simplify_untyped(expr)
+    pub(crate) fn simplify_untyped(&self, call: &BoundCall) -> VortexResult<Option<BoundExpr>> {
+        self.0.simplify_untyped(call)
     }
 
     /// Compute stat falsification expression.
     pub(crate) fn stat_falsification(
         &self,
-        expr: &Expression,
+        call: &BoundCall,
         catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        self.0.stat_falsification(expr, catalog)
+    ) -> Option<BoundExpr> {
+        self.0.stat_falsification(call, catalog)
     }
 
     /// Compute stat expression.
     pub(crate) fn stat_expression(
         &self,
-        expr: &Expression,
+        call: &BoundCall,
         stat: Stat,
         catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        self.0.stat_expression(expr, stat, catalog)
+    ) -> Option<BoundExpr> {
+        self.0.stat_expression(call, stat, catalog)
     }
 }
 

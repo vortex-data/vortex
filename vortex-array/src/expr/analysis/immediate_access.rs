@@ -6,12 +6,11 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::dtype::FieldName;
 use crate::dtype::StructFields;
-use crate::expr::Expression;
+use crate::expr::BoundExpr;
 use crate::expr::analysis::AnnotationFn;
 use crate::expr::analysis::Annotations;
 use crate::expr::descendent_annotations;
 use crate::scalar_fn::fns::get_item::GetItem;
-use crate::scalar_fn::fns::root::Root;
 use crate::scalar_fn::fns::select::Select;
 
 pub type FieldAccesses<'a> = Annotations<'a, FieldName>;
@@ -44,9 +43,9 @@ pub type FieldAccesses<'a> = Annotations<'a, FieldName>;
 pub fn make_free_field_annotator(
     scope: &StructFields,
 ) -> impl AnnotationFn<Annotation = FieldName> {
-    move |expr: &Expression| {
+    move |expr: &BoundExpr| {
         if let Some(selection) = expr.as_opt::<Select>() {
-            if expr.child(0).is::<Root>() {
+            if expr.child(0).is_root() {
                 return selection
                     .normalize_to_included_fields(scope.names())
                     .vortex_expect("Select fields must be valid for scope")
@@ -54,10 +53,10 @@ pub fn make_free_field_annotator(
                     .collect();
             }
         } else if let Some(field_name) = expr.as_opt::<GetItem>() {
-            if expr.child(0).is::<Root>() {
+            if expr.child(0).is_root() {
                 return vec![field_name.clone()];
             }
-        } else if expr.is::<Root>() {
+        } else if expr.is_root() {
             return scope.names().iter().cloned().collect();
         }
 
@@ -73,7 +72,7 @@ pub fn make_free_field_annotator(
 /// identity node. This is combined to provide an over-approximation of the fields that are accessed
 /// by an expression.
 pub fn immediate_scope_accesses<'a>(
-    expr: &'a Expression,
+    expr: &'a BoundExpr,
     scope: &'a StructFields,
 ) -> FieldAccesses<'a> {
     descendent_annotations(expr, make_free_field_annotator(scope))
@@ -81,11 +80,11 @@ pub fn immediate_scope_accesses<'a>(
 
 /// This returns the immediate scope_access (as explained `immediate_scope_accesses`) for `expr`.
 pub fn immediate_scope_access<'a>(
-    expr: &'a Expression,
+    expr: &'a BoundExpr,
     scope: &'a StructFields,
 ) -> HashSet<FieldName> {
     immediate_scope_accesses(expr, scope)
         .get(expr)
-        .vortex_expect("Expression missing from scope accesses, this is a internal bug")
+        .vortex_expect("BoundExpr missing from scope accesses, this is a internal bug")
         .clone()
 }

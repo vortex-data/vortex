@@ -224,7 +224,7 @@ mod tests {
                 PrimitiveArray::from_iter(vec![2u64])
                     .into_array()
                     .apply(&cast(
-                        root(),
+                        root(DType::Primitive(PType::U64, Nullability::NonNullable)),
                         DType::Primitive(PType::U64, Nullability::Nullable),
                     ))
                     .vortex_expect("casted"),
@@ -234,7 +234,7 @@ mod tests {
         .vortex_expect("construction")
         .into_array();
 
-        let expr = is_null(root());
+        let expr = is_null(root(array.dtype().clone()));
         array.apply(&expr).vortex_expect("expr evaluation");
     }
 }

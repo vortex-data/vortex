@@ -144,22 +144,25 @@ mod tests {
     use vortex_error::vortex_bail;
 
     use super::*;
-    use crate::expr::Expression;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability::NonNullable;
+    use crate::dtype::PType;
+    use crate::expr::BoundExpr;
+    use crate::expr::cast;
     use crate::expr::checked_add;
     use crate::expr::gt;
     use crate::expr::lit;
     use crate::expr::traversal::NodeExt;
     use crate::scalar_fn::fns::binary::Binary;
-    use crate::scalar_fn::fns::literal::Literal;
     use crate::scalar_fn::fns::operators::Operator;
 
     struct AddFold;
     impl NodeFolder for AddFold {
-        type NodeTy = Expression;
+        type NodeTy = BoundExpr;
         type Result = i32;
 
         fn visit_down(&mut self, node: &'_ Self::NodeTy) -> VortexResult<FoldDown<Self::Result>> {
-            if let Some(scalar) = node.as_opt::<Literal>() {
+            if let Some(scalar) = node.as_literal() {
                 let v = scalar
                     .as_primitive()
                     .typed_value::<i32>()
@@ -184,20 +187,19 @@ mod tests {
             node: Self::NodeTy,
             children: Vec<Self::Result>,
         ) -> VortexResult<FoldUp<Self::Result>> {
-            if let Some(scalar) = node.as_opt::<Literal>() {
+            if let Some(scalar) = node.as_literal() {
                 let v = scalar
                     .as_primitive()
                     .typed_value::<i32>()
                     .vortex_expect("i32");
                 Ok(FoldUp::Continue(v))
             } else if let Some(operator) = node.as_opt::<Binary>() {
-                if *operator == Operator::Add {
-                    Ok(FoldUp::Continue(children[0] + children[1]))
-                } else {
+                if *operator != Operator::Add {
                     vortex_bail!("not a valid operator")
                 }
+                Ok(FoldUp::Continue(children[0] + children[1]))
             } else {
-                vortex_bail!("not a valid type")
+                Ok(FoldUp::Continue(children.into_iter().sum()))
             }
         }
     }
@@ -222,7 +224,13 @@ mod tests {
 
     #[test]
     fn test_skip_value() {
-        let expr = checked_add(gt(lit(1), lit(2)), lit(3));
+        let expr = checked_add(
+            cast(
+                gt(lit(1), lit(2)),
+                DType::Primitive(PType::I32, NonNullable),
+            ),
+            lit(3),
+        );
 
         let mut folder = AddFold;
         let result = expr.fold(&mut folder).unwrap().value();
@@ -231,7 +239,13 @@ mod tests {
 
     #[test]
     fn test_control_flow_value() {
-        let expr = checked_add(gt(lit(1), lit(5)), lit(3));
+        let expr = checked_add(
+            cast(
+                gt(lit(1), lit(5)),
+                DType::Primitive(PType::I32, NonNullable),
+            ),
+            lit(3),
+        );
 
         let mut folder = AddFold;
         let result = expr.fold(&mut folder).unwrap().value();

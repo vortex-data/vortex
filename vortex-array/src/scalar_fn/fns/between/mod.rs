@@ -25,8 +25,9 @@ use crate::arrays::Primitive;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::DType::Bool;
+use crate::expr::BoundCall;
+use crate::expr::BoundExpr;
 use crate::expr::StatsCatalog;
-use crate::expr::expression::Expression;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -227,7 +228,7 @@ impl ScalarFnVTable for Between {
     fn fmt_sql(
         &self,
         options: &Self::Options,
-        expr: &Expression,
+        expr: &BoundCall,
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
         let lower_op = if options.lower_strict.is_strict() {
@@ -301,9 +302,9 @@ impl ScalarFnVTable for Between {
     fn stat_falsification(
         &self,
         options: &Self::Options,
-        expr: &Expression,
+        expr: &BoundCall,
         catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
+    ) -> Option<BoundExpr> {
         let arr = expr.child(0).clone();
         let lower = expr.child(1).clone();
         let upper = expr.child(2).clone();
@@ -317,8 +318,8 @@ impl ScalarFnVTable for Between {
     fn validity(
         &self,
         _options: &Self::Options,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+        expression: &BoundCall,
+    ) -> VortexResult<Option<BoundExpr>> {
         let arr = expression.child(0).validity()?;
         let lower = expression.child(1).validity()?;
         let upper = expression.child(2).validity()?;
@@ -351,6 +352,7 @@ mod tests {
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::StructFields;
     use crate::expr::between;
     use crate::expr::get_item;
     use crate::expr::lit;
@@ -367,7 +369,16 @@ mod tests {
     #[test]
     fn test_display() {
         let expr = between(
-            get_item("score", root()),
+            get_item(
+                "score",
+                root(DType::Struct(
+                    StructFields::from_iter([(
+                        "score",
+                        DType::Primitive(PType::I32, Nullability::NonNullable),
+                    )]),
+                    Nullability::NonNullable,
+                )),
+            ),
             lit(10),
             lit(50),
             BetweenOptions {
@@ -378,7 +389,7 @@ mod tests {
         assert_eq!(expr.to_string(), "(10i32 <= $.score < 50i32)");
 
         let expr2 = between(
-            root(),
+            root(DType::Primitive(PType::I32, Nullability::NonNullable)),
             lit(0),
             lit(100),
             BetweenOptions {

@@ -19,7 +19,8 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::dtype::DType;
-use crate::expr::Expression;
+use crate::expr::BoundCall;
+use crate::expr::BoundExpr;
 use crate::expr::StatsCatalog;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::NodeVisitor;
@@ -65,7 +66,7 @@ impl ScalarFnVTable for DynamicComparison {
     fn fmt_sql(
         &self,
         dynamic: &DynamicComparisonExpr,
-        expr: &Expression,
+        expr: &BoundCall,
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
         expr.child(0).fmt_sql(f)?;
@@ -123,9 +124,9 @@ impl ScalarFnVTable for DynamicComparison {
     fn stat_falsification(
         &self,
         dynamic: &DynamicComparisonExpr,
-        expr: &Expression,
+        expr: &BoundCall,
         catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
+    ) -> Option<BoundExpr> {
         let lhs = expr.child(0);
         match dynamic.operator {
             CompareOperator::Eq | CompareOperator::NotEq => None,
@@ -250,12 +251,12 @@ pub struct DynamicExprUpdates {
 }
 
 impl DynamicExprUpdates {
-    pub fn new(expr: &Expression) -> Option<Self> {
+    pub fn new(expr: &BoundCall) -> Option<Self> {
         #[derive(Default)]
         struct Visitor(Vec<DynamicComparisonExpr>);
 
         impl NodeVisitor<'_> for Visitor {
-            type NodeTy = Expression;
+            type NodeTy = BoundExpr;
 
             fn visit_down(&mut self, node: &'_ Self::NodeTy) -> VortexResult<TraversalOrder> {
                 if let Some(dynamic) = node.as_opt::<DynamicComparison>() {
@@ -266,7 +267,9 @@ impl DynamicExprUpdates {
         }
 
         let mut visitor = Visitor::default();
-        expr.accept(&mut visitor).vortex_expect("Infallible");
+        BoundExpr::Call(expr.clone())
+            .accept(&mut visitor)
+            .vortex_expect("Infallible");
 
         if visitor.0.is_empty() {
             return None;
@@ -331,30 +334,28 @@ mod tests {
     use crate::expr::root;
     #[test]
     fn return_dtype_bool() -> VortexResult<()> {
+        let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let expr = dynamic(
             CompareOperator::Lt,
             || Some(5i32.into()),
             DType::Primitive(PType::I32, Nullability::NonNullable),
             true,
-            root(),
+            root(input_dtype),
         );
-        let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        assert_eq!(
-            expr.return_dtype(&input_dtype)?,
-            DType::Bool(Nullability::NonNullable)
-        );
+        assert_eq!(expr.dtype(), &DType::Bool(Nullability::NonNullable));
         Ok(())
     }
 
     #[test]
     fn execute_with_value() -> VortexResult<()> {
         let input = buffer![1i32, 5, 10].into_array();
+        let input_dtype = input.dtype().clone();
         let expr = dynamic(
             CompareOperator::Lt,
             || Some(5i32.into()),
             DType::Primitive(PType::I32, Nullability::NonNullable),
             true,
-            root(),
+            root(input_dtype),
         );
         let result = input.apply(&expr)?;
         assert_arrays_eq!(result, BoolArray::from_iter([true, false, false]));
@@ -364,12 +365,13 @@ mod tests {
     #[test]
     fn execute_without_value_default_true() -> VortexResult<()> {
         let input = buffer![1i32, 5, 10].into_array();
+        let input_dtype = input.dtype().clone();
         let expr = dynamic(
             CompareOperator::Lt,
             || None,
             DType::Primitive(PType::I32, Nullability::NonNullable),
             true,
-            root(),
+            root(input_dtype),
         );
         let result = input.apply(&expr)?;
         assert_arrays_eq!(result, BoolArray::from_iter([true, true, true]));
@@ -379,12 +381,13 @@ mod tests {
     #[test]
     fn execute_without_value_default_false() -> VortexResult<()> {
         let input = buffer![1i32, 5, 10].into_array();
+        let input_dtype = input.dtype().clone();
         let expr = dynamic(
             CompareOperator::Lt,
             || None,
             DType::Primitive(PType::I32, Nullability::NonNullable),
             false,
-            root(),
+            root(input_dtype),
         );
         let result = input.apply(&expr)?;
         assert_arrays_eq!(result, BoolArray::from_iter([false, false, false]));
@@ -400,7 +403,7 @@ mod tests {
             move || Some(threshold_clone.load(Ordering::SeqCst).into()),
             DType::Primitive(PType::I32, Nullability::NonNullable),
             true,
-            root(),
+            root(DType::Primitive(PType::I32, Nullability::NonNullable)),
         );
         let input = buffer![1i32, 5, 10].into_array();
 
