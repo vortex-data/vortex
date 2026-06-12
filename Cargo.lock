@@ -10227,6 +10227,7 @@ dependencies = [
  "datafusion-sqllogictest",
  "futures",
  "indicatif",
+ "regex",
  "rstest",
  "sqllogictest",
  "thiserror 2.0.18",
