@@ -60,8 +60,7 @@ jobs:
         # roughly double the cold-cache compile time of this job.
         run: |
           mkdir -p "$HOME/.cargo/bin"
-          curl -LsSf https://get.nexte.st/latest/linux-musl \
-            | tar zxf - -C "$HOME/.cargo/bin"
+          curl -LsSf https://get.nexte.st/latest/linux-musl | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
 
       - name: Run workspace tests for x86_64-unknown-linux-musl
         shell: bash
