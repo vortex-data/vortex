@@ -22,8 +22,28 @@ env:
   NIGHTLY_TOOLCHAIN: nightly-2026-02-05
 
 jobs:
+  duckdb-mirror:
+    name: "Mirror DuckDB to R2"
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/duckdb-r2.yml
+    secrets: inherit
+
+  duckdb-ready:
+    name: "DuckDB libraries available in R2"
+    needs: duckdb-mirror
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify DuckDB mirror
+        if: ${{ needs.duckdb-mirror.result == 'failure' }}
+        run: |
+          echo "DuckDB mirror failed"
+          exit 1
+
   rust-coverage:
     name: "Rust tests (coverage) (${{ matrix.suite }})"
+    needs: duckdb-ready
     timeout-minutes: 30
     permissions:
       id-token: write

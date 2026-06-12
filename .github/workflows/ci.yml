@@ -25,6 +25,25 @@ env:
   NIGHTLY_TOOLCHAIN: nightly-2026-02-05
 
 jobs:
+  duckdb-mirror:
+    name: "Mirror DuckDB to R2"
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/duckdb-r2.yml
+    secrets: inherit
+
+  duckdb-ready:
+    name: "DuckDB libraries available in R2"
+    needs: duckdb-mirror
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify DuckDB mirror
+        if: ${{ needs.duckdb-mirror.result == 'failure' }}
+        run: |
+          echo "DuckDB mirror failed; downstream builds would 404"
+          exit 1
+
   lint-toml:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -115,6 +134,7 @@ jobs:
 
   rust-docs:
     name: "Rust (docs)"
+    needs: duckdb-ready
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -204,6 +224,7 @@ jobs:
 
   rust-lint:
     name: "Rust (lint)"
+    needs: duckdb-ready
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -301,6 +322,7 @@ jobs:
 
   rust-test-other:
     name: "Rust tests (${{ matrix.os }})"
+    needs: duckdb-ready
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -422,6 +444,7 @@ jobs:
 
   sqllogic-test:
     name: "SQL logic tests"
+    needs: duckdb-ready
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=sql-logic-test', github.run_id)
