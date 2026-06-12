@@ -679,7 +679,7 @@ void vx_array_get_validity(const vx_array *array, vx_validity *validity, vx_erro
 size_t vx_array_len(const vx_array *array);
 
 /**
- * Get the [`crate::vx_dtype`] of the array.
+ * Get the [`struct@crate::dtype::vx_dtype`] of the array.
  *
  * The returned pointer is valid as long as the array is valid.
  * Do NOT free the returned dtype pointer - it shares the lifetime of the array.
