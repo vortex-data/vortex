@@ -6,7 +6,10 @@ mod point;
 mod wkb;
 
 use std::fmt::Display;
+use std::sync::Arc;
 
+use geoarrow::datatypes::Crs;
+use geoarrow::datatypes::Metadata;
 pub use point::*;
 pub use wkb::*;
 
@@ -28,6 +31,32 @@ impl Display for GeoMetadata {
             None => write!(f, "Geometry(unreferenced)"),
         }
     }
+}
+
+/// The GeoArrow [`Metadata`] equivalent of `geo_metadata`.
+pub(crate) fn geoarrow_metadata(geo_metadata: &GeoMetadata) -> Arc<Metadata> {
+    Arc::new(Metadata::new(
+        geo_metadata
+            .crs
+            .as_ref()
+            .map(|crs| Crs::from_unknown_crs_type(crs.to_string()))
+            .unwrap_or_default(),
+        None,
+    ))
+}
+
+/// Recover [`GeoMetadata`] from GeoArrow metadata.
+pub(crate) fn geo_metadata_from_arrow(metadata: &Metadata) -> GeoMetadata {
+    let crs = metadata.crs().crs_value().map(|value| {
+        // `Crs::from_unknown_crs_type` stores the user's string verbatim as a JSON string
+        // value, so prefer the raw string when available to round-trip cleanly. For other
+        // CRS encodings (PROJJSON object, etc.), fall back to the JSON-encoded form.
+        value
+            .as_str()
+            .map(str::to_string)
+            .unwrap_or_else(|| value.to_string())
+    });
+    GeoMetadata { crs }
 }
 
 #[cfg(test)]

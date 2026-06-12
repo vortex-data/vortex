@@ -153,32 +153,13 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
-    use vortex_array::arrays::ExtensionArray;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::StructArray;
-    use vortex_array::dtype::extension::ExtDType;
     use vortex_array::session::ArraySession;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use super::GeoDistance;
     use super::euclidean_distance;
-    use crate::extension::GeoMetadata;
-    use crate::extension::Point;
-
-    /// A `Point` column (CRS `EPSG:4326`) over the given x/y coordinates.
-    fn point_column(xs: Vec<f64>, ys: Vec<f64>) -> VortexResult<ArrayRef> {
-        let storage = StructArray::from_fields(&[
-            ("x", PrimitiveArray::from_iter(xs).into_array()),
-            ("y", PrimitiveArray::from_iter(ys).into_array()),
-        ])?
-        .into_array();
-        let metadata = GeoMetadata {
-            crs: Some("EPSG:4326".to_string()),
-        };
-        let dtype = ExtDType::<Point>::try_new(metadata, storage.dtype().clone())?;
-        Ok(ExtensionArray::new(dtype.erased(), storage).into_array())
-    }
+    use crate::test_harness::point_column;
 
     /// A constant `Point` column of length `len`, every row at `(x, y)`.
     fn point_constant(
