@@ -1816,6 +1816,10 @@ fn assert_offsets_ordered(before: &[u64], after: &[u64], context: &str) {
     }
 }
 
+/// Mirrors the (private) `IDEAL_SPLIT_SIZE` that `SplitBy::Layout` uses to sub-divide wide
+/// chunk-boundary spans: layout splits are never wider than this many rows.
+const MAX_SPLIT_ROWS: u64 = 100_000;
+
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn test_large_flat_chunk_scan_subdivides_splits() -> VortexResult<()> {
@@ -1834,10 +1838,10 @@ async fn test_large_flat_chunk_scan_subdivides_splits() -> VortexResult<()> {
 
     let file = SESSION.open_options().open_buffer(buf)?;
 
-    // Sub-division caps each split at 100k rows while tiling the file exactly.
+    // Sub-division caps each split at MAX_SPLIT_ROWS while tiling the file exactly.
     let splits = file.splits()?;
     assert!(splits.len() > 1, "expected sub-divided splits: {splits:?}");
-    assert!(splits.iter().all(|r| r.end - r.start <= 100_000));
+    assert!(splits.iter().all(|r| r.end - r.start <= MAX_SPLIT_ROWS));
     assert_eq!(splits.first().map(|r| r.start), Some(0));
     assert_eq!(splits.last().map(|r| r.end), Some(N_ROWS));
     assert!(splits.windows(2).all(|w| w[0].end == w[1].start));
@@ -1909,9 +1913,9 @@ async fn test_flat_chunk_scan_with_row_count_splits(
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn test_string_chunks_stay_fine_grained_under_split_cap() -> VortexResult<()> {
-    // Default writing targets ~1MiB uncompressed blocks, so ~120-byte strings chunk near the
-    // 8192-row block multiple. These natural boundaries sit far below the 100k-row sub-split
-    // cap, and SplitBy::Layout must pass them through untouched.
+    // Default writing targets ~1MiB uncompressed blocks, so ~120-byte strings chunk at a few
+    // thousand rows (~8k with today's defaults). These natural boundaries sit far below the
+    // sub-split cap, and SplitBy::Layout must pass them through untouched.
     const N_ROWS: usize = 40_000;
     let strings = VarBinArray::from_iter(
         (0..N_ROWS).map(|i| Some(format!("{i:0>120}"))),
@@ -1934,8 +1938,8 @@ async fn test_string_chunks_stay_fine_grained_under_split_cap() -> VortexResult<
         "expected multiple natural chunks: {splits:?}"
     );
     assert!(
-        splits.iter().all(|r| r.end - r.start <= 16_384),
-        "string chunks should stay fine-grained, not anywhere near the 100k cap: {splits:?}"
+        splits.iter().all(|r| r.end - r.start < MAX_SPLIT_ROWS / 4),
+        "string chunks should stay fine-grained, nowhere near the split cap: {splits:?}"
     );
     assert_eq!(splits.first().map(|r| r.start), Some(0));
     assert_eq!(splits.last().map(|r| r.end), Some(N_ROWS as u64));
