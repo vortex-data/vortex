@@ -15,7 +15,6 @@ members = [
     "vortex-row",
     "vortex-tensor",
     "vortex-json",
-    "vortex-turboquant",
     "vortex-compressor",
     "vortex-btrblocks",
     "vortex-layout",
@@ -65,7 +64,6 @@ members = [
     "benchmarks/datafusion-bench",
     "benchmarks/duckdb-bench",
     "benchmarks/random-access-bench",
-    "benchmarks/vector-search-bench",
     # Benchmarks website v3 (alpha) - leaf binary, not part of vortex-* API
     "benchmarks-website/server",
     "benchmarks-website/migrate",
@@ -313,7 +311,6 @@ vortex-sequence = { version = "0.1.0", path = "encodings/sequence", default-feat
 vortex-session = { version = "0.1.0", path = "./vortex-session", default-features = false }
 vortex-sparse = { version = "0.1.0", path = "./encodings/sparse", default-features = false }
 vortex-tensor = { version = "0.1.0", path = "./vortex-tensor", default-features = false }
-vortex-turboquant = { version = "0.1.0", path = "./vortex-turboquant", default-features = false }
 vortex-utils = { version = "0.1.0", path = "./vortex-utils", default-features = false }
 vortex-zigzag = { version = "0.1.0", path = "./encodings/zigzag", default-features = false }
 vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features = false }

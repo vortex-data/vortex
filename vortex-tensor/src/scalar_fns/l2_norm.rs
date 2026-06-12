@@ -57,7 +57,7 @@ use crate::utils::validate_tensor_float_input;
 /// column of the same float type.
 ///
 /// When the input is wrapped in [`L2Denorm`], this operator treats the stored norms as
-/// authoritative. For lossy encodings such as TurboQuant, that means `L2Norm` may intentionally
+/// authoritative. For lossy encodings, that means `L2Norm` may intentionally
 /// read the stored norms instead of re-deriving them from fully decoded coordinates. That behavior
 /// is part of the lossy storage contract, not a separate lossy-compute mode.
 #[derive(Clone)]
@@ -127,7 +127,7 @@ impl ScalarFnVTable for L2Norm {
         let norm_dtype = DType::Primitive(element_ptype, ext.nullability());
 
         // L2Norm(L2Denorm(normalized, norms)) is defined to read back the authoritative stored
-        // norms. Exact callers of lossy encodings like TurboQuant opt into that storage semantics
+        // norms. Exact callers of lossy encodings opt into that storage semantics
         // instead of forcing a decode-and-recompute path here.
         if input_ref.is::<ExactScalarFn<L2Denorm>>() {
             let (_, norms) = extract_l2_denorm_children(&input_ref);
