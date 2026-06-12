@@ -36,6 +36,8 @@ pub use error::vx_error;
 pub use error::vx_error_free;
 pub use log::vx_log_level;
 pub use session::vx_session;
+pub use session::vx_session_free;
+pub use session::vx_session_new_with;
 pub use session::vx_session_ref;
 use vortex::dtype::FieldName;
 use vortex::error::VortexExpect;

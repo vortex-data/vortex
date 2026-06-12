@@ -134,7 +134,7 @@ fn test_masked_child_preserves_length(#[case] validity: Validity) {
         array
             .validity()
             .vortex_expect("masked validity should be derivable")
-            .mask_eq(&validity, &mut ctx)
+            .mask_eq(&validity, array.len(), &mut ctx)
             .unwrap(),
     );
 }

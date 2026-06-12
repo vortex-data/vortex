@@ -6,6 +6,7 @@ use std::fmt::Formatter;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
@@ -30,19 +31,6 @@ impl Display for ScalarFnData {
 }
 
 impl ScalarFnData {
-    /// Create a new ScalarFnArray from a scalar function and its children.
-    pub fn build(
-        scalar_fn: ScalarFnRef,
-        children: Vec<ArrayRef>,
-        len: usize,
-    ) -> VortexResult<Self> {
-        vortex_ensure!(
-            children.iter().all(|c| c.len() == len),
-            "ScalarFnArray must have children equal to the array length"
-        );
-        Ok(Self { scalar_fn })
-    }
-
     /// Get the scalar function bound to this array.
     #[inline(always)]
     pub fn scalar_fn(&self) -> &ScalarFnRef {
@@ -85,14 +73,26 @@ impl<T: TypedArrayRef<ScalarFn>> ScalarFnArrayExt for T {}
 
 impl Array<ScalarFn> {
     /// Create a new ScalarFnArray from a scalar function and its children.
-    pub fn try_new(
+    pub fn try_new(scalar_fn: ScalarFnRef, children: Vec<ArrayRef>) -> VortexResult<Self> {
+        let len = Self::infer_len(&children)?;
+        Self::try_new_with_len(scalar_fn, children, len)
+    }
+
+    /// Create a new ScalarFnArray from a scalar function, children, and an explicit length.
+    ///
+    /// This is needed for zero-child scalar functions and deserialization paths where there is no
+    /// child array to infer the length from.
+    pub fn try_new_with_len(
         scalar_fn: ScalarFnRef,
         children: Vec<ArrayRef>,
         len: usize,
     ) -> VortexResult<Self> {
+        Self::validate_children_len(&children, len)?;
         let arg_dtypes: Vec<_> = children.iter().map(|c| c.dtype().clone()).collect();
         let dtype = scalar_fn.return_dtype(&arg_dtypes)?;
-        let data = ScalarFnData::build(scalar_fn.clone(), children.clone(), len)?;
+        let data = ScalarFnData {
+            scalar_fn: scalar_fn.clone(),
+        };
         let vtable = ScalarFn { id: scalar_fn.id() };
         Ok(unsafe {
             Array::from_parts_unchecked(
@@ -100,5 +100,20 @@ impl Array<ScalarFn> {
                     .with_slots(children.into_iter().map(Some).collect::<ArraySlots>()),
             )
         })
+    }
+
+    fn infer_len(children: &[ArrayRef]) -> VortexResult<usize> {
+        let Some(child) = children.first() else {
+            vortex_bail!("ScalarFnArray length cannot be inferred without children");
+        };
+        Ok(child.len())
+    }
+
+    fn validate_children_len(children: &[ArrayRef], len: usize) -> VortexResult<()> {
+        vortex_ensure!(
+            children.iter().all(|c| c.len() == len),
+            "ScalarFnArray must have children equal to the array length"
+        );
+        Ok(())
     }
 }

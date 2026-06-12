@@ -57,7 +57,7 @@ use crate::utils::validate_tensor_float_input;
 /// column of the same float type.
 ///
 /// When the input is wrapped in [`L2Denorm`], this operator treats the stored norms as
-/// authoritative. For lossy encodings such as TurboQuant, that means `L2Norm` may intentionally
+/// authoritative. For lossy encodings, that means `L2Norm` may intentionally
 /// read the stored norms instead of re-deriving them from fully decoded coordinates. That behavior
 /// is part of the lossy storage contract, not a separate lossy-compute mode.
 #[derive(Clone)]
@@ -75,8 +75,8 @@ impl L2Norm {
     ///
     /// Returns an error if the [`ScalarFnArray`] cannot be constructed (e.g. due to dtype
     /// mismatches).
-    pub fn try_new_array(child: ArrayRef, len: usize) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(L2Norm::new().erased(), vec![child], len)
+    pub fn try_new_array(child: ArrayRef) -> VortexResult<ScalarFnArray> {
+        ScalarFnArray::try_new(L2Norm::new().erased(), vec![child])
     }
 }
 
@@ -127,7 +127,7 @@ impl ScalarFnVTable for L2Norm {
         let norm_dtype = DType::Primitive(element_ptype, ext.nullability());
 
         // L2Norm(L2Denorm(normalized, norms)) is defined to read back the authoritative stored
-        // norms. Exact callers of lossy encodings like TurboQuant opt into that storage semantics
+        // norms. Exact callers of lossy encodings opt into that storage semantics
         // instead of forcing a decode-and-recompute path here.
         if input_ref.is::<ExactScalarFn<L2Denorm>>() {
             let (_, norms) = extract_l2_denorm_children(&input_ref);
@@ -282,9 +282,9 @@ mod tests {
     use crate::utils::test_helpers::vector_array;
 
     /// Evaluates L2 norm on a tensor/vector array and returns the result as `Vec<f64>`.
-    fn eval_l2_norm(input: ArrayRef, len: usize) -> VortexResult<Vec<f64>> {
+    fn eval_l2_norm(input: ArrayRef) -> VortexResult<Vec<f64>> {
         let scalar_fn = L2Norm::new().erased();
-        let result = ScalarFnArray::try_new(scalar_fn, vec![input], len)?;
+        let result = ScalarFnArray::try_new(scalar_fn, vec![input])?;
         let mut ctx = SESSION.create_execution_ctx();
         let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
         Ok(prim.as_slice::<f64>().to_vec())
@@ -301,7 +301,7 @@ mod tests {
         #[case] expected: &[f64],
     ) -> VortexResult<()> {
         let arr = tensor_array(shape, elements)?;
-        assert_close(&eval_l2_norm(arr, 1)?, expected);
+        assert_close(&eval_l2_norm(arr)?, expected);
         Ok(())
     }
 
@@ -315,7 +315,7 @@ mod tests {
                 1.0, 1.0, 1.0, // norm = sqrt(3)
             ],
         )?;
-        assert_close(&eval_l2_norm(arr, 3)?, &[5.0, 0.0, 3.0_f64.sqrt()]);
+        assert_close(&eval_l2_norm(arr)?, &[5.0, 0.0, 3.0_f64.sqrt()]);
         Ok(())
     }
 
@@ -328,7 +328,7 @@ mod tests {
                 3.0, 4.0, 0.0, // norm = 5.0
             ],
         )?;
-        assert_close(&eval_l2_norm(arr, 2)?, &[1.0, 5.0]);
+        assert_close(&eval_l2_norm(arr)?, &[1.0, 5.0]);
         Ok(())
     }
 
@@ -339,7 +339,7 @@ mod tests {
         let arr = MaskedArray::try_new(arr, Validity::from_iter([true, false]))?.into_array();
 
         let scalar_fn = L2Norm::new().erased();
-        let result = ScalarFnArray::try_new(scalar_fn, vec![arr], 2)?;
+        let result = ScalarFnArray::try_new(scalar_fn, vec![arr])?;
         let mut ctx = SESSION.create_execution_ctx();
         let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
 
@@ -359,7 +359,7 @@ mod tests {
         let input = literal_vector_array(&[3.0f64, 4.0], 4);
 
         let scalar_fn = L2Norm::new().erased();
-        let result = ScalarFnArray::try_new(scalar_fn, vec![input], 4)?.into_array();
+        let result = ScalarFnArray::try_new(scalar_fn, vec![input])?.into_array();
         let mut ctx = SESSION.create_execution_ctx();
         let output = result.execute_until::<Constant>(&mut ctx)?;
 
@@ -390,7 +390,7 @@ mod tests {
         let input = ConstantArray::new(null_scalar, 3).into_array();
 
         let scalar_fn = L2Norm::new().erased();
-        let result = ScalarFnArray::try_new(scalar_fn, vec![input], 3)?.into_array();
+        let result = ScalarFnArray::try_new(scalar_fn, vec![input])?.into_array();
         let mut ctx = SESSION.create_execution_ctx();
         let output = result.execute_until::<Constant>(&mut ctx)?;
 
@@ -407,10 +407,10 @@ mod tests {
     }
 
     #[rstest]
-    #[case::fixed_shape_tensor(l2_norm_tensor_child(), 2)]
-    #[case::vector(l2_norm_vector_child(), 2)]
-    fn serde_round_trip(#[case] child: ArrayRef, #[case] len: usize) -> VortexResult<()> {
-        let original = L2Norm::try_new_array(child.clone(), len)?.into_array();
+    #[case::fixed_shape_tensor(l2_norm_tensor_child())]
+    #[case::vector(l2_norm_vector_child())]
+    fn serde_round_trip(#[case] child: ArrayRef) -> VortexResult<()> {
+        let original = L2Norm::try_new_array(child.clone())?.into_array();
 
         let plugin = ScalarFnArrayPlugin::new(L2Norm);
         let metadata = plugin

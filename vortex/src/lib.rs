@@ -345,11 +345,11 @@ mod test {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
         let recovered_primitive = recovered_array.execute::<PrimitiveArray>(&mut ctx)?;
-        assert!(
-            recovered_primitive
-                .validity()?
-                .mask_eq(&array.validity()?, &mut ctx)?
-        );
+        assert!(recovered_primitive.validity()?.mask_eq(
+            &array.validity()?,
+            array.len(),
+            &mut ctx
+        )?);
         assert_eq!(
             recovered_primitive.to_buffer::<u64>(),
             array.to_buffer::<u64>()

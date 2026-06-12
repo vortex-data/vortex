@@ -73,7 +73,7 @@ pub(crate) struct SizePassResult {
 ///
 /// Fixed-width columns contribute a single scalar increment to `fixed_per_row`; they do
 /// not touch `var_lengths`. Variable-length columns add per-row contributions into the
-/// lazily-allocated `var_lengths` vec via [`dispatch_size`].
+/// lazily-allocated `var_lengths` vec via `dispatch_size`.
 ///
 /// This is shared by [`RowSize::execute`] (which wraps the result into a
 /// `Struct { fixed, var }`) and the [`RowEncode`](super::encode::RowEncode) pipeline

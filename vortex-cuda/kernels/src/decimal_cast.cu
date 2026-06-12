@@ -67,15 +67,11 @@ __device__ __forceinline__ Output decimal_cast_value(Input value) {
 template <typename Input, typename Output>
 __device__ void
 decimal_cast_device(const Input *__restrict input, Output *__restrict output, uint64_t array_len) {
-    const uint64_t worker = blockIdx.x * blockDim.x + threadIdx.x;
-    const uint64_t startElem = start_elem(worker, array_len);
-    const uint64_t stopElem = stop_elem(worker, array_len);
+    const uint64_t elements_per_block = blockDim.x * ELEMENTS_PER_THREAD;
+    const uint64_t block_start = blockIdx.x * elements_per_block;
+    const uint64_t block_stop = min(block_start + elements_per_block, array_len);
 
-    if (startElem >= array_len) {
-        return;
-    }
-
-    for (uint64_t idx = startElem; idx < stopElem; idx++) {
+    for (uint64_t idx = block_start + threadIdx.x; idx < block_stop; idx += blockDim.x) {
         output[idx] = decimal_cast_value<Output>(input[idx]);
     }
 }

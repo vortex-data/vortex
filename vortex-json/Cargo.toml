@@ -17,5 +17,8 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true, features = ["canonical_extension_types"] }
 vortex-array = { workspace = true, default-features = false }
 vortex-error = { workspace = true, default-features = false }
+vortex-session = { workspace = true }

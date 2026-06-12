@@ -37,11 +37,11 @@ __device__ void list_view_offsets_device(const OffsetT *const offsets,
                                          int32_t *const output,
                                          uint32_t *const status,
                                          uint64_t list_len) {
-    const uint64_t worker = blockIdx.x * blockDim.x + threadIdx.x;
-    const uint64_t startElem = start_elem(worker, list_len);
-    const uint64_t stopElem = stop_elem(worker, list_len);
+    const uint64_t elements_per_block = blockDim.x * ELEMENTS_PER_THREAD;
+    const uint64_t block_start = blockIdx.x * elements_per_block;
+    const uint64_t block_stop = min(block_start + elements_per_block, list_len);
 
-    for (uint64_t idx = startElem; idx < stopElem; idx++) {
+    for (uint64_t idx = block_start + threadIdx.x; idx < block_stop; idx += blockDim.x) {
         const uint64_t offset = static_cast<uint64_t>(offsets[idx]);
         const uint64_t end = offset + static_cast<uint64_t>(sizes[idx]);
         output[idx] = static_cast<int32_t>(offset);
@@ -67,11 +67,11 @@ __device__ void list_view_rebuild_init_scan_device(const SizeT *const sizes,
                                                    uint32_t *const status,
                                                    uint64_t list_len,
                                                    uint64_t scan_len) {
-    const uint64_t worker = blockIdx.x * blockDim.x + threadIdx.x;
-    const uint64_t startElem = start_elem(worker, scan_len);
-    const uint64_t stopElem = stop_elem(worker, scan_len);
+    const uint64_t elements_per_block = blockDim.x * ELEMENTS_PER_THREAD;
+    const uint64_t block_start = blockIdx.x * elements_per_block;
+    const uint64_t block_stop = min(block_start + elements_per_block, scan_len);
 
-    for (uint64_t idx = startElem; idx < stopElem; idx++) {
+    for (uint64_t idx = block_start + threadIdx.x; idx < block_stop; idx += blockDim.x) {
         if (idx >= list_len) {
             scan[idx] = 0;
             continue;
@@ -95,11 +95,11 @@ __device__ void list_view_rebuild_validate_offsets_device(const SizeT *const siz
                                                           const int32_t *const output_offsets,
                                                           uint32_t *const status,
                                                           uint64_t list_len) {
-    const uint64_t worker = blockIdx.x * blockDim.x + threadIdx.x;
-    const uint64_t startElem = start_elem(worker, list_len);
-    const uint64_t stopElem = stop_elem(worker, list_len);
+    const uint64_t elements_per_block = blockDim.x * ELEMENTS_PER_THREAD;
+    const uint64_t block_start = blockIdx.x * elements_per_block;
+    const uint64_t block_stop = min(block_start + elements_per_block, list_len);
 
-    for (uint64_t idx = startElem; idx < stopElem; idx++) {
+    for (uint64_t idx = block_start + threadIdx.x; idx < block_stop; idx += blockDim.x) {
         const int32_t offset = output_offsets[idx];
         const int32_t next_offset = output_offsets[idx + 1];
         if (offset < 0 || next_offset < 0) {

@@ -28,7 +28,7 @@ type StatsEntry = (TypeId, Arc<dyn Any + Send + Sync>);
 
 /// Cache for compression statistics, keyed by concrete type.
 ///
-/// The cache is interior-mutable: entries can be inserted through a shared [`&StatsCache`]
+/// The cache is interior-mutable: entries can be inserted through a shared [`StatsCache`]
 /// borrow. Values are stored as [`Arc<dyn Any + Send + Sync>`] so that cached entries can be
 /// cloned out of the lock cheaply and handed back to callers as [`Arc<T>`].
 struct StatsCache {

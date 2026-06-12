@@ -9,6 +9,19 @@
 
 //! Extension type and related functionality for a JSON extension type for Vortex.
 
+mod arrow;
 mod dtype;
 
+use std::sync::Arc;
+
 pub use dtype::Json;
+use vortex_array::arrow::ArrowSessionExt;
+use vortex_array::dtype::session::DTypeSessionExt;
+use vortex_session::VortexSession;
+
+/// Register JSON extension support with a session.
+pub fn initialize(session: &VortexSession) {
+    session.dtypes().register(Json);
+    session.arrow().register_exporter(Arc::new(Json));
+    session.arrow().register_importer(Arc::new(Json));
+}

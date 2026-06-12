@@ -490,6 +490,7 @@ mod tests {
                     &expected
                         .validity()
                         .vortex_expect("list validity should be derivable"),
+                    actual.len(),
                     &mut ctx,
                 )
                 .unwrap(),
