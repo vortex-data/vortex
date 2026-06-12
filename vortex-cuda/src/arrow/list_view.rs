@@ -39,7 +39,7 @@ use crate::CudaExecutionCtx;
 use crate::cub::exclusive_sum_i32;
 use crate::executor::CudaArrayExt;
 
-/// Export a Vortex list-view as Arrow `List` using device kernels.
+/// Export a Vortex list-view as an Arrow Device array with `List` layout using device kernels.
 ///
 /// Reuses contiguous children; rebuilds non-contiguous primitive or dictionary-code children.
 pub(super) async fn export_device_list_view(
@@ -121,7 +121,7 @@ enum DeviceListViewOffsets {
     RequiresRebuild,
 }
 
-/// Build cuDF-supported `i32` Arrow `List` offsets from list-view offset/size device buffers.
+/// Build Arrow Device `List` offsets from list-view offset/size device buffers.
 #[expect(clippy::cognitive_complexity)]
 async fn export_device_list_view_offsets(
     offsets_ptype: PType,
@@ -391,7 +391,7 @@ async fn export_rebuilt_dict_list_view(
     .await
 }
 
-/// Rebuild a non-contiguous primitive list-view child and export it as an Arrow List.
+/// Rebuild a non-contiguous primitive list-view child and export it as Arrow Device `List`.
 #[expect(clippy::too_many_arguments)]
 async fn export_rebuilt_primitive_list_view(
     elements: ArrayRef,

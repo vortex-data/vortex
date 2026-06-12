@@ -894,3 +894,29 @@ impl FusedPlan {
         len * final_elem_bytes.max(output_elem_bytes)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::builtins::ArrayBuiltins;
+    use vortex::dtype::DType;
+    use vortex::dtype::Nullability;
+
+    use super::*;
+
+    #[test]
+    fn cast_to_non_primitive_target_is_not_dyn_dispatch_compatible() -> VortexResult<()> {
+        let cast = PrimitiveArray::from_iter([0u8, 1])
+            .into_array()
+            .cast(DType::Bool(Nullability::NonNullable))?;
+
+        assert!(!is_dyn_dispatch_cast_compatible(&cast));
+        assert!(matches!(
+            DispatchPlan::new(&cast, CudaDispatchMode::DynDispatchOnly)?,
+            DispatchPlan::Unfused
+        ));
+
+        Ok(())
+    }
+}

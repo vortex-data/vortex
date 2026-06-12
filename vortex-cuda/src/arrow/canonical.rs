@@ -270,7 +270,7 @@ fn export_canonical(
     })
 }
 
-/// Export a Vortex dictionary array as an Arrow dictionary array.
+/// Export a Vortex dictionary array as an Arrow Device dictionary array.
 ///
 /// Owns the codes buffers and recursively exported dictionary values.
 async fn export_dict(
@@ -446,13 +446,7 @@ where
     Ok(BufferHandle::new_device(Arc::new(output_device)))
 }
 
-/// Export Vortex binary views as standard Arrow `Binary`.
-///
-/// cuDF's Arrow Device import currently rejects both Arrow `Binary` and Arrow `BinaryView`
-/// (unlike `Utf8View`, which it accepts as strings), so standard `Binary` is exported as the
-/// layout other Arrow Device consumers accept most widely. This path keeps conversion on the
-/// CUDA stream by building `i32` offsets from view sizes and gathering inline/out-of-line view
-/// bytes into one contiguous values buffer.
+/// Export Vortex binary views as an Arrow Device array with standard `Binary` layout.
 async fn export_binary(
     varbinview: VarBinViewArray,
     ctx: &mut CudaExecutionCtx,
@@ -678,14 +672,13 @@ fn gather_binary_values(
     )
 }
 
-/// Export Vortex validity as an Arrow validity byte buffer on the CUDA device.
+/// Export Vortex validity as an Arrow Device validity byte buffer.
 ///
 /// Returns `None` for the buffer when Arrow can omit validity because all rows are valid.
 ///
-/// Every returned buffer is backed by an allocation padded to a 4-byte multiple with zeroed
-/// padding so cuDF's word-sized mask reads stay in bounds: the fast path through the device
-/// copy's tail zeroing, the other paths through their own padded allocations. Bits at positions
-/// `>= len + arrow_offset` within the final data byte are unspecified, as Arrow permits.
+/// Returned buffers use zeroed 4-byte padding so cuDF's word-sized mask reads stay in bounds.
+/// Bits at positions `>= len + arrow_offset` within the final data byte are unspecified, as
+/// Arrow permits.
 pub(super) async fn export_arrow_validity_buffer(
     validity: Validity,
     len: usize,
@@ -795,7 +788,7 @@ pub(super) fn repack_arrow_validity_buffer(
     Ok(BufferHandle::new_device(Arc::new(output_device)).slice(0..output_bytes))
 }
 
-/// Export a Vortex list-view as Arrow `List`.
+/// Export a Vortex list-view as an Arrow Device array with `List` layout.
 async fn export_list_view(
     listview: ListViewArray,
     ctx: &mut CudaExecutionCtx,
@@ -822,7 +815,7 @@ async fn export_list_view(
     .await
 }
 
-/// Export a standard Vortex list as Arrow `List`: validity, offsets, and one child array.
+/// Export a standard Vortex list as an Arrow Device array with `List` layout.
 async fn export_list(
     array: ListArray,
     child_export: ListChildExport,
@@ -884,7 +877,7 @@ impl ListChildExport {
     }
 }
 
-/// Build the shared Arrow `List` parent once offsets and validity are ready on device.
+/// Build the shared Arrow Device `List` parent once offsets and validity are ready.
 pub(super) async fn export_list_layout(
     elements: ArrayRef,
     len: usize,
@@ -916,7 +909,7 @@ pub(super) async fn export_list_layout(
     Ok((arrow_list, sync_event))
 }
 
-/// Export a Vortex fixed-size-list as Arrow `List`.
+/// Export a Vortex fixed-size-list as an Arrow Device array with `List` layout.
 ///
 /// cuDF's Arrow Device import accepts `List`/`LargeList` as cuDF `LIST`, but rejects
 /// `FixedSizeList`, so emit equivalent standard Arrow `List` offsets.
@@ -968,7 +961,7 @@ async fn fixed_size_list_offsets(
     .await
 }
 
-/// Return cuDF-supported Arrow `List` offsets as an `i32` device buffer.
+/// Return Arrow Device `List` offsets as an `i32` device buffer.
 async fn export_arrow_list_offsets(
     offsets: ArrayRef,
     ctx: &mut CudaExecutionCtx,
