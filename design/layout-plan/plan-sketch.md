@@ -157,17 +157,11 @@ Aggregation (R2, D8):
 opaque `Eval` per conjunct/field-expr (D16). Q2.3: demand propagated along edges at plan time
 (D14). Q2.4: adaptivity inside operators reading SIP (D13).
 
-**Open questions (round 7 — stream semantics).**
-
-- Q2.5 Patch ordering/progress invariant: strictly in-order emission per stream; how are
-  skipped regions (selection-killed) communicated to aligners (skip markers vs. watermarks)?
-- Q2.6 Patch boundaries: producer-chosen with consumers slicing (zero-copy) for alignment, or
-  globally agreed boundaries?
-- Q2.7 Shared streams (CSE node with ≥2 consumers): broadcast buffering and backpressure
-  policy.
-- Q2.8 Source of parallelism: with streaming operators, "splits" stop being the external unit —
-  intra-plan parallelism comes from chunked readahead + per-column streams + executor
-  scheduling; repeated execution (R7) instantiates a fresh pipeline from the same plan.
+**Detailed design: see [`operators.md`](./operators.md)** — the DuckDB-style push-based
+pipeline model (Source/StreamOp/Sink, patches as region-stamped morsels, bands as the lazy
+unroll unit), the full operator catalog, demand propagation rules, dispatch policy, and a
+worked example. Stream-semantics points Q2.5–Q2.8 are resolved there as **stated defaults
+(P-Q2.5..P-Q2.8, §7)** pending veto.
 
 ## Piece 3 — Lowering contract for layouts (not started)
 
