@@ -255,10 +255,10 @@ Proposed trait families:
 - `UnaryRowFn`, `BinaryRowFn`, and similar row-oriented helper traits: non-object-safe,
   monomorphized implementation APIs for simple scalar functions. Initial support should
   focus on infallible functions with normal null propagation.
-- `EngineTypeAdapter`: maps extension dtypes into an engine representation and declares
-  fallback policy.
-- `EngineFunctionAdapter`: registers a function overload into a specific engine when a
-  compatible type representation and kernel are available.
+- `EngineTypeAdapter`: maps extension dtypes into a target engine representation,
+  including Arrow import/export, engine-native logical types, and storage fallbacks.
+- `EngineFunctionAdapter`: registers or maps a function overload into a target engine
+  when a compatible type representation, native function, or kernel is available.
 
 Before the full migration, prototype the trait stack with a narrow vertical slice:
 one extension dtype with metadata, one friendly overloaded function name, one bound
@@ -430,17 +430,31 @@ can prove that the easy path is not a systematic regression.
 ## Engine Integration Model
 
 The function traits should expose enough metadata and implementation hooks to register
-Vortex functions and types into external engines, especially DuckDB and DataFusion.
+Vortex functions and types into external engines, especially Arrow, DuckDB, and
+DataFusion.
+
+Treat Arrow as an engine in this design. It is not a query engine, but it has its own
+type model, extension metadata conventions, scalar/array representation choices, and
+import/export conversion hooks. Calling it an engine keeps the integration surface broad
+enough to cover both execution engines such as DuckDB/DataFusion and representation
+engines such as Arrow.
 
 The desired outcome is not only conversion from external engine expressions into Vortex
-`BoundExpr`. For supported functions, Vortex should also be able to register efficient
-native kernels with those engines:
+`BoundExpr`. For execution engines, Vortex should also be able to register efficient
+native kernels where supported:
 
 - DataFusion should be able to register Vortex-backed scalar and aggregate functions
   using the same catalog metadata and coercion/signature information.
 - DuckDB should be able to call efficient kernels over DuckDB vectors when possible,
   avoiding prohibitively expensive DuckDB-to-Vortex-to-DuckDB conversion for tight
   scalar execution paths.
+- Arrow adapters should define import/export behavior, extension metadata, native Arrow
+  type choices, and fallback-to-storage behavior using the same extension dtype policy
+  as execution engines.
+- When an engine already has a mature native type and function ecosystem for a common
+  logical domain, prefer mapping into that ecosystem over registering parallel
+  Vortex-specific types or functions. For example, DuckDB geospatial integration should
+  use DuckDB's spatial extension types and functions where the semantics match.
 - Engine adapters should be generated or implemented from the same function definition
   where practical, so adding a function does not require duplicating semantics in every
   integration.
@@ -476,9 +490,14 @@ from silently erasing logical type semantics.
 Engine interop needs an explicit policy per extension type:
 
 - **Native mirror:** the engine has a first-class equivalent. Examples include temporal
-  types, DuckDB geometry via its spatial extension, UUID, and JSON where supported. In
-  this case Vortex can register the type as the engine-native logical type and can
-  register functions directly against that native representation.
+  types, DuckDB geometry via its spatial extension, UUID, JSON, and Decimal where
+  supported. In this case Vortex should use the engine-native logical type and should
+  prefer the engine's existing function family when the semantics match. For example,
+  a Vortex geospatial type should map to DuckDB spatial's geometry representation and
+  compatible `ST_*` operations rather than registering a separate Vortex geospatial
+  function namespace in DuckDB. Register Vortex-specific functions only for semantics
+  the engine does not already provide, or when a native function is observably
+  incompatible.
 - **Standard extension mirror:** the engine or interchange layer supports a standard
   extension representation, especially Arrow extension metadata. UUID and geo/WKB are
   examples of types that can preserve logical identity while using a storage type.
@@ -496,18 +515,32 @@ storage dtypes. For example, `contains(a, b)` should be able to choose `geo.cont
 is a representation choice for interop; it must not erase logical semantics inside the
 Vortex DSL.
 
-This suggests adding an engine-type adapter layer parallel to the existing Arrow
+This suggests adding an engine adapter layer that generalizes the existing Arrow
 extension import/export plugin model:
 
 - extension dtype registration remains session-scoped;
 - each extension can optionally expose Arrow, DuckDB, DataFusion, and language-binding
   representations;
-- engine adapters can ask whether a type has a native representation, a storage fallback,
-  or no safe representation;
+- engine adapters can ask whether a type has a native representation, a storage
+  fallback, or no safe representation;
 - function registration can declare which engine representations it supports, including
-  native vector kernels when available;
+  engine-native functions, native vector kernels, Vortex kernels, and fallback modes;
 - high-level language APIs should expose logical Vortex dtypes, even when their host
   language or engine sees a native mirror or storage fallback underneath.
+
+Good first plugin extraction candidates:
+
+- `vortex-temporal`: move date, time, and timestamp extension dtype registration and
+  temporal-specific function families out of core once the adapter shape is ready. This
+  proves common native mirrors across Arrow, DuckDB, DataFusion, and language APIs,
+  including units and timezone metadata.
+- `vortex-uuid`: extract UUID extension support and parse/format/cast helpers. This is
+  the smallest native-mirror plugin and should prefer engine-native UUID support where
+  available.
+- `vortex-url`: add URL, hostname/domain, and IP address logical types. Storage can be
+  string or binary depending on the subtype, while adapters map to native engine support
+  when available and otherwise expose validation, parsing, normalization, containment,
+  and component-extraction functions through Vortex.
 
 For `vortex.img.jpeg`, the likely first version is a Vortex extension dtype with binary
 storage, an optional Arrow extension representation, no assumed DuckDB/DataFusion native
@@ -603,6 +636,12 @@ the new scheduler path.
 
 - Add the first engine representation model for extension dtypes: native mirror,
   standard extension mirror, storage fallback, or unsupported.
+- For common native mirrors, define whether Vortex maps to the engine's existing type
+  and function family instead of registering Vortex-specific functions. Geospatial on
+  DuckDB should use DuckDB spatial where semantics match; UUID, JSON, temporal, and
+  Decimal should similarly prefer native engine support when available.
+- Plan extraction of `vortex-temporal`, `vortex-uuid`, and `vortex-url` as early plugin
+  crates. `vortex-url` should include URL, domain/host, and IP address logical types.
 - Wire this into binding diagnostics so logical extension types are not silently erased
   to storage types.
 - Prove the model with an existing extension dtype such as UUID or WKB, and optionally a
@@ -629,16 +668,16 @@ Exit criterion: a Rust test can construct high-level `Expr::call("contains", ...
 bind it against input dtypes through a `FunctionCatalog`, and receive a `BoundExpr`
 whose selected low-level function and return dtype are deterministic and diagnosable.
 
-### Phase 6: First Engine Adapter
+### Phase 6: First Engine Adapters
 
-- Add one engine adapter path using the new type/function metadata.
-- DataFusion/Arrow is likely the lower-risk first adapter because Vortex already has an
-  Arrow extension plugin model.
-- DuckDB native vector kernels should follow once the adapter traits have enough shape
-  to express native representation and fallback without conversion through Vortex arrays.
+- Build the Arrow and DuckDB adapter paths in parallel using the new type/function
+  metadata. Arrow exercises import/export, extension metadata, and storage fallback;
+  DuckDB keeps the design honest for query-engine native types, native functions, and
+  vector kernels.
+- DataFusion can follow using Arrow-facing metadata plus function catalog metadata.
 
-Exit criterion: one function/type pair can be registered into an external engine from
-the same semantic definitions used by the Vortex binder.
+Exit criterion: one function/type pair can be represented in Arrow and mapped into
+DuckDB from the same semantic definitions used by the Vortex binder.
 
 ### Phase 7: Language API Surface
 
