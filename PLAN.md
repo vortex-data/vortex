@@ -780,6 +780,20 @@ future reviewer or agent can quickly recover the intent of the branch.
   coercion-at-lowering would let execution rewrite the plan after pushdown reasoning.
   Layering: unbound `Expr` (Phase 5, user AST) → bind once per scope → `BoundExpr`
   (plan IR) → `apply()` per batch → `ScalarFnArray` (execution IR).
+- Decision (ngates, 2026-06-12): supersede PR #8345 on this branch and go further —
+  re-implement its falsify + `StatBinder`/`bind_stats` design on `BoundExpr`, with
+  stat references binding to a `StatRef` **placeholder** (field path + stat + dtype
+  payload) instead of `get_item(mangled, root(stats_table))`. Unavailable/inexact
+  stats lower to typed-null literals (three-valued semantics). This deletes the
+  legacy `stat_falsification`/`stat_expression` vtable hooks, `StatsCatalog`, the
+  synthesized stats-scope struct, mangled stat column names, and the whole
+  `extract_relevant_file_stats_as_struct_row` materialization (with its Stage B
+  fixes). `can_prune` substitutes footer values as literals per placeholder;
+  `ZoneMap::prune` substitutes zone-map stat column arrays via a generalized
+  placeholder slot-substitution (the `substitute_row_count` mechanism keyed by
+  placeholder id, with row_count becoming one entry). `StatFn` remains a scalar fn
+  for row-wise pruning where it executes against the input array's own statistics.
+  Lands as its own checkpoint after the Stage C (engines) migration.
 
 ## Tentative PR Split Areas
 
