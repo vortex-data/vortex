@@ -59,6 +59,7 @@ jobs:
         # Prebuilt static musl nextest binary; building it from source would
         # roughly double the cold-cache compile time of this job.
         run: |
+          mkdir -p "$HOME/.cargo/bin"
           curl -LsSf https://get.nexte.st/latest/linux-musl \
             | tar zxf - -C "$HOME/.cargo/bin"
 
