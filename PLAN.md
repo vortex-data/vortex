@@ -780,6 +780,22 @@ future reviewer or agent can quickly recover the intent of the branch.
   coercion-at-lowering would let execution rewrite the plan after pushdown reasoning.
   Layering: unbound `Expr` (Phase 5, user AST) → bind once per scope → `BoundExpr`
   (plan IR) → `apply()` per batch → `ScalarFnArray` (execution IR).
+### 2026-06-12: Phase 1 checkpoints — scan stack and engines on BoundExpr
+
+- 4a1ec8b45 (scan stack): `ScanBuilder` accepts `BoundExpr` (the Phase 1 exit
+  criterion); `ScanRequest.projection` is `Option<BoundExpr>` (None = identity,
+  resolved where the request meets a file/layout); RowIdx is a placeholder. Checks:
+  build/nextest/doc/clippy for vortex-layout/-scan/-file/-row, fmt.
+- 491d3c14a (engines + extensions): DataFusion/DuckDB converters construct fallibly
+  against the scan dtype (no panics reachable from engine input; DuckDB gate only
+  admits constant-pattern string filters); new balanced fallible collectors
+  `try_and_collect`/`try_or_collect`; geo/tensor/cuda/encodings/harnesses migrated.
+  Only binding crates (python/ffi/jni/cxx/cuda-ffi) remain broken. Checks: ~3.6k
+  tests across 7 crates, workspace-minus-bindings build, clippy, fmt.
+- Scope-friction verdict across both stages: LOW; zero unbound-Expr candidates. The
+  one structural cost (can_prune stats-scope/row coupling) is addressed by the
+  stats-binding checkpoint below.
+
 - Decision (ngates, 2026-06-12): supersede PR #8345 on this branch and go further —
   re-implement its falsify + `StatBinder`/`bind_stats` design on `BoundExpr`, with
   stat references binding to a `StatRef` **placeholder** (field path + stat + dtype
