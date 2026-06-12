@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use arrow_schema::DataType;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -9,6 +10,8 @@ use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrow::Datum;
 use crate::arrow::from_arrow_columnar;
+use crate::dtype::DType;
+use crate::dtype::NativeDecimalType;
 use crate::executor::ExecutionCtx;
 use crate::scalar::NumericOperator;
 
@@ -38,8 +41,18 @@ pub(crate) fn arrow_numeric(
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
     let len = lhs.len();
 
-    let left = Datum::try_new(lhs, ctx)?;
-    let right = Datum::try_new_with_target_datatype(rhs, left.data_type(), ctx)?;
+    let (left, right) = if let Some((lhs_data_type, rhs_data_type)) =
+        decimal_arrow_data_types(lhs.dtype(), rhs.dtype())
+    {
+        (
+            Datum::try_new_with_target_datatype(lhs, &lhs_data_type, ctx)?,
+            Datum::try_new_with_target_datatype(rhs, &rhs_data_type, ctx)?,
+        )
+    } else {
+        let left = Datum::try_new(lhs, ctx)?;
+        let right = Datum::try_new_with_target_datatype(rhs, left.data_type(), ctx)?;
+        (left, right)
+    };
 
     let array = match operator {
         NumericOperator::Add => arrow_arith::numeric::add(&left, &right)?,
@@ -49,6 +62,26 @@ pub(crate) fn arrow_numeric(
     };
 
     from_arrow_columnar(array.as_ref(), len, nullable, ctx)
+}
+
+fn decimal_arrow_data_types(lhs: &DType, rhs: &DType) -> Option<(DataType, DataType)> {
+    let (DType::Decimal(lhs_decimal, _), DType::Decimal(rhs_decimal, _)) = (lhs, rhs) else {
+        return None;
+    };
+
+    let use_decimal256 = lhs_decimal.precision() > i128::MAX_PRECISION
+        || rhs_decimal.precision() > i128::MAX_PRECISION;
+    if use_decimal256 {
+        Some((
+            DataType::Decimal256(lhs_decimal.precision(), lhs_decimal.scale()),
+            DataType::Decimal256(rhs_decimal.precision(), rhs_decimal.scale()),
+        ))
+    } else {
+        Some((
+            DataType::Decimal128(lhs_decimal.precision(), lhs_decimal.scale()),
+            DataType::Decimal128(rhs_decimal.precision(), rhs_decimal.scale()),
+        ))
+    }
 }
 
 fn constant_numeric(

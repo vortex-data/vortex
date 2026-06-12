@@ -70,6 +70,7 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
@@ -150,6 +151,32 @@ mod tests {
         let lhs_dt = coerced.child(0).return_dtype(&scope)?;
         let rhs_dt = coerced.child(1).return_dtype(&scope)?;
         assert_eq!(lhs_dt, rhs_dt);
+        Ok(())
+    }
+
+    #[test]
+    fn mixed_decimal_arithmetic_preserves_input_types() -> VortexResult<()> {
+        let lhs = DecimalDType::new(10, 2);
+        let rhs = DecimalDType::new(5, 1);
+        let scope = DType::Struct(
+            StructFields::new(
+                ["a", "b"].into(),
+                vec![
+                    DType::Decimal(lhs, NonNullable),
+                    DType::Decimal(rhs, NonNullable),
+                ],
+            ),
+            NonNullable,
+        );
+        let expr = Binary.new_expr(Operator::Add, [col("a"), col("b")]);
+        let coerced = coerce_expression(expr, &scope)?;
+
+        assert!(!coerced.child(0).is::<Cast>());
+        assert!(!coerced.child(1).is::<Cast>());
+        assert_eq!(
+            coerced.return_dtype(&scope)?,
+            DType::Decimal(DecimalDType::new(11, 2), NonNullable)
+        );
         Ok(())
     }
 

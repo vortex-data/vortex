@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use num_traits::CheckedMul;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -153,56 +154,42 @@ fn rescale_decimal_values(
         .checked_pow(scale_up)
         .ok_or_else(|| vortex_error::vortex_err!("rescale factor overflows i128"))?;
 
-    // Gather unscaled values as i128 (i256 sources are unsupported).
-    let values: Vec<i128> = match array.values_type() {
-        DecimalType::I8 => array
-            .buffer::<i8>()
-            .iter()
-            .map(|&v| i128::from(v))
-            .collect(),
-        DecimalType::I16 => array
-            .buffer::<i16>()
-            .iter()
-            .map(|&v| i128::from(v))
-            .collect(),
-        DecimalType::I32 => array
-            .buffer::<i32>()
-            .iter()
-            .map(|&v| i128::from(v))
-            .collect(),
-        DecimalType::I64 => array
-            .buffer::<i64>()
-            .iter()
-            .map(|&v| i128::from(v))
-            .collect(),
-        DecimalType::I128 => array.buffer::<i128>().iter().copied().collect(),
-        DecimalType::I256 => vortex_bail!("rescaling i256 decimals is not supported"),
-    };
-
-    let rescaled = values
-        .into_iter()
-        .map(|v| {
-            v.checked_mul(factor)
-                .ok_or_else(|| vortex_error::vortex_err!("decimal rescale overflows i128"))
-        })
-        .collect::<VortexResult<Vec<i128>>>()?;
-
-    match DecimalType::smallest_decimal_value_type(&to) {
-        DecimalType::I256 => vortex_bail!("rescaling into i256 decimals is not supported"),
-        DecimalType::I128 => Ok(DecimalArray::new(Buffer::from_iter(rescaled), to, validity)),
-        // Narrow storage targets: the values fit by the precision check.
-        DecimalType::I64 | DecimalType::I32 | DecimalType::I16 | DecimalType::I8 => {
-            let narrowed = rescaled
-                .into_iter()
-                .map(|v| {
-                    i64::try_from(v).map_err(|_| {
-                        vortex_error::vortex_err!("rescaled decimal exceeds target width")
-                    })
-                })
-                .collect::<VortexResult<Vec<i64>>>()?;
-            Ok(DecimalArray::new(Buffer::from_iter(narrowed), to, validity))
-        }
+    let from_values_type = array.values_type();
+    if from_values_type == DecimalType::I256 {
+        vortex_bail!("rescaling i256 decimals is not supported");
     }
+
+    let to_values_type = DecimalType::smallest_decimal_value_type(&to);
+    if to_values_type == DecimalType::I256 {
+        vortex_bail!("rescaling into i256 decimals is not supported");
+    }
+
+    match_each_decimal_value_type!(from_values_type, |F| {
+        let from_buffer = array.buffer::<F>();
+        match_each_decimal_value_type!(to_values_type, |T| {
+            let to_buffer = rescale_decimal_buffer::<F, T>(from_buffer, factor)?;
+            Ok(DecimalArray::new(to_buffer, to, validity))
+        })
+    })
+}
+
+fn rescale_decimal_buffer<F, T>(from: Buffer<F>, factor: i128) -> VortexResult<Buffer<T>>
+where
+    F: NativeDecimalType,
+    T: NativeDecimalType + CheckedMul,
+{
+    let factor = <T as crate::dtype::BigCast>::from(factor)
+        .ok_or_else(|| vortex_error::vortex_err!("decimal rescale factor exceeds target width"))?;
+
+    from.iter()
+        .map(|&v| {
+            let v = <T as crate::dtype::BigCast>::from(v).ok_or_else(|| {
+                vortex_error::vortex_err!("decimal rescale input exceeds target width")
+            })?;
+            CheckedMul::checked_mul(&v, &factor)
+                .ok_or_else(|| vortex_error::vortex_err!("decimal rescale overflows target width"))
+        })
+        .collect()
 }
 
 /// Upcast a DecimalArray to a wider physical representation (e.g., i32 -> i64) while keeping
@@ -352,6 +339,27 @@ mod tests {
         let casted = array.into_array().cast(wider.clone()).unwrap().to_decimal();
         assert_eq!(casted.dtype(), &wider);
         assert_eq!(casted.buffer::<i64>().as_ref(), &[1000i64, -2500]);
+    }
+
+    #[test]
+    fn cast_widening_scale_uses_target_width() {
+        let array = DecimalArray::new(
+            buffer![9i8, -8],
+            DecimalDType::new(1, 0),
+            Validity::NonNullable,
+        );
+
+        let wider_scale = DType::Decimal(DecimalDType::new(2, 1), Nullability::NonNullable);
+        #[expect(deprecated)]
+        let casted = array
+            .into_array()
+            .cast(wider_scale.clone())
+            .unwrap()
+            .to_decimal();
+
+        assert_eq!(casted.dtype(), &wider_scale);
+        assert_eq!(casted.values_type(), DecimalType::I8);
+        assert_eq!(casted.buffer::<i8>().as_ref(), &[90i8, -80]);
     }
 
     #[test]

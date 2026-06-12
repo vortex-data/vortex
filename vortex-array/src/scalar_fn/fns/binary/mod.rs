@@ -10,6 +10,7 @@ pub use boolean::or_kleene;
 use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -18,6 +19,8 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
+use crate::dtype::NativeDecimalType;
+use crate::dtype::i256;
 use crate::expr::StatsCatalog;
 use crate::expr::and;
 use crate::expr::and_collect;
@@ -47,45 +50,62 @@ pub(crate) use numeric::*;
 
 use crate::scalar::NumericOperator;
 
-/// Output decimal type of an arithmetic `operator` over two operands that
-/// have already been coerced to the same decimal type.
+/// Output decimal type of an arithmetic `operator` over two decimal operands.
 ///
 /// Mirrors the Hive-style rules `arrow-arith` applies at execution time
 /// (see `arrow_arith::numeric::decimal_op`), including precision saturation
-/// at the physical width's maximum: vortex lowers precisions `<= 38` to
-/// Arrow `Decimal128` and wider decimals to `Decimal256`.
+/// at the physical width's maximum: vortex lowers precisions
+/// `<= i128::MAX_PRECISION` to Arrow `Decimal128` and wider decimals to
+/// `Decimal256`.
 fn decimal_arithmetic_dtype(
     operator: Operator,
-    operand: DecimalDType,
+    lhs: DecimalDType,
+    rhs: DecimalDType,
 ) -> VortexResult<DecimalDType> {
-    let p = u16::from(operand.precision());
-    let s = i16::from(operand.scale());
-    let (max_precision, max_scale): (u16, i16) = if p <= 38 { (38, 38) } else { (76, 76) };
+    let p1 = i16::from(lhs.precision());
+    let s1 = i16::from(lhs.scale());
+    let p2 = i16::from(rhs.precision());
+    let s2 = i16::from(rhs.scale());
+    let (max_precision, max_scale) =
+        if lhs.precision() <= i128::MAX_PRECISION && rhs.precision() <= i128::MAX_PRECISION {
+            (i16::from(i128::MAX_PRECISION), i16::from(i128::MAX_SCALE))
+        } else {
+            (i16::from(i256::MAX_PRECISION), i16::from(i256::MAX_SCALE))
+        };
     let (precision, scale) = match operator {
-        // scale = max(s, s); precision = max(p - s, p - s) + scale + 1
-        Operator::Add | Operator::Sub => ((p + 1).min(max_precision), s),
-        // scale = s + s; precision = p + p + 1
+        // scale = max(s1, s2); precision = scale + max(p1 - s1, p2 - s2) + 1
+        Operator::Add | Operator::Sub => {
+            let scale = s1.max(s2);
+            (
+                (scale + (p1 - s1).max(p2 - s2) + 1).min(max_precision),
+                scale,
+            )
+        }
+        // scale = s1 + s2; precision = p1 + p2 + 1
         Operator::Mul => {
-            let scale = s + s;
+            let scale = s1 + s2;
             if scale > max_scale {
                 vortex_bail!(
-                    "output scale of {operand} {operator} {operand} exceeds the maximum scale \
+                    "output scale of {lhs} {operator} {rhs} exceeds the maximum scale \
                      {max_scale}"
                 );
             }
-            ((p + p + 1).min(max_precision), scale)
+            ((p1 + p2 + 1).min(max_precision), scale)
         }
-        // scale = min(s + 4, max); precision = p - s + s + scale
+        // scale = min(s1 + 4, max); precision = p1 - s1 + s2 + scale
         Operator::Div => {
-            let scale = (s + 4).min(max_scale);
-            (((p + scale.unsigned_abs()).min(max_precision)), scale)
+            let scale = (s1 + 4).min(max_scale);
+            let mul_pow = scale - s1 + s2;
+            ((p1 + mul_pow).clamp(1, max_precision), scale)
         }
         _ => vortex_bail!("operator {operator} is not arithmetic"),
     };
-    Ok(DecimalDType::new(
-        u8::try_from(precision).unwrap_or(u8::MAX),
-        i8::try_from(scale).unwrap_or(i8::MAX),
-    ))
+    let precision = u8::try_from(precision)
+        .map_err(|_| vortex_err!("decimal arithmetic precision exceeds supported range"))?;
+    let scale = i8::try_from(scale)
+        .map_err(|_| vortex_err!("decimal arithmetic scale exceeds supported range"))?;
+
+    DecimalDType::try_new(precision, scale)
 }
 
 #[derive(Clone)]
@@ -145,6 +165,11 @@ impl ScalarFnVTable for Binary {
     fn coerce_args(&self, operator: &Self::Options, args: &[DType]) -> VortexResult<Vec<DType>> {
         let lhs = &args[0];
         let rhs = &args[1];
+        if operator.is_arithmetic()
+            && matches!((lhs, rhs), (DType::Decimal(..), DType::Decimal(..)))
+        {
+            return Ok(args.to_vec());
+        }
         if operator.is_arithmetic() || operator.is_comparison() {
             let supertype = lhs.least_supertype(rhs).ok_or_else(|| {
                 vortex_error::vortex_err!("No common supertype for {} and {}", lhs, rhs)
@@ -164,10 +189,8 @@ impl ScalarFnVTable for Binary {
             if lhs.is_primitive() && lhs.eq_ignore_nullability(rhs) {
                 return Ok(lhs.with_nullability(lhs.nullability() | rhs.nullability()));
             }
-            if let (DType::Decimal(l, _), DType::Decimal(r, _)) = (lhs, rhs)
-                && l == r
-            {
-                let result = decimal_arithmetic_dtype(*operator, *l)?;
+            if let (DType::Decimal(l, _), DType::Decimal(r, _)) = (lhs, rhs) {
+                let result = decimal_arithmetic_dtype(*operator, *l, *r)?;
                 return Ok(DType::Decimal(
                     result,
                     lhs.nullability() | rhs.nullability(),
@@ -398,17 +421,28 @@ mod tests {
         use crate::scalar_fn::ScalarFnVTableExt;
         use crate::validity::Validity;
 
-        let dec = DecimalDType::new(15, 2);
-        let values =
-            DecimalArray::new(buffer![100i128, 250, 1099], dec, Validity::NonNullable).into_array();
+        let lhs_dec = DecimalDType::new(10, 2);
+        let rhs_dec = DecimalDType::new(5, 1);
+        let values = DecimalArray::new(buffer![100i128, 250, 1099], lhs_dec, Validity::NonNullable)
+            .into_array();
         let rhs = lit(Scalar::decimal(
             DecimalValue::I128(50),
-            dec,
+            rhs_dec,
             Nullability::NonNullable,
         ));
-        for op in [Operator::Add, Operator::Sub, Operator::Mul, Operator::Div] {
+        for (op, expected) in [
+            (Operator::Add, DecimalDType::new(11, 2)),
+            (Operator::Sub, DecimalDType::new(11, 2)),
+            (Operator::Mul, DecimalDType::new(16, 3)),
+            (Operator::Div, DecimalDType::new(15, 6)),
+        ] {
             let expr = Binary.try_new_expr(op, [crate::expr::root(), rhs.clone()])?;
             let derived = expr.return_dtype(values.dtype())?;
+            assert_eq!(
+                derived,
+                DType::Decimal(expected, Nullability::NonNullable),
+                "unexpected derived dtype for {op}"
+            );
             let mut ctx = LEGACY_SESSION.create_execution_ctx();
             let executed = values
                 .clone()
