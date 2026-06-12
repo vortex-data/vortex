@@ -126,6 +126,10 @@ name = "compare"
 harness = false
 
 [[bench]]
+name = "binary_ops"
+harness = false
+
+[[bench]]
 name = "interleave"
 harness = false
 
