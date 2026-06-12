@@ -34,7 +34,7 @@ jobs:
           - { shard: 5, name: "Encodings 2", packages: "vortex-decimal-byte-parts vortex-fastlanes vortex-fsst", features: "--features _test-harness" }
           - { shard: 6, name: "Encodings 3", packages: "vortex-pco vortex-runend vortex-sequence" }
           - { shard: 7, name: "Encodings 4", packages: "vortex-sparse vortex-zigzag vortex-zstd" }
-          - { shard: 8, name: "Storage formats", packages: "vortex-flatbuffers vortex-proto vortex-btrblocks" }
+          - { shard: 8, name: "Storage formats & row encoding", packages: "vortex-flatbuffers vortex-proto vortex-btrblocks vortex-row" }
     name: "Benchmark with Codspeed (Shard #${{ matrix.shard }})"
     timeout-minutes: 30
     runs-on: >-
@@ -46,11 +46,14 @@ jobs:
         if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
       - uses: ./.github/actions/setup-prebuild
       - uses: ./.github/actions/system-info
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y libc6-dbg
       - name: Install Codspeed
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:
@@ -76,12 +79,13 @@ jobs:
           - { shard: 3, name: "Standalone kernels", benches: "alp_cuda date_time_parts_cuda dict_cuda fsst_cuda runend_cuda" }
     name: "Benchmark with Codspeed (CUDA Shard #${{ matrix.shard }} - ${{ matrix.name }})"
     timeout-minutes: 30
-    runs-on: runs-on=${{ github.run_id }}/family=g5/image=ubuntu24-gpu-x64/tag=bench-codspeed-cuda-${{ matrix.shard }}
+    runs-on: >-
+      runs-on=${{ github.run_id }}/family=g5/cpu=8/image=ubuntu24-gpu-x64/tag=bench-codspeed-cuda-${{ matrix.shard }}
     steps:
       - uses: runs-on/action@v2
         with:
           sccache: s3
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -90,6 +94,9 @@ jobs:
           nvidia-smi
           nvidia-smi -L
           nvidia-smi -q -d Memory
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y libc6-dbg
       - name: Install Codspeed
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:

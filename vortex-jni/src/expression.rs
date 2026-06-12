@@ -30,6 +30,7 @@ use vortex::dtype::DecimalDType;
 use vortex::dtype::FieldName;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
+use vortex::dtype::extension::ExtDType;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
@@ -38,13 +39,18 @@ use vortex::expr::get_item;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::lit;
+use vortex::expr::merge_opts;
 use vortex::expr::not;
 use vortex::expr::or_collect;
+use vortex::expr::pack;
 use vortex::expr::root;
 use vortex::expr::select;
 use vortex::extension::datetime::Date;
 use vortex::extension::datetime::TimeUnit;
 use vortex::extension::datetime::Timestamp;
+use vortex::extension::uuid::Uuid;
+use vortex::extension::uuid::UuidMetadata;
+use vortex::layout::layouts::row_idx::row_idx;
 use vortex::scalar::DecimalValue;
 use vortex::scalar::Scalar;
 use vortex::scalar::ScalarValue;
@@ -54,6 +60,7 @@ use vortex::scalar_fn::fns::between::StrictComparison;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
+use vortex::scalar_fn::fns::merge::DuplicateHandling;
 use vortex::scalar_fn::fns::operators::Operator;
 
 use crate::errors::JNIError;
@@ -92,6 +99,17 @@ fn parse_time_unit(tag: jbyte) -> Result<TimeUnit, JNIError> {
     TimeUnit::try_from(tag as u8).map_err(JNIError::from)
 }
 
+/// Parse a merge [`DuplicateHandling`] strategy from its wire-encoded byte tag.
+///
+/// See `dev.vortex.api.Expression.DuplicateHandling` on the Java side for the source of truth.
+fn parse_duplicate_handling(tag: jbyte) -> Result<DuplicateHandling, JNIError> {
+    Ok(match tag {
+        0 => DuplicateHandling::RightMost,
+        1 => DuplicateHandling::Error,
+        other => throw_runtime!("unknown duplicate handling code: {other}"),
+    })
+}
+
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_vortex_jni_NativeExpression_free(
     _env: EnvUnowned,
@@ -111,6 +129,14 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_root(
     _class: JClass,
 ) -> jlong {
     into_raw(root())
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_rowIdx(
+    _env: EnvUnowned,
+    _class: JClass,
+) -> jlong {
+    into_raw(row_idx())
 }
 
 #[unsafe(no_mangle)]
@@ -146,6 +172,54 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_select(
         }
         let child = unsafe { expr_ref(child) }.clone();
         Ok(into_raw(select(fields, child)))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_pack(
+    mut env: EnvUnowned,
+    _class: JClass,
+    field_names: JObjectArray,
+    expressions: JLongArray,
+    nullable: jboolean,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        let count = field_names.len(env)?;
+        let expressions = unsafe { expressions.get_elements(env, ReleaseMode::NoCopyBack)? };
+        let mut elements = Vec::with_capacity(count);
+
+        for idx in 0..count {
+            let obj = field_names.get_element(env, idx)?;
+            let s = env.cast_local::<JString>(obj)?;
+            let name: FieldName = s.try_to_string(env)?.into();
+
+            let expr_ptr = *expressions.get(idx).ok_or_else(|| -> JNIError {
+                vortex_err!("missing pack expression child").into()
+            })?;
+            let expr = unsafe { expr_ref(expr_ptr) }.clone();
+
+            elements.push((name, expr));
+        }
+
+        Ok(into_raw(pack(elements, nullable.into())))
+    })
+}
+
+/// Merge zero or more struct-returning expressions into a single struct.
+///
+/// `duplicate_handling` selects how shared field names are resolved (see
+/// [`parse_duplicate_handling`]). An empty `expressions` array yields an empty struct.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_merge(
+    mut env: EnvUnowned,
+    _class: JClass,
+    expressions: JLongArray,
+    duplicate_handling: jbyte,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        let exprs = collect_operands(env, &expressions)?;
+        let handling = parse_duplicate_handling(duplicate_handling)?;
+        Ok(into_raw(merge_opts(exprs, handling)))
     })
 }
 
@@ -519,6 +593,76 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalTimestamp(
             dtype,
             Some(ScalarValue::from(value)),
         )?)))
+    })
+}
+
+/// Number of bytes in a UUID's big-endian representation.
+const UUID_BYTE_LEN: usize = 16;
+
+/// Build the version-agnostic UUID extension [`DType`] with the given nullability.
+///
+/// The storage is a non-nullable `FixedSizeList(U8, 16)`, matching Vortex's UUID extension and
+/// Arrow's canonical UUID type. The metadata records no version constraint, so the dtype is
+/// compatible with any UUID column regardless of the UUID versions it contains.
+fn uuid_dtype(nullability: Nullability) -> Result<DType, JNIError> {
+    let list_size = u32::try_from(UUID_BYTE_LEN)
+        .map_err(|_| vortex_err!("UUID byte length {UUID_BYTE_LEN} does not fit in u32"))?;
+    let storage_dtype = DType::FixedSizeList(
+        Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
+        list_size,
+        nullability,
+    );
+    let ext = ExtDType::<Uuid>::try_new(UuidMetadata::default(), storage_dtype)?;
+    Ok(DType::Extension(ext.erased()))
+}
+
+/// Build a non-null UUID [`Scalar`] from its 16-byte big-endian representation.
+fn uuid_scalar(bytes: &[u8]) -> Result<Scalar, JNIError> {
+    if bytes.len() != UUID_BYTE_LEN {
+        throw_runtime!(
+            "UUID literal must be exactly {UUID_BYTE_LEN} bytes, got {}",
+            bytes.len()
+        );
+    }
+    let children: Vec<Scalar> = bytes
+        .iter()
+        .map(|&b| Scalar::primitive(b, Nullability::NonNullable))
+        .collect();
+    let storage = Scalar::fixed_size_list(
+        DType::Primitive(PType::U8, Nullability::NonNullable),
+        children,
+        Nullability::NonNullable,
+    );
+    Ok(Scalar::try_new(
+        uuid_dtype(Nullability::NonNullable)?,
+        storage.into_value(),
+    )?)
+}
+
+/// Build a UUID literal from its 16-byte big-endian representation.
+///
+/// When `is_null_flag` is true the `value` array is ignored and a typed null UUID literal is
+/// produced. Otherwise `value` must hold exactly 16 bytes in big-endian (network) order — the
+/// same layout as a `java.util.UUID` written most-significant-bits first, and Arrow's canonical
+/// UUID extension. The literal is version-agnostic so it compares against any UUID column.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalUuid(
+    mut env: EnvUnowned,
+    _class: JClass,
+    value: JByteArray,
+    is_null_flag: jboolean,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        if is_null_flag {
+            return Ok(into_raw(lit(Scalar::null(uuid_dtype(
+                Nullability::Nullable,
+            )?))));
+        }
+        if value.is_null() {
+            throw_runtime!("UUID literal bytes must not be null");
+        }
+        let bytes = env.convert_byte_array(&value)?;
+        Ok(into_raw(lit(uuid_scalar(&bytes)?)))
     })
 }
 

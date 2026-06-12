@@ -8,6 +8,7 @@ use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::DecimalArray;
+use vortex::array::arrays::ExtensionArray;
 use vortex::array::arrays::FixedSizeListArray;
 use vortex::array::arrays::ListViewArray;
 use vortex::array::arrays::PrimitiveArray;
@@ -15,6 +16,7 @@ use vortex::array::arrays::StructArray;
 use vortex::array::arrays::TemporalArray;
 use vortex::array::builders::ArrayBuilder;
 use vortex::array::builders::VarBinViewBuilder;
+use vortex::array::dtype::extension::ExtDType;
 use vortex::array::validity::Validity;
 use vortex::buffer::BitBuffer;
 use vortex::buffer::Buffer;
@@ -30,6 +32,8 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::extension::datetime::TimeUnit;
 use vortex::mask::Mask;
+use vortex_geo::extension::GeoMetadata;
+use vortex_geo::extension::WellKnownBinary;
 
 use crate::cpp::DUCKDB_TYPE;
 use crate::cpp::duckdb_date;
@@ -208,8 +212,8 @@ fn process_duckdb_lists(
 
 /// Converts flat vector to a vortex array
 pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<ArrayRef> {
-    let type_id = vector.logical_type().as_type_id();
-    match type_id {
+    let logical_type = vector.logical_type();
+    match logical_type.as_type_id() {
         DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP => {
             let arr = vector_mapped(vector, len, |duckdb_timestamp { micros }| *micros);
             Ok(TemporalArray::new_timestamp(arr, TimeUnit::Microseconds, None).into_array())
@@ -255,6 +259,18 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
             len,
             DType::Binary(Nullability::Nullable),
         )),
+        DUCKDB_TYPE::DUCKDB_TYPE_GEOMETRY => {
+            let wkb_values =
+                vector_as_string_blob(vector, len, DType::Binary(Nullability::Nullable));
+            let crs = logical_type.geometry_crs().map(|crs| crs.to_string());
+            let wkb_type = ExtDType::<WellKnownBinary>::try_new(
+                GeoMetadata { crs },
+                DType::Binary(Nullability::Nullable),
+            )?
+            .erased();
+
+            Ok(ExtensionArray::try_new(wkb_type, wkb_values.into_array())?.into_array())
+        }
         DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN => {
             let data = vector.as_slice_with_len::<bool>(len);
 
@@ -345,7 +361,7 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
             StructArray::try_new(names, children, len, vector.validity_ref(len).to_validity())
                 .map(|a| a.into_array())
         }
-        _ => unimplemented!("missing impl for {type_id:?}"),
+        type_id => unimplemented!("missing impl for {type_id:?}"),
     }
 }
 
@@ -375,17 +391,24 @@ pub fn data_chunk_to_vortex(
 mod tests {
     use std::ffi::CString;
 
+    use geo_types::point;
     use vortex::array::LEGACY_SESSION;
     use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::BoolArray;
+    use vortex::array::arrays::Extension;
+    use vortex::array::arrays::VarBinViewArray;
     use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
     use vortex::array::arrays::listview::ListViewArrayExt;
     use vortex::array::arrays::struct_::StructArrayExt;
     use vortex::array::assert_arrays_eq;
     use vortex::error::VortexExpect;
     use vortex::mask::Mask;
+    use vortex_geo::extension::WellKnownBinaryData;
+    use wkb::writer::WriteOptions;
+    use wkb::writer::write_point;
 
     use super::*;
+    use crate::cpp;
     use crate::cpp::DUCKDB_TYPE;
     use crate::duckdb::LogicalType;
     use crate::duckdb::Vector;
@@ -962,5 +985,71 @@ mod tests {
                 .unwrap(),
             Mask::from_indices(3, vec![0, 2])
         );
+    }
+
+    #[test]
+    fn test_geometry_vector_conversion() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
+        let mut wkb_a: Vec<u8> = Vec::new();
+        write_point(
+            &mut wkb_a,
+            &point!(x: 1.0_f64, y: 2.0_f64),
+            &WriteOptions::default(),
+        )
+        .map_err(|e| vortex::error::vortex_err!("writing WKB point: {e}"))?;
+        let mut wkb_b: Vec<u8> = Vec::new();
+        write_point(
+            &mut wkb_b,
+            &point!(x: 3.5_f64, y: -4.25_f64),
+            &WriteOptions::default(),
+        )
+        .map_err(|e| vortex::error::vortex_err!("writing WKB point: {e}"))?;
+
+        let len = 3;
+        let logical_type = LogicalType::geometry_type(Some("EPSG:4326"))?;
+        let mut vector = Vector::with_capacity(&logical_type, len);
+
+        // WKB contains embedded null bytes, so use the length-aware assignment.
+        unsafe {
+            cpp::duckdb_vector_assign_string_element_len(
+                vector.as_ptr(),
+                0,
+                wkb_a.as_ptr().cast(),
+                wkb_a.len() as _,
+            );
+            cpp::duckdb_vector_assign_string_element_len(
+                vector.as_ptr(),
+                2,
+                wkb_b.as_ptr().cast(),
+                wkb_b.len() as _,
+            );
+        }
+
+        // SAFETY: Vector was created with this length.
+        let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
+        validity_slice.set(1, false);
+
+        let result = flat_vector_to_vortex(&vector, len)?;
+        let extension = result
+            .as_opt::<Extension>()
+            .vortex_expect("expected ExtensionArray")
+            .into_owned();
+        let wkb_data = WellKnownBinaryData::try_from(extension)?;
+
+        assert_eq!(wkb_data.geo_metadata().crs.as_deref(), Some("EPSG:4326"));
+
+        let storage = wkb_data
+            .wkb_values()
+            .clone()
+            .execute::<VarBinViewArray>(&mut ctx)?;
+        let expected = VarBinViewArray::from_iter_nullable_bin([
+            Some(wkb_a.as_slice()),
+            None,
+            Some(wkb_b.as_slice()),
+        ]);
+        assert_arrays_eq!(storage, expected);
+
+        Ok(())
     }
 }

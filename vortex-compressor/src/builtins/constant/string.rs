@@ -9,9 +9,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::aggregate_fn::fns::is_constant::is_constant;
 use vortex_error::VortexResult;
 
-use super::is_utf8_string;
 use crate::CascadingCompressor;
-use crate::builtins::StringConstantScheme;
 use crate::builtins::constant::compress_constant_array_with_validity;
 use crate::ctx::CompressorContext;
 use crate::estimate::CompressionEstimate;
@@ -20,13 +18,17 @@ use crate::estimate::EstimateVerdict;
 use crate::scheme::Scheme;
 use crate::stats::ArrayAndStats;
 
+/// Constant encoding for string arrays with a single distinct value.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct StringConstantScheme;
+
 impl Scheme for StringConstantScheme {
     fn scheme_name(&self) -> &'static str {
         "vortex.string.constant"
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        is_utf8_string(canonical)
+        canonical.dtype().is_utf8()
     }
 
     fn expected_compression_ratio(
@@ -42,7 +44,7 @@ impl Scheme for StringConstantScheme {
         }
 
         let array_len = data.array().len();
-        let stats = data.string_stats(exec_ctx);
+        let stats = data.varbinview_stats(exec_ctx);
 
         // We want to use `Constant` if there are only nulls in the array.
         if stats.value_count() == 0 {

@@ -121,7 +121,7 @@ impl ArrayBuilder for BoolBuilder {
 
         self.inner.append_buffer(&bool_array.to_bit_buffer());
         self.nulls.append_validity_mask(
-            bool_array
+            &bool_array
                 .as_ref()
                 .validity()
                 .vortex_expect("validity_mask")
@@ -139,8 +139,7 @@ impl ArrayBuilder for BoolBuilder {
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.nulls = LazyBitBufferBuilder::new(validity.len());
-        self.nulls.append_validity_mask(validity);
+        self.nulls = LazyBitBufferBuilder::from_validity_mask(validity);
     }
 
     fn finish(&mut self) -> ArrayRef {
@@ -210,11 +209,11 @@ mod tests {
         #[expect(deprecated)]
         let into_canon = chunk.to_bool();
 
-        assert!(
-            canon_into
-                .validity()?
-                .mask_eq(&into_canon.validity()?, &mut ctx)?
-        );
+        assert!(canon_into.validity()?.mask_eq(
+            &into_canon.validity()?,
+            canon_into.len(),
+            &mut ctx
+        )?);
         assert_eq!(canon_into.to_bit_buffer(), into_canon.to_bit_buffer());
         Ok(())
     }

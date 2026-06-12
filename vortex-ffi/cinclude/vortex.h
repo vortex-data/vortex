@@ -161,6 +161,9 @@ typedef enum {
     PTYPE_F64 = 10,
 } vx_ptype;
 
+/**
+ * Validity representation for arrays constructed through the C FFI.
+ */
 typedef enum {
     /**
      * Items can't be null
@@ -302,9 +305,9 @@ typedef enum {
  * Physical type enum, represents the in-memory physical layout but might represent a different logical type.
  */
 enum PType
-#ifdef __cplusplus
+#if defined(__cplusplus) || __STDC_VERSION__ >= 202311L
     : uint8_t
-#endif // __cplusplus
+#endif // defined(__cplusplus) || __STDC_VERSION__ >= 202311L
 {
     /**
      * An 8-bit unsigned integer
@@ -352,7 +355,11 @@ enum PType
     F64 = 10,
 };
 #ifndef __cplusplus
+#if __STDC_VERSION__ >= 202311L
+typedef enum PType PType;
+#else
 typedef uint8_t PType;
+#endif // __STDC_VERSION__ >= 202311L
 #endif // __cplusplus
 
 /**
@@ -412,9 +419,6 @@ typedef struct vx_array vx_array;
  *
  * Once the iterator is finished (returns `null` from [`vx_array_iterator_next`]), it may panic
  * on subsequent calls to [`vx_array_iterator_next`].
- *
- * Even after the iterator is finished, an owned iterator must be released by calling
- * [`vx_array_iter_free`].
  *
  * Iterators may be passed between threads, but calls to [`vx_array_iterator_next`] should be
  * serialized and not invoked concurrently.
@@ -529,7 +533,13 @@ typedef struct vx_struct_fields vx_struct_fields;
  */
 typedef struct vx_struct_fields_builder vx_struct_fields_builder;
 
+/**
+ * Array validity descriptor used by C FFI constructors.
+ */
 typedef struct {
+    /**
+     * The kind of validity represented by this descriptor.
+     */
     vx_validity_type type;
     /**
      * If type is not VX_VALIDITY_ARRAY, this is NULL.
@@ -563,68 +573,6 @@ typedef struct {
      */
     uint64_t estimate;
 } vx_estimate;
-
-/**
- * Options supplied for opening a file.
- */
-typedef struct {
-    /**
-     * URI for opening the file.
-     * This must be a valid URI, even for files (file:///path/to/file)
-     */
-    const char *uri;
-    /**
-     * Additional configuration for the file source (e.g. "s3.accessKey").
-     * This may be null, in which case it is treated as empty.
-     */
-    const char *const *property_keys;
-    /**
-     * Additional configuration values for the file source (e.g. S3 credentials).
-     */
-    const char *const *property_vals;
-    /**
-     * Number of properties in `property_keys` and `property_vals`.
-     */
-    int property_len;
-} vx_file_open_options;
-
-/**
- * Scan options provided by an FFI client calling the `vx_file_scan` function.
- */
-typedef struct {
-    /**
-     * Column names to project out in the scan. These must be null-terminated C strings.
-     */
-    const char *projection_expression;
-    /**
-     * Number of columns in `projection`.
-     */
-    unsigned int projection_expr_len;
-    /**
-     * Serialized expressions for pushdown
-     */
-    const char *filter_expression;
-    /**
-     * The len in bytes of the filter expression
-     */
-    unsigned int filter_expression_len;
-    /**
-     * Splits the file into chunks of this size, if zero then we use the write layout.
-     */
-    int split_by_row_count;
-    /**
-     * First row of a range to scan.
-     */
-    unsigned long row_range_start;
-    /**
-     * Last row of a range to scan.
-     */
-    unsigned long row_range_end;
-    /**
-     * The row offset of the file in a multi-file scan.
-     */
-    unsigned long row_offset;
-} vx_file_scan_options;
 
 /**
  * Scan row selection.
@@ -671,11 +619,6 @@ typedef struct {
      */
     uint64_t limit;
     /**
-     * Upper limit for parallelism. 0 means no limit.
-     * Scan will return at most "max_threads" partitions.
-     */
-    uint64_t max_threads;
-    /**
      * If true, return in storage order.
      */
     bool ordered;
@@ -687,8 +630,6 @@ extern "C" {
 
 /**
  * Clone a borrowed [`vx_array`], returning an owned [`vx_array`].
- *
- *
  * Must be released with [`vx_array_free`].
  */
 const vx_array *vx_array_clone(const vx_array *ptr);
@@ -738,7 +679,7 @@ void vx_array_get_validity(const vx_array *array, vx_validity *validity, vx_erro
 size_t vx_array_len(const vx_array *array);
 
 /**
- * Get the [`crate::vx_dtype`] of the array.
+ * Get the [`struct@crate::dtype::vx_dtype`] of the array.
  *
  * The returned pointer is valid as long as the array is valid.
  * Do NOT free the returned dtype pointer - it shares the lifetime of the array.
@@ -897,8 +838,6 @@ const vx_array *vx_array_iterator_next(vx_array_iterator *iter, vx_error **error
 
 /**
  * Clone a borrowed [`vx_binary`], returning an owned [`vx_binary`].
- *
- *
  * Must be released with [`vx_binary_free`].
  */
 const vx_binary *vx_binary_clone(const vx_binary *ptr);
@@ -925,8 +864,6 @@ const char *vx_binary_ptr(const vx_binary *ptr);
 
 /**
  * Clone a borrowed [`vx_data_source`], returning an owned [`vx_data_source`].
- *
- *
  * Must be released with [`vx_data_source_free`].
  */
 const vx_data_source *vx_data_source_clone(const vx_data_source *ptr);
@@ -960,8 +897,6 @@ void vx_data_source_get_row_count(const vx_data_source *ds, vx_estimate *row_cou
 
 /**
  * Clone a borrowed [`vx_dtype`], returning an owned [`vx_dtype`].
- *
- *
  * Must be released with [`vx_dtype_free`].
  */
 const vx_dtype *vx_dtype_clone(const vx_dtype *ptr);
@@ -1282,8 +1217,6 @@ vx_expression *vx_expression_list_contains(const vx_expression *list, const vx_e
 
 /**
  * Clone a borrowed [`vx_file`], returning an owned [`vx_file`].
- *
- *
  * Must be released with [`vx_file_free`].
  */
 const vx_file *vx_file_clone(const vx_file *ptr);
@@ -1293,43 +1226,10 @@ const vx_file *vx_file_clone(const vx_file *ptr);
  */
 void vx_file_free(const vx_file *ptr);
 
-/**
- * Open a file at the given path on the file system.
- */
-const vx_file *
-vx_file_open_reader(const vx_session *session, const vx_file_open_options *options, vx_error **error_out);
-
 void vx_file_write_array(const vx_session *session,
                          const char *path,
                          const vx_array *array,
                          vx_error **error_out);
-
-uint64_t vx_file_row_count(const vx_file *file);
-
-/**
- * Return the DType of the file.
- *
- * The returned pointer is valid as long as the file is valid.
- * Do NOT free the returned dtype pointer - it shares the lifetime of the file.
- */
-const vx_dtype *vx_file_dtype(const vx_file *file);
-
-/**
- * Can we prune the whole file using file stats and an expression
- */
-bool vx_file_can_prune(const vx_session *session,
-                       const vx_file *file,
-                       const char *filter_expression,
-                       unsigned int filter_expression_len,
-                       vx_error **error_out);
-
-/**
- * Build a new `vx_array_iterator` that returns a series of `vx_array`s from a scan over a `vx_layout_reader`.
- */
-vx_array_iterator *vx_file_scan(const vx_session *session,
-                                const vx_file *file,
-                                const vx_file_scan_options *opts,
-                                vx_error **error_out);
 
 /**
  * Set the stderr logger to output at the specified level.
@@ -1702,8 +1602,6 @@ void vx_array_sink_close(vx_array_sink *sink, vx_error **error_out);
 
 /**
  * Clone a borrowed [`vx_string`], returning an owned [`vx_string`].
- *
- *
  * Must be released with [`vx_string_free`].
  */
 const vx_string *vx_string_clone(const vx_string *ptr);

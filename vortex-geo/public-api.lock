@@ -1,0 +1,127 @@
+pub mod vortex_geo
+
+pub mod vortex_geo::extension
+
+pub struct vortex_geo::extension::GeoMetadata
+
+pub vortex_geo::extension::GeoMetadata::crs: core::option::Option<alloc::string::String>
+
+impl vortex_geo::extension::GeoMetadata
+
+pub fn vortex_geo::extension::GeoMetadata::crs(&self) -> &str
+
+impl core::clone::Clone for vortex_geo::extension::GeoMetadata
+
+pub fn vortex_geo::extension::GeoMetadata::clone(&self) -> vortex_geo::extension::GeoMetadata
+
+impl core::cmp::Eq for vortex_geo::extension::GeoMetadata
+
+impl core::cmp::PartialEq for vortex_geo::extension::GeoMetadata
+
+pub fn vortex_geo::extension::GeoMetadata::eq(&self, &vortex_geo::extension::GeoMetadata) -> bool
+
+impl core::default::Default for vortex_geo::extension::GeoMetadata
+
+pub fn vortex_geo::extension::GeoMetadata::default() -> Self
+
+impl core::fmt::Debug for vortex_geo::extension::GeoMetadata
+
+pub fn vortex_geo::extension::GeoMetadata::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_geo::extension::GeoMetadata
+
+pub fn vortex_geo::extension::GeoMetadata::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_geo::extension::GeoMetadata
+
+pub fn vortex_geo::extension::GeoMetadata::hash<__H: core::hash::Hasher>(&self, &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_geo::extension::GeoMetadata
+
+impl prost::message::Message for vortex_geo::extension::GeoMetadata
+
+pub fn vortex_geo::extension::GeoMetadata::clear(&mut self)
+
+pub fn vortex_geo::extension::GeoMetadata::encoded_len(&self) -> usize
+
+pub struct vortex_geo::extension::WellKnownBinary
+
+impl core::clone::Clone for vortex_geo::extension::WellKnownBinary
+
+pub fn vortex_geo::extension::WellKnownBinary::clone(&self) -> vortex_geo::extension::WellKnownBinary
+
+impl core::cmp::Eq for vortex_geo::extension::WellKnownBinary
+
+impl core::cmp::PartialEq for vortex_geo::extension::WellKnownBinary
+
+pub fn vortex_geo::extension::WellKnownBinary::eq(&self, &vortex_geo::extension::WellKnownBinary) -> bool
+
+impl core::default::Default for vortex_geo::extension::WellKnownBinary
+
+pub fn vortex_geo::extension::WellKnownBinary::default() -> vortex_geo::extension::WellKnownBinary
+
+impl core::fmt::Debug for vortex_geo::extension::WellKnownBinary
+
+pub fn vortex_geo::extension::WellKnownBinary::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_geo::extension::WellKnownBinary
+
+pub fn vortex_geo::extension::WellKnownBinary::hash<__H: core::hash::Hasher>(&self, &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_geo::extension::WellKnownBinary
+
+impl vortex_array::dtype::extension::vtable::ExtVTable for vortex_geo::extension::WellKnownBinary
+
+pub type vortex_geo::extension::WellKnownBinary::Metadata = vortex_geo::extension::GeoMetadata
+
+pub type vortex_geo::extension::WellKnownBinary::NativeValue<'a> = vortex_geo::extension::Wkb<'a>
+
+pub fn vortex_geo::extension::WellKnownBinary::deserialize_metadata(&self, &[u8]) -> vortex_error::VortexResult<Self::Metadata>
+
+pub fn vortex_geo::extension::WellKnownBinary::id(&self) -> vortex_array::dtype::extension::ExtId
+
+pub fn vortex_geo::extension::WellKnownBinary::serialize_metadata(&self, &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+
+pub fn vortex_geo::extension::WellKnownBinary::unpack_native<'a>(&'a vortex_array::dtype::extension::typed::ExtDType<Self>, &'a vortex_array::scalar::scalar_value::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
+
+pub fn vortex_geo::extension::WellKnownBinary::validate_dtype(&vortex_array::dtype::extension::typed::ExtDType<Self>) -> vortex_error::VortexResult<()>
+
+pub struct vortex_geo::extension::WellKnownBinaryData
+
+impl vortex_geo::extension::WellKnownBinaryData
+
+pub fn vortex_geo::extension::WellKnownBinaryData::geo_metadata(&self) -> &vortex_geo::extension::GeoMetadata
+
+pub fn vortex_geo::extension::WellKnownBinaryData::wkb_values(&self) -> &vortex_array::array::erased::ArrayRef
+
+impl core::clone::Clone for vortex_geo::extension::WellKnownBinaryData
+
+pub fn vortex_geo::extension::WellKnownBinaryData::clone(&self) -> vortex_geo::extension::WellKnownBinaryData
+
+impl core::convert::TryFrom<vortex_array::array::typed::Array<vortex_array::arrays::extension::vtable::Extension>> for vortex_geo::extension::WellKnownBinaryData
+
+pub type vortex_geo::extension::WellKnownBinaryData::Error = vortex_error::VortexError
+
+pub fn vortex_geo::extension::WellKnownBinaryData::try_from(vortex_array::arrays::extension::vtable::ExtensionArray) -> core::result::Result<Self, Self::Error>
+
+impl core::fmt::Debug for vortex_geo::extension::WellKnownBinaryData
+
+pub fn vortex_geo::extension::WellKnownBinaryData::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub struct vortex_geo::extension::Wkb<'a>(_)
+
+impl<'a> vortex_geo::extension::Wkb<'a>
+
+pub fn vortex_geo::extension::Wkb<'a>::try_from_bytes(&'a [u8]) -> vortex_error::VortexResult<Self>
+
+impl<'a> core::fmt::Display for vortex_geo::extension::Wkb<'a>
+
+pub fn vortex_geo::extension::Wkb<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<'a> core::ops::deref::Deref for vortex_geo::extension::Wkb<'a>
+
+pub type vortex_geo::extension::Wkb<'a>::Target = wkb::reader::geometry::Wkb<'a>
+
+pub fn vortex_geo::extension::Wkb<'a>::deref(&self) -> &wkb::reader::geometry::Wkb<'a>
+
+pub fn vortex_geo::initialize(&vortex_session::VortexSession)

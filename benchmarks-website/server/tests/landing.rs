@@ -416,11 +416,11 @@ async fn landing_page_honours_filter_query_params() -> Result<()> {
 /// full history via the explicit `/api/chart/{slug}?n=all` refetch.
 #[tokio::test]
 async fn landing_first_group_shard_caps_commits() -> Result<()> {
-    // 250 commits is comfortably above the 100-commit artifact cap so the
+    // 101 commits is the smallest fixture above the 100-commit artifact cap, so the
     // cap actually kicks in. `seed_long_history` only seeds the Random-Access
     // group; with the canonical group ordering Random Access sorts first.
     let server = Server::start().await?;
-    seed_long_history(&server, 250).await?;
+    seed_long_history(&server, 101).await?;
 
     let client = reqwest::Client::new();
     let body = client.get(server.url("/")).send().await?.text().await?;
@@ -454,7 +454,7 @@ async fn landing_first_group_shard_caps_commits() -> Result<()> {
     assert_eq!(
         commits.len(),
         100,
-        "with 250 seeded commits the shard payload should be exactly the \
+        "with 101 seeded commits the shard payload should be exactly the \
          100-commit cap; got {}",
         commits.len(),
     );

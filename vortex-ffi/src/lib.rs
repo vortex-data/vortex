@@ -29,7 +29,14 @@ use std::ffi::c_char;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
+pub use array::vx_array;
+pub use array::vx_array_ref;
+pub use error::try_or;
+pub use error::vx_error;
+pub use error::vx_error_free;
 pub use log::vx_log_level;
+pub use session::vx_session;
+pub use session::vx_session_ref;
 use vortex::dtype::FieldName;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -43,20 +50,6 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 /// A shared runtime for all FFI operations.
 // TODO(ngates): also create a CurrentThreadPool to manage background worker threads.
 static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
-
-pub(crate) unsafe fn to_string(ptr: *const c_char) -> String {
-    let c_str = unsafe { CStr::from_ptr(ptr) };
-    c_str.to_string_lossy().into_owned()
-}
-
-pub(crate) unsafe fn to_string_vec(ptr: *const *const c_char, len: usize) -> Vec<String> {
-    #[expect(clippy::expect_used)]
-    (0..len)
-        .map(|i: usize| unsafe {
-            to_string(*ptr.offset(i.try_into().expect("pointer offset overflow")))
-        })
-        .collect()
-}
 
 /// SAFETY: name must be a non-NULL pointer
 pub(crate) unsafe fn to_field_name(name: *const c_char) -> VortexResult<FieldName> {

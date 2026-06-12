@@ -25,10 +25,10 @@ const USE_LOCAL_DATA = process.env.USE_LOCAL_DATA === "true";
 
 // Benchmark groups: non-query groups + simple suites + fan-out suites
 const GROUPS = [
-  "Random Access",
   "Compression",
   "Compression Size",
   ...QUERY_SUITES.filter((s) => !s.skip && !s.fanOut).map((s) => s.displayName),
+  "Random Access",
   ...FAN_OUT_GROUPS,
 ];
 

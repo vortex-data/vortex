@@ -11,6 +11,8 @@ use std::slice;
 use std::str::FromStr;
 
 use anyhow::Result;
+use geo_types::LineString;
+use geo_types::Polygon;
 use jiff::Span;
 use jiff::Timestamp;
 use jiff::Zoned;
@@ -38,8 +40,15 @@ use vortex::file::WriteOptionsSessionExt;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::scalar::PValue;
 use vortex::scalar::Scalar;
+use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::varbin::builder::VarBinBuilder;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::extension::ExtDType;
+use vortex_geo::extension::GeoMetadata;
+use vortex_geo::extension::WellKnownBinary;
 use vortex_runend::RunEnd;
 use vortex_sequence::Sequence;
+use wkb::writer::WriteOptions;
 
 use crate::RUNTIME;
 use crate::SESSION;
@@ -994,4 +1003,48 @@ fn test_vortex_encodings_roundtrip() {
     let fixed_child = fixed_list_vec.array_vector_get_child();
     let fixed_child_values = fixed_child.as_slice_with_len::<i32>(10); // 10 total child elements
     assert_eq!(fixed_child_values, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+}
+
+#[test]
+fn test_geometry() {
+    let file = RUNTIME.block_on(async {
+        let rect10 = Polygon::new(
+            LineString::from_iter([[0., 0.], [10., 0.], [10., 10.], [0., 10.], [0., 0.]]),
+            vec![],
+        );
+        let mut wkb_binary: Vec<u8> = Vec::new();
+        wkb::writer::write_polygon(&mut wkb_binary, &rect10, &WriteOptions::default())
+            .expect("serializing WKB");
+        let mut geometry = VarBinBuilder::<u32>::with_capacity(10);
+        for _ in 0..10 {
+            geometry.append_value(wkb_binary.as_slice());
+        }
+        let geometry = geometry.finish(DType::Binary(Nullability::NonNullable));
+
+        let geometry = ExtensionArray::new(
+            ExtDType::<WellKnownBinary>::try_new(
+                GeoMetadata {
+                    crs: Some("EPSG:32600".to_string()),
+                },
+                geometry.dtype().clone(),
+            )
+            .expect("making extension array")
+            .erased(),
+            geometry.into_array(),
+        )
+        .into_array();
+
+        write_single_column_vortex_file("geometry", geometry).await
+    });
+
+    let conn = database_connection();
+    conn.query("INSTALL spatial; LOAD spatial;").unwrap();
+    let file_path = file.path().to_string_lossy();
+    let result = conn
+        .query(&format!("SELECT SUM(ST_Area(geometry)) FROM '{file_path}'"))
+        .unwrap();
+    let chunk = result.into_iter().next().unwrap();
+    let vec = chunk.get_vector(0);
+    let area = vec.as_slice_with_len::<f64>(chunk.len().as_())[0];
+    assert_eq!(area, 1000.0);
 }

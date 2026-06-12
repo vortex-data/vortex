@@ -54,6 +54,8 @@ jobs:
     needs: report-io-fuzz-failures
     if: needs.report-io-fuzz-failures.outputs.issue_number != ''
     permissions:
+      # actions: read is needed for `gh run download` of the crash artifact.
+      actions: read
       contents: write
       issues: write
       pull-requests: write

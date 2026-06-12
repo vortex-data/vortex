@@ -54,6 +54,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::l2_norm::L2Norm;
@@ -110,13 +111,12 @@ impl L2Denorm {
     pub fn try_new_array(
         normalized: ArrayRef,
         norms: ArrayRef,
-        len: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ScalarFnArray> {
         validate_l2_normalized_rows_against_norms(&normalized, Some(&norms), ctx)?;
 
         // SAFETY: We just validated that it is normalized.
-        unsafe { Self::new_array_unchecked(normalized, norms, len) }
+        unsafe { Self::new_array_unchecked(normalized, norms) }
     }
 
     /// Constructs an [`L2Denorm`] array without validating that the `normalized` child is actually
@@ -139,9 +139,8 @@ impl L2Denorm {
     pub unsafe fn new_array_unchecked(
         normalized: ArrayRef,
         norms: ArrayRef,
-        len: usize,
     ) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(L2Denorm::new().erased(), vec![normalized, norms], len)
+        ScalarFnArray::try_new(L2Denorm::new().erased(), vec![normalized, norms])
     }
 }
 
@@ -149,7 +148,8 @@ impl ScalarFnVTable for L2Denorm {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new("vortex.tensor.l2_denorm")
+        static ID: CachedId = CachedId::new("vortex.tensor.l2_denorm");
+        *ID
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {
@@ -404,7 +404,7 @@ fn execute_l2_denorm_constant_norms(
 ///
 /// Rows that are null in the original input are **zeroed out** in the normalized output. This is
 /// necessary because null rows may have undefined (garbage) physical storage values, and we do not
-/// want to let those propagate into downstream encodings (like TurboQuant).
+/// want to let those propagate into downstream lossy encodings.
 ///
 /// # Nullability
 ///
@@ -430,7 +430,7 @@ pub fn normalize_as_l2_denorm(
     }
 
     // Calculate the norms of the vectors.
-    let norms_sfn = L2Norm::try_new_array(input.clone(), row_count)?;
+    let norms_sfn = L2Norm::try_new_array(input.clone())?;
     let norms_array: ArrayRef = norms_sfn.into_array().execute(ctx)?;
     let primitive_norms: PrimitiveArray = norms_array.clone().execute(ctx)?;
     let norms_validity = primitive_norms.validity()?;
@@ -439,6 +439,10 @@ pub fn normalize_as_l2_denorm(
     let normalized_dtype = input.dtype().as_nonnullable();
     let flat = extract_flat_elements(input.storage_array(), tensor_flat_size, ctx)?;
 
+    // Resolve validity to a mask once rather than probing it per row (each `Validity::is_valid`
+    // executes a scalar for array-backed validity).
+    let norms_valid = norms_validity.execute_mask(row_count, ctx)?;
+
     // Normalize all of the vectors.
     let normalized = match_each_float_ptype!(flat.ptype(), |T| {
         let norm_values = primitive_norms.as_slice::<T>();
@@ -446,7 +450,7 @@ pub fn normalize_as_l2_denorm(
         let total_elements = row_count * tensor_flat_size;
         let mut elements = BufferMut::<T>::with_capacity(total_elements);
         for i in 0..row_count {
-            let is_valid = norms_validity.is_valid(i)?;
+            let is_valid = norms_valid.value(i);
             let norm = norm_values[i];
 
             // SAFETY: We allocated `row_count * tensor_flat_size` capacity and push exactly
@@ -481,7 +485,7 @@ pub fn normalize_as_l2_denorm(
     //   construction.
     // - Null rows are zeroed out above to avoid propagating arbitrary physical storage values into
     //   downstream lossy encodings.
-    unsafe { L2Denorm::new_array_unchecked(normalized, norms_array, row_count) }
+    unsafe { L2Denorm::new_array_unchecked(normalized, norms_array) }
 }
 
 /// Attempts to build an [`L2Denorm`] whose two children are both [`ConstantArray`]s by eagerly
@@ -564,7 +568,7 @@ pub(crate) fn try_build_constant_l2_denorm(
     // point tolerance) or all zeros when `||v|| == 0`. Stored norms are non-negative by
     // construction (`sqrt`). These are exactly the invariants required by
     // [`L2Denorm::new_array_unchecked`].
-    let wrapped = unsafe { L2Denorm::new_array_unchecked(normalized_ext, norms_array, len)? };
+    let wrapped = unsafe { L2Denorm::new_array_unchecked(normalized_ext, norms_array)? };
     Ok(Some(wrapped))
 }
 
@@ -635,12 +639,14 @@ pub fn validate_l2_normalized_rows_against_norms(
         Some(norms) => normalized_validity.and(norms.validity()?)?,
         None => normalized_validity,
     };
+    // Resolve validity to a mask once rather than probing it per row.
+    let combined_valid = combined_validity.execute_mask(row_count, ctx)?;
 
     match_each_float_ptype!(element_ptype, |T| {
         let stored_norms = norms.as_ref().map(|norms| norms.as_slice::<T>());
 
         for i in 0..row_count {
-            if !combined_validity.is_valid(i)? {
+            if !combined_valid.value(i) {
                 continue;
             }
 
@@ -763,9 +769,9 @@ mod tests {
     use crate::utils::test_helpers::vector_array;
 
     /// Evaluates L2 denorm on a tensor/vector array and returns the executed array.
-    fn eval_l2_denorm(normalized: ArrayRef, norms: ArrayRef, len: usize) -> VortexResult<ArrayRef> {
+    fn eval_l2_denorm(normalized: ArrayRef, norms: ArrayRef) -> VortexResult<ArrayRef> {
         let mut ctx = SESSION.create_execution_ctx();
-        let result = L2Denorm::try_new_array(normalized, norms, len, &mut ctx)?;
+        let result = L2Denorm::try_new_array(normalized, norms, &mut ctx)?;
         result.into_array().execute(&mut ctx)
     }
 
@@ -805,7 +811,7 @@ mod tests {
     fn l2_denorm_vectors() -> VortexResult<()> {
         let lhs = vector_array(3, &[0.6, 0.8, 0.0, 0.0, 0.0, 0.0])?;
         let rhs = PrimitiveArray::from_iter([5.0f64, 0.0]).into_array();
-        let actual = eval_l2_denorm(lhs, rhs, 2)?;
+        let actual = eval_l2_denorm(lhs, rhs)?;
         let expected = vector_array(3, &[3.0, 4.0, 0.0, 0.0, 0.0, 0.0])?;
 
         assert_tensor_arrays_eq(actual, expected)?;
@@ -816,7 +822,7 @@ mod tests {
     fn l2_denorm_fixed_shape_tensors() -> VortexResult<()> {
         let lhs = tensor_array(&[2, 2], &[0.5, 0.5, 0.5, 0.5, 1.0, 0.0, 0.0, 0.0])?;
         let rhs = PrimitiveArray::from_iter([4.0f64, 2.0]).into_array();
-        let actual = eval_l2_denorm(lhs, rhs, 2)?;
+        let actual = eval_l2_denorm(lhs, rhs)?;
         let expected = tensor_array(&[2, 2], &[2.0, 2.0, 2.0, 2.0, 2.0, 0.0, 0.0, 0.0])?;
 
         assert_tensor_arrays_eq(actual, expected)?;
@@ -830,7 +836,7 @@ mod tests {
 
         let rhs = PrimitiveArray::from_option_iter([Some(5.0f64), Some(2.0), None]).into_array();
         let mut ctx = SESSION.create_execution_ctx();
-        let actual: ExtensionArray = eval_l2_denorm(lhs, rhs, 3)?.execute(&mut ctx)?;
+        let actual: ExtensionArray = eval_l2_denorm(lhs, rhs)?.execute(&mut ctx)?;
         let storage: FixedSizeListArray = actual.storage_array().clone().execute(&mut ctx)?;
         let elements: PrimitiveArray = storage.elements().clone().execute(&mut ctx)?;
 
@@ -847,7 +853,7 @@ mod tests {
         let rhs = PrimitiveArray::from_iter([1.0f64, 1.0]).into_array();
 
         let mut ctx = SESSION.create_execution_ctx();
-        let result = L2Denorm::try_new_array(lhs, rhs, 2, &mut ctx);
+        let result = L2Denorm::try_new_array(lhs, rhs, &mut ctx);
         assert!(result.is_err());
     }
 
@@ -857,7 +863,7 @@ mod tests {
         let rhs = PrimitiveArray::from_iter([1.0f64, 1.0]).into_array();
 
         let mut ctx = SESSION.create_execution_ctx();
-        let result = L2Denorm::try_new_array(lhs, rhs, 2, &mut ctx);
+        let result = L2Denorm::try_new_array(lhs, rhs, &mut ctx);
         assert!(result.is_err());
         Ok(())
     }
@@ -868,7 +874,7 @@ mod tests {
         let rhs = PrimitiveArray::from_iter([1.0f64, 1.0]).into_array();
 
         let mut ctx = SESSION.create_execution_ctx();
-        let result = L2Denorm::try_new_array(lhs, rhs, 2, &mut ctx);
+        let result = L2Denorm::try_new_array(lhs, rhs, &mut ctx);
         assert!(result.is_err());
         Ok(())
     }
@@ -879,7 +885,7 @@ mod tests {
         let rhs = PrimitiveArray::from_iter([1.0f32, 1.0]).into_array();
 
         let mut ctx = SESSION.create_execution_ctx();
-        let result = L2Denorm::try_new_array(lhs, rhs, 2, &mut ctx);
+        let result = L2Denorm::try_new_array(lhs, rhs, &mut ctx);
         assert!(result.is_err());
         Ok(())
     }
@@ -908,7 +914,7 @@ mod tests {
         let norms = PrimitiveArray::from_iter([5.0f64, 1.0]).into_array();
         let mut ctx = SESSION.create_execution_ctx();
 
-        let result = L2Denorm::try_new_array(normalized, norms, 2, &mut ctx);
+        let result = L2Denorm::try_new_array(normalized, norms, &mut ctx);
         assert!(result.is_err());
         Ok(())
     }
@@ -919,7 +925,7 @@ mod tests {
         let norms = PrimitiveArray::from_iter([0.0f64, 0.0]).into_array();
         let mut ctx = SESSION.create_execution_ctx();
 
-        let result = L2Denorm::try_new_array(normalized, norms, 2, &mut ctx);
+        let result = L2Denorm::try_new_array(normalized, norms, &mut ctx);
         assert!(result.is_err());
         Ok(())
     }
@@ -930,7 +936,7 @@ mod tests {
         let norms = PrimitiveArray::from_iter([1.0f64, -1.0]).into_array();
         let mut ctx = SESSION.create_execution_ctx();
 
-        let result = L2Denorm::try_new_array(normalized, norms, 2, &mut ctx);
+        let result = L2Denorm::try_new_array(normalized, norms, &mut ctx);
         assert!(result.is_err());
         Ok(())
     }
@@ -940,7 +946,7 @@ mod tests {
         let normalized = vector_array(2, &[3.0, 4.0, 1.0, 0.0])?;
         let norms = PrimitiveArray::from_iter([5.0f64, 1.0]).into_array();
 
-        let result = unsafe { L2Denorm::new_array_unchecked(normalized, norms, 2) };
+        let result = unsafe { L2Denorm::new_array_unchecked(normalized, norms) };
         assert!(result.is_ok());
         Ok(())
     }
@@ -1054,7 +1060,7 @@ mod tests {
         let normalized = vector_array(3, &[1.0, 0.0, 0.0, 0.0, 1.0, 0.0])?;
         let norms = constant_f64_norms(1.0, 2);
 
-        let actual = eval_l2_denorm(normalized.clone(), norms, 2)?;
+        let actual = eval_l2_denorm(normalized.clone(), norms)?;
         assert_tensor_arrays_eq(actual, normalized)?;
         Ok(())
     }
@@ -1066,7 +1072,7 @@ mod tests {
         let normalized = vector_array(3, &[1.0, 0.0, 0.0, 0.0, 1.0, 0.0])?;
         let norms = constant_f64_norms(1.0 + 1e-12, 2);
 
-        let actual = eval_l2_denorm(normalized.clone(), norms, 2)?;
+        let actual = eval_l2_denorm(normalized.clone(), norms)?;
         assert_tensor_arrays_eq(actual, normalized)?;
         Ok(())
     }
@@ -1078,7 +1084,7 @@ mod tests {
         let normalized = vector_array(3, &[0.6, 0.8, 0.0, 1.0, 0.0, 0.0])?;
         let norms = constant_f64_norms(5.0, 2);
 
-        let actual = eval_l2_denorm(normalized, norms, 2)?;
+        let actual = eval_l2_denorm(normalized, norms)?;
         let expected = vector_array(3, &[3.0, 4.0, 0.0, 5.0, 0.0, 0.0])?;
         assert_tensor_arrays_eq(actual, expected)?;
         Ok(())
@@ -1091,7 +1097,7 @@ mod tests {
         let normalized = tensor_array(&[2, 2], &[0.5, 0.5, 0.5, 0.5, 1.0, 0.0, 0.0, 0.0])?;
         let norms = constant_f64_norms(4.0, 2);
 
-        let actual = eval_l2_denorm(normalized, norms, 2)?;
+        let actual = eval_l2_denorm(normalized, norms)?;
         let expected = tensor_array(&[2, 2], &[2.0, 2.0, 2.0, 2.0, 4.0, 0.0, 0.0, 0.0])?;
         assert_tensor_arrays_eq(actual, expected)?;
         Ok(())

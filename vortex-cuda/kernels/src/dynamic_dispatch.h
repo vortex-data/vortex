@@ -173,6 +173,7 @@ struct SourceOp {
 /// change it:
 ///   - ALP: encoded int → float (e.g. i32 → f32, i64 → f64)
 ///   - DICT: codes type → values type (e.g. u8 → u32)
+///   - CAST: current type → requested output type
 ///
 /// The plan builder uses `output_ptype` to determine the element width
 /// for shared memory allocation and to propagate type information
@@ -200,10 +201,10 @@ union ScalarParams {
 };
 
 struct ScalarOp {
-    enum ScalarOpCode { FOR, ZIGZAG, ALP, DICT } op_code;
-    /// The PType this op produces. For type-preserving ops (FOR, ZIGZAG)
-    /// this equals the input PType. For type-changing ops (ALP, DICT) this
-    /// is the new output PType.
+    enum ScalarOpCode { FOR, ZIGZAG, ALP, DICT, CAST } op_code;
+    /// The PType this op produces. For type-preserving ops (FOR, ZIGZAG) this
+    /// equals the input PType. For type-changing ops (ALP, DICT, CAST) this is
+    /// the new output PType.
     enum PTypeTag output_ptype;
     union ScalarParams params;
 };

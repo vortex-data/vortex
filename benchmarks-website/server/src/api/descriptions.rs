@@ -61,7 +61,7 @@ fn static_description(name: &str) -> Option<&'static str> {
 }
 
 /// Derive a description for `TPC-H (NVMe|S3) (SF=N)` and `TPC-DS (NVMe) (SF=N)`
-/// group names. The shape is fixed because [`crate::api::groups::group_name_query`]
+/// group names. The shape is fixed because `crate::api::groups::group_name_query`
 /// emits exactly this format for tpch/tpcds. Returns `None` for any name that
 /// does not start with `TPC-H ` or `TPC-DS `.
 fn tpc_description(name: &str) -> Option<String> {

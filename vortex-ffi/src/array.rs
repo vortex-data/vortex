@@ -26,6 +26,7 @@ use vortex::buffer::Buffer;
 use vortex::dtype::DType;
 use vortex::dtype::half::f16;
 use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 
@@ -58,6 +59,19 @@ arc_wrapper!(
     ArrayRef,
     vx_array
 );
+
+/// Borrow the [`ArrayRef`] behind a [`vx_array`] handle, erroring on a null pointer.
+///
+/// A building block for FFI crates layered on top of the base Vortex C API.
+///
+/// # Safety
+///
+/// `array` must be null or a valid `vx_array` pointer created by this crate, and must stay valid
+/// for the returned reference.
+pub unsafe fn vx_array_ref<'a>(array: *const vx_array) -> VortexResult<&'a ArrayRef> {
+    vortex_ensure!(!array.is_null(), "null vx_array");
+    Ok(vx_array::as_ref(array))
+}
 
 /// Check if array's dtype is nullable.
 /// As a particular example, a Null array is nullable.
@@ -111,6 +125,7 @@ pub unsafe extern "C-unwind" fn vx_array_is_primitive(
     }
 }
 
+/// Validity representation for arrays constructed through the C FFI.
 #[repr(C)]
 pub enum vx_validity_type {
     /// Items can't be null
@@ -124,8 +139,10 @@ pub enum vx_validity_type {
     VX_VALIDITY_ARRAY = 3,
 }
 
+/// Array validity descriptor used by C FFI constructors.
 #[repr(C)]
 pub struct vx_validity {
+    /// The kind of validity represented by this descriptor.
     pub r#type: vx_validity_type,
     /// If type is not VX_VALIDITY_ARRAY, this is NULL.
     /// If type is VX_VALIDITY_ARRAY, this is set to an owned boolean validity
@@ -191,7 +208,7 @@ pub unsafe extern "C-unwind" fn vx_array_len(array: *const vx_array) -> usize {
     vx_array::as_ref(array).len()
 }
 
-/// Get the [`crate::vx_dtype`] of the array.
+/// Get the [`struct@crate::dtype::vx_dtype`] of the array.
 ///
 /// The returned pointer is valid as long as the array is valid.
 /// Do NOT free the returned dtype pointer - it shares the lifetime of the array.

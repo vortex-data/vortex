@@ -260,7 +260,7 @@ mod tests {
                 .unwrap();
 
             let result = layout
-                .new_reader("".into(), segments, &SESSION)
+                .new_reader("".into(), segments, &SESSION, &Default::default())
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -311,7 +311,7 @@ mod tests {
                 .unwrap();
 
             let result = layout
-                .new_reader("".into(), segments, &SESSION)
+                .new_reader("".into(), segments, &SESSION, &Default::default())
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -384,7 +384,7 @@ mod tests {
 
             // We should be able to read the array we just wrote.
             let result: ArrayRef = layout
-                .new_reader("".into(), segments, &SESSION)
+                .new_reader("".into(), segments, &SESSION, &Default::default())
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),

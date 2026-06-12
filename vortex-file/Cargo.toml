@@ -46,6 +46,7 @@ vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
+vortex-onpair = { workspace = true, optional = true }
 vortex-pco = { workspace = true }
 vortex-runend = { workspace = true }
 vortex-scan = { workspace = true }
@@ -78,6 +79,7 @@ tokio = [
 zstd = ["dep:vortex-zstd", "vortex-btrblocks/zstd", "vortex-btrblocks/pco"]
 # This feature enables unstable encodings for which we don't guarantee stability.
 unstable_encodings = [
+    "dep:vortex-onpair",
     "dep:vortex-tensor",
     "vortex-zstd?/unstable_encodings",
     "vortex-btrblocks/unstable_encodings",

@@ -31,7 +31,7 @@ impl BoolArray {
             for (idx, value) in indices
                 .as_slice::<I>()
                 .iter()
-                .zip_eq(values.to_bit_buffer().iter())
+                .zip_eq(values.bit_buffer_view().iter())
             {
                 #[allow(clippy::cast_possible_truncation)]
                 own_values.set_to(*idx as usize - offset, value);

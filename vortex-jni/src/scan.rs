@@ -10,6 +10,7 @@
 //! 3. `Java_dev_vortex_jni_NativePartition_scanArrow` → consumes a partition into an
 //!    `FFI_ArrowArrayStream` that Java imports via Arrow's C Data Interface.
 
+use std::io::Cursor;
 use std::ops::Range;
 use std::ptr;
 use std::sync::Arc;
@@ -22,6 +23,7 @@ use arrow_schema::DataType;
 use arrow_schema::Field;
 use futures::StreamExt;
 use jni::EnvUnowned;
+use jni::objects::JByteArray;
 use jni::objects::JClass;
 use jni::objects::JLongArray;
 use jni::sys::jboolean;
@@ -75,6 +77,7 @@ fn build_scan_request(
     row_range_begin: jlong,
     row_range_end: jlong,
     selection_idx: &[u64],
+    selection_roaring_bitmap: &[u8],
     selection_include: u8,
     limit: jlong,
     ordered: jboolean,
@@ -95,6 +98,8 @@ fn build_scan_request(
         0 => Selection::All,
         1 => Selection::IncludeByIndex(Buffer::copy_from(selection_idx)),
         2 => Selection::ExcludeByIndex(Buffer::copy_from(selection_idx)),
+        3 => Selection::IncludeRoaring(deserialize_roaring_selection(selection_roaring_bitmap)?),
+        4 => Selection::ExcludeRoaring(deserialize_roaring_selection(selection_roaring_bitmap)?),
         other => vortex_bail!("unknown selection include code: {other}"),
     };
 
@@ -117,6 +122,14 @@ fn build_scan_request(
     })
 }
 
+fn deserialize_roaring_selection(bytes: &[u8]) -> VortexResult<roaring::RoaringTreemap> {
+    if bytes.is_empty() {
+        vortex_bail!("serialized roaring row selection must not be empty");
+    }
+    let cursor = Cursor::new(bytes);
+    Ok(roaring::RoaringTreemap::deserialize_from(cursor)?)
+}
+
 #[allow(clippy::too_many_arguments)]
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_vortex_jni_NativeScan_create(
@@ -128,6 +141,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeScan_create(
     row_range_begin: jlong,
     row_range_end: jlong,
     selection_indices: JLongArray,
+    selection_roaring_bitmap: JByteArray,
     selection_include: jni::sys::jbyte,
     limit: jlong,
     ordered: jboolean,
@@ -151,12 +165,19 @@ pub extern "system" fn Java_dev_vortex_jni_NativeScan_create(
             out
         };
 
+        let selection_roaring_bitmap: Vec<u8> = if selection_roaring_bitmap.is_null() {
+            Vec::new()
+        } else {
+            env.convert_byte_array(&selection_roaring_bitmap)?
+        };
+
         let request = build_scan_request(
             projection_ptr,
             filter_ptr,
             row_range_begin,
             row_range_end,
             &selection_idx,
+            &selection_roaring_bitmap,
             selection_include as u8,
             limit,
             ordered,

@@ -22,8 +22,8 @@ use vortex_scan::DataSource;
 use vortex_session::VortexSession;
 
 use crate::OpenOptionsSessionExt;
+use crate::VortexFile;
 use crate::VortexOpenOptions;
-use crate::v2::FileStatsLayoutReader;
 
 /// A builder that discovers multiple Vortex files from glob patterns and constructs a
 /// [`MultiLayoutDataSource`] to scan them as a single data source.
@@ -153,7 +153,7 @@ impl MultiFileDataSource {
         let (first_file_listing, first_fs) = &all_files[0];
         let open_fn = self.open_options_fn.as_ref();
         let first_file = open_file(first_fs, first_file_listing, &self.session, open_fn).await?;
-        let first_reader = layout_reader_with_stats(&first_file)?;
+        let first_reader = first_file.layout_reader()?;
 
         let factories: Vec<Arc<dyn LayoutReaderFactory>> = all_files[1..]
             .iter()
@@ -203,7 +203,7 @@ async fn open_file(
     file: &FileListing,
     session: &VortexSession,
     open_options_fn: &(dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync),
-) -> VortexResult<crate::VortexFile> {
+) -> VortexResult<VortexFile> {
     tracing::trace!(path = %file.path, "opening vortex file");
 
     // Open the reader first so we can use its URI as the cache key.
@@ -237,20 +237,6 @@ async fn open_file(
     Ok(vortex_file)
 }
 
-/// Creates a layout reader from a VortexFile, wrapping with `FileStatsLayoutReader` when
-/// file-level statistics are available.
-fn layout_reader_with_stats(file: &crate::VortexFile) -> VortexResult<LayoutReaderRef> {
-    let mut reader = file.layout_reader()?;
-    if let Some(stats) = file.file_stats().cloned() {
-        reader = Arc::new(FileStatsLayoutReader::new(
-            reader,
-            stats,
-            file.session.clone(),
-        ));
-    }
-    Ok(reader)
-}
-
 /// A [`LayoutReaderFactory`] that lazily opens a single Vortex file and returns its layout reader.
 struct VortexFileReaderFactory {
     fs: FileSystemRef,
@@ -269,6 +255,7 @@ impl LayoutReaderFactory for VortexFileReaderFactory {
             self.open_options_fn.as_ref(),
         )
         .await?;
-        Ok(Some(layout_reader_with_stats(&file)?))
+
+        Ok(Some(file.layout_reader()?))
     }
 }

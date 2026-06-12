@@ -4,6 +4,9 @@
 use crate::arrays::ListView;
 use crate::kernel::ParentKernelSet;
 use crate::scalar_fn::fns::cast::CastExecuteAdaptor;
+use crate::scalar_fn::fns::zip::ZipExecuteAdaptor;
 
-pub(super) const PARENT_KERNELS: ParentKernelSet<ListView> =
-    ParentKernelSet::new(&[ParentKernelSet::lift(&CastExecuteAdaptor(ListView))]);
+pub(super) const PARENT_KERNELS: ParentKernelSet<ListView> = ParentKernelSet::new(&[
+    ParentKernelSet::lift(&CastExecuteAdaptor(ListView)),
+    ParentKernelSet::lift(&ZipExecuteAdaptor(ListView)),
+]);

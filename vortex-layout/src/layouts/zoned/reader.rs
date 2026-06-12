@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::collections::BTreeSet;
 use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
@@ -23,6 +22,7 @@ use vortex_session::VortexSession;
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
+use crate::RowSplits;
 use crate::SplitRange;
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::pruning::PruningState;
@@ -42,6 +42,7 @@ impl ZonedReader {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: VortexSession,
+        ctx: crate::LayoutReaderContext,
     ) -> VortexResult<Self> {
         let dtypes = vec![
             layout.dtype.clone(),
@@ -54,6 +55,7 @@ impl ZonedReader {
             names,
             Arc::clone(&segment_source),
             session.clone(),
+            ctx,
         ));
 
         Ok(Self {
@@ -109,7 +111,7 @@ impl LayoutReader for ZonedReader {
         &self,
         field_mask: &[FieldMask],
         split_range: &SplitRange,
-        splits: &mut BTreeSet<u64>,
+        splits: &mut RowSplits,
     ) -> VortexResult<()> {
         self.data_child()?
             .register_splits(field_mask, split_range, splits)
@@ -172,6 +174,7 @@ impl LayoutReader for ZonedReader {
             assert_eq!(stats_mask.len(), mask.len(), "Mask length mismatch");
 
             // Intersect the masks.
+            let mask_density = mask.density();
             let mut stats_mask = mask.bitand(&stats_mask);
 
             // Forward to data child for further pruning.
@@ -184,7 +187,7 @@ impl LayoutReader for ZonedReader {
                 "Stats evaluation approx {} - {} (mask = {}) => {}",
                 name,
                 expr,
-                mask.density(),
+                mask_density,
                 stats_mask.density(),
             );
 
@@ -307,7 +310,7 @@ mod test {
         block_on(|handle| async {
             let session = session_with_handle(handle);
             let result = layout
-                .new_reader("".into(), segments, &session)
+                .new_reader("".into(), segments, &session, &Default::default())
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -330,7 +333,9 @@ mod test {
         block_on(|handle| async {
             let row_count = layout.row_count();
             let session = session_with_handle(handle);
-            let reader = layout.new_reader("".into(), segments, &session).unwrap();
+            let reader = layout
+                .new_reader("".into(), segments, &session, &Default::default())
+                .unwrap();
 
             // Choose a prune-able expression
             let expr = gt(root(), lit(7));
@@ -376,7 +381,8 @@ mod test {
         block_on(|handle| async {
             let row_count = legacy_layout.row_count();
             let session = session_with_handle(handle);
-            let reader = legacy_layout.new_reader("".into(), segments, &session)?;
+            let reader =
+                legacy_layout.new_reader("".into(), segments, &session, &Default::default())?;
 
             let result = reader
                 .pruning_evaluation(

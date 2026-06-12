@@ -7,12 +7,19 @@
 //! block at a time through a reusable scratch buffer, and a per-element bool is folded into
 //! a [`BitBuffer`]. Patches are re-applied at the end by overwriting bits at the patched
 //! indices with `predicate(patch_value)`.
+//!
+//! [`BitPackedArray`]: crate::BitPackedArray
+//! [`BitBuffer`]: vortex_buffer::BitBuffer
 
+use fastlanes::BitPacking;
+use fastlanes::BitPackingCompare;
+use fastlanes::FastLanesComparable;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar_fn::fns::binary::CompareKernel;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
@@ -20,7 +27,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
-use crate::bitpacking::compute::stream_predicate::stream_predicate;
+use crate::bitpacking::compute::compare_fused::stream_compare_fused;
+use crate::unpack_iter::BitPacked as BitPackedIter;
 
 impl CompareKernel for BitPacked {
     fn compare(
@@ -55,6 +63,10 @@ impl CompareKernel for BitPacked {
     }
 }
 
+/// Compare every value against the constant via the fused FastLanes `unpack_cmp` kernel.
+///
+/// `NativePType::is_eq` / `is_lt` etc. provide total comparison (matching the primitive between
+/// kernel's dispatch shape). `NotEq` has no direct method, so use `!is_eq`.
 fn compare_constant_typed<T>(
     lhs: ArrayView<'_, BitPacked>,
     rhs: T,
@@ -63,41 +75,59 @@ fn compare_constant_typed<T>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef>
 where
-    T: NativePType + Copy + crate::unpack_iter::BitPacked,
+    T: NativePType
+        + BitPackedIter
+        + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
+    <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare,
 {
-    // `NativePType::is_eq` / `is_lt` etc. provide total comparison (matching the primitive
-    // between kernel's dispatch shape). `NotEq` has no direct method, so use `!is_eq`.
     match operator {
-        CompareOperator::Eq => stream_predicate::<T, _>(lhs, nullability, |v| v.is_eq(rhs), ctx),
-        CompareOperator::NotEq => {
-            stream_predicate::<T, _>(lhs, nullability, |v| !v.is_eq(rhs), ctx)
+        CompareOperator::Eq => {
+            stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| a.is_eq(b), ctx)
         }
-        CompareOperator::Lt => stream_predicate::<T, _>(lhs, nullability, |v| v.is_lt(rhs), ctx),
-        CompareOperator::Lte => stream_predicate::<T, _>(lhs, nullability, |v| v.is_le(rhs), ctx),
-        CompareOperator::Gt => stream_predicate::<T, _>(lhs, nullability, |v| v.is_gt(rhs), ctx),
-        CompareOperator::Gte => stream_predicate::<T, _>(lhs, nullability, |v| v.is_ge(rhs), ctx),
+        CompareOperator::NotEq => {
+            stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| !a.is_eq(b), ctx)
+        }
+        CompareOperator::Lt => {
+            stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| a.is_lt(b), ctx)
+        }
+        CompareOperator::Lte => {
+            stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| a.is_le(b), ctx)
+        }
+        CompareOperator::Gt => {
+            stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| a.is_gt(b), ctx)
+        }
+        CompareOperator::Gte => {
+            stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| a.is_ge(b), ctx)
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::slice::SliceKernel;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::scalar_fn::fns::binary::CompareKernel;
     use vortex_array::scalar_fn::fns::operators::CompareOperator;
     use vortex_array::scalar_fn::fns::operators::Operator;
+    use vortex_array::session::ArraySession;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::BitPacked;
     use crate::BitPackedArrayExt;
     use crate::BitPackedData;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     /// All six operators on a small in-range input.
     #[rstest]
@@ -108,7 +138,7 @@ mod tests {
     #[case(Operator::Gt, vec![false, false, false, false, true, true, false])]
     #[case(Operator::Gte, vec![false, false, false, true, true, true, true])]
     fn small(#[case] op: Operator, #[case] expected: Vec<bool>) {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = PrimitiveArray::from_iter([0u32, 1, 2, 3, 4, 5, 3]);
         let packed = BitPackedData::encode(&values.into_array(), 3, &mut ctx).unwrap();
         let rhs = ConstantArray::new(3u32, packed.len()).into_array();
@@ -130,7 +160,7 @@ mod tests {
         ($name:ident, $T:ty, $($bw:expr),+) => {
             #[test]
             fn $name() -> VortexResult<()> {
-                let mut ctx = LEGACY_SESSION.create_execution_ctx();
+                let mut ctx = SESSION.create_execution_ctx();
                 for bw in [$($bw),+] {
                     let cap: u128 = 1u128 << bw;
                     let values: Vec<$T> = (0..2048u128).map(|i| (i % cap) as $T).collect();
@@ -171,7 +201,7 @@ mod tests {
     /// predicate runs.
     #[test]
     fn signed_with_patches_matches_primitive() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values: Vec<i32> = (0..1500)
             .map(|i| if i % 73 == 0 { 100_000 + i } else { i % 100 })
             .collect();
@@ -191,10 +221,91 @@ mod tests {
         Ok(())
     }
 
+    /// Sliced inputs: a non-zero block offset (and a length spanning several blocks) must still go
+    /// through the fused kernel and agree with the primitive fallback. Sweeps slice starts that
+    /// land both inside the first block and past it, with lengths that end mid-block and on a block
+    /// boundary.
+    #[rstest]
+    #[case(1, 4000)] // start mid-first-block, multi-block length
+    #[case(1023, 2)] // start at the last row of the first block
+    #[case(1024, 1024)] // start exactly on a block boundary, exactly one block long
+    #[case(1500, 1000)] // start mid-second-block
+    #[case(3, 1021)] // ends exactly on the first block boundary
+    fn sliced_matches_primitive(
+        #[case] start: usize,
+        #[case] slice_len: usize,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values: Vec<u32> = (0..5000u32).map(|i| i % 128).collect();
+        let prim = PrimitiveArray::from_iter(values);
+        let packed = BitPackedData::encode(&prim.clone().into_array(), 7, &mut ctx)?;
+
+        let sliced = packed.into_array().slice(start..start + slice_len)?;
+        let rhs = ConstantArray::new(50u32, slice_len).into_array();
+        for op in [
+            CompareOperator::Eq,
+            CompareOperator::Lt,
+            CompareOperator::Gte,
+        ] {
+            let got = <BitPacked as CompareKernel>::compare(
+                sliced.as_::<BitPacked>(),
+                &rhs,
+                op,
+                &mut ctx,
+            )?
+            .expect("fused compare kernel must engage for sliced arrays")
+            .execute::<BoolArray>(&mut ctx)?;
+            let want = prim
+                .clone()
+                .into_array()
+                .slice(start..start + slice_len)?
+                .binary(rhs.clone(), Operator::from(op))?
+                .execute::<BoolArray>(&mut ctx)?;
+            assert_arrays_eq!(got, want);
+        }
+        Ok(())
+    }
+
+    /// Sliced *and* patched: combine a non-zero offset with out-of-range values that land in
+    /// `Patches`, exercising the `offset + (global - p_off)` patch-position math.
+    #[test]
+    fn sliced_with_patches_matches_primitive() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values: Vec<i32> = (0..4096)
+            .map(|i| if i % 91 == 0 { 100_000 + i } else { i % 100 })
+            .collect();
+        let prim = PrimitiveArray::from_iter(values);
+        let packed = BitPackedData::encode(&prim.clone().into_array(), 7, &mut ctx)?;
+        assert!(packed.patches().is_some(), "test setup expects patches");
+
+        let (start, end) = (700usize, 3500usize);
+        // `ArrayRef::slice` leaves a lazy `SliceArray` over a patched `BitPacked` (the
+        // `SliceReduce` path bails when patches are present), so go through the `SliceKernel`,
+        // which reads the buffers and produces a sliced `BitPacked` with sliced patches.
+        let sliced = <BitPacked as SliceKernel>::slice(packed.as_view(), start..end, &mut ctx)?
+            .expect("slice kernel produces a sliced bitpacked array");
+        let rhs = ConstantArray::new(50i32, end - start).into_array();
+        let got = <BitPacked as CompareKernel>::compare(
+            sliced.as_::<BitPacked>(),
+            &rhs,
+            CompareOperator::Eq,
+            &mut ctx,
+        )?
+        .expect("fused compare kernel must engage for sliced arrays with patches")
+        .execute::<BoolArray>(&mut ctx)?;
+        let want = prim
+            .into_array()
+            .slice(start..end)?
+            .binary(rhs, Operator::Eq)?
+            .execute::<BoolArray>(&mut ctx)?;
+        assert_arrays_eq!(got, want);
+        Ok(())
+    }
+
     /// Nullable input — the result must carry the array's validity.
     #[test]
     fn nullable_propagates_validity() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let prim = PrimitiveArray::from_option_iter([Some(1u32), None, Some(3), Some(4), None]);
         let packed = BitPackedData::encode(&prim.clone().into_array(), 3, &mut ctx)?;
         let rhs = ConstantArray::new(3u32, packed.len()).into_array();

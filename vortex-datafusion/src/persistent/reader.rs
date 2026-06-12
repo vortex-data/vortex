@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Factory for creating [`VortexReadAt`][vortex::io::VortexReadAt] instances
-//! from [`PartitionedFile`]s.
+//! Factory for creating [`VortexReadAt`] instances from [`PartitionedFile`]s.
 
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -72,7 +71,7 @@ impl VortexReaderFactory for DefaultVortexReaderFactory {
     ) -> DFResult<Arc<dyn VortexReadAt>> {
         Ok(Arc::new(ObjectStoreReadAt::new_with_allocator(
             Arc::clone(&self.object_store),
-            file.path().as_ref().into(),
+            file.path().clone(),
             session.handle(),
             session.allocator(),
         )) as _)

@@ -4,22 +4,28 @@
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation)]
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 #[expect(deprecated)]
 use vortex_array::ToCanonical as _;
 use vortex_array::VortexSessionExecute;
 use vortex_array::patches::Patches;
+use vortex_array::session::ArraySession;
 use vortex_buffer::Buffer;
+use vortex_session::VortexSession;
 
 fn main() {
     divan::main();
 }
+
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 const BENCH_ARGS: &[(f64, f64)] = &[
     // patches_sparsity, index_multiple
@@ -48,7 +54,7 @@ fn take_search(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64))
     );
 
     bencher
-        .with_inputs(|| (&patches, &indices, LEGACY_SESSION.create_execution_ctx()))
+        .with_inputs(|| (&patches, &indices, SESSION.create_execution_ctx()))
         .bench_refs(|(patches, indices, ctx)| {
             #[expect(deprecated)]
             let prim = indices.to_primitive();
@@ -67,7 +73,7 @@ fn take_search_chunked(bencher: Bencher, (patches_sparsity, index_multiple): (f6
     );
 
     bencher
-        .with_inputs(|| (&patches, &indices, LEGACY_SESSION.create_execution_ctx()))
+        .with_inputs(|| (&patches, &indices, SESSION.create_execution_ctx()))
         .bench_refs(|(patches, indices, ctx)| {
             #[expect(deprecated)]
             let prim = indices.to_primitive();
@@ -86,7 +92,7 @@ fn take_map(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64)) {
     );
 
     bencher
-        .with_inputs(|| (&patches, &indices, LEGACY_SESSION.create_execution_ctx()))
+        .with_inputs(|| (&patches, &indices, SESSION.create_execution_ctx()))
         .bench_refs(|(patches, indices, ctx)| {
             #[expect(deprecated)]
             let prim = indices.to_primitive();

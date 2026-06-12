@@ -43,17 +43,15 @@ pub struct VortexAccessPlan {
 }
 
 impl VortexAccessPlan {
+    /// Returns the selection, if one was set.
+    pub fn selection(&self) -> Option<&Selection> {
+        self.selection.as_ref()
+    }
+
     /// Sets the row [`Selection`] to apply when the file is opened.
     pub fn with_selection(mut self, selection: Selection) -> Self {
         self.selection = Some(selection);
         self
-    }
-}
-
-impl VortexAccessPlan {
-    /// Returns the selection, if one was set.
-    pub fn selection(&self) -> Option<&Selection> {
-        self.selection.as_ref()
     }
 
     /// Applies this access plan to a [`ScanBuilder`].

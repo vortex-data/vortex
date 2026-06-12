@@ -40,16 +40,19 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
 vortex = { workspace = true, features = ["files", "tokio", "object_store"] }
+vortex-geo = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
 
 [dev-dependencies]
 anyhow = { workspace = true }
+geo-types = { workspace = true }
 jiff = { workspace = true }
 rstest = { workspace = true }
 tempfile = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-runend = { workspace = true }
 vortex-sequence = { workspace = true }
+wkb = { workspace = true }
 
 [lints]
 workspace = true

@@ -10,25 +10,31 @@
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation)]
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use divan::counter::ItemsCount;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_fastlanes::BitPackedData;
+use vortex_session::VortexSession;
 
 fn main() {
     divan::main();
 }
+
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 const LENS: &[usize] = &[1024, 64 * 1024];
 const BIT_WIDTHS: &[u8] = &[4, 16];
@@ -36,7 +42,7 @@ const BIT_WIDTHS: &[u8] = &[4, 16];
 /// Build a packed array of varied in-range values, plus an out-of-range constant RHS for
 /// the fast-path benches.
 fn build_inputs<const BW: u8>(len: usize) -> (ArrayRef, ArrayRef, ExecutionCtx) {
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let buf: BufferMut<u32> = (0..len).map(|i| (i as u32) % (1 << BW)).collect();
     let array = BitPackedData::encode(
         &PrimitiveArray::new(buf.freeze(), Validity::NonNullable).into_array(),

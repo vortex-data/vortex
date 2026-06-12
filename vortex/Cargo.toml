@@ -85,10 +85,6 @@ unstable_encodings = [
     "vortex-zstd?/unstable_encodings",
 ]
 
-[[example]]
-name = "turboquant_vector_search"
-required-features = ["files", "tokio", "unstable_encodings"]
-
 [[bench]]
 name = "single_encoding_throughput"
 harness = false

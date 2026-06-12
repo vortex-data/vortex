@@ -450,6 +450,18 @@ mod test {
         );
     }
 
+    #[rstest]
+    #[case(1, DataType::Decimal128(1, 0))]
+    #[case(38, DataType::Decimal128(38, 0))]
+    #[case(39, DataType::Decimal256(39, 0))]
+    #[case(76, DataType::Decimal256(76, 0))]
+    fn test_decimal_dtype_to_arrow(#[case] precision: u8, #[case] expected: DataType) {
+        use crate::dtype::DecimalDType;
+
+        let dtype = DType::Decimal(DecimalDType::new(precision, 0), Nullability::NonNullable);
+        assert_eq!(dtype.to_arrow_dtype().unwrap(), expected);
+    }
+
     #[test]
     fn test_variant_dtype_to_arrow_dtype_errors() {
         let err = DType::Variant(Nullability::NonNullable)

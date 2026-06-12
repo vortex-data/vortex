@@ -8,6 +8,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -38,7 +39,8 @@ impl ScalarFnVTable for Literal {
     type Options = Scalar;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.literal")
+        static ID: CachedId = CachedId::new("vortex.literal");
+        *ID
     }
 
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

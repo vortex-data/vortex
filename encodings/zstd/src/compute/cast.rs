@@ -41,7 +41,7 @@ impl CastReduce for Zstd {
                     child_to_validity(array.slots()[0].as_ref(), array.dtype().nullability());
                 let has_nulls = !unsliced_validity
                     .slice(array.slice_start()..array.slice_stop())?
-                    .no_nulls();
+                    .definitely_no_nulls();
 
                 // We don't attempt to handle casting when there are nulls.
                 if has_nulls {

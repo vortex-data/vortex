@@ -19,17 +19,13 @@ pub(super) fn accumulate_bool(
     array: &BoolArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    if array.is_empty() {
-        return Ok(());
-    }
-
     let mask = array
         .as_ref()
         .validity()?
         .execute_mask(array.as_ref().len(), ctx)?;
     let (true_count, valid_count) = match mask.bit_buffer() {
         AllOr::None => return Ok(()),
-        AllOr::All => (array.to_bit_buffer().true_count(), array.as_ref().len()),
+        AllOr::All => (array.bit_buffer_view().true_count(), array.as_ref().len()),
         AllOr::Some(validity) => (
             array.to_bit_buffer().bitand(validity).true_count(),
             validity.true_count(),

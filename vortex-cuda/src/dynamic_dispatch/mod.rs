@@ -405,6 +405,15 @@ impl ScalarOp {
         }
     }
 
+    /// Cast to the requested output type.
+    pub fn cast(output_ptype: PTypeTag) -> Self {
+        Self {
+            op_code: ScalarOp_ScalarOpCode_CAST,
+            output_ptype,
+            params: unsafe { std::mem::zeroed() },
+        }
+    }
+
     /// Dictionary gather: use current value as index into decoded values
     /// in shared memory (populated by an earlier input stage).
     pub fn dict(values_smem_byte_offset: u32, output_ptype: PTypeTag) -> Self {
@@ -532,11 +541,14 @@ mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::DictArray;
     use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::builtins::ArrayBuiltins;
     use vortex::array::scalar::Scalar;
     use vortex::array::validity::Validity;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
+    use vortex::dtype::DType;
     use vortex::dtype::NativePType;
+    use vortex::dtype::PType;
     use vortex::encodings::alp::ALP;
     use vortex::encodings::alp::ALPArrayExt;
     use vortex::encodings::alp::ALPArraySlotsExt;
@@ -589,6 +601,27 @@ mod tests {
             DispatchPlan::Fused(plan) => plan.materialize(ctx).await,
             _ => vortex_bail!("array encoding not fusable"),
         }
+    }
+
+    #[crate::test]
+    fn test_cast_u64_to_i64_is_not_fused() -> VortexResult<()> {
+        let supported = PrimitiveArray::from_iter([0u32, 1])
+            .into_array()
+            .cast(DType::Primitive(PType::I64, Nullability::NonNullable))?;
+        assert!(matches!(
+            DispatchPlan::new(&supported, CudaDispatchMode::DynDispatchOnly)?,
+            DispatchPlan::Fused(_)
+        ));
+
+        let u64_to_i64 = PrimitiveArray::from_iter([0u64, i64::MAX as u64 + 1])
+            .into_array()
+            .cast(DType::Primitive(PType::I64, Nullability::NonNullable))?;
+        assert!(matches!(
+            DispatchPlan::new(&u64_to_i64, CudaDispatchMode::DynDispatchOnly)?,
+            DispatchPlan::Unfused
+        ));
+
+        Ok(())
     }
 
     #[crate::test]

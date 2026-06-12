@@ -12,6 +12,7 @@ use cudarc::driver::CudaSlice;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::LaunchArgs;
 use cudarc::driver::LaunchConfig;
+use cudarc::driver::ValidAsZeroBits;
 use futures::future::BoxFuture;
 use tracing::debug;
 use tracing::trace;
@@ -20,8 +21,11 @@ use vortex::array::ArrayVTable;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
+use vortex::array::arrays::Extension;
+use vortex::array::arrays::ExtensionArray;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
+use vortex::array::arrays::extension::ExtensionArrayExt;
 use vortex::array::arrays::struct_::StructDataParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::dtype::PType;
@@ -256,7 +260,7 @@ impl CudaExecutionCtx {
         data: D,
     ) -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>>
     where
-        T: DeviceRepr + Debug + Send + Sync + 'static,
+        T: DeviceRepr + ValidAsZeroBits + Debug + Send + Sync + 'static,
         D: AsRef<[T]> + Send + 'static,
     {
         self.stream.copy_to_device(data)
@@ -408,6 +412,18 @@ impl CudaArrayExt for ArrayRef {
                 cuda_fields,
                 len,
                 validity,
+            )));
+        }
+
+        // Extension arrays match AnyCanonical regardless of how their storage
+        // is encoded, so the canonical early-return below would skip them with
+        // the storage still compressed. Recurse into the storage so compressed
+        // storage decodes on the GPU.
+        if let Some(ext) = self.as_opt::<Extension>() {
+            let storage = ext.storage_array().clone().execute_cuda(ctx).await?;
+            return Ok(Canonical::Extension(ExtensionArray::new(
+                ext.ext_dtype().clone(),
+                storage.into_array(),
             )));
         }
 

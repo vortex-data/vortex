@@ -96,6 +96,7 @@ rand_distr = { workspace = true }
 rstest = { workspace = true }
 serde_json = { workspace = true }
 serde_test = { workspace = true }
+test-with = { workspace = true }
 vortex-array = { path = ".", features = ["_test-harness", "table-display"] }
 
 [[bench]]
@@ -104,6 +105,10 @@ harness = false
 
 [[bench]]
 name = "aggregate_sum"
+harness = false
+
+[[bench]]
+name = "aggregate_grouped"
 harness = false
 
 [[bench]]
@@ -123,11 +128,19 @@ name = "compare"
 harness = false
 
 [[bench]]
+name = "interleave"
+harness = false
+
+[[bench]]
 name = "take_patches"
 harness = false
 
 [[bench]]
 name = "chunk_array_builder"
+harness = false
+
+[[bench]]
+name = "chunked_fsl_canonicalize"
 harness = false
 
 [[bench]]
@@ -182,6 +195,10 @@ harness = false
 
 [[bench]]
 name = "varbinview_zip"
+harness = false
+
+[[bench]]
+name = "bool_zip"
 harness = false
 
 [[bench]]

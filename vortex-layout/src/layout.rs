@@ -19,6 +19,7 @@ use vortex_session::registry::Id;
 
 use crate::LayoutEncodingId;
 use crate::LayoutEncodingRef;
+use crate::LayoutReaderContext;
 use crate::LayoutReaderRef;
 use crate::VTable;
 use crate::display::DisplayLayoutTree;
@@ -63,11 +64,26 @@ pub trait Layout: 'static + Send + Sync + Debug + private::Sealed {
     /// Get the segment IDs for this layout.
     fn segment_ids(&self) -> Vec<SegmentId>;
 
+    /// Construct a new reader for this layout.
+    ///
+    /// - `name` — human-readable label for this reader, propagated to child readers
+    ///   (typically by appending a path component) and surfaced in tracing/debug output.
+    /// - `segment_source` — source of segment bytes for this and any descendant readers
+    ///   constructed from the returned reader; recursive callers should pass the same
+    ///   source through.
+    /// - `session` — the [`VortexSession`] hosting the encoding/scalar/layout registries
+    ///   and execution context the reader needs at evaluation time.
+    /// - `ctx` — id-keyed dependency registry threaded through reader construction (see
+    ///   [`LayoutReaderContext`]). Top-level callers (file open, tests) typically pass
+    ///   `&LayoutReaderContext::new()`; recursive callers inside layout implementations
+    ///   must propagate the `ctx` they were handed so ancestor-published values reach
+    ///   descendants.
     fn new_reader(
         &self,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
+        ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef>;
 }
 
@@ -311,8 +327,9 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
+        ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef> {
-        V::new_reader(&self.0, name, segment_source, session)
+        V::new_reader(&self.0, name, segment_source, session, ctx)
     }
 }
 

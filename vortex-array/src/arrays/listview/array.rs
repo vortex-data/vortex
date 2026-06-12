@@ -22,6 +22,7 @@ use crate::LEGACY_SESSION;
 #[expect(deprecated)]
 use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
+use crate::aggregate_fn::fns::min_max::min_max;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -31,10 +32,15 @@ use crate::arrays::ListView;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::bool;
+use crate::arrays::primitive::PrimitiveArrayExt;
+use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
+use crate::dtype::PType;
 use crate::expr::stats::Stat;
 use crate::match_each_integer_ptype;
+use crate::match_each_unsigned_integer_ptype;
+use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
 
 /// The `elements` data array, where each list scalar is a _slice_ of the `elements` array, and
@@ -241,10 +247,6 @@ impl ListViewData {
             sizes.len()
         );
 
-        // Check that the size type can fit within the offset type to prevent overflows.
-        let size_ptype = sizes.dtype().as_ptype();
-        let offset_ptype = offsets.dtype().as_ptype();
-
         // If a validity array is present, it must be the same length as the `ListViewArray`.
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(
@@ -260,10 +262,16 @@ impl ListViewData {
             let offsets_primitive = offsets.to_primitive();
             #[expect(deprecated)]
             let sizes_primitive = sizes.to_primitive();
+            // Offsets and sizes are non-negative; reinterpret to unsigned to dispatch over 4 widths
+            // each (4x4 instead of 8x8). This is a read-only validation, so result types are moot.
+            let offsets_primitive =
+                offsets_primitive.reinterpret_cast(offsets_primitive.ptype().to_unsigned());
+            let sizes_primitive =
+                sizes_primitive.reinterpret_cast(sizes_primitive.ptype().to_unsigned());
 
             // Validate the `offsets` and `sizes` arrays.
-            match_each_integer_ptype!(offset_ptype, |O| {
-                match_each_integer_ptype!(size_ptype, |S| {
+            match_each_unsigned_integer_ptype!(offsets_primitive.ptype(), |O| {
+                match_each_unsigned_integer_ptype!(sizes_primitive.ptype(), |S| {
                     let offsets_slice = offsets_primitive.as_slice::<O>();
                     let sizes_slice = sizes_primitive.as_slice::<S>();
 
@@ -445,8 +453,13 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
 
         let mut buf = BitBufferMut::new_unset(len);
 
-        match_each_integer_ptype!(offsets_primitive.ptype(), |O| {
-            match_each_integer_ptype!(sizes_primitive.ptype(), |S| {
+        // Offsets/sizes are non-negative; reinterpret to unsigned (4x4 instead of 8x8).
+        let offsets_primitive =
+            offsets_primitive.reinterpret_cast(offsets_primitive.ptype().to_unsigned());
+        let sizes_primitive =
+            sizes_primitive.reinterpret_cast(sizes_primitive.ptype().to_unsigned());
+        match_each_unsigned_integer_ptype!(offsets_primitive.ptype(), |O| {
+            match_each_unsigned_integer_ptype!(sizes_primitive.ptype(), |S| {
                 fill_referenced_mask::<O, S>(
                     &mut buf,
                     offsets_primitive.as_slice::<O>(),
@@ -512,6 +525,56 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
         debug_assert!(estimate >= 0.0);
 
         Ok(estimate)
+    }
+
+    /// Returns the half-open range `[start, end)` of `elements` indices referenced by any view:
+    /// the minimum offset and the maximum `offset + size`. Elements outside this range are
+    /// unreferenced leading or trailing slack that a
+    /// [`TrimElements`](super::ListViewRebuildMode::TrimElements) rebuild would reclaim.
+    ///
+    /// For **zero-copy-to-list** arrays this is `O(1)`: views are sorted and non-overlapping with
+    /// no interior gaps, so the bounds are exactly `[first_offset, last_offset + last_size)`.
+    /// Otherwise it computes min/max statistics over `offsets` and `offsets + sizes`.
+    ///
+    /// # Preconditions
+    ///
+    /// The array must contain at least one list (`len() > 0`).
+    fn referenced_element_bounds(&self, ctx: &mut ExecutionCtx) -> VortexResult<(usize, usize)> {
+        let n_lists = self.as_ref().len();
+        vortex_ensure!(
+            n_lists > 0,
+            "referenced_element_bounds requires a non-empty array"
+        );
+
+        if self.is_zero_copy_to_list() {
+            let start = self.offset_at(0);
+            let end = self.offset_at(n_lists - 1) + self.size_at(n_lists - 1);
+            return Ok((start, end));
+        }
+
+        let start = self
+            .offsets()
+            .statistics()
+            .compute_min::<usize>(ctx)
+            .vortex_expect("offsets must report a usize min statistic");
+
+        // Cast offsets and sizes to the widest integer type so that `offset + size` cannot overflow
+        // the narrower input width.
+        let wide_dtype = DType::from(if self.offsets().dtype().as_ptype().is_unsigned_int() {
+            PType::U64
+        } else {
+            PType::I64
+        });
+        let offsets = self.offsets().cast(wide_dtype.clone())?;
+        let sizes = self.sizes().cast(wide_dtype)?;
+        let end = min_max(&offsets.binary(sizes, Operator::Add)?, ctx)?
+            .vortex_expect("non-empty array must report a min/max")
+            .max
+            .as_primitive()
+            .as_::<usize>()
+            .vortex_expect("max `offset + size` must fit in a usize");
+
+        Ok((start, end))
     }
 }
 impl<T: TypedArrayRef<ListView>> ListViewArrayExt for T {}
@@ -721,11 +784,16 @@ fn validate_zctl(
     let sizes_dtype = sizes_primitive.dtype();
     let len = offsets_primitive.len();
 
+    // Offsets/sizes are non-negative; reinterpret to unsigned (4x4 instead of 8x8).
+    let offsets_unsigned =
+        offsets_primitive.reinterpret_cast(offsets_dtype.as_ptype().to_unsigned());
+    let sizes_unsigned = sizes_primitive.reinterpret_cast(sizes_dtype.as_ptype().to_unsigned());
+
     // Check that offset + size values are monotonic (no overlaps)
-    match_each_integer_ptype!(offsets_dtype.as_ptype(), |O| {
-        match_each_integer_ptype!(sizes_dtype.as_ptype(), |S| {
-            let offsets_slice = offsets_primitive.as_slice::<O>();
-            let sizes_slice = sizes_primitive.as_slice::<S>();
+    match_each_unsigned_integer_ptype!(offsets_unsigned.ptype(), |O| {
+        match_each_unsigned_integer_ptype!(sizes_unsigned.ptype(), |S| {
+            let offsets_slice = offsets_unsigned.as_slice::<O>();
+            let sizes_slice = sizes_unsigned.as_slice::<S>();
 
             validate_monotonic_ends(offsets_slice, sizes_slice, len)?;
         })
@@ -756,9 +824,9 @@ fn validate_zctl(
         }
     }
 
-    match_each_integer_ptype!(offsets_primitive.ptype(), |O| {
-        match_each_integer_ptype!(sizes_primitive.ptype(), |S| {
-            count_references::<O, S>(&mut element_references, offsets_primitive, sizes_primitive);
+    match_each_unsigned_integer_ptype!(offsets_unsigned.ptype(), |O| {
+        match_each_unsigned_integer_ptype!(sizes_unsigned.ptype(), |S| {
+            count_references::<O, S>(&mut element_references, offsets_unsigned, sizes_unsigned);
         })
     });
 

@@ -39,7 +39,7 @@ use canonical::varbin_to_canonical;
 use kernel::PARENT_KERNELS;
 use vortex_session::VortexSession;
 
-use crate::Precision;
+use crate::EqMode;
 use crate::arrays::varbin::compute::rules::PARENT_RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
@@ -54,14 +54,14 @@ pub struct VarBinMetadata {
 }
 
 impl ArrayHash for VarBinData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
-        self.bytes().array_hash(state, precision);
+    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: EqMode) {
+        self.bytes().array_hash(state, accuracy);
     }
 }
 
 impl ArrayEq for VarBinData {
-    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
-        self.bytes().array_eq(other.bytes(), precision)
+    fn array_eq(&self, other: &Self, accuracy: EqMode) -> bool {
+        self.bytes().array_eq(other.bytes(), accuracy)
     }
 }
 

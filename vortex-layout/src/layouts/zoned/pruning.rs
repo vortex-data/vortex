@@ -16,12 +16,9 @@ use tracing::trace;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::StructArray;
-use vortex_array::dtype::FieldPath;
-use vortex_array::dtype::FieldPathSet;
+use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
-use vortex_array::expr::pruning::checked_pruning_expr;
 use vortex_array::expr::root;
-use vortex_array::expr::stats::Stat;
 use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_error::SharedVortexResult;
 use vortex_error::VortexExpect;
@@ -43,7 +40,7 @@ pub(super) struct PruningState {
     zone_count: usize,
     row_count: u64,
     zone_len: u64,
-    present_stats: Arc<[Stat]>,
+    dtype: DType,
     lazy_children: Arc<LazyReaderChildren>,
     session: VortexSession,
 
@@ -62,7 +59,7 @@ impl PruningState {
             zone_count: layout.nzones(),
             row_count: layout.row_count(),
             zone_len: layout.zone_len() as u64,
-            present_stats: Arc::clone(layout.present_stats()),
+            dtype: layout.dtype().clone(),
             lazy_children,
             session,
             pruning_result: Default::default(),
@@ -119,13 +116,12 @@ impl PruningState {
         self.pruning_predicates
             .entry(expr.clone())
             .or_default()
-            .get_or_init(move || {
-                let available_stats = FieldPathSet::from_iter(
-                    self.present_stats
-                        .iter()
-                        .map(|stat| FieldPath::from_name(stat.name())),
-                );
-                checked_pruning_expr(&expr, &available_stats).map(|(expr, _)| expr)
+            .get_or_init(move || match expr.falsify(&self.dtype, &self.session) {
+                Ok(predicate) => predicate,
+                Err(error) => {
+                    trace!(%expr, %error, "failed to construct stats rewrite predicate");
+                    None
+                }
             })
             .clone()
     }
@@ -147,13 +143,14 @@ impl PruningState {
                 let session = self.session.clone();
                 let zone_len = self.zone_len;
                 let row_count = self.row_count;
+                let dtype = self.dtype.clone();
 
                 async move {
                     let mut ctx = session.create_execution_ctx();
                     let zones_array = zones_eval.await?.execute::<StructArray>(&mut ctx)?;
-                    // SAFETY: zoned layout validation ensures the zones child matches the expected
-                    // stats-table schema for `present_stats`.
-                    Ok(unsafe { ZoneMap::new_unchecked(zones_array, zone_len, row_count) })
+                    // SAFETY: zoned layout validation checked that this zones child was
+                    // written from the same column dtype and stats-table schema.
+                    Ok(unsafe { ZoneMap::new_unchecked(dtype, zones_array, zone_len, row_count) })
                 }
                 .map_err(Arc::new)
                 .boxed()

@@ -26,21 +26,19 @@
 use std::any::Any;
 use std::borrow::Borrow;
 use std::hash::BuildHasher;
-use std::hash::Hash;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
-use arc_swap::ArcSwap;
 use vortex_error::VortexResult;
 use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::SessionVar;
 use vortex_session::registry::Id;
 use vortex_utils::aliases::DefaultHashBuilder;
-use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::arc_swap_map::ArcSwapMap;
 use crate::array::VTable;
 use crate::arrays::Struct;
 use crate::arrays::struct_::compute::cast::struct_cast_execute_parent;
@@ -115,8 +113,8 @@ impl Borrow<u64> for ExecuteParentFnId {
 /// functions for an existing key appends them to that key's ordered list.
 #[derive(Debug)]
 pub struct ArrayKernels {
-    reduce_parent: ArcSwap<HashMap<ReduceParentFnId, Arc<[ReduceParentFn]>>>,
-    execute_parent: ArcSwap<HashMap<ExecuteParentFnId, Arc<[ExecuteParentFn]>>>,
+    reduce_parent: ArcSwapMap<ReduceParentFnId, Arc<[ReduceParentFn]>>,
+    execute_parent: ArcSwapMap<ExecuteParentFnId, Arc<[ExecuteParentFn]>>,
 }
 
 impl Default for ArrayKernels {
@@ -132,8 +130,8 @@ impl ArrayKernels {
     /// Create an empty [`ArrayKernels`] with no kernels registered.
     pub fn empty() -> Self {
         Self {
-            reduce_parent: ArcSwap::from_pointee(HashMap::default()),
-            execute_parent: ArcSwap::from_pointee(HashMap::default()),
+            reduce_parent: ArcSwapMap::default(),
+            execute_parent: ArcSwapMap::default(),
         }
     }
 
@@ -164,9 +162,8 @@ impl ArrayKernels {
     /// If functions have already been registered for the same pair, these functions are appended
     /// after them.
     pub fn register_reduce_parent(&self, parent: Id, child: Id, fns: &[ReduceParentFn]) {
-        self.reduce_parent.rcu(move |registry| {
-            update_fns(registry.as_ref().clone(), hash_fn_id(parent, child), fns)
-        });
+        self.reduce_parent
+            .extend(hash_fn_id(parent, child).into(), fns);
     }
 
     /// Look up the [`ReduceParentFn`]s registered for `(parent, child)`.
@@ -174,8 +171,7 @@ impl ArrayKernels {
     /// Returns an owned [`Arc`] so the session-variable borrow can be dropped before invoking the
     /// functions.
     pub fn find_reduce_parent(&self, parent: Id, child: Id) -> Option<Arc<[ReduceParentFn]>> {
-        let id = hash_fn_id(parent, child);
-        self.reduce_parent.load().get(&id).cloned()
+        self.reduce_parent.get(&hash_fn_id(parent, child))
     }
 
     /// Register [`ExecuteParentFn`]s for `(parent, child)`.
@@ -187,9 +183,8 @@ impl ArrayKernels {
     /// If functions have already been registered for the same pair, these functions are appended
     /// after them.
     pub fn register_execute_parent(&self, parent: Id, child: Id, fns: &[ExecuteParentFn]) {
-        self.execute_parent.rcu(move |registry| {
-            update_fns(registry.as_ref().clone(), hash_fn_id(parent, child), fns)
-        });
+        self.execute_parent
+            .extend(hash_fn_id(parent, child).into(), fns);
     }
 
     /// Look up the [`ExecuteParentFn`]s registered for `(parent, child)`.
@@ -197,29 +192,12 @@ impl ArrayKernels {
     /// Returns an owned [`Arc`] so the session-variable borrow can be dropped before invoking the
     /// functions.
     pub fn find_execute_parent(&self, parent: Id, child: Id) -> Option<Arc<[ExecuteParentFn]>> {
-        let id = hash_fn_id(parent, child);
-        self.execute_parent.load().get(&id).cloned()
+        self.execute_parent.get(&hash_fn_id(parent, child))
     }
 }
 
 fn hash_fn_id(parent: Id, child: Id) -> u64 {
     FN_HASHER.hash_one((parent, child))
-}
-
-fn update_fns<F: Clone, K: Borrow<u64> + Eq + Hash + From<u64>>(
-    mut existing: HashMap<K, Arc<[F]>>,
-    id: u64,
-    fns: &[F],
-) -> HashMap<K, Arc<[F]>> {
-    if let Some(existing_fns) = existing.remove(&id) {
-        existing.insert(
-            id.into(),
-            existing_fns.as_ref().iter().chain(fns).cloned().collect(),
-        );
-    } else {
-        existing.insert(id.into(), fns.into());
-    }
-    existing
 }
 
 impl SessionVar for ArrayKernels {

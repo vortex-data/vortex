@@ -32,6 +32,7 @@ mod projection;
 mod table_function;
 
 #[rustfmt::skip]
+#[allow(rustdoc::all)]
 #[path = "./cpp.rs"]
 /// This module provides the FFI interface to our C++ code exposing additional functionality
 /// for DuckDB, such as custom data types and functions.
@@ -43,8 +44,11 @@ mod e2e_test;
 
 // A global runtime for Vortex operations within DuckDB.
 static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_handle(RUNTIME.handle()));
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::default().with_handle(RUNTIME.handle());
+    vortex_geo::initialize(&session);
+    session
+});
 
 // Duckdb's logger requires a *Context as first argument which
 // would be hard to integrate with tracing::. We use logging for

@@ -7,9 +7,10 @@ errorprone = "2.36.0"
 guava = "33.6.0-jre"
 immutables = "2.12.2"
 junit-jupiter = "6.1.0"
-logback = "1.5.32"
-netty = "4.2.14.Final"
+logback = "1.5.34"
+netty = "4.2.15.Final"
 nopen = "1.0.1"
+roaringbitmap = "1.6.14"
 slf4j = "2.0.18"
 spark3 = "3.5.8"
 spark4 = "4.1.1"
@@ -30,6 +31,7 @@ logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "lo
 netty-bom = { module = "io.netty:netty-bom", version.ref = "netty" }
 nopen-annotations = { module = "com.jakewharton.nopen:nopen-annotations", version.ref = "nopen" }
 nopen-checker = { module = "com.jakewharton.nopen:nopen-checker", version.ref = "nopen" }
+roaringbitmap = { module = "org.roaringbitmap:RoaringBitmap", version.ref = "roaringbitmap" }
 slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
 slf4j-simple = { module = "org.slf4j:slf4j-simple", version.ref = "slf4j" }
 s3mock-testcontainers = { module = "com.adobe.testing:s3mock-testcontainers", version.ref = "s3mock" }

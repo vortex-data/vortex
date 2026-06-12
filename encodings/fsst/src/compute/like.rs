@@ -287,6 +287,95 @@ mod tests {
         let result = <FSST as LikeKernel>::like(fsst_v, &pattern, opts, &mut ctx)?;
         assert!(result.is_none(), "ilike should fall back");
 
+        // Suffix patterns are still unsupported, even when the suffix is an escaped literal.
+        let pattern = ConstantArray::new(r"%\%", fsst.len()).into_array();
+        let result =
+            <FSST as LikeKernel>::like(fsst_v, &pattern, LikeOptions::default(), &mut ctx)?;
+        assert!(result.is_none(), "escaped suffix pattern should fall back");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_like_kernel_handles_escaped_prefix_and_contains() -> VortexResult<()> {
+        let fsst = make_fsst(
+            &[
+                Some("%front"),
+                Some("_front"),
+                Some("\\front"),
+                Some("middle%value"),
+                Some("middle_value"),
+                Some("middle\\value"),
+                Some("front"),
+            ],
+            Nullability::NonNullable,
+        );
+        let fsst_v = fsst.as_view();
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let pattern = ConstantArray::new(r"\%%", fsst.len()).into_array();
+        let result =
+            <FSST as LikeKernel>::like(fsst_v, &pattern, LikeOptions::default(), &mut ctx)?;
+        assert!(result.is_some(), "escaped percent prefix should use FSST");
+        assert_arrays_eq!(
+            result.unwrap(),
+            BoolArray::from_iter([true, false, false, false, false, false, false])
+        );
+
+        let pattern = ConstantArray::new(r"\_%", fsst.len()).into_array();
+        let result =
+            <FSST as LikeKernel>::like(fsst_v, &pattern, LikeOptions::default(), &mut ctx)?;
+        assert!(
+            result.is_some(),
+            "escaped underscore prefix should use FSST"
+        );
+        assert_arrays_eq!(
+            result.unwrap(),
+            BoolArray::from_iter([false, true, false, false, false, false, false])
+        );
+
+        let pattern = ConstantArray::new(r"\\%", fsst.len()).into_array();
+        let result =
+            <FSST as LikeKernel>::like(fsst_v, &pattern, LikeOptions::default(), &mut ctx)?;
+        assert!(result.is_some(), "escaped backslash prefix should use FSST");
+        assert_arrays_eq!(
+            result.unwrap(),
+            BoolArray::from_iter([false, false, true, false, false, false, false])
+        );
+
+        let pattern = ConstantArray::new(r"%\%%", fsst.len()).into_array();
+        let result =
+            <FSST as LikeKernel>::like(fsst_v, &pattern, LikeOptions::default(), &mut ctx)?;
+        assert!(result.is_some(), "escaped percent contains should use FSST");
+        assert_arrays_eq!(
+            result.unwrap(),
+            BoolArray::from_iter([true, false, false, true, false, false, false])
+        );
+
+        let pattern = ConstantArray::new(r"%\_%", fsst.len()).into_array();
+        let result =
+            <FSST as LikeKernel>::like(fsst_v, &pattern, LikeOptions::default(), &mut ctx)?;
+        assert!(
+            result.is_some(),
+            "escaped underscore contains should use FSST"
+        );
+        assert_arrays_eq!(
+            result.unwrap(),
+            BoolArray::from_iter([false, true, false, false, true, false, false])
+        );
+
+        let pattern = ConstantArray::new(r"%\\%", fsst.len()).into_array();
+        let result =
+            <FSST as LikeKernel>::like(fsst_v, &pattern, LikeOptions::default(), &mut ctx)?;
+        assert!(
+            result.is_some(),
+            "escaped backslash contains should use FSST"
+        );
+        assert_arrays_eq!(
+            result.unwrap(),
+            BoolArray::from_iter([false, false, true, false, false, true, false])
+        );
+
         Ok(())
     }
 

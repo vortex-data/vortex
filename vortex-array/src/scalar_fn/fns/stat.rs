@@ -8,6 +8,7 @@ use std::fmt::Formatter;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -82,7 +83,8 @@ impl ScalarFnVTable for StatFn {
     type Options = StatOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new("vortex.stat")
+        static ID: CachedId = CachedId::new("vortex.stat");
+        *ID
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {

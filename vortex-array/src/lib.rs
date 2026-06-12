@@ -33,6 +33,7 @@ pub mod accessor;
 pub mod aggregate_fn;
 #[doc(hidden)]
 pub mod aliases;
+mod arc_swap_map;
 mod array;
 pub mod arrays;
 pub mod arrow;

@@ -11,6 +11,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::ArrayRef;
@@ -51,7 +52,8 @@ impl ScalarFnVTable for Merge {
     type Options = DuplicateHandling;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.merge")
+        static ID: CachedId = CachedId::new("vortex.merge");
+        *ID
     }
 
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

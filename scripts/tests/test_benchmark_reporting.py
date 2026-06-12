@@ -1,0 +1,260 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+import importlib.util
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import pandas as pd
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+COMPARE_SCRIPT = REPO_ROOT / "scripts" / "compare-benchmark-jsons.py"
+CAPTURE_SCRIPT = REPO_ROOT / "scripts" / "capture-file-sizes.py"
+
+
+def load_compare_module():
+    spec = importlib.util.spec_from_file_location("compare_benchmark_jsons", COMPARE_SCRIPT)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def timing_row(name: str, base: int, pr: int) -> dict[str, object]:
+    return {
+        "name": name,
+        "value_base": base,
+        "value_pr": pr,
+        "all_runtimes_base": [base, base, base],
+        "all_runtimes_pr": [pr, pr, pr],
+    }
+
+
+def stored_timing_row(
+    commit: str,
+    name: str,
+    value: int,
+    storage: str | None = None,
+    dataset: dict[str, object] | None = None,
+) -> dict[str, object]:
+    row: dict[str, object] = {
+        "name": name,
+        "unit": "ns",
+        "value": value,
+        "all_runtimes": [value, value, value],
+        "commit_id": commit,
+    }
+    if storage is not None:
+        row["storage"] = storage
+    if dataset is not None:
+        row["dataset"] = dataset
+    return row
+
+
+def test_select_latest_baseline_rows_uses_latest_matching_benchmark_commit() -> None:
+    compare = load_compare_module()
+    history = pd.DataFrame(
+        [
+            stored_timing_row(
+                "base-old",
+                "tpch_q01/datafusion:parquet",
+                100,
+                "nvme",
+                {"scale_factor": "1.0"},
+            ),
+            file_size_record_for("base-old", 100, "tpch", "1.0", "vortex-file-compressed", "part-0.vortex"),
+            stored_timing_row(
+                "base-current",
+                "tpch_q01/datafusion:parquet",
+                110,
+                "nvme",
+                {"scale_factor": "1.0"},
+            ),
+            file_size_record_for("base-current", 120, "tpch", "1.0", "vortex-file-compressed", "part-0.vortex"),
+            stored_timing_row("base-other", "clickbench_q01/datafusion:parquet", 200, "nvme"),
+        ]
+    )
+    pr = pd.DataFrame(
+        [
+            stored_timing_row(
+                "pr-sha",
+                "tpch_q01/datafusion:parquet",
+                115,
+                "nvme",
+                {"scale_factor": "1.0"},
+            ),
+        ]
+    )
+
+    selected = compare.select_latest_baseline_rows(history, pr)
+
+    assert set(selected["commit_id"]) == {"base-current"}
+    assert len(selected) == 2
+
+
+def test_read_latest_baseline_rows_streams_latest_matching_benchmark_commit(tmp_path: Path) -> None:
+    compare = load_compare_module()
+    history_path = tmp_path / "history.jsonl"
+    history_rows = [
+        stored_timing_row(
+            "base-old",
+            "tpch_q01/datafusion:parquet",
+            100,
+            "nvme",
+            {"scale_factor": "1.0"},
+        ),
+        file_size_record_for("base-old", 100, "tpch", "1.0", "vortex-file-compressed", "part-0.vortex"),
+        stored_timing_row(
+            "base-current",
+            "tpch_q01/datafusion:parquet",
+            110,
+            "nvme",
+            {"scale_factor": "1.0"},
+        ),
+        file_size_record_for("base-current", 120, "tpch", "1.0", "vortex-file-compressed", "part-0.vortex"),
+        stored_timing_row("base-other", "clickbench_q01/datafusion:parquet", 200, "nvme"),
+    ]
+    history_path.write_text(
+        "".join(f"{json.dumps(row)}\n" for row in history_rows),
+        encoding="utf-8",
+    )
+    pr = pd.DataFrame(
+        [
+            stored_timing_row(
+                "pr-sha",
+                "tpch_q01/datafusion:parquet",
+                115,
+                "nvme",
+                {"scale_factor": "1.0"},
+            ),
+        ]
+    )
+
+    selected = compare.read_latest_baseline_rows(history_path, pr)
+
+    assert set(selected["commit_id"]) == {"base-current"}
+    assert len(selected) == 2
+
+
+def test_within_engine_analysis_uses_each_engines_own_parquet_control() -> None:
+    compare = load_compare_module()
+    rows = [
+        timing_row("tpch_q01/datafusion:parquet", 100, 200),
+        timing_row("tpch_q01/datafusion:vortex-file-compressed", 100, 180),
+        timing_row("tpch_q01/duckdb:parquet", 100, 100),
+        timing_row("tpch_q01/duckdb:vortex-file-compressed", 100, 120),
+    ]
+    df = pd.DataFrame(rows)
+    df[["engine", "file_format", "query"]] = df["name"].apply(compare.extract_target_fields)
+
+    analyses = compare.build_within_engine_statistical_analyses(df, threshold_pct=5)
+
+    assert set(analyses) == {"datafusion", "duckdb"}
+    assert compare.build_verdict(analyses["datafusion"])["impact"] == "-10.0%"
+    assert compare.build_verdict(analyses["duckdb"])["impact"] == "+20.0%"
+
+
+def file_size_record(commit: str, size: int) -> dict[str, object]:
+    return file_size_record_for(commit, size, "tpch", "10", "vortex-file-compressed", "part-0.vortex")
+
+
+def file_size_record_for(
+    commit: str,
+    size: int,
+    benchmark: str,
+    scale_factor: str,
+    file_format: str,
+    file_name: str,
+) -> dict[str, object]:
+    return {
+        "metric": "file_size",
+        "unit": "bytes",
+        "value": size,
+        "commit_id": commit,
+        "file_size": {
+            "benchmark": benchmark,
+            "scale_factor": scale_factor,
+            "format": file_format,
+            "file": file_name,
+        },
+    }
+
+
+def test_file_size_report_reads_shared_benchmark_rows() -> None:
+    compare = load_compare_module()
+
+    report = compare.format_file_size_report(
+        pd.DataFrame([file_size_record("base-sha", 100)]),
+        pd.DataFrame([file_size_record("pr-sha", 125)]),
+    )
+
+    assert "<summary>File Size Changes (1 files changed, +25.0% overall, 1↑ 0↓)</summary>" in report
+    assert "| part-0.vortex | 10 | vortex-file-compressed | 100 B | 125 B | +25 B | +25.0% |" in report
+
+
+def test_file_size_report_ignores_baseline_rows_outside_pr_scope() -> None:
+    compare = load_compare_module()
+
+    report = compare.format_file_size_report(
+        pd.DataFrame(
+            [
+                file_size_record_for("base-sha", 100, "tpch", "10.0", "vortex-file-compressed", "part-0.vortex"),
+                file_size_record_for("base-sha", 200, "tpch", "1.0", "vortex-file-compressed", "part-0.vortex"),
+                file_size_record_for("base-sha", 300, "clickbench", "1.0", "vortex-compact", "hits_0.vortex"),
+            ]
+        ),
+        pd.DataFrame(
+            [
+                file_size_record_for("pr-sha", 125, "tpch", "10.0", "vortex-file-compressed", "part-0.vortex"),
+            ]
+        ),
+    )
+
+    assert "<summary>File Size Changes (1 files changed, +25.0% overall, 1↑ 0↓)</summary>" in report
+    assert "hits_0.vortex" not in report
+    assert "| part-0.vortex | 1.0 |" not in report
+
+
+def test_capture_file_sizes_emits_shared_benchmark_rows(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    format_dir = data_dir / "tpch" / "10" / "vortex-file-compressed"
+    format_dir.mkdir(parents=True)
+    (format_dir / "part-0.vortex").write_bytes(b"x" * 42)
+    output_path = tmp_path / "sizes.jsonl"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(CAPTURE_SCRIPT),
+            str(data_dir),
+            "--benchmark",
+            "tpch",
+            "--commit",
+            "deadbeef",
+            "-o",
+            str(output_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    records = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
+    assert records == [
+        {
+            "metric": "file_size",
+            "unit": "bytes",
+            "value": 42,
+            "commit_id": "deadbeef",
+            "file_size": {
+                "benchmark": "tpch",
+                "scale_factor": "10",
+                "format": "vortex-file-compressed",
+                "file": "part-0.vortex",
+            },
+        }
+    ]

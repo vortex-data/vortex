@@ -16,7 +16,9 @@ use crate::RUNTIME;
 /// Constructs a fresh [`VortexSession`] bound to the JNI-shared tokio runtime and returns
 /// an opaque pointer that Java must pass to [`Java_dev_vortex_jni_NativeSession_free`].
 pub(crate) fn new_session() -> Box<VortexSession> {
-    Box::new(VortexSession::default().with_handle(RUNTIME.handle()))
+    let session = VortexSession::default().with_handle(RUNTIME.handle());
+    vortex_parquet_variant::initialize(&session);
+    Box::new(session)
 }
 
 /// SAFETY: caller must pass a pointer previously returned by [`new_session`].

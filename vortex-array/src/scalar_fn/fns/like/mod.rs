@@ -13,11 +13,12 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrow::Datum;
-use crate::arrow::from_arrow_array_with_len;
+use crate::arrow::from_arrow_columnar;
 use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
@@ -63,7 +64,8 @@ impl ScalarFnVTable for Like {
     type Options = LikeOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new("vortex.like")
+        static ID: CachedId = CachedId::new("vortex.like");
+        *ID
     }
 
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -235,19 +237,19 @@ pub(crate) fn arrow_like(
         (true, true) => arrow_string::like::nilike(&lhs, &rhs)?,
     };
 
-    from_arrow_array_with_len(&result, len, nullable)
+    from_arrow_columnar(&result, len, nullable, ctx)
 }
 
-/// Variants of the LIKE filter that we know how to turn into a stats pruning predicate.s
+/// Variants of the LIKE filter that we know how to turn into a stats pruning predicate.
 #[derive(Debug, PartialEq)]
-enum LikeVariant<'a> {
+pub(crate) enum LikeVariant<'a> {
     Exact(Cow<'a, str>),
     Prefix(Cow<'a, str>),
 }
 
 impl<'a> LikeVariant<'a> {
     /// Parse a LIKE pattern string into its relevant variant
-    fn from_str(string: &'a str) -> Option<LikeVariant<'a>> {
+    pub(crate) fn from_str(string: &'a str) -> Option<LikeVariant<'a>> {
         let mut literal = None;
         let mut chars = string.char_indices();
 

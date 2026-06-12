@@ -134,6 +134,14 @@ async fn run_compress(
         StructListOfInts::new(100, 1000, 50),
         StructListOfInts::new(1000, 1000, 50),
         StructListOfInts::new(10000, 1000, 50),
+        // See https://github.com/vortex-data/vortex/issues/8330
+        // Very wide file: project a fixed 10k columns out of 100k, across 10 chunks.
+        // StructListOfInts::new_with_projection(
+        //     READ_PROJECTION_ROOT_COLUMNS,
+        //     1000,
+        //     10,
+        //     Some(READ_PROJECTION_COLUMNS),
+        // ),
     ];
 
     let datasets: Vec<&dyn Dataset> = [

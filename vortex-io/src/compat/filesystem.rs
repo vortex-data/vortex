@@ -21,6 +21,10 @@ impl<F: FileSystem> FileSystem for Compat<F> {
         Compat::new(self.inner().list(prefix)).boxed()
     }
 
+    async fn head(&self, path: &str) -> VortexResult<Option<FileListing>> {
+        Compat::new(self.inner().head(path)).await
+    }
+
     async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
         let read_at = Compat::new(self.inner().open_read(path)).await?;
         Ok(Arc::new(Compat::new(read_at)))

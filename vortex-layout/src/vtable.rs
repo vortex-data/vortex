@@ -19,6 +19,7 @@ use crate::LayoutChildType;
 use crate::LayoutEncoding;
 use crate::LayoutEncodingRef;
 use crate::LayoutId;
+use crate::LayoutReaderContext;
 use crate::LayoutReaderRef;
 use crate::LayoutRef;
 use crate::children::LayoutChildren;
@@ -58,11 +59,20 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     fn child_type(layout: &Self::Layout, idx: usize) -> LayoutChildType;
 
     /// Create a new reader for the layout.
+    ///
+    /// **Layouts with children MUST propagate `ctx` to descendants** by passing it
+    /// through `Layout::new_reader` (or `LazyReaderChildren::new`) when constructing
+    /// child readers. If `ctx` is dropped at any link in the chain, ancestor-published
+    /// values won't reach affected descendants — a silent runtime regression for any
+    /// descendant that looked up an ancestor-published value via `ctx.get::<T>()`.
+    /// There is no compile-time check that catches this; reviewer discipline + the
+    /// integration tests in `vortex-layout` are the only safety net.
     fn new_reader(
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
+        ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef>;
 
     /// Construct a new [`Layout`] from the provided parts.

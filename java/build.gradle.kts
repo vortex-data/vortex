@@ -4,7 +4,7 @@
 import net.ltgt.gradle.errorprone.errorprone
 
 plugins {
-    id("com.diffplug.spotless") version "8.5.1"
+    id("com.diffplug.spotless") version "8.6.0"
     id("com.palantir.git-version") version "5.0.0"
     id("com.palantir.java-format") version "2.91.0"
     id("net.ltgt.errorprone") version "5.1.0" apply false
@@ -61,7 +61,7 @@ allprojects {
         }
 
         tasks.withType<Javadoc> {
-            (options as StandardJavadocDocletOptions).addStringOption("Xdoclint:-missing")
+            (options as StandardJavadocDocletOptions).addBooleanOption("Xdoclint:-missing", true)
         }
 
         the<JavaPluginExtension>().toolchain {

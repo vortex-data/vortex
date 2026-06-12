@@ -16,6 +16,7 @@ use vortex_session::registry::ReadContext;
 use crate::LayoutChildType;
 use crate::LayoutEncodingRef;
 use crate::LayoutId;
+use crate::LayoutReaderContext;
 use crate::LayoutReaderRef;
 use crate::LayoutRef;
 use crate::VTable;
@@ -74,12 +75,14 @@ impl VTable for Chunked {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
+        ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(ChunkedReader::new(
             layout.clone(),
             name,
             segment_source,
             session,
+            ctx.clone(),
         )))
     }
 
@@ -103,10 +106,9 @@ impl VTable for Chunked {
         let new_children = OwnedLayoutChildren::layout_children(children);
 
         // Recalculate chunk offsets based on new children
-        let mut chunk_offsets = Vec::with_capacity(new_children.nchildren() + 1);
-        chunk_offsets.push(0);
+        let mut chunk_offsets = vec![0; new_children.nchildren() + 1];
         for i in 0..new_children.nchildren() {
-            chunk_offsets.push(chunk_offsets[i] + new_children.child_row_count(i));
+            chunk_offsets[i + 1] = chunk_offsets[i] + new_children.child_row_count(i);
         }
 
         layout.children = new_children;
@@ -132,12 +134,11 @@ pub struct ChunkedLayout {
 
 impl ChunkedLayout {
     pub fn new(row_count: u64, dtype: DType, children: Arc<dyn LayoutChildren>) -> Self {
-        let mut chunk_offsets = Vec::with_capacity(children.nchildren() + 1);
-
-        chunk_offsets.push(0);
+        let mut chunk_offsets = vec![0; children.nchildren() + 1];
         for i in 0..children.nchildren() {
-            chunk_offsets.push(chunk_offsets[i] + children.child_row_count(i));
+            chunk_offsets[i + 1] = chunk_offsets[i] + children.child_row_count(i);
         }
+
         assert_eq!(
             chunk_offsets[children.nchildren()],
             row_count,

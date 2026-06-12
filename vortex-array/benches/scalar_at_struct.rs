@@ -3,6 +3,8 @@
 
 #![expect(clippy::unwrap_used)]
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use rand::RngExt;
 use rand::SeedableRng;
@@ -10,12 +12,13 @@ use rand::distr::Uniform;
 use rand::rngs::StdRng;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::FieldNames;
+use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
+use vortex_session::VortexSession;
 
 fn main() {
     divan::main();
@@ -23,6 +26,9 @@ fn main() {
 
 const ARRAY_SIZE: usize = 100_000;
 const NUM_ACCESSES: usize = 1000;
+
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 #[divan::bench]
 fn execute_scalar_struct_simple(bencher: Bencher) {
@@ -49,11 +55,10 @@ fn execute_scalar_struct_simple(bencher: Bencher) {
         .collect();
 
     bencher
-        .with_inputs(|| (&struct_array, &indices))
-        .bench_refs(|(array, indices)| {
-            let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        .with_inputs(|| (&struct_array, &indices, SESSION.create_execution_ctx()))
+        .bench_refs(|(array, indices, ctx)| {
             for &idx in indices.iter() {
-                divan::black_box(array.execute_scalar(idx, &mut ctx).unwrap());
+                divan::black_box(array.execute_scalar(idx, ctx).unwrap());
             }
         });
 }
@@ -87,11 +92,10 @@ fn execute_scalar_struct_wide(bencher: Bencher) {
         .collect();
 
     bencher
-        .with_inputs(|| (&struct_array, &indices))
-        .bench_refs(|(array, indices)| {
-            let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        .with_inputs(|| (&struct_array, &indices, SESSION.create_execution_ctx()))
+        .bench_refs(|(array, indices, ctx)| {
             for &idx in indices.iter() {
-                divan::black_box(array.execute_scalar(idx, &mut ctx).unwrap());
+                divan::black_box(array.execute_scalar(idx, ctx).unwrap());
             }
         });
 }

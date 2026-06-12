@@ -25,10 +25,10 @@ use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
+use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::Precision;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
@@ -83,22 +83,22 @@ const VALUES_PER_CHUNK: usize = pco::DEFAULT_MAX_PAGE_N;
 pub type PcoArray = Array<Pco>;
 
 impl ArrayHash for PcoData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: EqMode) {
         self.unsliced_n_rows.hash(state);
         self.slice_start.hash(state);
         self.slice_stop.hash(state);
         // Hash chunk_metas and pages using pointer-based hashing
         for chunk_meta in &self.chunk_metas {
-            chunk_meta.array_hash(state, precision);
+            chunk_meta.array_hash(state, accuracy);
         }
         for page in &self.pages {
-            page.array_hash(state, precision);
+            page.array_hash(state, accuracy);
         }
     }
 }
 
 impl ArrayEq for PcoData {
-    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+    fn array_eq(&self, other: &Self, accuracy: EqMode) -> bool {
         if self.unsliced_n_rows != other.unsliced_n_rows
             || self.slice_start != other.slice_start
             || self.slice_stop != other.slice_stop
@@ -108,12 +108,12 @@ impl ArrayEq for PcoData {
             return false;
         }
         for (a, b) in self.chunk_metas.iter().zip(&other.chunk_metas) {
-            if !a.array_eq(b, precision) {
+            if !a.array_eq(b, accuracy) {
                 return false;
             }
         }
         for (a, b) in self.pages.iter().zip(&other.pages) {
-            if !a.array_eq(b, precision) {
+            if !a.array_eq(b, accuracy) {
                 return false;
             }
         }
