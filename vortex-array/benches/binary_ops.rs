@@ -202,7 +202,7 @@ fn primitive_small_nonnull(offset: i64) -> PrimitiveArray {
 }
 
 fn primitive_i8_small_nonnull(offset: i8) -> PrimitiveArray {
-    PrimitiveArray::from_iter((0..LEN).map(|i| (((i as i16 + offset as i16) % 21) - 10) as i8))
+    PrimitiveArray::from_iter((0..LEN).map(|i| (((i as i32 + offset as i32) % 21) - 10) as i8))
 }
 
 fn primitive_u8_small_nonnull(offset: u8) -> PrimitiveArray {
@@ -210,7 +210,7 @@ fn primitive_u8_small_nonnull(offset: u8) -> PrimitiveArray {
 }
 
 fn primitive_i16_small_nonnull(offset: i16) -> PrimitiveArray {
-    PrimitiveArray::from_iter((0..LEN).map(|i| (((i as i32 + offset as i32) % 1024) - 512) as i16))
+    PrimitiveArray::from_iter((0..LEN).map(|i| (((i as i32 + offset as i32) % 255) - 127) as i16))
 }
 
 fn primitive_u16_small_nonnull(offset: u16) -> PrimitiveArray {
