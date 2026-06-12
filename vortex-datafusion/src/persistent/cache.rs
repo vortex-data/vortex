@@ -6,6 +6,8 @@ use vortex::file::Footer;
 use vortex::file::VortexFile;
 
 /// Cached Vortex file metadata for use with DataFusion's [`FileMetadataCache`].
+///
+/// [`FileMetadataCache`]: datafusion_execution::cache::cache_manager::FileMetadataCache
 pub struct CachedVortexMetadata {
     footer: Footer,
 }

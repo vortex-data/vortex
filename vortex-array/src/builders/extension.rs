@@ -54,6 +54,8 @@ impl ExtensionBuilder {
     }
 
     /// The [`ExtDType`] of this builder.
+    ///
+    /// [`ExtDType`]: crate::dtype::extension::ExtDType
     fn ext_dtype(&self) -> ExtDTypeRef {
         if let DType::Extension(ext_dtype) = &self.dtype {
             ext_dtype.clone()

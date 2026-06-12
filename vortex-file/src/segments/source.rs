@@ -148,7 +148,7 @@ impl FileSegmentSource {
 
 impl SegmentSource for FileSegmentSource {
     fn request(&self, id: SegmentId) -> SegmentFuture {
-        // We eagerly register the read request here assuming the behaviour of [`FileRead`], where
+        // We eagerly register the read request here assuming the behaviour of [`FileSegmentSource`], where
         // coalescing becomes effective prior to the future being polled.
         let spec = *match self.segments.get(*id as usize) {
             Some(spec) => spec,
@@ -191,9 +191,9 @@ impl SegmentSource for FileSegmentSource {
     }
 }
 
-/// A future that resolves a read request from a [`FileRead`].
+/// A future that resolves a read request from a [`FileSegmentSource`].
 ///
-/// See the documentation for [`FileRead`] for details on coalescing and pre-fetching.
+/// See the documentation for [`FileSegmentSource`] for details on coalescing and pre-fetching.
 /// If dropped, the read request will be canceled where possible.
 struct ReadFuture {
     id: usize,

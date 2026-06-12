@@ -4,12 +4,16 @@
 //! Streaming, cache-reusable predicate evaluation over a [`BitPackedArray`].
 //!
 //! Walks the encoded array one 1024-element FastLanes block at a time through a single
-//! reusable scratch buffer, splices any [`crate::patches::Patches`] into the unpacked block
+//! reusable scratch buffer, splices any [`Patches`] into the unpacked block
 //! in place via a sorted-index cursor, then folds a `Fn(T) -> bool` predicate over the
-//! block. The fold matches the canonical [`vortex_buffer::BitBuffer::collect_bool`] shape
+//! block. The fold matches the canonical [`BitBuffer::collect_bool`] shape
 //! (pack 64 bools into a `u64` in a tight auto-vectorisable inner loop) and writes the
 //! resulting words straight into the output bit buffer, so the materialised primitive
 //! never appears anywhere.
+//!
+//! [`BitPackedArray`]: crate::BitPackedArray
+//! [`BitBuffer::collect_bool`]: vortex_buffer::BitBuffer::collect_bool
+//! [`Patches`]: vortex_array::patches::Patches
 
 use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
@@ -30,7 +34,7 @@ use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::unpack_iter::BitPacked as BitPackedIter;
 
-/// Stream `predicate` over the unpacked values of a [`BitPackedArray`], one FastLanes
+/// Stream `predicate` over the unpacked values of a [`BitPackedArray`](crate::BitPackedArray), one FastLanes
 /// block at a time, producing a [`BoolArray`].
 pub(super) fn stream_predicate<T, P>(
     array: ArrayView<'_, BitPacked>,

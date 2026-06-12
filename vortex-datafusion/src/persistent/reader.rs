@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Factory for creating [`VortexReadAt`][vortex::io::VortexReadAt] instances
-//! from [`PartitionedFile`]s.
+//! Factory for creating [`VortexReadAt`] instances from [`PartitionedFile`]s.
 
 use std::fmt::Debug;
 use std::sync::Arc;

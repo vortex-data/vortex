@@ -30,7 +30,7 @@ use crate::bitpack_decompress;
 // TODO(connor): This is duplicated in `encodings/fastlanes/src/bitpacking/kernels/mod.rs`.
 /// assuming the buffer is already allocated (which will happen at most once) then unpacking
 /// all 1024 elements takes ~8.8x as long as unpacking a single element on an M2 Macbook Air.
-/// see https://github.com/vortex-data/vortex/pull/190#issue-2223752833
+/// see <https://github.com/vortex-data/vortex/pull/190#issue-2223752833>
 pub(super) const UNPACK_CHUNK_THRESHOLD: usize = 8;
 
 impl TakeExecute for BitPacked {

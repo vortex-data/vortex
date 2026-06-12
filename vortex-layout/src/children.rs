@@ -62,7 +62,6 @@ impl LayoutChildren for Arc<dyn LayoutChildren> {
 }
 
 /// An implementation of [`LayoutChildren`] for in-memory owned children.
-/// See also [`ViewLayoutChildren`] for lazily deserialized children from flatbuffers.
 #[derive(Clone)]
 pub(crate) struct OwnedLayoutChildren(Vec<LayoutRef>);
 

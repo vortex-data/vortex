@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Execution logic for [`FilterArray`].
+//! Execution logic for [`super::FilterArray`].
 //!
 //! The main entrypoint is [`execute_filter`] which filters any [`Canonical`] array.
 
