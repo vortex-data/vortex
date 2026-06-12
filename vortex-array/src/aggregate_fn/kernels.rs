@@ -58,9 +58,12 @@ impl GroupedAggregateKernelResult {
 
 /// A pluggable kernel for batch aggregation of many groups.
 ///
-/// The kernel is matched on the encoding of the values array. It receives the same dense group
-/// ordinals that the caller passed to the grouped accumulator and may aggregate directly in the
-/// encoded domain.
+/// A grouped kernel can be registered for an aggregate function regardless of input encoding, or
+/// for a specific aggregate function and array encoding. Encoding-specific kernels are matched on
+/// the values array, not on a pre-grouped list wrapper.
+///
+/// Kernels receive the same dense group ordinals that the caller passed to the grouped accumulator
+/// and may aggregate directly in the encoded domain.
 ///
 /// Return `Ok(None)` if the kernel cannot be applied to the given aggregate function.
 pub trait DynGroupedAggregateKernel: 'static + Send + Sync + Debug {

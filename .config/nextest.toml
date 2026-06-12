@@ -1,3 +1,6 @@
+[profile.default]
+slow-timeout = { period = "30s", terminate-after = 5 }
+
 [[profile.default.overrides]]
-filter = 'test(compress_large_int)'
+filter = 'test(compress_large_int | fsst_compress_offsets_overflow_i32)'
 priority = 100

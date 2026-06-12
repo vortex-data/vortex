@@ -12,7 +12,9 @@ use futures::Stream;
 use futures::StreamExt;
 use futures::stream::BoxStream;
 
-/// Utility to end a stream early if its backing [`PartitionFile`] can be pruned away by an updated dynamic expression.
+/// Utility to end a stream early if its backing [`PartitionedFile`] can be pruned away by an updated dynamic expression.
+///
+/// [`PartitionedFile`]: datafusion_datasource::PartitionedFile
 pub(crate) struct PrunableStream {
     file_pruner: FilePruner,
     stream: BoxStream<'static, DFResult<RecordBatch>>,

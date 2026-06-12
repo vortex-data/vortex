@@ -7,6 +7,9 @@
 //! block at a time through a reusable scratch buffer, and a per-element bool is folded into
 //! a [`BitBuffer`]. Patches are re-applied at the end by overwriting bits at the patched
 //! indices with `predicate(patch_value)`.
+//!
+//! [`BitPackedArray`]: crate::BitPackedArray
+//! [`BitBuffer`]: vortex_buffer::BitBuffer
 
 use fastlanes::BitPacking;
 use fastlanes::BitPackingCompare;

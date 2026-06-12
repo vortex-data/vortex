@@ -775,7 +775,7 @@ impl FSSTData {
         self.codes_bytes.as_host()
     }
 
-    /// Build a [`Decompressor`][fsst::Decompressor] that can be used to decompress values from
+    /// Build a [`Decompressor`] that can be used to decompress values from
     /// this array.
     pub fn decompressor(&self) -> Decompressor<'_> {
         Decompressor::new(self.symbols().as_slice(), self.symbol_lengths().as_slice())

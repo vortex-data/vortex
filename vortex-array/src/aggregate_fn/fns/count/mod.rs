@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod grouped;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -89,13 +90,7 @@ impl AggregateFnVTable for Count {
         group_ids: &[u32],
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
-        let validity = batch.validity()?.execute_mask(batch.len(), ctx)?;
-        for (&group_id, valid) in group_ids.iter().zip(validity.iter()) {
-            if valid {
-                states[group_id as usize] += 1;
-            }
-        }
-        Ok(true)
+        grouped::try_accumulate_grouped(states, batch, group_ids, ctx)
     }
 
     fn accumulate(

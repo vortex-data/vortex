@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Execution logic for [`Interleave`](super::Interleave), dispatched on the value type.
+//! Execution logic for [`Interleave`], dispatched on the value type.
 //!
-//! All values share a type (validated in [`Interleave::check`](super::Interleave::check)), so the
+//! All values share a type (validated in [`Interleave::check`]), so the
 //! physical gather kernel is chosen from the first value. The selector types are an orthogonal
-//! concern handled within each kernel. Only boolean values are implemented today (see [`bool`]).
+//! concern handled within each kernel. Only boolean values are implemented today (see the [`bool`] module).
+//!
+//! [`Interleave::check`]: super::Interleave::check
+//! [`bool`]: module@crate::arrays::interleave::execute::bool
 
 mod bool;
 

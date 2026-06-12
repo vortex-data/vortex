@@ -32,6 +32,7 @@ mod projection;
 mod table_function;
 
 #[rustfmt::skip]
+#[allow(rustdoc::all)]
 #[path = "./cpp.rs"]
 /// This module provides the FFI interface to our C++ code exposing additional functionality
 /// for DuckDB, such as custom data types and functions.

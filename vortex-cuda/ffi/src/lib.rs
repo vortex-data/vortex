@@ -24,6 +24,7 @@ use vortex_ffi::vx_array;
 use vortex_ffi::vx_array_ref;
 use vortex_ffi::vx_error;
 use vortex_ffi::vx_session;
+use vortex_ffi::vx_session_new_with;
 use vortex_ffi::vx_session_ref;
 
 const VX_CUDA_OK: c_int = 0;
@@ -37,6 +38,26 @@ fn session_with_cuda(session: &VortexSession) -> VortexResult<VortexSession> {
     Ok(session.clone().with_some(CudaSession::try_default()?))
 }
 
+/// Create a CUDA Vortex session.
+///
+/// Repeated [`vx_cuda_array_export_arrow_device`] calls reuse this CUDA state. Returns an owned
+/// session handle, or null and an optional `vx_error` on failure.
+///
+/// # Safety
+///
+/// If `error_out` is non-null, it must be valid for writing one error pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_cuda_session_new(
+    error_out: *mut *mut vx_error,
+) -> *mut vx_session {
+    try_or(error_out, ptr::null_mut(), || {
+        let cuda_session = CudaSession::try_default()?;
+        Ok(vx_session_new_with(|session| {
+            session.with_some(cuda_session)
+        }))
+    })
+}
+
 /// Export a borrowed Vortex array for cuDF's Arrow Device import path.
 ///
 /// On success returns `0` and writes independently releasable `out_schema` and `out_array`; the
@@ -46,6 +67,8 @@ fn session_with_cuda(session: &VortexSession) -> VortexResult<VortexSession> {
 ///
 /// `out_array` is exported on `ARROW_DEVICE_CUDA`; struct arrays become table-shaped schemas,
 /// non-struct arrays a single column field.
+///
+/// Export is stream-ordered; `out_array->sync_event` is valid until `out_array` is released.
 ///
 /// # Safety
 ///
@@ -233,6 +256,39 @@ mod tests {
             free_test_session(session);
         }
         Ok(())
+    }
+
+    #[cuda_test]
+    fn test_cuda_session_new_export() {
+        let mut error = ptr::null_mut();
+        let session = unsafe { vx_cuda_session_new(&raw mut error) };
+        assert!(error.is_null());
+        assert!(!session.is_null());
+
+        let array = test_array(PrimitiveArray::from_iter(0u32..5));
+        let mut schema = FFI_ArrowSchema::empty();
+        let mut device_array = empty_device_array();
+
+        let status = unsafe {
+            vx_cuda_array_export_arrow_device(
+                session,
+                array,
+                &raw mut schema,
+                &raw mut device_array,
+                &raw mut error,
+            )
+        };
+        assert_eq!(status, VX_CUDA_OK);
+        assert!(error.is_null());
+        assert_eq!(device_array.array.length, 5);
+        assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
+
+        unsafe {
+            release_device_array(&mut device_array);
+            release_schema(&mut schema);
+            free_test_array(array);
+            vortex_ffi::vx_session_free(session);
+        }
     }
 
     #[cuda_not_available]

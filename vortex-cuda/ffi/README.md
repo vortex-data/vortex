@@ -14,3 +14,5 @@ Use this crate as the CUDA-enabled FFI artifact. Include both headers:
 ```
 
 and link the CUDA FFI library (`vortex_cuda_ffi`). Do not pass Vortex handles between independently linked Rust FFI libraries.
+
+Use `vx_cuda_session_new` to initialize CUDA once and reuse it across exports.

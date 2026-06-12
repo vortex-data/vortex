@@ -354,7 +354,7 @@ pub struct ZstdDataParts {
     pub slice_stop: usize,
 }
 
-/// The parts of a [`ZstdArray`] returned by [`ZstdArray::into_parts`].
+/// Compressed ZStd frames and their metadata
 #[derive(Debug)]
 struct Frames {
     dictionary: Option<ByteBuffer>,

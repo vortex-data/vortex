@@ -110,6 +110,38 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         self.accumulate_partials(result.partials(), result.group_ids(), num_groups, ctx)
     }
 
+    fn try_accumulate_kernel(
+        &mut self,
+        batch: &ArrayRef,
+        group_ids: &[u32],
+        num_groups: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        let session = ctx.session().clone();
+
+        if let Some(kernel) = session
+            .aggregate_fns()
+            .find_grouped_encoding_kernel(batch.encoding_id(), self.aggregate_fn.id())
+            && let Some(result) =
+                kernel.grouped_aggregate(&self.aggregate_fn, batch, group_ids, num_groups, ctx)?
+        {
+            self.accumulate_kernel_result(result, num_groups, ctx)?;
+            return Ok(true);
+        }
+
+        if let Some(kernel) = session
+            .aggregate_fns()
+            .find_grouped_kernel(self.aggregate_fn.id())
+            && let Some(result) =
+                kernel.grouped_aggregate(&self.aggregate_fn, batch, group_ids, num_groups, ctx)?
+        {
+            self.accumulate_kernel_result(result, num_groups, ctx)?;
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+
     fn accumulate_fallback(
         &mut self,
         batch: &ArrayRef,
@@ -242,15 +274,8 @@ impl<V: AggregateFnVTable> DynGroupedAccumulator for GroupedAccumulator<V> {
         self.validate_group_ids(group_ids, num_groups)?;
         self.ensure_groups(num_groups)?;
 
-        let session = ctx.session().clone();
-
-        if let Some(kernel) = session
-            .aggregate_fns()
-            .find_grouped_kernel(batch.encoding_id(), self.aggregate_fn.id())
-            && let Some(result) =
-                kernel.grouped_aggregate(&self.aggregate_fn, batch, group_ids, num_groups, ctx)?
-        {
-            return self.accumulate_kernel_result(result, num_groups, ctx);
+        if self.try_accumulate_kernel(batch, group_ids, num_groups, ctx)? {
+            return Ok(());
         }
 
         if self.vtable.try_accumulate_grouped(
@@ -269,18 +294,8 @@ impl<V: AggregateFnVTable> DynGroupedAccumulator for GroupedAccumulator<V> {
                 break;
             }
 
-            if let Some(kernel) = session
-                .aggregate_fns()
-                .find_grouped_kernel(batch.encoding_id(), self.aggregate_fn.id())
-                && let Some(result) = kernel.grouped_aggregate(
-                    &self.aggregate_fn,
-                    &batch,
-                    group_ids,
-                    num_groups,
-                    ctx,
-                )?
-            {
-                return self.accumulate_kernel_result(result, num_groups, ctx);
+            if self.try_accumulate_kernel(&batch, group_ids, num_groups, ctx)? {
+                return Ok(());
             }
 
             batch = batch.execute(ctx)?;

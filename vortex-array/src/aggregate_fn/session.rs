@@ -50,8 +50,10 @@ use crate::arrays::dict::compute::min_max::DictMinMaxKernel;
 pub struct AggregateFnSession {
     registry: ArcSwapMap<AggregateFnId, AggregateFnPluginRef>,
 
-    kernels: ArcSwapMap<KernelKey, &'static dyn DynAggregateKernel>,
-    grouped_kernels: ArcSwapMap<KernelKey, &'static dyn DynGroupedAggregateKernel>,
+    kernels: ArcSwapMap<AggregateKernelKey, &'static dyn DynAggregateKernel>,
+    grouped_kernels: ArcSwapMap<AggregateFnId, &'static dyn DynGroupedAggregateKernel>,
+    grouped_encoding_kernels:
+        ArcSwapMap<GroupedEncodingKernelKey, &'static dyn DynGroupedAggregateKernel>,
 }
 
 impl SessionVar for AggregateFnSession {
@@ -64,7 +66,8 @@ impl SessionVar for AggregateFnSession {
     }
 }
 
-type KernelKey = (ArrayId, Option<AggregateFnId>);
+type AggregateKernelKey = (ArrayId, Option<AggregateFnId>);
+type GroupedEncodingKernelKey = (ArrayId, AggregateFnId);
 
 impl Default for AggregateFnSession {
     fn default() -> Self {
@@ -72,6 +75,7 @@ impl Default for AggregateFnSession {
             registry: ArcSwapMap::default(),
             kernels: ArcSwapMap::default(),
             grouped_kernels: ArcSwapMap::default(),
+            grouped_encoding_kernels: ArcSwapMap::default(),
         };
 
         // Register the built-in aggregate functions
@@ -152,27 +156,46 @@ impl AggregateFnSession {
         self.kernels.insert(id, kernel);
     }
 
+    /// Returns the grouped aggregate kernel registered for `agg_fn_id`, if any.
+    ///
+    /// These kernels are independent of the element encoding and are checked for each element
+    /// representation, after any kernel registered for the current element encoding.
+    pub fn find_grouped_kernel(
+        &self,
+        agg_fn_id: impl Into<AggregateFnId>,
+    ) -> Option<&'static dyn DynGroupedAggregateKernel> {
+        let fn_id = agg_fn_id.into();
+        self.grouped_kernels
+            .read(|kernels| kernels.get(&fn_id).copied())
+    }
+
+    /// Registers a grouped aggregate kernel for an aggregate function.
+    pub fn register_grouped_kernel(
+        &self,
+        agg_fn_id: impl Into<AggregateFnId>,
+        kernel: &'static dyn DynGroupedAggregateKernel,
+    ) {
+        let fn_id = agg_fn_id.into();
+        self.grouped_kernels.insert(fn_id, kernel)
+    }
+
     /// Returns the grouped aggregate kernel registered for `array_id` and `agg_fn_id`, if any.
     ///
-    /// Lookup first checks for a kernel registered for the exact aggregate function, then falls
-    /// back to a kernel registered for all aggregate functions on the same array encoding.
-    pub fn find_grouped_kernel(
+    /// These kernels are matched against each intermediate element encoding while the grouped
+    /// accumulator executes the element array.
+    pub fn find_grouped_encoding_kernel(
         &self,
         array_id: impl Into<ArrayId>,
         agg_fn_id: impl Into<AggregateFnId>,
     ) -> Option<&'static dyn DynGroupedAggregateKernel> {
         let id = array_id.into();
         let fn_id = agg_fn_id.into();
-        self.grouped_kernels.read(|kernels| {
-            kernels
-                .get(&(id, Some(fn_id)))
-                .or_else(|| kernels.get(&(id, None)))
-                .copied()
-        })
+        self.grouped_encoding_kernels
+            .read(|kernels| kernels.get(&(id, fn_id)).copied())
     }
 
     /// Registers a grouped aggregate kernel for a specific aggregate function and array encoding.
-    pub fn register_grouped_kernel(
+    pub fn register_grouped_encoding_kernel(
         &self,
         array_id: impl Into<ArrayId>,
         agg_fn_id: impl Into<AggregateFnId>,
@@ -180,7 +203,7 @@ impl AggregateFnSession {
     ) {
         let id = array_id.into();
         let fn_id = agg_fn_id.into();
-        self.grouped_kernels.insert((id, Some(fn_id)), kernel)
+        self.grouped_encoding_kernels.insert((id, fn_id), kernel)
     }
 }
 

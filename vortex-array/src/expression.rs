@@ -35,7 +35,8 @@ impl ArrayRef {
 
         // And wrap the scalar function up in an array.
         let array =
-            ScalarFnArray::try_new(expr.scalar_fn().clone(), children, self.len())?.into_array();
+            ScalarFnArray::try_new_with_len(expr.scalar_fn().clone(), children, self.len())?
+                .into_array();
 
         // Optimize the resulting array's root.
         array.optimize()

@@ -498,7 +498,7 @@ pub fn write_jsonl_to_path(path: &std::path::Path, records: &[V3Record]) -> std:
 /// value the server-side `value_ns: i64` deserializer can accept.
 ///
 /// The wire field is `u64` (see `value_ns` on every record type below),
-/// but the server's [`vortex_bench_server::records`] mirrors them as `i64`.
+/// but the server's records mirrors them as `i64`.
 /// Without the clamp, an overflowed measurement would land at `u64::MAX`
 /// here, fail serde deserialization on the server, and 400 the whole
 /// ingest envelope.

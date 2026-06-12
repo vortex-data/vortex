@@ -11,7 +11,6 @@ use cudarc::driver::CudaSlice;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::LaunchConfig;
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::result as cuda_driver;
 use futures::future::BoxFuture;
 use futures::future::join;
 use vortex::array::ArrayRef;
@@ -362,7 +361,7 @@ fn export_canonical(
     })
 }
 
-/// Export a Vortex dictionary array as an Arrow dictionary array.
+/// Export a Vortex dictionary array as an Arrow Device dictionary array.
 ///
 /// Owns the codes buffers and recursively exported dictionary values.
 async fn export_dict(
@@ -538,11 +537,7 @@ where
     Ok(BufferHandle::new_device(Arc::new(output_device)))
 }
 
-/// Export Vortex binary views as standard Arrow `Binary`.
-///
-/// cuDF imports Arrow `Binary` through the Arrow Device path, but does not currently accept
-/// Arrow `BinaryView`. This path keeps conversion on the CUDA stream by building `i32` offsets
-/// from view sizes and gathering inline/out-of-line view bytes into one contiguous values buffer.
+/// Export Vortex binary views as an Arrow Device array with standard `Binary` layout.
 async fn export_binary(
     varbinview: VarBinViewArray,
     ctx: &mut CudaExecutionCtx,
@@ -764,9 +759,13 @@ fn gather_binary_values(
     )
 }
 
-/// Export Vortex validity as an Arrow validity byte buffer on the CUDA device.
+/// Export Vortex validity as an Arrow Device validity byte buffer.
 ///
 /// Returns `None` for the buffer when Arrow can omit validity because all rows are valid.
+///
+/// Returned buffers use zeroed 4-byte padding so cuDF's word-sized mask reads stay in bounds.
+/// Bits at positions `>= len + arrow_offset` within the final data byte are unspecified, as
+/// Arrow permits.
 pub(super) async fn export_arrow_validity_buffer(
     validity: Validity,
     len: usize,
@@ -876,7 +875,7 @@ pub(super) fn repack_arrow_validity_buffer(
     Ok(BufferHandle::new_device(Arc::new(output_device)).slice(0..output_bytes))
 }
 
-/// Export a standard Vortex list as Arrow `List`: validity, offsets, and one child array.
+/// Export a Vortex list-view as an Arrow Device array with `List` layout.
 async fn export_list_view(
     listview: ListViewArray,
     ctx: &mut CudaExecutionCtx,
@@ -903,13 +902,22 @@ async fn export_list_view(
     .await
 }
 
+/// Export a standard Vortex list as an Arrow Device array with `List` layout.
 async fn export_list(
     array: ListArray,
     child_export: ListChildExport,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<(ArrowArray, SyncEvent)> {
-    let (elements, len, validity_buffer, null_count, offsets_buffer) =
-        list_layout_parts(array, ctx).await?;
+    let len = array.len();
+    let ListDataParts {
+        elements,
+        offsets,
+        validity,
+        ..
+    } = array.into_data_parts();
+
+    let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
+    let offsets_buffer = export_arrow_list_offsets(offsets, ctx).await?;
     export_list_layout(
         elements,
         len,
@@ -922,23 +930,6 @@ async fn export_list(
     .await
 }
 
-async fn list_layout_parts(
-    array: ListArray,
-    ctx: &mut CudaExecutionCtx,
-) -> VortexResult<(ArrayRef, usize, Option<BufferHandle>, i64, BufferHandle)> {
-    let len = array.len();
-    let ListDataParts {
-        elements,
-        offsets,
-        validity,
-        ..
-    } = array.into_data_parts();
-
-    let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
-    let offsets_buffer = export_arrow_list_offsets(offsets, ctx).await?;
-    Ok((elements, len, validity_buffer, null_count, offsets_buffer))
-}
-
 #[derive(Clone, Copy)]
 pub(super) enum ListChildExport {
     /// Preserve concrete child layouts, such as dictionaries,
@@ -946,6 +937,11 @@ pub(super) enum ListChildExport {
     PreserveConcreteLayout,
     /// Canonicalize temporary encodings introduced by the host ListView
     /// rebuild, while still preserving rebuilt dictionary children.
+    ///
+    /// This is not equivalent to `export_array`: the take-based rebuild wraps
+    /// children in transient encodings (for example `take` returns `Dict`
+    /// arrays nested inside struct fields) that the pre-computed export schema
+    /// does not include, so they must be canonicalized away before export.
     RebuiltListViewChild,
 }
 
@@ -968,7 +964,7 @@ impl ListChildExport {
     }
 }
 
-/// Build the shared Arrow `List` parent once offsets and validity are ready on device.
+/// Build the shared Arrow Device `List` parent once offsets and validity are ready.
 pub(super) async fn export_list_layout(
     elements: ArrayRef,
     len: usize,
@@ -979,24 +975,7 @@ pub(super) async fn export_list_layout(
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<(ArrowArray, SyncEvent)> {
     let elements_child = child_export.export(elements, ctx).await?;
-    export_list_layout_with_child(
-        elements_child,
-        len,
-        validity_buffer,
-        null_count,
-        offsets_buffer,
-        ctx,
-    )
-}
 
-fn export_list_layout_with_child(
-    elements_child: ArrowArray,
-    len: usize,
-    validity_buffer: Option<BufferHandle>,
-    null_count: i64,
-    offsets_buffer: BufferHandle,
-    ctx: &mut CudaExecutionCtx,
-) -> VortexResult<(ArrowArray, SyncEvent)> {
     let mut private_data = PrivateData::new(
         vec![validity_buffer, Some(offsets_buffer)],
         vec![elements_child],
@@ -1017,7 +996,7 @@ fn export_list_layout_with_child(
     Ok((arrow_list, sync_event))
 }
 
-/// Export a Vortex fixed-size-list as Arrow `List`.
+/// Export a Vortex fixed-size-list as an Arrow Device array with `List` layout.
 ///
 /// cuDF's Arrow Device import accepts `List`/`LargeList` as cuDF `LIST`, but rejects
 /// `FixedSizeList`, so emit equivalent standard Arrow `List` offsets.
@@ -1069,7 +1048,7 @@ async fn fixed_size_list_offsets(
     .await
 }
 
-/// Return cuDF-supported Arrow `List` offsets as an `i32` device buffer.
+/// Return Arrow Device `List` offsets as an `i32` device buffer.
 async fn export_arrow_list_offsets(
     offsets: ArrayRef,
     ctx: &mut CudaExecutionCtx,
@@ -1167,9 +1146,9 @@ fn export_fixed_size(
 }
 
 unsafe extern "C" fn release_array(array: *mut ArrowArray) {
-    // SAFETY: this is only safe if we're dropping an ArrowArray that was created from Rust
-    //  code. This is necessary to ensure that the fields inside the CudaPrivateData
-    //  get dropped to free native/GPU memory.
+    // SAFETY: this is only safe if we're dropping an ArrowArray that was
+    // created from Rust code. This is necessary to ensure that the fields
+    // inside the CudaPrivateData get dropped to free native/GPU memory.
     unsafe {
         if array.is_null() || (*array).release.is_none() {
             return;
@@ -1179,13 +1158,11 @@ unsafe extern "C" fn release_array(array: *mut ArrowArray) {
 
         if !private_data_ptr.is_null() {
             let mut private_data = Box::from_raw(private_data_ptr.cast::<PrivateData>());
-            // Release may run on a foreign thread; bind this array's context before synchronizing
-            // so async frees cannot race consumer-side reads.
-            let cuda_context = Arc::clone(private_data.cuda_stream.context());
-            match cuda_context.bind_to_thread() {
-                Ok(()) => cuda_context.record_err(cuda_driver::ctx::synchronize()),
-                Err(err) => cuda_context.record_err(Err::<(), _>(err)),
-            }
+            // Queue a non-blocking wait so CudaSlice::Drop frees after export work.
+            let wait_result = private_data.cuda_stream.wait(&private_data.export_event);
+            // Arrow release callbacks cannot return errors, so record wait-enqueue
+            // failures for later CUDA operations to observe on this context.
+            private_data.cuda_stream.context().record_err(wait_result);
             release_children(&mut private_data);
             release_dictionary(&mut private_data);
         }
