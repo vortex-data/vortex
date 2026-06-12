@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod grouped;
+pub(crate) use grouped::CountGroupedKernel;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 

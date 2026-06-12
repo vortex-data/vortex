@@ -11,8 +11,7 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnRef;
-use crate::arrays::FixedSizeListArray;
-use crate::arrays::ListViewArray;
+use crate::aggregate_fn::GroupedArray;
 use crate::scalar::Scalar;
 
 /// A pluggable kernel for an aggregate function.
@@ -30,34 +29,24 @@ pub trait DynAggregateKernel: 'static + Send + Sync + Debug {
 
 /// A pluggable kernel for batch aggregation of many groups.
 ///
-/// The kernel is matched on the encoding of the _elements_ array, which is the inner array of the
-/// provided `ListViewArray`. This is more pragmatic than having every kernel match on the outer
-/// list encoding and having to deal with the possibility of multiple list encodings.
+/// A kernel can be registered either for an aggregate function regardless of the element encoding,
+/// or for a specific aggregate function and element encoding. Element-encoding kernels are matched
+/// on the inner array of the provided grouped array, not on the outer list encoding. This is more
+/// pragmatic than having every kernel match on the outer list encoding and having to deal with the
+/// possibility of multiple list encodings.
 ///
-/// Each element of the list array represents a group and the result of the grouped aggregate
+/// Each value in the grouped array represents a group and the result of the grouped aggregate
 /// should be an array of the same length, where each element is the aggregate state of the
 /// corresponding group.
 ///
 /// Return `Ok(None)` if the kernel cannot be applied to the given aggregate function.
 pub trait DynGroupedAggregateKernel: 'static + Send + Sync + Debug {
-    /// Aggregate each group in the provided `ListViewArray` and return an array of the
-    /// aggregate states.
+    /// Aggregate each group in the provided grouped array and return an array of the aggregate
+    /// states.
     fn grouped_aggregate(
         &self,
         aggregate_fn: &AggregateFnRef,
-        groups: &ListViewArray,
+        groups: &GroupedArray,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;
-
-    /// Aggregate each group in the provided `FixedSizeListArray` and return an array of the
-    /// aggregate states.
-    fn grouped_aggregate_fixed_size(
-        &self,
-        aggregate_fn: &AggregateFnRef,
-        groups: &FixedSizeListArray,
-    ) -> VortexResult<Option<ArrayRef>> {
-        // TODO(ngates): we could automatically delegate to `grouped_aggregate` if SequenceArray
-        //  was in the vortex-array crate
-        let _ = (aggregate_fn, groups);
-        Ok(None)
-    }
 }
