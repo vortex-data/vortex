@@ -132,6 +132,7 @@ mod tests {
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -239,21 +240,57 @@ mod tests {
         Ok(())
     }
 
+    fn run_grouped_count(
+        values: &ArrayRef,
+        group_ids: &[u32],
+        num_groups: usize,
+    ) -> VortexResult<ArrayRef> {
+        let mut acc = GroupedAccumulator::try_new(Count, EmptyOptions, values.dtype().clone())?;
+        acc.accumulate(
+            values,
+            group_ids,
+            num_groups,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
+        acc.finish(num_groups)
+    }
+
     #[test]
     fn grouped_count_dense_ids() -> VortexResult<()> {
         let values =
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None, Some(6)])
                 .into_array();
-        let mut acc = GroupedAccumulator::try_new(Count, EmptyOptions, values.dtype().clone())?;
-        acc.accumulate(
-            &values,
-            &[0, 0, 1, 1, 2, 2],
-            3,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )?;
+        let actual = run_grouped_count(&values, &[0, 0, 1, 1, 2, 2], 3)?;
 
-        let actual = acc.finish(3)?;
         let expected = PrimitiveArray::from_iter([1u64, 2, 1]).into_array();
+        assert_arrays_eq!(&actual, &expected);
+        Ok(())
+    }
+
+    #[test]
+    fn grouped_count_omitted_group() -> VortexResult<()> {
+        let values =
+            PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5, 6], Validity::NonNullable).into_array();
+        let actual = run_grouped_count(&values, &[0, 0, 1, 2, 2, 2], 4)?;
+
+        let expected = PrimitiveArray::from_iter([2u64, 1, 3, 0]).into_array();
+        assert_arrays_eq!(&actual, &expected);
+        Ok(())
+    }
+
+    #[test]
+    fn grouped_count_varbinview_with_nulls() -> VortexResult<()> {
+        let values = VarBinViewArray::from_iter_nullable_str([
+            Some("a"),
+            None,
+            Some("bbb"),
+            None,
+            Some("cc"),
+        ])
+        .into_array();
+        let actual = run_grouped_count(&values, &[0, 0, 1, 1, 2], 3)?;
+
+        let expected = PrimitiveArray::from_iter([1u64, 1, 1]).into_array();
         assert_arrays_eq!(&actual, &expected);
         Ok(())
     }

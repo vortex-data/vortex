@@ -641,6 +641,39 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn grouped_sum_overflow_group_is_null() -> VortexResult<()> {
+        let values =
+            PrimitiveArray::new(buffer![i64::MAX, 1, 2, 3], Validity::NonNullable).into_array();
+        let result = run_grouped_sum(&values, &[0, 0, 1, 1], 2)?;
+
+        let expected = PrimitiveArray::from_option_iter([None, Some(5i64)]).into_array();
+        assert_arrays_eq!(&result, &expected);
+        Ok(())
+    }
+
+    #[test]
+    fn grouped_sum_float_nan_and_inf() -> VortexResult<()> {
+        let values = PrimitiveArray::new(
+            buffer![1.0f64, f64::NAN, 2.0, f64::INFINITY, f64::NEG_INFINITY, 4.0],
+            Validity::NonNullable,
+        )
+        .into_array();
+        let actual = run_grouped_sum(&values, &[0, 0, 0, 1, 1, 1], 2)?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
+        let g0 = actual.execute_scalar(0, &mut ctx)?;
+        assert_eq!(g0.as_primitive().typed_value::<f64>(), Some(3.0));
+
+        let g1 = actual.execute_scalar(1, &mut ctx)?;
+        let g1_value = g1
+            .as_primitive()
+            .typed_value::<f64>()
+            .vortex_expect("group sum should be non-null");
+        assert!(g1_value.is_nan());
+        Ok(())
+    }
+
     // Chunked array tests
 
     #[test]
