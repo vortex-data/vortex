@@ -517,32 +517,51 @@ treat it as ordinary binary for functions that depend on JPEG semantics.
 
 ## Roadmap
 
-Start with a narrow vertical slice that proves the trait model. Do not start by
-renaming every `Expression` call site, designing every function, or building the DuckDB
-native-vector path first. Those are migration and optimization steps; the first risk is
-whether the abstractions are grokkable.
+Start with the low-level bound representation. The existing `Expression` type is already
+the execution-facing IR, and replacing it with a real `BoundExpr` is a large, early
+migration that everything else will build on. Do not start by introducing the high-level
+DSL or catalog API; that can wait until the lower-level model is stable and we are ready
+to expose nicer PyVortex and language-binding APIs.
 
-### Phase 1: Trait Skeleton and Vortex-Only Binding
+### Phase 1: BoundExpr Foundation
 
-- Introduce `BoundExpr` as the name and shape for the already-bound expression tree.
-  Prefer the final representation over a compatibility alias if the enum design proves
-  clearer.
-- Add a small catalog/binder module with the first versions of `FunctionCatalog`,
-  `FunctionFamily`, `FunctionOverload`, `BindCtx`, and `BindError`.
-- Use the typed-trait plus erased-`Dyn*` pattern from the start, even if the first
-  implementations are thin.
-- Bind one friendly DSL function name end-to-end. `contains` is the preferred test case
-  because it naturally demonstrates overload resolution between logical domains such as
-  lists and geo values.
+- Replace today's `Expression` struct with `BoundExpr` as the lower-level, already-bound
+  expression representation.
+- Prefer the final enum shape early: `Root`, `Literal`, `Placeholder`, and
+  `Call(BoundCall)`.
+- Introduce `BoundCall` with the selected `ScalarFnRef`, bound/coerced arguments, and
+  resolved `return_dtype`.
+- Keep `Field` out of `BoundExpr`; field access should lower to a field-access
+  `BoundCall`.
+- Move `Root`, `Literal`, `RowIdx`, and `RowCount`-style behavior out of the
+  "pretend scalar function" model where practical.
+- Update traversal, formatting, proto/serialization, stats rewrites, pruning, scan
+  construction, tests, and direct expression builders to consume `BoundExpr`.
 - Keep execution on the existing `ScalarFnVTable` / `ScalarFnArray` path initially. The
-  first milestone should prove binding and naming, not a new execution engine.
+  first milestone should prove the bound representation, not a new execution engine or
+  a friendly high-level DSL.
 
-Exit criterion: a Rust test can construct high-level `Expr::call("contains", ...)`,
-bind it against input dtypes through a `FunctionCatalog`, and receive a `BoundExpr`
-whose selected low-level function is deterministic and diagnosable.
+Exit criterion: existing expression construction, scan integration, stats/pruning
+rewrites, serialization tests, and execution tests operate on `BoundExpr`, with
+`ScanBuilder` accepting the low-level bound representation.
 
 ### Phase 2: Function Implementation Adapters
 
+- Before finalizing the row-helper trait design, inspect prior art in
+  `/Users/ngates/git/velox` and `/Users/ngates/git/duckdb`.
+- From Velox, look at `velox/type/SimpleFunctionApi.h`,
+  `velox/expression/SimpleFunctionAdapter.h`, and
+  `velox/expression/VectorFunction.h` for typed simple-function APIs, adapter lifting
+  into vector execution, selectivity-vector handling, flat/no-null fast paths, constant
+  input treatment, and memory/string-encoding reuse hooks.
+- From DuckDB, look at `src/include/duckdb/function/function.hpp` and
+  `src/include/duckdb/function/scalar_function.hpp` for bound function data,
+  signatures, return types, null handling, stability/fallibility properties, bind
+  callbacks, local state, statistics propagation, direct selection callbacks, and
+  serialization hooks.
+- Use those systems as design inspiration, not as APIs to copy. The Vortex shape should
+  still be Rust-native, typed where useful, and compatible with the existing
+  `ScalarFnVTable` plus erased `Dyn*` pattern.
 - Design the first row-helper traits: `RowInput`, concrete `RowReader` enums,
   `RowOutput`, `UnaryRowFn`, and `BinaryRowFn`.
 - Add the scalar-function benchmark harness before porting many functions, so the old
@@ -558,8 +577,9 @@ whose selected low-level function is deterministic and diagnosable.
   explicit. Avoid control-flow functions and fallible row-error functions in this phase.
 
 Exit criterion: a new scalar function can be implemented without hand-writing all
-canonical array, constant, and null dispatch logic, and the scalar benchmark harness can
-compare it against the previous implementation shape.
+canonical array, constant, and null dispatch logic; the scalar benchmark harness can
+compare it against the previous implementation shape; and the Phase 2 design notes
+record which Velox/DuckDB ideas were adopted or rejected.
 
 ### Phase 3: Scalar Execution Scheduler Migration
 
@@ -591,7 +611,25 @@ the new scheduler path.
 Exit criterion: the binder and engine adapters can ask what an extension dtype means
 logically and how, or whether, it can be represented outside Vortex.
 
-### Phase 5: First Engine Adapter
+### Phase 5: Catalog, Binder, and Friendly DSL
+
+- Add the high-level unbound `Expr` tree with user-facing syntax such as `Expr::Field`,
+  literals, placeholders, and unresolved named calls.
+- Add the first versions of `FunctionCatalog`, `FunctionFamily`, `FunctionOverload`,
+  `BindCtx`, and `BindError`.
+- Use the typed-trait plus erased-`Dyn*` pattern for catalog storage where it helps keep
+  implementation APIs strongly typed.
+- Bind one friendly DSL function name end-to-end. `contains` is the preferred test case
+  because it naturally demonstrates overload resolution between logical domains such as
+  lists and geo values.
+- Keep the public surface modest until the Python/Java/CXX APIs are ready; the initial
+  Rust binder can be internal or experimental if that reduces churn.
+
+Exit criterion: a Rust test can construct high-level `Expr::call("contains", ...)`,
+bind it against input dtypes through a `FunctionCatalog`, and receive a `BoundExpr`
+whose selected low-level function and return dtype are deterministic and diagnosable.
+
+### Phase 6: First Engine Adapter
 
 - Add one engine adapter path using the new type/function metadata.
 - DataFusion/Arrow is likely the lower-risk first adapter because Vortex already has an
@@ -602,7 +640,7 @@ logically and how, or whether, it can be represented outside Vortex.
 Exit criterion: one function/type pair can be registered into an external engine from
 the same semantic definitions used by the Vortex binder.
 
-### Phase 6: Language API Surface
+### Phase 7: Language API Surface
 
 - Expose the high-level DSL in Python first, with Java/CXX/FFI following once the Rust
   API stabilizes.
@@ -613,7 +651,7 @@ the same semantic definitions used by the Vortex binder.
 Exit criterion: a Python user can build a friendly expression, bind it through the
 catalog, and pass the resulting `BoundExpr` into scan construction.
 
-### Phase 7: Migration and Cleanup
+### Phase 8: Migration and Cleanup
 
 - Migrate existing direct expression construction to the new names and layers.
 - Move function-specific coercion and overload logic out of scattered integrations and
