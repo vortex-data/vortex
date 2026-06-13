@@ -274,7 +274,7 @@ mod tests {
     use crate::aggregate_fn::AggregateFnRef;
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynAccumulator;
-    use crate::aggregate_fn::EmptyOptions;
+    use crate::aggregate_fn::SkipNansOptions;
     use crate::aggregate_fn::combined::Combined;
     use crate::aggregate_fn::combined::PairOptions;
     use crate::aggregate_fn::fns::mean::Mean;
@@ -348,7 +348,7 @@ mod tests {
         let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
         Accumulator::try_new(
             Mean::combined(),
-            PairOptions(EmptyOptions, EmptyOptions),
+            PairOptions(SkipNansOptions::default(), SkipNansOptions::default()),
             dtype,
         )
     }

@@ -7,7 +7,6 @@ use vortex_array::IntoArray;
 use vortex_array::aggregate_fn::Accumulator;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::DynAccumulator;
-use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::aggregate_fn::fns::sum::Sum;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::arrays::ConstantArray;
@@ -34,9 +33,9 @@ impl DynAggregateKernel for SparseSumKernel {
         batch: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Scalar>> {
-        if !aggregate_fn.is::<Sum>() {
+        let Some(options) = aggregate_fn.as_opt::<Sum>() else {
             return Ok(None);
-        }
+        };
 
         let Some(sparse) = batch.as_opt::<Sparse>() else {
             return Ok(None);
@@ -47,8 +46,8 @@ impl DynAggregateKernel for SparseSumKernel {
 
         // Build a fresh Sum accumulator over the array dtype and fold in the fill and patch
         // contributions. The accumulator's existing semantics (checked overflow → null
-        // partial) are preserved.
-        let mut acc = Accumulator::try_new(Sum, EmptyOptions, batch.dtype().clone())?;
+        // partial, NaN handling per the options) are preserved.
+        let mut acc = Accumulator::try_new(Sum, *options, batch.dtype().clone())?;
 
         if n_fill > 0 {
             let fill_array = ConstantArray::new(sparse.fill_scalar().clone(), n_fill).into_array();

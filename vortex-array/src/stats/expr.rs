@@ -6,6 +6,7 @@
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::SkipNansOptions;
 use crate::aggregate_fn::fns::all_nan::AllNan;
 use crate::aggregate_fn::fns::all_non_nan::AllNonNan;
 use crate::aggregate_fn::fns::all_non_null::AllNonNull;
@@ -29,12 +30,12 @@ pub fn stat(expr: Expression, aggregate_fn: AggregateFnRef) -> Expression {
 
 /// Creates `stat(expr, min_max)`, returning a nullable `{ min, max }` struct statistic.
 pub fn min_max(expr: Expression) -> Expression {
-    stat(expr, MinMax.bind(EmptyOptions))
+    stat(expr, MinMax.bind(SkipNansOptions::default()))
 }
 
 /// Creates `stat(expr, sum)`, returning a nullable sum statistic.
 pub fn sum(expr: Expression) -> Expression {
-    stat(expr, Sum.bind(EmptyOptions))
+    stat(expr, Sum.bind(SkipNansOptions::default()))
 }
 
 /// Creates `stat(expr, null_count)`, returning a nullable null-count statistic.

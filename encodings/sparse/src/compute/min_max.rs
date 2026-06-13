@@ -7,7 +7,6 @@ use vortex_array::IntoArray;
 use vortex_array::aggregate_fn::Accumulator;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::DynAccumulator;
-use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::aggregate_fn::fns::min_max::MinMax;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::arrays::ConstantArray;
@@ -32,9 +31,9 @@ impl DynAggregateKernel for SparseMinMaxKernel {
         batch: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Scalar>> {
-        if !aggregate_fn.is::<MinMax>() {
+        let Some(options) = aggregate_fn.as_opt::<MinMax>() else {
             return Ok(None);
-        }
+        };
 
         let Some(sparse) = batch.as_opt::<Sparse>() else {
             return Ok(None);
@@ -42,7 +41,7 @@ impl DynAggregateKernel for SparseMinMaxKernel {
 
         let patches = sparse.patches();
 
-        let mut acc = Accumulator::try_new(MinMax, EmptyOptions, batch.dtype().clone())?;
+        let mut acc = Accumulator::try_new(MinMax, *options, batch.dtype().clone())?;
 
         if !patches.values().is_empty() {
             acc.accumulate(patches.values(), ctx)?;

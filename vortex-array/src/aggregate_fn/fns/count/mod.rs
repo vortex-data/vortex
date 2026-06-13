@@ -11,7 +11,8 @@ use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
-use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::SkipNansOptions;
+use crate::aggregate_fn::fns::nan_count::nan_count;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -21,12 +22,23 @@ use crate::scalar::Scalar;
 ///
 /// Applies to all types. Returns a `u64` count.
 /// The identity value is zero.
+///
+/// For float inputs, NaN handling is controlled by [`SkipNansOptions`]: with `skip_nans` (the
+/// default) NaN values are treated as missing and excluded from the count, otherwise they are
+/// counted like any other non-null value.
 #[derive(Clone, Debug)]
 pub struct Count;
 
+/// Partial accumulator state for the count aggregate.
+pub struct CountPartial {
+    count: u64,
+    /// Whether NaN values must be excluded from the count (float input with `skip_nans`).
+    exclude_nans: bool,
+}
+
 impl AggregateFnVTable for Count {
-    type Options = EmptyOptions;
-    type Partial = u64;
+    type Options = SkipNansOptions;
+    type Partial = CountPartial;
 
     fn id(&self) -> AggregateFnId {
         AggregateFnId::new("vortex.count")
@@ -46,10 +58,13 @@ impl AggregateFnVTable for Count {
 
     fn empty_partial(
         &self,
-        _options: &Self::Options,
-        _input_dtype: &DType,
+        options: &Self::Options,
+        input_dtype: &DType,
     ) -> VortexResult<Self::Partial> {
-        Ok(0u64)
+        Ok(CountPartial {
+            count: 0,
+            exclude_nans: options.skip_nans && input_dtype.is_float(),
+        })
     }
 
     fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {
@@ -57,16 +72,16 @@ impl AggregateFnVTable for Count {
             .as_primitive()
             .typed_value::<u64>()
             .vortex_expect("count partial should not be null");
-        *partial += val;
+        partial.count += val;
         Ok(())
     }
 
     fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
-        Ok(Scalar::primitive(*partial, Nullability::NonNullable))
+        Ok(Scalar::primitive(partial.count, Nullability::NonNullable))
     }
 
     fn reset(&self, partial: &mut Self::Partial) {
-        *partial = 0;
+        partial.count = 0;
     }
 
     #[inline]
@@ -80,7 +95,12 @@ impl AggregateFnVTable for Count {
         batch: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
-        *state += batch.valid_count(ctx)? as u64;
+        let mut count = batch.valid_count(ctx)? as u64;
+        if state.exclude_nans {
+            // `nan_count` shortcircuits on an exact `Stat::NaNCount` before scanning the batch.
+            count -= nan_count(batch, ctx)? as u64;
+        }
+        state.count += count;
         Ok(true)
     }
 
@@ -116,7 +136,7 @@ mod tests {
     use crate::aggregate_fn::Accumulator;
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynAccumulator;
-    use crate::aggregate_fn::EmptyOptions;
+    use crate::aggregate_fn::SkipNansOptions;
     use crate::aggregate_fn::fns::count::Count;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
@@ -124,11 +144,15 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::expr::stats::Precision;
+    use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
+    use crate::scalar::ScalarValue;
     use crate::validity::Validity;
 
     pub fn count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
-        let mut acc = Accumulator::try_new(Count, EmptyOptions, array.dtype().clone())?;
+        let mut acc =
+            Accumulator::try_new(Count, SkipNansOptions::default(), array.dtype().clone())?;
         acc.accumulate(array, ctx)?;
         let result = acc.finish()?;
 
@@ -169,7 +193,7 @@ mod tests {
     #[test]
     fn count_empty() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Count, EmptyOptions, dtype)?;
+        let mut acc = Accumulator::try_new(Count, SkipNansOptions::default(), dtype)?;
         let result = acc.finish()?;
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(0));
         Ok(())
@@ -179,7 +203,7 @@ mod tests {
     fn count_multi_batch() -> VortexResult<()> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
-        let mut acc = Accumulator::try_new(Count, EmptyOptions, dtype)?;
+        let mut acc = Accumulator::try_new(Count, SkipNansOptions::default(), dtype)?;
 
         let batch1 = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array();
         acc.accumulate(&batch1, &mut ctx)?;
@@ -196,7 +220,7 @@ mod tests {
     fn count_finish_resets_state() -> VortexResult<()> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
-        let mut acc = Accumulator::try_new(Count, EmptyOptions, dtype)?;
+        let mut acc = Accumulator::try_new(Count, SkipNansOptions::default(), dtype)?;
 
         let batch1 = PrimitiveArray::from_option_iter([Some(1i32), None]).into_array();
         acc.accumulate(&batch1, &mut ctx)?;
@@ -213,7 +237,7 @@ mod tests {
     #[test]
     fn count_state_merge() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut state = Count.empty_partial(&EmptyOptions, &dtype)?;
+        let mut state = Count.empty_partial(&SkipNansOptions::default(), &dtype)?;
 
         let scalar1 = Scalar::primitive(5u64, Nullability::NonNullable);
         Count.combine_partials(&mut state, scalar1)?;
@@ -224,6 +248,69 @@ mod tests {
         let result = Count.to_scalar(&state)?;
         Count.reset(&mut state);
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(8));
+        Ok(())
+    }
+
+    fn count_with_options(
+        array: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+        options: SkipNansOptions,
+    ) -> VortexResult<u64> {
+        let mut acc = Accumulator::try_new(Count, options, array.dtype().clone())?;
+        acc.accumulate(array, ctx)?;
+        Ok(acc
+            .finish()?
+            .as_primitive()
+            .typed_value::<u64>()
+            .vortex_expect("count result should not be null"))
+    }
+
+    #[test]
+    fn count_float_excludes_nans_by_default() -> VortexResult<()> {
+        let array =
+            PrimitiveArray::from_option_iter([Some(1.0f64), Some(f64::NAN), None, Some(3.0)])
+                .into_array();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        assert_eq!(count(&array, &mut ctx)?, 2);
+        Ok(())
+    }
+
+    #[test]
+    fn count_float_includes_nans_when_not_skipping() -> VortexResult<()> {
+        let array =
+            PrimitiveArray::from_option_iter([Some(1.0f64), Some(f64::NAN), None, Some(3.0)])
+                .into_array();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        assert_eq!(
+            count_with_options(&array, &mut ctx, SkipNansOptions { skip_nans: false })?,
+            3
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn count_float_shortcircuits_on_exact_nan_count_stat() -> VortexResult<()> {
+        // The array has no NaNs; a planted exact NaNCount stat proves the count is derived from
+        // the stat rather than a scan.
+        let array =
+            PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0, 4.0], Validity::NonNullable).into_array();
+        array
+            .statistics()
+            .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(3u64)));
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        assert_eq!(count(&array, &mut ctx)?, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn count_constant_nan() -> VortexResult<()> {
+        let array = ConstantArray::new(f64::NAN, 5).into_array();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        assert_eq!(count(&array, &mut ctx)?, 0);
+        assert_eq!(
+            count_with_options(&array, &mut ctx, SkipNansOptions { skip_nans: false })?,
+            5
+        );
         Ok(())
     }
 

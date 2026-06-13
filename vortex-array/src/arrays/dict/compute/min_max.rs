@@ -9,7 +9,7 @@ use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::make_minmax_dtype;
-use crate::aggregate_fn::fns::min_max::min_max;
+use crate::aggregate_fn::fns::min_max::min_max_with;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::arrays::Dict;
 use crate::arrays::dict::DictArrayExt;
@@ -30,9 +30,9 @@ impl DynAggregateKernel for DictMinMaxKernel {
         batch: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Scalar>> {
-        if !aggregate_fn.is::<MinMax>() {
+        let Some(options) = aggregate_fn.as_opt::<MinMax>() else {
             return Ok(None);
-        }
+        };
 
         let Some(dict) = batch.as_opt::<Dict>() else {
             return Ok(None);
@@ -42,13 +42,13 @@ impl DynAggregateKernel for DictMinMaxKernel {
 
         let result = if dict.has_all_values_referenced() {
             // All values are referenced, compute min/max directly on the values array.
-            min_max(dict.values(), ctx)?
+            min_max_with(dict.values(), ctx, *options)?
         } else {
             // Filter to only referenced values, then compute min/max.
             let referenced_mask = dict.compute_referenced_values_mask(true)?;
             let mask = Mask::from(referenced_mask);
             let filtered_values = dict.values().filter(mask)?;
-            min_max(&filtered_values, ctx)?
+            min_max_with(&filtered_values, ctx, *options)?
         };
 
         match result {

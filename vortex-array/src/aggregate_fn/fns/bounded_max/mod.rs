@@ -20,7 +20,7 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnSatisfaction;
 use crate::aggregate_fn::AggregateFnVTable;
-use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::SkipNansOptions;
 use crate::aggregate_fn::fns::max::Max;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::min_max;
@@ -136,7 +136,11 @@ impl AggregateFnVTable for BoundedMax {
             };
         }
 
-        if requested.is::<Max>() {
+        // The stored bound skips NaNs, so it cannot stand in for a NaN-including maximum.
+        if requested
+            .as_opt::<Max>()
+            .is_some_and(|options| options.skip_nans)
+        {
             AggregateFnSatisfaction::Approximate
         } else {
             AggregateFnSatisfaction::No
@@ -213,7 +217,7 @@ impl AggregateFnVTable for BoundedMax {
 
 fn supported_dtype<'a>(_options: &BoundedMaxOptions, input_dtype: &'a DType) -> Option<&'a DType> {
     MinMax
-        .return_dtype(&EmptyOptions, input_dtype)
+        .return_dtype(&SkipNansOptions::default(), input_dtype)
         .map(|_| input_dtype)
 }
 
@@ -253,7 +257,7 @@ mod tests {
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::AggregateFnVTableExt;
     use crate::aggregate_fn::DynAccumulator;
-    use crate::aggregate_fn::EmptyOptions;
+    use crate::aggregate_fn::SkipNansOptions;
     use crate::aggregate_fn::fns::bounded_max::BoundedMax;
     use crate::aggregate_fn::fns::bounded_max::BoundedMaxOptions;
     use crate::aggregate_fn::fns::max::Max;
@@ -416,15 +420,24 @@ mod tests {
             AggregateFnSatisfaction::No
         );
         assert_eq!(
-            stored.can_satisfy(&Max.bind(EmptyOptions)),
+            stored.can_satisfy(&Max.bind(SkipNansOptions::default())),
             AggregateFnSatisfaction::Approximate
         );
         assert_eq!(
-            Max.bind(EmptyOptions).can_satisfy(&stored),
+            stored.can_satisfy(&Max.bind(SkipNansOptions { skip_nans: false })),
+            AggregateFnSatisfaction::No
+        );
+        assert_eq!(
+            Max.bind(SkipNansOptions { skip_nans: false })
+                .can_satisfy(&stored),
+            AggregateFnSatisfaction::No
+        );
+        assert_eq!(
+            Max.bind(SkipNansOptions::default()).can_satisfy(&stored),
             AggregateFnSatisfaction::Approximate
         );
         assert_eq!(
-            stored.can_satisfy(&Min.bind(EmptyOptions)),
+            stored.can_satisfy(&Min.bind(SkipNansOptions::default())),
             AggregateFnSatisfaction::No
         );
     }

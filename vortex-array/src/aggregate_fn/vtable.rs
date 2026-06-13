@@ -167,6 +167,39 @@ impl Display for EmptyOptions {
     }
 }
 
+/// Options for aggregate functions over primitive numeric inputs, controlling how NaN values in
+/// floating-point arrays are handled.
+///
+/// When `skip_nans` is `true` (the default), NaN values are treated as missing: they contribute
+/// nothing to `sum`/`min`/`max`/`mean` and are excluded from `count`.
+///
+/// When `skip_nans` is `false`, NaN values participate in the aggregate: `count` includes them,
+/// while any NaN value poisons the result of `sum`/`min`/`max`/`mean` to NaN.
+///
+/// The option has no effect on non-float inputs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SkipNansOptions {
+    /// Whether NaN values are skipped (treated as missing) during aggregation.
+    pub skip_nans: bool,
+}
+
+impl Default for SkipNansOptions {
+    fn default() -> Self {
+        Self { skip_nans: true }
+    }
+}
+
+impl Display for SkipNansOptions {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        // Only the non-default configuration is displayed, so that aggregates with default
+        // options render identically to their pre-options form, e.g. `vortex.sum()`.
+        if !self.skip_nans {
+            write!(f, "skip_nans=false")?;
+        }
+        Ok(())
+    }
+}
+
 /// Factory functions for aggregate vtables.
 pub trait AggregateFnVTableExt: AggregateFnVTable {
     /// Bind this vtable with the given options into an [`AggregateFnRef`].

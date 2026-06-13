@@ -12,6 +12,7 @@ use std::sync::LazyLock;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_panic;
 
 use self::bool::accumulate_bool;
 use self::decimal::accumulate_decimal;
@@ -26,14 +27,17 @@ use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
-use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::SkipNansOptions;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
+use crate::dtype::PType;
 use crate::dtype::StructFields;
+use crate::dtype::half::f16;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
+use crate::expr::stats::StatsProviderExt;
 use crate::partial_ord::partial_max;
 use crate::partial_ord::partial_min;
 use crate::scalar::Scalar;
@@ -41,6 +45,8 @@ use crate::scalar::Scalar;
 static NAMES: LazyLock<FieldNames> = LazyLock::new(|| FieldNames::from(["min", "max"]));
 
 /// The minimum and maximum non-null values of an array, or `None` if there are no non-null values.
+///
+/// NaN values are skipped; see [`min_max_with`] for NaN-including extrema.
 ///
 /// The result scalars have the non-nullable version of the array dtype.
 /// This will update the stats set of the array as a side effect.
@@ -67,7 +73,7 @@ pub fn min_max(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<
     }
 
     // Compute using Accumulator<MinMax>.
-    let mut acc = Accumulator::try_new(MinMax, EmptyOptions, array.dtype().clone())?;
+    let mut acc = Accumulator::try_new(MinMax, SkipNansOptions::default(), array.dtype().clone())?;
     acc.accumulate(array, ctx)?;
     let result_scalar = acc.finish()?;
     let result = MinMaxResult::from_scalar(result_scalar)?;
@@ -87,6 +93,65 @@ pub fn min_max(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<
     }
 
     Ok(result)
+}
+
+/// [`min_max`] with explicit [`SkipNansOptions`].
+///
+/// With `skip_nans` (the default) this is identical to [`min_max`]: NaN values are ignored and
+/// the cached `Stat::Min`/`Stat::Max` statistics are consulted and updated. With
+/// `skip_nans=false`, any NaN value in a float array poisons both extrema to NaN; an exact
+/// `Stat::NaNCount` statistic shortcircuits the NaN scan in either direction.
+pub fn min_max_with(
+    array: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+    options: SkipNansOptions,
+) -> VortexResult<Option<MinMaxResult>> {
+    if !options.skip_nans && array.dtype().is_float() {
+        match array.statistics().get_as::<u64>(Stat::NaNCount) {
+            // NaN-free: identical to the NaN-skipping path, including its stat caching.
+            Precision::Exact(0) => {}
+            // At least one NaN value poisons both extrema.
+            Precision::Exact(_) => return Ok(Some(nan_minmax_result(array.dtype()))),
+            _ => {
+                if array.is_empty() || array.valid_count(ctx)? == 0 {
+                    return Ok(None);
+                }
+                // Compute with NaN-including options; the NaN-skipping `Stat::Min`/`Stat::Max`
+                // caches are neither read nor written.
+                let mut acc = Accumulator::try_new(MinMax, options, array.dtype().clone())?;
+                acc.accumulate(array, ctx)?;
+                return MinMaxResult::from_scalar(acc.finish()?);
+            }
+        }
+    }
+    min_max(array, ctx)
+}
+
+/// A `{min: NaN, max: NaN}` result for a poisoned NaN-including min/max over `dtype`.
+fn nan_minmax_result(dtype: &DType) -> MinMaxResult {
+    let nan = nan_scalar(dtype);
+    MinMaxResult {
+        min: nan.clone(),
+        max: nan,
+    }
+}
+
+/// A non-nullable NaN scalar of the float `dtype`.
+pub(crate) fn nan_scalar(dtype: &DType) -> Scalar {
+    let DType::Primitive(ptype, _) = dtype else {
+        vortex_panic!("NaN scalar requested for non-primitive dtype {}", dtype);
+    };
+    match ptype {
+        PType::F16 => Scalar::primitive(f16::NAN, Nullability::NonNullable),
+        PType::F32 => Scalar::primitive(f32::NAN, Nullability::NonNullable),
+        PType::F64 => Scalar::primitive(f64::NAN, Nullability::NonNullable),
+        _ => vortex_panic!("NaN scalar requested for non-float dtype {}", dtype),
+    }
+}
+
+/// Whether a scalar holds a primitive float NaN value.
+pub(crate) fn scalar_is_nan(scalar: &Scalar) -> bool {
+    scalar.as_primitive_opt().is_some_and(|p| p.is_nan())
 }
 
 /// The minimum and maximum non-null values of an array.
@@ -119,6 +184,9 @@ impl MinMaxResult {
 ///
 /// Returns a nullable struct scalar `{min: T, max: T}` where `T` is the non-nullable input dtype.
 /// The struct is null when the array is empty or all-null.
+///
+/// NaN handling for float inputs is controlled by [`SkipNansOptions`]: with `skip_nans` (the
+/// default) NaN values are ignored, otherwise any NaN value poisons both extrema to NaN.
 #[derive(Clone, Debug)]
 pub struct MinMax;
 
@@ -127,6 +195,7 @@ pub struct MinMaxPartial {
     min: Option<Scalar>,
     max: Option<Scalar>,
     element_dtype: DType,
+    skip_nans: bool,
 }
 
 impl MinMaxPartial {
@@ -135,6 +204,16 @@ impl MinMaxPartial {
         let Some(MinMaxResult { min, max }) = local else {
             return;
         };
+
+        // NaN scalars are incomparable under `partial_min`/`partial_max`, so they are handled
+        // explicitly: a NaN extremum poisons the partial state when NaNs participate, and is
+        // dropped when they are skipped.
+        if scalar_is_nan(&min) || scalar_is_nan(&max) || self.is_poisoned() {
+            if !self.skip_nans {
+                self.poison();
+            }
+            return;
+        }
 
         self.min = Some(match self.min.take() {
             Some(current) => partial_min(min, current).vortex_expect("incomparable min scalars"),
@@ -145,6 +224,18 @@ impl MinMaxPartial {
             Some(current) => partial_max(max, current).vortex_expect("incomparable max scalars"),
             None => max,
         });
+    }
+
+    /// Poison the partial state to `{min: NaN, max: NaN}`.
+    fn poison(&mut self) {
+        let nan = nan_scalar(&self.element_dtype.as_nonnullable());
+        self.min = Some(nan.clone());
+        self.max = Some(nan);
+    }
+
+    /// Whether the partial state is poisoned to NaN.
+    fn is_poisoned(&self) -> bool {
+        self.min.as_ref().is_some_and(scalar_is_nan)
     }
 }
 
@@ -194,7 +285,7 @@ fn minmax_compute_supported_dtype(input_dtype: &DType) -> bool {
 }
 
 impl AggregateFnVTable for MinMax {
-    type Options = EmptyOptions;
+    type Options = SkipNansOptions;
     type Partial = MinMaxPartial;
 
     fn id(&self) -> AggregateFnId {
@@ -215,13 +306,14 @@ impl AggregateFnVTable for MinMax {
 
     fn empty_partial(
         &self,
-        _options: &Self::Options,
+        options: &Self::Options,
         input_dtype: &DType,
     ) -> VortexResult<Self::Partial> {
         Ok(MinMaxPartial {
             min: None,
             max: None,
             element_dtype: input_dtype.clone(),
+            skip_nans: options.skip_nans,
         })
     }
 
@@ -245,8 +337,44 @@ impl AggregateFnVTable for MinMax {
     }
 
     #[inline]
-    fn is_saturated(&self, _partial: &Self::Partial) -> bool {
-        false
+    fn is_saturated(&self, partial: &Self::Partial) -> bool {
+        // A poisoned NaN-including min/max is fully determined.
+        partial.is_poisoned()
+    }
+
+    fn try_accumulate(
+        &self,
+        partial: &mut Self::Partial,
+        batch: &ArrayRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        // NaN-aware shortcircuits only apply to NaN-including float min/max; everything else
+        // takes the default dispatch path.
+        if partial.skip_nans || !partial.element_dtype.is_float() {
+            return Ok(false);
+        }
+        match batch.statistics().get_as::<u64>(Stat::NaNCount) {
+            Precision::Exact(0) => {
+                // NaN-free batch: the cached NaN-skipping extrema (if any) are valid.
+                let cached_min = batch.statistics().get(Stat::Min).as_exact();
+                let cached_max = batch.statistics().get(Stat::Max).as_exact();
+                if let Some((min, max)) = cached_min.zip(cached_max) {
+                    let non_nullable_dtype = partial.element_dtype.as_nonnullable();
+                    partial.merge(Some(MinMaxResult {
+                        min: min.cast(&non_nullable_dtype)?,
+                        max: max.cast(&non_nullable_dtype)?,
+                    }));
+                    return Ok(true);
+                }
+                Ok(false)
+            }
+            Precision::Exact(_) => {
+                // At least one NaN value poisons both extrema without scanning the batch.
+                partial.poison();
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
     }
 
     fn accumulate(
@@ -261,8 +389,11 @@ impl AggregateFnVTable for MinMax {
                 if scalar.is_null() {
                     return Ok(());
                 }
-                // Skip NaN float constants
-                if scalar.as_primitive_opt().is_some_and(|p| p.is_nan()) {
+                // NaN float constants are skipped or poison the extrema, per the options.
+                if scalar_is_nan(scalar) {
+                    if !partial.skip_nans {
+                        partial.poison();
+                    }
                     return Ok(());
                 }
                 let non_nullable_dtype = scalar.dtype().as_nonnullable();
@@ -314,11 +445,12 @@ mod tests {
     use crate::aggregate_fn::Accumulator;
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynAccumulator;
-    use crate::aggregate_fn::EmptyOptions;
+    use crate::aggregate_fn::SkipNansOptions;
     use crate::aggregate_fn::fns::min_max::MinMax;
     use crate::aggregate_fn::fns::min_max::MinMaxResult;
     use crate::aggregate_fn::fns::min_max::make_minmax_dtype;
     use crate::aggregate_fn::fns::min_max::min_max;
+    use crate::aggregate_fn::fns::min_max::min_max_with;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
@@ -332,6 +464,8 @@ mod tests {
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::expr::stats::Precision;
+    use crate::expr::stats::Stat;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
@@ -460,7 +594,7 @@ mod tests {
     fn test_multi_batch() -> VortexResult<()> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(MinMax, EmptyOptions, dtype)?;
+        let mut acc = Accumulator::try_new(MinMax, SkipNansOptions::default(), dtype)?;
 
         let batch1 = PrimitiveArray::new(buffer![10i32, 20, 5], Validity::NonNullable).into_array();
         acc.accumulate(&batch1, &mut ctx)?;
@@ -478,7 +612,7 @@ mod tests {
     fn test_finish_resets_state() -> VortexResult<()> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(MinMax, EmptyOptions, dtype)?;
+        let mut acc = Accumulator::try_new(MinMax, SkipNansOptions::default(), dtype)?;
 
         let batch1 = PrimitiveArray::new(buffer![10i32, 20], Validity::NonNullable).into_array();
         acc.accumulate(&batch1, &mut ctx)?;
@@ -497,7 +631,7 @@ mod tests {
     #[test]
     fn test_state_merge() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut state = MinMax.empty_partial(&EmptyOptions, &dtype)?;
+        let mut state = MinMax.empty_partial(&SkipNansOptions::default(), &dtype)?;
 
         let struct_dtype = make_minmax_dtype(&dtype);
         let scalar1 = Scalar::struct_(
@@ -523,6 +657,96 @@ mod tests {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         assert_eq!(min_max(&array, &mut ctx)?, None);
         Ok(())
+    }
+
+    const KEEP_NANS: SkipNansOptions = SkipNansOptions { skip_nans: false };
+
+    fn assert_poisoned(result: Option<MinMaxResult>) -> VortexResult<()> {
+        let result = result.vortex_expect("should have result");
+        assert!(f64::try_from(&result.min.cast(&result.min.dtype().as_nullable())?)?.is_nan());
+        assert!(f64::try_from(&result.max.cast(&result.max.dtype().as_nullable())?)?.is_nan());
+        Ok(())
+    }
+
+    #[test]
+    fn test_prim_nan_not_skipping() -> VortexResult<()> {
+        let array = PrimitiveArray::new(
+            buffer![f32::NAN, -f32::NAN, -1.0, 1.0],
+            Validity::NonNullable,
+        )
+        .into_array();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        assert_poisoned(min_max_with(&array, &mut ctx, KEEP_NANS)?)
+    }
+
+    #[test]
+    fn test_prim_no_nan_not_skipping() -> VortexResult<()> {
+        let array =
+            PrimitiveArray::new(buffer![3.0f32, -1.0, 1.0], Validity::NonNullable).into_array();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let result = min_max_with(&array, &mut ctx, KEEP_NANS)?.vortex_expect("should have result");
+        assert_eq!(f32::try_from(&result.min)?, -1.0);
+        assert_eq!(f32::try_from(&result.max)?, 3.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_constant_nan_not_skipping() -> VortexResult<()> {
+        let scalar = Scalar::primitive(f64::NAN, Nullability::NonNullable);
+        let array = ConstantArray::new(scalar, 2).into_array();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        assert_poisoned(min_max_with(&array, &mut ctx, KEEP_NANS)?)
+    }
+
+    #[test]
+    fn test_not_skipping_shortcircuits_on_exact_nan_count_stat() -> VortexResult<()> {
+        // The array has no NaNs; a planted exact NaNCount stat proves the poisoning came from
+        // the stat rather than a scan.
+        let array =
+            PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0], Validity::NonNullable).into_array();
+        array
+            .statistics()
+            .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(2u64)));
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        assert_poisoned(min_max_with(&array, &mut ctx, KEEP_NANS)?)
+    }
+
+    #[test]
+    fn test_not_skipping_uses_cached_stats_when_nan_free() -> VortexResult<()> {
+        // With an exact NaNCount of zero, the planted exact Min/Max stats are usable as-is.
+        let array =
+            PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0], Validity::NonNullable).into_array();
+        array
+            .statistics()
+            .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(0u64)));
+        array
+            .statistics()
+            .set(Stat::Min, Precision::Exact(ScalarValue::from(-10.0f64)));
+        array
+            .statistics()
+            .set(Stat::Max, Precision::Exact(ScalarValue::from(10.0f64)));
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let result = min_max_with(&array, &mut ctx, KEEP_NANS)?.vortex_expect("should have result");
+        assert_eq!(f64::try_from(&result.min)?, -10.0);
+        assert_eq!(f64::try_from(&result.max)?, 10.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_multi_batch_nan_poisoning() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
+        let mut acc = Accumulator::try_new(MinMax, KEEP_NANS, dtype)?;
+
+        let batch1 = PrimitiveArray::new(buffer![1.0f64, 2.0], Validity::NonNullable).into_array();
+        acc.accumulate(&batch1, &mut ctx)?;
+        assert!(!acc.is_saturated());
+
+        let batch2 = PrimitiveArray::new(buffer![f64::NAN], Validity::NonNullable).into_array();
+        acc.accumulate(&batch2, &mut ctx)?;
+        assert!(acc.is_saturated());
+
+        assert_poisoned(MinMaxResult::from_scalar(acc.finish()?)?)
     }
 
     #[test]
@@ -605,11 +829,11 @@ mod tests {
             DType::FixedSizeList(Arc::new(element_dtype), 1, Nullability::Nullable);
 
         assert_eq!(
-            MinMax.return_dtype(&EmptyOptions, &list_dtype),
+            MinMax.return_dtype(&SkipNansOptions::default(), &list_dtype),
             Some(make_minmax_dtype(&list_dtype))
         );
         assert_eq!(
-            MinMax.return_dtype(&EmptyOptions, &fixed_size_list_dtype),
+            MinMax.return_dtype(&SkipNansOptions::default(), &fixed_size_list_dtype),
             Some(make_minmax_dtype(&fixed_size_list_dtype))
         );
     }
