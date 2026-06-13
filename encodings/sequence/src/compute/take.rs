@@ -11,10 +11,8 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::IntegerPType;
-use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::match_each_integer_ptype;
-use vortex_array::match_each_native_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
@@ -26,9 +24,9 @@ use vortex_mask::Mask;
 
 use crate::Sequence;
 
-fn take_inner<T: IntegerPType, S: NativePType>(
-    mul: S,
-    base: S,
+fn take_inner<T: IntegerPType, C: IntegerPType, O: IntegerPType>(
+    mul: C,
+    base: C,
     indices: &[T],
     indices_mask: Mask,
     result_nullability: Nullability,
@@ -40,14 +38,15 @@ fn take_inner<T: IntegerPType, S: NativePType>(
                 if i.as_() >= len {
                     vortex_panic!(OutOfBounds: i.as_(), 0, len);
                 }
-                let i = <S as NumCast>::from::<T>(*i).vortex_expect("all indices fit");
-                base + i * mul
+                let i = <C as NumCast>::from::<T>(*i).vortex_expect("all indices fit");
+                <O as NumCast>::from(base + i * mul)
+                    .vortex_expect("validated sequence values must fit output ptype")
             })),
             Validity::from(result_nullability),
         )
         .into_array(),
         AllOr::None => ConstantArray::new(
-            Scalar::null(DType::Primitive(S::PTYPE, Nullability::Nullable)),
+            Scalar::null(DType::Primitive(O::PTYPE, Nullability::Nullable)),
             indices.len(),
         )
         .into_array(),
@@ -60,15 +59,72 @@ fn take_inner<T: IntegerPType, S: NativePType>(
                         }
 
                         let i =
-                            <S as NumCast>::from::<T>(*i).vortex_expect("all valid indices fit");
-                        base + i * mul
+                            <C as NumCast>::from::<T>(*i).vortex_expect("all valid indices fit");
+                        <O as NumCast>::from(base + i * mul)
+                            .vortex_expect("validated sequence values must fit output ptype")
                     } else {
-                        S::zero()
+                        O::zero()
                     }
                 }));
             PrimitiveArray::new(buffer, Validity::from(b.clone())).into_array()
         }
     }
+}
+
+fn take_with_output_ptype<T: IntegerPType, C: IntegerPType, O: IntegerPType>(
+    array: ArrayView<'_, Sequence>,
+    indices: &[T],
+    indices_mask: Mask,
+    result_nullability: Nullability,
+) -> VortexResult<ArrayRef> {
+    let mul = array.multiplier().cast::<C>()?;
+    let base = array.base().cast::<C>()?;
+    Ok(take_inner::<T, C, O>(
+        mul,
+        base,
+        indices,
+        indices_mask,
+        result_nullability,
+        array.len(),
+    ))
+}
+
+fn take_with_calculation_ptype<T: IntegerPType, C: IntegerPType>(
+    array: ArrayView<'_, Sequence>,
+    indices: &[T],
+    indices_mask: Mask,
+    result_nullability: Nullability,
+) -> VortexResult<ArrayRef> {
+    match_each_integer_ptype!(array.dtype().as_ptype(), |O| {
+        take_with_output_ptype::<T, C, O>(array, indices, indices_mask, result_nullability)
+    })
+}
+
+fn take_with_indices_ptype<T: IntegerPType>(
+    array: ArrayView<'_, Sequence>,
+    indices: &[T],
+    indices_mask: Mask,
+    result_nullability: Nullability,
+) -> VortexResult<ArrayRef> {
+    match_each_integer_ptype!(array.calculation_ptype(), |C| {
+        take_with_calculation_ptype::<T, C>(array, indices, indices_mask, result_nullability)
+    })
+}
+
+fn take_sequence(
+    array: ArrayView<'_, Sequence>,
+    indices: &PrimitiveArray,
+    indices_mask: Mask,
+    result_nullability: Nullability,
+) -> VortexResult<ArrayRef> {
+    match_each_integer_ptype!(indices.ptype(), |T| {
+        take_with_indices_ptype::<T>(
+            array,
+            indices.as_slice::<T>(),
+            indices_mask,
+            result_nullability,
+        )
+    })
 }
 
 impl TakeExecute for Sequence {
@@ -81,21 +137,7 @@ impl TakeExecute for Sequence {
         let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
         let result_nullability = array.dtype().nullability() | indices.dtype().nullability();
 
-        match_each_integer_ptype!(indices.ptype(), |T| {
-            let indices = indices.as_slice::<T>();
-            match_each_native_ptype!(array.ptype(), |S| {
-                let mul = array.multiplier().cast::<S>()?;
-                let base = array.base().cast::<S>()?;
-                Ok(Some(take_inner(
-                    mul,
-                    base,
-                    indices,
-                    mask,
-                    result_nullability,
-                    array.len(),
-                )))
-            })
-        })
+        take_sequence(array, &indices, mask, result_nullability).map(Some)
     }
 }
 

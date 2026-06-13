@@ -48,7 +48,9 @@ impl DynAggregateKernel for SequenceMinMaxKernel {
         }
 
         let base = seq.base();
-        let last = SequenceData::try_last(base, seq.multiplier(), seq.ptype(), seq.len())?;
+        let output_ptype = seq.dtype().as_ptype();
+        let last =
+            SequenceData::try_last(base, seq.multiplier(), seq.calculation_ptype(), seq.len())?;
 
         // Determine min and max based on multiplier direction.
         // For unsigned types, multiplier is always >= 0.
@@ -65,7 +67,10 @@ impl DynAggregateKernel for SequenceMinMaxKernel {
             float: |_v| { unreachable!("float multiplier not supported for SequenceArray") }
         );
 
-        let non_nullable_dtype = DType::Primitive(seq.ptype(), Nullability::NonNullable);
+        let min_pvalue = SequenceData::cast_value(min_pvalue, output_ptype)?;
+        let max_pvalue = SequenceData::cast_value(max_pvalue, output_ptype)?;
+
+        let non_nullable_dtype = DType::Primitive(output_ptype, Nullability::NonNullable);
         let min_scalar = Scalar::try_new(
             non_nullable_dtype.clone(),
             Some(ScalarValue::Primitive(min_pvalue)),
