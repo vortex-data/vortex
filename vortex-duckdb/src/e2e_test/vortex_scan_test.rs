@@ -843,6 +843,7 @@ async fn write_vortex_file_with_encodings() -> NamedTempFile {
         PValue::I64(0),
         PValue::I64(10),
         PType::I64,
+        PType::I64,
         Nullability::NonNullable,
         5,
     )
