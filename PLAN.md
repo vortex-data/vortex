@@ -811,6 +811,52 @@ future reviewer or agent can quickly recover the intent of the branch.
   for row-wise pruning where it executes against the input array's own statistics.
   Lands as its own checkpoint after the Stage C (engines) migration.
 
+### 2026-06-12: Phase 1 COMPLETE — Expression → BoundExpr migration landed
+
+Phase 1 ("BoundExpr Foundation") is done. `Expression` is fully retired; the whole
+workspace builds and tests green on the `BoundExpr` enum (`Root(DType)` / `Literal` /
+`Placeholder` / `Call(BoundCall)`), every node self-typed, execution unchanged on the
+existing `ScalarFnVTable` / `ScalarFnArray` path.
+
+Checkpoints (each independently verified + adversarially reviewed + fixed):
+- `0b5a2edde` — vortex-array core enum + leaf semantics + proto.
+- `4a1ec8b45` — scan stack; `ScanBuilder` accepts `BoundExpr` (the exit criterion),
+  `ScanRequest.projection: Option<BoundExpr>`, RowIdx → placeholder.
+- `491d3c14a` — engines/extensions/harnesses; fallible engine-input construction.
+- `7bc3b7768` — stats binding via `StatBinder`/`bind_stats`; `StatRef` placeholders
+  for zone maps, literals for footers; legacy `StatsCatalog`/stat-hook machinery and
+  the synthesized stats table deleted (supersedes PR #8345, with a SOUNDNESS RULE:
+  stat binding only for pure Root/GetItem provenance chains).
+- `f0617183a` — language bindings + umbrella + docs; binding-local deferral (no
+  Rust-level unbound tree), Arc-shared children + iterative Drop in each binding AST.
+
+Exit gate (this branch): `cargo build --workspace --all-targets`,
+`cargo nextest run --workspace` (6122 passed), `cargo test --doc --workspace`,
+`cargo clippy --all-targets --all-features`, `cargo +nightly fmt --all`,
+vortex-python pytest (132)/basedpyright/ruff. C++ cmake tests verified by inspection
+(cmake absent locally) — run them in CI before any external publish.
+
+**Scope-friction verdict (informs Phase 5 priority).** Bound-only construction caused
+LOW in-Rust friction (scan stack + engines: zero unbound-`Expr` candidates; cost was
+mechanical scope-threading, and one hack — `optimize_recursive(&DType::Null)` — was
+deleted, not added). The language bindings are the real signal: each of Python, C FFI,
+JNI, and C++ now carries its OWN binding-private deferred expression AST (~60–160 lines
+each, ~2,300 lines total) with near-isomorphic `bind(scope)` logic, and each
+independently had to rediscover the Arc-sharing + iterative-Drop deep-tree invariant
+(the review caught all three having dropped it). This is the concrete case FOR pulling
+a small shared unbound `Expr` forward in Phase 5: it would delete three of four copies
+and centralize deep-tree safety. Counterweight: each binding only models the vocabulary
+it exposes, so a shared tree must carry the union vocabulary plus serde/versioning the
+private enums avoid. Net recommendation: when Phase 5 designs the friendly DSL, make
+its unbound `Expr` the single source bindings lower from, rather than leaving four
+parallel ASTs to diverge.
+
+Deferred out of Phase 1 (tracked for later phases):
+- `ReduceCtx` has no literal-node constructor → `GetItem::reduce` skips the
+  nullable-pack rewrite (`simplify_untyped` still covers it; TODO in code).
+- Placeholder serde and `PlaceholderValue` / `ExecutionCtx` placeholder resolution.
+- Engine-level coercion (the orphaned `coerce_args` hook) → Phase 5 binder.
+
 ## Tentative PR Split Areas
 
 The final PR boundaries will be chosen from the completed diff, not guessed up front.
