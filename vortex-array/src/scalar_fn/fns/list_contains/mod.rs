@@ -33,14 +33,6 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
-use crate::expr::BoundCall;
-use crate::expr::BoundExpr;
-use crate::expr::StatsCatalog;
-use crate::expr::and_collect;
-use crate::expr::gt;
-use crate::expr::lit;
-use crate::expr::lt;
-use crate::expr::or;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::scalar::ListScalar;
@@ -127,43 +119,6 @@ impl ScalarFnVTable for ListContains {
         }
 
         compute_list_contains(&list_array, &value_array, ctx)
-    }
-
-    fn stat_falsification(
-        &self,
-        _options: &Self::Options,
-        expr: &BoundCall,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<BoundExpr> {
-        let list = expr.child(0);
-        let needle = expr.child(1);
-
-        // falsification(contains([1,2,5], x)) =>
-        //   falsification(x != 1) and falsification(x != 2) and falsification(x != 5)
-        let min = list.stat_min(catalog)?;
-        let max = list.stat_max(catalog)?;
-        // If the list is constant when we can compare each element to the value
-        if min == max {
-            let list_ = min
-                .as_literal()
-                .and_then(|l| l.as_list_opt())
-                .and_then(|l| l.elements())?;
-            if list_.is_empty() {
-                // contains([], x) is always false.
-                return Some(lit(true));
-            }
-            let value_max = needle.stat_max(catalog)?;
-            let value_min = needle.stat_min(catalog)?;
-
-            return and_collect(list_.iter().map(move |v| {
-                or(
-                    lt(value_max.clone(), lit(v.clone())),
-                    gt(value_min.clone(), lit(v.clone())),
-                )
-            }));
-        }
-
-        None
     }
 
     // Nullability matters for contains([], x) where x is false.
@@ -444,8 +399,6 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::Buffer;
-    use vortex_utils::aliases::hash_map::HashMap;
-    use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::ArrayRef;
     use crate::IntoArray;
@@ -457,24 +410,14 @@ mod tests {
     #[expect(deprecated)]
     use crate::canonical::ToCanonical as _;
     use crate::dtype::DType;
-    use crate::dtype::Field;
-    use crate::dtype::FieldPath;
-    use crate::dtype::FieldPathSet;
     use crate::dtype::Nullability;
     use crate::dtype::PType::I32;
     use crate::dtype::StructFields;
     use crate::expr::BoundExpr;
-    use crate::expr::and;
-    use crate::expr::col;
     use crate::expr::get_item;
-    use crate::expr::gt;
     use crate::expr::list_contains;
     use crate::expr::lit;
-    use crate::expr::lt;
-    use crate::expr::or;
-    use crate::expr::pruning::checked_pruning_expr;
     use crate::expr::root;
-    use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::list_contains::BoolArray;
     use crate::scalar_fn::fns::list_contains::ConstantArray;
@@ -494,14 +437,6 @@ mod tests {
 
     fn root_for(array: &ArrayRef) -> BoundExpr {
         root(array.dtype().clone())
-    }
-
-    fn root_dtype(expr: &BoundExpr) -> Option<&DType> {
-        match expr {
-            BoundExpr::Root(dtype) => Some(dtype),
-            BoundExpr::Literal(_) | BoundExpr::Placeholder(_) => None,
-            BoundExpr::Call(call) => call.args().iter().find_map(root_dtype),
-        }
     }
 
     #[test]
@@ -628,63 +563,6 @@ mod tests {
 
         // Expect nullable, although scope is non-nullable
         assert_eq!(expr.dtype(), &DType::Bool(Nullability::Nullable));
-    }
-
-    #[test]
-    pub fn list_falsification() {
-        let expr = list_contains(
-            lit(Scalar::list(
-                Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
-                vec![1.into(), 2.into(), 3.into()],
-                Nullability::NonNullable,
-            )),
-            col(
-                "a",
-                &DType::struct_(
-                    [("a", DType::Primitive(I32, Nullability::NonNullable))],
-                    Nullability::NonNullable,
-                ),
-            ),
-        );
-        let scope = DType::struct_(
-            [("a", DType::Primitive(I32, Nullability::NonNullable))],
-            Nullability::NonNullable,
-        );
-        let available_stats = FieldPathSet::from_iter([
-            FieldPath::from_iter([Field::Name("a".into()), Field::Name("max".into())]),
-            FieldPath::from_iter([Field::Name("a".into()), Field::Name("min".into())]),
-        ]);
-
-        let (expr, st) = checked_pruning_expr(&expr, &scope, &available_stats).unwrap();
-
-        let stats_scope = root_dtype(&expr).unwrap().clone();
-        assert_eq!(
-            &expr,
-            &and(
-                and(
-                    or(
-                        lt(col("a_max", &stats_scope), lit(1i32)),
-                        gt(col("a_min", &stats_scope), lit(1i32)),
-                    ),
-                    or(
-                        lt(col("a_max", &stats_scope), lit(2i32)),
-                        gt(col("a_min", &stats_scope), lit(2i32)),
-                    )
-                ),
-                or(
-                    lt(col("a_max", &stats_scope), lit(3i32)),
-                    gt(col("a_min", &stats_scope), lit(3i32)),
-                )
-            )
-        );
-
-        assert_eq!(
-            st.map(),
-            &HashMap::from_iter([(
-                FieldPath::from_name("a"),
-                HashSet::from([Stat::Min, Stat::Max])
-            )])
-        );
     }
 
     #[test]

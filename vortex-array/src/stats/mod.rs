@@ -19,6 +19,7 @@ pub use expr::sum;
 pub use stats_set::*;
 
 mod array;
+pub mod bind;
 pub mod expr;
 pub mod flatbuffers;
 pub(crate) mod rewrite;
@@ -26,6 +27,7 @@ pub mod session;
 mod stats_set;
 
 pub use array::*;
+pub use bind::*;
 pub use session::*;
 use vortex_error::VortexExpect;
 

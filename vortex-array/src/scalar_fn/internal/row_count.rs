@@ -28,6 +28,8 @@ static ROW_COUNT_DTYPE: LazyLock<DType> =
 pub struct RowCount;
 
 impl Placeholder for RowCount {
+    type Payload = ();
+
     fn id(&self) -> PlaceholderId {
         static ID: CachedId = CachedId::new("vortex.row_count");
         *ID
@@ -39,6 +41,10 @@ impl Placeholder for RowCount {
 
     fn display_name(&self) -> &str {
         "row_count"
+    }
+
+    fn payload(&self) -> &Self::Payload {
+        &()
     }
 }
 
@@ -69,22 +75,35 @@ pub fn contains_row_count(array: &ArrayRef) -> bool {
 
 /// Replaces every row-count placeholder with `replacement`.
 pub fn substitute_row_count(array: ArrayRef, replacement: &ArrayRef) -> VortexResult<ArrayRef> {
+    substitute_placeholders(array, &|placeholder| {
+        is_row_count(placeholder).then(|| replacement.clone())
+    })
+}
+
+/// Replaces placeholders resolved by `resolve`.
+///
+/// Returning `None` from `resolve` leaves the placeholder unresolved, so execution will fail with
+/// the placeholder's own error if no later pass resolves it.
+pub fn substitute_placeholders(
+    array: ArrayRef,
+    resolve: &dyn Fn(&PlaceholderRef) -> Option<ArrayRef>,
+) -> VortexResult<ArrayRef> {
     if let Some(view) = array.as_opt::<ExactScalarFn<PlaceholderFn>>()
-        && is_row_count(view.options)
+        && let Some(replacement) = resolve(view.options)
     {
         vortex_ensure!(
             replacement.len() == array.len(),
-            "RowCount replacement length {} does not match scope length {}",
+            "Placeholder replacement length {} does not match scope length {}",
             replacement.len(),
             array.len(),
         );
         vortex_ensure!(
             replacement.dtype() == array.dtype(),
-            "RowCount replacement dtype {} does not match scope dtype {}",
+            "Placeholder replacement dtype {} does not match scope dtype {}",
             replacement.dtype(),
             array.dtype(),
         );
-        return Ok(replacement.clone());
+        return Ok(replacement);
     }
 
     if !array.is::<ScalarFn>() {
@@ -94,11 +113,11 @@ pub fn substitute_row_count(array: ArrayRef, replacement: &ArrayRef) -> VortexRe
     let nchildren = array.nchildren();
     let mut array = array;
     for slot_idx in 0..nchildren {
-        // SAFETY: `substitute_row_count` always returns an array with the same dtype and
-        // length as its input. Row-count placeholders are replaced with a checked replacement,
-        // and ScalarFn recursion preserves both by operating on each slot in place.
+        // SAFETY: `substitute_placeholders` always returns an array with the same dtype and
+        // length as its input. Placeholders are replaced with checked arrays, and ScalarFn
+        // recursion preserves both by operating on each slot in place.
         let (taken, child) = unsafe { array.take_slot_unchecked(slot_idx)? };
-        let new_child = substitute_row_count(child, replacement)?;
+        let new_child = substitute_placeholders(child, resolve)?;
         array = unsafe { taken.put_slot_unchecked(slot_idx, new_child)? };
     }
     Ok(array)

@@ -21,8 +21,6 @@ use crate::ExecutionCtx;
 use crate::dtype::DType;
 use crate::expr::BoundCall;
 use crate::expr::BoundExpr;
-use crate::expr::StatsCatalog;
-use crate::expr::stats::Stat;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::TypedScalarFnInstance;
@@ -177,34 +175,6 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
         _ = options;
         _ = call;
         Ok(None)
-    }
-
-    /// See [`BoundExpr::stat_falsification`].
-    fn stat_falsification(
-        &self,
-        options: &Self::Options,
-        call: &BoundCall,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<BoundExpr> {
-        _ = options;
-        _ = call;
-        _ = catalog;
-        None
-    }
-
-    /// See [`BoundExpr::stat_expression`].
-    fn stat_expression(
-        &self,
-        options: &Self::Options,
-        call: &BoundCall,
-        stat: Stat,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<BoundExpr> {
-        _ = options;
-        _ = call;
-        _ = stat;
-        _ = catalog;
-        None
     }
 
     /// Returns an expression that evaluates to the validity of the result of this expression.

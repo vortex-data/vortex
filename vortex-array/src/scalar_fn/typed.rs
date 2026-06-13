@@ -25,8 +25,6 @@ use crate::ExecutionCtx;
 use crate::dtype::DType;
 use crate::expr::BoundCall;
 use crate::expr::BoundExpr;
-use crate::expr::StatsCatalog;
-use crate::expr::stats::Stat;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
@@ -100,14 +98,6 @@ pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
     fn simplify(&self, call: &BoundCall, ctx: &dyn SimplifyCtx) -> VortexResult<Option<BoundExpr>>;
     fn simplify_untyped(&self, call: &BoundCall) -> VortexResult<Option<BoundExpr>>;
     fn validity(&self, call: &BoundCall) -> VortexResult<Option<BoundExpr>>;
-    fn stat_falsification(&self, call: &BoundCall, catalog: &dyn StatsCatalog)
-    -> Option<BoundExpr>;
-    fn stat_expression(
-        &self,
-        call: &BoundCall,
-        stat: Stat,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<BoundExpr>;
 
     // Options operations — self-contained
     fn options_serialize(&self) -> VortexResult<Option<Vec<u8>>>;
@@ -213,23 +203,6 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
 
     fn validity(&self, call: &BoundCall) -> VortexResult<Option<BoundExpr>> {
         V::validity(&self.vtable, &self.options, call)
-    }
-
-    fn stat_falsification(
-        &self,
-        call: &BoundCall,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<BoundExpr> {
-        V::stat_falsification(&self.vtable, &self.options, call, catalog)
-    }
-
-    fn stat_expression(
-        &self,
-        call: &BoundCall,
-        stat: Stat,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<BoundExpr> {
-        V::stat_expression(&self.vtable, &self.options, call, stat, catalog)
     }
 
     fn options_serialize(&self) -> VortexResult<Option<Vec<u8>>> {

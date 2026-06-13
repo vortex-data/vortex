@@ -20,6 +20,8 @@ static ROW_IDX_DTYPE: LazyLock<DType> =
 pub struct RowIdx;
 
 impl Placeholder for RowIdx {
+    type Payload = ();
+
     fn id(&self) -> PlaceholderId {
         static ID: CachedId = CachedId::new("vortex.row_idx");
         *ID
@@ -31,6 +33,10 @@ impl Placeholder for RowIdx {
 
     fn display_name(&self) -> &str {
         "row_idx"
+    }
+
+    fn payload(&self) -> &Self::Payload {
+        &()
     }
 }
 

@@ -35,7 +35,6 @@ pub mod forms;
 mod optimize;
 pub mod placeholder;
 pub mod proto;
-pub mod pruning;
 pub mod stats;
 pub mod transform;
 pub mod traversal;
@@ -43,7 +42,6 @@ pub mod traversal;
 pub use analysis::*;
 pub use expression::*;
 pub use exprs::*;
-pub use pruning::StatsCatalog;
 
 pub trait VortexExprExt {
     /// Accumulate all field references from this expression and its children in a set
@@ -85,7 +83,9 @@ fn split_inner(expr: &BoundExpr, exprs: &mut Vec<BoundExpr>) {
 /// An expression wrapper that performs pointer equality on call children.
 ///
 /// Hashing remains structural. Equality uses `(function, Arc::ptr_eq(args))` for calls, while
-/// leaves use structural equality because they do not have shared child storage.
+/// leaves use structural equality because they do not have shared child storage. Placeholder
+/// equality includes the placeholder payload, so parameterized placeholders such as stat refs do
+/// not create false cache hits.
 #[derive(Clone)]
 pub struct ExactExpr(pub BoundExpr);
 impl PartialEq for ExactExpr {

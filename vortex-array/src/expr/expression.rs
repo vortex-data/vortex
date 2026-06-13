@@ -15,12 +15,8 @@ use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
 use crate::dtype::DType;
-use crate::dtype::FieldPath;
-use crate::expr::StatsCatalog;
 use crate::expr::display::DisplayTreeExpr;
 use crate::expr::placeholder::PlaceholderRef;
-use crate::expr::stats::Stat;
-use crate::match_each_float_ptype;
 use crate::scalar::Scalar;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
@@ -263,14 +259,6 @@ impl BoundExpr {
         }
     }
 
-    /// An expression over zone-statistics which implies all records evaluate to false.
-    pub fn stat_falsification(&self, catalog: &dyn StatsCatalog) -> Option<BoundExpr> {
-        match self {
-            Self::Root(_) | Self::Literal(_) | Self::Placeholder(_) => None,
-            Self::Call(call) => call.function().stat_falsification(call, catalog),
-        }
-    }
-
     /// Returns an expression that proves this predicate is definitely false from stats.
     pub fn falsify(&self, session: &VortexSession) -> VortexResult<Option<BoundExpr>> {
         crate::stats::rewrite::StatsRewriteCtx::new(session).falsify(self)
@@ -279,26 +267,6 @@ impl BoundExpr {
     /// Returns an expression that proves this predicate is definitely true from stats.
     pub fn satisfy(&self, session: &VortexSession) -> VortexResult<Option<BoundExpr>> {
         crate::stats::rewrite::StatsRewriteCtx::new(session).satisfy(self)
-    }
-
-    /// Returns an expression representing the zoned statistic for the given stat, if available.
-    pub fn stat_expression(&self, stat: Stat, catalog: &dyn StatsCatalog) -> Option<BoundExpr> {
-        match self {
-            Self::Root(_) => catalog.stats_ref(&FieldPath::root(), stat),
-            Self::Literal(scalar) => literal_stat_expression(scalar, stat),
-            Self::Placeholder(_) => None,
-            Self::Call(call) => call.function().stat_expression(call, stat, catalog),
-        }
-    }
-
-    /// Returns an expression representing the zoned minimum statistic, if available.
-    pub fn stat_min(&self, catalog: &dyn StatsCatalog) -> Option<BoundExpr> {
-        self.stat_expression(Stat::Min, catalog)
-    }
-
-    /// Returns an expression representing the zoned maximum statistic, if available.
-    pub fn stat_max(&self, catalog: &dyn StatsCatalog) -> Option<BoundExpr> {
-        self.stat_expression(Stat::Max, catalog)
     }
 
     /// Format the expression as a compact string.
@@ -314,38 +282,6 @@ impl BoundExpr {
     /// Display the expression as a formatted tree structure.
     pub fn display_tree(&self) -> impl Display {
         DisplayTreeExpr(self)
-    }
-}
-
-fn literal_stat_expression(scalar: &Scalar, stat: Stat) -> Option<BoundExpr> {
-    // NOTE(ngates): we return incorrect `1` values for counts here since we don't have
-    // row-count information. This is only currently used for pruning and does not change the
-    // outcome.
-    match stat {
-        Stat::Min | Stat::Max => Some(crate::expr::lit(scalar.clone())),
-        Stat::IsConstant => Some(crate::expr::lit(true)),
-        Stat::NaNCount => {
-            let value = scalar.as_primitive_opt()?;
-            if !value.ptype().is_float() {
-                return None;
-            }
-
-            match_each_float_ptype!(value.ptype(), |T| {
-                if value.typed_value::<T>().is_some_and(|v| v.is_nan()) {
-                    Some(crate::expr::lit(1u64))
-                } else {
-                    Some(crate::expr::lit(0u64))
-                }
-            })
-        }
-        Stat::NullCount => {
-            if scalar.is_null() {
-                Some(crate::expr::lit(1u64))
-            } else {
-                Some(crate::expr::lit(0u64))
-            }
-        }
-        Stat::IsSorted | Stat::IsStrictSorted | Stat::Sum | Stat::UncompressedSizeInBytes => None,
     }
 }
 

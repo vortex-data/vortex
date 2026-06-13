@@ -19,17 +19,7 @@ use crate::ExecutionCtx;
 use crate::dtype::DType;
 use crate::expr::BoundCall;
 use crate::expr::BoundExpr;
-use crate::expr::StatsCatalog;
 use crate::expr::and;
-use crate::expr::and_collect;
-use crate::expr::eq;
-use crate::expr::gt;
-use crate::expr::gt_eq;
-use crate::expr::lit;
-use crate::expr::lt;
-use crate::expr::lt_eq;
-use crate::expr::or_collect;
-use crate::expr::stats::Stat;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
@@ -166,110 +156,6 @@ impl ScalarFnVTable for Binary {
         }
     }
 
-    fn stat_falsification(
-        &self,
-        operator: &Operator,
-        expr: &BoundCall,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<BoundExpr> {
-        // Wrap another predicate with an optional NaNCount check, if the stat is available.
-        //
-        // For example, regular pruning conversion for `A >= B` would be
-        //
-        //      A.max < B.min
-        //
-        // With NaN predicate introduction, we'd conjunct it with a check for NaNCount, resulting
-        // in:
-        //
-        //      (A.nan_count = 0) AND (B.nan_count = 0) AND A.max < B.min
-        //
-        // Non-floating point column and literal expressions should be unaffected as they do not
-        // have a nan_count statistic defined.
-        fn with_nan_predicate(
-            lhs: &BoundExpr,
-            rhs: &BoundExpr,
-            value_predicate: BoundExpr,
-            catalog: &dyn StatsCatalog,
-        ) -> BoundExpr {
-            let nan_predicate = and_collect(
-                lhs.stat_expression(Stat::NaNCount, catalog)
-                    .into_iter()
-                    .chain(rhs.stat_expression(Stat::NaNCount, catalog))
-                    .map(|nans| eq(nans, lit(0u64))),
-            );
-
-            if let Some(nan_check) = nan_predicate {
-                and(nan_check, value_predicate)
-            } else {
-                value_predicate
-            }
-        }
-
-        let lhs = expr.child(0);
-        let rhs = expr.child(1);
-        match operator {
-            Operator::Eq => {
-                let min_lhs = lhs.stat_min(catalog);
-                let max_lhs = lhs.stat_max(catalog);
-
-                let min_rhs = rhs.stat_min(catalog);
-                let max_rhs = rhs.stat_max(catalog);
-
-                let left = min_lhs.zip(max_rhs).map(|(a, b)| gt(a, b));
-                let right = min_rhs.zip(max_lhs).map(|(a, b)| gt(a, b));
-
-                let min_max_check = or_collect(left.into_iter().chain(right))?;
-
-                // NaN is not captured by the min/max stat, so we must check NaNCount before pruning
-                Some(with_nan_predicate(lhs, rhs, min_max_check, catalog))
-            }
-            Operator::NotEq => {
-                let min_lhs = lhs.stat_min(catalog)?;
-                let max_lhs = lhs.stat_max(catalog)?;
-
-                let min_rhs = rhs.stat_min(catalog)?;
-                let max_rhs = rhs.stat_max(catalog)?;
-
-                let min_max_check = and(eq(min_lhs, max_rhs), eq(max_lhs, min_rhs));
-
-                Some(with_nan_predicate(lhs, rhs, min_max_check, catalog))
-            }
-            Operator::Gt => {
-                let min_max_check = lt_eq(lhs.stat_max(catalog)?, rhs.stat_min(catalog)?);
-
-                Some(with_nan_predicate(lhs, rhs, min_max_check, catalog))
-            }
-            Operator::Gte => {
-                // NaN is not captured by the min/max stat, so we must check NaNCount before pruning
-                let min_max_check = lt(lhs.stat_max(catalog)?, rhs.stat_min(catalog)?);
-
-                Some(with_nan_predicate(lhs, rhs, min_max_check, catalog))
-            }
-            Operator::Lt => {
-                // NaN is not captured by the min/max stat, so we must check NaNCount before pruning
-                let min_max_check = gt_eq(lhs.stat_min(catalog)?, rhs.stat_max(catalog)?);
-
-                Some(with_nan_predicate(lhs, rhs, min_max_check, catalog))
-            }
-            Operator::Lte => {
-                // NaN is not captured by the min/max stat, so we must check NaNCount before pruning
-                let min_max_check = gt(lhs.stat_min(catalog)?, rhs.stat_max(catalog)?);
-
-                Some(with_nan_predicate(lhs, rhs, min_max_check, catalog))
-            }
-            Operator::And => or_collect(
-                lhs.stat_falsification(catalog)
-                    .into_iter()
-                    .chain(rhs.stat_falsification(catalog)),
-            ),
-            Operator::Or => Some(and(
-                lhs.stat_falsification(catalog)?,
-                rhs.stat_falsification(catalog)?,
-            )),
-            Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => None,
-        }
-    }
-
     fn validity(
         &self,
         operator: &Operator,
@@ -326,13 +212,18 @@ mod tests {
     use crate::expr::BoundExpr;
     use crate::expr::and_collect;
     use crate::expr::col;
+    use crate::expr::eq;
+    use crate::expr::gt;
+    use crate::expr::gt_eq;
     use crate::expr::lit;
     use crate::expr::lt;
+    use crate::expr::lt_eq;
     use crate::expr::not_eq;
     use crate::expr::or;
     use crate::expr::or_collect;
     use crate::expr::test_harness;
     use crate::scalar::Scalar;
+
     #[test]
     fn and_collect_balanced() {
         let values = vec![lit(true), lit(false), lit(true), lit(false), lit(true)];

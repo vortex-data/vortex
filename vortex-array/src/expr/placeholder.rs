@@ -18,6 +18,11 @@ pub type PlaceholderId = Id;
 
 /// Typed placeholder definition.
 pub trait Placeholder: 'static + Send + Sync + Debug {
+    /// Payload participating in placeholder identity.
+    ///
+    /// Use `()` for payload-free placeholders.
+    type Payload: 'static + Send + Sync + PartialEq + Hash;
+
     /// Returns the globally unique placeholder id.
     fn id(&self) -> PlaceholderId;
 
@@ -26,6 +31,9 @@ pub trait Placeholder: 'static + Send + Sync + Debug {
 
     /// Returns the short display name used by SQL formatting.
     fn display_name(&self) -> &str;
+
+    /// Returns this placeholder's identity payload.
+    fn payload(&self) -> &Self::Payload;
 }
 
 trait DynPlaceholder: 'static + Send + Sync {
@@ -33,6 +41,8 @@ trait DynPlaceholder: 'static + Send + Sync {
     fn id(&self) -> PlaceholderId;
     fn dtype(&self) -> &DType;
     fn display_name(&self) -> &str;
+    fn payload_eq(&self, other: &(dyn Any + Send + Sync)) -> bool;
+    fn payload_hash(&self, state: &mut dyn Hasher);
     fn fmt_debug(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
 }
 
@@ -51,6 +61,16 @@ impl<P: Placeholder> DynPlaceholder for P {
 
     fn display_name(&self) -> &str {
         Placeholder::display_name(self)
+    }
+
+    fn payload_eq(&self, other: &(dyn Any + Send + Sync)) -> bool {
+        other
+            .downcast_ref::<P>()
+            .is_some_and(|other| self.payload() == other.payload())
+    }
+
+    fn payload_hash(&self, mut state: &mut dyn Hasher) {
+        self.payload().hash(&mut state);
     }
 
     fn fmt_debug(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -87,6 +107,11 @@ impl PlaceholderRef {
     pub fn is<P: Placeholder>(&self) -> bool {
         self.0.as_any().is::<P>()
     }
+
+    /// Returns this placeholder as the given concrete type, if it matches.
+    pub fn as_opt<P: Placeholder>(&self) -> Option<&P> {
+        self.0.as_any().downcast_ref::<P>()
+    }
 }
 
 impl Debug for PlaceholderRef {
@@ -115,7 +140,9 @@ impl Display for PlaceholderRef {
 
 impl PartialEq for PlaceholderRef {
     fn eq(&self, other: &Self) -> bool {
-        self.id() == other.id() && self.dtype() == other.dtype()
+        self.id() == other.id()
+            && self.dtype() == other.dtype()
+            && self.0.payload_eq(other.0.as_any())
     }
 }
 
@@ -125,5 +152,6 @@ impl Hash for PlaceholderRef {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.id().hash(state);
         self.dtype().hash(state);
+        self.0.payload_hash(state);
     }
 }

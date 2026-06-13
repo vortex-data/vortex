@@ -21,8 +21,6 @@ use crate::ExecutionCtx;
 use crate::dtype::DType;
 use crate::expr::BoundCall;
 use crate::expr::BoundExpr;
-use crate::expr::StatsCatalog;
-use crate::expr::stats::Stat;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ReduceCtx;
 use crate::scalar_fn::ReduceNode;
@@ -174,25 +172,6 @@ impl ScalarFnRef {
     /// Simplify the expression without type information.
     pub(crate) fn simplify_untyped(&self, call: &BoundCall) -> VortexResult<Option<BoundExpr>> {
         self.0.simplify_untyped(call)
-    }
-
-    /// Compute stat falsification expression.
-    pub(crate) fn stat_falsification(
-        &self,
-        call: &BoundCall,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<BoundExpr> {
-        self.0.stat_falsification(call, catalog)
-    }
-
-    /// Compute stat expression.
-    pub(crate) fn stat_expression(
-        &self,
-        call: &BoundCall,
-        stat: Stat,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<BoundExpr> {
-        self.0.stat_expression(call, stat, catalog)
     }
 }
 

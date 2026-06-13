@@ -1,81 +1,184 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
-use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::fns::all_nan::AllNan;
+use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
+use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
+use vortex_array::aggregate_fn::fns::all_null::AllNull;
+use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::StructArray;
+use vortex_array::arrays::NullArray;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::Field;
-use vortex_array::dtype::FieldName;
-use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::FieldPath;
-use vortex_array::dtype::StructFields;
-use vortex_array::expr::pruning::field_path_stat_field_name;
+use vortex_array::expr::BoundExpr;
+use vortex_array::expr::eq;
+use vortex_array::expr::lit;
 use vortex_array::expr::stats::Stat;
-use vortex_array::expr::stats::StatsProvider;
-use vortex_array::stats::StatsSet;
-use vortex_array::validity::Validity;
-use vortex_error::VortexExpect;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::internal::row_count::RowCount;
+use vortex_array::scalar_fn::internal::row_count::row_count;
+use vortex_array::scalar_fn::internal::row_count::substitute_placeholders;
+use vortex_array::stats::StatBinder;
+use vortex_array::stats::bind_stats;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
-use vortex_utils::aliases::hash_map::HashMap;
-use vortex_utils::aliases::hash_set::HashSet;
+use vortex_mask::Mask;
+use vortex_session::VortexSession;
 
-pub fn extract_relevant_file_stats_as_struct_row(
-    access: &HashMap<FieldPath, HashSet<Stat>>,
-    stats_sets: &Arc<[StatsSet]>,
-    struct_dtype: &StructFields,
-) -> VortexResult<Option<ArrayRef>> {
-    if access.is_empty() {
-        return StructArray::try_new(FieldNames::default(), vec![], 1, Validity::NonNullable)
-            .map(|s| Some(s.into_array()));
+use crate::FileStatistics;
+
+/// Evaluates whether file-level footer stats prove `filter` cannot match this file.
+pub(crate) fn evaluate_file_stats_pruning(
+    filter: &BoundExpr,
+    file_stats: &FileStatistics,
+    file_dtype: &DType,
+    row_count: u64,
+    session: &VortexSession,
+) -> VortexResult<bool> {
+    let Some(falsifier) = filter.falsify(session)? else {
+        return Ok(false);
+    };
+    let Some(predicate) = bind_stats(
+        falsifier,
+        &mut FooterStatsBinder {
+            file_stats,
+            file_dtype,
+        },
+    )?
+    else {
+        return Ok(false);
+    };
+
+    if let Some(literal) = predicate.as_literal() {
+        return Ok(literal.as_bool().value() == Some(true));
     }
 
-    let mut columns: Vec<(FieldName, ArrayRef)> = Vec::with_capacity(access.len() * 2);
-    for (field_path, stats) in access.into_iter() {
-        if field_path.parts().len() != 1 {
+    let pruning = NullArray::new(1).into_array().apply(&predicate)?;
+    let row_count_replacement = ConstantArray::new(row_count, pruning.len()).into_array();
+    let pruning = substitute_placeholders(pruning, &|placeholder| {
+        placeholder
+            .as_opt::<RowCount>()
+            .map(|_| row_count_replacement.clone())
+    })?;
+
+    let mut ctx = session.create_execution_ctx();
+    Ok(pruning.execute::<Mask>(&mut ctx)?.value(0))
+}
+
+struct FooterStatsBinder<'a> {
+    file_stats: &'a FileStatistics,
+    file_dtype: &'a DType,
+}
+
+impl StatBinder for FooterStatsBinder<'_> {
+    fn bind_stat(
+        &mut self,
+        path: &FieldPath,
+        stat: Stat,
+        _stat_dtype: &DType,
+    ) -> VortexResult<Option<BoundExpr>> {
+        let Some((field_idx, field_dtype)) = self.field(path) else {
             return Ok(None);
-        }
-        let Field::Name(field) = &field_path.parts()[0] else {
+        };
+        let (stats, _) = self.file_stats.get(field_idx);
+        let Some(stat_value) = stats.get(stat).as_exact() else {
+            return Ok(None);
+        };
+        let Some(stat_dtype) = stat.dtype(field_dtype) else {
+            return Ok(None);
+        };
+        Ok(Some(lit(Scalar::try_new(stat_dtype, Some(stat_value))?)))
+    }
+
+    fn bind_aggregate(
+        &mut self,
+        path: &FieldPath,
+        aggregate_fn: &AggregateFnRef,
+        stat_dtype: &DType,
+    ) -> VortexResult<Option<BoundExpr>> {
+        let Some((_, input_dtype)) = self.field(path) else {
             return Ok(None);
         };
 
-        let field_idx = struct_dtype
-            .find(field)
-            .ok_or_else(|| vortex_err!("Missing field: {field}"))?;
-        let field_dtype = struct_dtype
-            .field_by_index(field_idx)
-            .vortex_expect("Field must exist");
-
-        let Some(stat_set) = stats_sets.get(field_idx) else {
-            vortex_bail!("missing stat field {} from stats set", field)
-        };
-        let typed_stats = stat_set.as_typed_ref(&field_dtype);
-
-        for stat in stats {
-            let Some(stat_value) = typed_stats.get(*stat).as_exact() else {
-                vortex_bail!("missing stat {}, {} from stats set", field, stat)
-            };
-            columns.push((
-                field_path_stat_field_name(field_path, *stat),
-                ConstantArray::new(stat_value, 1).into_array(),
-            ));
+        if aggregate_fn.is::<AllNan>() {
+            if !has_nans(input_dtype) {
+                return Ok(Some(lit(false)));
+            }
+            return self.bind_count_check(path, Stat::NaNCount, row_count());
         }
-    }
-    // Every accessible field may still carry an empty stats set (e.g. dtypes that support no
-    // file stats), in which case the scope is the empty struct and the row must match it.
-    if columns.is_empty() {
-        return StructArray::try_new(FieldNames::default(), vec![], 1, Validity::NonNullable)
-            .map(|s| Some(s.into_array()));
-    }
-    columns.sort_by(|(left, _), (right, _)| left.cmp(right));
 
-    Ok(Some(
-        StructArray::from_fields(columns.as_slice())?.into_array(),
-    ))
+        if aggregate_fn.is::<AllNonNan>() {
+            if !has_nans(input_dtype) {
+                return Ok(Some(lit(true)));
+            }
+            return self.bind_count_check(path, Stat::NaNCount, lit(0u64));
+        }
+
+        if aggregate_fn.is::<NanCount>() && !has_nans(input_dtype) {
+            return Ok(Some(lit(0u64)));
+        }
+
+        if aggregate_fn.is::<AllNull>() {
+            return self.bind_count_check(path, Stat::NullCount, row_count());
+        }
+
+        if aggregate_fn.is::<AllNonNull>() {
+            return self.bind_count_check(path, Stat::NullCount, lit(0u64));
+        }
+
+        let Some(stat) = Stat::from_aggregate_fn(aggregate_fn) else {
+            return Ok(None);
+        };
+        self.bind_stat(path, stat, stat_dtype)
+    }
+}
+
+impl FooterStatsBinder<'_> {
+    fn field(&self, path: &FieldPath) -> Option<(usize, &DType)> {
+        // `.get()` rather than indexing: a caller may pair a file dtype with a shorter
+        // FileStatistics (public constructors don't cross-validate); decline to prune
+        // rather than panic.
+        let Some(fields) = self.file_dtype.as_struct_fields_opt() else {
+            return path
+                .is_root()
+                .then(|| self.file_stats.dtypes().first().map(|dtype| (0, dtype)))
+                .flatten();
+        };
+        if path.parts().len() != 1 {
+            return None;
+        }
+        let Field::Name(field_name) = &path.parts()[0] else {
+            return None;
+        };
+        let field_idx = fields.find(field_name)?;
+        let dtype = self.file_stats.dtypes().get(field_idx)?;
+        Some((field_idx, dtype))
+    }
+
+    fn bind_count_check(
+        &mut self,
+        path: &FieldPath,
+        stat: Stat,
+        rhs: BoundExpr,
+    ) -> VortexResult<Option<BoundExpr>> {
+        let Some((_, input_dtype)) = self.field(path) else {
+            return Ok(None);
+        };
+        let Some(dtype) = stat.dtype(input_dtype).map(|dtype| dtype.as_nullable()) else {
+            return Ok(None);
+        };
+        let lhs = self
+            .bind_stat(path, stat, &dtype)?
+            .unwrap_or_else(|| lit(Scalar::null(dtype)));
+        Ok(Some(eq(lhs, rhs)))
+    }
+}
+
+fn has_nans(dtype: &DType) -> bool {
+    matches!(dtype, DType::Primitive(ptype, _) if ptype.is_float())
 }
 
 #[cfg(test)]
@@ -83,37 +186,94 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_array::dtype::DType;
-    use vortex_array::dtype::FieldPath;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
+    use vortex_array::expr::checked_add;
+    use vortex_array::expr::col;
+    use vortex_array::expr::gt;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::stats::Precision;
+    use vortex_array::expr::stats::Stat;
+    use vortex_array::scalar::ScalarValue;
+    use vortex_array::stats::StatsSession;
     use vortex_array::stats::StatsSet;
     use vortex_error::VortexResult;
-    use vortex_error::vortex_err;
-    use vortex_utils::aliases::hash_map::HashMap;
-    use vortex_utils::aliases::hash_set::HashSet;
+    use vortex_session::VortexSession;
 
-    use super::extract_relevant_file_stats_as_struct_row;
+    use super::evaluate_file_stats_pruning;
+    use crate::FileStatistics;
 
-    /// Fields whose stats sets are all empty must yield the 1-row empty struct (matching the
-    /// empty bound stats scope) rather than erroring on `StructArray::from_fields(&[])`.
     #[test]
-    fn empty_stat_sets_yield_empty_row() -> VortexResult<()> {
-        let access = HashMap::from_iter([(FieldPath::from_name("a"), HashSet::default())]);
-        let stats_sets: Arc<[StatsSet]> = vec![StatsSet::default()].into();
-        let fields = StructFields::from_iter([(
-            "a",
-            DType::Primitive(PType::I32, Nullability::NonNullable),
-        )]);
-
-        let row = extract_relevant_file_stats_as_struct_row(&access, &stats_sets, &fields)?
-            .ok_or_else(|| vortex_err!("expected a stats row"))?;
-        assert_eq!(row.len(), 1);
-        assert!(
-            row.dtype()
-                .as_struct_fields_opt()
-                .is_some_and(|f| f.nfields() == 0)
+    fn inexact_footer_stat_is_conservative() -> VortexResult<()> {
+        let dtype = DType::Struct(
+            StructFields::from_iter([(
+                "a",
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+            )]),
+            Nullability::NonNullable,
         );
+        let stats =
+            StatsSet::from_iter([(Stat::Max, Precision::inexact(ScalarValue::from(10i32)))]);
+        let file_stats = FileStatistics::new_with_dtype(Arc::from([stats]), &dtype);
+        let expr = gt(col("a", &dtype), lit(10i32));
+
+        assert!(!evaluate_file_stats_pruning(
+            &expr,
+            &file_stats,
+            &dtype,
+            1,
+            &VortexSession::empty().with::<StatsSession>(),
+        )?);
+        Ok(())
+    }
+
+    #[test]
+    fn computed_stat_input_does_not_bind_to_stored_field_max() -> VortexResult<()> {
+        let dtype = DType::Struct(
+            StructFields::from_iter([(
+                "a",
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+            )]),
+            Nullability::NonNullable,
+        );
+        let stats = StatsSet::from_iter([(Stat::Max, Precision::exact(ScalarValue::from(10i32)))]);
+        let file_stats = FileStatistics::new_with_dtype(Arc::from([stats]), &dtype);
+        let expr = gt(checked_add(col("a", &dtype), lit(1i32)), lit(10i32));
+
+        assert!(!evaluate_file_stats_pruning(
+            &expr,
+            &file_stats,
+            &dtype,
+            1,
+            &VortexSession::empty().with::<StatsSession>(),
+        )?);
+        Ok(())
+    }
+
+    #[test]
+    fn float_footer_pruning_uses_exact_zero_nan_count() -> VortexResult<()> {
+        let dtype = DType::Struct(
+            StructFields::from_iter([(
+                "f",
+                DType::Primitive(PType::F32, Nullability::NonNullable),
+            )]),
+            Nullability::NonNullable,
+        );
+        let stats = StatsSet::from_iter([
+            (Stat::Max, Precision::exact(ScalarValue::from(5.0f32))),
+            (Stat::NaNCount, Precision::exact(ScalarValue::from(0u64))),
+        ]);
+        let file_stats = FileStatistics::new_with_dtype(Arc::from([stats]), &dtype);
+        let expr = gt(col("f", &dtype), lit(10.0f32));
+
+        assert!(evaluate_file_stats_pruning(
+            &expr,
+            &file_stats,
+            &dtype,
+            1,
+            &VortexSession::empty().with::<StatsSession>(),
+        )?);
         Ok(())
     }
 }

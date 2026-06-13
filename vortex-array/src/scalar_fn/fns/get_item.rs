@@ -18,13 +18,10 @@ use crate::builtins::ArrayBuiltins;
 use crate::builtins::ExprBuiltins;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
-use crate::dtype::FieldPath;
 use crate::dtype::Nullability;
 use crate::expr::BoundCall;
 use crate::expr::BoundExpr;
-use crate::expr::StatsCatalog;
 use crate::expr::lit;
-use crate::expr::stats::Stat;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
@@ -182,24 +179,6 @@ impl ScalarFnVTable for GetItem {
         }
 
         Ok(None)
-    }
-
-    fn stat_expression(
-        &self,
-        field_name: &FieldName,
-        _expr: &BoundCall,
-        stat: Stat,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<BoundExpr> {
-        // TODO(ngates): I think we can do better here and support stats over nested fields.
-        //  It would be nice if delegating to our child would return a struct of statistics
-        //  matching the nested DType such that we can write:
-        //    `get_item(expr.child(0).stat_expression(...), expr.data().field_name())`
-
-        // TODO(ngates): this is a bug whereby we may return stats for a nested field of the same
-        //  name as a field in the root struct. This should be resolved with upcoming change to
-        //  falsify expressions, but for now I'm preserving the existing buggy behavior.
-        catalog.stats_ref(&FieldPath::from_name(field_name.clone()), stat)
     }
 
     // This will apply struct nullability field. We could add a dtype??

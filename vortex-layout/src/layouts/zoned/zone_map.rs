@@ -8,6 +8,7 @@ use std::sync::Arc;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::fns::all_nan::AllNan;
 use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
 use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
@@ -18,20 +19,19 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
+use vortex_array::dtype::FieldPath;
 use vortex_array::expr::BoundExpr;
 use vortex_array::expr::eq;
-use vortex_array::expr::get_item;
 use vortex_array::expr::lit;
-use vortex_array::expr::root;
 use vortex_array::expr::stats::Stat;
-use vortex_array::expr::traversal::NodeExt;
-use vortex_array::expr::traversal::Transformed;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::stat::StatFn;
-use vortex_array::scalar_fn::internal::row_count::contains_row_count;
+use vortex_array::scalar_fn::internal::row_count::RowCount;
 use vortex_array::scalar_fn::internal::row_count::row_count;
-use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
+use vortex_array::scalar_fn::internal::row_count::substitute_placeholders;
+use vortex_array::stats::StatBinder;
+use vortex_array::stats::StatRef;
+use vortex_array::stats::bind_stats;
+use vortex_array::stats::stat_ref;
 use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
@@ -105,133 +105,131 @@ impl ZoneMap {
     /// [`BoundExpr::falsify`]. The returned mask has one value per zone, where
     /// `true` means the zone cannot contain matching rows and can be skipped.
     ///
-    /// If the predicate contains [`row_count`][vortex_array::scalar_fn::internal::row_count]
-    /// placeholders, they are replaced after [`ArrayRef::apply`] with per-zone
-    /// counts derived from `zone_len` and `row_count`. Uniform zones use a
-    /// [`ConstantArray`]; a short final zone uses a run-end encoded array.
-    /// `row_count` is a layout property rather than a stored stats field, and the
-    /// final zone may be shorter than the nominal zone length, so it is materialized
-    /// only after the predicate has been lowered to the zone-map table.
+    /// The pipeline is bind → apply → substitute → execute: abstract `stat()` calls are
+    /// first bound via [`bind_stats`] to [`StatRef`] placeholders for the stats this zone
+    /// map stores (unavailable stats become typed nulls, so they are inconclusive rather
+    /// than a proof; a predicate that folds to a non-true literal short-circuits to an
+    /// all-false "prune nothing" mask). The bound predicate is applied to the zone-map
+    /// table, then placeholders are substituted: each `StatRef` with its stored stat
+    /// column, and [`row_count`][vortex_array::scalar_fn::internal::row_count] with
+    /// per-zone counts derived from `zone_len` and `row_count`. Uniform zones use a
+    /// [`ConstantArray`]; a short final zone uses a run-end encoded array. `row_count`
+    /// is a layout property rather than a stored stats field, and the final zone may be
+    /// shorter than the nominal zone length, so it is materialized only after apply.
     pub fn prune(&self, predicate: &BoundExpr, session: &VortexSession) -> VortexResult<Mask> {
         let mut ctx = session.create_execution_ctx();
         let num_zones = self.array.len();
-        let predicate = self.lower_stats(predicate.clone())?;
+        let Some(predicate) =
+            bind_stats(predicate.clone(), &mut ZoneStatBinder { zone_map: self })?
+        else {
+            return Ok(Mask::new_false(num_zones));
+        };
 
         let applied = self.array.clone().into_array().apply(&predicate)?;
-
-        if !contains_row_count(&applied) {
-            return applied.execute::<Mask>(&mut ctx);
-        }
-
         let row_count_array = row_count_array(self.zone_len, self.row_count, num_zones)?;
-        let substituted = substitute_row_count(applied, &row_count_array)?;
+        let substituted = substitute_placeholders(applied, &|placeholder| {
+            if placeholder.as_opt::<RowCount>().is_some() {
+                return Some(row_count_array.clone());
+            }
+            let stat_ref = placeholder.as_opt::<StatRef>()?;
+            self.stat_array(stat_ref.path(), stat_ref.stat())
+        })?;
         substituted.execute::<Mask>(&mut ctx)
     }
 
-    fn lower_stats(&self, predicate: BoundExpr) -> VortexResult<BoundExpr> {
-        // Rewritten predicates are evaluated against the stats table, not the data
-        // column. Lower each StatFn before execution so unavailable stats become
-        // nullable "unknown" constants rather than prune signals.
-        predicate
-            .transform_down(|expr| {
-                if expr
-                    .as_call()
-                    .is_some_and(|call| call.function().is::<StatFn>())
-                {
-                    return self.lower_stat_fn(expr).map(Transformed::yes);
-                }
-
-                Ok(Transformed::no(expr))
-            })
-            .map(Transformed::into_inner)
-    }
-
-    fn lower_stat_fn(&self, expr: BoundExpr) -> VortexResult<BoundExpr> {
-        // This is the bridge from aggregate-backed bound expressions to the legacy
-        // zoned stats columns. Exact NullCount and NanCount can prove richer
-        // all-* aggregates; non-root or missing stats lower to nullable unknowns.
-        let call = expr
-            .as_call()
-            .ok_or_else(|| vortex_error::vortex_err!("Stat expression is not a call"))?;
-        let options = call.function().as_::<StatFn>();
-        let input = call.child(0);
-        let input_dtype = input.dtype().clone();
-        let input_is_root = input.is_root();
-
-        if options.aggregate_fn().is::<AllNan>() {
-            if !has_nans(&input_dtype) {
-                return Ok(lit(false));
-            }
-            if !input_is_root {
-                return Ok(null_expr(DType::Bool(Nullability::NonNullable)));
-            }
-            return Ok(eq(self.stat_field_expr(Stat::NaNCount)?, row_count_expr()));
-        }
-
-        if options.aggregate_fn().is::<AllNonNan>() {
-            if !has_nans(&input_dtype) {
-                return Ok(lit(true));
-            }
-            if !input_is_root {
-                return Ok(null_expr(DType::Bool(Nullability::NonNullable)));
-            }
-            return Ok(eq(self.stat_field_expr(Stat::NaNCount)?, lit(0u64)));
-        }
-
-        if options.aggregate_fn().is::<NanCount>() && !has_nans(&input_dtype) {
-            return Ok(lit(0u64));
-        }
-
-        let return_dtype = match options.aggregate_fn().return_dtype(&input_dtype) {
-            Some(return_dtype) => return_dtype,
-            None => vortex_bail!(
-                "Aggregate function {} does not support input dtype {}",
-                options.aggregate_fn(),
-                input_dtype
-            ),
-        };
-
-        if !input_is_root {
-            return Ok(null_expr(return_dtype));
-        }
-
-        if options.aggregate_fn().is::<AllNull>() {
-            return Ok(eq(self.stat_field_expr(Stat::NullCount)?, row_count_expr()));
-        }
-
-        if options.aggregate_fn().is::<AllNonNull>() {
-            return Ok(eq(self.stat_field_expr(Stat::NullCount)?, lit(0u64)));
-        }
-
-        let Some(stat) = Stat::from_aggregate_fn(options.aggregate_fn()) else {
-            return Ok(null_expr(return_dtype));
-        };
-
-        self.stat_field_expr(stat)
-    }
-
-    fn stat_field_expr(&self, stat: Stat) -> VortexResult<BoundExpr> {
-        if self.array.unmasked_field_by_name_opt(stat.name()).is_some() {
-            return Ok(get_item(stat.name(), root(self.array.dtype().clone())));
-        }
-
-        let Some(dtype) = stat.dtype(&self.column_dtype) else {
-            vortex_bail!(
-                "Stat {} does not support column dtype {}",
-                stat,
-                self.column_dtype
-            );
-        };
-        Ok(null_expr(dtype))
+    fn stat_array(&self, path: &FieldPath, stat: Stat) -> Option<ArrayRef> {
+        path.is_root()
+            .then(|| self.array.unmasked_field_by_name_opt(stat.name()).cloned())
+            .flatten()
     }
 }
 
-fn row_count_expr() -> BoundExpr {
-    row_count()
+struct ZoneStatBinder<'a> {
+    zone_map: &'a ZoneMap,
 }
 
-fn null_expr(dtype: DType) -> BoundExpr {
-    lit(Scalar::null(dtype.as_nullable()))
+impl StatBinder for ZoneStatBinder<'_> {
+    fn bind_stat(
+        &mut self,
+        path: &FieldPath,
+        stat: Stat,
+        _stat_dtype: &DType,
+    ) -> VortexResult<Option<BoundExpr>> {
+        if !path.is_root() {
+            return Ok(None);
+        }
+        let Some(array) = self.zone_map.stat_array(path, stat) else {
+            return Ok(None);
+        };
+        Ok(Some(stat_ref(path.clone(), stat, array.dtype().clone())))
+    }
+
+    fn bind_aggregate(
+        &mut self,
+        path: &FieldPath,
+        aggregate_fn: &AggregateFnRef,
+        stat_dtype: &DType,
+    ) -> VortexResult<Option<BoundExpr>> {
+        let Some(input_dtype) = path.resolve(self.zone_map.column_dtype.clone()) else {
+            return Ok(None);
+        };
+
+        if aggregate_fn.is::<AllNan>() {
+            if !has_nans(&input_dtype) {
+                return Ok(Some(lit(false)));
+            }
+            return self.bind_count_check(path, Stat::NaNCount, row_count());
+        }
+
+        if aggregate_fn.is::<AllNonNan>() {
+            if !has_nans(&input_dtype) {
+                return Ok(Some(lit(true)));
+            }
+            return self.bind_count_check(path, Stat::NaNCount, lit(0u64));
+        }
+
+        if aggregate_fn.is::<NanCount>() && !has_nans(&input_dtype) {
+            return Ok(Some(lit(0u64)));
+        }
+
+        if aggregate_fn.is::<AllNull>() {
+            return self.bind_count_check(path, Stat::NullCount, row_count());
+        }
+
+        if aggregate_fn.is::<AllNonNull>() {
+            return self.bind_count_check(path, Stat::NullCount, lit(0u64));
+        }
+
+        let Some(stat) = Stat::from_aggregate_fn(aggregate_fn) else {
+            return Ok(None);
+        };
+        self.bind_stat(path, stat, stat_dtype)
+    }
+}
+
+impl ZoneStatBinder<'_> {
+    fn bind_count_check(
+        &mut self,
+        path: &FieldPath,
+        stat: Stat,
+        rhs: BoundExpr,
+    ) -> VortexResult<Option<BoundExpr>> {
+        let Some(input_dtype) = path.resolve(self.zone_map.column_dtype.clone()) else {
+            return Ok(None);
+        };
+        let Some(dtype) = self
+            .zone_map
+            .stat_array(path, stat)
+            .map(|array| array.dtype().clone())
+            .or_else(|| stat.dtype(&input_dtype).map(|dtype| dtype.as_nullable()))
+        else {
+            return Ok(None);
+        };
+        let lhs = self
+            .bind_stat(path, stat, &dtype)?
+            .unwrap_or_else(|| lit(Scalar::null(dtype)));
+        Ok(Some(eq(lhs, rhs)))
+    }
 }
 
 fn has_nans(dtype: &DType) -> bool {
@@ -290,6 +288,7 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::expr::BoundExpr;
     use vortex_array::expr::cast;
+    use vortex_array::expr::checked_add;
     use vortex_array::expr::gt;
     use vortex_array::expr::gt_eq;
     use vortex_array::expr::is_not_null;
@@ -629,6 +628,34 @@ mod tests {
 
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(mask.into_array(), BoolArray::from_iter([false, true]));
+    }
+
+    #[test]
+    fn computed_stat_input_does_not_bind_to_stored_max() {
+        let zone_map = ZoneMap::try_new(
+            PType::I32.into(),
+            StructArray::from_fields(&[
+                (
+                    "max",
+                    PrimitiveArray::new(buffer![10i32], Validity::AllValid).into_array(),
+                ),
+                (
+                    "max_is_truncated",
+                    BoolArray::from_iter([false]).into_array(),
+                ),
+            ])
+            .unwrap(),
+            Arc::new([Stat::Max]),
+            1,
+            1,
+        )
+        .unwrap();
+
+        let expr = gt(checked_add(root(PType::I32), lit(1i32)), lit(10i32));
+        let pruning_expr = falsify(&expr, PType::I32.into());
+        let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
+
+        assert_arrays_eq!(mask.into_array(), BoolArray::from_iter([false]));
     }
 
     #[test]

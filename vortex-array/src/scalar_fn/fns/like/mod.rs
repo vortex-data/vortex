@@ -22,14 +22,7 @@ use crate::arrow::from_arrow_columnar;
 use crate::dtype::DType;
 use crate::expr::BoundCall;
 use crate::expr::BoundExpr;
-use crate::expr::StatsCatalog;
 use crate::expr::and;
-use crate::expr::gt;
-use crate::expr::gt_eq;
-use crate::expr::lit;
-use crate::expr::lt;
-use crate::expr::or;
-use crate::scalar::StringLike;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
@@ -165,49 +158,6 @@ impl ScalarFnVTable for Like {
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
         false
     }
-
-    fn stat_falsification(
-        &self,
-        like_opts: &LikeOptions,
-        expr: &BoundCall,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<BoundExpr> {
-        // Attempt to do min/max pruning for LIKE 'exact' or LIKE 'prefix%'
-
-        // Don't attempt to handle ilike or negated like
-        if like_opts.negated || like_opts.case_insensitive {
-            return None;
-        }
-
-        // Extract the pattern out
-        let pat = expr.child(1).as_literal()?;
-
-        // LIKE NULL is nonsensical, don't try to handle it
-        let pat_str = pat.as_utf8().value()?;
-
-        let src = expr.child(0).clone();
-        let src_min = src.stat_min(catalog)?;
-        let src_max = src.stat_max(catalog)?;
-
-        match LikeVariant::from_str(pat_str)? {
-            LikeVariant::Exact(text) => {
-                // col LIKE 'exact' ==>  col.min > 'exact' || col.max < 'exact'
-                Some(or(
-                    gt(src_min, lit(text.as_ref())),
-                    lt(src_max, lit(text.as_ref())),
-                ))
-            }
-            LikeVariant::Prefix(prefix) => {
-                // col LIKE 'prefix%' ==> col.max < 'prefix' || col.min >= 'prefiy'
-                let succ = prefix.to_string().increment().ok()?;
-
-                Some(or(
-                    gt_eq(src_min, lit(succ)),
-                    lt(src_max, lit(prefix.as_ref())),
-                ))
-            }
-        }
-    }
 }
 
 /// Implementation of LIKE using the Arrow crate.
@@ -295,34 +245,13 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
-    use crate::expr::col;
     use crate::expr::get_item;
-    use crate::expr::ilike;
     use crate::expr::like;
     use crate::expr::lit;
     use crate::expr::not;
     use crate::expr::not_ilike;
-    use crate::expr::not_like;
-    use crate::expr::pruning::pruning_expr::TrackingStatsCatalog;
     use crate::expr::root;
     use crate::scalar_fn::fns::like::LikeVariant;
-
-    fn string_scope() -> DType {
-        DType::struct_(
-            [("a", DType::Utf8(Nullability::NonNullable))],
-            Nullability::NonNullable,
-        )
-    }
-
-    fn stats_scope() -> DType {
-        DType::struct_(
-            [
-                ("a_min", DType::Utf8(Nullability::NonNullable)),
-                ("a_max", DType::Utf8(Nullability::NonNullable)),
-            ],
-            Nullability::NonNullable,
-        )
-    }
 
     #[test]
     fn invert_booleans() {
@@ -407,55 +336,5 @@ mod tests {
         assert_eq!(LikeVariant::from_str("%suffix"), None);
         assert_eq!(LikeVariant::from_str(r"%\%%"), None);
         assert_eq!(LikeVariant::from_str("_pattern"), None);
-    }
-
-    #[test]
-    fn test_like_pushdown() {
-        // Test that LIKE prefix and exactness filters can be pushed down into stats filtering
-        // at scan time.
-        let catalog = TrackingStatsCatalog::new(stats_scope());
-        let scope = string_scope();
-
-        let pruning_expr = like(col("a", &scope), lit("prefix%"))
-            .stat_falsification(&catalog)
-            .expect("LIKE stat falsification");
-
-        insta::assert_snapshot!(pruning_expr, @r#"(($.a_min >= "prefiy") or ($.a_max < "prefix"))"#);
-
-        let pruning_expr = like(col("a", &scope), lit(r"\%%"))
-            .stat_falsification(&catalog)
-            .expect("LIKE stat falsification");
-        insta::assert_snapshot!(pruning_expr, @r#"(($.a_min >= "&") or ($.a_max < "%"))"#);
-
-        // Multiple wildcards
-        let pruning_expr = like(col("a", &scope), lit("pref%ix%"))
-            .stat_falsification(&catalog)
-            .expect("LIKE stat falsification");
-        insta::assert_snapshot!(pruning_expr, @r#"(($.a_min >= "preg") or ($.a_max < "pref"))"#);
-
-        let pruning_expr = like(col("a", &scope), lit("pref_ix_"))
-            .stat_falsification(&catalog)
-            .expect("LIKE stat falsification");
-        insta::assert_snapshot!(pruning_expr, @r#"(($.a_min >= "preg") or ($.a_max < "pref"))"#);
-
-        // Exact match
-        let pruning_expr = like(col("a", &scope), lit("exactly"))
-            .stat_falsification(&catalog)
-            .expect("LIKE stat falsification");
-        insta::assert_snapshot!(pruning_expr, @r#"(($.a_min > "exactly") or ($.a_max < "exactly"))"#);
-
-        // Suffix search skips pushdown
-        let pruning_expr = like(col("a", &scope), lit("%suffix")).stat_falsification(&catalog);
-        assert_eq!(pruning_expr, None);
-
-        // NOT LIKE, ILIKE not supported currently
-        assert_eq!(
-            None,
-            not_like(col("a", &scope), lit("a")).stat_falsification(&catalog)
-        );
-        assert_eq!(
-            None,
-            ilike(col("a", &scope), lit("a")).stat_falsification(&catalog)
-        );
     }
 }

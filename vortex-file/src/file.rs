@@ -12,18 +12,9 @@ use std::sync::OnceLock;
 
 use itertools::Itertools;
 use vortex_array::ArrayRef;
-use vortex_array::Columnar;
-use vortex_array::IntoArray;
-use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::ConstantArray;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldMask;
-use vortex_array::dtype::FieldPath;
-use vortex_array::dtype::FieldPathSet;
 use vortex_array::expr::BoundExpr;
-use vortex_array::expr::pruning::checked_pruning_expr;
-use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
 use vortex_error::VortexResult;
 use vortex_layout::LayoutReader;
 use vortex_layout::scan::layout::LayoutReaderDataSource;
@@ -32,12 +23,10 @@ use vortex_layout::scan::split_by::SplitBy;
 use vortex_layout::segments::SegmentSource;
 use vortex_scan::DataSourceRef;
 use vortex_session::VortexSession;
-use vortex_utils::aliases::hash_map::HashMap;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::FileStatistics;
 use crate::footer::Footer;
-use crate::pruning::extract_relevant_file_stats_as_struct_row;
+use crate::pruning::evaluate_file_stats_pruning;
 use crate::v2::FileStatsLayoutReader;
 
 /// Represents a Vortex file, providing access to its metadata and content.
@@ -195,75 +184,17 @@ impl VortexFile {
     /// Row-count-aware pruning predicates are evaluated with the file's total
     /// row count as their scope.
     pub fn can_prune(&self, filter: &BoundExpr) -> VortexResult<bool> {
-        let Some((stats, fields)) = self
-            .footer
-            .statistics()
-            .zip(self.footer.dtype().as_struct_fields_opt())
-        else {
+        let Some(stats) = self.footer.statistics() else {
             return Ok(false);
         };
 
-        // Only exact, dtype-derivable stats participate: the bound stats scope and the
-        // materialized stats row must mirror each other exactly, so an inexact or underivable
-        // footer entry (possible in foreign-written files) must be dropped here rather than
-        // poisoning pruning for predicates that never touch it.
-        let available_file_stats = HashMap::from_iter(
-            fields
-                .names()
-                .iter()
-                .zip(fields.fields())
-                .zip(stats.stats_sets().iter())
-                .map(|((name, field_dtype), stats)| {
-                    (
-                        FieldPath::from_name(name.clone()),
-                        HashSet::from_iter(stats.iter().filter_map(|(stat, value)| {
-                            (value.is_exact() && stat.dtype(&field_dtype).is_some())
-                                .then_some(*stat)
-                        })),
-                    )
-                }),
-        );
-
-        let set =
-            FieldPathSet::from_iter(available_file_stats.iter().flat_map(|(field_path, stats)| {
-                stats
-                    .iter()
-                    .map(|stat| field_path.clone().push(Field::Name(stat.name().into())))
-            }));
-
-        let Some((predicate, _required_stats)) =
-            checked_pruning_expr(filter, self.footer.dtype(), &set)
-        else {
-            return Ok(false);
-        };
-
-        let Some(file_stats) = extract_relevant_file_stats_as_struct_row(
-            &available_file_stats,
-            stats.stats_sets(),
-            fields,
-        )?
-        else {
-            return Ok(false);
-        };
-
-        // Apply the predicate, then substitute any row_count placeholders in the resulting array
-        // tree with a ConstantArray carrying the file-level row count.
-        let applied = file_stats.apply(&predicate)?;
-        let row_count_replacement =
-            ConstantArray::new(self.footer.row_count(), applied.len()).into_array();
-        let applied = substitute_row_count(applied, &row_count_replacement)?;
-
-        let mut ctx = self.session.create_execution_ctx();
-        Ok(match applied.execute::<Columnar>(&mut ctx)? {
-            Columnar::Constant(s) => s.scalar().as_bool().value() == Some(true),
-            Columnar::Canonical(c) => {
-                c.into_array()
-                    .execute_scalar(0, &mut ctx)?
-                    .as_bool()
-                    .value()
-                    == Some(true)
-            }
-        })
+        evaluate_file_stats_pruning(
+            filter,
+            stats,
+            self.footer.dtype(),
+            self.footer.row_count(),
+            &self.session,
+        )
     }
 
     pub fn splits(&self) -> VortexResult<Vec<Range<u64>>> {
