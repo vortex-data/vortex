@@ -491,7 +491,8 @@ pub unsafe extern "C" fn vx_array_apply(
         vortex_ensure!(!expression.is_null());
         let array = vx_array::as_ref(array);
         let expression = vx_expression::as_ref(expression);
-        Ok(vx_array::new(Arc::new(array.clone().apply(expression)?)))
+        let expression = expression.bind(array.dtype())?;
+        Ok(vx_array::new(Arc::new(array.clone().apply(&expression)?)))
     })
 }
 
@@ -511,15 +512,14 @@ mod tests {
     use vortex::buffer::buffer;
     #[cfg(not(miri))]
     use vortex::dtype::half::f16;
-    use vortex::expr::eq;
-    use vortex::expr::lit;
-    use vortex::expr::root;
+    use vortex::scalar_fn::fns::operators::Operator;
 
     use crate::array::*;
     use crate::binary::vx_binary_free;
     use crate::dtype::vx_dtype_get_variant;
     use crate::dtype::vx_dtype_variant;
     use crate::error::vx_error_free;
+    use crate::expression::DeferredExpr;
     use crate::expression::vx_expression_free;
     use crate::string::vx_string_free;
     use crate::tests::assert_no_error;
@@ -816,9 +816,12 @@ mod tests {
             assert!(!error.is_null());
             vx_error_free(error);
 
-            // Test with Vortex Rust-side expressions here, test C API for
-            // expressions in src/expressions.rs
-            let expression = eq(root(), lit(3i32));
+            // Test with a Rust-side deferred expression here; src/expression.rs tests the C API.
+            let expression = DeferredExpr::Binary {
+                operator: Operator::Eq,
+                lhs: Arc::new(DeferredExpr::Root),
+                rhs: Arc::new(DeferredExpr::Literal(3i32.into())),
+            };
             let expression = vx_expression::new(expression);
 
             let res = vx_array_apply(ptr::null(), expression, &raw mut error);

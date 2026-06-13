@@ -160,12 +160,14 @@ Remains native Tier 3. Future considerations:
 Expressions are the primary mechanism for pushing computation into Vortex (filters, projections,
 computed columns). The bindings must support expression construction across all languages.
 
-**Serialized expressions (protobuf)** are the baseline for all languages. Any language that can
-produce protobuf bytes can construct expressions — this is the lowest-common-denominator approach
-and the one the C API should always accept.
+**Serialized expressions (protobuf)** are useful for portable expression interchange when the
+expression can be fully bound to a known schema. The Rust expression tree stores dtype information
+inside the tree, so serialized roots include the bound scope dtype.
 
-**Native expression construction** is a convenience layer built per-language. Python already has
-this via PyO3. C++ and Java should have builder APIs that produce the same protobuf under the hood.
+**Native expression construction** is a convenience layer built per-language. Python, C, C++, and
+Java expose user-facing builders that can be assembled before a scan exists; those bindings keep
+that deferral local and materialize a Rust `BoundExpr` when the file, data source, or array dtype is
+available.
 
 However, serialized expressions have limitations that mean a mixed approach will likely remain
 necessary:
@@ -173,6 +175,8 @@ necessary:
 - **Dynamic expressions** (e.g. UDFs, closures, expressions that reference runtime state) cannot
   be represented in serialized form. These require native expression handles passed through the
   binding layer.
+- **Placeholders** (e.g. row index or row count) are native expression leaves and are not serialized
+  in the current expression protobuf format.
 - **Large literal values** embedded in expressions (e.g. large `IN` lists) can be a performance
   constraint when serialized, since the entire value must be copied through protobuf encoding and
   decoding.

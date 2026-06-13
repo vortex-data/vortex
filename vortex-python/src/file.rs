@@ -14,19 +14,22 @@ use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::dtype::DType;
+use vortex::dtype::FieldName;
 use vortex::dtype::FieldNames;
 use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::PType;
 use vortex::error::VortexResult;
-use vortex::expr::Expression;
+use vortex::expr::BoundExpr;
 use vortex::expr::root;
-use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::scan::split_by::SplitBy;
 use vortex::layout::segments::MokaSegmentCache;
+use vortex::scalar_fn::ScalarFnVTableExt;
+use vortex::scalar_fn::fns::select::FieldSelection;
+use vortex::scalar_fn::fns::select::Select;
 
 use crate::RUNTIME;
 use crate::arrays::PyArrayRef;
@@ -34,6 +37,7 @@ use crate::arrow::IntoPyArrow;
 use crate::dataset::PyVortexDataset;
 use crate::dtype::PyDType;
 use crate::error::PyVortexResult;
+use crate::expr::DeferredExpr;
 use crate::expr::PyExpr;
 use crate::install_module;
 use crate::iter::PyArrayIterator;
@@ -161,12 +165,19 @@ impl PyVortexFile {
         batch_size: Option<usize>,
     ) -> PyVortexResult<Py<PyAny>> {
         let vxf = slf.get().vxf.clone();
+        let projection = projection.map(|p| p.0);
+        let expr = expr.map(|e| e.into_inner());
 
         let reader = slf.py().detach(|| {
-            let mut builder = vxf
-                .scan()?
-                .with_some_filter(expr.map(|e| e.into_inner()))
-                .with_projection(projection.map(|p| p.0).unwrap_or_else(root));
+            let scope = vxf.dtype().clone();
+            let projection = projection
+                .map(|projection| projection.bind(&scope))
+                .transpose()?;
+            let filter = expr.map(|expr| expr.bind(&scope)).transpose()?;
+            let mut builder = vxf.scan()?.with_some_filter(filter);
+            if let Some(projection) = projection {
+                builder = builder.with_projection(projection);
+            }
 
             if let Some(limit) = limit {
                 builder = builder.with_limit(limit);
@@ -201,17 +212,22 @@ impl PyVortexFile {
 
 fn scan_builder(
     vxf: &VortexFile,
-    projection: Option<Expression>,
-    expr: Option<Expression>,
+    projection: Option<ProjectionExpr>,
+    expr: Option<DeferredExpr>,
     limit: Option<u64>,
     indices: Option<ArrayRef>,
     batch_size: Option<usize>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ScanBuilder<ArrayRef>> {
-    let mut builder = vxf
-        .scan()?
-        .with_some_filter(expr)
-        .with_projection(projection.unwrap_or_else(root));
+    let scope = vxf.dtype().clone();
+    let projection = projection
+        .map(|projection| projection.bind(&scope))
+        .transpose()?;
+    let filter = expr.map(|expr| expr.bind(&scope)).transpose()?;
+    let mut builder = vxf.scan()?.with_some_filter(filter);
+    if let Some(projection) = projection {
+        builder = builder.with_projection(projection);
+    }
 
     if let Some(limit) = limit {
         builder = builder.with_limit(limit);
@@ -230,7 +246,23 @@ fn scan_builder(
     Ok(builder)
 }
 
-pub struct PyIntoProjection(Expression);
+pub struct PyIntoProjection(ProjectionExpr);
+
+pub enum ProjectionExpr {
+    Fields(FieldNames),
+    Expr(DeferredExpr),
+}
+
+impl ProjectionExpr {
+    fn bind(self, scope: &DType) -> VortexResult<BoundExpr> {
+        match self {
+            Self::Fields(fields) => {
+                Select.try_new_expr(FieldSelection::Include(fields), [root(scope.clone())])
+            }
+            Self::Expr(expr) => expr.bind(scope),
+        }
+    }
+}
 
 impl<'py> FromPyObject<'_, 'py> for PyIntoProjection {
     type Error = PyErr;
@@ -242,15 +274,19 @@ impl<'py> FromPyObject<'_, 'py> for PyIntoProjection {
                 .iter()
                 .map(|item| item.extract::<String>())
                 .collect::<PyResult<Vec<String>>>()?;
-            return Ok(PyIntoProjection(select(
-                cols.into_iter().collect::<FieldNames>(),
-                root(),
+            return Ok(PyIntoProjection(ProjectionExpr::Fields(
+                cols.into_iter()
+                    .map(FieldName::from)
+                    .collect::<Vec<_>>()
+                    .into(),
             )));
         }
 
         // If it's an expression, just return it.
         if let Ok(py_expr) = ob.cast::<PyExpr>() {
-            return Ok(PyIntoProjection(py_expr.get().inner().clone()));
+            return Ok(PyIntoProjection(ProjectionExpr::Expr(
+                py_expr.get().inner().clone(),
+            )));
         }
 
         Err(PyTypeError::new_err(

@@ -8,29 +8,140 @@ use std::ptr;
 use std::slice;
 use std::sync::Arc;
 
+use vortex::dtype::DType;
 use vortex::dtype::FieldName;
+use vortex::dtype::FieldNames;
 use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
-use vortex::expr::Expression;
-use vortex::expr::and_collect;
-use vortex::expr::get_item;
-use vortex::expr::is_null;
-use vortex::expr::list_contains;
+use vortex::expr::BoundExpr;
 use vortex::expr::lit;
-use vortex::expr::not;
-use vortex::expr::or_collect;
 use vortex::expr::root;
-use vortex::expr::select;
+use vortex::scalar::Scalar;
+use vortex::scalar_fn::EmptyOptions;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
+use vortex::scalar_fn::fns::get_item::GetItem;
+use vortex::scalar_fn::fns::is_null::IsNull;
+use vortex::scalar_fn::fns::list_contains::ListContains;
+use vortex::scalar_fn::fns::not::Not;
 use vortex::scalar_fn::fns::operators::Operator;
+use vortex::scalar_fn::fns::select::FieldSelection;
+use vortex::scalar_fn::fns::select::Select;
 
 use crate::error::try_or;
 use crate::error::vx_error;
 use crate::scalar::vx_scalar;
 use crate::to_field_names;
 
-// Expressions are Arc'ed inside
+#[derive(Clone, Debug)]
+pub(crate) enum DeferredExpr {
+    Root,
+    Literal(Scalar),
+    Select {
+        fields: FieldNames,
+        child: Arc<DeferredExpr>,
+    },
+    And(Vec<Arc<DeferredExpr>>),
+    Or(Vec<Arc<DeferredExpr>>),
+    Binary {
+        operator: Operator,
+        lhs: Arc<DeferredExpr>,
+        rhs: Arc<DeferredExpr>,
+    },
+    Not(Arc<DeferredExpr>),
+    IsNull(Arc<DeferredExpr>),
+    GetItem {
+        field: FieldName,
+        child: Arc<DeferredExpr>,
+    },
+    ListContains {
+        list: Arc<DeferredExpr>,
+        value: Arc<DeferredExpr>,
+    },
+}
+
+impl DeferredExpr {
+    pub(crate) fn bind(&self, scope: &DType) -> VortexResult<BoundExpr> {
+        match self {
+            Self::Root => Ok(root(scope.clone())),
+            Self::Literal(scalar) => Ok(lit(scalar.clone())),
+            Self::Select { fields, child } => Select.try_new_expr(
+                FieldSelection::Include(fields.clone()),
+                [child.bind(scope)?],
+            ),
+            Self::And(expressions) => vortex::expr::try_and_collect(
+                expressions
+                    .iter()
+                    .map(|expression| expression.bind(scope))
+                    .collect::<VortexResult<Vec<_>>>()?,
+            )?
+            .ok_or_else(|| vortex::error::vortex_err!("empty AND expression")),
+            Self::Or(expressions) => vortex::expr::try_or_collect(
+                expressions
+                    .iter()
+                    .map(|expression| expression.bind(scope))
+                    .collect::<VortexResult<Vec<_>>>()?,
+            )?
+            .ok_or_else(|| vortex::error::vortex_err!("empty OR expression")),
+            Self::Binary { operator, lhs, rhs } => {
+                Binary.try_new_expr(*operator, [lhs.bind(scope)?, rhs.bind(scope)?])
+            }
+            Self::Not(child) => Not.try_new_expr(EmptyOptions, [child.bind(scope)?]),
+            Self::IsNull(child) => IsNull.try_new_expr(EmptyOptions, [child.bind(scope)?]),
+            Self::GetItem { field, child } => {
+                GetItem.try_new_expr(field.clone(), [child.bind(scope)?])
+            }
+            Self::ListContains { list, value } => {
+                ListContains.try_new_expr(EmptyOptions, [list.bind(scope)?, value.bind(scope)?])
+            }
+        }
+    }
+}
+
+impl Drop for DeferredExpr {
+    fn drop(&mut self) {
+        let mut children_to_drop = Vec::new();
+        self.take_children(&mut children_to_drop);
+
+        while let Some(mut child) = children_to_drop.pop() {
+            let Some(child) = Arc::get_mut(&mut child) else {
+                continue;
+            };
+            child.take_children(&mut children_to_drop);
+        }
+    }
+}
+
+impl DeferredExpr {
+    fn take_children(&mut self, children_to_drop: &mut Vec<Arc<Self>>) {
+        match self {
+            Self::Root | Self::Literal(_) => {}
+            Self::Select { child, .. }
+            | Self::Not(child)
+            | Self::IsNull(child)
+            | Self::GetItem { child, .. } => {
+                children_to_drop.push(std::mem::replace(child, Self::drop_tombstone()));
+            }
+            Self::And(expressions) | Self::Or(expressions) => {
+                children_to_drop.extend(std::mem::take(expressions));
+            }
+            Self::Binary { lhs, rhs, .. } => {
+                children_to_drop.push(std::mem::replace(lhs, Self::drop_tombstone()));
+                children_to_drop.push(std::mem::replace(rhs, Self::drop_tombstone()));
+            }
+            Self::ListContains { list, value } => {
+                children_to_drop.push(std::mem::replace(list, Self::drop_tombstone()));
+                children_to_drop.push(std::mem::replace(value, Self::drop_tombstone()));
+            }
+        }
+    }
+
+    fn drop_tombstone() -> Arc<Self> {
+        Arc::new(Self::Root)
+    }
+}
+
 crate::box_wrapper!(
     /// A node in a Vortex expression tree.
     ///
@@ -44,7 +155,7 @@ crate::box_wrapper!(
     /// passed NULL, NULL is returned.
     /// Operations on expressions don't take ownership of input values, and so
     /// input values must be freed by the caller.
-    Expression,
+    DeferredExpr,
     vx_expression);
 
 /// Create a root expression. A root expression, applied to an array in
@@ -64,7 +175,7 @@ crate::box_wrapper!(
 ///
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_expression_root() -> *mut vx_expression {
-    vx_expression::new(root())
+    vx_expression::new(DeferredExpr::Root)
 }
 
 /// Create a literal expression from a scalar.
@@ -104,7 +215,9 @@ pub unsafe extern "C-unwind" fn vx_expression_literal(
 ) -> *mut vx_expression {
     try_or(err, ptr::null_mut(), || {
         vortex_ensure!(!scalar.is_null(), "scalar literal is null");
-        Ok(vx_expression::new(lit(vx_scalar::as_ref(scalar).clone())))
+        Ok(vx_expression::new(DeferredExpr::Literal(
+            vx_scalar::as_ref(scalar).clone(),
+        )))
     })
 }
 
@@ -133,8 +246,10 @@ pub unsafe extern "C" fn vx_expression_select(
     }
     let names =
         unsafe { to_field_names(names, len) }.vortex_expect("converting names to field names");
-    let expr = select(names, vx_expression::as_ref(child).clone());
-    vx_expression::new(expr)
+    vx_expression::new(DeferredExpr::Select {
+        fields: names.into(),
+        child: Arc::new(vx_expression::as_ref(child).clone()),
+    })
 }
 
 /// Create an AND expression for multiple child expressions.
@@ -148,9 +263,15 @@ pub unsafe extern "C" fn vx_expression_and(
         return ptr::null_mut();
     }
     let slice = unsafe { slice::from_raw_parts(expressions, len) };
-    match and_collect(slice.iter().map(|x| vx_expression::as_ref(*x).clone())) {
-        Some(expr) => vx_expression::new(expr),
-        None => ptr::null_mut(),
+    if slice.is_empty() {
+        ptr::null_mut()
+    } else {
+        vx_expression::new(DeferredExpr::And(
+            slice
+                .iter()
+                .map(|x| Arc::new(vx_expression::as_ref(*x).clone()))
+                .collect(),
+        ))
     }
 }
 
@@ -165,9 +286,15 @@ pub unsafe extern "C" fn vx_expression_or(
         return ptr::null_mut();
     }
     let slice = unsafe { slice::from_raw_parts(expressions, len) };
-    match or_collect(slice.iter().map(|x| vx_expression::as_ref(*x).clone())) {
-        Some(expr) => vx_expression::new(expr),
-        None => ptr::null_mut(),
+    if slice.is_empty() {
+        ptr::null_mut()
+    } else {
+        vx_expression::new(DeferredExpr::Or(
+            slice
+                .iter()
+                .map(|x| Arc::new(vx_expression::as_ref(*x).clone()))
+                .collect(),
+        ))
     }
 }
 
@@ -260,7 +387,11 @@ pub unsafe extern "C" fn vx_expression_binary(
     }
     let lhs = vx_expression::as_ref(lhs).clone();
     let rhs = vx_expression::as_ref(rhs).clone();
-    vx_expression::new(Binary.new_expr(operator.into(), [lhs, rhs]))
+    vx_expression::new(DeferredExpr::Binary {
+        operator: operator.into(),
+        lhs: Arc::new(lhs),
+        rhs: Arc::new(rhs),
+    })
 }
 
 /// Create a logical NOT of the child expression.
@@ -271,7 +402,9 @@ pub unsafe extern "C" fn vx_expression_not(child: *const vx_expression) -> *cons
     if child.is_null() {
         return child;
     }
-    vx_expression::new(not(vx_expression::as_ref(child).clone()))
+    vx_expression::new(DeferredExpr::Not(Arc::new(
+        vx_expression::as_ref(child).clone(),
+    )))
 }
 
 /// Create an expression that checks for null values.
@@ -282,7 +415,9 @@ pub unsafe extern "C" fn vx_expression_is_null(child: *const vx_expression) -> *
     if child.is_null() {
         return ptr::null_mut();
     }
-    vx_expression::new(is_null(vx_expression::as_ref(child).clone()))
+    vx_expression::new(DeferredExpr::IsNull(Arc::new(
+        vx_expression::as_ref(child).clone(),
+    )))
 }
 
 /// Create an expression that extracts a named field from a struct expression.
@@ -312,7 +447,10 @@ pub unsafe extern "C" fn vx_expression_get_item(
     };
     let item: Arc<str> = Arc::from(item);
     let item: FieldName = item.into();
-    vx_expression::new(get_item(item, vx_expression::as_ref(child).clone()))
+    vx_expression::new(DeferredExpr::GetItem {
+        field: item,
+        child: Arc::new(vx_expression::as_ref(child).clone()),
+    })
 }
 
 /// Create an expression that checks if a value is contained in a list.
@@ -331,7 +469,10 @@ pub unsafe extern "C" fn vx_expression_list_contains(
     }
     let list = vx_expression::as_ref(list).clone();
     let value = vx_expression::as_ref(value).clone();
-    vx_expression::new(list_contains(list, value))
+    vx_expression::new(DeferredExpr::ListContains {
+        list: Arc::new(list),
+        value: Arc::new(value),
+    })
 }
 
 #[cfg(test)]

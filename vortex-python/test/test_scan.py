@@ -66,6 +66,54 @@ def test_scan_with_cast(vxfile: vx.VortexFile):
     assert str(actual.to_arrow_array()) == str(expected)
 
 
+@pytest.mark.parametrize("expr", [ve.column("nonexistent") > 1, ve.column("string") > 1])
+def test_scan_filter_bind_errors_raise_python_exception(vxfile: vx.VortexFile, expr: ve.Expr):
+    with pytest.raises(RuntimeError):
+        vxfile.scan(expr=expr).read_all()
+
+
+def test_scan_filter_expr_rebinds_against_each_file(tmp_path):
+    expr = ve.column("index") > 1
+
+    left_path = tmp_path / "left.vortex"
+    left_schema = pa.schema(
+        [
+            pa.field("index", pa.int64(), nullable=False),
+            pa.field("left", pa.string(), nullable=False),
+        ]
+    )
+    left_table = pa.Table.from_arrays(
+        [
+            pa.array([0, 2, 4], type=pa.int64()),
+            pa.array(["a", "b", "c"], type=pa.string()),
+        ],
+        schema=left_schema,
+    )
+    vx.io.write(left_table, str(left_path))
+
+    right_path = tmp_path / "right.vortex"
+    right_schema = pa.schema(
+        [
+            pa.field("right", pa.bool_(), nullable=False),
+            pa.field("index", pa.int64(), nullable=True),
+        ]
+    )
+    right_table = pa.Table.from_arrays(
+        [
+            pa.array([False, True, True], type=pa.bool_()),
+            pa.array([None, 1, 3], type=pa.int64()),
+        ],
+        schema=right_schema,
+    )
+    vx.io.write(right_table, str(right_path))
+
+    left_rows = vx.open(str(left_path)).scan(expr=expr).read_all().to_arrow_array().to_pylist()
+    right_rows = vx.open(str(right_path)).scan(expr=expr).read_all().to_arrow_array().to_pylist()
+
+    assert left_rows == [{"index": 2, "left": "b"}, {"index": 4, "left": "c"}]
+    assert right_rows == [{"right": True, "index": 3}]
+
+
 def test_scanner_property_projected(vxfile: vx.VortexFile):
     assert vxfile.to_dataset().scanner(columns=["bool"]).projected_schema == pa.schema([("bool", pa.bool_())])
 

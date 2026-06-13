@@ -19,6 +19,7 @@ use vortex::array::LEGACY_SESSION;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrow::ArrowSessionExt;
 use vortex::buffer::Buffer;
+use vortex::dtype::DType;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::arrow::RecordBatchIteratorAdapter;
@@ -41,6 +42,7 @@ impl VortexFile {
     pub(crate) fn scan_builder(&self) -> Result<Box<VortexScanBuilder>> {
         Ok(Box::new(VortexScanBuilder {
             inner: self.inner.scan()?,
+            source_dtype: self.inner.dtype().clone(),
             output_schema: None,
         }))
     }
@@ -61,28 +63,33 @@ pub(crate) fn open_file_from_buffer(data: &[u8]) -> Result<Box<VortexFile>> {
 
 pub(crate) struct VortexScanBuilder {
     inner: ScanBuilder<ArrayRef>,
+    source_dtype: DType,
     output_schema: Option<SchemaRef>,
 }
 
 impl VortexScanBuilder {
-    pub(crate) fn with_filter(&mut self, filter: Box<Expr>) {
-        take_mut::take(&mut self.inner, |inner| inner.with_filter(filter.inner));
+    pub(crate) fn with_filter(&mut self, filter: Box<Expr>) -> Result<()> {
+        let filter = filter.bind(&self.source_dtype)?;
+        take_mut::take(&mut self.inner, |inner| inner.with_filter(filter));
+        Ok(())
     }
 
-    pub(crate) fn with_filter_ref(&mut self, filter: &Expr) {
-        take_mut::take(&mut self.inner, |inner| {
-            inner.with_filter(filter.inner.clone())
-        });
+    pub(crate) fn with_filter_ref(&mut self, filter: &Expr) -> Result<()> {
+        let filter = filter.bind(&self.source_dtype)?;
+        take_mut::take(&mut self.inner, |inner| inner.with_filter(filter));
+        Ok(())
     }
 
-    pub(crate) fn with_projection(&mut self, filter: Box<Expr>) {
-        take_mut::take(&mut self.inner, |inner| inner.with_projection(filter.inner));
+    pub(crate) fn with_projection(&mut self, projection: Box<Expr>) -> Result<()> {
+        let projection = projection.bind(&self.source_dtype)?;
+        take_mut::take(&mut self.inner, |inner| inner.with_projection(projection));
+        Ok(())
     }
 
-    pub(crate) fn with_projection_ref(&mut self, filter: &Expr) {
-        take_mut::take(&mut self.inner, |inner| {
-            inner.with_projection(filter.inner.clone())
-        });
+    pub(crate) fn with_projection_ref(&mut self, projection: &Expr) -> Result<()> {
+        let projection = projection.bind(&self.source_dtype)?;
+        take_mut::take(&mut self.inner, |inner| inner.with_projection(projection));
+        Ok(())
     }
 
     pub(crate) fn with_row_range(&mut self, row_range_start: u64, row_range_end: u64) {

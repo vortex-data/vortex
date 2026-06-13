@@ -8,36 +8,68 @@
 
 namespace vortex {
 ScanBuilder &ScanBuilder::WithFilter(expr::Expr &&expr) & {
-    impl_->with_filter(std::move(expr).IntoImpl());
+    try {
+        impl_->with_filter(std::move(expr).IntoImpl());
+    } catch (const rust::cxxbridge1::Error &e) {
+        throw VortexException(e.what());
+    }
     return *this;
 }
 ScanBuilder &ScanBuilder::WithFilter(const expr::Expr &expr) & {
-    impl_->with_filter_ref(expr.Impl());
+    try {
+        impl_->with_filter_ref(expr.Impl());
+    } catch (const rust::cxxbridge1::Error &e) {
+        throw VortexException(e.what());
+    }
     return *this;
 }
 ScanBuilder &&ScanBuilder::WithFilter(expr::Expr &&expr) && {
-    impl_->with_filter(std::move(expr).IntoImpl());
+    try {
+        impl_->with_filter(std::move(expr).IntoImpl());
+    } catch (const rust::cxxbridge1::Error &e) {
+        throw VortexException(e.what());
+    }
     return std::move(*this);
 }
 ScanBuilder &&ScanBuilder::WithFilter(const expr::Expr &expr) && {
-    impl_->with_filter_ref(expr.Impl());
+    try {
+        impl_->with_filter_ref(expr.Impl());
+    } catch (const rust::cxxbridge1::Error &e) {
+        throw VortexException(e.what());
+    }
     return std::move(*this);
 }
 
 ScanBuilder &ScanBuilder::WithProjection(expr::Expr &&expr) & {
-    impl_->with_projection(std::move(expr).IntoImpl());
+    try {
+        impl_->with_projection(std::move(expr).IntoImpl());
+    } catch (const rust::cxxbridge1::Error &e) {
+        throw VortexException(e.what());
+    }
     return *this;
 }
 ScanBuilder &ScanBuilder::WithProjection(const expr::Expr &expr) & {
-    impl_->with_projection_ref(expr.Impl());
+    try {
+        impl_->with_projection_ref(expr.Impl());
+    } catch (const rust::cxxbridge1::Error &e) {
+        throw VortexException(e.what());
+    }
     return *this;
 }
 ScanBuilder &&ScanBuilder::WithProjection(expr::Expr &&expr) && {
-    impl_->with_projection(std::move(expr).IntoImpl());
+    try {
+        impl_->with_projection(std::move(expr).IntoImpl());
+    } catch (const rust::cxxbridge1::Error &e) {
+        throw VortexException(e.what());
+    }
     return std::move(*this);
 }
 ScanBuilder &&ScanBuilder::WithProjection(const expr::Expr &expr) && {
-    impl_->with_projection_ref(expr.Impl());
+    try {
+        impl_->with_projection_ref(expr.Impl());
+    } catch (const rust::cxxbridge1::Error &e) {
+        throw VortexException(e.what());
+    }
     return std::move(*this);
 }
 

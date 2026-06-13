@@ -22,10 +22,10 @@ use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::expr::stats::Precision;
 use vortex::array::stream::SendableArrayStream;
 use vortex::buffer::Buffer;
+use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
-use vortex::expr::root;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::arrow::RecordBatchIteratorAdapter;
 use vortex::scan::DataSourceScan;
@@ -136,22 +136,22 @@ pub struct vx_estimate {
     pub estimate: u64,
 }
 
-fn scan_request(opts: *const vx_scan_options) -> VortexResult<ScanRequest> {
+fn scan_request(opts: *const vx_scan_options, scope: &DType) -> VortexResult<ScanRequest> {
     if opts.is_null() {
         return Ok(ScanRequest::default());
     }
     let opts = unsafe { &*opts };
 
     let projection = if opts.projection.is_null() {
-        root()
+        None
     } else {
-        vx_expression::as_ref(opts.projection).clone()
+        Some(vx_expression::as_ref(opts.projection).bind(scope)?)
     };
 
     let filter = if opts.filter.is_null() {
         None
     } else {
-        Some(vx_expression::as_ref(opts.filter).clone())
+        Some(vx_expression::as_ref(opts.filter).bind(scope)?)
     };
 
     let selection = &opts.selection;
@@ -227,9 +227,10 @@ pub unsafe extern "C-unwind" fn vx_data_source_scan(
     err: *mut *mut vx_error,
 ) -> *mut vx_scan {
     try_or(err, ptr::null_mut(), || {
-        let request = scan_request(options)?;
+        let data_source = vx_data_source::as_ref(data_source);
+        let request = scan_request(options, data_source.dtype())?;
         RUNTIME.block_on(async {
-            let scan = vx_data_source::as_ref(data_source).scan(request).await?;
+            let scan = data_source.scan(request).await?;
             if !estimate.is_null() {
                 write_estimate(scan.partition_count().map(|v| v as u64), unsafe {
                     &mut *estimate

@@ -36,8 +36,6 @@ use vortex::array::stream::SendableArrayStream;
 use vortex::buffer::Buffer;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
-use vortex::expr::Expression;
-use vortex::expr::root;
 use vortex::expr::stats::Precision;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::arrow::RecordBatchIteratorAdapter;
@@ -51,6 +49,7 @@ use crate::RUNTIME;
 use crate::data_source::NativeDataSource;
 use crate::dtype::strip_views;
 use crate::errors::try_or_throw;
+use crate::expression::bind_expr_ptr;
 use crate::session::session_ref;
 
 /// Opaque scan handle. Holds a three-state machine: either the scan is pending (not yet
@@ -81,17 +80,18 @@ fn build_scan_request(
     selection_include: u8,
     limit: jlong,
     ordered: jboolean,
+    scope: &vortex::dtype::DType,
 ) -> VortexResult<ScanRequest> {
     let projection = if projection_ptr == 0 {
-        root()
+        None
     } else {
-        unsafe { &*(projection_ptr as *const Expression) }.clone()
+        Some(unsafe { bind_expr_ptr(projection_ptr, scope) }?)
     };
 
     let filter = if filter_ptr == 0 {
         None
     } else {
-        Some(unsafe { &*(filter_ptr as *const Expression) }.clone())
+        Some(unsafe { bind_expr_ptr(filter_ptr, scope) }?)
     };
 
     let selection = match selection_include {
@@ -181,6 +181,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeScan_create(
             selection_include as u8,
             limit,
             ordered,
+            ds.inner().dtype(),
         )?;
 
         let scan = RUNTIME.block_on(async { ds.inner().scan(request).await })?;

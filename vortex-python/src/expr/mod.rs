@@ -1,22 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Deref;
+use std::sync::Arc;
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
 use vortex::dtype::DType;
+use vortex::dtype::FieldName;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
+use vortex::error::VortexResult;
 use vortex::expr;
-use vortex::expr::Expression;
-use vortex::expr::and;
+use vortex::expr::BoundExpr;
 use vortex::expr::lit;
-use vortex::expr::not;
+use vortex::scalar::Scalar;
+use vortex::scalar_fn::EmptyOptions;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
+use vortex::scalar_fn::fns::cast::Cast;
 use vortex::scalar_fn::fns::get_item::GetItem;
+use vortex::scalar_fn::fns::is_not_null::IsNotNull;
+use vortex::scalar_fn::fns::is_null::IsNull;
+use vortex::scalar_fn::fns::not::Not;
 use vortex::scalar_fn::fns::operators::Operator;
 
 use crate::dtype::PyDType;
@@ -49,30 +55,104 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 #[pyclass(name = "Expr", module = "vortex", frozen, from_py_object)]
 #[derive(Clone)]
 pub struct PyExpr {
-    inner: Expression,
+    inner: DeferredExpr,
 }
 
-impl From<Expression> for PyExpr {
-    fn from(value: Expression) -> Self {
+impl From<DeferredExpr> for PyExpr {
+    fn from(value: DeferredExpr) -> Self {
         Self { inner: value }
     }
 }
 
-impl Deref for PyExpr {
-    type Target = Expression;
-
-    fn deref(&self) -> &Self::Target {
+impl PyExpr {
+    pub(crate) fn inner(&self) -> &DeferredExpr {
         &self.inner
+    }
+
+    pub(crate) fn into_inner(self) -> DeferredExpr {
+        self.inner
+    }
+
+    pub(crate) fn bind(&self, scope: &DType) -> VortexResult<BoundExpr> {
+        self.inner.bind(scope)
     }
 }
 
-impl PyExpr {
-    pub fn inner(&self) -> &Expression {
-        &self.inner
+#[derive(Clone, Debug)]
+pub(crate) enum DeferredExpr {
+    Root,
+    Literal(Scalar),
+    GetItem {
+        field: FieldName,
+        child: Arc<DeferredExpr>,
+    },
+    Binary {
+        operator: Operator,
+        lhs: Arc<DeferredExpr>,
+        rhs: Arc<DeferredExpr>,
+    },
+    Not(Arc<DeferredExpr>),
+    Cast {
+        child: Arc<DeferredExpr>,
+        dtype: DType,
+    },
+    IsNull(Arc<DeferredExpr>),
+    IsNotNull(Arc<DeferredExpr>),
+}
+
+impl DeferredExpr {
+    pub(crate) fn bind(&self, scope: &DType) -> VortexResult<BoundExpr> {
+        match self {
+            Self::Root => Ok(expr::root(scope.clone())),
+            Self::Literal(scalar) => Ok(lit(scalar.clone())),
+            Self::GetItem { field, child } => {
+                GetItem.try_new_expr(field.clone(), [child.bind(scope)?])
+            }
+            Self::Binary { operator, lhs, rhs } => {
+                Binary.try_new_expr(*operator, [lhs.bind(scope)?, rhs.bind(scope)?])
+            }
+            Self::Not(child) => Not.try_new_expr(EmptyOptions, [child.bind(scope)?]),
+            Self::Cast { child, dtype } => Cast.try_new_expr(dtype.clone(), [child.bind(scope)?]),
+            Self::IsNull(child) => IsNull.try_new_expr(EmptyOptions, [child.bind(scope)?]),
+            Self::IsNotNull(child) => IsNotNull.try_new_expr(EmptyOptions, [child.bind(scope)?]),
+        }
+    }
+}
+
+impl Drop for DeferredExpr {
+    fn drop(&mut self) {
+        let mut children_to_drop = Vec::new();
+        self.take_children(&mut children_to_drop);
+
+        while let Some(mut child) = children_to_drop.pop() {
+            let Some(child) = Arc::get_mut(&mut child) else {
+                continue;
+            };
+            child.take_children(&mut children_to_drop);
+        }
+    }
+}
+
+impl DeferredExpr {
+    fn take_children(&mut self, children_to_drop: &mut Vec<Arc<Self>>) {
+        match self {
+            Self::Root | Self::Literal(_) => {}
+            Self::GetItem { child, .. }
+            | Self::Not(child)
+            | Self::Cast { child, .. }
+            | Self::IsNull(child)
+            | Self::IsNotNull(child) => {
+                children_to_drop.push(std::mem::replace(child, Self::drop_tombstone()));
+            }
+            Self::Binary { lhs, rhs, .. } => {
+                children_to_drop.push(std::mem::replace(lhs, Self::drop_tombstone()));
+                children_to_drop.push(std::mem::replace(rhs, Self::drop_tombstone()));
+            }
+        }
     }
 
-    pub fn into_inner(self) -> Expression {
-        self.inner
+    fn drop_tombstone() -> Arc<Self> {
+        Arc::new(Self::Root)
     }
 }
 
@@ -84,7 +164,11 @@ fn py_binary_operator<'py>(
     Bound::new(
         left.py(),
         PyExpr {
-            inner: Binary.new_expr(operator, [left.inner.clone(), right.borrow().inner.clone()]),
+            inner: DeferredExpr::Binary {
+                operator,
+                lhs: Arc::new(left.inner.clone()),
+                rhs: Arc::new(right.borrow().inner.clone()),
+            },
         },
     )
 }
@@ -256,7 +340,7 @@ pub fn literal<'py>(
 #[pyfunction]
 pub fn root() -> PyExpr {
     PyExpr {
-        inner: expr::root(),
+        inner: DeferredExpr::Root,
     }
 }
 
@@ -290,7 +374,10 @@ pub fn column<'py>(name: &Bound<'py, PyString>) -> PyResult<Bound<'py, PyExpr>> 
     Bound::new(
         py,
         PyExpr {
-            inner: expr::get_item(name, expr::root()),
+            inner: DeferredExpr::GetItem {
+                field: FieldName::from(name),
+                child: Arc::new(DeferredExpr::Root),
+            },
         },
     )
 }
@@ -300,14 +387,17 @@ pub fn scalar<'py>(dtype: DType, value: &Bound<'py, PyAny>) -> PyResult<Bound<'p
     Bound::new(
         py,
         PyExpr {
-            inner: lit(scalar_helper(value, Some(&dtype))?),
+            inner: DeferredExpr::Literal(scalar_helper(value, Some(&dtype))?),
         },
     )
 }
 
 pub fn get_item(field: String, child: PyExpr) -> PyResult<PyExpr> {
     Ok(PyExpr {
-        inner: GetItem.new_expr(field.into(), [child.inner]),
+        inner: DeferredExpr::GetItem {
+            field: field.into(),
+            child: Arc::new(child.inner),
+        },
     })
 }
 
@@ -334,7 +424,7 @@ pub fn get_item(field: String, child: PyExpr) -> PyResult<PyExpr> {
 #[pyfunction]
 pub fn not_(child: PyExpr) -> PyResult<PyExpr> {
     Ok(PyExpr {
-        inner: not(child.inner),
+        inner: DeferredExpr::Not(Arc::new(child.inner)),
     })
 }
 
@@ -364,7 +454,11 @@ pub fn not_(child: PyExpr) -> PyResult<PyExpr> {
 #[pyfunction]
 pub fn and_(left: PyExpr, right: PyExpr) -> PyResult<PyExpr> {
     Ok(PyExpr {
-        inner: and(left.inner, right.inner),
+        inner: DeferredExpr::Binary {
+            operator: Operator::And,
+            lhs: Arc::new(left.inner),
+            rhs: Arc::new(right.inner),
+        },
     })
 }
 
@@ -402,7 +496,10 @@ pub fn and_(left: PyExpr, right: PyExpr) -> PyResult<PyExpr> {
 #[pyfunction]
 pub fn cast(child: PyExpr, dtype: PyDType) -> PyResult<PyExpr> {
     Ok(PyExpr {
-        inner: expr::cast(child.into_inner(), dtype.into_inner()),
+        inner: DeferredExpr::Cast {
+            child: Arc::new(child.into_inner()),
+            dtype: dtype.into_inner(),
+        },
     })
 }
 
@@ -420,7 +517,7 @@ pub fn cast(child: PyExpr, dtype: PyDType) -> PyResult<PyExpr> {
 #[pyfunction]
 pub fn is_null(child: PyExpr) -> PyResult<PyExpr> {
     Ok(PyExpr {
-        inner: expr::is_null(child.into_inner()),
+        inner: DeferredExpr::IsNull(Arc::new(child.into_inner())),
     })
 }
 
@@ -436,6 +533,6 @@ pub fn is_null(child: PyExpr) -> PyResult<PyExpr> {
 #[pyfunction]
 pub fn is_not_null(child: PyExpr) -> PyResult<PyExpr> {
     Ok(PyExpr {
-        inner: expr::is_not_null(child.into_inner()),
+        inner: DeferredExpr::IsNotNull(Arc::new(child.into_inner())),
     })
 }

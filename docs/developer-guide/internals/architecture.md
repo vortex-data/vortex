@@ -38,7 +38,7 @@ format, and I/O.
 | `vortex-ipc`              | IPC format for inter-process communication                                    |
 | `vortex-file`             | `.vortex` file reading and writing                                            |
 | `vortex-scan`             | Table scan with filter and projection pushdown                                |
-| `vortex-expr`             | Expression representation and optimization                                    |
+| `vortex-array::expr`      | Bound expression representation and optimization                              |
 | `vortex-flatbuffers`      | FlatBuffer schema definitions                                                 |
 
 ## Encodings

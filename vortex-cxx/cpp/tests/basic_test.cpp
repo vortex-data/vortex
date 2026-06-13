@@ -14,6 +14,7 @@
 #include "vortex/scan.hpp"
 #include "vortex/write_options.hpp"
 #include "vortex/scalar.hpp"
+#include "vortex/exception.hpp"
 #include "test_data_generator.hpp"
 #include "vortex_cxx_bridge/lib.h"
 
@@ -440,6 +441,24 @@ TEST_F(VortexTest, ScanBuilderWithFilterNoMatches) {
         vortex::testing::CreateTestDataStream(),
         {},
         true); // No matching rows
+}
+
+TEST_F(VortexTest, ScanBuilderWithFilterUnknownColumnThrows) {
+    auto test_data_path = WriteTestData();
+    auto file = vortex::VortexFile::Open(test_data_path);
+    auto scan_builder = file.CreateScanBuilder();
+    auto filter = ve::gt(ve::column("missing"), ve::literal(vs::int32(1)));
+
+    EXPECT_THROW(scan_builder.WithFilter(std::move(filter)), vortex::VortexException);
+}
+
+TEST_F(VortexTest, ScanBuilderWithFilterTypeMismatchThrows) {
+    auto test_data_path = WriteTestData();
+    auto file = vortex::VortexFile::Open(test_data_path);
+    auto scan_builder = file.CreateScanBuilder();
+    auto filter = ve::gt(ve::column("a"), ve::literal(vs::string("thirty")));
+
+    EXPECT_THROW(scan_builder.WithFilter(std::move(filter)), vortex::VortexException);
 }
 
 TEST_F(VortexTest, ScanBuilderWithFilterUsingDTypeFromArrowAndScalarCast) {

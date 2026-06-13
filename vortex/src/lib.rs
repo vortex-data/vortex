@@ -195,7 +195,10 @@ mod test {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldNames;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
@@ -274,6 +277,7 @@ mod test {
 
         // [write]
         let array = PrimitiveArray::new(buffer![0u64, 1, 2, 3, 4], Validity::NonNullable);
+        let dtype = DType::Primitive(PType::U64, Nullability::NonNullable);
 
         // Write a Vortex file with the default compression and layout strategy.
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("example.vortex");
@@ -294,7 +298,7 @@ mod test {
             .open_path(path.clone())
             .await?
             .scan()?
-            .with_filter(gt(root(), lit(2u64)))
+            .with_filter(gt(root(dtype), lit(2u64)))
             .into_array_stream()?
             .read_all()
             .await?;
@@ -375,6 +379,7 @@ mod test {
             Validity::NonNullable,
         )?
         .into_array();
+        let dtype = array.dtype().clone();
 
         // Write a Vortex file containing both columns.
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("example_projection.vortex");
@@ -393,7 +398,7 @@ mod test {
             .open_path(path.clone())
             .await?
             .scan()?
-            .with_projection(select(["value"], root()))
+            .with_projection(select(["value"], root(dtype)))
             .into_array_stream()?
             .read_all()
             .await?;

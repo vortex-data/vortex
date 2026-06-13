@@ -1,13 +1,15 @@
 # Expressions
 
-Expressions in Vortex are used to describe scalar operations over arrays. For example, when scanning a Vortex file a
-user will pass both a filter expression that must resolve to a boolean, and a projection expression that can be applied
-to the returned data.
+Expressions in Vortex are used to describe scalar operations over arrays. In Rust, these are `BoundExpr` trees:
+every node is bound to an evaluation scope and carries its output dtype at construction time. For example, when
+scanning a Vortex file a user will pass both a filter expression that must resolve to a boolean, and a projection
+expression that can be applied to the returned data.
 
 ## Scalar Functions
 
-Expressions are defined as abstract scalar functions. These vtables define the signature of the function, properties
-such as whether the function is null-sensitive, and the actual logic for executing the function over input arrays.
+Most expression nodes are scalar function calls. The scalar function vtables define the signature of the function,
+properties such as whether the function is null-sensitive, and the actual logic for executing the function over input
+arrays. Leaf nodes such as the root scope and literals are represented directly in the bound expression tree.
 
 The built-in scalar functions can be found in the `vortex-array::expr` module, with additional use-case specific
 functions provided by integration and plugin crates.
@@ -29,7 +31,7 @@ bitpacked:
   buffer: Buffer<u32>
 ```
 
-And the projection expression `{x: $, y: $ + 1}` is applied to it (where `$` represents the expression's scope), then
+And the projection expression `{x: $, y: $ + 1}` is applied to it (where `$` is bound to the input array dtype), then
 the resulting array before simplification will look a little bit like this:
 
 ```
@@ -53,10 +55,10 @@ computation of several expressions at once, as is commonly done by the Vortex GP
 ## Type Coercion
 
 Vortex expressions are strictly typed. This means that the input data types to an expression must exactly match the
-expected data types of the expression's signature.
+expected data types of the expression's signature, and type errors surface when the bound expression is constructed.
 
 For example, all binary functions require the same data type for both inputs. Any coercion of types should be performed
-by the caller before constructing the expression. This allows Vortex to be agnostic to the type coercion rules of 
+by the caller before constructing the expression. This allows Vortex to be agnostic to the type coercion rules of
 different compute engines.
 
 The notable exception to this rule, is that many expressions permit null-coercion. For example, the equality comparison

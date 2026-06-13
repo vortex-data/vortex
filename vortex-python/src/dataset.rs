@@ -15,16 +15,19 @@ use vortex::array::ExecutionCtx;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::iter::ArrayIteratorExt;
+use vortex::dtype::DType;
 use vortex::dtype::FieldName;
 use vortex::dtype::FieldNames;
 use vortex::error::VortexResult;
-use vortex::expr::Expression;
+use vortex::expr::BoundExpr;
 use vortex::expr::root;
-use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::split_by::SplitBy;
+use vortex::scalar_fn::ScalarFnVTableExt;
+use vortex::scalar_fn::fns::select::FieldSelection;
+use vortex::scalar_fn::fns::select::Select;
 
 use crate::RUNTIME;
 use crate::arrays::PyArrayRef;
@@ -51,13 +54,17 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
 pub fn read_array_from_reader(
     vortex_file: &VortexFile,
-    projection: Expression,
-    filter: Option<Expression>,
+    projection: Option<BoundExpr>,
+    filter: Option<BoundExpr>,
     indices: Option<ArrayRef>,
     row_range: Option<(u64, u64)>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let mut scan = vortex_file.scan()?.with_projection(projection);
+    let mut scan = vortex_file.scan()?;
+
+    if let Some(projection) = projection {
+        scan = scan.with_projection(projection);
+    }
 
     if let Some(filter) = filter {
         scan = scan.with_filter(filter);
@@ -76,7 +83,10 @@ pub fn read_array_from_reader(
     scan.into_array_iter(&*RUNTIME)?.read_all()
 }
 
-fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<Expression> {
+fn projection_from_python(
+    columns: Option<Vec<Bound<PyAny>>>,
+    scope: &DType,
+) -> PyVortexResult<Option<BoundExpr>> {
     fn field_from_pyany(field: &Bound<PyAny>) -> PyResult<FieldName> {
         if field.clone().is_instance_of::<PyString>() {
             Ok(FieldName::from(field.cast::<PyString>()?.to_str()?))
@@ -88,19 +98,28 @@ fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<Expres
     }
 
     Ok(match columns {
-        None => root(),
+        None => None,
         Some(columns) => {
             let fields: Vec<_> = columns
                 .iter()
                 .map(field_from_pyany)
                 .collect::<PyResult<_>>()?;
-            select(FieldNames::from(fields), root())
+            Some(Select.try_new_expr(
+                FieldSelection::Include(FieldNames::from(fields)),
+                [root(scope.clone())],
+            )?)
         }
     })
 }
 
-fn filter_from_python(row_filter: Option<&Bound<PyExpr>>) -> Option<Expression> {
-    row_filter.map(|x| x.borrow().inner().clone())
+fn filter_from_python(
+    row_filter: Option<&Bound<PyExpr>>,
+    scope: &DType,
+) -> PyVortexResult<Option<BoundExpr>> {
+    row_filter
+        .map(|x| x.borrow().bind(scope))
+        .transpose()
+        .map_err(Into::into)
 }
 
 #[pyclass(name = "VortexDataset", module = "dataset")]
@@ -141,8 +160,9 @@ impl PyVortexDataset {
         row_range: Option<(u64, u64)>,
     ) -> PyVortexResult<PyArrayRef> {
         let vxf = self.vxf.clone();
-        let projection = projection_from_python(columns)?;
-        let filter = filter_from_python(row_filter);
+        let scope = self.vxf.dtype().clone();
+        let projection = projection_from_python(columns, &scope)?;
+        let filter = filter_from_python(row_filter, &scope)?;
         let indices = indices.map(|i| i.into_inner());
 
         let array = py.detach(move || {
@@ -180,15 +200,18 @@ impl PyVortexDataset {
         row_range: Option<(u64, u64)>,
     ) -> PyVortexResult<Py<PyAny>> {
         let vxf = self_.vxf.clone();
-        let projection = projection_from_python(columns)?;
-        let filter = filter_from_python(row_filter);
+        let scope = self_.vxf.dtype().clone();
+        let projection = projection_from_python(columns, &scope)?;
+        let filter = filter_from_python(row_filter, &scope)?;
 
         let reader = self_.py().detach(move || {
             let mut scan = vxf
                 .scan()?
-                .with_projection(projection)
                 .with_some_filter(filter)
                 .with_split_by(split_by.map(SplitBy::RowCount).unwrap_or(SplitBy::Layout));
+            if let Some(projection) = projection {
+                scan = scan.with_projection(projection);
+            }
             if let Some((l, r)) = row_range {
                 scan = scan.with_row_range(l..r);
             }
@@ -221,13 +244,17 @@ impl PyVortexDataset {
         }
 
         let vxf = self_.vxf.clone();
-        let filter = filter_from_python(row_filter);
+        let scope = self_.vxf.dtype().clone();
+        let filter = filter_from_python(row_filter, &scope)?;
         let n_rows: usize = self_.py().detach(move || {
-            let mut scan = vxf
-                .scan()?
-                .with_projection(select(FieldNames::empty(), root()))
-                .with_some_filter(filter)
-                .with_split_by(split_by.map(SplitBy::RowCount).unwrap_or(SplitBy::Layout));
+            let mut scan =
+                vxf.scan()?
+                    .with_projection(Select.try_new_expr(
+                        FieldSelection::Include(FieldNames::empty()),
+                        [root(scope)],
+                    )?)
+                    .with_some_filter(filter)
+                    .with_split_by(split_by.map(SplitBy::RowCount).unwrap_or(SplitBy::Layout));
             if let Some((l, r)) = row_range {
                 scan = scan.with_row_range(l..r);
             }
