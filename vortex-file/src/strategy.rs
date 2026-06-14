@@ -268,15 +268,20 @@ impl WriteStrategyBuilder {
             CompressorConfig::BtrBlocks(builder) => Arc::new(builder.build()),
             CompressorConfig::Opaque(compressor) => compressor,
         };
-        let compress_then_flat = CompressingStrategy::new(flat, stats_compressor);
+        let compress_then_flat = CompressingStrategy::new(flat, Arc::clone(&stats_compressor));
 
-        // 3. apply dict encoding or fallback
+        // 3. apply dict encoding or fallback.
+        // The dict-fit probe shares `stats_compressor` (the full configured cascade), not
+        // `data_compressor`: `data_compressor` drops `IntDictScheme` to avoid re-encoding the
+        // codes produced in step 5, but the probe needs every dict scheme to detect eligibility.
+        // The full cascade also honours caller scheme exclusions, unlike a hardcoded default.
         let dict = DictStrategy::new(
             coalescing.clone(),
             compress_then_flat.clone(),
             coalescing,
             Default::default(),
-        );
+        )
+        .with_probe_compressor(stats_compressor);
 
         // 2. calculate stats for each row group
         let stats = ZonedStrategy::new(

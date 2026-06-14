@@ -42,6 +42,7 @@ use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
+use crate::layouts::compressed::CompressorPlugin;
 use crate::layouts::dict::DictLayout;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
@@ -106,6 +107,7 @@ pub struct DictStrategy {
     values: Arc<dyn LayoutStrategy>,
     fallback: Arc<dyn LayoutStrategy>,
     options: DictLayoutOptions,
+    probe_compressor: Arc<dyn CompressorPlugin>,
 }
 
 impl DictStrategy {
@@ -120,7 +122,15 @@ impl DictStrategy {
             values: Arc::new(values),
             fallback: Arc::new(fallback),
             options,
+            probe_compressor: Arc::new(BtrBlocksCompressor::default()),
         }
+    }
+
+    /// Override the compressor used to probe whether the first chunk is dict-eligible.
+    /// Defaults to `BtrBlocksCompressor::default()`.
+    pub fn with_probe_compressor(mut self, probe_compressor: Arc<dyn CompressorPlugin>) -> Self {
+        self.probe_compressor = probe_compressor;
+        self
     }
 }
 
@@ -153,7 +163,9 @@ impl LayoutStrategy for DictStrategy {
             None => true, // empty stream
             Some(chunk) => {
                 let mut exec_ctx = session.create_execution_ctx();
-                let compressed = BtrBlocksCompressor::default().compress(&chunk, &mut exec_ctx)?;
+                let compressed = self
+                    .probe_compressor
+                    .compress_chunk(&chunk, &mut exec_ctx)?;
                 !compressed.is::<Dict>()
             }
         };
