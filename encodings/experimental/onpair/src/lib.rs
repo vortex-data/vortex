@@ -15,6 +15,7 @@ mod canonical;
 mod compress;
 mod compute;
 mod decode;
+mod dfa;
 mod kernel;
 mod ops;
 mod rules;

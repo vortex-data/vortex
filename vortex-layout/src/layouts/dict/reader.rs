@@ -43,8 +43,15 @@ pub struct DictReader {
 
     /// Length of the values array
     values_len: usize,
-    /// Cached dict values array
+    /// Cached dict values array, wrapped in `Shared` so a pure-decode projection
+    /// reuses one canonicalization across row splits.
     values_array: OnceLock<SharedArrayFuture>,
+    /// Cached dict values array *without* the `Shared` wrapper. Predicate
+    /// pushdown (see [`Self::values_eval`]) applies the expression to this bare
+    /// array so the optimizer can push it into the values encoding (e.g. an
+    /// OnPair/FSST `LIKE` kernel) rather than canonicalizing through `Shared`,
+    /// which would force a full decompress.
+    values_array_bare: OnceLock<SharedArrayFuture>,
     /// Cache of expression evaluation results on the values array by expression
     values_evals: DashMap<Expression, SharedArrayFuture>,
 
@@ -80,53 +87,50 @@ impl DictReader {
             session,
             values_len,
             values_array: Default::default(),
+            values_array_bare: Default::default(),
             values_evals: Default::default(),
             values,
             codes,
         })
     }
 
+    /// Read the full dictionary values array (uncanonicalized, bare).
+    fn read_values(&self) -> SharedArrayFuture {
+        let values_len = self.values_len;
+        self.values
+            .projection_evaluation(
+                &(0..values_len as u64),
+                &root(),
+                MaskFuture::new_true(values_len),
+            )
+            .vortex_expect("must construct dict values array evaluation")
+            .map_err(Arc::new)
+            .boxed()
+            .shared()
+    }
+
     fn values_array(&self) -> SharedArrayFuture {
         // We capture the name, so it may be wrong if we re-use the same reader within multiple
         // different parent readers. But that's rare...
-        let values_len = self.values_len;
+        //
+        // Wrap the *same* bare values read (so the dictionary values are read
+        // once) in `Shared`, which caches one canonicalization across splits.
+        let bare = self.values_array_uncanonical();
         self.values_array
-            .get_or_init(move || {
-                self.values
-                    .projection_evaluation(
-                        &(0..values_len as u64),
-                        &root(),
-                        MaskFuture::new_true(values_len),
-                    )
-                    .vortex_expect("must construct dict values array evaluation")
-                    .map_err(Arc::new)
-                    .map(move |array| {
-                        let array = array?;
-                        Ok(SharedArray::new(array).into_array())
-                    })
+            .get_or_init(|| {
+                bare.map(move |array| Ok(SharedArray::new(array?).into_array()))
                     .boxed()
                     .shared()
             })
             .clone()
     }
 
-    // This is the dict values array without canonicalization, if not already canonical
+    /// The dict values array without the `Shared` wrapper, so a predicate applied
+    /// to it can be pushed into the values encoding instead of canonicalizing.
     fn values_array_uncanonical(&self) -> SharedArrayFuture {
-        // We capture the name, so it may be wrong if we re-use the same reader within multiple
-        // different parent readers. But that's rare...
-        let values_len = self.values_len;
-        self.values_array.get().cloned().unwrap_or_else(|| {
-            self.values
-                .projection_evaluation(
-                    &(0..values_len as u64),
-                    &root(),
-                    MaskFuture::new_true(values_len),
-                )
-                .vortex_expect("must construct dict values array evaluation")
-                .map_err(Arc::new)
-                .boxed()
-                .shared()
-        })
+        self.values_array_bare
+            .get_or_init(|| self.read_values())
+            .clone()
     }
 
     fn values_eval(&self, expr: Expression) -> SharedArrayFuture {
