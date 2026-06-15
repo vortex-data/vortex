@@ -157,10 +157,6 @@ impl ScalarFnVTable for VariantToJson {
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {
         false
     }
-
-    fn is_fallible(&self, _options: &Self::Options) -> bool {
-        false
-    }
 }
 
 #[cfg(test)]
@@ -287,6 +283,12 @@ mod tests {
     fn formats_sql() {
         let expr = variant_to_json(root());
         assert_eq!(expr.to_string(), "variant_to_json($)");
+    }
+
+    #[test]
+    fn is_fallible() {
+        let expr = variant_to_json(root());
+        assert!(expr.signature().is_fallible());
     }
 
     #[test]

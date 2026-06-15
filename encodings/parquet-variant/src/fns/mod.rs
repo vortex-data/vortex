@@ -20,7 +20,7 @@ use vortex_array::scalar_fn::ScalarFnVTableExt;
 /// `child` must produce `Utf8` or [`Json`](vortex_json::Json) extension values; the result is
 /// `Variant` with the input's nullability. Rows containing invalid JSON fail the expression.
 ///
-/// Note that this is NOT an inverse of [`variant_to_json`]: both conversions normalize their
+/// Note that this is NOT an inverse of [`variant_to_json()`]: both conversions normalize their
 /// input. See [`JsonToVariant`] for the full list of caveats.
 pub fn json_to_variant(child: Expression, shredding: ShreddingSpec) -> Expression {
     JsonToVariant.new_expr(JsonToVariantOptions::new(shredding), [child])
@@ -32,7 +32,7 @@ pub fn json_to_variant(child: Expression, shredding: ShreddingSpec) -> Expressio
 /// Shredded inputs are unshredded before rendering, and the result keeps the input's
 /// nullability.
 ///
-/// Note that this is NOT an inverse of [`json_to_variant`]: both conversions normalize their
+/// Note that this is NOT an inverse of [`json_to_variant()`]: both conversions normalize their
 /// input, and Variant-only types (dates, timestamps, UUIDs, binary, decimals) are rendered as
 /// plain JSON strings or numbers. See [`VariantToJson`] for the full list of caveats.
 pub fn variant_to_json(child: Expression) -> Expression {
