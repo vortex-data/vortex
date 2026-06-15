@@ -51,7 +51,11 @@ mod tests {
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
+    use crate::arrays::ConstantArray;
     use crate::builtins::ArrayBuiltins;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::scalar::Scalar;
 
     fn ctx() -> ExecutionCtx {
         LEGACY_SESSION.create_execution_ctx()
@@ -76,6 +80,15 @@ mod tests {
         let array = BoolArray::from_iter([Some(true), None, Some(false), None]).into_array();
         let mask = array.fill_null(false)?.execute::<Mask>(&mut ctx())?;
         assert_eq!(mask, Mask::from_iter([true, false, false, false]));
+        Ok(())
+    }
+
+    #[test]
+    fn fill_null_then_mask_null_constant() -> VortexResult<()> {
+        let array =
+            ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), 4).into_array();
+        let mask = array.fill_null(false)?.execute::<Mask>(&mut ctx())?;
+        assert_eq!(mask, Mask::new_false(4));
         Ok(())
     }
 }
