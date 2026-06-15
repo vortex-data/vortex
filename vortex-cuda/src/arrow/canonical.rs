@@ -794,39 +794,17 @@ pub(super) async fn export_arrow_validity_buffer(
                 )
             })?;
             let BoolDataParts { bits, meta } = array.into_data().into_parts(len);
-            export_validity_bitmap(
-                bits,
-                meta.offset(),
-                len,
-                arrow_offset,
-                UNKNOWN_NULL_COUNT,
-                ctx,
-            )
-            .await
+            let bitmap = ctx.ensure_on_device(bits).await?;
+            // Repack only when a bit-level offset can't be expressed by Arrow's byte-addressed
+            // validity buffer plus array offset.
+            let bitmap = if arrow_offset == 0 && meta.offset() == 0 {
+                bitmap
+            } else {
+                repack_arrow_validity_buffer(&bitmap, meta.offset(), len, arrow_offset, ctx)?
+            };
+            Ok((Some(bitmap), UNKNOWN_NULL_COUNT))
         }
     }
-}
-
-/// Move an already-materialized validity bitmap to device memory and align it for export.
-async fn export_validity_bitmap(
-    bitmap: BufferHandle,
-    bitmap_offset: usize,
-    len: usize,
-    arrow_offset: usize,
-    null_count: i64,
-    ctx: &mut CudaExecutionCtx,
-) -> VortexResult<(Option<BufferHandle>, i64)> {
-    if null_count == 0 {
-        return Ok((None, 0));
-    }
-
-    let bitmap = ctx.ensure_on_device(bitmap).await?;
-    let bitmap = if arrow_offset == 0 && bitmap_offset == 0 {
-        bitmap
-    } else {
-        repack_arrow_validity_buffer(&bitmap, bitmap_offset, len, arrow_offset, ctx)?
-    };
-    Ok((Some(bitmap), null_count))
 }
 
 /// Return the byte length needed for `len` validity bits at the given bit offset.
