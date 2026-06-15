@@ -844,11 +844,8 @@ pub(super) fn repack_arrow_validity_buffer(
     arrow_offset: usize,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<BufferHandle> {
-    let validity_bits = len
-        .checked_add(arrow_offset)
-        .ok_or_else(|| vortex_err!("Arrow validity bit length overflows usize"))?;
-    let output_bytes = validity_bits.div_ceil(8);
-    let output_words = validity_bits.div_ceil(u64::BITS as usize);
+    let output_bytes = validity_bitmap_byte_len(len, arrow_offset)?;
+    let output_words = output_bytes.div_ceil(size_of::<u64>());
 
     // The kernel loads the input bitmap as 64-bit words.
     if !input_buffer
