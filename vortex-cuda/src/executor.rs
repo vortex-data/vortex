@@ -21,16 +21,33 @@ use vortex::array::ArrayVTable;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
+use vortex::array::arrays::BoolArray;
+use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::Extension;
 use vortex::array::arrays::ExtensionArray;
+use vortex::array::arrays::FixedSizeListArray;
+use vortex::array::arrays::ListViewArray;
+use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
+use vortex::array::arrays::VarBinViewArray;
+use vortex::array::arrays::bool::BoolDataParts;
+use vortex::array::arrays::decimal::DecimalDataParts;
 use vortex::array::arrays::extension::ExtensionArrayExt;
+use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex::array::arrays::fixed_size_list::FixedSizeListDataParts;
+use vortex::array::arrays::listview::ListViewDataParts;
+use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::arrays::struct_::StructDataParts;
+use vortex::array::arrays::varbinview::VarBinViewDataParts;
 use vortex::array::buffer::BufferHandle;
+use vortex::array::validity::Validity;
+use vortex::dtype::DType;
+use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 
 use crate::CudaSession;
@@ -375,6 +392,141 @@ pub trait CudaExecute: 'static + Send + Sync + Debug {
     -> VortexResult<Canonical>;
 }
 
+async fn execute_validity_cuda(
+    validity: Validity,
+    len: usize,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<Validity> {
+    let Validity::Array(array) = validity else {
+        return Ok(validity);
+    };
+
+    vortex_ensure!(array.len() == len, "validity array length mismatch");
+    vortex_ensure!(
+        matches!(array.dtype(), DType::Bool(Nullability::NonNullable)),
+        "validity array must be non-nullable boolean, got {}",
+        array.dtype()
+    );
+
+    let canonical = array.execute_cuda(ctx).await?;
+    let Canonical::Bool(bool_array) = canonical else {
+        vortex_bail!("CUDA validity execution produced {}", canonical.dtype());
+    };
+
+    let BoolDataParts { bits, meta } = bool_array.into_data().into_parts(len);
+    let bits = ctx.ensure_on_device(bits).await?;
+    Ok(Validity::Array(
+        BoolArray::new_handle(bits, meta.offset(), meta.len(), Validity::NonNullable).into_array(),
+    ))
+}
+
+async fn execute_canonical_validity_cuda(
+    canonical: Canonical,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<Canonical> {
+    Ok(match canonical {
+        Canonical::Primitive(array) => {
+            let PrimitiveDataParts {
+                ptype,
+                buffer,
+                validity,
+            } = array.into_data_parts();
+            let len = buffer.len() / ptype.byte_width();
+            Canonical::Primitive(PrimitiveArray::from_buffer_handle(
+                buffer,
+                ptype,
+                execute_validity_cuda(validity, len, ctx).await?,
+            ))
+        }
+        Canonical::Bool(array) => {
+            let len = array.len();
+            let validity = execute_validity_cuda(array.validity()?, len, ctx).await?;
+            let BoolDataParts { bits, meta } = array.into_data().into_parts(len);
+            Canonical::Bool(BoolArray::new_handle(
+                bits,
+                meta.offset(),
+                meta.len(),
+                validity,
+            ))
+        }
+        Canonical::Decimal(array) => {
+            let DecimalDataParts {
+                decimal_dtype,
+                values,
+                values_type,
+                validity,
+            } = array.into_data_parts();
+            let len = values.len() / values_type.byte_width();
+            Canonical::Decimal(DecimalArray::new_handle(
+                values,
+                values_type,
+                decimal_dtype,
+                execute_validity_cuda(validity, len, ctx).await?,
+            ))
+        }
+        Canonical::VarBinView(array) => {
+            let len = array.len();
+            let VarBinViewDataParts {
+                dtype,
+                buffers,
+                views,
+                validity,
+            } = array.into_data_parts();
+            Canonical::VarBinView(VarBinViewArray::new_handle(
+                views,
+                buffers,
+                dtype,
+                execute_validity_cuda(validity, len, ctx).await?,
+            ))
+        }
+        Canonical::List(array) => {
+            let len = array.len();
+            let ListViewDataParts {
+                elements,
+                offsets,
+                sizes,
+                validity,
+                ..
+            } = array.into_data_parts();
+            Canonical::List(ListViewArray::new(
+                elements,
+                offsets,
+                sizes,
+                execute_validity_cuda(validity, len, ctx).await?,
+            ))
+        }
+        Canonical::FixedSizeList(array) => {
+            let len = array.len();
+            let list_size = array.list_size();
+            let FixedSizeListDataParts {
+                elements, validity, ..
+            } = array.into_data_parts();
+            Canonical::FixedSizeList(FixedSizeListArray::new(
+                elements,
+                list_size,
+                execute_validity_cuda(validity, len, ctx).await?,
+                len,
+            ))
+        }
+        Canonical::Struct(array) => {
+            let len = array.len();
+            let StructDataParts {
+                struct_fields,
+                fields,
+                validity,
+            } = array.into_data_parts();
+            Canonical::Struct(StructArray::try_new_with_dtype(
+                fields,
+                struct_fields,
+                len,
+                execute_validity_cuda(validity, len, ctx).await?,
+            )?)
+        }
+        Canonical::Extension(array) => Canonical::Extension(array),
+        other @ (Canonical::Null(_) | Canonical::Variant(_)) => other,
+    })
+}
+
 /// Extension trait for executing arrays on CUDA.
 #[async_trait]
 pub trait CudaArrayExt {
@@ -407,12 +559,16 @@ impl CudaArrayExt for ArrayRef {
                 cuda_fields.push(field.clone().execute_cuda(ctx).await?.into_array());
             }
 
-            return Ok(Canonical::Struct(StructArray::new(
-                struct_fields.names().clone(),
-                cuda_fields,
-                len,
-                validity,
-            )));
+            return execute_canonical_validity_cuda(
+                Canonical::Struct(StructArray::new(
+                    struct_fields.names().clone(),
+                    cuda_fields,
+                    len,
+                    validity,
+                )),
+                ctx,
+            )
+            .await;
         }
 
         // Extension arrays match AnyCanonical regardless of how their storage
@@ -429,7 +585,8 @@ impl CudaArrayExt for ArrayRef {
 
         if self.is_canonical() || self.is_empty() {
             trace!(encoding = ?self.encoding_id(), "skipping canonical");
-            return self.execute(&mut ctx.ctx);
+            let canonical = self.execute(&mut ctx.ctx)?;
+            return execute_canonical_validity_cuda(canonical, ctx).await;
         }
 
         // Try all GPU execution strategies: fused dynamic dispatch, partial
@@ -437,7 +594,7 @@ impl CudaArrayExt for ArrayRef {
         // If none succeed, fall back to CPU execution only when all buffers
         // remain host-resident.
         let gpu_error = match hybrid_dispatch::try_gpu_dispatch(&self, ctx).await {
-            Ok(canonical) => return Ok(canonical),
+            Ok(canonical) => return execute_canonical_validity_cuda(canonical, ctx).await,
             Err(e) => {
                 debug!(
                     encoding = %self.encoding_id(),
@@ -455,6 +612,7 @@ impl CudaArrayExt for ArrayRef {
             );
         }
 
-        self.execute(&mut ctx.ctx)
+        let canonical = self.execute(&mut ctx.ctx)?;
+        execute_canonical_validity_cuda(canonical, ctx).await
     }
 }
