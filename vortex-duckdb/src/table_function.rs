@@ -451,17 +451,15 @@ pub fn statistics(bind_data: &TableFunctionBind, column_index: usize) -> Option<
     Some(ColumnStatistics::from(&stats_aggregate, dtype))
 }
 
-/**
- * Duckdb requires post-filter cardinality estimates, otherwise join planner
- * may flip join sides which is a huge regression for some queries i.e. 1000x
- * for tpcds 85.
- *
- * See duckdb/src/optimizer/join_order/relation_statistics_helper.cpp
- *
- * As we don't report distinct values (same as Parquet), the only heuristic
- * duckdb uses is a 0.2 filter if there is any non-optional filter. We mimic it
- * here.
- */
+/// Duckdb requires post-filter cardinality estimates, otherwise join planner
+/// may flip join sides which is a huge regression for some queries i.e. 1000x
+/// for tpcds 85.
+///
+/// See duckdb/src/optimizer/join_order/relation_statistics_helper.cpp
+///
+/// As we don't report distinct values (same as Parquet), the only heuristic
+/// duckdb uses is a 0.2 filter if there is any non-optional filter. We mimic it
+/// here.
 const DEFAULT_SELECTIVITY: f64 = 0.2;
 pub fn cardinality(bind_data: &TableFunctionBind) -> Cardinality {
     match bind_data.data_source.row_count() {

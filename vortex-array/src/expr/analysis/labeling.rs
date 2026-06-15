@@ -29,7 +29,6 @@ use crate::expr::traversal::TraversalOrder;
 /// - `merge_child`: Mutable function that folds child labels into an accumulator.
 ///   Takes `(self_label, child_label)` and returns the updated accumulator.
 ///   Called once per child, with the initial accumulator being the node's self-label.
-///
 pub fn label_tree<L: Clone>(
     expr: &Expression,
     self_label: impl Fn(&Expression) -> L,

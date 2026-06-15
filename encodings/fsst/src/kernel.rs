@@ -115,7 +115,6 @@ mod tests {
 
     #[test]
     fn issues_6034_test_fsst_filter_with_nulls_and_special_chars() -> VortexResult<()> {
-        //
         // Test case with special characters and nulls
         // Values: ["", "", "", "", "", "", "", "", "", "", "", ",", "A<<<<<<<", "", "", "", "", null, null, null, null, null, null]
         // Mask: only the last element is selected (true at index 22)

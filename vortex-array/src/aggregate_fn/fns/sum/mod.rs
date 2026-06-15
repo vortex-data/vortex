@@ -272,7 +272,6 @@ pub struct SumPartial {
 }
 
 /// The accumulated sum value.
-///
 // TODO(ngates): instead of an enum, we should use a Box<dyn State> to avoid dispatcher over the
 //  input type every time? Perhaps?
 pub enum SumState {

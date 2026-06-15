@@ -117,20 +117,18 @@ pub(super) fn try_from_bound_expression_with_col_sub(
     try_from_expression_inner(value, Some(col_sub))
 }
 
-/*
- * Called before pushdown_complex_filter or a table filter expression call.
- * As we support complex filter pushdown, Duckdb pushes expressions to Vortex.
- * However, it doesn't know what type of expressions we can handle. Here we list
- * all expressions that are quaranteed to be converted to Vortex expressions.
- *
- * If we return true here, and expression is in the list for
- * pushdown_complex_filter, we must handle it, or query engine will break.
- *
- * Example: we don't support substr() expression so we tell Duckdb we can't
- * push it.
- * Example: optional filters may fail to parse on our side (we return
- * Ok(None)), so we don't allow pushing these.
- */
+// Called before pushdown_complex_filter or a table filter expression call.
+// As we support complex filter pushdown, Duckdb pushes expressions to Vortex.
+// However, it doesn't know what type of expressions we can handle. Here we list
+// all expressions that are quaranteed to be converted to Vortex expressions.
+//
+// If we return true here, and expression is in the list for
+// pushdown_complex_filter, we must handle it, or query engine will break.
+//
+// Example: we don't support substr() expression so we tell Duckdb we can't
+// push it.
+// Example: optional filters may fail to parse on our side (we return
+// Ok(None)), so we don't allow pushing these.
 pub fn can_push_expression(value: &duckdb::ExpressionRef) -> bool {
     let Some(value) = value.as_class() else {
         return false;

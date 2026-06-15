@@ -58,7 +58,7 @@ impl CompareKernel for VarBin {
 
             if rhs_is_empty {
                 let buffer = match operator {
-                    CompareOperator::Gte => BitBuffer::new_set(len), // Every possible value is >= ""
+                    CompareOperator::Gte => BitBuffer::new_set(len), /* Every possible value is >= "" */
                     CompareOperator::Lt => BitBuffer::new_unset(len), // No value is < ""
                     CompareOperator::Eq | CompareOperator::Lte => {
                         let lhs_offsets = lhs.offsets().clone().execute::<PrimitiveArray>(ctx)?;
