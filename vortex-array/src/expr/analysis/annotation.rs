@@ -47,6 +47,23 @@ pub fn descendent_annotations<A: AnnotationFn>(
     visitor.annotations
 }
 
+pub fn annotations<A: AnnotationFn>(
+    expr: &Expression,
+    annotate: A,
+) -> Annotations<'_, A::Annotation> {
+    let mut visitor = DirectAnnotationVisitor {
+        annotations: Default::default(),
+        annotate,
+    };
+    expr.accept(&mut visitor).vortex_expect("Infallible");
+    visitor.annotations
+}
+
+struct DirectAnnotationVisitor<'a, A: AnnotationFn> {
+    annotations: Annotations<'a, A::Annotation>,
+    annotate: A,
+}
+
 struct AnnotationVisitor<'a, A: AnnotationFn> {
     annotations: Annotations<'a, A::Annotation>,
     annotate: A,
@@ -82,5 +99,21 @@ impl<'a, A: AnnotationFn> NodeVisitor<'a> for AnnotationVisitor<'a, A> {
             .for_each(|ps| annotations.extend(ps.iter().cloned()));
 
         Ok(TraversalOrder::Continue)
+    }
+}
+
+impl<'a, A: AnnotationFn> NodeVisitor<'a> for DirectAnnotationVisitor<'a, A> {
+    type NodeTy = Expression;
+    fn visit_down(&mut self, node: &'a Self::NodeTy) -> VortexResult<TraversalOrder> {
+        let annotations = (self.annotate)(node);
+        if annotations.is_empty() {
+            Ok(TraversalOrder::Continue)
+        } else {
+            self.annotations
+                .entry(node)
+                .or_default()
+                .extend(annotations);
+            Ok(TraversalOrder::Skip)
+        }
     }
 }

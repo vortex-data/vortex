@@ -87,27 +87,6 @@ impl DictReader {
         })
     }
 
-    fn values_array(&self) -> SharedArrayFuture {
-        // We capture the name, so it may be wrong if we re-use the same reader within multiple
-        // different parent readers. But that's rare...
-        let values_len = self.values_len;
-        self.values_array
-            .get_or_init(move || {
-                self.values
-                    .projection_evaluation(
-                        &(0..values_len as u64),
-                        &root(),
-                        MaskFuture::new_true(values_len),
-                    )
-                    .vortex_expect("must construct dict values array evaluation")
-                    .map_err(Arc::new)
-                    .map(move |array| Ok(SharedArray::new(array?).into_array()))
-                    .boxed()
-                    .shared()
-            })
-            .clone()
-    }
-
     // This is the dict values array without canonicalization, if not already canonical
     fn values_array_uncanonical(&self) -> SharedArrayFuture {
         // We capture the name, so it may be wrong if we re-use the same reader within multiple
@@ -232,13 +211,9 @@ impl LayoutReader for DictReader {
             .projection_evaluation(row_range, &root(), mask)
             .map_err(|err| err.with_context("While evaluating projection on codes"))?;
 
-        let (expr_outer, expr_inner) = split_expression_for_pushdown(expr.clone());
+        let (expr_outer, expr_inner) = split_expression_for_pushdown(expr.clone(), self.dtype())?;
 
-        let values_eval = if let Some(inner) = expr_inner {
-            self.values_eval(inner)
-        } else {
-            self.values_array()
-        };
+        let values_eval = self.values_eval(expr_inner);
         let all_values_referenced = self.layout.has_all_values_referenced();
         Ok(async move {
             let (values, codes) = try_join!(values_eval.map_err(VortexError::from), codes_eval)?;
@@ -255,11 +230,7 @@ impl LayoutReader for DictReader {
             .into_array()
             .optimize()?;
 
-            if let Some(expr) = expr_outer {
-                array.apply(&expr)
-            } else {
-                Ok(array)
-            }
+            array.apply(&expr_outer)
         }
         .boxed())
     }
