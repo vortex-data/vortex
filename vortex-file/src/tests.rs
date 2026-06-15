@@ -1814,6 +1814,16 @@ fn assert_offsets_ordered(before: &[u64], after: &[u64], context: &str) {
     }
 }
 
+/// Whether any node in the layout tree is a dict layout.
+fn layout_has_dict(layout: &dyn Layout) -> bool {
+    layout.encoding_id().as_ref() == "vortex.dict"
+        || layout
+            .children()
+            .unwrap()
+            .iter()
+            .any(|child| layout_has_dict(child.as_ref()))
+}
+
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn test_segment_ordering_dict_codes_before_values() -> VortexResult<()> {
@@ -1870,15 +1880,6 @@ async fn dict_probe_honours_configured_compressor() -> VortexResult<()> {
     let values: Vec<&str> = (0..n).map(|i| ["alpha", "beta", "gamma"][i % 3]).collect();
     let strings = VarBinArray::from(values).into_array();
 
-    fn layout_has_dict(layout: &dyn Layout) -> bool {
-        layout.encoding_id().as_ref() == "vortex.dict"
-            || layout
-                .children()
-                .unwrap()
-                .iter()
-                .any(|child| layout_has_dict(child.as_ref()))
-    }
-
     let mut buf = ByteBufferMut::empty();
     let summary = SESSION
         .write_options()
@@ -1905,6 +1906,36 @@ async fn dict_probe_honours_configured_compressor() -> VortexResult<()> {
     assert!(
         !layout_has_dict(summary.footer().layout().as_ref()),
         "excluding StringDict from the configured compressor should disable the dict layout"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn probe_compressor_override_is_independent() -> VortexResult<()> {
+    // Low-cardinality strings the default cascade would dict-encode.
+    let n = 32_768;
+    let values: Vec<&str> = (0..n).map(|i| ["alpha", "beta", "gamma"][i % 3]).collect();
+    let strings = VarBinArray::from(values).into_array();
+
+    let probe_without_dict = BtrBlocksCompressorBuilder::default()
+        .exclude_schemes([StringDictScheme.id()])
+        .build();
+
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .with_strategy(
+            crate::strategy::WriteStrategyBuilder::default()
+                .with_probe_compressor(probe_without_dict)
+                .build(),
+        )
+        .write(&mut buf, strings.to_array_stream())
+        .await?;
+    assert!(
+        !layout_has_dict(summary.footer().layout().as_ref()),
+        "probe override should disable the dict layout independently of the data/stats compressor"
     );
 
     Ok(())

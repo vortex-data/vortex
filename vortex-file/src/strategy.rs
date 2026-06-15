@@ -149,6 +149,7 @@ pub struct WriteStrategyBuilder {
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
     allow_encodings: Option<HashSet<ArrayId>>,
     flat_strategy: Option<Arc<dyn LayoutStrategy>>,
+    probe_compressor: Option<Arc<dyn CompressorPlugin>>,
 }
 
 impl Default for WriteStrategyBuilder {
@@ -161,6 +162,7 @@ impl Default for WriteStrategyBuilder {
             field_writers: HashMap::new(),
             allow_encodings: Some(ALLOWED_ENCODINGS.clone()),
             flat_strategy: None,
+            probe_compressor: None,
         }
     }
 }
@@ -212,6 +214,12 @@ impl WriteStrategyBuilder {
     /// The compressor is used as-is for both data and stats compression.
     pub fn with_compressor<C: CompressorPlugin>(mut self, compressor: C) -> Self {
         self.compressor = CompressorConfig::Opaque(Arc::new(compressor));
+        self
+    }
+
+    /// Override the compressor used to probe whether a column is dict-eligible.
+    pub fn with_probe_compressor<C: CompressorPlugin>(mut self, compressor: C) -> Self {
+        self.probe_compressor = Some(Arc::new(compressor));
         self
     }
 
@@ -271,12 +279,17 @@ impl WriteStrategyBuilder {
         let compress_then_flat = CompressingStrategy::new(flat, Arc::clone(&stats_compressor));
 
         // 3. apply dict encoding or fallback
+        let probe_compressor = if let Some(probe_compressor) = self.probe_compressor {
+            probe_compressor
+        } else {
+            Arc::clone(&stats_compressor)
+        };
         let dict = DictStrategy::new(
             coalescing.clone(),
             compress_then_flat.clone(),
             coalescing,
             Default::default(),
-            stats_compressor,
+            probe_compressor,
         );
 
         // 2. calculate stats for each row group
