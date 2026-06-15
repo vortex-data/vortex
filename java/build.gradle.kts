@@ -32,7 +32,7 @@ allprojects {
         apply(plugin = "net.ltgt.errorprone")
 
         dependencies {
-            "errorprone"("com.google.errorprone:error_prone_core:2.36.0")
+            "errorprone"("com.google.errorprone:error_prone_core:2.50.0")
             "errorprone"("com.jakewharton.nopen:nopen-checker:1.0.1")
             "compileOnly"("com.jakewharton.nopen:nopen-annotations:1.0.1")
         }

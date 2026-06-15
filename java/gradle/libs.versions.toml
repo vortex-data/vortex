@@ -3,7 +3,7 @@
 
 [versions]
 arrow = "19.0.0"
-errorprone = "2.36.0"
+errorprone = "2.50.0"
 guava = "33.6.0-jre"
 immutables = "2.12.2"
 junit-jupiter = "6.1.0"
