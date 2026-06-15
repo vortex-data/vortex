@@ -5,16 +5,22 @@
 
 use std::ffi::CStr;
 use std::ffi::c_char;
+use std::ffi::c_void;
 use std::ptr;
+use std::slice;
 use std::sync::Arc;
 
+use bytes::Bytes;
+use vortex::buffer::ByteBuffer;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::expr::stats::Precision::Absent;
 use vortex::expr::stats::Precision::Exact;
 use vortex::expr::stats::Precision::Inexact;
+use vortex::file::OpenOptionsSessionExt;
 use vortex::file::multi::MultiFileDataSource;
 use vortex::io::runtime::BlockingRuntime;
+use vortex::layout::scan::multi::MultiLayoutDataSource;
 use vortex::scan::DataSource;
 use vortex::scan::DataSourceRef;
 
@@ -104,6 +110,38 @@ pub unsafe extern "C-unwind" fn vx_data_source_new(
     })
 }
 
+/// Create a data source from a single in-memory Vortex file.
+///
+/// "buffer_len" is the length of "buffer" in bytes.
+/// The bytes are borrowed, not copied: the caller must keep "buffer" alive and
+/// unmodified until the data source is freed.
+///
+/// The returned pointer is owned by the caller and must be freed with
+/// vx_data_source_free.
+///
+/// On error, returns NULL and sets "err".
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_data_source_new_buffer(
+    session: *const vx_session,
+    buffer: *const c_void,
+    buffer_len: usize,
+    err: *mut *mut vx_error,
+) -> *const vx_data_source {
+    try_or(err, ptr::null(), || {
+        vortex_ensure!(!session.is_null());
+        vortex_ensure!(!buffer.is_null());
+
+        let session = vx_session::as_ref(session);
+        let bytes: &'static [u8] =
+            unsafe { slice::from_raw_parts(buffer.cast::<u8>(), buffer_len) };
+        let buffer = ByteBuffer::from(Bytes::from_static(bytes));
+        let file = session.open_options().open_buffer(buffer)?;
+        let ds = MultiLayoutDataSource::new_with_first(file.layout_reader()?, Vec::new(), session);
+
+        Ok(vx_data_source::new(Arc::new(ds) as DataSourceRef))
+    })
+}
+
 /// Return the schema of the data source as a non-owned dtype.
 /// The returned pointer is valid as long as "ds" is alive. Do not free it.
 #[unsafe(no_mangle)]
@@ -140,12 +178,15 @@ pub unsafe extern "C-unwind" fn vx_data_source_get_row_count(
 #[cfg(test)]
 mod tests {
     use std::ffi::CString;
+    use std::ffi::c_void;
+    use std::fs::read;
     use std::ptr;
 
     use crate::data_source::vx_data_source_dtype;
     use crate::data_source::vx_data_source_free;
     use crate::data_source::vx_data_source_get_row_count;
     use crate::data_source::vx_data_source_new;
+    use crate::data_source::vx_data_source_new_buffer;
     use crate::data_source::vx_data_source_options;
     use crate::dtype::vx_dtype;
     use crate::scan::vx_estimate;
@@ -205,6 +246,41 @@ mod tests {
 
             let mut error = ptr::null_mut();
             let ds = vx_data_source_new(session, &raw const opts, &raw mut error);
+            assert_no_error(error);
+            assert!(!ds.is_null());
+
+            let dtype = vx_dtype::as_ref(vx_data_source_dtype(ds));
+            assert_eq!(dtype, struct_array.dtype());
+
+            let mut row_count = vx_estimate::default();
+            vx_data_source_get_row_count(ds, &raw mut row_count);
+            assert_eq!(row_count.r#type, vx_estimate_type::VX_ESTIMATE_EXACT);
+            assert_eq!(row_count.estimate, SAMPLE_ROWS as u64);
+
+            vx_data_source_free(ds);
+            vx_session_free(session);
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_buffer() {
+        unsafe {
+            let session = vx_session_new();
+            let (sample, struct_array) = write_sample(session);
+
+            let mut error = ptr::null_mut();
+            let ds = vx_data_source_new_buffer(session, ptr::null(), 0, &raw mut error);
+            assert_error(error);
+            assert!(ds.is_null());
+
+            let file = read(sample).unwrap();
+            let ds = vx_data_source_new_buffer(
+                session,
+                file.as_ptr() as *const c_void,
+                file.len(),
+                &raw mut error,
+            );
             assert_no_error(error);
             assert!(!ds.is_null());
 
