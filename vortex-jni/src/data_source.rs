@@ -211,6 +211,27 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDataSource_rowCount(
     });
 }
 
+/// Write the byte size into the two-slot jlong pair `out`:
+/// `out[0]` receives the size in bytes (0 when unknown), `out[1]` the precision (0=unknown, 1=estimate, 2=exact).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeDataSource_byteSize(
+    mut env: EnvUnowned,
+    _class: JClass,
+    pointer: jlong,
+    out: JLongArray,
+) {
+    try_or_throw(&mut env, |env| {
+        let ds = unsafe { NativeDataSource::from_ptr(pointer) };
+        let (bytes, precision) = match ds.inner.byte_size() {
+            Precision::Exact(b) => (b as jlong, 2),
+            Precision::Inexact(b) => (b as jlong, 1),
+            Precision::Absent => (0, 0),
+        };
+        out.set_region(env, 0, &[bytes, precision])?;
+        Ok(())
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
