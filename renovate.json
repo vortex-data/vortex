@@ -2,34 +2,30 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended",
-    ":automergeStableNonMajor",
-    ":automergePr",
     ":automergeRequireAllStatusChecks",
-    ":combinePatchMinorReleases",
-    ":dependencyDashboard",
     ":separateMultipleMajorReleases",
     ":configMigration",
     "group:rust-futuresMonorepo",
     "helpers:pinGitHubActionDigests",
-    "schedule:earlyMondays",
-    "docker:disable"
+    "docker:disable",
+    ":maintainLockFilesWeekly"
   ],
-  "lockFileMaintenance": {
-    "enabled": true
-  },
+  "schedule": "* 0-3 * * 1#2,1#4",
   "autoApprove": true,
   "automergeStrategy": "squash",
   "prHourlyLimit": 0,
   "prConcurrentLimit": 20,
   "rebaseWhen": "conflicted",
-  "cloneSubmodules": true,
-  "platformAutomerge": true,
-  "patch": {
-    "groupName": "all patch updates"
-  },
   "labels": [
     "changelog/chore"
   ],
+  "minor": { "enabled": false },
+  "patch": { "enabled": false },
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "vulnerabilityFixStrategy": "lowest"
+  },
   "packageRules": [
     {
       "matchPackageNames": [
@@ -40,14 +36,28 @@
     },
     {
       "groupName": "arrow-rs",
+      "matchManagers": ["cargo"],
       "matchUpdateTypes": [
-        "major",
-        "minor",
-        "patch"
+        "major"
       ],
       "matchSourceUrls": [
         "https://github.com/apache/arrow-rs"
       ]
+    },
+    {
+      "description": "Keep lance-bench dependency majors together because they are tested as one benchmark stack",
+      "groupName": "lance benchmark dependencies",
+      "groupSlug": "lance-bench",
+      "matchManagers": [
+        "cargo"
+      ],
+      "matchFileNames": [
+        "benchmarks/lance-bench/Cargo.toml"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "separateMultipleMajor": false
     },
     {
       "groupName": "flatbuffers",
@@ -60,6 +70,21 @@
       "matchSourceUrls": [
         "https://github.com/hyperium/tonic"
       ]
+    },
+    {
+      "description": "Disable routine npm dependency updates; keep security alerts and lock file maintenance",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchUpdateTypes": [
+        "digest",
+        "major",
+        "minor",
+        "patch",
+        "pin",
+        "replacement"
+      ],
+      "enabled": false
     },
     {
       "groupName": "Rust lock file maintenance",
@@ -100,7 +125,7 @@
         "/vortex-duckdb/build\\.rs/"
       ],
       "matchStrings": [
-        "const DUCKDB_VERSION: &str = \"(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)\";"
+        "const DEFAULT_DUCKDB_VERSION: &str = \"(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)\";"
       ],
       "depNameTemplate": "duckdb/duckdb",
       "datasourceTemplate": "github-releases",
