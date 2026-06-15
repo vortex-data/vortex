@@ -45,6 +45,16 @@
       ]
     },
     {
+      "description": "Do not split lance-bench grouped majors by target major",
+      "matchManagers": [
+        "cargo"
+      ],
+      "matchFileNames": [
+        "benchmarks/lance-bench/Cargo.toml"
+      ],
+      "separateMultipleMajor": false
+    },
+    {
       "description": "Keep lance-bench dependency majors together because they are tested as one benchmark stack",
       "groupName": "lance benchmark dependencies",
       "groupSlug": "lance-bench",
@@ -56,8 +66,7 @@
       ],
       "matchUpdateTypes": [
         "major"
-      ],
-      "separateMultipleMajor": false
+      ]
     },
     {
       "groupName": "flatbuffers",
