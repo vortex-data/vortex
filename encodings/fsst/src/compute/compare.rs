@@ -5,7 +5,6 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
@@ -13,7 +12,7 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::binary::CompareKernel;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::operators::Operator;
-use vortex_buffer::BitBuffer;
+use vortex_array::scalar_fn::fns::uncompressed_lengths::UncompressedLengthsVTable;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -55,33 +54,7 @@ fn compare_fsst_constant(
         _ => vortex_bail!("VarBinArray can only have type of Binary or Utf8"),
     };
     if is_rhs_empty {
-        let buffer = match operator {
-            // Every possible value is gte ""
-            CompareOperator::Gte => BitBuffer::new_set(left.len()),
-            // No value is lt ""
-            CompareOperator::Lt => BitBuffer::new_unset(left.len()),
-            _ => left
-                .uncompressed_lengths()
-                .binary(
-                    ConstantArray::new(
-                        Scalar::zero_value(left.uncompressed_lengths().dtype()),
-                        left.uncompressed_lengths().len(),
-                    )
-                    .into_array(),
-                    operator.into(),
-                )?
-                .execute(ctx)?,
-        };
-
-        return Ok(Some(
-            BoolArray::new(
-                buffer,
-                left.array()
-                    .validity()?
-                    .union_nullability(right.dtype().nullability()),
-            )
-            .into_array(),
-        ));
+        return FSST::compare_to_empty(left, operator, right.dtype().nullability(), ctx).map(Some);
     }
 
     // The following section only supports Eq/NotEq

@@ -37,6 +37,7 @@ use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::scalar_fn::fns::uncompressed_lengths::UncompressedLengthsVTable;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
@@ -839,6 +840,12 @@ impl ValidityVTable<FSST> for FSST {
             array.slots()[CODES_VALIDITY_SLOT].as_ref(),
             array.dtype().nullability(),
         ))
+    }
+}
+
+impl UncompressedLengthsVTable for FSST {
+    fn uncompressed_lengths(array: ArrayView<'_, FSST>) -> ArrayRef {
+        array.uncompressed_lengths().clone()
     }
 }
 

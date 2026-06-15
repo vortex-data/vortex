@@ -5,14 +5,16 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::binary::CompareKernel;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
-use vortex_buffer::BitBuffer;
+use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::fns::uncompressed_lengths::UncompressedLengthsVTable;
+use vortex_buffer::ByteBuffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::OnPair;
@@ -34,31 +36,43 @@ impl CompareKernel for OnPair {
             _ => return Ok(None),
         };
         if is_empty != Some(true) {
+            return OnPair::compare_to_empty(lhs, operator, constant.dtype().nullability(), ctx)
+                .map(Some);
+        }
+
+        if !matches!(operator, CompareOperator::Eq | CompareOperator::NotEq) {
             return Ok(None);
         }
 
-        let lengths = lhs.uncompressed_lengths();
-        let buffer = match operator {
-            // every value is greater than an empty string
-            CompareOperator::Gte => BitBuffer::new_set(lhs.len()),
-            // no value is less than an empty string
-            CompareOperator::Lt => BitBuffer::new_unset(lhs.len()),
-            _ => lengths
-                .binary(
-                    ConstantArray::new(Scalar::zero_value(lengths.dtype()), lengths.len())
-                        .into_array(),
-                    operator.into(),
-                )?
-                .execute(ctx)?,
+        // This part is the issue
+        let compressor = lhs.compressor();
+        let encoded_buffer = match lhs.dtype() {
+            DType::Utf8(_) => {
+                let value = constant
+                    .as_utf8()
+                    .value()
+                    .vortex_expect("Expected non-null scalar");
+                ByteBuffer::from(compressor.compress(value.as_bytes()))
+            }
+            DType::Binary(_) => {
+                let value = constant
+                    .as_binary()
+                    .value()
+                    .vortex_expect("Expected non-null scalar");
+                ByteBuffer::from(compressor.compress(value.as_slice()))
+            }
+            _ => unreachable!("OnPairArray can only have string or binary data type"),
         };
-        Ok(Some(
-            BoolArray::new(
-                buffer,
-                lhs.validity()?
-                    .union_nullability(constant.dtype().nullability()),
-            )
-            .into_array(),
-        ))
+
+        let encoded_scalar = Scalar::binary(
+            encoded_buffer,
+            lhs.dtype().nullability() | constant.dtype().nullability(),
+        );
+
+        let rhs = ConstantArray::new(encoded_scalar, lhs.len());
+        lhs.codes()
+            .binary(rhs.into_array(), Operator::from(operator))
+            .map(Some)
     }
 }
 
