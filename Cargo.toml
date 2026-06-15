@@ -210,7 +210,7 @@ prost = "0.14"
 prost-build = "0.14"
 prost-types = "0.14"
 pyo3 = { version = "0.28.0" }
-pyo3-bytes = "0.6"
+pyo3-bytes = "0.7"
 pyo3-log = "0.13.0"
 pyo3-object_store = "0.9.0"
 quote = "1.0.44"
