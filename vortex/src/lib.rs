@@ -77,7 +77,6 @@ pub mod layout {
 }
 
 pub mod mask {
-    pub use vortex_array::mask::NullAsFalse;
     pub use vortex_mask::*;
 }
 

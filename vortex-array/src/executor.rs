@@ -62,33 +62,15 @@ pub(crate) fn max_iterations() -> usize {
     *MAX_ITERATIONS
 }
 
-/// Trait for types that a `Source` can be executed into.
+/// Marker trait for types that an [`ArrayRef`] can be executed into.
 ///
-/// `Source` defaults to [`ArrayRef`], so `impl Executable for X` defines how to execute an
-/// array into an `X`. Other sources are lightweight stack-allocated [`Executor`] adapters
-/// that adjust execution semantics without wrapping the array in another array node, e.g.
-/// `impl Executable<NullAsFalse> for Mask` executes a nullable boolean array into a
-/// [`vortex_mask::Mask`], coercing nulls to `false`.
+/// Implementors must provide an implementation of `execute` that takes
+/// an [`ArrayRef`] and an [`ExecutionCtx`], and produces an instance of the
+/// implementor type.
 ///
-/// Users should use the [`Executor::execute`] method (or the inherent `ArrayRef::execute`
-/// and `ArrayRef::execute_as` methods) rather than calling this trait directly.
-pub trait Executable<Source = ArrayRef>: Sized {
-    fn execute(source: Source, ctx: &mut ExecutionCtx) -> VortexResult<Self>;
-}
-
-/// Types that can drive execution into an [`Executable`] target.
-///
-/// Implemented by [`ArrayRef`] and by stack-allocated adapters such as
-/// [`NullAsFalse`](crate::mask::NullAsFalse):
-///
-/// ```ignore
-/// let mask = array.null_as_false().execute::<Mask>(ctx)?;
-/// ```
-pub trait Executor: Sized {
-    /// Execute into an instance of `E`.
-    fn execute<E: Executable<Self>>(self, ctx: &mut ExecutionCtx) -> VortexResult<E> {
-        E::execute(self, ctx)
-    }
+/// Users should use the `Array::execute` or `Array::execute_as` methods
+pub trait Executable: Sized {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self>;
 }
 
 #[expect(clippy::same_name_method)]

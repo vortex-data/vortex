@@ -17,6 +17,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::Expression;
@@ -33,7 +34,6 @@ use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::fns::stat::StatFn;
 use vortex_array::scalar_fn::internal::row_count::RowCount;
-use vortex_array::Executor;
 use vortex_array::scalar_fn::internal::row_count::contains_row_count;
 use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
 use vortex_array::validity::Validity;
@@ -124,13 +124,12 @@ impl ZoneMap {
         let applied = self.array.clone().into_array().apply(&predicate)?;
 
         if !contains_row_count(&applied) {
-            return applied.null_as_false().execute::<Mask>(&mut ctx)?;
+            return applied.fill_null(false)?.execute::<Mask>(&mut ctx);
         }
 
         let row_count_array = row_count_array(self.zone_len, self.row_count, num_zones)?;
         let substituted = substitute_row_count(applied, &row_count_array)?;
-        Ok(substituted
-            .null_as_false().execute::<Mask>(&mut ctx)?)
+        substituted.fill_null(false)?.execute::<Mask>(&mut ctx)
     }
 
     fn lower_stats(&self, predicate: Expression) -> VortexResult<Expression> {

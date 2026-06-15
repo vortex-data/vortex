@@ -16,11 +16,11 @@ use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::SharedArray;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
 use vortex_array::expr::root;
-use vortex_array::Executor;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
@@ -219,7 +219,8 @@ impl LayoutReader for DictReader {
             let mut ctx = session.create_execution_ctx();
             let dict_mask = values
                 .take(codes)?
-                .null_as_false().execute::<Mask>(&mut ctx)?;
+                .fill_null(false)?
+                .execute::<Mask>(&mut ctx)?;
 
             Ok(mask.bitand(&dict_mask))
         }))
