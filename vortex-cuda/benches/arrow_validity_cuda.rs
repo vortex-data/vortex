@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
+#![expect(clippy::cast_possible_truncation)]
 
 //! CUDA benchmarks for Arrow validity bitmap repacking.
 

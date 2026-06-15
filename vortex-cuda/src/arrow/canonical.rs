@@ -76,6 +76,7 @@ use crate::arrow::cuda_decimal_value_type;
 use crate::arrow::list_view::export_device_list_view;
 use crate::cub::exclusive_sum_i32;
 use crate::executor::CudaArrayExt;
+use crate::executor::execute_validity_cuda;
 
 /// An implementation of `ExportDeviceArray` that exports Vortex arrays to `ArrowDeviceArray` by
 /// first decoding the array on the GPU and then converting the canonical type to the nearest
@@ -772,6 +773,10 @@ pub(super) async fn export_arrow_validity_buffer(
     arrow_offset: usize,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<(Option<BufferHandle>, i64)> {
+    // Container export paths reach here without going through `execute_cuda`, so decode the
+    // validity on the GPU here to turn any lazy/compressed bool array (e.g. dict-encoded, or from
+    // take/scan) into a device-resident canonical bool before export.
+    let validity = execute_validity_cuda(validity, len, ctx).await?;
     match validity {
         Validity::NonNullable | Validity::AllValid => Ok((None, 0)),
         Validity::AllInvalid => Ok((
@@ -781,7 +786,7 @@ pub(super) async fn export_arrow_validity_buffer(
             )?),
             i64::try_from(len)?,
         )),
-        Validity::Array(array) if array.is_canonical() => {
+        Validity::Array(array) => {
             let array = array.try_downcast::<Bool>().map_err(|array| {
                 vortex_err!(
                     "canonical validity array must be bool, got {}",
@@ -799,10 +804,6 @@ pub(super) async fn export_arrow_validity_buffer(
             )
             .await
         }
-        Validity::Array(array) => vortex_bail!(
-            "Arrow Device export expected CUDA-executed canonical bool validity, got {}",
-            array.encoding_id()
-        ),
     }
 }
 
@@ -1687,7 +1688,7 @@ mod tests {
             )
         );
         assert_eq!(exported.array.array.length, 4);
-        assert_eq!(exported.array.array.null_count, 1);
+        assert_eq!(exported.array.array.null_count, super::UNKNOWN_NULL_COUNT);
         assert_eq!(exported.array.array.n_buffers, 2);
         assert_eq!(exported.array.array.n_children, 0);
         assert!(!exported.array.array.dictionary.is_null());
@@ -1745,7 +1746,7 @@ mod tests {
         let children = unsafe { std::slice::from_raw_parts(exported.array.array.children, 1) };
         let dict_child = unsafe { &*children[0] };
         assert!(!dict_child.dictionary.is_null());
-        assert_eq!(dict_child.null_count, 1);
+        assert_eq!(dict_child.null_count, super::UNKNOWN_NULL_COUNT);
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
@@ -1778,7 +1779,7 @@ mod tests {
             [0, 1, 0]
         );
         let dictionary = unsafe { &*exported.array.array.dictionary };
-        assert_eq!(dictionary.null_count, 1);
+        assert_eq!(dictionary.null_count, super::UNKNOWN_NULL_COUNT);
         assert_eq!(private_data_buffer_i32_values(dictionary, 1)?.len(), 2);
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
@@ -2055,7 +2056,7 @@ mod tests {
         assert_binary_layout(
             &exported.array.array,
             5,
-            1,
+            super::UNKNOWN_NULL_COUNT,
             &[0, 0, 3, 3, 8, i32::try_from(8 + out_of_line.len())?],
             &[b"\x00\xff\xfe".as_slice(), b"short", out_of_line].concat(),
         )?;
@@ -2569,7 +2570,7 @@ mod tests {
             [0, 1, 0, 1, 2]
         );
         let dictionary = unsafe { &*elements.dictionary };
-        assert_eq!(dictionary.null_count, 1);
+        assert_eq!(dictionary.null_count, super::UNKNOWN_NULL_COUNT);
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
@@ -2815,7 +2816,7 @@ mod tests {
         let mut exported = utf8.export_device_array_with_schema(&mut ctx).await?;
         let field = Field::try_from(&exported.schema)?;
         assert_eq!(field, Field::new("", DataType::Utf8View, true));
-        assert_varbinview_shape(&exported.array.array, 3, 1)?;
+        assert_varbinview_shape(&exported.array.array, 3, super::UNKNOWN_NULL_COUNT)?;
         assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
 
         let private_data = unsafe { &*exported.array.array.private_data.cast::<PrivateData>() };
@@ -2843,7 +2844,7 @@ mod tests {
         assert_binary_layout(
             &exported.array.array,
             3,
-            1,
+            super::UNKNOWN_NULL_COUNT,
             &[0, 0, 2, i32::try_from(2 + sliced_out_of_line.len())?],
             &[b"\x00\xff".as_slice(), sliced_out_of_line].concat(),
         )?;
@@ -3113,6 +3114,40 @@ mod tests {
                 vec![PrimitiveArray::from_iter(0u32..3).into_array()],
                 3,
                 Validity::from_iter([true, false, true]),
+            )?
+            .into_array(),
+            1,
+            super::UNKNOWN_NULL_COUNT,
+            &mut ctx,
+        )
+        .await?;
+        unsafe { release_exported_array(&raw mut struct_array.array) };
+
+        Ok(())
+    }
+
+    // A container's row validity may be a non-canonical bool array (e.g. dict-encoded, or
+    // produced by take/scan). The container export paths bypass execute_cuda, so
+    // export_arrow_validity_buffer must canonicalize the validity on the GPU itself instead of
+    // bailing.
+    #[crate::test]
+    async fn test_export_struct_non_canonical_validity() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let validity = DictArray::try_new(
+            PrimitiveArray::from_iter([0u32, 1, 0]).into_array(),
+            BoolArray::from_iter([true, false]).into_array(),
+        )?
+        .into_array();
+        assert!(!validity.is_canonical());
+
+        let mut struct_array = assert_nullable_export(
+            StructArray::try_new(
+                FieldNames::from_iter(["a"]),
+                vec![PrimitiveArray::from_iter(0u32..3).into_array()],
+                3,
+                Validity::Array(validity),
             )?
             .into_array(),
             1,
