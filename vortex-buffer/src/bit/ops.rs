@@ -5,9 +5,8 @@ use std::mem::MaybeUninit;
 
 use crate::BitBuffer;
 use crate::BitBufferMut;
-use crate::Buffer;
+use crate::BufferMut;
 use crate::ByteBufferMut;
-use crate::trusted_len::TrustedLenExt;
 
 /// Read up to 8 bytes as a little-endian `u64`, zero-padding the high bytes when fewer than 8 are
 /// supplied. Using [`u64::from_le_bytes`] keeps the bit-numbering identical on little- and
@@ -185,39 +184,59 @@ pub(super) fn bitwise_binary_op_lhs_owned<F: FnMut(u64, u64) -> u64>(
 pub(super) fn bitwise_binary_op<F: FnMut(u64, u64) -> u64>(
     left: &BitBuffer,
     right: &BitBuffer,
-    mut op: F,
+    op: F,
 ) -> BitBuffer {
     assert_eq!(left.len(), right.len());
-
-    // If the buffers are aligned, we can use the fast path.
-    if left.offset().is_multiple_of(8) && right.offset().is_multiple_of(8) {
-        let left_chunks = left.unaligned_chunks();
-        let right_chunks = right.unaligned_chunks();
-        if left_chunks.lead_padding() == 0
-            && left_chunks.trailing_padding() == 0
-            && right_chunks.lead_padding() == 0
-            && right_chunks.trailing_padding() == 0
-        {
-            let iter = left_chunks
-                .iter()
-                .zip(right_chunks.iter())
-                .map(|(l, r)| op(l, r));
-            let iter = unsafe { iter.trusted_len() };
-            let result = Buffer::<u64>::from_trusted_len_iter(iter).into_byte_buffer();
-            return BitBuffer::new(result, left.len());
-        }
+    let len = left.len();
+    if len == 0 {
+        return BitBuffer::empty();
     }
 
-    let iter = left
+    // Byte-aligned operands: logical bits map onto physical `u64` words, so we can read the backing
+    // bytes straight as words instead of shifting through `iter_padded`.
+    if left.offset().is_multiple_of(8) && right.offset().is_multiple_of(8) {
+        let n_bytes = len.div_ceil(8);
+        let l_start = left.offset() / 8;
+        let r_start = right.offset() / 8;
+        let lhs = &left.inner().as_slice()[l_start..l_start + n_bytes];
+        let rhs = &right.inner().as_slice()[r_start..r_start + n_bytes];
+
+        let (lhs_words, lhs_tail) = lhs.as_chunks::<8>();
+        let (rhs_words, rhs_tail) = rhs.as_chunks::<8>();
+
+        let words = lhs_words
+            .iter()
+            .zip(rhs_words)
+            .map(|(l, r)| (u64::from_le_bytes(*l), u64::from_le_bytes(*r)))
+            .chain((!lhs_tail.is_empty()).then(|| (read_u64_le(lhs_tail), read_u64_le(rhs_tail))));
+        return combine_words(words, len, op);
+    }
+
+    // Sub-byte offset: `iter_padded` realigns the bits and zero-pads the final word.
+    let words = left
         .chunks()
         .iter_padded()
-        .zip(right.chunks().iter_padded())
-        .map(|(l, r)| op(l, r));
-    let iter = unsafe { iter.trusted_len() };
+        .zip(right.chunks().iter_padded());
+    combine_words(words, len, op)
+}
 
-    let result = Buffer::<u64>::from_trusted_len_iter(iter).into_byte_buffer();
-
-    BitBuffer::new(result, left.len())
+/// Combine an iterator of `(left, right)` words via `op` into a `len`-bit [`BitBuffer`]. Consumes
+/// exactly `ceil(len / 64)` words, dropping any trailing pad word the producer yields (e.g. the one
+/// `iter_padded` always appends).
+#[inline]
+fn combine_words<I, F>(words: I, len: usize, mut op: F) -> BitBuffer
+where
+    I: Iterator<Item = (u64, u64)>,
+    F: FnMut(u64, u64) -> u64,
+{
+    let n_words = len.div_ceil(64);
+    let mut out: BufferMut<u64> = BufferMut::with_capacity(n_words);
+    for (l, r) in words.take(n_words) {
+        out.push(op(l, r));
+    }
+    let mut bytes = out.into_byte_buffer();
+    bytes.truncate(len.div_ceil(8));
+    BitBuffer::new(bytes.freeze(), len)
 }
 
 #[cfg(test)]
@@ -315,6 +334,41 @@ mod tests {
         let right = BitBuffer::new(buffer![10u8], 4);
         let result = bitwise_binary_op(&left, &right, |l, r| l ^ r);
         assert_eq!(result, bitbuffer![false, true, true, false]);
+    }
+
+    /// `bitwise_binary_op` must match a naive per-bit reference for every op, offset and length,
+    /// independent of the chunked kernels.
+    #[rstest]
+    #[case::aligned(0, 0)]
+    #[case::byte_aligned(8, 16)]
+    #[case::byte_aligned_mismatch(16, 0)]
+    #[case::sub_byte(3, 3)]
+    #[case::sub_byte_mismatch(0, 5)]
+    fn binary_op_matches_naive(#[case] left_offset: usize, #[case] right_offset: usize) {
+        #[allow(clippy::cast_possible_truncation)]
+        let make = |offset: usize, len: usize, salt: u8| -> BitBuffer {
+            let bytes: ByteBufferMut = (0..(offset + len).div_ceil(8).max(1))
+                .map(|i| (i as u8).wrapping_mul(31).wrapping_add(salt))
+                .collect();
+            BitBufferMut::from_buffer(bytes, offset, len).freeze()
+        };
+        let ops: [fn(u64, u64) -> u64; 4] =
+            [|a, b| a & b, |a, b| a | b, |a, b| a ^ b, |a, b| a & !b];
+
+        for len in [1usize, 5, 8, 63, 64, 65, 127, 128, 200, 256] {
+            let left = make(left_offset, len, 0xC3);
+            let right = make(right_offset, len, 0x5A);
+            for op in ops {
+                let got = bitwise_binary_op(&left, &right, op);
+                let expected: BitBuffer = (0..len)
+                    .map(|i| op(u64::from(left.value(i)), u64::from(right.value(i))) & 1 == 1)
+                    .collect();
+                assert_eq!(
+                    got, expected,
+                    "loff={left_offset} roff={right_offset} len={len}"
+                );
+            }
+        }
     }
 
     /// Regression test for a bug where [`bitwise_unary_op`] produced corrupt results when
