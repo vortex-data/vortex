@@ -198,8 +198,6 @@ pub(crate) fn launch_cuda_kernel_with_config(
 pub(crate) struct KernelLoader {
     /// Cache of loaded CUDA modules, keyed by module name
     modules: DashMap<String, Arc<CudaModule>>,
-    /// Cache of loaded CUDA functions, keyed by module and fully-qualified kernel name.
-    functions: DashMap<(String, String), CudaFunction>,
 }
 
 impl KernelLoader {
@@ -207,7 +205,6 @@ impl KernelLoader {
     pub fn new() -> Self {
         Self {
             modules: DashMap::default(),
-            functions: DashMap::default(),
         }
     }
 
@@ -233,11 +230,6 @@ impl KernelLoader {
         } else {
             format!("{}_{}", module_name, type_suffixes.join("_"))
         };
-
-        let function_key = (module_name.to_string(), kernel_name.clone());
-        if let Some(entry) = self.functions.get(&function_key) {
-            return Ok(entry.value().clone());
-        }
 
         // Check if module is already cached
         let module = if let Some(entry) = self.modules.get(module_name) {
@@ -265,11 +257,9 @@ impl KernelLoader {
         };
 
         // Load the CUDA function from the compiled module.
-        let function = module
+        module
             .load_function(&kernel_name)
-            .map_err(|e| vortex_err!("Failed to load kernel function '{}': {}", kernel_name, e))?;
-        self.functions.insert(function_key, function.clone());
-        Ok(function)
+            .map_err(|e| vortex_err!("Failed to load kernel function '{}': {}", kernel_name, e))
     }
 
     /// Returns the PTX file path for a given module name.
