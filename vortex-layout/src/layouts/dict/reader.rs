@@ -360,6 +360,7 @@ mod tests {
     use vortex_array::expr::pack;
     use vortex_array::expr::root;
     use vortex_array::validity::Validity;
+    use vortex_btrblocks::BtrBlocksCompressor;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_io::runtime::Handle;
@@ -428,6 +429,7 @@ mod tests {
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
                 DictLayoutOptions::default(),
+                Arc::new(BtrBlocksCompressor::default()),
             );
 
             let array = VarBinArray::from_iter(
@@ -527,6 +529,7 @@ mod tests {
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
                 DictLayoutOptions::default(),
+                Arc::new(BtrBlocksCompressor::default()),
             );
 
             let array =
@@ -578,6 +581,7 @@ mod tests {
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
                 DictLayoutOptions::default(),
+                Arc::new(BtrBlocksCompressor::default()),
             );
 
             let array = VarBinArray::from_iter(

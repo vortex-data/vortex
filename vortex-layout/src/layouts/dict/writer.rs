@@ -28,7 +28,6 @@ use vortex_array::builders::dict::dict_encoder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -116,21 +115,15 @@ impl DictStrategy {
         values: Values,
         fallback: Fallback,
         options: DictLayoutOptions,
+        probe_compressor: Arc<dyn CompressorPlugin>,
     ) -> Self {
         Self {
             codes: Arc::new(codes),
             values: Arc::new(values),
             fallback: Arc::new(fallback),
             options,
-            probe_compressor: Arc::new(BtrBlocksCompressor::default()),
+            probe_compressor,
         }
-    }
-
-    /// Override the compressor used to probe whether the first chunk is dict-eligible.
-    /// Defaults to `BtrBlocksCompressor::default()`.
-    pub fn with_probe_compressor(mut self, probe_compressor: Arc<dyn CompressorPlugin>) -> Self {
-        self.probe_compressor = probe_compressor;
-        self
     }
 }
 
