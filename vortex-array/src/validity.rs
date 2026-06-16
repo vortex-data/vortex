@@ -579,6 +579,19 @@ impl Validity {
 }
 
 impl Validity {
+    /// Construct a validity where every element is null (invalid).
+    ///
+    /// `len` is the number of elements. It is currently unused because this returns
+    /// [`Validity::AllInvalid`], but callers should pass the array length now: once the
+    /// `AllInvalid` variant is removed (tracking issue #8443) this will return
+    /// `Validity::Array(ConstantArray::new(false, len))`, which requires the length. Routing all
+    /// construction through this helper means those call sites will not need to change again.
+    #[inline]
+    pub fn all_invalid(len: usize) -> Self {
+        let _ = len;
+        Validity::AllInvalid
+    }
+
     pub fn from_bit_buffer(buffer: BitBuffer, nullability: Nullability) -> Self {
         if buffer.true_count() == buffer.len() {
             nullability.into()
@@ -726,6 +739,16 @@ mod tests {
                 &mut ctx,
             )
             .unwrap();
+    }
+
+    #[test]
+    fn all_invalid_constructor() -> vortex_error::VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        assert_eq!(
+            Validity::all_invalid(4).execute_mask(4, &mut ctx)?,
+            Mask::AllFalse(4)
+        );
+        Ok(())
     }
 
     #[test]
