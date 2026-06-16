@@ -34,6 +34,50 @@ amend_note_5_0_99: "PR-5.0.99 (raise Vercel Data Cache backstop 1h->24h) is CLOS
 amend_note: "PR-5.0.98 (keep-warm GH Actions cron) is CLOSED on 2026-06-15: shipped single file .github/workflows/web-keep-warm.yml (cron */5 + workflow_dispatch; one ubuntu-latest job; curl/jq GETs / + /api/groups + each /api/group/{slug}?n=100 against HARDCODED https://benchmarks-web.vercel.app; @uri-encoded slugs; curl --fail = uptime signal; writes warmed-count to GITHUB_STEP_SUMMARY; NO secret/var). gauntlet-pr-2-ACCEPTED cycle 1 (fresh+correctness, executor=claude — no Codex companion this session); both lenses reproduced the bash under set -Eeuo pipefail (set-e-safe increment, here-string count survival, zero-group guard, malformed-/api/groups aborts, @uri injection-safe, yamllint --strict clean); 1 shared nit (false-green on zero/empty groups) de-scoped per REVIEW CALIBRATION. yamllint clean + live sanity check (16 slugs, first bundle 200). Code commit 9adc6c870 (plan commits 69e892dee + 27f586ae6). Does NOT touch benchmarks-website/web/** so it does NOT fire web-deploy.yml — it just installs the workflow (first scheduled/dispatch run validates live). NEXT: PR-5.1 (current_pr) remains PAUSED — its first step is a PROD RDS WRITE gate (re-run PR-3.5 cross-check via bench_ingest IAM) needing user coordination; do NOT start it autonomously. Also PENDING user go: PR-5.0.99 (server-side ?n=all downsampling, the real load-all payload-bytes fix). OPS PREREQ still the user's action: set BENCH_REVALIDATE_TOKEN (Vercel env + GH secret) + BENCH_SITE_BASE_URL (GH var)."
 ```
 
+## SESSION HANDOFF 2026-06-16f (NEXT = PR-5.1 ingest cutover -- FULL TAKE-OVER BRIEF -- READ THIS FIRST)
+
+**Newest handoff; supersedes everything below. This is a self-contained PR-5.1 take-over brief: a
+fresh session resumes PR-5.1 from here.** Resume via `/spiral:big-plans` in `vortex4`; the stock
+router falls to its Coarse floor on this custom spine, so this section + the Current State block are
+ground truth. `current_pr: PR-5.1`.
+
+**ALREADY DONE this session -- do NOT redo (see handoffs 2026-06-16c/d/e below):** v4 RDS
+re-migration (prod data fresh through 2026-06-16, verify-clean, R1-clean); Vercel Data Cache fix
+(site serving fresh); history squashed to 5 phase commits + force-pushed; migrate tooling preserved +
+pushed (`ct/restore-bench-migrate` @ `684f96f36`). **CRUCIAL for PR-5.1: the revalidate ops wiring is
+now DONE** -- `BENCH_REVALIDATE_TOKEN` is set in the Vercel `benchmarks-web` Production env AND as a
+GH repo secret on `vortex-data/vortex`, and `BENCH_SITE_BASE_URL` as a GH repo variable. So the
+"ops prerequisite" the OLDER handoffs attach to PR-5.1 is SATISFIED; do not re-wire it. It activates
+(`post-ingest.py`'s revalidate hook is gated on both env vars) once the v4 ingest runs from develop.
+
+**PR-5.1 SCOPE (the ingest cutover -- the durable staleness fix; review = gauntlet `pr-3`, cross-bundle):**
+1. In the 3 ingest workflows -- `.github/workflows/bench.yml`, `sql-benchmarks.yml`,
+   `v3-commit-metadata.yml` -- promote the v4 `--postgres` ingest step to REQUIRED (remove its
+   `continue-on-error: true`) and DROP the v3 `--server` write step. (Verified anchors exist: each
+   file has a `--server` step + `continue-on-error` v4 `--postgres` steps.)
+2. Ship + document `scripts/psql-bench.sh` (does NOT exist yet).
+3. Follow `.github/AGENTS.md` + `yamllint --strict -c .yamllint.yaml` on the changed workflows.
+
+**GATE 1 -- the prod-RDS-write cross-check (PR-5.1's FIRST step; do NOT start autonomously):** before
+removing `continue-on-error`, re-run the PR-3.5 cross-check
+`scripts/cross_check_python_writer.py --postgres "$DSN" --envelopes <real_envelopes.json>` via the
+**`bench_ingest` IAM role** against accumulated prod soak data and confirm clean. This is a prod RDS
+WRITE (IAM-token auth) -- a genuine externalized-side-effect gate needing user coordination
+(operator-run vs agent-run-with-creds). NOTE: `bench_ingest` is write-capable, so the auto-mode
+classifier blocks connecting as it; surface to the user how to run it. (DB role/auth facts:
+memory `project_bench_rds_profiling_access`.)
+
+**GATE 2 -- the develop landing (USER IS HANDLING separately):** the workflow changes only TAKE
+EFFECT from `develop` (GH Actions run from the default branch), and `develop`'s #8362 (`ab0e23ea4`,
+Adam Gutglick) deleted the bench-v4 backend -- so the cutover is gated on bench-v4 reaching develop
+(the resurrect-vs-drop coordination, which the user said they will handle on their end). The
+branch-side edits (workflow changes + `psql-bench.sh`) + the cross-check + gauntlet CAN be prepared
+now; the cutover goes LIVE only post-develop-merge. **At take-over, confirm sequencing with the user:
+prep PR-5.1 on the branch now, or wait until the develop landing is resolved?**
+
+Then PR-5.2 (DNS flip) -> PR-5.3 (decommission); each prod write stays harness-gated. Recreate a
+fresh pre-squash backup ref before any PR-5.3/final squash (current: `refs/backups/ct-bench-v4-pre-squash-3-61d384185`).
+
 ## SESSION HANDOFF 2026-06-16e (history squashed to 5 phases; migrate tooling location recorded; develop rebase NOT done -- READ THIS FIRST)
 
 **Newest handoff; supersedes everything below.** Two things this session:
