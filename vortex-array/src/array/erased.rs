@@ -494,7 +494,7 @@ impl ArrayRef {
     /// Take a slot for executor-owned physical rewrites.
     ///
     /// On return the produced parent has the taken slot set to `None`
-    /// callers must put the slot back (typically via [`put_slot_unchecked`]) before the parent is
+    /// callers must put the slot back (typically via [`Self::put_slot_unchecked`]) before the parent is
     /// returned from the execution loop.
     ///
     /// When the `Arc` was shared this allocates a fresh parent.
@@ -531,7 +531,7 @@ impl ArrayRef {
 
     /// Puts an array into `slot_idx` by either, cloning the inner array if the Arc is not exclusive
     /// or replacing the slot in this `ArrayRef`.
-    /// This is the mirror of [`take_slot_unchecked`].
+    /// This is the mirror of [`Self::take_slot_unchecked`].
     ///
     /// # Safety
     /// The replacement must have the same logical dtype and length as the taken slot, and this

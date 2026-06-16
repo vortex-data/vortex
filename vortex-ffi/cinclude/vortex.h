@@ -420,9 +420,6 @@ typedef struct vx_array vx_array;
  * Once the iterator is finished (returns `null` from [`vx_array_iterator_next`]), it may panic
  * on subsequent calls to [`vx_array_iterator_next`].
  *
- * Even after the iterator is finished, an owned iterator must be released by calling
- * [`vx_array_iter_free`].
- *
  * Iterators may be passed between threads, but calls to [`vx_array_iterator_next`] should be
  * serialized and not invoked concurrently.
  */
@@ -682,7 +679,7 @@ void vx_array_get_validity(const vx_array *array, vx_validity *validity, vx_erro
 size_t vx_array_len(const vx_array *array);
 
 /**
- * Get the [`crate::vx_dtype`] of the array.
+ * Get the [`struct@crate::dtype::vx_dtype`] of the array.
  *
  * The returned pointer is valid as long as the array is valid.
  * Do NOT free the returned dtype pointer - it shares the lifetime of the array.
@@ -886,6 +883,21 @@ void vx_data_source_free(const vx_data_source *ptr);
  */
 const vx_data_source *
 vx_data_source_new(const vx_session *session, const vx_data_source_options *options, vx_error **err);
+
+/**
+ * Create a data source from a single in-memory Vortex file.
+ *
+ * "buffer_len" is the length of "buffer" in bytes.
+ * The bytes are borrowed, not copied: the caller must keep "buffer" alive and
+ * unmodified until the data source is freed.
+ *
+ * The returned pointer is owned by the caller and must be freed with
+ * vx_data_source_free.
+ *
+ * On error, returns NULL and sets "err".
+ */
+const vx_data_source *
+vx_data_source_new_buffer(const vx_session *session, const void *buffer, size_t buffer_len, vx_error **err);
 
 /**
  * Return the schema of the data source as a non-owned dtype.

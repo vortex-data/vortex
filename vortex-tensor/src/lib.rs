@@ -23,7 +23,6 @@ use crate::scalar_fns::cosine_similarity::CosineSimilarity;
 use crate::scalar_fns::inner_product::InnerProduct;
 use crate::scalar_fns::l2_denorm::L2Denorm;
 use crate::scalar_fns::l2_norm::L2Norm;
-use crate::scalar_fns::sorf_transform::SorfTransform;
 use crate::types::fixed_shape_tensor::FixedShapeTensor;
 use crate::types::vector::Vector;
 
@@ -42,8 +41,8 @@ pub mod vector_search;
 mod utils;
 
 /// Environment variable that gates registration of the tensor scalar-fn array plugins (the array
-/// encodings that let [`CosineSimilarity`], [`InnerProduct`], [`L2Denorm`], [`L2Norm`], and
-/// [`SorfTransform`] persist in a Vortex file). When unset, only the scalar functions themselves
+/// encodings that let [`CosineSimilarity`], [`InnerProduct`], [`L2Denorm`], and [`L2Norm`]
+/// persist in a Vortex file). When unset, only the scalar functions themselves
 /// are registered; readers of files containing serialized tensor scalar-fn arrays will fail to
 /// deserialize. Opt-in by setting the variable to any non-empty value.
 pub const SCALAR_FN_ARRAY_TENSOR_PLUGIN_ENV: &str = "VX_SCALAR_FN_ARRAY_TENSOR_PLUGIN";
@@ -63,7 +62,6 @@ pub fn initialize(session: &VortexSession) {
     session_fns.register(InnerProduct);
     session_fns.register(L2Denorm);
     session_fns.register(L2Norm);
-    session_fns.register(SorfTransform);
 
     // Registering the scalar-fn array plugins lets the tensor scalar fns be serialized as array
     // encodings inside Vortex files. Gate this on an env var so applications that do not intend
@@ -76,7 +74,6 @@ pub fn initialize(session: &VortexSession) {
         session_arrays.register(ScalarFnArrayPlugin::new(InnerProduct));
         session_arrays.register(ScalarFnArrayPlugin::new(L2Denorm));
         session_arrays.register(ScalarFnArrayPlugin::new(L2Norm));
-        session_arrays.register(ScalarFnArrayPlugin::new(SorfTransform));
     }
 }
 

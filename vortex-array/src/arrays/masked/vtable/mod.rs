@@ -165,7 +165,7 @@ impl VTable for Masked {
         let validity = array.masked_validity();
 
         // Fast path: all masked means result is all nulls.
-        if matches!(validity, Validity::AllInvalid) {
+        if validity.definitely_all_null() {
             return Ok(ExecutionResult::done(
                 ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.len())
                     .into_array(),

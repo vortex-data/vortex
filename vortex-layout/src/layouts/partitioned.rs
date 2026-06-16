@@ -11,6 +11,7 @@ use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::StructArray;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::Expression;
@@ -90,7 +91,10 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
             .into_array();
 
             let mut ctx = session.create_execution_ctx();
-            let root_mask = root_scope.apply(&self.root)?.execute::<Mask>(&mut ctx)?;
+            let root_mask = root_scope
+                .apply(&self.root)?
+                .fill_null(false)?
+                .execute::<Mask>(&mut ctx)?;
 
             let mask = mask.bitand(&root_mask);
 

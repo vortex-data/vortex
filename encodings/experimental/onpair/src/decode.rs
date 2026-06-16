@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 //
-//! Helpers for turning [`OnPair`] slot children into the inputs the upstream
+//! Helpers for turning [`OnPair`](super::OnPair) slot children into the inputs the upstream
 //! `onpair` decoder consumes.
 
 use vortex_array::ArrayRef;

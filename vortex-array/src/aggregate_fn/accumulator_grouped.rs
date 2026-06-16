@@ -11,7 +11,6 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
-use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::Columnar;
@@ -30,13 +29,151 @@ use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
+use crate::columnar::AnyColumnar;
 use crate::dtype::DType;
-use crate::dtype::IntegerPType;
 use crate::executor::max_iterations;
 use crate::match_each_integer_ptype;
 
 /// Reference-counted type-erased grouped accumulator.
 pub type GroupedAccumulatorRef = Box<dyn DynGroupedAccumulator>;
+
+/// A batch of grouped values to aggregate.
+///
+/// Each outer list value is one group, and the inner element array is shared by all groups.
+/// Aggregate implementations can inspect the concrete grouped representation directly, or ask for
+/// derived ranges when their algorithm is expressed in terms of `(offset, size)` pairs.
+pub enum GroupedArray {
+    /// Groups represented as a list-view array with per-group offsets and sizes.
+    ListView(ListViewArray),
+    /// Groups represented as a fixed-size list array.
+    FixedSizeList(FixedSizeListArray),
+}
+
+impl From<ListViewArray> for GroupedArray {
+    fn from(groups: ListViewArray) -> Self {
+        Self::ListView(groups)
+    }
+}
+
+impl From<FixedSizeListArray> for GroupedArray {
+    fn from(groups: FixedSizeListArray) -> Self {
+        Self::FixedSizeList(groups)
+    }
+}
+
+impl GroupedArray {
+    /// The inner element array shared by all groups.
+    pub fn elements(&self) -> &ArrayRef {
+        match self {
+            Self::ListView(groups) => groups.elements(),
+            Self::FixedSizeList(groups) => groups.elements(),
+        }
+    }
+
+    /// Return the `(offset, size)` ranges describing each group in `elements`.
+    pub fn group_ranges(&self, ctx: &mut ExecutionCtx) -> VortexResult<GroupRanges> {
+        match self {
+            Self::ListView(groups) => list_view_group_ranges(groups, ctx),
+            Self::FixedSizeList(groups) => Ok(fixed_size_list_group_ranges(groups)),
+        }
+    }
+
+    /// Return the per-group validity mask.
+    pub fn group_validity(&self, ctx: &mut ExecutionCtx) -> VortexResult<Mask> {
+        match self {
+            Self::ListView(groups) => groups.validity()?.execute_mask(groups.len(), ctx),
+            Self::FixedSizeList(groups) => groups.validity()?.execute_mask(groups.len(), ctx),
+        }
+    }
+
+    /// The number of groups in this batch.
+    pub fn len(&self) -> usize {
+        match self {
+            Self::ListView(groups) => groups.len(),
+            Self::FixedSizeList(groups) => groups.len(),
+        }
+    }
+
+    /// Returns true when this batch contains no groups.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Returns true when every group is valid.
+    pub fn all_groups_valid(&self, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+        Ok(self.group_validity(ctx)?.all_true())
+    }
+
+    unsafe fn with_elements_unchecked(&self, elements: ArrayRef) -> VortexResult<Self> {
+        Ok(match self {
+            Self::ListView(groups) => unsafe {
+                ListViewArray::new_unchecked(
+                    elements,
+                    groups.offsets().clone(),
+                    groups.sizes().clone(),
+                    groups.validity()?,
+                )
+            }
+            .into(),
+            Self::FixedSizeList(groups) => unsafe {
+                FixedSizeListArray::new_unchecked(
+                    elements,
+                    groups.list_size(),
+                    groups.validity()?,
+                    groups.len(),
+                )
+            }
+            .into(),
+        })
+    }
+}
+
+/// The physical ranges of a grouped array.
+pub enum GroupRanges {
+    /// Explicit ranges extracted from a list-view array.
+    ListView {
+        /// The `(offset, size)` ranges.
+        ranges: Vec<(usize, usize)>,
+    },
+    /// Uniform ranges derived from a fixed-size list array.
+    FixedSizeList {
+        /// The number of groups.
+        len: usize,
+        /// The number of elements in each group.
+        size: usize,
+    },
+}
+
+impl GroupRanges {
+    /// The number of groups described by these ranges.
+    pub fn len(&self) -> usize {
+        match self {
+            Self::ListView { ranges } => ranges.len(),
+            Self::FixedSizeList { len, .. } => *len,
+        }
+    }
+
+    /// Returns true when there are no groups.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Return the `(offset, size)` range for the group at `index`.
+    fn range(&self, index: usize) -> (usize, usize) {
+        match self {
+            Self::ListView { ranges } => ranges[index],
+            Self::FixedSizeList { len, size } => {
+                assert!(index < *len, "range index out of bounds");
+                (index * size, *size)
+            }
+        }
+    }
+
+    /// Iterate over all `(offset, size)` group ranges.
+    pub fn iter(&self) -> impl Iterator<Item = (usize, usize)> + '_ {
+        (0..self.len()).map(|index| self.range(index))
+    }
+}
 
 /// An accumulator used for computing grouped aggregates.
 ///
@@ -128,8 +265,8 @@ impl<V: AggregateFnVTable> DynGroupedAccumulator for GroupedAccumulator<V> {
             Columnar::Constant(c) => c.into_array().execute::<Canonical>(ctx)?,
         };
         match canonical {
-            Canonical::List(groups) => self.accumulate_list_view(&groups, ctx),
-            Canonical::FixedSizeList(groups) => self.accumulate_fixed_size_list(&groups, ctx),
+            Canonical::List(groups) => self.accumulate_grouped_array(groups.into(), ctx),
+            Canonical::FixedSizeList(groups) => self.accumulate_grouped_array(groups.into(), ctx),
             _ => vortex_panic!("We checked the DType above, so this should never happen"),
         }
     }
@@ -155,71 +292,64 @@ impl<V: AggregateFnVTable> DynGroupedAccumulator for GroupedAccumulator<V> {
 }
 
 impl<V: AggregateFnVTable> GroupedAccumulator<V> {
-    fn accumulate_list_view(
+    fn accumulate_grouped_array(
         &mut self,
-        groups: &ListViewArray,
+        groups: GroupedArray,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let mut elements = groups.elements().clone();
-        let groups_validity = groups.validity()?;
         let session = ctx.session().clone();
 
         for _ in 0..max_iterations() {
-            if elements.is::<AnyCanonical>() {
-                break;
+            // Try a registered grouped kernel for the current element encoding.
+            if let Some(kernel) = session
+                .aggregate_fns()
+                .find_grouped_encoding_kernel(elements.encoding_id(), self.aggregate_fn.id())
+            {
+                // SAFETY: we assume that elements execution is safe
+                let kernel_groups = unsafe { groups.with_elements_unchecked(elements.clone())? };
+                if let Some(result) =
+                    kernel.grouped_aggregate(&self.aggregate_fn, &kernel_groups, ctx)?
+                {
+                    return self.push_result(result);
+                }
             }
 
-            if let Some(result) = session
+            // Try a grouped kernel for the current aggregate regardless of element encoding.
+            if let Some(kernel) = session
                 .aggregate_fns()
-                .find_grouped_kernel(elements.encoding_id(), self.aggregate_fn.id())
-                .and_then(|kernel| {
-                    // SAFETY: we assume that elements execution is safe
-                    let groups = unsafe {
-                        ListViewArray::new_unchecked(
-                            elements.clone(),
-                            groups.offsets().clone(),
-                            groups.sizes().clone(),
-                            groups_validity.clone(),
-                        )
-                    };
-                    kernel
-                        .grouped_aggregate(&self.aggregate_fn, &groups)
-                        .transpose()
-                })
-                .transpose()?
+                .find_grouped_kernel(self.aggregate_fn.id())
             {
-                return self.push_result(result);
+                // SAFETY: we preserve the grouped shape and validity while replacing the
+                // elements with another representation of the same logical array.
+                let kernel_groups = unsafe { groups.with_elements_unchecked(elements.clone())? };
+                if let Some(result) =
+                    kernel.grouped_aggregate(&self.aggregate_fn, &kernel_groups, ctx)?
+                {
+                    return self.push_result(result);
+                }
+            }
+
+            if elements.is::<AnyColumnar>() {
+                break;
             }
 
             // Execute one step and try again
             elements = elements.execute(ctx)?;
         }
 
-        // Otherwise, we iterate the offsets and sizes and accumulate each group one by one.
         let elements = elements.execute::<Columnar>(ctx)?.into_array();
-        let offsets = groups.offsets();
-        let sizes = groups.sizes().cast(offsets.dtype().clone())?;
-        let validity = groups_validity.execute_mask(offsets.len(), ctx)?;
+        // SAFETY: we preserve the grouped shape and validity while replacing the elements with an
+        // executed form of the same logical array.
+        let grouped = unsafe { groups.with_elements_unchecked(elements)? };
 
-        match_each_integer_ptype!(offsets.dtype().as_ptype(), |O| {
-            let offsets = offsets.clone().execute::<Buffer<O>>(ctx)?;
-            let sizes = sizes.execute::<Buffer<O>>(ctx)?;
-            self.accumulate_list_view_typed(
-                &elements,
-                offsets.as_ref(),
-                sizes.as_ref(),
-                &validity,
-                ctx,
-            )
-        })
+        // Otherwise, we iterate the offsets and sizes and accumulate each group one by one.
+        self.accumulate_grouped_fallback(&grouped, ctx)
     }
 
-    fn accumulate_list_view_typed<O: IntegerPType>(
+    fn accumulate_grouped_fallback(
         &mut self,
-        elements: &ArrayRef,
-        offsets: &[O],
-        sizes: &[O],
-        validity: &Mask,
+        grouped: &GroupedArray,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let mut accumulator = Accumulator::try_new(
@@ -227,93 +357,18 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
             self.options.clone(),
             self.dtype.clone(),
         )?;
-        let mut states = builder_with_capacity(&self.partial_dtype, offsets.len());
+        let mut states = builder_with_capacity(&self.partial_dtype, grouped.len());
+        let group_ranges = grouped.group_ranges(ctx)?;
+        let group_validity = grouped.group_validity(ctx)?;
 
-        // `validity` is the per-group list-view validity, so it is zipped element-wise with the
-        // offsets and sizes (one entry per group).
-        for ((offset, size), valid) in offsets.iter().zip(sizes.iter()).zip(validity.iter()) {
-            let offset = offset.to_usize().vortex_expect("Offset value is not usize");
-            let size = size.to_usize().vortex_expect("Size value is not usize");
-
+        for ((offset, size), valid) in group_ranges.iter().zip(group_validity.iter()) {
             if valid {
-                let group = elements.slice(offset..offset + size)?;
+                let group = grouped.elements().slice(offset..offset + size)?;
                 accumulator.accumulate(&group, ctx)?;
                 states.append_scalar(&accumulator.flush()?)?;
             } else {
                 states.append_null()
             }
-        }
-
-        self.push_result(states.finish())
-    }
-
-    fn accumulate_fixed_size_list(
-        &mut self,
-        groups: &FixedSizeListArray,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<()> {
-        let mut elements = groups.elements().clone();
-        let groups_validity = groups.validity()?;
-        let session = ctx.session().clone();
-
-        for _ in 0..64 {
-            if elements.is::<AnyCanonical>() {
-                break;
-            }
-
-            if let Some(result) = session
-                .aggregate_fns()
-                .find_grouped_kernel(elements.encoding_id(), self.aggregate_fn.id())
-                .and_then(|kernel| {
-                    // SAFETY: we assume that elements execution is safe
-                    let groups = unsafe {
-                        FixedSizeListArray::new_unchecked(
-                            elements.clone(),
-                            groups.list_size(),
-                            groups_validity.clone(),
-                            groups.len(),
-                        )
-                    };
-
-                    kernel
-                        .grouped_aggregate_fixed_size(&self.aggregate_fn, &groups)
-                        .transpose()
-                })
-                .transpose()?
-            {
-                return self.push_result(result);
-            }
-
-            // Execute one step and try again
-            elements = elements.execute(ctx)?;
-        }
-
-        // Otherwise, we iterate the offsets and sizes and accumulate each group one by one.
-        let elements = elements.execute::<Columnar>(ctx)?.into_array();
-        let validity = groups_validity.execute_mask(groups.len(), ctx)?;
-
-        let mut accumulator = Accumulator::try_new(
-            self.vtable.clone(),
-            self.options.clone(),
-            self.dtype.clone(),
-        )?;
-        let mut states = builder_with_capacity(&self.partial_dtype, groups.len());
-
-        let mut offset = 0;
-        let size = groups
-            .list_size()
-            .to_usize()
-            .vortex_expect("List size is not usize");
-
-        for valid in validity.iter() {
-            if valid {
-                let group = elements.slice(offset..offset + size)?;
-                accumulator.accumulate(&group, ctx)?;
-                states.append_scalar(&accumulator.flush()?)?;
-            } else {
-                states.append_null()
-            }
-            offset += size;
         }
 
         self.push_result(states.finish())
@@ -328,5 +383,37 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         );
         self.partials.push(state);
         Ok(())
+    }
+}
+fn list_view_group_ranges(
+    groups: &ListViewArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<GroupRanges> {
+    let offsets = groups.offsets();
+    let sizes = groups.sizes().cast(offsets.dtype().clone())?;
+
+    let ranges = match_each_integer_ptype!(offsets.dtype().as_ptype(), |O| {
+        let offsets = offsets.clone().execute::<Buffer<O>>(ctx)?;
+        let sizes = sizes.execute::<Buffer<O>>(ctx)?;
+        offsets
+            .as_ref()
+            .iter()
+            .zip(sizes.as_ref().iter())
+            .map(|(offset, size)| {
+                (
+                    offset.to_usize().vortex_expect("Offset value is not usize"),
+                    size.to_usize().vortex_expect("Size value is not usize"),
+                )
+            })
+            .collect::<Vec<_>>()
+    });
+
+    Ok(GroupRanges::ListView { ranges })
+}
+
+fn fixed_size_list_group_ranges(groups: &FixedSizeListArray) -> GroupRanges {
+    GroupRanges::FixedSizeList {
+        len: groups.len(),
+        size: groups.list_size() as usize,
     }
 }

@@ -51,6 +51,9 @@ jobs:
         run: sudo bash scripts/setup-benchmark.sh
       - uses: ./.github/actions/setup-prebuild
       - uses: ./.github/actions/system-info
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y libc6-dbg
       - name: Install Codspeed
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:
@@ -91,6 +94,9 @@ jobs:
           nvidia-smi
           nvidia-smi -L
           nvidia-smi -q -d Memory
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y libc6-dbg
       - name: Install Codspeed
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:

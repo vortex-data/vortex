@@ -23,7 +23,6 @@ use vortex::array::arrays::varbinview::build_views::build_views;
 use vortex::array::buffer::DeviceBuffer;
 use vortex::array::match_each_integer_ptype;
 use vortex::array::match_each_unsigned_integer_ptype;
-use vortex::array::validity::Validity;
 use vortex::buffer::Alignment;
 use vortex::buffer::Buffer;
 use vortex::dtype::NativePType;
@@ -62,7 +61,7 @@ impl CudaExecute for FSSTExecutor {
         let dtype = fsst.dtype().clone();
         let validity = fsst.codes().validity()?;
 
-        if fsst.is_empty() || matches!(validity, Validity::AllInvalid) {
+        if fsst.is_empty() || validity.definitely_all_null() {
             let empty = unsafe {
                 VarBinViewArray::new_unchecked(
                     Buffer::<BinaryView>::zeroed(fsst.len()),

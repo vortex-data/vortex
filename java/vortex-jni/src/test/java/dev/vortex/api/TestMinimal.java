@@ -11,6 +11,7 @@ import dev.vortex.arrow.ArrowAllocation;
 import dev.vortex.jni.NativeLoader;
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -132,6 +133,7 @@ public final class TestMinimal {
         DataSource ds = DataSource.open(session, writePath);
 
         assertEquals(new DataSource.RowCount.Exact(10L), ds.rowCount());
+        assertEquals(new DataSource.ByteSize.Exact(Files.size(tempDir.resolve("minimal.vortex"))), ds.byteSize());
 
         var schema = ds.arrowSchema(allocator);
         assertEquals(

@@ -22,6 +22,9 @@
 //! garbage rows are represented as the final [`BitBuffer`] bit offset, which naturally handles
 //! sub-byte slices without copy-aligning. Inline patches are spliced in afterwards by overwriting
 //! the bits at the patched indices with `cmp(patch_value, rhs)`.
+//!
+//! [`BitPackedArray`]: crate::BitPackedArray
+//! [`BitBuffer`]: vortex_buffer::BitBuffer
 
 use fastlanes::BitPacking;
 use fastlanes::BitPackingCompare;
@@ -58,6 +61,8 @@ const WORDS_PER_CHUNK: usize = CHUNK_SIZE / U64_BITS;
 ///
 /// `cmp(value, rhs)` defines the predicate; it must be the total-order comparison matching the
 /// requested operator (e.g. `|a, b| a.is_lt(b)`).
+///
+/// [`BitPackedArray`]: crate::BitPackedArray
 pub(super) fn stream_compare_fused<T, F>(
     array: ArrayView<'_, BitPacked>,
     rhs: T,

@@ -35,7 +35,7 @@ struct ColumnInfo {
 
 #[derive(Serialize)]
 struct SegmentInfo {
-    /// Segment name (e.g., "[0]", "data", etc.)
+    /// Segment name (e.g., "\[0\]", "data", etc.)
     name: String,
     /// Row range start
     row_offset: u64,

@@ -249,7 +249,13 @@ impl VortexFile {
         let mut ctx = self.session.create_execution_ctx();
         Ok(match applied.execute::<Columnar>(&mut ctx)? {
             Columnar::Constant(s) => s.scalar().as_bool().value() == Some(true),
-            Columnar::Canonical(_) => false,
+            Columnar::Canonical(c) => {
+                c.into_array()
+                    .execute_scalar(0, &mut ctx)?
+                    .as_bool()
+                    .value()
+                    == Some(true)
+            }
         })
     }
 

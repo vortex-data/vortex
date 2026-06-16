@@ -12,6 +12,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
 use vortex_array::expr::get_item;
@@ -110,12 +111,12 @@ impl ZoneMap {
         let applied = self.array.clone().into_array().apply(&predicate)?;
 
         if !contains_row_count(&applied) {
-            return applied.execute::<Mask>(&mut ctx);
+            return applied.fill_null(false)?.execute::<Mask>(&mut ctx);
         }
 
         let row_count_array = row_count_array(self.zone_len, self.row_count, num_zones)?;
         let substituted = substitute_row_count(applied, &row_count_array)?;
-        substituted.execute::<Mask>(&mut ctx)
+        substituted.fill_null(false)?.execute::<Mask>(&mut ctx)
     }
 
     fn lower_stats(&self, predicate: Expression) -> VortexResult<Expression> {

@@ -156,9 +156,9 @@ impl BoolData {
     }
 }
 
-/// Constructors and consuming methods for `BoolArray` (`Array<Bool>`).
+/// Constructors and consuming methods for [`BoolArray`].
 impl Array<Bool> {
-    /// Constructs a new `BoolArray`.
+    /// Constructs a new [`BoolArray`].
     ///
     /// # Panics
     ///
@@ -167,7 +167,7 @@ impl Array<Bool> {
         Self::try_new(bits, validity).vortex_expect("Failed to create BoolArray")
     }
 
-    /// Constructs a new `BoolArray` from a `BufferHandle`.
+    /// Constructs a new [`BoolArray`] from a [`BufferHandle`].
     ///
     /// # Panics
     ///
@@ -251,7 +251,7 @@ impl Array<Bool> {
     }
 }
 
-/// Internal constructors on BoolData (used by Array<Bool> constructors and VTable::build).
+// Internal constructors on BoolData (used by [`BoolArray`] constructors and [`VTable::build`]).
 impl BoolData {
     pub(super) fn try_new(bits: BitBuffer, validity: Validity) -> VortexResult<Self> {
         let bits = bits.shrink_offset();

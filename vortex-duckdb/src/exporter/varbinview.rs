@@ -9,7 +9,6 @@ use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::varbinview::BinaryView;
 use vortex::array::arrays::varbinview::Inlined;
 use vortex::array::arrays::varbinview::VarBinViewDataParts;
-use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
 use vortex::error::VortexResult;
@@ -39,7 +38,7 @@ pub(crate) fn new_exporter(
         buffers,
     } = array.into_data_parts();
 
-    if matches!(validity, Validity::AllInvalid) {
+    if validity.definitely_all_null() {
         return Ok(all_invalid::new_exporter());
     }
     let validity = validity.to_array(len).execute::<Mask>(ctx)?;

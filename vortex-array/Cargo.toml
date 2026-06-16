@@ -45,7 +45,6 @@ humansize = { workspace = true }
 inventory = { workspace = true }
 itertools = { workspace = true }
 jiff = { workspace = true }
-multiversion = { workspace = true }
 num-traits = { workspace = true }
 num_enum = { workspace = true }
 parking_lot = { workspace = true }
@@ -127,6 +126,10 @@ name = "compare"
 harness = false
 
 [[bench]]
+name = "binary_ops"
+harness = false
+
+[[bench]]
 name = "interleave"
 harness = false
 
@@ -198,6 +201,10 @@ harness = false
 
 [[bench]]
 name = "bool_zip"
+harness = false
+
+[[bench]]
+name = "primitive_zip"
 harness = false
 
 [[bench]]
