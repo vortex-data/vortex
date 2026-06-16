@@ -40,11 +40,20 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arc_swap_map::ArcSwapMap;
 use crate::array::VTable;
+use crate::arrays::Bool;
+use crate::arrays::Dict;
 use crate::arrays::Struct;
+use crate::arrays::dict::TakeExecuteAdaptor;
 use crate::arrays::struct_::compute::cast::struct_cast_execute_parent;
 use crate::arrays::struct_::compute::rules::struct_cast_reduce_parent;
+use crate::kernel::execute_parent_kernel;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::cast::Cast;
+use crate::scalar_fn::fns::cast::CastExecuteAdaptor;
+use crate::scalar_fn::fns::fill_null::FillNull;
+use crate::scalar_fn::fns::fill_null::FillNullExecuteAdaptor;
+use crate::scalar_fn::fns::zip::Zip;
+use crate::scalar_fn::fns::zip::ZipExecuteAdaptor;
 
 /// Shared hasher used to combine `(outer, child)` tuples into registry keys.
 static FN_HASHER: LazyLock<DefaultHashBuilder> = LazyLock::new(DefaultHashBuilder::default);
@@ -148,6 +157,28 @@ impl ArrayKernels {
             Cast.id(),
             Struct.id(),
             &[struct_cast_execute_parent as ExecuteParentFn],
+        );
+
+        // Bool parent kernels, previously dispatched from `Bool`'s `VTable::execute_parent`.
+        self.register_execute_parent(
+            Cast.id(),
+            Bool.id(),
+            &[execute_parent_kernel::<Bool, CastExecuteAdaptor<Bool>> as ExecuteParentFn],
+        );
+        self.register_execute_parent(
+            FillNull.id(),
+            Bool.id(),
+            &[execute_parent_kernel::<Bool, FillNullExecuteAdaptor<Bool>> as ExecuteParentFn],
+        );
+        self.register_execute_parent(
+            Dict.id(),
+            Bool.id(),
+            &[execute_parent_kernel::<Bool, TakeExecuteAdaptor<Bool>> as ExecuteParentFn],
+        );
+        self.register_execute_parent(
+            Zip.id(),
+            Bool.id(),
+            &[execute_parent_kernel::<Bool, ZipExecuteAdaptor<Bool>> as ExecuteParentFn],
         );
     }
 

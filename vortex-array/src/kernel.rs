@@ -100,6 +100,32 @@ pub trait ExecuteParentKernel<V: VTable>: Debug + Send + Sync + 'static {
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
+/// Bridge a static [`ExecuteParentKernel`] into a free function for the
+/// [`ArrayKernels`](crate::optimizer::kernels::ArrayKernels) registry.
+///
+/// Monomorphizing over the child encoding `V` and kernel `K` yields a function pointer matching
+/// [`ExecuteParentFn`](crate::optimizer::kernels::ExecuteParentFn). It checks the child encoding
+/// and the parent [`Matcher`] before delegating to the kernel, mirroring the dispatch performed by
+/// [`ParentKernelSet::execute`].
+pub(crate) fn execute_parent_kernel<V, K>(
+    child: &ArrayRef,
+    parent: &ArrayRef,
+    child_idx: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>>
+where
+    V: VTable,
+    K: ExecuteParentKernel<V> + Default,
+{
+    let Some(child) = child.as_opt::<V>() else {
+        return Ok(None);
+    };
+    let Some(parent) = <K::Parent as Matcher>::try_match(parent) else {
+        return Ok(None);
+    };
+    K::default().execute_parent(child, parent, child_idx, ctx)
+}
+
 /// Type-erased version of [`ExecuteParentKernel`] used for dynamic dispatch within
 /// [`ParentKernelSet`].
 pub trait DynParentKernel<V: VTable>: Send + Sync {

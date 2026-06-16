@@ -4,7 +4,6 @@
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use kernel::PARENT_KERNELS;
 use prost::Message;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -28,7 +27,6 @@ use crate::dtype::DType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 mod canonical;
-mod kernel;
 mod operations;
 mod validity;
 
@@ -174,15 +172,6 @@ impl VTable for Bool {
         Ok(ExecutionResult::done(array))
     }
 
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
-    }
-
     fn reduce_parent(
         array: ArrayView<'_, Self>,
         parent: &ArrayRef,
@@ -192,21 +181,41 @@ impl VTable for Bool {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Bool;
 
 #[cfg(test)]
 mod tests {
     use vortex_buffer::ByteBufferMut;
+    use vortex_session::VortexSession;
     use vortex_session::registry::ReadContext;
 
     use crate::ArrayContext;
+    use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::arrays::BoolArray;
+    use crate::arrays::scalar_fn::ScalarFnFactoryExt;
     use crate::assert_arrays_eq;
+    use crate::scalar_fn::fns::cast::Cast;
     use crate::serde::SerializeOptions;
     use crate::serde::SerializedArray;
+
+    #[test]
+    fn bool_execute_parent_is_not_static_kernel() {
+        // Bool's parent kernels were migrated onto the `ArrayKernels` registry, so the vtable
+        // no longer dispatches them. Without the registry on the session, `execute_parent`
+        // must decline rather than fire the cast kernel statically.
+        let source = BoolArray::from_iter([true, false, true]).into_array();
+        let target = source.dtype().as_nullable();
+
+        let cast = Cast
+            .try_new_array(source.len(), target, [source.clone()])
+            .unwrap();
+        let mut ctx = ExecutionCtx::new(VortexSession::empty());
+
+        assert!(source.execute_parent(&cast, 0, &mut ctx).unwrap().is_none());
+    }
 
     #[test]
     fn test_nullable_bool_serde_roundtrip() {
