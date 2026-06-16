@@ -119,12 +119,18 @@ jobs:
 
   cuda-test-sanitizer:
     needs: [changes]
-    if: >-
-      always() && github.repository == 'vortex-data/vortex' &&
-      needs.changes.outputs.run-cuda-san == 'true'
+    # Always run on the main repo so the matrix expands and each required
+    # `CUDA tests (<sanitizer>)` check is reported. A matrix job skipped by its
+    # job-level `if:` never expands, leaving those checks pending forever. When
+    # vortex-cuda is untouched we land on a cheap runner and skip every step, so
+    # the checks pass without provisioning a GPU.
+    if: always() && github.repository == 'vortex-data/vortex'
     name: "CUDA tests (${{ matrix.sanitizer }})"
     timeout-minutes: 30
-    runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-test-sanitizer
+    runs-on: >-
+      ${{ needs.changes.outputs.run-cuda-san == 'true'
+          && format('runs-on={0}/runner=gpu/tag=cuda-test-sanitizer', github.run_id)
+          || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
@@ -138,22 +144,30 @@ jobs:
             runner_flags: "--tool synccheck --error-exitcode 1"
           - sanitizer: initcheck
             runner_flags: "--tool initcheck --error-exitcode 1"
+    env:
+      RUN_SAN: ${{ needs.changes.outputs.run-cuda-san }}
     steps:
-      - uses: runs-on/action@v2
+      - if: env.RUN_SAN == 'true'
+        uses: runs-on/action@v2
         with:
           sccache: s3
-      - name: Display NVIDIA SMI details
+      - if: env.RUN_SAN == 'true'
+        name: Display NVIDIA SMI details
         run: |
           nvidia-smi
           nvidia-smi -L
           nvidia-smi -q -d Memory
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
-      - uses: ./.github/actions/setup-rust
+      - if: env.RUN_SAN == 'true'
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - if: env.RUN_SAN == 'true'
+        uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build tests
+      - if: env.RUN_SAN == 'true'
+        name: Build tests
         run: cargo test --profile ci --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu --no-run
-      - name: "CUDA - ${{ matrix.sanitizer }}"
+      - if: env.RUN_SAN == 'true'
+        name: "CUDA - ${{ matrix.sanitizer }}"
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: "compute-sanitizer ${{ matrix.runner_flags }}"
         run: cargo test --profile ci --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
