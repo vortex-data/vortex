@@ -12,14 +12,6 @@ on:
     branches: [develop]
   pull_request: { }
   workflow_dispatch: { }
-  schedule:
-    # Nightly full run at 04:00 UTC. Regular CUDA build/test/cudf jobs run on
-    # every PR; the compute-sanitizer matrix is path-filtered to the CUDA
-    # crates for speed. This nightly run (and push-to-develop) restores
-    # sanitizer coverage for changes in dependency crates (vortex-array,
-    # vortex-buffer, encodings, ...) that can affect GPU kernels without
-    # touching vortex-cuda/ itself.
-    - cron: "0 4 * * *"
 
 permissions:
   contents: read
@@ -31,26 +23,34 @@ env:
 jobs:
   changes:
     name: "Detect CUDA changes"
-    # Only meaningful on PRs; gates the sanitizer matrix only. Other events
-    # (schedule/push/dispatch) run the sanitizers unconditionally via the
-    # always() guard on cuda-test-sanitizer below.
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       pull-requests: read
     outputs:
-      cuda: ${{ steps.filter.outputs.cuda }}
+      run-cuda-san: ${{ steps.decide.outputs.run-cuda-san }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
       - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d  # v4
         id: filter
+        if: github.event_name == 'pull_request'
         with:
           filters: |
             cuda:
               - "vortex-cuda/**"
               - "vortex-test/**"
               - ".github/workflows/**"
+      - name: Decide whether to run CUDA sanitizer
+        id: decide
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CUDA_CHANGED: ${{ steps.filter.outputs.cuda }}
+        run: |
+          if [ "$EVENT_NAME" != "pull_request" ] || [ "$CUDA_CHANGED" == "true" ]; then
+            echo "run-cuda-san=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run-cuda-san=false" >> "$GITHUB_OUTPUT"
+          fi
 
   cuda-build-lint:
     if: github.repository == 'vortex-data/vortex'
@@ -126,7 +126,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && github.repository == 'vortex-data/vortex' &&
-      (github.event_name != 'pull_request' || needs.changes.outputs.cuda == 'true')
+      needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA tests (${{ matrix.sanitizer }})"
     timeout-minutes: 30
     runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-test-sanitizer
