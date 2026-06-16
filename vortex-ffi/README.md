@@ -99,7 +99,7 @@ cargo +nightly build -Zbuild-std --target=<target triple> \
 2. Build tests with target triple:
 
 ```sh
-cmake -Bbuild -DWITH_ASAN=1 -DTARGET_TRIPLE=<target triple>
+cmake -Bbuild -DBUILD_TESTS=1 -DSANITIZER=asan -DTARGET_TRIPLE=<target triple>
 ```
 
 3. Run the tests (ctest doesn't output failures in detail):
