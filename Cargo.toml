@@ -46,6 +46,7 @@ members = [
     "encodings/fastlanes",
     "encodings/decimal-byte-parts",
     "encodings/runend",
+    "encodings/runend-bool",
     "encodings/sequence",
     "encodings/alp",
     "encodings/datetime-parts",
@@ -303,6 +304,7 @@ vortex-pco = { version = "0.1.0", path = "./encodings/pco", default-features = f
 vortex-proto = { version = "0.1.0", path = "./vortex-proto", default-features = false }
 vortex-row = { version = "0.1.0", path = "./vortex-row", default-features = false }
 vortex-runend = { version = "0.1.0", path = "./encodings/runend", default-features = false }
+vortex-runend-bool = { version = "0.1.0", path = "./encodings/runend-bool", default-features = false }
 vortex-scan = { version = "0.1.0", path = "./vortex-scan", default-features = false }
 vortex-sequence = { version = "0.1.0", path = "encodings/sequence", default-features = false }
 vortex-session = { version = "0.1.0", path = "./vortex-session", default-features = false }

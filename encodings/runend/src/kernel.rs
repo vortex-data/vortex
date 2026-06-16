@@ -17,6 +17,7 @@ use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
+use crate::RunEndIndex;
 use crate::array::RunEndArrayExt;
 use crate::compute::take_from::RunEndTakeFrom;
 

@@ -19,6 +19,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::RunEnd;
+use crate::RunEndIndex;
 use crate::array::RunEndArrayExt;
 
 impl TakeExecute for RunEnd {

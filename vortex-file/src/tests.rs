@@ -219,6 +219,61 @@ async fn test_round_trip_many_types() {
 
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
+async fn test_round_trip_runend_bool() {
+    use vortex_array::arrays::BoolArray;
+    use vortex_buffer::BitBuffer;
+    use vortex_runend_bool::RunEndBool;
+
+    let mut ctx = SESSION.create_execution_ctx();
+
+    // A run-heavy bool array encoded as RunEndBool.
+    let runend = RunEndBool::try_new(
+        buffer![3u32, 6, 10].into_array(),
+        true,
+        Validity::NonNullable,
+        &mut ctx,
+    )
+    .unwrap();
+
+    let expected = BoolArray::from(BitBuffer::from(vec![
+        true, true, true, false, false, false, true, true, true, true,
+    ]))
+    .into_array();
+
+    let st = StructArray::from_fields(&[("bools", runend.into_array())]).unwrap();
+    let mut buf = ByteBufferMut::empty();
+
+    SESSION
+        .write_options()
+        .write(&mut buf, st.into_array().to_array_stream())
+        .await
+        .unwrap();
+
+    let chunks: Vec<_> = SESSION
+        .open_options()
+        .open_buffer(buf)
+        .unwrap()
+        .scan()
+        .unwrap()
+        .into_array_stream()
+        .unwrap()
+        .try_collect()
+        .await
+        .unwrap();
+
+    assert_eq!(chunks.len(), 1);
+    let read_field = chunks[0]
+        .clone()
+        .execute::<StructArray>(&mut ctx)
+        .unwrap()
+        .unmasked_field_by_name("bools")
+        .unwrap()
+        .clone();
+    assert_arrays_eq!(read_field, expected);
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
 async fn test_read_simple_with_spawn() {
     let strings = ChunkedArray::from_iter([
         VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),

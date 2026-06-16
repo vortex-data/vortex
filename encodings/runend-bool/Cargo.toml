@@ -1,0 +1,32 @@
+[package]
+name = "vortex-runend-bool"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Vortex run-end encoded bool array"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+itertools = { workspace = true }
+num-traits = { workspace = true }
+prost = { workspace = true }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-mask = { workspace = true }
+vortex-runend = { workspace = true }
+vortex-session = { workspace = true }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+rstest = { workspace = true }
+vortex-array = { workspace = true, features = ["_test-harness"] }

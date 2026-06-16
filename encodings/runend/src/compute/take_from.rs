@@ -12,6 +12,7 @@ use vortex_array::kernel::ExecuteParentKernel;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
+use crate::RunEndIndex;
 use crate::array::RunEndArrayExt;
 
 #[derive(Debug)]
@@ -65,6 +66,7 @@ mod tests {
 
     use crate::RunEnd;
     use crate::RunEndArray;
+    use crate::RunEndIndex;
     use crate::array::RunEndArrayExt;
     use crate::compute::take_from::RunEndTakeFrom;
 

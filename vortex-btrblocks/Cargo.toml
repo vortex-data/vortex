@@ -30,6 +30,7 @@ vortex-fsst = { workspace = true }
 vortex-onpair = { workspace = true, optional = true }
 vortex-pco = { workspace = true, optional = true }
 vortex-runend = { workspace = true }
+vortex-runend-bool = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-sparse = { workspace = true }
 vortex-utils = { workspace = true }

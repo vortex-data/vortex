@@ -7,6 +7,7 @@ mod arbitrary;
 pub use arbitrary::ArbitraryRunEndArray;
 pub use array::*;
 pub use iter::trimmed_ends_iter;
+pub use shared::*;
 
 mod array;
 #[cfg(feature = "arrow")]
@@ -18,6 +19,7 @@ mod iter;
 mod kernel;
 mod ops;
 mod rules;
+mod shared;
 
 #[doc(hidden)]
 pub mod _benchmarking {

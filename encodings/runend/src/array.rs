@@ -28,9 +28,6 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::scalar::PValue;
-use vortex_array::search_sorted::SearchSorted;
-use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
@@ -44,6 +41,7 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::RunEndIndex;
 use crate::compress::runend_decode_primitive;
 use crate::compress::runend_decode_varbinview;
 use crate::compress::runend_encode;
@@ -210,17 +208,7 @@ pub struct RunEndDataParts {
     pub offset: usize,
 }
 
-pub trait RunEndArrayExt: TypedArrayRef<RunEnd> {
-    fn offset(&self) -> usize {
-        self.offset
-    }
-
-    fn ends(&self) -> &ArrayRef {
-        self.as_ref().slots()[ENDS_SLOT]
-            .as_ref()
-            .vortex_expect("RunEndArray ends slot")
-    }
-
+pub trait RunEndArrayExt: TypedArrayRef<RunEnd> + RunEndIndex {
     fn values(&self) -> &ArrayRef {
         self.as_ref().slots()[VALUES_SLOT]
             .as_ref()
@@ -230,19 +218,20 @@ pub trait RunEndArrayExt: TypedArrayRef<RunEnd> {
     fn dtype(&self) -> &DType {
         self.values().dtype()
     }
-
-    fn find_physical_index(&self, index: usize) -> VortexResult<usize> {
-        Ok(self
-            .ends()
-            .as_primitive_typed()
-            .search_sorted(
-                &PValue::from(index + self.offset()),
-                SearchSortedSide::Right,
-            )?
-            .to_ends_index(self.ends().len()))
-    }
 }
 impl<T: TypedArrayRef<RunEnd>> RunEndArrayExt for T {}
+
+impl<T: TypedArrayRef<RunEnd>> RunEndIndex for T {
+    fn ends(&self) -> &ArrayRef {
+        self.as_ref().slots()[ENDS_SLOT]
+            .as_ref()
+            .vortex_expect("RunEndArray ends slot")
+    }
+
+    fn offset(&self) -> usize {
+        self.offset
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct RunEnd;
@@ -320,11 +309,7 @@ impl RunEnd {
 
 impl RunEndData {
     fn logical_len_from_ends(ends: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
-        if ends.is_empty() {
-            Ok(0)
-        } else {
-            usize::try_from(&ends.execute_scalar(ends.len() - 1, ctx)?)
-        }
+        crate::shared::logical_len_from_ends(ends, ctx)
     }
 
     pub(crate) fn validate_parts(
@@ -334,69 +319,13 @@ impl RunEndData {
         length: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        // DType validation
-        vortex_ensure!(
-            ends.dtype().is_unsigned_int(),
-            "run ends must be unsigned integers, was {}",
-            ends.dtype(),
-        );
         vortex_ensure!(
             ends.len() == values.len(),
             "run ends len != run values len, {} != {}",
             ends.len(),
             values.len()
         );
-
-        // Handle empty run-ends
-        if ends.is_empty() {
-            vortex_ensure!(
-                offset == 0,
-                "non-zero offset provided for empty RunEndArray"
-            );
-            return Ok(());
-        }
-
-        // Zero-length logical slices may retain run metadata from the source array.
-        if length == 0 {
-            return Ok(());
-        }
-
-        #[cfg(debug_assertions)]
-        {
-            // Run ends must be strictly sorted for binary search to work correctly.
-            let pre_validation = ends.statistics().to_owned();
-
-            let is_sorted = ends
-                .statistics()
-                .compute_is_strict_sorted(ctx)
-                .unwrap_or(false);
-
-            // Preserve the original statistics since compute_is_strict_sorted may have mutated them.
-            // We don't want to run with different stats in debug mode and outside.
-            ends.statistics().inherit(pre_validation.iter());
-            debug_assert!(is_sorted);
-        }
-
-        // Skip host-only validation when ends are not host-resident.
-        if !ends.is_host() {
-            return Ok(());
-        }
-
-        // Validate the offset and length are valid for the given ends and values
-        if offset != 0 && length != 0 {
-            let first_run_end = usize::try_from(&ends.execute_scalar(0, ctx)?)?;
-            if first_run_end < offset {
-                vortex_bail!("First run end {first_run_end} must be >= offset {offset}");
-            }
-        }
-
-        let last_run_end = usize::try_from(&ends.execute_scalar(ends.len() - 1, ctx)?)?;
-        let min_required_end = offset + length;
-        if last_run_end < min_required_end {
-            vortex_bail!("Last run end {last_run_end} must be >= offset+length {min_required_end}");
-        }
-
-        Ok(())
+        crate::shared::validate_ends(ends, offset, length, ctx)
     }
 }
 

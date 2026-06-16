@@ -21,6 +21,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::RunEnd;
+use crate::RunEndIndex;
 use crate::array::RunEndArrayExt;
 use crate::compute::take::take_indices_unchecked;
 const FILTER_TAKE_THRESHOLD: f64 = 0.1;

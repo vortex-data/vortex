@@ -15,6 +15,7 @@ use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
+use crate::RunEndIndex;
 use crate::array::RunEndArrayExt;
 use crate::decompress_bool::runend_decode_bools;
 
