@@ -563,7 +563,6 @@ mod tests {
     use vortex::encodings::zigzag::ZigZag;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
-    use vortex::session::VortexSession;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::patches::Patches;

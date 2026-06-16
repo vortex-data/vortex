@@ -209,7 +209,6 @@ mod tests {
     use vortex::encodings::fsst::fsst_compress;
     use vortex::encodings::fsst::fsst_train_compressor;
     use vortex::error::VortexExpect;
-    use vortex::session::VortexSession;
 
     use super::*;
     use crate::CanonicalCudaExt;

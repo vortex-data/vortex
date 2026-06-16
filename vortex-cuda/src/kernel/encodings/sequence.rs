@@ -92,7 +92,6 @@ mod tests {
     use vortex::dtype::Nullability;
     use vortex::encodings::sequence::Sequence;
     use vortex::scalar::PValue;
-    use vortex::session::VortexSession;
 
     use crate::CanonicalCudaExt;
     use crate::CudaSession;

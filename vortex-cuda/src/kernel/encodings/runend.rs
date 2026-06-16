@@ -174,7 +174,6 @@ mod tests {
     use vortex::encodings::runend::RunEndArray;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
-    use vortex::session::VortexSession;
 
     use super::*;
     use crate::CanonicalCudaExt;

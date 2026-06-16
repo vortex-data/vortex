@@ -48,7 +48,6 @@ mod tests {
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::mask::Mask;
-    use vortex::session::VortexSession;
 
     use crate::CanonicalCudaExt;
     use crate::FilterExecutor;

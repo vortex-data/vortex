@@ -25,7 +25,6 @@ use vortex::array::validity::Validity;
 use vortex::dtype::PType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
-use vortex::session::VortexSession;
 use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaSession;
 use vortex_cuda::arrow::ArrowDeviceArray;
@@ -90,9 +89,10 @@ fn benchmark_list_view_export(c: &mut Criterion) {
                     let timed = TimedLaunchStrategy::default();
                     let timer = timed.timer();
 
-                    let mut cuda_ctx = CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
-                        .vortex_expect("failed to create execution context")
-                        .with_launch_strategy(Arc::new(timed));
+                    let mut cuda_ctx =
+                        CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
+                            .vortex_expect("failed to create execution context")
+                            .with_launch_strategy(Arc::new(timed));
                     let array = block_on(contiguous_list_view(len, &mut cuda_ctx))
                         .vortex_expect("failed to create list-view fixture");
 
@@ -120,9 +120,10 @@ fn benchmark_list_view_export(c: &mut Criterion) {
                     let timed = TimedLaunchStrategy::default();
                     let timer = timed.timer();
 
-                    let mut cuda_ctx = CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
-                        .vortex_expect("failed to create execution context")
-                        .with_launch_strategy(Arc::new(timed));
+                    let mut cuda_ctx =
+                        CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
+                            .vortex_expect("failed to create execution context")
+                            .with_launch_strategy(Arc::new(timed));
                     let array = block_on(non_contiguous_primitive_list_view(len, &mut cuda_ctx))
                         .vortex_expect("failed to create list-view fixture");
 

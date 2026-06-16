@@ -27,7 +27,6 @@ use futures::executor::block_on;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
-use vortex::session::VortexSession;
 use vortex_cub::filter::CubFilterable;
 use vortex_cub::filter::cudaStream_t;
 use vortex_cuda::CudaDeviceBuffer;

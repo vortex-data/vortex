@@ -1259,7 +1259,6 @@ mod tests {
     use vortex::error::VortexResult;
     use vortex::error::vortex_bail;
     use vortex::extension::datetime::TimeUnit;
-    use vortex::session::VortexSession;
 
     use crate::CudaExecutionCtx;
     use crate::arrow::ARROW_DEVICE_CUDA;

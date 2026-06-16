@@ -227,7 +227,6 @@ mod tests {
     use vortex::array::buffer::BufferHandle;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
-    use vortex::session::VortexSession;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::patches::Patches;

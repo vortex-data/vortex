@@ -233,7 +233,6 @@ mod tests {
     use vortex::buffer::buffer;
     use vortex::encodings::fastlanes::BitPackedArrayExt;
     use vortex::error::VortexExpect;
-    use vortex::session::VortexSession;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
 

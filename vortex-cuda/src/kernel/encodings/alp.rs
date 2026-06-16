@@ -153,7 +153,6 @@ mod tests {
     use vortex::encodings::alp::Exponents;
     use vortex::encodings::alp::alp_encode;
     use vortex::error::VortexExpect;
-    use vortex::session::VortexSession;
 
     use super::*;
     use crate::CanonicalCudaExt;

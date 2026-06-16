@@ -19,7 +19,6 @@ use vortex::encodings::zstd::ZstdDataParts;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
-use vortex::session::VortexSession;
 use vortex_cuda::CudaSession;
 use vortex_cuda::ZstdKernelPrep;
 use vortex_cuda::nvcomp::zstd as nvcomp_zstd;
@@ -137,8 +136,9 @@ fn benchmark_zstd_cuda_decompress(c: &mut Criterion) {
             &zstd_array,
             |b, zstd_array| {
                 b.iter_custom(|iters| {
-                    let mut cuda_ctx = CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
-                        .vortex_expect("failed to create execution context");
+                    let mut cuda_ctx =
+                        CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
+                            .vortex_expect("failed to create execution context");
 
                     let mut total_time = Duration::ZERO;
 

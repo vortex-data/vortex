@@ -251,7 +251,6 @@ fn register_stream_callback(stream: &CudaStream) -> VortexResult<kanal::AsyncRec
 #[cfg(test)]
 mod tests {
     use vortex::error::VortexResult;
-    use vortex::session::VortexSession;
 
     use super::padded_device_allocation_len;
     use crate::CudaSession;

@@ -21,7 +21,6 @@ use cudarc::driver::DevicePtr;
 use cudarc::driver::DevicePtrMut;
 use cudarc::driver::sys;
 use cudarc::driver::sys::CUevent_flags;
-use vortex::session::VortexSession;
 use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaSession;
 use vortex_cuda_macros::cuda_available;

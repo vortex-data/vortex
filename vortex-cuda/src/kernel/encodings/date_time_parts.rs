@@ -214,7 +214,6 @@ mod tests {
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::extension::datetime::TimeUnit;
-    use vortex::session::VortexSession;
 
     use super::*;
     use crate::CanonicalCudaExt;

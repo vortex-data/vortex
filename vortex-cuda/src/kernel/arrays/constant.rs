@@ -199,7 +199,6 @@ mod tests {
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::scalar::Scalar;
-    use vortex::session::VortexSession;
 
     use super::*;
     use crate::CanonicalCudaExt;

@@ -105,7 +105,6 @@ mod tests {
     use vortex::buffer::Buffer;
     use vortex::encodings::zigzag::ZigZag;
     use vortex::error::VortexExpect;
-    use vortex::session::VortexSession;
 
     use super::*;
     use crate::CanonicalCudaExt;

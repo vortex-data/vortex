@@ -308,7 +308,6 @@ mod tests {
     use vortex::dtype::DecimalDType;
     use vortex::dtype::i256;
     use vortex::error::VortexExpect;
-    use vortex::session::VortexSession;
 
     use super::*;
     use crate::CanonicalCudaExt;

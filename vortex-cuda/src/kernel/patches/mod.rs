@@ -188,7 +188,6 @@ mod tests {
     use vortex::dtype::DType;
     use vortex::dtype::NativePType;
     use vortex::dtype::Nullability;
-    use vortex::session::VortexSession;
 
     use crate::CanonicalCudaExt;
     use crate::CudaDeviceBuffer;

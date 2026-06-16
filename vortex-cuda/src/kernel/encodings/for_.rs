@@ -138,7 +138,6 @@ mod tests {
     use vortex::encodings::fastlanes::FoRArray;
     use vortex::error::VortexExpect;
     use vortex::scalar::Scalar;
-    use vortex::session::VortexSession;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
 

@@ -17,7 +17,6 @@ use futures::executor::block_on;
 use vortex::array::buffer::BufferHandle;
 use vortex::buffer::BitBuffer;
 use vortex::error::VortexExpect;
-use vortex::session::VortexSession;
 use vortex_cuda::CudaSession;
 use vortex_cuda::arrow::test_harness;
 use vortex_cuda_macros::cuda_available;
@@ -41,9 +40,10 @@ fn benchmark_arrow_validity_repack(c: &mut Criterion) {
                     let timed = TimedLaunchStrategy::default();
                     let timer = timed.timer();
 
-                    let mut cuda_ctx = CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
-                        .vortex_expect("failed to create execution context")
-                        .with_launch_strategy(Arc::new(timed));
+                    let mut cuda_ctx =
+                        CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
+                            .vortex_expect("failed to create execution context")
+                            .with_launch_strategy(Arc::new(timed));
                     let source = BitBuffer::collect_bool(len + INPUT_OFFSET, |idx| idx % 3 != 0);
                     let sliced = source.slice(INPUT_OFFSET..INPUT_OFFSET + len);
                     let (input_offset, _, input_buffer) = sliced.into_inner();

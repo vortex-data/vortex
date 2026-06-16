@@ -23,7 +23,6 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::match_each_integer_ptype;
 use vortex::encodings::fsst::FSSTArrayExt;
 use vortex::error::VortexExpect;
-use vortex::session::VortexSession;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda_macros::cuda_available;
@@ -66,9 +65,10 @@ fn benchmark_fsst_cuda_decompress(c: &mut Criterion) {
                     let timed = TimedLaunchStrategy::default();
                     let timer = timed.timer();
 
-                    let mut cuda_ctx = CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
-                        .vortex_expect("failed to create execution context")
-                        .with_launch_strategy(Arc::new(timed));
+                    let mut cuda_ctx =
+                        CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
+                            .vortex_expect("failed to create execution context")
+                            .with_launch_strategy(Arc::new(timed));
 
                     for _ in 0..iters {
                         block_on(fsst_array.clone().execute_cuda(&mut cuda_ctx)).unwrap();

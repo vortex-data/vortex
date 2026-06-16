@@ -32,7 +32,6 @@ use vortex::encodings::alp::ALPArrayExt;
 use vortex::encodings::alp::ALPFloat;
 use vortex::encodings::alp::alp_encode;
 use vortex::error::VortexExpect;
-use vortex::session::VortexSession;
 use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;

@@ -70,7 +70,6 @@ mod tests {
     use vortex::dtype::DecimalDType;
     use vortex::encodings::decimal_byte_parts::DecimalByteParts;
     use vortex::error::VortexExpect;
-    use vortex::session::VortexSession;
 
     use super::*;
     use crate::session::CudaSession;
