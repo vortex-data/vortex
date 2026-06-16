@@ -34,6 +34,36 @@ amend_note_5_0_99: "PR-5.0.99 (raise Vercel Data Cache backstop 1h->24h) is CLOS
 amend_note: "PR-5.0.98 (keep-warm GH Actions cron) is CLOSED on 2026-06-15: shipped single file .github/workflows/web-keep-warm.yml (cron */5 + workflow_dispatch; one ubuntu-latest job; curl/jq GETs / + /api/groups + each /api/group/{slug}?n=100 against HARDCODED https://benchmarks-web.vercel.app; @uri-encoded slugs; curl --fail = uptime signal; writes warmed-count to GITHUB_STEP_SUMMARY; NO secret/var). gauntlet-pr-2-ACCEPTED cycle 1 (fresh+correctness, executor=claude — no Codex companion this session); both lenses reproduced the bash under set -Eeuo pipefail (set-e-safe increment, here-string count survival, zero-group guard, malformed-/api/groups aborts, @uri injection-safe, yamllint --strict clean); 1 shared nit (false-green on zero/empty groups) de-scoped per REVIEW CALIBRATION. yamllint clean + live sanity check (16 slugs, first bundle 200). Code commit 9adc6c870 (plan commits 69e892dee + 27f586ae6). Does NOT touch benchmarks-website/web/** so it does NOT fire web-deploy.yml — it just installs the workflow (first scheduled/dispatch run validates live). NEXT: PR-5.1 (current_pr) remains PAUSED — its first step is a PROD RDS WRITE gate (re-run PR-3.5 cross-check via bench_ingest IAM) needing user coordination; do NOT start it autonomously. Also PENDING user go: PR-5.0.99 (server-side ?n=all downsampling, the real load-all payload-bytes fix). OPS PREREQ still the user's action: set BENCH_REVALIDATE_TOKEN (Vercel env + GH secret) + BENCH_SITE_BASE_URL (GH var)."
 ```
 
+## SESSION HANDOFF 2026-06-16e (history squashed to 5 phases; migrate tooling location recorded; develop rebase NOT done -- READ THIS FIRST)
+
+**Newest handoff; supersedes everything below.** Two things this session:
+
+1. **`ct/bench-v4` history squashed to one commit per phase (5 commits) and force-pushed** (the user
+   did the force-push). Tip `c305985e5` = Phase 5 (cutover/perf/re-migration); Phases 1-4 unchanged
+   (`9a870091e`/`9a1824afa`/`c83c8b87e`/`b9fc6220d`). Pre-squash backup ref
+   `refs/backups/ct-bench-v4-pre-squash-3-61d384185` (local). Tree verified byte-identical to
+   pre-squash.
+
+2. **Explored isolating the migrate binary + rebasing `ct/bench-v4` onto current `develop`; DECIDED
+   NOT TO** (user: "if we need to migrate again we just checkout a different commit ... as long as
+   this is recorded and tracked / easily accessible I dont think it matters what we do"). Why the
+   rebase is non-trivial: the 5 phases BUILD migrate/server (Phase 2 = server, Phase 3 = migrate), so
+   they cannot sit cleanly atop a commit that already contains them; AND migrate is NOT buildable
+   without server -- `vortex-bench-server` is a path dep for the shared model
+   (`records`/`schema`/`db::measurement_id_*`/`family`), and `family` is entangled with server's
+   `api`/`ingest`/`slug`, so a clean "migrate only" crate needs a correctness-sensitive refactor
+   (splitting the model from the api/ingest dispatch). `develop`'s #8362 (`ab0e23ea4`, Adam Gutglick)
+   deleted migrate + server + ops + infra + web.
+
+**WHERE THE MIGRATE TOOLING LIVES (to re-migrate later):** `benchmarks-website/migrate` on
+**`ct/bench-v4`** (pushed to origin) -- checkout it, `cargo build --release -p vortex-bench-migrate`
+(release + non-sandboxed; debug DuckDB link fails), follow
+`.big-plans/ct__bench-v4-remigration-runbook.md`. A clean `develop`-based base is preserved as the
+LOCAL branch **`ct/restore-bench-migrate`** (`684f96f36` = `origin/develop` + migrate + server
+restored, build-verified against develop, NOT pushed) -- use it if migrate on current develop is
+wanted; push it if you want origin durability. The broader resurrect-vs-drop + develop merge remains
+a coordination decision with the #8362 author.
+
 ## SESSION HANDOFF 2026-06-16d (revalidate-token wiring SET but DORMANT/v4-only -- READ THIS FIRST)
 
 **Newest handoff; supersedes everything below.** The revalidate-cache ops wiring (previously the

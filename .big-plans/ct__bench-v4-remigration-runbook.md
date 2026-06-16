@@ -9,6 +9,19 @@ here, but release does -- its `libduckdb.a` is already compiled). It was run wit
 (0 diffs), R1 check clean (0 NULL `commit_timestamp`, newest 2026-06-16 across all 6 datasets). See
 the spine's SESSION HANDOFF 2026-06-16c for the full record.
 
+## Where the migrate tooling lives (to re-migrate later)
+The migrate crate lives on **`ct/bench-v4`** (pushed to origin) at `benchmarks-website/migrate`; it
+needs its sibling `benchmarks-website/server` (a path dependency for the shared data model:
+`records`/`schema`/`db::measurement_id_*`/`family`). To re-migrate: `git checkout ct/bench-v4`,
+`cargo build --release -p vortex-bench-migrate` (release + non-sandboxed; the debug DuckDB link
+fails), then follow the execution checklist below. A clean `develop`-based base also exists as the
+LOCAL branch **`ct/restore-bench-migrate`** (`684f96f36` = `origin/develop` + migrate + server
+restored, build-verified against develop; NOT pushed) -- use it if you want migrate on current
+develop. We deliberately did NOT rebase `ct/bench-v4` onto develop: the phases BUILD migrate/server,
+so they cannot sit cleanly atop a commit that already contains them, and migrate is not buildable
+without server (`family` is entangled with server's api/ingest). The broader resurrect-vs-drop +
+develop merge is a coordination decision with the #8362 author (Adam Gutglick).
+
 > **2026-06-16 CORRECTIONS (read before trusting any earlier version of this runbook).** While
 > prepping the run I read the loader (`benchmarks-website/migrate/src/postgres.rs`) and the schema
 > migrations. The earlier runbook was wrong on two load-bearing points:
