@@ -97,6 +97,58 @@ __device__ void arrow_validity_repack_device(const uint8_t *const input,
     }
 }
 
+__device__ uint64_t warp_sum(uint64_t value) {
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        value += __shfl_down_sync(0xffffffff, value, offset);
+    }
+    return value;
+}
+
+__device__ void arrow_validity_count_valid_device(const uint8_t *const input,
+                                                 uint64_t *const output,
+                                                 uint64_t len,
+                                                 uint64_t arrow_offset) {
+    __shared__ uint64_t warp_counts[32];
+
+    const uint32_t thread = threadIdx.x;
+    const uint64_t worker = blockIdx.x * blockDim.x + thread;
+    const uint64_t validity_bits = len + arrow_offset;
+    const uint64_t input_bytes = (validity_bits + 7) / 8;
+    const uint64_t stride = static_cast<uint64_t>(gridDim.x) * blockDim.x;
+
+    uint64_t valid_count = 0;
+    for (uint64_t byte_idx = worker; byte_idx < input_bytes; byte_idx += stride) {
+        const uint64_t byte_start = byte_idx * 8;
+        uint32_t mask = 0xff;
+        if (byte_start < arrow_offset) {
+            const uint64_t lead = arrow_offset - byte_start;
+            mask = lead >= 8 ? 0 : mask << lead;
+        }
+        const uint64_t remaining = validity_bits - byte_start;
+        if (remaining < 8) {
+            mask &= (uint32_t {1} << remaining) - 1;
+        }
+        valid_count += __popc(static_cast<uint32_t>(input[byte_idx]) & mask);
+    }
+
+    const uint32_t lane = thread & 31;
+    const uint32_t warp = thread >> 5;
+    valid_count = warp_sum(valid_count);
+    if (lane == 0) {
+        warp_counts[warp] = valid_count;
+    }
+    __syncthreads();
+
+    valid_count = thread < (blockDim.x + 31) / 32 ? warp_counts[lane] : 0;
+    if (warp == 0) {
+        valid_count = warp_sum(valid_count);
+        if (lane == 0) {
+            atomicAdd(reinterpret_cast<unsigned long long *>(output),
+                      static_cast<unsigned long long>(valid_count));
+        }
+    }
+}
+
 } // namespace
 
 // CUDA entry point for validity bitmap repacking used by Arrow Device export.
@@ -107,4 +159,12 @@ extern "C" __global__ void arrow_validity_repack(const uint8_t *const input,
                                                  uint64_t arrow_offset,
                                                  uint64_t input_bytes) {
     arrow_validity_repack_device(input, output, len, input_offset, arrow_offset, input_bytes);
+}
+
+// Kernel entry point for counting valid bits in an Arrow validity bitmap.
+extern "C" __global__ void arrow_validity_count_valid(const uint8_t *const input,
+                                                      uint64_t *const output,
+                                                      uint64_t len,
+                                                      uint64_t arrow_offset) {
+    arrow_validity_count_valid_device(input, output, len, arrow_offset);
 }

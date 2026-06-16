@@ -804,7 +804,9 @@ pub(super) async fn export_arrow_validity_buffer(
             } else {
                 repack_arrow_validity_buffer(&bitmap, meta.offset(), len, arrow_offset, ctx)?
             };
-            Ok((Some(bitmap), ARROW_UNKNOWN_NULL_COUNT))
+            // Keep nullable exports self-describing for consumers that require exact null counts.
+            let null_count = count_arrow_validity_nulls(&bitmap, len, arrow_offset, ctx)?;
+            Ok((Some(bitmap), null_count))
         }
     }
 }
@@ -817,9 +819,6 @@ fn validity_bitmap_byte_len(len: usize, arrow_offset: usize) -> VortexResult<usi
         .div_ceil(8))
 }
 
-/// Arrow C Data uses -1 when the null count has not been computed.
-const ARROW_UNKNOWN_NULL_COUNT: i64 = -1;
-
 /// Allocate a zeroed device buffer with cuDF-safe padding for Arrow validity masks.
 fn device_zeroed_byte_buffer(
     byte_len: usize,
@@ -831,6 +830,62 @@ fn device_zeroed_byte_buffer(
         .memset_zeros(&mut buffer)
         .map_err(|err| vortex_err!("Failed to zero Arrow validity buffer: {err}"))?;
     Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(buffer))).slice(0..byte_len))
+}
+
+pub(super) fn count_arrow_validity_nulls(
+    bitmap: &BufferHandle,
+    len: usize,
+    arrow_offset: usize,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<i64> {
+    if len == 0 {
+        return Ok(0);
+    }
+
+    let expected_bytes = validity_bitmap_byte_len(len, arrow_offset)?;
+    vortex_ensure!(
+        bitmap.len() >= expected_bytes,
+        "Arrow validity bitmap has {} bytes, expected at least {expected_bytes}",
+        bitmap.len()
+    );
+
+    let mut count = ctx.device_alloc::<u64>(1)?;
+    ctx.stream()
+        .memset_zeros(&mut count)
+        .map_err(|err| vortex_err!("Failed to zero Arrow validity count buffer: {err}"))?;
+    let count = CudaDeviceBuffer::new(count);
+
+    let input_view = bitmap.cuda_view::<u8>()?;
+    let output_view = count.as_view::<u64>();
+    let len = u64::try_from(len)?;
+    let arrow_offset = u64::try_from(arrow_offset)?;
+
+    let kernel = ctx.load_function_with_suffixes("arrow_validity", &["count_valid"])?;
+    const COUNT_THREADS_PER_BLOCK: u32 = 256;
+    const MAX_COUNT_BLOCKS: u32 = 4096;
+    let num_blocks = u32::try_from(expected_bytes.div_ceil(COUNT_THREADS_PER_BLOCK as usize))?
+        .clamp(1, MAX_COUNT_BLOCKS);
+    let config = LaunchConfig {
+        grid_dim: (num_blocks, 1, 1),
+        block_dim: (COUNT_THREADS_PER_BLOCK, 1, 1),
+        shared_mem_bytes: 0,
+    };
+    ctx.launch_kernel_config(&kernel, config, expected_bytes, |args| {
+        args.arg(&input_view)
+            .arg(&output_view)
+            .arg(&len)
+            .arg(&arrow_offset);
+    })?;
+
+    let valid_count = ctx
+        .stream()
+        .clone_dtoh(&output_view)
+        .map_err(|err| vortex_err!("Failed to copy Arrow validity count to host: {err}"))?
+        .into_iter()
+        .next()
+        .ok_or_else(|| vortex_err!("Arrow validity count kernel returned no output"))?;
+
+    Ok(i64::try_from(len - valid_count)?)
 }
 
 /// Repack a validity bitmap into Arrow layout without copying bitmap bits back to the CPU.
@@ -1665,10 +1720,7 @@ mod tests {
             )
         );
         assert_eq!(exported.array.array.length, 4);
-        assert_eq!(
-            exported.array.array.null_count,
-            super::ARROW_UNKNOWN_NULL_COUNT
-        );
+        assert_eq!(exported.array.array.null_count, 1);
         assert_eq!(exported.array.array.n_buffers, 2);
         assert_eq!(exported.array.array.n_children, 0);
         assert!(!exported.array.array.dictionary.is_null());
@@ -1726,7 +1778,7 @@ mod tests {
         let children = unsafe { std::slice::from_raw_parts(exported.array.array.children, 1) };
         let dict_child = unsafe { &*children[0] };
         assert!(!dict_child.dictionary.is_null());
-        assert_eq!(dict_child.null_count, super::ARROW_UNKNOWN_NULL_COUNT);
+        assert_eq!(dict_child.null_count, 1);
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
@@ -1759,7 +1811,7 @@ mod tests {
             [0, 1, 0]
         );
         let dictionary = unsafe { &*exported.array.array.dictionary };
-        assert_eq!(dictionary.null_count, super::ARROW_UNKNOWN_NULL_COUNT);
+        assert_eq!(dictionary.null_count, 1);
         assert_eq!(private_data_buffer_i32_values(dictionary, 1)?.len(), 2);
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
@@ -2036,7 +2088,7 @@ mod tests {
         assert_binary_layout(
             &exported.array.array,
             5,
-            super::ARROW_UNKNOWN_NULL_COUNT,
+            1,
             &[0, 0, 3, 3, 8, i32::try_from(8 + out_of_line.len())?],
             &[b"\x00\xff\xfe".as_slice(), b"short", out_of_line].concat(),
         )?;
@@ -2550,7 +2602,7 @@ mod tests {
             [0, 1, 0, 1, 2]
         );
         let dictionary = unsafe { &*elements.dictionary };
-        assert_eq!(dictionary.null_count, super::ARROW_UNKNOWN_NULL_COUNT);
+        assert_eq!(dictionary.null_count, 1);
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
@@ -2796,7 +2848,7 @@ mod tests {
         let mut exported = utf8.export_device_array_with_schema(&mut ctx).await?;
         let field = Field::try_from(&exported.schema)?;
         assert_eq!(field, Field::new("", DataType::Utf8View, true));
-        assert_varbinview_shape(&exported.array.array, 3, super::ARROW_UNKNOWN_NULL_COUNT)?;
+        assert_varbinview_shape(&exported.array.array, 3, 1)?;
         assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
 
         let private_data = unsafe { &*exported.array.array.private_data.cast::<PrivateData>() };
@@ -2824,7 +2876,7 @@ mod tests {
         assert_binary_layout(
             &exported.array.array,
             3,
-            super::ARROW_UNKNOWN_NULL_COUNT,
+            1,
             &[0, 0, 2, i32::try_from(2 + sliced_out_of_line.len())?],
             &[b"\x00\xff".as_slice(), sliced_out_of_line].concat(),
         )?;
@@ -2942,7 +2994,7 @@ mod tests {
         let mut primitive = assert_nullable_export(
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array(),
             2,
-            super::ARROW_UNKNOWN_NULL_COUNT,
+            1,
             &mut ctx,
         )
         .await?;
@@ -2971,7 +3023,7 @@ mod tests {
                 .into_array()
                 .slice(1..4)?,
             2,
-            super::ARROW_UNKNOWN_NULL_COUNT,
+            1,
             &mut ctx,
         )
         .await?;
@@ -3020,7 +3072,7 @@ mod tests {
             )
             .into_array(),
             2,
-            super::ARROW_UNKNOWN_NULL_COUNT,
+            1,
             &mut ctx,
         )
         .await?;
@@ -3050,7 +3102,7 @@ mod tests {
             )
             .into_array(),
             2,
-            super::ARROW_UNKNOWN_NULL_COUNT,
+            1,
             &mut ctx,
         )
         .await?;
@@ -3073,7 +3125,7 @@ mod tests {
             ])
             .into_array(),
             4,
-            super::ARROW_UNKNOWN_NULL_COUNT,
+            1,
             &mut ctx,
         )
         .await?;
@@ -3097,7 +3149,7 @@ mod tests {
             )?
             .into_array(),
             1,
-            super::ARROW_UNKNOWN_NULL_COUNT,
+            1,
             &mut ctx,
         )
         .await?;
@@ -3106,10 +3158,7 @@ mod tests {
         Ok(())
     }
 
-    // A container's row validity may be a non-canonical bool array (e.g. dict-encoded, or
-    // produced by take/scan). The container export paths bypass execute_cuda, so
-    // export_arrow_validity_buffer must canonicalize the validity on the GPU itself instead of
-    // bailing.
+    // Non-canonical row validity should export as a device-resident bitmap.
     #[crate::test]
     async fn test_export_struct_non_canonical_validity() -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
@@ -3131,7 +3180,7 @@ mod tests {
             )?
             .into_array(),
             1,
-            super::ARROW_UNKNOWN_NULL_COUNT,
+            1,
             &mut ctx,
         )
         .await?;

@@ -179,10 +179,56 @@ fn benchmark_arrow_validity_repack(c: &mut Criterion) {
     group.finish();
 }
 
+fn benchmark_arrow_validity_count_nulls(c: &mut Criterion) {
+    let mut group = c.benchmark_group("cuda");
+
+    for &(len, len_label) in bench_config::BENCH_SIZES {
+        group.throughput(Throughput::Bytes(
+            validity_bitmap_byte_len(len, ARROW_OFFSET) as u64,
+        ));
+        group.bench_with_input(
+            BenchmarkId::new("cuda/arrow_validity/count_nulls", len_label),
+            &len,
+            |b, &len| {
+                b.iter_custom(|iters| {
+                    let timed = TimedLaunchStrategy::default();
+                    let timer = timed.timer();
+
+                    let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+                        .vortex_expect("failed to create execution context")
+                        .with_launch_strategy(Arc::new(timed));
+                    let source = BitBuffer::collect_bool(len + ARROW_OFFSET, |idx| {
+                        idx >= ARROW_OFFSET && idx % 3 != 0
+                    });
+                    let (_, _, input_buffer) = source.into_inner();
+                    let input_buffer =
+                        block_on(cuda_ctx.ensure_on_device(BufferHandle::new_host(input_buffer)))
+                            .vortex_expect("failed to copy validity input to device");
+
+                    for _ in 0..iters {
+                        let null_count = test_harness::count_arrow_validity_nulls(
+                            &input_buffer,
+                            len,
+                            ARROW_OFFSET,
+                            &mut cuda_ctx,
+                        )
+                        .vortex_expect("failed to count Arrow validity nulls");
+                        std::hint::black_box(null_count);
+                    }
+
+                    Duration::from_nanos(timer.load(Ordering::Relaxed))
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
 criterion::criterion_group! {
     name = benches;
     config = bench_config::cuda_bench_config();
-    targets = benchmark_arrow_validity_repack, benchmark_arrow_validity_export
+    targets = benchmark_arrow_validity_repack, benchmark_arrow_validity_count_nulls, benchmark_arrow_validity_export
 }
 
 #[cuda_available]
