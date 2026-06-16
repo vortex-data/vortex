@@ -773,9 +773,8 @@ pub(super) async fn export_arrow_validity_buffer(
     arrow_offset: usize,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<(Option<BufferHandle>, i64)> {
-    // Container export paths reach here without going through `execute_cuda`, so decode the
-    // validity on the GPU here to turn any lazy/compressed bool array (e.g. dict-encoded, or from
-    // take/scan) into a device-resident canonical bool before export.
+    // Validity is exported separately from the array data. Decode it here so Arrow
+    // gets a device-resident validity buffer alongside the array it belongs to.
     let validity = execute_validity_cuda(validity, len, ctx).await?;
     match validity {
         Validity::NonNullable | Validity::AllValid => Ok((None, 0)),
@@ -795,14 +794,17 @@ pub(super) async fn export_arrow_validity_buffer(
             })?;
             let BoolDataParts { bits, meta } = array.into_data().into_parts(len);
             let bitmap = ctx.ensure_on_device(bits).await?;
-            // Repack only when a bit-level offset can't be expressed by Arrow's byte-addressed
-            // validity buffer plus array offset.
-            let bitmap = if arrow_offset == 0 && meta.offset() == 0 {
+            // ArrowDeviceArray uses ArrowArray layout with its buffers being device pointers.
+            //
+            // Validity is one bit per row, addressed via the Arrow array offset. Reuse the bitmap
+            // when Vortex's validity offset already matches Arrow's; otherwise repack on the GPU
+            // so row i is at Arrow bit `arrow_offset + i`.
+            let bitmap = if meta.offset() == arrow_offset {
                 bitmap
             } else {
                 repack_arrow_validity_buffer(&bitmap, meta.offset(), len, arrow_offset, ctx)?
             };
-            Ok((Some(bitmap), UNKNOWN_NULL_COUNT))
+            Ok((Some(bitmap), ARROW_UNKNOWN_NULL_COUNT))
         }
     }
 }
@@ -816,7 +818,7 @@ fn validity_bitmap_byte_len(len: usize, arrow_offset: usize) -> VortexResult<usi
 }
 
 /// Arrow C Data uses -1 when the null count has not been computed.
-const UNKNOWN_NULL_COUNT: i64 = -1;
+const ARROW_UNKNOWN_NULL_COUNT: i64 = -1;
 
 /// Allocate a zeroed device buffer with cuDF-safe padding for Arrow validity masks.
 fn device_zeroed_byte_buffer(
@@ -1663,7 +1665,10 @@ mod tests {
             )
         );
         assert_eq!(exported.array.array.length, 4);
-        assert_eq!(exported.array.array.null_count, super::UNKNOWN_NULL_COUNT);
+        assert_eq!(
+            exported.array.array.null_count,
+            super::ARROW_UNKNOWN_NULL_COUNT
+        );
         assert_eq!(exported.array.array.n_buffers, 2);
         assert_eq!(exported.array.array.n_children, 0);
         assert!(!exported.array.array.dictionary.is_null());
@@ -1721,7 +1726,7 @@ mod tests {
         let children = unsafe { std::slice::from_raw_parts(exported.array.array.children, 1) };
         let dict_child = unsafe { &*children[0] };
         assert!(!dict_child.dictionary.is_null());
-        assert_eq!(dict_child.null_count, super::UNKNOWN_NULL_COUNT);
+        assert_eq!(dict_child.null_count, super::ARROW_UNKNOWN_NULL_COUNT);
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
@@ -1754,7 +1759,7 @@ mod tests {
             [0, 1, 0]
         );
         let dictionary = unsafe { &*exported.array.array.dictionary };
-        assert_eq!(dictionary.null_count, super::UNKNOWN_NULL_COUNT);
+        assert_eq!(dictionary.null_count, super::ARROW_UNKNOWN_NULL_COUNT);
         assert_eq!(private_data_buffer_i32_values(dictionary, 1)?.len(), 2);
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
@@ -2031,7 +2036,7 @@ mod tests {
         assert_binary_layout(
             &exported.array.array,
             5,
-            super::UNKNOWN_NULL_COUNT,
+            super::ARROW_UNKNOWN_NULL_COUNT,
             &[0, 0, 3, 3, 8, i32::try_from(8 + out_of_line.len())?],
             &[b"\x00\xff\xfe".as_slice(), b"short", out_of_line].concat(),
         )?;
@@ -2545,7 +2550,7 @@ mod tests {
             [0, 1, 0, 1, 2]
         );
         let dictionary = unsafe { &*elements.dictionary };
-        assert_eq!(dictionary.null_count, super::UNKNOWN_NULL_COUNT);
+        assert_eq!(dictionary.null_count, super::ARROW_UNKNOWN_NULL_COUNT);
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
@@ -2791,7 +2796,7 @@ mod tests {
         let mut exported = utf8.export_device_array_with_schema(&mut ctx).await?;
         let field = Field::try_from(&exported.schema)?;
         assert_eq!(field, Field::new("", DataType::Utf8View, true));
-        assert_varbinview_shape(&exported.array.array, 3, super::UNKNOWN_NULL_COUNT)?;
+        assert_varbinview_shape(&exported.array.array, 3, super::ARROW_UNKNOWN_NULL_COUNT)?;
         assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
 
         let private_data = unsafe { &*exported.array.array.private_data.cast::<PrivateData>() };
@@ -2819,7 +2824,7 @@ mod tests {
         assert_binary_layout(
             &exported.array.array,
             3,
-            super::UNKNOWN_NULL_COUNT,
+            super::ARROW_UNKNOWN_NULL_COUNT,
             &[0, 0, 2, i32::try_from(2 + sliced_out_of_line.len())?],
             &[b"\x00\xff".as_slice(), sliced_out_of_line].concat(),
         )?;
@@ -2937,7 +2942,7 @@ mod tests {
         let mut primitive = assert_nullable_export(
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array(),
             2,
-            super::UNKNOWN_NULL_COUNT,
+            super::ARROW_UNKNOWN_NULL_COUNT,
             &mut ctx,
         )
         .await?;
@@ -2966,7 +2971,7 @@ mod tests {
                 .into_array()
                 .slice(1..4)?,
             2,
-            super::UNKNOWN_NULL_COUNT,
+            super::ARROW_UNKNOWN_NULL_COUNT,
             &mut ctx,
         )
         .await?;
@@ -3015,7 +3020,7 @@ mod tests {
             )
             .into_array(),
             2,
-            super::UNKNOWN_NULL_COUNT,
+            super::ARROW_UNKNOWN_NULL_COUNT,
             &mut ctx,
         )
         .await?;
@@ -3045,7 +3050,7 @@ mod tests {
             )
             .into_array(),
             2,
-            super::UNKNOWN_NULL_COUNT,
+            super::ARROW_UNKNOWN_NULL_COUNT,
             &mut ctx,
         )
         .await?;
@@ -3068,7 +3073,7 @@ mod tests {
             ])
             .into_array(),
             4,
-            super::UNKNOWN_NULL_COUNT,
+            super::ARROW_UNKNOWN_NULL_COUNT,
             &mut ctx,
         )
         .await?;
@@ -3092,7 +3097,7 @@ mod tests {
             )?
             .into_array(),
             1,
-            super::UNKNOWN_NULL_COUNT,
+            super::ARROW_UNKNOWN_NULL_COUNT,
             &mut ctx,
         )
         .await?;
@@ -3126,7 +3131,7 @@ mod tests {
             )?
             .into_array(),
             1,
-            super::UNKNOWN_NULL_COUNT,
+            super::ARROW_UNKNOWN_NULL_COUNT,
             &mut ctx,
         )
         .await?;
