@@ -93,13 +93,12 @@ void FindGetsAndProjections(LogicalOperator &op, Analyses &analyses, Projections
         LogicalProjection &projection = op.Cast<LogicalProjection>();
         D_ASSERT(projection.children.size() == 1);
         auto &child = *projection.children[0];
-        if (child.type != LOGICAL_GET) {
+        if (!is_passthrough(projection) || child.type != LOGICAL_GET) {
             break;
         }
         // The GET itself is recorded when recursion reaches it below. Only
         // passthrough projections wrapping a vortex GET act as aliases.
-        if (auto &get = child.Cast<LogicalGet>();
-            get.function.bind == duckdb_vx_table_function_bind && is_passthrough(projection)) {
+        if (auto &get = child.Cast<LogicalGet>(); get.function.bind == duckdb_vx_table_function_bind) {
             projections.emplace(projection.table_index, projection);
         }
         break;

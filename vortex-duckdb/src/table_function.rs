@@ -444,7 +444,7 @@ pub fn pushdown_projection_expression(
         }
         Some(vx_expr) => {
             debug!(%expr, "pushed down expression");
-            bind_data.column_fields[projection_id].projection_fn = Some(vx_expr);
+            bind_data.column_fields[projection_id].projection_expr = Some(vx_expr);
             Ok(true)
         }
     }
@@ -521,7 +521,7 @@ pub fn to_string(bind_data: &TableFunctionBind, map: &mut DuckdbStringMapRef) {
         .iter()
         .filter_map(|field| {
             field
-                .projection_fn
+                .projection_expr
                 .as_ref()
                 .map(|expr| format!("{}: {expr}", field.name))
         })

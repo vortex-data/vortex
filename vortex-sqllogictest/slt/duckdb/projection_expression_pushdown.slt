@@ -5,19 +5,14 @@ include ../setup.slt.no
 
 # str has storage_index=1. This tests cases where column_index (i.e. 0 in
 # SELECT strlen(str)) is different from storage_index.
-query I
+statement ok
 CREATE TABLE pep_test (before INTEGER, str VARCHAR, after INTEGER);
-----
 
-query I
+statement ok
 INSERT INTO pep_test VALUES (0, 'Hello', 0), (1, 'Hi', 1), (2, 'Hey', 2);
-----
-3
 
-query I
+statement ok
 COPY (SELECT * FROM pep_test) TO '$__TEST_DIR__/pe-pushdown.vortex';
-----
-3
 
 query T
 SELECT str FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY str;
