@@ -110,21 +110,18 @@ impl ArrowArray {
 unsafe impl Send for ArrowArray {}
 unsafe impl Sync for ArrowArray {}
 
-#[expect(
-    unused,
-    reason = "cuda_stream and cuda_buffers need to have deferred drop"
-)]
 pub(crate) struct PrivateData {
     /// Hold a reference to the CudaStream so that it stays alive even after CudaExecutionCtx
     /// has been dropped.
     pub(crate) cuda_stream: Arc<CudaStream>,
     /// The single boxed slice which owns all buffers that the Rust code allocated on the device.
+    #[allow(dead_code, reason = "buffers are retained for deferred drop")]
     pub(crate) buffers: Box<[Option<BufferHandle>]>,
     /// Boxed slice of buffer pointers. We return a pointer to the start of this allocation over
     /// the interface, so we hold it here so the Box contents are not freed.
     pub(crate) buffer_ptrs: Box<[*const c_void]>,
-    pub(crate) cuda_event: CudaEvent,
-    pub(crate) cuda_event_ptr: cudaEvent_t,
+    pub(crate) export_event: CudaEvent,
+    pub(crate) export_event_ptr: cudaEvent_t,
     pub(crate) children: Box<[*mut ArrowArray]>,
     pub(crate) dictionary: *mut ArrowArray,
 }
@@ -168,11 +165,10 @@ impl PrivateData {
             .map(|array| Box::into_raw(Box::new(array)))
             .collect::<Box<[_]>>();
 
-        // generate the synchronization event
-        let cuda_event = ctx
+        let export_event = ctx
             .stream()
             .record_event(None)
-            .map_err(|_| vortex_err!("failed to create cudaEvent_t"))?;
+            .map_err(|_| vortex_err!("failed to create CUDA export event"))?;
 
         let dictionary = dictionary
             .map(|array| Box::into_raw(Box::new(array)))
@@ -184,14 +180,14 @@ impl PrivateData {
             cuda_stream: Arc::clone(ctx.stream()),
             children,
             dictionary,
-            cuda_event_ptr: cuda_event.cu_event().cast(),
-            cuda_event,
+            export_event_ptr: export_event.cu_event().cast(),
+            export_event,
         }))
     }
 
-    /// Return a stable pointer to the recorded CUDA event handle.
+    /// Return a stable pointer to the recorded CUDA export event handle.
     pub(crate) fn sync_event(&mut self) -> SyncEvent {
-        (&raw mut self.cuda_event_ptr).cast()
+        (&raw mut self.export_event_ptr).cast()
     }
 }
 

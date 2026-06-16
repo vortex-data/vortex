@@ -29,7 +29,10 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
+use vortex_buffer::Alignment;
 use vortex_buffer::BufferMut;
+use vortex_fastlanes::BitPacked;
+use vortex_fastlanes::BitPackedArray;
 use vortex_fastlanes::BitPackedData;
 use vortex_session::VortexSession;
 
@@ -65,6 +68,28 @@ macro_rules! impl_bench_int {
 
 impl_bench_int!(u8, u16, u32, u64, i8, i16, i32, i64);
 
+/// Rebuild the array with its packed buffer copied to a page-aligned allocation.
+///
+/// `bitpack_encode` aligns the packed buffer only to the element type, so its cache-line
+/// placement depends on allocator state, which shifts with any change to the bench binary.
+/// CodSpeed's simulated cache misses are deterministic in those addresses, which made the whole
+/// sweep flip ~40% between two layout modes across unrelated commits. Pinning the buffer to a
+/// page boundary makes the layout, and therefore the measurement, reproducible.
+fn page_aligned(array: BitPackedArray) -> BitPackedArray {
+    let ptype = array.dtype().as_ptype();
+    let parts = BitPacked::into_parts(array);
+    BitPacked::try_new(
+        parts.packed.ensure_aligned(Alignment::new(4096)).unwrap(),
+        ptype,
+        parts.validity,
+        parts.patches,
+        parts.bit_width,
+        parts.len,
+        parts.offset,
+    )
+    .unwrap()
+}
+
 /// Encode `LEN` in-range values of type `T` at the given bit width, returning the packed array, a
 /// mid-range constant to compare against, and an execution context.
 fn setup<T: BenchInt>(width: usize) -> (ArrayRef, ArrayRef, ExecutionCtx) {
@@ -73,12 +98,14 @@ fn setup<T: BenchInt>(width: usize) -> (ArrayRef, ArrayRef, ExecutionCtx) {
     let buf: BufferMut<T> = (0..LEN)
         .map(|i| T::from_counter((i as u64) % cap))
         .collect();
-    let array = BitPackedData::encode(
-        &PrimitiveArray::new(buf.freeze(), Validity::NonNullable).into_array(),
-        width as u8,
-        &mut ctx,
+    let array = page_aligned(
+        BitPackedData::encode(
+            &PrimitiveArray::new(buf.freeze(), Validity::NonNullable).into_array(),
+            width as u8,
+            &mut ctx,
+        )
+        .unwrap(),
     )
-    .unwrap()
     .into_array();
     let rhs = ConstantArray::new(T::from_counter(cap / 2), LEN).into_array();
     (array, rhs, ctx)
