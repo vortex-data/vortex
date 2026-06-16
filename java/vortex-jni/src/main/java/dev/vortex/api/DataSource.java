@@ -128,6 +128,57 @@ public final class DataSource {
         }
     }
 
+    /**
+     * Sum of the on-storage byte sizes of all files included in this data source along with the precision of that
+     * estimate. Mirrors the Rust {@code Option<Precision<u64>>} returned by {@code DataSource::byte_size}:
+     * {@link ByteSize.Unknown} when no estimate is available (for example when the filesystem listing did not return
+     * sizes), {@link ByteSize.Estimate} for an inexact hint (some files contribute extrapolated sizes), and
+     * {@link ByteSize.Exact} when every file has a known size.
+     */
+    public ByteSize byteSize() {
+        long[] out = new long[2];
+        NativeDataSource.byteSize(pointer, out);
+        return switch ((int) out[1]) {
+            case 1 -> new ByteSize.Estimate(out[0]);
+            case 2 -> new ByteSize.Exact(out[0]);
+            default -> ByteSize.Unknown.INSTANCE;
+        };
+    }
+
+    /** Precision-aware byte size. See {@link #byteSize()}. */
+    public sealed interface ByteSize {
+        /** Returns the byte size as a long, or {@code OptionalLong.empty()} when unknown. */
+        OptionalLong asOptional();
+
+        /** Byte size is not known. */
+        final class Unknown implements ByteSize {
+            public static final Unknown INSTANCE = new Unknown();
+
+            private Unknown() {}
+
+            @Override
+            public OptionalLong asOptional() {
+                return OptionalLong.empty();
+            }
+        }
+
+        /** Estimated byte size; the actual value may differ. */
+        record Estimate(long value) implements ByteSize {
+            @Override
+            public OptionalLong asOptional() {
+                return OptionalLong.of(value);
+            }
+        }
+
+        /** Exact byte size. */
+        record Exact(long value) implements ByteSize {
+            @Override
+            public OptionalLong asOptional() {
+                return OptionalLong.of(value);
+            }
+        }
+    }
+
     /** Submit a scan. */
     public Scan scan(ScanOptions options) {
         Objects.requireNonNull(options, "options");

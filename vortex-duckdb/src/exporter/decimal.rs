@@ -8,7 +8,6 @@ use vortex::array::ExecutionCtx;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::decimal::DecimalDataParts;
 use vortex::array::match_each_decimal_value_type;
-use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::dtype::BigCast;
 use vortex::dtype::DecimalDType;
@@ -49,7 +48,7 @@ pub(crate) fn new_exporter(
     } = array.into_data_parts();
     let dest_values_type = precision_to_duckdb_storage_size(&decimal_dtype)?;
 
-    if matches!(validity, Validity::AllInvalid) {
+    if validity.definitely_all_null() {
         return Ok(all_invalid::new_exporter());
     }
     let validity = validity.to_array(len).execute::<Mask>(ctx)?;

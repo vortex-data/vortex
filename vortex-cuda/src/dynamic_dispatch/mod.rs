@@ -32,7 +32,6 @@ use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBufferExt;
 use vortex::array::match_each_unsigned_integer_ptype;
 use vortex::array::scalar::Scalar;
-use vortex::array::validity::Validity;
 use vortex::buffer::Alignment;
 use vortex::buffer::ByteBuffer;
 use vortex::buffer::ByteBufferMut;
@@ -434,7 +433,7 @@ impl MaterializedPlan {
         let output_ptype = self.dispatch_plan.output_ptype();
 
         // All values are null — no need to touch the GPU.
-        if matches!(self.validity, Validity::AllInvalid) {
+        if self.validity.definitely_all_null() {
             let dtype = DType::Primitive(output_ptype, Nullability::Nullable);
             return ConstantArray::new(Scalar::null(dtype), len)
                 .into_array()

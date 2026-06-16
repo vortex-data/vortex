@@ -885,6 +885,21 @@ const vx_data_source *
 vx_data_source_new(const vx_session *session, const vx_data_source_options *options, vx_error **err);
 
 /**
+ * Create a data source from a single in-memory Vortex file.
+ *
+ * "buffer_len" is the length of "buffer" in bytes.
+ * The bytes are borrowed, not copied: the caller must keep "buffer" alive and
+ * unmodified until the data source is freed.
+ *
+ * The returned pointer is owned by the caller and must be freed with
+ * vx_data_source_free.
+ *
+ * On error, returns NULL and sets "err".
+ */
+const vx_data_source *
+vx_data_source_new_buffer(const vx_session *session, const void *buffer, size_t buffer_len, vx_error **err);
+
+/**
  * Return the schema of the data source as a non-owned dtype.
  * The returned pointer is valid as long as "ds" is alive. Do not free it.
  */

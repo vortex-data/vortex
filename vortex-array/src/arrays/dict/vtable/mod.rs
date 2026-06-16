@@ -46,7 +46,6 @@ use crate::executor::ExecutionResult;
 use crate::require_child;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
-use crate::validity::Validity;
 
 mod kernel;
 mod operations;
@@ -179,7 +178,7 @@ impl VTable for Dict {
 
         let array = require_child!(array, array.codes(), DictSlots::CODES => Primitive);
 
-        if matches!(array.codes().validity()?, Validity::AllInvalid) {
+        if array.codes().validity()?.definitely_all_null() {
             return Ok(ExecutionResult::done(ConstantArray::new(
                 Scalar::null(array.dtype().as_nullable()),
                 array.codes().len(),

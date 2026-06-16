@@ -22,6 +22,7 @@ use vortex::array::MaskFuture;
 use vortex::array::ProstMetadata;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::Constant;
+use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::expr::Expression;
 use vortex::array::expr::stats::Precision;
 use vortex::array::expr::stats::Stat;
@@ -331,12 +332,12 @@ impl LayoutReader for CudaFlatReader {
                 let array = array.apply(&expr)?;
                 let array = array.filter(mask.clone())?;
                 let mut ctx = session.create_execution_ctx();
-                let array_mask = array.execute::<Mask>(&mut ctx)?;
+                let array_mask = array.fill_null(false)?.execute::<Mask>(&mut ctx)?;
                 mask.intersect_by_rank(&array_mask)
             } else {
                 let array = array.apply(&expr)?;
                 let mut ctx = session.create_execution_ctx();
-                let array_mask = array.execute::<Mask>(&mut ctx)?;
+                let array_mask = array.fill_null(false)?.execute::<Mask>(&mut ctx)?;
                 mask.bitand(&array_mask)
             };
 
