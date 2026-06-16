@@ -64,7 +64,7 @@ pub mod ffi {
             dtype: &VxDType,
         ) -> Result<Box<VxArraySink>, Box<VortexFfiError>> {
             let session = session.inner().clone();
-            let file_dtype = dtype.inner().clone();
+            let file_dtype = (*dtype.0).clone();
             let path = path.to_string();
 
             // Channel size 32 chosen arbitrarily, matching the C ABI.
@@ -85,7 +85,7 @@ pub mod ffi {
         /// cheap reference-count bump). Mutates `&mut self`.
         pub fn push(&mut self, array: &VxArray) -> Result<(), Box<VortexFfiError>> {
             RUNTIME
-                .block_on(self.sink.send(Ok(array.inner().clone())))
+                .block_on(self.sink.send(Ok(array.0.clone())))
                 .map_err(|e| vortex_err!("send error: {e}"))
                 .map_err(Into::into)
         }

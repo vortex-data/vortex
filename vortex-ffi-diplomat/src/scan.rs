@@ -208,7 +208,7 @@ pub mod ffi {
         #[diplomat::attr(auto, getter)]
         pub fn dtype(&self) -> Result<Box<VxDType>, Box<VortexFfiError>> {
             match &self.0 {
-                ScanState::Pending(scan) => Ok(Box::new(VxDType(scan.dtype().clone()))),
+                ScanState::Pending(scan) => Ok(Box::new(VxDType(Arc::new(scan.dtype().clone())))),
                 _ => Err(VortexFfiError::new(
                     "dtype unavailable: scan already started",
                 )),
@@ -245,9 +245,7 @@ pub mod ffi {
                 Some(partition) => {
                     let partition = partition.map_err(Box::<VortexFfiError>::from)?;
                     self.0 = ScanState::Started(stream);
-                    Ok(Some(Box::new(VxPartition(PartitionState::Pending(
-                        partition,
-                    )))))
+                    Ok(Some(Box::new(VxPartition(PartitionState::Pending(partition)))))
                 }
                 None => {
                     self.0 = ScanState::Finished;
@@ -289,7 +287,7 @@ pub mod ffi {
                 Some(array) => {
                     let array = array.map_err(Box::<VortexFfiError>::from)?;
                     self.0 = PartitionState::Started(stream);
-                    Ok(Some(Box::new(VxArray(Arc::new(array)))))
+                    Ok(Some(Box::new(VxArray(array))))
                 }
                 None => {
                     self.0 = PartitionState::Finished;
@@ -325,7 +323,7 @@ pub mod ffi {
                 .map_err(Box::<VortexFfiError>::from)?;
             let array = vortex::array::ArrayRef::concatenate(&chunks)
                 .map_err(Box::<VortexFfiError>::from)?;
-            Ok(Box::new(VxArray(Arc::new(array))))
+            Ok(Box::new(VxArray(array)))
         }
     }
 

@@ -124,7 +124,7 @@ pub mod ffi {
         /// cheaply cloned from the source's schema.
         #[diplomat::attr(auto, getter)]
         pub fn dtype(&self) -> Box<VxDType> {
-            Box::new(VxDType(self.0.dtype().clone()))
+            Box::new(VxDType(Arc::new(self.0.dtype().clone())))
         }
 
         /// This data source's row-count estimate.
