@@ -8,7 +8,6 @@ use datafusion_common::Result as DFResult;
 use datafusion_common::exec_datafusion_err;
 use vortex::array::arrow::ArrowSession;
 use vortex::dtype::DType;
-use vortex::dtype::StructFields;
 
 /// Calculate the physical Arrow schema for a Vortex file given its DType and the expected logical schema.
 ///
@@ -88,7 +87,12 @@ fn calculate_physical_field_type(
 
         // For struct types, recursively check each field.
         DataType::Struct(logical_fields) => {
-            if let Some(struct_dtype) = struct_fields(dtype) {
+            // Walk through any extension layers to reach the underlying struct fields.
+            let mut inner = dtype;
+            while let DType::Extension(ext) = inner {
+                inner = ext.storage_dtype();
+            }
+            if let DType::Struct(struct_dtype, _) = inner {
                 let physical_fields: Vec<Field> = struct_dtype
                     .names()
                     .iter()
@@ -203,16 +207,6 @@ fn calculate_physical_field_type(
             .data_type()
             .clone(),
     })
-}
-
-/// The struct fields of `dtype` if it is a struct, or of an extension type whose storage is
-/// (eventually) a struct -- e.g. the native geo Point over `Struct<x, y>`.
-fn struct_fields(dtype: &DType) -> Option<&StructFields> {
-    match dtype {
-        DType::Struct(fields, _) => Some(fields),
-        DType::Extension(ext) => struct_fields(ext.storage_dtype()),
-        _ => None,
-    }
 }
 
 #[cfg(test)]

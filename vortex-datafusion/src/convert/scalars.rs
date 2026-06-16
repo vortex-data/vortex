@@ -21,6 +21,7 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
+use vortex::error::vortex_panic;
 use vortex::extension::datetime::AnyTemporal;
 use vortex::extension::datetime::TemporalMetadata;
 use vortex::extension::datetime::TimeUnit;
@@ -120,42 +121,7 @@ impl TryToDataFusion<ScalarValue> for Scalar {
             ),
             DType::List(..) => todo!("list scalar conversion"),
             DType::FixedSizeList(..) => todo!("fixed-size list scalar conversion"),
-            DType::Struct(struct_fields, _) => {
-                let scalar = self.as_struct();
-                let (fields, arrays): (Vec<Field>, Vec<_>) = struct_fields
-                    .names()
-                    .iter()
-                    .zip(struct_fields.fields())
-                    .enumerate()
-                    .map(|(idx, (name, field_dtype))| {
-                        let nullable = field_dtype.is_nullable();
-                        let child = if scalar.is_null() {
-                            Scalar::null(field_dtype)
-                        } else {
-                            scalar
-                                .field_by_idx(idx)
-                                .ok_or_else(|| vortex_err!("missing struct field {name}"))?
-                        };
-                        let array = child
-                            .try_to_df()?
-                            .to_array()
-                            .map_err(|e| vortex_err!("failed to build struct field array: {e}"))?;
-                        let field = Field::new(name.as_ref(), array.data_type().clone(), nullable);
-                        Ok((field, array))
-                    })
-                    .collect::<VortexResult<Vec<_>>>()?
-                    .into_iter()
-                    .unzip();
-
-                let fields = Fields::from(fields);
-                let struct_array = if scalar.is_null() {
-                    StructArray::new_null(fields, 1)
-                } else {
-                    StructArray::try_new(fields, arrays, None)
-                        .map_err(|e| vortex_err!("failed to build struct scalar array: {e}"))?
-                };
-                ScalarValue::Struct(Arc::new(struct_array))
-            }
+            DType::Struct(..) => struct_to_df(self)?,
             DType::Union(..) => todo!("union scalar conversion"),
             DType::Variant(_) => vortex_bail!("Variant scalars aren't supported with DF"),
             DType::Extension(ext) => {
@@ -330,30 +296,71 @@ impl FromDataFusion<ScalarValue> for Scalar {
                 }
             }
             ScalarValue::Dictionary(_, v) => Scalar::from_df(v.as_ref()),
-            ScalarValue::Struct(array) => {
-                let nullable = array.is_null(0);
-                let dtype = DType::from_arrow((array.data_type(), nullable.into()));
-                if nullable {
-                    Scalar::null(dtype)
-                } else {
-                    let children = array
-                        .columns()
-                        .iter()
-                        .map(|column| {
-                            Scalar::from_df(
-                                &ScalarValue::try_from_array(&**column, 0).unwrap_or_else(|e| {
-                                    unimplemented!(
-                                        "Can't convert struct field to a Vortex scalar: {e}"
-                                    )
-                                }),
-                            )
-                        })
-                        .collect::<Vec<_>>();
-                    Scalar::struct_(dtype, children)
-                }
-            }
+            ScalarValue::Struct(array) => struct_from_df(array),
             _ => unimplemented!("Can't convert {value:?} value to a Vortex scalar"),
         }
+    }
+}
+
+/// Converts a Vortex struct scalar to a DataFusion `ScalarValue::Struct`.
+fn struct_to_df(scalar: &Scalar) -> VortexResult<ScalarValue> {
+    let scalar = scalar.as_struct();
+    let struct_fields = scalar.struct_fields();
+    let (fields, arrays): (Vec<Field>, Vec<_>) = struct_fields
+        .names()
+        .iter()
+        .zip(struct_fields.fields())
+        .enumerate()
+        .map(|(idx, (name, field_dtype))| {
+            let nullable = field_dtype.is_nullable();
+            let child = if scalar.is_null() {
+                Scalar::null(field_dtype)
+            } else {
+                scalar
+                    .field_by_idx(idx)
+                    .ok_or_else(|| vortex_err!("missing struct field {name}"))?
+            };
+            let array = child
+                .try_to_df()?
+                .to_array()
+                .map_err(|e| vortex_err!("failed to build struct field array: {e}"))?;
+            Ok((
+                Field::new(name.as_ref(), array.data_type().clone(), nullable),
+                array,
+            ))
+        })
+        .collect::<VortexResult<Vec<_>>>()?
+        .into_iter()
+        .unzip();
+
+    let fields = Fields::from(fields);
+    let struct_array = if scalar.is_null() {
+        StructArray::new_null(fields, 1)
+    } else {
+        StructArray::try_new(fields, arrays, None)
+            .map_err(|e| vortex_err!("failed to build struct scalar array: {e}"))?
+    };
+    Ok(ScalarValue::Struct(Arc::new(struct_array)))
+}
+
+/// Converts a DataFusion `ScalarValue::Struct` (a one-row struct array) to a Vortex struct scalar.
+fn struct_from_df(array: &StructArray) -> Scalar {
+    let dtype = DType::from_arrow((array.data_type(), Nullability::Nullable));
+    if array.is_null(0) {
+        Scalar::null(dtype)
+    } else {
+        let children = array
+            .columns()
+            .iter()
+            .map(|column| {
+                Scalar::from_df(
+                    &ScalarValue::try_from_array(column.as_ref(), 0).unwrap_or_else(|e| {
+                        vortex_panic!("cannot convert struct field to a Vortex scalar: {e}")
+                    }),
+                )
+            })
+            .collect::<Vec<_>>();
+        Scalar::struct_(dtype, children)
     }
 }
 
