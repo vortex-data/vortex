@@ -1,0 +1,71 @@
+{
+  "run_meta": {
+    "benchmark_id": "fixture",
+    "schema_version": 1,
+    "started_at": "2026-04-25T00:00:00Z"
+  },
+  "commit": {
+    "sha": "0123456789abcdef0123456789abcdef01234567",
+    "timestamp": "2026-04-25T00:00:00Z",
+    "message": "fixture commit",
+    "author_name": "Test Author",
+    "author_email": "author@example.com",
+    "committer_name": "Test Committer",
+    "committer_email": "committer@example.com",
+    "tree_sha": "fedcba9876543210fedcba9876543210fedcba98",
+    "url": "https://github.com/vortex-data/vortex/commit/0123456789abcdef0123456789abcdef01234567"
+  },
+  "records": [
+    {
+      "kind": "query_measurement",
+      "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+      "dataset": "tpch",
+      "scale_factor": "1",
+      "query_idx": 1,
+      "storage": "nvme",
+      "engine": "datafusion",
+      "format": "vortex-file-compressed",
+      "value_ns": 1234567,
+      "all_runtimes_ns": [1200000, 1234567, 1300000],
+      "env_triple": "x86_64-linux-gnu"
+    },
+    {
+      "kind": "compression_time",
+      "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+      "dataset": "tpch-lineitem",
+      "format": "vortex-file-compressed",
+      "op": "encode",
+      "value_ns": 9999,
+      "all_runtimes_ns": [9000, 9999, 10500]
+    },
+    {
+      "kind": "compression_size",
+      "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+      "dataset": "tpch-lineitem",
+      "format": "vortex-file-compressed",
+      "value_bytes": 4242
+    },
+    {
+      "kind": "random_access_time",
+      "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+      "dataset": "taxi",
+      "format": "vortex-file-compressed",
+      "value_ns": 555,
+      "all_runtimes_ns": [500, 555, 600]
+    },
+    {
+      "kind": "vector_search_run",
+      "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+      "dataset": "cohere-large-10m",
+      "layout": "partitioned",
+      "flavor": "vortex-turboquant",
+      "threshold": 0.75,
+      "value_ns": 7777,
+      "all_runtimes_ns": [7700, 7777, 7800],
+      "matches": 42,
+      "rows_scanned": 1000000,
+      "bytes_scanned": 5000000,
+      "iterations": 3
+    }
+  ]
+}

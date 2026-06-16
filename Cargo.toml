@@ -64,6 +64,9 @@ members = [
     "benchmarks/datafusion-bench",
     "benchmarks/duckdb-bench",
     "benchmarks/random-access-bench",
+    # Benchmarks website v3 (alpha) - leaf binary, not part of vortex-* API
+    "benchmarks-website/server",
+    "benchmarks-website/migrate",
     "vortex-geo",
 ]
 exclude = ["java/testfiles", "wasm-test"]
