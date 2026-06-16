@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
@@ -33,85 +34,88 @@ struct CheckedMul;
 
 struct CheckedDiv;
 
-trait CheckedPrimitiveOp {
+trait CheckedPrimitiveOp<T: NativePType>: Sized {
     const ERROR: &'static str;
+    const CHECKED_VALUE_LOOP: bool = false;
+
+    fn value(lhs: T, rhs: T) -> T;
+
+    fn is_error(lhs: T, rhs: T) -> bool;
+
+    #[inline(always)]
+    fn checked(lhs: T, rhs: T) -> Option<T> {
+        if Self::is_error(lhs, rhs) {
+            None
+        } else {
+            Some(Self::value(lhs, rhs))
+        }
+    }
 }
 
-trait CheckedPrimitiveBinary<T: NativePType>: CheckedPrimitiveOp {
-    fn checked(lhs: T, rhs: T) -> Option<T>;
-}
-
-trait CheckedPrimitiveBinaryAll:
-    CheckedPrimitiveBinary<u8>
-    + CheckedPrimitiveBinary<u16>
-    + CheckedPrimitiveBinary<u32>
-    + CheckedPrimitiveBinary<u64>
-    + CheckedPrimitiveBinary<i8>
-    + CheckedPrimitiveBinary<i16>
-    + CheckedPrimitiveBinary<i32>
-    + CheckedPrimitiveBinary<i64>
-    + CheckedPrimitiveBinary<f16>
-    + CheckedPrimitiveBinary<f32>
-    + CheckedPrimitiveBinary<f64>
-{
-}
-
-impl<Op> CheckedPrimitiveBinaryAll for Op where
-    Op: CheckedPrimitiveBinary<u8>
-        + CheckedPrimitiveBinary<u16>
-        + CheckedPrimitiveBinary<u32>
-        + CheckedPrimitiveBinary<u64>
-        + CheckedPrimitiveBinary<i8>
-        + CheckedPrimitiveBinary<i16>
-        + CheckedPrimitiveBinary<i32>
-        + CheckedPrimitiveBinary<i64>
-        + CheckedPrimitiveBinary<f16>
-        + CheckedPrimitiveBinary<f32>
-        + CheckedPrimitiveBinary<f64>
-{
-}
-
-impl CheckedPrimitiveOp for CheckedAdd {
+impl<T: CheckedArithmetic> CheckedPrimitiveOp<T> for CheckedAdd {
     const ERROR: &'static str = "integer overflow in checked add";
+
+    #[inline(always)]
+    fn value(lhs: T, rhs: T) -> T {
+        lhs.add_value(rhs)
+    }
+
+    #[inline(always)]
+    fn is_error(lhs: T, rhs: T) -> bool {
+        lhs.add_error(rhs)
+    }
 }
 
-impl CheckedPrimitiveOp for CheckedSub {
+impl<T: CheckedArithmetic> CheckedPrimitiveOp<T> for CheckedSub {
     const ERROR: &'static str = "integer overflow in checked sub";
+
+    #[inline(always)]
+    fn value(lhs: T, rhs: T) -> T {
+        lhs.sub_value(rhs)
+    }
+
+    #[inline(always)]
+    fn is_error(lhs: T, rhs: T) -> bool {
+        lhs.sub_error(rhs)
+    }
 }
 
-impl CheckedPrimitiveOp for CheckedMul {
+impl<T: CheckedArithmetic> CheckedPrimitiveOp<T> for CheckedMul {
     const ERROR: &'static str = "integer overflow in checked mul";
+
+    #[inline(always)]
+    fn value(lhs: T, rhs: T) -> T {
+        lhs.mul_value(rhs)
+    }
+
+    #[inline(always)]
+    fn is_error(lhs: T, rhs: T) -> bool {
+        lhs.mul_error(rhs)
+    }
 }
 
-impl CheckedPrimitiveOp for CheckedDiv {
+impl<T: CheckedArithmetic> CheckedPrimitiveOp<T> for CheckedDiv {
     const ERROR: &'static str = "integer division by zero or overflow in checked div";
-}
+    // Integer division still lowers to scalar divides, so the split
+    // value/error-scan loop used to auto-vectorize add/sub/mul only adds a
+    // second full scan. Use the generic branchy checked value loop for integer
+    // division, matching Arrow/Velox. Float division has no checked errors and
+    // stays on the split/vectorizable default path.
+    const CHECKED_VALUE_LOOP: bool = T::DIV_CHECKS_IN_VALUE_LOOP;
 
-impl<T: CheckedArithmetic> CheckedPrimitiveBinary<T> for CheckedAdd {
     #[inline(always)]
-    fn checked(lhs: T, rhs: T) -> Option<T> {
-        lhs.checked_add(rhs)
+    fn value(lhs: T, rhs: T) -> T {
+        lhs.div_value(rhs)
     }
-}
 
-impl<T: CheckedArithmetic> CheckedPrimitiveBinary<T> for CheckedSub {
     #[inline(always)]
-    fn checked(lhs: T, rhs: T) -> Option<T> {
-        lhs.checked_sub(rhs)
+    fn is_error(lhs: T, rhs: T) -> bool {
+        lhs.div_error(rhs)
     }
-}
 
-impl<T: CheckedArithmetic> CheckedPrimitiveBinary<T> for CheckedMul {
     #[inline(always)]
     fn checked(lhs: T, rhs: T) -> Option<T> {
-        lhs.checked_mul(rhs)
-    }
-}
-
-impl<T: CheckedArithmetic> CheckedPrimitiveBinary<T> for CheckedDiv {
-    #[inline(always)]
-    fn checked(lhs: T, rhs: T) -> Option<T> {
-        lhs.checked_div(rhs)
+        lhs.div_checked(rhs)
     }
 }
 
@@ -122,22 +126,6 @@ pub(crate) fn execute_numeric(
     op: NumericOperator,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    match op {
-        NumericOperator::Add => execute_checked_numeric::<CheckedAdd>(lhs, rhs, ctx),
-        NumericOperator::Sub => execute_checked_numeric::<CheckedSub>(lhs, rhs, ctx),
-        NumericOperator::Mul => execute_checked_numeric::<CheckedMul>(lhs, rhs, ctx),
-        NumericOperator::Div => execute_checked_numeric::<CheckedDiv>(lhs, rhs, ctx),
-    }
-}
-
-fn execute_checked_numeric<Op>(
-    lhs: &ArrayRef,
-    rhs: &ArrayRef,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef>
-where
-    Op: CheckedPrimitiveBinaryAll,
-{
     let ptype = PType::try_from(lhs.dtype())?;
     if !lhs.dtype().eq_ignore_nullability(rhs.dtype()) {
         vortex_bail!(
@@ -147,7 +135,14 @@ where
         );
     }
 
-    match_each_native_ptype!(ptype, |T| { execute_checked_typed::<T, Op>(lhs, rhs, ctx) })
+    match_each_native_ptype!(ptype, |T| {
+        match op {
+            NumericOperator::Add => execute_checked_typed::<T, CheckedAdd>(lhs, rhs, ctx),
+            NumericOperator::Sub => execute_checked_typed::<T, CheckedSub>(lhs, rhs, ctx),
+            NumericOperator::Mul => execute_checked_typed::<T, CheckedMul>(lhs, rhs, ctx),
+            NumericOperator::Div => execute_checked_typed::<T, CheckedDiv>(lhs, rhs, ctx),
+        }
+    })
 }
 
 fn execute_checked_typed<T, Op>(
@@ -157,7 +152,7 @@ fn execute_checked_typed<T, Op>(
 ) -> VortexResult<ArrayRef>
 where
     T: NativePType,
-    Op: CheckedPrimitiveBinary<T>,
+    Op: CheckedPrimitiveOp<T>,
     Scalar: From<T>,
     Scalar: From<Option<T>>,
 {
@@ -176,32 +171,36 @@ where
     }
 
     let validity = lhs.validity().and(rhs.validity())?;
-    let valid_rows = ValidRows::from_validity(&validity, len, ctx)?;
-    if valid_rows.is_none() {
-        return primitive_result_array::<T>(Buffer::<T>::zeroed(len), validity, &result_dtype);
-    }
+    let valid_rows = validity.execute_mask(len, ctx)?;
 
-    let values = match (&lhs, &rhs) {
-        (PrimitiveOperand::Array(lhs), PrimitiveOperand::Array(rhs)) => {
-            checked_array_array::<T, Op>(lhs.values(), rhs.values(), &valid_rows)?
-        }
-        (PrimitiveOperand::Array(lhs), PrimitiveOperand::Constant { value: rhs, .. }) => {
-            checked_array_constant::<T, Op>(lhs.values(), *rhs, &valid_rows)?
-        }
-        (PrimitiveOperand::Constant { value: lhs, .. }, PrimitiveOperand::Array(rhs)) => {
-            checked_constant_array::<T, Op>(*lhs, rhs.values(), &valid_rows)?
-        }
+    let checked = match (&lhs, &rhs) {
+        (
+            PrimitiveOperand::Array { values: lhs, .. },
+            PrimitiveOperand::Array { values: rhs, .. },
+        ) => checked_array_array::<T, Op>(lhs, rhs, &valid_rows),
+        (
+            PrimitiveOperand::Array { values: lhs, .. },
+            PrimitiveOperand::Constant { value: rhs, .. },
+        ) => checked_array_constant::<T, Op>(lhs, *rhs, &valid_rows),
+        (
+            PrimitiveOperand::Constant { value: lhs, .. },
+            PrimitiveOperand::Array { values: rhs, .. },
+        ) => checked_constant_array::<T, Op>(*lhs, rhs, &valid_rows),
         (
             PrimitiveOperand::Constant { value: lhs, .. },
             PrimitiveOperand::Constant { value: rhs, .. },
         ) => {
-            let value = Op::checked(*lhs, *rhs).ok_or_else(|| numeric_error::<Op>())?;
+            let value = Op::checked(*lhs, *rhs)
+                .ok_or_else(|| vortex_err!(InvalidArgument: "{}", Op::ERROR))?;
             return Ok(constant_result_array(value, len, &result_dtype));
         }
-        (PrimitiveOperand::Null(_), _) | (_, PrimitiveOperand::Null(_)) => Buffer::<T>::zeroed(len),
+        (PrimitiveOperand::Null(_), _) | (_, PrimitiveOperand::Null(_)) => {
+            CheckedValues::zeroed(len)
+        }
     };
+    check_numeric_errors(checked.failed, Op::ERROR)?;
 
-    primitive_result_array::<T>(values, validity, &result_dtype)
+    primitive_result_array::<T>(checked.values, validity, &result_dtype)
 }
 
 fn primitive_result_array<T: NativePType>(
@@ -229,7 +228,10 @@ where
 }
 
 enum PrimitiveOperand<T: NativePType> {
-    Array(TypedPrimitive<T>),
+    Array {
+        values: Buffer<T>,
+        validity: Validity,
+    },
     Constant {
         value: T,
         len: usize,
@@ -257,557 +259,708 @@ impl<T: NativePType> PrimitiveOperand<T> {
             );
         }
 
-        Ok(Self::Array(TypedPrimitive::new(
-            array.clone().execute::<PrimitiveArray>(ctx)?,
-        )?))
+        let array = array.clone().execute::<PrimitiveArray>(ctx)?;
+        let validity = array.validity()?;
+        let values = array.into_buffer::<T>();
+        Ok(Self::Array { values, validity })
     }
 
     fn len(&self) -> usize {
         match self {
-            Self::Array(array) => array.values().len(),
+            Self::Array { values, .. } => values.len(),
             Self::Constant { len, .. } | Self::Null(len) => *len,
         }
     }
 
     fn validity(&self) -> Validity {
         match self {
-            Self::Array(array) => array.validity(),
+            Self::Array { validity, .. } => validity.clone(),
             Self::Constant { validity, .. } => validity.clone(),
             Self::Null(_) => Validity::AllInvalid,
         }
     }
 }
 
-struct TypedPrimitive<T: NativePType> {
+struct CheckedValues<T: NativePType> {
     values: Buffer<T>,
-    validity: Validity,
+    failed: bool,
 }
 
-impl<T: NativePType> TypedPrimitive<T> {
-    fn new(array: PrimitiveArray) -> VortexResult<Self> {
-        let validity = array.validity()?;
-        let values = array.into_buffer::<T>();
-        Ok(Self { values, validity })
+impl<T: NativePType> CheckedValues<T> {
+    fn zeroed(len: usize) -> Self {
+        Self {
+            values: Buffer::<T>::zeroed(len),
+            failed: false,
+        }
     }
 
-    fn values(&self) -> &[T] {
-        &self.values
-    }
-
-    fn validity(&self) -> Validity {
-        self.validity.clone()
-    }
-}
-
-enum ValidRows {
-    All,
-    Some(Mask),
-    None,
-}
-
-impl ValidRows {
-    fn from_validity(
-        validity: &Validity,
-        len: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Self> {
-        let mask = validity.execute_mask(len, ctx)?;
-        Ok(if mask.all_true() {
-            Self::All
-        } else if mask.all_false() {
-            Self::None
-        } else {
-            Self::Some(mask)
-        })
-    }
-
-    fn is_none(&self) -> bool {
-        matches!(self, Self::None)
+    fn failed(len: usize) -> Self {
+        Self {
+            values: Buffer::<T>::zeroed(len),
+            failed: true,
+        }
     }
 }
 
-fn checked_array_array<T, Op>(
-    lhs: &[T],
-    rhs: &[T],
-    valid_rows: &ValidRows,
-) -> VortexResult<Buffer<T>>
+fn checked_array_array<T, Op>(lhs: &[T], rhs: &[T], valid_rows: &Mask) -> CheckedValues<T>
 where
     T: NativePType,
-    Op: CheckedPrimitiveBinary<T>,
+    Op: CheckedPrimitiveOp<T>,
 {
     debug_assert_eq!(lhs.len(), rhs.len());
 
-    match valid_rows {
-        ValidRows::All => checked_array_array_all_valid::<T, Op>(lhs, rhs),
-        ValidRows::Some(mask) => checked_array_array_masked::<T, Op>(lhs, rhs, mask),
-        ValidRows::None => Ok(Buffer::<T>::zeroed(lhs.len())),
+    match valid_rows.bit_buffer() {
+        AllOr::All if Op::CHECKED_VALUE_LOOP => checked_array_array_one_pass::<T, Op>(lhs, rhs),
+        AllOr::All => checked_array_array_all_lanes::<T, Op>(lhs, rhs),
+        AllOr::None => CheckedValues::zeroed(lhs.len()),
+        AllOr::Some(valid_bits) if Op::CHECKED_VALUE_LOOP => {
+            checked_array_array_valid_lanes_one_pass::<T, Op>(lhs, rhs, valid_bits)
+        }
+        AllOr::Some(valid_bits) => checked_array_array_valid_lanes::<T, Op>(lhs, rhs, valid_bits),
     }
 }
 
-fn checked_array_constant<T, Op>(
+fn checked_array_constant<T, Op>(lhs: &[T], rhs: T, valid_rows: &Mask) -> CheckedValues<T>
+where
+    T: NativePType,
+    Op: CheckedPrimitiveOp<T>,
+{
+    match valid_rows.bit_buffer() {
+        AllOr::All if Op::CHECKED_VALUE_LOOP => checked_array_constant_one_pass::<T, Op>(lhs, rhs),
+        AllOr::All => checked_array_constant_all_lanes::<T, Op>(lhs, rhs),
+        AllOr::None => CheckedValues::zeroed(lhs.len()),
+        AllOr::Some(valid_bits) if Op::CHECKED_VALUE_LOOP => {
+            checked_array_constant_valid_lanes_one_pass::<T, Op>(lhs, rhs, valid_bits)
+        }
+        AllOr::Some(valid_bits) => {
+            checked_array_constant_valid_lanes::<T, Op>(lhs, rhs, valid_bits)
+        }
+    }
+}
+
+fn checked_constant_array<T, Op>(lhs: T, rhs: &[T], valid_rows: &Mask) -> CheckedValues<T>
+where
+    T: NativePType,
+    Op: CheckedPrimitiveOp<T>,
+{
+    match valid_rows.bit_buffer() {
+        AllOr::All if Op::CHECKED_VALUE_LOOP => checked_constant_array_one_pass::<T, Op>(lhs, rhs),
+        AllOr::All => checked_constant_array_all_lanes::<T, Op>(lhs, rhs),
+        AllOr::None => CheckedValues::zeroed(rhs.len()),
+        AllOr::Some(valid_bits) if Op::CHECKED_VALUE_LOOP => {
+            checked_constant_array_valid_lanes_one_pass::<T, Op>(lhs, rhs, valid_bits)
+        }
+        AllOr::Some(valid_bits) => {
+            checked_constant_array_valid_lanes::<T, Op>(lhs, rhs, valid_bits)
+        }
+    }
+}
+
+fn checked_array_array_all_lanes<T, Op>(lhs: &[T], rhs: &[T]) -> CheckedValues<T>
+where
+    T: NativePType,
+    Op: CheckedPrimitiveOp<T>,
+{
+    let values = collect_all_lanes(lhs.len(), |idx| Op::value(lhs[idx], rhs[idx]));
+
+    let failed = any_error(lhs.len(), |idx| Op::is_error(lhs[idx], rhs[idx]));
+
+    CheckedValues { values, failed }
+}
+
+fn checked_array_array_valid_lanes<T, Op>(
+    lhs: &[T],
+    rhs: &[T],
+    valid_bits: &BitBuffer,
+) -> CheckedValues<T>
+where
+    T: NativePType,
+    Op: CheckedPrimitiveOp<T>,
+{
+    let values = collect_all_lanes(lhs.len(), |idx| Op::value(lhs[idx], rhs[idx]));
+
+    let failed = any_valid_error(lhs.len(), valid_bits, |idx| {
+        Op::is_error(lhs[idx], rhs[idx])
+    });
+
+    CheckedValues { values, failed }
+}
+
+fn checked_array_constant_all_lanes<T, Op>(lhs: &[T], rhs: T) -> CheckedValues<T>
+where
+    T: NativePType,
+    Op: CheckedPrimitiveOp<T>,
+{
+    let values = collect_all_lanes(lhs.len(), |idx| Op::value(lhs[idx], rhs));
+
+    let failed = any_error(lhs.len(), |idx| Op::is_error(lhs[idx], rhs));
+
+    CheckedValues { values, failed }
+}
+
+fn checked_array_constant_valid_lanes<T, Op>(
     lhs: &[T],
     rhs: T,
-    valid_rows: &ValidRows,
-) -> VortexResult<Buffer<T>>
+    valid_bits: &BitBuffer,
+) -> CheckedValues<T>
 where
     T: NativePType,
-    Op: CheckedPrimitiveBinary<T>,
+    Op: CheckedPrimitiveOp<T>,
 {
-    match valid_rows {
-        ValidRows::All => checked_array_constant_all_valid::<T, Op>(lhs, rhs),
-        ValidRows::Some(mask) => checked_array_constant_masked::<T, Op>(lhs, rhs, mask),
-        ValidRows::None => Ok(Buffer::<T>::zeroed(lhs.len())),
-    }
+    let values = collect_all_lanes(lhs.len(), |idx| Op::value(lhs[idx], rhs));
+
+    let failed = any_valid_error(lhs.len(), valid_bits, |idx| Op::is_error(lhs[idx], rhs));
+
+    CheckedValues { values, failed }
 }
 
-fn checked_constant_array<T, Op>(
+fn checked_constant_array_all_lanes<T, Op>(lhs: T, rhs: &[T]) -> CheckedValues<T>
+where
+    T: NativePType,
+    Op: CheckedPrimitiveOp<T>,
+{
+    let values = collect_all_lanes(rhs.len(), |idx| Op::value(lhs, rhs[idx]));
+
+    let failed = any_error(rhs.len(), |idx| Op::is_error(lhs, rhs[idx]));
+
+    CheckedValues { values, failed }
+}
+
+fn checked_constant_array_valid_lanes<T, Op>(
     lhs: T,
     rhs: &[T],
-    valid_rows: &ValidRows,
-) -> VortexResult<Buffer<T>>
+    valid_bits: &BitBuffer,
+) -> CheckedValues<T>
 where
     T: NativePType,
-    Op: CheckedPrimitiveBinary<T>,
+    Op: CheckedPrimitiveOp<T>,
 {
-    match valid_rows {
-        ValidRows::All => checked_constant_array_all_valid::<T, Op>(lhs, rhs),
-        ValidRows::Some(mask) => checked_constant_array_masked::<T, Op>(lhs, rhs, mask),
-        ValidRows::None => Ok(Buffer::<T>::zeroed(rhs.len())),
-    }
+    let values = collect_all_lanes(rhs.len(), |idx| Op::value(lhs, rhs[idx]));
+
+    let failed = any_valid_error(rhs.len(), valid_bits, |idx| Op::is_error(lhs, rhs[idx]));
+
+    CheckedValues { values, failed }
 }
 
-fn checked_array_array_all_valid<T, Op>(lhs: &[T], rhs: &[T]) -> VortexResult<Buffer<T>>
+fn collect_all_lanes<T, F>(len: usize, mut value_at: F) -> Buffer<T>
 where
     T: NativePType,
-    Op: CheckedPrimitiveBinary<T>,
+    F: FnMut(usize) -> T,
 {
-    let mut failed = false;
-    let mut values = BufferMut::<T>::zeroed(lhs.len());
-    for ((dst, &lhs), &rhs) in values.iter_mut().zip(lhs).zip(rhs) {
-        let checked = Op::checked(lhs, rhs);
-        let invalid = checked.is_none();
-        *dst = checked.unwrap_or_default();
-        failed |= invalid;
+    let mut values = BufferMut::<T>::with_capacity(len);
+    let slots = values.spare_capacity_mut().as_mut_ptr();
+    for idx in 0..len {
+        // SAFETY: `idx < len <= capacity`, and each slot is written once.
+        unsafe {
+            slots
+                .add(idx)
+                .write(std::mem::MaybeUninit::new(value_at(idx)))
+        };
     }
-    check_numeric_error::<Op>(failed)?;
-    Ok(values.freeze())
+    // SAFETY: every slot in `0..len` was initialized above.
+    unsafe { values.set_len(len) };
+    values.freeze()
 }
 
-fn checked_array_array_masked<T, Op>(
+fn checked_array_array_one_pass<T, Op>(lhs: &[T], rhs: &[T]) -> CheckedValues<T>
+where
+    T: NativePType,
+    Op: CheckedPrimitiveOp<T>,
+{
+    checked_all_lanes(lhs.len(), |idx| Op::checked(lhs[idx], rhs[idx]))
+}
+
+fn checked_array_array_valid_lanes_one_pass<T, Op>(
     lhs: &[T],
     rhs: &[T],
-    valid_rows: &Mask,
-) -> VortexResult<Buffer<T>>
+    valid_bits: &BitBuffer,
+) -> CheckedValues<T>
 where
     T: NativePType,
-    Op: CheckedPrimitiveBinary<T>,
+    Op: CheckedPrimitiveOp<T>,
 {
-    let mut failed = false;
-    let mut values = BufferMut::<T>::zeroed(lhs.len());
-    for (((dst, &lhs), &rhs), valid) in values.iter_mut().zip(lhs).zip(rhs).zip(valid_rows.iter()) {
-        let checked = Op::checked(lhs, rhs);
-        let invalid = checked.is_none();
-        *dst = checked.unwrap_or_default();
-        failed |= invalid & valid;
-    }
-    check_numeric_error::<Op>(failed)?;
-    Ok(values.freeze())
+    checked_valid_lanes(lhs.len(), valid_bits, |idx| Op::checked(lhs[idx], rhs[idx]))
 }
 
-fn checked_array_constant_all_valid<T, Op>(lhs: &[T], rhs: T) -> VortexResult<Buffer<T>>
+fn checked_array_constant_one_pass<T, Op>(lhs: &[T], rhs: T) -> CheckedValues<T>
 where
     T: NativePType,
-    Op: CheckedPrimitiveBinary<T>,
+    Op: CheckedPrimitiveOp<T>,
 {
-    let mut failed = false;
-    let mut values = BufferMut::<T>::zeroed(lhs.len());
-    for (dst, &lhs) in values.iter_mut().zip(lhs) {
-        let checked = Op::checked(lhs, rhs);
-        let invalid = checked.is_none();
-        *dst = checked.unwrap_or_default();
-        failed |= invalid;
-    }
-    check_numeric_error::<Op>(failed)?;
-    Ok(values.freeze())
+    checked_all_lanes(lhs.len(), |idx| Op::checked(lhs[idx], rhs))
 }
 
-fn checked_array_constant_masked<T, Op>(
+fn checked_array_constant_valid_lanes_one_pass<T, Op>(
     lhs: &[T],
     rhs: T,
-    valid_rows: &Mask,
-) -> VortexResult<Buffer<T>>
+    valid_bits: &BitBuffer,
+) -> CheckedValues<T>
 where
     T: NativePType,
-    Op: CheckedPrimitiveBinary<T>,
+    Op: CheckedPrimitiveOp<T>,
 {
-    let mut failed = false;
-    let mut values = BufferMut::<T>::zeroed(lhs.len());
-    for ((dst, &lhs), valid) in values.iter_mut().zip(lhs).zip(valid_rows.iter()) {
-        let checked = Op::checked(lhs, rhs);
-        let invalid = checked.is_none();
-        *dst = checked.unwrap_or_default();
-        failed |= invalid & valid;
-    }
-    check_numeric_error::<Op>(failed)?;
-    Ok(values.freeze())
+    checked_valid_lanes(lhs.len(), valid_bits, |idx| Op::checked(lhs[idx], rhs))
 }
 
-fn checked_constant_array_all_valid<T, Op>(lhs: T, rhs: &[T]) -> VortexResult<Buffer<T>>
+fn checked_constant_array_one_pass<T, Op>(lhs: T, rhs: &[T]) -> CheckedValues<T>
 where
     T: NativePType,
-    Op: CheckedPrimitiveBinary<T>,
+    Op: CheckedPrimitiveOp<T>,
 {
-    let mut failed = false;
-    let mut values = BufferMut::<T>::zeroed(rhs.len());
-    for (dst, &rhs) in values.iter_mut().zip(rhs) {
-        let checked = Op::checked(lhs, rhs);
-        let invalid = checked.is_none();
-        *dst = checked.unwrap_or_default();
-        failed |= invalid;
-    }
-    check_numeric_error::<Op>(failed)?;
-    Ok(values.freeze())
+    checked_all_lanes(rhs.len(), |idx| Op::checked(lhs, rhs[idx]))
 }
 
-fn checked_constant_array_masked<T, Op>(
+fn checked_constant_array_valid_lanes_one_pass<T, Op>(
     lhs: T,
     rhs: &[T],
-    valid_rows: &Mask,
-) -> VortexResult<Buffer<T>>
+    valid_bits: &BitBuffer,
+) -> CheckedValues<T>
 where
     T: NativePType,
-    Op: CheckedPrimitiveBinary<T>,
+    Op: CheckedPrimitiveOp<T>,
+{
+    checked_valid_lanes(rhs.len(), valid_bits, |idx| Op::checked(lhs, rhs[idx]))
+}
+
+// Checked one-pass ops delay early exit until the end of a small block. This
+// keeps the loop generic while avoiding a branch-driven exit decision on every
+// lane; it is deliberately independent of mask density or input length.
+const CHECKED_BLOCK_LANES: usize = 16;
+
+fn checked_all_lanes<T, F>(len: usize, mut checked_at: F) -> CheckedValues<T>
+where
+    T: NativePType,
+    F: FnMut(usize) -> Option<T>,
+{
+    let mut values = BufferMut::<T>::with_capacity(len);
+    let mut base = 0;
+
+    while base + CHECKED_BLOCK_LANES <= len {
+        let mut block_failed = false;
+        for idx in base..base + CHECKED_BLOCK_LANES {
+            match checked_at(idx) {
+                Some(value) => {
+                    // SAFETY: the buffer is allocated with capacity `len`, and
+                    // this loop pushes at most one value for each `idx`.
+                    unsafe { values.push_unchecked(value) };
+                }
+                None => {
+                    block_failed = true;
+                    // SAFETY: the buffer is allocated with capacity `len`, and
+                    // this loop pushes at most one value for each `idx`.
+                    unsafe { values.push_unchecked(T::default()) };
+                }
+            }
+        }
+
+        if block_failed {
+            return CheckedValues::failed(len);
+        }
+        base += CHECKED_BLOCK_LANES;
+    }
+
+    for idx in base..len {
+        let Some(value) = checked_at(idx) else {
+            return CheckedValues::failed(len);
+        };
+        // SAFETY: the buffer is allocated with capacity `len`, and this loop
+        // pushes at most one value for each `idx`.
+        unsafe { values.push_unchecked(value) };
+    }
+
+    CheckedValues {
+        values: values.freeze(),
+        failed: false,
+    }
+}
+
+fn checked_valid_lanes<T, F>(
+    len: usize,
+    valid_bits: &BitBuffer,
+    mut checked_at: F,
+) -> CheckedValues<T>
+where
+    T: NativePType,
+    F: FnMut(usize) -> Option<T>,
+{
+    let mut values = BufferMut::<T>::zeroed(len);
+    let mut failed = false;
+    {
+        let values = values.as_mut_slice();
+        for_each_valid_idx(len, valid_bits, |idx| {
+            let Some(value) = checked_at(idx) else {
+                failed = true;
+                return false;
+            };
+            values[idx] = value;
+            true
+        });
+    }
+
+    CheckedValues {
+        values: values.freeze(),
+        failed,
+    }
+}
+
+fn any_error<F>(len: usize, is_error: F) -> bool
+where
+    F: Fn(usize) -> bool,
 {
     let mut failed = false;
-    let mut values = BufferMut::<T>::zeroed(rhs.len());
-    for ((dst, &rhs), valid) in values.iter_mut().zip(rhs).zip(valid_rows.iter()) {
-        let checked = Op::checked(lhs, rhs);
-        let invalid = checked.is_none();
-        *dst = checked.unwrap_or_default();
-        failed |= invalid & valid;
+    for idx in 0..len {
+        failed |= is_error(idx);
     }
-    check_numeric_error::<Op>(failed)?;
-    Ok(values.freeze())
+    failed
+}
+
+fn any_valid_error<F>(len: usize, valid_bits: &BitBuffer, is_error: F) -> bool
+where
+    F: Fn(usize) -> bool,
+{
+    if !any_error(len, &is_error) {
+        return false;
+    }
+
+    !for_each_valid_idx(len, valid_bits, |idx| !is_error(idx))
+}
+
+fn for_each_valid_idx<F>(len: usize, valid_bits: &BitBuffer, mut f: F) -> bool
+where
+    F: FnMut(usize) -> bool,
+{
+    debug_assert_eq!(len, valid_bits.len());
+
+    for (word_idx, valid_word) in valid_bits.chunks().iter_padded().enumerate() {
+        if valid_word == 0 {
+            continue;
+        }
+
+        let offset = word_idx * 64;
+        let lanes = len.saturating_sub(offset).min(64);
+        if lanes == 64 && valid_word == u64::MAX {
+            for bit_idx in 0..64 {
+                if !f(offset + bit_idx) {
+                    return false;
+                }
+            }
+            continue;
+        }
+
+        let mut valid_word = if lanes == 64 {
+            valid_word
+        } else {
+            valid_word & ((1u64 << lanes) - 1)
+        };
+        while valid_word != 0 {
+            let bit_idx = valid_word.trailing_zeros() as usize;
+            if !f(offset + bit_idx) {
+                return false;
+            }
+            valid_word &= valid_word - 1;
+        }
+    }
+
+    true
 }
 
 trait CheckedArithmetic: NativePType {
-    fn checked_add(self, rhs: Self) -> Option<Self>;
-    fn checked_sub(self, rhs: Self) -> Option<Self>;
-    fn checked_mul(self, rhs: Self) -> Option<Self>;
-    fn checked_div(self, rhs: Self) -> Option<Self>;
+    const DIV_CHECKS_IN_VALUE_LOOP: bool;
+
+    fn add_value(self, rhs: Self) -> Self;
+    fn add_error(self, rhs: Self) -> bool;
+    fn sub_value(self, rhs: Self) -> Self;
+    fn sub_error(self, rhs: Self) -> bool;
+    fn mul_value(self, rhs: Self) -> Self;
+    fn mul_error(self, rhs: Self) -> bool;
+    fn div_value(self, rhs: Self) -> Self;
+    fn div_error(self, rhs: Self) -> bool;
+    fn div_checked(self, rhs: Self) -> Option<Self>;
 }
 
-impl CheckedArithmetic for u8 {
-    #[inline(always)]
-    fn checked_add(self, rhs: Self) -> Option<Self> {
-        let (value, overflow) = self.overflowing_add(rhs);
-        (!overflow).then_some(value)
-    }
+macro_rules! impl_checked_unsigned {
+    ($ty:ty,widening_mul: $wide:ty) => {
+        impl CheckedArithmetic for $ty {
+            const DIV_CHECKS_IN_VALUE_LOOP: bool = true;
 
-    #[inline(always)]
-    fn checked_sub(self, rhs: Self) -> Option<Self> {
-        let (value, overflow) = self.overflowing_sub(rhs);
-        (!overflow).then_some(value)
-    }
+            #[inline(always)]
+            fn add_value(self, rhs: Self) -> Self {
+                self.wrapping_add(rhs)
+            }
 
-    #[inline(always)]
-    #[allow(clippy::cast_possible_truncation)]
-    fn checked_mul(self, rhs: Self) -> Option<Self> {
-        let product = (self as u16) * (rhs as u16);
-        (product <= u8::MAX as u16).then_some(product as Self)
-    }
+            #[inline(always)]
+            fn add_error(self, rhs: Self) -> bool {
+                self > <$ty>::MAX - rhs
+            }
 
-    #[inline(always)]
-    fn checked_div(self, rhs: Self) -> Option<Self> {
-        let invalid = rhs == 0;
-        let divisor = if invalid { 1 } else { rhs };
-        (!invalid).then_some(self.wrapping_div(divisor))
-    }
+            #[inline(always)]
+            fn sub_value(self, rhs: Self) -> Self {
+                self.wrapping_sub(rhs)
+            }
+
+            #[inline(always)]
+            fn sub_error(self, rhs: Self) -> bool {
+                self < rhs
+            }
+
+            #[inline(always)]
+            fn mul_value(self, rhs: Self) -> Self {
+                self.wrapping_mul(rhs)
+            }
+
+            #[inline(always)]
+            fn mul_error(self, rhs: Self) -> bool {
+                (self as $wide) * (rhs as $wide) > <$ty>::MAX as $wide
+            }
+
+            #[inline(always)]
+            fn div_value(self, rhs: Self) -> Self {
+                self / rhs
+            }
+
+            #[inline(always)]
+            fn div_error(self, rhs: Self) -> bool {
+                rhs == 0
+            }
+
+            #[inline(always)]
+            fn div_checked(self, rhs: Self) -> Option<Self> {
+                self.checked_div(rhs)
+            }
+        }
+    };
+    ($ty:ty,overflowing_mul) => {
+        impl CheckedArithmetic for $ty {
+            const DIV_CHECKS_IN_VALUE_LOOP: bool = true;
+
+            #[inline(always)]
+            fn add_value(self, rhs: Self) -> Self {
+                self.wrapping_add(rhs)
+            }
+
+            #[inline(always)]
+            fn add_error(self, rhs: Self) -> bool {
+                self > <$ty>::MAX - rhs
+            }
+
+            #[inline(always)]
+            fn sub_value(self, rhs: Self) -> Self {
+                self.wrapping_sub(rhs)
+            }
+
+            #[inline(always)]
+            fn sub_error(self, rhs: Self) -> bool {
+                self < rhs
+            }
+
+            #[inline(always)]
+            fn mul_value(self, rhs: Self) -> Self {
+                self.wrapping_mul(rhs)
+            }
+
+            #[inline(always)]
+            fn mul_error(self, rhs: Self) -> bool {
+                self.overflowing_mul(rhs).1
+            }
+
+            #[inline(always)]
+            fn div_value(self, rhs: Self) -> Self {
+                self / rhs
+            }
+
+            #[inline(always)]
+            fn div_error(self, rhs: Self) -> bool {
+                rhs == 0
+            }
+
+            #[inline(always)]
+            fn div_checked(self, rhs: Self) -> Option<Self> {
+                self.checked_div(rhs)
+            }
+        }
+    };
 }
 
-impl CheckedArithmetic for u16 {
-    #[inline(always)]
-    fn checked_add(self, rhs: Self) -> Option<Self> {
-        let (value, overflow) = self.overflowing_add(rhs);
-        (!overflow).then_some(value)
-    }
+macro_rules! impl_checked_signed {
+    ($ty:ty,widening_mul: $wide:ty) => {
+        impl CheckedArithmetic for $ty {
+            const DIV_CHECKS_IN_VALUE_LOOP: bool = true;
 
-    #[inline(always)]
-    fn checked_sub(self, rhs: Self) -> Option<Self> {
-        let (value, overflow) = self.overflowing_sub(rhs);
-        (!overflow).then_some(value)
-    }
+            #[inline(always)]
+            fn add_value(self, rhs: Self) -> Self {
+                self.wrapping_add(rhs)
+            }
 
-    #[inline(always)]
-    #[allow(clippy::cast_possible_truncation)]
-    fn checked_mul(self, rhs: Self) -> Option<Self> {
-        let product = (self as u32) * (rhs as u32);
-        (product <= u16::MAX as u32).then_some(product as Self)
-    }
+            #[inline(always)]
+            fn add_error(self, rhs: Self) -> bool {
+                let value = self.wrapping_add(rhs);
+                ((self ^ value) & (rhs ^ value)) < 0
+            }
 
-    #[inline(always)]
-    fn checked_div(self, rhs: Self) -> Option<Self> {
-        let invalid = rhs == 0;
-        let divisor = if invalid { 1 } else { rhs };
-        (!invalid).then_some(self.wrapping_div(divisor))
-    }
+            #[inline(always)]
+            fn sub_value(self, rhs: Self) -> Self {
+                self.wrapping_sub(rhs)
+            }
+
+            #[inline(always)]
+            fn sub_error(self, rhs: Self) -> bool {
+                let value = self.wrapping_sub(rhs);
+                ((self ^ rhs) & (self ^ value)) < 0
+            }
+
+            #[inline(always)]
+            fn mul_value(self, rhs: Self) -> Self {
+                self.wrapping_mul(rhs)
+            }
+
+            #[inline(always)]
+            fn mul_error(self, rhs: Self) -> bool {
+                let product = (self as $wide) * (rhs as $wide);
+                product < <$ty>::MIN as $wide || product > <$ty>::MAX as $wide
+            }
+
+            #[inline(always)]
+            fn div_value(self, rhs: Self) -> Self {
+                self / rhs
+            }
+
+            #[inline(always)]
+            fn div_error(self, rhs: Self) -> bool {
+                rhs == 0 || (self == <$ty>::MIN && rhs == -1)
+            }
+
+            #[inline(always)]
+            fn div_checked(self, rhs: Self) -> Option<Self> {
+                self.checked_div(rhs)
+            }
+        }
+    };
+    ($ty:ty,overflowing_mul) => {
+        impl CheckedArithmetic for $ty {
+            const DIV_CHECKS_IN_VALUE_LOOP: bool = true;
+
+            #[inline(always)]
+            fn add_value(self, rhs: Self) -> Self {
+                self.wrapping_add(rhs)
+            }
+
+            #[inline(always)]
+            fn add_error(self, rhs: Self) -> bool {
+                let value = self.wrapping_add(rhs);
+                ((self ^ value) & (rhs ^ value)) < 0
+            }
+
+            #[inline(always)]
+            fn sub_value(self, rhs: Self) -> Self {
+                self.wrapping_sub(rhs)
+            }
+
+            #[inline(always)]
+            fn sub_error(self, rhs: Self) -> bool {
+                let value = self.wrapping_sub(rhs);
+                ((self ^ rhs) & (self ^ value)) < 0
+            }
+
+            #[inline(always)]
+            fn mul_value(self, rhs: Self) -> Self {
+                self.wrapping_mul(rhs)
+            }
+
+            #[inline(always)]
+            fn mul_error(self, rhs: Self) -> bool {
+                self.overflowing_mul(rhs).1
+            }
+
+            #[inline(always)]
+            fn div_value(self, rhs: Self) -> Self {
+                self / rhs
+            }
+
+            #[inline(always)]
+            fn div_error(self, rhs: Self) -> bool {
+                rhs == 0 || (self == <$ty>::MIN && rhs == -1)
+            }
+
+            #[inline(always)]
+            fn div_checked(self, rhs: Self) -> Option<Self> {
+                self.checked_div(rhs)
+            }
+        }
+    };
 }
 
-impl CheckedArithmetic for u32 {
-    #[inline(always)]
-    fn checked_add(self, rhs: Self) -> Option<Self> {
-        let (value, overflow) = self.overflowing_add(rhs);
-        (!overflow).then_some(value)
-    }
+macro_rules! impl_checked_float {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl CheckedArithmetic for $ty {
+                const DIV_CHECKS_IN_VALUE_LOOP: bool = false;
 
-    #[inline(always)]
-    fn checked_sub(self, rhs: Self) -> Option<Self> {
-        let (value, overflow) = self.overflowing_sub(rhs);
-        (!overflow).then_some(value)
-    }
+                #[inline(always)]
+                fn add_value(self, rhs: Self) -> Self {
+                    self + rhs
+                }
 
-    #[inline(always)]
-    #[allow(clippy::cast_possible_truncation)]
-    fn checked_mul(self, rhs: Self) -> Option<Self> {
-        let product = (self as u64) * (rhs as u64);
-        (product <= u32::MAX as u64).then_some(product as Self)
-    }
+                #[inline(always)]
+                fn add_error(self, _rhs: Self) -> bool {
+                    false
+                }
 
-    #[inline(always)]
-    fn checked_div(self, rhs: Self) -> Option<Self> {
-        let invalid = rhs == 0;
-        let divisor = if invalid { 1 } else { rhs };
-        (!invalid).then_some(self.wrapping_div(divisor))
-    }
+                #[inline(always)]
+                fn sub_value(self, rhs: Self) -> Self {
+                    self - rhs
+                }
+
+                #[inline(always)]
+                fn sub_error(self, _rhs: Self) -> bool {
+                    false
+                }
+
+                #[inline(always)]
+                fn mul_value(self, rhs: Self) -> Self {
+                    self * rhs
+                }
+
+                #[inline(always)]
+                fn mul_error(self, _rhs: Self) -> bool {
+                    false
+                }
+
+                #[inline(always)]
+                fn div_value(self, rhs: Self) -> Self {
+                    self / rhs
+                }
+
+                #[inline(always)]
+                fn div_error(self, _rhs: Self) -> bool {
+                    false
+                }
+
+                #[inline(always)]
+                fn div_checked(self, rhs: Self) -> Option<Self> {
+                    Some(self / rhs)
+                }
+            }
+        )+
+    };
 }
 
-impl CheckedArithmetic for u64 {
-    #[inline(always)]
-    fn checked_add(self, rhs: Self) -> Option<Self> {
-        let (value, overflow) = self.overflowing_add(rhs);
-        (!overflow).then_some(value)
-    }
+impl_checked_unsigned!(u8, widening_mul: u16);
+impl_checked_unsigned!(u16, widening_mul: u32);
+impl_checked_unsigned!(u32, widening_mul: u64);
+impl_checked_unsigned!(u64, overflowing_mul);
+impl_checked_signed!(i8, widening_mul: i16);
+impl_checked_signed!(i16, widening_mul: i32);
+impl_checked_signed!(i32, widening_mul: i64);
+impl_checked_signed!(i64, overflowing_mul);
+impl_checked_float!(f16, f32, f64);
 
-    #[inline(always)]
-    fn checked_sub(self, rhs: Self) -> Option<Self> {
-        let (value, overflow) = self.overflowing_sub(rhs);
-        (!overflow).then_some(value)
-    }
-
-    #[inline(always)]
-    fn checked_mul(self, rhs: Self) -> Option<Self> {
-        let (value, overflow) = self.overflowing_mul(rhs);
-        (!overflow).then_some(value)
-    }
-
-    #[inline(always)]
-    fn checked_div(self, rhs: Self) -> Option<Self> {
-        let invalid = rhs == 0;
-        let divisor = if invalid { 1 } else { rhs };
-        (!invalid).then_some(self.wrapping_div(divisor))
-    }
-}
-
-impl CheckedArithmetic for i8 {
-    #[inline(always)]
-    fn checked_add(self, rhs: Self) -> Option<Self> {
-        let value = self.wrapping_add(rhs);
-        let overflow = ((self ^ value) & (rhs ^ value)) < 0;
-        (!overflow).then_some(value)
-    }
-
-    #[inline(always)]
-    fn checked_sub(self, rhs: Self) -> Option<Self> {
-        let value = self.wrapping_sub(rhs);
-        let overflow = ((self ^ rhs) & (self ^ value)) < 0;
-        (!overflow).then_some(value)
-    }
-
-    #[inline(always)]
-    #[allow(clippy::cast_possible_truncation)]
-    fn checked_mul(self, rhs: Self) -> Option<Self> {
-        let product = (self as i16) * (rhs as i16);
-        (product >= i8::MIN as i16 && product <= i8::MAX as i16).then_some(product as Self)
-    }
-
-    #[inline(always)]
-    fn checked_div(self, rhs: Self) -> Option<Self> {
-        let div_by_zero = rhs == 0;
-        let overflow = self == i8::MIN && rhs == -1;
-        let divisor = if div_by_zero { 1 } else { rhs };
-        (!(div_by_zero | overflow)).then_some(self.wrapping_div(divisor))
-    }
-}
-
-impl CheckedArithmetic for i16 {
-    #[inline(always)]
-    fn checked_add(self, rhs: Self) -> Option<Self> {
-        let value = self.wrapping_add(rhs);
-        let overflow = ((self ^ value) & (rhs ^ value)) < 0;
-        (!overflow).then_some(value)
-    }
-
-    #[inline(always)]
-    fn checked_sub(self, rhs: Self) -> Option<Self> {
-        let value = self.wrapping_sub(rhs);
-        let overflow = ((self ^ rhs) & (self ^ value)) < 0;
-        (!overflow).then_some(value)
-    }
-
-    #[inline(always)]
-    #[allow(clippy::cast_possible_truncation)]
-    fn checked_mul(self, rhs: Self) -> Option<Self> {
-        let product = (self as i32) * (rhs as i32);
-        (product >= i16::MIN as i32 && product <= i16::MAX as i32).then_some(product as Self)
-    }
-
-    #[inline(always)]
-    fn checked_div(self, rhs: Self) -> Option<Self> {
-        let div_by_zero = rhs == 0;
-        let overflow = self == i16::MIN && rhs == -1;
-        let divisor = if div_by_zero { 1 } else { rhs };
-        (!(div_by_zero | overflow)).then_some(self.wrapping_div(divisor))
-    }
-}
-
-impl CheckedArithmetic for i32 {
-    #[inline(always)]
-    fn checked_add(self, rhs: Self) -> Option<Self> {
-        let value = self.wrapping_add(rhs);
-        let overflow = ((self ^ value) & (rhs ^ value)) < 0;
-        (!overflow).then_some(value)
-    }
-
-    #[inline(always)]
-    fn checked_sub(self, rhs: Self) -> Option<Self> {
-        let value = self.wrapping_sub(rhs);
-        let overflow = ((self ^ rhs) & (self ^ value)) < 0;
-        (!overflow).then_some(value)
-    }
-
-    #[inline(always)]
-    #[allow(clippy::cast_possible_truncation)]
-    fn checked_mul(self, rhs: Self) -> Option<Self> {
-        let product = (self as i64) * (rhs as i64);
-        (product >= i32::MIN as i64 && product <= i32::MAX as i64).then_some(product as Self)
-    }
-
-    #[inline(always)]
-    fn checked_div(self, rhs: Self) -> Option<Self> {
-        let div_by_zero = rhs == 0;
-        let overflow = self == i32::MIN && rhs == -1;
-        let divisor = if div_by_zero { 1 } else { rhs };
-        (!(div_by_zero | overflow)).then_some(self.wrapping_div(divisor))
-    }
-}
-
-impl CheckedArithmetic for i64 {
-    #[inline(always)]
-    fn checked_add(self, rhs: Self) -> Option<Self> {
-        let value = self.wrapping_add(rhs);
-        let overflow = ((self ^ value) & (rhs ^ value)) < 0;
-        (!overflow).then_some(value)
-    }
-
-    #[inline(always)]
-    fn checked_sub(self, rhs: Self) -> Option<Self> {
-        let value = self.wrapping_sub(rhs);
-        let overflow = ((self ^ rhs) & (self ^ value)) < 0;
-        (!overflow).then_some(value)
-    }
-
-    #[inline(always)]
-    fn checked_mul(self, rhs: Self) -> Option<Self> {
-        let (value, overflow) = self.overflowing_mul(rhs);
-        (!overflow).then_some(value)
-    }
-
-    #[inline(always)]
-    fn checked_div(self, rhs: Self) -> Option<Self> {
-        let div_by_zero = rhs == 0;
-        let overflow = self == i64::MIN && rhs == -1;
-        let divisor = if div_by_zero { 1 } else { rhs };
-        (!(div_by_zero | overflow)).then_some(self.wrapping_div(divisor))
-    }
-}
-
-impl CheckedArithmetic for f16 {
-    #[inline(always)]
-    fn checked_add(self, rhs: Self) -> Option<Self> {
-        Some(self + rhs)
-    }
-
-    #[inline(always)]
-    fn checked_sub(self, rhs: Self) -> Option<Self> {
-        Some(self - rhs)
-    }
-
-    #[inline(always)]
-    fn checked_mul(self, rhs: Self) -> Option<Self> {
-        Some(self * rhs)
-    }
-
-    #[inline(always)]
-    fn checked_div(self, rhs: Self) -> Option<Self> {
-        Some(self / rhs)
-    }
-}
-
-impl CheckedArithmetic for f32 {
-    #[inline(always)]
-    fn checked_add(self, rhs: Self) -> Option<Self> {
-        Some(self + rhs)
-    }
-
-    #[inline(always)]
-    fn checked_sub(self, rhs: Self) -> Option<Self> {
-        Some(self - rhs)
-    }
-
-    #[inline(always)]
-    fn checked_mul(self, rhs: Self) -> Option<Self> {
-        Some(self * rhs)
-    }
-
-    #[inline(always)]
-    fn checked_div(self, rhs: Self) -> Option<Self> {
-        Some(self / rhs)
-    }
-}
-
-impl CheckedArithmetic for f64 {
-    #[inline(always)]
-    fn checked_add(self, rhs: Self) -> Option<Self> {
-        Some(self + rhs)
-    }
-
-    #[inline(always)]
-    fn checked_sub(self, rhs: Self) -> Option<Self> {
-        Some(self - rhs)
-    }
-
-    #[inline(always)]
-    fn checked_mul(self, rhs: Self) -> Option<Self> {
-        Some(self * rhs)
-    }
-
-    #[inline(always)]
-    fn checked_div(self, rhs: Self) -> Option<Self> {
-        Some(self / rhs)
-    }
-}
-
-fn check_numeric_error<Op: CheckedPrimitiveOp>(failed: bool) -> VortexResult<()> {
+fn check_numeric_errors(failed: bool, error: &'static str) -> VortexResult<()> {
     if failed {
-        return Err(numeric_error::<Op>());
+        return Err(vortex_err!(InvalidArgument: "{}", error));
     }
+
     Ok(())
 }
-
-fn numeric_error<Op: CheckedPrimitiveOp>() -> VortexError {
-    vortex_err!(InvalidArgument: "{}", Op::ERROR)
-}
-
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
@@ -900,6 +1053,35 @@ mod test {
             .and_then(|a| a.execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx()));
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_integer_divide_overflow_errors() {
+        let values = buffer![i64::MIN].into_array();
+        let result = values
+            .binary(
+                ConstantArray::new(-1i64, values.len()).into_array(),
+                Operator::Div,
+            )
+            .and_then(|a| a.execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx()));
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_integer_divide_errors_ignore_null_lanes() {
+        let lhs = PrimitiveArray::new(buffer![10i32, 10], Validity::from_iter([false, true]))
+            .into_array();
+        let rhs = buffer![0i32, 2].into_array();
+        let result = lhs
+            .binary(rhs, Operator::Div)
+            .and_then(|a| {
+                a.execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            })
+            .map(|a| a.0.into_array())
+            .unwrap();
+
+        assert_arrays_eq!(result, PrimitiveArray::from_option_iter([None, Some(5i32)]));
     }
 
     #[test]
