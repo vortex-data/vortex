@@ -53,6 +53,21 @@ unsafe fn release_arrow_device_array(array: &mut ArrowDeviceArray) {
     }
 }
 
+async fn device_validity_buffer(
+    len: usize,
+    validity_offset: usize,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<(usize, BufferHandle)> {
+    let validity_bits = BitBuffer::collect_bool(len + validity_offset, |idx| idx % 3 != 0)
+        .slice(validity_offset..validity_offset + len);
+    let (validity_offset, _, validity_buffer) = validity_bits.into_inner();
+    Ok((
+        validity_offset,
+        ctx.ensure_on_device(BufferHandle::new_host(validity_buffer))
+            .await?,
+    ))
+}
+
 async fn primitive_with_device_bool_validity(
     len: usize,
     validity_offset: usize,
@@ -63,12 +78,8 @@ async fn primitive_with_device_bool_validity(
         .ensure_on_device(BufferHandle::new_host(values.into_byte_buffer()))
         .await?;
 
-    let validity_bits = BitBuffer::collect_bool(len + validity_offset, |idx| idx % 3 != 0);
-    let validity_bits = validity_bits.slice(validity_offset..validity_offset + len);
-    let (validity_offset, _, validity_buffer) = validity_bits.into_inner();
-    let validity_buffer = ctx
-        .ensure_on_device(BufferHandle::new_host(validity_buffer))
-        .await?;
+    let (validity_offset, validity_buffer) =
+        device_validity_buffer(len, validity_offset, ctx).await?;
     let validity =
         BoolArray::new_handle(validity_buffer, validity_offset, len, Validity::NonNullable)
             .into_array();
@@ -146,17 +157,12 @@ fn benchmark_arrow_validity_repack(c: &mut Criterion) {
                 b.iter_custom(|iters| {
                     let timed = TimedLaunchStrategy::default();
                     let timer = timed.timer();
-
-                    let mut cuda_ctx =
-                        CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
-                            .vortex_expect("failed to create execution context")
-                            .with_launch_strategy(Arc::new(timed));
-                    let source = BitBuffer::collect_bool(len + INPUT_OFFSET, |idx| idx % 3 != 0);
-                    let sliced = source.slice(INPUT_OFFSET..INPUT_OFFSET + len);
-                    let (input_offset, _, input_buffer) = sliced.into_inner();
-                    let input_buffer =
-                        block_on(cuda_ctx.ensure_on_device(BufferHandle::new_host(input_buffer)))
-                            .vortex_expect("failed to copy validity input to device");
+                    let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+                        .vortex_expect("failed to create execution context")
+                        .with_launch_strategy(Arc::new(timed));
+                    let (input_offset, input_buffer) =
+                        block_on(device_validity_buffer(len, INPUT_OFFSET, &mut cuda_ctx))
+                            .vortex_expect("failed to create validity fixture");
 
                     for _ in 0..iters {
                         let output = test_harness::repack_arrow_validity_buffer(
@@ -193,17 +199,12 @@ fn benchmark_arrow_validity_count_nulls(c: &mut Criterion) {
                 b.iter_custom(|iters| {
                     let timed = TimedLaunchStrategy::default();
                     let timer = timed.timer();
-
                     let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
                         .vortex_expect("failed to create execution context")
                         .with_launch_strategy(Arc::new(timed));
-                    let source = BitBuffer::collect_bool(len + ARROW_OFFSET, |idx| {
-                        idx >= ARROW_OFFSET && idx % 3 != 0
-                    });
-                    let (_, _, input_buffer) = source.into_inner();
-                    let input_buffer =
-                        block_on(cuda_ctx.ensure_on_device(BufferHandle::new_host(input_buffer)))
-                            .vortex_expect("failed to copy validity input to device");
+                    let (_, input_buffer) =
+                        block_on(device_validity_buffer(len, ARROW_OFFSET, &mut cuda_ctx))
+                            .vortex_expect("failed to create validity fixture");
 
                     for _ in 0..iters {
                         let null_count = test_harness::count_arrow_validity_nulls(
