@@ -136,7 +136,12 @@ pub unsafe extern "C-unwind" fn vx_data_source_new_buffer(
             unsafe { slice::from_raw_parts(buffer.cast::<u8>(), buffer_len) };
         let buffer = ByteBuffer::from(Bytes::from_static(bytes));
         let file = session.open_options().open_buffer(buffer)?;
-        let ds = MultiLayoutDataSource::new_with_first(file.layout_reader()?, Vec::new(), session);
+        let ds = MultiLayoutDataSource::new_with_first(
+            file.layout_reader()?,
+            Vec::new(),
+            vec![Some(buffer_len as u64)],
+            session,
+        );
 
         Ok(vx_data_source::new(Arc::new(ds) as DataSourceRef))
     })
