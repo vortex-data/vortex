@@ -35,9 +35,10 @@ pub mod ffi {
     use std::sync::Arc;
 
     use futures::StreamExt;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::ChunkedArray;
     use vortex::array::stream::SendableArrayStream;
     use vortex::buffer::Buffer;
-    use vortex::expr::root;
     use vortex::expr::stats::Precision;
     use vortex::io::runtime::BlockingRuntime;
     use vortex::scan::DataSourceScan;
@@ -317,12 +318,14 @@ pub mod ffi {
                     ));
                 }
             };
+            let dtype = stream.dtype().clone();
             let chunks: Vec<_> = RUNTIME
                 .block_on_stream(stream)
                 .collect::<Result<_, _>>()
                 .map_err(Box::<VortexFfiError>::from)?;
-            let array = vortex::array::ArrayRef::concatenate(&chunks)
-                .map_err(Box::<VortexFfiError>::from)?;
+            let array = ChunkedArray::try_new(chunks, dtype)
+                .map_err(Box::<VortexFfiError>::from)?
+                .into_array();
             Ok(Box::new(VxArray(array)))
         }
     }
