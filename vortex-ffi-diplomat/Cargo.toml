@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+[package]
+name = "vortex-ffi-diplomat"
+description = "Multi-language FFI bindings for Vortex, generated with Diplomat"
+readme = "README.md"
+# Like `vortex-ffi`, this crate is not consumed by other Rust code: it is a bridge crate from
+# which `diplomat-tool` generates idiomatic bindings for C, C++, JavaScript, Dart, Kotlin and
+# Python. It builds to a static/shared library that those bindings link against.
+publish = false
+version = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+keywords = { workspace = true }
+include = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+categories = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true
+
+[dependencies]
+# The Diplomat proc-macro crate. `#[diplomat::bridge]` and `#[diplomat::attr(..)]` come from here,
+# along with the `DiplomatWrite`/`DiplomatStr` types used at the boundary.
+diplomat = { workspace = true }
+diplomat-runtime = { workspace = true }
+
+arrow-array = { workspace = true, features = ["ffi"] }
+arrow-schema = { workspace = true }
+async-fs = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+itertools = { workspace = true }
+mimalloc = { workspace = true, optional = true }
+object_store = { workspace = true, features = ["aws", "azure", "gcp"] }
+prost = { workspace = true }
+tracing = { workspace = true, features = ["std", "log"] }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+url = { workspace = true, features = [] }
+vortex = { workspace = true, features = ["object_store"] }
+
+[dev-dependencies]
+rand = { workspace = true }
+tempfile = { workspace = true }
+vortex-array = { workspace = true, features = ["_test-harness"] }
+
+[features]
+mimalloc = ["dep:mimalloc"]
+
+[lib]
+name = "vortex_ffi_diplomat"
+# `diplomat-tool` links the generated bindings against these. No `rlib` is needed because no Rust
+# code depends on this crate directly.
+crate-type = ["staticlib", "cdylib"]
+
+[lints]
+workspace = true
