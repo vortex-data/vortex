@@ -28,7 +28,7 @@ jobs:
     permissions:
       pull-requests: read
     outputs:
-      run-cuda-san: ${{ steps.decide.outputs.run-cuda-san }}
+      run-cuda-san: ${{ github.event_name != 'pull_request' || steps.filter.outputs.cuda == 'true' }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
       - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d  # v4
@@ -40,17 +40,6 @@ jobs:
               - "vortex-cuda/**"
               - "vortex-test/**"
               - ".github/workflows/**"
-      - name: Decide whether to run CUDA sanitizer
-        id: decide
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          CUDA_CHANGED: ${{ steps.filter.outputs.cuda }}
-        run: |
-          if [ "$EVENT_NAME" != "pull_request" ] || [ "$CUDA_CHANGED" == "true" ]; then
-            echo "run-cuda-san=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run-cuda-san=false" >> "$GITHUB_OUTPUT"
-          fi
 
   cuda-build-lint:
     if: github.repository == 'vortex-data/vortex'
