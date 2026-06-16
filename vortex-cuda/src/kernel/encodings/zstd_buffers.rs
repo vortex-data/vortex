@@ -226,7 +226,6 @@ mod tests {
     use vortex::array::assert_arrays_eq;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
-    use vortex::session::VortexSession;
 
     use super::*;
     use crate::CanonicalCudaExt;

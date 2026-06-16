@@ -46,7 +46,6 @@ use vortex::array::arrays::TemporalArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::varbinview::BinaryView;
 use vortex::array::arrow::ArrowSessionExt;
-use vortex::array::session::ArraySession;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
@@ -58,7 +57,6 @@ use vortex::dtype::Nullability;
 use vortex::extension::datetime::TimeUnit;
 use vortex::io::session::RuntimeSession;
 use vortex::layout::session::LayoutSession;
-use vortex::scalar_fn::session::ScalarFnSession;
 use vortex::session::VortexSession;
 use vortex_cuda::CudaSession;
 use vortex_cuda::arrow::ArrowDeviceArray;
@@ -67,10 +65,8 @@ use vortex_cuda::arrow::DeviceArrayExt;
 const PRIMITIVE_DTYPE_ENV: &str = "VORTEX_CUDF_PRIMITIVE_DTYPE";
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    VortexSession::empty()
-        .with::<ArraySession>()
+    vortex::array::array_session()
         .with::<LayoutSession>()
-        .with::<ScalarFnSession>()
         .with::<RuntimeSession>()
         .with::<CudaSession>()
 });
