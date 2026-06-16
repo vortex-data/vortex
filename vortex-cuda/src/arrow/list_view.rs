@@ -27,6 +27,8 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
+use vortex::expr::stats::Stat;
+use vortex::expr::stats::StatsProviderExt;
 
 use super::ArrowArray;
 use super::SyncEvent;
@@ -47,6 +49,7 @@ pub(super) async fn export_device_list_view(
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<(ArrowArray, SyncEvent)> {
     let len = array.len();
+    let is_zero_copy_to_list = array.is_zero_copy_to_list();
     let ListViewDataParts {
         elements,
         offsets,
@@ -54,6 +57,8 @@ pub(super) async fn export_device_list_view(
         validity,
         ..
     } = array.into_data_parts();
+    let metadata_arrow_offsets =
+        metadata_proves_arrow_offsets(is_zero_copy_to_list, elements.len(), &sizes)?;
 
     let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
 
@@ -67,6 +72,7 @@ pub(super) async fn export_device_list_view(
         sizes_ptype,
         sizes_buffer.clone(),
         len,
+        metadata_arrow_offsets,
         ctx,
     )
     .await?
@@ -121,6 +127,31 @@ enum DeviceListViewOffsets {
     RequiresRebuild,
 }
 
+fn metadata_proves_arrow_offsets(
+    is_zero_copy_to_list: bool,
+    elements_len: usize,
+    sizes: &ArrayRef,
+) -> VortexResult<bool> {
+    if !is_zero_copy_to_list {
+        return Ok(false);
+    }
+
+    let Some(size_sum) = sizes.statistics().get_as::<u64>(Stat::Sum).as_exact() else {
+        return Ok(false);
+    };
+
+    if size_sum != u64::try_from(elements_len)? {
+        return Ok(false);
+    }
+
+    vortex_ensure!(
+        elements_len <= i32::MAX as usize,
+        "cannot export device-resident ListViewArray as Arrow List: offsets exceed i32 range required by cuDF"
+    );
+
+    Ok(true)
+}
+
 /// Build Arrow Device `List` offsets from list-view offset/size device buffers.
 #[expect(clippy::cognitive_complexity)]
 async fn export_device_list_view_offsets(
@@ -129,6 +160,7 @@ async fn export_device_list_view_offsets(
     sizes_ptype: PType,
     sizes_buffer: BufferHandle,
     len: usize,
+    metadata_arrow_offsets: bool,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<DeviceListViewOffsets> {
     if len == 0 {
@@ -142,8 +174,14 @@ async fn export_device_list_view_offsets(
 
     match_each_integer_ptype!(offsets_ptype, |O| {
         match_each_integer_ptype!(sizes_ptype, |S| {
-            export_device_list_view_offsets_typed::<O, S>(offsets_buffer, sizes_buffer, len, ctx)
-                .await
+            export_device_list_view_offsets_typed::<O, S>(
+                offsets_buffer,
+                sizes_buffer,
+                len,
+                metadata_arrow_offsets,
+                ctx,
+            )
+            .await
         })
     })
 }
@@ -505,6 +543,7 @@ async fn export_device_list_view_offsets_typed<O, S>(
     offsets: BufferHandle,
     sizes: BufferHandle,
     len: usize,
+    metadata_arrow_offsets: bool,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<DeviceListViewOffsets>
 where
@@ -513,6 +552,13 @@ where
 {
     let output_len = len + 1;
     let output = ctx.device_alloc::<i32>(output_len)?;
+
+    if metadata_arrow_offsets {
+        export_trusted_list_view_offsets::<O, S>(&offsets, &sizes, &output, len, ctx)?;
+        return Ok(DeviceListViewOffsets::Contiguous(BufferHandle::new_device(
+            Arc::new(CudaDeviceBuffer::new(output)),
+        )));
+    }
 
     let status = ctx
         .ensure_on_device(BufferHandle::new_host(
@@ -547,4 +593,35 @@ where
         ),
         status => vortex_bail!("unexpected list-view offsets kernel status {status}"),
     }
+}
+
+fn export_trusted_list_view_offsets<O, S>(
+    offsets: &BufferHandle,
+    sizes: &BufferHandle,
+    output: &CudaSlice<i32>,
+    len: usize,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<()>
+where
+    O: NativePType + DeviceRepr + Send + Sync + 'static,
+    S: NativePType + DeviceRepr + Send + Sync + 'static,
+{
+    let offsets_view = offsets.cuda_view::<O>()?;
+    let sizes_view = sizes.cuda_view::<S>()?;
+    let list_len_u64 = len as u64;
+    let kernel = ctx.load_function_with_suffixes(
+        "list_view",
+        &[
+            "offsets_trusted",
+            &O::PTYPE.to_string(),
+            &S::PTYPE.to_string(),
+        ],
+    )?;
+
+    ctx.launch_kernel(&kernel, len, |args| {
+        args.arg(&offsets_view)
+            .arg(&sizes_view)
+            .arg(output)
+            .arg(&list_len_u64);
+    })
 }

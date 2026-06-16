@@ -12,7 +12,6 @@ use cudarc::driver::DeviceRepr;
 use cudarc::driver::LaunchConfig;
 use cudarc::driver::PushKernelArg;
 use futures::future::BoxFuture;
-use futures::future::join;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
@@ -603,33 +602,27 @@ async fn export_binary_buffers(
     }
     let data_buffer_ptrs = device_buffer_from(ptr_values, ctx).await?;
     let data_buffer_lens = device_buffer_from(len_values, ctx).await?;
-    let status = device_buffer_from(vec![0u32], ctx).await?;
+    let metadata = device_buffer_from(vec![0u64, 0u64], ctx).await?;
 
     let scan_input = init_binary_scan(
         views,
         validity,
         &data_buffer_lens,
         device_data_buffers.len(),
-        &status,
+        &metadata,
         len,
         ctx,
     )?;
     let output_offsets = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
         exclusive_sum_i32(&scan_input, len + 1, ctx)?,
     )));
-    validate_binary_offsets(&output_offsets, len, &status, ctx)?;
+    validate_binary_offsets(&output_offsets, len, &metadata, ctx)?;
 
-    // One status read covers init_scan and offset validation. Both must pass before gather may
-    // dereference view payloads through the scanned offsets. Enqueue both copies up front so the
-    // readbacks share one stream round-trip; await both so an error cannot drop a copy mid-flight.
-    let status_copy = status.try_to_host()?;
-    let total_copy = output_offsets
-        .slice_typed::<i32>(len..len + 1)
-        .try_to_host()?;
-    let (status_value, total_value) = join(status_copy, total_copy).await;
-
-    check_binary_status(Buffer::<u32>::from_byte_buffer(status_value?)[0])?;
-    let total_bytes = usize::try_from(Buffer::<i32>::from_byte_buffer(total_value?)[0])?;
+    // One device-to-host scalar copy covers status from init_scan/offset validation and the final
+    // scanned byte count needed to size the Arrow Binary values buffer.
+    let metadata_values = Buffer::<u64>::from_byte_buffer(metadata.try_to_host()?.await?);
+    check_binary_status(u32::try_from(metadata_values[0])?)?;
+    let total_bytes = usize::try_from(metadata_values[1])?;
     let output_values = gather_binary_values(
         views,
         &data_buffer_ptrs,
@@ -674,7 +667,7 @@ fn init_binary_scan(
     validity: Option<&BufferHandle>,
     data_buffer_lens: &BufferHandle,
     data_buffer_count: usize,
-    status: &BufferHandle,
+    metadata: &BufferHandle,
     len: usize,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<CudaSlice<i32>> {
@@ -686,7 +679,7 @@ fn init_binary_scan(
         .transpose()?
         .unwrap_or(0);
     let lens_view = data_buffer_lens.cuda_view::<u64>()?;
-    let status_view = status.cuda_view::<u32>()?;
+    let metadata_view = metadata.cuda_view::<u64>()?;
     let data_buffer_count_u64 = data_buffer_count as u64;
     let len_u64 = len as u64;
     let scan_input = ctx.device_alloc::<i32>(scan_len)?;
@@ -697,7 +690,7 @@ fn init_binary_scan(
             .arg(&validity_ptr)
             .arg(&lens_view)
             .arg(&scan_input)
-            .arg(&status_view)
+            .arg(&metadata_view)
             .arg(&data_buffer_count_u64)
             .arg(&len_u64);
     })?;
@@ -711,17 +704,19 @@ fn init_binary_scan(
 fn validate_binary_offsets(
     offsets: &BufferHandle,
     len: usize,
-    status: &BufferHandle,
+    metadata: &BufferHandle,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<()> {
     let scan_len = len + 1;
     let offsets_view = offsets.cuda_view::<i32>()?;
-    let status_view = status.cuda_view::<u32>()?;
+    let metadata_view = metadata.cuda_view::<u64>()?;
     let scan_len_u64 = scan_len as u64;
     let kernel = ctx.load_function_with_suffixes("arrow_binary", &["validate_offsets"])?;
 
     ctx.launch_kernel(&kernel, scan_len, |args| {
-        args.arg(&offsets_view).arg(&status_view).arg(&scan_len_u64);
+        args.arg(&offsets_view)
+            .arg(&metadata_view)
+            .arg(&scan_len_u64);
     })
 }
 
@@ -1246,6 +1241,8 @@ mod tests {
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::error::vortex_bail;
+    use vortex::expr::stats::Precision;
+    use vortex::expr::stats::Stat;
     use vortex::extension::datetime::TimeUnit;
     use vortex::session::VortexSession;
 
@@ -2146,6 +2143,37 @@ mod tests {
             PrimitiveArray::from_iter([2i32, 0, 3]).into_array(),
             Validity::NonNullable,
         )
+        .into_array();
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+
+        assert_eq!(exported.array.array.length, 3);
+        assert_eq!(exported.array.array.n_buffers, 2);
+        assert_eq!(
+            private_data_buffer_i32_values(&exported.array.array, 1)?,
+            [0, 2, 2, 5]
+        );
+        assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_export_zero_copy_list_view_with_size_sum_metadata() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let sizes = PrimitiveArray::from_iter([2i32, 0, 3]).into_array();
+        sizes.statistics().set(Stat::Sum, Precision::exact(5i64));
+        let array = unsafe {
+            ListViewArray::new(
+                PrimitiveArray::from_iter(0i32..5).into_array(),
+                PrimitiveArray::from_iter([0i32, 2, 2]).into_array(),
+                sizes,
+                Validity::NonNullable,
+            )
+            .with_zero_copy_to_list(true)
+        }
         .into_array();
         let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
 

@@ -61,6 +61,25 @@ __device__ void list_view_offsets_device(const OffsetT *const offsets,
     }
 }
 
+template <typename OffsetT, typename SizeT>
+__device__ void trusted_list_view_offsets_device(const OffsetT *const offsets,
+                                                 const SizeT *const sizes,
+                                                 int32_t *const output,
+                                                 uint64_t list_len) {
+    const uint64_t elements_per_block = blockDim.x * ELEMENTS_PER_THREAD;
+    const uint64_t block_start = blockIdx.x * elements_per_block;
+    const uint64_t block_stop = min(block_start + elements_per_block, list_len);
+
+    for (uint64_t idx = block_start + threadIdx.x; idx < block_stop; idx += blockDim.x) {
+        const uint64_t offset = static_cast<uint64_t>(offsets[idx]);
+        output[idx] = static_cast<int32_t>(offset);
+
+        if (idx + 1 == list_len) {
+            output[list_len] = static_cast<int32_t>(offset + static_cast<uint64_t>(sizes[idx]));
+        }
+    }
+}
+
 template <typename SizeT>
 __device__ void list_view_rebuild_init_scan_device(const SizeT *const sizes,
                                                    int32_t *const scan,
@@ -179,6 +198,13 @@ __device__ void list_view_rebuild_primitive_device(const OffsetT *const offsets,
         uint32_t *const status,                                                                              \
         uint64_t list_len) {                                                                                 \
         list_view_offsets_device(offsets, sizes, output, status, list_len);                                  \
+    }                                                                                                        \
+    extern "C" __global__ void list_view_offsets_trusted_##offset_suffix##_##size_suffix(                    \
+        const OffsetT *const offsets,                                                                        \
+        const SizeT *const sizes,                                                                            \
+        int32_t *const output,                                                                               \
+        uint64_t list_len) {                                                                                 \
+        trusted_list_view_offsets_device(offsets, sizes, output, list_len);                                  \
     }                                                                                                        \
     extern "C" __global__ void list_view_rebuild_primitive_##offset_suffix##_##size_suffix(                  \
         const OffsetT *const offsets,                                                                        \

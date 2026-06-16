@@ -33,11 +33,15 @@ __device__ bool is_valid(const uint8_t *const validity, uint64_t idx) {
 //
 // Threads stride by blockDim within the block's element range so warp accesses to views and scan
 // stay coalesced.
+__device__ void set_status(uint64_t *const metadata, uint32_t status) {
+    atomicMax(reinterpret_cast<unsigned long long *>(metadata), static_cast<unsigned long long>(status));
+}
+
 __device__ void init_scan_device(const BinaryView *const __restrict views,
                                  const uint8_t *const __restrict validity,
                                  const uint64_t *const __restrict data_buffer_lens,
                                  int32_t *const __restrict scan,
-                                 uint32_t *const status,
+                                 uint64_t *const metadata,
                                  uint64_t data_buffer_count,
                                  uint64_t len) {
     const uint64_t scan_len = len + 1;
@@ -55,7 +59,7 @@ __device__ void init_scan_device(const BinaryView *const __restrict views,
         const uint32_t size = view.size;
         if (size > static_cast<uint32_t>(INT32_MAX)) {
             scan[idx] = 0;
-            atomicMax(status, 2u);
+            set_status(metadata, 2u);
             continue;
         }
 
@@ -67,7 +71,7 @@ __device__ void init_scan_device(const BinaryView *const __restrict views,
             const uint64_t end = offset + static_cast<uint64_t>(size);
             if (buffer_index >= data_buffer_count || end > data_buffer_lens[buffer_index]) {
                 scan[idx] = 0;
-                atomicMax(status, 1u);
+                set_status(metadata, 1u);
                 continue;
             }
         }
@@ -81,14 +85,18 @@ __device__ void init_scan_device(const BinaryView *const __restrict views,
 // first overflowing prefix lands in [2^31, 2^32), which wraps to a negative offset in the scan
 // output. No negative offset therefore proves no prefix overflowed.
 __device__ void
-validate_offsets_device(const int32_t *const __restrict offsets, uint32_t *const status, uint64_t scan_len) {
+validate_offsets_device(const int32_t *const __restrict offsets, uint64_t *const metadata, uint64_t scan_len) {
     const uint64_t elements_per_block = blockDim.x * ELEMENTS_PER_THREAD;
     const uint64_t block_start = blockIdx.x * elements_per_block;
     const uint64_t block_stop = min(block_start + elements_per_block, scan_len);
 
     for (uint64_t idx = block_start + threadIdx.x; idx < block_stop; idx += blockDim.x) {
-        if (offsets[idx] < 0) {
-            atomicMax(status, 2u);
+        const int32_t offset = offsets[idx];
+        if (offset < 0) {
+            set_status(metadata, 2u);
+        }
+        if (idx + 1 == scan_len) {
+            metadata[1] = offset < 0 ? 0 : static_cast<uint64_t>(offset);
         }
     }
 }
@@ -199,16 +207,16 @@ extern "C" __global__ void arrow_binary_init_scan(const BinaryView *const views,
                                                   const uint8_t *const validity,
                                                   const uint64_t *const data_buffer_lens,
                                                   int32_t *const scan,
-                                                  uint32_t *const status,
+                                                  uint64_t *const metadata,
                                                   uint64_t data_buffer_count,
                                                   uint64_t len) {
-    init_scan_device(views, validity, data_buffer_lens, scan, status, data_buffer_count, len);
+    init_scan_device(views, validity, data_buffer_lens, scan, metadata, data_buffer_count, len);
 }
 
 // Check that the scanned Arrow Binary offsets never overflowed the i32 range.
 extern "C" __global__ void
-arrow_binary_validate_offsets(const int32_t *const offsets, uint32_t *const status, uint64_t scan_len) {
-    validate_offsets_device(offsets, status, scan_len);
+arrow_binary_validate_offsets(const int32_t *const offsets, uint64_t *const metadata, uint64_t scan_len) {
+    validate_offsets_device(offsets, metadata, scan_len);
 }
 
 // Gather inline and referenced BinaryView payloads into Arrow Binary's contiguous values buffer.
