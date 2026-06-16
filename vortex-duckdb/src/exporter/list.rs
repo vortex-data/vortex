@@ -11,7 +11,6 @@ use vortex::array::arrays::ListArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::list::ListDataParts;
 use vortex::array::match_each_integer_ptype;
-use vortex::array::validity::Validity;
 use vortex::dtype::IntegerPType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
@@ -55,7 +54,7 @@ pub(crate) fn new_exporter(
     } = array.into_data_parts();
     let num_elements = elements.len();
 
-    if matches!(validity, Validity::AllInvalid) {
+    if validity.definitely_all_null() {
         return Ok(all_invalid::new_exporter());
     }
     let validity = validity.to_array(array_len).execute::<Mask>(ctx)?;

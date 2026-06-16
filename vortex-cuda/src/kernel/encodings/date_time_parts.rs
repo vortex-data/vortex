@@ -72,7 +72,7 @@ impl CudaExecute for DateTimePartsExecutor {
             return Ok(Canonical::empty(array.dtype()));
         }
 
-        if matches!(validity, Validity::AllInvalid) {
+        if validity.definitely_all_null() {
             let storage_ptype = ext.storage_dtype().as_ptype();
             return Ok(Canonical::Extension(
                 TemporalArray::new_timestamp(

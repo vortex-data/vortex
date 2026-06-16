@@ -11,7 +11,6 @@
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::FixedSizeListArray;
 use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
-use vortex::array::validity::Validity;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
@@ -43,7 +42,7 @@ pub(crate) fn new_exporter(
     let elements = parts.elements;
     let validity = parts.validity;
 
-    if matches!(validity, Validity::AllInvalid) {
+    if validity.definitely_all_null() {
         return Ok(all_invalid::new_exporter());
     }
 
