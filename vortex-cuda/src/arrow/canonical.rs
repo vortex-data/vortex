@@ -778,6 +778,8 @@ pub(super) async fn export_arrow_validity_buffer(
     let validity = execute_validity_cuda(validity, len, ctx).await?;
     match validity {
         Validity::NonNullable | Validity::AllValid => Ok((None, 0)),
+        // For non-Null Arrow layouts, callers still export the normal value buffers.
+        // This only marks every row null via buffer 0, the validity bitmap.
         Validity::AllInvalid => Ok((
             Some(device_zeroed_byte_buffer(
                 validity_bitmap_byte_len(len, arrow_offset)?,
@@ -832,7 +834,7 @@ fn device_zeroed_byte_buffer(
     Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(buffer))).slice(0..byte_len))
 }
 
-pub(super) fn count_arrow_validity_nulls(
+pub fn count_arrow_validity_nulls(
     bitmap: &BufferHandle,
     len: usize,
     arrow_offset: usize,
@@ -894,7 +896,7 @@ pub(super) fn count_arrow_validity_nulls(
 /// plus an array offset, so sliced compact exports need a GPU rewrite when either side has a
 /// bit-level offset. The kernel writes the output one 64-bit word at a time, funnel-shifting two
 /// adjacent input words, so the allocation is padded to whole words (zeroed by the edge masks).
-pub(super) fn repack_arrow_validity_buffer(
+pub fn repack_arrow_validity_buffer(
     input_buffer: &BufferHandle,
     input_offset: usize,
     len: usize,
@@ -3161,7 +3163,7 @@ mod tests {
     // Non-canonical row validity should export as a device-resident bitmap.
     #[crate::test]
     async fn test_export_struct_non_canonical_validity() -> VortexResult<()> {
-        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let validity = DictArray::try_new(

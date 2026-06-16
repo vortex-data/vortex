@@ -66,33 +66,8 @@ pub use arrow_c_abi::ArrowDeviceType;
 #[cfg(feature = "_test-harness")]
 #[doc(hidden)]
 pub mod test_harness {
-    use vortex::array::buffer::BufferHandle;
-    use vortex::error::VortexResult;
-
-    use crate::CudaExecutionCtx;
-    use crate::arrow::canonical::count_arrow_validity_nulls as count_arrow_validity_nulls_impl;
-    use crate::arrow::canonical::repack_arrow_validity_buffer as repack_arrow_validity_buffer_impl;
-
-    /// Count null bits in an Arrow validity bitmap.
-    pub fn count_arrow_validity_nulls(
-        bitmap: &BufferHandle,
-        len: usize,
-        arrow_offset: usize,
-        ctx: &mut CudaExecutionCtx,
-    ) -> VortexResult<i64> {
-        count_arrow_validity_nulls_impl(bitmap, len, arrow_offset, ctx)
-    }
-
-    /// Repack a validity bitmap into Arrow's byte-addressed bitmap layout on the active stream.
-    pub fn repack_arrow_validity_buffer(
-        input_buffer: &BufferHandle,
-        input_offset: usize,
-        len: usize,
-        arrow_offset: usize,
-        ctx: &mut CudaExecutionCtx,
-    ) -> VortexResult<BufferHandle> {
-        repack_arrow_validity_buffer_impl(input_buffer, input_offset, len, arrow_offset, ctx)
-    }
+    pub use crate::arrow::canonical::count_arrow_validity_nulls;
+    pub use crate::arrow::canonical::repack_arrow_validity_buffer;
 }
 
 /// CUDA device memory.
