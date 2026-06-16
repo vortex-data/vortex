@@ -184,7 +184,7 @@ pub(super) fn bitwise_binary_op_lhs_owned<F: FnMut(u64, u64) -> u64>(
 pub(super) fn bitwise_binary_op<F: FnMut(u64, u64) -> u64>(
     left: &BitBuffer,
     right: &BitBuffer,
-    op: F,
+    mut op: F,
 ) -> BitBuffer {
     assert_eq!(left.len(), right.len());
     let len = left.len();
@@ -192,10 +192,10 @@ pub(super) fn bitwise_binary_op<F: FnMut(u64, u64) -> u64>(
         return BitBuffer::empty();
     }
 
-    // Byte-aligned operands: logical bits map onto physical `u64` words, so we can read the backing
-    // bytes straight as words instead of shifting through `iter_padded`.
-    if left.offset().is_multiple_of(8) && right.offset().is_multiple_of(8) {
-        let n_bytes = len.div_ceil(8);
+    let n_bytes = len.div_ceil(8);
+    let out = if left.offset().is_multiple_of(8) && right.offset().is_multiple_of(8) {
+        // Byte-aligned operands: logical bits map onto physical `u64` words, so read the backing
+        // bytes straight as words and build the result from a `TrustedLen` iterator.
         let l_start = left.offset() / 8;
         let r_start = right.offset() / 8;
         let lhs = &left.inner().as_slice()[l_start..l_start + n_bytes];
@@ -204,38 +204,34 @@ pub(super) fn bitwise_binary_op<F: FnMut(u64, u64) -> u64>(
         let (lhs_words, lhs_tail) = lhs.as_chunks::<8>();
         let (rhs_words, rhs_tail) = rhs.as_chunks::<8>();
 
-        let words = lhs_words
-            .iter()
-            .zip(rhs_words)
-            .map(|(l, r)| (u64::from_le_bytes(*l), u64::from_le_bytes(*r)))
-            .chain((!lhs_tail.is_empty()).then(|| (read_u64_le(lhs_tail), read_u64_le(rhs_tail))));
-        return combine_words(words, len, op);
-    }
+        let mut out = BufferMut::<u64>::from_trusted_len_iter(
+            lhs_words
+                .iter()
+                .zip(rhs_words)
+                .map(|(l, r)| op(u64::from_le_bytes(*l), u64::from_le_bytes(*r))),
+        );
+        if !lhs_tail.is_empty() {
+            out.push(op(read_u64_le(lhs_tail), read_u64_le(rhs_tail)));
+        }
+        out
+    } else {
+        // Sub-byte offset: `iter_padded` realigns the bits and appends one pad word, so take
+        // exactly `ceil(len / 64)` words.
+        let n_words = len.div_ceil(64);
+        let mut out = BufferMut::<u64>::with_capacity(n_words);
+        for (l, r) in left
+            .chunks()
+            .iter_padded()
+            .zip(right.chunks().iter_padded())
+            .take(n_words)
+        {
+            out.push(op(l, r));
+        }
+        out
+    };
 
-    // Sub-byte offset: `iter_padded` realigns the bits and zero-pads the final word.
-    let words = left
-        .chunks()
-        .iter_padded()
-        .zip(right.chunks().iter_padded());
-    combine_words(words, len, op)
-}
-
-/// Combine an iterator of `(left, right)` words via `op` into a `len`-bit [`BitBuffer`]. Consumes
-/// exactly `ceil(len / 64)` words, dropping any trailing pad word the producer yields (e.g. the one
-/// `iter_padded` always appends).
-#[inline]
-fn combine_words<I, F>(words: I, len: usize, mut op: F) -> BitBuffer
-where
-    I: Iterator<Item = (u64, u64)>,
-    F: FnMut(u64, u64) -> u64,
-{
-    let n_words = len.div_ceil(64);
-    let mut out: BufferMut<u64> = BufferMut::with_capacity(n_words);
-    for (l, r) in words.take(n_words) {
-        out.push(op(l, r));
-    }
     let mut bytes = out.into_byte_buffer();
-    bytes.truncate(len.div_ceil(8));
+    bytes.truncate(n_bytes);
     BitBuffer::new(bytes.freeze(), len)
 }
 
