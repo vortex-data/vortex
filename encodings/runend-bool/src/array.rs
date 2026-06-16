@@ -22,6 +22,7 @@ use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::TypedArrayRef;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::Bool;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::bool::BoolArray;
 use vortex_array::buffer::BufferHandle;
@@ -312,6 +313,28 @@ impl RunEndBool {
     }
 
     /// Build a new [`RunEndBoolArray`] from ends, start, and validity (panics on invalid input).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use vortex_array::IntoArray;
+    /// # use vortex_array::{LEGACY_SESSION, VortexSessionExecute};
+    /// # use vortex_array::validity::Validity;
+    /// # use vortex_buffer::buffer;
+    /// # use vortex_error::VortexResult;
+    /// # use vortex_runend_bool::RunEndBool;
+    /// # fn main() -> VortexResult<()> {
+    /// let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    /// // start = false, so runs alternate false, true: [false, false, true]
+    /// let ends = buffer![2u8, 3u8].into_array();
+    /// let run_end = RunEndBool::new(ends, false, Validity::NonNullable, &mut ctx);
+    ///
+    /// assert_eq!(run_end.execute_scalar(0, &mut ctx)?, false.into());
+    /// assert_eq!(run_end.execute_scalar(1, &mut ctx)?, false.into());
+    /// assert_eq!(run_end.execute_scalar(2, &mut ctx)?, true.into());
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn new(
         ends: ArrayRef,
         start: bool,
@@ -323,8 +346,8 @@ impl RunEndBool {
 
     /// Run-end encode a boolean array.
     pub fn encode(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<RunEndBoolArray> {
-        if let Some(barray) = array.as_opt::<vortex_array::arrays::Bool>() {
-            encode_runend_bool(&TypedArrayRef::to_owned(&barray), ctx)
+        if let Some(barray) = array.as_opt::<Bool>() {
+            encode_runend_bool(barray, ctx)
         } else {
             vortex_bail!("RunEndBool can only encode bool arrays")
         }

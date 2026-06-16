@@ -48,22 +48,22 @@ pub fn initialize(session: &VortexSession) {
 mod tests {
     use prost::Message;
     use vortex_array::dtype::PType;
+    use vortex_array::test_harness::check_metadata;
 
     use crate::RunEndBoolMetadata;
 
+    #[cfg_attr(miri, ignore)]
     #[test]
-    fn test_metadata_roundtrip() {
-        let metadata = RunEndBoolMetadata {
-            ends_ptype: PType::U64 as i32,
-            num_runs: 7,
-            offset: 3,
-            start: true,
-        };
-        let encoded = metadata.encode_to_vec();
-        let decoded = RunEndBoolMetadata::decode(encoded.as_slice()).unwrap();
-        assert_eq!(decoded.ends_ptype, PType::U64 as i32);
-        assert_eq!(decoded.num_runs, 7);
-        assert_eq!(decoded.offset, 3);
-        assert!(decoded.start);
+    fn test_runend_bool_metadata() {
+        check_metadata(
+            "runend_bool.metadata",
+            &RunEndBoolMetadata {
+                ends_ptype: PType::U64 as i32,
+                num_runs: u64::MAX,
+                offset: u64::MAX,
+                start: true,
+            }
+            .encode_to_vec(),
+        );
     }
 }

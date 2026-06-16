@@ -105,9 +105,8 @@ impl Scheme for BoolRunEndScheme {
         let bool_array = data
             .array()
             .as_opt::<Bool>()
-            .vortex_expect("BoolRunEndScheme matches only canonical bool arrays")
-            .into_owned();
-        let encoded = encode_runend_bool(&bool_array, exec_ctx)?;
+            .vortex_expect("BoolRunEndScheme matches only canonical bool arrays");
+        let encoded = encode_runend_bool(bool_array, exec_ctx)?;
 
         let ends = encoded.ends().clone();
         let start = encoded.start();

@@ -7,9 +7,10 @@
 //! plus the value of the first run (`start`). The value of run `i` is then
 //! [`value_at_index`]`(i, start)`.
 
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::Bool;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
@@ -72,7 +73,7 @@ pub fn runend_bool_decode_slice(
 ///
 /// The run `ends` are narrowed to the smallest unsigned integer type that can hold them.
 pub fn encode_runend_bool(
-    array: &BoolArray,
+    array: ArrayView<'_, Bool>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<RunEndBoolArray> {
     let length = array.as_ref().len();
@@ -157,7 +158,7 @@ mod tests {
         let array = BoolArray::from(BitBuffer::from(vec![
             true, true, false, false, false, true, true, true, true, true,
         ]));
-        let encoded = super::encode_runend_bool(&array, &mut ctx)?;
+        let encoded = super::encode_runend_bool(array.as_view(), &mut ctx)?;
         assert_eq!(encoded.as_ref().len(), 10);
         Ok(())
     }
