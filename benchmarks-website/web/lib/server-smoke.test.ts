@@ -8,7 +8,7 @@ import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { getPool, resetPool } from './db';
-import { chartKeyToSlug, type ChartKey } from './slug';
+import { chartKeyToSlug, groupKeyToSlug, type ChartKey, type GroupKey } from './slug';
 import { dockerAvailable, seedChartFixture, startBenchContainer } from './test-harness';
 
 // End-to-end smoke: boot the REAL production server (`next start` over the
@@ -33,6 +33,19 @@ const QUERY_Q1: ChartKey = {
   scale_factor: '1',
   storage: 'nvme',
   query_idx: 1,
+};
+
+// The fixture seeds tpch/nvme/sf=1 query_measurements, which the read layer
+// groups into the TPC-H (NVMe) (SF=1) QueryGroup. The cached default-window
+// path for both /api/group/{slug} and /api/chart/{slug} routes through
+// unstable_cache, so these slugs exercise the Data Cache path under the real
+// Next runtime.
+const TPCH_GROUP: GroupKey = {
+  k: 'QueryGroup',
+  dataset: 'tpch',
+  dataset_variant: null,
+  scale_factor: '1',
+  storage: 'nvme',
 };
 
 async function waitForServer(url: string, timeoutMs: number): Promise<void> {
@@ -129,6 +142,42 @@ describe.skipIf(!dockerAvailable() || !BUILD_PRESENT)(
       expect(payload.display_name).toBe('tpch sf=1 Q1 [nvme]');
       expect(payload.commits).toHaveLength(3);
       expect(payload.history.complete).toBe(true);
+    });
+
+    // These two tests exercise the real unstable_cache path under the Next.js
+    // production runtime (force-dynamic + real incrementalCache). The ?n=all
+    // tests above use the direct query path; omitting ?n (or sending ?n=100)
+    // routes through cachedDefaultGroupCharts / cachedDefaultChartPayload,
+    // which call unstable_cache. If unstable_cache runs outside a valid request
+    // context it throws "Invariant: incrementalCache missing"; a 200 here proves
+    // the cached path is wired correctly under next start.
+    it('serves the default-window group bundle via the Data Cache path', async () => {
+      const slug = groupKeyToSlug(TPCH_GROUP);
+      const r = await fetch(`${BASE}/api/group/${slug}`);
+      expect(r.status).toBe(200);
+      const payload = (await r.json()) as {
+        name: string;
+        charts: unknown[];
+      };
+      expect(typeof payload.name).toBe('string');
+      expect(payload.name).toContain('TPC-H');
+      expect(Array.isArray(payload.charts)).toBe(true);
+      expect(payload.charts.length).toBeGreaterThan(0);
+    });
+
+    it('serves the default-window chart payload via the Data Cache path', async () => {
+      const slug = chartKeyToSlug(QUERY_Q1);
+      // No ?n= parameter: the route uses cachedDefaultChartPayload, which calls
+      // unstable_cache and exercises the real Data Cache under next start.
+      const r = await fetch(`${BASE}/api/chart/${slug}`);
+      expect(r.status).toBe(200);
+      const payload = (await r.json()) as {
+        display_name: string;
+        commits: unknown[];
+      };
+      expect(payload.display_name).toBe('tpch sf=1 Q1 [nvme]');
+      expect(Array.isArray(payload.commits)).toBe(true);
+      expect(payload.commits.length).toBeGreaterThan(0);
     });
   },
 );

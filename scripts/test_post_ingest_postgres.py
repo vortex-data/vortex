@@ -303,10 +303,40 @@ def test_ingest_inserts_then_updates(schema_conn: psycopg.Connection) -> None:
         assert _count(schema_conn, table) == 1, f"{kind} -> {table} row count drifted"
 
 
+def test_query_measurement_insert_populates_commit_timestamp(schema_conn: psycopg.Connection) -> None:
+    """The denormalized `commit_timestamp` (migration 006, the read path's latest-per-series sort
+    key) is stamped from the envelope's `commits` row on BOTH upsert paths, so rows written by this
+    writer never depend on the post-deploy re-backfill."""
+    commit = _sample_commit()
+    records = [r for r in _sample_records() if r["kind"] == "query_measurement"]
+    assert records, "expected at least one query_measurement sample record"
+
+    def _unstamped_or_drifted() -> int:
+        # Count rows that are NOT stamped to their commit's timestamp -- 0 means every
+        # query_measurements row was correctly stamped (not just an arbitrary fetchone row).
+        return schema_conn.execute(
+            "SELECT count(*) FROM query_measurements q JOIN commits c USING (commit_sha)"
+            " WHERE q.commit_timestamp IS NULL OR q.commit_timestamp <> c.timestamp"
+        ).fetchone()[0]
+
+    post_ingest.ingest_postgres(schema_conn, commit, records)
+    assert _count(schema_conn, "query_measurements") == len(records)
+    assert _unstamped_or_drifted() == 0
+
+    # The update path re-stamps as well: scrub the column, re-ingest the same envelope (an
+    # ON CONFLICT DO UPDATE), and every row's timestamp must come back.
+    schema_conn.execute("UPDATE query_measurements SET commit_timestamp = NULL")
+    post_ingest.ingest_postgres(schema_conn, commit, records)
+    assert _unstamped_or_drifted() == 0
+
+
 # Per-kind mutation of every value/side-counter/env column each table's ON
 # CONFLICT DO UPDATE SET list owns (dim columns deliberately excluded). Mirrors
 # the SET lists in benchmarks-website/server/src/ingest.rs; a stale/incorrect SET
 # list in any table is caught by the parametrized update test below.
+# `commit_timestamp` is also in the query_measurements SET list but is DERIVED
+# from `commits` (not a record field), so it is pinned by
+# `test_query_measurement_insert_populates_commit_timestamp` instead of here.
 _UPDATE_VALUE_MUTATIONS = {
     "query_measurement": {
         "value_ns": 4242,
@@ -1035,6 +1065,11 @@ def test_real_connection_exposes_pgconn_ssl_in_use(schema_conn: psycopg.Connecti
 def test_main_postgres_composition(monkeypatch, capsys) -> None:
     # Pin the production --postgres CLI wiring (no DB): read_records -> build_commit ->
     # connect_postgres -> ingest_postgres -> compact JSON to stdout -> conn.close() in finally.
+    # Explicitly clear both refresh env vars so this test is robust to ambient env:
+    # the refresh branch is gated on both being set, and testing its skip is
+    # covered by test_post_ingest_revalidate.py.
+    monkeypatch.delenv("BENCH_SITE_BASE_URL", raising=False)
+    monkeypatch.delenv("BENCH_REVALIDATE_TOKEN", raising=False)
     closed = {"n": 0}
     conn = types.SimpleNamespace(close=lambda: closed.__setitem__("n", closed["n"] + 1))
     monkeypatch.setattr(post_ingest, "read_records", lambda path: [{"kind": "compression_size"}])
@@ -1048,6 +1083,7 @@ def test_main_postgres_composition(monkeypatch, capsys) -> None:
         git_dir=None,
         postgres="dsn",
         region=None,
+        timeout=30.0,
     )
     rc = post_ingest._main_postgres(args)
     assert rc == 0

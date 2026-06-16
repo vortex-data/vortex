@@ -516,6 +516,8 @@ jobs:
           RDS_BENCH_INSTANCE_ENDPOINT: ${{ vars.RDS_BENCH_INSTANCE_ENDPOINT }}
           RDS_BENCH_DB_NAME: ${{ vars.RDS_BENCH_DB_NAME }}
           AWS_REGION: ${{ vars.RDS_BENCH_REGION }}
+          BENCH_SITE_BASE_URL: ${{ vars.BENCH_SITE_BASE_URL }}
+          BENCH_REVALIDATE_TOKEN: ${{ secrets.BENCH_REVALIDATE_TOKEN }}
         run: |
           set -Eeuo pipefail
           curl -fsSL https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \

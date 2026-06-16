@@ -136,8 +136,10 @@ export async function seedChartFixture(pool: Pool): Promise<void> {
       await pool.query(
         `INSERT INTO query_measurements
            (measurement_id, commit_sha, dataset, dataset_variant, scale_factor,
-            query_idx, storage, engine, format, value_ns, all_runtimes_ns)
-         VALUES ($1, $2, 'tpch', NULL, '1', $3, 'nvme', $4, $5, $6, '{1}'::bigint[])`,
+            query_idx, storage, engine, format, value_ns, all_runtimes_ns,
+            commit_timestamp)
+         VALUES ($1, $2, 'tpch', NULL, '1', $3, 'nvme', $4, $5, $6, '{1}'::bigint[],
+                 (SELECT timestamp FROM commits WHERE commit_sha = $2))`,
         [mid(), sha, queryIdx, engine, format, valueNs],
       );
     }

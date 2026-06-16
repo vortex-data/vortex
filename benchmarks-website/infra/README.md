@@ -156,21 +156,26 @@ export PGSSLROOTCERT=/tmp/rds-global-bundle.pem
 uv run --no-project scripts/migrate-schema.py apply
 ```
 
-This applies `001` (schema), `002` (creates the `migrator` role + binds it to
-`rds_iam`), and `003` (grants `migrator` SELECT + INSERT on the
-`_applied_migrations` ledger). After the bootstrap, subsequent *additive*
+This applies `001` (schema) and every migration carrying the
+`-- migrate-schema: requires-superuser` marker — currently `002`/`004`/`005`
+(role creation + grants) and `006`/`007` (DDL on the master-owned
+`query_measurements` table). The marker in each file is authoritative; the
+runner refuses to apply a marked file under a non-master role. The single source
+of truth for the bootstrap-ordering contract is
+[`migrations/README.md`](../../migrations/README.md) § "Bootstrap ordering —
+`requires-superuser` migrations"; apply every marked migration as the master
+here. `003` (a ledger grant) carries no marker. After the bootstrap, *unmarked*
 migrations are applied by the `schema-deploy` workflow as `migrator` against the
 public instance endpoint (`RDS_BENCH_INSTANCE_ENDPOINT`) with direct IAM; the
-master password is not needed again.
+master password is not needed again for those.
 
 Because the bootstrap runs as master, the schema objects and the ledger are
 master-owned; `003` grants `migrator` the ledger access it needs to record and
 read applied migrations. A migration that `ALTER`s or adds an index to an
-existing master-owned table (rather than only `CREATE`-ing new objects) needs
-the role-ownership model resolved first -- deferred to PR-2.1 alongside the
-ingest-role design (which also grants the six data tables' DML for the ingest
-write path). Phase-1 migrations are all additive (new objects), so `migrator`'s
-`CREATE` on the schema suffices today.
+existing master-owned table (rather than only `CREATE`-ing new objects) must
+itself carry the `requires-superuser` marker and be master-applied here — this
+is what `006`/`007` do (PR-5.1.5). `migrator`'s `CREATE` on the schema suffices
+only for new-object migrations.
 
 The per-PR testcontainer migration test (`scripts/test_migrate_schema.py`)
 applies every migration as a single owning role, so it does NOT model the
@@ -224,11 +229,14 @@ Tear-down does NOT delete the Secrets-Manager-managed master password — that's
 
 ## Cost
 
-Steady-state monthly bill once provisioned (rough):
+Steady-state monthly bill once provisioned (rough). NOTE: prod `vortex-bench-prod` was upsized to
+`db.r7g.large` (16 GiB) on 2026-06-16 so the load-all `?n=all` working set stays resident in cache
+(see `.big-plans/ct__bench-v4-loadall-scope.md`); the `provision.sh` bootstrap default remains
+`db.t4g.micro`.
 
 | Item | Cost |
 |---|---|
-| RDS `db.t4g.micro` | ~$13 |
+| RDS `db.r7g.large` (current prod; bootstrap default `db.t4g.micro` ~$13) | ~$174 |
 | RDS Proxy | ~$11 (1 RDS Proxy unit at $0.015/hr) |
 | 20 GiB GP3 storage | ~$2.30 |
 | Backup storage (35-day window, ~20 GiB) | ~$2 |

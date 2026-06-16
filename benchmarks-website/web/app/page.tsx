@@ -2,10 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import { Footer } from '@/components/Footer';
+import { GroupNav } from '@/components/GroupNav';
 import { GroupSection } from '@/components/GroupSection';
 import { Header } from '@/components/Header';
 import { parseFilterCsv, singleSearchParam } from '@/lib/chart-format';
-import { collectFilterUniverse, collectGroups } from '@/lib/queries';
+import { cachedFilterUniverse, cachedGroups } from '@/lib/data-cache';
 
 // Rendered per request, with CDN caching layered on by `vercel.json`: each
 // render reads every group from Postgres via `collectGroups()`, and Vercel's
@@ -40,11 +41,12 @@ export default async function Home({
   const initialEngines = parseFilterCsv(singleSearchParam(params.engine));
   const initialFormats = parseFilterCsv(singleSearchParam(params.format));
 
-  const [groups, universe] = await Promise.all([collectGroups(), collectFilterUniverse()]);
+  const [groups, universe] = await Promise.all([cachedGroups(), cachedFilterUniverse()]);
   let nextIndex = 0;
   return (
     <>
       <Header universe={universe} initialEngines={initialEngines} initialFormats={initialFormats} />
+      <GroupNav groups={groups.map((group) => ({ name: group.name, slug: group.slug }))} />
       <main>
         {groups.length === 0 ? (
           <p className="empty">No data ingested yet.</p>

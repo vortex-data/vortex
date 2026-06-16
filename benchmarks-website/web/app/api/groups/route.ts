@@ -4,7 +4,8 @@
 import { NextResponse } from 'next/server';
 
 import { READ_API_CACHE_CONTROL } from '@/lib/cache';
-import { collectGroups, type GroupsResponse } from '@/lib/queries';
+import { cachedGroups } from '@/lib/data-cache';
+import { type GroupsResponse } from '@/lib/queries';
 
 /**
  * `GET /api/groups` returns every benchmark group in canonical `GROUP_ORDER`,
@@ -16,7 +17,7 @@ import { collectGroups, type GroupsResponse } from '@/lib/queries';
  * [`READ_API_CACHE_CONTROL`].
  */
 export async function GET(): Promise<NextResponse> {
-  const groups = await collectGroups();
+  const groups = await cachedGroups();
   const body: GroupsResponse = { groups };
   return NextResponse.json(body, { headers: { 'cache-control': READ_API_CACHE_CONTROL } });
 }

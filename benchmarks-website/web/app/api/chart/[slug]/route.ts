@@ -4,9 +4,10 @@
 import { NextResponse } from 'next/server';
 
 import { READ_API_CACHE_CONTROL } from '@/lib/cache';
+import { cachedDefaultChartPayload } from '@/lib/data-cache';
 import { chartPayload } from '@/lib/queries';
 import { chartKeyFromSlug, type ChartKey } from '@/lib/slug';
-import { parseCommitWindow } from '@/lib/window';
+import { DEFAULT_COMMIT_WINDOW, parseCommitWindow } from '@/lib/window';
 
 /**
  * `GET /api/chart/{slug}` returns the [`ChartResponse`] JSON for one chart.
@@ -33,7 +34,13 @@ export async function GET(
     );
   }
   const window = parseCommitWindow(new URL(request.url).searchParams.get('n'));
-  const payload = await chartPayload(key, window);
+  // The default last-100 window is served from the Data Cache (warm across
+  // invocations, refreshed on ingest); every other window keeps the direct
+  // query and rides the per-URL CDN cache only.
+  const payload =
+    window.kind === 'last' && window.n === DEFAULT_COMMIT_WINDOW
+      ? await cachedDefaultChartPayload(slug)
+      : await chartPayload(key, window);
   if (payload === null) {
     return NextResponse.json({ error: 'not_found', message: 'chart not found' }, { status: 404 });
   }

@@ -9,9 +9,10 @@ import { Chart } from '@/components/Chart';
 import { Footer } from '@/components/Footer';
 import { Header } from '@/components/Header';
 import { parseFilterCsv, singleSearchParam, unitKindLabel } from '@/lib/chart-format';
+import { cachedDefaultChartPayload } from '@/lib/data-cache';
 import { chartPayload, collectFilterUniverse, type ChartResponse } from '@/lib/queries';
 import { chartKeyFromSlug, type ChartKey } from '@/lib/slug';
-import { parseCommitWindow } from '@/lib/window';
+import { DEFAULT_COMMIT_WINDOW, parseCommitWindow } from '@/lib/window';
 
 // Rendered per request, like the landing page: the payload comes from Postgres
 // at request time and `force-dynamic` keeps `next build` independent of a live
@@ -37,7 +38,12 @@ const getChart = cache(async (slug: string, n: string | null): Promise<ChartResp
   } catch {
     return null;
   }
-  return chartPayload(key, parseCommitWindow(n));
+  // The default last-100 window reads through the Data Cache (warm across
+  // invocations, refreshed on ingest); every other window keeps the direct query.
+  const window = parseCommitWindow(n);
+  return window.kind === 'last' && window.n === DEFAULT_COMMIT_WINDOW
+    ? cachedDefaultChartPayload(slug)
+    : chartPayload(key, window);
 });
 
 /** The browser-tab title mirrors v3: `{display_name} - Vortex Benchmarks`. */

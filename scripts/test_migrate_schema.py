@@ -83,6 +83,38 @@ _EXPECTED_INDEX_COLUMNS = {
     "idx_compression_sizes_chart": ("compression_sizes", ["dataset", "dataset_variant"]),
     "idx_random_access_times_chart": ("random_access_times", ["dataset"]),
     "idx_vector_search_runs_chart": ("vector_search_runs", ["dataset", "layout", "threshold"]),
+    # Read-path-perf indexes added by migration 006 (PR-5.1.5). The summary index
+    # backs the latest-per-series skip scan (fix c; its 007 INCLUDE payload is
+    # pinned separately by `_EXPECTED_INDEX_INCLUDES`); the engine/format indexes
+    # back collectFilterUniverse's loose-index skip scan (fix d).
+    "idx_query_measurements_summary": (
+        "query_measurements",
+        [
+            "dataset",
+            "dataset_variant",
+            "scale_factor",
+            "storage",
+            "query_idx",
+            "engine",
+            "format",
+            "commit_timestamp",
+        ],
+    ),
+    "idx_query_measurements_engine": ("query_measurements", ["engine"]),
+    "idx_query_measurements_format": ("query_measurements", ["format"]),
+    "idx_compression_times_format": ("compression_times", ["format"]),
+    "idx_compression_sizes_format": ("compression_sizes", ["format"]),
+    "idx_random_access_times_format": ("random_access_times", ["format"]),
+}
+
+# Expected INCLUDE (non-key payload) columns per index; indexes absent from this
+# map must have none. Migration 007 rebuilt the summary index with INCLUDE
+# (value_ns) so the latest-per-series skip scan is an Index Only Scan (the
+# value_ns filter and projection read from the index leaf, no heap fetch);
+# losing the payload would merge green on a key-columns-only check while
+# regressing summaries to the pre-007 heap-fetch plan.
+_EXPECTED_INDEX_INCLUDES = {
+    "idx_query_measurements_summary": ["value_ns"],
 }
 
 # Per-table `(column_name, is_nullable)` in ordinal order, mirroring the DuckDB
@@ -118,6 +150,10 @@ _EXPECTED_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("physical_delta", "YES"),
         ("virtual_delta", "YES"),
         ("env_triple", "YES"),
+        # Denormalized commit timestamp, appended by migration 006 (PR-5.1.5 fix
+        # c). Nullable: writers populate it + the migration backfills, but the
+        # column tolerates a transient NULL before the post-deploy re-backfill.
+        ("commit_timestamp", "YES"),
     ],
     "compression_times": [
         ("measurement_id", "NO"),
@@ -657,11 +693,11 @@ def test_apply_uses_public_schema_under_custom_search_path(
 
 
 def test_real_migrations_apply_cleanly(conn: psycopg.Connection) -> None:
-    """The real migrations (`001` through `005`) apply against vanilla Postgres
+    """The real migrations (`001` through `007`) apply against vanilla Postgres
     and are recorded in the ledger in order."""
     applied = runner.apply(conn, REPO_MIGRATIONS_DIR)
 
-    assert applied == 5
+    assert applied == 7
     with conn.cursor() as cur:
         cur.execute("SELECT filename FROM public._applied_migrations ORDER BY filename")
         assert [row[0] for row in cur.fetchall()] == [
@@ -670,6 +706,8 @@ def test_real_migrations_apply_cleanly(conn: psycopg.Connection) -> None:
             "003_migrator_ledger_grant.sql",
             "004_ingest_role.sql",
             "005_read_role.sql",
+            "006_read_path_perf.sql",
+            "007_summary_covering_index.sql",
         ]
 
 
@@ -678,7 +716,7 @@ def test_real_migrations_idempotent(conn: psycopg.Connection) -> None:
     first = runner.apply(conn, REPO_MIGRATIONS_DIR)
     second = runner.apply(conn, REPO_MIGRATIONS_DIR)
 
-    assert first == 5
+    assert first == 7
     assert second == 0
 
 
@@ -731,11 +769,27 @@ def test_real_migrations_index_columns(conn: psycopg.Connection) -> None:
         assert " USING btree (" in indexdef, (
             f"{index}: not a plain btree index, parser assumption broken: {indexdef}"
         )
-        inner = indexdef.split(" USING btree (", 1)[1].rsplit(")", 1)[0]
-        cols = [part.strip().split()[0].strip('"') for part in inner.split(",")]
+        inner = indexdef.split(" USING btree (", 1)[1]
+        # Split any INCLUDE payload off BEFORE parsing the key columns: a bare
+        # rsplit(")") on the whole tail silently swallows ") INCLUDE (value_ns"
+        # into the last comma part, which both corrupts the key-column parse
+        # and leaves the covering payload entirely unchecked.
+        if ") INCLUDE (" in inner:
+            key_part, include_part = inner.split(") INCLUDE (", 1)
+            include_cols = [
+                c.strip().strip('"') for c in include_part.rsplit(")", 1)[0].split(",")
+            ]
+        else:
+            key_part = inner.rsplit(")", 1)[0]
+            include_cols = []
+        cols = [part.strip().split()[0].strip('"') for part in key_part.split(",")]
         assert cols == expected_cols, (
             f"{index}: expected columns {expected_cols}, got {cols} "
             f"(indexdef: {indexdef})"
+        )
+        assert include_cols == _EXPECTED_INDEX_INCLUDES.get(index, []), (
+            f"{index}: expected INCLUDE {_EXPECTED_INDEX_INCLUDES.get(index, [])}, "
+            f"got {include_cols} (indexdef: {indexdef})"
         )
 
     # The column-name check above strips ASC/DESC; separately pin the DESC/DESC
@@ -756,6 +810,78 @@ def test_real_migrations_index_columns(conn: psycopg.Connection) -> None:
     assert all("DESC" in part.strip().upper().split()[1:] for part in ts_inner.split(",")), (
         f"idx_commits_timestamp must order both columns DESC: {ts_def}"
     )
+
+    # Likewise pin `commit_timestamp DESC` on the summary index: the
+    # latest-per-series probe's index-ordered descent (newest first) depends on
+    # the trailing key column's direction, and the column-name check strips it.
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT indexdef FROM pg_indexes "
+            "WHERE schemaname = 'public' AND indexname = 'idx_query_measurements_summary'"
+        )
+        summary_row = cur.fetchone()
+    assert summary_row is not None, "index idx_query_measurements_summary missing"
+    summary_def = summary_row[0]
+    summary_inner = summary_def.split(" USING btree (", 1)[1].split(") INCLUDE (", 1)[0]
+    last_key = summary_inner.split(",")[-1].strip()
+    assert last_key.split()[0].strip('"') == "commit_timestamp", (
+        f"idx_query_measurements_summary must end its key list with commit_timestamp: {summary_def}"
+    )
+    assert "DESC" in last_key.upper().split()[1:], (
+        f"idx_query_measurements_summary must order commit_timestamp DESC: {summary_def}"
+    )
+
+
+def test_006_backfills_preexisting_query_measurements(
+    conn: psycopg.Connection, tmp_path: Path
+) -> None:
+    """006's one-time backfill UPDATE fills `commit_timestamp` on PRE-EXISTING rows.
+
+    This is the statement that stamped the 4.85M prod rows at apply time, and it is
+    invisible to every other test (they apply all migrations before seeding, so the
+    backfill always runs against empty tables). Recreate the prod shape: apply only
+    001, seed commits + query_measurements rows that predate the column, then apply
+    the full migration set and assert every row was stamped from its commit."""
+    staged = tmp_path / "pre_006"
+    staged.mkdir()
+    first = REPO_MIGRATIONS_DIR / "001_initial_schema.sql"
+    (staged / first.name).write_text(first.read_text())
+    runner.apply(conn, staged)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO commits (commit_sha, timestamp, tree_sha, url) VALUES
+              ('sha-a', TIMESTAMPTZ '2026-01-02 03:04:05.123456+00', 't1', 'https://x/a'),
+              ('sha-b', TIMESTAMPTZ '2026-02-03 04:05:06+00',        't2', 'https://x/b')
+            """
+        )
+        cur.execute(
+            """
+            INSERT INTO query_measurements (
+                measurement_id, commit_sha, dataset, dataset_variant, scale_factor,
+                query_idx, storage, engine, format, value_ns, all_runtimes_ns
+            ) VALUES
+              (1, 'sha-a', 'tpch', NULL, '1', 1, 'nvme', 'duckdb', 'parquet', 10, '{10}'),
+              (2, 'sha-b', 'tpch', NULL, '1', 2, 'nvme', 'duckdb', 'parquet', 20, '{20}')
+            """
+        )
+    conn.commit()
+
+    runner.apply(conn, REPO_MIGRATIONS_DIR)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT count(*) FILTER (WHERE q.commit_timestamp IS NULL),
+                   count(*) FILTER (WHERE q.commit_timestamp <> c.timestamp)
+              FROM query_measurements q
+              JOIN commits c USING (commit_sha)
+            """
+        )
+        unstamped, drifted = cur.fetchone()
+    assert unstamped == 0, "006 backfill left NULL commit_timestamp on pre-existing rows"
+    assert drifted == 0, "006 backfill stamped a timestamp that disagrees with commits"
 
 
 def test_schema_deploy_targets_instance_endpoint() -> None:
@@ -1490,8 +1616,8 @@ def test_real_migrations_apply_as_non_superuser_createrole_master(
             assert is_super is False, "fidelity requires a non-superuser master login"
 
             applied = runner.apply(master, REPO_MIGRATIONS_DIR)
-            assert applied == 5, (
-                "all five real migrations must apply under the non-superuser master"
+            assert applied == 7, (
+                "all seven real migrations must apply under the non-superuser master"
             )
 
         # Verify, on the superuser connection, that the bootstrap produced a usable
@@ -1586,15 +1712,22 @@ def test_migration_requires_superuser_false_without_exact_marker() -> None:
 
 
 def test_real_bootstrap_migrations_carry_superuser_marker() -> None:
-    """002 + 004 + 005 (role/grant bootstrap) are marked; 001 + 003 (additive / owned-grant) are not."""
+    """002/004/005 (role/grant bootstrap) + 006/007 (master-owned-table DDL) are marked;
+    001 + 003 (additive / owned-grant) are not."""
     by_name = {
         p.name: p.read_text(encoding="utf-8") for p in runner.discover(REPO_MIGRATIONS_DIR)
     }
-    for marked in ("002_iam_db_user.sql", "004_ingest_role.sql", "005_read_role.sql"):
+    for marked in (
+        "002_iam_db_user.sql",
+        "004_ingest_role.sql",
+        "005_read_role.sql",
+        "006_read_path_perf.sql",
+        "007_summary_covering_index.sql",
+    ):
         assert marked in by_name, f"expected {marked} in migrations/"
         assert runner._migration_requires_superuser(by_name[marked]), (
-            f"{marked} creates roles / runs ALTER DEFAULT PRIVILEGES and must carry the "
-            "requires-superuser marker"
+            f"{marked} creates roles / runs ALTER DEFAULT PRIVILEGES / ALTERs a master-owned "
+            "table and must carry the requires-superuser marker"
         )
     for unmarked in ("001_initial_schema.sql", "003_migrator_ledger_grant.sql"):
         assert unmarked in by_name, f"expected {unmarked} in migrations/"

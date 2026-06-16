@@ -9,9 +9,14 @@ import {
   collectAllValues,
   colorFor,
   escapeHtml,
+  FETCH_TIMEOUT_MS,
   firstLine,
   formatDisplayValue,
+  HOVER_DWELL_MS,
+  HOVER_PREFETCH_PRIORITY,
   IDENTITY_UNIT,
+  INTERACTION_FULL_PRIORITY,
+  LAZY_HYDRATION_ROOT_MARGIN,
   labelForCommit,
   lttbIndices,
   magnitudeReference,
@@ -443,5 +448,28 @@ describe('clampRangeWindow', () => {
   it('clamps requested bounds into [0, maxIdx]', () => {
     expect(clampRangeWindow(10, 3, 7)).toEqual({ min: 3, max: 7 });
     expect(clampRangeWindow(10, -5, 100)).toEqual({ min: 0, max: 10 });
+  });
+});
+
+describe('hover-dwell prefetch constants', () => {
+  it('dwell is a deliberate ~600ms pause, not an accidental sweep', () => {
+    expect(HOVER_DWELL_MS).toBe(600);
+  });
+
+  it('hover-prefetch priority sits above background (0) and below direct interaction', () => {
+    expect(HOVER_PREFETCH_PRIORITY).toBeGreaterThan(0);
+    expect(HOVER_PREFETCH_PRIORITY).toBeLessThan(INTERACTION_FULL_PRIORITY);
+  });
+});
+
+describe('lazy-hydration + fetch-resilience constants', () => {
+  it('the per-fetch timeout is a generous bound over a cold function first-hit', () => {
+    // Cold Vercel first-hit measured ~7.8s; 30s leaves headroom so a slow-but-live
+    // request is not falsely aborted, while still bounding a true hang.
+    expect(FETCH_TIMEOUT_MS).toBe(30000);
+  });
+
+  it('the IO root margin pre-hydrates charts slightly before they scroll in', () => {
+    expect(LAZY_HYDRATION_ROOT_MARGIN).toMatch(/px/);
   });
 });

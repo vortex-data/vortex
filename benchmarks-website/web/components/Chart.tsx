@@ -22,11 +22,15 @@ import {
   DEFAULT_VISIBLE,
   escapeHtml,
   FETCH_N,
+  FETCH_TIMEOUT_MS,
   firstLine,
   formatDisplayValue,
+  HOVER_DWELL_MS,
+  HOVER_PREFETCH_PRIORITY,
   IDENTITY_UNIT,
   INTERACTION_FULL_PRIORITY,
   labelForCommit,
+  LAZY_HYDRATION_ROOT_MARGIN,
   lttbIndices,
   MAX_VISIBLE_POINTS,
   normalizeChartPayload,
@@ -48,12 +52,14 @@ import {
 } from '@/lib/chart-format';
 import { loadChartJs } from '@/lib/chart-js';
 import {
+  abortGroupBundle,
   emptyGroupSnapshot,
+  ensureGroupBundle,
   fullHistoryQueue,
+  getCachedPayload,
   getGlobalFilterSnapshot,
   getGroupSnapshot,
   hydrationQueue,
-  nextGroupOpenPriority,
   noteGroupSeries,
   subscribeGlobalFilter,
   subscribeGroup,
@@ -78,9 +84,10 @@ import type { ChartResponse } from '@/lib/queries';
  *   group store's current state (group Y), since the store outlives mounts.
  * - v3 wired group hydration per group (shard fetches); v4 has no shard route,
  *   so each island lazily fetches its own `/api/chart/{slug}?n=100` through the
- *   shared bounded [`hydrationQueue`] on group open (or pointer intent), then
- *   queues the one-shot `?n=all` upgrade through [`fullHistoryQueue`]. Fetch
- *   counts and concurrency caps match v3's shard pipeline shape.
+ *   shared bounded [`hydrationQueue`] on group open (or pointer intent). The
+ *   one-shot `?n=all` upgrade through [`fullHistoryQueue`] is opt-in: it runs
+ *   only on per-chart intent (window-chip click, hover dwell, or pan/zoom into
+ *   the unloaded region), never as an automatic group-open warmup.
  * - High-frequency mutations (slider value, badge text, range-strip geometry,
  *   tooltip markup, `dataset.data` rebuilds) stay imperative on refs, exactly
  *   as v3 mutated the DOM; React state is reserved for low-frequency bits (the
@@ -116,6 +123,23 @@ interface CardState {
   initialFetchEntry: QueueEntry | null;
   fullFetchEntry: QueueEntry | null;
   fullFetchPending: Promise<void> | null;
+  /** The in-flight `?n=100` fetch's per-fetch aborter; lets a group close or
+   * destroy cancel it without aborting the controller-lifetime `aborter`. */
+  initialFetchController: AbortController | null;
+  /** The in-flight `?n=all` fetch's per-fetch aborter; same role as above. */
+  fullFetchController: AbortController | null;
+  /** True once this card has rendered a bounded window (so the chip is shown);
+   * a chart born complete never sets it and shows no chip. */
+  everWindowed: boolean;
+  /** The most recent full-history fetch failed; the chip offers a retry. */
+  chipError: boolean;
+  /** The pointer is currently resting on this card (chip shows the action). */
+  hovering: boolean;
+  /** Pending hover-dwell prefetch timer; cleared on `pointerleave`/destroy. */
+  hoverDwellTimer: ReturnType<typeof setTimeout> | null;
+  /** A full-history fetch returned 404: there is nothing beyond the window to
+   * load, so the chip stops offering the action and hovers stop re-fetching. */
+  fullUnavailable: boolean;
   yUserSet: boolean;
   stripRender: (() => void) | null;
   rebuild: ((chart: ChartJs) => void) | null;
@@ -130,6 +154,7 @@ interface CardElements {
   tooltipHost: HTMLDivElement | null;
   slider: HTMLInputElement | null;
   badge: HTMLSpanElement | null;
+  chip: HTMLButtonElement | null;
   strip: HTMLDivElement | null;
   stripWindow: HTMLDivElement | null;
 }
@@ -139,6 +164,10 @@ interface CardCallbacks {
   setY: (y: 'linear' | 'log') => void;
   setLoading: (on: boolean) => void;
   setError: (msg: string | null) => void;
+  /** Show/hide the initial-fetch retry control in the error region. */
+  setRetryable: (on: boolean) => void;
+  /** Flip once the Chart.js instance exists, so the pre-data placeholder hides. */
+  setConstructed: (on: boolean) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -380,6 +409,13 @@ class ChartController {
       initialFetchEntry: null,
       fullFetchEntry: null,
       fullFetchPending: null,
+      initialFetchController: null,
+      fullFetchController: null,
+      everWindowed: false,
+      chipError: false,
+      hovering: false,
+      hoverDwellTimer: null,
+      fullUnavailable: false,
       yUserSet: false,
       stripRender: null,
       rebuild: null,
@@ -393,6 +429,10 @@ class ChartController {
     const normalized = normalizeChartPayload(payload);
     this.state.payload = normalized;
     this.state.fullLoaded = normalized.history.complete;
+    if (!normalized.history.complete) {
+      this.state.everWindowed = true;
+    }
+    this.syncWindowChip();
     if (this.groupSlug) {
       noteGroupSeries(this.groupSlug, normalized.series_meta);
     }
@@ -407,16 +447,90 @@ class ChartController {
   }
 
   /**
-   * Queue the initial `?n=100` fetch through the bounded hydration queue (or
-   * bump its priority if already queued). `showLoading` mirrors v3: the
-   * group-open path shows the per-card loading indicator, the pointer-intent
-   * prefetch stays silent.
+   * Ensure this chart's default `?n=100` payload is loaded. Consults the session
+   * payload cache first (a sibling group-bundle fetch may have already cached
+   * it), then on the landing page drives one bundle fetch per group, falling
+   * back to the per-chart [`fetchInitialPayloadDirect`] only when the bundle does
+   * not cover this slug. The permalink page (no group slug) goes straight to the
+   * per-chart fetch. `showLoading` mirrors v3: the group-open path shows the
+   * per-card loading indicator, the pointer-intent prefetch stays silent.
    */
   ensureInitialPayload(priority: number, showLoading: boolean): Promise<void> {
     const state = this.state;
     if (state.payload || state.disposed) {
       return Promise.resolve();
     }
+    // Fast path: a sibling group-bundle fetch may have already cached this
+    // chart's default payload. Seed from it synchronously (the same steps as the
+    // fetch success path) so no per-chart request is issued.
+    const cached = getCachedPayload(this.slug);
+    if (cached) {
+      this.seedFromCachedPayload(cached);
+      return Promise.resolve();
+    }
+    // On the landing page (a group slug is present), drive one bundle fetch per
+    // group and hydrate from it. Only fall through to the per-chart fetch when
+    // the bundle is unavailable (404 / failed / this slug missing).
+    if (this.groupSlug) {
+      if (showLoading) {
+        this.cb.setLoading(true);
+        this.cb.setRetryable(false);
+      }
+      const groupSlug = this.groupSlug;
+      return ensureGroupBundle(groupSlug, priority).then(() => {
+        // The group can close while this card awaits the in-flight bundle. The
+        // close runs `abortInFlightFetches` + `abortGroupBundle` already, so a
+        // per-chart fallback issued now would never be aborted and would defeat
+        // the "closing a group frees server capacity" contract. Bail when the
+        // group is no longer open.
+        if (state.disposed || state.payload || !this.groupIsOpen()) {
+          return;
+        }
+        const fromBundle = getCachedPayload(this.slug);
+        if (fromBundle) {
+          this.seedFromCachedPayload(fromBundle);
+          return;
+        }
+        // Bundle did not cover this chart: fall back to the per-chart fetch.
+        return this.fetchInitialPayloadDirect(priority, showLoading);
+      });
+    }
+    return this.fetchInitialPayloadDirect(priority, showLoading);
+  }
+
+  /** Seed state from a cached default payload (the bundle/cache hit path),
+   * mirroring the per-chart fetch's success handler. Does NOT call
+   * `maybeConstruct`; the caller does after the returned promise resolves. */
+  private seedFromCachedPayload(raw: ChartResponse): void {
+    const state = this.state;
+    // A concurrent full-history upgrade may already have constructed from the
+    // `?n=all` payload; the late cache seed must not clobber that back to the
+    // bounded window (same invariant as the per-chart success handler).
+    if (state.fullLoaded) {
+      return;
+    }
+    const normalized = normalizeChartPayload(raw);
+    state.payload = normalized;
+    state.fullLoaded = normalized.history.complete;
+    if (!normalized.history.complete) {
+      state.everWindowed = true;
+    }
+    this.syncWindowChip();
+    this.cb.setLoading(false);
+    if (this.groupSlug) {
+      noteGroupSeries(this.groupSlug, normalized.series_meta);
+    }
+  }
+
+  /**
+   * Queue the initial `?n=100` fetch through the bounded hydration queue (or
+   * bump its priority if already queued). The per-chart fallback for the bundle
+   * path and the only path on the permalink page. `showLoading` mirrors v3: the
+   * group-open path shows the per-card loading indicator, the pointer-intent
+   * prefetch stays silent.
+   */
+  private fetchInitialPayloadDirect(priority: number, showLoading: boolean): Promise<void> {
+    const state = this.state;
     if (state.initialFetchEntry) {
       if (priority > state.initialFetchEntry.priority) {
         state.initialFetchEntry.priority = priority;
@@ -424,6 +538,7 @@ class ChartController {
       }
       if (showLoading) {
         this.cb.setLoading(true);
+        this.cb.setRetryable(false);
       }
       return state.initialFetchEntry.promise.then(
         () => undefined,
@@ -432,25 +547,67 @@ class ChartController {
     }
     if (showLoading) {
       this.cb.setLoading(true);
+      this.cb.setRetryable(false);
     }
     const url = `/api/chart/${encodeURIComponent(this.slug)}?n=${encodeURIComponent(CHART_FETCH_N)}`;
+    const fc = new AbortController();
+    state.initialFetchController = fc;
+    // Bridge the controller-lifetime aborter to this per-fetch controller so
+    // `destroy()` cancels the in-flight request. `{ once: true }` self-removes
+    // the listener after a single abort; the `finally` removes it on the no-abort
+    // path. Propagate the parent's reason so a destroy reads as `AbortError`.
+    const onParentAbort = (): void => fc.abort(this.aborter.signal.reason);
+    this.aborter.signal.addEventListener('abort', onParentAbort, { once: true });
+    if (this.aborter.signal.aborted) {
+      fc.abort(this.aborter.signal.reason);
+    }
     const entry = hydrationQueue.schedule(async () => {
-      const r = await fetch(url, { headers: { accept: 'application/json' } });
-      if (!r.ok) {
-        throw new Error(r.status === 404 ? 'not found' : `HTTP ${r.status}`);
+      // The timeout starts when the task actually runs (not while queued), so it
+      // measures fetch duration, not queue wait. A `TimeoutError` reason lets the
+      // catch tell a timeout apart from a close/destroy `AbortError`.
+      const timer = setTimeout(
+        () => fc.abort(new DOMException('Fetch timed out', 'TimeoutError')),
+        FETCH_TIMEOUT_MS,
+      );
+      try {
+        const r = await fetch(url, { headers: { accept: 'application/json' }, signal: fc.signal });
+        if (!r.ok) {
+          throw new Error(r.status === 404 ? 'not found' : `HTTP ${r.status}`);
+        }
+        return (await r.json()) as ChartResponse;
+      } finally {
+        clearTimeout(timer);
+        this.aborter.signal.removeEventListener('abort', onParentAbort);
       }
-      return (await r.json()) as ChartResponse;
     }, priority);
     state.initialFetchEntry = entry;
     return entry.promise.then(
       (raw) => {
-        state.initialFetchEntry = null;
+        if (state.initialFetchEntry === entry) {
+          state.initialFetchEntry = null;
+        }
+        if (state.initialFetchController === fc) {
+          state.initialFetchController = null;
+        }
         if (state.disposed) {
+          return;
+        }
+        // A concurrent full-history upgrade (hover dwell or chip click) may have
+        // already resolved and constructed from the `?n=all` payload while this
+        // `?n=100` window was still in flight. The late window resolution must
+        // not clobber that full payload back to the bounded window (which would
+        // diverge `payload` from the rendered datasets, regress the chip, and
+        // re-arm a redundant pan-triggered refetch).
+        if (state.fullLoaded) {
           return;
         }
         const normalized = normalizeChartPayload(raw as ChartResponse);
         state.payload = normalized;
         state.fullLoaded = normalized.history.complete;
+        if (!normalized.history.complete) {
+          state.everWindowed = true;
+        }
+        this.syncWindowChip();
         this.cb.setLoading(false);
         if (this.groupSlug) {
           noteGroupSeries(this.groupSlug, normalized.series_meta);
@@ -458,41 +615,83 @@ class ChartController {
         void this.maybeConstruct();
       },
       (err: unknown) => {
-        state.initialFetchEntry = null;
+        if (state.initialFetchEntry === entry) {
+          state.initialFetchEntry = null;
+        }
+        if (state.initialFetchController === fc) {
+          state.initialFetchController = null;
+        }
         if (state.disposed) {
           return;
         }
+        // A close/destroy cancellation aborts with `AbortError`: stay silent and
+        // do NOT touch the loading state, which may now belong to a fresh fetch
+        // scheduled after a reopen (clearing it here would extinguish that
+        // newer fetch's spinner). A timeout (`TimeoutError`) or a genuine
+        // network/HTTP failure clears loading and surfaces the error indicator.
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          return;
+        }
         this.cb.setLoading(false);
-        const message = err instanceof Error ? err.message : 'unknown error';
+        const message =
+          err instanceof DOMException && err.name === 'TimeoutError'
+            ? 'timed out'
+            : err instanceof Error
+              ? err.message
+              : 'unknown error';
         this.cb.setError(`failed to load: ${message}`);
+        this.cb.setRetryable(true);
       },
     );
   }
 
-  /**
-   * Group-open hydration: fetch this chart's latest-100 payload with the
-   * group's base priority, then queue the background full-history upgrade,
-   * matching v3's shard-zero-then-warmup ordering.
+  /** Re-issue the initial `?n=100` fetch after a failure/timeout. User-initiated
+   * (the error region's retry control), so it is naturally bounded; clears the
+   * error first and schedules at the top of the hydration queue.
    */
-  onGroupOpen(): void {
-    const priority = nextGroupOpenPriority();
-    void this.ensureInitialPayload(priority + 20, true).then(() => {
+  retryInitialPayload(): void {
+    if (this.state.disposed || this.state.payload) {
+      return;
+    }
+    this.cb.setError(null);
+    this.cb.setRetryable(false);
+    void this.ensureInitialPayload(0, true).then(() => {
       if (this.state.disposed) {
         return;
       }
       void this.maybeConstruct();
-      void this.ensureFullHistory(priority);
+    });
+  }
+
+  /**
+   * Hydrate this chart's latest-100 window at `priority` and construct. Full
+   * history is NOT warmed here; it loads only on explicit per-chart intent
+   * (window-chip click, hover dwell, or pan/zoom into the unloaded region). The
+   * priority is the negated visual `index`, so top cards drain ahead of lower
+   * ones (the queue drains highest-priority-first).
+   */
+  onGroupOpen(priority: number): void {
+    void this.ensureInitialPayload(priority, true).then(() => {
+      if (this.state.disposed) {
+        return;
+      }
+      void this.maybeConstruct();
     });
   }
 
   /**
    * Queue the one-shot `?n=all` full-history upgrade (or promote the queued
-   * entry's priority). This is the ONLY chart refetch after the initial load;
-   * pan/zoom/slider interaction never refetches beyond promoting this hop.
+   * entry's priority). Triggered only by explicit intent — window-chip click
+   * (`INTERACTION_FULL_PRIORITY`), hover dwell (`HOVER_PREFETCH_PRIORITY`), or
+   * pan/zoom touching the unloaded region — never as an automatic warmup.
    */
   ensureFullHistory(priority: number): Promise<void> {
     const state = this.state;
-    if (state.fullLoaded || state.disposed) {
+    // `fullUnavailable` is checked here (not only at the chip/hover call sites)
+    // so every intent path shares one terminal-404 guard, including the pan/zoom
+    // `rangeTouchesUnloadedHistory` promotion, which must not re-issue a fetch
+    // that already 404'd.
+    if (state.fullLoaded || state.fullUnavailable || state.disposed) {
       return Promise.resolve();
     }
     if (state.fullFetchEntry) {
@@ -503,38 +702,78 @@ class ChartController {
       return state.fullFetchPending ?? Promise.resolve();
     }
     const url = `/api/chart/${encodeURIComponent(this.slug)}?n=${encodeURIComponent(FETCH_N)}`;
+    const fc = new AbortController();
+    state.fullFetchController = fc;
+    const onParentAbort = (): void => fc.abort(this.aborter.signal.reason);
+    this.aborter.signal.addEventListener('abort', onParentAbort, { once: true });
+    if (this.aborter.signal.aborted) {
+      fc.abort(this.aborter.signal.reason);
+    }
     const entry = fullHistoryQueue.schedule(async () => {
-      const r = await fetch(url, { headers: { accept: 'application/json' } });
-      if (r.status === 404) {
-        return null;
+      const timer = setTimeout(
+        () => fc.abort(new DOMException('Fetch timed out', 'TimeoutError')),
+        FETCH_TIMEOUT_MS,
+      );
+      try {
+        const r = await fetch(url, { headers: { accept: 'application/json' }, signal: fc.signal });
+        if (r.status === 404) {
+          return null;
+        }
+        if (!r.ok) {
+          throw new Error(`HTTP ${r.status}`);
+        }
+        return (await r.json()) as ChartResponse;
+      } finally {
+        clearTimeout(timer);
+        this.aborter.signal.removeEventListener('abort', onParentAbort);
       }
-      if (!r.ok) {
-        throw new Error(`HTTP ${r.status}`);
-      }
-      return (await r.json()) as ChartResponse;
     }, priority);
     state.fullFetchEntry = entry;
     state.fullFetchPending = entry.promise
       .then((full) => {
-        if (state.disposed || full === null) {
+        if (state.disposed) {
+          return;
+        }
+        if (full === null) {
+          state.fullUnavailable = true;
           return;
         }
         this.replaceChartPayload(full as ChartResponse);
         state.fullLoaded = true;
+        if (state.fullFetchController === fc) {
+          state.fullFetchController = null;
+        }
+        state.chipError = false;
         this.cb.setLoading(false);
         if (!state.chart && this.groupIsOpen()) {
           void this.maybeConstruct();
         }
       })
       .catch((err: unknown) => {
-        // Quiet: the latest-100 payload is still usable. Surface to the
-        // console for debugging.
+        if (state.fullFetchController === fc) {
+          state.fullFetchController = null;
+        }
+        // A close/destroy cancellation is silent; a timeout or genuine failure
+        // leaves the chip's retry affordance (chipError) so the user can re-try.
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          return;
+        }
+        // Quiet: the latest-100 payload is still usable. Surface to the console
+        // for debugging; the chip exposes the retry affordance.
         console.warn('bench: full history fetch failed', err);
+        state.chipError = true;
       })
       .then(() => {
-        state.fullFetchEntry = null;
-        state.fullFetchPending = null;
+        if (state.fullFetchEntry === entry) {
+          state.fullFetchEntry = null;
+          state.fullFetchController = null;
+          state.fullFetchPending = null;
+        }
+        // Always re-sync the chip so the UI reflects the latest state even when
+        // the guard above skips the stale entry clears.
+        this.syncWindowChip();
       });
+    this.syncWindowChip();
     return state.fullFetchPending;
   }
 
@@ -697,9 +936,11 @@ class ChartController {
               enabled: false,
               external: externalTooltipHandler(state, tooltipHost),
             },
-            // Wheel-zoom is disabled because wheel means PAN here (manual
-            // listener below); drag-pan and drag-rectangle-zoom ride the
-            // plugin.
+            // A mouse drag draws a selection rectangle and zooms to it (the v3
+            // behavior), never pans. Panning is reserved for the wheel (manual
+            // listener below) and the range strip, so a plain drag highlights a
+            // region without sliding the axes. Wheel-zoom is disabled because
+            // wheel means PAN here.
             zoom: {
               zoom: {
                 wheel: { enabled: false },
@@ -707,11 +948,13 @@ class ChartController {
                 mode: 'x',
                 onZoom: (ctx) => throttledRebuild(ctx.chart),
               },
+              // Drag-to-pan is disabled so a drag is a zoom selection, not a pan.
+              // The plugin's `chart.pan()` API (used by the wheel listener and the
+              // range strip) is NOT gated by this flag, so wheel/strip panning is
+              // unaffected; only the built-in drag-pan gesture is removed.
               pan: {
-                enabled: true,
+                enabled: false,
                 mode: 'x',
-                modifierKey: undefined,
-                onPan: (ctx) => throttledRebuild(ctx.chart),
               },
               limits: {
                 x: { min: 0, max: Math.max(0, labels.length - 1), minRange: 4 },
@@ -722,6 +965,7 @@ class ChartController {
       });
 
       state.chart = chart;
+      this.cb.setConstructed(true);
       state.rebuild = throttledRebuild;
       this.attachWheelPan(canvas, chart, throttledRebuild);
       this.syncSliderBounds(labels.length);
@@ -951,6 +1195,119 @@ class ChartController {
         `preserved while the chart stays responsive. Zoom in past ${MAX_VISIBLE_POINTS} visible ` +
         `commits to see every raw measurement.`,
     );
+  }
+
+  /** Render the per-card window chip from controller state. Imperative, like
+   * `syncDownsampleBadge`: the chip is hidden for charts born complete, and
+   * otherwise reflects windowed → loading → complete, with an error → retry
+   * path and a hover-revealed "load all N" action. */
+  private syncWindowChip(): void {
+    const chip = this.els().chip;
+    if (!chip) {
+      return;
+    }
+    const state = this.state;
+    const payload = state.payload;
+    if (!payload || !state.everWindowed) {
+      chip.setAttribute('hidden', '');
+      chip.dataset.state = 'hidden';
+      chip.textContent = '';
+      chip.disabled = true;
+      chip.removeAttribute('title');
+      return;
+    }
+    // Pin the locale so the grouped digits ("3,572") are deterministic across
+    // runtimes and CI ICU builds (and match the test expectations) rather than
+    // following the host's default locale.
+    const total = payload.history.total_commits.toLocaleString('en-US');
+    const loaded = payload.history.loaded_commits.toLocaleString('en-US');
+    chip.removeAttribute('hidden');
+    if (state.fullLoaded) {
+      chip.dataset.state = 'complete';
+      chip.disabled = true;
+      chip.textContent = `all ${total}`;
+      chip.removeAttribute('title');
+      return;
+    }
+    if (state.fullUnavailable) {
+      chip.dataset.state = 'windowed';
+      chip.disabled = true;
+      chip.textContent = `latest ${loaded} of ${total}`;
+      chip.removeAttribute('title');
+      return;
+    }
+    if (state.fullFetchPending) {
+      chip.dataset.state = 'loading';
+      chip.disabled = true;
+      chip.textContent = `loading all ${total}…`;
+      chip.removeAttribute('title');
+      return;
+    }
+    if (state.chipError) {
+      chip.dataset.state = 'error';
+      chip.disabled = false;
+      chip.textContent = 'retry';
+      chip.setAttribute('title', 'Loading the full history failed. Click to retry.');
+      return;
+    }
+    chip.dataset.state = 'windowed';
+    chip.disabled = false;
+    chip.textContent = state.hovering ? `load all ${total}` : `latest ${loaded} of ${total}`;
+    chip.setAttribute(
+      'title',
+      `Showing the latest ${loaded} of ${total} commits. Click to load the full history.`,
+    );
+  }
+
+  /** Window-chip click: load the full history at top priority, or retry after a
+   * failure. A no-op once full history is loaded or a fetch is already pending. */
+  onWindowChipClick(): void {
+    const state = this.state;
+    if (state.disposed || state.fullLoaded || state.fullFetchPending || state.fullUnavailable) {
+      return;
+    }
+    state.chipError = false;
+    void this.ensureFullHistory(INTERACTION_FULL_PRIORITY);
+  }
+
+  /** Pointer resting on the card: reveal the chip's action immediately and arm
+   * the dwell-prefetch timer. Only a deliberate dwell (not a sweep) fetches. */
+  onCardHoverStart(): void {
+    const state = this.state;
+    if (state.disposed) {
+      return;
+    }
+    state.hovering = true;
+    this.syncWindowChip();
+    if (
+      state.fullLoaded ||
+      state.fullFetchPending ||
+      state.fullUnavailable ||
+      state.hoverDwellTimer !== null
+    ) {
+      return;
+    }
+    state.hoverDwellTimer = setTimeout(() => {
+      state.hoverDwellTimer = null;
+      if (state.disposed) {
+        return;
+      }
+      void this.ensureFullHistory(HOVER_PREFETCH_PRIORITY);
+    }, HOVER_DWELL_MS);
+  }
+
+  /** Pointer left the card: restore the chip label and cancel a pending dwell. */
+  onCardHoverEnd(): void {
+    const state = this.state;
+    if (state.disposed) {
+      return;
+    }
+    state.hovering = false;
+    if (state.hoverDwellTimer !== null) {
+      clearTimeout(state.hoverDwellTimer);
+      state.hoverDwellTimer = null;
+    }
+    this.syncWindowChip();
   }
 
   /** Cap the slider's `max` to the chart's full x-axis length; for a virtual
@@ -1295,12 +1652,35 @@ class ChartController {
     chart.update('none');
   }
 
+  /** Cancel any in-flight `?n=100` / `?n=all` request WITHOUT tearing down the
+   * controller, so closing a group (or its IO disconnect) frees server capacity
+   * and stops open/close from piling requests up. A reopen re-issues the fetch.
+   * The aborts reject the in-flight promises with `AbortError`, which the fetch
+   * catch paths treat as a silent cancellation. */
+  abortInFlightFetches(): void {
+    this.state.initialFetchController?.abort();
+    this.state.fullFetchController?.abort();
+    // Drop the entry references so a reopen schedules a FRESH fetch rather than
+    // joining the now-aborting promise (which resolves to nothing and would leave
+    // the card blank). The aborted tasks still settle; their handlers' identity-
+    // guarded clears below no-op once a newer fetch owns these refs.
+    this.state.initialFetchController = null;
+    this.state.initialFetchEntry = null;
+    this.state.fullFetchController = null;
+    this.state.fullFetchEntry = null;
+    this.state.fullFetchPending = null;
+  }
+
   /** Tear down this controller: destroy the chart, remove every DOM listener
    * it attached (wheel, strip pointers), and drop late async results. One-way;
    * the mount effect constructs a fresh controller for the next mount. */
   destroy(): void {
     this.state.disposed = true;
-    this.aborter.abort();
+    this.aborter.abort(new DOMException('chart controller destroyed', 'AbortError'));
+    if (this.state.hoverDwellTimer !== null) {
+      clearTimeout(this.state.hoverDwellTimer);
+      this.state.hoverDwellTimer = null;
+    }
     this.state.chart?.destroy();
     this.state.chart = null;
   }
@@ -1330,12 +1710,15 @@ export function Chart({ slug, name, index, groupSlug, initialPayload }: ChartIsl
   const tooltipHostRef = useRef<HTMLDivElement>(null);
   const sliderRef = useRef<HTMLInputElement>(null);
   const badgeRef = useRef<HTMLSpanElement>(null);
+  const chipRef = useRef<HTMLButtonElement>(null);
   const stripRef = useRef<HTMLDivElement>(null);
   const stripWindowRef = useRef<HTMLDivElement>(null);
 
   const [y, setY] = useState<'linear' | 'log'>('linear');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [retryable, setRetryable] = useState(false);
+  const [constructed, setConstructed] = useState(false);
 
   // The live controller for the CURRENT mount. Created inside the mount effect
   // (not once per component instance) because `destroy()` is one-way and React
@@ -1398,10 +1781,11 @@ export function Chart({ slug, name, index, groupSlug, initialPayload }: ChartIsl
         tooltipHost: tooltipHostRef.current,
         slider: sliderRef.current,
         badge: badgeRef.current,
+        chip: chipRef.current,
         strip: stripRef.current,
         stripWindow: stripWindowRef.current,
       }),
-      { setY, setLoading, setError },
+      { setY, setLoading, setError, setRetryable, setConstructed },
     );
     controllerRef.current = controller;
     if (initialPayload) {
@@ -1421,6 +1805,15 @@ export function Chart({ slug, name, index, groupSlug, initialPayload }: ChartIsl
     const details = group?.querySelector('details.group-disclosure') as HTMLDetailsElement | null;
     const cleanups: (() => void)[] = [];
 
+    const onCardEnter = (): void => controller.onCardHoverStart();
+    const onCardLeave = (): void => controller.onCardHoverEnd();
+    card.addEventListener('pointerenter', onCardEnter);
+    card.addEventListener('pointerleave', onCardLeave);
+    cleanups.push(() => {
+      card.removeEventListener('pointerenter', onCardEnter);
+      card.removeEventListener('pointerleave', onCardLeave);
+    });
+
     // The scope slider binds a THROTTLED native `input` listener (NOT
     // `change`, which only fires on release) so dragging re-renders
     // continuously.
@@ -1434,32 +1827,82 @@ export function Chart({ slug, name, index, groupSlug, initialPayload }: ChartIsl
     }
 
     if (details) {
-      // Landing page: fetch on group open (the `toggle` event also fires for
+      // Landing page: hydrate each card lazily when it scrolls near the viewport
+      // (reusing the permalink page's IntersectionObserver shape), so opening a
+      // big group hydrates only the ~visible charts, top-first by visual index,
+      // and the rest hydrate on scroll. The `toggle` event also fires for
       // scripted `details.open` writes, which is how Expand All reaches every
-      // island), prefetch quietly on pointer intent.
+      // island. Closing the group disconnects the observer and aborts in-flight
+      // fetches; reopening re-arms.
+      // Top cards drain first: priority `0` for the first card, negative `index`
+      // for the rest (the queue sorts highest-priority-first). The `index === 0`
+      // branch yields `+0` not `-0`; runtime sorting treats them identically, but
+      // the visual-order test asserts `Math.max(...).toBe(0)`, and `toBe`'s
+      // `Object.is` check distinguishes `-0` from `0`.
+      const priority = index === 0 ? 0 : -index;
+      // The bundle kick + close abort only run on the landing page, where the
+      // island has a group slug; bind a non-null local so the closures below can
+      // pass it without re-narrowing.
+      const bundleGroupSlug = groupSlug;
+      let io: IntersectionObserver | null = null;
+      const armHydration = (): void => {
+        if (io) {
+          // Already armed; do not double-observe.
+          return;
+        }
+        // Start the group's bundle fetch immediately on open so every chart's
+        // last-100 data loads eagerly (top-group-first by index priority), even
+        // off-screen. Construction stays gated on intersection below. The
+        // per-group in-flight dedupe means sibling islands issue only ONE fetch.
+        if (bundleGroupSlug !== undefined) {
+          void ensureGroupBundle(bundleGroupSlug, priority);
+        }
+        if (typeof IntersectionObserver === 'undefined') {
+          // Graceful degradation for SSR and legacy browsers that lack
+          // `IntersectionObserver`: hydrate immediately rather than never.
+          controller.onGroupOpen(priority);
+          return;
+        }
+        io = new IntersectionObserver(
+          (entries) => {
+            for (const entry of entries) {
+              if (entry.isIntersecting) {
+                io?.disconnect();
+                io = null;
+                controller.onGroupOpen(priority);
+              }
+            }
+          },
+          { rootMargin: LAZY_HYDRATION_ROOT_MARGIN },
+        );
+        io.observe(card);
+      };
+      const disarmHydration = (): void => {
+        io?.disconnect();
+        io = null;
+        controller.abortInFlightFetches();
+        // Abort the group bundle and drop its in-flight entry so a reopen
+        // re-issues a fresh fetch (idempotent; the first island wins, the rest
+        // no-op). Mirrors `abortInFlightFetches`'s entry-clearing rationale.
+        if (bundleGroupSlug !== undefined) {
+          abortGroupBundle(bundleGroupSlug);
+        }
+      };
       const onToggle = (): void => {
         if (details.open) {
-          controller.onGroupOpen();
+          armHydration();
+        } else {
+          disarmHydration();
         }
       };
       details.addEventListener('toggle', onToggle);
       cleanups.push(() => details.removeEventListener('toggle', onToggle));
-
-      const summary = group?.querySelector('.group-summary');
-      if (summary) {
-        const onIntent = (): void => {
-          void controller.ensureInitialPayload(0, false);
-        };
-        summary.addEventListener('pointerenter', onIntent);
-        summary.addEventListener('focusin', onIntent);
-        cleanups.push(() => {
-          summary.removeEventListener('pointerenter', onIntent);
-          summary.removeEventListener('focusin', onIntent);
-        });
-      }
-
+      cleanups.push(() => {
+        io?.disconnect();
+        io = null;
+      });
       if (details.open) {
-        controller.onGroupOpen();
+        armHydration();
       }
     } else {
       // Permalink page: the payload is inlined; construct lazily when the card
@@ -1495,6 +1938,11 @@ export function Chart({ slug, name, index, groupSlug, initialPayload }: ChartIsl
       if (controllerRef.current === controller) {
         controllerRef.current = null;
       }
+      // Re-show the placeholder on the next mount. `constructed` latches true
+      // once a chart builds but is never otherwise reset, so a StrictMode dev
+      // remount (or any re-mount) would briefly suppress the placeholder until
+      // the fresh controller reconstructs.
+      setConstructed(false);
     };
     // The island's identity props never change after mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1506,7 +1954,9 @@ export function Chart({ slug, name, index, groupSlug, initialPayload }: ChartIsl
   // whose only construction trigger already fired before a transient Chart.js
   // chunk-load failure.
   useEffect(() => {
-    if (error === null) {
+    // A retryable initial-fetch error owns its own dismissal (the user clicks
+    // retry), so the 4s construction-retry auto-dismiss does not apply to it.
+    if (error === null || retryable) {
       return;
     }
     const timer = setTimeout(() => {
@@ -1535,7 +1985,7 @@ export function Chart({ slug, name, index, groupSlug, initialPayload }: ChartIsl
     return () => {
       clearTimeout(timer);
     };
-  }, [error]);
+  }, [error, retryable]);
 
   return (
     <section className="chart-card" data-chart-index={index} data-chart-slug={slug} ref={cardRef}>
@@ -1546,6 +1996,14 @@ export function Chart({ slug, name, index, groupSlug, initialPayload }: ChartIsl
           data-role="downsample-badge"
           hidden
           ref={badgeRef}
+        />
+        <button
+          type="button"
+          className="chart-window-chip"
+          data-role="window-chip"
+          hidden
+          ref={chipRef}
+          onClick={() => controllerRef.current?.onWindowChipClick()}
         />
       </h3>
       <div className="toolbar toolbar--card" aria-label="Chart controls">
@@ -1588,6 +2046,12 @@ export function Chart({ slug, name, index, groupSlug, initialPayload }: ChartIsl
       </div>
       <div className="chart-tooltip-host" ref={tooltipHostRef} />
       <div className="chart-wrap">
+        {!constructed && !error && (
+          <div className="chart-placeholder" role="status" aria-live="polite">
+            <span className="chart-spinner" aria-hidden="true" />
+            <span className="chart-placeholder-text">loading…</span>
+          </div>
+        )}
         <canvas data-chart-index={index} ref={canvasRef} />
       </div>
       {/* The aria value attributes track the window's left edge as a percent
@@ -1618,8 +2082,33 @@ export function Chart({ slug, name, index, groupSlug, initialPayload }: ChartIsl
           </div>
         </div>
       </div>
-      {loading && <div className="chart-loading">loading…</div>}
-      {error && <div className="chart-error">{error}</div>}
+      {loading && (
+        <div className="chart-loading" role="status" aria-live="polite">
+          <span className="chart-spinner" aria-hidden="true" />
+          <span className="chart-loading-text">loading…</span>
+        </div>
+      )}
+      {error && (
+        <div className="chart-error">
+          <span>{error}</span>
+          {retryable && (
+            <button
+              type="button"
+              className="chart-error-retry"
+              data-role="fetch-retry"
+              onClick={() => {
+                const controller = controllerRef.current;
+                if (!controller) {
+                  return;
+                }
+                controller.retryInitialPayload();
+              }}
+            >
+              retry
+            </button>
+          )}
+        </div>
+      )}
     </section>
   );
 }

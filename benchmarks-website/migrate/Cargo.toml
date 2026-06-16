@@ -29,12 +29,16 @@ clap = { workspace = true, features = ["derive"] }
 # read path the Postgres bulk loader uses, aligned with the workspace `arrow-*`.
 duckdb = { version = "1.10502", features = ["bundled", "appender-arrow"] }
 flate2 = "1.1"
-# Sync Postgres client + native-tls for the v3 DuckDB -> Postgres bulk load
-# (PR-3.1). `native-tls` provides the verify-full path against RDS (operator
-# supplies the CA bundle); the local rehearsal connects with `NoTls`.
+# Sync Postgres client + rustls for the v3 DuckDB -> Postgres bulk load
+# (PR-3.1). rustls (not native-tls) provides the verify-full path against RDS:
+# macOS Secure Transport rejects the RDS leaf certificate because it carries no
+# `serverAuth` Extended Key Usage, whereas rustls/webpki treats a missing EKU as
+# unrestricted (matching OpenSSL/libpq) and so validates the RDS chain on every
+# OS. The operator supplies the CA bundle; the local rehearsal connects `NoTls`.
 postgres = "0.19"
-native-tls = "0.2"
-postgres-native-tls = "0.5"
+rustls = "0.23"
+tokio-postgres-rustls = "0.13"
+rustls-pemfile = "2"
 reqwest = { workspace = true, features = ["json"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

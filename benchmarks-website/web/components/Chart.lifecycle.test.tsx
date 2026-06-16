@@ -8,7 +8,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Chart } from '@/components/Chart';
-import { resetGroup, setGroupY } from '@/lib/chart-store';
+import { resetGroup, resetPayloadCache, setGroupY } from '@/lib/chart-store';
 
 // Chart.js never actually constructs in this suite; the loader resolves to a
 // throwing stub so any unexpected construction fails loudly. The lifecycle
@@ -37,15 +37,25 @@ describe('Chart island lifecycle (StrictMode effect replay)', () => {
   let container: HTMLElement;
   let root: Root | null = null;
   let fetchCalls: string[];
+  let signals: AbortSignal[];
 
   beforeEach(() => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     fetchCalls = [];
-    vi.stubGlobal('fetch', (url: string | URL) => {
+    signals = [];
+    resetPayloadCache();
+    vi.stubGlobal('fetch', (url: string | URL, init?: { signal?: AbortSignal }) => {
       fetchCalls.push(String(url));
-      // Park the promise: the assertion is that the fetch was ISSUED; the
-      // construction path is exercised elsewhere.
-      return new Promise(() => {});
+      if (init?.signal) {
+        signals.push(init.signal);
+      }
+      // Park the promise (rejecting only on abort): the assertion is that the
+      // fetch was ISSUED; the construction path is exercised elsewhere.
+      return new Promise((_res, reject) => {
+        init?.signal?.addEventListener('abort', () =>
+          reject(init.signal?.reason ?? new DOMException('Aborted', 'AbortError')),
+        );
+      });
     });
     container = document.createElement('div');
     document.body.appendChild(container);
@@ -57,6 +67,7 @@ describe('Chart island lifecycle (StrictMode effect replay)', () => {
     });
     container.remove();
     vi.unstubAllGlobals();
+    resetPayloadCache();
   });
 
   it('still fetches after the StrictMode mount/cleanup/remount replay', async () => {
@@ -76,17 +87,24 @@ describe('Chart island lifecycle (StrictMode effect replay)', () => {
         </StrictMode>,
       );
     });
-    // StrictMode ran the mount effect twice (mount, cleanup, remount), so TWO
-    // controllers existed and EACH must have issued its own initial latest-100
-    // fetch; the first controller's parked response is discarded on teardown
-    // and the surviving (second) controller's fetch is the one that hydrates
-    // the chart. The pre-fix latched controller issued only the first fetch:
-    // the replayed mount saw `disposed` and went permanently inert, which is
-    // exactly the blank-charts-in-`next dev` regression this test pins.
-    const initialFetches = fetchCalls.filter(
-      (u) => u.includes('/api/chart/') && u.includes('n=100'),
+    // StrictMode ran the mount effect twice (mount, cleanup, remount). On the
+    // landing page (PR-5.0.97) the initial fetch a group-open island issues is
+    // the eager per-group bundle (`/api/group/{slug}?n=100`); the per-chart
+    // `/api/chart` fetch is the fallback the IntersectionObserver gates. The
+    // bundle is GROUP-scoped, not island-scoped, so a per-island unmount
+    // (`destroy()`) does NOT abort it; only a group close does. The replayed
+    // mount therefore finds the still-in-flight bundle and DEDUPES onto it,
+    // collapsing the StrictMode replay to exactly ONE bundle fetch. That single
+    // fetch staying alive (not aborted) is what hydrates the chart: the pre-fix
+    // latched controller issued ZERO fetches on remount and left the island
+    // permanently inert (the blank-charts-in-`next dev` regression this pins),
+    // whereas here the survivor keeps the bundle in flight.
+    const bundleFetches = fetchCalls.filter(
+      (u) => u.includes('/api/group/') && u.includes('n=100'),
     );
-    expect(initialFetches).toHaveLength(2);
+    expect(bundleFetches).toHaveLength(1);
+    expect(signals).toHaveLength(1);
+    expect(signals[0].aborted).toBe(false);
   });
 
   it('replays a pre-existing group-Y override on mount (store outlives mounts)', async () => {

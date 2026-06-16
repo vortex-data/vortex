@@ -31,8 +31,19 @@ use vortex_bench_migrate::verify::run_postgres_value_verify;
 use vortex_bench_server::family;
 use vortex_bench_server::schema::COMMITS_DDL;
 
-/// The authoritative Postgres schema, applied to the container at init.
-const SCHEMA_SQL: &str = include_str!("../../../migrations/001_initial_schema.sql");
+/// The Postgres schema applied to the container at init: the schema-shape
+/// migrations the loader touches -- the 001 base DDL, the 006 read-path
+/// migration (whose denormalized `query_measurements.commit_timestamp` column
+/// the loader's post-COPY denormalization UPDATE requires), and the 007
+/// covering-index swap (index-only, but kept so the container's index set
+/// matches prod's). The 002-005 role/grant migrations are deliberately
+/// omitted: they configure RDS auth, which a throwaway container neither has
+/// nor needs.
+const SCHEMA_SQL: &str = concat!(
+    include_str!("../../../migrations/001_initial_schema.sql"),
+    include_str!("../../../migrations/006_read_path_perf.sql"),
+    include_str!("../../../migrations/007_summary_covering_index.sql"),
+);
 
 /// Per-table row counts the fixture loads. Drives the count assertions.
 const FIXTURE_COUNTS: &[(&str, u64)] = &[
@@ -140,7 +151,7 @@ fn rehearsal_load_then_verify_is_clean() -> Result<()> {
     let dsn = dsn_for(&container)?;
 
     // The loader reports exactly the fixture's per-table row counts.
-    let summary = load(&duckdb_path, &dsn, None)?;
+    let summary = load(&duckdb_path, &dsn, None, false)?;
     for &(table, expected) in FIXTURE_COUNTS {
         let got = summary.per_table.iter().find(|e| e.0 == table).map(|e| e.1);
         assert_eq!(got, Some(expected), "loader count for {table}");
@@ -161,6 +172,25 @@ fn rehearsal_load_then_verify_is_clean() -> Result<()> {
             "target count for {table}"
         );
     }
+
+    // The loader denormalized `commit_timestamp` onto every `query_measurements`
+    // row (migration 006, the read path's latest-per-series sort key): no NULLs
+    // remain and each value equals the joined `commits.timestamp`.
+    let unstamped: i64 = client
+        .query_one(
+            "SELECT count(*) FROM query_measurements WHERE commit_timestamp IS NULL",
+            &[],
+        )?
+        .get(0);
+    assert_eq!(unstamped, 0, "rows missing denormalized commit_timestamp");
+    let mismatched: i64 = client
+        .query_one(
+            "SELECT count(*) FROM query_measurements q JOIN commits c USING (commit_sha)
+              WHERE q.commit_timestamp <> c.timestamp",
+            &[],
+        )?
+        .get(0);
+    assert_eq!(mismatched, 0, "denormalized commit_timestamp drifted");
     Ok(())
 }
 
@@ -189,7 +219,7 @@ fn rehearsal_mid_load_failure_rolls_back_to_empty() -> Result<()> {
         &[],
     )?;
 
-    let result = load(&duckdb_path, &dsn, None);
+    let result = load(&duckdb_path, &dsn, None, false);
     assert!(
         result.is_err(),
         "the conflicting load should fail, got {result:?}"
@@ -216,5 +246,54 @@ fn rehearsal_mid_load_failure_rolls_back_to_empty() -> Result<()> {
         1,
         "vector_search_runs keeps only the pre-seeded row"
     );
+    Ok(())
+}
+
+#[test]
+fn rehearsal_replace_load_reseeds_a_populated_target() -> Result<()> {
+    if !require_docker() {
+        return Ok(());
+    }
+    let dir = TempDir::new()?;
+    let duckdb_path = dir.path().join("fixture.duckdb");
+    build_fixture_duckdb(&duckdb_path)?;
+
+    let container = start_postgres()?;
+    let dsn = dsn_for(&container)?;
+    let mut client = postgres::Client::connect(&dsn, postgres::NoTls)?;
+
+    // A first plain load populates the target with the fixture.
+    load(&duckdb_path, &dsn, None, false)?;
+    // A second plain load MUST fail: every primary key is already present, so the
+    // first COPY aborts on the duplicate. This is the data-refresh footgun the
+    // `replace` flag exists to remove -- a re-load over a populated target.
+    assert!(
+        load(&duckdb_path, &dsn, None, false).is_err(),
+        "a plain re-load over a populated target must abort on duplicate keys"
+    );
+
+    // The replace load empties every table inside the transaction, then reloads, so
+    // it succeeds and the per-table counts equal the fixture's exactly -- no
+    // duplicated rows and no rows left over from the first load.
+    let summary = load(&duckdb_path, &dsn, None, true)?;
+    for &(table, expected) in FIXTURE_COUNTS {
+        let got = summary.per_table.iter().find(|e| e.0 == table).map(|e| e.1);
+        assert_eq!(got, Some(expected), "replace-load count for {table}");
+        assert_eq!(
+            table_count(&mut client, table)? as u64,
+            expected,
+            "target count for {table} after replace"
+        );
+    }
+
+    // The post-COPY denormalization runs on the replace path too: no
+    // `query_measurements` row is left with a NULL `commit_timestamp`.
+    let unstamped: i64 = client
+        .query_one(
+            "SELECT count(*) FROM query_measurements WHERE commit_timestamp IS NULL",
+            &[],
+        )?
+        .get(0);
+    assert_eq!(unstamped, 0, "replace load left commit_timestamp NULLs");
     Ok(())
 }

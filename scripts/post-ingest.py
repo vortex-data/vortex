@@ -58,6 +58,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -670,17 +671,19 @@ def _insert_query_measurement(conn, mid_mod, r: dict) -> bool:
             query_idx, storage, engine, format,
             value_ns, all_runtimes_ns,
             peak_physical, peak_virtual, physical_delta, virtual_delta,
-            env_triple
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::bigint[], %s, %s, %s, %s, %s)
+            env_triple, commit_timestamp
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::bigint[], %s, %s, %s, %s, %s,
+                  (SELECT timestamp FROM commits WHERE commit_sha = %s))
         ON CONFLICT (measurement_id) DO UPDATE SET
-            commit_sha      = excluded.commit_sha,
-            value_ns        = excluded.value_ns,
-            all_runtimes_ns = excluded.all_runtimes_ns,
-            peak_physical   = excluded.peak_physical,
-            peak_virtual    = excluded.peak_virtual,
-            physical_delta  = excluded.physical_delta,
-            virtual_delta   = excluded.virtual_delta,
-            env_triple      = excluded.env_triple
+            commit_sha       = excluded.commit_sha,
+            value_ns         = excluded.value_ns,
+            all_runtimes_ns  = excluded.all_runtimes_ns,
+            peak_physical    = excluded.peak_physical,
+            peak_virtual     = excluded.peak_virtual,
+            physical_delta   = excluded.physical_delta,
+            virtual_delta    = excluded.virtual_delta,
+            env_triple       = excluded.env_triple,
+            commit_timestamp = excluded.commit_timestamp
         RETURNING (xmax = 0) AS inserted
         """,
         (
@@ -700,6 +703,10 @@ def _insert_query_measurement(conn, mid_mod, r: dict) -> bool:
             r.get("physical_delta"),
             r.get("virtual_delta"),
             r.get("env_triple"),
+            # The denormalized `commit_timestamp` (migration 006) is resolved from the
+            # `commits` row this same transaction upserted first, so the read path's
+            # latest-per-series summary never sees a NULL from this writer.
+            r["commit_sha"],
         ),
     )
 
@@ -1080,6 +1087,58 @@ def connect_postgres(dsn: str, region: str | None):
     return conn
 
 
+def _http(method: str, url: str, token: str | None, timeout: float) -> bytes:
+    """Issue one HTTP request and return the body. Raises on any non-2xx or
+    transport error; callers in `refresh_site_cache` swallow those."""
+    headers = {"accept": "application/json"}
+    if token is not None:
+        headers["authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, method=method, headers=headers)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read()
+
+
+def _warm_default_windows(base: str, timeout: float) -> None:
+    """Best-effort warm pass: prime the freshly invalidated Data Cache for the
+    landing page and every group's default last-100 bundle, so the first human
+    request after an ingest is already hot. Each request is independent; one
+    failure does not abort the others."""
+    def warm(url: str) -> None:
+        try:
+            _http("GET", url, None, timeout)
+        except Exception as exc:  # noqa: BLE001 -- warm is best-effort.
+            print(f"warning: warm {url} failed: {exc}", file=sys.stderr)
+
+    warm(f"{base}/")
+    try:
+        groups_body = _http("GET", f"{base}/api/groups", None, timeout)
+        slugs = [g["slug"] for g in json.loads(groups_body).get("groups", []) if "slug" in g]
+    except Exception as exc:  # noqa: BLE001 -- group discovery is best-effort.
+        print(f"warning: warm group discovery failed: {exc}", file=sys.stderr)
+        return
+    # A whole-bundle recompute is a few seconds cold, so warm with bounded
+    # concurrency rather than one slow serial pass.
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        pool.map(lambda s: warm(f"{base}/api/group/{s}?n=100"), slugs)
+
+
+def refresh_site_cache(base_url: str, token: str, timeout: float) -> None:
+    """Revalidate the site's Data Cache tag, then warm the default windows.
+
+    BEST-EFFORT: every failure is logged to stderr and swallowed so a cache
+    refresh can never change the ingest exit code. The warm pass is skipped
+    when revalidation fails: warming after a failed flush would repopulate the
+    Data Cache with stale data, which is the opposite of the intent.
+    """
+    base = base_url.rstrip("/")
+    try:
+        _http("POST", f"{base}/api/revalidate", token, timeout)
+    except Exception as exc:  # noqa: BLE001 -- refresh must never raise into ingest.
+        print(f"warning: cache revalidate failed: {exc}", file=sys.stderr)
+        return  # Skip the warm pass: no point warming a cache that was not flushed.
+    _warm_default_windows(base, timeout)
+
+
 def _main_postgres(args: argparse.Namespace) -> int:
     records = read_records(args.jsonl_path)
     # `build_commit` runs `git show <commit_sha>`, so the SHA must be in the runner's local git
@@ -1098,6 +1157,15 @@ def _main_postgres(args: argparse.Namespace) -> int:
             separators=(",", ":"),
         )
     )
+    # Best-effort site-cache refresh after a successful write. No-op unless both
+    # env vars are set (so the script stays inert until the ops wiring lands),
+    # and it can never fail the ingest. The ops prerequisite (setting the two env
+    # vars in Vercel and as GitHub secrets/vars) is documented in the "Ops
+    # prerequisite" section of .big-plans/ct__bench-v4-uiux-r3-design.md.
+    base_url = os.environ.get("BENCH_SITE_BASE_URL")
+    revalidate_token = os.environ.get("BENCH_REVALIDATE_TOKEN")
+    if base_url and revalidate_token:
+        refresh_site_cache(base_url, revalidate_token, args.timeout)
     return 0
 
 

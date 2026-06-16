@@ -14,7 +14,7 @@ A throwaway migrator for the benchmarks-website data substrate. It has two jobs:
    seed for the v4 cutover.
 
 ```
-vortex-bench-migrate load   --duckdb <snapshot.duckdb> --postgres-target <dsn> [--ca-cert <rds-ca.pem>]
+vortex-bench-migrate load   --duckdb <snapshot.duckdb> --postgres-target <dsn> [--ca-cert <rds-ca.pem>] [--replace]
 vortex-bench-migrate verify --duckdb <snapshot.duckdb> --postgres-target <dsn> [--ca-cert <rds-ca.pem>]
 ```
 
@@ -23,6 +23,16 @@ should request `sslmode=require`). Omit it for a plaintext local connection (the
 rehearsal). The loader copies `measurement_id` verbatim from DuckDB -- it never
 recomputes the hash -- so the upsert-not-duplicate invariant the v4 ingest path
 depends on is preserved exactly.
+
+By default `load` only `COPY`s into the existing tables (the one-shot empty-seed
+contract): re-loading into an already-populated target aborts on the first
+duplicate `measurement_id`. Pass `--replace` to `TRUNCATE` all six tables as the
+first statement *inside* the load transaction, making the load an atomic full
+replace -- the data-refresh / re-migration path. Because the TRUNCATE shares the
+load transaction, a mid-load failure rolls back to the ORIGINAL data rather than
+leaving the target empty. `TRUNCATE` requires table ownership, so `--replace`
+must connect as the table owner (the RDS master `postgres`), not `migrator` or
+`bench_ingest` (whose grants exclude TRUNCATE).
 
 ## Local rehearsal (the automated harness)
 

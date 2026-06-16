@@ -1,0 +1,78 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+#
+# Scheduled "keep-warm" pings for the benchmarks-website v4 read service
+# (https://benchmarks-web.vercel.app). The site wraps its default ?n=100 query
+# window in Vercel's Data Cache (1h backstop) and serves read-API responses
+# with a 5-minute edge CDN s-maxage. On this low-traffic site real users would
+# otherwise repeatedly hit cold caches and pay the ~7.8s cold-RDS path, so this
+# workflow periodically fetches the hot endpoints (landing page, /api/groups,
+# and each group's default last-100 bundle) to keep both cache layers warm.
+#
+# No secret or repo variable is needed: every request is read-only public
+# traffic against the hardcoded production URL.
+#
+# Failure policy: requests use `curl --fail`, so a genuinely broken endpoint
+# (a non-200 response or an unreachable/ unparseable /api/groups) fails the
+# run. That is intentional: it doubles as a lightweight uptime signal for a
+# site that otherwise sees little organic traffic. The benchmark data is
+# trusted and regenerable, so this is a freshness optimization, not
+# user-facing reliability hardening.
+
+name: Benchmarks Web Keep-Warm
+
+concurrency:
+  # Never let two keep-warm runs overlap; a delayed run is simply superseded
+  # by the next schedule tick.
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+on:
+  # GitHub's scheduler has a 5-minute minimum granularity and is best-effort
+  # (scheduled runs are frequently delayed under load). That is acceptable
+  # for a keep-warm whose only job is to prevent long cold-cache gaps.
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: { }
+
+permissions:
+  contents: read
+
+env:
+  BENCH_SITE_BASE_URL: "https://benchmarks-web.vercel.app"
+
+jobs:
+  keep-warm:
+    name: Keep Vercel cache warm
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Warm landing page, group index, and per-group bundles
+        run: |
+          set -Eeuo pipefail
+
+          base="${BENCH_SITE_BASE_URL}"
+
+          # 1. Landing page (force-dynamic HTML; warms the route + CDN edge).
+          curl --fail --silent --show-error --output /dev/null "${base}/"
+
+          # 2. Group index. Capture the JSON so we can both warm it and read
+          #    the group slugs out of it.
+          groups_json="$(curl --fail --silent --show-error "${base}/api/groups")"
+
+          # Parse slugs in a pipeline so a malformed payload trips `jq` and,
+          # via `pipefail`, fails the run (the uptime-signal behavior above).
+          slugs="$(printf '%s' "${groups_json}" | jq -r '.groups[].slug')"
+
+          # 3. Each group's default last-100 bundle (the Expand-All hot path).
+          count=0
+          while IFS= read -r slug; do
+            [ -n "${slug}" ] || continue
+            encoded="$(printf '%s' "${slug}" | jq -rR '@uri')"
+            curl --fail --silent --show-error --output /dev/null \
+              "${base}/api/group/${encoded}?n=100"
+            count=$((count + 1))
+          done <<< "${slugs}"
+
+          printf 'Warmed landing page + /api/groups + %d group bundles.\n' \
+            "${count}" >> "${GITHUB_STEP_SUMMARY}"

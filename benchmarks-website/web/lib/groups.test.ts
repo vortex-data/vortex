@@ -1,14 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// The route handlers route the default window through `unstable_cache`
+// (`lib/data-cache.ts`), which needs Next's request/build `incrementalCache`
+// context that plain vitest does not provide. These tests verify the route plus
+// query behavior against the real testcontainer, not the cache layer (covered by
+// `lib/data-cache.test.ts`), so make the cache wrapper a transparent pass-through.
+vi.mock('next/cache', () => ({
+  unstable_cache: (fn: (...args: unknown[]) => unknown) => fn,
+  revalidateTag: () => {},
+}));
+
 import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import {
   collectGroupCharts,
   collectGroups,
+  groupNameQuery,
   type GroupChartsResponse,
   type GroupsResponse,
 } from './queries';
+import { groupDescription } from './descriptions';
 import { READ_API_CACHE_CONTROL } from './cache';
 import { collectGroupSummary } from './summary';
 import { chartKeyToSlug, groupKeyFromSlug, groupKeyToSlug } from './slug';
@@ -51,11 +64,14 @@ describe.skipIf(!dockerAvailable())(
 
     it('orders groups by the canonical GROUP_ORDER, with unknown groups last', async () => {
       const groups = await collectGroups();
+      // `Random Access` is pinned at the END of GROUP_ORDER (directly below
+      // `PolarSignals Profiling`), so it sorts after the other listed groups but
+      // before the unknown `cohere-...` group in the trailing alphabetical bucket.
       expect(groups.map((g) => g.name)).toEqual([
-        'Random Access',
         'Compression',
         'Compression Size',
         'TPC-H (NVMe) (SF=1)',
+        'Random Access',
         'cohere-large-10m / partitioned',
       ]);
     });
@@ -159,10 +175,10 @@ describe.skipIf(!dockerAvailable())(
       expect(res.headers.get('cache-control')).toBe(READ_API_CACHE_CONTROL);
       const body = (await res.json()) as GroupsResponse;
       expect(body.groups.map((g) => g.name)).toEqual([
-        'Random Access',
         'Compression',
         'Compression Size',
         'TPC-H (NVMe) (SF=1)',
+        'Random Access',
         'cohere-large-10m / partitioned',
       ]);
     });
@@ -336,8 +352,10 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
     await getPool().query(
       `INSERT INTO query_measurements
            (measurement_id, commit_sha, dataset, dataset_variant, scale_factor,
-            query_idx, storage, engine, format, value_ns, all_runtimes_ns)
-         VALUES ($1, $2, 'tpch', NULL, '1', $3, 'nvme', $4, $5, $6, '{1}'::bigint[])`,
+            query_idx, storage, engine, format, value_ns, all_runtimes_ns,
+            commit_timestamp)
+         VALUES ($1, $2, 'tpch', NULL, '1', $3, 'nvme', $4, $5, $6, '{1}'::bigint[],
+                 (SELECT timestamp FROM commits WHERE commit_sha = $2))`,
       [nextId(), sha, queryIdx, engine, format, valueNs],
     );
   }
@@ -458,6 +476,196 @@ describe.skipIf(!dockerAvailable())('summary math fidelity (testcontainers Postg
   });
 });
 
+// PR-5.1.5 read-path skip-scan fidelity. The canonical fixture above cannot
+// exercise these paths: it seeds a single query group with one format per
+// engine and stamps every commit_timestamp, so the summary skip scan's
+// format-successor branch, the NULLS-LAST latest emulation (a transient
+// NULL-stamped row must not beat an older stamped row; an all-NULL series must
+// still appear via the fallback arm), and most of the discovery successor's
+// NULL-partition branches never execute. This block seeds exactly those shapes.
+describe.skipIf(!dockerAvailable())(
+  'read-path skip-scan fidelity (testcontainers Postgres)',
+  () => {
+    let container: StartedPostgreSqlContainer;
+
+    const COMMIT_A = 'a'.repeat(40);
+    const COMMIT_B = 'b'.repeat(40);
+
+    beforeAll(async () => {
+      container = await startBenchContainer();
+      const pool = getPool();
+      // COMMIT_B is NEWER than COMMIT_A: the NULLS-LAST probe must still prefer
+      // COMMIT_A's stamped row over COMMIT_B's unstamped one.
+      await pool.query(
+        `INSERT INTO commits (commit_sha, timestamp, message, tree_sha, url) VALUES
+         ($1, '2026-05-01T12:00:00Z', 'older', $3, $4),
+         ($2, '2026-05-02T12:00:00Z', 'newer', $3, $5)`,
+        [COMMIT_A, COMMIT_B, TREE_SHA, commitUrl(COMMIT_A), commitUrl(COMMIT_B)],
+      );
+      // One v2-allowlisted query group (tpch / NULL / '1' / nvme) shaped to fire
+      // every summary successor branch: e1 has TWO formats (format successor),
+      // e2 is a second engine (engine successor), q2 exists for e1:f1 (query_idx
+      // successor). e1:f1 additionally carries a NEWER NULL-stamped row that must
+      // lose to the stamped 111, and e9:f9 is an all-NULL-stamped series that
+      // must surface through the fallback arm.
+      const rows: ReadonlyArray<
+        readonly [number, string, number, string, string, number, boolean]
+      > = [
+        // [measurement_id, sha, query_idx, engine, format, value_ns, stamped]
+        [1, COMMIT_A, 1, 'e1', 'f1', 111, true],
+        [2, COMMIT_B, 1, 'e1', 'f1', 222, false],
+        [3, COMMIT_A, 1, 'e1', 'f2', 444, true],
+        [4, COMMIT_A, 1, 'e2', 'f1', 555, true],
+        [5, COMMIT_A, 2, 'e1', 'f1', 666, true],
+        [6, COMMIT_B, 1, 'e9', 'f9', 333, false],
+        // A second, OLDER unstamped row for e9:f9: the all-NULL fallback must
+        // deterministically pick COMMIT_B's 333 (newest via the commits join),
+        // not an arbitrary row.
+        [7, COMMIT_A, 1, 'e9', 'f9', 999, false],
+      ];
+      for (const [mid, sha, queryIdx, engine, format, valueNs, stamped] of rows) {
+        await pool.query(
+          `INSERT INTO query_measurements
+           (measurement_id, commit_sha, dataset, dataset_variant, scale_factor,
+            query_idx, storage, engine, format, value_ns, all_runtimes_ns,
+            commit_timestamp)
+         VALUES ($1, $2, 'tpch', NULL, '1', $3, 'nvme', $4, $5, $6, '{1}'::bigint[],
+                 CASE WHEN $7 THEN (SELECT timestamp FROM commits WHERE commit_sha = $2)
+                      ELSE NULL END)`,
+          [mid, sha, queryIdx, engine, format, valueNs, stamped],
+        );
+      }
+      // Discovery fan-out: every NULL/non-NULL combination of the two nullable
+      // dimensions across two storages and two query indices, plus a second
+      // sparse dataset, so all 15 successor branches and both NULL-partition
+      // steps execute against the GROUP BY oracle below.
+      let mid = 100;
+      for (const variant of ['v1', 'v2', null]) {
+        for (const scale of ['1', '10', null]) {
+          for (const storage of ['nvme', 's3']) {
+            for (const queryIdx of [1, 2]) {
+              mid += 1;
+              await pool.query(
+                `INSERT INTO query_measurements
+                 (measurement_id, commit_sha, dataset, dataset_variant, scale_factor,
+                  query_idx, storage, engine, format, value_ns, all_runtimes_ns)
+               VALUES ($1, $2, 'alpha', $3, $4, $5, $6, 'e1', 'f1', 1, '{1}'::bigint[])`,
+                [mid, COMMIT_A, variant, scale, queryIdx, storage],
+              );
+            }
+          }
+        }
+      }
+      await pool.query(
+        `INSERT INTO query_measurements
+         (measurement_id, commit_sha, dataset, dataset_variant, scale_factor,
+          query_idx, storage, engine, format, value_ns, all_runtimes_ns)
+       VALUES (200, $1, 'beta', NULL, NULL, 7, 's3', 'e1', 'f1', 1, '{1}'::bigint[])`,
+        [COMMIT_A],
+      );
+    });
+
+    afterAll(async () => {
+      await resetPool();
+      await container.stop();
+    });
+
+    it('prefers a stamped row over a newer NULL-stamped row and keeps all-NULL series', async () => {
+      const summary = await collectGroupSummary(
+        {
+          k: 'QueryGroup',
+          dataset: 'tpch',
+          dataset_variant: null,
+          scale_factor: '1',
+          storage: 'nvme',
+        },
+        [],
+      );
+      if (summary === null || summary.type !== 'queryBenchmark') {
+        throw new Error(`expected queryBenchmark summary, got ${summary?.type}`);
+      }
+      const byName = new Map(summary.rankings.map((r) => [r.name, r.totalRuntime]));
+      // e1:f1's latest for Q1 is the STAMPED 111, not the newer NULL-stamped 222
+      // (plus its Q2 value 666); e9:f9 has only NULL-stamped rows and must still
+      // appear via the fallback arm, which must pick the NEWEST commit's 333
+      // over the older 999 (the fallback orders by the joined
+      // commits.timestamp). Flipping the probe to a plain `commit_timestamp
+      // DESC` (NULLS FIRST) order, or dropping the fallback's ORDER BY, fails
+      // this test.
+      expect(byName.get('e1:f1')).toBeCloseTo(111 + 666, 6);
+      expect(byName.get('e9:f9')).toBeCloseTo(333, 6);
+    });
+
+    it('enumerates the format, engine, and query_idx successor branches', async () => {
+      const summary = await collectGroupSummary(
+        {
+          k: 'QueryGroup',
+          dataset: 'tpch',
+          dataset_variant: null,
+          scale_factor: '1',
+          storage: 'nvme',
+        },
+        [],
+      );
+      if (summary === null || summary.type !== 'queryBenchmark') {
+        throw new Error(`expected queryBenchmark summary, got ${summary?.type}`);
+      }
+      const byName = new Map(summary.rankings.map((r) => [r.name, r.totalRuntime]));
+      // Four distinct series: e1's second format (format successor), e2 (engine
+      // successor), and e1:f1's q2 row (query_idx successor) all survive.
+      expect([...byName.keys()].sort()).toEqual(['e1:f1', 'e1:f2', 'e2:f1', 'e9:f9']);
+      expect(byName.get('e1:f2')).toBeCloseTo(444, 6);
+      expect(byName.get('e2:f1')).toBeCloseTo(555, 6);
+    });
+
+    it('discovery skip scan matches the GROUP BY oracle across NULL partitions', async () => {
+      // The replaced GROUP BY is the oracle: identical tuples, identical
+      // NULLS FIRST presentation order, computed over the same seeded data.
+      const oracle = await getPool().query<{
+        dataset: string;
+        dataset_variant: string | null;
+        scale_factor: string | null;
+        storage: string;
+        query_idx: number;
+      }>(
+        `SELECT dataset, dataset_variant, scale_factor, storage, query_idx
+         FROM query_measurements
+        GROUP BY dataset, dataset_variant, scale_factor, storage, query_idx
+        ORDER BY dataset, dataset_variant NULLS FIRST,
+                 scale_factor NULLS FIRST, storage, query_idx`,
+      );
+      const expected = new Map<string, string[]>();
+      for (const row of oracle.rows) {
+        const groupSlug = groupKeyToSlug({
+          k: 'QueryGroup',
+          dataset: row.dataset,
+          dataset_variant: row.dataset_variant,
+          scale_factor: row.scale_factor,
+          storage: row.storage,
+        });
+        const chartSlug = chartKeyToSlug({
+          k: 'QueryMeasurement',
+          dataset: row.dataset,
+          dataset_variant: row.dataset_variant,
+          scale_factor: row.scale_factor,
+          storage: row.storage,
+          query_idx: row.query_idx,
+        });
+        const charts = expected.get(groupSlug) ?? [];
+        charts.push(chartSlug);
+        expected.set(groupSlug, charts);
+      }
+      const groups = await collectGroups();
+      const actual = new Map<string, string[]>(
+        groups
+          .filter((g) => groupKeyFromSlug(g.slug).k === 'QueryGroup')
+          .map((g) => [g.slug, g.charts.map((c) => c.slug)]),
+      );
+      expect(actual).toEqual(expected);
+    });
+  },
+);
+
 // Slug-decode rejection short-circuits to a 400 before any DB call, so this
 // runs without Docker, matching the chart route's input-validation contract.
 describe('GET /api/group/[slug] input validation (no DB)', () => {
@@ -469,5 +677,43 @@ describe('GET /api/group/[slug] input validation (no DB)', () => {
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: 'bad_request', message: 'invalid group slug' });
     expect(res.headers.get('cache-control')).toBeNull();
+  });
+});
+
+// PR-5.0.5: restore v2's two flat group names (statpopgen / polarsignals) so
+// their editorial descriptions attach. These are pure `groupNameQuery` +
+// `groupDescription` assertions, so they run without Docker and discriminate the
+// special-case directly: removing either branch reverts the name to the legacy
+// `dataset sf=N [storage]` fallback, which fails both the name and the
+// description-attach expectations below.
+describe('groupNameQuery v2-name special-cases (PR-5.0.5, no DB)', () => {
+  it('maps statpopgen to its v2 name and attaches the gnomAD description', () => {
+    // Production statpopgen rows carry scale_factor=null (the ingest dim-mapping
+    // emits None); the special-case ignores scaleFactor, so the flat name renders.
+    const name = groupNameQuery('statpopgen', null, null, 'nvme');
+    expect(name).toBe('Statistical and Population Genetics');
+    expect(groupDescription(name)).toBe(
+      'A suite of Statistical and Population genetics queries using the gnomAD dataset',
+    );
+  });
+
+  it('maps polarsignals to its v2 name and attaches the profiling description', () => {
+    // Same null scale_factor as statpopgen in production.
+    const name = groupNameQuery('polarsignals', null, null, 'nvme');
+    expect(name).toBe('PolarSignals Profiling');
+    expect(groupDescription(name)).toBe(
+      'Profiling data benchmark modeled on PolarSignals/Parca, exercising scan-layer ' +
+        'performance with projection and filter pushdown on deeply nested schemas',
+    );
+  });
+
+  it('keeps the existing tpch/tpcds/clickbench branches unchanged', () => {
+    expect(groupNameQuery('tpch', null, '1', 'nvme')).toBe('TPC-H (NVMe) (SF=1)');
+    expect(groupNameQuery('tpcds', null, '10', 's3')).toBe('TPC-DS (S3) (SF=10)');
+    expect(groupNameQuery('clickbench', null, null, 'nvme')).toBe('Clickbench');
+  });
+
+  it('still falls through to the legacy label for an unknown dataset', () => {
+    expect(groupNameQuery('fineweb', null, '1', 'nvme')).toBe('fineweb sf=1 [nvme]');
   });
 });

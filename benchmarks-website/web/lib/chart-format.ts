@@ -31,13 +31,30 @@ export const DEFAULT_VISIBLE = 100;
 export const CHART_FETCH_N = String(DEFAULT_VISIBLE);
 /** Per-tab cap for initial latest-100 chart requests. */
 export const HYDRATION_CONCURRENCY = 4;
+/** Per-tab cap for the per-group bundle fetches (`/api/group/{slug}?n=100`).
+ * One in-flight bundle covers a whole group, so the cap bounds how many groups
+ * fetch at once on Expand All without serializing the top groups. */
+export const BUNDLE_CONCURRENCY = 3;
 /** Per-tab cap for background `?n=all` warmup requests. */
 export const FULL_HISTORY_CONCURRENCY = 2;
-/** Priority step between successive group opens, so the most recently opened
- * group's fetches drain first. */
-export const GROUP_OPEN_PRIORITY_STEP = 100;
 /** Priority for a full-history fetch promoted by direct user interaction. */
 export const INTERACTION_FULL_PRIORITY = 1_000_000;
+/** A silent hover-dwell prefetch outranks idle background work but yields to a
+ * direct user interaction (chip click, pan/zoom into the unloaded region). */
+export const HOVER_PREFETCH_PRIORITY = 500_000;
+/** How long the pointer must rest on one chart card before the silent
+ * full-history prefetch starts, so a mouse sweep across the page fetches
+ * nothing while a deliberate hover has data ready by the time the user acts. */
+export const HOVER_DWELL_MS = 600;
+/** Per-fetch timeout (ms) for the chart `?n=100` / `?n=all` requests. A stalled
+ * request aborts at this bound instead of spinning the loading indicator
+ * forever. 30s is generous headroom over a cold Vercel function first-hit
+ * (~7.8s measured) so a slow-but-live request is not falsely aborted. */
+export const FETCH_TIMEOUT_MS = 30000;
+/** `IntersectionObserver` root margin for landing-page lazy hydration: a chart
+ * begins hydrating slightly before it scrolls into view so it is rarely blank
+ * by the time the user reaches it. */
+export const LAZY_HYDRATION_ROOT_MARGIN = '300px 0px';
 
 /**
  * Hard cap on how many distinct commit indices (x-positions) a chart renders at

@@ -424,6 +424,8 @@ main {
   border-radius: 12px;
   background: var(--bg);
   overflow: hidden;
+  /* Offset jump targets (GroupNav) so a jumped-to group title clears the sticky header. */
+  scroll-margin-top: calc(var(--header-height) + 0.75rem);
   transition:
     border-color 0.2s ease,
     box-shadow 0.2s ease;
@@ -1001,6 +1003,44 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   border-color: color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
+.chart-window-chip {
+  font-family: inherit;
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: var(--code-bg);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.chart-window-chip[hidden] {
+  display: none;
+}
+.chart-window-chip:disabled {
+  cursor: default;
+}
+/* The windowed state is a quiet pill by default; resting on the card (or
+   focusing the chip) reveals it as the accent-colored "load all N" action. */
+.chart-card:hover .chart-window-chip[data-state='windowed']:not(:disabled),
+.chart-window-chip[data-state='windowed']:not(:disabled):hover,
+.chart-window-chip[data-state='windowed']:not(:disabled):focus-visible {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.chart-window-chip[data-state='loading'] {
+  cursor: progress;
+}
+.chart-window-chip[data-state='error'] {
+  background: color-mix(in srgb, var(--bad) 12%, transparent);
+  color: var(--bad);
+  border-color: color-mix(in srgb, var(--bad) 35%, transparent);
+}
+
 .chart-grid {
   width: 100%;
   max-width: none;
@@ -1137,12 +1177,87 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
   background: var(--code-bg);
   color: var(--muted);
   border: 1px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+/* Pre-construction placeholder: fills the chart area so a card is never blank
+   white before its Chart.js instance exists (server-rendered, hidden once the
+   chart constructs). */
+.chart-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--code-bg) 60%, transparent);
+  font-size: 0.8rem;
+  z-index: 1;
+}
+.chart-placeholder .chart-spinner {
+  width: 1.4rem;
+  height: 1.4rem;
+  border-width: 3px;
+}
+/* The placeholder's "loading…" label, sized to match the chip/loading text. */
+.chart-placeholder-text {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.chart-spinner {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  border: 2px solid color-mix(in srgb, var(--muted) 35%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: chart-spin 0.7s linear infinite;
+}
+@keyframes chart-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* The chip's loading state gets a small inline spinner for consistency. */
+.chart-window-chip[data-state='loading']::before {
+  content: '';
+  display: inline-block;
+  width: 0.6rem;
+  height: 0.6rem;
+  margin-right: 0.3rem;
+  vertical-align: -0.05rem;
+  border: 2px solid color-mix(in srgb, var(--muted) 35%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: chart-spin 0.7s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .chart-spinner,
+  .chart-placeholder .chart-spinner,
+  .chart-window-chip[data-state='loading']::before {
+    animation: none;
+  }
 }
 .chart-error {
   background: var(--bad);
   color: var(--accent-fg);
   max-width: 18rem;
   white-space: normal;
+}
+.chart-error-retry {
+  margin-left: 0.4rem;
+  pointer-events: auto;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.7rem;
+  color: var(--accent-fg);
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  padding: 0 0.35rem;
 }
 
 /* ----------------------------------------------------------------------
@@ -1446,4 +1561,101 @@ a.site-footer-sha:hover,
 a.site-footer-sha:hover code {
   color: var(--accent);
   text-decoration: none;
+}
+
+/* Left-side "Jump to group" menu (`GroupNav`): a fixed bottom-left button that
+   opens a panel of group links. It sits in the bottom-left corner (not the top)
+   so the always-visible toggle never overlays the first group's content; the
+   panel opens upward from the toggle. Toggle-driven (not hover) so it works on
+   touch + keyboard, mirroring the header's hamburger nav. Both sit below the
+   header's z-index (1000). */
+.group-nav-toggle {
+  position: fixed;
+  bottom: 1rem;
+  left: 1rem;
+  z-index: 902;
+  box-shadow: var(--shadow-md);
+}
+
+.group-nav-panel {
+  position: fixed;
+  /* Anchored just above the toggle (toggle is ~2.75rem tall incl. padding). */
+  bottom: calc(1rem + 2.75rem);
+  left: 1rem;
+  z-index: 901;
+  display: flex;
+  flex-direction: column;
+  width: min(18rem, calc(100vw - 2rem));
+  max-height: calc(100vh - var(--header-height) - 5rem);
+  padding: 0.75rem;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card-bg);
+  box-shadow: var(--shadow-md);
+  /* Hidden until toggled; fade + slide up from the bottom-left toggle. */
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(0.5rem);
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease,
+    visibility 0.18s ease;
+}
+
+.group-nav-panel--open {
+  visibility: visible;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.group-nav-heading {
+  margin: 0 0 0.4rem;
+  padding: 0 0.5rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.group-nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.group-nav-link {
+  display: block;
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.875rem;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.group-nav-link:hover,
+.group-nav-link:focus-visible {
+  background: var(--code-bg);
+  color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .group-nav-panel {
+    transition: none;
+  }
 }

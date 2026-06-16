@@ -22,12 +22,17 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    // `lib/**` unit + DB-backed tests, plus prop-driven component tests under
-    // `components/**` that render via `react-dom/server` (no DOM env needed).
-    include: ['lib/**/*.test.ts', 'components/**/*.test.tsx'],
+    // `lib/**` unit + DB-backed tests, prop-driven component tests under
+    // `components/**` that render via `react-dom/server` (no DOM env needed),
+    // and `app/**` CSS/stylesheet tests that run in the node environment.
+    include: ['lib/**/*.test.ts', 'components/**/*.test.tsx', 'app/**/*.test.ts'],
     // Pulling and starting the Postgres testcontainer can take tens of seconds
     // on a cold image cache, so the hook + test budgets are generous.
     testTimeout: 120_000,
     hookTimeout: 180_000,
+    // Restore `vi.spyOn` wrappers between tests so a spy on a module-singleton
+    // (e.g. `hydrationQueue.schedule`) does not leak its instrumentation into
+    // later tests in the same file.
+    restoreMocks: true,
   },
 });

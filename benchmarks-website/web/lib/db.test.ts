@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { Signer } from '@aws-sdk/rds-signer';
 import { dockerAvailable, startBenchContainer } from './test-harness';
 import {
   buildQuery,
+  getPool,
   passwordProvider,
   requireEnv,
   resetPool,
+  resolveIdleTimeoutMillis,
   resolveSsl,
   sql,
   type DbConfig,
@@ -70,6 +72,7 @@ describe('db IAM auth path (mocked rds-signer)', () => {
     region: 'us-east-1',
     ssl: false,
     poolMax: 4,
+    idleTimeoutMillis: 300000,
     staticPassword: undefined,
   };
 
@@ -146,6 +149,84 @@ describe('resolveSsl', () => {
   it('throws (fails loud) on an unrecognized mode rather than silently disabling verification', () => {
     process.env.BENCH_DB_SSL = 'verify-ca';
     expect(() => resolveSsl()).toThrow(/BENCH_DB_SSL/);
+  });
+});
+
+describe('resolveIdleTimeoutMillis', () => {
+  afterEach(() => {
+    delete process.env.BENCH_DB_IDLE_TIMEOUT_MS;
+  });
+
+  it('defaults to 300000 ms (5 min) when unset', () => {
+    delete process.env.BENCH_DB_IDLE_TIMEOUT_MS;
+    expect(resolveIdleTimeoutMillis()).toBe(300000);
+  });
+
+  it('honors a numeric override', () => {
+    process.env.BENCH_DB_IDLE_TIMEOUT_MS = '60000';
+    expect(resolveIdleTimeoutMillis()).toBe(60000);
+  });
+
+  it('throws (fails loudly) on a non-numeric value rather than silently using NaN', () => {
+    process.env.BENCH_DB_IDLE_TIMEOUT_MS = 'soon';
+    expect(() => resolveIdleTimeoutMillis()).toThrow(/BENCH_DB_IDLE_TIMEOUT_MS/);
+  });
+
+  it('throws on a negative value', () => {
+    process.env.BENCH_DB_IDLE_TIMEOUT_MS = '-1';
+    expect(() => resolveIdleTimeoutMillis()).toThrow(/BENCH_DB_IDLE_TIMEOUT_MS/);
+  });
+
+  it('falls back to the default when set but empty', () => {
+    process.env.BENCH_DB_IDLE_TIMEOUT_MS = '';
+    expect(resolveIdleTimeoutMillis()).toBe(300000);
+  });
+
+  it('accepts 0 as the never-timeout sentinel', () => {
+    process.env.BENCH_DB_IDLE_TIMEOUT_MS = '0';
+    expect(resolveIdleTimeoutMillis()).toBe(0);
+  });
+});
+
+describe('createPool threads idleTimeoutMillis into the pg Pool (via getPool)', () => {
+  const ENV_KEYS = [
+    'BENCH_DB_HOST',
+    'BENCH_DB_NAME',
+    'BENCH_DB_USER',
+    'BENCH_DB_PASSWORD',
+    'BENCH_DB_SSL',
+    'BENCH_DB_IDLE_TIMEOUT_MS',
+    'BENCH_DB_PORT',
+    'BENCH_DB_REGION',
+    'BENCH_DB_POOL_MAX',
+  ] as const;
+  const saved: Record<string, string | undefined> = {};
+
+  beforeEach(async () => {
+    for (const k of ENV_KEYS) saved[k] = process.env[k];
+    await resetPool();
+  });
+
+  afterEach(async () => {
+    await resetPool();
+    for (const k of ENV_KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  it('uses the resolved idleTimeoutMillis as the pool option', () => {
+    process.env.BENCH_DB_HOST = 'localhost';
+    process.env.BENCH_DB_NAME = 'bench';
+    process.env.BENCH_DB_USER = 'bench_reader';
+    process.env.BENCH_DB_PASSWORD = 'fixture-pw'; // skips the IAM/Signer path
+    process.env.BENCH_DB_SSL = 'disable'; // avoids the BENCH_DB_CA requirement
+    process.env.BENCH_DB_IDLE_TIMEOUT_MS = '123456';
+
+    // `pg`'s Pool exposes the resolved construction options at runtime but the
+    // types do not surface `options`, so read it through a narrow cast.
+    const pool = getPool() as unknown as { options: { idleTimeoutMillis?: number } };
+    expect(pool.options.idleTimeoutMillis).toBe(123456);
   });
 });
 

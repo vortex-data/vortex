@@ -92,6 +92,14 @@ enum Command {
         /// CA for the prod load). Omit for a plaintext local connection.
         #[arg(long)]
         ca_cert: Option<PathBuf>,
+        /// Empty every target table inside the load transaction before the COPYs,
+        /// making the load an atomic full replace instead of an append. Required
+        /// when re-loading into an already-populated target (the data-refresh /
+        /// re-migration path); without it a re-load aborts on the first duplicate
+        /// `measurement_id`. `TRUNCATE` needs table ownership, so `--replace` must
+        /// connect as the table owner (the RDS master), not `migrator`.
+        #[arg(long, default_value_t = false)]
+        replace: bool,
     },
 }
 
@@ -183,8 +191,9 @@ fn run() -> Result<()> {
             duckdb,
             postgres_target,
             ca_cert,
+            replace,
         } => {
-            let summary = postgres::load(&duckdb, &postgres_target, ca_cert.as_deref())?;
+            let summary = postgres::load(&duckdb, &postgres_target, ca_cert.as_deref(), replace)?;
             print!("{summary}");
             Ok(())
         }

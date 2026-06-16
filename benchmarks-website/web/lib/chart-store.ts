@@ -20,14 +20,15 @@
  */
 
 import {
+  BUNDLE_CONCURRENCY,
+  FETCH_TIMEOUT_MS,
   FULL_HISTORY_CONCURRENCY,
-  GROUP_OPEN_PRIORITY_STEP,
   HYDRATION_CONCURRENCY,
   seedActiveFromAllowlist,
   type FilterUniverse,
   type GlobalFilterState,
 } from '@/lib/chart-format';
-import type { SeriesTag } from '@/lib/queries';
+import type { ChartResponse, GroupChartsResponse, SeriesTag } from '@/lib/queries';
 
 // ---------------------------------------------------------------------------
 // Bounded priority queues (ported from chart-init.js sections 11 and 15).
@@ -105,16 +106,167 @@ export const hydrationQueue: TaskQueue = makeQueue(HYDRATION_CONCURRENCY);
 /** Per-tab queue for the background `?n=all` full-history upgrades. */
 export const fullHistoryQueue: TaskQueue = makeQueue(FULL_HISTORY_CONCURRENCY);
 
-let groupOpenPriority = 0;
+// ---------------------------------------------------------------------------
+// Group-bundle fetch + session payload cache (PR-5.0.97).
+// ---------------------------------------------------------------------------
+
+/** Per-tab queue for the per-group `/api/group/{slug}?n=100` bundle fetches. */
+export const bundleQueue: TaskQueue = makeQueue(BUNDLE_CONCURRENCY);
+
+// Session-lifetime cache of the default last-100 chart payloads, keyed by chart
+// slug and filled by `ensureGroupBundle`. Closing and reopening a group reads
+// from here, so it never refetches. An open tab keeps these until reload; a
+// server-side revalidation is picked up on the next full load (a data-version
+// invalidation is future work, not built here).
+const payloadCache = new Map<string, ChartResponse>();
+
+/** The cached default payload for `slug`, or `undefined` on a miss. */
+export function getCachedPayload(slug: string): ChartResponse | undefined {
+  return payloadCache.get(slug);
+}
+
+/** Seed the cache for one chart slug (idempotent; last write wins). Internal to
+ * the store; `ensureGroupBundle` is its only caller. */
+function primePayload(slug: string, payload: ChartResponse): void {
+  payloadCache.set(slug, payload);
+}
+
+// Group slugs whose bundle fetch already completed successfully (the cache is
+// primed for every chart it carried). A reopen of such a group skips the fetch
+// entirely, so close/reopen after a success issues zero requests. This survives
+// a group close: a successful bundle's cached payloads stay valid for the tab.
+const completedBundles = new Set<string>();
+
+// Group slugs whose bundle has already been ATTEMPTED in the current open cycle
+// (settled as success, 404, or failure). It collapses the eager `armHydration`
+// kick and each island's `ensureInitialPayload` re-attempt into a single fetch
+// even after the first one settles. Unlike `completedBundles` it is cleared on
+// group close (`abortGroupBundle`), so a reopen re-attempts a group whose bundle
+// 404'd or failed, while a card still falls back per-chart in the same cycle.
+const attemptedBundles = new Set<string>();
+
+/** Clear the cache and in-flight bundle map. TEST-ONLY: production never evicts
+ * within a tab session. */
+export function resetPayloadCache(): void {
+  payloadCache.clear();
+  inFlightBundles.clear();
+  completedBundles.clear();
+  attemptedBundles.clear();
+}
+
+/** A group's in-flight bundle fetch: the queue entry (for priority bumps), its
+ * aborter (for group-close cancellation), and the settle promise callers join. */
+interface BundleInFlight {
+  entry: QueueEntry;
+  controller: AbortController;
+  promise: Promise<void>;
+}
+
+const inFlightBundles = new Map<string, BundleInFlight>();
 
 /**
- * Bump and return the group-open priority. Charts in the most recently opened
- * group enqueue at the highest base priority, so their fetches drain ahead of
- * still-pending work from groups opened earlier.
+ * Fetch one group's default last-100 bundle (`/api/group/{slug}?n=100`) and
+ * prime [`payloadCache`] for every chart in it. Concurrent callers for the same
+ * group share one in-flight fetch (priority is bumped to the highest caller's).
+ * A 404 or failure resolves without priming, so callers fall back to the
+ * per-chart fetch. Never rejects: failures are swallowed here and surfaced as a
+ * cache miss to the caller.
  */
-export function nextGroupOpenPriority(): number {
-  groupOpenPriority += GROUP_OPEN_PRIORITY_STEP;
-  return groupOpenPriority;
+export function ensureGroupBundle(groupSlug: string, priority: number): Promise<void> {
+  // A group whose bundle already succeeded is fully cached; a reopen need not
+  // refetch (the per-chart cache hit in `ensureInitialPayload` does the rest).
+  // A group already attempted this open cycle (404 / failure included) is not
+  // re-fetched either: callers fall back per-chart. Both short-circuits resolve
+  // immediately so a caller's `.then` still runs and re-checks the cache.
+  if (completedBundles.has(groupSlug) || attemptedBundles.has(groupSlug)) {
+    return Promise.resolve();
+  }
+  const existing = inFlightBundles.get(groupSlug);
+  if (existing) {
+    if (priority > existing.entry.priority) {
+      existing.entry.priority = priority;
+      bundleQueue.drain();
+    }
+    return existing.promise;
+  }
+  const url = `/api/group/${encodeURIComponent(groupSlug)}?n=100`;
+  const controller = new AbortController();
+  const entry = bundleQueue.schedule(async () => {
+    // The timeout starts when the task actually runs (not while queued), so it
+    // bounds the fetch, not the queue wait. A `TimeoutError` reason lets the
+    // catch tell a timeout apart from a close/destroy `AbortError`.
+    const timer = setTimeout(
+      () => controller.abort(new DOMException('Fetch timed out', 'TimeoutError')),
+      FETCH_TIMEOUT_MS,
+    );
+    try {
+      const r = await fetch(url, {
+        headers: { accept: 'application/json' },
+        signal: controller.signal,
+      });
+      if (r.status === 404) {
+        return null;
+      }
+      if (!r.ok) {
+        throw new Error(`HTTP ${r.status}`);
+      }
+      return (await r.json()) as GroupChartsResponse;
+    } finally {
+      clearTimeout(timer);
+    }
+  }, priority);
+  const promise = entry.promise
+    .then((body) => {
+      if (body !== null) {
+        const bundle = body as GroupChartsResponse;
+        for (const chart of bundle.charts) {
+          // `NamedChartResponse` is `ChartResponse & { name, slug }`; the extra
+          // keys are harmless in the cached payload.
+          primePayload(chart.slug, chart);
+          noteGroupSeries(groupSlug, chart.series_meta);
+        }
+        // Mark the group complete so a reopen short-circuits without a refetch.
+        // A 404 (`null` body) or a failure leaves it unmarked so a reopen retries.
+        completedBundles.add(groupSlug);
+      }
+    })
+    .catch((err: unknown) => {
+      // A close/destroy abort is silent; a timeout or failure leaves the cache
+      // unprimed so callers fall back per-chart. Surface non-abort failures for
+      // debugging only.
+      if (!(err instanceof DOMException && err.name === 'AbortError')) {
+        console.warn('bench: group bundle fetch failed', err);
+      }
+    })
+    .finally(() => {
+      // Drop the in-flight entry once it settles, but only if a newer fetch has
+      // not already replaced it (mirrors the per-chart identity-guarded clears).
+      if (inFlightBundles.get(groupSlug)?.entry === entry) {
+        inFlightBundles.delete(groupSlug);
+        // Record that this group was attempted this open cycle so a re-call does
+        // not re-fetch a just-settled bundle. A close (`abortGroupBundle`) clears
+        // this so a reopen retries; the in-flight identity guard avoids marking
+        // a stale (already-replaced) entry's settle.
+        attemptedBundles.add(groupSlug);
+      }
+    });
+  inFlightBundles.set(groupSlug, { entry, controller, promise });
+  return promise;
+}
+
+/** Abort a group's in-flight bundle fetch (on group close) and reset its
+ * per-cycle state so a reopen re-issues. Idempotent. A successfully completed
+ * bundle's cache stays valid (`completedBundles` is left intact), so a reopen of
+ * a fully cached group still issues nothing. */
+export function abortGroupBundle(groupSlug: string): void {
+  const inFlight = inFlightBundles.get(groupSlug);
+  if (inFlight) {
+    inFlight.controller.abort(new DOMException('group closed', 'AbortError'));
+    inFlightBundles.delete(groupSlug);
+  }
+  // Clear the per-cycle attempt marker so a reopen re-attempts a group whose
+  // bundle 404'd or failed; a fully cached group is gated by `completedBundles`.
+  attemptedBundles.delete(groupSlug);
 }
 
 // ---------------------------------------------------------------------------

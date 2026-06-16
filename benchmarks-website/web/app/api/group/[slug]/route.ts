@@ -4,9 +4,10 @@
 import { NextResponse } from 'next/server';
 
 import { READ_API_CACHE_CONTROL } from '@/lib/cache';
+import { cachedDefaultGroupCharts } from '@/lib/data-cache';
 import { collectGroupCharts } from '@/lib/queries';
 import { groupKeyFromSlug, type GroupKey } from '@/lib/slug';
-import { parseCommitWindow } from '@/lib/window';
+import { DEFAULT_COMMIT_WINDOW, parseCommitWindow } from '@/lib/window';
 
 /**
  * `GET /api/group/{slug}` returns the [`GroupChartsResponse`] for one group: its
@@ -36,7 +37,13 @@ export async function GET(
     );
   }
   const window = parseCommitWindow(new URL(request.url).searchParams.get('n'));
-  const payload = await collectGroupCharts(key, window);
+  // The default last-100 window is served from the Data Cache (warm across
+  // invocations, refreshed on ingest); every other window keeps the direct
+  // query and rides the per-URL CDN cache only.
+  const payload =
+    window.kind === 'last' && window.n === DEFAULT_COMMIT_WINDOW
+      ? await cachedDefaultGroupCharts(slug)
+      : await collectGroupCharts(key, window);
   if (payload === null) {
     return NextResponse.json({ error: 'not_found', message: 'group not found' }, { status: 404 });
   }

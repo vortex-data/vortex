@@ -1,10 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+// The route handlers route the default window through `unstable_cache`
+// (`lib/data-cache.ts`), which needs Next's request/build `incrementalCache`
+// context that plain vitest does not provide. These tests verify the route plus
+// query behavior against the real testcontainer, not the cache layer (covered by
+// `lib/data-cache.test.ts`), so make the cache wrapper a transparent pass-through.
+vi.mock('next/cache', () => ({
+  unstable_cache: (fn: (...args: unknown[]) => unknown) => fn,
+  revalidateTag: () => {},
+}));
+
 import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { READ_API_CACHE_CONTROL } from './cache';
-import { chartPayload, collectFilterUniverse } from './queries';
+import { chartPayload, collectFilterUniverse, compareGroupSortKey } from './queries';
 import { chartKeyToSlug, type ChartKey } from './slug';
 import {
   commitUrl,
@@ -169,6 +180,44 @@ describe.skipIf(!dockerAvailable())('chartPayload (testcontainers Postgres)', ()
     expect(dflt?.commits).toHaveLength(3);
   });
 
+  it('?n=2 selects exactly the two newest commits with correct values (commit_timestamp window)', async () => {
+    // Pins the bounded-window result for a window smaller than the commit count,
+    // the boundary that the `commit_timestamp` cutoff and `commit_sha` tie-trim
+    // together govern. Must hold identically before and after the recency-filter
+    // refactor.
+    const payload = await chartPayload(QUERY_Q1, parseCommitWindow('2'));
+    expect(payload).toEqual({
+      display_name: 'tpch sf=1 Q1 [nvme]',
+      unit_kind: 'time_ns',
+      history: { total_commits: 3, start_index: 1, loaded_commits: 2, complete: false },
+      commits: [
+        {
+          sha: '2'.repeat(40),
+          timestamp: '2026-04-24 12:00:00+00',
+          message: 'second commit',
+          url: commitUrl('2'.repeat(40)),
+        },
+        {
+          sha: '3'.repeat(40),
+          timestamp: '2026-04-25 12:00:00+00',
+          message: 'third commit',
+          url: commitUrl('3'.repeat(40)),
+        },
+      ],
+      series: {
+        'datafusion:vortex-file-compressed': [1_050_000, 1_100_000],
+        'duckdb:parquet': [850_000, 900_000],
+      },
+      series_meta: {
+        'datafusion:vortex-file-compressed': {
+          engine: 'datafusion',
+          format: 'vortex-file-compressed',
+        },
+        'duckdb:parquet': { engine: 'duckdb', format: 'parquet' },
+      },
+    });
+  });
+
   it('returns null for a well-formed slug whose chart has no rows', async () => {
     const missing = await chartPayload(
       {
@@ -269,6 +318,28 @@ describe.skipIf(!dockerAvailable())('chartPayload (testcontainers Postgres)', ()
       format: 'vortex-file-compressed',
     });
     expect(cs?.series_meta?.parquet).toEqual({ format: 'parquet' });
+  });
+});
+
+// The product-visible group ordering (GROUP_ORDER + compareGroupSortKey) is
+// exercised end-to-end only by the Docker-gated collectGroups test; this no-DB
+// test pins the ordering directly so it stays verifiable without testcontainers.
+describe('compareGroupSortKey canonical group ordering (no DB)', () => {
+  it('places Random Access directly below PolarSignals Profiling', () => {
+    const sorted = ['Random Access', 'PolarSignals Profiling', 'Clickbench'].sort(
+      compareGroupSortKey,
+    );
+    expect(sorted).toEqual(['Clickbench', 'PolarSignals Profiling', 'Random Access']);
+    // Adjacency: nothing sorts between PolarSignals Profiling and Random Access.
+    const polar = sorted.indexOf('PolarSignals Profiling');
+    expect(sorted[polar + 1]).toBe('Random Access');
+  });
+
+  it('sorts listed groups before unknown groups, unknowns alphabetically last', () => {
+    const sorted = ['cohere-large-10m / partitioned', 'Random Access', 'Compression'].sort(
+      compareGroupSortKey,
+    );
+    expect(sorted).toEqual(['Compression', 'Random Access', 'cohere-large-10m / partitioned']);
   });
 });
 
@@ -423,21 +494,25 @@ describe.skipIf(!dockerAvailable())('chartPayload seeded-window semantics', () =
     };
     // `qn` Q1 chart: a single row on commit A only. B/D/E fall in its window
     // (timestamp >= A) with no row -> null slots; C is pre-history -> excluded.
+    // `commit_timestamp` is the denormalized copy of `commits.timestamp` that
+    // every write path populates (the migration-006 backfill + the ingest
+    // upsert); the read path now seeds + windows on it, so the fixture must
+    // stamp it exactly as the writers do (a NULL here yields an empty chart).
     await pool.query(
       `INSERT INTO query_measurements
          (measurement_id, commit_sha, dataset, dataset_variant, scale_factor,
-          query_idx, storage, engine, format, value_ns, all_runtimes_ns)
+          query_idx, storage, engine, format, value_ns, all_runtimes_ns, commit_timestamp)
        VALUES ($1, $2, 'qn', NULL, '1', 1, 'nvme', 'datafusion', 'vortex-file-compressed',
-               1000, '{1}'::bigint[])`,
+               1000, '{1}'::bigint[], (SELECT timestamp FROM commits WHERE commit_sha = $2))`,
       [mid(), A],
     );
     // `qnull` Q1 chart with a NULL scale_factor, row on commit A only.
     await pool.query(
       `INSERT INTO query_measurements
          (measurement_id, commit_sha, dataset, dataset_variant, scale_factor,
-          query_idx, storage, engine, format, value_ns, all_runtimes_ns)
+          query_idx, storage, engine, format, value_ns, all_runtimes_ns, commit_timestamp)
        VALUES ($1, $2, 'qnull', NULL, NULL, 1, 'nvme', 'datafusion', 'vortex-file-compressed',
-               2000, '{1}'::bigint[])`,
+               2000, '{1}'::bigint[], (SELECT timestamp FROM commits WHERE commit_sha = $2))`,
       [mid(), A],
     );
     // `tie` random-access chart: rows on D and E, which share a timestamp.

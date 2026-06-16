@@ -59,6 +59,9 @@ readonly DB_PROXY_NAME="${DB_PROXY_NAME:-vortex-bench-proxy}"
 readonly DB_SUBNET_GROUP_NAME="${DB_SUBNET_GROUP_NAME:-vortex-bench-subnet-group}"
 readonly DB_SECURITY_GROUP_NAME="${DB_SECURITY_GROUP_NAME:-vortex-bench-sg}"
 readonly DB_NAME="${DB_NAME:-vortex_bench}"
+# Bootstrap default only. Prod `vortex-bench-prod` was later upsized to db.r7g.large (16 GiB) via
+# `aws rds modify-db-instance` (2026-06-16) so the load-all `?n=all` working set stays cache-resident;
+# this default applies only to a fresh provision. See `.big-plans/ct__bench-v4-loadall-scope.md`.
 readonly DB_INSTANCE_CLASS="${DB_INSTANCE_CLASS:-db.t4g.micro}"
 readonly DB_ENGINE_VERSION="${DB_ENGINE_VERSION:-16.4}"
 readonly DB_ALLOCATED_STORAGE_GB="${DB_ALLOCATED_STORAGE_GB:-20}"
@@ -611,9 +614,13 @@ NEXT STEPS:
 
 4. Migrations create the Postgres '${PG_MIGRATOR_ROLE}' (002) and
    '${PG_INGEST_ROLE}' (004) users; both OIDC roles' permission policies are
-   already scoped to those users. Apply 002 + 004 as the RDS master during the
-   one-time bootstrap (they create roles and grant on master-owned tables), after
-   which schema deploys run as '${PG_MIGRATOR_ROLE}'.
+   already scoped to those users. During the one-time bootstrap, apply EVERY
+   migration carrying the '-- migrate-schema: requires-superuser' marker as the
+   RDS master (currently 002/004/005, which create roles + grants, and 006/007,
+   which run DDL on the master-owned query_measurements table). The marker in
+   each file is authoritative; see benchmarks-website/migrations/README.md
+   'Bootstrap ordering' for the contract. After the bootstrap, unmarked schema
+   deploys run as '${PG_MIGRATOR_ROLE}'.
 
 =========================================================================
 EOF
