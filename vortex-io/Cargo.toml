@@ -35,7 +35,7 @@ tokio = { workspace = true, features = [
 ] } # this is the maximum subset of fetaures that is safe for wasm32 targets
 tracing = { workspace = true }
 vortex-array = { workspace = true }
-vortex-buffer = { workspace = true }
+vortex-buffer = { workspace = true, features = ["memmap2"] }
 vortex-error = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-session = { workspace = true }
@@ -47,6 +47,7 @@ custom-labels = { workspace = true }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Smol is our default impl, so we don't want it to be optional, but it cannot be part of wasm
 smol = { workspace = true }
+memmap2 = { workspace = true }
 
 # target_os = "unknown" matches wasm32-unknown-unknown (browser), excluding WASI targets
 # where wasm-bindgen's JS interop is not available.

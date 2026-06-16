@@ -9889,6 +9889,7 @@ dependencies = [
  "glob",
  "itertools 0.14.0",
  "kanal",
+ "memmap2",
  "object_store 0.13.2",
  "oneshot",
  "parking_lot",

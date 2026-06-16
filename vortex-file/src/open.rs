@@ -170,10 +170,8 @@ impl VortexOpenOptions {
     /// Open a Vortex file from a filesystem path.
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn open_path(self, path: impl AsRef<std::path::Path>) -> VortexResult<VortexFile> {
-        use vortex_io::std_file::FileReadAt;
-        let handle = self.session.handle();
-        let allocator = self.session.allocator();
-        let source = Arc::new(FileReadAt::open_with_allocator(path, handle, allocator)?);
+        use vortex_io::std_file::MmapReadAt;
+        let source = Arc::new(MmapReadAt::open(path)?);
         self.open(source).await
     }
 
