@@ -160,6 +160,8 @@ fuzzy-matcher = "0.3"
 geo-traits = "0.3.0"
 geo-types = "0.7.19"
 geoarrow = "0.8.0"
+# Temporary fork bumped to DataFusion 54 until the upstream PR lands; pinned to an exact rev.
+geodatafusion = { git = "https://github.com/HarukiMoriarty/geodatafusion", rev = "3d50d7e549df720707133852848edd1ecff89265" }
 get_dir = "0.5.0"
 glob = "0.3.2"
 goldenfile = "1"
