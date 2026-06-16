@@ -361,12 +361,10 @@ mod tests {
     use crate::expr::stats::Stat;
     use crate::expr::stats::StatsProvider;
     use crate::scalar::Scalar;
-    use crate::session::ArraySession;
     use crate::validity::Validity;
 
     /// A shared session for these constant-array tests, used to create execution contexts.
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
 
     #[test]
     fn test_canonicalize_null() {

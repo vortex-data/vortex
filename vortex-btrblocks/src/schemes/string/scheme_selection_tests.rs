@@ -12,15 +12,13 @@ use vortex_array::arrays::Dict;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::session::ArraySession;
 use vortex_error::VortexResult;
 use vortex_fsst::FSST;
 use vortex_session::VortexSession;
 
 use crate::BtrBlocksCompressor;
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 #[test]
 fn test_constant_compressed() -> VortexResult<()> {

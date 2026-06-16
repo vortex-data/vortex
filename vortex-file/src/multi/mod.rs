@@ -11,6 +11,7 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
+pub use session::MultiFileSession;
 use session::MultiFileSessionExt;
 use tracing::debug;
 use vortex_error::VortexError;

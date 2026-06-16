@@ -118,7 +118,6 @@ mod tests {
     use vortex_array::scalar_fn::fns::binary::CompareKernel;
     use vortex_array::scalar_fn::fns::operators::CompareOperator;
     use vortex_array::scalar_fn::fns::operators::Operator;
-    use vortex_array::session::ArraySession;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -126,8 +125,7 @@ mod tests {
     use crate::BitPackedArrayExt;
     use crate::BitPackedData;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     /// All six operators on a small in-range input.
     #[rstest]

@@ -254,10 +254,8 @@ mod tests {
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::extension::ExtDType;
-    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
 
     use super::Coordinate;
     use super::Dimension;
@@ -303,7 +301,7 @@ mod tests {
     /// be rejected at parse time rather than decoding null rows as garbage ordinates.
     #[test]
     fn parse_rejects_nullable_points() -> VortexResult<()> {
-        let session = VortexSession::empty().with::<ArraySession>();
+        let session = vortex_array::array_session();
         let mut ctx = session.create_execution_ctx();
 
         let storage = StructArray::try_new(

@@ -100,7 +100,6 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::patched::PatchedArraySlotsExt;
     use vortex_array::buffer::BufferHandle;
-    use vortex_array::session::ArraySession;
     use vortex_array::session::ArraySessionExt;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
@@ -114,7 +113,7 @@ mod tests {
     use crate::BitPackedData;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = VortexSession::empty().with::<ArraySession>();
+        let session = vortex_array::array_session();
         session.arrays().register(BitPackedPatchedPlugin);
         session
     });

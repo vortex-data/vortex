@@ -153,9 +153,7 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
-    use vortex_array::session::ArraySession;
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
 
     use super::GeoDistance;
     use super::euclidean_distance;
@@ -192,7 +190,7 @@ mod tests {
     /// constant query point).
     #[test]
     fn distance_over_points() -> VortexResult<()> {
-        let session = VortexSession::empty().with::<ArraySession>();
+        let session = vortex_array::array_session();
         let mut ctx = session.create_execution_ctx();
 
         let a = point_column(vec![0.0, 3.0, 0.0, 3.0], vec![0.0, 0.0, 4.0, 4.0])?;
@@ -206,7 +204,7 @@ mod tests {
     /// Column-to-column distance pairs corresponding rows of the two columns.
     #[test]
     fn distance_between_columns() -> VortexResult<()> {
-        let session = VortexSession::empty().with::<ArraySession>();
+        let session = vortex_array::array_session();
         let mut ctx = session.create_execution_ctx();
 
         let a = point_column(vec![0.0, 1.0], vec![0.0, 1.0])?;
@@ -220,7 +218,7 @@ mod tests {
     /// The constant query point may be either operand; distance is symmetric.
     #[test]
     fn distance_with_constant_first_operand() -> VortexResult<()> {
-        let session = VortexSession::empty().with::<ArraySession>();
+        let session = vortex_array::array_session();
         let mut ctx = session.create_execution_ctx();
 
         let a = point_constant(0.0, 0.0, 4, &mut ctx)?;
@@ -234,7 +232,7 @@ mod tests {
     /// Two constant operands: every row has the same distance.
     #[test]
     fn distance_between_two_constants() -> VortexResult<()> {
-        let session = VortexSession::empty().with::<ArraySession>();
+        let session = vortex_array::array_session();
         let mut ctx = session.create_execution_ctx();
 
         let a = point_constant(0.0, 0.0, 3, &mut ctx)?;

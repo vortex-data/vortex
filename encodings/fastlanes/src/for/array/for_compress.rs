@@ -58,7 +58,6 @@ mod test {
     use vortex_array::dtype::PType;
     use vortex_array::expr::stats::StatsProvider;
     use vortex_array::scalar::Scalar;
-    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
@@ -69,8 +68,7 @@ mod test {
     use crate::r#for::array::for_decompress::decompress;
     use crate::r#for::array::for_decompress::fused_decompress;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     #[test]
     fn test_compress_round_trip_small() {

@@ -713,7 +713,7 @@ fn bench_dict_bp_codes_alp_for_bp_values_composed_standalone(c: &mut Criterion) 
                         exponents,
                         codes_bp,
                         *len,
-                        &cuda_session,
+                        cuda_session,
                         &mut cuda_ctx,
                     );
 

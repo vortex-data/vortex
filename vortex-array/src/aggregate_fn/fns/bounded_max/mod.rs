@@ -262,7 +262,6 @@ mod tests {
     use crate::arrays::VarBinViewArray;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
-    use crate::session::ArraySession;
     use crate::validity::Validity;
 
     fn max_bytes(value: usize) -> NonZeroUsize {
@@ -270,7 +269,7 @@ mod tests {
     }
 
     fn fresh_session() -> VortexSession {
-        VortexSession::empty().with::<ArraySession>()
+        crate::array_session()
     }
 
     #[test]

@@ -363,8 +363,6 @@ mod tests {
     use vortex_array::expr::lit;
     use vortex_array::expr::pack;
     use vortex_array::expr::root;
-    use vortex_array::scalar_fn::session::ScalarFnSession;
-    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
@@ -392,10 +390,8 @@ mod tests {
     // FIXME(ngates): Deprecate the global `runtime::single::block_on` helper and require tests
     // to call `block_on` on an explicit runtime instance.
     fn session_with_handle(handle: Handle) -> VortexSession {
-        VortexSession::empty()
-            .with::<ArraySession>()
+        vortex_array::array_session()
             .with::<LayoutSession>()
-            .with::<ScalarFnSession>()
             .with::<RuntimeSession>()
             .with_handle(handle)
     }

@@ -95,7 +95,6 @@ mod tests {
     use vortex_array::scalar::PValue;
     use vortex_array::search_sorted::SearchSorted;
     use vortex_array::search_sorted::SearchSortedSide;
-    use vortex_array::session::ArraySession;
     use vortex_array::session::ArraySessionExt;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
@@ -107,7 +106,7 @@ mod tests {
     use crate::ops::find_slice_end_index;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = VortexSession::empty().with::<ArraySession>();
+        let session = vortex_array::array_session();
         session.arrays().register(RunEnd);
         session
     });

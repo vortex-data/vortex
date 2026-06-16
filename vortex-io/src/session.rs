@@ -7,10 +7,12 @@ use std::fmt::Debug;
 use vortex_error::VortexExpect;
 use vortex_session::SessionExt;
 use vortex_session::SessionVar;
+use vortex_session::VortexSession;
 
 use crate::runtime::Handle;
 
 /// Session state for Vortex async runtimes.
+#[derive(Clone)]
 pub struct RuntimeSession {
     handle: Option<Handle>,
 }
@@ -53,16 +55,18 @@ pub trait RuntimeSessionExt: SessionExt {
     ///
     /// For example, if the application is launched using `#[tokio::main]`.
     #[cfg(feature = "tokio")]
-    fn with_tokio(self) -> Self {
+    fn with_tokio(self) -> VortexSession {
         use crate::runtime::tokio::TokioRuntime;
-        self.get_mut::<RuntimeSession>().handle = Some(TokioRuntime::current());
-        self
+        let mut builder = self.session().to_builder();
+        builder.get_mut::<RuntimeSession>().handle = Some(TokioRuntime::current());
+        builder.build()
     }
 
     /// Configure the runtime session to use a specific Vortex runtime handle.
-    fn with_handle(self, handle: Handle) -> Self {
-        self.get_mut::<RuntimeSession>().handle = Some(handle);
-        self
+    fn with_handle(self, handle: Handle) -> VortexSession {
+        let mut builder = self.session().to_builder();
+        builder.get_mut::<RuntimeSession>().handle = Some(handle);
+        builder.build()
     }
 }
 impl<S: SessionExt> RuntimeSessionExt for S {}

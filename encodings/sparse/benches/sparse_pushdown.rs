@@ -31,7 +31,6 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
-use vortex_array::session::ArraySession;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
@@ -45,7 +44,7 @@ const LEN: usize = 1_000_000;
 
 /// Session with Sparse and its pushdown kernels registered.
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = VortexSession::empty().with::<ArraySession>();
+    let session = vortex_array::array_session();
     vortex_sparse::initialize(&session);
     session
 });

@@ -323,12 +323,10 @@ mod tests {
     use crate::memory::MemorySessionExt;
     use crate::memory::WritableHostBuffer;
     use crate::scalar::Scalar;
-    use crate::session::ArraySession;
     use crate::validity::Validity;
 
     /// A shared session for these chunked-array tests, used to create execution contexts.
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
 
     #[derive(Debug)]
     struct CountingAllocator {
@@ -640,12 +638,9 @@ mod tests {
     #[test]
     fn list_canonicalize_uses_memory_session_allocator() {
         let allocations = Arc::new(AtomicUsize::new(0));
-        let session = VortexSession::empty();
-        session
-            .memory_mut()
-            .set_allocator(Arc::new(CountingAllocator {
-                allocations: Arc::clone(&allocations),
-            }));
+        let session = crate::array_session().with_allocator(Arc::new(CountingAllocator {
+            allocations: Arc::clone(&allocations),
+        }));
         let mut ctx = ExecutionCtx::new(session);
 
         let l1 = ListArray::try_new(

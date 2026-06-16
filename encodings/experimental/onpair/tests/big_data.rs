@@ -26,13 +26,11 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar_fn::fns::operators::Operator;
-use vortex_array::session::ArraySession;
 use vortex_onpair::DEFAULT_DICT12_CONFIG;
 use vortex_onpair::onpair_compress;
 use vortex_session::VortexSession;
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 fn corpus(n: usize) -> Vec<String> {
     let templates: &[&str] = &[

@@ -25,8 +25,7 @@ use vortex_array::session::ArraySession;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_session::VortexSession;
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| vortex_array::array_session());
 
 /// Helper: synthetic short-string corpus that the cascading compressor should
 /// route through OnPair.

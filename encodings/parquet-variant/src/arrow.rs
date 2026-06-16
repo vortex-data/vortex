@@ -295,7 +295,6 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
-    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
@@ -306,7 +305,7 @@ mod tests {
 
     #[fixture]
     fn session() -> VortexSession {
-        let session = VortexSession::empty().with::<ArraySession>();
+        let session = vortex_array::array_session();
         crate::initialize(&session);
         session
     }

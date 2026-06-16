@@ -155,7 +155,7 @@ mod tests {
 
     #[test]
     fn aggregate_fn_serde() {
-        let session = VortexSession::empty().with::<AggregateFnSession>();
+        let session = crate::array_session();
         session.aggregate_fns().register(TestAgg);
 
         let agg_fn = TestAgg.bind(EmptyOptions);

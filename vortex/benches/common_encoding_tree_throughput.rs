@@ -24,7 +24,6 @@ use vortex::array::arrays::VarBinArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::varbin::VarBinArrayExt;
 use vortex::array::builtins::ArrayBuiltins;
-use vortex::array::session::ArraySession;
 use vortex::dtype::DType;
 use vortex::dtype::PType;
 use vortex::encodings::alp::ALP;
@@ -53,8 +52,7 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 const NUM_VALUES: u64 = 100_000;
 

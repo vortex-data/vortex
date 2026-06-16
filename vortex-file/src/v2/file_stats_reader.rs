@@ -234,8 +234,6 @@ mod tests {
     use vortex_array::expr::stats::Stat;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::scalar::ScalarValue;
-    use vortex_array::scalar_fn::session::ScalarFnSession;
-    use vortex_array::session::ArraySession;
     use vortex_array::stats::StatsSet;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
@@ -257,10 +255,8 @@ mod tests {
     use super::*;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        VortexSession::empty()
-            .with::<ArraySession>()
+        vortex_array::array_session()
             .with::<LayoutSession>()
-            .with::<ScalarFnSession>()
             .with::<RuntimeSession>()
     });
 

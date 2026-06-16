@@ -14,7 +14,6 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
 use vortex_array::scalar_fn::fns::like::Like;
 use vortex_array::scalar_fn::fns::like::LikeOptions;
-use vortex_array::session::ArraySession;
 use vortex_fsst::FSSTArray;
 use vortex_fsst::test_utils::NUM_STRINGS;
 use vortex_fsst::test_utils::make_fsst_clickbench_urls;
@@ -30,8 +29,7 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 const N: usize = NUM_STRINGS;
 

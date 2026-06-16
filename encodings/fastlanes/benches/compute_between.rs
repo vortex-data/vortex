@@ -16,7 +16,6 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
-use vortex_array::session::ArraySession;
 use vortex_error::VortexExpect;
 use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width;
 use vortex_session::VortexSession;
@@ -25,8 +24,7 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 fn generate_primitive_array<T: NativePType + NumCast>(
     rng: &mut StdRng,
