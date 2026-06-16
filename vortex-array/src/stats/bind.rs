@@ -2,6 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Bind abstract `vortex.stat` expressions to a concrete stats representation.
+//!
+//! Stats rewrite rules describe pruning in terms of `vortex.stat(input, aggregate_fn)` placeholders
+//! so the rewrite is independent of where statistics are stored. Binding is the later pass that
+//! replaces those placeholders with the representation used by a caller: zone-map field references,
+//! file-level stat literals, or typed nulls for missing stats.
 
 use vortex_error::VortexResult;
 
@@ -19,6 +24,14 @@ use crate::scalar_fn::fns::stat::StatFn;
 pub trait StatBinder {
     /// The dtype scope used to type-check expressions before stats are bound.
     fn scope(&self) -> &DType;
+
+    /// The dtype scope used after stats have been bound.
+    ///
+    /// Binders that rewrite stats to a different root expression, such as a
+    /// stats-table row, should return that post-binding root dtype.
+    fn bound_scope(&self) -> DType {
+        self.scope().clone()
+    }
 
     /// Bind `stat(input)` to a concrete expression.
     ///
@@ -52,10 +65,9 @@ pub trait StatBinder {
     /// Expression to use when a stat is unavailable.
     ///
     /// The default is a nullable null literal, which preserves three-valued
-    /// pruning semantics for stats-table execution. Catalog-like binders can
-    /// return `Ok(None)` to reject expressions that require unavailable stats.
-    fn missing_stat(&mut self, dtype: DType) -> VortexResult<Option<Expression>> {
-        Ok(Some(null_expr(dtype)))
+    /// pruning semantics for stats-table execution.
+    fn missing_stat(&mut self, dtype: DType) -> VortexResult<Expression> {
+        Ok(null_expr(dtype))
     }
 }
 
@@ -64,10 +76,7 @@ pub trait StatBinder {
 /// The predicate is usually the output of a stats rewrite rule. Rewrite rules
 /// are responsible for expressing stat semantics; binding maps aggregate-backed
 /// stat requests to the concrete stats representation supported by the binder.
-pub fn bind_stats(
-    predicate: Expression,
-    binder: &mut impl StatBinder,
-) -> VortexResult<Option<Expression>> {
+pub fn bind_stats(predicate: Expression, binder: &mut impl StatBinder) -> VortexResult<Expression> {
     let scope = binder.scope().clone();
     let lowered = predicate
         .transform_down(|expr| {
@@ -79,18 +88,13 @@ pub fn bind_stats(
                 Some(bound) => Ok(Transformed::yes(bound)),
                 None => {
                     let dtype = expr.return_dtype(&scope)?;
-                    match binder.missing_stat(dtype.clone())? {
-                        Some(missing) => Ok(Transformed::yes(missing)),
-                        None => Ok(Transformed::yes(null_expr(dtype))),
-                    }
+                    Ok(Transformed::yes(binder.missing_stat(dtype)?))
                 }
             }
         })?
         .into_inner();
 
-    #[expect(deprecated)]
-    let lowered = lowered.simplify_untyped()?;
-    Ok(Some(lowered))
+    lowered.optimize_recursive(&binder.bound_scope())
 }
 
 fn bind_stat_fn(
@@ -100,6 +104,7 @@ fn bind_stat_fn(
 ) -> VortexResult<Option<Expression>> {
     let options = expr.as_::<StatFn>();
     let aggregate_fn = options.aggregate_fn();
+    // `StatFn` has exactly one child: the expression the aggregate statistic is computed over.
     let input = expr.child(0);
 
     let stat_dtype = expr.return_dtype(scope)?;

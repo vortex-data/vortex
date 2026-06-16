@@ -121,10 +121,7 @@ impl ZoneMap {
 
     fn lower_stats(&self, predicate: Expression) -> VortexResult<Expression> {
         let mut binder = ZoneMapStatsBinder { zone_map: self };
-        let Some(predicate) = bind_stats(predicate, &mut binder)? else {
-            vortex_bail!("missing stats should lower to null literals");
-        };
-        Ok(predicate)
+        bind_stats(predicate, &mut binder)
     }
 }
 
@@ -135,6 +132,10 @@ struct ZoneMapStatsBinder<'a> {
 impl StatBinder for ZoneMapStatsBinder<'_> {
     fn scope(&self) -> &DType {
         &self.zone_map.column_dtype
+    }
+
+    fn bound_scope(&self) -> DType {
+        self.zone_map.array.dtype().clone()
     }
 
     fn bind_stat(

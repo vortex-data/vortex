@@ -814,6 +814,33 @@ mod tests {
             ))
         );
 
+        let expr = like(col("s"), lit(r"\%%"));
+        assert_eq!(
+            falsify(&expr)?,
+            Some(or(
+                gt_eq(stat(col("s"), Stat::Min), lit("&")),
+                lt(stat(col("s"), Stat::Max), lit("%")),
+            ))
+        );
+
+        let expr = like(col("s"), lit("pref%ix%"));
+        assert_eq!(
+            falsify(&expr)?,
+            Some(or(
+                gt_eq(stat(col("s"), Stat::Min), lit("preg")),
+                lt(stat(col("s"), Stat::Max), lit("pref")),
+            ))
+        );
+
+        let expr = like(col("s"), lit("pref_ix_"));
+        assert_eq!(
+            falsify(&expr)?,
+            Some(or(
+                gt_eq(stat(col("s"), Stat::Min), lit("preg")),
+                lt(stat(col("s"), Stat::Max), lit("pref")),
+            ))
+        );
+
         let expr = like(col("s"), lit("exact"));
         assert_eq!(
             falsify(&expr)?,

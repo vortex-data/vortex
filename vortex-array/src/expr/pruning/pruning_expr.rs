@@ -14,6 +14,8 @@ use crate::dtype::Field;
 use crate::dtype::FieldName;
 use crate::dtype::FieldPath;
 use crate::dtype::FieldPathSet;
+use crate::dtype::Nullability;
+use crate::dtype::StructFields;
 use crate::expr::Expression;
 use crate::expr::analysis::referenced_field_paths;
 use crate::expr::get_item;
@@ -70,11 +72,13 @@ pub fn checked_pruning_expr(
         scope,
         available_stats,
         required_stats: Relation::new(),
+        bound_stats: Vec::new(),
     };
-    let Some(lowered) = bind_stats(predicate, &mut binder)? else {
-        return Ok(None);
-    };
+    let lowered = bind_stats(predicate, &mut binder)?;
     let required_stats = filter_required_stats(&lowered, binder.required_stats);
+    // If no stats-table fields remain, only a constant `true` proof can prune.
+    // `false`, `null`, and non-constant expressions cannot justify building a
+    // stats-table pruning expression.
     if required_stats.map().is_empty() && !matches!(bool_literal(&lowered), Some(Some(true))) {
         return Ok(None);
     }
@@ -86,6 +90,7 @@ struct RequiredStatsBinder<'a> {
     scope: &'a DType,
     available_stats: &'a FieldPathSet,
     required_stats: RequiredStats,
+    bound_stats: Vec<(FieldName, DType)>,
 }
 
 impl StatBinder for RequiredStatsBinder<'_> {
@@ -93,11 +98,18 @@ impl StatBinder for RequiredStatsBinder<'_> {
         self.scope
     }
 
+    fn bound_scope(&self) -> DType {
+        DType::Struct(
+            StructFields::from_iter(self.bound_stats.iter().cloned()),
+            Nullability::NonNullable,
+        )
+    }
+
     fn bind_stat(
         &mut self,
         input: &Expression,
         stat: Stat,
-        _stat_dtype: &DType,
+        stat_dtype: &DType,
     ) -> VortexResult<Option<Expression>> {
         let field_path = match direct_stat_field_path(input) {
             Some(field_path) => field_path,
@@ -114,11 +126,18 @@ impl StatBinder for RequiredStatsBinder<'_> {
             return Ok(None);
         }
 
-        self.required_stats.insert(field_path.clone(), stat);
-        Ok(Some(get_item(
-            field_path_stat_field_name(&field_path, stat),
-            root(),
-        )))
+        let stat_field_name = field_path_stat_field_name(&field_path, stat);
+        if self
+            .bound_stats
+            .iter()
+            .all(|(field_name, _)| field_name != stat_field_name)
+        {
+            self.bound_stats
+                .push((stat_field_name.clone(), stat_dtype.clone()));
+        }
+
+        self.required_stats.insert(field_path, stat);
+        Ok(Some(get_item(stat_field_name, root())))
     }
 }
 

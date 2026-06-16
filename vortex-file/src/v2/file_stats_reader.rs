@@ -31,7 +31,6 @@ use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
 use vortex_array::stats::bind::StatBinder;
 use vortex_array::stats::bind::bind_stats;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_layout::ArrayFuture;
 use vortex_layout::LayoutReader;
 use vortex_layout::LayoutReaderRef;
@@ -121,10 +120,7 @@ impl FileStatsLayoutReader {
 
     fn lower_stats(&self, predicate: Expression) -> VortexResult<Expression> {
         let mut binder = FileStatsBinder { reader: self };
-        let Some(predicate) = bind_stats(predicate, &mut binder)? else {
-            vortex_bail!("missing stats should lower to null literals");
-        };
-        Ok(predicate)
+        bind_stats(predicate, &mut binder)
     }
 
     pub fn file_stats(&self) -> &FileStatistics {
@@ -139,6 +135,10 @@ struct FileStatsBinder<'a> {
 impl StatBinder for FileStatsBinder<'_> {
     fn scope(&self) -> &DType {
         self.reader.child.dtype()
+    }
+
+    fn bound_scope(&self) -> DType {
+        DType::Null
     }
 
     fn bind_stat(

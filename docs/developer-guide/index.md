@@ -24,6 +24,7 @@ internals/session
 internals/async-runtime
 internals/vtables
 internals/execution
+internals/stats-pruning
 internals/io
 internals/serialization
 internals/cuda
