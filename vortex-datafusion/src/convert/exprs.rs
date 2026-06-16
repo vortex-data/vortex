@@ -18,6 +18,7 @@ use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_expr_common::physical_expr::is_dynamic_physical_expr;
 use datafusion_physical_plan::expressions as df_expr;
+use geodatafusion::udf::geo::measurement::Distance;
 use itertools::Itertools;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
@@ -35,11 +36,13 @@ use vortex::expr::not;
 use vortex::expr::pack;
 use vortex::expr::root;
 use vortex::scalar::Scalar;
+use vortex::scalar_fn::EmptyOptions;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
 use vortex::scalar_fn::fns::operators::Operator;
+use vortex_geo::scalar_fn::distance::GeoDistance;
 
 use crate::convert::FromDataFusion;
 
@@ -140,10 +143,35 @@ impl DefaultExpressionConvertor {
             return Ok(result);
         }
 
+        // Geospatial UDFs map to Vortex scalar functions pushed into the scan.
+        if let Some(expr) = self.try_convert_geo_scalar_function(scalar_fn)? {
+            return Ok(expr);
+        }
+
         Err(exec_datafusion_err!(
             "Unsupported ScalarFunctionExpr: {}",
             scalar_fn.name()
         ))
+    }
+
+    /// Converts a geospatial UDF to the matching Vortex scalar function, if `scalar_fn` is one.
+    fn try_convert_geo_scalar_function(
+        &self,
+        scalar_fn: &ScalarFunctionExpr,
+    ) -> DFResult<Option<Expression>> {
+        // geodatafusion's `st_distance` -> Vortex `GeoDistance`, the only geo pushdown Q1 needs.
+        // Other geo functions so far run above the scan.
+        if ScalarFunctionExpr::try_downcast_func::<Distance>(scalar_fn).is_some() {
+            let [a, b] = scalar_fn.args() else {
+                return Err(exec_datafusion_err!("st_distance expects 2 arguments"));
+            };
+            return Ok(Some(GeoDistance.new_expr(
+                EmptyOptions,
+                [self.convert(a.as_ref())?, self.convert(b.as_ref())?],
+            )));
+        }
+
+        Ok(None)
     }
 
     /// Attempts to convert a DataFusion CaseExpr to a Vortex expression.
@@ -525,10 +553,20 @@ fn supported_data_types(dt: &DataType) -> bool {
     is_supported
 }
 
-/// Checks if a scalar function can be pushed down.
-/// Currently only GetFieldFunc is supported.
+/// Checks if a scalar function can be pushed down: nested field access, or a geospatial
+/// function that maps to a Vortex scalar function.
 fn can_scalar_fn_be_pushed_down(scalar_fn: &ScalarFunctionExpr) -> bool {
     ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn).is_some()
+        || is_pushable_geo_scalar_function(scalar_fn)
+}
+
+/// Whether `scalar_fn` is a geospatial UDF that maps to a Vortex scalar function 
+/// and whose operands are all convertible..
+fn is_pushable_geo_scalar_function(scalar_fn: &ScalarFunctionExpr) -> bool {
+    // `st_distance` is pushable only when its operands convert (a Point column or folded coord
+    // literal); a WKB operand like `ST_GeomFromWKB(col)` falls back to geodatafusion instead.
+    ScalarFunctionExpr::try_downcast_func::<Distance>(scalar_fn).is_some()
+        && scalar_fn.args().iter().all(is_convertible_expr)
 }
 
 // TODO(adam): Replace with `DataType::is_decimal` once its released.
