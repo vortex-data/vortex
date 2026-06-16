@@ -27,6 +27,7 @@ datafusion = { workspace = true, features = [
 datafusion-common = { workspace = true }
 datafusion-physical-plan = { workspace = true }
 futures.workspace = true
+geodatafusion = { workspace = true }
 itertools.workspace = true
 object_store = { workspace = true, features = ["aws", "gcp"] }
 opentelemetry.workspace = true
@@ -39,6 +40,7 @@ vortex = { workspace = true, features = ["object_store", "files", "tokio"] }
 vortex-bench = { workspace = true }
 vortex-cuda = { workspace = true, optional = true }
 vortex-datafusion = { workspace = true }
+vortex-geo = { workspace = true }
 vortex-metrics = { workspace = true }
 
 [build-dependencies]

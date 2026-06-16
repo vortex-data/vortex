@@ -27,6 +27,7 @@ use datafusion_physical_plan::collect;
 use futures::StreamExt;
 use parking_lot::Mutex;
 use tokio::fs::File;
+use vortex::array::arrow::ArrowSessionExt;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::scan::DataSourceRef;
 use vortex_bench::Benchmark;
@@ -261,7 +262,7 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
             register_v2_tables(session, benchmark, format).await
         }
         _ => {
-            let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
+            let benchmark_base = benchmark.format_path(format, benchmark.data_url())?;
             let file_format = format_to_df_format(format);
 
             for table in benchmark.table_specs().iter() {
@@ -307,7 +308,7 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
     use vortex::scan::DataSource as _;
     use vortex_datafusion::v2::VortexTable;
 
-    let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
+    let benchmark_base = benchmark.format_path(format, benchmark.data_url())?;
 
     for table in benchmark.table_specs().iter() {
         let pattern = benchmark.pattern(table.name, format);
@@ -334,7 +335,7 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
             .build()
             .await?;
 
-        let arrow_schema = Arc::new(multi_ds.dtype().to_arrow_schema()?);
+        let arrow_schema = Arc::new(SESSION.arrow().to_arrow_schema(multi_ds.dtype())?);
         let data_source: DataSourceRef = Arc::new(multi_ds);
 
         let table_provider = Arc::new(VortexTable::new(data_source, SESSION.clone(), arrow_schema));

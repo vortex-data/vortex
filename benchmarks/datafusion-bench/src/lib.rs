@@ -45,13 +45,23 @@ pub fn get_session_context() -> SessionContext {
         .build_arc()
         .expect("could not build runtime environment");
 
-    let factory = VortexFormatFactory::new().with_options(VortexTableOptions {
-        projection_pushdown: true,
-        ..Default::default()
-    });
+    let factory = VortexFormatFactory::new_with_options(
+        SESSION.clone(),
+        VortexTableOptions {
+            projection_pushdown: true,
+            ..Default::default()
+        },
+    );
+
+    let mut config = SessionConfig::from_env().expect("shouldn't fail");
+    // Keep Parquet field metadata so the geoarrow.point extension survives the read.
+    config.options_mut().execution.parquet.skip_metadata = false;
+    // Evaluate (and reorder) the filter inside the parquet scan -- fairest parquet baseline.
+    config.options_mut().execution.parquet.pushdown_filters = true;
+    config.options_mut().execution.parquet.reorder_filters = true;
 
     let mut session_state_builder = SessionStateBuilder::new()
-        .with_config(SessionConfig::from_env().expect("shouldn't fail"))
+        .with_config(config)
         .with_runtime_env(rt)
         .with_default_features();
 
@@ -66,7 +76,10 @@ pub fn get_session_context() -> SessionContext {
         file_formats.push(Arc::new(factory));
     }
 
-    SessionContext::new_with_state(session_state_builder.build())
+    let ctx = SessionContext::new_with_state(session_state_builder.build());
+    // Register geodatafusion's PostGIS-style ST_* UDFs so SpatialBench SQL plans.
+    geodatafusion::register(&ctx);
+    ctx
 }
 
 pub fn make_object_store(
@@ -113,7 +126,7 @@ pub fn format_to_df_format(format: Format) -> Arc<dyn FileFormat> {
     match format {
         Format::Csv => Arc::new(CsvFormat::default()) as _,
         Format::Arrow => Arc::new(ArrowFormat),
-        Format::Parquet => Arc::new(ParquetFormat::new()),
+        Format::Parquet => Arc::new(ParquetFormat::new().with_skip_metadata(false)),
         Format::OnDiskVortex | Format::VortexCompact => {
             Arc::new(VortexFormat::new(SESSION.clone()))
         }
