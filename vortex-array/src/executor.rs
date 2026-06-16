@@ -163,12 +163,8 @@ impl ArrayRef {
         let mut stack: Vec<StackFrame> = Vec::new();
         let max_iterations = max_iterations();
 
-        // Steps 2a/2b both route through execute_parent_for_child so a registered
-        // ArrayKernels parent kernel fires whether the parent is suspended on the stack
-        // (2a) or is the current array (2b). The kernels registry is stable for the whole
-        // execution, so fetch it once here and share across every iteration.
-        let tmp_session = ctx.session().clone();
-        let kernels = tmp_session.get::<ArrayKernels>();
+        let session = ctx.session().clone();
+        let kernels = session.get::<ArrayKernels>();
 
         for _ in 0..max_iterations {
             let is_done = stack
