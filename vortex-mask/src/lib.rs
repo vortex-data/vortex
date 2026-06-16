@@ -187,8 +187,20 @@ impl Mask {
 
     /// Create a new [`Mask`] from a [`BitBuffer`].
     pub fn from_buffer(buffer: BitBuffer) -> Self {
-        let len = buffer.len();
         let true_count = buffer.true_count();
+        Self::from_buffer_with_true_count(buffer, true_count)
+    }
+
+    /// Create a [`Mask`] from a [`BitBuffer`] whose true count is already known, skipping the
+    /// popcount pass [`Mask::from_buffer`] would run. `true_count` must equal
+    /// `buffer.true_count()`; a wrong value yields a `Mask` with corrupt cached statistics.
+    pub(crate) fn from_buffer_with_true_count(buffer: BitBuffer, true_count: usize) -> Self {
+        debug_assert_eq!(
+            true_count,
+            buffer.true_count(),
+            "from_buffer_with_true_count given a count that disagrees with the buffer"
+        );
+        let len = buffer.len();
 
         if true_count == 0 {
             return Self::AllFalse(len);

@@ -25,6 +25,7 @@ use crate::bit::collect_bool_word;
 use crate::bit::count_ones::count_ones;
 use crate::bit::get_bit_unchecked;
 use crate::bit::ops::bitwise_binary_op;
+use crate::bit::ops::bitwise_binary_op_counted;
 use crate::bit::ops::bitwise_binary_op_lhs_owned;
 use crate::bit::ops::bitwise_unary_op;
 use crate::bit::ops::bitwise_unary_op_copy;
@@ -539,6 +540,21 @@ impl BitBuffer {
     /// Owned variant of [`bitand_not`](Self::bitand_not) that can mutate in-place when possible.
     pub fn into_bitand_not(self, rhs: &BitBuffer) -> BitBuffer {
         bitwise_binary_op_lhs_owned(self, rhs, |a, b| a & !b)
+    }
+
+    /// Bitwise AND of two buffers, returning the result and its true count from a single pass.
+    pub fn bitand_with_true_count(&self, rhs: &BitBuffer) -> (BitBuffer, usize) {
+        bitwise_binary_op_counted(self, rhs, |a, b| a & b)
+    }
+
+    /// Bitwise OR of two buffers, returning the result and its true count from a single pass.
+    pub fn bitor_with_true_count(&self, rhs: &BitBuffer) -> (BitBuffer, usize) {
+        bitwise_binary_op_counted(self, rhs, |a, b| a | b)
+    }
+
+    /// Bitwise AND NOT (`self & !rhs`), returning the result and its true count from a single pass.
+    pub fn bitand_not_with_true_count(&self, rhs: &BitBuffer) -> (BitBuffer, usize) {
+        bitwise_binary_op_counted(self, rhs, |a, b| a & !b)
     }
 
     /// Iterate through bits in a buffer.

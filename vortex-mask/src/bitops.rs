@@ -23,7 +23,10 @@ impl BitAnd for &Mask {
             (_, AllOr::All) => self.clone(),
             (AllOr::None, _) => Mask::new_false(self.len()),
             (_, AllOr::None) => Mask::new_false(self.len()),
-            (AllOr::Some(lhs), AllOr::Some(rhs)) => Mask::from_buffer(lhs & rhs),
+            (AllOr::Some(lhs), AllOr::Some(rhs)) => {
+                let (buffer, true_count) = lhs.bitand_with_true_count(rhs);
+                Mask::from_buffer_with_true_count(buffer, true_count)
+            }
         }
     }
 }
@@ -31,7 +34,6 @@ impl BitAnd for &Mask {
 impl BitAnd<&Mask> for Mask {
     type Output = Mask;
 
-    /// Owned-left AND: can reuse the left buffer in-place when possible.
     fn bitand(self, rhs: &Mask) -> Self::Output {
         if self.len() != rhs.len() {
             vortex_panic!("Masks must have the same length");
@@ -41,8 +43,9 @@ impl BitAnd<&Mask> for Mask {
             (AllOr::All, _) => rhs.clone(),
             (AllOr::None, _) | (_, AllOr::None) => Mask::new_false(self.len()),
             (_, AllOr::All) => self,
-            (AllOr::Some(_), AllOr::Some(rhs_buf)) => {
-                Mask::from_buffer(self.into_bit_buffer() & rhs_buf)
+            (AllOr::Some(lhs_buf), AllOr::Some(rhs_buf)) => {
+                let (buffer, true_count) = lhs_buf.bitand_with_true_count(rhs_buf);
+                Mask::from_buffer_with_true_count(buffer, true_count)
             }
         }
     }
@@ -61,7 +64,10 @@ impl BitOr for &Mask {
             (_, AllOr::All) => Mask::new_true(self.len()),
             (AllOr::None, _) => rhs.clone(),
             (_, AllOr::None) => self.clone(),
-            (AllOr::Some(lhs), AllOr::Some(rhs)) => Mask::from_buffer(lhs | rhs),
+            (AllOr::Some(lhs), AllOr::Some(rhs)) => {
+                let (buffer, true_count) = lhs.bitor_with_true_count(rhs);
+                Mask::from_buffer_with_true_count(buffer, true_count)
+            }
         }
     }
 }
@@ -69,7 +75,6 @@ impl BitOr for &Mask {
 impl BitOr<&Mask> for Mask {
     type Output = Mask;
 
-    /// Owned-left OR: can reuse the left buffer in-place when possible.
     fn bitor(self, rhs: &Mask) -> Self::Output {
         if self.len() != rhs.len() {
             vortex_panic!("Masks must have the same length");
@@ -79,8 +84,9 @@ impl BitOr<&Mask> for Mask {
             (AllOr::All, _) | (_, AllOr::All) => Mask::new_true(self.len()),
             (AllOr::None, _) => rhs.clone(),
             (_, AllOr::None) => self,
-            (AllOr::Some(_), AllOr::Some(rhs_buf)) => {
-                Mask::from_buffer(self.into_bit_buffer() | rhs_buf)
+            (AllOr::Some(lhs_buf), AllOr::Some(rhs_buf)) => {
+                let (buffer, true_count) = lhs_buf.bitor_with_true_count(rhs_buf);
+                Mask::from_buffer_with_true_count(buffer, true_count)
             }
         }
     }
@@ -96,8 +102,9 @@ impl Mask {
             (AllOr::None, _) | (_, AllOr::All) => Mask::new_false(self.len()),
             (_, AllOr::None) => self,
             (AllOr::All, _) => !rhs,
-            (AllOr::Some(_), AllOr::Some(rhs_buf)) => {
-                Mask::from_buffer(self.into_bit_buffer().into_bitand_not(rhs_buf))
+            (AllOr::Some(lhs_buf), AllOr::Some(rhs_buf)) => {
+                let (buffer, true_count) = lhs_buf.bitand_not_with_true_count(rhs_buf);
+                Mask::from_buffer_with_true_count(buffer, true_count)
             }
         }
     }
@@ -118,7 +125,10 @@ impl Not for &Mask {
         match self.bit_buffer() {
             AllOr::All => Mask::new_false(self.len()),
             AllOr::None => Mask::new_true(self.len()),
-            AllOr::Some(buffer) => Mask::from_buffer(!buffer),
+            // Negation's true count is the complement of self's cached count; no popcount.
+            AllOr::Some(buffer) => {
+                Mask::from_buffer_with_true_count(!buffer, self.len() - self.true_count())
+            }
         }
     }
 }
@@ -126,9 +136,44 @@ impl Not for &Mask {
 #[cfg(test)]
 #[expect(clippy::many_single_char_names)]
 mod tests {
+    use rstest::rstest;
     use vortex_buffer::BitBuffer;
 
     use super::*;
+
+    /// Regression test for <https://github.com/vortex-data/vortex/issues/1508>: the boolean
+    /// operators now cache a fused true count, which must match a brute-force count, including
+    /// lengths that aren't a multiple of 64, where the final word holds out-of-range bits.
+    #[rstest]
+    #[case(1)]
+    #[case(63)]
+    #[case(64)]
+    #[case(127)]
+    #[case(200)]
+    #[case(1000)]
+    fn test_boolean_ops_true_count(#[case] len: usize) {
+        let a_bits: Vec<bool> = (0..len).map(|i| (i * 7 + 1) % 5 < 3).collect();
+        let b_bits: Vec<bool> = (0..len).map(|i| (i * 3 + 2) % 7 < 4).collect();
+        let a = Mask::from_buffer(BitBuffer::from_iter(a_bits.iter().copied()));
+        let b = Mask::from_buffer(BitBuffer::from_iter(b_bits.iter().copied()));
+
+        let count = |f: fn(bool, bool) -> bool| {
+            a_bits
+                .iter()
+                .zip(&b_bits)
+                .filter(|(x, y)| f(**x, **y))
+                .count()
+        };
+
+        assert_eq!((&a & &b).true_count(), count(|x, y| x & y), "AND len={len}");
+        assert_eq!((&a | &b).true_count(), count(|x, y| x | y), "OR len={len}");
+        assert_eq!(
+            a.clone().bitand_not(&b).true_count(),
+            count(|x, y| x & !y),
+            "ANDNOT len={len}"
+        );
+        assert_eq!((!&a).true_count(), count(|x, _| !x), "NOT len={len}");
+    }
 
     #[test]
     fn test_bitand_all_combinations() {

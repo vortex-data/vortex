@@ -235,6 +235,113 @@ pub(super) fn bitwise_binary_op<F: FnMut(u64, u64) -> u64>(
     BitBuffer::new(bytes.freeze(), len)
 }
 
+/// Combine `left` and `right` word-by-word with `op`, calling `comb` on each result word so a
+/// caller can fold a reduction (e.g. `count_ones`) into the same pass. The word given to `comb`
+/// has bits past `len` cleared; the buffer keeps `op`'s raw output in those positions.
+pub(super) fn bitwise_binary_op_with<F, C>(
+    left: &BitBuffer,
+    right: &BitBuffer,
+    op: F,
+    comb: C,
+) -> BitBuffer
+where
+    F: FnMut(u64, u64) -> u64,
+    C: FnMut(u64),
+{
+    assert_eq!(left.len(), right.len());
+    let len = left.len();
+    if len == 0 {
+        return BitBuffer::empty();
+    }
+
+    // Byte-aligned operands: logical bits map onto physical `u64` words, so we can read the backing
+    // bytes straight as words instead of shifting through `iter_padded`.
+    if left.offset().is_multiple_of(8) && right.offset().is_multiple_of(8) {
+        let n_bytes = len.div_ceil(8);
+        let l_start = left.offset() / 8;
+        let r_start = right.offset() / 8;
+        let lhs = &left.inner().as_slice()[l_start..l_start + n_bytes];
+        let rhs = &right.inner().as_slice()[r_start..r_start + n_bytes];
+
+        let (lhs_words, lhs_tail) = lhs.as_chunks::<8>();
+        let (rhs_words, rhs_tail) = rhs.as_chunks::<8>();
+
+        let words = lhs_words
+            .iter()
+            .zip(rhs_words)
+            .map(|(l, r)| (u64::from_le_bytes(*l), u64::from_le_bytes(*r)))
+            .chain((!lhs_tail.is_empty()).then(|| (read_u64_le(lhs_tail), read_u64_le(rhs_tail))));
+        return combine_words(words, len, op, comb);
+    }
+
+    // Sub-byte offset: `iter_padded` realigns the bits and zero-pads the final word.
+    let words = left
+        .chunks()
+        .iter_padded()
+        .zip(right.chunks().iter_padded());
+    combine_words(words, len, op, comb)
+}
+
+/// Combine an iterator of `(left, right)` words via `op` into a `len`-bit [`BitBuffer`], folding
+/// `comb` over each in-range result word. Consumes exactly `ceil(len / 64)` words (any extra the
+/// producer yields, e.g. `iter_padded`'s trailing pad word, is dropped). Only the final word can
+/// hold bits past `len`, so it alone is masked for `comb`; the buffer keeps `op`'s raw output.
+#[inline]
+fn combine_words<I, F, C>(words: I, len: usize, mut op: F, mut comb: C) -> BitBuffer
+where
+    I: Iterator<Item = (u64, u64)>,
+    F: FnMut(u64, u64) -> u64,
+    C: FnMut(u64),
+{
+    let n_words = len.div_ceil(64);
+    let mut out: BufferMut<u64> = BufferMut::with_capacity(n_words);
+    let mut words = words.take(n_words);
+
+    // Words fully within `len` need no masking; handling the final word separately keeps this loop
+    // uniform, with no per-word branch.
+    for (l, r) in words.by_ref().take(n_words - 1) {
+        let word = op(l, r);
+        comb(word);
+        out.push(word);
+    }
+    // Final word: clear bits past `len` for `comb` only.
+    if let Some((l, r)) = words.next() {
+        let word = op(l, r);
+        comb(word & last_word_mask(len));
+        out.push(word);
+    }
+
+    let mut bytes = out.into_byte_buffer();
+    bytes.truncate(len.div_ceil(8));
+    BitBuffer::new(bytes.freeze(), len)
+}
+
+/// Mask of the in-range bits in the final word: the low `len % 64` bits, or all 64 when `len` is
+/// a multiple of 64.
+#[inline]
+fn last_word_mask(len: usize) -> u64 {
+    let rem = len % 64;
+    if rem == 0 {
+        u64::MAX
+    } else {
+        (1u64 << rem) - 1
+    }
+}
+
+/// Like [`bitwise_binary_op`], but also returns the result's set-bit count, folded into the same
+/// pass instead of re-scanning the buffer.
+pub(super) fn bitwise_binary_op_counted<F: FnMut(u64, u64) -> u64>(
+    left: &BitBuffer,
+    right: &BitBuffer,
+    op: F,
+) -> (BitBuffer, usize) {
+    let mut count = 0usize;
+    let buffer = bitwise_binary_op_with(left, right, op, |word| {
+        count += word.count_ones() as usize;
+    });
+    (buffer, count)
+}
+
 #[cfg(test)]
 mod tests {
     use std::ops::Not;
@@ -362,6 +469,44 @@ mod tests {
                 assert_eq!(
                     got, expected,
                     "loff={left_offset} roff={right_offset} len={len}"
+                );
+            }
+        }
+    }
+
+    /// The fused path must yield the same buffer and true count as the reference
+    /// (`bitwise_binary_op` + a separate `true_count`), across all ops, offsets, and lengths,
+    /// including lengths like 127 whose final word holds out-of-range bits.
+    #[rstest]
+    #[case::aligned(0, 0)]
+    #[case::equal_nonzero(3, 3)]
+    #[case::byte_aligned(8, 16)]
+    #[case::mismatch(0, 5)]
+    fn counted_matches_reference(#[case] left_offset: usize, #[case] right_offset: usize) {
+        #[allow(clippy::cast_possible_truncation)]
+        let make = |offset: usize, len: usize, salt: u8| -> BitBuffer {
+            let bytes: ByteBufferMut = (0..(offset + len).div_ceil(8).max(1))
+                .map(|i| (i as u8).wrapping_mul(31).wrapping_add(salt))
+                .collect();
+            BitBufferMut::from_buffer(bytes, offset, len).freeze()
+        };
+        let ops: [fn(u64, u64) -> u64; 4] =
+            [|a, b| a & b, |a, b| a | b, |a, b| a ^ b, |a, b| a & !b];
+
+        for len in [1usize, 5, 8, 63, 64, 65, 127, 128, 129, 200, 256] {
+            let left = make(left_offset, len, 0xC3);
+            let right = make(right_offset, len, 0x5A);
+            for op in ops {
+                let (got_buf, got_count) = bitwise_binary_op_counted(&left, &right, op);
+                let expected_buf = bitwise_binary_op(&left, &right, op);
+                assert_eq!(
+                    got_buf, expected_buf,
+                    "buffer mismatch loff={left_offset} roff={right_offset} len={len}"
+                );
+                assert_eq!(
+                    got_count,
+                    expected_buf.true_count(),
+                    "count mismatch loff={left_offset} roff={right_offset} len={len}"
                 );
             }
         }
