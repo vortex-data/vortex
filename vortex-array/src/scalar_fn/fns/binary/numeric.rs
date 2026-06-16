@@ -38,17 +38,16 @@ trait CheckedPrimitiveOp<T: NativePType>: Sized {
     const ERROR: &'static str;
     const CHECKED_VALUE_LOOP: bool = false;
 
-    fn value(lhs: T, rhs: T) -> T;
-
-    fn is_error(lhs: T, rhs: T) -> bool;
+    // The vectorizable kernels need an overflowing-style result, not
+    // `Option<T>`: every lane can write a value unconditionally while reducing
+    // the error flag separately. `checked` is still available for scalar and
+    // one-pass paths where early exit is the right shape.
+    fn apply(lhs: T, rhs: T) -> (T, bool);
 
     #[inline(always)]
     fn checked(lhs: T, rhs: T) -> Option<T> {
-        if Self::is_error(lhs, rhs) {
-            None
-        } else {
-            Some(Self::value(lhs, rhs))
-        }
+        let (value, failed) = Self::apply(lhs, rhs);
+        if failed { None } else { Some(value) }
     }
 }
 
@@ -56,13 +55,8 @@ impl<T: CheckedArithmetic> CheckedPrimitiveOp<T> for CheckedAdd {
     const ERROR: &'static str = "integer overflow in checked add";
 
     #[inline(always)]
-    fn value(lhs: T, rhs: T) -> T {
-        lhs.add_value(rhs)
-    }
-
-    #[inline(always)]
-    fn is_error(lhs: T, rhs: T) -> bool {
-        lhs.add_error(rhs)
+    fn apply(lhs: T, rhs: T) -> (T, bool) {
+        (lhs.add_value(rhs), lhs.add_error(rhs))
     }
 }
 
@@ -70,13 +64,8 @@ impl<T: CheckedArithmetic> CheckedPrimitiveOp<T> for CheckedSub {
     const ERROR: &'static str = "integer overflow in checked sub";
 
     #[inline(always)]
-    fn value(lhs: T, rhs: T) -> T {
-        lhs.sub_value(rhs)
-    }
-
-    #[inline(always)]
-    fn is_error(lhs: T, rhs: T) -> bool {
-        lhs.sub_error(rhs)
+    fn apply(lhs: T, rhs: T) -> (T, bool) {
+        (lhs.sub_value(rhs), lhs.sub_error(rhs))
     }
 }
 
@@ -84,13 +73,8 @@ impl<T: CheckedArithmetic> CheckedPrimitiveOp<T> for CheckedMul {
     const ERROR: &'static str = "integer overflow in checked mul";
 
     #[inline(always)]
-    fn value(lhs: T, rhs: T) -> T {
-        lhs.mul_value(rhs)
-    }
-
-    #[inline(always)]
-    fn is_error(lhs: T, rhs: T) -> bool {
-        lhs.mul_error(rhs)
+    fn apply(lhs: T, rhs: T) -> (T, bool) {
+        (lhs.mul_value(rhs), lhs.mul_error(rhs))
     }
 }
 
@@ -104,13 +88,14 @@ impl<T: CheckedArithmetic> CheckedPrimitiveOp<T> for CheckedDiv {
     const CHECKED_VALUE_LOOP: bool = T::DIV_CHECKS_IN_VALUE_LOOP;
 
     #[inline(always)]
-    fn value(lhs: T, rhs: T) -> T {
-        lhs.div_value(rhs)
-    }
-
-    #[inline(always)]
-    fn is_error(lhs: T, rhs: T) -> bool {
-        lhs.div_error(rhs)
+    fn apply(lhs: T, rhs: T) -> (T, bool) {
+        let failed = lhs.div_error(rhs);
+        let value = if failed {
+            T::default()
+        } else {
+            lhs.div_value(rhs)
+        };
+        (value, failed)
     }
 
     #[inline(always)]
@@ -361,11 +346,7 @@ where
     T: NativePType,
     Op: CheckedPrimitiveOp<T>,
 {
-    let values = collect_all_lanes(lhs.len(), |idx| Op::value(lhs[idx], rhs[idx]));
-
-    let failed = any_error(lhs.len(), |idx| Op::is_error(lhs[idx], rhs[idx]));
-
-    CheckedValues { values, failed }
+    collect_all_lanes(lhs.len(), |idx| Op::apply(lhs[idx], rhs[idx]))
 }
 
 fn checked_array_array_valid_lanes<T, Op>(
@@ -377,13 +358,11 @@ where
     T: NativePType,
     Op: CheckedPrimitiveOp<T>,
 {
-    let values = collect_all_lanes(lhs.len(), |idx| Op::value(lhs[idx], rhs[idx]));
+    let mut checked = collect_all_lanes(lhs.len(), |idx| Op::apply(lhs[idx], rhs[idx]));
 
-    let failed = any_valid_error(lhs.len(), valid_bits, |idx| {
-        Op::is_error(lhs[idx], rhs[idx])
-    });
-
-    CheckedValues { values, failed }
+    checked.failed = checked.failed
+        && any_valid_error(lhs.len(), valid_bits, |idx| Op::apply(lhs[idx], rhs[idx]).1);
+    checked
 }
 
 fn checked_array_constant_all_lanes<T, Op>(lhs: &[T], rhs: T) -> CheckedValues<T>
@@ -391,11 +370,7 @@ where
     T: NativePType,
     Op: CheckedPrimitiveOp<T>,
 {
-    let values = collect_all_lanes(lhs.len(), |idx| Op::value(lhs[idx], rhs));
-
-    let failed = any_error(lhs.len(), |idx| Op::is_error(lhs[idx], rhs));
-
-    CheckedValues { values, failed }
+    collect_all_lanes(lhs.len(), |idx| Op::apply(lhs[idx], rhs))
 }
 
 fn checked_array_constant_valid_lanes<T, Op>(
@@ -407,11 +382,11 @@ where
     T: NativePType,
     Op: CheckedPrimitiveOp<T>,
 {
-    let values = collect_all_lanes(lhs.len(), |idx| Op::value(lhs[idx], rhs));
+    let mut checked = collect_all_lanes(lhs.len(), |idx| Op::apply(lhs[idx], rhs));
 
-    let failed = any_valid_error(lhs.len(), valid_bits, |idx| Op::is_error(lhs[idx], rhs));
-
-    CheckedValues { values, failed }
+    checked.failed =
+        checked.failed && any_valid_error(lhs.len(), valid_bits, |idx| Op::apply(lhs[idx], rhs).1);
+    checked
 }
 
 fn checked_constant_array_all_lanes<T, Op>(lhs: T, rhs: &[T]) -> CheckedValues<T>
@@ -419,11 +394,7 @@ where
     T: NativePType,
     Op: CheckedPrimitiveOp<T>,
 {
-    let values = collect_all_lanes(rhs.len(), |idx| Op::value(lhs, rhs[idx]));
-
-    let failed = any_error(rhs.len(), |idx| Op::is_error(lhs, rhs[idx]));
-
-    CheckedValues { values, failed }
+    collect_all_lanes(rhs.len(), |idx| Op::apply(lhs, rhs[idx]))
 }
 
 fn checked_constant_array_valid_lanes<T, Op>(
@@ -435,31 +406,33 @@ where
     T: NativePType,
     Op: CheckedPrimitiveOp<T>,
 {
-    let values = collect_all_lanes(rhs.len(), |idx| Op::value(lhs, rhs[idx]));
+    let mut checked = collect_all_lanes(rhs.len(), |idx| Op::apply(lhs, rhs[idx]));
 
-    let failed = any_valid_error(rhs.len(), valid_bits, |idx| Op::is_error(lhs, rhs[idx]));
-
-    CheckedValues { values, failed }
+    checked.failed =
+        checked.failed && any_valid_error(rhs.len(), valid_bits, |idx| Op::apply(lhs, rhs[idx]).1);
+    checked
 }
 
-fn collect_all_lanes<T, F>(len: usize, mut value_at: F) -> Buffer<T>
+fn collect_all_lanes<T, F>(len: usize, mut value_and_error_at: F) -> CheckedValues<T>
 where
     T: NativePType,
-    F: FnMut(usize) -> T,
+    F: FnMut(usize) -> (T, bool),
 {
     let mut values = BufferMut::<T>::with_capacity(len);
     let slots = values.spare_capacity_mut().as_mut_ptr();
+    let mut failed = false;
     for idx in 0..len {
+        let (value, is_error) = value_and_error_at(idx);
+        failed |= is_error;
         // SAFETY: `idx < len <= capacity`, and each slot is written once.
-        unsafe {
-            slots
-                .add(idx)
-                .write(std::mem::MaybeUninit::new(value_at(idx)))
-        };
+        unsafe { slots.add(idx).write(std::mem::MaybeUninit::new(value)) };
     }
     // SAFETY: every slot in `0..len` was initialized above.
     unsafe { values.set_len(len) };
-    values.freeze()
+    CheckedValues {
+        values: values.freeze(),
+        failed,
+    }
 }
 
 fn checked_array_array_one_pass<T, Op>(lhs: &[T], rhs: &[T]) -> CheckedValues<T>
@@ -603,25 +576,10 @@ where
     }
 }
 
-fn any_error<F>(len: usize, is_error: F) -> bool
-where
-    F: Fn(usize) -> bool,
-{
-    let mut failed = false;
-    for idx in 0..len {
-        failed |= is_error(idx);
-    }
-    failed
-}
-
 fn any_valid_error<F>(len: usize, valid_bits: &BitBuffer, is_error: F) -> bool
 where
     F: Fn(usize) -> bool,
 {
-    if !any_error(len, &is_error) {
-        return false;
-    }
-
     !for_each_valid_idx(len, valid_bits, |idx| !is_error(idx))
 }
 
