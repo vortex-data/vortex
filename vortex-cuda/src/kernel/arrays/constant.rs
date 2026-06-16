@@ -224,7 +224,7 @@ mod tests {
     async fn test_cuda_constant_materialization(
         #[case] constant_array: ConstantArray,
     ) -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let cpu_result = crate::canonicalize_cpu(constant_array.clone())?;
@@ -244,7 +244,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_constant_empty_array() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let constant_array = ConstantArray::new(42i32, 0);
@@ -265,7 +265,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_constant_small_array() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         // Test with array smaller than one block (< 2048 elements)

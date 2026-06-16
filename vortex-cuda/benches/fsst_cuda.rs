@@ -41,7 +41,7 @@ fn benchmark_fsst_cuda_decompress(c: &mut Criterion) {
     let mut group = c.benchmark_group("cuda");
 
     for &(n, len_str) in BENCH_SIZES {
-        let mut setup_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut setup_ctx = CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
             .vortex_expect("failed to create execution context");
         let fsst = make_fsst_clickbench_urls(n, setup_ctx.execution_ctx());
 
@@ -66,7 +66,7 @@ fn benchmark_fsst_cuda_decompress(c: &mut Criterion) {
                     let timed = TimedLaunchStrategy::default();
                     let timer = timed.timer();
 
-                    let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+                    let mut cuda_ctx = CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
                         .vortex_expect("failed to create execution context")
                         .with_launch_strategy(Arc::new(timed));
 

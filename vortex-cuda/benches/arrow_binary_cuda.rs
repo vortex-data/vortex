@@ -92,7 +92,7 @@ fn benchmark_arrow_binary_export(c: &mut Criterion) {
                     let timed = TimedLaunchStrategy::default();
                     let timer = timed.timer();
 
-                    let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+                    let mut cuda_ctx = CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
                         .vortex_expect("failed to create execution context")
                         .with_launch_strategy(Arc::new(timed));
                     let array = block_on(out_of_line_binary(len, &mut cuda_ctx))

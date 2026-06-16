@@ -234,11 +234,11 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_zstd_buffers_decompression_primitive() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let input = PrimitiveArray::from_iter(0i64..1024).into_array();
-        let compressed = ZstdBuffers::compress(&input, 3, &VortexSession::empty())?;
+        let compressed = ZstdBuffers::compress(&input, 3, &crate::cuda_session())?;
 
         let cpu_result = crate::canonicalize_cpu(compressed.clone())?;
         let gpu_result = ZstdBuffersExecutor
@@ -253,7 +253,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_zstd_buffers_decompression_varbinview() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let input = VarBinViewArray::from_iter_str([
@@ -265,7 +265,7 @@ mod tests {
             "baz",
         ])
         .into_array();
-        let compressed = ZstdBuffers::compress(&input, 3, &VortexSession::empty())?;
+        let compressed = ZstdBuffers::compress(&input, 3, &crate::cuda_session())?;
 
         let cpu_result = crate::canonicalize_cpu(compressed.clone())?;
         let gpu_result = ZstdBuffersExecutor

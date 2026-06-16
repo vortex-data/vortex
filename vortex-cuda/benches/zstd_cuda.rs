@@ -126,7 +126,7 @@ fn benchmark_zstd_cuda_decompress(c: &mut Criterion) {
     let mut group = c.benchmark_group("cuda");
 
     for (num_strings, label) in BENCH_SIZES {
-        let mut setup_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut setup_ctx = CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
             .vortex_expect("failed to create execution context");
         let (zstd_array, uncompressed_size) = make_zstd_array(*num_strings, &mut setup_ctx)
             .vortex_expect("failed to create ZSTD array");
@@ -137,7 +137,7 @@ fn benchmark_zstd_cuda_decompress(c: &mut Criterion) {
             &zstd_array,
             |b, zstd_array| {
                 b.iter_custom(|iters| {
-                    let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+                    let mut cuda_ctx = CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
                         .vortex_expect("failed to create execution context");
 
                     let mut total_time = Duration::ZERO;

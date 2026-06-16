@@ -41,7 +41,7 @@ fn benchmark_arrow_validity_repack(c: &mut Criterion) {
                     let timed = TimedLaunchStrategy::default();
                     let timer = timed.timer();
 
-                    let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+                    let mut cuda_ctx = CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
                         .vortex_expect("failed to create execution context")
                         .with_launch_strategy(Arc::new(timed));
                     let source = BitBuffer::collect_bool(len + INPUT_OFFSET, |idx| idx % 3 != 0);

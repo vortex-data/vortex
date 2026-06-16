@@ -236,7 +236,7 @@ mod tests {
         #[case] strings: Vec<Option<&'static [u8]>>,
         #[case] nullability: Nullability,
     ) -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let varbin = VarBinArray::from_iter(strings, DType::Binary(nullability));
@@ -264,7 +264,7 @@ mod tests {
     async fn test_cuda_fsst_decompression_roundtrip_large() -> VortexResult<()> {
         use vortex_fsst::test_utils::make_fsst_clickbench_urls;
 
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let fsst_array = make_fsst_clickbench_urls(100_000, cuda_ctx.execution_ctx()).into_array();

@@ -83,7 +83,7 @@ mod tests {
         #[case] input: PrimitiveArray,
         #[case] mask: Mask,
     ) -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create CUDA execution context");
 
         let filter_array = FilterArray::try_new(input.clone().into_array(), mask.clone())?;
@@ -105,7 +105,7 @@ mod tests {
 
     #[crate::test]
     async fn test_gpu_filter_large_array() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create CUDA execution context");
 
         // Create a large array to test multi-block execution

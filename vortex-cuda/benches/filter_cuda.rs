@@ -165,7 +165,7 @@ where
                 |b, (input_data, bitmask, true_count)| {
                     b.iter_custom(|iters| {
                         let mut cuda_ctx =
-                            CudaSession::create_execution_ctx(&VortexSession::empty())
+                            CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
                                 .vortex_expect("failed to create execution context");
 
                         let num_items = input_data.len() as i64;

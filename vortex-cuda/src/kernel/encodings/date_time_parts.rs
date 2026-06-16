@@ -280,7 +280,7 @@ mod tests {
         #[case] subseconds: Vec<i64>,
         #[case] time_unit: TimeUnit,
     ) -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let dtp_array = make_datetimeparts_array(days, seconds, subseconds, time_unit);
@@ -301,7 +301,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_datetimeparts_large_array() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let len = 2050;
@@ -327,7 +327,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_datetimeparts_with_nulls() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let days_arr = PrimitiveArray::new(

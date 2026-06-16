@@ -217,7 +217,7 @@ mod tests {
     }
 
     async fn full_test_case<Values: NativePType + DeviceRepr, Indices: NativePType + DeviceRepr>() {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty()).unwrap();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session()).unwrap();
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
         let values = PrimitiveArray::from_iter(0..128);
