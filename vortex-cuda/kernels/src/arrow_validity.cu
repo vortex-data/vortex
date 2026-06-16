@@ -105,9 +105,9 @@ __device__ uint64_t warp_sum(uint64_t value) {
 }
 
 __device__ void arrow_validity_count_valid_device(const uint8_t *const input,
-                                                 uint64_t *const output,
-                                                 uint64_t len,
-                                                 uint64_t arrow_offset) {
+                                                  uint64_t *const output,
+                                                  uint64_t len,
+                                                  uint64_t arrow_offset) {
     __shared__ uint64_t warp_counts[32];
 
     const uint32_t thread = threadIdx.x;
