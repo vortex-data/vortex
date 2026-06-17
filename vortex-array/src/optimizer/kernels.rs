@@ -103,7 +103,7 @@ pub trait DynExecuteParentKernel: Debug + Send + Sync + 'static {
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
-type ExecuteParentKernelRef = Arc<dyn DynExecuteParentKernel>;
+pub(crate) type ExecuteParentKernelRef = Arc<dyn DynExecuteParentKernel>;
 
 #[derive(Debug)]
 struct ExecuteParentFnKernel(ExecuteParentFn);
@@ -271,10 +271,23 @@ impl ArrayKernels {
     ) -> Option<Arc<[ExecuteParentKernelRef]>> {
         self.execute_parent.get(&hash_fn_id(parent, child))
     }
+
+    /// Look up the execute-parent kernels registered for a pre-hashed key.
+    pub(crate) fn find_execute_parent_by_key(
+        &self,
+        key: u64,
+    ) -> Option<Arc<[ExecuteParentKernelRef]>> {
+        self.execute_parent.get(&key)
+    }
 }
 
 fn hash_fn_id(parent: Id, child: Id) -> u64 {
     FN_HASHER.hash_one((parent, child))
+}
+
+/// Return the registry key for execute-parent kernels registered for `(parent, child)`.
+pub(crate) fn execute_parent_key(parent: Id, child: Id) -> u64 {
+    hash_fn_id(parent, child)
 }
 
 impl SessionVar for ArrayKernels {
