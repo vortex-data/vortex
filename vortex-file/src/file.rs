@@ -15,6 +15,7 @@ use vortex_array::ArrayRef;
 use vortex_array::Columnar;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Field;
@@ -23,7 +24,10 @@ use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::FieldPathSet;
 use vortex_array::expr::Expression;
 use vortex_array::expr::pruning::checked_pruning_expr;
+use vortex_array::expr::stats::Precision;
+use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
+use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_layout::LayoutReader;
 use vortex_layout::scan::layout::LayoutReaderDataSource;
@@ -31,11 +35,13 @@ use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::scan::split_by::SplitBy;
 use vortex_layout::segments::SegmentSource;
 use vortex_scan::DataSourceRef;
+use vortex_scan::ScanRequest;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::FileStatistics;
 use crate::footer::Footer;
+use crate::multi::scan_v2;
 use crate::pruning::extract_relevant_file_stats_as_struct_row;
 use crate::v2::FileStatsLayoutReader;
 
@@ -186,6 +192,34 @@ impl VortexFile {
             self.session.clone(),
             self.layout_reader()?,
         ))
+    }
+
+    /// Execute a ScanNode-backed V2 scan for this file.
+    pub fn scan_node_stream(&self, request: ScanRequest) -> VortexResult<SendableArrayStream> {
+        scan_v2::scan_node_file_stream(self.clone(), request)
+    }
+
+    /// Return ScanNode-backed aggregate-function statistics for this file.
+    pub async fn scan_node_statistics(
+        &self,
+        expr: &Expression,
+        funcs: &[AggregateFnRef],
+    ) -> VortexResult<Vec<Precision<Scalar>>> {
+        scan_v2::scan_node_file_statistics(self.clone(), expr, funcs).await
+    }
+
+    /// Return ScanNode-backed aggregate-function statistics for several expressions in this file.
+    pub async fn scan_node_statistics_many(
+        &self,
+        exprs: &[Expression],
+        funcs: &[AggregateFnRef],
+    ) -> VortexResult<Vec<Vec<Precision<Scalar>>>> {
+        scan_v2::scan_node_file_statistics_many(self.clone(), exprs, funcs).await
+    }
+
+    /// Return ScanNode natural row split ranges for this file.
+    pub fn scan_node_splits(&self) -> VortexResult<Vec<Range<u64>>> {
+        scan_v2::scan_node_file_splits(self)
     }
 
     /// Returns `true` if file-level statistics prove the expression cannot

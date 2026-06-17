@@ -26,6 +26,7 @@ use vortex::array::optimizer::ArrayOptimizer;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::expr::Expression;
+use vortex::expr::col;
 use vortex::expr::stats::Precision;
 use vortex::file::v2::FileStatsLayoutReader;
 use vortex::io::kanal_ext::KanalExt as _;
@@ -37,7 +38,7 @@ use vortex::metrics::tracing::get_global_labels;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::operators::Operator;
 use vortex::scalar_fn::fns::pack::Pack;
-use vortex::scan::DataSource;
+use vortex::scan::DataSourceRef;
 use vortex::scan::ScanRequest;
 use vortex_utils::parallelism::get_available_parallelism;
 
@@ -45,6 +46,7 @@ use crate::RUNTIME;
 use crate::SESSION;
 use crate::column_statistics::ColumnStatistics;
 use crate::column_statistics::ColumnStatisticsAggregate;
+use crate::column_statistics::column_statistics_aggregate_fns;
 use crate::convert::try_from_bound_expression;
 use crate::duckdb::BindInputRef;
 use crate::duckdb::BindResultRef;
@@ -63,7 +65,8 @@ use crate::projection::Projection;
 use crate::projection::extract_schema_from_dtype;
 
 pub struct TableFunctionBind {
-    data_source: Arc<MultiLayoutDataSource>,
+    data_source: DataSourceRef,
+    statistics_source: Option<Arc<MultiLayoutDataSource>>,
     filter_exprs: Vec<Expression>,
     column_fields: Vec<DuckdbField>,
     // There exists at least one non-optional table filter or at least one
@@ -76,6 +79,7 @@ impl Clone for TableFunctionBind {
     fn clone(&self) -> Self {
         Self {
             data_source: Arc::clone(&self.data_source),
+            statistics_source: self.statistics_source.clone(),
             // filter_exprs are consumed once in `init_global`.
             filter_exprs: vec![],
             column_fields: self.column_fields.clone(),
@@ -148,12 +152,13 @@ pub fn bind(
     result: &mut BindResultRef,
 ) -> VortexResult<TableFunctionBind> {
     let data_source = bind_multi_file_scan(ctx, input)?;
-    let column_fields = extract_schema_from_dtype(data_source.dtype())?;
+    let column_fields = extract_schema_from_dtype(data_source.data_source.dtype())?;
     for fields in &column_fields {
         result.add_result_column(&fields.name, &fields.logical_type);
     }
     Ok(TableFunctionBind {
-        data_source: Arc::new(data_source),
+        data_source: data_source.data_source,
+        statistics_source: data_source.statistics_source,
         filter_exprs: vec![],
         column_fields,
         has_non_optional_filter: AtomicBool::new(false),
@@ -216,6 +221,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
         partition_selection: file_selection,
         partition_range: file_range,
         limit: None,
+        scheduler_provider: None,
     };
 
     let scan = RUNTIME.block_on(bind_data.data_source.scan(request))?;
@@ -431,23 +437,37 @@ pub fn pushdown_complex_filter(
 
 /// Get column-wise statistics. Available only if we're reading a single file.
 pub fn statistics(bind_data: &TableFunctionBind, column_index: usize) -> Option<ColumnStatistics> {
-    let children = bind_data.data_source.children();
-    // Otherwise we'd have to open all files eagerly which is a performance
-    // regression. Duckdb's Parquet reader only gets metadata for multiple
-    // files with a UNION BY NAME and we don't support it (yet)
-    // See duckdb/common/multi_file/multi_file_function.hpp#L691
-    if children.len() != 1 {
-        return None;
-    }
-    let MultiLayoutChild::Opened(reader) = &children[0] else {
-        return None;
-    };
-    let stats_sets = match reader.as_any().downcast_ref::<FileStatsLayoutReader>() {
-        Some(inner) => inner.file_stats().stats_sets(),
-        None => return None,
-    };
-    let stats_aggregate = ColumnStatisticsAggregate::new(&stats_sets[column_index]);
     let dtype = bind_data.column_fields[column_index].dtype.clone();
+    if let Some(statistics_source) = bind_data.statistics_source.as_ref() {
+        let children = statistics_source.children();
+        // Otherwise we'd have to open all files eagerly which is a performance
+        // regression. Duckdb's Parquet reader only gets metadata for multiple
+        // files with a UNION BY NAME and we don't support it (yet)
+        // See duckdb/common/multi_file/multi_file_function.hpp#L691
+        if children.len() != 1 {
+            return None;
+        }
+        let MultiLayoutChild::Opened(reader) = &children[0] else {
+            return None;
+        };
+        let stats_sets = match reader.as_any().downcast_ref::<FileStatsLayoutReader>() {
+            Some(inner) => inner.file_stats().stats_sets(),
+            None => return None,
+        };
+        let stats_aggregate = ColumnStatisticsAggregate::new(&stats_sets[column_index]);
+        return Some(ColumnStatistics::from(&stats_aggregate, dtype));
+    }
+
+    let name = &bind_data.column_fields[column_index].name;
+    let funcs = column_statistics_aggregate_fns();
+    let stats = RUNTIME
+        .block_on(
+            bind_data
+                .data_source
+                .statistics(&col(name.as_str()), &funcs),
+        )
+        .ok()?;
+    let stats_aggregate = ColumnStatisticsAggregate::from_aggregate_stats(&stats);
     Some(ColumnStatistics::from(&stats_aggregate, dtype))
 }
 

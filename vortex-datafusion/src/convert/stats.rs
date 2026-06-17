@@ -2,13 +2,23 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use datafusion_common::ColumnStatistics;
+use datafusion_common::ScalarValue;
 use datafusion_common::stats::Precision;
+use vortex::array::aggregate_fn::AggregateFnRef;
+use vortex::array::aggregate_fn::AggregateFnVTableExt;
+use vortex::array::aggregate_fn::EmptyOptions;
+use vortex::array::aggregate_fn::fns::max::Max;
+use vortex::array::aggregate_fn::fns::min::Min;
+use vortex::array::aggregate_fn::fns::null_count::NullCount;
+use vortex::array::aggregate_fn::fns::sum::Sum;
+use vortex::array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use vortex::array::stats::StatsSet;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 use vortex::expr::stats::Precision as VortexPrecision;
 use vortex::expr::stats::Stat;
 use vortex::scalar::Scalar;
@@ -16,7 +26,45 @@ use vortex::scalar::Scalar;
 use crate::PrecisionExt;
 use crate::convert::TryToDataFusion;
 
+const MIN_INDEX: usize = 0;
+const MAX_INDEX: usize = 1;
+const SUM_INDEX: usize = 2;
+const NULL_COUNT_INDEX: usize = 3;
+const BYTE_SIZE_INDEX: usize = 4;
+
+pub(crate) fn column_statistics_aggregate_fns() -> Vec<AggregateFnRef> {
+    vec![
+        Min.bind(EmptyOptions),
+        Max.bind(EmptyOptions),
+        Sum.bind(EmptyOptions),
+        NullCount.bind(EmptyOptions),
+        UncompressedSizeInBytes.bind(EmptyOptions),
+    ]
+}
+
+pub(crate) fn aggregate_stats_to_df(
+    stats: &[VortexPrecision<Scalar>],
+) -> VortexResult<ColumnStatistics> {
+    if stats.len() != BYTE_SIZE_INDEX + 1 {
+        return Err(vortex_err!(
+            "expected {} aggregate statistics, got {}",
+            BYTE_SIZE_INDEX + 1,
+            stats.len()
+        ));
+    }
+
+    Ok(ColumnStatistics {
+        null_count: scalar_u64_to_df_usize(&stats[NULL_COUNT_INDEX])?,
+        min_value: scalar_to_df(&stats[MIN_INDEX])?,
+        max_value: scalar_to_df(&stats[MAX_INDEX])?,
+        sum_value: scalar_to_df(&stats[SUM_INDEX])?,
+        distinct_count: Precision::Absent,
+        byte_size: scalar_u64_to_df_usize(&stats[BYTE_SIZE_INDEX])?,
+    })
+}
+
 /// Convert a stats set for an array with the given dtype.
+#[allow(dead_code)]
 pub(crate) fn stats_set_to_df(
     stats_set: &StatsSet,
     dtype: &DType,
@@ -86,6 +134,29 @@ pub(crate) fn is_constant_to_distinct_count(
         Some(true) => Precision::Exact(1),
         Some(false) | None => Precision::Absent,
     }
+}
+
+fn scalar_to_df(stat: &VortexPrecision<Scalar>) -> VortexResult<Precision<ScalarValue>> {
+    match stat {
+        VortexPrecision::Exact(scalar) => Ok(Precision::Exact(scalar.try_to_df()?)),
+        VortexPrecision::Inexact(scalar) => Ok(Precision::Inexact(scalar.try_to_df()?)),
+        VortexPrecision::Absent => Ok(Precision::Absent),
+    }
+}
+
+fn scalar_u64_to_df_usize(stat: &VortexPrecision<Scalar>) -> VortexResult<Precision<usize>> {
+    match stat {
+        VortexPrecision::Exact(scalar) => Ok(Precision::Exact(scalar_u64_to_usize(scalar)?)),
+        VortexPrecision::Inexact(scalar) => Ok(Precision::Inexact(scalar_u64_to_usize(scalar)?)),
+        VortexPrecision::Absent => Ok(Precision::Absent),
+    }
+}
+
+fn scalar_u64_to_usize(scalar: &Scalar) -> VortexResult<usize> {
+    let Some(value) = scalar.as_primitive().typed_value::<u64>() else {
+        return Err(vortex_err!("expected u64 statistic scalar, got {}", scalar));
+    };
+    Ok(usize::try_from(value).unwrap_or(usize::MAX))
 }
 
 #[cfg(test)]

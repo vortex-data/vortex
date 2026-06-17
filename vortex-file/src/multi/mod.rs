@@ -3,6 +3,7 @@
 
 //! Builder for constructing a [`MultiLayoutDataSource`] from multiple Vortex files.
 
+pub(crate) mod scan_v2;
 mod session;
 
 use std::sync::Arc;
@@ -13,17 +14,25 @@ use session::MultiFileSessionExt;
 use tracing::debug;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_io::InstrumentedReadAt;
+use vortex_io::VortexReadAt;
 use vortex_io::filesystem::FileListing;
 use vortex_io::filesystem::FileSystemRef;
 use vortex_layout::LayoutReaderRef;
 use vortex_layout::scan::multi::LayoutReaderFactory;
 use vortex_layout::scan::multi::MultiLayoutDataSource;
+use vortex_layout::scan::v2::scan2_enabled;
+use vortex_metrics::Label;
+use vortex_metrics::MetricsRegistry;
 use vortex_scan::DataSource;
+use vortex_scan::DataSourceRef;
 use vortex_session::VortexSession;
 
 use crate::OpenOptionsSessionExt;
 use crate::VortexFile;
 use crate::VortexOpenOptions;
+
+const PATH_LABEL: &str = "file_path";
 
 /// A builder that discovers multiple Vortex files from glob patterns and constructs a
 /// [`MultiLayoutDataSource`] to scan them as a single data source.
@@ -61,6 +70,7 @@ pub struct MultiFileDataSource {
     /// When the filesystem is None, a local filesystem will be created in build().
     glob_sources: Vec<(String, Option<FileSystemRef>)>,
     open_options_fn: Arc<dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync>,
+    metrics_registry: Option<Arc<dyn MetricsRegistry>>,
 }
 
 impl MultiFileDataSource {
@@ -70,6 +80,7 @@ impl MultiFileDataSource {
             session,
             glob_sources: Vec::new(),
             open_options_fn: Arc::new(|opts| opts),
+            metrics_registry: None,
         }
     }
 
@@ -102,6 +113,16 @@ impl MultiFileDataSource {
         f: impl Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync + 'static,
     ) -> Self {
         self.open_options_fn = Arc::new(f);
+        self
+    }
+
+    /// Configure a shared metrics registry for all files opened by this data source.
+    ///
+    /// This instruments both the underlying [`VortexReadAt`] and the Vortex segment source so
+    /// callers can inspect read sizes, read durations, segment request coalescing, and segment
+    /// cache behavior for scans that use this data source.
+    pub fn with_metrics_registry(mut self, metrics_registry: Arc<dyn MetricsRegistry>) -> Self {
+        self.metrics_registry = Some(metrics_registry);
         self
     }
 
@@ -152,7 +173,14 @@ impl MultiFileDataSource {
         // Open first file eagerly for dtype.
         let (first_file_listing, first_fs) = &all_files[0];
         let open_fn = self.open_options_fn.as_ref();
-        let first_file = open_file(first_fs, first_file_listing, &self.session, open_fn).await?;
+        let first_file = open_file(
+            first_fs,
+            first_file_listing,
+            &self.session,
+            self.metrics_registry.as_ref(),
+            open_fn,
+        )
+        .await?;
         let first_reader = first_file.layout_reader()?;
 
         let factories: Vec<Arc<dyn LayoutReaderFactory>> = all_files[1..]
@@ -163,6 +191,7 @@ impl MultiFileDataSource {
                     file: file.clone(),
                     session: self.session.clone(),
                     open_options_fn: Arc::clone(&self.open_options_fn),
+                    metrics_registry: self.metrics_registry.clone(),
                 }) as Arc<dyn LayoutReaderFactory>
             })
             .collect();
@@ -172,6 +201,18 @@ impl MultiFileDataSource {
         debug!(file_count, dtype = %inner.dtype(), "built MultiFileDataSource");
 
         Ok(inner)
+    }
+
+    /// Build the [`DataSource`] selected by `VORTEX_SCAN_IMPL`.
+    ///
+    /// The default is the existing LayoutReader-backed scan. Setting
+    /// `VORTEX_SCAN_IMPL=v2` (or `scan2`/`scan3`/`native`) builds the ScanNode-backed V2 scan.
+    pub async fn build_data_source(self) -> VortexResult<DataSourceRef> {
+        if scan2_enabled()? {
+            Ok(Arc::new(scan_v2::build_scan_node_data_source(self).await?))
+        } else {
+            Ok(Arc::new(self.build().await?))
+        }
     }
 }
 
@@ -202,6 +243,7 @@ async fn open_file(
     fs: &FileSystemRef,
     file: &FileListing,
     session: &VortexSession,
+    metrics_registry: Option<&Arc<dyn MetricsRegistry>>,
     open_options_fn: &(dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync),
 ) -> VortexResult<VortexFile> {
     tracing::trace!(path = %file.path, "opening vortex file");
@@ -210,6 +252,16 @@ async fn open_file(
     // The URI includes the full path (with any filesystem prefix), making it unique
     // even when different PrefixFileSystem instances strip paths to the same relative name.
     let source = fs.open_read(&file.path).await?;
+    let labels = vec![Label::new(PATH_LABEL, file.path.clone())];
+    let source = if let Some(metrics_registry) = metrics_registry {
+        Arc::new(InstrumentedReadAt::new_with_labels(
+            source,
+            metrics_registry.as_ref(),
+            labels.clone(),
+        )) as Arc<dyn VortexReadAt>
+    } else {
+        source
+    };
     let cache_key = source
         .uri()
         .map(|u| u.to_string())
@@ -219,6 +271,11 @@ async fn open_file(
     // so we scope the cache lookup in a block.
     let options = {
         let mut options = open_options_fn(session.open_options());
+        if let Some(metrics_registry) = metrics_registry {
+            options = options
+                .with_metrics_registry(Arc::clone(metrics_registry))
+                .with_labels(labels);
+        }
         if let Some(size) = file.size {
             options = options.with_file_size(size);
         }
@@ -243,6 +300,7 @@ struct VortexFileReaderFactory {
     file: FileListing,
     session: VortexSession,
     open_options_fn: Arc<dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync>,
+    metrics_registry: Option<Arc<dyn MetricsRegistry>>,
 }
 
 #[async_trait]
@@ -252,6 +310,7 @@ impl LayoutReaderFactory for VortexFileReaderFactory {
             &self.fs,
             &self.file,
             &self.session,
+            self.metrics_registry.as_ref(),
             self.open_options_fn.as_ref(),
         )
         .await?;

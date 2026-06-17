@@ -23,6 +23,7 @@ use vortex::metrics::Metric;
 use vortex::metrics::MetricValue;
 
 use crate::persistent::source::VortexSource;
+use crate::v2::VortexDataSource;
 
 pub(crate) static PARTITION_LABEL: &str = "partition";
 pub(crate) static PATH_LABEL: &str = "file_path";
@@ -83,6 +84,18 @@ impl ExecutionPlanVisitor for VortexMetricsFinder {
             {
                 for metric in scan
                     .metrics_registry()
+                    .snapshot()
+                    .iter()
+                    .flat_map(metric_to_datafusion)
+                {
+                    set.push(Arc::new(metric));
+                }
+            }
+
+            if let Some(scan) = exec.data_source().downcast_ref::<VortexDataSource>()
+                && let Some(metrics_registry) = scan.metrics_registry()
+            {
+                for metric in metrics_registry
                     .snapshot()
                     .iter()
                     .flat_map(metric_to_datafusion)
