@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cell::RefCell;
 use std::iter;
 
 use itertools::Itertools;
@@ -70,14 +71,14 @@ pub fn checked_pruning_expr(
         return Ok(None);
     };
 
-    let mut binder = RequiredStatsBinder {
+    let binder = RequiredStatsBinder {
         scope,
         available_stats,
-        required_stats: Relation::new(),
-        bound_stats: Vec::new(),
+        required_stats: RefCell::new(Relation::new()),
+        bound_stats: RefCell::new(Vec::new()),
     };
-    let lowered = bind_stats(predicate, &mut binder)?;
-    let required_stats = filter_required_stats(&lowered, binder.required_stats);
+    let lowered = bind_stats(predicate, &binder)?;
+    let required_stats = filter_required_stats(&lowered, binder.required_stats.into_inner());
     // If no stats-table fields remain, only a constant `true` proof can prune.
     // `false`, `null`, and non-constant expressions cannot justify building a
     // stats-table pruning expression.
@@ -91,8 +92,8 @@ pub fn checked_pruning_expr(
 struct RequiredStatsBinder<'a> {
     scope: &'a DType,
     available_stats: &'a FieldPathSet,
-    required_stats: RequiredStats,
-    bound_stats: Vec<(FieldName, DType)>,
+    required_stats: RefCell<RequiredStats>,
+    bound_stats: RefCell<Vec<(FieldName, DType)>>,
 }
 
 impl StatBinder for RequiredStatsBinder<'_> {
@@ -102,13 +103,13 @@ impl StatBinder for RequiredStatsBinder<'_> {
 
     fn bound_scope(&self) -> DType {
         DType::Struct(
-            StructFields::from_iter(self.bound_stats.iter().cloned()),
+            StructFields::from_iter(self.bound_stats.borrow().iter().cloned()),
             Nullability::NonNullable,
         )
     }
 
     fn bind_stat(
-        &mut self,
+        &self,
         input: &Expression,
         stat: Stat,
         stat_dtype: &DType,
@@ -129,21 +130,20 @@ impl StatBinder for RequiredStatsBinder<'_> {
         }
 
         let stat_field_name = field_path_stat_field_name(&field_path, stat);
-        if self
-            .bound_stats
+        let mut bound_stats = self.bound_stats.borrow_mut();
+        if bound_stats
             .iter()
             .all(|(field_name, _)| field_name != stat_field_name)
         {
-            self.bound_stats
-                .push((stat_field_name.clone(), stat_dtype.clone()));
+            bound_stats.push((stat_field_name.clone(), stat_dtype.clone()));
         }
 
-        self.required_stats.insert(field_path, stat);
+        self.required_stats.borrow_mut().insert(field_path, stat);
         Ok(Some(get_item(stat_field_name, root())))
     }
 
     fn bind_aggregate(
-        &mut self,
+        &self,
         input: &Expression,
         aggregate_fn: &AggregateFnRef,
         stat_dtype: &DType,

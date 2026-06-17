@@ -121,8 +121,8 @@ impl FileStatsLayoutReader {
     }
 
     fn lower_stats(&self, predicate: Expression) -> VortexResult<Expression> {
-        let mut binder = FileStatsBinder { reader: self };
-        bind_stats(predicate, &mut binder)
+        let binder = FileStatsBinder { reader: self };
+        bind_stats(predicate, &binder)
     }
 
     pub fn file_stats(&self) -> &FileStatistics {
@@ -144,7 +144,7 @@ impl StatBinder for FileStatsBinder<'_> {
     }
 
     fn bind_stat(
-        &mut self,
+        &self,
         input: &Expression,
         stat: Stat,
         _stat_dtype: &DType,
@@ -156,7 +156,7 @@ impl StatBinder for FileStatsBinder<'_> {
     }
 
     fn bind_aggregate(
-        &mut self,
+        &self,
         input: &Expression,
         aggregate_fn: &AggregateFnRef,
         stat_dtype: &DType,

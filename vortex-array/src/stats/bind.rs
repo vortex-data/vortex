@@ -47,7 +47,7 @@ pub trait StatBinder {
     /// then call [`Self::missing_stat`] with the dtype expected from the
     /// original `vortex.stat` expression.
     fn bind_stat(
-        &mut self,
+        &self,
         input: &Expression,
         stat: Stat,
         stat_dtype: &DType,
@@ -59,7 +59,7 @@ pub trait StatBinder {
     /// [`Stat`] slots. Binders that store richer aggregate stats can override
     /// this method without extending the generic stats binding walker.
     fn bind_aggregate(
-        &mut self,
+        &self,
         input: &Expression,
         aggregate_fn: &AggregateFnRef,
         stat_dtype: &DType,
@@ -68,11 +68,7 @@ pub trait StatBinder {
     }
 
     /// Bind one of the legacy stat slots for `input`.
-    fn bind_legacy_stat(
-        &mut self,
-        input: &Expression,
-        stat: Stat,
-    ) -> VortexResult<Option<Expression>> {
+    fn bind_legacy_stat(&self, input: &Expression, stat: Stat) -> VortexResult<Option<Expression>> {
         let input_dtype = input.return_dtype(self.scope())?;
         let Some(stat_dtype) = stat.dtype(&input_dtype) else {
             return Ok(None);
@@ -84,7 +80,7 @@ pub trait StatBinder {
     ///
     /// The default is a nullable null literal, which preserves three-valued
     /// pruning semantics for stats-table execution.
-    fn missing_stat(&mut self, dtype: DType) -> VortexResult<Expression> {
+    fn missing_stat(&self, dtype: DType) -> VortexResult<Expression> {
         Ok(null_expr(dtype))
     }
 }
@@ -94,7 +90,10 @@ pub trait StatBinder {
 /// The predicate is usually the output of a stats rewrite rule. Rewrite rules
 /// are responsible for expressing stat semantics; binding maps aggregate-backed
 /// stat requests to the concrete stats representation supported by the binder.
-pub fn bind_stats(predicate: Expression, binder: &mut impl StatBinder) -> VortexResult<Expression> {
+pub fn bind_stats<B: StatBinder + ?Sized>(
+    predicate: Expression,
+    binder: &B,
+) -> VortexResult<Expression> {
     let scope = binder.scope().clone();
     let lowered = predicate
         .transform_down(|expr| {
@@ -120,7 +119,7 @@ pub fn bind_stats(predicate: Expression, binder: &mut impl StatBinder) -> Vortex
 /// This is an opt-in helper for stats backends that materialize `NaNCount` and
 /// `NullCount`, but do not materialize aggregate boolean stats directly.
 pub fn bind_legacy_count_aggregate<B: StatBinder + ?Sized>(
-    binder: &mut B,
+    binder: &B,
     input: &Expression,
     aggregate_fn: &AggregateFnRef,
 ) -> VortexResult<Option<Expression>> {
@@ -157,7 +156,7 @@ pub fn bind_legacy_count_aggregate<B: StatBinder + ?Sized>(
 
 /// Bind an aggregate function that has a direct legacy [`Stat`] slot.
 pub fn bind_direct_aggregate_stat<B: StatBinder + ?Sized>(
-    binder: &mut B,
+    binder: &B,
     input: &Expression,
     aggregate_fn: &AggregateFnRef,
     stat_dtype: &DType,
@@ -174,7 +173,7 @@ pub fn bind_direct_aggregate_stat<B: StatBinder + ?Sized>(
 /// `NaNCount` and `NullCount`, then fall back to direct aggregate-to-stat
 /// mappings.
 pub fn bind_legacy_count_or_direct_aggregate<B: StatBinder + ?Sized>(
-    binder: &mut B,
+    binder: &B,
     input: &Expression,
     aggregate_fn: &AggregateFnRef,
     stat_dtype: &DType,
@@ -189,7 +188,7 @@ pub fn bind_legacy_count_or_direct_aggregate<B: StatBinder + ?Sized>(
 fn bind_stat_fn(
     expr: &Expression,
     scope: &DType,
-    binder: &mut impl StatBinder,
+    binder: &(impl StatBinder + ?Sized),
 ) -> VortexResult<Option<Expression>> {
     let options = expr.as_::<StatFn>();
     let aggregate_fn = options.aggregate_fn();
@@ -258,7 +257,7 @@ mod tests {
         }
 
         fn bind_stat(
-            &mut self,
+            &self,
             _input: &Expression,
             stat: Stat,
             _stat_dtype: &DType,
@@ -271,7 +270,7 @@ mod tests {
         }
 
         fn bind_aggregate(
-            &mut self,
+            &self,
             input: &Expression,
             aggregate_fn: &AggregateFnRef,
             stat_dtype: &DType,
@@ -282,9 +281,9 @@ mod tests {
 
     #[test]
     fn all_non_nan_binds_to_nan_count_zero() -> VortexResult<()> {
-        let mut binder = TestBinder::new(true);
+        let binder = TestBinder::new(true);
 
-        let bound = bind_stats(all_non_nan(col("f")), &mut binder)?;
+        let bound = bind_stats(all_non_nan(col("f")), &binder)?;
 
         assert_eq!(bound, eq(col("f_nan_count"), lit(0u64)));
         Ok(())
@@ -292,9 +291,9 @@ mod tests {
 
     #[test]
     fn all_non_nan_lowers_to_null_when_nan_count_is_missing() -> VortexResult<()> {
-        let mut binder = TestBinder::new(false);
+        let binder = TestBinder::new(false);
 
-        let bound = bind_stats(all_non_nan(col("f")), &mut binder)?;
+        let bound = bind_stats(all_non_nan(col("f")), &binder)?;
 
         assert_eq!(bound, lit(Scalar::null(DType::Bool(Nullability::Nullable))));
         Ok(())
@@ -302,13 +301,13 @@ mod tests {
 
     #[test]
     fn missing_stats_fold_when_kleene_semantics_allow_it() -> VortexResult<()> {
-        let mut binder = TestBinder::new(false);
+        let binder = TestBinder::new(false);
 
-        let bound = bind_stats(and(lit(false), all_non_nan(col("f"))), &mut binder)?;
+        let bound = bind_stats(and(lit(false), all_non_nan(col("f"))), &binder)?;
 
         assert_eq!(bound, lit(false));
 
-        let bound = bind_stats(or(lit(true), all_non_nan(col("f"))), &mut binder)?;
+        let bound = bind_stats(or(lit(true), all_non_nan(col("f"))), &binder)?;
 
         assert_eq!(bound, lit(true));
         Ok(())
@@ -328,7 +327,7 @@ mod tests {
             }
 
             fn bind_stat(
-                &mut self,
+                &self,
                 input: &Expression,
                 stat: Stat,
                 stat_dtype: &DType,
@@ -337,9 +336,9 @@ mod tests {
             }
         }
 
-        let mut binder = DefaultBinder(TestBinder::new(true));
+        let binder = DefaultBinder(TestBinder::new(true));
 
-        let bound = bind_stats(all_non_nan(col("f")), &mut binder)?;
+        let bound = bind_stats(all_non_nan(col("f")), &binder)?;
 
         assert_eq!(bound, lit(Scalar::null(DType::Bool(Nullability::Nullable))));
         Ok(())
@@ -347,9 +346,9 @@ mod tests {
 
     #[test]
     fn unrelated_expressions_do_not_request_nan_count() -> VortexResult<()> {
-        let mut binder = TestBinder::new(false);
+        let binder = TestBinder::new(false);
 
-        let bound = bind_stats(is_null(col("f")), &mut binder)?;
+        let bound = bind_stats(is_null(col("f")), &binder)?;
 
         assert_eq!(bound, is_null(col("f")));
         Ok(())

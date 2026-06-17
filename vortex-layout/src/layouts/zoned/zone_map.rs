@@ -122,8 +122,8 @@ impl ZoneMap {
     }
 
     fn lower_stats(&self, predicate: Expression) -> VortexResult<Expression> {
-        let mut binder = ZoneMapStatsBinder { zone_map: self };
-        bind_stats(predicate, &mut binder)
+        let binder = ZoneMapStatsBinder { zone_map: self };
+        bind_stats(predicate, &binder)
     }
 }
 
@@ -141,7 +141,7 @@ impl StatBinder for ZoneMapStatsBinder<'_> {
     }
 
     fn bind_stat(
-        &mut self,
+        &self,
         input: &Expression,
         stat: Stat,
         _stat_dtype: &DType,
@@ -161,7 +161,7 @@ impl StatBinder for ZoneMapStatsBinder<'_> {
     }
 
     fn bind_aggregate(
-        &mut self,
+        &self,
         input: &Expression,
         aggregate_fn: &AggregateFnRef,
         stat_dtype: &DType,
