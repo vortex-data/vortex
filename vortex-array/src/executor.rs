@@ -200,18 +200,13 @@ impl ArrayRef {
             // would be lost when we restore frame.parent_builder.
             if current_builder.is_none()
                 && let Some(frame) = stack.last()
-                && let Some(result) = execute_parent_for_child(
+                && let Some(result) = try_execute_parent(
                     &frame.parent_array,
-                    &current_array,
-                    frame.slot_idx,
+                    std::iter::once((frame.slot_idx, &current_array)),
                     &kernels,
                     ctx,
                 )?
             {
-                ctx.log(format_args!(
-                    "execute_parent (stack) rewrote {} -> {}",
-                    current_array, result
-                ));
                 let frame = stack.pop().vortex_expect("just peeked");
                 current_array = result.optimize_ctx(ctx.session())?;
                 current_builder = frame.parent_builder;
@@ -220,12 +215,9 @@ impl ArrayRef {
 
             // Step 2b: execute_parent against current_array's own children.
             if current_builder.is_none()
-                && let Some(rewritten) = try_execute_parent(&current_array, &kernels, ctx)?
+                && let Some(rewritten) =
+                    try_execute_parent(&current_array, occupied_slots(&current_array), &kernels, ctx)?
             {
-                ctx.log(format_args!(
-                    "execute_parent rewrote {} -> {}",
-                    current_array, rewritten
-                ));
                 current_array = rewritten.optimize_ctx(ctx.session())?;
                 continue;
             }
@@ -431,26 +423,13 @@ impl Executable for ArrayRef {
             }
         }
 
-        let tmp_session = ctx.session().clone();
-        let kernels = tmp_session.get::<ArrayKernels>();
+        let session = ctx.session().clone();
+        let kernels = session.get::<ArrayKernels>();
 
-        for (slot_idx, slot) in array.slots().iter().enumerate() {
-            let Some(child) = slot else { continue };
-            if let Some(executed_parent) =
-                execute_parent_for_child(&array, child, slot_idx, &kernels, ctx)?
-            {
-                ctx.log(format_args!(
-                    "execute_parent: slot[{}]({}) rewrote {} -> {}",
-                    slot_idx,
-                    child.encoding_id(),
-                    array,
-                    executed_parent
-                ));
-                executed_parent
-                    .statistics()
-                    .inherit_from(array.statistics());
-                return Ok(executed_parent);
-            }
+        if let Some(executed_parent) =
+            try_execute_parent(&array, occupied_slots(&array), &kernels, ctx)?
+        {
+            return Ok(executed_parent);
         }
 
         ctx.log(format_args!("executing {}", array));
@@ -545,49 +524,58 @@ fn finalize_done(
     Ok((output, None))
 }
 
-fn execute_parent_for_child(
+/// Offer `parent` to each `(slot_idx, child)` pair, consulting the [`ArrayKernels`] registry
+/// first and then the child's `execute_parent` method, and return the first successful rewrite
+/// with `parent`'s statistics inherited onto it.
+///
+/// Step 2a of [`ArrayRef::execute_until`] passes a single pair (the suspended stack parent and
+/// the focused child); Step 2b and the single-step [`Executable`] pass every occupied slot of an
+/// array via [`occupied_slots`].
+fn try_execute_parent<'a>(
     parent: &ArrayRef,
-    child: &ArrayRef,
-    slot_idx: usize,
+    children: impl IntoIterator<Item = (usize, &'a ArrayRef)>,
     kernels: &ArrayKernels,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
-    if let Some(plugins) = kernels.find_execute_parent(parent.encoding_id(), child.encoding_id()) {
-        for plugin in plugins.as_ref() {
-            if let Some(result) = plugin(child, parent, slot_idx, ctx)? {
-                return Ok(Some(result));
+    for (slot_idx, child) in children {
+        let mut rewritten = None;
+        if let Some(plugins) =
+            kernels.find_execute_parent(parent.encoding_id(), child.encoding_id())
+        {
+            for plugin in plugins.as_ref() {
+                if let Some(result) = plugin(child, parent, slot_idx, ctx)? {
+                    rewritten = Some(result);
+                    break;
+                }
             }
         }
-    }
-
-    child.execute_parent(parent, slot_idx, ctx)
-}
-
-/// Try execute_parent on each occupied slot of the array.
-fn try_execute_parent(
-    array: &ArrayRef,
-    kernels: &ArrayKernels,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<ArrayRef>> {
-    for (slot_idx, slot) in array.slots().iter().enumerate() {
-        let Some(child) = slot else { continue };
-        if let Some(executed_parent) =
-            execute_parent_for_child(array, child, slot_idx, kernels, ctx)?
-        {
-            ctx.log(format_args!(
-                "execute_parent: slot[{}]({}) rewrote {} -> {}",
-                slot_idx,
-                child.encoding_id(),
-                array,
-                executed_parent
-            ));
-            executed_parent
-                .statistics()
-                .inherit_from(array.statistics());
-            return Ok(Some(executed_parent));
-        }
+        let rewritten = match rewritten {
+            Some(result) => result,
+            None => match child.execute_parent(parent, slot_idx, ctx)? {
+                Some(result) => result,
+                None => continue,
+            },
+        };
+        ctx.log(format_args!(
+            "execute_parent: slot[{}]({}) rewrote {} -> {}",
+            slot_idx,
+            child.encoding_id(),
+            parent,
+            rewritten
+        ));
+        rewritten.statistics().inherit_from(parent.statistics());
+        return Ok(Some(rewritten));
     }
     Ok(None)
+}
+
+/// Iterator over an array's occupied (`Some`) slots paired with their slot index.
+fn occupied_slots(array: &ArrayRef) -> impl Iterator<Item = (usize, &ArrayRef)> {
+    array
+        .slots()
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, slot)| slot.as_ref().map(|child| (idx, child)))
 }
 
 /// A predicate that determines when an array has reached a desired form during execution.
