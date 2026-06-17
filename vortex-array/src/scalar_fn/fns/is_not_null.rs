@@ -84,6 +84,10 @@ impl ScalarFnVTable for IsNotNull {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let child = args.get(0)?;
+        // Cheap short-circuit: an entirely-null input is null everywhere.
+        if child.all_null()? {
+            return Ok(ConstantArray::new(false, args.row_count()).into_array());
+        }
         match child.validity()? {
             Validity::NonNullable | Validity::AllValid => {
                 Ok(ConstantArray::new(true, args.row_count()).into_array())

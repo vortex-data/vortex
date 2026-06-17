@@ -13,7 +13,6 @@ use vortex_mask::MaskIter;
 use vortex_mask::MaskValues;
 
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
@@ -108,11 +107,10 @@ impl FilterKernel for List {
             Validity::NonNullable => Validity::NonNullable,
             Validity::AllValid => Validity::AllValid,
             Validity::AllInvalid => {
-                let elements = Canonical::empty(array.element_dtype()).into_array();
-                let offsets = ConstantArray::new(0u64, selection.true_count() + 1).into_array();
-                return Ok(Some(unsafe {
-                    ListArray::new_unchecked(elements, offsets, Validity::AllInvalid).into_array()
-                }));
+                // The list is entirely null, so the filtered result is an all-null list.
+                return Ok(Some(
+                    ConstantArray::null(array.dtype().clone(), selection.true_count()).into_array(),
+                ));
             }
             Validity::Array(a) => Validity::Array(a.filter(mask.clone())?),
         };

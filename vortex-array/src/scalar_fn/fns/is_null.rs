@@ -74,6 +74,10 @@ impl ScalarFnVTable for IsNull {
         if let Some(scalar) = child.as_constant() {
             return Ok(ConstantArray::new(scalar.is_null(), args.row_count()).into_array());
         }
+        // Cheap short-circuit: an entirely-null input is null everywhere.
+        if child.all_null()? {
+            return Ok(ConstantArray::new(true, args.row_count()).into_array());
+        }
 
         match child.validity()? {
             Validity::NonNullable | Validity::AllValid => {
