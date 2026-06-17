@@ -1011,7 +1011,7 @@ async fn export_fixed_size_list(
     } = array.into_data_parts();
 
     let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
-    let offsets_buffer = fixed_size_list_offsets(len, list_size, ctx).await?;
+    let offsets_buffer = fixed_size_list_offsets(len, list_size, ctx)?;
 
     export_list_layout(
         elements,
@@ -1025,7 +1025,7 @@ async fn export_fixed_size_list(
     .await
 }
 
-async fn fixed_size_list_offsets(
+fn fixed_size_list_offsets(
     len: usize,
     list_size: u32,
     ctx: &mut CudaExecutionCtx,
@@ -1035,17 +1035,29 @@ async fn fixed_size_list_offsets(
             "cannot export FixedSizeList with list size {list_size}: Arrow List offsets require i32"
         )
     })?;
-    let offsets = (0..=i32::try_from(len)?)
-        .map(|idx| {
-            idx.checked_mul(list_size)
-                .ok_or_else(|| vortex_err!("FixedSizeList Arrow List offsets exceed i32 range"))
-        })
-        .collect::<VortexResult<Vec<_>>>()?;
+    let len_i32 = i32::try_from(len)?;
+    len_i32
+        .checked_mul(list_size)
+        .ok_or_else(|| vortex_err!("FixedSizeList Arrow List offsets exceed i32 range"))?;
 
-    ctx.ensure_on_device(BufferHandle::new_host(
-        Buffer::from(offsets).into_byte_buffer(),
-    ))
-    .await
+    let output_len = len
+        .checked_add(1)
+        .ok_or_else(|| vortex_err!("FixedSizeList Arrow List offsets length overflows usize"))?;
+    let offsets = ctx.device_alloc::<i32>(output_len)?;
+    let base = 0i32;
+    let output_len_u64 = output_len as u64;
+    let kernel = ctx.load_function_with_suffixes("sequence", &["i32"])?;
+
+    ctx.launch_kernel(&kernel, output_len, |args| {
+        args.arg(&offsets)
+            .arg(&base)
+            .arg(&list_size)
+            .arg(&output_len_u64);
+    })?;
+
+    Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
+        offsets,
+    ))))
 }
 
 /// Return Arrow Device `List` offsets as an `i32` device buffer.
