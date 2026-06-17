@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -32,7 +31,9 @@ use vortex_session::VortexSession;
 
 use crate::ArrayFuture;
 use crate::LayoutReader;
+use crate::LayoutReaderContext;
 use crate::LayoutReaderRef;
+use crate::RowSplits;
 use crate::SplitRange;
 use crate::layouts::list::ListLayout;
 use crate::segments::SegmentSource;
@@ -53,16 +54,19 @@ impl ListReader {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: VortexSession,
+        ctx: &LayoutReaderContext,
     ) -> VortexResult<Self> {
         let elements = layout.elements().new_reader(
             format!("{name}.elements").into(),
             Arc::clone(&segment_source),
             &session,
+            ctx,
         )?;
         let offsets = layout.offsets().new_reader(
             format!("{name}.offsets").into(),
             Arc::clone(&segment_source),
             &session,
+            ctx,
         )?;
         let validity = layout
             .validity()
@@ -71,6 +75,7 @@ impl ListReader {
                     format!("{name}.validity").into(),
                     Arc::clone(&segment_source),
                     &session,
+                    ctx,
                 )
             })
             .transpose()?;
@@ -274,7 +279,7 @@ impl LayoutReader for ListReader {
         &self,
         field_mask: &[FieldMask],
         split_range: &SplitRange,
-        splits: &mut BTreeSet<u64>,
+        splits: &mut RowSplits,
     ) -> VortexResult<()> {
         self.offsets
             .register_splits(field_mask, split_range, splits)?;
@@ -668,7 +673,8 @@ mod tests {
         let list = create_basic_list_array(false);
 
         let (segments, layout) = write_layout(&flat_list_strategy(), list).await?;
-        let reader = layout.new_reader("".into(), segments, &SESSION)?;
+        let ctx = LayoutReaderContext::new();
+        let reader = layout.new_reader("".into(), segments, &SESSION, &ctx)?;
         let reader = reader
             .as_any()
             .downcast_ref::<ListReader>()
@@ -693,10 +699,11 @@ mod tests {
         #[case] nullable: bool,
     ) -> VortexResult<()> {
         let list = create_basic_list_array(nullable);
+        let ctx = LayoutReaderContext::new();
 
         let len = usize::try_from(row_range.end - row_range.start)?;
         let (segments, layout) = write_layout(&flat_list_strategy(), list.clone()).await?;
-        let reader = layout.new_reader("".into(), segments, &SESSION)?;
+        let reader = layout.new_reader("".into(), segments, &SESSION, &ctx)?;
 
         let result = reader
             .projection_evaluation(&row_range, &root(), MaskFuture::new_true(len))?
@@ -711,8 +718,9 @@ mod tests {
     #[tokio::test]
     async fn projection_evaluation_applies_mask() -> VortexResult<()> {
         let list = create_basic_list_array(false);
+        let ctx = LayoutReaderContext::new();
         let (segments, layout) = write_layout(&flat_list_strategy(), list.clone()).await?;
-        let reader = layout.new_reader("".into(), segments, &SESSION)?;
+        let reader = layout.new_reader("".into(), segments, &SESSION, &ctx)?;
 
         let mask = Mask::from_iter([true, false, true]);
         let result = reader
@@ -759,8 +767,9 @@ mod tests {
         #[case] nullable: bool,
     ) -> VortexResult<()> {
         let list = create_wider_list_array(nullable);
+        let ctx = LayoutReaderContext::new();
         let (segments, layout) = write_layout(&flat_list_strategy(), list.clone()).await?;
-        let reader = layout.new_reader("".into(), segments, &SESSION)?;
+        let reader = layout.new_reader("".into(), segments, &SESSION, &ctx)?;
 
         let result = reader
             .projection_evaluation(&(0..5), &root(), MaskFuture::ready(mask.clone()))?

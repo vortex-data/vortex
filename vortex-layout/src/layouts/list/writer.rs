@@ -182,7 +182,7 @@ fn canonicalize_to_list_parts(
     if let Some(list) = canonical.as_opt::<List>() {
         Ok(list.into_owned().into_data_parts())
     } else if let Some(view) = canonical.as_opt::<ListView>() {
-        Ok(list_from_list_view(view.into_owned())?.into_data_parts())
+        Ok(list_from_list_view(view.into_owned(), exec_ctx)?.into_data_parts())
     } else {
         unreachable!("AnyList matcher guarantees List or ListView")
     }

@@ -24,6 +24,7 @@ use vortex_session::registry::ReadContext;
 use crate::LayoutChildType;
 use crate::LayoutEncodingRef;
 use crate::LayoutId;
+use crate::LayoutReaderContext;
 use crate::LayoutReaderRef;
 use crate::LayoutRef;
 use crate::VTable;
@@ -105,12 +106,14 @@ impl VTable for List {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
+        ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(ListReader::try_new(
             layout.clone(),
             name,
             segment_source,
             session.clone(),
+            ctx,
         )?))
     }
 
