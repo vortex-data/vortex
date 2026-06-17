@@ -355,7 +355,9 @@ impl FileOpener for VortexOpener {
                             natural_split_ranges.as_ref(),
                             &file.object_meta.location,
                             &vxf,
-                        )?;
+                            &scan_projection,
+                        )
+                        .await?;
 
                         let Some(row_range) = split_aligned_row_range(
                             byte_range,
@@ -604,17 +606,19 @@ fn natural_split_ranges_for_file(
     }
 }
 
-fn scan_node_natural_split_ranges_for_file(
+async fn scan_node_natural_split_ranges_for_file(
     natural_split_ranges: &DashMap<Path, Arc<[Range<u64>]>>,
     path: &Path,
     file: &VortexFile,
+    projection: &vortex::expr::Expression,
 ) -> DFResult<Arc<[Range<u64>]>> {
     if let Some(split_ranges) = natural_split_ranges.get(path) {
         return Ok(Arc::clone(split_ranges.value()));
     }
 
     let split_ranges = file
-        .scan_node_splits()
+        .plan_splits(projection)
+        .await
         .map(Arc::from)
         .map_err(|e| exec_datafusion_err!("Failed to compute Vortex scan2 natural splits: {e}"))?;
 

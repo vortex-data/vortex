@@ -866,9 +866,28 @@ pub(crate) async fn scan_node_file_statistics_many(
 pub(crate) fn scan_node_file_splits(file: &VortexFile) -> VortexResult<Vec<Range<u64>>> {
     let session = file.session().clone();
     let root = expand_file_root(file, &session)?;
-    let row_count = file.row_count();
+    split_ranges_from_node(&root, file.row_count())
+}
+
+pub(crate) async fn scan_node_file_plan_splits(
+    file: VortexFile,
+    projection: &Expression,
+) -> VortexResult<Vec<Range<u64>>> {
+    let session = file.session().clone();
+    let root = expand_file_root(&file, &session)?;
+    let pushed = push_expr(&root, projection, file.dtype(), &session)?;
+    let Some(plan) = pushed.plan_splits(&mut PlanCtx::new(session.clone()))? else {
+        return Ok(std::iter::once(0..file.row_count()).collect());
+    };
+    let reader = FileReader::new(file.segment_source(), session.clone());
+    let state = plan.init_state(&session)?;
+    plan.splits(0..file.row_count(), &reader, state.as_ref())
+        .await
+}
+
+fn split_ranges_from_node(node: &ScanNodeRef, row_count: u64) -> VortexResult<Vec<Range<u64>>> {
     let mut points = vec![0, row_count];
-    if let Some(hints) = root.split_hints() {
+    if let Some(hints) = node.split_hints() {
         points.extend(
             hints
                 .iter()
