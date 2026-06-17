@@ -18,9 +18,11 @@ use vortex_array::arrays::dict_test::gen_varbin_words;
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::dtype::NativePType;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::WarmKernelsExt;
 use vortex_session::VortexSession;
 
 fn main() {
+    SESSION.warm_kernels();
     divan::main();
 }
 

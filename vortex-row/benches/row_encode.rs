@@ -34,6 +34,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::WarmKernelsExt;
 use vortex_row::RowEncoder;
 use vortex_session::VortexSession;
 
@@ -46,6 +47,7 @@ static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 fn main() {
+    SESSION.warm_kernels();
     divan::main();
 }
 

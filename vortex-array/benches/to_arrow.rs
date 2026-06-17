@@ -26,9 +26,11 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::WarmKernelsExt;
 use vortex_session::VortexSession;
 
 fn main() {
+    SESSION.warm_kernels();
     divan::main();
 }
 

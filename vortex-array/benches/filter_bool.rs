@@ -20,11 +20,13 @@ use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::WarmKernelsExt;
 use vortex_buffer::BitBuffer;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 fn main() {
+    SESSION.warm_kernels();
     divan::main();
 }
 

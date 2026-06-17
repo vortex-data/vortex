@@ -14,10 +14,12 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::WarmKernelsExt;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 fn main() {
+    SESSION.warm_kernels();
     divan::main();
 }
 

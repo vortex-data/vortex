@@ -18,10 +18,12 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::WarmKernelsExt;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
 
 fn main() {
+    SESSION.warm_kernels();
     divan::main();
 }
 

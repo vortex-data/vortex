@@ -23,6 +23,7 @@ use vortex_array::expr::lt;
 use vortex_array::expr::nested_case_when;
 use vortex_array::expr::root;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::WarmKernelsExt;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
 
@@ -30,6 +31,7 @@ static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 fn main() {
+    SESSION.warm_kernels();
     divan::main();
 }
 

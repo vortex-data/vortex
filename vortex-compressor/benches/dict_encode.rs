@@ -12,6 +12,7 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::WarmKernelsExt;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_compressor::builtins::integer_dictionary_encode;
@@ -55,5 +56,6 @@ fn encode_specialized(bencher: Bencher) {
 }
 
 fn main() {
+    SESSION.warm_kernels();
     divan::main()
 }

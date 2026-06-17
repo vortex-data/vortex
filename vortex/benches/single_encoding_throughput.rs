@@ -39,8 +39,10 @@ use vortex::encodings::zigzag::zigzag_encode;
 use vortex::encodings::zstd::Zstd;
 use vortex::encodings::zstd::ZstdData;
 use vortex_array::VortexSessionExecute;
+use vortex_array::optimizer::kernels::ArrayKernels;
 use vortex_error::VortexResult;
 use vortex_sequence::Sequence;
+use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -50,6 +52,7 @@ static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 fn main() {
+    drop(SESSION.get::<ArrayKernels>());
     divan::main();
 }
 

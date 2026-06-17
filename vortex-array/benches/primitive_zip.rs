@@ -14,10 +14,12 @@ use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::test_harness::WarmKernelsExt;
 use vortex_buffer::BufferMut;
 use vortex_mask::Mask;
 
 fn main() {
+    LEGACY_SESSION.warm_kernels();
     divan::main();
 }
 

@@ -17,10 +17,12 @@ use vortex_array::ToCanonical as _;
 use vortex_array::VortexSessionExecute;
 use vortex_array::patches::Patches;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::WarmKernelsExt;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
 
 fn main() {
+    SESSION.warm_kernels();
     divan::main();
 }
 

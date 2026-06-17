@@ -22,10 +22,12 @@ use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::dtype::DType;
+use vortex_array::test_harness::WarmKernelsExt;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 
 fn main() {
+    LEGACY_SESSION.warm_kernels();
     divan::main();
 }
 

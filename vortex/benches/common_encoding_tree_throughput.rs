@@ -24,6 +24,7 @@ use vortex::array::arrays::VarBinArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::varbin::VarBinArrayExt;
 use vortex::array::builtins::ArrayBuiltins;
+use vortex::array::optimizer::kernels::ArrayKernels;
 use vortex::array::session::ArraySession;
 use vortex::dtype::DType;
 use vortex::dtype::PType;
@@ -44,12 +45,14 @@ use vortex::encodings::runend::RunEnd;
 use vortex::encodings::runend::RunEndArrayExt;
 use vortex::error::VortexExpect;
 use vortex::extension::datetime::TimeUnit;
+use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    drop(SESSION.get::<ArrayKernels>());
     divan::main();
 }
 

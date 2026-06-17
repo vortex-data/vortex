@@ -7,11 +7,28 @@ use goldenfile::Mint;
 use goldenfile::differs::binary_diff;
 use itertools::Itertools;
 use vortex_error::VortexResult;
+use vortex_session::SessionExt;
 
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
+use crate::optimizer::kernels::ArrayKernels;
+
+/// Extension trait for warming session variables before a benchmark's measured region.
+///
+/// The first access to a session variable inserts its default value. Performing that one-time
+/// insertion inside a benchmark's measured loop charges it to the first measured iteration, which
+/// is a problem under CodSpeed's instruction-count simulation. Calling [`Self::warm_kernels`]
+/// before the bench loop moves the [`ArrayKernels`] insertion into setup instead.
+pub trait WarmKernelsExt: SessionExt {
+    /// Eagerly initialize the optimizer [`ArrayKernels`] on this session.
+    fn warm_kernels(&self) {
+        drop(self.get::<ArrayKernels>());
+    }
+}
+
+impl<S: SessionExt> WarmKernelsExt for S {}
 
 /// Check that a named metadata matches its previous versioning.
 ///
