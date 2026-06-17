@@ -39,13 +39,13 @@ use crate::arrow::parquet_variant_for_export;
 
 /// Renders Variant values as JSON strings with the [`Json`] extension dtype.
 ///
-/// Accepts `Variant` inputs backed by Parquet Variant storage, including shredded storage,
-/// which is unshredded before rendering. Null rows stay null, while variant-null values render
-/// as the JSON literal `null`. The output nullability matches the input's.
+/// Accepts `Variant` inputs backed by Parquet Variant storage, including shredded storage
+/// (top-level, object, and nested fields), which is unshredded before rendering. Null rows stay
+/// null, while variant-null values render as the JSON literal `null`. The output nullability
+/// matches the input's.
 ///
-/// Inputs are exported through their Parquet Variant storage, sharing the Arrow export path's
-/// constraints: canonical variants whose shredded child is an object-field tree (rather than a
-/// top-level typed value) cannot currently be reattached to Parquet storage and fail.
+/// Inputs are exported through their Parquet Variant storage, so a `Variant` whose core storage
+/// is not Parquet Variant-backed is not supported and fails.
 ///
 /// # Not an inverse of `json_to_variant`
 ///
@@ -167,6 +167,7 @@ mod tests {
     use parquet_variant::Variant as PqVariant;
     use parquet_variant::VariantBuilder;
     use parquet_variant_compute::VariantArrayBuilder;
+    use vortex_array::Canonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::arrays::PrimitiveArray;
@@ -181,8 +182,10 @@ mod tests {
     use vortex_array::expr::proto::ExprSerializeProtoExt;
     use vortex_array::expr::root;
     use vortex_array::scalar_fn::fns::variant_get::VariantPath;
+    use vortex_array::scalar_fn::fns::variant_get::VariantPathElement;
     use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
+    use vortex_error::vortex_bail;
     use vortex_error::vortex_err;
 
     use super::*;
@@ -415,6 +418,111 @@ mod tests {
             ]
         );
         Ok(())
+    }
+
+    /// Shreds `rows` per `spec`, then canonicalizes so the typed values are lifted into a logical
+    /// shredded child (as a file read-back would produce).
+    fn canonical_shredded(rows: Vec<Option<&str>>, spec: ShreddingSpec) -> VortexResult<ArrayRef> {
+        let shredded = json_rows_to_variant(rows, spec)?;
+        let Canonical::Variant(canonical) =
+            shredded.execute::<Canonical>(&mut SESSION.create_execution_ctx())?
+        else {
+            vortex_bail!("expected canonical variant");
+        };
+        Ok(canonical.into_array())
+    }
+
+    /// Rendering a canonicalized shredded variant must match rendering the same data unshredded:
+    /// the shredding is a storage optimization and is invisible to JSON output.
+    fn assert_canonical_matches_unshredded(
+        rows: Vec<Option<&str>>,
+        spec: ShreddingSpec,
+    ) -> VortexResult<()> {
+        let unshredded = json_rows_to_variant(rows.clone(), ShreddingSpec::empty())?;
+        let want = json_strings(&execute_variant_to_json(unshredded)?)?;
+
+        let canonical = canonical_shredded(rows, spec)?;
+        assert!(
+            canonical.as_::<Variant>().shredded().is_some(),
+            "fixture must carry a canonical shredded child"
+        );
+        let got = json_strings(&execute_variant_to_json(canonical)?)?;
+
+        assert_eq!(got, want);
+        Ok(())
+    }
+
+    /// Regression for the canonicalization bug: object-field shredding lifted into a logical
+    /// shredded child must round-trip back to the full object, including the shredded field and
+    /// the non-conforming/missing-field fallbacks.
+    #[test]
+    fn renders_canonical_object_shredded_variant() -> VortexResult<()> {
+        let spec = ShreddingSpec::try_new([(
+            VariantPath::field("a"),
+            DType::Primitive(PType::I64, Nullability::Nullable),
+        )])?;
+        let canonical = canonical_shredded(
+            vec![
+                Some(r#"{"a": 1, "b": "x"}"#),
+                Some(r#"{"a": "not-a-number", "b": "y"}"#),
+                Some(r#"{"b": "z"}"#),
+            ],
+            spec,
+        )?;
+        assert!(
+            canonical.as_::<Variant>().shredded().is_some(),
+            "fixture must carry a canonical shredded child"
+        );
+
+        let result = execute_variant_to_json(canonical)?;
+
+        assert_eq!(
+            json_strings(&result)?,
+            vec![
+                Some(r#"{"a":1,"b":"x"}"#.to_string()),
+                Some(r#"{"a":"not-a-number","b":"y"}"#.to_string()),
+                Some(r#"{"b":"z"}"#.to_string()),
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn canonical_object_shredding_matches_unshredded() -> VortexResult<()> {
+        assert_canonical_matches_unshredded(
+            vec![
+                Some(r#"{"a": 1, "b": "x", "c": 3}"#),
+                Some(r#"{"a": 2, "b": "y", "c": 4}"#),
+                None,
+            ],
+            ShreddingSpec::try_new([
+                (
+                    VariantPath::field("a"),
+                    DType::Primitive(PType::I64, Nullability::Nullable),
+                ),
+                (
+                    VariantPath::field("c"),
+                    DType::Primitive(PType::I64, Nullability::Nullable),
+                ),
+            ])?,
+        )
+    }
+
+    #[test]
+    fn canonical_nested_dotted_shredding_matches_unshredded() -> VortexResult<()> {
+        assert_canonical_matches_unshredded(
+            vec![
+                Some(r#"{"a": {"b": 100}, "c": "keep"}"#),
+                Some(r#"{"a": {"b": 200}, "c": "keep2"}"#),
+            ],
+            ShreddingSpec::try_new([(
+                VariantPath::new([
+                    VariantPathElement::field("a"),
+                    VariantPathElement::field("b"),
+                ]),
+                DType::Primitive(PType::I64, Nullability::Nullable),
+            )])?,
+        )
     }
 
     #[test]

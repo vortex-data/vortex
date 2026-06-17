@@ -36,6 +36,7 @@ use vortex_session::registry::Id;
 
 use crate::ParquetVariant;
 use crate::ParquetVariantArrayExt;
+use crate::array::parquet_typed_value_from_logical_shredded;
 
 /// Arrow canonical extension name for Parquet Variant storage.
 const PARQUET_VARIANT_ARROW_EXTENSION_NAME: &str = "arrow.parquet.variant";
@@ -138,11 +139,16 @@ pub(crate) fn parquet_variant_for_export(
         return Ok(core_storage);
     };
 
+    // The canonical shredded child has had its Parquet `value`/`typed_value` wrapper shells
+    // stripped; rebuild them so the reattached `typed_value` is valid Parquet storage that
+    // `to_arrow` and `unshred_variant` can consume.
+    let typed_value = parquet_typed_value_from_logical_shredded(shredded.clone(), ctx)?;
+
     ParquetVariant::try_new(
         ParquetVariantArrayExt::validity(&parquet_core),
         parquet_core.metadata_array().clone(),
         parquet_core.value_array().cloned(),
-        Some(shredded.clone()),
+        Some(typed_value),
     )
     .map(IntoArray::into_array)
 }
