@@ -247,10 +247,11 @@ impl WriteStrategyBuilder {
         // 7. for each chunk create a layout. Under the `unstable_encodings` feature, list-typed
         // chunks route through `ListLayoutStrategy` (separately-addressable elements/offsets/
         // validity sub-layouts; non-list chunks fall through its built-in fallback to `flat`).
-        // Otherwise everything goes through the flat strategy.
+        // Nested lists (`list<list<...>>`) recurse, shredding each level into its own
+        // `ListLayout`. Otherwise everything goes through the flat strategy.
         #[cfg(feature = "unstable_encodings")]
         let leaf: Arc<dyn LayoutStrategy> = Arc::new(ListLayoutStrategy::new(
-            Arc::clone(&flat), // elements
+            Arc::clone(&flat), // elements (non-list); list elements recurse into a nested ListLayout
             Arc::clone(&flat), // offsets
             Arc::clone(&flat), // validity
             Arc::clone(&flat), // fallback for non-list dtypes
