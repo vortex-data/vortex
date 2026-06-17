@@ -222,12 +222,10 @@ mod tests {
     use crate::arrow::executor::list::ListViewArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability::NonNullable;
-    use crate::session::ArraySession;
     use crate::validity::Validity;
 
     /// A shared session for these list-executor tests, used to create execution contexts.
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
 
     #[test]
     fn test_to_arrow_list_i32() -> VortexResult<()> {

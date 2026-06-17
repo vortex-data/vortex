@@ -473,10 +473,8 @@ mod tests {
     use crate::expr::root;
     use crate::expr::test_harness;
     use crate::scalar::Scalar;
-    use crate::session::ArraySession;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
 
     /// Helper to evaluate an expression using the apply+execute pattern
     fn evaluate_expr(expr: &Expression, array: &ArrayRef) -> ArrayRef {

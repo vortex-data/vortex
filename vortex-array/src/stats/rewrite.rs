@@ -156,7 +156,6 @@ fn rewrite(
 #[cfg(test)]
 mod tests {
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
 
     use super::StatsRewriteCtx;
     use super::StatsRewriteRule;
@@ -169,7 +168,6 @@ mod tests {
     use crate::scalar_fn::ScalarFnId;
     use crate::scalar_fn::ScalarFnVTable;
     use crate::scalar_fn::fns::literal::Literal;
-    use crate::stats::session::StatsSession;
     use crate::stats::session::StatsSessionExt;
 
     #[derive(Debug)]
@@ -202,7 +200,7 @@ mod tests {
 
     #[test]
     fn combines_multiple_falsifiers_with_or() -> VortexResult<()> {
-        let session = VortexSession::empty().with::<StatsSession>();
+        let session = crate::array_session();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         session.stats().register_rewrite(StaticLiteralRule {
             falsifier: Some(lit(false)),
@@ -222,7 +220,7 @@ mod tests {
 
     #[test]
     fn combines_multiple_satisfiers_with_or() -> VortexResult<()> {
-        let session = VortexSession::empty().with::<StatsSession>();
+        let session = crate::array_session();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         session.stats().register_rewrite(StaticLiteralRule {
             falsifier: None,
@@ -242,7 +240,7 @@ mod tests {
 
     #[test]
     fn unregistered_expression_has_no_rewrite() -> VortexResult<()> {
-        let session = VortexSession::empty().with::<StatsSession>();
+        let session = crate::array_session();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
 
         assert_eq!(lit(true).falsify(&dtype, &session)?, None);
@@ -252,7 +250,7 @@ mod tests {
 
     #[test]
     fn non_predicate_expression_errors() {
-        let session = VortexSession::empty().with::<StatsSession>();
+        let session = crate::array_session();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
 
         assert!(lit(7).falsify(&dtype, &session).is_err());

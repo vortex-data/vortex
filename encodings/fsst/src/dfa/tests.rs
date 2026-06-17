@@ -20,7 +20,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar_fn::fns::like::Like;
 use vortex_array::scalar_fn::fns::like::LikeOptions;
-use vortex_array::session::ArraySession;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
@@ -32,8 +31,7 @@ use crate::FSSTArray;
 use crate::fsst_compress;
 use crate::fsst_train_compressor;
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 /// Helper: make a Symbol from a byte string (up to 8 bytes, zero-padded).
 fn sym(bytes: &[u8]) -> Symbol {

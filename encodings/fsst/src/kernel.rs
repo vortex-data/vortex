@@ -36,7 +36,6 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::expr::byte_length;
     use vortex_array::expr::root;
-    use vortex_array::session::ArraySession;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
     use vortex_session::VortexSession;
@@ -45,8 +44,7 @@ mod tests {
     use crate::fsst_compress;
     use crate::fsst_train_compressor;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     fn build_test_fsst_array() -> ArrayRef {
         let mut builder = VarBinBuilder::<i32>::with_capacity(10);

@@ -11,7 +11,6 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::dict_test::gen_dict_primitive_chunks;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::dtype::NativePType;
-use vortex_array::session::ArraySession;
 use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
 
@@ -19,8 +18,7 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 const BENCH_ARGS: &[(usize, usize, usize)] = &[
     (1000, 10, 10),

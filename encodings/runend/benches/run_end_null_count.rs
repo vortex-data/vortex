@@ -12,7 +12,6 @@ use rand::rngs::StdRng;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::session::ArraySession;
 use vortex_buffer::Buffer;
 use vortex_runend::RunEnd;
 use vortex_runend::RunEndArray;
@@ -50,8 +49,7 @@ const BENCH_ARGS: &[(usize, usize, f64)] = &[
     (100_000, 1024, 0.5),
 ];
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 #[divan::bench(args = BENCH_ARGS)]
 fn null_count_run_end(bencher: Bencher, (n, run_step, valid_density): (usize, usize, f64)) {

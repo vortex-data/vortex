@@ -596,7 +596,6 @@ mod tests {
     use vortex_array::arrays::Constant;
     use vortex_array::arrays::NullArray;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
@@ -613,8 +612,7 @@ mod tests {
     use crate::estimate::WinnerEstimate;
     use crate::scheme::SchemeExt;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     fn compressor() -> CascadingCompressor {
         CascadingCompressor::new(vec![&IntDictScheme, &FloatDictScheme, &StringDictScheme])

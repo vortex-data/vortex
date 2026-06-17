@@ -46,7 +46,6 @@ mod tests {
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::mask::Mask;
-    use vortex::session::VortexSession;
 
     use crate::CanonicalCudaExt;
     use crate::FilterExecutor;
@@ -69,7 +68,7 @@ mod tests {
         #[case] input: VarBinViewArray,
         #[case] mask: Mask,
     ) -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create CUDA execution context");
 
         let filter_array = FilterArray::try_new(input.into_array(), mask.clone())?;

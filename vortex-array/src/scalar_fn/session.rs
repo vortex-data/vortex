@@ -4,7 +4,6 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::SessionVar;
 use vortex_session::registry::Registry;
@@ -33,7 +32,7 @@ use crate::scalar_fn::fns::variant_get::VariantGet;
 pub type ScalarFnRegistry = Registry<ScalarFnPluginRef>;
 
 /// Session state for scalar function vtables and rewrite rules.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ScalarFnSession {
     registry: ScalarFnRegistry,
 }
@@ -92,7 +91,7 @@ impl SessionVar for ScalarFnSession {
 /// Extension trait for accessing scalar function session data.
 pub trait ScalarFnSessionExt: SessionExt {
     /// Returns the scalar function vtable registry.
-    fn scalar_fns(&self) -> Ref<'_, ScalarFnSession> {
+    fn scalar_fns(&self) -> &ScalarFnSession {
         self.get::<ScalarFnSession>()
     }
 }

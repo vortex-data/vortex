@@ -78,15 +78,13 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::fns::operators::Operator;
-    use vortex_array::session::ArraySession;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::compress::DEFAULT_DICT12_CONFIG;
     use crate::compress::onpair_compress;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     #[cfg_attr(miri, ignore)]
     #[rstest]

@@ -171,7 +171,6 @@ mod tests {
     use vortex::error::VortexResult;
     use vortex::mask::Mask;
     use vortex::scalar::Scalar;
-    use vortex::session::VortexSession;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
 
@@ -196,7 +195,7 @@ mod tests {
     #[crate::test]
     async fn test_fused() -> VortexResult<()> {
         let mut ctx =
-            CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+            CudaSession::create_execution_ctx(&crate::cuda_session()).vortex_expect("ctx");
         let values: Vec<u32> = (0..2048).map(|i| (i % 128) as u32).collect();
         let bp = BitPacked::encode(
             &PrimitiveArray::new(Buffer::from(values), NonNullable).into_array(),
@@ -226,7 +225,7 @@ mod tests {
         use vortex::encodings::alp::Exponents;
 
         let mut ctx =
-            CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+            CudaSession::create_execution_ctx(&crate::cuda_session()).vortex_expect("ctx");
         let encoded: Vec<i32> = (0i32..2048).map(|i| i % 500).collect();
         let bp = BitPacked::encode(
             &PrimitiveArray::new(Buffer::from(encoded), NonNullable).into_array(),
@@ -264,7 +263,7 @@ mod tests {
         use vortex::encodings::alp::Exponents;
 
         let mut ctx =
-            CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+            CudaSession::create_execution_ctx(&crate::cuda_session()).vortex_expect("ctx");
         let encoded = PrimitiveArray::new(
             Buffer::from((0i32..2048).map(|i| i % 500).collect::<Vec<_>>()),
             NonNullable,
@@ -303,7 +302,7 @@ mod tests {
         use vortex::encodings::fastlanes;
         use vortex::encodings::zstd::ZstdBuffers;
 
-        let session = VortexSession::empty();
+        let session = crate::cuda_session();
         fastlanes::initialize(&session);
         session.arrays().register(ZstdBuffers);
         let mut ctx = CudaSession::create_execution_ctx(&session).vortex_expect("ctx");
@@ -362,7 +361,7 @@ mod tests {
     #[crate::test]
     async fn test_filter_fused_child() -> VortexResult<()> {
         let mut ctx =
-            CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+            CudaSession::create_execution_ctx(&crate::cuda_session()).vortex_expect("ctx");
 
         let len = 2048u32;
         let data: Vec<u32> = (0..len).map(|i| i % 128).collect();
@@ -405,7 +404,7 @@ mod tests {
     #[crate::test]
     async fn test_ext_storage_gpu_decode(#[case] ext: ExtensionArray) -> VortexResult<()> {
         let mut ctx =
-            CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+            CudaSession::create_execution_ctx(&crate::cuda_session()).vortex_expect("ctx");
 
         let expected_storage = canonicalize_cpu(ext.storage_array().clone())?.into_array();
         let expected = ExtensionArray::new(ext.ext_dtype().clone(), expected_storage).into_array();
@@ -428,7 +427,7 @@ mod tests {
     #[crate::test]
     async fn test_ext_canonical_storage() -> VortexResult<()> {
         let mut ctx =
-            CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+            CudaSession::create_execution_ctx(&crate::cuda_session()).vortex_expect("ctx");
 
         let ext = ExtensionArray::new(
             Date::new(TimeUnit::Days, Nullability::NonNullable).erased(),

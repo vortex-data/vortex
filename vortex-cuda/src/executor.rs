@@ -96,7 +96,7 @@ pub struct CudaExecutionCtx {
 impl CudaExecutionCtx {
     /// Creates a new CUDA execution context.
     pub(crate) fn new(stream: VortexCudaStream, ctx: ExecutionCtx) -> Self {
-        let cuda_session = ctx.session().cuda_session().clone();
+        let cuda_session = (*ctx.session().cuda_session()).clone();
         Self {
             stream,
             ctx,

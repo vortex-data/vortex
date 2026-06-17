@@ -25,12 +25,10 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType::I32;
 use crate::scalar::Scalar;
-use crate::session::ArraySession;
 use crate::validity::Validity;
 
 /// A shared session for `List` tests, used to create execution contexts.
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
 
 #[test]
 fn test_empty_list_array() {

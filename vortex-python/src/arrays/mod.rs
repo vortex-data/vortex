@@ -742,11 +742,7 @@ impl PyArray {
         // FIXME(ngates): do not copy to vec, use buffer protocol
         let array = PyArrayRef::extract(slf.as_any().as_borrowed())?;
         Ok(array
-            .serialize(
-                ctx,
-                &vortex::session::VortexSession::empty(),
-                &Default::default(),
-            )?
+            .serialize(ctx, session(), &Default::default())?
             .into_iter()
             .map(|buffer| buffer.to_vec())
             .collect())
@@ -762,7 +758,7 @@ impl PyArray {
         let py = slf.py();
         let array = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
 
-        let mut encoder = MessageEncoder::new(vortex::session::VortexSession::empty());
+        let mut encoder = MessageEncoder::new(session().clone());
         let buffers = encoder.encode(EncoderMessage::Array(&array))?;
 
         // Return buffers as a list instead of concatenating
@@ -794,7 +790,7 @@ impl PyArray {
 
         let array = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
 
-        let mut encoder = MessageEncoder::new(vortex::session::VortexSession::empty());
+        let mut encoder = MessageEncoder::new(session().clone());
         let array_buffers = encoder.encode(EncoderMessage::Array(&array))?;
         let dtype_buffers = encoder.encode(EncoderMessage::DType(array.dtype()))?;
 

@@ -53,8 +53,6 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::fns::pack::Pack;
 use vortex_array::scalar_fn::fns::pack::PackOptions;
-use vortex_array::scalar_fn::session::ScalarFnSession;
-use vortex_array::session::ArraySession;
 use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
@@ -77,10 +75,8 @@ use crate::WriteOptionsSessionExt;
 use crate::footer::SegmentSpec;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = VortexSession::empty()
-        .with::<ArraySession>()
+    let session = vortex_array::array_session()
         .with::<LayoutSession>()
-        .with::<ScalarFnSession>()
         .with::<RuntimeSession>();
 
     crate::register_default_encodings(&session);

@@ -140,16 +140,13 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
-    use crate::optimizer::kernels::ArrayKernels;
     use crate::optimizer::kernels::ArrayKernelsExt;
     use crate::optimizer::kernels::ExecuteParentFn;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::cast::Cast;
-    use crate::session::ArraySession;
     use crate::validity::Validity;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
 
     fn null_struct_cast_execute_parent(
         child: &ArrayRef,
@@ -224,7 +221,7 @@ mod tests {
             .try_new_array(source.len(), target.clone(), [source])
             .unwrap();
         let parent_id = cast.encoding_id();
-        let session = VortexSession::empty().with::<ArrayKernels>();
+        let session = crate::array_session();
         session.kernels().register_execute_parent(
             parent_id,
             child_id,
