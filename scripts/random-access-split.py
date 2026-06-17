@@ -31,13 +31,21 @@ def run_combinations(emit_v3: bool) -> None:
             for pattern in PATTERNS:
                 for open_mode in OPEN_MODES:
                     args = [
-                        "bash", str(SCRIPT_DIR / "bench-taskset.sh"), BINARY,
-                        "--datasets", dataset,
-                        "--formats", fmt,
-                        "--patterns", pattern,
-                        "--open-mode", open_mode,
-                        "-d", "gh-json",
-                        "-o", str(PARTS_DIR / f"{i}.gh.json"),
+                        "bash",
+                        str(SCRIPT_DIR / "bench-taskset.sh"),
+                        BINARY,
+                        "--datasets",
+                        dataset,
+                        "--formats",
+                        fmt,
+                        "--patterns",
+                        pattern,
+                        "--open-mode",
+                        open_mode,
+                        "-d",
+                        "gh-json",
+                        "-o",
+                        str(PARTS_DIR / f"{i}.gh.json"),
                     ]
                     if emit_v3:
                         args += ["--gh-json-v3", str(PARTS_DIR / f"{i}.v3.jsonl")]
@@ -52,6 +60,8 @@ This function exists only because of taxi-legacy.
 Every taxi invocation re-emits the pattern-less legacy taxi rows, so we need
 the merge to drop the duplicates. Otherwise we could just merge JSONL lines.
 """
+
+
 def merge(pattern: str, key: Callable[[dict], object], out_path: str) -> None:
     seen: set[object] = set()
     lines: list[str] = []
