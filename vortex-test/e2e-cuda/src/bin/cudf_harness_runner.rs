@@ -13,7 +13,7 @@ const HARNESS_COMMANDS: &[&str] = &["check", "check-stream"];
 
 fn main() -> ExitCode {
     let args = env::args().collect::<Vec<_>>();
-    let [program, harness, library] = args.as_slice() else {
+    let [_program, harness, library] = args.as_slice() else {
         eprintln!(
             "Usage: {} <cudf-test-harness> <library.so>",
             args.first().map_or("cudf_harness_runner", String::as_str)
@@ -23,9 +23,7 @@ fn main() -> ExitCode {
 
     for primitive_dtype in PRIMITIVE_DTYPES {
         for harness_command in HARNESS_COMMANDS {
-            eprintln!(
-                "running {program} {harness_command} with {PRIMITIVE_DTYPE_ENV}={primitive_dtype}"
-            );
+            eprintln!("\n== {PRIMITIVE_DTYPE_ENV}={primitive_dtype} :: {harness_command} ==");
 
             let status = Command::new("compute-sanitizer")
                 .args(["--tool", "memcheck", "--error-exitcode", "1"])
