@@ -465,6 +465,22 @@ pub fn export_device_array_stream_from_iter(
     session: &VortexSession,
 ) -> VortexResult<ArrowDeviceArrayStream> {
     let ctx = crate::CudaSession::create_execution_ctx(session)?;
+    Ok(export_device_array_stream_from_iter_with_ctx(
+        array_iter, dtype, ctx,
+    ))
+}
+
+/// Export a blocking Vortex array iterator as an [`ArrowDeviceArrayStream`] using an existing CUDA
+/// execution context.
+///
+/// This is useful for FFI entry points that must finish all fallible CUDA initialization before
+/// consuming an owned input handle. Each yielded array must have `dtype`; every exported batch is
+/// validated to stay on the CUDA device selected by `ctx`.
+pub fn export_device_array_stream_from_iter_with_ctx(
+    array_iter: impl Iterator<Item = VortexResult<ArrayRef>> + 'static,
+    dtype: DType,
+    ctx: CudaExecutionCtx,
+) -> ArrowDeviceArrayStream {
     let device_id = ctx.stream().context().ordinal() as i64;
 
     let private_data = Box::new(DeviceArrayStreamPrivateData {
@@ -477,14 +493,14 @@ pub fn export_device_array_stream_from_iter(
         last_error: None,
     });
 
-    Ok(ArrowDeviceArrayStream {
+    ArrowDeviceArrayStream {
         device_type: ARROW_DEVICE_CUDA,
         get_schema: Some(device_stream_get_schema),
         get_next: Some(device_stream_get_next),
         get_last_error: Some(device_stream_get_last_error),
         release: Some(device_stream_release),
         private_data: Box::into_raw(private_data).cast(),
-    })
+    }
 }
 
 unsafe fn device_stream_private_data<'a>(

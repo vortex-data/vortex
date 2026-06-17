@@ -28,6 +28,7 @@ pub use arrow::DeviceArrayExt;
 pub use arrow::DeviceArrayStreamExt;
 pub use arrow::ExportDeviceArray;
 pub use arrow::export_device_array_stream_from_iter;
+pub use arrow::export_device_array_stream_from_iter_with_ctx;
 pub use canonical::CanonicalCudaExt;
 pub use device_buffer::CudaBufferExt;
 pub use device_buffer::CudaDeviceBuffer;

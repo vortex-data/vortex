@@ -130,9 +130,10 @@ pub unsafe extern "C-unwind" fn vx_cuda_partition_scan_arrow_device(
         vortex_ensure!(!out_stream.is_null(), "null ArrowDeviceArrayStream output");
 
         let session = session_with_cuda(unsafe { vx_session_ref(session) }?)?;
+        let ctx = CudaSession::create_execution_ctx(&session)?;
         let (dtype, array_iter) = unsafe { vx_partition_into_array_iter(partition) }?;
         let device_stream =
-            vortex_cuda::export_device_array_stream_from_iter(array_iter, dtype, &session)?;
+            vortex_cuda::export_device_array_stream_from_iter_with_ctx(array_iter, dtype, ctx);
 
         unsafe { ptr::write(out_stream, device_stream) };
         Ok(VX_CUDA_OK)
