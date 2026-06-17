@@ -13,7 +13,6 @@ mod varbin;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_mask::Mask;
 
 use self::bool::check_bool_constant;
 use self::decimal::check_decimal_constant;
@@ -44,6 +43,7 @@ use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
 use crate::expr::stats::StatsProviderExt;
+use crate::mask::execute_mask_coercing_nulls;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::operators::Operator;
 
@@ -73,7 +73,7 @@ fn arrays_value_equal(a: &ArrayRef, b: &ArrayRef, ctx: &mut ExecutionCtx) -> Vor
     // Compare values element-wise. Result is null where both inputs are null,
     // true/false where both are valid.
     let eq_result = a.binary(b.clone(), Operator::Eq)?;
-    let eq_result = eq_result.fill_null(false)?.execute::<Mask>(ctx)?;
+    let eq_result = execute_mask_coercing_nulls(eq_result, ctx)?;
 
     Ok(eq_result.true_count() == valid_count)
 }

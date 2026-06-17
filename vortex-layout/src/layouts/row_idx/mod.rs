@@ -19,7 +19,6 @@ use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
-use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::FieldName;
@@ -32,6 +31,7 @@ use vortex_array::expr::root;
 use vortex_array::expr::transform::PartitionedExpr;
 use vortex_array::expr::transform::partition;
 use vortex_array::expr::transform::replace;
+use vortex_array::mask::execute_mask_coercing_nulls;
 use vortex_array::scalar::PValue;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -296,10 +296,7 @@ fn row_idx_mask_future(
         let array = idx_array(row_offset, &row_range).into_array();
 
         let mut ctx = session.create_execution_ctx();
-        let result_mask = array
-            .apply(&expr)?
-            .fill_null(false)?
-            .execute::<Mask>(&mut ctx)?;
+        let result_mask = execute_mask_coercing_nulls(array.apply(&expr)?, &mut ctx)?;
 
         Ok(result_mask.bitand(&mask.await?))
     })

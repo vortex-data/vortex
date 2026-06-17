@@ -16,7 +16,6 @@ use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::SharedArray;
-use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::Nullability;
@@ -27,6 +26,7 @@ use vortex_array::expr::label_tree;
 use vortex_array::expr::pack;
 use vortex_array::expr::root;
 use vortex_array::expr::transform::partition_annotations;
+use vortex_array::mask::execute_mask_coercing_nulls;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar_fn::is_negative_cost;
 use vortex_error::VortexError;
@@ -259,10 +259,7 @@ impl LayoutReader for DictReader {
             let mask = mask.await?;
 
             let mut ctx = session.create_execution_ctx();
-            let dict_mask = values
-                .take(codes)?
-                .fill_null(false)?
-                .execute::<Mask>(&mut ctx)?;
+            let dict_mask = execute_mask_coercing_nulls(values.take(codes)?, &mut ctx)?;
 
             Ok(mask.bitand(&dict_mask))
         }))

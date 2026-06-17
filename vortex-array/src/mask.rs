@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::BitAnd;
+
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
@@ -41,6 +43,37 @@ impl Executable for Mask {
     }
 }
 
+/// Executes a boolean array into a [`Mask`], coercing null elements to `false` (SQL-style
+/// `NULL`-as-not-matching semantics).
+///
+/// This is the cheap counterpart to [`ArrayRef::fill_null(false)`](crate::builtins::ArrayBuiltins::fill_null)
+/// followed by [`Mask::execute`]. It canonicalizes the (possibly lazy) array exactly once and folds
+/// validity into the value bits with a single bitmap `AND`, rather than routing through the generic
+/// `fill_null` scalar function, which derives validity from the lazy expression tree (re-evaluating
+/// predicates such as `LIKE`) and materializes an intermediate array.
+pub fn execute_mask_coercing_nulls(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Mask> {
+    if !matches!(array.dtype(), DType::Bool(_)) {
+        vortex_bail!("Mask array must have boolean dtype, not {}", array.dtype());
+    }
+
+    let array_len = array.len();
+    Ok(match array.execute(ctx)? {
+        Columnar::Constant(s) => {
+            Mask::new(array_len, s.scalar().as_bool().value().unwrap_or(false))
+        }
+        Columnar::Canonical(a) => {
+            let bool = a.into_array().execute::<BoolArray>(ctx)?;
+            // Treat nulls as `false`: fold validity into the value bits.
+            let validity = bool
+                .as_ref()
+                .validity()?
+                .execute_mask(bool.as_ref().len(), ctx)?;
+            let bits = bool.into_bit_buffer();
+            validity.bitand(&Mask::from(bits))
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use vortex_error::VortexResult;
@@ -55,6 +88,7 @@ mod tests {
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::mask::execute_mask_coercing_nulls;
     use crate::scalar::Scalar;
 
     fn ctx() -> ExecutionCtx {
@@ -89,6 +123,44 @@ mod tests {
             ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), 4).into_array();
         let mask = array.fill_null(false)?.execute::<Mask>(&mut ctx())?;
         assert_eq!(mask, Mask::new_false(4));
+        Ok(())
+    }
+
+    #[test]
+    fn coercing_nulls_non_nullable() -> VortexResult<()> {
+        let array = BoolArray::from_iter([true, false, true]).into_array();
+        let mask = execute_mask_coercing_nulls(array, &mut ctx())?;
+        assert_eq!(mask, Mask::from_iter([true, false, true]));
+        Ok(())
+    }
+
+    #[test]
+    fn coercing_nulls_treats_null_as_false() -> VortexResult<()> {
+        let array = BoolArray::from_iter([Some(true), None, Some(false), None]).into_array();
+        let mask = execute_mask_coercing_nulls(array, &mut ctx())?;
+        assert_eq!(mask, Mask::from_iter([true, false, false, false]));
+        Ok(())
+    }
+
+    #[test]
+    fn coercing_nulls_null_constant() -> VortexResult<()> {
+        let array =
+            ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), 4).into_array();
+        let mask = execute_mask_coercing_nulls(array, &mut ctx())?;
+        assert_eq!(mask, Mask::new_false(4));
+        Ok(())
+    }
+
+    #[test]
+    fn coercing_nulls_matches_fill_null_then_mask() -> VortexResult<()> {
+        let array =
+            BoolArray::from_iter([Some(true), None, Some(false), Some(true), None]).into_array();
+        let via_fill_null = array
+            .clone()
+            .fill_null(false)?
+            .execute::<Mask>(&mut ctx())?;
+        let via_coerce = execute_mask_coercing_nulls(array, &mut ctx())?;
+        assert_eq!(via_coerce, via_fill_null);
         Ok(())
     }
 }
