@@ -375,7 +375,8 @@ impl BitBufferMut {
         if len > self.len {
             return;
         }
-
+        
+        assert!(self.offset <= usize::MAX - len, "Truncate on BitBufferMut overflowed");
         let end_bit = self.offset + len;
         let new_len_bytes = end_bit.div_ceil(8);
         self.buffer.truncate(new_len_bytes);
@@ -442,6 +443,8 @@ impl BitBufferMut {
             return;
         }
 
+        assert!(self.offset.checked_add(self.len).and_then(|v| v.checked_add(n)).is_some(),
+            "Append on BitBufferMut overflowed");
         let end_bit_pos = self.offset + self.len + n;
         let required_bytes = end_bit_pos.div_ceil(8);
 
