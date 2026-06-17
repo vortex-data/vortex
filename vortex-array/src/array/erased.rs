@@ -321,6 +321,33 @@ impl ArrayRef {
         }
     }
 
+    /// Returns `true` if this array is *cheaply* known to be entirely null.
+    ///
+    /// Unlike [`Self::all_invalid`], this performs no execution. It returns `true` only when
+    /// all-null-ness can be proven without running compute: a constant-null array, or a validity
+    /// that is statically all-invalid (including a constant-`false` validity array). A `false`
+    /// result therefore means "not provably all-null", *not* "contains valid values"; callers must
+    /// treat it as a conservative signal and fall back to their normal path.
+    ///
+    /// Compute entry points use this to short-circuit an entirely-null input to a `Constant(null)`
+    /// result, skipping canonicalization.
+    pub fn definitely_all_null(&self) -> VortexResult<bool> {
+        if !self.dtype().is_nullable() {
+            return Ok(false);
+        }
+        if let Some(scalar) = self.as_constant() {
+            return Ok(scalar.is_null());
+        }
+        Ok(match self.validity()? {
+            Validity::NonNullable | Validity::AllValid => false,
+            Validity::AllInvalid => true,
+            Validity::Array(validity) => validity
+                .as_constant()
+                .and_then(|s| s.as_bool().value())
+                .is_some_and(|valid| !valid),
+        })
+    }
+
     /// Returns the number of valid elements in the array.
     pub fn valid_count(&self, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
         let len = self.len();
@@ -748,5 +775,67 @@ impl<V: VTable> Matcher for V {
         let inner = array.0.data.as_any().downcast_ref::<ArrayData<V>>()?;
         // # Safety checked by `downcast_ref`.
         Some(unsafe { ArrayView::new_unchecked(array, &inner.data) })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::buffer;
+
+    use crate::IntoArray;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::scalar::Scalar;
+    use crate::validity::Validity;
+
+    #[test]
+    fn definitely_all_null_detects_constant_null() -> vortex_error::VortexResult<()> {
+        let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
+        assert!(
+            ConstantArray::null(dtype, 4)
+                .into_array()
+                .definitely_all_null()?
+        );
+        assert!(
+            !ConstantArray::new(Scalar::primitive(1i32, Nullability::Nullable), 4)
+                .into_array()
+                .definitely_all_null()?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn definitely_all_null_via_validity() -> vortex_error::VortexResult<()> {
+        // AllInvalid validity on a concrete array.
+        assert!(
+            PrimitiveArray::new(buffer![0i32, 0, 0], Validity::AllInvalid)
+                .into_array()
+                .definitely_all_null()?
+        );
+
+        // A constant-`false` validity array: the representation all-null arrays will use once the
+        // `AllInvalid` variant is removed.
+        let const_false = Validity::Array(ConstantArray::new(false, 3).into_array());
+        assert!(
+            PrimitiveArray::new(buffer![0i32, 0, 0], const_false)
+                .into_array()
+                .definitely_all_null()?
+        );
+
+        // All-valid and non-nullable arrays are not all-null.
+        assert!(
+            !PrimitiveArray::new(buffer![1i32, 2, 3], Validity::AllValid)
+                .into_array()
+                .definitely_all_null()?
+        );
+        assert!(
+            !PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable)
+                .into_array()
+                .definitely_all_null()?
+        );
+        Ok(())
     }
 }
