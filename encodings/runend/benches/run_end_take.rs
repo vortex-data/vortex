@@ -66,54 +66,45 @@ const BENCH_ARGS: &[TakeBenchArgs] = &[
     // Sorted sparse takes should use the single-pass linear scan over run ends.
     TakeBenchArgs {
         name: "sorted_linear",
-        array_len: 262_144,
+        array_len: 16_384,
         run_step: 8,
-        take_len: 4_096,
+        take_len: 512,
         pattern: IndexPattern::SortedEven,
         validity: IndexValidity::NonNullable,
     },
     // Dense unsorted takes should build the logical-position-to-run table.
     TakeBenchArgs {
         name: "dense_table",
-        array_len: 65_536,
+        array_len: 8_192,
         run_step: 1,
-        take_len: 16_384,
+        take_len: 2_048,
         pattern: IndexPattern::ReverseDense,
         validity: IndexValidity::NonNullable,
     },
     // Sparse unsorted takes below the large-run threshold should stay on binary search.
     TakeBenchArgs {
         name: "binary_sparse",
-        array_len: 1_048_576,
+        array_len: 65_536,
         run_step: 4,
-        take_len: 4_096,
+        take_len: 512,
         pattern: IndexPattern::Random,
         validity: IndexValidity::NonNullable,
     },
-    // Large unsorted takes over many runs should sort the indices and merge with run ends.
-    TakeBenchArgs {
-        name: "sort_merge",
-        array_len: 4_194_304,
-        run_step: 8,
-        take_len: 131_072,
-        pattern: IndexPattern::Random,
-        validity: IndexValidity::NonNullable,
-    },
-    // Nullable indices exercise masked stats, bounds skipping for invalid values, and table lookup.
+    // Nullable indices exercise masked stats and table lookup.
     TakeBenchArgs {
         name: "nullable_dense_table",
-        array_len: 65_536,
+        array_len: 8_192,
         run_step: 1,
-        take_len: 16_384,
+        take_len: 2_048,
         pattern: IndexPattern::ReverseDense,
         validity: IndexValidity::EveryFourthNull,
     },
     // All-null indices should return before touching run ends or values.
     TakeBenchArgs {
         name: "all_null",
-        array_len: 1_048_576,
+        array_len: 65_536,
         run_step: 4,
-        take_len: 16_384,
+        take_len: 2_048,
         pattern: IndexPattern::Random,
         validity: IndexValidity::AllNull,
     },
@@ -160,7 +151,7 @@ fn take_indices(args: TakeBenchArgs) -> ArrayRef {
 }
 
 fn index_values(args: TakeBenchArgs) -> Buffer<u64> {
-    let mut values = match args.pattern {
+    let values = match args.pattern {
         IndexPattern::SortedEven => (0..args.take_len)
             .map(|idx| ((idx * args.array_len) / args.take_len) as u64)
             .collect::<Vec<_>>(),
@@ -172,16 +163,6 @@ fn index_values(args: TakeBenchArgs) -> Buffer<u64> {
                 .collect()
         }
     };
-
-    match args.validity {
-        IndexValidity::NonNullable => {}
-        IndexValidity::EveryFourthNull => {
-            for idx in (0..args.take_len).step_by(4) {
-                values[idx] = args.array_len as u64;
-            }
-        }
-        IndexValidity::AllNull => values.fill(args.array_len as u64),
-    }
 
     Buffer::from(values)
 }
