@@ -93,7 +93,7 @@ pub mod flatbuffers {
 /// additional encodings or kernels into it without affecting any other session. This does not
 /// register file, layout, or runtime state — those live in higher-level crates.
 pub fn array_session() -> VortexSession {
-    VortexSession::empty()
+    VortexSession::builder()
         .with::<ArraySession>()
         .with::<DTypeSession>()
         .with::<ScalarFnSession>()
@@ -102,6 +102,7 @@ pub fn array_session() -> VortexSession {
         .with::<AggregateFnSession>()
         .with::<ArrowSession>()
         .with::<MemorySession>()
+        .build()
 }
 
 // TODO(ngates): canonicalize doesn't currently take a session, therefore we cannot invoke execute
