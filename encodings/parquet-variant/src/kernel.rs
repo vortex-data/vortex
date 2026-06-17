@@ -251,9 +251,16 @@ mod tests {
     use vortex_error::vortex_ensure;
     use vortex_error::vortex_err;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use crate::ParquetVariant;
     use crate::ParquetVariantArrayExt;
+
+    fn session() -> VortexSession {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    }
 
     fn make_unshredded_array() -> VortexResult<ArrayRef> {
         let mut builder = VariantArrayBuilder::new(4);
@@ -375,9 +382,10 @@ mod tests {
         dtype: Option<VortexDType>,
     ) -> VortexResult<ArrayRef> {
         let expr = variant_get(root(), parse_path(path)?, dtype);
+        let session = session();
         array
             .apply(&expr)?
-            .execute::<ArrayRef>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<ArrayRef>(&mut session.create_execution_ctx())
     }
 
     macro_rules! assert_rows_eq {
@@ -826,7 +834,8 @@ mod tests {
         array: &ArrayRef,
         expected: impl IntoIterator<Item = Option<i32>>,
     ) -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let session = session();
+        let mut ctx = session.create_execution_ctx();
         let executed = array.clone().execute::<ArrayRef>(&mut ctx)?;
         let typed_value = executed
             .as_::<ParquetVariant>()
