@@ -176,10 +176,7 @@ mod tests {
     fn null_as_false_matches_fill_null_then_mask() -> VortexResult<()> {
         let array =
             BoolArray::from_iter([Some(true), None, Some(false), Some(true), None]).into_array();
-        let via_fill_null = array
-            .clone()
-            .fill_null(false)?
-            .execute::<Mask>(&mut ctx())?;
+        let via_fill_null = array.fill_null(false)?.execute::<Mask>(&mut ctx())?;
         let via_coerce = array.null_as_false().execute(&mut ctx())?;
         assert_eq!(via_coerce, via_fill_null);
         Ok(())
