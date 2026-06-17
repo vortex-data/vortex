@@ -26,7 +26,6 @@ use vortex::array::expr::Expression;
 use vortex::array::expr::stats::Precision;
 use vortex::array::expr::stats::Stat;
 use vortex::array::expr::stats::StatsProvider;
-use vortex::array::mask::execute_mask_coercing_nulls;
 use vortex::array::normalize::NormalizeOptions;
 use vortex::array::normalize::Operation;
 use vortex::array::serde::SerializeOptions;
@@ -332,12 +331,12 @@ impl LayoutReader for CudaFlatReader {
                 let array = array.apply(&expr)?;
                 let array = array.filter(mask.clone())?;
                 let mut ctx = session.create_execution_ctx();
-                let array_mask = execute_mask_coercing_nulls(array, &mut ctx)?;
+                let array_mask = array.null_as_false().execute(&mut ctx)?;
                 mask.intersect_by_rank(&array_mask)
             } else {
                 let array = array.apply(&expr)?;
                 let mut ctx = session.create_execution_ctx();
-                let array_mask = execute_mask_coercing_nulls(array, &mut ctx)?;
+                let array_mask = array.null_as_false().execute(&mut ctx)?;
                 mask.bitand(&array_mask)
             };
 

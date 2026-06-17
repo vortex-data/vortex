@@ -43,7 +43,6 @@ use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
 use crate::expr::stats::StatsProviderExt;
-use crate::mask::execute_mask_coercing_nulls;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::operators::Operator;
 
@@ -73,7 +72,7 @@ fn arrays_value_equal(a: &ArrayRef, b: &ArrayRef, ctx: &mut ExecutionCtx) -> Vor
     // Compare values element-wise. Result is null where both inputs are null,
     // true/false where both are valid.
     let eq_result = a.binary(b.clone(), Operator::Eq)?;
-    let eq_result = execute_mask_coercing_nulls(eq_result, ctx)?;
+    let eq_result = eq_result.null_as_false().execute(ctx)?;
 
     Ok(eq_result.true_count() == valid_count)
 }

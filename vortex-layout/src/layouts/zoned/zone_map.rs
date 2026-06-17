@@ -28,7 +28,6 @@ use vortex_array::expr::root;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::traversal::NodeExt;
 use vortex_array::expr::traversal::Transformed;
-use vortex_array::mask::execute_mask_coercing_nulls;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
@@ -124,12 +123,12 @@ impl ZoneMap {
         let applied = self.array.clone().into_array().apply(&predicate)?;
 
         if !contains_row_count(&applied) {
-            return execute_mask_coercing_nulls(applied, &mut ctx);
+            return applied.null_as_false().execute(&mut ctx);
         }
 
         let row_count_array = row_count_array(self.zone_len, self.row_count, num_zones)?;
         let substituted = substitute_row_count(applied, &row_count_array)?;
-        execute_mask_coercing_nulls(substituted, &mut ctx)
+        substituted.null_as_false().execute(&mut ctx)
     }
 
     fn lower_stats(&self, predicate: Expression) -> VortexResult<Expression> {

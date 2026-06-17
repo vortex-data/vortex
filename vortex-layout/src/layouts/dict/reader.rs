@@ -26,7 +26,6 @@ use vortex_array::expr::label_tree;
 use vortex_array::expr::pack;
 use vortex_array::expr::root;
 use vortex_array::expr::transform::partition_annotations;
-use vortex_array::mask::execute_mask_coercing_nulls;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar_fn::is_negative_cost;
 use vortex_error::VortexError;
@@ -259,7 +258,7 @@ impl LayoutReader for DictReader {
             let mask = mask.await?;
 
             let mut ctx = session.create_execution_ctx();
-            let dict_mask = execute_mask_coercing_nulls(values.take(codes)?, &mut ctx)?;
+            let dict_mask = values.take(codes)?.null_as_false().execute(&mut ctx)?;
 
             Ok(mask.bitand(&dict_mask))
         }))
