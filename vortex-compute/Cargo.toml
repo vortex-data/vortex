@@ -1,0 +1,37 @@
+[package]
+name = "vortex-compute"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Lane-level compute kernels for Vortex buffers"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true
+
+[dependencies]
+vortex-buffer = { workspace = true }
+
+[dev-dependencies]
+arrow-arith = { workspace = true }
+arrow-array = { workspace = true }
+arrow-buffer = { workspace = true }
+arrow-cast = { workspace = true }
+arrow-schema = { workspace = true }
+divan = { workspace = true }
+num-traits = { workspace = true }
+rand = { workspace = true }
+
+[lints]
+workspace = true
+
+[[bench]]
+name = "lane_kernels"
+harness = false

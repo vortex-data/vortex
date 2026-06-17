@@ -9351,6 +9351,7 @@ dependencies = [
  "vortex-array",
  "vortex-array-macros",
  "vortex-buffer",
+ "vortex-compute",
  "vortex-error",
  "vortex-flatbuffers",
  "vortex-mask",
@@ -9455,6 +9456,7 @@ dependencies = [
  "itertools 0.14.0",
  "memmap2",
  "num-traits",
+ "rand 0.10.1",
  "rstest",
  "serde",
  "simdutf8",
@@ -9520,6 +9522,21 @@ dependencies = [
  "vortex-mask",
  "vortex-session",
  "vortex-utils",
+]
+
+[[package]]
+name = "vortex-compute"
+version = "0.1.0"
+dependencies = [
+ "arrow-arith",
+ "arrow-array",
+ "arrow-buffer",
+ "arrow-cast",
+ "arrow-schema",
+ "codspeed-divan-compat",
+ "num-traits",
+ "rand 0.10.1",
+ "vortex-buffer",
 ]
 
 [[package]]
