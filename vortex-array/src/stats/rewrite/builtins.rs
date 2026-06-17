@@ -52,7 +52,8 @@ use crate::stats::session::StatsSession;
 
 /// Register built-in stats rewrite rules.
 pub(crate) fn register_builtins(session: &StatsSession) {
-    session.register_rewrite(BinaryStatsRewrite);
+    session.register_rewrite(BinaryStatsRewrite::legacy_nan_count());
+    session.register_rewrite(BinaryStatsRewrite::all_non_nan());
     session.register_rewrite(BetweenStatsRewrite);
     session.register_rewrite(IsNullLegacyStatsRewrite);
     session.register_rewrite(IsNullAllNonNullStatsRewrite);
@@ -61,12 +62,30 @@ pub(crate) fn register_builtins(session: &StatsSession) {
     session.register_rewrite(IsNotNullAllNullStatsRewrite);
     session.register_rewrite(IsNotNullAllNonNullStatsRewrite);
     session.register_rewrite(LikeStatsRewrite);
-    session.register_rewrite(ListContainsStatsRewrite);
-    session.register_rewrite(DynamicComparisonStatsRewrite);
+    session.register_rewrite(ListContainsStatsRewrite::legacy_nan_count());
+    session.register_rewrite(ListContainsStatsRewrite::all_non_nan());
+    session.register_rewrite(DynamicComparisonStatsRewrite::legacy_nan_count());
+    session.register_rewrite(DynamicComparisonStatsRewrite::all_non_nan());
 }
 
 #[derive(Debug)]
-struct BinaryStatsRewrite;
+struct BinaryStatsRewrite {
+    nan_proof: NanProof,
+}
+
+impl BinaryStatsRewrite {
+    fn legacy_nan_count() -> Self {
+        Self {
+            nan_proof: NanProof::LegacyNanCount,
+        }
+    }
+
+    fn all_non_nan() -> Self {
+        Self {
+            nan_proof: NanProof::AllNonNan,
+        }
+    }
+}
 
 impl StatsRewriteRule for BinaryStatsRewrite {
     fn scalar_fn_id(&self) -> ScalarFnId {
@@ -87,8 +106,11 @@ impl StatsRewriteRule for BinaryStatsRewrite {
                 let left = min(lhs, ctx).zip(max(rhs, ctx)).map(|(a, b)| gt(a, b));
                 let right = min(rhs, ctx).zip(max(lhs, ctx)).map(|(a, b)| gt(a, b));
                 or_collect(left.into_iter().chain(right))
-                    .map(|value_predicate| with_nan_predicate(ctx, lhs, rhs, value_predicate))
+                    .map(|value_predicate| {
+                        with_nan_predicate(ctx, self.nan_proof, lhs, rhs, value_predicate)
+                    })
                     .transpose()?
+                    .flatten()
             }
             Operator::NotEq => min(lhs, ctx)
                 .zip(max(rhs, ctx))
@@ -96,35 +118,47 @@ impl StatsRewriteRule for BinaryStatsRewrite {
                 .map(|((min_lhs, max_rhs), (max_lhs, min_rhs))| {
                     with_nan_predicate(
                         ctx,
+                        self.nan_proof,
                         lhs,
                         rhs,
                         and(eq(min_lhs, max_rhs), eq(max_lhs, min_rhs)),
                     )
                 })
-                .transpose()?,
+                .transpose()?
+                .flatten(),
             Operator::Gt => max(lhs, ctx)
                 .zip(min(rhs, ctx))
-                .map(|(a, b)| with_nan_predicate(ctx, lhs, rhs, lt_eq(a, b)))
-                .transpose()?,
+                .map(|(a, b)| with_nan_predicate(ctx, self.nan_proof, lhs, rhs, lt_eq(a, b)))
+                .transpose()?
+                .flatten(),
             Operator::Gte => max(lhs, ctx)
                 .zip(min(rhs, ctx))
-                .map(|(a, b)| with_nan_predicate(ctx, lhs, rhs, lt(a, b)))
-                .transpose()?,
+                .map(|(a, b)| with_nan_predicate(ctx, self.nan_proof, lhs, rhs, lt(a, b)))
+                .transpose()?
+                .flatten(),
             Operator::Lt => min(lhs, ctx)
                 .zip(max(rhs, ctx))
-                .map(|(a, b)| with_nan_predicate(ctx, lhs, rhs, gt_eq(a, b)))
-                .transpose()?,
+                .map(|(a, b)| with_nan_predicate(ctx, self.nan_proof, lhs, rhs, gt_eq(a, b)))
+                .transpose()?
+                .flatten(),
             Operator::Lte => min(lhs, ctx)
                 .zip(max(rhs, ctx))
-                .map(|(a, b)| with_nan_predicate(ctx, lhs, rhs, gt(a, b)))
-                .transpose()?,
+                .map(|(a, b)| with_nan_predicate(ctx, self.nan_proof, lhs, rhs, gt(a, b)))
+                .transpose()?
+                .flatten(),
             Operator::And => {
+                if !self.nan_proof.emits_unguarded_rewrites() {
+                    return Ok(None);
+                }
+
                 let lhs_falsifier = ctx.falsify(lhs)?;
                 let rhs_falsifier = ctx.falsify(rhs)?;
                 or_collect(lhs_falsifier.into_iter().chain(rhs_falsifier))
             }
             Operator::Or => match (ctx.falsify(lhs)?, ctx.falsify(rhs)?) {
-                (Some(lhs), Some(rhs)) => Some(and(lhs, rhs)),
+                (Some(lhs), Some(rhs)) if self.nan_proof.emits_unguarded_rewrites() => {
+                    Some(and(lhs, rhs))
+                }
                 _ => None,
             },
             Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => None,
@@ -332,7 +366,23 @@ impl StatsRewriteRule for LikeStatsRewrite {
 }
 
 #[derive(Debug)]
-struct ListContainsStatsRewrite;
+struct ListContainsStatsRewrite {
+    nan_proof: NanProof,
+}
+
+impl ListContainsStatsRewrite {
+    fn legacy_nan_count() -> Self {
+        Self {
+            nan_proof: NanProof::LegacyNanCount,
+        }
+    }
+
+    fn all_non_nan() -> Self {
+        Self {
+            nan_proof: NanProof::AllNonNan,
+        }
+    }
+}
 
 impl StatsRewriteRule for ListContainsStatsRewrite {
     fn scalar_fn_id(&self) -> ScalarFnId {
@@ -375,13 +425,32 @@ impl StatsRewriteRule for ListContainsStatsRewrite {
             )
         }));
         value_predicate
-            .map(|value_predicate| with_all_non_nan_predicate(ctx, [needle], value_predicate))
+            .map(|value_predicate| {
+                with_all_non_nan_predicate(ctx, self.nan_proof, [needle], value_predicate)
+            })
             .transpose()
+            .map(Option::flatten)
     }
 }
 
 #[derive(Debug)]
-struct DynamicComparisonStatsRewrite;
+struct DynamicComparisonStatsRewrite {
+    nan_proof: NanProof,
+}
+
+impl DynamicComparisonStatsRewrite {
+    fn legacy_nan_count() -> Self {
+        Self {
+            nan_proof: NanProof::LegacyNanCount,
+        }
+    }
+
+    fn all_non_nan() -> Self {
+        Self {
+            nan_proof: NanProof::AllNonNan,
+        }
+    }
+}
 
 impl StatsRewriteRule for DynamicComparisonStatsRewrite {
     fn scalar_fn_id(&self) -> ScalarFnId {
@@ -414,7 +483,7 @@ impl StatsRewriteRule for DynamicComparisonStatsRewrite {
             },
             [lhs_stat],
         );
-        with_all_non_nan_predicate(ctx, [lhs], value_predicate).map(Some)
+        with_all_non_nan_predicate(ctx, self.nan_proof, [lhs], value_predicate)
     }
 }
 
@@ -438,43 +507,64 @@ fn all_non_null(expr: &Expression) -> Expression {
     stat_fn(expr.clone(), AllNonNull.bind(AggregateEmptyOptions))
 }
 
+#[derive(Debug, Clone, Copy)]
+enum NanProof {
+    LegacyNanCount,
+    AllNonNan,
+}
+
+impl NanProof {
+    fn emits_unguarded_rewrites(self) -> bool {
+        matches!(self, Self::LegacyNanCount)
+    }
+}
+
+enum NanCheck {
+    NotNeeded,
+    Check(Expression),
+    Unavailable,
+}
+
 // Min/max do not order NaN values, so comparison rewrites are only sound when every
 // candidate value is known to be non-NaN. Cast result dtypes are not enough: a cast
 // from float to non-float still needs a proof about the float source values.
 fn all_non_nan_stat(
     ctx: &StatsRewriteCtx<'_>,
+    nan_proof: NanProof,
     expr: &Expression,
-) -> VortexResult<Option<Expression>> {
+) -> VortexResult<NanCheck> {
     if let Some(scalar) = expr.as_opt::<Literal>() {
         let Some(value) = scalar.as_primitive_opt() else {
-            return Ok(None);
+            return Ok(NanCheck::NotNeeded);
         };
-        return Ok(value.is_nan().then(|| lit(false)));
+        return Ok(if value.is_nan() {
+            NanCheck::Check(lit(false))
+        } else {
+            NanCheck::NotNeeded
+        });
     }
 
     if expr.is::<Cast>() {
         if !has_nans(&ctx.return_dtype(expr.child(0))?) {
-            return Ok(None);
+            return Ok(NanCheck::NotNeeded);
         }
 
-        return all_non_nan_stat(ctx, expr.child(0));
+        return all_non_nan_stat(ctx, nan_proof, expr.child(0));
     }
 
     if !has_nans(&ctx.return_dtype(expr)?) {
-        return Ok(None);
+        return Ok(NanCheck::NotNeeded);
     }
 
-    let Some(nan_count) = stat_expr(expr, Stat::NaNCount, ctx) else {
-        return Ok(Some(stat_fn(
-            expr.clone(),
-            AllNonNan.bind(AggregateEmptyOptions),
-        )));
-    };
-
-    Ok(Some(or(
-        eq(nan_count, lit(0u64)),
-        stat_fn(expr.clone(), AllNonNan.bind(AggregateEmptyOptions)),
-    )))
+    Ok(match nan_proof {
+        NanProof::LegacyNanCount => match stat_expr(expr, Stat::NaNCount, ctx) {
+            Some(nan_count) => NanCheck::Check(eq(nan_count, lit(0u64))),
+            None => NanCheck::Unavailable,
+        },
+        NanProof::AllNonNan => {
+            NanCheck::Check(stat_fn(expr.clone(), AllNonNan.bind(AggregateEmptyOptions)))
+        }
+    })
 }
 
 fn has_nans(dtype: &DType) -> bool {
@@ -510,31 +600,37 @@ fn stat_expr(expr: &Expression, stat: Stat, ctx: &StatsRewriteCtx<'_>) -> Option
 
 fn with_nan_predicate(
     ctx: &StatsRewriteCtx<'_>,
+    nan_proof: NanProof,
     lhs: &Expression,
     rhs: &Expression,
     value_predicate: Expression,
-) -> VortexResult<Expression> {
-    with_all_non_nan_predicate(ctx, [lhs, rhs], value_predicate)
+) -> VortexResult<Option<Expression>> {
+    with_all_non_nan_predicate(ctx, nan_proof, [lhs, rhs], value_predicate)
 }
 
 fn with_all_non_nan_predicate<'a>(
     ctx: &StatsRewriteCtx<'_>,
+    nan_proof: NanProof,
     exprs: impl IntoIterator<Item = &'a Expression>,
     value_predicate: Expression,
-) -> VortexResult<Expression> {
+) -> VortexResult<Option<Expression>> {
     let mut nan_checks = Vec::new();
     for expr in exprs {
-        if let Some(check) = all_non_nan_stat(ctx, expr)? {
-            nan_checks.push(check);
+        match all_non_nan_stat(ctx, nan_proof, expr)? {
+            NanCheck::NotNeeded => {}
+            NanCheck::Check(check) => nan_checks.push(check),
+            NanCheck::Unavailable => return Ok(None),
         }
     }
     let nan_predicate = and_collect(nan_checks);
 
     Ok(match nan_predicate {
-        Some(nan_check) => and(nan_check, value_predicate),
+        Some(nan_check) => Some(and(nan_check, value_predicate)),
         // No possible NaN-bearing expression remains, so the value predicate is
-        // already guarded.
-        None => value_predicate,
+        // already guarded. Only one registered rule emits this unguarded
+        // rewrite so non-float comparisons are not duplicated.
+        None if nan_proof.emits_unguarded_rewrites() => Some(value_predicate),
+        None => None,
     })
 }
 
@@ -666,10 +762,16 @@ mod tests {
         expr.satisfy(&test_scope(), &SESSION)
     }
 
-    fn nan_guard(expr: Expression) -> Expression {
+    fn nan_guarded(expr: Expression, value_predicate: Expression) -> Expression {
         or(
-            eq(stat(expr.clone(), Stat::NaNCount), lit(0u64)),
-            stat_fn(expr, AllNonNan.bind(AggregateEmptyOptions)),
+            and(
+                eq(stat(expr.clone(), Stat::NaNCount), lit(0u64)),
+                value_predicate.clone(),
+            ),
+            and(
+                stat_fn(expr, AllNonNan.bind(AggregateEmptyOptions)),
+                value_predicate,
+            ),
         )
     }
 
@@ -897,8 +999,8 @@ mod tests {
 
         assert_eq!(
             falsify(&expr)?,
-            Some(and(
-                nan_guard(col("f")),
+            Some(nan_guarded(
+                col("f"),
                 lt_eq(cast(stat(col("f"), Stat::Max), dtype), lit(5i32)),
             ))
         );
