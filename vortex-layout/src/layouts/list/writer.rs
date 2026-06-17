@@ -43,6 +43,15 @@ use crate::sequence::SequentialStreamExt;
 ///  3. Writes the `elements`, `offsets`, and (when nullable) `validity` columns into
 ///     separately configurable downstream strategies, producing a single [`ListLayout`].
 ///
+/// # Nested lists
+///
+/// When the `elements` column is itself list-typed (e.g. `list<list<...>>`), the strategy
+/// recurses into a clone of itself instead of using the configured `elements` strategy, so the
+/// inner list is shredded into a nested [`ListLayout`] rather than written as a single opaque
+/// chunk. This mirrors how [`TableStrategy`](crate::layouts::table::TableStrategy) descends into
+/// nested struct fields. The configured `elements` strategy is therefore used for the innermost,
+/// non-list values.
+///
 /// For input whose dtype is not [`DType::List`], the stream is forwarded unchanged to the
 /// configured `fallback` strategy. This lets `ListLayoutStrategy` slot in as a leaf strategy in
 /// a heterogeneous column writer where some columns are lists and others are not.
@@ -53,6 +62,7 @@ use crate::sequence::SequentialStreamExt;
 /// [`FlatLayoutStrategy`](crate::layouts::flat::writer::FlatLayoutStrategy).
 ///
 /// [`ListArray`]: vortex_array::arrays::ListArray
+#[derive(Clone)]
 pub struct ListLayoutStrategy {
     elements: Arc<dyn LayoutStrategy>,
     offsets: Arc<dyn LayoutStrategy>,
@@ -120,6 +130,17 @@ impl LayoutStrategy for ListLayoutStrategy {
             })
             .transpose()?;
 
+        // Recurse into a clone of ourselves when the elements are themselves list-typed, so that
+        // `list<list<...>>` writes as `ListLayout { elements: ListLayout { .. } }` rather than
+        // collapsing the inner list into a single opaque chunk. Non-list elements use the
+        // configured `elements` strategy. Mirrors how `TableStrategy` descends into nested struct
+        // fields.
+        let elements_strategy: Arc<dyn LayoutStrategy> = if elements.dtype().is_list() {
+            Arc::new(self.clone())
+        } else {
+            Arc::clone(&self.elements)
+        };
+
         // Spawn each child write onto the runtime so they run concurrently
         let handle = session.handle();
         let (elements_task, offsets_task, validity_task) = {
@@ -138,7 +159,7 @@ impl LayoutStrategy for ListLayoutStrategy {
                 })
             };
             (
-                spawn_layout_writer(Arc::clone(&self.elements), elements),
+                spawn_layout_writer(elements_strategy, elements),
                 spawn_layout_writer(Arc::clone(&self.offsets), offsets),
                 validity_array.map(|arr| spawn_layout_writer(Arc::clone(&self.validity), arr)),
             )
@@ -406,26 +427,46 @@ mod tests {
         )?
         .into_array();
 
-        let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
-        let inner_strategy: Arc<dyn LayoutStrategy> = Arc::new(ListLayoutStrategy::new(
-            Arc::clone(&flat),
-            Arc::clone(&flat),
-            Arc::clone(&flat),
-            Arc::clone(&flat),
-        ));
-        let writer = ListLayoutStrategy::new(
-            inner_strategy,
-            Arc::clone(&flat),
-            Arc::clone(&flat),
-            Arc::clone(&flat),
-        );
-
-        let layout = write(&writer, list).await?;
+        // The all-flat strategy still recurses on list-typed elements: the inner `list<i32>` is
+        // shredded into a nested ListLayout rather than written as a single opaque flat chunk.
+        let layout = write(&flat_list_strategy(), list).await?;
         insta::assert_snapshot!(layout.display_tree(), @"
         vortex.list, dtype: list(list(i32)), children: 2
         ├── elements: vortex.list, dtype: list(i32), children: 2
         │   ├── elements: vortex.flat, dtype: i32, segment: 1
         │   └── offsets: vortex.flat, dtype: u32, segment: 2
+        └── offsets: vortex.flat, dtype: u32, segment: 0
+        ");
+        Ok(())
+    }
+
+    /// Recursion is unbounded: `list<list<list<i32>>>` produces three nested ListLayouts.
+    #[tokio::test]
+    async fn list_of_list_of_list_tree() -> VortexResult<()> {
+        let innermost = ListArray::try_new(
+            buffer![1i32, 2, 3, 4].into_array(),
+            buffer![0u32, 2, 4].into_array(),
+            Validity::NonNullable,
+        )?
+        .into_array();
+        let middle = ListArray::try_new(
+            innermost,
+            buffer![0u32, 2].into_array(),
+            Validity::NonNullable,
+        )?
+        .into_array();
+        let outer =
+            ListArray::try_new(middle, buffer![0u32, 1].into_array(), Validity::NonNullable)?
+                .into_array();
+
+        let layout = write(&flat_list_strategy(), outer).await?;
+        insta::assert_snapshot!(layout.display_tree(), @"
+        vortex.list, dtype: list(list(list(i32))), children: 2
+        ├── elements: vortex.list, dtype: list(list(i32)), children: 2
+        │   ├── elements: vortex.list, dtype: list(i32), children: 2
+        │   │   ├── elements: vortex.flat, dtype: i32, segment: 2
+        │   │   └── offsets: vortex.flat, dtype: u32, segment: 3
+        │   └── offsets: vortex.flat, dtype: u32, segment: 1
         └── offsets: vortex.flat, dtype: u32, segment: 0
         ");
         Ok(())
