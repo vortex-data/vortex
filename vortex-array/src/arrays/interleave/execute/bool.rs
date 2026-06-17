@@ -6,10 +6,8 @@
 use num_traits::AsPrimitive;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
-use vortex_buffer::get_bit_unchecked;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_mask::Mask;
 
 use super::super::Interleave;
 use super::super::InterleaveArrayExt;
@@ -22,62 +20,47 @@ use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
 use crate::match_each_unsigned_integer_ptype;
 use crate::require_child;
-use crate::validity::Validity;
 
 /// Gathers `N` boolean values under unsigned `array_indices` / `row_indices` selectors, scattering
-/// each selected bit (and its validity) into the output position it routes to.
+/// each selected bit into the output position it routes to.
 pub(super) fn execute(
     array: Array<Interleave>,
-    ctx: &mut ExecutionCtx,
+    _ctx: &mut ExecutionCtx,
 ) -> VortexResult<ExecutionResult> {
     let num_values = array.num_values();
 
-    // Drive every value and both selectors to canonical encodings so we can operate on raw bits.
+    // Drive both selectors and every value to canonical encodings so we can operate on raw bits.
     let mut array = array;
+    array = require_child!(array, array.array_indices(), 0 => Primitive);
+    array = require_child!(array, array.row_indices(), 1 => Primitive);
     for i in 0..num_values {
-        array = require_child!(array, array.value(i), i => Bool);
+        array = require_child!(array, array.value(i), i + 2 => Bool);
     }
-    array = require_child!(array, array.array_indices(), num_values => Primitive);
-    array = require_child!(array, array.row_indices(), num_values + 1 => Primitive);
 
-    let dtype = array.as_ref().dtype().clone();
-    let len = array.as_ref().len();
-    let nullable = dtype.is_nullable();
-
-    // Materialize each value's bits, and its validity mask only when the output can be null.
+    // Materialize each value's bits; the selectors gather one bit per output below.
     let mut value_bits = Vec::with_capacity(num_values);
-    let mut value_validity = Vec::with_capacity(num_values);
     for i in 0..num_values {
-        let value = array.value(i).as_::<Bool>();
-        let bits = value.to_bit_buffer();
-        let validity = nullable
-            .then(|| value.validity()?.execute_mask(bits.len(), ctx))
-            .transpose()?;
-        value_bits.push(bits);
-        value_validity.push(validity);
+        value_bits.push(array.value(i).as_::<Bool>().to_bit_buffer());
     }
+
+    // Hold the validity as a pushed-down interleave rather than applying it: the routing pair for
+    // each output selects the value *and* its validity bit, so the output validity is itself an
+    // interleave (by these selectors) of the values' validities. This bottoms out lazily.
+    let validity = array.as_ref().validity()?;
 
     // Scatter directly from the typed selector buffers — no intermediate `usize` materialization.
     let array_indices = array.array_indices().as_::<Primitive>();
     let row_indices = array.row_indices().as_::<Primitive>();
-    let (values, validity) = match_each_unsigned_integer_ptype!(array_indices.ptype(), |A| {
+    let values = match_each_unsigned_integer_ptype!(array_indices.ptype(), |A| {
         match_each_unsigned_integer_ptype!(row_indices.ptype(), |R| {
             gather(
-                len,
-                num_values,
                 &value_bits,
-                &value_validity,
                 array_indices.as_slice::<A>(),
                 row_indices.as_slice::<R>(),
-                nullable,
             )?
         })
     });
 
-    let validity = match validity {
-        Some(bits) => Validity::from(bits.freeze()),
-        None => Validity::NonNullable,
-    };
     Ok(ExecutionResult::done(BoolArray::try_new(
         values.freeze(),
         validity,
@@ -86,82 +69,76 @@ pub(super) fn execute(
 
 /// The scatter, monomorphized on the selector integer widths so each `(array_index, row_index)`
 /// pair is read straight from its packed buffer.
-///
-/// Values and validity are both gathered with [`gather_bits`]: validity is just another set of
-/// boolean buffers (one per branch) routed by the same selectors, so once each branch's validity is
-/// materialized into a full-length [`BitBuffer`] it runs through the identical kernel rather than a
-/// per-row `Option`/`Mask`-variant dispatch.
-#[allow(clippy::too_many_arguments)]
 fn gather<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
-    len: usize,
-    num_values: usize,
     value_bits: &[BitBuffer],
-    value_validity: &[Option<Mask>],
     branches: &[A],
     rows: &[R],
-    nullable: bool,
-) -> VortexResult<(BitBufferMut, Option<BitBufferMut>)> {
-    // Validate the per-row bounds once up front (returning an error rather than panicking), so the
-    // word-packing passes in `gather_bits` are tight unchecked loops.
+) -> VortexResult<BitBufferMut> {
+    let len = validate_selectors(value_bits, branches, rows)?;
+
+    // SAFETY: `validate_selectors` proved `branches.len() == rows.len() == len`, and for every
+    // `i < len` that `branches[i] < value_bits.len()` and `rows[i] < value_bits[branches[i]].len()`.
+    Ok(unsafe { gather_bits(len, value_bits, branches, rows) })
+}
+
+/// Validates the per-row selector bounds, returning the output length (`branches.len()`).
+///
+/// On success, `rows.len() == branches.len() == len` and, for every `i < len`,
+/// `branches[i] < value_bits.len()` and `rows[i] < value_bits[branches[i]].len()` — exactly the
+/// preconditions of [`gather_bits`]. Errors (rather than panics) on any out-of-bounds selector.
+fn validate_selectors<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
+    value_bits: &[BitBuffer],
+    branches: &[A],
+    rows: &[R],
+) -> VortexResult<usize> {
+    // The two selectors are validated to equal length at construction, which is the output length.
+    let len = branches.len();
+    vortex_ensure!(
+        rows.len() == len,
+        "interleave selectors differ in length: array_indices {len}, row_indices {}",
+        rows.len()
+    );
+
     for i in 0..len {
         let branch = branches[i].as_();
-        vortex_ensure!(branch < num_values, "interleave array index out of bounds");
+        vortex_ensure!(
+            branch < value_bits.len(),
+            "interleave array index out of bounds"
+        );
         vortex_ensure!(
             rows[i].as_() < value_bits[branch].len(),
             "interleave row index out of bounds"
         );
     }
 
-    // SAFETY: the loop above proved `branches[i] < num_values == value_bits.len()` and
-    // `rows[i] < value_bits[branches[i]].len()` for every `i < len`.
-    let values = unsafe { gather_bits(len, value_bits, branches, rows) };
-
-    // A missing per-value mask means every row of that value is valid; validity is only materialized
-    // when the output can be null.
-    let validity = nullable.then(|| {
-        let validity_bits: Vec<BitBuffer> = value_validity
-            .iter()
-            .enumerate()
-            .map(|(j, mask)| match mask {
-                Some(mask) => mask.to_bit_buffer(),
-                None => BitBuffer::new_set(value_bits[j].len()),
-            })
-            .collect();
-        // SAFETY: each validity buffer has its value's length, so the bounds validated above hold.
-        unsafe { gather_bits(len, &validity_bits, branches, rows) }
-    });
-
-    Ok((values, validity))
+    Ok(len)
 }
 
 /// Gathers one bit per output from `bits[branches[i]]` at position `rows[i]`, packing 64 results per
 /// word with [`BitBufferMut::collect_bool`].
 ///
 /// For a random-access gather there is no word-level shortcut on the read side — consecutive outputs
-/// read unrelated source words — so the work is one bit read per output. The per-read overhead is
-/// what we trim: a raw `(ptr, bit_offset)` is hoisted per buffer and the bit is read with
-/// [`get_bit_unchecked`], avoiding the wide `&[BitBuffer]` struct index and the redundant bounds
-/// assert in `BitBuffer::value`.
+/// read unrelated source words — so the work is one bit read per output. Each read indexes the
+/// `&[BitBuffer]` slice and uses [`BitBuffer::value_unchecked`]. Benchmarking (`gather_values` in
+/// `benches/interleave.rs`) showed this beats pre-hoisting a `(ptr, bit_offset)` table per buffer:
+/// the table's extra indirection and per-call allocation cost more than reloading the selected
+/// buffer's pointer/offset, which stay hot in its `BitBuffer` struct. The bounds-checked
+/// `BitBuffer::value` is slower still.
 ///
 /// # Safety
-/// For every `i < len`, `branches[i] < bits.len()` and `rows[i] < bits[branches[i]].len()`.
+///
+/// `branches` and `rows` must both contain at least `len` elements. For every `i < len`,
+/// `branches[i] < bits.len()` and `rows[i] < bits[branches[i]].len()`.
 unsafe fn gather_bits<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
     len: usize,
     bits: &[BitBuffer],
     branches: &[A],
     rows: &[R],
 ) -> BitBufferMut {
-    // Raw (byte pointer, bit offset) per buffer; the offset folds the buffer's own bit offset into
-    // the index so the read is a single `get_bit_unchecked`.
-    let ptrs: Vec<(*const u8, usize)> = bits
-        .iter()
-        .map(|b| (b.inner().as_ptr(), b.offset()))
-        .collect();
-
     // SAFETY: `collect_bool` calls this for `i < len`, and the caller guarantees `branches[i]` and
-    // `rows[i]` are in bounds for `ptrs` / the selected buffer.
+    // `rows[i]` are in bounds for `bits` / the selected buffer.
     BitBufferMut::collect_bool(len, |i| unsafe {
-        let (ptr, off) = *ptrs.get_unchecked(branches.get_unchecked(i).as_());
-        get_bit_unchecked(ptr, rows.get_unchecked(i).as_() + off)
+        bits.get_unchecked(branches.get_unchecked(i).as_())
+            .value_unchecked(rows.get_unchecked(i).as_())
     })
 }
