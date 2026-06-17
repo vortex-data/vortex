@@ -14,6 +14,7 @@ use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::NullArray;
 use vortex_array::dtype::DType;
@@ -29,6 +30,7 @@ use vortex_array::scalar_fn::fns::get_item::GetItem;
 use vortex_array::scalar_fn::fns::literal::Literal;
 use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
 use vortex_array::stats::bind::StatBinder;
+use vortex_array::stats::bind::bind_legacy_count_or_direct_aggregate;
 use vortex_array::stats::bind::bind_stats;
 use vortex_error::VortexResult;
 use vortex_layout::ArrayFuture;
@@ -151,6 +153,15 @@ impl StatBinder for FileStatsBinder<'_> {
             return Ok(None);
         };
         Ok(self.reader.stat_ref(&field_path, stat))
+    }
+
+    fn bind_aggregate(
+        &mut self,
+        input: &Expression,
+        aggregate_fn: &AggregateFnRef,
+        stat_dtype: &DType,
+    ) -> VortexResult<Option<Expression>> {
+        bind_legacy_count_or_direct_aggregate(self, input, aggregate_fn, stat_dtype)
     }
 }
 

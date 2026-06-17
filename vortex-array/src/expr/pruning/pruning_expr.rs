@@ -9,6 +9,7 @@ use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use super::relation::Relation;
+use crate::aggregate_fn::AggregateFnRef;
 use crate::dtype::DType;
 use crate::dtype::Field;
 use crate::dtype::FieldName;
@@ -26,6 +27,7 @@ use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::get_item::GetItem;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::stats::bind::StatBinder;
+use crate::stats::bind::bind_legacy_count_or_direct_aggregate;
 use crate::stats::bind::bind_stats;
 
 pub type RequiredStats = Relation<FieldPath, Stat>;
@@ -138,6 +140,15 @@ impl StatBinder for RequiredStatsBinder<'_> {
 
         self.required_stats.insert(field_path, stat);
         Ok(Some(get_item(stat_field_name, root())))
+    }
+
+    fn bind_aggregate(
+        &mut self,
+        input: &Expression,
+        aggregate_fn: &AggregateFnRef,
+        stat_dtype: &DType,
+    ) -> VortexResult<Option<Expression>> {
+        bind_legacy_count_or_direct_aggregate(self, input, aggregate_fn, stat_dtype)
     }
 }
 
