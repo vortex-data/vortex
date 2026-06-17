@@ -48,6 +48,8 @@ use vortex_layout::layouts::compressed::CompressingStrategy;
 use vortex_layout::layouts::compressed::CompressorPlugin;
 use vortex_layout::layouts::dict::writer::DictStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
+#[cfg(feature = "unstable_encodings")]
+use vortex_layout::layouts::list::writer::ListLayoutStrategy;
 use vortex_layout::layouts::repartition::RepartitionStrategy;
 use vortex_layout::layouts::repartition::RepartitionWriterOptions;
 use vortex_layout::layouts::table::TableStrategy;
@@ -240,8 +242,21 @@ impl WriteStrategyBuilder {
             Arc::new(FlatLayoutStrategy::default())
         };
 
-        // 7. for each chunk create a flat layout
-        let chunked = ChunkedLayoutStrategy::new(Arc::clone(&flat));
+        // 7. for each chunk create a layout. Under the `unstable_encodings` feature, list-typed
+        // chunks route through `ListLayoutStrategy` (separately-addressable elements/offsets/
+        // validity sub-layouts; non-list chunks fall through its built-in fallback to `flat`).
+        // Otherwise everything goes through the flat strategy.
+        #[cfg(feature = "unstable_encodings")]
+        let leaf: Arc<dyn LayoutStrategy> = Arc::new(ListLayoutStrategy::new(
+            Arc::clone(&flat), // elements
+            Arc::clone(&flat), // offsets
+            Arc::clone(&flat), // validity
+            Arc::clone(&flat), // fallback for non-list dtypes
+        ));
+        #[cfg(not(feature = "unstable_encodings"))]
+        let leaf: Arc<dyn LayoutStrategy> = Arc::clone(&flat);
+
+        let chunked = ChunkedLayoutStrategy::new(leaf);
         // 6. buffer chunks so they end up with closer segment ids physically
         let buffered = BufferedStrategy::new(chunked, 2 * ONE_MEG); // 2MB
 
