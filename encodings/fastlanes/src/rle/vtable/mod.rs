@@ -38,7 +38,6 @@ use crate::rle::array::SLOT_NAMES;
 use crate::rle::array::VALUES_IDX_OFFSETS_SLOT;
 use crate::rle::array::VALUES_SLOT;
 use crate::rle::array::rle_decompress::rle_decompress;
-use crate::rle::kernel::PARENT_KERNELS;
 use crate::rle::vtable::rules::RULES;
 
 mod operations;
@@ -191,15 +190,6 @@ impl VTable for RLE {
         let slots = smallvec![Some(values), Some(indices), Some(values_idx_offsets)];
         let data = RLEData::try_new(metadata.offset as usize)?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
-    }
-
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

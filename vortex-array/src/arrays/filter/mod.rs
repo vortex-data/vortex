@@ -19,3 +19,7 @@ mod rules;
 
 mod vtable;
 pub use vtable::Filter;
+
+pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+    kernel::initialize(session);
+}

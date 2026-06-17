@@ -61,8 +61,13 @@ use vortex_array::dtype::NativePType;
 use vortex_array::scalar::PValue;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_session::VortexSession;
 
 const SAMPLE_SIZE: usize = 32;
+
+pub(crate) fn initialize(session: &VortexSession) {
+    rules::initialize(session);
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Exponents {

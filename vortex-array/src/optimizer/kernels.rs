@@ -6,10 +6,9 @@
 //! [`ArrayKernels`] stores function pointers that participate in array optimization and execution
 //! without adding rules or kernels to an encoding vtable. The optimizer consults it for
 //! parent-reduce rewrites before the child encoding's static `PARENT_RULES`, and the executor
-//! consults it for parent execution before the child encoding's static parent kernels. A
-//! registered function can therefore add support for an extension encoding or take precedence over
-//! a built-in rule or kernel. When several functions are registered for the same key and kind,
-//! they are tried in registration order until one applies.
+//! consults it for parent execution. A registered function can therefore add support for an
+//! extension encoding or take precedence over a built-in rule. When several functions are
+//! registered for the same key and kind, they are tried in registration order until one applies.
 //!
 //! Kernel entries are addressed by `(outer_id, child_id)`. For parent-reduce and execute-parent
 //! kernels, `outer_id` is the id returned by the parent array's `encoding_id()` and `child_id` is
@@ -25,6 +24,7 @@
 
 use std::any::Any;
 use std::borrow::Borrow;
+use std::fmt::Debug;
 use std::hash::BuildHasher;
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -40,8 +40,9 @@ use crate::ExecutionCtx;
 use crate::arc_swap_map::ArcSwapMap;
 use crate::array::VTable;
 use crate::arrays::Struct;
-use crate::arrays::struct_::compute::cast::struct_cast_execute_parent;
 use crate::arrays::struct_::compute::rules::struct_cast_reduce_parent;
+use crate::kernel::ExecuteParentKernel;
+use crate::matcher::Matcher;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::cast::Cast;
 
@@ -90,6 +91,64 @@ pub type ExecuteParentFn = fn(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>>;
 
+/// Type-erased execute-parent kernel stored in the session registry.
+pub trait DynExecuteParentKernel: Debug + Send + Sync + 'static {
+    /// Attempt to execute the parent array fused with the child array.
+    fn execute_parent(
+        &self,
+        child: &ArrayRef,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>>;
+}
+
+type ExecuteParentKernelRef = Arc<dyn DynExecuteParentKernel>;
+
+#[derive(Debug)]
+struct ExecuteParentFnKernel(ExecuteParentFn);
+
+impl DynExecuteParentKernel for ExecuteParentFnKernel {
+    fn execute_parent(
+        &self,
+        child: &ArrayRef,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        self.0(child, parent, child_idx, ctx)
+    }
+}
+
+#[derive(Debug)]
+struct RegisteredExecuteParentKernel<V, K> {
+    _child: V,
+    kernel: K,
+}
+
+impl<V, K> DynExecuteParentKernel for RegisteredExecuteParentKernel<V, K>
+where
+    V: VTable,
+    K: ExecuteParentKernel<V>,
+{
+    fn execute_parent(
+        &self,
+        child: &ArrayRef,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let Some(child) = child.as_opt::<V>() else {
+            return Ok(None);
+        };
+        let Some(parent) = K::Parent::try_match(parent) else {
+            return Ok(None);
+        };
+
+        self.kernel.execute_parent(child, parent, child_idx, ctx)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 #[repr(transparent)]
 struct ExecuteParentFnId(u64);
@@ -113,14 +172,13 @@ impl Borrow<u64> for ExecuteParentFnId {
 #[derive(Clone, Debug)]
 pub struct ArrayKernels {
     reduce_parent: ArcSwapMap<ReduceParentFnId, Arc<[ReduceParentFn]>>,
-    execute_parent: ArcSwapMap<ExecuteParentFnId, Arc<[ExecuteParentFn]>>,
+    execute_parent: ArcSwapMap<ExecuteParentFnId, Arc<[ExecuteParentKernelRef]>>,
 }
 
 impl Default for ArrayKernels {
     fn default() -> ArrayKernels {
         let this = Self::empty();
         this.register_builtin_reduce_parent();
-        this.register_builtin_execute_parent();
         this
     }
 }
@@ -139,14 +197,6 @@ impl ArrayKernels {
             Cast.id(),
             Struct.id(),
             &[struct_cast_reduce_parent as ReduceParentFn],
-        );
-    }
-
-    fn register_builtin_execute_parent(&self) {
-        self.register_execute_parent(
-            Cast.id(),
-            Struct.id(),
-            &[struct_cast_execute_parent as ExecuteParentFn],
         );
     }
 
@@ -177,20 +227,48 @@ impl ArrayKernels {
     ///
     /// The executor invokes these functions in registration order when it sees a parent with
     /// encoding id `parent` holding a child with encoding id `child` during a parent execution
-    /// step, before trying the child encoding's static parent kernels.
+    /// step.
     ///
     /// If functions have already been registered for the same pair, these functions are appended
     /// after them.
     pub fn register_execute_parent(&self, parent: Id, child: Id, fns: &[ExecuteParentFn]) {
+        let kernels: Vec<ExecuteParentKernelRef> = fns
+            .iter()
+            .map(|f| Arc::new(ExecuteParentFnKernel(*f)) as ExecuteParentKernelRef)
+            .collect();
         self.execute_parent
-            .extend(hash_fn_id(parent, child).into(), fns);
+            .extend(hash_fn_id(parent, child).into(), kernels.as_slice());
+    }
+
+    /// Register a typed [`ExecuteParentKernel`] for `(parent, child.id())`.
+    ///
+    /// The executor invokes registered kernels in registration order before falling through to
+    /// later registered kernels for the same key. `parent` is usually the parent array's encoding
+    /// id. For `ScalarFnArray`, it is the scalar function id, for example `Cast.id()`.
+    pub fn register_execute_parent_kernel<V, K>(&self, parent: Id, child: V, kernel: K)
+    where
+        V: VTable,
+        K: ExecuteParentKernel<V>,
+    {
+        let child_id = child.id();
+        self.execute_parent.push(
+            hash_fn_id(parent, child_id).into(),
+            Arc::new(RegisteredExecuteParentKernel {
+                _child: child,
+                kernel,
+            }) as ExecuteParentKernelRef,
+        );
     }
 
     /// Look up the [`ExecuteParentFn`]s registered for `(parent, child)`.
     ///
     /// Returns an owned [`Arc`] so the session-variable borrow can be dropped before invoking the
     /// functions.
-    pub fn find_execute_parent(&self, parent: Id, child: Id) -> Option<Arc<[ExecuteParentFn]>> {
+    pub fn find_execute_parent(
+        &self,
+        parent: Id,
+        child: Id,
+    ) -> Option<Arc<[ExecuteParentKernelRef]>> {
         self.execute_parent.get(&hash_fn_id(parent, child))
     }
 }

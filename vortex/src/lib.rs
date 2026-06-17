@@ -176,6 +176,7 @@ impl VortexSessionDefault for VortexSession {
             .with::<ArrowSession>()
             .with::<MemorySession>()
             .with::<RuntimeSession>();
+        vortex_array::initialize(&session);
 
         #[cfg(feature = "files")]
         let session = {

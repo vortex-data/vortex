@@ -108,17 +108,11 @@ pub use footer::*;
 pub use forever_constant::*;
 pub use open::*;
 pub use strategy::*;
-use vortex_array::arrays::Dict;
 use vortex_array::arrays::Patched;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::session::ArraySessionExt;
-use vortex_bytebool::ByteBool;
-use vortex_fsst::FSST;
-#[cfg(feature = "unstable_encodings")]
-use vortex_onpair::OnPair;
 use vortex_pco::Pco;
 use vortex_session::VortexSession;
-use vortex_zigzag::ZigZag;
 pub use writer::*;
 
 /// The current version of the Vortex file format
@@ -158,15 +152,15 @@ mod forever_constant {
 /// NOTE: this function will be changed in the future to encapsulate logic for using different
 /// Vortex "Editions" that may support different sets of encodings.
 pub fn register_default_encodings(session: &VortexSession) {
+    vortex_bytebool::initialize(session);
+    vortex_fsst::initialize(session);
+    #[cfg(feature = "unstable_encodings")]
+    vortex_onpair::initialize(session);
+    vortex_zigzag::initialize(session);
+
     {
         let arrays = session.arrays();
-        arrays.register(ByteBool);
-        arrays.register(Dict);
-        arrays.register(FSST);
-        #[cfg(feature = "unstable_encodings")]
-        arrays.register(OnPair);
         arrays.register(Pco);
-        arrays.register(ZigZag);
         #[cfg(feature = "zstd")]
         arrays.register(vortex_zstd::Zstd);
         #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
@@ -176,8 +170,6 @@ pub fn register_default_encodings(session: &VortexSession) {
         }
     }
 
-    // Eventually all encodings crates should expose an initialize function. For now it's only
-    // a few of them.
     vortex_alp::initialize(session);
     vortex_datetime_parts::initialize(session);
     vortex_decimal_byte_parts::initialize(session);

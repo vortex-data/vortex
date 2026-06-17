@@ -21,7 +21,29 @@ use crate::assert_arrays_eq;
 use crate::dtype::DecimalDType;
 use crate::dtype::FieldNames;
 use crate::executor::ExecutionCtx;
+use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::validity::Validity;
+
+fn execute_parent(
+    child: &crate::ArrayRef,
+    parent: &crate::ArrayRef,
+    child_idx: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<crate::ArrayRef>> {
+    let kernels = ctx.session().kernels().clone();
+    let Some(plugins) = kernels.find_execute_parent(parent.encoding_id(), child.encoding_id())
+    else {
+        return Ok(None);
+    };
+
+    for plugin in plugins.as_ref() {
+        if let Some(result) = plugin.execute_parent(child, parent, child_idx, ctx)? {
+            return Ok(Some(result));
+        }
+    }
+
+    Ok(None)
+}
 
 #[test]
 fn test_take_execute_kernel_maps_indices_through_filter() -> VortexResult<()> {
@@ -42,8 +64,7 @@ fn test_take_execute_kernel_maps_indices_through_filter() -> VortexResult<()> {
     .into_array();
     let mut ctx = ExecutionCtx::new(crate::array_session());
 
-    let result = filter
-        .execute_parent(&parent, 1, &mut ctx)?
+    let result = execute_parent(&filter, &parent, 1, &mut ctx)?
         .expect("filter child should execute its take parent");
 
     assert_arrays_eq!(
@@ -71,8 +92,7 @@ fn test_take_execute_kernel_nullable_fast_path_maps_indices_through_filter() -> 
     .into_array();
     let mut ctx = ExecutionCtx::new(crate::array_session());
 
-    let result = filter
-        .execute_parent(&parent, 1, &mut ctx)?
+    let result = execute_parent(&filter, &parent, 1, &mut ctx)?
         .expect("filter child should execute its take parent");
 
     assert!(result.as_opt::<Primitive>().is_some());
@@ -93,8 +113,7 @@ fn test_take_execute_kernel_fast_path_maps_indices_through_filter() -> VortexRes
     let parent = DictArray::try_new(buffer![2u64, 0, 3].into_array(), filter.clone())?.into_array();
     let mut ctx = ExecutionCtx::new(crate::array_session());
 
-    let result = filter
-        .execute_parent(&parent, 1, &mut ctx)?
+    let result = execute_parent(&filter, &parent, 1, &mut ctx)?
         .expect("filter child should execute its take parent");
 
     assert!(result.as_opt::<Primitive>().is_some());
@@ -114,7 +133,7 @@ fn assert_take_execute_rejects_out_of_bounds_rank(
     let parent = DictArray::try_new(codes, filter.clone())?.into_array();
     let mut ctx = ExecutionCtx::new(crate::array_session());
 
-    if let Err(err) = filter.execute_parent(&parent, 1, &mut ctx) {
+    if let Err(err) = execute_parent(&filter, &parent, 1, &mut ctx) {
         assert!(
             err.to_string().contains("out of bounds"),
             "unexpected error: {err}"
@@ -192,8 +211,7 @@ fn test_take_execute_kernel_handles_empty_sequential_take() -> VortexResult<()> 
     .into_array();
     let mut ctx = ExecutionCtx::new(crate::array_session());
 
-    let result = filter
-        .execute_parent(&parent, 1, &mut ctx)?
+    let result = execute_parent(&filter, &parent, 1, &mut ctx)?
         .expect("filter child should execute its take parent");
 
     assert_arrays_eq!(
@@ -217,8 +235,7 @@ fn assert_take_execute_maps_child_dtype(
     let parent = DictArray::try_new(buffer![2u64, 0, 1].into_array(), filter.clone())?.into_array();
     let mut ctx = ExecutionCtx::new(crate::array_session());
 
-    let result = filter
-        .execute_parent(&parent, 1, &mut ctx)?
+    let result = execute_parent(&filter, &parent, 1, &mut ctx)?
         .expect("filter child should execute its take parent");
 
     assert_arrays_eq!(result.execute::<RecursiveCanonical>(&mut ctx)?.0, expected);
@@ -235,7 +252,7 @@ fn test_take_execute_kernel_skips_bool_filter_child() -> VortexResult<()> {
     let parent = DictArray::try_new(buffer![2u64, 0, 1].into_array(), filter.clone())?.into_array();
     let mut ctx = ExecutionCtx::new(crate::array_session());
 
-    let result = filter.execute_parent(&parent, 1, &mut ctx)?;
+    let result = execute_parent(&filter, &parent, 1, &mut ctx)?;
 
     assert!(result.is_none());
     Ok(())
@@ -257,7 +274,7 @@ fn execute_primitive_take(
     let parent = DictArray::try_new(indices.into_array(), filter.clone())?.into_array();
     let mut ctx = ExecutionCtx::new(crate::array_session());
 
-    filter.execute_parent(&parent, 1, &mut ctx)
+    execute_parent(&filter, &parent, 1, &mut ctx)
 }
 
 #[test]
@@ -324,7 +341,7 @@ fn test_take_execute_kernel_handles_nullable_primitive_filter_child() -> VortexR
     let parent = DictArray::try_new(buffer![2u64, 0, 1].into_array(), filter.clone())?.into_array();
     let mut ctx = ExecutionCtx::new(crate::array_session());
 
-    let result = filter.execute_parent(&parent, 1, &mut ctx)?;
+    let result = execute_parent(&filter, &parent, 1, &mut ctx)?;
 
     assert_arrays_eq!(
         result
@@ -346,8 +363,7 @@ fn test_take_execute_kernel_preserves_nullable_all_valid_fixed_width_child() -> 
     let parent = DictArray::try_new(buffer![0u64, 1].into_array(), filter.clone())?.into_array();
     let mut ctx = ExecutionCtx::new(crate::array_session());
 
-    let result = filter
-        .execute_parent(&parent, 1, &mut ctx)?
+    let result = execute_parent(&filter, &parent, 1, &mut ctx)?
         .expect("filter child should execute its take parent");
 
     assert_eq!(result.dtype(), parent.dtype());
@@ -373,7 +389,7 @@ fn test_take_execute_kernel_handles_nullable_decimal_filter_child() -> VortexRes
     let parent = DictArray::try_new(buffer![2u64, 0, 1].into_array(), filter.clone())?.into_array();
     let mut ctx = ExecutionCtx::new(crate::array_session());
 
-    let result = filter.execute_parent(&parent, 1, &mut ctx)?;
+    let result = execute_parent(&filter, &parent, 1, &mut ctx)?;
 
     assert_arrays_eq!(
         result
@@ -466,8 +482,7 @@ fn test_take_execute_kernel_preserves_nullable_indices_dtype_fast_path() -> Vort
     .into_array();
     let mut ctx = ExecutionCtx::new(crate::array_session());
 
-    let result = filter
-        .execute_parent(&parent, 1, &mut ctx)?
+    let result = execute_parent(&filter, &parent, 1, &mut ctx)?
         .expect("filter child should execute its nullable take parent");
 
     assert_eq!(result.dtype(), parent.dtype());

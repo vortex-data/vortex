@@ -5,7 +5,6 @@ use std::hash::Hasher;
 use std::mem::size_of;
 use std::sync::Arc;
 
-use kernel::PARENT_KERNELS;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -39,6 +38,10 @@ mod operations;
 mod validity;
 /// A [`VarBinView`]-encoded Vortex array.
 pub type VarBinViewArray = Array<VarBinView>;
+
+pub(crate) fn initialize(session: &VortexSession) {
+    kernel::initialize(session);
+}
 
 #[derive(Clone, Debug)]
 pub struct VarBinView;
@@ -215,15 +218,6 @@ impl VTable for VarBinView {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

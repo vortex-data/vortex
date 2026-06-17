@@ -3,7 +3,6 @@
 
 use std::hash::Hasher;
 
-use kernel::PARENT_KERNELS;
 use prost::Message;
 use smallvec::smallvec;
 use vortex_error::VortexResult;
@@ -53,6 +52,10 @@ mod validity;
 
 /// A [`Dict`]-encoded Vortex array.
 pub type DictArray = Array<Dict>;
+
+pub(crate) fn initialize(session: &VortexSession) {
+    kernel::initialize(session);
+}
 
 #[derive(Clone, Debug)]
 pub struct Dict;
@@ -202,14 +205,5 @@ impl VTable for Dict {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }

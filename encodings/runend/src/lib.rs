@@ -38,6 +38,7 @@ use vortex_session::VortexSession;
 /// Initialize run-end encoding in the given session.
 pub fn initialize(session: &VortexSession) {
     session.arrays().register(RunEnd);
+    kernel::initialize(session);
 
     // Register the RunEnd-specific aggregate kernels.
     session.aggregate_fns().register_aggregate_kernel(

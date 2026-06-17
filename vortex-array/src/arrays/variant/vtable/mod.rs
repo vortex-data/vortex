@@ -5,7 +5,6 @@ mod kernel;
 mod operations;
 mod validity;
 
-use kernel::PARENT_KERNELS;
 use prost::Message;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -42,6 +41,10 @@ use crate::serde::ArrayChildren;
 
 /// A [`Variant`]-encoded Vortex array.
 pub type VariantArray = Array<Variant>;
+
+pub(crate) fn initialize(session: &VortexSession) {
+    kernel::initialize(session);
+}
 
 #[derive(Clone, Debug)]
 pub struct Variant;
@@ -191,15 +194,6 @@ impl VTable for Variant {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 

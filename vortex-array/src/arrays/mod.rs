@@ -106,5 +106,23 @@ pub mod variant;
 pub use variant::Variant;
 pub use variant::VariantArray;
 
+pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+    bool::initialize(session);
+    chunked::initialize(session);
+    decimal::initialize(session);
+    dict::initialize(session);
+    extension::initialize(session);
+    filter::initialize(session);
+    fixed_size_list::initialize(session);
+    list::initialize(session);
+    listview::initialize(session);
+    patched::initialize(session);
+    primitive::initialize(session);
+    struct_::initialize(session);
+    varbin::initialize(session);
+    varbinview::initialize(session);
+    variant::initialize(session);
+}
+
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;

@@ -10,22 +10,28 @@
 
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::ArrayVTable;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::arrays::Dict;
 use crate::arrays::Filter;
 use crate::arrays::dict::TakeExecuteAdaptor;
 use crate::kernel::ExecuteParentKernel;
-use crate::kernel::ParentKernelSet;
 use crate::matcher::Matcher;
+use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
 
-pub(super) const PARENT_KERNELS: ParentKernelSet<Filter> =
-    ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor(Filter))]);
+pub(crate) fn initialize(session: &VortexSession) {
+    session
+        .kernels()
+        .register_execute_parent_kernel(Dict.id(), Filter, TakeExecuteAdaptor(Filter));
+}
 
 pub trait FilterReduce: VTable {
     /// Filter an array with the provided mask without reading buffers.

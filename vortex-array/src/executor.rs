@@ -138,12 +138,16 @@ impl ArrayRef {
     ///     - yes -> skip Step 2a / 2b
     ///     - no  -> try parent kernels
     ///
-    ///   Step 2a: current_array.execute_parent(stack.top.parent_array)
-    ///     child looks up at the suspended parent from ExecuteSlot
+    ///   Step 2a: if stack.top exists:
+    ///               parent = stack.top.parent_array
+    ///               child = current_array
+    ///               kernels[(parent.encoding_id(), child.encoding_id())]
+    ///                 .try_execute_parent(child, parent, stack.top.slot_idx)
     ///
     ///   Step 2b: for child in current_array.children():
-    ///               child.execute_parent(current_array)
-    ///     each child looks up at current_array
+    ///               parent = current_array
+    ///               kernels[(parent.encoding_id(), child.encoding_id())]
+    ///                 .try_execute_parent(child, parent, child.slot_idx)
     ///
     ///   Step 3: match current_array.execute()
     ///     ExecuteSlot(i, pred) -> push parent on stack, focus child `i`
@@ -196,8 +200,17 @@ impl ArrayRef {
             // would be lost when we restore frame.parent_builder.
             if current_builder.is_none()
                 && let Some(frame) = stack.last()
-                && let Some(result) =
-                    current_array.execute_parent(&frame.parent_array, frame.slot_idx, ctx)?
+                && let Some(result) = {
+                    let tmp_session = ctx.session().clone();
+                    let kernels = tmp_session.get_opt::<ArrayKernels>();
+                    execute_parent_for_child(
+                        &frame.parent_array,
+                        &current_array,
+                        frame.slot_idx,
+                        kernels,
+                        ctx,
+                    )?
+                }
             {
                 ctx.log(format_args!(
                     "execute_parent (stack) rewrote {} -> {}",
@@ -548,13 +561,13 @@ fn execute_parent_for_child(
             kernels.find_execute_parent(parent.encoding_id(), child.encoding_id())
     {
         for plugin in plugins.as_ref() {
-            if let Some(result) = plugin(child, parent, slot_idx, ctx)? {
+            if let Some(result) = plugin.execute_parent(child, parent, slot_idx, ctx)? {
                 return Ok(Some(result));
             }
         }
     }
 
-    child.execute_parent(parent, slot_idx, ctx)
+    Ok(None)
 }
 
 /// Try execute_parent on each occupied slot of the array.

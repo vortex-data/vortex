@@ -4,7 +4,6 @@
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use kernel::PARENT_KERNELS;
 use prost::Message;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -42,6 +41,10 @@ use crate::hash::ArrayHash;
 
 /// A [`Bool`]-encoded Vortex array.
 pub type BoolArray = Array<Bool>;
+
+pub(crate) fn initialize(session: &VortexSession) {
+    kernel::initialize(session);
+}
 
 #[derive(prost::Message)]
 pub struct BoolMetadata {
@@ -172,15 +175,6 @@ impl VTable for Bool {
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
-    }
-
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn reduce_parent(

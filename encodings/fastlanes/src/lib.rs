@@ -47,6 +47,9 @@ pub fn initialize(session: &VortexSession) {
     session.arrays().register(Delta);
     session.arrays().register(FoR);
     session.arrays().register(RLE);
+    bitpacking::initialize(session);
+    r#for::initialize(session);
+    rle::initialize(session);
 
     // Register the encoding-specific aggregate kernels.
     session.aggregate_fns().register_aggregate_kernel(

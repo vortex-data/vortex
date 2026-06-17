@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use kernel::PARENT_KERNELS;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -38,6 +37,10 @@ use crate::hash::ArrayHash;
 
 /// A [`Primitive`]-encoded Vortex array.
 pub type PrimitiveArray = Array<Primitive>;
+
+pub(crate) fn initialize(session: &VortexSession) {
+    kernel::initialize(session);
+}
 
 impl ArrayHash for PrimitiveData {
     fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: EqMode) {
@@ -190,15 +193,6 @@ impl VTable for Primitive {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 
