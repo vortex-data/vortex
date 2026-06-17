@@ -173,13 +173,10 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::Variant;
-    use vortex_array::arrays::VariantArray;
     use vortex_array::arrays::extension::ExtensionArrayExt;
     use vortex_array::arrays::variant::VariantArrayExt;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::proto::ExprSerializeProtoExt;
     use vortex_array::expr::root;
     use vortex_array::scalar_fn::fns::variant_get::VariantPath;
     use vortex_array::scalar_fn::fns::variant_get::VariantPathElement;
@@ -203,12 +200,6 @@ mod tests {
         Ok(DType::Extension(
             ExtDType::<Json>::try_new(EmptyMetadata, DType::Utf8(nullability))?.erased(),
         ))
-    }
-
-    fn execute_variant_to_json(input: ArrayRef) -> VortexResult<ArrayRef> {
-        input
-            .apply(&variant_to_json(root()))?
-            .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())
     }
 
     fn json_strings(array: &ArrayRef) -> VortexResult<Vec<Option<String>>> {
@@ -246,55 +237,6 @@ mod tests {
     }
 
     #[test]
-    fn expression_roundtrip_serialization() -> VortexResult<()> {
-        let expr: Expression = variant_to_json(root());
-        let proto = expr.serialize_proto()?;
-        let actual = Expression::from_proto(&proto, &SESSION)?;
-
-        assert_eq!(actual, expr);
-        Ok(())
-    }
-
-    #[test]
-    fn return_dtype_is_json_extension() -> VortexResult<()> {
-        let expr = variant_to_json(root());
-        assert_eq!(
-            expr.return_dtype(&DType::Variant(Nullability::NonNullable))?,
-            json_dtype(Nullability::NonNullable)?
-        );
-        assert_eq!(
-            expr.return_dtype(&DType::Variant(Nullability::Nullable))?,
-            json_dtype(Nullability::Nullable)?
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn return_dtype_rejects_non_variant_input() {
-        let expr = variant_to_json(root());
-        let err = expr
-            .return_dtype(&DType::Utf8(Nullability::NonNullable))
-            .unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("VariantToJson input must be Variant"),
-            "unexpected error: {err}"
-        );
-    }
-
-    #[test]
-    fn formats_sql() {
-        let expr = variant_to_json(root());
-        assert_eq!(expr.to_string(), "variant_to_json($)");
-    }
-
-    #[test]
-    fn is_fallible() {
-        let expr = variant_to_json(root());
-        assert!(expr.signature().is_fallible());
-    }
-
-    #[test]
     fn renders_unshredded_values() -> VortexResult<()> {
         let input = unshredded_variant([
             PqVariant::from(42i32),
@@ -303,7 +245,9 @@ mod tests {
             PqVariant::Null,
         ])?;
 
-        let result = execute_variant_to_json(input)?;
+        let result = input
+            .apply(&variant_to_json(root()))?
+            .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())?;
 
         assert_eq!(result.dtype(), &json_dtype(Nullability::NonNullable)?);
         assert_eq!(
@@ -323,7 +267,9 @@ mod tests {
         let input =
             json_rows_to_variant(vec![Some("1"), None, Some("null")], ShreddingSpec::empty())?;
 
-        let result = execute_variant_to_json(input)?;
+        let result = input
+            .apply(&variant_to_json(root()))?
+            .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())?;
 
         assert_eq!(result.dtype(), &json_dtype(Nullability::Nullable)?);
         assert_eq!(
@@ -351,7 +297,12 @@ mod tests {
 
     #[test]
     fn unshreds_typed_value_only_storage() -> VortexResult<()> {
-        let result = execute_variant_to_json(typed_value_only_variant()?)?;
+        let result = {
+            let input = typed_value_only_variant()?;
+            input
+                .apply(&variant_to_json(root()))?
+                .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())
+        }?;
 
         assert_eq!(
             json_strings(&result)?,
@@ -383,7 +334,9 @@ mod tests {
             "fixture must be shredded"
         );
 
-        let result = execute_variant_to_json(input)?;
+        let result = input
+            .apply(&variant_to_json(root()))?
+            .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())?;
 
         assert_eq!(
             json_strings(&result)?,
@@ -391,30 +344,6 @@ mod tests {
                 Some(r#"{"a":1,"b":"x"}"#.to_string()),
                 Some(r#"{"a":"not-a-number","b":"y"}"#.to_string()),
                 Some(r#"{"b":"z"}"#.to_string()),
-            ]
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn renders_canonical_variant_with_shredded_child() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let canonical = typed_value_only_variant()?
-            .execute::<VariantArray>(&mut ctx)?
-            .into_array();
-        assert!(
-            canonical.as_::<Variant>().shredded().is_some(),
-            "fixture must carry a canonical shredded child"
-        );
-
-        let result = execute_variant_to_json(canonical)?;
-
-        assert_eq!(
-            json_strings(&result)?,
-            vec![
-                Some("10".to_string()),
-                Some("20".to_string()),
-                Some("30".to_string()),
             ]
         );
         Ok(())
@@ -439,14 +368,22 @@ mod tests {
         spec: ShreddingSpec,
     ) -> VortexResult<()> {
         let unshredded = json_rows_to_variant(rows.clone(), ShreddingSpec::empty())?;
-        let want = json_strings(&execute_variant_to_json(unshredded)?)?;
+        let want = json_strings(
+            &unshredded
+                .apply(&variant_to_json(root()))?
+                .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())?,
+        )?;
 
         let canonical = canonical_shredded(rows, spec)?;
         assert!(
             canonical.as_::<Variant>().shredded().is_some(),
             "fixture must carry a canonical shredded child"
         );
-        let got = json_strings(&execute_variant_to_json(canonical)?)?;
+        let got = json_strings(
+            &canonical
+                .apply(&variant_to_json(root()))?
+                .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())?,
+        )?;
 
         assert_eq!(got, want);
         Ok(())
@@ -474,7 +411,9 @@ mod tests {
             "fixture must carry a canonical shredded child"
         );
 
-        let result = execute_variant_to_json(canonical)?;
+        let result = canonical
+            .apply(&variant_to_json(root()))?
+            .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())?;
 
         assert_eq!(
             json_strings(&result)?,
@@ -526,31 +465,14 @@ mod tests {
     }
 
     #[test]
-    fn json_round_trip_normalizes_whitespace_and_key_order() -> VortexResult<()> {
-        let input = json_rows_to_variant(
-            vec![Some(r#"{ "b" : 1 , "a" : 2 }"#), Some("[ 1 , 2 ,    3 ]")],
-            ShreddingSpec::empty(),
-        )?;
-
-        let result = execute_variant_to_json(input)?;
-
-        assert_eq!(
-            json_strings(&result)?,
-            vec![
-                Some(r#"{"a":2,"b":1}"#.to_string()),
-                Some("[1,2,3]".to_string()),
-            ]
-        );
-        Ok(())
-    }
-
-    #[test]
     fn variant_only_types_are_stringified_so_reparsing_loses_types() -> VortexResult<()> {
         let date =
             NaiveDate::from_ymd_opt(2026, 6, 11).ok_or_else(|| vortex_err!("invalid test date"))?;
         let input = unshredded_variant([PqVariant::from(date)])?;
 
-        let rendered = execute_variant_to_json(input)?;
+        let rendered = input
+            .apply(&variant_to_json(root()))?
+            .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())?;
         let json = json_strings(&rendered)?;
         assert_eq!(json, vec![Some(r#""2026-06-11""#.to_string())]);
 

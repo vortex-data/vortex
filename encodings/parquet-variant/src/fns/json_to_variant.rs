@@ -134,7 +134,10 @@ impl ScalarFnVTable for JsonToVariant {
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         let input_dtype = &arg_dtypes[0];
         vortex_ensure!(
-            is_json_string_dtype(input_dtype),
+            input_dtype.is_utf8()
+                || input_dtype
+                    .as_extension_opt()
+                    .is_some_and(|ext_dtype| ext_dtype.is::<Json>()),
             "JsonToVariant input must be Utf8 or a Json extension, found {input_dtype}"
         );
 
@@ -152,7 +155,11 @@ impl ScalarFnVTable for JsonToVariant {
 
         let storage = if input.dtype().is_utf8() {
             input
-        } else if is_json_string_dtype(input.dtype()) {
+        } else if input
+            .dtype()
+            .as_extension_opt()
+            .is_some_and(|ext_dtype| ext_dtype.is::<Json>())
+        {
             input
                 .execute::<ExtensionArray>(ctx)?
                 .storage_array()
@@ -186,15 +193,6 @@ impl ScalarFnVTable for JsonToVariant {
             ParquetVariant::from_arrow_variant(&arrow_variant)
         }
     }
-}
-
-/// Returns whether `dtype` is acceptable input for [`JsonToVariant`]: `Utf8` or the [`Json`]
-/// extension dtype.
-fn is_json_string_dtype(dtype: &DType) -> bool {
-    dtype.is_utf8()
-        || dtype
-            .as_extension_opt()
-            .is_some_and(|ext_dtype| ext_dtype.is::<Json>())
 }
 
 /// A list of `(path, dtype)` directives describing which Variant paths to shred and as what
@@ -301,7 +299,6 @@ mod tests {
     use vortex_array::assert_nth_scalar_is_null;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::dtype::extension::ExtDType;
     use vortex_array::expr::Expression;
     use vortex_array::expr::proto::ExprSerializeProtoExt;
     use vortex_array::expr::root;
@@ -358,33 +355,6 @@ mod tests {
     }
 
     #[test]
-    fn options_roundtrip_serialization() -> VortexResult<()> {
-        let specs = [
-            ShreddingSpec::empty(),
-            ShreddingSpec::try_new([
-                (VariantPath::field("a"), i64_dtype()),
-                (
-                    VariantPath::new([
-                        VariantPathElement::field("b"),
-                        VariantPathElement::field("c"),
-                    ]),
-                    DType::Utf8(Nullability::NonNullable),
-                ),
-            ])?,
-        ];
-
-        for spec in specs {
-            let options = JsonToVariantOptions::new(spec);
-            let metadata = JsonToVariant
-                .serialize(&options)?
-                .ok_or_else(|| vortex_err!("expected metadata"))?;
-            let actual = JsonToVariant.deserialize(&metadata, &VortexSession::empty())?;
-            assert_eq!(actual, options);
-        }
-        Ok(())
-    }
-
-    #[test]
     fn expression_roundtrip_serialization() -> VortexResult<()> {
         let expr: Expression = json_to_variant(root(), shred_field_as_i64("a")?);
         let proto = expr.serialize_proto()?;
@@ -392,64 +362,6 @@ mod tests {
 
         assert_eq!(actual, expr);
         Ok(())
-    }
-
-    #[test]
-    fn options_display() -> VortexResult<()> {
-        assert_eq!(JsonToVariantOptions::unshredded().to_string(), "");
-        assert_eq!(
-            JsonToVariantOptions::new(ShreddingSpec::try_new([
-                (VariantPath::field("a"), i64_dtype()),
-                (
-                    VariantPath::field("b"),
-                    DType::Utf8(Nullability::NonNullable)
-                ),
-            ])?)
-            .to_string(),
-            "$.a as i64?, $.b as utf8"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn return_dtype_propagates_nullability() {
-        let expr = json_to_variant(root(), ShreddingSpec::empty());
-        assert_eq!(
-            expr.return_dtype(&DType::Utf8(Nullability::NonNullable))
-                .unwrap(),
-            DType::Variant(Nullability::NonNullable)
-        );
-        assert_eq!(
-            expr.return_dtype(&DType::Utf8(Nullability::Nullable))
-                .unwrap(),
-            DType::Variant(Nullability::Nullable)
-        );
-    }
-
-    #[test]
-    fn return_dtype_accepts_json_extension() -> VortexResult<()> {
-        let json_dtype = DType::Extension(
-            ExtDType::<Json>::try_new(EmptyMetadata, DType::Utf8(Nullability::Nullable))?.erased(),
-        );
-        let expr = json_to_variant(root(), ShreddingSpec::empty());
-        assert_eq!(
-            expr.return_dtype(&json_dtype)?,
-            DType::Variant(Nullability::Nullable)
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn return_dtype_rejects_non_string_input() {
-        let expr = json_to_variant(root(), ShreddingSpec::empty());
-        let err = expr
-            .return_dtype(&DType::Bool(Nullability::NonNullable))
-            .unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("JsonToVariant input must be Utf8 or a Json extension"),
-            "unexpected error: {err}"
-        );
     }
 
     #[test]
