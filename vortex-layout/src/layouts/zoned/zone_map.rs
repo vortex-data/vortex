@@ -361,10 +361,7 @@ mod tests {
         .unwrap();
 
         let mask = zone_map.prune(&all_null(root()), &SESSION).unwrap();
-        assert_arrays_eq!(
-            mask.into_array(),
-            BoolArray::from_iter([false, true, true])
-        );
+        assert_arrays_eq!(mask.into_array(), BoolArray::from_iter([false, true, true]));
     }
 
     #[test]
@@ -431,7 +428,7 @@ mod tests {
     }
 
     #[test]
-    fn float_min_max_stat_fn_requires_all_non_nan() {
+    fn float_min_max_prunes_only_with_all_non_nan_proof() {
         let zone_map = ZoneMap::try_new(
             PType::F32.into(),
             StructArray::from_fields(&[

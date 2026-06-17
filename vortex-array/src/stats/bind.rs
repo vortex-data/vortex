@@ -64,6 +64,9 @@ pub trait StatBinder {
         aggregate_fn: &AggregateFnRef,
         stat_dtype: &DType,
     ) -> VortexResult<Option<Expression>> {
+        // These aggregate stats are derived from legacy count slots rather than
+        // stored directly. Keep that storage mapping in binding so stats rewrite
+        // rules can continue to ask for the semantic aggregate they need.
         if aggregate_fn.is::<AllNan>() {
             let Some(nan_count) = self.bind_legacy_stat(input, Stat::NaNCount)? else {
                 return Ok(None);
@@ -162,4 +165,100 @@ fn bind_stat_fn(
 
 fn null_expr(dtype: DType) -> Expression {
     lit(Scalar::null(dtype.as_nullable()))
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_error::VortexResult;
+
+    use super::*;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::StructFields;
+    use crate::expr::col;
+    use crate::expr::get_item;
+    use crate::expr::is_null;
+    use crate::expr::root;
+    use crate::stats::all_non_nan;
+
+    struct TestBinder {
+        input_scope: DType,
+        bound_scope: DType,
+        bind_nan_count: bool,
+    }
+
+    impl TestBinder {
+        fn new(bind_nan_count: bool) -> Self {
+            Self {
+                input_scope: DType::Struct(
+                    StructFields::from_iter([(
+                        "f",
+                        DType::Primitive(PType::F32, Nullability::NonNullable),
+                    )]),
+                    Nullability::NonNullable,
+                ),
+                bound_scope: DType::Struct(
+                    StructFields::from_iter([(
+                        "f_nan_count",
+                        DType::Primitive(PType::U64, Nullability::NonNullable),
+                    )]),
+                    Nullability::NonNullable,
+                ),
+                bind_nan_count,
+            }
+        }
+    }
+
+    impl StatBinder for TestBinder {
+        fn scope(&self) -> &DType {
+            &self.input_scope
+        }
+
+        fn bound_scope(&self) -> DType {
+            self.bound_scope.clone()
+        }
+
+        fn bind_stat(
+            &mut self,
+            _input: &Expression,
+            stat: Stat,
+            _stat_dtype: &DType,
+        ) -> VortexResult<Option<Expression>> {
+            if stat == Stat::NaNCount && self.bind_nan_count {
+                Ok(Some(get_item("f_nan_count", root())))
+            } else {
+                Ok(None)
+            }
+        }
+    }
+
+    #[test]
+    fn all_non_nan_binds_to_nan_count_zero() -> VortexResult<()> {
+        let mut binder = TestBinder::new(true);
+
+        let bound = bind_stats(all_non_nan(col("f")), &mut binder)?;
+
+        assert_eq!(bound, eq(col("f_nan_count"), lit(0u64)));
+        Ok(())
+    }
+
+    #[test]
+    fn all_non_nan_lowers_to_null_when_nan_count_is_missing() -> VortexResult<()> {
+        let mut binder = TestBinder::new(false);
+
+        let bound = bind_stats(all_non_nan(col("f")), &mut binder)?;
+
+        assert_eq!(bound, lit(Scalar::null(DType::Bool(Nullability::Nullable))));
+        Ok(())
+    }
+
+    #[test]
+    fn unrelated_expressions_do_not_request_nan_count() -> VortexResult<()> {
+        let mut binder = TestBinder::new(false);
+
+        let bound = bind_stats(is_null(col("f")), &mut binder)?;
+
+        assert_eq!(bound, is_null(col("f")));
+        Ok(())
+    }
 }
