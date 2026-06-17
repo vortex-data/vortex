@@ -130,7 +130,7 @@ where
     // Skip the fallible kernel when type widening or (cached) min/max prove every value fits.
     let target_dtype = DType::Primitive(T::PTYPE, Nullability::NonNullable);
     let infallible = casts_losslessly_to(F::PTYPE, T::PTYPE)
-        || cached_values_fit_in(array, &target_dtype) == Some(true);
+        || cached_values_fit_in(array, &target_dtype).unwrap_or(false);
 
     let len = array.len();
 
