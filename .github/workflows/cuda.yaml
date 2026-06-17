@@ -164,7 +164,7 @@ jobs:
       always() && github.repository == 'vortex-data/vortex' &&
       needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA tests (cudf)"
-    timeout-minutes: 60
+    timeout-minutes: 30
     runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-test-cudf
     steps:
       - uses: runs-on/action@v2
@@ -182,24 +182,8 @@ jobs:
       - name: Build cudf test library
         run: cargo build --profile ci --locked -p vortex-test-e2e-cuda --target x86_64-unknown-linux-gnu
       - name: Download and run cudf-test-harness
-        env:
-          HARNESS_URL: >-
-            https://github.com/vortex-data/cudf-test-harness/releases/latest/download/cudf-test-harness-x86_64.tar.gz
-          MAX_HARNESS_WAIT_SECONDS: 1800
-          HARNESS_RETRY_SECONDS: 30
         run: |
-          deadline=$((SECONDS + MAX_HARNESS_WAIT_SECONDS))
-          until curl -fsSL --output cudf-test-harness-x86_64.tar.gz "$HARNESS_URL"; do
-            if ((SECONDS >= deadline)); then
-              echo "cudf-test-harness release asset was not available" >&2
-              exit 1
-            fi
-
-            echo "cudf-test-harness release asset not available yet; retrying"
-            sleep "$HARNESS_RETRY_SECONDS"
-          done
-
-          tar -xzf cudf-test-harness-x86_64.tar.gz
+          curl -fsSL https://github.com/vortex-data/cudf-test-harness/releases/latest/download/cudf-test-harness-x86_64.tar.gz | tar -xz
           $GITHUB_WORKSPACE/target/x86_64-unknown-linux-gnu/ci/cudf_harness_runner \
             ./cudf-test-harness-x86_64/cudf-test-harness \
             $GITHUB_WORKSPACE/target/x86_64-unknown-linux-gnu/ci/libvortex_test_e2e_cuda.so
