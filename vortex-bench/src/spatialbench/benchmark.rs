@@ -22,13 +22,18 @@ pub const NATIVE_DIR: &str = "vortex-native";
 /// Directory under the benchmark data dir holding the native-Point GeoParquet files.
 pub const PARQUET_NATIVE_DIR: &str = "parquet-native";
 
+/// Temporary allowlist of the queries wired up to run (0-based, in `spatialbench.sql` order). The
+/// file holds the full SpatialBench suite, but the rest need dimension tables and geo functions
+/// that are not registered yet. Remove this once the whole suite is supported and run them all.
+const SUPPORTED_QUERIES: &[usize] = &[0];
+
 /// SpatialBench geospatial analytics benchmark (Apache Sedona).
 ///
 /// A ride-sharing workload: a `trip` fact table of WKB point locations plus polygon dimension
 /// tables, with spatial-predicate, KNN, and join queries. See
 /// <https://sedona.apache.org/spatialbench/>.
 ///
-/// Only Q1 and the `trip` table it reads are wired up so far; dimension tables come with later
+/// Only Q0 and the `trip` table it reads are wired up so far; dimension tables come with later
 /// queries.
 pub struct SpatialBenchBenchmark {
     pub scale_factor: String,
@@ -59,7 +64,8 @@ impl SpatialBenchBenchmark {
 impl Benchmark for SpatialBenchBenchmark {
     fn queries(&self) -> anyhow::Result<Vec<(usize, String)>> {
         // Queries are in the WKB (canonical SpatialBench) dialect; for `points=native` the
-        // `ST_GeomFromWKB(..)` wrappers are stripped. Split on `;`, so no `;` inside a comment.
+        // `ST_GeomFromWKB(..)` wrappers are stripped. Statements are `;`-separated and numbered
+        // 0-based in file order; only `SUPPORTED_QUERIES` are returned to the runner.
         let queries_file = workspace_root()
             .join("vortex-bench")
             .join("spatialbench")
@@ -71,11 +77,11 @@ impl Benchmark for SpatialBenchBenchmark {
             contents
         };
         Ok(contents
-            .trim()
             .split_terminator(';')
+            .map(str::trim)
             .map(str::to_string)
             .enumerate()
-            .map(|(idx, query)| (idx + 1, query))
+            .filter(|(idx, _)| SUPPORTED_QUERIES.contains(idx))
             .collect())
     }
 
@@ -127,11 +133,11 @@ impl Benchmark for SpatialBenchBenchmark {
     }
 
     fn expected_row_counts(&self) -> Option<Vec<usize>> {
-        // Index 0 is a dummy so Q1's count sits at index 1; counts cross-checked against an
+        // 0-based by query index: Q0's count sits at index 0; counts cross-checked against an
         // independent brute-force WKB decode.
         match self.scale_factor.as_str() {
-            "0.1" => Some(vec![0, 6]),
-            "1.0" => Some(vec![0, 94]),
+            "0.1" => Some(vec![6]),
+            "1.0" => Some(vec![94]),
             _ => None,
         }
     }
