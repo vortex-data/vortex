@@ -143,7 +143,11 @@ fn test_sequence_compressed() -> VortexResult<()> {
 fn test_rle_compressed() -> VortexResult<()> {
     let mut values: Vec<i32> = Vec::new();
     for i in 0..1024 {
-        values.extend(iter::repeat_n(i, 10));
+        // Scramble the per-run value so the data is run-length-dominant but not monotone: this
+        // keeps RunEnd the winner instead of Delta (whose residuals would be small on a smooth
+        // ramp).
+        let v = (i as u32).wrapping_mul(2_654_435_761) as i32;
+        values.extend(iter::repeat_n(v, 10));
     }
     let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
     let btr = BtrBlocksCompressor::default();
@@ -151,4 +155,59 @@ fn test_rle_compressed() -> VortexResult<()> {
     eprintln!("{}", compressed.display_tree());
     assert!(compressed.is::<RunEnd>());
     Ok(())
+}
+
+/// A strictly-increasing column with small, irregular steps: not a perfect arithmetic sequence
+/// (so Sequence skips), all-unique with no runs (so RunEnd/Dict skip), and a wide absolute range.
+/// Delta's residuals are far smaller than the FoR span, so Delta should win and round-trip, and
+/// it must appear at most once in the tree.
+#[cfg(feature = "unstable_encodings")]
+#[test]
+fn test_delta_compressed() -> VortexResult<()> {
+    use vortex_array::assert_arrays_eq;
+    use vortex_fastlanes::Delta;
+
+    let mut rng = StdRng::seed_from_u64(7u64);
+    let mut value = 500_000i32;
+    let values: Vec<i32> = (0..4096)
+        .map(|_| {
+            value += 1 + (rng.next_u32() % 6) as i32;
+            value
+        })
+        .collect();
+    let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
+
+    let btr = BtrBlocksCompressor::default();
+    let compressed = btr.compress(
+        &array.clone().into_array(),
+        &mut SESSION.create_execution_ctx(),
+    )?;
+    assert!(
+        compressed.is::<Delta>(),
+        "expected Delta, got tree:\n{}",
+        compressed.display_tree()
+    );
+    // Delta must appear at most once per tree: no Delta node may be nested under another.
+    assert!(
+        !has_nested_delta(&compressed, false),
+        "Delta was applied more than once in the tree:\n{}",
+        compressed.display_tree()
+    );
+    assert_arrays_eq!(compressed, array.into_array());
+    Ok(())
+}
+
+/// Returns true if any `Delta` array appears below an ancestor `Delta` in the tree.
+#[cfg(feature = "unstable_encodings")]
+fn has_nested_delta(array: &vortex_array::ArrayRef, under_delta: bool) -> bool {
+    use vortex_fastlanes::Delta;
+
+    let is_delta = array.is::<Delta>();
+    if is_delta && under_delta {
+        return true;
+    }
+    array
+        .children()
+        .iter()
+        .any(|child| has_nested_delta(child, under_delta || is_delta))
 }
