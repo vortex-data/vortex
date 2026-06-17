@@ -58,13 +58,12 @@ unique_ptr<FunctionData> copy_to_bind(ClientContext &,
 }
 
 unique_ptr<GlobalFunctionData>
-copy_to_initialize_global(ClientContext &context, FunctionData &bind_data, const string &file_path) {
+copy_to_initialize_global(ClientContext &, FunctionData &bind_data, const string &file_path) {
     void *const ffi_bind = bind_data.Cast<CopyBindData>().ffi_data->DataPtr();
-    const auto ffi_ctx = reinterpret_cast<duckdb_client_context>(&context);
 
     duckdb_vx_error error_out = nullptr;
     const duckdb_vx_data ffi_global =
-        duckdb_copy_function_copy_to_initialize_global(ffi_ctx, ffi_bind, file_path.c_str(), &error_out);
+        duckdb_copy_function_copy_to_initialize_global(ffi_bind, file_path.c_str(), &error_out);
     if (error_out) {
         throw ExecutorException(IntoErrString(error_out));
     }

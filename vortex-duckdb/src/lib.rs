@@ -26,7 +26,6 @@ mod convert;
 pub mod duckdb;
 mod exporter;
 mod ffi;
-mod filesystem;
 mod multi_file;
 mod projection;
 mod table_function;
