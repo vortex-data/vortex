@@ -92,8 +92,6 @@ impl ScalarFnVTable for IsNull {
 mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect as _;
-    use vortex_utils::aliases::hash_map::HashMap;
-    use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
@@ -101,19 +99,11 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::dtype::DType;
-    use crate::dtype::Field;
-    use crate::dtype::FieldPath;
-    use crate::dtype::FieldPathSet;
     use crate::dtype::Nullability;
     use crate::expr::col;
-    use crate::expr::eq;
     use crate::expr::get_item;
     use crate::expr::is_null;
-    use crate::expr::lit;
-    use crate::expr::or;
-    use crate::expr::pruning::checked_pruning_expr;
     use crate::expr::root;
-    use crate::expr::stats::Stat;
     use crate::expr::test_harness;
     use crate::scalar::Scalar;
 
@@ -229,35 +219,6 @@ mod tests {
 
         let expr2 = is_null(root());
         assert_eq!(expr2.to_string(), "vortex.is_null($)");
-    }
-
-    #[test]
-    fn test_is_null_falsification() {
-        let expr = is_null(col("a"));
-
-        let (pruning_expr, st) = checked_pruning_expr(
-            &expr,
-            &test_harness::struct_dtype(),
-            &FieldPathSet::from_iter([FieldPath::from_iter([
-                Field::Name("a".into()),
-                Field::Name("null_count".into()),
-            ])]),
-            &LEGACY_SESSION,
-        )
-        .unwrap()
-        .unwrap();
-
-        assert_eq!(
-            &pruning_expr,
-            &or(
-                eq(col("a_null_count"), lit(0u64)),
-                eq(col("a_null_count"), lit(0u64)),
-            )
-        );
-        assert_eq!(
-            st.map(),
-            &HashMap::from_iter([(FieldPath::from_name("a"), HashSet::from([Stat::NullCount]))])
-        );
     }
 
     #[test]

@@ -34,7 +34,6 @@ pub(crate) mod field;
 pub mod forms;
 mod optimize;
 pub mod proto;
-pub mod pruning;
 pub mod stats;
 pub mod transform;
 pub mod traversal;

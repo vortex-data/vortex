@@ -12,18 +12,9 @@ use std::sync::OnceLock;
 
 use itertools::Itertools;
 use vortex_array::ArrayRef;
-use vortex_array::Columnar;
-use vortex_array::IntoArray;
-use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::ConstantArray;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldMask;
-use vortex_array::dtype::FieldPath;
-use vortex_array::dtype::FieldPathSet;
 use vortex_array::expr::Expression;
-use vortex_array::expr::pruning::checked_pruning_expr;
-use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
 use vortex_error::VortexResult;
 use vortex_layout::LayoutReader;
 use vortex_layout::scan::layout::LayoutReaderDataSource;
@@ -32,11 +23,10 @@ use vortex_layout::scan::split_by::SplitBy;
 use vortex_layout::segments::SegmentSource;
 use vortex_scan::DataSourceRef;
 use vortex_session::VortexSession;
-use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::FileStatistics;
 use crate::footer::Footer;
-use crate::pruning::extract_relevant_file_stats_as_struct_row;
+use crate::pruning::can_prune_file_stats;
 use crate::v2::FileStatsLayoutReader;
 
 /// Represents a Vortex file, providing access to its metadata and content.
@@ -202,61 +192,14 @@ impl VortexFile {
             return Ok(false);
         };
 
-        let set = FieldPathSet::from_iter(
-            fields
-                .names()
-                .iter()
-                .zip(stats.stats_sets().iter())
-                .flat_map(|(name, stats)| {
-                    stats.iter().map(|(stat, _)| {
-                        FieldPath::from_iter([
-                            Field::Name(name.clone()),
-                            Field::Name(stat.name().into()),
-                        ])
-                    })
-                }),
-        );
-
-        let Some((predicate, required_stats)) =
-            checked_pruning_expr(filter, self.footer.dtype(), &set, &self.session)?
-        else {
-            return Ok(false);
-        };
-
-        let required_file_stats = HashMap::from_iter(
-            required_stats
-                .map()
-                .iter()
-                .map(|(path, stats)| (path.clone(), stats.clone())),
-        );
-
-        let Some(file_stats) = extract_relevant_file_stats_as_struct_row(
-            &required_file_stats,
-            stats.stats_sets(),
+        can_prune_file_stats(
+            filter,
+            self.footer.dtype(),
+            self.footer.row_count(),
+            stats,
             fields,
-        )?
-        else {
-            return Ok(false);
-        };
-
-        // Apply the predicate, then substitute any row_count placeholders in the resulting array
-        // tree with a ConstantArray carrying the file-level row count.
-        let applied = file_stats.apply(&predicate)?;
-        let row_count_replacement =
-            ConstantArray::new(self.footer.row_count(), applied.len()).into_array();
-        let applied = substitute_row_count(applied, &row_count_replacement)?;
-
-        let mut ctx = self.session.create_execution_ctx();
-        Ok(match applied.execute::<Columnar>(&mut ctx)? {
-            Columnar::Constant(s) => s.scalar().as_bool().value() == Some(true),
-            Columnar::Canonical(c) => {
-                c.into_array()
-                    .execute_scalar(0, &mut ctx)?
-                    .as_bool()
-                    .value()
-                    == Some(true)
-            }
-        })
+            &self.session,
+        )
     }
 
     pub fn splits(&self) -> VortexResult<Vec<Range<u64>>> {

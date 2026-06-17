@@ -399,8 +399,6 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::Buffer;
-    use vortex_utils::aliases::hash_map::HashMap;
-    use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::ArrayRef;
     use crate::IntoArray;
@@ -412,23 +410,13 @@ mod tests {
     #[expect(deprecated)]
     use crate::canonical::ToCanonical as _;
     use crate::dtype::DType;
-    use crate::dtype::Field;
-    use crate::dtype::FieldPath;
-    use crate::dtype::FieldPathSet;
     use crate::dtype::Nullability;
     use crate::dtype::PType::I32;
     use crate::dtype::StructFields;
-    use crate::expr::and;
-    use crate::expr::col;
     use crate::expr::get_item;
-    use crate::expr::gt;
     use crate::expr::list_contains;
     use crate::expr::lit;
-    use crate::expr::lt;
-    use crate::expr::or;
-    use crate::expr::pruning::checked_pruning_expr;
     use crate::expr::root;
-    use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::list_contains::BoolArray;
     use crate::scalar_fn::fns::list_contains::ConstantArray;
@@ -572,56 +560,6 @@ mod tests {
         assert_eq!(
             expr.return_dtype(&scope).unwrap(),
             DType::Bool(Nullability::Nullable)
-        );
-    }
-
-    #[test]
-    pub fn list_falsification() {
-        let expr = list_contains(
-            lit(Scalar::list(
-                Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
-                vec![1.into(), 2.into(), 3.into()],
-                Nullability::NonNullable,
-            )),
-            col("a"),
-        );
-        let scope = DType::Struct(
-            StructFields::new(
-                ["a"].into(),
-                vec![DType::Primitive(I32, Nullability::NonNullable)],
-            ),
-            Nullability::NonNullable,
-        );
-
-        let (expr, st) = checked_pruning_expr(
-            &expr,
-            &scope,
-            &FieldPathSet::from_iter([
-                FieldPath::from_iter([Field::Name("a".into()), Field::Name("max".into())]),
-                FieldPath::from_iter([Field::Name("a".into()), Field::Name("min".into())]),
-            ]),
-            &LEGACY_SESSION,
-        )
-        .unwrap()
-        .unwrap();
-
-        assert_eq!(
-            &expr,
-            &and(
-                and(
-                    or(lt(col("a_max"), lit(1i32)), gt(col("a_min"), lit(1i32)),),
-                    or(lt(col("a_max"), lit(2i32)), gt(col("a_min"), lit(2i32)),)
-                ),
-                or(lt(col("a_max"), lit(3i32)), gt(col("a_min"), lit(3i32)),)
-            )
-        );
-
-        assert_eq!(
-            st.map(),
-            &HashMap::from_iter([(
-                FieldPath::from_name("a"),
-                HashSet::from([Stat::Min, Stat::Max])
-            )])
         );
     }
 

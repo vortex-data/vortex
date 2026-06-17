@@ -10,28 +10,11 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use vortex_array::Canonical;
-use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
-use vortex_array::VortexSessionExecute;
-use vortex_array::aggregate_fn::AggregateFnRef;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::NullArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
-use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::Expression;
-use vortex_array::expr::is_root;
-use vortex_array::expr::lit;
-use vortex_array::expr::stats::Stat;
-use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::get_item::GetItem;
-use vortex_array::scalar_fn::fns::literal::Literal;
-use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
-use vortex_array::stats::bind::StatBinder;
-use vortex_array::stats::bind::bind_legacy_count_or_direct_aggregate;
-use vortex_array::stats::bind::bind_stats;
 use vortex_error::VortexResult;
 use vortex_layout::ArrayFuture;
 use vortex_layout::LayoutReader;
@@ -43,6 +26,7 @@ use vortex_session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::FileStatistics;
+use crate::pruning::can_prune_file_stats;
 
 /// A [`LayoutReader`] decorator that prunes entire files based on file-level statistics.
 ///
@@ -88,109 +72,18 @@ impl FileStatsLayoutReader {
     /// Row-count placeholders are resolved against the full file row count,
     /// independent of the requested row range.
     fn evaluate_file_stats(&self, expr: &Expression) -> VortexResult<bool> {
-        let Some(pruning_expr) = expr.falsify(self.child.dtype(), &self.session)? else {
-            // If there is no pruning expression, we can't prune.
-            return Ok(false);
-        };
-        let pruning_expr = self.lower_stats(pruning_expr)?;
-
-        // Stats lowering replaces available stats with literals and unavailable stats with nulls,
-        // so only row_count placeholders remain unresolved here.
-        let simplified = pruning_expr.optimize_recursive(&DType::Null)?;
-        if let Some(result) = simplified.as_opt::<Literal>() {
-            // Can prune if the result is non-nullable and true
-            return Ok(result.as_bool().value() == Some(true));
-        }
-
-        // Sometimes expressions don't implement constant folding to literals... In this case,
-        // we apply the expression over a null array and substitute any row_count placeholders
-        // in the resulting array tree with the file's row count.
-        let pruning = NullArray::new(1).into_array().apply(&pruning_expr)?;
-        let row_count_replacement =
-            ConstantArray::new(self.child.row_count(), pruning.len()).into_array();
-        let pruning = substitute_row_count(pruning, &row_count_replacement)?;
-
-        let mut ctx = self.session.create_execution_ctx();
-        let result = pruning
-            .execute::<Canonical>(&mut ctx)?
-            .into_bool()
-            .into_array()
-            .execute_scalar(0, &mut ctx)?;
-
-        Ok(result.as_bool().value() == Some(true))
-    }
-
-    fn lower_stats(&self, predicate: Expression) -> VortexResult<Expression> {
-        let binder = FileStatsBinder { reader: self };
-        bind_stats(predicate, &binder)
+        can_prune_file_stats(
+            expr,
+            self.child.dtype(),
+            self.child.row_count(),
+            &self.file_stats,
+            &self.struct_fields,
+            &self.session,
+        )
     }
 
     pub fn file_stats(&self) -> &FileStatistics {
         &self.file_stats
-    }
-}
-
-struct FileStatsBinder<'a> {
-    reader: &'a FileStatsLayoutReader,
-}
-
-impl StatBinder for FileStatsBinder<'_> {
-    fn scope(&self) -> &DType {
-        self.reader.child.dtype()
-    }
-
-    fn bound_scope(&self) -> DType {
-        DType::Null
-    }
-
-    fn bind_stat(
-        &self,
-        input: &Expression,
-        stat: Stat,
-        _stat_dtype: &DType,
-    ) -> VortexResult<Option<Expression>> {
-        let Some(field_path) = direct_field_path(input) else {
-            return Ok(None);
-        };
-        Ok(self.reader.stat_ref(&field_path, stat))
-    }
-
-    fn bind_aggregate(
-        &self,
-        input: &Expression,
-        aggregate_fn: &AggregateFnRef,
-        stat_dtype: &DType,
-    ) -> VortexResult<Option<Expression>> {
-        bind_legacy_count_or_direct_aggregate(self, input, aggregate_fn, stat_dtype)
-    }
-}
-
-fn direct_field_path(expr: &Expression) -> Option<FieldPath> {
-    if is_root(expr) {
-        return Some(FieldPath::root());
-    }
-
-    let field_name = expr.as_opt::<GetItem>()?;
-    direct_field_path(expr.child(0)).map(|path| path.push(field_name.clone()))
-}
-
-impl FileStatsLayoutReader {
-    fn stat_ref(&self, field_path: &FieldPath, stat: Stat) -> Option<Expression> {
-        // FileStats currently only holds top-level field statistics.
-        if field_path.parts().len() != 1 {
-            return None;
-        }
-
-        let field_name = field_path.parts()[0].as_name()?;
-        let field_idx = self.struct_fields.find(field_name)?;
-        let field_stats = self.file_stats.stats_sets().get(field_idx)?;
-
-        let stat_value = field_stats.get(stat).as_exact()?;
-        let field_dtype = self.struct_fields.field_by_index(field_idx)?;
-        let stat_dtype = stat.dtype(&field_dtype)?;
-        let stat_scalar = Scalar::try_new(stat_dtype, Some(stat_value)).ok()?;
-
-        Some(lit(stat_scalar))
     }
 }
 

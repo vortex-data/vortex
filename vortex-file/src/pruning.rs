@@ -1,78 +1,136 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
-use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::StructArray;
-use vortex_array::dtype::Field;
-use vortex_array::dtype::FieldName;
-use vortex_array::dtype::FieldNames;
+use vortex_array::arrays::NullArray;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr::pruning::field_path_stat_field_name;
+use vortex_array::expr::Expression;
+use vortex_array::expr::is_root;
+use vortex_array::expr::lit;
 use vortex_array::expr::stats::Stat;
-use vortex_array::expr::stats::StatsProvider;
-use vortex_array::stats::StatsSet;
-use vortex_array::validity::Validity;
-use vortex_error::VortexExpect;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::fns::cast::Cast;
+use vortex_array::scalar_fn::fns::get_item::GetItem;
+use vortex_array::scalar_fn::fns::literal::Literal;
+use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
+use vortex_array::stats::bind::StatBinder;
+use vortex_array::stats::bind::bind_legacy_count_or_direct_aggregate;
+use vortex_array::stats::bind::bind_stats;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
-use vortex_utils::aliases::hash_map::HashMap;
-use vortex_utils::aliases::hash_set::HashSet;
+use vortex_session::VortexSession;
 
-pub fn extract_relevant_file_stats_as_struct_row(
-    access: &HashMap<FieldPath, HashSet<Stat>>,
-    stats_sets: &Arc<[StatsSet]>,
-    struct_dtype: &StructFields,
-) -> VortexResult<Option<ArrayRef>> {
-    if access.is_empty() {
-        return StructArray::try_new(FieldNames::default(), vec![], 1, Validity::NonNullable)
-            .map(|s| Some(s.into_array()));
+use crate::FileStatistics;
+
+pub(crate) fn can_prune_file_stats(
+    expr: &Expression,
+    dtype: &DType,
+    row_count: u64,
+    file_stats: &FileStatistics,
+    struct_fields: &StructFields,
+    session: &VortexSession,
+) -> VortexResult<bool> {
+    let Some(pruning_expr) = expr.falsify(dtype, session)? else {
+        return Ok(false);
+    };
+
+    let binder = FileStatsBinder {
+        dtype,
+        file_stats,
+        struct_fields,
+    };
+    let pruning_expr = bind_stats(pruning_expr, &binder)?;
+
+    let simplified = pruning_expr.optimize_recursive(&DType::Null)?;
+    if let Some(result) = simplified.as_opt::<Literal>() {
+        return Ok(result.as_bool().value() == Some(true));
     }
 
-    let mut columns: Vec<(FieldName, ArrayRef)> = Vec::with_capacity(access.len() * 2);
-    for (field_path, stats) in access.into_iter() {
+    let pruning = NullArray::new(1).into_array().apply(&pruning_expr)?;
+    let row_count_replacement = ConstantArray::new(row_count, pruning.len()).into_array();
+    let pruning = substitute_row_count(pruning, &row_count_replacement)?;
+
+    let mut ctx = session.create_execution_ctx();
+    let result = pruning
+        .execute::<Canonical>(&mut ctx)?
+        .into_bool()
+        .into_array()
+        .execute_scalar(0, &mut ctx)?;
+
+    Ok(result.as_bool().value() == Some(true))
+}
+
+struct FileStatsBinder<'a> {
+    dtype: &'a DType,
+    file_stats: &'a FileStatistics,
+    struct_fields: &'a StructFields,
+}
+
+impl StatBinder for FileStatsBinder<'_> {
+    fn scope(&self) -> &DType {
+        self.dtype
+    }
+
+    fn bound_scope(&self) -> DType {
+        DType::Null
+    }
+
+    fn bind_stat(
+        &self,
+        input: &Expression,
+        stat: Stat,
+        _stat_dtype: &DType,
+    ) -> VortexResult<Option<Expression>> {
+        let Some(field_path) = direct_field_path(input) else {
+            return Ok(None);
+        };
+        Ok(self.stat_ref(&field_path, stat))
+    }
+
+    fn bind_aggregate(
+        &self,
+        input: &Expression,
+        aggregate_fn: &AggregateFnRef,
+        stat_dtype: &DType,
+    ) -> VortexResult<Option<Expression>> {
+        bind_legacy_count_or_direct_aggregate(self, input, aggregate_fn, stat_dtype)
+    }
+}
+
+impl FileStatsBinder<'_> {
+    fn stat_ref(&self, field_path: &FieldPath, stat: Stat) -> Option<Expression> {
+        // FileStats currently only holds top-level field statistics.
         if field_path.parts().len() != 1 {
-            return Ok(None);
+            return None;
         }
-        let Field::Name(field) = &field_path.parts()[0] else {
-            return Ok(None);
-        };
 
-        let field_idx = struct_dtype
-            .find(field)
-            .ok_or_else(|| vortex_err!("Missing field: {field}"))?;
-        let field_dtype = struct_dtype
-            .field_by_index(field_idx)
-            .vortex_expect("Field must exist");
+        let field_name = field_path.parts()[0].as_name()?;
+        let field_idx = self.struct_fields.find(field_name)?;
+        let field_stats = self.file_stats.stats_sets().get(field_idx)?;
 
-        let Some(stat_set) = stats_sets.get(field_idx) else {
-            vortex_bail!("missing stat field {} from stats set", field)
-        };
-        let typed_stats = stat_set.as_typed_ref(&field_dtype);
+        let stat_value = field_stats.get(stat).as_exact()?;
+        let field_dtype = self.struct_fields.field_by_index(field_idx)?;
+        let stat_dtype = stat.dtype(&field_dtype)?;
+        let stat_scalar = Scalar::try_new(stat_dtype, Some(stat_value)).ok()?;
 
-        for stat in stats {
-            if matches!(
-                stat,
-                Stat::Max | Stat::Min | Stat::NaNCount | Stat::NullCount
-            ) {
-                let Some(stat_value) = typed_stats.get(*stat).as_exact() else {
-                    vortex_bail!("missing stat {}, {} from stats set", field, stat)
-                };
-                columns.push((
-                    field_path_stat_field_name(field_path, *stat),
-                    ConstantArray::new(stat_value, 1).into_array(),
-                ));
-            } else {
-                todo!("unsupported file prune stat {stat}")
-            }
-        }
+        Some(lit(stat_scalar))
     }
-    Ok(Some(
-        StructArray::from_fields(columns.as_slice())?.into_array(),
-    ))
+}
+
+fn direct_field_path(expr: &Expression) -> Option<FieldPath> {
+    if is_root(expr) {
+        return Some(FieldPath::root());
+    }
+
+    if expr.is::<Cast>() {
+        return direct_field_path(expr.child(0));
+    }
+
+    let field_name = expr.as_opt::<GetItem>()?;
+    direct_field_path(expr.child(0)).map(|path| path.push(field_name.clone()))
 }
