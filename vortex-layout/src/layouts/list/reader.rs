@@ -461,7 +461,12 @@ mod tests {
 
     fn flat_list_strategy() -> ListLayoutStrategy {
         let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
-        ListLayoutStrategy::new(Arc::clone(&flat), Arc::clone(&flat), Arc::clone(&flat))
+        ListLayoutStrategy::new(
+            Arc::clone(&flat),
+            Arc::clone(&flat),
+            Arc::clone(&flat),
+            Arc::clone(&flat),
+        )
     }
 
     async fn write_layout<S: LayoutStrategy>(

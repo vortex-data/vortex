@@ -33,14 +33,18 @@ use crate::sequence::SequentialStream;
 use crate::sequence::SequentialStreamAdapter;
 use crate::sequence::SequentialStreamExt;
 
-/// Strategy for writing list-typed arrays.
+/// Strategy for writing list-typed arrays, with a fallback for non-list dtypes.
 ///
-/// Single-chunk only. The strategy:
+/// Single-chunk only. For list-typed input the strategy:
 ///  1. Canonicalizes the input chunk into a [`ListViewArray`].
 ///  2. Calls [`list_from_list_view`] to rebuild it into zero-copy-to-list form
 ///     (sorted, gapless, non-overlapping offsets) and produce a [`ListArray`].
 ///  3. Writes the `elements`, `offsets`, and (when nullable) `validity` columns into
 ///     separately configurable downstream strategies, producing a single [`ListLayout`].
+///
+/// For input whose dtype is not [`DType::List`], the stream is forwarded unchanged to the
+/// configured `fallback` strategy. This lets `ListLayoutStrategy` slot in as a leaf strategy in
+/// a heterogeneous column writer where some columns are lists and others are not.
 ///
 /// # Chunking
 ///
@@ -52,6 +56,7 @@ pub struct ListLayoutStrategy {
     elements: Arc<dyn LayoutStrategy>,
     offsets: Arc<dyn LayoutStrategy>,
     validity: Arc<dyn LayoutStrategy>,
+    fallback: Arc<dyn LayoutStrategy>,
 }
 
 impl ListLayoutStrategy {
@@ -59,11 +64,13 @@ impl ListLayoutStrategy {
         elements: Arc<dyn LayoutStrategy>,
         offsets: Arc<dyn LayoutStrategy>,
         validity: Arc<dyn LayoutStrategy>,
+        fallback: Arc<dyn LayoutStrategy>,
     ) -> Self {
         Self {
             elements,
             offsets,
             validity,
+            fallback,
         }
     }
 }
@@ -80,7 +87,11 @@ impl LayoutStrategy for ListLayoutStrategy {
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         if !dtype.is_list() {
-            vortex_bail!("ListLayoutStrategy requires a List dtype, got {dtype}");
+            // Non-list input: route to the configured fallback strategy unchanged.
+            return self
+                .fallback
+                .write_stream(ctx, segment_sink, stream, eof, session)
+                .await;
         }
 
         // Writer wants exactly one chunk
@@ -159,9 +170,12 @@ impl LayoutStrategy for ListLayoutStrategy {
     }
 
     fn buffered_bytes(&self) -> u64 {
-        self.elements.buffered_bytes()
+        // A given input stream takes either the list path (elements + offsets + validity) or the
+        // fallback, so the back-pressure budget is the max of the two — not the sum.
+        let list_bytes = self.elements.buffered_bytes()
             + self.offsets.buffered_bytes()
-            + self.validity.buffered_bytes()
+            + self.validity.buffered_bytes();
+        list_bytes.max(self.fallback.buffered_bytes())
     }
 }
 
@@ -212,7 +226,12 @@ mod tests {
 
     fn flat_list_strategy() -> ListLayoutStrategy {
         let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
-        ListLayoutStrategy::new(Arc::clone(&flat), Arc::clone(&flat), Arc::clone(&flat))
+        ListLayoutStrategy::new(
+            Arc::clone(&flat),
+            Arc::clone(&flat),
+            Arc::clone(&flat),
+            Arc::clone(&flat),
+        )
     }
 
     async fn write<S: LayoutStrategy>(strategy: &S, array: ArrayRef) -> VortexResult<LayoutRef> {
@@ -278,6 +297,16 @@ mod tests {
         Ok(())
     }
 
+    /// Non-list input dispatches to the fallback strategy unchanged.
+    #[tokio::test]
+    async fn non_list_input_routes_to_fallback() -> VortexResult<()> {
+        let primitive = buffer![1i32, 2, 3].into_array();
+        let layout = write(&flat_list_strategy(), primitive).await?;
+        // Fallback is FlatLayoutStrategy, so the result is a flat layout (not a list layout).
+        insta::assert_snapshot!(layout.display_tree(), @"vortex.flat, dtype: i32, segment: 0");
+        Ok(())
+    }
+
     #[tokio::test]
     async fn empty_stream_errors() {
         let segments = Arc::new(TestSegments::default());
@@ -335,7 +364,12 @@ mod tests {
         let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
         let table_strategy: Arc<dyn LayoutStrategy> =
             Arc::new(TableStrategy::new(Arc::clone(&flat), Arc::clone(&flat)));
-        let writer = ListLayoutStrategy::new(table_strategy, Arc::clone(&flat), Arc::clone(&flat));
+        let writer = ListLayoutStrategy::new(
+            table_strategy,
+            Arc::clone(&flat),
+            Arc::clone(&flat),
+            Arc::clone(&flat),
+        );
 
         let layout = write(&writer, list).await?;
         insta::assert_snapshot!(layout.display_tree(), @"
@@ -368,8 +402,14 @@ mod tests {
             Arc::clone(&flat),
             Arc::clone(&flat),
             Arc::clone(&flat),
+            Arc::clone(&flat),
         ));
-        let writer = ListLayoutStrategy::new(inner_strategy, Arc::clone(&flat), Arc::clone(&flat));
+        let writer = ListLayoutStrategy::new(
+            inner_strategy,
+            Arc::clone(&flat),
+            Arc::clone(&flat),
+            Arc::clone(&flat),
+        );
 
         let layout = write(&writer, list).await?;
         insta::assert_snapshot!(layout.display_tree(), @"
