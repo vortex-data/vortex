@@ -15,7 +15,9 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
+use crate::arrays::ExtensionArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::extension::ExtensionArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
@@ -111,6 +113,12 @@ pub(crate) fn execute_numeric(
     op: NumericOperator,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
+    // A temporal column plus/minus an integer offset stays in the temporal type;
+    // the offset is interpreted in the column's storage unit (e.g. microseconds).
+    if lhs.dtype().is_temporal() || rhs.dtype().is_temporal() {
+        return execute_temporal_numeric(lhs, rhs, op, ctx);
+    }
+
     let ptype = PType::try_from(lhs.dtype())?;
     if !lhs.dtype().eq_ignore_nullability(rhs.dtype()) {
         vortex_bail!(
@@ -128,6 +136,60 @@ pub(crate) fn execute_numeric(
             NumericOperator::Div => execute_checked_typed::<T, CheckedDiv>(lhs, rhs, ctx),
         }
     })
+}
+
+/// Add or subtract an integer offset to/from a temporal (date/time/timestamp) column.
+///
+/// The temporal column is unwrapped to its integer storage, the offset is widened to that
+/// storage type and applied with the regular integer kernel, then the result is re-wrapped in
+/// the original extension type. The offset is in the temporal column's own storage unit, so no
+/// timestamp<->int casts are needed at the call site.
+fn execute_temporal_numeric(
+    lhs: &ArrayRef,
+    rhs: &ArrayRef,
+    op: NumericOperator,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let temporal_on_left = lhs.dtype().is_temporal();
+    let (temporal, offset) = if temporal_on_left {
+        (lhs, rhs)
+    } else {
+        (rhs, lhs)
+    };
+
+    if offset.dtype().is_temporal() {
+        vortex_bail!("temporal arithmetic between two temporal columns is not supported");
+    }
+    if !offset.dtype().is_int() {
+        vortex_bail!(
+            "temporal arithmetic requires an integer offset, got {}",
+            offset.dtype()
+        );
+    }
+    match op {
+        NumericOperator::Add => {}
+        NumericOperator::Sub if temporal_on_left => {}
+        NumericOperator::Sub => {
+            vortex_bail!("cannot subtract a temporal column from an integer offset")
+        }
+        NumericOperator::Mul | NumericOperator::Div => {
+            vortex_bail!("only addition and subtraction are defined for temporal columns")
+        }
+    }
+
+    let ext = temporal.clone().execute::<ExtensionArray>(ctx)?;
+    let storage = ext.storage_array().clone();
+    let ext_dtype = ext.ext_dtype().clone();
+
+    let offset = offset.cast(
+        storage
+            .dtype()
+            .with_nullability(offset.dtype().nullability()),
+    )?;
+    let result_storage = execute_numeric(&storage, &offset, op, ctx)?;
+
+    let result_dtype = ext_dtype.with_nullability(result_storage.dtype().nullability());
+    Ok(ExtensionArray::try_new(result_dtype, result_storage)?.into_array())
 }
 
 fn execute_checked_typed<T, Op>(
@@ -931,11 +993,80 @@ mod test {
     use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::datetime::TemporalArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
+    use crate::extension::datetime::TimeUnit;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::operators::Operator;
     use crate::validity::Validity;
+
+    fn ts_us(values: impl IntoIterator<Item = i64>) -> ArrayRef {
+        let storage = PrimitiveArray::from_iter(values).into_array();
+        TemporalArray::new_timestamp(storage, TimeUnit::Microseconds, None).into_array()
+    }
+
+    fn add(lhs: &ArrayRef, rhs: ArrayRef, op: Operator) -> VortexResult<ArrayRef> {
+        lhs.binary(rhs, op)
+            .and_then(|a| {
+                a.execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            })
+            .map(|a| a.0.into_array())
+    }
+
+    #[test]
+    fn test_timestamp_plus_int_array() -> VortexResult<()> {
+        let ts = ts_us([1_000i64, 2_000, 3_000]);
+        // i32 offset exercises the widening cast to the i64 storage type.
+        let offset = buffer![5i32, 6, 7].into_array();
+        let result = add(&ts, offset, Operator::Add)?;
+        assert_arrays_eq!(result, ts_us([1_005i64, 2_006, 3_007]));
+        Ok(())
+    }
+
+    #[test]
+    fn test_timestamp_plus_int_constant() -> VortexResult<()> {
+        let ts = ts_us([1_000i64, 2_000, 3_000]);
+        let offset = ConstantArray::new(Scalar::from(10i64), 3).into_array();
+        let result = add(&ts, offset, Operator::Add)?;
+        assert_arrays_eq!(result, ts_us([1_010i64, 2_010, 3_010]));
+        Ok(())
+    }
+
+    #[test]
+    fn test_int_plus_timestamp_is_commutative() -> VortexResult<()> {
+        let ts = ts_us([1_000i64, 2_000, 3_000]);
+        let offset = buffer![5i64, 6, 7].into_array();
+        let result = add(&offset, ts, Operator::Add)?;
+        assert_arrays_eq!(result, ts_us([1_005i64, 2_006, 3_007]));
+        Ok(())
+    }
+
+    #[test]
+    fn test_timestamp_minus_int_array() -> VortexResult<()> {
+        let ts = ts_us([1_000i64, 2_000, 3_000]);
+        let offset = buffer![5i64, 6, 7].into_array();
+        let result = add(&ts, offset, Operator::Sub)?;
+        assert_arrays_eq!(result, ts_us([995i64, 1_994, 2_993]));
+        Ok(())
+    }
+
+    #[test]
+    fn test_timestamp_plus_timestamp_errors() {
+        let ts = ts_us([1_000i64]);
+        assert!(ts.binary(ts.clone(), Operator::Add).is_err());
+    }
+
+    #[test]
+    fn test_int_minus_timestamp_errors() {
+        let ts = ts_us([1_000i64]);
+        let offset = buffer![5i64].into_array();
+        // `int - timestamp` is not a defined operation; it must fail at execution.
+        let result = offset
+            .binary(ts, Operator::Sub)
+            .and_then(|a| a.execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx()));
+        assert!(result.is_err());
+    }
 
     fn sub_scalar(array: &ArrayRef, scalar: impl Into<Scalar>) -> VortexResult<ArrayRef> {
         array

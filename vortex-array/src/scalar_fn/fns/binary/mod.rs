@@ -46,6 +46,24 @@ pub(crate) use numeric::*;
 
 use crate::scalar::NumericOperator;
 
+/// If this is a supported temporal +/- integer-offset operation, returns the result dtype: the
+/// temporal type carrying the combined nullability. The integer offset is interpreted in the
+/// temporal column's own storage unit. `int + temporal` is commutative; `int - temporal` is not
+/// defined.
+fn temporal_offset_result(operator: &Operator, lhs: &DType, rhs: &DType) -> Option<DType> {
+    if !matches!(operator, Operator::Add | Operator::Sub) {
+        return None;
+    }
+    let nullability = lhs.nullability() | rhs.nullability();
+    if lhs.is_temporal() && rhs.is_int() {
+        return Some(lhs.with_nullability(nullability));
+    }
+    if matches!(operator, Operator::Add) && rhs.is_temporal() && lhs.is_int() {
+        return Some(rhs.with_nullability(nullability));
+    }
+    None
+}
+
 #[derive(Clone)]
 pub struct Binary;
 
@@ -103,6 +121,11 @@ impl ScalarFnVTable for Binary {
     fn coerce_args(&self, operator: &Self::Options, args: &[DType]) -> VortexResult<Vec<DType>> {
         let lhs = &args[0];
         let rhs = &args[1];
+        // Temporal +/- integer offset: keep both sides as-is (the offset is in the temporal
+        // column's storage unit), there is no common supertype to coerce to.
+        if operator.is_arithmetic() && temporal_offset_result(operator, lhs, rhs).is_some() {
+            return Ok(vec![lhs.clone(), rhs.clone()]);
+        }
         if operator.is_arithmetic() || operator.is_comparison() {
             let supertype = lhs.least_supertype(rhs).ok_or_else(|| {
                 vortex_error::vortex_err!("No common supertype for {} and {}", lhs, rhs)
@@ -121,6 +144,9 @@ impl ScalarFnVTable for Binary {
         if operator.is_arithmetic() {
             if lhs.is_primitive() && lhs.eq_ignore_nullability(rhs) {
                 return Ok(lhs.with_nullability(lhs.nullability() | rhs.nullability()));
+            }
+            if let Some(result) = temporal_offset_result(operator, lhs, rhs) {
+                return Ok(result);
             }
             vortex_bail!(
                 "incompatible types for arithmetic operation: {} {}",
