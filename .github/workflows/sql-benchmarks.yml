@@ -277,9 +277,54 @@ on:
               "iterations": "10"
             }
           ]
+      benchmark_profile:
+        required: false
+        type: string
+        description: "Benchmark profile to run: full or base"
+        default: "full"
 
 jobs:
+  resolve-benchmark-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      benchmark_matrix: ${{ steps.matrix.outputs.benchmark_matrix }}
+    steps:
+      - name: Resolve benchmark matrix
+        id: matrix
+        shell: bash
+        run: |
+          cat > matrix.json <<'__BENCHMARK_MATRIX__'
+          ${{ inputs.benchmark_matrix }}
+          __BENCHMARK_MATRIX__
+
+          case "${{ inputs.benchmark_profile }}" in
+            full)
+              jq -c "." matrix.json > resolved-matrix.json
+              ;;
+            base)
+              jq -c '
+                map(
+                  select(.id != "tpch-s3-10" and .subcommand != "appian")
+                  | .data_formats |= map(select(. != "vortex-compact" and . != "duckdb"))
+                  | .pr_targets |= map(select(.format != "vortex-compact" and (.engine != "duckdb" or .format != "duckdb")))
+                  | .develop_targets |= map(select(.format != "vortex-compact" and (.engine != "duckdb" or .format != "duckdb")))
+                )
+              ' matrix.json > resolved-matrix.json
+              ;;
+            *)
+              echo "::error::Unknown benchmark_profile '${{ inputs.benchmark_profile }}'. Expected 'full' or 'base'."
+              exit 1
+              ;;
+          esac
+
+          {
+            echo "benchmark_matrix<<__BENCHMARK_MATRIX__"
+            cat resolved-matrix.json
+            echo "__BENCHMARK_MATRIX__"
+          } >> "$GITHUB_OUTPUT"
+
   bench:
+    needs: resolve-benchmark-matrix
     timeout-minutes: 120
     env:
       VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
@@ -289,7 +334,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(inputs.benchmark_matrix) }}
+        include: ${{ fromJSON(needs.resolve-benchmark-matrix.outputs.benchmark_matrix) }}
 
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -321,7 +366,7 @@ jobs:
         run: |
           wget -qO- https://github.com/duckdb/duckdb/releases/download/v1.5.3/duckdb_cli-linux-amd64.zip | funzip > duckdb
           chmod +x duckdb
-          echo "$PWD" >> $GITHUB_PATH
+          echo "$PWD" >> "$GITHUB_PATH"
 
       - uses: ./.github/actions/system-info
 
@@ -345,11 +390,11 @@ jobs:
         env:
           RUSTFLAGS: "-C target-cpu=native"
         run: |
-          packages="--bin data-gen --bin datafusion-bench --bin duckdb-bench"
+          packages=(--bin data-gen --bin datafusion-bench --bin duckdb-bench)
           if [ "${{ inputs.mode }}" != "pr" ]; then
-            packages="$packages --bin lance-bench"
+            packages+=(--bin lance-bench)
           fi
-          cargo build $packages --profile release_debug --features unstable_encodings
+          cargo build "${packages[@]}" --profile release_debug --features unstable_encodings
 
       - name: Generate data
         shell: bash
@@ -446,11 +491,16 @@ jobs:
           python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/data.json.gz data.json.gz --no-sign-request
           gzip -d -c data.json.gz > base.json
 
-          echo '# Benchmarks: ${{ matrix.name }}' > comment.md
+          benchmark_name="${{ matrix.name }}"
+          if [ "${{ inputs.benchmark_profile }}" != "full" ]; then
+            benchmark_name="$benchmark_name (${{ inputs.benchmark_profile }})"
+          fi
+
+          echo "# Benchmarks: $benchmark_name" > comment.md
           echo '' >> comment.md
-          uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "${{ matrix.name }}" \
+          uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "$benchmark_name" \
             >> comment.md
-          cat comment.md >> $GITHUB_STEP_SUMMARY
+          cat comment.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment PR
         if: inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
@@ -460,7 +510,7 @@ jobs:
           # There is exactly one comment per comment-tag. If a comment with this tag already exists,
           # this action will *update* the comment instead of posting a new comment. Therefore, each
           # unique benchmark configuration must have a unique comment-tag.
-          comment-tag: bench-pr-comment-${{ matrix.id }}
+          comment-tag: bench-pr-comment-${{ matrix.id }}${{ inputs.benchmark_profile == 'base' && '-base' || '' }}
 
       - name: Comment PR on failure
         if: failure() && inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
@@ -469,8 +519,8 @@ jobs:
           message: |
             # 🚨🚨🚨❌❌❌ SQL BENCHMARK FAILED ❌❌❌🚨🚨🚨
 
-            Benchmark `${{ matrix.name }}` failed! Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
-          comment-tag: bench-pr-comment-${{ matrix.id }}
+            Benchmark `${{ matrix.name }}` (${{ inputs.benchmark_profile }}) failed! Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
+          comment-tag: bench-pr-comment-${{ matrix.id }}${{ inputs.benchmark_profile == 'base' && '-base' || '' }}
 
       - name: Upload Benchmark Results
         if: inputs.mode == 'develop'
