@@ -24,6 +24,7 @@ use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::matcher::Matcher;
+use crate::trace_op;
 
 /// A collection of [`ExecuteParentKernel`]s registered for a specific child encoding.
 ///
@@ -64,13 +65,33 @@ impl<V: VTable> ParentKernelSet<V> {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        for kernel in self.kernels.iter() {
+        #[allow(clippy::unused_enumerate_index)]
+        for (_kernel_idx, kernel) in self.kernels.iter().enumerate() {
             if !kernel.matches(parent) {
+                trace_op!(record_static_execute_parent_no_match(
+                    parent,
+                    child.array(),
+                    child_idx,
+                    _kernel_idx,
+                ));
                 continue;
             }
             if let Some(reduced) = kernel.execute_parent(child, parent, child_idx, ctx)? {
+                trace_op!(record_static_execute_parent_applied(
+                    parent,
+                    child.array(),
+                    child_idx,
+                    _kernel_idx,
+                    &reduced,
+                ));
                 return Ok(Some(reduced));
             }
+            trace_op!(record_static_execute_parent_declined(
+                parent,
+                child.array(),
+                child_idx,
+                _kernel_idx,
+            ));
         }
         Ok(None)
     }

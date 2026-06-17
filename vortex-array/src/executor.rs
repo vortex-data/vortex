@@ -45,6 +45,8 @@ use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::kernels::ArrayKernels;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSet;
+use crate::trace_op;
+use crate::with_execute_parent_trace_phase;
 
 /// Returns the maximum number of iterations to attempt when executing an array before giving up and returning
 /// an error, can be by the `VORTEX_MAX_ITERATIONS` env variables, otherwise defaults to 2^22.
@@ -158,29 +160,47 @@ impl ArrayRef {
     /// partially consumes `current_array`: some slots already live in the builder, so a
     /// parent rewrite would observe inconsistent state and could discard accumulated builder
     /// data.
+    #[allow(clippy::cognitive_complexity)]
     pub fn execute_until<M: Matcher>(self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let mut current_array = self;
         let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
         let mut stack: Vec<StackFrame> = Vec::new();
         let max_iterations = max_iterations();
 
-        for _ in 0..max_iterations {
+        trace_op!(record_execute_until_start::<M>(&current_array));
+
+        for _iteration in 0..max_iterations {
+            trace_op!(record_execute_until_iteration(
+                _iteration,
+                &current_array,
+                stack
+                    .last()
+                    .map(|frame| (&frame.parent_array, frame.slot_idx)),
+                current_builder.is_some(),
+            ));
+
             let is_done = stack
                 .last()
                 .map_or(M::matches as DonePredicate, |frame| frame.done);
 
-            if is_done(&current_array) || AnyCanonical::matches(&current_array) {
+            let done_target = is_done(&current_array);
+            let done_canonical = AnyCanonical::matches(&current_array);
+            trace_op!(record_execute_until_done_check(done_target, done_canonical));
+
+            if done_target || done_canonical {
                 match stack.pop() {
                     None => {
                         debug_assert!(
                             current_builder.is_none(),
                             "root activation should not retain a builder"
                         );
-                        ctx.log(format_args!("-> {}", current_array));
+                        trace_op!(record_execute_until_return(&current_array));
                         return Ok(current_array);
                     }
                     Some(frame) => {
+                        let _slot_idx = frame.slot_idx;
                         (current_array, current_builder) = pop_frame(frame, current_array)?;
+                        trace_op!(record_execute_until_pop_frame(_slot_idx, &current_array));
                         continue;
                     }
                 }
@@ -198,45 +218,57 @@ impl ArrayRef {
             // would be lost when we restore frame.parent_builder.
             if current_builder.is_none()
                 && let Some(frame) = stack.last()
-                && let Some(result) =
-                    current_array.execute_parent(&frame.parent_array, frame.slot_idx, ctx)?
+                && let Some(result) = execute_parent_for_child(
+                    "stack_execute_parent",
+                    &frame.parent_array,
+                    &current_array,
+                    frame.slot_idx,
+                    None,
+                    ctx,
+                )?
             {
-                ctx.log(format_args!(
-                    "execute_parent (stack) rewrote {} -> {}",
-                    current_array, result
-                ));
                 let frame = stack.pop().vortex_expect("just peeked");
-                current_array = result.optimize_ctx(ctx.session())?;
+                let optimized = result.optimize_ctx(ctx.session())?;
+                trace_op!(record_execute_optimized(&result, &optimized));
+                current_array = optimized;
                 current_builder = frame.parent_builder;
                 continue;
+            }
+            if current_builder.is_none() && stack.last().is_some() {
+                trace_op!(record_execute_parent_none(
+                    "stack_execute_parent",
+                    &current_array,
+                ));
             }
 
             // Step 2b: execute_parent against current_array's own children.
             if current_builder.is_none()
                 && let Some(rewritten) = try_execute_parent(&current_array, ctx)?
             {
-                ctx.log(format_args!(
-                    "execute_parent rewrote {} -> {}",
-                    current_array, rewritten
-                ));
-                current_array = rewritten.optimize_ctx(ctx.session())?;
+                let optimized = rewritten.optimize_ctx(ctx.session())?;
+                trace_op!(record_execute_optimized(&rewritten, &optimized));
+                current_array = optimized;
                 continue;
             }
+            if current_builder.is_none() {
+                trace_op!(record_execute_parent_none(
+                    "child_execute_parent",
+                    &current_array,
+                ));
+            }
 
-            // execute step
             let expected_len = current_array.len();
             let expected_dtype = current_array.dtype().clone();
             let stats = current_array.statistics().to_array_stats();
             let encoding_id = current_array.encoding_id();
+            trace_op!(record_execute_encoding(&current_array));
             let result = current_array.execute_encoding_unchecked(ctx)?;
             let (array, step) = result.into_parts();
             match step {
                 ExecutionStep::ExecuteSlot(i, done) => {
                     let (parent, child) = unsafe { array.take_slot_unchecked(i) }?;
-                    ctx.log(format_args!(
-                        "ExecuteSlot({i}): pushing {}, focusing on {}",
-                        parent, child
-                    ));
+
+                    trace_op!(record_execute_slot(i, &parent, &child));
                     stack.push(StackFrame {
                         parent_array: parent,
                         parent_builder: current_builder.take(),
@@ -250,6 +282,7 @@ impl ArrayRef {
                 }
                 ExecutionStep::AppendChild(i) => {
                     if current_builder.is_none() {
+                        trace_op!(record_builder_start(&array));
                         current_builder = Some(builder_with_capacity_in(
                             ctx.allocator(),
                             array.dtype(),
@@ -257,10 +290,10 @@ impl ArrayRef {
                         ));
                     }
                     let (parent, child) = unsafe { array.take_slot_unchecked(i) }?;
-                    ctx.log(format_args!(
-                        "AppendChild({i}): appending {} into builder",
-                        child
-                    ));
+
+                    trace_op!(record_append_child(i, &parent, &child));
+                    trace_op!(record_builder_append(&child));
+
                     // TODO(joe)[7674]: replace with a builder kernel registry so we don't
                     // need to go through the VTable append_to_builder indirection.
                     child.append_to_builder(
@@ -272,7 +305,8 @@ impl ArrayRef {
                     current_array = parent;
                 }
                 ExecutionStep::Done => {
-                    ctx.log(format_args!("Done: {}", array));
+                    let had_builder = current_builder.is_some();
+                    trace_op!(record_execute_done(&array));
                     (current_array, current_builder) = finalize_done(
                         array,
                         current_builder,
@@ -281,6 +315,9 @@ impl ArrayRef {
                         stats,
                         encoding_id,
                     )?;
+                    if had_builder {
+                        trace_op!(record_builder_finish(&current_array));
+                    }
                 }
             }
         }
@@ -307,8 +344,6 @@ pub struct ExecutionCtx {
     session: VortexSession,
     #[cfg(debug_assertions)]
     id: usize,
-    #[cfg(debug_assertions)]
-    ops: Vec<String>,
 }
 
 impl ExecutionCtx {
@@ -321,8 +356,6 @@ impl ExecutionCtx {
                 static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
                 EXEC_CTX_ID.fetch_add(1, Ordering::Relaxed)
             },
-            #[cfg(debug_assertions)]
-            ops: Vec::new(),
         }
     }
 
@@ -335,22 +368,6 @@ impl ExecutionCtx {
     pub fn allocator(&self) -> HostAllocatorRef {
         self.session.allocator()
     }
-
-    /// Log an execution step at the current depth.
-    ///
-    /// Steps are accumulated and dumped as a single trace on Drop at DEBUG level.
-    /// Individual steps are also logged at TRACE level for real-time following.
-    ///
-    /// Use the [`format_args!`] macro to create the `msg` argument.
-    pub fn log(&mut self, msg: fmt::Arguments<'_>) {
-        #[cfg(debug_assertions)]
-        if tracing::enabled!(tracing::Level::DEBUG) {
-            let formatted = format!(" - {msg}");
-            tracing::trace!("exec[{}]: {formatted}", self.id);
-            self.ops.push(formatted);
-        }
-        let _ = msg;
-    }
 }
 
 impl Display for ExecutionCtx {
@@ -359,28 +376,6 @@ impl Display for ExecutionCtx {
         return write!(f, "exec[{}]", self.id);
         #[cfg(not(debug_assertions))]
         write!(f, "exec")
-    }
-}
-
-#[cfg(debug_assertions)]
-impl Drop for ExecutionCtx {
-    fn drop(&mut self) {
-        if !self.ops.is_empty() && tracing::enabled!(tracing::Level::DEBUG) {
-            // Unlike itertools `.format()` (panics in 0.14 on second format)
-            struct FmtOps<'a>(&'a [String]);
-            impl Display for FmtOps<'_> {
-                fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                    for (i, op) in self.0.iter().enumerate() {
-                        if i > 0 {
-                            f.write_str("\n")?;
-                        }
-                        f.write_str(op)?;
-                    }
-                    Ok(())
-                }
-            }
-            tracing::debug!("exec[{}] trace:\n{}", self.id, FmtOps(&self.ops));
-        }
     }
 }
 
@@ -398,60 +393,68 @@ impl Drop for ExecutionCtx {
 /// `AppendChild` is returned.
 impl Executable for ArrayRef {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        trace_op!(record_single_step_start(&array));
+
         if let Some(canonical) = array.as_opt::<AnyCanonical>() {
-            ctx.log(format_args!("-> canonical {}", array));
-            return Ok(Canonical::from(canonical).into_array());
+            let output = Canonical::from(canonical).into_array();
+            trace_op!(record_single_step_applied("canonical", &array, &output));
+            return Ok(output);
         }
+        trace_op!(record_single_step_phase_none("canonical", &array));
 
         if let Some(reduced) = array.reduce()? {
-            ctx.log(format_args!("reduce: rewrote {} -> {}", array, reduced));
             reduced.statistics().inherit_from(array.statistics());
+            trace_op!(record_single_step_applied("reduce", &array, &reduced));
             return Ok(reduced);
         }
+        trace_op!(record_single_step_phase_none("reduce", &array));
 
         for (slot_idx, slot) in array.slots().iter().enumerate() {
             let Some(child) = slot else { continue };
             if let Some(reduced_parent) = child.reduce_parent(&array, slot_idx)? {
-                ctx.log(format_args!(
-                    "reduce_parent: slot[{}]({}) rewrote {} -> {}",
-                    slot_idx,
-                    child.encoding_id(),
-                    array,
-                    reduced_parent
-                ));
                 reduced_parent.statistics().inherit_from(array.statistics());
+                trace_op!(record_single_step_applied(
+                    "reduce_parent",
+                    &array,
+                    &reduced_parent,
+                ));
                 return Ok(reduced_parent);
             }
         }
+        trace_op!(record_single_step_phase_none("reduce_parent", &array));
 
         let tmp_session = ctx.session().clone();
         let kernels = tmp_session.get_opt::<ArrayKernels>();
 
         for (slot_idx, slot) in array.slots().iter().enumerate() {
             let Some(child) = slot else { continue };
-            if let Some(executed_parent) =
-                execute_parent_for_child(&array, child, slot_idx, kernels.as_ref(), ctx)?
-            {
-                ctx.log(format_args!(
-                    "execute_parent: slot[{}]({}) rewrote {} -> {}",
-                    slot_idx,
-                    child.encoding_id(),
-                    array,
-                    executed_parent
-                ));
+            if let Some(executed_parent) = execute_parent_for_child(
+                "single_step_execute_parent",
+                &array,
+                child,
+                slot_idx,
+                kernels.as_ref(),
+                ctx,
+            )? {
                 executed_parent
                     .statistics()
                     .inherit_from(array.statistics());
+                trace_op!(record_single_step_applied(
+                    "execute_parent",
+                    &array,
+                    &executed_parent,
+                ));
                 return Ok(executed_parent);
             }
         }
+        trace_op!(record_single_step_phase_none("execute_parent", &array));
+        trace_op!(record_execute_encoding(&array));
 
-        ctx.log(format_args!("executing {}", array));
         let result = array.execute_encoding(ctx)?;
         let (array, step) = result.into_parts();
         match step {
             ExecutionStep::Done => {
-                ctx.log(format_args!("-> {}", array));
+                trace_op!(record_execute_done(&array));
                 Ok(array)
             }
             ExecutionStep::ExecuteSlot(i, _) => {
@@ -461,9 +464,12 @@ impl Executable for ArrayRef {
             }
             ExecutionStep::AppendChild(_) => {
                 // Single-step: build the entire parent via the builder path.
+                trace_op!(record_builder_start(&array));
                 let builder = builder_with_capacity_in(ctx.allocator(), array.dtype(), array.len());
                 let mut builder = execute_into_builder(array, builder, ctx)?;
-                Ok(builder.finish())
+                let output = builder.finish();
+                trace_op!(record_builder_finish(&output));
+                Ok(output)
             }
         }
     }
@@ -539,6 +545,7 @@ fn finalize_done(
 }
 
 fn execute_parent_for_child(
+    phase: &'static str,
     parent: &ArrayRef,
     child: &ArrayRef,
     slot_idx: usize,
@@ -549,14 +556,30 @@ fn execute_parent_for_child(
         && let Some(plugins) =
             kernels.find_execute_parent(parent.encoding_id(), child.encoding_id())
     {
-        for plugin in plugins.as_ref() {
+        #[allow(clippy::unused_enumerate_index)]
+        for (_plugin_idx, plugin) in plugins.as_ref().iter().enumerate() {
             if let Some(result) = plugin(child, parent, slot_idx, ctx)? {
+                trace_op!(record_session_execute_parent_applied(
+                    phase,
+                    parent,
+                    child,
+                    slot_idx,
+                    _plugin_idx,
+                    &result,
+                ));
                 return Ok(Some(result));
             }
+            trace_op!(record_session_execute_parent_declined(
+                phase,
+                parent,
+                child,
+                slot_idx,
+                _plugin_idx,
+            ));
         }
     }
 
-    child.execute_parent(parent, slot_idx, ctx)
+    with_execute_parent_trace_phase(phase, || child.execute_parent(parent, slot_idx, ctx))
 }
 
 /// Try execute_parent on each occupied slot of the array.
@@ -566,16 +589,14 @@ fn try_execute_parent(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<
 
     for (slot_idx, slot) in array.slots().iter().enumerate() {
         let Some(child) = slot else { continue };
-        if let Some(executed_parent) =
-            execute_parent_for_child(array, child, slot_idx, kernels.as_ref(), ctx)?
-        {
-            ctx.log(format_args!(
-                "execute_parent: slot[{}]({}) rewrote {} -> {}",
-                slot_idx,
-                child.encoding_id(),
-                array,
-                executed_parent
-            ));
+        if let Some(executed_parent) = execute_parent_for_child(
+            "child_execute_parent",
+            array,
+            child,
+            slot_idx,
+            kernels.as_ref(),
+            ctx,
+        )? {
             executed_parent
                 .statistics()
                 .inherit_from(array.statistics());
@@ -677,8 +698,9 @@ impl ExecutionResult {
     ///
     /// The provided array is the (possibly modified) parent that still needs its slot executed.
     pub fn execute_slot<M: Matcher>(array: impl IntoArray, slot_idx: usize) -> Self {
+        let array = array.into_array();
         Self {
-            array: array.into_array(),
+            array,
             step: ExecutionStep::ExecuteSlot(slot_idx, M::matches),
         }
     }
@@ -687,8 +709,9 @@ impl ExecutionResult {
     /// activation's canonical builder, and leave the returned parent as the next
     /// `current_array`.
     pub fn append_child(array: impl IntoArray, slot_idx: usize) -> Self {
+        let array = array.into_array();
         Self {
-            array: array.into_array(),
+            array,
             step: ExecutionStep::AppendChild(slot_idx),
         }
     }

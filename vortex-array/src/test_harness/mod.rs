@@ -13,6 +13,9 @@ use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
 
+#[cfg(not(codspeed))]
+pub mod trace;
+
 /// Check that a named metadata matches its previous versioning.
 ///
 /// Goldenfile takes care of checking for equality against a checked-in file.
