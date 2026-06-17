@@ -52,8 +52,12 @@ use crate::stats::session::StatsSession;
 
 /// Register built-in stats rewrite rules.
 pub(crate) fn register_builtins(session: &StatsSession) {
-    session.register_rewrite(BinaryStatsRewrite::nan_count());
-    session.register_rewrite(BinaryStatsRewrite::all_non_nan());
+    session.register_rewrite(BinaryStatsRewrite {
+        nan_proof: NanProof::NanCount,
+    });
+    session.register_rewrite(BinaryStatsRewrite {
+        nan_proof: NanProof::AllNonNan,
+    });
     session.register_rewrite(BetweenStatsRewrite);
     session.register_rewrite(IsNullNullCountStatsRewrite);
     session.register_rewrite(IsNullAllNonNullStatsRewrite);
@@ -62,29 +66,23 @@ pub(crate) fn register_builtins(session: &StatsSession) {
     session.register_rewrite(IsNotNullAllNullStatsRewrite);
     session.register_rewrite(IsNotNullAllNonNullStatsRewrite);
     session.register_rewrite(LikeStatsRewrite);
-    session.register_rewrite(ListContainsStatsRewrite::nan_count());
-    session.register_rewrite(ListContainsStatsRewrite::all_non_nan());
-    session.register_rewrite(DynamicComparisonStatsRewrite::nan_count());
-    session.register_rewrite(DynamicComparisonStatsRewrite::all_non_nan());
+    session.register_rewrite(ListContainsStatsRewrite {
+        nan_proof: NanProof::NanCount,
+    });
+    session.register_rewrite(ListContainsStatsRewrite {
+        nan_proof: NanProof::AllNonNan,
+    });
+    session.register_rewrite(DynamicComparisonStatsRewrite {
+        nan_proof: NanProof::NanCount,
+    });
+    session.register_rewrite(DynamicComparisonStatsRewrite {
+        nan_proof: NanProof::AllNonNan,
+    });
 }
 
 #[derive(Debug)]
 struct BinaryStatsRewrite {
     nan_proof: NanProof,
-}
-
-impl BinaryStatsRewrite {
-    fn nan_count() -> Self {
-        Self {
-            nan_proof: NanProof::NanCount,
-        }
-    }
-
-    fn all_non_nan() -> Self {
-        Self {
-            nan_proof: NanProof::AllNonNan,
-        }
-    }
 }
 
 impl StatsRewriteRule for BinaryStatsRewrite {
@@ -370,20 +368,6 @@ struct ListContainsStatsRewrite {
     nan_proof: NanProof,
 }
 
-impl ListContainsStatsRewrite {
-    fn nan_count() -> Self {
-        Self {
-            nan_proof: NanProof::NanCount,
-        }
-    }
-
-    fn all_non_nan() -> Self {
-        Self {
-            nan_proof: NanProof::AllNonNan,
-        }
-    }
-}
-
 impl StatsRewriteRule for ListContainsStatsRewrite {
     fn scalar_fn_id(&self) -> ScalarFnId {
         ListContains.id()
@@ -436,20 +420,6 @@ impl StatsRewriteRule for ListContainsStatsRewrite {
 #[derive(Debug)]
 struct DynamicComparisonStatsRewrite {
     nan_proof: NanProof,
-}
-
-impl DynamicComparisonStatsRewrite {
-    fn nan_count() -> Self {
-        Self {
-            nan_proof: NanProof::NanCount,
-        }
-    }
-
-    fn all_non_nan() -> Self {
-        Self {
-            nan_proof: NanProof::AllNonNan,
-        }
-    }
 }
 
 impl StatsRewriteRule for DynamicComparisonStatsRewrite {
