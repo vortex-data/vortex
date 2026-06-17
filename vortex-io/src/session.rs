@@ -11,6 +11,7 @@ use vortex_session::SessionVar;
 use crate::runtime::Handle;
 
 /// Session state for Vortex async runtimes.
+#[derive(Clone)]
 pub struct RuntimeSession {
     handle: Option<Handle>,
 }

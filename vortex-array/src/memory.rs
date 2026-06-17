@@ -173,7 +173,7 @@ pub trait HostAllocatorExt: HostAllocator {
 impl<A: HostAllocator + ?Sized> HostAllocatorExt for A {}
 
 /// Session-scoped memory configuration for Vortex arrays.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MemorySession {
     allocator: HostAllocatorRef,
 }
