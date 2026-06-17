@@ -75,8 +75,8 @@ const BENCH_ARGS: &[TakeBenchArgs] = &[
     // Dense unsorted takes should build the logical-position-to-run table.
     TakeBenchArgs {
         name: "dense_table",
-        array_len: 8_192,
-        run_step: 1,
+        array_len: 32_768,
+        run_step: 4,
         take_len: 2_048,
         pattern: IndexPattern::ReverseDense,
         validity: IndexValidity::NonNullable,
@@ -93,8 +93,8 @@ const BENCH_ARGS: &[TakeBenchArgs] = &[
     // Nullable indices exercise masked stats and table lookup.
     TakeBenchArgs {
         name: "nullable_dense_table",
-        array_len: 8_192,
-        run_step: 1,
+        array_len: 32_768,
+        run_step: 4,
         take_len: 2_048,
         pattern: IndexPattern::ReverseDense,
         validity: IndexValidity::EveryFourthNull,
