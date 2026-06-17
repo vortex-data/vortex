@@ -90,8 +90,12 @@ impl ScalarFnVTable for IsNull {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect as _;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
@@ -101,11 +105,20 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::expr::col;
+    use crate::expr::eq;
     use crate::expr::get_item;
     use crate::expr::is_null;
+    use crate::expr::lit;
+    use crate::expr::or;
     use crate::expr::root;
     use crate::expr::test_harness;
     use crate::scalar::Scalar;
+    use crate::stats::StatsSession;
+    use crate::stats::all_non_null;
+    use crate::stats::null_count;
+
+    static STATS_SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<StatsSession>());
 
     #[test]
     fn dtype() {
@@ -219,6 +232,20 @@ mod tests {
 
         let expr2 = is_null(root());
         assert_eq!(expr2.to_string(), "vortex.is_null($)");
+    }
+
+    #[test]
+    fn test_is_null_falsification() -> VortexResult<()> {
+        let expr = is_null(col("a"));
+
+        assert_eq!(
+            expr.falsify(&test_harness::struct_dtype(), &STATS_SESSION)?,
+            Some(or(
+                eq(null_count(col("a")), lit(0u64)),
+                all_non_null(col("a")),
+            ))
+        );
+        Ok(())
     }
 
     #[test]

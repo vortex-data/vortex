@@ -394,11 +394,14 @@ fn list_is_not_empty(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use itertools::Itertools;
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::Buffer;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::IntoArray;
@@ -413,16 +416,32 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType::I32;
     use crate::dtype::StructFields;
+    use crate::expr::Expression;
+    use crate::expr::and;
+    use crate::expr::col;
     use crate::expr::get_item;
+    use crate::expr::gt;
     use crate::expr::list_contains;
     use crate::expr::lit;
+    use crate::expr::lt;
+    use crate::expr::or;
     use crate::expr::root;
+    use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::list_contains::BoolArray;
     use crate::scalar_fn::fns::list_contains::ConstantArray;
     use crate::scalar_fn::fns::list_contains::ListViewArray;
     use crate::scalar_fn::fns::list_contains::PrimitiveArray;
+    use crate::stats::StatsSession;
+    use crate::stats::stat as stat_expr;
     use crate::validity::Validity;
+
+    static STATS_SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<StatsSession>());
+
+    fn stat(expr: Expression, stat: Stat) -> Expression {
+        stat_expr(expr, stat.aggregate_fn().unwrap())
+    }
 
     fn test_array() -> ArrayRef {
         ListArray::try_new(
@@ -561,6 +580,46 @@ mod tests {
             expr.return_dtype(&scope).unwrap(),
             DType::Bool(Nullability::Nullable)
         );
+    }
+
+    #[test]
+    pub fn list_falsification() -> VortexResult<()> {
+        let expr = list_contains(
+            lit(Scalar::list(
+                Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
+                vec![1.into(), 2.into(), 3.into()],
+                Nullability::NonNullable,
+            )),
+            col("a"),
+        );
+        let scope = DType::Struct(
+            StructFields::new(
+                ["a"].into(),
+                vec![DType::Primitive(I32, Nullability::NonNullable)],
+            ),
+            Nullability::NonNullable,
+        );
+
+        assert_eq!(
+            expr.falsify(&scope, &STATS_SESSION)?,
+            Some(and(
+                and(
+                    or(
+                        lt(stat(col("a"), Stat::Max), lit(1i32)),
+                        gt(stat(col("a"), Stat::Min), lit(1i32)),
+                    ),
+                    or(
+                        lt(stat(col("a"), Stat::Max), lit(2i32)),
+                        gt(stat(col("a"), Stat::Min), lit(2i32)),
+                    )
+                ),
+                or(
+                    lt(stat(col("a"), Stat::Max), lit(3i32)),
+                    gt(stat(col("a"), Stat::Min), lit(3i32)),
+                )
+            ))
+        );
+        Ok(())
     }
 
     #[test]
