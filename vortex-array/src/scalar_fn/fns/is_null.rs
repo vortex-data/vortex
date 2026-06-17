@@ -75,7 +75,7 @@ impl ScalarFnVTable for IsNull {
             return Ok(ConstantArray::new(scalar.is_null(), args.row_count()).into_array());
         }
         // Cheap short-circuit: an entirely-null input is null everywhere.
-        if child.all_null()? {
+        if child.definitely_all_null()? {
             return Ok(ConstantArray::new(true, args.row_count()).into_array());
         }
 

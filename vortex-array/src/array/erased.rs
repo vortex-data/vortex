@@ -331,7 +331,7 @@ impl ArrayRef {
     ///
     /// Compute entry points use this to short-circuit an entirely-null input to a `Constant(null)`
     /// result, skipping canonicalization.
-    pub fn all_null(&self) -> VortexResult<bool> {
+    pub fn definitely_all_null(&self) -> VortexResult<bool> {
         if !self.dtype().is_nullable() {
             return Ok(false);
         }
@@ -792,24 +792,28 @@ mod tests {
     use crate::validity::Validity;
 
     #[test]
-    fn all_null_detects_constant_null() -> vortex_error::VortexResult<()> {
+    fn definitely_all_null_detects_constant_null() -> vortex_error::VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
-        assert!(ConstantArray::null(dtype, 4).into_array().all_null()?);
+        assert!(
+            ConstantArray::null(dtype, 4)
+                .into_array()
+                .definitely_all_null()?
+        );
         assert!(
             !ConstantArray::new(Scalar::primitive(1i32, Nullability::Nullable), 4)
                 .into_array()
-                .all_null()?
+                .definitely_all_null()?
         );
         Ok(())
     }
 
     #[test]
-    fn all_null_via_validity() -> vortex_error::VortexResult<()> {
+    fn definitely_all_null_via_validity() -> vortex_error::VortexResult<()> {
         // AllInvalid validity on a concrete array.
         assert!(
             PrimitiveArray::new(buffer![0i32, 0, 0], Validity::AllInvalid)
                 .into_array()
-                .all_null()?
+                .definitely_all_null()?
         );
 
         // A constant-`false` validity array: the representation all-null arrays will use once the
@@ -818,19 +822,19 @@ mod tests {
         assert!(
             PrimitiveArray::new(buffer![0i32, 0, 0], const_false)
                 .into_array()
-                .all_null()?
+                .definitely_all_null()?
         );
 
         // All-valid and non-nullable arrays are not all-null.
         assert!(
             !PrimitiveArray::new(buffer![1i32, 2, 3], Validity::AllValid)
                 .into_array()
-                .all_null()?
+                .definitely_all_null()?
         );
         assert!(
             !PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable)
                 .into_array()
-                .all_null()?
+                .definitely_all_null()?
         );
         Ok(())
     }
