@@ -247,7 +247,7 @@ mod tests {
         let array =
             PrimitiveArray::new(buffer![1.0f64, f64::NAN, 3.0], Validity::NonNullable).into_array();
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let keep_nans = SkipNansOptions { skip_nans: false };
+        let keep_nans = SkipNansOptions::include();
         let mut acc = Accumulator::try_new(
             Mean::combined(),
             PairOptions(keep_nans, keep_nans),

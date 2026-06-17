@@ -124,14 +124,16 @@ impl AggregateFnVTable for Count {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::ExecutionCtx;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
     use crate::aggregate_fn::AggregateFnVTable;
@@ -149,6 +151,8 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     pub fn count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
         let mut acc =
@@ -168,7 +172,7 @@ mod tests {
     fn count_all_valid() -> VortexResult<()> {
         let array =
             PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5], Validity::NonNullable).into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(count(&array, &mut ctx)?, 5);
         Ok(())
     }
@@ -177,7 +181,7 @@ mod tests {
     fn count_with_nulls() -> VortexResult<()> {
         let array = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None, Some(5)])
             .into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(count(&array, &mut ctx)?, 3);
         Ok(())
     }
@@ -185,7 +189,7 @@ mod tests {
     #[test]
     fn count_all_null() -> VortexResult<()> {
         let array = PrimitiveArray::from_option_iter::<i32, _>([None, None, None]).into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(count(&array, &mut ctx)?, 0);
         Ok(())
     }
@@ -201,7 +205,7 @@ mod tests {
 
     #[test]
     fn count_multi_batch() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
         let mut acc = Accumulator::try_new(Count, SkipNansOptions::default(), dtype)?;
 
@@ -218,7 +222,7 @@ mod tests {
 
     #[test]
     fn count_finish_resets_state() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
         let mut acc = Accumulator::try_new(Count, SkipNansOptions::default(), dtype)?;
 
@@ -270,7 +274,7 @@ mod tests {
         let array =
             PrimitiveArray::from_option_iter([Some(1.0f64), Some(f64::NAN), None, Some(3.0)])
                 .into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(count(&array, &mut ctx)?, 2);
         Ok(())
     }
@@ -280,9 +284,9 @@ mod tests {
         let array =
             PrimitiveArray::from_option_iter([Some(1.0f64), Some(f64::NAN), None, Some(3.0)])
                 .into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(
-            count_with_options(&array, &mut ctx, SkipNansOptions { skip_nans: false })?,
+            count_with_options(&array, &mut ctx, SkipNansOptions::include())?,
             3
         );
         Ok(())
@@ -297,7 +301,7 @@ mod tests {
         array
             .statistics()
             .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(3u64)));
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(count(&array, &mut ctx)?, 1);
         Ok(())
     }
@@ -305,10 +309,10 @@ mod tests {
     #[test]
     fn count_constant_nan() -> VortexResult<()> {
         let array = ConstantArray::new(f64::NAN, 5).into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(count(&array, &mut ctx)?, 0);
         assert_eq!(
-            count_with_options(&array, &mut ctx, SkipNansOptions { skip_nans: false })?,
+            count_with_options(&array, &mut ctx, SkipNansOptions::include())?,
             5
         );
         Ok(())
@@ -317,7 +321,7 @@ mod tests {
     #[test]
     fn count_constant_non_null() -> VortexResult<()> {
         let array = ConstantArray::new(42i32, 10);
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(count(&array.into_array(), &mut ctx)?, 10);
         Ok(())
     }
@@ -328,7 +332,7 @@ mod tests {
             Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
             10,
         );
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(count(&array.into_array(), &mut ctx)?, 0);
         Ok(())
     }
@@ -339,7 +343,7 @@ mod tests {
         let chunk2 = PrimitiveArray::from_option_iter([None, Some(5i32), None]);
         let dtype = chunk1.dtype().clone();
         let chunked = ChunkedArray::try_new(vec![chunk1.into_array(), chunk2.into_array()], dtype)?;
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(count(&chunked.into_array(), &mut ctx)?, 3);
         Ok(())
     }

@@ -187,18 +187,20 @@ impl Stat {
                     .return_dtype(&EmptyOptions, data_type);
             }
             Self::Sum => {
+                // Statistics follow NaN-skipping semantics; request it explicitly.
                 return aggregate_fn::fns::sum::Sum
-                    .return_dtype(&SkipNansOptions::default(), data_type);
+                    .return_dtype(&SkipNansOptions::skip(), data_type);
             }
         })
     }
 
     /// Return the built-in aggregate function corresponding to this statistic, if one exists.
     pub fn aggregate_fn(&self) -> Option<AggregateFnRef> {
+        // Statistics follow NaN-skipping semantics; request it explicitly rather than the default.
         Some(match self {
-            Self::Max => aggregate_fn::fns::max::Max.bind(SkipNansOptions::default()),
-            Self::Min => aggregate_fn::fns::min::Min.bind(SkipNansOptions::default()),
-            Self::Sum => aggregate_fn::fns::sum::Sum.bind(SkipNansOptions::default()),
+            Self::Max => aggregate_fn::fns::max::Max.bind(SkipNansOptions::skip()),
+            Self::Min => aggregate_fn::fns::min::Min.bind(SkipNansOptions::skip()),
+            Self::Sum => aggregate_fn::fns::sum::Sum.bind(SkipNansOptions::skip()),
             Self::NullCount => aggregate_fn::fns::null_count::NullCount.bind(EmptyOptions),
             Self::NaNCount => aggregate_fn::fns::nan_count::NanCount.bind(EmptyOptions),
             Self::UncompressedSizeInBytes => {

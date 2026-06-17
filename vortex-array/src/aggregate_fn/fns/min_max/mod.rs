@@ -46,11 +46,40 @@ static NAMES: LazyLock<FieldNames> = LazyLock::new(|| FieldNames::from(["min", "
 
 /// The minimum and maximum non-null values of an array, or `None` if there are no non-null values.
 ///
-/// NaN values are skipped; see [`min_max_with`] for NaN-including extrema.
+/// NaN handling for float inputs is controlled by [`SkipNansOptions`]: with `skip_nans` (the
+/// default) NaN values are ignored and the cached `Stat::Min`/`Stat::Max` statistics are consulted
+/// and updated. With `skip_nans=false`, any NaN value in a float array poisons both extrema to
+/// NaN; an exact `Stat::NaNCount` statistic shortcircuits the NaN scan in either direction.
 ///
 /// The result scalars have the non-nullable version of the array dtype.
 /// This will update the stats set of the array as a side effect.
-pub fn min_max(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<MinMaxResult>> {
+pub fn min_max(
+    array: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+    options: SkipNansOptions,
+) -> VortexResult<Option<MinMaxResult>> {
+    if !options.skip_nans && array.dtype().is_float() {
+        match array.statistics().get_as::<u64>(Stat::NaNCount) {
+            // NaN-free: identical to the NaN-skipping path below, including its stat caching.
+            Precision::Exact(0) => {}
+            // At least one NaN value poisons both extrema.
+            Precision::Exact(_) => return Ok(Some(nan_minmax_result(array.dtype()))),
+            _ => {
+                if array.is_empty() || array.valid_count(ctx)? == 0 {
+                    return Ok(None);
+                }
+                // Compute with NaN-including options; the NaN-skipping `Stat::Min`/`Stat::Max`
+                // caches are neither read nor written.
+                let mut acc = Accumulator::try_new(MinMax, options, array.dtype().clone())?;
+                acc.accumulate(array, ctx)?;
+                return MinMaxResult::from_scalar(acc.finish()?);
+            }
+        }
+    }
+
+    // NaN-skipping path. Also reached for NaN-free not-skipping float arrays and all non-float
+    // arrays, where `skip_nans` has no effect.
+
     // Short-circuit using cached array statistics.
     let cached_min = array.statistics().get(Stat::Min).as_exact();
     let cached_max = array.statistics().get(Stat::Max).as_exact();
@@ -95,38 +124,6 @@ pub fn min_max(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<
     Ok(result)
 }
 
-/// [`min_max`] with explicit [`SkipNansOptions`].
-///
-/// With `skip_nans` (the default) this is identical to [`min_max`]: NaN values are ignored and
-/// the cached `Stat::Min`/`Stat::Max` statistics are consulted and updated. With
-/// `skip_nans=false`, any NaN value in a float array poisons both extrema to NaN; an exact
-/// `Stat::NaNCount` statistic shortcircuits the NaN scan in either direction.
-pub fn min_max_with(
-    array: &ArrayRef,
-    ctx: &mut ExecutionCtx,
-    options: SkipNansOptions,
-) -> VortexResult<Option<MinMaxResult>> {
-    if !options.skip_nans && array.dtype().is_float() {
-        match array.statistics().get_as::<u64>(Stat::NaNCount) {
-            // NaN-free: identical to the NaN-skipping path, including its stat caching.
-            Precision::Exact(0) => {}
-            // At least one NaN value poisons both extrema.
-            Precision::Exact(_) => return Ok(Some(nan_minmax_result(array.dtype()))),
-            _ => {
-                if array.is_empty() || array.valid_count(ctx)? == 0 {
-                    return Ok(None);
-                }
-                // Compute with NaN-including options; the NaN-skipping `Stat::Min`/`Stat::Max`
-                // caches are neither read nor written.
-                let mut acc = Accumulator::try_new(MinMax, options, array.dtype().clone())?;
-                acc.accumulate(array, ctx)?;
-                return MinMaxResult::from_scalar(acc.finish()?);
-            }
-        }
-    }
-    min_max(array, ctx)
-}
-
 /// A `{min: NaN, max: NaN}` result for a poisoned NaN-including min/max over `dtype`.
 fn nan_minmax_result(dtype: &DType) -> MinMaxResult {
     let nan = nan_scalar(dtype);
@@ -138,14 +135,11 @@ fn nan_minmax_result(dtype: &DType) -> MinMaxResult {
 
 /// A non-nullable NaN scalar of the float `dtype`.
 pub(crate) fn nan_scalar(dtype: &DType) -> Scalar {
-    let DType::Primitive(ptype, _) = dtype else {
-        vortex_panic!("NaN scalar requested for non-primitive dtype {}", dtype);
-    };
-    match ptype {
+    match dtype.as_ptype() {
         PType::F16 => Scalar::primitive(f16::NAN, Nullability::NonNullable),
         PType::F32 => Scalar::primitive(f32::NAN, Nullability::NonNullable),
         PType::F64 => Scalar::primitive(f64::NAN, Nullability::NonNullable),
-        _ => vortex_panic!("NaN scalar requested for non-float dtype {}", dtype),
+        _ => vortex_panic!("NaN scalar requested for non-float dtype {dtype}"),
     }
 }
 
@@ -228,7 +222,7 @@ impl MinMaxPartial {
 
     /// Poison the partial state to `{min: NaN, max: NaN}`.
     fn poison(&mut self) {
-        let nan = nan_scalar(&self.element_dtype.as_nonnullable());
+        let nan = nan_scalar(&self.element_dtype);
         self.min = Some(nan.clone());
         self.max = Some(nan);
     }
@@ -359,6 +353,8 @@ impl AggregateFnVTable for MinMax {
                 let cached_min = batch.statistics().get(Stat::Min).as_exact();
                 let cached_max = batch.statistics().get(Stat::Max).as_exact();
                 if let Some((min, max)) = cached_min.zip(cached_max) {
+                    // Cached float stats carry the (possibly nullable) array dtype; `to_scalar`
+                    // builds a struct with non-nullable fields, so normalise here.
                     let non_nullable_dtype = partial.element_dtype.as_nonnullable();
                     partial.merge(Some(MinMaxResult {
                         min: min.cast(&non_nullable_dtype)?,
@@ -433,14 +429,15 @@ impl AggregateFnVTable for MinMax {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray as _;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
     use crate::aggregate_fn::AggregateFnVTable;
@@ -450,7 +447,6 @@ mod tests {
     use crate::aggregate_fn::fns::min_max::MinMaxResult;
     use crate::aggregate_fn::fns::min_max::make_minmax_dtype;
     use crate::aggregate_fn::fns::min_max::min_max;
-    use crate::aggregate_fn::fns::min_max::min_max_with;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
@@ -471,12 +467,14 @@ mod tests {
     use crate::scalar::ScalarValue;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+
     #[test]
     fn test_prim_min_max() -> VortexResult<()> {
         let p = PrimitiveArray::new(buffer![1, 2, 3], Validity::NonNullable).into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(
-            min_max(&p, &mut ctx)?,
+            min_max(&p, &mut ctx, SkipNansOptions::default())?,
             Some(MinMaxResult {
                 min: 1.into(),
                 max: 3.into()
@@ -500,9 +498,9 @@ mod tests {
             Some(7),
         ])
         .into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(
-            min_max(&p, &mut ctx)?,
+            min_max(&p, &mut ctx, SkipNansOptions::default())?,
             Some(MinMaxResult {
                 min: 1.into(),
                 max: 9.into()
@@ -513,7 +511,7 @@ mod tests {
 
     #[test]
     fn test_bool_min_max() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let all_true = BoolArray::new(
             BitBuffer::from([true, true, true].as_slice()),
@@ -521,7 +519,7 @@ mod tests {
         )
         .into_array();
         assert_eq!(
-            min_max(&all_true, &mut ctx)?,
+            min_max(&all_true, &mut ctx, SkipNansOptions::default())?,
             Some(MinMaxResult {
                 min: true.into(),
                 max: true.into()
@@ -534,7 +532,7 @@ mod tests {
         )
         .into_array();
         assert_eq!(
-            min_max(&all_false, &mut ctx)?,
+            min_max(&all_false, &mut ctx, SkipNansOptions::default())?,
             Some(MinMaxResult {
                 min: false.into(),
                 max: false.into()
@@ -547,7 +545,7 @@ mod tests {
         )
         .into_array();
         assert_eq!(
-            min_max(&mixed, &mut ctx)?,
+            min_max(&mixed, &mut ctx, SkipNansOptions::default())?,
             Some(MinMaxResult {
                 min: false.into(),
                 max: true.into()
@@ -559,8 +557,8 @@ mod tests {
     #[test]
     fn test_null_array() -> VortexResult<()> {
         let p = NullArray::new(1).into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        assert_eq!(min_max(&p, &mut ctx)?, None);
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_eq!(min_max(&p, &mut ctx, SkipNansOptions::default())?, None);
         Ok(())
     }
 
@@ -570,8 +568,9 @@ mod tests {
             buffer![f32::NAN, -f32::NAN, -1.0, 1.0],
             Validity::NonNullable,
         );
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let result = min_max(&array.into_array(), &mut ctx)?.vortex_expect("should have result");
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = min_max(&array.into_array(), &mut ctx, SkipNansOptions::default())?
+            .vortex_expect("should have result");
         assert_eq!(f32::try_from(&result.min)?, -1.0);
         assert_eq!(f32::try_from(&result.max)?, 1.0);
         Ok(())
@@ -583,8 +582,9 @@ mod tests {
             buffer![f32::INFINITY, f32::NEG_INFINITY, -1.0, 1.0],
             Validity::NonNullable,
         );
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let result = min_max(&array.into_array(), &mut ctx)?.vortex_expect("should have result");
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = min_max(&array.into_array(), &mut ctx, SkipNansOptions::default())?
+            .vortex_expect("should have result");
         assert_eq!(f32::try_from(&result.min)?, f32::NEG_INFINITY);
         assert_eq!(f32::try_from(&result.max)?, f32::INFINITY);
         Ok(())
@@ -592,7 +592,7 @@ mod tests {
 
     #[test]
     fn test_multi_batch() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let mut acc = Accumulator::try_new(MinMax, SkipNansOptions::default(), dtype)?;
 
@@ -610,7 +610,7 @@ mod tests {
 
     #[test]
     fn test_finish_resets_state() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let mut acc = Accumulator::try_new(MinMax, SkipNansOptions::default(), dtype)?;
 
@@ -654,12 +654,12 @@ mod tests {
     fn test_constant_nan() -> VortexResult<()> {
         let scalar = Scalar::primitive(f16::NAN, Nullability::NonNullable);
         let array = ConstantArray::new(scalar, 2).into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        assert_eq!(min_max(&array, &mut ctx)?, None);
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_eq!(min_max(&array, &mut ctx, SkipNansOptions::default())?, None);
         Ok(())
     }
 
-    const KEEP_NANS: SkipNansOptions = SkipNansOptions { skip_nans: false };
+    const KEEP_NANS: SkipNansOptions = SkipNansOptions::include();
 
     fn assert_poisoned(result: Option<MinMaxResult>) -> VortexResult<()> {
         let result = result.vortex_expect("should have result");
@@ -675,16 +675,16 @@ mod tests {
             Validity::NonNullable,
         )
         .into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        assert_poisoned(min_max_with(&array, &mut ctx, KEEP_NANS)?)
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_poisoned(min_max(&array, &mut ctx, KEEP_NANS)?)
     }
 
     #[test]
     fn test_prim_no_nan_not_skipping() -> VortexResult<()> {
         let array =
             PrimitiveArray::new(buffer![3.0f32, -1.0, 1.0], Validity::NonNullable).into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let result = min_max_with(&array, &mut ctx, KEEP_NANS)?.vortex_expect("should have result");
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = min_max(&array, &mut ctx, KEEP_NANS)?.vortex_expect("should have result");
         assert_eq!(f32::try_from(&result.min)?, -1.0);
         assert_eq!(f32::try_from(&result.max)?, 3.0);
         Ok(())
@@ -694,8 +694,8 @@ mod tests {
     fn test_constant_nan_not_skipping() -> VortexResult<()> {
         let scalar = Scalar::primitive(f64::NAN, Nullability::NonNullable);
         let array = ConstantArray::new(scalar, 2).into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        assert_poisoned(min_max_with(&array, &mut ctx, KEEP_NANS)?)
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_poisoned(min_max(&array, &mut ctx, KEEP_NANS)?)
     }
 
     #[test]
@@ -707,8 +707,8 @@ mod tests {
         array
             .statistics()
             .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(2u64)));
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        assert_poisoned(min_max_with(&array, &mut ctx, KEEP_NANS)?)
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_poisoned(min_max(&array, &mut ctx, KEEP_NANS)?)
     }
 
     #[test]
@@ -725,16 +725,42 @@ mod tests {
         array
             .statistics()
             .set(Stat::Max, Precision::Exact(ScalarValue::from(10.0f64)));
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let result = min_max_with(&array, &mut ctx, KEEP_NANS)?.vortex_expect("should have result");
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = min_max(&array, &mut ctx, KEEP_NANS)?.vortex_expect("should have result");
         assert_eq!(f64::try_from(&result.min)?, -10.0);
         assert_eq!(f64::try_from(&result.max)?, 10.0);
         Ok(())
     }
 
     #[test]
+    fn test_accumulator_nan_including_nullable_cached_stats() -> VortexResult<()> {
+        // A nullable float array's cached Min/Max stats are reconstructed as nullable scalars.
+        // The NaN-including accumulator shortcircuit must normalise them to the non-nullable
+        // struct field dtype before building the result scalar.
+        let mut ctx = SESSION.create_execution_ctx();
+        let array =
+            PrimitiveArray::from_option_iter([Some(1.0f64), Some(2.0), Some(3.0)]).into_array();
+        array
+            .statistics()
+            .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(0u64)));
+        array
+            .statistics()
+            .set(Stat::Min, Precision::Exact(ScalarValue::from(1.0f64)));
+        array
+            .statistics()
+            .set(Stat::Max, Precision::Exact(ScalarValue::from(3.0f64)));
+
+        let mut acc = Accumulator::try_new(MinMax, KEEP_NANS, array.dtype().clone())?;
+        acc.accumulate(&array, &mut ctx)?;
+        let result = MinMaxResult::from_scalar(acc.finish()?)?.vortex_expect("should have result");
+        assert_eq!(f64::try_from(&result.min)?, 1.0);
+        assert_eq!(f64::try_from(&result.max)?, 3.0);
+        Ok(())
+    }
+
+    #[test]
     fn test_multi_batch_nan_poisoning() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
         let mut acc = Accumulator::try_new(MinMax, KEEP_NANS, dtype)?;
 
@@ -755,8 +781,9 @@ mod tests {
         let chunk2 = PrimitiveArray::from_option_iter([Some(10i32), Some(3), None]);
         let dtype = chunk1.dtype().clone();
         let chunked = ChunkedArray::try_new(vec![chunk1.into_array(), chunk2.into_array()], dtype)?;
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let result = min_max(&chunked.into_array(), &mut ctx)?.vortex_expect("should have result");
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = min_max(&chunked.into_array(), &mut ctx, SkipNansOptions::default())?
+            .vortex_expect("should have result");
         assert_eq!(result.min, Scalar::from(1i32));
         assert_eq!(result.max, Scalar::from(10i32));
         Ok(())
@@ -765,8 +792,11 @@ mod tests {
     #[test]
     fn test_all_null() -> VortexResult<()> {
         let p = PrimitiveArray::from_option_iter::<i32, _>([None, None, None]);
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        assert_eq!(min_max(&p.into_array(), &mut ctx)?, None);
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_eq!(
+            min_max(&p.into_array(), &mut ctx, SkipNansOptions::default())?,
+            None
+        );
         Ok(())
     }
 
@@ -781,8 +811,9 @@ mod tests {
             ],
             DType::Utf8(Nullability::Nullable),
         );
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let result = min_max(&array.into_array(), &mut ctx)?.vortex_expect("should have result");
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = min_max(&array.into_array(), &mut ctx, SkipNansOptions::default())?
+            .vortex_expect("should have result");
         assert_eq!(
             result.min,
             Scalar::utf8("hello world", Nullability::NonNullable)
@@ -804,8 +835,9 @@ mod tests {
             DecimalDType::new(4, 2),
             Validity::from_iter([true, false, true]),
         );
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let result = min_max(&decimal.into_array(), &mut ctx)?.vortex_expect("should have result");
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = min_max(&decimal.into_array(), &mut ctx, SkipNansOptions::default())?
+            .vortex_expect("should have result");
 
         let non_nullable_dtype = DType::Decimal(DecimalDType::new(4, 2), Nullability::NonNullable);
         let expected_min = Scalar::try_new(
@@ -840,7 +872,7 @@ mod tests {
 
     #[test]
     fn list_and_fixed_size_list_min_max_returns_none() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let list_array = ListArray::try_new(
             buffer![1i32, 2, 3].into_array(),
@@ -848,7 +880,10 @@ mod tests {
             Validity::NonNullable,
         )?
         .into_array();
-        assert_eq!(min_max(&list_array, &mut ctx)?, None);
+        assert_eq!(
+            min_max(&list_array, &mut ctx, SkipNansOptions::default())?,
+            None
+        );
 
         let fixed_size_list_array = FixedSizeListArray::try_new(
             buffer![1i32, 2, 3, 4].into_array(),
@@ -857,7 +892,10 @@ mod tests {
             2,
         )?
         .into_array();
-        assert_eq!(min_max(&fixed_size_list_array, &mut ctx)?, None);
+        assert_eq!(
+            min_max(&fixed_size_list_array, &mut ctx, SkipNansOptions::default())?,
+            None
+        );
 
         Ok(())
     }
@@ -866,11 +904,12 @@ mod tests {
 
     #[test]
     fn test_bool_with_nulls() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let result = min_max(
             &BoolArray::from_iter(vec![Some(true), Some(true), None, None]).into_array(),
             &mut ctx,
+            SkipNansOptions::default(),
         )?;
         assert_eq!(
             result,
@@ -883,6 +922,7 @@ mod tests {
         let result = min_max(
             &BoolArray::from_iter(vec![None, Some(true), Some(true)]).into_array(),
             &mut ctx,
+            SkipNansOptions::default(),
         )?;
         assert_eq!(
             result,
@@ -895,6 +935,7 @@ mod tests {
         let result = min_max(
             &BoolArray::from_iter(vec![None, Some(true), Some(true), None]).into_array(),
             &mut ctx,
+            SkipNansOptions::default(),
         )?;
         assert_eq!(
             result,
@@ -907,6 +948,7 @@ mod tests {
         let result = min_max(
             &BoolArray::from_iter(vec![Some(false), Some(false), None, None]).into_array(),
             &mut ctx,
+            SkipNansOptions::default(),
         )?;
         assert_eq!(
             result,
@@ -925,7 +967,7 @@ mod tests {
     /// partial state.
     #[test]
     fn test_bool_chunked_with_empty_chunk() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let empty = BoolArray::new(BitBuffer::from([].as_slice()), Validity::NonNullable);
         let chunk1 = BoolArray::new(
@@ -941,7 +983,7 @@ mod tests {
             DType::Bool(Nullability::NonNullable),
         )?;
 
-        let result = min_max(&chunked.into_array(), &mut ctx)?;
+        let result = min_max(&chunked.into_array(), &mut ctx, SkipNansOptions::default())?;
         assert_eq!(
             result,
             Some(MinMaxResult {
@@ -960,7 +1002,7 @@ mod tests {
     /// running min/max. Empty chunks are now skipped during chunked aggregation.
     #[test]
     fn test_chunked_with_empty_constant_chunk() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let empty = ConstantArray::new(Scalar::primitive(u32::MAX, Nullability::NonNullable), 0)
             .into_array();
@@ -972,7 +1014,7 @@ mod tests {
         )?;
 
         assert_eq!(
-            min_max(&chunked.into_array(), &mut ctx)?,
+            min_max(&chunked.into_array(), &mut ctx, SkipNansOptions::default())?,
             Some(MinMaxResult {
                 min: Scalar::primitive(0u32, Nullability::NonNullable),
                 max: Scalar::primitive(7631471u32, Nullability::NonNullable),
@@ -987,8 +1029,11 @@ mod tests {
             vec![Option::<&str>::None, None, None],
             DType::Utf8(Nullability::Nullable),
         );
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        assert_eq!(min_max(&array.into_array(), &mut ctx)?, None);
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_eq!(
+            min_max(&array.into_array(), &mut ctx, SkipNansOptions::default())?,
+            None
+        );
         Ok(())
     }
 }

@@ -186,7 +186,7 @@ impl AggregateFnVTable for BoundedMin {
             Columnar::Canonical(canonical) => canonical.clone().into_array(),
             Columnar::Constant(constant) => constant.clone().into_array(),
         };
-        let Some(result) = min_max(&array, ctx)? else {
+        let Some(result) = min_max(&array, ctx, SkipNansOptions::default())? else {
             return Ok(());
         };
         if let Some(bound) = truncate_min(result.min, partial.max_bytes.get())? {
@@ -358,12 +358,11 @@ mod tests {
             AggregateFnSatisfaction::Approximate
         );
         assert_eq!(
-            stored.can_satisfy(&Min.bind(SkipNansOptions { skip_nans: false })),
+            stored.can_satisfy(&Min.bind(SkipNansOptions::include())),
             AggregateFnSatisfaction::No
         );
         assert_eq!(
-            Min.bind(SkipNansOptions { skip_nans: false })
-                .can_satisfy(&stored),
+            Min.bind(SkipNansOptions::include()).can_satisfy(&stored),
             AggregateFnSatisfaction::No
         );
         assert_eq!(

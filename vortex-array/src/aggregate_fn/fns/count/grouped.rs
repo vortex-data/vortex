@@ -220,8 +220,7 @@ mod tests {
         let expected = PrimitiveArray::new(buffer![1u64, 1], Validity::NonNullable).into_array();
         assert_arrays_eq!(&actual, &expected);
 
-        let mut acc =
-            GroupedAccumulator::try_new(Count, SkipNansOptions { skip_nans: false }, elem_dtype)?;
+        let mut acc = GroupedAccumulator::try_new(Count, SkipNansOptions::include(), elem_dtype)?;
         acc.accumulate_list(&groups, &mut LEGACY_SESSION.create_execution_ctx())?;
         let actual = acc.finish()?;
         let expected = PrimitiveArray::new(buffer![2u64, 1], Validity::NonNullable).into_array();

@@ -32,14 +32,11 @@ impl DynAggregateKernel for SequenceMinMaxKernel {
         batch: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Scalar>> {
-        let Some(options) = aggregate_fn.as_opt::<MinMax>() else {
-            return Ok(None);
-        };
-        // The algebraic extrema assume NaN-skipping semantics; decline NaN-including requests
-        // over float sequences.
-        if !options.skip_nans && batch.dtype().is_float() {
+        if !aggregate_fn.is::<MinMax>() {
             return Ok(None);
         }
+        // Sequence arrays are always integer-typed (float multipliers are unsupported), so NaN
+        // handling never applies and `SkipNansOptions` can be ignored.
 
         let Some(seq) = batch.as_opt::<Sequence>() else {
             return Ok(None);

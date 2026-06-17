@@ -65,6 +65,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::SkipNansOptions;
     use vortex_array::aggregate_fn::fns::min_max::MinMaxResult;
     use vortex_array::aggregate_fn::fns::min_max::min_max;
     use vortex_array::scalar::Scalar;
@@ -99,10 +100,18 @@ mod tests {
     #[case(Sparse::try_new(buffer![0u64, 1, 2].into_array(), buffer![7i32, 3, 9].into_array(), 3, Scalar::from(99i32)).unwrap())]
     fn min_max_matches_canonical(#[case] array: SparseArray) {
         let arr = array.into_array();
-        let kernel: Option<MinMaxResult> =
-            min_max(&arr, &mut SESSION.create_execution_ctx()).unwrap();
-        let canonical: Option<MinMaxResult> =
-            min_max(&arr, &mut CANONICAL_SESSION.create_execution_ctx()).unwrap();
+        let kernel: Option<MinMaxResult> = min_max(
+            &arr,
+            &mut SESSION.create_execution_ctx(),
+            SkipNansOptions::default(),
+        )
+        .unwrap();
+        let canonical: Option<MinMaxResult> = min_max(
+            &arr,
+            &mut CANONICAL_SESSION.create_execution_ctx(),
+            SkipNansOptions::default(),
+        )
+        .unwrap();
         assert_eq!(kernel, canonical);
     }
 }

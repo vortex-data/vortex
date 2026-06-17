@@ -361,8 +361,7 @@ mod tests {
         let elem_dtype = DType::Primitive(PType::F64, NonNullable);
         let groups = listview(elements, &[(0, 3), (3, 2)], &[true, true])?;
 
-        let mut acc =
-            GroupedAccumulator::try_new(Sum, SkipNansOptions { skip_nans: false }, elem_dtype)?;
+        let mut acc = GroupedAccumulator::try_new(Sum, SkipNansOptions::include(), elem_dtype)?;
         acc.accumulate_list(&groups, &mut LEGACY_SESSION.create_execution_ctx())?;
         let actual = acc.finish()?;
 

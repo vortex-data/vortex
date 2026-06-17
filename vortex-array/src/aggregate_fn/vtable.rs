@@ -183,9 +183,27 @@ pub struct SkipNansOptions {
     pub skip_nans: bool,
 }
 
+impl SkipNansOptions {
+    /// Options that skip NaN values, treating them as missing during aggregation.
+    ///
+    /// This is the default configuration; see [`SkipNansOptions::include`] for the NaN-including
+    /// variant.
+    pub const fn skip() -> Self {
+        Self { skip_nans: true }
+    }
+
+    /// Options that include NaN values in the aggregate: `count` counts them, while any NaN
+    /// poisons the result of `sum`/`min`/`max`/`mean` to NaN.
+    ///
+    /// See [`SkipNansOptions::skip`] for the default NaN-skipping variant.
+    pub const fn include() -> Self {
+        Self { skip_nans: false }
+    }
+}
+
 impl Default for SkipNansOptions {
     fn default() -> Self {
-        Self { skip_nans: true }
+        Self::skip()
     }
 }
 

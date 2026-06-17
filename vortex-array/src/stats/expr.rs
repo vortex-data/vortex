@@ -30,12 +30,14 @@ pub fn stat(expr: Expression, aggregate_fn: AggregateFnRef) -> Expression {
 
 /// Creates `stat(expr, min_max)`, returning a nullable `{ min, max }` struct statistic.
 pub fn min_max(expr: Expression) -> Expression {
-    stat(expr, MinMax.bind(SkipNansOptions::default()))
+    // Statistics follow NaN-skipping semantics; request it explicitly rather than via the default.
+    stat(expr, MinMax.bind(SkipNansOptions::skip()))
 }
 
 /// Creates `stat(expr, sum)`, returning a nullable sum statistic.
 pub fn sum(expr: Expression) -> Expression {
-    stat(expr, Sum.bind(SkipNansOptions::default()))
+    // Statistics follow NaN-skipping semantics; request it explicitly rather than via the default.
+    stat(expr, Sum.bind(SkipNansOptions::skip()))
 }
 
 /// Creates `stat(expr, null_count)`, returning a nullable null-count statistic.

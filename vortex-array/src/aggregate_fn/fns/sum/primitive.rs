@@ -356,7 +356,7 @@ mod tests {
     fn sum_f64_with_nan_not_skipping() -> VortexResult<()> {
         let arr =
             PrimitiveArray::new(buffer![1.0f64, f64::NAN, 2.0], Validity::NonNullable).into_array();
-        let result = sum_with_options(&arr, SkipNansOptions { skip_nans: false })?;
+        let result = sum_with_options(&arr, SkipNansOptions::include())?;
         assert!(result.as_primitive().typed_value::<f64>().unwrap().is_nan());
         Ok(())
     }
@@ -365,7 +365,7 @@ mod tests {
     fn sum_f64_without_nan_not_skipping() -> VortexResult<()> {
         let arr =
             PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0], Validity::NonNullable).into_array();
-        let result = sum_with_options(&arr, SkipNansOptions { skip_nans: false })?;
+        let result = sum_with_options(&arr, SkipNansOptions::include())?;
         assert_eq!(result.as_primitive().typed_value::<f64>(), Some(6.0));
         Ok(())
     }
@@ -378,7 +378,7 @@ mod tests {
             PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0], Validity::NonNullable).into_array();
         arr.statistics()
             .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(1u64)));
-        let result = sum_with_options(&arr, SkipNansOptions { skip_nans: false })?;
+        let result = sum_with_options(&arr, SkipNansOptions::include())?;
         assert!(result.as_primitive().typed_value::<f64>().unwrap().is_nan());
         Ok(())
     }
@@ -392,7 +392,7 @@ mod tests {
             .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(0u64)));
         arr.statistics()
             .set(Stat::Sum, Precision::Exact(ScalarValue::from(42.0f64)));
-        let result = sum_with_options(&arr, SkipNansOptions { skip_nans: false })?;
+        let result = sum_with_options(&arr, SkipNansOptions::include())?;
         assert_eq!(result.as_primitive().typed_value::<f64>(), Some(42.0));
         Ok(())
     }
@@ -404,7 +404,7 @@ mod tests {
         let result = sum_with_options(&arr, SkipNansOptions::default())?;
         assert_eq!(result.as_primitive().typed_value::<f64>(), Some(0.0));
 
-        let result = sum_with_options(&arr, SkipNansOptions { skip_nans: false })?;
+        let result = sum_with_options(&arr, SkipNansOptions::include())?;
         assert!(result.as_primitive().typed_value::<f64>().unwrap().is_nan());
         Ok(())
     }
