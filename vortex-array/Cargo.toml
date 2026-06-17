@@ -131,6 +131,10 @@ name = "binary_ops"
 harness = false
 
 [[bench]]
+name = "kleene_bool"
+harness = false
+
+[[bench]]
 name = "interleave"
 harness = false
 

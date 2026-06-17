@@ -116,6 +116,7 @@ jobs:
       - name: Run fuzzing target
         id: fuzz
         run: |
+          CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}"
           FEATURES_FLAG=""
           if [ -n "${{ inputs.extra_features }}" ]; then
             FEATURES_FLAG="--features ${{ inputs.extra_features }}"
@@ -127,7 +128,7 @@ jobs:
           ${{ inputs.extra_env }} RUST_BACKTRACE=1 \
             cargo +$NIGHTLY_TOOLCHAIN fuzz run --release --debug-assertions \
             $FEATURES_FLAG \
-            ${{ inputs.fuzz_target }} -- \
+            ${{ inputs.fuzz_target }} "$CORPUS_DIR" -- \
             $FORK_FLAG -max_total_time=${{ inputs.max_time }} -rss_limit_mb=0 \
             2>&1 | tee fuzz_output.log
         continue-on-error: true
