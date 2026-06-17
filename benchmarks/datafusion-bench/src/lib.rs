@@ -24,6 +24,10 @@ use object_store::aws::AmazonS3Builder;
 use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::local::LocalFileSystem;
 use url::Url;
+use vortex::scan::ScanScheduler;
+use vortex::scan::ScanSchedulerConfig;
+use vortex::scan::ScanSchedulerSessionExt;
+use vortex::session::VortexSession;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
 use vortex_datafusion::VortexFormat;
@@ -45,10 +49,13 @@ pub fn get_session_context() -> SessionContext {
         .build_arc()
         .expect("could not build runtime environment");
 
-    let factory = VortexFormatFactory::new().with_options(VortexTableOptions {
-        projection_pushdown: true,
-        ..Default::default()
-    });
+    let factory = VortexFormatFactory::new_with_options(
+        vortex_session_from_env().expect("invalid VORTEX_SCAN_SCHEDULER"),
+        VortexTableOptions {
+            projection_pushdown: true,
+            ..Default::default()
+        },
+    );
 
     let mut session_state_builder = SessionStateBuilder::new()
         .with_config(SessionConfig::from_env().expect("shouldn't fail"))
@@ -109,16 +116,45 @@ pub fn make_object_store(
     }
 }
 
-pub fn format_to_df_format(format: Format) -> Arc<dyn FileFormat> {
+pub fn format_to_df_format(format: Format) -> anyhow::Result<Arc<dyn FileFormat>> {
     match format {
-        Format::Csv => Arc::new(CsvFormat::default()) as _,
-        Format::Arrow => Arc::new(ArrowFormat),
-        Format::Parquet => Arc::new(ParquetFormat::new()),
+        Format::Csv => Ok(Arc::new(CsvFormat::default()) as _),
+        Format::Arrow => Ok(Arc::new(ArrowFormat)),
+        Format::Parquet => Ok(Arc::new(ParquetFormat::new())),
         Format::OnDiskVortex | Format::VortexCompact => {
-            Arc::new(VortexFormat::new(SESSION.clone()))
+            Ok(Arc::new(VortexFormat::new(vortex_session_from_env()?)))
         }
         Format::OnDiskDuckDB | Format::Lance => {
-            unimplemented!("Format {format} cannot be turned into a DataFusion `FileFormat`")
+            anyhow::bail!("Format {format} cannot be turned into a DataFusion `FileFormat`")
         }
     }
+}
+
+fn vortex_session_from_env() -> anyhow::Result<VortexSession> {
+    let session = SESSION.clone();
+    let Ok(mode) = std::env::var("VORTEX_SCAN_SCHEDULER") else {
+        return Ok(session);
+    };
+    let config = scan_scheduler_config_from_env()?;
+    Ok(match mode.as_str() {
+        "unbounded" => session.with_unbounded_scan_scheduler(),
+        "shared" | "global" => session.with_scan_scheduler(Arc::new(ScanScheduler::new(config))),
+        "per-query" | "per-scan" => session.with_new_scan_scheduler_per_scan(config),
+        other => anyhow::bail!(
+            "Invalid VORTEX_SCAN_SCHEDULER={other}; expected unbounded, shared, or per-query"
+        ),
+    })
+}
+
+fn scan_scheduler_config_from_env() -> anyhow::Result<ScanSchedulerConfig> {
+    Ok(std::env::var("VORTEX_SCAN_MAX_MORSEL_SLOTS")
+        .ok()
+        .map(|value| {
+            value
+                .parse::<usize>()
+                .map(ScanSchedulerConfig::morsel_slots)
+                .map_err(|e| anyhow::anyhow!("invalid scan scheduler slot count {value}: {e}"))
+        })
+        .transpose()?
+        .unwrap_or_else(ScanSchedulerConfig::default_morsel_slots))
 }

@@ -22,7 +22,9 @@ vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
+vortex-utils = { workspace = true }
 
+async-lock = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true }
 roaring = { workspace = true }

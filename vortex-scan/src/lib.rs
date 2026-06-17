@@ -23,6 +23,7 @@
 //!   example which encodings it knows about.
 
 pub mod row_mask;
+pub mod scheduler;
 pub mod selection;
 
 use std::any::Any;
@@ -31,12 +32,27 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::stream::BoxStream;
+pub use scheduler::ScanMeta;
+pub use scheduler::ScanScheduler;
+pub use scheduler::ScanSchedulerConfig;
+pub use scheduler::ScanSchedulerProvider;
+pub use scheduler::ScanSchedulerSession;
+pub use scheduler::ScanSchedulerSessionExt;
+pub use scheduler::ScanTicket;
+pub use scheduler::ScanWorkClass;
+pub use scheduler::WorkPermit;
+pub use scheduler::WorkRequest;
 use selection::Selection;
+use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
 use vortex_array::expr::Expression;
 use vortex_array::expr::root;
 use vortex_array::expr::stats::Precision;
+use vortex_array::expr::stats::Stat;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::fns::get_item::GetItem;
+use vortex_array::scalar_fn::fns::root::Root;
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
@@ -114,11 +130,80 @@ pub trait DataSource: 'static + Send + Sync {
         vortex_bail!("DataSource does not support deserialization")
     }
 
+    /// Whether this source can split one scan into stable round-robin morsel partitions.
+    ///
+    /// Engines can use this to expose parallel scan partitions even when the underlying
+    /// source does not have enough file-level partitions. This is an execution hint, not
+    /// a guarantee that each partition has contiguous rows.
+    fn supports_morsel_partitioning(&self) -> bool {
+        false
+    }
+
+    /// Plans one scan into round-robin morsel partitions.
+    ///
+    /// Implementations should return `Ok(None)` when they cannot share one planned scan across
+    /// output partitions. When supported, the returned plan should cap its actual partition count
+    /// at the number of planned morsels and each partition should share the same planned scan
+    /// state instead of re-planning independently.
+    async fn plan_morsel_partitions(
+        &self,
+        _scan_request: ScanRequest,
+        _target_partitions: usize,
+    ) -> VortexResult<Option<PlannedMorselScanRef>> {
+        Ok(None)
+    }
+
     /// Returns a scan over the source.
     async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef>;
 
+    /// Returns metadata aggregate statistics for `expr` over the unfiltered source.
+    ///
+    /// The returned vector is positional against `funcs`. Each value is exact, inexact, or absent
+    /// for the requested aggregate function. The default implementation bridges simple top-level
+    /// field expressions through [`Self::field_statistics`] for compatibility with older sources.
+    async fn statistics(
+        &self,
+        expr: &Expression,
+        funcs: &[AggregateFnRef],
+    ) -> VortexResult<Vec<Precision<Scalar>>> {
+        let Some(field_path) = root_field_path(expr) else {
+            return Ok(absent_statistics(funcs));
+        };
+        let Some(field_dtype) = field_path.resolve(self.dtype().clone()) else {
+            return Ok(absent_statistics(funcs));
+        };
+        let stats = self.field_statistics(&field_path).await?;
+
+        funcs
+            .iter()
+            .map(|func| {
+                let Some(stat) = Stat::from_aggregate_fn(func) else {
+                    return Ok(Precision::Absent);
+                };
+                let Some(dtype) = stat.dtype(&field_dtype) else {
+                    return Ok(Precision::Absent);
+                };
+                Ok(stats.get(stat).into_scalar(dtype))
+            })
+            .collect()
+    }
+
     /// Returns the statistics for a given field.
     async fn field_statistics(&self, field_path: &FieldPath) -> VortexResult<StatsSet>;
+}
+
+fn absent_statistics(funcs: &[AggregateFnRef]) -> Vec<Precision<Scalar>> {
+    funcs.iter().map(|_| Precision::Absent).collect()
+}
+
+fn root_field_path(expr: &Expression) -> Option<FieldPath> {
+    if expr.is::<Root>() {
+        return Some(FieldPath::root());
+    }
+    let field = expr.as_opt::<GetItem>()?;
+    expr.child(0)
+        .is::<Root>()
+        .then(|| FieldPath::from_name(field.clone()))
 }
 
 /// A request to scan a data source.
@@ -144,6 +229,10 @@ pub struct ScanRequest {
     /// Optional limit on the number of rows returned by scan. Limits are applied after all
     /// filtering and row selection.
     pub limit: Option<u64>,
+    /// Optional scheduler provider override for this scan.
+    ///
+    /// When absent, a data source should use the provider configured on its [`VortexSession`].
+    pub scheduler_provider: Option<Arc<ScanSchedulerProvider>>,
 }
 
 impl Default for ScanRequest {
@@ -157,12 +246,28 @@ impl Default for ScanRequest {
             ordered: false,
             limit: None,
             partition_range: None,
+            scheduler_provider: None,
         }
     }
 }
 
 /// A boxed data source scan.
 pub type DataSourceScanRef = Box<dyn DataSourceScan>;
+
+/// A reference-counted scan that has already been planned into morsel partitions.
+pub type PlannedMorselScanRef = Arc<dyn PlannedMorselScan>;
+
+/// A planned scan that can return shared execution partitions.
+pub trait PlannedMorselScan: 'static + Send + Sync {
+    /// The returned dtype of the scan.
+    fn dtype(&self) -> &DType;
+
+    /// The exact number of non-empty execution partitions in this plan.
+    fn partition_count(&self) -> usize;
+
+    /// Returns one planned execution partition.
+    fn partition(self: Arc<Self>, partition: usize) -> VortexResult<PartitionRef>;
+}
 
 /// A data source scan produces partitions that can be executed to read data from the source.
 pub trait DataSourceScan: 'static + Send {

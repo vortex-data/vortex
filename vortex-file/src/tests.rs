@@ -46,6 +46,7 @@ use vortex_array::expr::lt_eq;
 use vortex_array::expr::or;
 use vortex_array::expr::root;
 use vortex_array::expr::select;
+use vortex_array::expr::stats::Precision;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::extension::datetime::TimestampOptions;
@@ -60,6 +61,7 @@ use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
@@ -75,8 +77,11 @@ use crate::VERSION;
 use crate::VortexFile;
 use crate::WriteOptionsSessionExt;
 use crate::footer::SegmentSpec;
+use crate::multi::MultiFileDataSource;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+static SESSION: LazyLock<VortexSession> = LazyLock::new(new_test_session);
+
+fn new_test_session() -> VortexSession {
     let session = VortexSession::empty()
         .with::<ArraySession>()
         .with::<LayoutSession>()
@@ -86,7 +91,213 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     crate::register_default_encodings(&session);
 
     session
-});
+}
+
+fn exact_u32_stat(stat: &Precision<Scalar>) -> Option<u32> {
+    stat.as_ref()
+        .as_exact()?
+        .as_primitive()
+        .typed_value::<u32>()
+}
+
+fn exact_u64_stat(stat: &Precision<Scalar>) -> Option<u64> {
+    stat.as_ref()
+        .as_exact()?
+        .as_primitive()
+        .typed_value::<u64>()
+}
+
+#[test]
+fn multi_file_scan_node_data_source_filters_and_projects() -> VortexResult<()> {
+    use vortex_io::runtime::BlockingRuntime;
+    use vortex_io::runtime::single::SingleThreadRuntime;
+    use vortex_io::session::RuntimeSessionExt;
+
+    let runtime = SingleThreadRuntime::default();
+    let session = new_test_session().with_handle(runtime.handle());
+
+    temp_env::with_var("VORTEX_SCAN_IMPL", Some("v2"), || {
+        runtime.block_on(async {
+            use async_trait::async_trait;
+            use futures::stream;
+            use futures::stream::BoxStream;
+            use vortex_array::aggregate_fn::AggregateFnVTableExt;
+            use vortex_array::aggregate_fn::EmptyOptions;
+            use vortex_array::aggregate_fn::fns::max::Max;
+            use vortex_array::aggregate_fn::fns::min::Min;
+            use vortex_array::aggregate_fn::fns::null_count::NullCount;
+            use vortex_io::VortexReadAt;
+            use vortex_io::filesystem::FileListing;
+            use vortex_io::filesystem::FileSystem;
+            use vortex_io::filesystem::FileSystemRef;
+
+            #[derive(Debug)]
+            struct MemoryFileSystem {
+                files: std::collections::BTreeMap<String, ByteBuffer>,
+            }
+
+            #[async_trait]
+            impl FileSystem for MemoryFileSystem {
+                fn list(&self, prefix: &str) -> BoxStream<'_, VortexResult<FileListing>> {
+                    let listings = self
+                        .files
+                        .iter()
+                        .filter_map(move |(path, bytes)| {
+                            path.starts_with(prefix).then_some(Ok(FileListing {
+                                path: path.clone(),
+                                size: Some(bytes.len() as u64),
+                            }))
+                        })
+                        .collect::<Vec<_>>();
+                    stream::iter(listings).boxed()
+                }
+
+                async fn head(&self, path: &str) -> VortexResult<Option<FileListing>> {
+                    Ok(self.files.get(path).map(|bytes| FileListing {
+                        path: path.to_string(),
+                        size: Some(bytes.len() as u64),
+                    }))
+                }
+
+                async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
+                    self.files
+                        .get(path)
+                        .cloned()
+                        .map(|bytes| Arc::new(bytes) as Arc<dyn VortexReadAt>)
+                        .ok_or_else(|| vortex_error::vortex_err!("missing test file {path}"))
+                }
+
+                async fn delete(&self, _path: &str) -> VortexResult<()> {
+                    Ok(())
+                }
+            }
+
+            async fn write_part(
+                session: &VortexSession,
+                values: ArrayRef,
+            ) -> VortexResult<ByteBuffer> {
+                let mut buf = ByteBufferMut::empty();
+                session
+                    .write_options()
+                    .write(&mut buf, values.to_array_stream())
+                    .await?;
+                Ok(buf.freeze())
+            }
+
+            async fn write_part_with_stats(
+                session: &VortexSession,
+                values: ArrayRef,
+            ) -> VortexResult<ByteBuffer> {
+                let mut buf = ByteBufferMut::empty();
+                let mut writer = session
+                    .write_options()
+                    .with_file_statistics(PRUNING_STATS.to_vec())
+                    .writer(&mut buf, values.dtype().clone());
+                writer.push(values).await?;
+                writer.finish().await?;
+                Ok(buf.freeze())
+            }
+
+            let single =
+                StructArray::from_fields(&[("numbers", buffer![10u32, 20, 30].into_array())])?
+                    .into_array();
+            let single_fs: FileSystemRef = Arc::new(MemoryFileSystem {
+                files: std::collections::BTreeMap::from_iter([(
+                    "single.vortex".to_string(),
+                    write_part_with_stats(&session, single).await?,
+                )]),
+            });
+            let single_source = MultiFileDataSource::new(session.clone())
+                .with_glob("single.vortex", Some(single_fs))
+                .build_data_source()
+                .await?;
+            let stats = single_source
+                .statistics(
+                    &col("numbers"),
+                    &[
+                        Min.bind(EmptyOptions),
+                        Max.bind(EmptyOptions),
+                        NullCount.bind(EmptyOptions),
+                    ],
+                )
+                .await?;
+            assert_eq!(exact_u32_stat(&stats[0]), Some(10));
+            assert_eq!(exact_u32_stat(&stats[1]), Some(30));
+            assert_eq!(exact_u64_stat(&stats[2]), Some(0));
+
+            let first = StructArray::from_fields(&[("numbers", buffer![1u32, 2, 3].into_array())])?
+                .into_array();
+            let second =
+                StructArray::from_fields(&[("numbers", buffer![4u32, 5, 6].into_array())])?
+                    .into_array();
+
+            let fs: FileSystemRef = Arc::new(MemoryFileSystem {
+                files: std::collections::BTreeMap::from_iter([
+                    (
+                        "part-0.vortex".to_string(),
+                        write_part(&session, first).await?,
+                    ),
+                    (
+                        "part-1.vortex".to_string(),
+                        write_part(&session, second).await?,
+                    ),
+                ]),
+            });
+
+            let data_source = MultiFileDataSource::new(session.clone())
+                .with_glob("part-*.vortex", Some(fs))
+                .build_data_source()
+                .await?;
+            let scan = data_source
+                .scan(vortex_scan::ScanRequest {
+                    projection: col("numbers"),
+                    filter: Some(gt(col("numbers"), lit(2u32))),
+                    ordered: true,
+                    ..Default::default()
+                })
+                .await?;
+
+            let dtype = scan.dtype().clone();
+            let stream = scan
+                .partitions()
+                .then(|partition| async move { partition?.execute() })
+                .try_flatten()
+                .boxed();
+            let actual = ArrayStreamAdapter::new(dtype, stream).read_all().await?;
+
+            assert_arrays_eq!(actual, buffer![3u32, 4, 5, 6].into_array());
+
+            let planned = data_source
+                .plan_morsel_partitions(
+                    vortex_scan::ScanRequest {
+                        projection: col("numbers"),
+                        filter: Some(gt(col("numbers"), lit(2u32))),
+                        ..Default::default()
+                    },
+                    128,
+                )
+                .await?
+                .ok_or_else(|| {
+                    vortex_error::vortex_err!("scan node data source must plan morsel partitions")
+                })?;
+
+            assert_eq!(planned.partition_count(), 2);
+
+            let dtype = planned.dtype().clone();
+            let stream = stream::iter(0..planned.partition_count())
+                .then(|partition| {
+                    let planned = Arc::clone(&planned);
+                    async move { planned.partition(partition)?.execute() }
+                })
+                .try_flatten()
+                .boxed();
+            let actual = ArrayStreamAdapter::new(dtype, stream).read_all().await?;
+
+            assert_arrays_eq!(actual, buffer![3u32, 4, 5, 6].into_array());
+            Ok(())
+        })
+    })
+}
 
 #[tokio::test]
 async fn test_eof_values() {

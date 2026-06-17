@@ -6,6 +6,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::sync::Weak;
 
+use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::config::ConfigOptions;
 use datafusion_datasource::TableSchema;
@@ -32,6 +33,7 @@ use object_store::path::Path;
 use vortex::error::VortexExpect;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
+use vortex::layout::scan::v2::scan2_enabled;
 use vortex::metrics::DefaultMetricsRegistry;
 use vortex::metrics::MetricsRegistry;
 use vortex::session::VortexSession;
@@ -325,11 +327,14 @@ impl VortexSource {
             .vortex_reader_factory
             .clone()
             .unwrap_or_else(|| Arc::new(DefaultVortexReaderFactory::new(object_store)));
+        let scan_v2 =
+            scan2_enabled().map_err(|error| DataFusionError::External(Box::new(error)))?;
 
         let opener = VortexOpener {
             partition,
             session: self.session.clone(),
             vortex_reader_factory,
+            scan_v2,
             projection: self.projection.clone(),
             filter: self.vortex_predicate.clone(),
             file_pruning_predicate: self.full_predicate.clone(),

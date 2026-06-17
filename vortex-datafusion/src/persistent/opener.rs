@@ -42,12 +42,14 @@ use vortex::dtype::FieldMask;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
 use vortex::file::OpenOptionsSessionExt;
+use vortex::file::VortexFile;
 use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::scan::split_by::SplitBy;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
+use vortex::scan::ScanRequest;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
@@ -69,6 +71,7 @@ pub(crate) struct VortexOpener {
     pub partition: usize,
     pub session: VortexSession,
     pub vortex_reader_factory: Arc<dyn VortexReaderFactory>,
+    pub scan_v2: bool,
     /// Optional table schema projection. The indices are w.r.t. the `table_schema`, which is
     /// all fields in the final scan result not including the partition columns.
     pub projection: ProjectionExprs,
@@ -137,6 +140,7 @@ impl FileOpener for VortexOpener {
 
         let expr_convertor = Arc::clone(&self.expression_convertor);
         let projection_pushdown = self.projection_pushdown;
+        let scan_v2 = self.scan_v2;
 
         // Replace column access for partition columns with literals
         #[expect(clippy::disallowed_types)]
@@ -302,6 +306,146 @@ impl FileOpener for VortexOpener {
                 .try_map_exprs(|expr| reassign_expr_columns(expr, &stream_schema))?;
             let projector = leftover_projection.make_projector(&stream_schema)?;
 
+            let filter = filter
+                .and_then(|f| {
+                    // Verify that all filters we've accepted from DataFusion get pushed down.
+                    // This will only fail if the user has not configured a suitable
+                    // PhysicalExprAdapterFactory on the file source to handle rewriting the
+                    // expression to handle missing/reordered columns in the Vortex file.
+                    let (pushed, unpushed): (Vec<PhysicalExprRef>, Vec<PhysicalExprRef>) =
+                        split_conjunction(&f)
+                            .into_iter()
+                            .cloned()
+                            .partition(|expr| {
+                                expr_convertor.can_be_pushed_down(expr, &this_file_schema)
+                            });
+
+                    if !unpushed.is_empty() {
+                        return Some(Err(exec_datafusion_err!(
+                            r#"VortexSource accepted but failed to push {} filters.
+                            This should never happen if you have a properly configured
+                            PhysicalExprAdapterFactory configured on the source.
+
+                            Failed filters:
+
+                            {unpushed:#?}
+                            "#,
+                            unpushed.len()
+                        )));
+                    }
+
+                    make_vortex_predicate(expr_convertor.as_ref(), &pushed).transpose()
+                })
+                .transpose()?;
+
+            if scan_v2 {
+                let row_range = if let Some(file_range) = file.range {
+                    let byte_range = Range {
+                        start: u64::try_from(file_range.start).map_err(|_| {
+                            exec_datafusion_err!("Vortex file range start is negative")
+                        })?,
+                        end: u64::try_from(file_range.end).map_err(|_| {
+                            exec_datafusion_err!("Vortex file range end is negative")
+                        })?,
+                    };
+                    if byte_range.start == 0 && byte_range.end == file.object_meta.size {
+                        None
+                    } else {
+                        let natural_split_ranges = scan_node_natural_split_ranges_for_file(
+                            natural_split_ranges.as_ref(),
+                            &file.object_meta.location,
+                            &vxf,
+                        )?;
+
+                        let Some(row_range) = split_aligned_row_range(
+                            byte_range,
+                            file.object_meta.size,
+                            natural_split_ranges.as_ref(),
+                        ) else {
+                            return Ok(stream::empty().boxed());
+                        };
+                        Some(row_range)
+                    }
+                } else {
+                    None
+                };
+
+                let selection = file
+                    .extensions
+                    .get::<VortexAccessPlan>()
+                    .and_then(|vortex_plan| vortex_plan.selection().cloned())
+                    .unwrap_or_default();
+                let stream_target_field =
+                    Field::new_struct("", stream_schema.fields().clone(), false);
+                let file_location = file.object_meta.location.clone();
+                let array_stream = vxf
+                    .scan_node_stream(ScanRequest {
+                        projection: scan_projection,
+                        filter,
+                        row_range,
+                        selection,
+                        ordered: has_output_ordering,
+                        limit,
+                        ..Default::default()
+                    })
+                    .map_err(|e| {
+                        exec_datafusion_err!("Failed to create Vortex scan2 stream: {e}")
+                    })?;
+                let stream = array_stream
+                    .map(move |chunk| {
+                        let chunk = chunk?;
+                        let mut ctx = session.create_execution_ctx();
+                        let arrow_session = ctx.session().clone();
+                        let arrow = arrow_session.arrow().execute_arrow(
+                            chunk,
+                            Some(&stream_target_field),
+                            &mut ctx,
+                        )?;
+                        Ok(RecordBatch::from(arrow.as_struct().clone()))
+                    })
+                    .map_ok(move |rb| {
+                        // We try and slice the stream into respecting datafusion's configured batch size.
+                        stream::iter(
+                            (0..rb.num_rows().div_ceil(batch_size * 2))
+                                .flat_map(move |block_idx| {
+                                    let offset = block_idx * batch_size * 2;
+
+                                    // If we have less than two batches worth of rows left, we keep them together as a single batch.
+                                    if rb.num_rows() - offset < 2 * batch_size {
+                                        let length = rb.num_rows() - offset;
+                                        [Some(rb.slice(offset, length)), None].into_iter()
+                                    } else {
+                                        let first = rb.slice(offset, batch_size);
+                                        let second = rb.slice(offset + batch_size, batch_size);
+                                        [Some(first), Some(second)].into_iter()
+                                    }
+                                })
+                                .flatten()
+                                .map(Ok),
+                        )
+                    })
+                    .map_err(move |e: VortexError| {
+                        DataFusionError::External(Box::new(
+                            e.with_context(format!("Failed to read Vortex file: {file_location}")),
+                        ))
+                    })
+                    .try_flatten()
+                    .map(move |batch| {
+                        if projector.projection().as_ref().is_empty() {
+                            batch
+                        } else {
+                            batch.and_then(|b| projector.project_batch(&b))
+                        }
+                    })
+                    .boxed();
+
+                return if let Some(file_pruner) = file_pruner {
+                    Ok(PrunableStream::new(file_pruner, stream).boxed())
+                } else {
+                    Ok(stream)
+                };
+            }
+
             // We share our layout readers with others partitions in the scan, so we can only need to read each layout in each file once.
             let layout_reader = match layout_readers.entry(file.object_meta.location.clone()) {
                 Entry::Occupied(mut occupied_entry) => {
@@ -363,38 +507,6 @@ impl FileOpener for VortexOpener {
                     scan_builder = scan_builder.with_row_range(row_range);
                 }
             }
-
-            let filter = filter
-                .and_then(|f| {
-                    // Verify that all filters we've accepted from DataFusion get pushed down.
-                    // This will only fail if the user has not configured a suitable
-                    // PhysicalExprAdapterFactory on the file source to handle rewriting the
-                    // expression to handle missing/reordered columns in the Vortex file.
-                    let (pushed, unpushed): (Vec<PhysicalExprRef>, Vec<PhysicalExprRef>) =
-                        split_conjunction(&f)
-                            .into_iter()
-                            .cloned()
-                            .partition(|expr| {
-                                expr_convertor.can_be_pushed_down(expr, &this_file_schema)
-                            });
-
-                    if !unpushed.is_empty() {
-                        return Some(Err(exec_datafusion_err!(
-                            r#"VortexSource accepted but failed to push {} filters.
-                            This should never happen if you have a properly configured
-                            PhysicalExprAdapterFactory configured on the source.
-
-                            Failed filters:
-
-                            {unpushed:#?}
-                            "#,
-                            unpushed.len()
-                        )));
-                    }
-
-                    make_vortex_predicate(expr_convertor.as_ref(), &pushed).transpose()
-                })
-                .transpose()?;
 
             if let Some(limit) = limit
                 && filter.is_none()
@@ -482,6 +594,29 @@ fn natural_split_ranges_for_file(
     }
 
     let split_ranges = compute_natural_split_ranges(layout_reader.as_ref())?;
+
+    match natural_split_ranges.entry(path.clone()) {
+        Entry::Occupied(entry) => Ok(Arc::clone(entry.get())),
+        Entry::Vacant(entry) => {
+            entry.insert(Arc::clone(&split_ranges));
+            Ok(split_ranges)
+        }
+    }
+}
+
+fn scan_node_natural_split_ranges_for_file(
+    natural_split_ranges: &DashMap<Path, Arc<[Range<u64>]>>,
+    path: &Path,
+    file: &VortexFile,
+) -> DFResult<Arc<[Range<u64>]>> {
+    if let Some(split_ranges) = natural_split_ranges.get(path) {
+        return Ok(Arc::clone(split_ranges.value()));
+    }
+
+    let split_ranges = file
+        .scan_node_splits()
+        .map(Arc::from)
+        .map_err(|e| exec_datafusion_err!("Failed to compute Vortex scan2 natural splits: {e}"))?;
 
     match natural_split_ranges.entry(path.clone()) {
         Entry::Occupied(entry) => Ok(Arc::clone(entry.get())),
@@ -695,6 +830,7 @@ mod tests {
             partition: 1,
             session: SESSION.clone(),
             vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(object_store)),
+            scan_v2: false,
             projection: ProjectionExprs::from_indices(&[0], table_schema.file_schema()),
             filter,
             file_pruning_predicate: None,
@@ -794,6 +930,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_open_scan_v2() -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "scan2/file.vortex";
+        let batch = record_batch!(("a", Int32, vec![Some(1), Some(2), Some(3)])).unwrap();
+        let data_size =
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
+
+        let table_schema = TableSchema::from_file_schema(batch.schema());
+        let mut opener = make_opener(object_store, table_schema, None);
+        opener.scan_v2 = true;
+
+        let stream = opener
+            .open(PartitionedFile::new(file_path.to_string(), data_size))?
+            .await?;
+        let data = stream.try_collect::<Vec<_>>().await?;
+        let num_rows = data.iter().map(|rb| rb.num_rows()).sum::<usize>();
+
+        assert_eq!(num_rows, 3);
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_open_populates_file_metadata_cache() -> anyhow::Result<()> {
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
         let file_path = "cached/file.vortex";
@@ -867,6 +1026,7 @@ mod tests {
             vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(Arc::clone(
                 &object_store,
             ))),
+            scan_v2: false,
             projection: ProjectionExprs::from_indices(&[0], table_schema.file_schema()),
             filter: Some(filter),
             file_pruning_predicate: None,
@@ -954,6 +1114,7 @@ mod tests {
             partition: 1,
             session: SESSION.clone(),
             vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(object_store)),
+            scan_v2: false,
             projection: ProjectionExprs::from_indices(&[0, 1, 2], &table_schema),
             filter: None,
             file_pruning_predicate: None,
@@ -1108,6 +1269,7 @@ mod tests {
             vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(Arc::clone(
                 &object_store,
             ))),
+            scan_v2: false,
             projection: ProjectionExprs::from_indices(
                 projection.as_ref(),
                 table_schema.file_schema(),
@@ -1171,6 +1333,7 @@ mod tests {
             partition: 1,
             session: SESSION.clone(),
             vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(object_store)),
+            scan_v2: false,
             projection,
             filter: None,
             file_pruning_predicate: None,
@@ -1380,6 +1543,7 @@ mod tests {
             vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(Arc::clone(
                 &object_store,
             ))),
+            scan_v2: false,
             projection,
             filter: None,
             file_pruning_predicate: None,

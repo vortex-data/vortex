@@ -57,8 +57,10 @@ use vortex::file::EOF_SIZE;
 use vortex::file::MAX_POSTSCRIPT_SIZE;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VORTEX_FILE_EXTENSION;
+use vortex::file::VortexFile;
 use vortex::io::object_store::ObjectStoreReadAt;
 use vortex::io::session::RuntimeSessionExt;
+use vortex::layout::scan::v2::scan2_enabled;
 use vortex::scalar::Scalar;
 use vortex::scalar::ScalarValue as VortexScalarValue;
 use vortex::session::VortexSession;
@@ -68,6 +70,8 @@ use super::sink::VortexSink;
 use super::source::VortexSource;
 use crate::PrecisionExt as _;
 use crate::convert::TryToDataFusion;
+use crate::convert::stats::aggregate_stats_to_df;
+use crate::convert::stats::column_statistics_aggregate_fns;
 use crate::convert::stats::is_constant_to_distinct_count;
 
 const DEFAULT_FOOTER_INITIAL_READ_SIZE_BYTES: usize = MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE;
@@ -427,6 +431,49 @@ impl FileFormat for VortexFormat {
         let file_metadata_cache = state.runtime_env().cache_manager.get_file_metadata_cache();
 
         SpawnedTask::spawn(async move {
+            if scan2_enabled().map_err(|error| DataFusionError::External(Box::new(error)))? {
+                let cached_footer = file_metadata_cache
+                    .get(&object.location)
+                    .filter(|entry| entry.is_valid_for(&object))
+                    .and_then(|entry| {
+                        entry
+                            .file_metadata
+                            .as_any()
+                            .downcast_ref::<CachedVortexMetadata>()
+                            .map(|vortex_metadata| vortex_metadata.footer().clone())
+                    });
+                let footer_cache_hit = cached_footer.is_some();
+
+                let reader = Arc::new(ObjectStoreReadAt::new_with_allocator(
+                    store,
+                    object.location.clone(),
+                    session.handle(),
+                    session.allocator(),
+                ));
+                let mut open_opts = session
+                    .open_options()
+                    .with_initial_read_size(opts.footer_initial_read_size_bytes)
+                    .with_file_size(object.size);
+                if let Some(footer) = cached_footer {
+                    open_opts = open_opts.with_footer(footer);
+                }
+
+                let vxf = open_opts.open_read(reader).await.map_err(|e| {
+                    DataFusionError::Execution(format!(
+                        "Failed to open Vortex file {}: {e}",
+                        object.location
+                    ))
+                })?;
+
+                if !footer_cache_hit {
+                    let file_metadata = Arc::new(CachedVortexMetadata::new(&vxf));
+                    let entry = CachedFileMetadataEntry::new(object.clone(), file_metadata);
+                    file_metadata_cache.put(&object.location, entry);
+                }
+
+                return infer_scan_node_stats(&table_schema, &vxf).await;
+            }
+
             // Try to get entry metadata first
             let cached_metadata = file_metadata_cache
                 .get(&object.location)
@@ -626,6 +673,49 @@ impl FileFormat for VortexFormat {
 
         Arc::new(source) as _
     }
+}
+
+async fn infer_scan_node_stats(table_schema: &SchemaRef, vxf: &VortexFile) -> DFResult<Statistics> {
+    let struct_dtype = vxf
+        .dtype()
+        .as_struct_fields_opt()
+        .vortex_expect("dtype is not a struct");
+    let funcs = column_statistics_aggregate_fns();
+    let mut column_statistics = vec![ColumnStatistics::default(); table_schema.fields().len()];
+    let mut requested_columns = Vec::new();
+    let mut requested_exprs = Vec::new();
+
+    for (idx, field) in table_schema.fields().iter().enumerate() {
+        if struct_dtype.find(field.name()).is_some() {
+            requested_columns.push(idx);
+            requested_exprs.push(vortex::expr::get_item(
+                field.name().as_str(),
+                vortex::expr::root(),
+            ));
+        }
+    }
+
+    let stats = vxf
+        .scan_node_statistics_many(&requested_exprs, &funcs)
+        .await
+        .map_err(|e| DataFusionError::Execution(format!("Failed to infer scan2 stats: {e}")))?;
+    for (column_idx, stats) in requested_columns.into_iter().zip(stats) {
+        column_statistics[column_idx] = aggregate_stats_to_df(&stats).map_err(|e| {
+            DataFusionError::Execution(format!("Failed to convert scan2 stats: {e}"))
+        })?;
+    }
+
+    let total_byte_size = column_statistics
+        .iter()
+        .fold(DFPrecision::Exact(0), |acc, cs| acc.add(&cs.byte_size));
+    let num_rows = usize::try_from(vxf.row_count())
+        .map_err(|_| DataFusionError::Execution("Row count overflow".to_string()))?;
+
+    Ok(Statistics {
+        num_rows: DFPrecision::Exact(num_rows),
+        total_byte_size,
+        column_statistics,
+    })
 }
 
 fn scalar_stat_to_df(

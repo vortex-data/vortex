@@ -22,6 +22,7 @@ caption: Internals
 internals/architecture
 internals/session
 internals/async-runtime
+internals/scan-scheduler
 internals/vtables
 internals/execution
 internals/io

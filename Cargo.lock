@@ -9775,6 +9775,7 @@ dependencies = [
  "oneshot",
  "parking_lot",
  "pin-project-lite",
+ "temp-env",
  "tokio",
  "tracing",
  "vortex-alp",
@@ -10160,6 +10161,7 @@ dependencies = [
 name = "vortex-scan"
 version = "0.1.0"
 dependencies = [
+ "async-lock",
  "async-trait",
  "futures",
  "roaring",
@@ -10169,6 +10171,7 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-session",
+ "vortex-utils",
 ]
 
 [[package]]
