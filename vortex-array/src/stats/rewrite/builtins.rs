@@ -52,19 +52,19 @@ use crate::stats::session::StatsSession;
 
 /// Register built-in stats rewrite rules.
 pub(crate) fn register_builtins(session: &StatsSession) {
-    session.register_rewrite(BinaryStatsRewrite::legacy_nan_count());
+    session.register_rewrite(BinaryStatsRewrite::nan_count());
     session.register_rewrite(BinaryStatsRewrite::all_non_nan());
     session.register_rewrite(BetweenStatsRewrite);
-    session.register_rewrite(IsNullLegacyStatsRewrite);
+    session.register_rewrite(IsNullNullCountStatsRewrite);
     session.register_rewrite(IsNullAllNonNullStatsRewrite);
     session.register_rewrite(IsNullAllNullStatsRewrite);
-    session.register_rewrite(IsNotNullLegacyStatsRewrite);
+    session.register_rewrite(IsNotNullNullCountStatsRewrite);
     session.register_rewrite(IsNotNullAllNullStatsRewrite);
     session.register_rewrite(IsNotNullAllNonNullStatsRewrite);
     session.register_rewrite(LikeStatsRewrite);
-    session.register_rewrite(ListContainsStatsRewrite::legacy_nan_count());
+    session.register_rewrite(ListContainsStatsRewrite::nan_count());
     session.register_rewrite(ListContainsStatsRewrite::all_non_nan());
-    session.register_rewrite(DynamicComparisonStatsRewrite::legacy_nan_count());
+    session.register_rewrite(DynamicComparisonStatsRewrite::nan_count());
     session.register_rewrite(DynamicComparisonStatsRewrite::all_non_nan());
 }
 
@@ -74,9 +74,9 @@ struct BinaryStatsRewrite {
 }
 
 impl BinaryStatsRewrite {
-    fn legacy_nan_count() -> Self {
+    fn nan_count() -> Self {
         Self {
-            nan_proof: NanProof::LegacyNanCount,
+            nan_proof: NanProof::NanCount,
         }
     }
 
@@ -191,9 +191,9 @@ impl StatsRewriteRule for BetweenStatsRewrite {
 }
 
 #[derive(Debug)]
-struct IsNullLegacyStatsRewrite;
+struct IsNullNullCountStatsRewrite;
 
-impl StatsRewriteRule for IsNullLegacyStatsRewrite {
+impl StatsRewriteRule for IsNullNullCountStatsRewrite {
     fn scalar_fn_id(&self) -> ScalarFnId {
         IsNull.id()
     }
@@ -251,9 +251,9 @@ impl StatsRewriteRule for IsNullAllNullStatsRewrite {
 }
 
 #[derive(Debug)]
-struct IsNotNullLegacyStatsRewrite;
+struct IsNotNullNullCountStatsRewrite;
 
-impl StatsRewriteRule for IsNotNullLegacyStatsRewrite {
+impl StatsRewriteRule for IsNotNullNullCountStatsRewrite {
     fn scalar_fn_id(&self) -> ScalarFnId {
         IsNotNull.id()
     }
@@ -371,9 +371,9 @@ struct ListContainsStatsRewrite {
 }
 
 impl ListContainsStatsRewrite {
-    fn legacy_nan_count() -> Self {
+    fn nan_count() -> Self {
         Self {
-            nan_proof: NanProof::LegacyNanCount,
+            nan_proof: NanProof::NanCount,
         }
     }
 
@@ -439,9 +439,9 @@ struct DynamicComparisonStatsRewrite {
 }
 
 impl DynamicComparisonStatsRewrite {
-    fn legacy_nan_count() -> Self {
+    fn nan_count() -> Self {
         Self {
-            nan_proof: NanProof::LegacyNanCount,
+            nan_proof: NanProof::NanCount,
         }
     }
 
@@ -509,13 +509,13 @@ fn all_non_null(expr: &Expression) -> Expression {
 
 #[derive(Debug, Clone, Copy)]
 enum NanProof {
-    LegacyNanCount,
+    NanCount,
     AllNonNan,
 }
 
 impl NanProof {
     fn emits_unguarded_rewrites(self) -> bool {
-        matches!(self, Self::LegacyNanCount)
+        matches!(self, Self::NanCount)
     }
 }
 
@@ -557,7 +557,7 @@ fn all_non_nan_stat(
     }
 
     Ok(match nan_proof {
-        NanProof::LegacyNanCount => match stat_expr(expr, Stat::NaNCount, ctx) {
+        NanProof::NanCount => match stat_expr(expr, Stat::NaNCount, ctx) {
             Some(nan_count) => NanCheck::Check(eq(nan_count, lit(0u64))),
             None => NanCheck::Unavailable,
         },

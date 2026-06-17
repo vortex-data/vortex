@@ -47,9 +47,9 @@ pub trait StatBinder {
 
     /// Bind `aggregate_fn(input)` to a concrete expression.
     ///
-    /// The default implementation supports aggregate functions with legacy
-    /// [`Stat`] slots. Binders that store richer aggregate stats can override
-    /// this method without extending the generic stats binding walker.
+    /// The default implementation supports aggregate functions that map
+    /// directly to [`Stat`] slots. Binders that store richer aggregate stats can
+    /// override this method without extending the generic stats binding walker.
     fn bind_aggregate(
         &self,
         input: &Expression,
@@ -57,15 +57,6 @@ pub trait StatBinder {
         stat_dtype: &DType,
     ) -> VortexResult<Option<Expression>> {
         bind_direct_aggregate_stat(self, input, aggregate_fn, stat_dtype)
-    }
-
-    /// Bind one of the legacy stat slots for `input`.
-    fn bind_legacy_stat(&self, input: &Expression, stat: Stat) -> VortexResult<Option<Expression>> {
-        let input_dtype = input.return_dtype(self.scope())?;
-        let Some(stat_dtype) = stat.dtype(&input_dtype) else {
-            return Ok(None);
-        };
-        self.bind_stat(input, stat, &stat_dtype)
     }
 
     /// Expression to use when a stat is unavailable.
@@ -206,7 +197,7 @@ mod tests {
     }
 
     #[test]
-    fn nan_count_binds_to_legacy_stat_slot() -> VortexResult<()> {
+    fn nan_count_binds_to_direct_stat_slot() -> VortexResult<()> {
         let binder = TestBinder::new(true);
 
         let bound = bind_stats(nan_count(col("f")), &binder)?;
