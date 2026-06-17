@@ -3,7 +3,7 @@
 
 use std::ops::Not;
 
-use arrow_buffer::bit_mask::set_bits;
+use bitvec::view::BitView;
 
 use crate::BitBuffer;
 use crate::BufferMut;
@@ -520,16 +520,17 @@ impl BitBufferMut {
                 self.buffer.as_mut_slice()[dst_byte + full_bytes] |= src_bytes[full_bytes] & mask;
             }
         } else {
-            // Word-wise bit copy that handles mismatched source/destination bit offsets.
-            // `set_bits` ORs into the destination, which is safe because bits beyond `len`
-            // are guaranteed to be zero.
-            set_bits(
-                self.buffer.as_mut_slice(),
-                buffer.inner().as_slice(),
-                start_bit_pos,
-                src_bit_offset,
-                bit_len,
-            );
+            // Use bitvec for unaligned bit copying.
+            let self_slice = self
+                .buffer
+                .as_mut_slice()
+                .view_bits_mut::<bitvec::prelude::Lsb0>();
+            let other_slice = buffer
+                .inner()
+                .as_slice()
+                .view_bits::<bitvec::prelude::Lsb0>();
+            let source_range = src_bit_offset..src_bit_offset + bit_len;
+            self_slice[start_bit_pos..end_bit_pos].copy_from_bitslice(&other_slice[source_range]);
         }
 
         self.len += bit_len;
@@ -926,6 +927,7 @@ mod tests {
         assert!(frozen.value(7));
     }
 
+    #[cfg_attr(miri, ignore)] // bitvec crate uses a ptr cast that Miri doesn't support
     #[test]
     fn append_after_clear_reads_back_false() {
         // `clear` must not leave stale set bits behind: `append_false` and `append_buffer`
@@ -940,6 +942,7 @@ mod tests {
         assert_eq!(bools.true_count(), 0);
     }
 
+    #[cfg_attr(miri, ignore)] // bitvec crate uses a ptr cast that Miri doesn't support
     #[test]
     fn test_append_buffer_after_truncate() {
         // Truncating leaves stale set bits in the last partial byte; an append after that
@@ -964,6 +967,7 @@ mod tests {
     #[case::src_unaligned(0, 5)]
     #[case::mismatched(3, 5)]
     #[case::equal_nonzero(5, 5)]
+    #[cfg_attr(miri, ignore)] // bitvec crate uses a ptr cast that Miri doesn't support
     fn test_append_buffer_long(#[case] dst_prefix: usize, #[case] src_start: usize) {
         // Exercise every alignment combination across many words.
         let source = crate::BitBuffer::from_iter((0..301).map(|i| i % 3 == 0));
@@ -982,6 +986,7 @@ mod tests {
         }
     }
 
+    #[cfg_attr(miri, ignore)] // bitvec crate uses a ptr cast that Miri doesn't support
     #[test]
     fn test_append_buffer_with_offsets() {
         // Create source buffer with offset
