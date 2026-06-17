@@ -349,4 +349,17 @@ mod tests {
         let ids = [0, 1, 2];
         assert_ne!(Projection::new(None, &ids, &fields).projection, root());
     }
+
+    #[test]
+    fn test_select_multiple_same_columns() {
+        let ids = [0, 0, 0];
+        let fields = [DuckdbField {
+            name: "foo".to_string(),
+            logical_type: LogicalType::null(),
+            dtype: DType::Null,
+            projection_expr: None,
+        }];
+        let expected = select(["foo", "foo", "foo"], root());
+        assert_eq!(Projection::new(None, &ids, &fields).projection, expected);
+    }
 }

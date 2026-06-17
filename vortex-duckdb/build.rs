@@ -24,7 +24,7 @@ const DEFAULT_DUCKDB_VERSION: &str = "1.5.3";
 
 const BUILD_ARTIFACTS: [&str; 3] = ["libduckdb.dylib", "libduckdb.so", "libduckdb_static.a"];
 
-const SOURCE_FILES: [&str; 18] = [
+const SOURCE_FILES: [&str; 20] = [
     "cpp/client_context.cpp",
     "cpp/config.cpp",
     "cpp/copy_function.cpp",
@@ -35,6 +35,8 @@ const SOURCE_FILES: [&str; 18] = [
     "cpp/file_system.cpp",
     "cpp/logical_type.cpp",
     "cpp/optimizer.cpp",
+    "cpp/scalar_fn_pushdown.cpp",
+    "cpp/aggregate_fn_pushdown.cpp",
     "cpp/replacement_scan.cpp",
     "cpp/reusable_dict.cpp",
     "cpp/scalar_function.cpp",

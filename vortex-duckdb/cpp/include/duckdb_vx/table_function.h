@@ -28,11 +28,23 @@ struct TableFunctionProjectionExpressionInput {
 // true if we can push down the expression, false otherwise
 bool projection_expression_pushdown(duckdb::ClientContext &context,
                                     const TableFunctionProjectionExpressionInput &input);
+
+// API is subject to change, but you can push only none or all aggregates since
+// this changes output chunk cardinality
+struct TableFunctionUngroupedAggregateInput {
+    const duckdb::LogicalGet &get;
+    const duckdb::vector<std::pair<idx_t, duckdb::Expression>> &projections;
+};
+
+bool aggregate_pushdown(duckdb::ClientContext &context, const TableFunctionUngroupedAggregateInput &input);
 #endif
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+idx_t duckdb_vx_aggregate_len(const void *ffi);
+duckdb_vx_expr duckdb_vx_aggregate_i(const void* ffi, void* proj_idx);
 
 // Info passed into the bind callback. The callback should set error or else add result columns.
 typedef struct duckdb_vx_tfunc_bind_input_ *duckdb_vx_tfunc_bind_input;

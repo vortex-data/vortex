@@ -192,6 +192,10 @@ bool projection_expression_pushdown(ClientContext &, const TableFunctionProjecti
     return ret;
 }
 
+bool aggregate_pushdown(ClientContext &, const TableFunctionUngroupedAggregateInput &input) {
+    const auto &bind = input.get.bind_data->Cast<CTableBindData>();
+}
+
 /**
  * Called for every new query. For example, if there is a VIEW over *.vortex,
  * and after a query another file is added matching the glob, for second query
