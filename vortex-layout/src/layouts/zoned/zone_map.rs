@@ -8,7 +8,6 @@ use std::sync::Arc;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
@@ -23,7 +22,6 @@ use vortex_array::expr::stats::Stat;
 use vortex_array::scalar_fn::internal::row_count::contains_row_count;
 use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
 use vortex_array::stats::bind::StatBinder;
-use vortex_array::stats::bind::bind_legacy_count_or_direct_aggregate;
 use vortex_array::stats::bind::bind_stats;
 use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
@@ -158,15 +156,6 @@ impl StatBinder for ZoneMapStatsBinder<'_> {
             return Ok(None);
         }
         Ok(Some(get_item(stat.name(), root())))
-    }
-
-    fn bind_aggregate(
-        &self,
-        input: &Expression,
-        aggregate_fn: &AggregateFnRef,
-        stat_dtype: &DType,
-    ) -> VortexResult<Option<Expression>> {
-        bind_legacy_count_or_direct_aggregate(self, input, aggregate_fn, stat_dtype)
     }
 }
 
@@ -357,7 +346,32 @@ mod tests {
     }
 
     #[test]
-    fn all_null_stat_fn_uses_null_count() {
+    fn is_null_falsification_uses_null_count() {
+        let zone_map = ZoneMap::try_new(
+            PType::U64.into(),
+            StructArray::from_fields(&[(
+                "null_count",
+                PrimitiveArray::new(buffer![0u64, 4, 2], Validity::AllValid).into_array(),
+            )])
+            .unwrap(),
+            Arc::new([Stat::NullCount]),
+            4,
+            10,
+        )
+        .unwrap();
+
+        let expr = is_null(root());
+        let pruning_expr = falsify(&expr, PType::U64.into());
+
+        let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
+        assert_arrays_eq!(
+            mask.into_array(),
+            BoolArray::from_iter([true, false, false])
+        );
+    }
+
+    #[test]
+    fn abstract_null_stats_do_not_derive_from_null_count() {
         let zone_map = ZoneMap::try_new(
             PType::U64.into(),
             StructArray::from_fields(&[(
@@ -372,28 +386,15 @@ mod tests {
         .unwrap();
 
         let mask = zone_map.prune(&all_null(root()), &SESSION).unwrap();
-        assert_arrays_eq!(mask.into_array(), BoolArray::from_iter([false, true, true]));
-    }
-
-    #[test]
-    fn all_non_null_stat_fn_uses_null_count() {
-        let zone_map = ZoneMap::try_new(
-            PType::U64.into(),
-            StructArray::from_fields(&[(
-                "null_count",
-                PrimitiveArray::new(buffer![0u64, 4, 2], Validity::AllValid).into_array(),
-            )])
-            .unwrap(),
-            Arc::new([Stat::NullCount]),
-            4,
-            10,
-        )
-        .unwrap();
+        assert_arrays_eq!(
+            mask.into_array(),
+            BoolArray::from_iter([false, false, false])
+        );
 
         let mask = zone_map.prune(&all_non_null(root()), &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
-            BoolArray::from_iter([true, false, false])
+            BoolArray::from_iter([false, false, false])
         );
     }
 

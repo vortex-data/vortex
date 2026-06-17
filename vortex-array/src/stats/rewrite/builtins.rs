@@ -464,9 +464,16 @@ fn all_non_nan_stat(
         return Ok(None);
     }
 
-    Ok(Some(stat_fn(
-        expr.clone(),
-        AllNonNan.bind(AggregateEmptyOptions),
+    let Some(nan_count) = stat_expr(expr, Stat::NaNCount, ctx) else {
+        return Ok(Some(stat_fn(
+            expr.clone(),
+            AllNonNan.bind(AggregateEmptyOptions),
+        )));
+    };
+
+    Ok(Some(or(
+        eq(nan_count, lit(0u64)),
+        stat_fn(expr.clone(), AllNonNan.bind(AggregateEmptyOptions)),
     )))
 }
 
@@ -659,8 +666,11 @@ mod tests {
         expr.satisfy(&test_scope(), &SESSION)
     }
 
-    fn nan_free(expr: Expression) -> Expression {
-        stat_fn(expr, AllNonNan.bind(AggregateEmptyOptions))
+    fn nan_guard(expr: Expression) -> Expression {
+        or(
+            eq(stat(expr.clone(), Stat::NaNCount), lit(0u64)),
+            stat_fn(expr, AllNonNan.bind(AggregateEmptyOptions)),
+        )
     }
 
     #[test]
@@ -888,7 +898,7 @@ mod tests {
         assert_eq!(
             falsify(&expr)?,
             Some(and(
-                nan_free(col("f")),
+                nan_guard(col("f")),
                 lt_eq(cast(stat(col("f"), Stat::Max), dtype), lit(5i32)),
             ))
         );

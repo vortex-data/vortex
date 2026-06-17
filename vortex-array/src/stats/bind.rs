@@ -11,22 +11,14 @@
 use vortex_error::VortexResult;
 
 use crate::aggregate_fn::AggregateFnRef;
-use crate::aggregate_fn::fns::all_nan::AllNan;
-use crate::aggregate_fn::fns::all_non_nan::AllNonNan;
-use crate::aggregate_fn::fns::all_non_null::AllNonNull;
-use crate::aggregate_fn::fns::all_null::AllNull;
 use crate::dtype::DType;
 use crate::expr::Expression;
-use crate::expr::eq;
 use crate::expr::lit;
 use crate::expr::stats::Stat;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::Transformed;
 use crate::scalar::Scalar;
-use crate::scalar_fn::EmptyOptions;
-use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::stat::StatFn;
-use crate::scalar_fn::internal::row_count::RowCount;
 
 /// A target that can bind abstract statistics to concrete expressions.
 pub trait StatBinder {
@@ -114,46 +106,6 @@ pub fn bind_stats<B: StatBinder + ?Sized>(
     lowered.optimize_recursive(&binder.bound_scope())
 }
 
-/// Bind aggregate stats that can be derived from legacy count stat slots.
-///
-/// This is an opt-in helper for stats backends that materialize `NaNCount` and
-/// `NullCount`, but do not materialize aggregate boolean stats directly.
-pub fn bind_legacy_count_aggregate<B: StatBinder + ?Sized>(
-    binder: &B,
-    input: &Expression,
-    aggregate_fn: &AggregateFnRef,
-) -> VortexResult<Option<Expression>> {
-    if aggregate_fn.is::<AllNan>() {
-        let Some(nan_count) = binder.bind_legacy_stat(input, Stat::NaNCount)? else {
-            return Ok(None);
-        };
-        return Ok(Some(eq(nan_count, RowCount.new_expr(EmptyOptions, []))));
-    }
-
-    if aggregate_fn.is::<AllNonNan>() {
-        let Some(nan_count) = binder.bind_legacy_stat(input, Stat::NaNCount)? else {
-            return Ok(None);
-        };
-        return Ok(Some(eq(nan_count, lit(0u64))));
-    }
-
-    if aggregate_fn.is::<AllNull>() {
-        let Some(null_count) = binder.bind_legacy_stat(input, Stat::NullCount)? else {
-            return Ok(None);
-        };
-        return Ok(Some(eq(null_count, RowCount.new_expr(EmptyOptions, []))));
-    }
-
-    if aggregate_fn.is::<AllNonNull>() {
-        let Some(null_count) = binder.bind_legacy_stat(input, Stat::NullCount)? else {
-            return Ok(None);
-        };
-        return Ok(Some(eq(null_count, lit(0u64))));
-    }
-
-    Ok(None)
-}
-
 /// Bind an aggregate function that has a direct legacy [`Stat`] slot.
 pub fn bind_direct_aggregate_stat<B: StatBinder + ?Sized>(
     binder: &B,
@@ -165,24 +117,6 @@ pub fn bind_direct_aggregate_stat<B: StatBinder + ?Sized>(
         return Ok(None);
     };
     binder.bind_stat(input, stat, stat_dtype)
-}
-
-/// Bind aggregate stats for backends that expose legacy count-derived stats.
-///
-/// Backends using this helper first bind aggregate facts derivable from
-/// `NaNCount` and `NullCount`, then fall back to direct aggregate-to-stat
-/// mappings.
-pub fn bind_legacy_count_or_direct_aggregate<B: StatBinder + ?Sized>(
-    binder: &B,
-    input: &Expression,
-    aggregate_fn: &AggregateFnRef,
-    stat_dtype: &DType,
-) -> VortexResult<Option<Expression>> {
-    if let Some(bound) = bind_legacy_count_aggregate(binder, input, aggregate_fn)? {
-        return Ok(Some(bound));
-    }
-
-    bind_direct_aggregate_stat(binder, input, aggregate_fn, stat_dtype)
 }
 
 fn bind_stat_fn(
@@ -218,6 +152,7 @@ mod tests {
     use crate::expr::or;
     use crate::expr::root;
     use crate::stats::all_non_nan;
+    use crate::stats::nan_count;
 
     struct TestBinder {
         input_scope: DType,
@@ -268,30 +203,21 @@ mod tests {
                 Ok(None)
             }
         }
-
-        fn bind_aggregate(
-            &self,
-            input: &Expression,
-            aggregate_fn: &AggregateFnRef,
-            stat_dtype: &DType,
-        ) -> VortexResult<Option<Expression>> {
-            bind_legacy_count_or_direct_aggregate(self, input, aggregate_fn, stat_dtype)
-        }
     }
 
     #[test]
-    fn all_non_nan_binds_to_nan_count_zero() -> VortexResult<()> {
+    fn nan_count_binds_to_legacy_stat_slot() -> VortexResult<()> {
         let binder = TestBinder::new(true);
 
-        let bound = bind_stats(all_non_nan(col("f")), &binder)?;
+        let bound = bind_stats(nan_count(col("f")), &binder)?;
 
-        assert_eq!(bound, eq(col("f_nan_count"), lit(0u64)));
+        assert_eq!(bound, col("f_nan_count"));
         Ok(())
     }
 
     #[test]
-    fn all_non_nan_lowers_to_null_when_nan_count_is_missing() -> VortexResult<()> {
-        let binder = TestBinder::new(false);
+    fn all_non_nan_does_not_derive_from_nan_count() -> VortexResult<()> {
+        let binder = TestBinder::new(true);
 
         let bound = bind_stats(all_non_nan(col("f")), &binder)?;
 
@@ -310,37 +236,6 @@ mod tests {
         let bound = bind_stats(or(lit(true), all_non_nan(col("f"))), &binder)?;
 
         assert_eq!(bound, lit(true));
-        Ok(())
-    }
-
-    #[test]
-    fn default_binder_does_not_derive_all_non_nan_from_nan_count() -> VortexResult<()> {
-        struct DefaultBinder(TestBinder);
-
-        impl StatBinder for DefaultBinder {
-            fn scope(&self) -> &DType {
-                self.0.scope()
-            }
-
-            fn bound_scope(&self) -> DType {
-                self.0.bound_scope()
-            }
-
-            fn bind_stat(
-                &self,
-                input: &Expression,
-                stat: Stat,
-                stat_dtype: &DType,
-            ) -> VortexResult<Option<Expression>> {
-                self.0.bind_stat(input, stat, stat_dtype)
-            }
-        }
-
-        let binder = DefaultBinder(TestBinder::new(true));
-
-        let bound = bind_stats(all_non_nan(col("f")), &binder)?;
-
-        assert_eq!(bound, lit(Scalar::null(DType::Bool(Nullability::Nullable))));
         Ok(())
     }
 
