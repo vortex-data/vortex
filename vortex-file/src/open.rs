@@ -443,10 +443,16 @@ mod tests {
         // Create a large file (> 1MB)
         let mut buf = ByteBufferMut::empty();
 
-        // 1.5M integers -> ~6MB. We use a pattern to avoid Sequence encoding.
+        // 1.5M integers -> ~6MB. We use high-entropy (pseudo-random) values so the data does not
+        // compress well under any encoding (Sequence, RunEnd, Delta, ...), keeping the written
+        // file comfortably above 1MB.
+        let mut state = 0x9E37_79B9u32;
         let array = Buffer::from(
             (0i32..1_500_000)
-                .map(|i| if i % 2 == 0 { i } else { -i })
+                .map(|_| {
+                    state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                    state as i32
+                })
                 .collect::<Vec<i32>>(),
         )
         .into_array();
