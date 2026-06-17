@@ -175,11 +175,14 @@ mod tests {
     use vortex_array::arrays::Variant;
     use vortex_array::arrays::extension::ExtensionArrayExt;
     use vortex_array::arrays::variant::VariantArrayExt;
+    use vortex_array::arrow::ArrowSession;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::session::DTypeSession;
     use vortex_array::expr::root;
     use vortex_array::scalar_fn::fns::variant_get::VariantPath;
     use vortex_array::scalar_fn::fns::variant_get::VariantPathElement;
+    use vortex_array::scalar_fn::session::ScalarFnSession;
     use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_error::vortex_bail;
@@ -191,7 +194,11 @@ mod tests {
     use crate::fns::variant_to_json;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = VortexSession::empty().with::<ArraySession>();
+        let session = VortexSession::empty()
+            .with::<ArraySession>()
+            .with::<ArrowSession>()
+            .with::<DTypeSession>()
+            .with::<ScalarFnSession>();
         crate::initialize(&session);
         session
     });
