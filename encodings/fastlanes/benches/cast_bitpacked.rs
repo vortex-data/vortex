@@ -38,7 +38,11 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = vortex_array::array_session();
+    vortex_fastlanes::initialize(&session);
+    session
+});
 
 const U32: DType = DType::Primitive(PType::U32, Nullability::NonNullable);
 

@@ -39,7 +39,11 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = vortex_array::array_session();
+    vortex_fastlanes::initialize(&session);
+    session
+});
 
 /// Number of elements per benchmarked array (64 full FastLanes blocks).
 const LEN: usize = 64 * 1024;

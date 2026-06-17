@@ -201,13 +201,12 @@ impl ArrayRef {
             if current_builder.is_none()
                 && let Some(frame) = stack.last()
                 && let Some(result) = {
-                    let tmp_session = ctx.session().clone();
-                    let kernels = tmp_session.get_opt::<ArrayKernels>();
+                    let kernels = ctx.array_kernels();
                     execute_parent_for_child(
                         &frame.parent_array,
                         &current_array,
                         frame.slot_idx,
-                        kernels,
+                        kernels.as_ref(),
                         ctx,
                     )?
                 }
@@ -316,6 +315,7 @@ struct StackFrame {
 #[derive(Debug, Clone)]
 pub struct ExecutionCtx {
     session: VortexSession,
+    array_kernels: Option<ArrayKernels>,
     #[cfg(debug_assertions)]
     id: usize,
     #[cfg(debug_assertions)]
@@ -325,8 +325,10 @@ pub struct ExecutionCtx {
 impl ExecutionCtx {
     /// Create a new execution context with the given session.
     pub fn new(session: VortexSession) -> Self {
+        let array_kernels = session.get_opt::<ArrayKernels>().cloned();
         Self {
             session,
+            array_kernels,
             #[cfg(debug_assertions)]
             id: {
                 static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
@@ -340,6 +342,10 @@ impl ExecutionCtx {
     /// Get the session associated with this execution context.
     pub fn session(&self) -> &VortexSession {
         &self.session
+    }
+
+    fn array_kernels(&self) -> Option<ArrayKernels> {
+        self.array_kernels.clone()
     }
 
     /// Get the session-scoped host allocator for this execution context.
@@ -435,13 +441,12 @@ impl Executable for ArrayRef {
             }
         }
 
-        let tmp_session = ctx.session().clone();
-        let kernels = tmp_session.get_opt::<ArrayKernels>();
+        let kernels = ctx.array_kernels();
 
         for (slot_idx, slot) in array.slots().iter().enumerate() {
             let Some(child) = slot else { continue };
             if let Some(executed_parent) =
-                execute_parent_for_child(&array, child, slot_idx, kernels, ctx)?
+                execute_parent_for_child(&array, child, slot_idx, kernels.as_ref(), ctx)?
             {
                 ctx.log(format_args!(
                     "execute_parent: slot[{}]({}) rewrote {} -> {}",
@@ -572,13 +577,12 @@ fn execute_parent_for_child(
 
 /// Try execute_parent on each occupied slot of the array.
 fn try_execute_parent(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<ArrayRef>> {
-    let tmp_session = ctx.session().clone();
-    let kernels = tmp_session.get_opt::<ArrayKernels>();
+    let kernels = ctx.array_kernels();
 
     for (slot_idx, slot) in array.slots().iter().enumerate() {
         let Some(child) = slot else { continue };
         if let Some(executed_parent) =
-            execute_parent_for_child(array, child, slot_idx, kernels, ctx)?
+            execute_parent_for_child(array, child, slot_idx, kernels.as_ref(), ctx)?
         {
             ctx.log(format_args!(
                 "execute_parent: slot[{}]({}) rewrote {} -> {}",
