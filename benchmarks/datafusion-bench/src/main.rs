@@ -189,9 +189,9 @@ async fn main() -> anyhow::Result<()> {
             |format| {
                 let benchmark = &*benchmark;
                 async move {
-                    let session = datafusion_bench::get_session_context();
+                    let session = datafusion_bench::get_session_context(args.benchmark);
                     datafusion_bench::make_object_store(&session, benchmark.data_url())?;
-                    register_benchmark_tables(&session, benchmark, format).await?;
+                    register_benchmark_tables(&session, benchmark, format, args.benchmark).await?;
                     Ok((session, format))
                 }
             },
@@ -255,6 +255,7 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
     session: &SessionContext,
     benchmark: &B,
     format: Format,
+    benchmark_arg: BenchmarkArg,
 ) -> anyhow::Result<()> {
     match format {
         Format::Arrow => register_arrow_tables(session, benchmark).await,
@@ -263,7 +264,7 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
         }
         _ => {
             let benchmark_base = benchmark.format_path(format, benchmark.data_url())?;
-            let file_format = format_to_df_format(format);
+            let file_format = format_to_df_format(format, benchmark_arg);
 
             for table in benchmark.table_specs().iter() {
                 let pattern = benchmark.pattern(table.name, format);

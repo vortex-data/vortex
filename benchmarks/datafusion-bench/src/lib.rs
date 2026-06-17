@@ -24,6 +24,7 @@ use object_store::aws::AmazonS3Builder;
 use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::local::LocalFileSystem;
 use url::Url;
+use vortex_bench::BenchmarkArg;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
 use vortex_datafusion::VortexFormat;
@@ -31,7 +32,7 @@ use vortex_datafusion::VortexFormatFactory;
 use vortex_datafusion::VortexTableOptions;
 
 #[expect(clippy::expect_used)]
-pub fn get_session_context() -> SessionContext {
+pub fn get_session_context(benchmark: BenchmarkArg) -> SessionContext {
     let mut rt_builder = RuntimeEnvBuilder::new();
 
     let file_static_cache = Arc::new(DefaultFileStatisticsCache::default());
@@ -54,11 +55,15 @@ pub fn get_session_context() -> SessionContext {
     );
 
     let mut config = SessionConfig::from_env().expect("shouldn't fail");
-    // Keep Parquet field metadata so the geoarrow.point extension survives the read.
-    config.options_mut().execution.parquet.skip_metadata = false;
-    // Evaluate (and reorder) the filter inside the parquet scan -- fairest parquet baseline.
-    config.options_mut().execution.parquet.pushdown_filters = true;
-    config.options_mut().execution.parquet.reorder_filters = true;
+    // SpatialBench reads geoarrow.point Parquet and benchmarks an ST_* predicate, so it needs
+    // Parquet-specific tuning.
+    if matches!(benchmark, BenchmarkArg::SpatialBench) {
+        // Keep Parquet field metadata so the geoarrow.point extension survives the read.
+        config.options_mut().execution.parquet.skip_metadata = false;
+        // Evaluate (and reorder) the filter inside the parquet scan -- fairest parquet baseline.
+        config.options_mut().execution.parquet.pushdown_filters = true;
+        config.options_mut().execution.parquet.reorder_filters = true;
+    }
 
     let mut session_state_builder = SessionStateBuilder::new()
         .with_config(config)
@@ -122,11 +127,16 @@ pub fn make_object_store(
     }
 }
 
-pub fn format_to_df_format(format: Format) -> Arc<dyn FileFormat> {
+pub fn format_to_df_format(format: Format, benchmark: BenchmarkArg) -> Arc<dyn FileFormat> {
     match format {
         Format::Csv => Arc::new(CsvFormat::default()) as _,
         Format::Arrow => Arc::new(ArrowFormat),
-        Format::Parquet => Arc::new(ParquetFormat::new().with_skip_metadata(false)),
+        Format::Parquet => {
+            // SpatialBench needs Parquet field metadata to rebuild the geoarrow.point extension
+            // during schema inference; other benchmarks keep the DataFusion default.
+            let skip_metadata = !matches!(benchmark, BenchmarkArg::SpatialBench);
+            Arc::new(ParquetFormat::new().with_skip_metadata(skip_metadata))
+        }
         Format::OnDiskVortex | Format::VortexCompact => {
             Arc::new(VortexFormat::new(SESSION.clone()))
         }
