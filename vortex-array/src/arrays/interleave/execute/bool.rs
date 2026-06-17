@@ -43,9 +43,6 @@ pub(super) fn execute(
         value_bits.push(array.value(i).as_::<Bool>().to_bit_buffer());
     }
 
-    // Hold the validity as a pushed-down interleave rather than applying it: the routing pair for
-    // each output selects the value *and* its validity bit, so the output validity is itself an
-    // interleave (by these selectors) of the values' validities. This bottoms out lazily.
     let validity = array.as_ref().validity()?;
 
     // Scatter directly from the typed selector buffers — no intermediate `usize` materialization.
@@ -117,13 +114,7 @@ fn validate_selectors<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
 /// Gathers one bit per output from `bits[branches[i]]` at position `rows[i]`, packing 64 results per
 /// word with [`BitBufferMut::collect_bool`].
 ///
-/// For a random-access gather there is no word-level shortcut on the read side — consecutive outputs
-/// read unrelated source words — so the work is one bit read per output. Each read indexes the
-/// `&[BitBuffer]` slice and uses [`BitBuffer::value_unchecked`]. Benchmarking (`gather_values` in
-/// `benches/interleave.rs`) showed this beats pre-hoisting a `(ptr, bit_offset)` table per buffer:
-/// the table's extra indirection and per-call allocation cost more than reloading the selected
-/// buffer's pointer/offset, which stay hot in its `BitBuffer` struct. The bounds-checked
-/// `BitBuffer::value` is slower still.
+///  The bounds-checked `BitBuffer::value` is slower still.
 ///
 /// # Safety
 ///
