@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![expect(clippy::unwrap_used)]
+
 use std::sync::LazyLock;
 
 use divan::Bencher;
@@ -28,12 +30,12 @@ const SIZES: &[usize] = &[65_536];
 static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
-#[divan::bench]
-fn cast_u16_to_u32(bencher: Bencher) {
+#[divan::bench(args = SIZES)]
+fn cast_u16_to_u32(bencher: Bencher, n: usize) {
     let mut rng = StdRng::seed_from_u64(42);
     let arr = PrimitiveArray::from_option_iter((0..n).map(|i| {
         #[expect(clippy::cast_possible_truncation)]
-        rng.random_bool(0.5).then(|| i as u16)
+        rng.random_bool(0.5).then_some(i as u16)
     }))
     .into_array();
     // Pre-compute min/max so values_fit_in is a cache hit during the benchmark.
@@ -43,7 +45,6 @@ fn cast_u16_to_u32(bencher: Bencher) {
     bencher
         .with_inputs(|| (arr.clone(), SESSION.create_execution_ctx()))
         .bench_refs(|(a, ctx)| {
-            #[expect(clippy::unwrap_used)]
             a.cast(DType::Primitive(PType::U32, Nullability::Nullable))
                 .unwrap()
                 .execute::<Canonical>(ctx)
@@ -60,12 +61,13 @@ fn cast_u32_to_u8(bencher: Bencher, n: usize) {
             .then(|| rng.random_range(0..u8::MAX) as u32)
     }))
     .into_array();
-    bencher.with_inputs(|| arr.clone()).bench_refs(|a| {
-        #[expect(clippy::unwrap_used)]
-        a.cast(DType::Primitive(PType::U8, Nullability::Nullable))
-            .unwrap()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
-    });
+    bencher
+        .with_inputs(|| (arr.clone(), SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| {
+            a.cast(DType::Primitive(PType::U8, Nullability::Nullable))
+                .unwrap()
+                .execute::<Canonical>(ctx)
+        });
 }
 
 /// Sign-change cast i32 → u32. Values are non-negative so the kernel succeeds
@@ -77,10 +79,11 @@ fn cast_i32_to_u32(bencher: Bencher, n: usize) {
         (0..n).map(|_| rng.random_bool(0.7).then(|| rng.random_range(0..i32::MAX))),
     )
     .into_array();
-    bencher.with_inputs(|| arr.clone()).bench_refs(|a| {
-        #[expect(clippy::unwrap_used)]
-        a.cast(DType::Primitive(PType::U32, Nullability::Nullable))
-            .unwrap()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
-    });
+    bencher
+        .with_inputs(|| (arr.clone(), SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| {
+            a.cast(DType::Primitive(PType::U32, Nullability::Nullable))
+                .unwrap()
+                .execute::<Canonical>(ctx)
+        });
 }
