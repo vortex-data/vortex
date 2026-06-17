@@ -988,6 +988,23 @@ mod test {
     }
 
     #[test]
+    fn test_float_divide_by_zero_is_ok() {
+        let values = buffer![1.0f64, -1.0].into_array();
+        let result = values
+            .binary(
+                ConstantArray::new(0.0f64, values.len()).into_array(),
+                Operator::Div,
+            )
+            .and_then(|a| a.execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx()))
+            .unwrap();
+
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_iter([f64::INFINITY, f64::NEG_INFINITY])
+        );
+    }
+
+    #[test]
     fn test_integer_overflow_errors() {
         let values = buffer![u8::MAX].into_array();
         let result = values
@@ -1058,6 +1075,21 @@ mod test {
             .unwrap();
 
         assert_arrays_eq!(result, PrimitiveArray::from_option_iter([None, Some(2u8)]));
+    }
+
+    #[test]
+    fn test_integer_array_array_errors_on_valid_lanes() {
+        let lhs = PrimitiveArray::new(
+            buffer![u8::MAX, 1, u8::MAX],
+            Validity::from_iter([false, true, true]),
+        )
+        .into_array();
+        let rhs = buffer![1u8, 1, 1].into_array();
+        let result = lhs
+            .binary(rhs, Operator::Add)
+            .and_then(|a| a.execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx()));
+
+        assert!(result.is_err());
     }
 
     #[test]
