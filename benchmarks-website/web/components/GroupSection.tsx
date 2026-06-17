@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import { ChartCard } from '@/components/ChartCard';
 import { SummaryCard } from '@/components/SummaryCard';
-import type { ChartLink, Group } from '@/lib/queries';
+import type { Group } from '@/lib/queries';
 
 /**
  * One group's landing-page section, the server-component port of
@@ -32,17 +33,6 @@ export function GroupSection({ group, startIndex }: { group: Group; startIndex: 
         <summary className="group-summary">
           <span className="group-summary-row">
             <span className="group-name">{group.name}</span>
-            {group.description !== undefined && (
-              <span
-                className="group-info-icon"
-                tabIndex={0}
-                role="note"
-                aria-label={group.description}
-                data-tooltip={group.description}
-              >
-                ⓘ
-              </span>
-            )}
             <span className="group-count">
               {chartCount} chart{chartCount !== 1 ? 's' : ''}
             </span>
@@ -52,26 +42,8 @@ export function GroupSection({ group, startIndex }: { group: Group; startIndex: 
       <SummaryCard summary={group.summary} />
       <div className="chart-grid">
         {group.charts.map((link, i) => (
-          <ChartCardShell key={link.slug} link={link} index={startIndex + i} />
+          <ChartCard key={link.slug} link={link} index={startIndex + i} />
         ))}
-      </div>
-    </section>
-  );
-}
-
-/**
- * An empty chart-card shell: the title (linking to the chart permalink) and a
- * sized `<canvas>` mount point. The payload + interactive toolbar arrive with
- * the PR-4.4.b client island, which keys off `data-chart-slug`.
- */
-function ChartCardShell({ link, index }: { link: ChartLink; index: number }) {
-  return (
-    <section className="chart-card" data-chart-index={index} data-chart-slug={link.slug}>
-      <h3 className="chart-card-title">
-        <a href={`/chart/${link.slug}`}>{link.name}</a>
-      </h3>
-      <div className="chart-wrap">
-        <canvas data-chart-index={index} />
       </div>
     </section>
   );

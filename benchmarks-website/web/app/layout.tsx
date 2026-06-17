@@ -12,6 +12,8 @@
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 
+import { Footer } from '@/components/Footer';
+import { Header } from '@/components/Header';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -35,19 +37,28 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
+// Pre-paint theme bootstrap, ported verbatim from
+// `render.rs::theme_bootstrap_script`: read the persisted choice and reflect it
+// on `<html data-theme>` before first paint so a returning visitor's chosen
+// theme never flashes the default. Kept inline (not a component) so it runs
+// before the body renders.
+const THEME_BOOTSTRAP = `(function(){try{var t=localStorage.getItem("bench-theme");if(t==="light"||t==="dark"){document.documentElement.dataset.theme=t;}}catch(e){}})();`;
+
 /**
- * Root layout: the `<html>`/`<body>` shell plus the global stylesheet and the
- * external web fonts (Geist sans + mono for body/metrics, Funnel Display for
- * headings), mirroring v2's `index.html` / v3's `render.rs::web_font_links`.
- * React 19 hoists the `<link>` tags into `<head>`.
- *
- * The theme-toggle bootstrap script is deferred to PR-4.4.b (which adds the
- * toggle); until then theming follows `prefers-color-scheme` via `globals.css`.
+ * Root layout: the `<html>`/`<body>` shell, the global stylesheet, the external
+ * web fonts (Geist sans + mono for body/metrics, Funnel Display for headings),
+ * the theme bootstrap, and the shared chrome (`Header` / `Footer`) wrapping the
+ * per-route `<main>`. Mirrors v3's `render.rs::render_page`.
  */
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    // `suppressHydrationWarning`: the theme bootstrap below sets `data-theme` on
+    // `<html>` from localStorage before React hydrates, so the client `<html>`
+    // attributes intentionally differ from the (theme-less) server render. The
+    // flag scopes the suppression to this one element's attributes.
+    <html lang="en" suppressHydrationWarning>
       <body>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
         <link
@@ -62,7 +73,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           rel="stylesheet"
           href="https://unpkg.com/geist@1.3.0/dist/fonts/geist-mono/style.css"
         />
-        {children}
+        <Header />
+        <main>{children}</main>
+        <Footer />
       </body>
     </html>
   );

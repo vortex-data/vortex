@@ -40,28 +40,53 @@ export function groupDescription(name: string): string | null {
 function staticDescription(name: string): string | null {
   switch (name) {
     case 'Random Access':
-      return 'Tests performance of selecting arbitrary row indices from a file on NVMe storage';
+      return (
+        'Point lookups — selecting specific rows by position from an NVMe file. What feature ' +
+        'stores, vector retrieval, and per-record serving actually do.'
+      );
     case 'Compression':
       return (
-        'Measures encoding and decoding throughput (MB/s) for Vortex files and Parquet ' +
-        'files (with zstd page compression)'
+        'Encode and decode throughput (MB/s) for Vortex vs Parquet (zstd page compression). ' +
+        'Encode gates ingestion; decode gates every scan after.'
       );
     case 'Compression Size':
       return (
-        'Compares compressed file sizes and compression ratios across different encoding ' +
-        'strategies'
+        'Compressed file size per format across a fixed set of datasets. A faster format that ' +
+        'bloats on disk just trades one bill for another.'
       );
     case 'Clickbench':
       return (
-        "ClickHouse's analytical benchmark suite testing real-world query patterns on web " +
-        'analytics data'
+        "ClickHouse's 43-query analytical suite over real web-analytics data — the field's " +
+        'standard test for single-table scans, filters, and aggregations.'
       );
     case 'Statistical and Population Genetics':
-      return 'A suite of Statistical and Population genetics queries using the gnomAD dataset';
+      return (
+        'Population-genetics queries over the gnomAD dataset — DuckDB-only, exercising the ' +
+        'deeply-nested array operations real genomics pipelines run on.'
+      );
     case 'PolarSignals Profiling':
       return (
-        'Profiling data benchmark modeled on PolarSignals/Parca, exercising scan-layer ' +
-        'performance with projection and filter pushdown on deeply nested schemas'
+        'Scan-layer benchmark modeled on PolarSignals/Parca: projection and filter pushdown ' +
+        'over deeply-nested profile schemas — the shape continuous-profiling backends actually read.'
+      );
+    default:
+      return null;
+  }
+}
+
+/**
+ * Suite-level TPC blurb (no storage / scale-factor dimensions) for the clustered
+ * Historic-page section, where those become toggle buttons rather than part of
+ * the heading. Returns `null` for non-TPC names.
+ */
+export function tpcSuiteDescription(suite: string): string | null {
+  switch (suite) {
+    case 'TPC-H':
+      return 'TPC-H — 22 analytical queries against the canonical OLAP star schema.';
+    case 'TPC-DS':
+      return (
+        'TPC-DS — the broader 99-query analytical suite, with larger schemas and skewed ' +
+        'distributions.'
       );
     default:
       return null;
@@ -128,28 +153,32 @@ function parseSf(s: string): string | null {
  * descriptions did not annotate scale bytes).
  */
 function formatTpc(suite: 'TPC-H' | 'TPC-DS', storage: 'nvme' | 's3', sf: string): string {
-  const storagePhrase = storage === 's3' ? 'against S3 storage' : 'on local NVMe storage';
+  const storagePhrase = storage === 's3' ? 'against S3' : 'on local NVMe';
   const bytes = scaleBytes(sf);
   if (suite === 'TPC-H') {
+    const schema = 'TPC-H — 22 analytical queries against the canonical OLAP star schema —';
     if (bytes !== null) {
-      return `TPC-H benchmark queries ${storagePhrase} at SF=${sf} (~${bytes} of data)`;
+      return `${schema} at scale factor ${sf} (~${bytes}), ${storagePhrase}.`;
     }
-    return `TPC-H benchmark queries ${storagePhrase} at SF=${sf}`;
+    return `${schema} at scale factor ${sf}, ${storagePhrase}.`;
   }
-  return `TPC-DS benchmark queries ${storagePhrase} at SF=${sf}`;
+  return (
+    'TPC-DS — the broader 99-query analytical suite (larger schemas, skewed distributions) — ' +
+    `at scale factor ${sf}, ${storagePhrase}.`
+  );
 }
 
 /** The human-readable dataset size for the known TPC scale factors. */
 function scaleBytes(sf: string): string | null {
   switch (sf) {
     case '1':
-      return '1GB';
+      return '1 GB';
     case '10':
-      return '10GB';
+      return '10 GB';
     case '100':
-      return '100GB';
+      return '100 GB';
     case '1000':
-      return '1TB';
+      return '1 TB';
     default:
       return null;
   }

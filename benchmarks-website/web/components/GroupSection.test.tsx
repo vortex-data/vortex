@@ -34,10 +34,13 @@ describe('GroupSection', () => {
     expect(html).toContain('<span class="group-name">Random Access</span>');
   });
 
-  it('renders the description info-icon and a pluralized chart count', () => {
+  it('renders a pluralized chart count and no inline description', () => {
     const html = renderToStaticMarkup(<GroupSection group={RANDOM_ACCESS} startIndex={0} />);
-    expect(html).toContain('class="group-info-icon"');
-    expect(html).toContain('data-tooltip="Tests selecting arbitrary row indices on NVMe"');
+    // The description lives on the Current page; the Historic section shows
+    // neither a blurb nor the old hover info-icon.
+    expect(html).not.toContain('class="group-blurb"');
+    expect(html).not.toContain('class="group-info-icon"');
+    expect(html).not.toContain('Tests selecting arbitrary row indices on NVMe');
     expect(html).toContain('2 charts');
   });
 
@@ -68,6 +71,8 @@ describe('GroupSection', () => {
     };
     const html = renderToStaticMarkup(<GroupSection group={single} startIndex={0} />);
     expect(html).toContain('<span class="group-count">1 chart</span>');
+    // No description -> no blurb (and the info-icon is gone entirely).
+    expect(html).not.toContain('class="group-blurb"');
     expect(html).not.toContain('class="group-info-icon"');
     // A group with no summary renders no summary card.
     expect(html).not.toContain('class="benchmark-scores-summary"');

@@ -1,85 +1,103 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /* SPDX-FileCopyrightText: Copyright the Vortex contributors */
 
+/* ======================================================================
+ * Vortex benchmarks - visual language mirrors vortex.dev:
+ * dark-first monochrome, Geist Mono for the technical chrome (nav, labels,
+ * titles, metrics), Geist sans for prose, sharp corners, and blueprint
+ * framing (dashed rules + a fine dotted grid). No chromatic accent - the
+ * "accent" is simply the foreground colour inverted, matching the stark
+ * black/white identity of the core site.
+ * ====================================================================== */
+
 :root {
-  color-scheme: light;
+  color-scheme: dark;
   --header-height: 72px;
-  --bg: #ffffff;
-  --page-bg: #fafafa;
-  --fg: #101010;
-  --muted: #666666;
-  --accent: #5971fd;
-  --accent-fg: #ffffff;
-  --border: #ececec;
-  --card-bg: #ffffff;
-  --code-bg: #fafafa;
-  --tooltip-bg: #1a1a1a;
-  --tooltip-fg: #f5f5f5;
-  --good: #16a34a;
-  --bad: #dc2626;
-  --shadow-md: 0 4px 8px rgba(16, 16, 16, 0.08);
+
+  /* Dark is the canonical brand surface (vortex.dev is dark-only). */
+  --bg: #101010; /* page */
+  --surface: #161616; /* elevated: cards, panels, toolbars */
+  --surface-2: #1c1c1c; /* hover / nested */
+  --fg: #f2f2f2; /* primary text */
+  --muted: #8a8a8a; /* secondary text */
+  --faint: #5a5a5a; /* tertiary / disabled */
+  --line: #2a2a2a; /* hairline borders */
+  --line-strong: #3a3a3a; /* emphasised borders */
+  --accent: #f2f2f2; /* monochrome "accent" = fg (UI chrome) */
+  --accent-fg: #101010; /* text on an accent fill */
+  --bar: #d4d4d4; /* chart bar fill — off-white, softer than fg */
+  /* Series lexicon — COLOUR = file format (Vortex is the white hero), used by
+   * every multi-series chart. Line STYLE encodes the query engine (see
+   * chart-init.js engineDash). Mid-tone hues read on both dark and light, so
+   * only --fmt-vortex is theme-aware (it tracks the ink colour). */
+  --fmt-vortex: #f2f2f2; /* white hero (dark); overridden in light */
+  --fmt-vortex-compact: #4fb3c4; /* teal */
+  --fmt-parquet: #7e96c8; /* periwinkle */
+  --fmt-arrow: #c9805a; /* terracotta */
+  --fmt-duckdb: #d6b94a; /* gold */
+  --fmt-lance: #a98ee0; /* violet */
+  --fmt-other: #8a8a8a; /* fallback */
+  --grid-dot: rgba(255, 255, 255, 0.05);
+  --good: #8fd19e; /* faster / better (desaturated to fit mono) */
+  --bad: #e0a0a0; /* slower / worse */
+  --code-bg: #1c1c1c;
+  --tooltip-bg: #000000;
+  --tooltip-fg: #f2f2f2;
+  --shadow-md: none;
+  --mono: 'Geist Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  --sans: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    /* Elevation hierarchy mirrors v2: page background sits at the
-     * deeper colour, cards / dropdowns / toolbars rise to the lighter
-     * grey. The previous assignment had cards darker than the page,
-     * which read as overly contrasty dark voids on the landing grid. */
-    --bg: #121219;
-    --page-bg: #050507;
-    --fg: #f5f5f7;
-    --muted: #a0a0b0;
-    --accent: #8a9cff;
-    --accent-fg: #050507;
-    --border: #30303a;
-    --card-bg: #121219;
-    --code-bg: #050507;
-    --tooltip-bg: #1a1c22;
-    --tooltip-fg: #f5f5f5;
-    --good: #4ade80;
-    --bad: #f87171;
-    --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.7);
+/* Light is an inverse monochrome, used only when the OS asks for it and the
+ * user hasn't forced dark, or when the toggle selects it. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    color-scheme: light;
+    --bg: #ffffff;
+    --surface: #ffffff;
+    --surface-2: #f4f4f4;
+    --fg: #101010;
+    --muted: #666666;
+    --faint: #999999;
+    --line: #e4e4e4;
+    --line-strong: #cccccc;
+    --accent: #101010;
+    --accent-fg: #ffffff;
+    --bar: #3d3d3d;
+    --fmt-vortex: #101010;
+    --grid-dot: rgba(0, 0, 0, 0.06);
+    --good: #1f7a3d;
+    --bad: #b3261e;
+    --code-bg: #f4f4f4;
+    --tooltip-bg: #101010;
+    --tooltip-fg: #ffffff;
   }
 }
 
 :root[data-theme='light'] {
   color-scheme: light;
   --bg: #ffffff;
-  --page-bg: #fafafa;
+  --surface: #ffffff;
+  --surface-2: #f4f4f4;
   --fg: #101010;
   --muted: #666666;
-  --accent: #5971fd;
+  --faint: #999999;
+  --line: #e4e4e4;
+  --line-strong: #cccccc;
+  --accent: #101010;
   --accent-fg: #ffffff;
-  --border: #ececec;
-  --card-bg: #ffffff;
-  --code-bg: #fafafa;
-  --tooltip-bg: #1a1a1a;
-  --tooltip-fg: #f5f5f5;
-  --good: #16a34a;
-  --bad: #dc2626;
-  --shadow-md: 0 4px 8px rgba(16, 16, 16, 0.08);
+  --bar: #3d3d3d;
+  --fmt-vortex: #101010;
+  --grid-dot: rgba(0, 0, 0, 0.06);
+  --good: #1f7a3d;
+  --bad: #b3261e;
+  --code-bg: #f4f4f4;
+  --tooltip-bg: #101010;
+  --tooltip-fg: #ffffff;
 }
 
 :root[data-theme='dark'] {
   color-scheme: dark;
-  /* See the matching `@media (prefers-color-scheme: dark)` block above
-   * for the rationale on the --bg / --page-bg / --card-bg assignment. */
-  --bg: #121219;
-  --page-bg: #050507;
-  --fg: #f5f5f7;
-  --muted: #a0a0b0;
-  --accent: #8a9cff;
-  --accent-fg: #050507;
-  --border: #30303a;
-  --card-bg: #121219;
-  --code-bg: #050507;
-  --tooltip-bg: #1a1c22;
-  --tooltip-fg: #f5f5f5;
-  --good: #4ade80;
-  --bad: #f87171;
-  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.7);
 }
 
 * {
@@ -93,42 +111,33 @@ body {
   width: 100%;
   min-width: 0;
   overflow-x: hidden;
-  background: var(--page-bg);
+  background-color: var(--bg);
+  /* Fine dotted blueprint grid, à la vortex.dev. */
+  background-image: radial-gradient(var(--grid-dot) 1px, transparent 1.2px);
+  background-size: 24px 24px;
+  background-position: -1px -1px;
   color: var(--fg);
-  /* Geist is loaded from unpkg by `html::render::web_font_links`; the
-   * fallback stack matches v2's `src/styles/index.css` so the site
-   * remains legible if the CDN is blocked. */
-  font-family:
-    'Geist',
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    'SF Pro Display',
-    Roboto,
-    sans-serif;
+  font-family: var(--sans);
   font-size: 16px;
   line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* All headings use Funnel Display, mirroring v2's
- * `h1, h2, h3, h4, h5, h6` rule. Loaded from Google Fonts by
- * `html::render::web_font_links`. */
+/* Headings carry the mono identity: uppercase, tracked out. */
 h1,
 h2,
 h3,
 h4,
 h5,
 h6 {
-  font-family: 'Funnel Display', sans-serif;
-  letter-spacing: -0.02em;
+  font-family: var(--mono);
+  font-weight: 500;
+  letter-spacing: 0.02em;
 }
 
-/* Code blocks use Geist Mono, mirroring v2's `code, pre` rule. The
- * fallback stack matches what the explicit-mono usages further down
- * declare so a CDN-blocked client still gets a monospace font. */
 code,
 pre {
-  font-family: 'Geist Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-family: var(--mono);
 }
 
 body {
@@ -136,13 +145,26 @@ body {
 }
 
 a {
-  color: var(--accent);
+  color: var(--fg);
   text-decoration: none;
 }
 a:hover {
   text-decoration: underline;
 }
 
+/* Shared eyebrow/label treatment: small, uppercase, tracked, mono. */
+.scores-title,
+.toolbar-label,
+.global-filter-label,
+.group-count {
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+/* ----------------------------------------------------------------------
+ * Sticky header - blueprint bar with a dashed baseline rule.
+ * ---------------------------------------------------------------------- */
 .sticky-header {
   position: fixed;
   top: 0;
@@ -150,36 +172,13 @@ a:hover {
   right: 0;
   z-index: 1000;
   height: var(--header-height);
-  border-bottom: 1px solid var(--border);
-  background: rgba(250, 250, 250, 0.95);
-  box-shadow: 0 1px 3px rgba(16, 16, 16, 0.08);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .sticky-header {
-    background: rgba(18, 18, 25, 0.95);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
-  }
-}
-
-:root[data-theme='dark'] .sticky-header {
-  background: rgba(18, 18, 25, 0.95);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
-}
-
-:root[data-theme='light'] .sticky-header {
-  background: rgba(250, 250, 250, 0.95);
-  box-shadow: 0 1px 3px rgba(16, 16, 16, 0.08);
+  border-bottom: 1px dashed var(--line-strong);
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .header-content {
-  /* Sticky-header inner background. v2 maps this to `--bg-secondary`,
-   * the elevated grey in dark mode (`#121219`); v3's `--bg` resolves
-   * to the same colour. Using `--code-bg` here flattened the header
-   * against the page in dark mode. */
-  background: var(--bg);
   position: relative;
   display: flex;
   align-items: center;
@@ -202,34 +201,25 @@ a:hover {
 
 .header-left {
   min-width: 0;
-  gap: 0.75rem;
+  gap: 1rem;
 }
-
+/* Flex item (not absolutely centered): the right cluster now holds the
+ * Expand/Collapse actions, so `space-between` on `.header-content` distributes
+ * left / nav / right without the nav overlapping the actions. */
 .header-center {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   justify-content: center;
   min-width: 0;
-  transform: translate(-50%, -50%);
 }
-
 .header-right {
   justify-content: flex-end;
-  gap: 0.75rem;
-  margin-left: auto;
+  gap: 0.5rem;
 }
-
 .nav-controls {
-  gap: 0.75rem;
+  gap: 0.5rem;
   min-width: 0;
 }
 
-/* Hamburger button + the mobile-only GitHub link inside `.nav-controls`
- * are hidden by default; the mobile media query below flips them on. The
- * compound selector beats `.control-btn` / `.repo-link` on specificity so
- * those generic display rules don't accidentally re-show them on desktop. */
 .header-left .nav-mobile-toggle {
   display: none;
 }
@@ -242,22 +232,20 @@ a:hover {
   text-decoration: none;
   transition: opacity 0.2s ease;
 }
-
 .logo-link:hover {
-  opacity: 0.8;
+  opacity: 0.7;
   text-decoration: none;
 }
-
 .site-logo {
   display: block;
   width: auto;
-  height: 24px;
+  height: 22px;
 }
 
+/* Monochrome brand: always show the white sigil on dark, black on light. */
 .logo-dark {
   display: none;
 }
-
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) .logo-light {
     display: none;
@@ -266,11 +254,10 @@ a:hover {
     display: block;
   }
 }
-
-:root[data-theme='dark'] .logo-light {
+:root:not([data-theme='light']) .logo-light {
   display: none;
 }
-:root[data-theme='dark'] .logo-dark {
+:root:not([data-theme='light']) .logo-dark {
   display: block;
 }
 :root[data-theme='light'] .logo-light {
@@ -282,20 +269,25 @@ a:hover {
 
 .site-title {
   display: none;
-  margin: 0 0 0 1.5rem;
+  margin: 0 0 0 1.25rem;
+  padding-left: 1.25rem;
+  border-left: 1px solid var(--line-strong);
   color: var(--fg);
-  font-size: 1.5rem;
+  font-family: var(--mono);
+  font-size: 0.95rem;
   font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
   line-height: 1.2;
   white-space: nowrap;
 }
-
-@media (min-width: 1400px) {
+@media (min-width: 1100px) {
   .site-title {
     display: block;
   }
 }
 
+/* Buttons + nav links: mono, uppercase, square, ghost by default. */
 .control-btn,
 .repo-link {
   display: inline-flex;
@@ -303,93 +295,138 @@ a:hover {
   justify-content: center;
   gap: 0.45rem;
   min-height: 36px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  background: transparent;
   color: var(--fg);
-  font: inherit;
-  font-size: 0.875rem;
+  font-family: var(--mono);
+  font-size: 0.74rem;
   font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
   line-height: 1;
   white-space: nowrap;
   transition:
-    background-color 0.2s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    color 0.2s ease,
-    transform 0.2s ease;
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
 }
-
 .control-btn {
-  padding: 0.5rem 1.25rem;
+  padding: 0.5rem 1rem;
   cursor: pointer;
+}
+.repo-link {
+  padding: 0.5rem 0.85rem;
 }
 
 .control-btn:hover,
 .repo-link:hover {
-  border-color: var(--accent);
-  background: var(--code-bg);
-  color: var(--accent);
-  box-shadow: 0 1px 3px rgba(16, 16, 16, 0.08);
+  border-color: var(--fg);
+  background: var(--surface-2);
+  color: var(--fg);
   text-decoration: none;
-  transform: translateY(-1px);
 }
 
 .theme-toggle {
-  min-width: 4.25rem;
+  min-width: 4.5rem;
 }
-
 .btn-icon {
   flex: 0 0 auto;
 }
-
 .theme-icon-dark {
   display: none;
 }
-
 .theme-toggle[data-next-theme='dark'] .theme-icon-light {
   display: none;
 }
-
 .theme-toggle[data-next-theme='dark'] .theme-icon-dark {
   display: block;
 }
-
 .theme-toggle[data-next-theme='light'] .theme-icon-light {
   display: block;
 }
-
 .theme-toggle[data-next-theme='light'] .theme-icon-dark {
   display: none;
 }
-
-.repo-link {
-  padding: 0.5rem 1rem;
-  font-weight: 500;
-}
-
 .github-logo {
   flex: 0 0 auto;
 }
 
+/* Primary page nav (Overview / Current / Historic): ghost mono links in the
+ * header center. The active page is boxed like a pressed control. */
+.site-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.site-nav-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0.5rem 0.95rem;
+  border: 1px solid transparent;
+  border-radius: 0;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  white-space: nowrap;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+.site-nav-link:hover {
+  color: var(--fg);
+  border-color: var(--line-strong);
+  text-decoration: none;
+}
+.site-nav-link--active {
+  color: var(--fg);
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+}
+
+/* Right-aligned Expand/Collapse All, shown on both data tabs. */
+.page-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+@media (max-width: 768px) {
+  /* Icon-only on mobile to keep the right cluster compact. */
+  .page-actions .control-btn span {
+    display: none;
+  }
+}
+
+/* ----------------------------------------------------------------------
+ * Permalink page header
+ * ---------------------------------------------------------------------- */
 .page-header {
-  border-bottom: 1px solid var(--border);
-  background: var(--code-bg);
-  padding: 1rem 2rem;
+  border-bottom: 1px dashed var(--line-strong);
+  background: transparent;
+  padding: 1.25rem 2rem;
   width: 100%;
 }
 .page-header h1 {
   margin: 0;
-  font-size: 1.25rem;
-  font-weight: 600;
+  font-size: 1.1rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 .page-header h1 a {
   color: var(--fg);
 }
 .page-header .subtitle {
-  margin: 0.25rem 0 0;
+  margin: 0.35rem 0 0;
   color: var(--muted);
-  font-size: 0.875rem;
+  font-family: var(--mono);
+  font-size: 0.8rem;
 }
 
 main {
@@ -398,36 +435,58 @@ main {
   margin: 0;
   padding: 2rem;
 }
-
 @media (min-width: 1600px) {
   main {
     padding: 2.5rem 3.75rem;
   }
 }
-
 @media (min-width: 1920px) {
   main {
-    padding: 3rem 5rem;
+    padding: 3rem 6rem;
   }
 }
 
 .empty {
   color: var(--muted);
-  font-style: italic;
+  font-family: var(--mono);
+  text-align: center;
+  padding: 4rem 1rem;
 }
 
+/* ----------------------------------------------------------------------
+ * Group block - a bordered schematic panel with corner registration ticks.
+ * ---------------------------------------------------------------------- */
 .group-details {
+  position: relative;
   width: 100%;
   max-width: none;
-  margin-bottom: 3rem;
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  margin-bottom: 2.5rem;
+  border: 1px solid var(--line);
+  border-radius: 0;
   background: var(--bg);
-  overflow: hidden;
-  transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
 }
+/* CAD-style corner ticks on the top-left + bottom-right of each panel. */
+.group-details::before,
+.group-details::after {
+  content: '';
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-color: var(--line-strong);
+  border-style: solid;
+  pointer-events: none;
+}
+.group-details::before {
+  top: -1px;
+  left: -1px;
+  border-width: 1px 0 0 1px;
+}
+.group-details::after {
+  bottom: -1px;
+  right: -1px;
+  border-width: 0 1px 1px 0;
+}
+
 .group-disclosure {
   display: block;
 }
@@ -435,82 +494,66 @@ main {
   list-style: none;
   cursor: pointer;
   display: block;
-  /* Elevated surface - v2's `.benchmark-header` uses `--bg-secondary`
-   * (`#121219` in dark mode); `--card-bg` is the v3 alias for that
-   * elevated colour. Using `--code-bg` here flattened the disclosure
-   * bar against the page in dark mode. */
-  background: var(--card-bg);
-  border-radius: 12px 12px 0 0;
+  background: var(--surface);
   user-select: none;
 }
 .group-summary-row {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 1rem 2rem;
-  border-bottom: 1px solid var(--border);
-  transition: background-color 0.2s ease;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--line);
+  transition: background-color 0.15s ease;
 }
 .group-summary::-webkit-details-marker {
   display: none;
 }
 .group-summary-row::before {
-  content: '▶';
+  content: '+';
   display: inline-block;
   width: 1rem;
   flex: 0 0 auto;
-  font-size: 0.9rem;
+  font-family: var(--mono);
+  font-size: 1rem;
   line-height: 1;
   text-align: center;
   color: var(--muted);
-  transition: transform 120ms ease;
 }
 .group-disclosure[open] > .group-summary .group-summary-row::before {
-  transform: rotate(90deg);
+  content: '\2212';
 }
 .group-summary:hover .group-summary-row {
-  background: var(--bg);
+  background: var(--surface-2);
 }
+
 .group-name {
-  /* `.group-name` is a `<span>` in `landing.rs`, so it doesn't inherit
-   * from the `h1, h2, ..., h6` rule. v2's `.benchmark-title` applies
-   * Funnel Display explicitly; mirror that here. */
-  font-family: 'Funnel Display', sans-serif;
-  font-weight: 600;
-  font-size: 1.35rem;
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 1.05rem;
   line-height: 1.2;
-  letter-spacing: -0.02em;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 .group-count {
   color: var(--muted);
-  font-family: 'Geist Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-  font-size: 0.7rem;
-  font-weight: 600;
+  font-size: 0.65rem;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
   line-height: 1;
-  text-transform: uppercase;
+  padding: 0.2rem 0.45rem;
+  border: 1px solid var(--line);
 }
-/*
- * The small ⓘ next to a group title that surfaces the editorial blurb on
- * hover and on focus. The icon is keyboard-focusable. In the JS-free server
- * shell, clicking the icon toggles the surrounding `<details>` like the rest
- * of the summary row (CSS alone cannot stop that; the v3 comment claiming
- * `pointer-events: auto` stops propagation was wrong). PR-4.4.b's header
- * islands may add a propagation-stopping click handler if the toggle proves
- * disruptive next to the tooltip.
- */
+
 .group-info-icon {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.25rem;
-  height: 1.25rem;
-  border-radius: 50%;
-  font-size: 0.95rem;
+  width: 1.1rem;
+  height: 1.1rem;
+  font-size: 0.85rem;
   line-height: 1;
-  color: var(--muted);
+  color: var(--faint);
   cursor: help;
   user-select: none;
   flex-shrink: 0;
@@ -521,20 +564,6 @@ main {
   color: var(--fg);
   outline: none;
 }
-/*
- * CSS-only tooltip rendered below the icon. We use a `::after` pseudo so
- * we don't have to plant extra DOM. `pointer-events: none` keeps the
- * tooltip from intercepting hover (which would cause flicker), and
- * `white-space: normal` + a fixed `max-width` lets long descriptions wrap
- * gracefully.
- *
- * Anchored to the icon's left edge (not centred on the icon) so the tooltip
- * grows rightward into the page. Group titles in our layout are left-
- * aligned in the disclosure header, so the icon is always close to the
- * viewport's left edge - `left: 50%; transform: translateX(-50%)` would
- * push half of a wide tooltip off the screen and clip it. Anchoring to the
- * left keeps the description fully visible.
- */
 [data-tooltip].group-info-icon::after {
   content: attr(data-tooltip);
   position: absolute;
@@ -543,10 +572,11 @@ main {
   padding: 0.5rem 0.75rem;
   background: var(--tooltip-bg);
   color: var(--tooltip-fg);
+  border: 1px solid var(--line-strong);
+  font-family: var(--sans);
   font-size: 0.8rem;
-  font-weight: 400;
-  line-height: 1.35;
-  border-radius: 6px;
+  line-height: 1.4;
+  border-radius: 0;
   max-width: min(28rem, 90vw);
   width: max-content;
   white-space: normal;
@@ -558,47 +588,87 @@ main {
     visibility 0.15s ease;
   pointer-events: none;
   z-index: 10;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
 }
 [data-tooltip].group-info-icon:hover::after,
 [data-tooltip].group-info-icon:focus-visible::after {
   opacity: 1;
   visibility: visible;
 }
+
 .group-details > .chart-grid {
   padding: 1.25rem;
-  /* Page-level surface behind the chart cards. v2's `.benchmark-graphs`
-   * uses `--bg-color` (`#050507` in dark mode); `--page-bg` is the v3
-   * alias for the page colour. Using `--bg` here made the grid behind
-   * cards appear lighter than the body, inverting v2's elevation. */
-  background: var(--page-bg);
+  background: var(--bg);
+}
+
+/* Previous Versions headline chart: the baseline synthesis trend, shown above
+ * the (expandable) per-query history grid. */
+.history-figure {
+  margin: 0;
+  padding: 1.25rem 1.5rem 1.5rem;
+  background: var(--bg);
+}
+.history-chart-wrap {
+  position: relative;
+  height: 220px;
+}
+/* Multi-headline grid: when a group's headline splits per engine (qm) or per op
+ * (ct) — mirrors the per-card 2-col layout. Single-headline cases bypass this. */
+.history-headline-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+}
+@media (min-width: 1200px) {
+  .history-headline-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.history-headline-grid .history-figure {
+  padding: 1rem 1.5rem 1.25rem;
+}
+.history-headline-grid .history-chart-wrap {
+  height: 200px;
+}
+.history-facet-title {
+  margin: 0 0 0.6rem;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+/* Storage + scale-factor toggles above the headline chart (TPC suites).
+   A slightly larger gap separates the two `.dim-toggle` groups from each
+   other than separates the buttons within a group, so the storage row reads
+   as a distinct selector rather than a continuation of the SF row. */
+.history-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  align-items: center;
+  margin: 1rem 1.5rem 0;
 }
 
 .benchmark-scores-summary {
-  border-bottom: 1px solid var(--border);
-  /* Elevated surface, same role as v2's `.benchmark-scores-summary`
-   * which uses `--bg-secondary`. */
-  background: var(--card-bg);
-  padding: 0.75rem 2rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  padding: 0.85rem 1.5rem;
   margin: 0;
 }
 
 .group-disclosure:not([open]) ~ .chart-grid {
   display: none;
 }
+/* TPC clusters wrap per-(storage, SF) chart-grids inside .history-fanout
+ * panels, so the disclosure-closed rule above (which only catches a direct
+ * sibling) needs a parallel rule for the deeper grids. The headline figure
+ * and toggle row stay visible above the closed disclosure, matching the
+ * single-pill / non-TPC layout. */
+.group-disclosure:not([open]) ~ .history-fanout .chart-grid {
+  display: none;
+}
 
-/*
- * During the post-load Chart.js prebuild, render closed groups' chart
- * grids in a hidden offscreen position so each canvas has real layout
- * dimensions for Chart.js to measure. Without this override, charts
- * construct against a 0x0 parent (the closed-group rule above), and the
- * eventual on-toggle resize leaves a brief flash of a blank, full-zoomed
- * canvas before the next frame paints. The width matches the visible
- * content area via `--bench-prebuild-width` (set by `chart-init.js` from
- * the live `<main>` width) so the build dimensions are close enough to
- * the actual on-screen dimensions that Chart.js's ResizeObserver-driven
- * adjust on toggle is a no-op or a single sub-frame tick.
- */
 body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   display: grid !important;
   position: fixed !important;
@@ -614,94 +684,78 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
 }
 
 .chart-meta + .benchmark-scores-summary {
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 1px solid var(--line);
+  border-radius: 0;
   margin-bottom: 1rem;
 }
 
+/* ----------------------------------------------------------------------
+ * Score summary - the per-group ranking readout.
+ * ---------------------------------------------------------------------- */
 .scores-title {
   margin: 0 0 0.5rem;
   color: var(--muted);
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-size: 0.68rem;
+  font-weight: 500;
 }
-
 .scores-list {
   column-count: 2;
-  column-gap: 1.25rem;
+  column-gap: 1.5rem;
 }
-
 .score-item {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   padding: 0.25rem 0;
-  font-size: 0.875rem;
+  font-family: var(--mono);
+  font-size: 0.82rem;
   break-inside: avoid;
 }
-
 .score-rank {
-  min-width: 2.25rem;
-  color: var(--accent);
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
+  min-width: 2rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
-
 .score-series {
   min-width: 0;
   flex: 1;
   overflow: hidden;
   color: var(--fg);
-  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
 .score-metrics {
   display: inline-flex;
   align-items: baseline;
-  gap: 0.4rem;
+  gap: 0.5rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-
 .score-value,
 .score-runtime {
-  font-family: 'Geist Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-  font-size: 0.8rem;
-  font-weight: 600;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  font-weight: 500;
 }
-
 .score-value {
-  color: var(--accent);
+  color: var(--fg);
 }
 .score-runtime {
   color: var(--muted);
 }
-
 .scores-explanation {
-  margin-top: 0.45rem;
-  color: var(--muted);
-  font-size: 0.72rem;
-  font-style: italic;
-  text-align: center;
+  margin-top: 0.5rem;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+  text-align: left;
 }
 
 /* ----------------------------------------------------------------------
- * Global filter dropdown - lives inside the sticky header. The trigger is
- * a `.control-btn` styled like the expand/collapse buttons; the panel is
- * absolutely positioned beneath it and shows two rows of `.filter-chip`
- * buttons that toggle whole engines / formats across every chart at once.
- *
- * Toggle semantics (driven by chart-init.js):
- *   - Each non-"all" chip toggles independently. Active = visible.
- *   - The "all" chip is a one-shot reset; clicking it forces every chip
- *     in that row back to active. It never holds an active state itself.
- *   - Per-chart legend clicks override the global state for that card.
+ * Global filter dropdown
  * ---------------------------------------------------------------------- */
 .filter-dropdown {
   position: relative;
@@ -715,13 +769,14 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 1.25rem;
-  height: 1.25rem;
-  padding: 0 0.4rem;
-  border-radius: 999px;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 0.35rem;
+  border-radius: 0;
   background: var(--accent);
   color: var(--accent-fg);
-  font-size: 0.7rem;
+  font-family: var(--mono);
+  font-size: 0.65rem;
   font-weight: 600;
   line-height: 1;
 }
@@ -736,11 +791,10 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   gap: 0.5rem;
   min-width: 22rem;
   max-width: min(90vw, 36rem);
-  padding: 0.75rem 0.85rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--card-bg);
-  box-shadow: var(--shadow-md);
+  padding: 0.85rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  background: var(--surface);
 }
 .filter-panel[hidden] {
   display: none;
@@ -755,26 +809,29 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   flex: 0 0 auto;
   min-width: 4rem;
   color: var(--muted);
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-size: 0.65rem;
 }
 .filter-chip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-height: 24px;
-  padding: 0.1rem 0.6rem;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg);
-  color: var(--fg);
-  font-size: 0.78rem;
-  font-family: inherit;
+  padding: 0.15rem 0.6rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.74rem;
   cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease,
+    border-color 0.12s ease;
 }
 .filter-chip:hover {
-  border-color: var(--accent);
+  border-color: var(--fg);
+  color: var(--fg);
 }
 .filter-chip--active {
   background: var(--accent);
@@ -782,54 +839,54 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   color: var(--accent-fg);
 }
 .filter-chip--all {
-  font-weight: 500;
+  font-weight: 600;
 }
 
 /* ----------------------------------------------------------------------
- * Per-chart toolbar (`.toolbar.toolbar--card`)
+ * Per-chart toolbar
  * ---------------------------------------------------------------------- */
 .toolbar--card {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem 0.75rem;
   align-items: center;
-  padding: 0.4rem 0.5rem;
-  margin-bottom: 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg);
-  font-size: 0.78rem;
+  padding: 0.4rem 0.6rem;
+  margin-bottom: 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--surface);
+  font-family: var(--mono);
+  font-size: 0.74rem;
 }
 .toolbar-group {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.3rem;
 }
 .toolbar-label {
   color: var(--muted);
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  margin-right: 0.15rem;
+  font-size: 0.65rem;
+  margin-right: 0.2rem;
 }
 .toolbar-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-height: 24px;
-  padding: 0.1rem 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  background: var(--bg);
-  color: var(--fg);
-  font-size: 0.78rem;
-  font-family: inherit;
+  padding: 0.15rem 0.55rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.74rem;
   cursor: pointer;
   text-decoration: none;
 }
 .toolbar-btn:hover {
-  border-color: var(--accent);
+  border-color: var(--fg);
+  color: var(--fg);
 }
 .toolbar-btn--active {
   background: var(--accent);
@@ -845,29 +902,25 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
 }
 
 /* ----------------------------------------------------------------------
- * Per-group toolbar - sits between the group's score summary and the
- * chart grid. Y-axis buttons on the left, a centered "Filter series"
- * dropdown trigger, and a Reset button on the right. The dropdown panel
- * holds engine/format macro chips and a series row populated by JS as
- * charts in the group hydrate. Hidden alongside `.chart-grid` when the
- * disclosure is closed via the same `:not([open]) ~` rule.
+ * Per-group toolbar
  * ---------------------------------------------------------------------- */
 .group-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.35rem 0.75rem;
-  padding: 0.4rem 1.25rem;
-  border-bottom: 1px solid var(--border);
+  padding: 0.5rem 1.5rem;
+  border-bottom: 1px solid var(--line);
   background: var(--bg);
-  font-size: 0.78rem;
+  font-family: var(--mono);
+  font-size: 0.74rem;
 }
 .group-disclosure:not([open]) ~ .group-toolbar {
   display: none;
 }
 .group-toolbar-y {
   flex: 0 0 auto;
-  gap: 0.25rem;
+  gap: 0.3rem;
 }
 .group-filter-dropdown {
   position: relative;
@@ -878,7 +931,7 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
 .group-filter-trigger {
   min-height: 28px;
   padding: 0.25rem 0.85rem;
-  font-size: 0.78rem;
+  font-size: 0.74rem;
 }
 .group-filter-panel {
   position: absolute;
@@ -891,11 +944,10 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   gap: 0.6rem;
   min-width: 24rem;
   max-width: min(90vw, 42rem);
-  padding: 0.75rem 0.85rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--card-bg);
-  box-shadow: var(--shadow-md);
+  padding: 0.85rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  background: var(--surface);
 }
 .group-filter-panel[hidden] {
   display: none;
@@ -916,32 +968,35 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   display: inline-flex;
   align-items: center;
   min-height: 24px;
-  padding: 0.1rem 0.6rem;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  background: var(--bg);
+  padding: 0.15rem 0.6rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  background: transparent;
   color: var(--muted);
-  font: inherit;
-  font-size: 0.78rem;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
   cursor: pointer;
 }
 .group-toolbar-reset:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--fg);
+  color: var(--fg);
 }
 
 /* ----------------------------------------------------------------------
- * Single-chart + group-page chart card
+ * Chart card
  * ---------------------------------------------------------------------- */
 .chart-meta {
   color: var(--muted);
-  font-size: 0.875rem;
+  font-family: var(--mono);
+  font-size: 0.8rem;
   margin: 0 0 0.75rem;
 }
 .chart-meta code {
   background: var(--code-bg);
   padding: 0.1rem 0.35rem;
-  border-radius: 3px;
+  border: 1px solid var(--line);
   font-size: 0.85em;
 }
 
@@ -950,20 +1005,23 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   width: 100%;
   max-width: none;
   position: relative;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--surface);
   padding: 1.25rem;
   margin-bottom: 1rem;
-  transition: box-shadow 0.2s ease;
+  transition: border-color 0.15s ease;
 }
 .chart-card:hover {
-  box-shadow: var(--shadow-md);
+  border-color: var(--line-strong);
 }
 .chart-card-title {
-  margin: 0 0 0.4rem;
-  font-size: 0.95rem;
+  margin: 0 0 0.5rem;
+  font-family: var(--mono);
+  font-size: 0.85rem;
   font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
@@ -973,22 +1031,20 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   color: var(--fg);
 }
 .chart-card-title a:hover {
-  color: var(--accent);
+  color: var(--muted);
 }
 
-/* Downsampled-payload badge. Rendered both server-side (when the inline
- * payload was downsampled) and client-side (after the lazy fetch
- * completes). The `hidden` attribute hides it when no downsampling
- * occurred; JS toggles it via `removeAttribute("hidden")`. */
 .chart-badge {
-  font-size: 0.7rem;
+  font-family: var(--mono);
+  font-size: 0.65rem;
   font-weight: 500;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   padding: 0.1rem 0.45rem;
-  border-radius: 999px;
+  border-radius: 0;
   background: var(--code-bg);
   color: var(--muted);
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   white-space: nowrap;
   cursor: help;
 }
@@ -996,9 +1052,8 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   display: none;
 }
 .chart-badge--downsampled {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: var(--fg);
+  border-color: var(--line-strong);
 }
 
 .chart-grid {
@@ -1008,7 +1063,6 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   grid-template-columns: 1fr;
   gap: 1rem;
 }
-
 .chart-wrap {
   width: 100%;
   position: relative;
@@ -1025,24 +1079,110 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1.5rem;
   }
-
   .chart-wrap {
     height: 450px;
   }
 }
-
-/* Single-chart pages get a taller area; group cards keep the compact 450px. */
 main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
   height: 680px;
 }
 
+/* Robust per-engine history cards: a band overview reads fine at a compact
+ * height, so more queries fit per screen. (Deferral is handled by the
+ * IntersectionObserver, not content-visibility — the latter zero-sizes the
+ * canvas and breaks Chart.js responsive sizing.) */
+.chart-card[data-robust] .chart-wrap {
+  height: 250px;
+}
+
 /* ----------------------------------------------------------------------
- * Range scrollbar strip (`.chart-range-strip`)
- *
- * Thin track below each canvas. Spans the full commit history; the inset
- * `.chart-range-strip-window` highlights the currently visible slice and
- * carries two edge handles for resize. Pointer events are intentionally
- * `auto` (unlike the tooltip host) because users grab and drag this widget.
+ * Per-chart controls (fullscreen + reset-zoom)
+ * ---------------------------------------------------------------------- */
+.chart-controls {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  display: inline-flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.12s ease-out;
+  pointer-events: none;
+}
+/* Reveal the controls on hover or when any descendant has keyboard focus, so
+ * keyboard users can reach the buttons without a mouse hover. */
+.chart-wrap:hover .chart-controls,
+.history-chart-wrap:hover .chart-controls,
+.speedup-chart-wrap:hover .chart-controls,
+.chart-controls:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+.chart-control-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  color: var(--muted);
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+.chart-control-btn:hover {
+  color: var(--fg);
+  border-color: var(--line-strong);
+}
+.chart-control-btn:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 1px;
+}
+.chart-control-btn--hidden {
+  display: none;
+}
+
+/* Fullscreen mode: the chart figure becomes the only visible content. The
+ * Fullscreen API takes the figure out of the page flow so we don't need to
+ * position it ourselves — we just dial up the inner sizes and paint a solid
+ * backdrop. Applies to every chart container so the same rule covers
+ * chart-card, history-figure, and speedup figures. */
+.chart-card.chart-fullscreen,
+.history-figure.chart-fullscreen,
+.speedup.chart-fullscreen {
+  background: var(--surface);
+  padding: 1.5rem 2rem;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+.chart-card.chart-fullscreen .chart-wrap,
+.history-figure.chart-fullscreen .history-chart-wrap,
+.speedup.chart-fullscreen .speedup-chart-wrap {
+  flex: 1 1 auto;
+  /* `!important` overrides the inline `height` Rust emits on speedup wraps. */
+  height: auto !important;
+  min-height: 0;
+}
+.chart-card.chart-fullscreen .chart-controls,
+.history-figure.chart-fullscreen .chart-controls,
+.speedup.chart-fullscreen .chart-controls {
+  opacity: 1;
+  pointer-events: auto;
+}
+/* Backdrop for the Fullscreen API — without this, browsers default to black. */
+.chart-card.chart-fullscreen::backdrop,
+.history-figure.chart-fullscreen::backdrop,
+.speedup.chart-fullscreen::backdrop {
+  background: var(--bg);
+}
+
+/* ----------------------------------------------------------------------
+ * Range scrollbar strip
  * ---------------------------------------------------------------------- */
 .chart-range-strip {
   position: relative;
@@ -1057,8 +1197,8 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
   position: absolute;
   inset: 0;
   background: var(--code-bg);
-  border: 1px solid var(--border);
-  border-radius: 3px;
+  border: 1px solid var(--line);
+  border-radius: 0;
   overflow: hidden;
 }
 .chart-range-strip-window {
@@ -1067,9 +1207,9 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
   bottom: 0;
   left: 0;
   width: 100%;
-  background: color-mix(in srgb, var(--accent) 28%, transparent);
-  border-left: 1px solid var(--accent);
-  border-right: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--fg) 22%, transparent);
+  border-left: 1px solid var(--fg);
+  border-right: 1px solid var(--fg);
   cursor: grab;
   box-sizing: border-box;
 }
@@ -1081,19 +1221,17 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
   top: 0;
   bottom: 0;
   width: 6px;
-  background: var(--accent);
+  background: var(--fg);
   cursor: ew-resize;
 }
 .chart-range-strip-handle--left {
   left: -3px;
-  border-radius: 2px 0 0 2px;
 }
 .chart-range-strip-handle--right {
   right: -3px;
-  border-radius: 0 2px 2px 0;
 }
 .chart-range-strip-handle:hover {
-  filter: brightness(1.1);
+  filter: brightness(1.2);
 }
 
 @media (max-width: 768px) {
@@ -1114,46 +1252,43 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
 .no-script {
   margin-top: 1rem;
   padding: 0.75rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  border: 1px solid var(--line);
+  border-radius: 0;
   background: var(--code-bg);
   color: var(--muted);
-  font-size: 0.875rem;
+  font-family: var(--mono);
+  font-size: 0.8rem;
 }
 
-/* Per-card loading + error indicators (lazy-fetch on details toggle). */
+/* Per-card loading + error indicators. */
 .chart-loading,
 .chart-error {
   position: absolute;
   top: 0.5rem;
   right: 0.75rem;
-  font-size: 0.75rem;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   padding: 0.15rem 0.5rem;
-  border-radius: 4px;
+  border-radius: 0;
   pointer-events: none;
   z-index: 5;
 }
 .chart-loading {
   background: var(--code-bg);
   color: var(--muted);
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
 }
 .chart-error {
   background: var(--bad);
-  color: var(--accent-fg);
+  color: #fff;
   max-width: 18rem;
   white-space: normal;
 }
 
 /* ----------------------------------------------------------------------
  * Custom external tooltip
- *
- * `pointer-events: none` is intentional and load-bearing: previously this
- * was flipped to `auto` while visible, which caused a flicker loop where
- * the cursor would land on the tooltip → mouseout fires on the canvas →
- * tooltip hides → cursor lands on the canvas → tooltip shows. The cost is
- * that links inside the tooltip are no longer clickable; the chart-card
- * title already links to the permalink.
  * ---------------------------------------------------------------------- */
 .chart-tooltip-host {
   position: absolute;
@@ -1164,19 +1299,19 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
   z-index: 20;
   background: var(--tooltip-bg);
   color: var(--tooltip-fg);
-  border-radius: 6px;
-  padding: 0.5rem 0.65rem;
-  font-size: 0.8rem;
-  line-height: 1.35;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  padding: 0.6rem 0.7rem;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  line-height: 1.4;
   max-width: 22rem;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
-  /* default offset; chart-init.js flips horizontally near the right edge */
   transform: translate(12px, 12px);
   transition: opacity 80ms;
 }
 .tt-title {
   font-weight: 600;
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.3rem;
   font-variant-numeric: tabular-nums;
 }
 .tt-rows {
@@ -1187,14 +1322,14 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
 .tt-row {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.4rem;
   white-space: nowrap;
 }
 .tt-swatch {
   display: inline-block;
   width: 0.6rem;
   height: 0.6rem;
-  border-radius: 50%;
+  border-radius: 0;
   flex: 0 0 auto;
 }
 .tt-label {
@@ -1209,7 +1344,7 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
 }
 .tt-delta {
   font-variant-numeric: tabular-nums;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   opacity: 0.85;
 }
 .tt-delta--better {
@@ -1219,17 +1354,18 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
   color: var(--bad);
 }
 .tt-footer {
-  margin-top: 0.4rem;
-  padding-top: 0.4rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  margin-top: 0.45rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid var(--line-strong);
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
 }
 .tt-msg {
   color: var(--tooltip-fg);
-  opacity: 0.85;
+  opacity: 0.8;
   white-space: normal;
+  font-family: var(--sans);
   font-style: italic;
 }
 
@@ -1242,7 +1378,7 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
   }
   .header-content {
     gap: 0.5rem;
-    padding: 0 0.5rem;
+    padding: 0 0.75rem;
   }
   .site-logo {
     height: 16px;
@@ -1262,10 +1398,6 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
   .site-title {
     display: none;
   }
-  /* Mobile nav: collapse `.nav-controls` into a hamburger panel docked
-   * under the header. The hamburger toggle plants `.nav-controls--open`
-   * to surface the panel. The desktop GitHub link in `.header-right` is
-   * hidden; the panel-internal `.nav-controls-github` link takes over. */
   .header-left .nav-mobile-toggle {
     display: inline-flex;
     padding: 0.4rem 0.55rem;
@@ -1287,13 +1419,22 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
     left: 0;
     right: 0;
     padding: 0.75rem 1rem;
-    border-bottom: 1px solid var(--border);
-    background: var(--card-bg);
-    box-shadow: var(--shadow-md);
+    border-bottom: 1px dashed var(--line-strong);
+    background: var(--surface);
     z-index: 1100;
   }
   .nav-controls.nav-controls--open {
     display: flex;
+  }
+  .nav-controls .site-nav {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+    gap: 0.4rem;
+  }
+  .nav-controls .site-nav-link {
+    width: 100%;
+    justify-content: center;
   }
   .nav-controls .filter-dropdown {
     width: 100%;
@@ -1312,17 +1453,16 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
   .control-btn,
   .repo-link {
     min-height: 32px;
-    border-radius: 6px;
-    font-size: 0.75rem;
+    font-size: 0.7rem;
   }
   .control-btn {
-    padding: 0.4rem 0.55rem;
+    padding: 0.4rem 0.6rem;
   }
   .theme-toggle {
-    min-width: 3.25rem;
+    min-width: 3.5rem;
   }
   .repo-link {
-    padding: 0.4rem 0.55rem;
+    padding: 0.4rem 0.6rem;
   }
   .repo-link span {
     display: none;
@@ -1332,10 +1472,6 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
   }
   .group-details {
     margin-bottom: 1.5rem;
-    border-radius: 8px;
-  }
-  .group-summary {
-    border-radius: 8px 8px 0 0;
   }
   .group-summary-row {
     flex-wrap: wrap;
@@ -1345,21 +1481,21 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
   .group-name {
     flex: 1 1 auto;
     min-width: 0;
-    font-size: 1.1rem;
+    font-size: 0.95rem;
     word-break: break-word;
   }
   .group-count {
     flex: 0 0 auto;
-    font-size: 0.65rem;
+    font-size: 0.6rem;
   }
   .group-details > .chart-grid {
     padding: 0.75rem;
   }
   .benchmark-scores-summary {
-    padding: 0.6rem 1rem;
+    padding: 0.65rem 1rem;
   }
   .group-toolbar {
-    padding: 0.4rem 0.75rem;
+    padding: 0.4rem 1rem;
     gap: 0.35rem 0.5rem;
   }
   .group-filter-panel {
@@ -1368,8 +1504,6 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
     max-width: 92vw;
   }
   .group-series-chips {
-    /* Wraps onto multiple lines on narrow screens; chip count stays modest
-     * (typically <10) so vertical wrap is fine. */
     max-height: 50vh;
     overflow-y: auto;
   }
@@ -1380,7 +1514,7 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
   .toolbar-btn {
     min-height: 32px;
     padding: 0.25rem 0.6rem;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
   }
   .scores-list {
     column-count: 1;
@@ -1411,39 +1545,900 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
 }
 
 /* ----------------------------------------------------------------------
- * Footer
- * ----------------------------------------------------------------------
- * Emitted by `html::render::site_footer` at the bottom of every page. The
- * `build <sha>` text links the short SHA to the matching commit on
- * GitHub so the rendered page is always traceable to a source revision.
- * Kept small + muted so it sits below the content without competing.
- */
+ * Footer - dashed top rule, mono, muted.
+ * ---------------------------------------------------------------------- */
 .site-footer {
-  padding: 1.5rem 2rem 2rem;
+  margin-top: 1rem;
+  padding: 1.5rem 2rem 2.5rem;
+  border-top: 1px dashed var(--line-strong);
   text-align: center;
   color: var(--muted);
-  font-size: 0.75rem;
-  line-height: 1.4;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  line-height: 1.5;
 }
-
 .site-footer-label {
   color: var(--muted);
+  text-transform: uppercase;
 }
-
 .site-footer-sha code {
-  font-family: 'Geist Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-family: var(--mono);
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: 0.7rem;
 }
-
 a.site-footer-sha {
   color: var(--muted);
   text-decoration: none;
-  transition: color 0.2s ease;
+  transition: color 0.15s ease;
 }
-
 a.site-footer-sha:hover,
 a.site-footer-sha:hover code {
-  color: var(--accent);
+  color: var(--fg);
   text-decoration: none;
+}
+
+/* ----------------------------------------------------------------------
+ * Landing showcase — claim → why it matters → proof. Charts live behind
+ * "Show me everything" (/current); this page is the headline.
+ * ---------------------------------------------------------------------- */
+.showcase {
+  max-width: none;
+}
+
+.showcase-intro {
+  padding: 0.5rem 0 2.5rem;
+  border-bottom: 1px dashed var(--line-strong);
+  margin-bottom: 1rem;
+}
+.showcase-eyebrow {
+  margin: 0 0 0.9rem;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+}
+.showcase-headline {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: clamp(1.5rem, 3.4vw, 2.6rem);
+  font-weight: 500;
+  line-height: 1.18;
+  letter-spacing: 0.005em;
+  max-width: 24ch;
+}
+
+/* 2×2 grid of claim cells. Each cell: stat + highlight bars side-by-side on
+ * top, the "why it matters" below, then "show me more". Dashed rules draw the
+ * grid so it reads as one schematic. */
+.claims {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 860px) {
+  .claims {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.claim {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  padding: 2rem 0;
+  border-top: 1px dashed var(--line);
+}
+@media (min-width: 860px) {
+  .claim {
+    padding: 2rem 2.5rem;
+  }
+  .claim:nth-child(odd) {
+    border-right: 1px dashed var(--line);
+    padding-left: 0;
+  }
+  .claim:nth-child(even) {
+    padding-right: 0;
+  }
+}
+
+.claim-head {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem 1.75rem;
+  align-items: start;
+}
+@media (min-width: 560px) {
+  .claim-head {
+    grid-template-columns: minmax(8rem, auto) minmax(0, 1fr);
+  }
+}
+.claim-figure {
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+/* Workload schematic: a small blueprint SVG of the access pattern. */
+.workload-svg {
+  width: 100%;
+  max-width: 200px;
+  height: auto;
+  overflow: visible;
+}
+@media (max-width: 559px) {
+  .claim-figure {
+    justify-content: flex-start;
+  }
+  .workload-svg {
+    max-width: 180px;
+  }
+}
+
+/* Stat stacks: the metric, the label, a detail line, then the proof link. */
+.claim-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.claim-detail {
+  margin-top: 0.5rem;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.claim-proof {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  margin-top: 0.7rem;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line-strong);
+  padding-bottom: 1px;
+}
+.claim-proof:hover {
+  color: var(--fg);
+  border-color: var(--fg);
+  text-decoration: none;
+}
+.claim-metric {
+  font-family: var(--mono);
+  font-size: clamp(2.4rem, 6vw, 3.6rem);
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+}
+.claim-label {
+  font-family: var(--mono);
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+/* The "why it matters" spans the full cell width, beneath both the stat and
+ * the chart. */
+.claim-why {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  max-width: none;
+}
+.claim-more {
+  margin-top: auto;
+}
+
+/* Snapshot bar chart inside a claim cell: latest-commit value per series,
+ * Vortex solid, the rest muted, each labelled with its real figure. */
+.claim-chart {
+  margin: 0;
+}
+.snapshot-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.sbar-row {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+}
+.sbar-name {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sbar-track {
+  height: 1.3rem;
+}
+.sbar-fill {
+  height: 100%;
+  min-width: 3px;
+  background: var(--line-strong);
+  transition: width 0.4s ease;
+}
+.sbar-fill--vortex {
+  background: var(--bar);
+}
+.sbar-val {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  white-space: nowrap;
+}
+.claim-chart-caption {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--muted);
+  min-width: 0;
+}
+.cc-date {
+  color: var(--fg);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.cc-sep {
+  color: var(--faint);
+}
+.cc-msg {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.claim-more {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line-strong);
+  padding-bottom: 1px;
+}
+.claim-more:hover {
+  color: var(--fg);
+  border-color: var(--fg);
+  text-decoration: none;
+}
+
+/* Latest-commit highlight bars. Parquet is the muted baseline, Vortex the
+ * solid foreground; the shorter Vortex bar carries the story. */
+.bars {
+  margin: 0;
+}
+.bar-row {
+  display: grid;
+  grid-template-columns: 4.5rem 1fr;
+  align-items: center;
+  gap: 0.85rem;
+  margin-bottom: 0.6rem;
+}
+.bar-name {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.bar-track {
+  position: relative;
+  height: 1.5rem;
+}
+.bar-fill {
+  height: 100%;
+  min-width: 2px;
+  transition: width 0.4s ease;
+}
+.bar-fill--parquet {
+  background: var(--line-strong);
+}
+.bar-fill--vortex {
+  background: var(--bar);
+}
+.bars-caption {
+  margin-top: 0.6rem;
+  font-family: var(--mono);
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--fg);
+}
+.geomean-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1.25rem;
+  margin-top: 0.85rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--line);
+}
+/* Source/provenance line under the bars; matches the geomean breakdown so all
+ * four claim boxes carry one detail line and stay the same height. */
+.claim-source {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-top: 0.85rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--line);
+  font-family: var(--mono);
+}
+.claim-source-label {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--faint);
+}
+.claim-source-val {
+  font-size: 0.84rem;
+  color: var(--muted);
+}
+a.claim-source-val {
+  border-bottom: 1px solid var(--line-strong);
+  padding-bottom: 1px;
+}
+a.claim-source-val:hover {
+  color: var(--fg);
+  border-color: var(--fg);
+  text-decoration: none;
+}
+
+.proof {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.55rem 0.95rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+.proof-label {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--faint);
+}
+.geomean {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+.geomean-val {
+  font-family: var(--mono);
+  font-size: 1.05rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+}
+.geomean-label {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.proof-more {
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line-strong);
+}
+.proof-more:hover {
+  color: var(--fg);
+  border-color: var(--fg);
+  text-decoration: none;
+}
+
+.showcase-cta {
+  display: flex;
+  justify-content: center;
+  padding: 3rem 0 1rem;
+  border-top: 1px dashed var(--line-strong);
+}
+.show-everything {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.85rem 1.6rem;
+  border: 1px solid var(--fg);
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--fg);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+.show-everything:hover {
+  background: var(--accent);
+  color: var(--accent-fg);
+  text-decoration: none;
+}
+.show-everything-arrow {
+  font-size: 1rem;
+}
+
+@media (max-width: 768px) {
+  .claim {
+    padding: 1.5rem 0;
+  }
+}
+
+/* Larger showcase text across the board. The "100×" metric numbers
+ * (.claim-metric) and the page headline are intentionally left as-is. */
+.showcase-eyebrow {
+  font-size: 0.85rem;
+}
+.claim-label {
+  font-size: 1.15rem;
+}
+.claim-why {
+  font-size: 1.02rem;
+  line-height: 1.65;
+}
+.sbar-name {
+  font-size: 0.84rem;
+}
+.sbar-val {
+  font-size: 0.95rem;
+}
+.claim-chart-caption {
+  font-size: 0.82rem;
+}
+.geomean-val {
+  font-size: 1.3rem;
+}
+.geomean-label {
+  font-size: 0.82rem;
+}
+.claim-more {
+  font-size: 0.86rem;
+}
+.show-everything {
+  font-size: 0.95rem;
+}
+
+/* Scale-factor selector in the explorer's TPC group headers. */
+.group-scale-pills {
+  display: inline-flex;
+  gap: 0.3rem;
+  margin-left: 0.4rem;
+}
+.scale-pill {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.12rem 0.45rem;
+  border: 1px solid var(--line-strong);
+  color: var(--muted);
+}
+a.scale-pill:hover {
+  border-color: var(--fg);
+  color: var(--fg);
+  text-decoration: none;
+}
+.scale-pill--current {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+
+/* ----------------------------------------------------------------------
+ * Current snapshot page (/current): every benchmark's latest values as
+ * server-rendered bars. One section per group, each a deep-link target from
+ * the showcase.
+ * ---------------------------------------------------------------------- */
+.current {
+  max-width: none;
+}
+
+.current-intro {
+  padding: 0.5rem 0 2rem;
+  border-bottom: 1px dashed var(--line-strong);
+  margin-bottom: 2rem;
+}
+.current-eyebrow {
+  margin: 0 0 0.9rem;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+}
+.current-headline {
+  margin: 0 0 0.85rem;
+  font-family: var(--mono);
+  font-size: clamp(1.4rem, 3vw, 2.2rem);
+  font-weight: 500;
+  line-height: 1.18;
+}
+.methodology-text {
+  margin: 0;
+  max-width: 64ch;
+  color: var(--muted);
+  font-size: 0.98rem;
+  line-height: 1.6;
+}
+.methodology-text strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+/* Methodology block: a labelled "how to read these" at the top of the page. */
+.methodology {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+.methodology-label {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--faint);
+}
+
+/* One group. The id is a deep-link target; scroll-margin clears the sticky
+ * header and :target gives a brief accent wash so the jump is legible. */
+.current-group {
+  padding: 2rem 0;
+  border-bottom: 1px dashed var(--line);
+  scroll-margin-top: calc(var(--header-height) + 1rem);
+}
+.current-group:last-of-type {
+  border-bottom: none;
+}
+.current-group:target {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
+  padding-left: 1.25rem;
+  margin-left: -1.25rem;
+}
+
+.current-group-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  margin-bottom: 1.25rem;
+}
+.current-group-name {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 1.15rem;
+  font-weight: 500;
+}
+/* The heading doubles as a collapse toggle; the button inherits the heading's
+ * type so it reads as the title, with a caret that rotates when collapsed. */
+.current-collapse-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+.current-collapse-btn:hover {
+  color: var(--muted);
+}
+.current-collapse-caret {
+  display: inline-block;
+  width: 0.7em;
+  color: var(--faint);
+  transition: transform 0.2s ease;
+}
+.current-collapse-caret::before {
+  content: '▾';
+}
+.current-group--collapsed .current-collapse-caret {
+  transform: rotate(-90deg);
+}
+.current-group--collapsed .speedup-grid,
+.current-group--collapsed .current-group-body {
+  display: none;
+}
+
+/* Fan-out body: the scale-factor toggle sits above the charts (so it folds away
+ * with them on collapse), spaced off the chart grid below. */
+.current-group-body .dim-toggle {
+  margin-bottom: 1rem;
+}
+
+/* One-line description folded into the heading after the title, set off by a
+ * middot. Muted and lighter than the title so the workload name stays dominant;
+ * wraps with the heading on narrow viewports. */
+.current-group-desc {
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 400;
+}
+.current-group-desc::before {
+  content: '·';
+  margin: 0 0.5em;
+  color: var(--faint);
+}
+
+/* "As of <sha> · <date>" snapshot stamp under the lead. */
+.current-stamp {
+  margin: 1.25rem 0 0;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.current-stamp-sha code {
+  color: var(--fg);
+  border-bottom: 1px solid var(--line-strong);
+}
+.current-stamp-sha:hover {
+  text-decoration: none;
+}
+.current-stamp-msg {
+  color: var(--faint);
+}
+
+/* Speedup distribution (query suites): one diverging-bar figure per engine,
+ * side by side on wide screens. */
+.speedup-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 30rem), 1fr));
+  gap: 2rem 2.5rem;
+}
+.speedup {
+  margin: 0;
+  min-width: 0;
+}
+.speedup-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.9rem;
+  padding-bottom: 0.6rem;
+  margin-bottom: 0.6rem;
+  border-bottom: 1px solid var(--line);
+}
+.speedup-engine {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg);
+}
+.speedup-stat {
+  font-family: var(--mono);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+.speedup-stat-note {
+  font-size: 0.74rem;
+  font-weight: 400;
+  color: var(--faint);
+}
+/* "A vs B" comparison dropdowns in a speedup figure's head. */
+.speedup-compare {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.speedup-vs {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.speedup-select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 0.2rem 1.4rem 0.2rem 0.55rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  background: var(--surface);
+  /* chevron */
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:
+    right 0.62rem center,
+    right 0.42rem center;
+  background-size:
+    5px 5px,
+    5px 5px;
+  background-repeat: no-repeat;
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+.speedup-select:hover {
+  border-color: var(--fg);
+}
+.speedup-select:focus-visible {
+  outline: 1px solid var(--fg);
+  outline-offset: 1px;
+}
+.speedup-wins {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: var(--faint);
+}
+.speedup-chart-wrap {
+  position: relative;
+  width: 100%;
+}
+
+/* Per-section Speedup / Query-# sort toggle, pushed to the right of the head. */
+.speedup-sort {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+.speedup-sort-label {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--faint);
+}
+.speedup-sort-btn {
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+.speedup-sort-btn:hover {
+  color: var(--fg);
+  border-color: var(--fg);
+}
+.speedup-sort-btn--active {
+  background: var(--surface-2);
+  border-color: var(--line-strong);
+  color: var(--fg);
+}
+
+/* Scale-factor toggle: a row of pill buttons that swap the visible charts in
+ * place rather than navigating. */
+.dim-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.dim-btn {
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+.dim-btn:hover:not(:disabled) {
+  color: var(--fg);
+  border-color: var(--fg);
+}
+.dim-btn--active {
+  background: var(--surface-2);
+  border-color: var(--line-strong);
+  color: var(--fg);
+}
+.dim-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Historic-Data band-chart legend: colour swatches per FORMAT (clickable to
+ * toggle) plus a separate line-style key per engine. Colour encodes the format,
+ * line dash encodes the engine, so the two keys stay independent and legible. */
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem 1.25rem;
+  padding: 0.55rem 0.25rem 0.1rem;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  line-height: 1;
+}
+.chart-legend-formats,
+.chart-legend-engines {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.85rem;
+}
+.chart-legend-engines {
+  color: var(--faint);
+}
+.chart-legend-fmt {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--muted);
+  cursor: pointer;
+}
+.chart-legend-fmt:hover {
+  color: var(--fg);
+}
+.chart-legend-fmt--off {
+  opacity: 0.4;
+  text-decoration: line-through;
+}
+.chart-legend-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 3px;
+  border-radius: 1px;
+}
+.chart-legend-engine {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.chart-legend-dash {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/* TPC suite storage / scale-factor toggles, hoisted into the disclosure header
+ * row immediately after the suite name; the two `.dim-toggle` groups wrap on a
+ * narrow header. */
+.group-summary-controls {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.9rem;
 }

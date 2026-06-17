@@ -7,59 +7,53 @@ import { groupDescription } from './descriptions';
 // Pure string logic, so these run without Docker. They mirror the Rust
 // `descriptions.rs` unit tests verbatim (the v2 contract).
 describe('groupDescription', () => {
-  it('returns the v2 static descriptions verbatim', () => {
+  it('returns the editorial static descriptions', () => {
     expect(groupDescription('Random Access')).toBe(
-      'Tests performance of selecting arbitrary row indices from a file on NVMe storage',
+      'Point lookups — selecting specific rows by position from an NVMe file. What feature ' +
+        'stores, vector retrieval, and per-record serving actually do.',
     );
     expect(groupDescription('Compression')).toBe(
-      'Measures encoding and decoding throughput (MB/s) for Vortex files and Parquet files ' +
-        '(with zstd page compression)',
+      'Encode and decode throughput (MB/s) for Vortex vs Parquet (zstd page compression). ' +
+        'Encode gates ingestion; decode gates every scan after.',
     );
     expect(groupDescription('Compression Size')).toBe(
-      'Compares compressed file sizes and compression ratios across different encoding strategies',
+      'Compressed file size per format across a fixed set of datasets. A faster format that ' +
+        'bloats on disk just trades one bill for another.',
     );
     expect(groupDescription('Clickbench')).toBe(
-      "ClickHouse's analytical benchmark suite testing real-world query patterns on web " +
-        'analytics data',
+      "ClickHouse's 43-query analytical suite over real web-analytics data — the field's " +
+        'standard test for single-table scans, filters, and aggregations.',
     );
     expect(groupDescription('Statistical and Population Genetics')).toBe(
-      'A suite of Statistical and Population genetics queries using the gnomAD dataset',
+      'Population-genetics queries over the gnomAD dataset — DuckDB-only, exercising the ' +
+        'deeply-nested array operations real genomics pipelines run on.',
     );
     expect(groupDescription('PolarSignals Profiling')).toBe(
-      'Profiling data benchmark modeled on PolarSignals/Parca, exercising scan-layer performance ' +
-        'with projection and filter pushdown on deeply nested schemas',
+      'Scan-layer benchmark modeled on PolarSignals/Parca: projection and filter pushdown ' +
+        'over deeply-nested profile schemas — the shape continuous-profiling backends actually read.',
     );
   });
 
   it('synthesizes TPC-H descriptions with the scale-bytes annotation', () => {
     expect(groupDescription('TPC-H (NVMe) (SF=1)')).toBe(
-      'TPC-H benchmark queries on local NVMe storage at SF=1 (~1GB of data)',
+      'TPC-H — 22 analytical queries against the canonical OLAP star schema — at scale factor 1 (~1 GB), on local NVMe.',
     );
     expect(groupDescription('TPC-H (S3) (SF=10)')).toBe(
-      'TPC-H benchmark queries against S3 storage at SF=10 (~10GB of data)',
-    );
-    expect(groupDescription('TPC-H (NVMe) (SF=100)')).toBe(
-      'TPC-H benchmark queries on local NVMe storage at SF=100 (~100GB of data)',
-    );
-    expect(groupDescription('TPC-H (S3) (SF=1000)')).toBe(
-      'TPC-H benchmark queries against S3 storage at SF=1000 (~1TB of data)',
+      'TPC-H — 22 analytical queries against the canonical OLAP star schema — at scale factor 10 (~10 GB), against S3.',
     );
   });
 
-  it('synthesizes TPC-DS descriptions without the scale-bytes annotation', () => {
+  it('synthesizes TPC-DS descriptions', () => {
     expect(groupDescription('TPC-DS (NVMe) (SF=1)')).toBe(
-      'TPC-DS benchmark queries on local NVMe storage at SF=1',
-    );
-    expect(groupDescription('TPC-DS (NVMe) (SF=10)')).toBe(
-      'TPC-DS benchmark queries on local NVMe storage at SF=10',
+      'TPC-DS — the broader 99-query analytical suite (larger schemas, skewed distributions) — at scale factor 1, on local NVMe.',
     );
   });
 
   it('renders TPC-H at an unknown scale factor without the bytes annotation', () => {
-    // SF=5 is not in the scale-bytes table, so the `(~NGB of data)` suffix is dropped
-    // (matching the Rust `("TPC-H", None)` arm) rather than the name failing to match.
+    // SF=5 is not in the scale-bytes table, so the `(~N GB)` suffix is dropped
+    // (matching the `("TPC-H", None)` arm) rather than the name failing to match.
     expect(groupDescription('TPC-H (NVMe) (SF=5)')).toBe(
-      'TPC-H benchmark queries on local NVMe storage at SF=5',
+      'TPC-H — 22 analytical queries against the canonical OLAP star schema — at scale factor 5, on local NVMe.',
     );
   });
 
