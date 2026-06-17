@@ -48,6 +48,13 @@ const DELTA_PENALTY: f64 = 0.95;
 /// Minimum length before Delta is worth considering (one FastLanes chunk).
 const MIN_DELTA_LEN: usize = 1024;
 
+/// Minimum estimated compression ratio (after the [`DELTA_PENALTY`]) for Delta to be selected.
+///
+/// Delta only wins when its penalized ratio clears this threshold; otherwise we skip it in favor
+/// of simpler, randomly-accessible encodings. Raising the bar avoids picking Delta for marginal
+/// gains that do not justify breaking random access and the prefix-sum decode pass.
+const MIN_DELTA_RATIO: f64 = 1.25;
+
 impl Scheme for DeltaScheme {
     fn scheme_name(&self) -> &'static str {
         "vortex.int.delta"
@@ -138,7 +145,7 @@ impl Scheme for DeltaScheme {
                 };
 
                 let ratio = full_width / delta_bits * DELTA_PENALTY;
-                if ratio <= 1.0 {
+                if ratio <= MIN_DELTA_RATIO {
                     return Ok(EstimateVerdict::Skip);
                 }
                 Ok(EstimateVerdict::Ratio(ratio))
