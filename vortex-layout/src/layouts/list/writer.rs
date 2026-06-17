@@ -8,6 +8,7 @@ use futures::StreamExt;
 use futures::stream;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::List;
@@ -100,23 +101,13 @@ impl LayoutStrategy for ListLayoutStrategy {
         };
         let (sequence_id, array) = chunk?;
 
-        // Run the execution loop until we have a List or ListView; skip work when the input is
-        // already in one of those forms. If the input is already a ListArray we extract its
-        // parts directly; if it's a ListViewArray we rebuild via `list_from_list_view`.
         let mut exec_ctx = session.create_execution_ctx();
-        let canonical = array.execute_until::<AnyList>(&mut exec_ctx)?;
         let ListDataParts {
             elements,
             offsets,
             validity,
             ..
-        } = if let Some(list) = canonical.as_opt::<List>() {
-            list.into_owned().into_data_parts()
-        } else if let Some(view) = canonical.as_opt::<ListView>() {
-            list_from_list_view(view.into_owned())?.into_data_parts()
-        } else {
-            unreachable!("AnyList matcher guarantees List or ListView");
-        };
+        } = canonicalize_to_list_parts(array, &mut exec_ctx)?;
 
         // There is one extra element in `offsets`
         let row_count = offsets.len().saturating_sub(1);
@@ -176,6 +167,24 @@ impl LayoutStrategy for ListLayoutStrategy {
             + self.offsets.buffered_bytes()
             + self.validity.buffered_bytes();
         list_bytes.max(self.fallback.buffered_bytes())
+    }
+}
+
+/// Canonicalize a list-dtype array into [`ListDataParts`]. Short-circuits when the input is
+/// already a `List` or `ListView` array — otherwise drives the execution loop until one of
+/// those forms appears. `ListView` is rebuilt into zero-copy-to-list form via
+/// [`list_from_list_view`] before its parts are extracted.
+fn canonicalize_to_list_parts(
+    array: ArrayRef,
+    exec_ctx: &mut ExecutionCtx,
+) -> VortexResult<ListDataParts> {
+    let canonical = array.execute_until::<AnyList>(exec_ctx)?;
+    if let Some(list) = canonical.as_opt::<List>() {
+        Ok(list.into_owned().into_data_parts())
+    } else if let Some(view) = canonical.as_opt::<ListView>() {
+        Ok(list_from_list_view(view.into_owned())?.into_data_parts())
+    } else {
+        unreachable!("AnyList matcher guarantees List or ListView")
     }
 }
 
