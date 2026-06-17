@@ -9,6 +9,7 @@ const PRIMITIVE_DTYPES: &[&str] = &[
     "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "f32", "f64",
 ];
 const PRIMITIVE_DTYPE_ENV: &str = "VORTEX_CUDF_PRIMITIVE_DTYPE";
+const HARNESS_COMMANDS: &[&str] = &["check", "check-stream"];
 
 fn main() -> ExitCode {
     let args = env::args().collect::<Vec<_>>();
@@ -21,25 +22,27 @@ fn main() -> ExitCode {
     };
 
     for primitive_dtype in PRIMITIVE_DTYPES {
-        eprintln!("\n== {PRIMITIVE_DTYPE_ENV}={primitive_dtype} :: check ==");
+        for harness_command in HARNESS_COMMANDS {
+            eprintln!("\n== {PRIMITIVE_DTYPE_ENV}={primitive_dtype} :: {harness_command} ==");
 
-        let status = Command::new("compute-sanitizer")
-            .args(["--tool", "memcheck", "--error-exitcode", "1"])
-            .arg(harness)
-            .arg("check")
-            .arg(library)
-            .env(PRIMITIVE_DTYPE_ENV, primitive_dtype)
-            .status();
+            let status = Command::new("compute-sanitizer")
+                .args(["--tool", "memcheck", "--error-exitcode", "1"])
+                .arg(harness)
+                .arg(harness_command)
+                .arg(library)
+                .env(PRIMITIVE_DTYPE_ENV, primitive_dtype)
+                .status();
 
-        match status {
-            Ok(status) if status.success() => {}
-            Ok(status) => {
-                eprintln!("cudf-test-harness failed with {status}");
-                return ExitCode::from(1);
-            }
-            Err(err) => {
-                eprintln!("failed to run cudf-test-harness: {err}");
-                return ExitCode::from(1);
+            match status {
+                Ok(status) if status.success() => {}
+                Ok(status) => {
+                    eprintln!("cudf-test-harness {harness_command} failed with {status}");
+                    return ExitCode::from(1);
+                }
+                Err(err) => {
+                    eprintln!("failed to run cudf-test-harness {harness_command}: {err}");
+                    return ExitCode::from(1);
+                }
             }
         }
     }
