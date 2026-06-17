@@ -14,7 +14,6 @@ use std::ptr;
 use arrow_schema::ffi::FFI_ArrowSchema;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
-use vortex::session::SessionExt;
 use vortex::session::VortexSession;
 use vortex_cuda::CudaSession;
 use vortex_cuda::arrow::ArrowDeviceArray;

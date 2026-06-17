@@ -13,7 +13,6 @@ use crate::dtype::PyDType;
 use crate::error::PyVortexResult;
 
 /// Base class for implementing a Vortex encoding in Python.
-///
 // This class can hold everything _except_ a reference to its own object self. So when we
 // downcast and extract a [`crate::arrays::PythonArray`] from this Python object, we just have
 // to wrap it up with the object instance.

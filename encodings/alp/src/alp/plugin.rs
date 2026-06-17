@@ -98,7 +98,6 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::patched::PatchedArraySlotsExt;
     use vortex_array::buffer::BufferHandle;
-    use vortex_array::session::ArraySession;
     use vortex_array::session::ArraySessionExt;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
@@ -111,7 +110,7 @@ mod tests {
     use crate::alp_encode;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = VortexSession::empty().with::<ArraySession>();
+        let session = vortex_array::array_session();
         session.arrays().register(ALPPatchedPlugin);
         session
     });

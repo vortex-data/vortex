@@ -23,14 +23,27 @@ use vortex_utils::aliases::hash_map::HashMap;
 /// optimizer-kernel and aggregate-function registries). Because every write
 /// clones the entire map, it is intended for maps that are written rarely
 /// (typically only while a session is being configured) and read often.
+///
+/// The map is held behind an [`Arc`] so that [`Clone`] shares the same
+/// underlying cell: a registry mutated through one clone is observed by all
+/// others. Session variables rely on this so that encodings registered after a
+/// session is built remain visible to clones of that session.
 pub(crate) struct ArcSwapMap<K, V> {
-    inner: ArcSwap<HashMap<K, V>>,
+    inner: Arc<ArcSwap<HashMap<K, V>>>,
 }
 
 impl<K, V> Default for ArcSwapMap<K, V> {
     fn default() -> Self {
         Self {
-            inner: ArcSwap::from_pointee(HashMap::default()),
+            inner: Arc::new(ArcSwap::from_pointee(HashMap::default())),
+        }
+    }
+}
+
+impl<K, V> Clone for ArcSwapMap<K, V> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
         }
     }
 }
@@ -147,5 +160,16 @@ mod tests {
         map.insert(1, 1);
         map.insert(2, 2);
         assert_eq!(map.read(|m| m.values().sum::<i32>()), 3);
+    }
+
+    #[test]
+    fn clone_shares_the_same_cell() {
+        let map = ArcSwapMap::<u32, i32>::default();
+        let clone = map.clone();
+        // A write through one handle is observed through the other.
+        map.insert(1, 10);
+        assert_eq!(clone.get(&1), Some(10));
+        clone.insert(2, 20);
+        assert_eq!(map.get(&2), Some(20));
     }
 }

@@ -106,7 +106,6 @@ pub unsafe extern "C" fn vx_struct_column_builder_add_field(
 ///
 /// vx_array_free(struct_array);
 /// vx_array_free(field_array);
-///
 #[unsafe(no_mangle)]
 pub extern "C-unwind" fn vx_struct_column_builder_finalize(
     builder: *mut vx_struct_column_builder,

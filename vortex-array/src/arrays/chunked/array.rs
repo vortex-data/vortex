@@ -384,9 +384,9 @@ mod test {
         // Create chunks where some are empty but all non-empty chunks have all invalid values
         let chunks = vec![
             PrimitiveArray::new(buffer![1u64, 2], Validity::AllInvalid).into_array(),
-            PrimitiveArray::new(buffer![0u64; 0], Validity::AllInvalid).into_array(), // empty chunk
+            PrimitiveArray::new(buffer![0u64; 0], Validity::AllInvalid).into_array(), /* empty chunk */
             PrimitiveArray::new(buffer![3u64, 4, 5], Validity::AllInvalid).into_array(),
-            PrimitiveArray::new(buffer![0u64; 0], Validity::AllInvalid).into_array(), // empty chunk
+            PrimitiveArray::new(buffer![0u64; 0], Validity::AllInvalid).into_array(), /* empty chunk */
         ];
 
         let chunked =
@@ -410,7 +410,7 @@ mod test {
             PrimitiveArray::new(buffer![1u64, 2], Validity::AllValid).into_array(),
             PrimitiveArray::new(buffer![0u64; 0], Validity::AllValid).into_array(), // empty chunk
             PrimitiveArray::new(buffer![3u64, 4], Validity::AllInvalid).into_array(),
-            PrimitiveArray::new(buffer![0u64; 0], Validity::AllInvalid).into_array(), // empty chunk
+            PrimitiveArray::new(buffer![0u64; 0], Validity::AllInvalid).into_array(), /* empty chunk */
         ];
 
         let chunked =

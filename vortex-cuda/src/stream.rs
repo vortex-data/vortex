@@ -251,7 +251,6 @@ fn register_stream_callback(stream: &CudaStream) -> VortexResult<kanal::AsyncRec
 #[cfg(test)]
 mod tests {
     use vortex::error::VortexResult;
-    use vortex::session::VortexSession;
 
     use super::padded_device_allocation_len;
     use crate::CudaSession;
@@ -269,7 +268,7 @@ mod tests {
 
     #[crate::test]
     async fn test_copy_to_device_preserves_visible_len_with_padding() -> VortexResult<()> {
-        let ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
         let handle = ctx.stream().copy_to_device(vec![0xab_u8])?.await?;
 
         assert_eq!(handle.len(), 1);
@@ -281,7 +280,7 @@ mod tests {
 
     #[crate::test]
     async fn test_copy_to_device_sync_preserves_visible_len_with_padding() -> VortexResult<()> {
-        let ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
         let handle = ctx.stream().copy_to_device_sync(&[1_u8, 2, 3, 4, 5])?;
 
         assert_eq!(handle.len(), 5);

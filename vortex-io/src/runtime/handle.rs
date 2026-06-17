@@ -102,7 +102,6 @@ impl Handle {
     /// Spawn a new I/O future onto the runtime.
     ///
     /// See [`Executor::spawn_io`] for more details about how this future is expected to run.
-    ///
     // See [`Task`] for details on cancelling or detaching the spawned task.
     pub fn spawn_io<Fut, R>(&self, f: Fut) -> Task<R>
     where

@@ -161,7 +161,6 @@ mod tests {
     use vortex_array::dtype::extension::ExtDType;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
 
     use crate::Json;
     use crate::initialize;
@@ -169,7 +168,7 @@ mod tests {
     /// Export a JSON extension array to Arrow's canonical JSON extension.
     #[test]
     fn exports_json_extension_array_as_arrow_json() -> VortexResult<()> {
-        let session = VortexSession::empty();
+        let session = vortex_array::array_session();
         initialize(&session);
 
         let storage = VarBinArray::from_iter(
@@ -207,7 +206,7 @@ mod tests {
     /// Import Arrow's canonical JSON extension as a Vortex JSON extension array.
     #[test]
     fn imports_arrow_json_extension_array_as_vortex_json() -> VortexResult<()> {
-        let session = VortexSession::empty();
+        let session = vortex_array::array_session();
         initialize(&session);
 
         let mut field = Field::new("data", DataType::Utf8, false);

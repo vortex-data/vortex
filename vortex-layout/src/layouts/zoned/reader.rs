@@ -231,8 +231,6 @@ mod test {
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
-    use vortex_array::scalar_fn::session::ScalarFnSession;
-    use vortex_array::session::ArraySession;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_io::runtime::Handle;
@@ -262,10 +260,8 @@ mod test {
     use crate::session::LayoutSession;
 
     fn session_with_handle(handle: Handle) -> VortexSession {
-        VortexSession::empty()
-            .with::<ArraySession>()
+        vortex_array::array_session()
             .with::<LayoutSession>()
-            .with::<ScalarFnSession>()
             .with::<RuntimeSession>()
             .with_handle(handle)
     }

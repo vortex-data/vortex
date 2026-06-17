@@ -16,12 +16,7 @@ ignore = [
     # Paste is no longer maintained because its essentially "finished".
     "RUSTSEC-2024-0436",
     # proc-macro-error-2 is unmaintained, only used by the `test_with` test dependency
-    "RUSTSEC-2026-0173",
-    # Out-of-bounds read in `nth`/`nth_back` on pyo3 list/tuple iterators, fixed only in pyo3
-    # 0.29.0. We cannot bump until pyo3-bytes, pyo3-log, and pyo3-object_store support 0.29 (all
-    # pin pyo3 to <0.29, and pyo3-ffi `links = "python"` forbids two pyo3 versions in the graph).
-    # Not exploitable here: `vortex-python` never calls `nth`/`nth_back` on these iterators.
-    "RUSTSEC-2026-0176"
+    "RUSTSEC-2026-0173"
 ]
 
 [licenses]

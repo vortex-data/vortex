@@ -11,7 +11,6 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::dtype::NativePType;
-use vortex_array::session::ArraySession;
 use vortex_error::VortexExpect;
 use vortex_fsst::test_utils::gen_dict_fsst_test_data;
 use vortex_session::VortexSession;
@@ -29,8 +28,7 @@ const BENCH_ARGS: &[(usize, usize, usize)] = &[
     (1000, 1000, 100),
 ];
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 fn make_dict_fsst_chunks<T: NativePType>(
     len: usize,

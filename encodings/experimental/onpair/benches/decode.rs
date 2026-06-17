@@ -41,7 +41,6 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
-use vortex_array::session::ArraySession;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_mask::Mask;
@@ -80,8 +79,7 @@ impl DecodeInputs {
 use vortex_onpair::onpair_compress;
 use vortex_session::VortexSession;
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 #[derive(Copy, Clone, Debug)]
 enum Shape {
