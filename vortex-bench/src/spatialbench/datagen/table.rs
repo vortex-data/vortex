@@ -5,10 +5,6 @@
 //! the WKB generation ([`super::wkb`]) and the native geometry conversion ([`super::native`]).
 
 /// A SpatialBench base table.
-///
-/// Add a variant here (plus its [`Table::name`], [`Table::columns`], and [`Table::geometry_columns`]
-/// arms, and the generator arm in [`super::wkb`]) as queries start needing the dimension tables
-/// (customer, driver, vehicle, zone, building).
 #[derive(Clone, Copy)]
 pub enum Table {
     Trip,
