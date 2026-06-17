@@ -42,6 +42,7 @@ use vortex::encodings::fsst::fsst_compress;
 use vortex::encodings::fsst::fsst_train_compressor;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::runend::RunEndArrayExt;
+use vortex::encodings::runend::RunEndIndex;
 use vortex::error::VortexExpect;
 use vortex::extension::datetime::TimeUnit;
 use vortex_session::VortexSession;

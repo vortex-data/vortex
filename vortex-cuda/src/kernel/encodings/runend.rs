@@ -22,6 +22,7 @@ use vortex::dtype::PType;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::runend::RunEndArray;
 use vortex::encodings::runend::RunEndArrayExt;
+use vortex::encodings::runend::RunEndIndex;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;

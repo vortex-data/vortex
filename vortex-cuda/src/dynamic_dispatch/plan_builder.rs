@@ -34,6 +34,7 @@ use vortex::encodings::fastlanes::FoR;
 use vortex::encodings::fastlanes::FoRArrayExt;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::runend::RunEndArrayExt;
+use vortex::encodings::runend::RunEndIndex;
 use vortex::encodings::sequence::Sequence;
 use vortex::encodings::zigzag::ZigZag;
 use vortex::encodings::zigzag::ZigZagArrayExt;
