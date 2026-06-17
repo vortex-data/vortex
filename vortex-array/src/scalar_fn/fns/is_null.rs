@@ -251,7 +251,7 @@ mod tests {
             &pruning_expr,
             &or(
                 eq(col("a_null_count"), lit(0u64)),
-                lit(Scalar::null(DType::Bool(Nullability::Nullable))),
+                eq(col("a_null_count"), lit(0u64)),
             )
         );
         assert_eq!(

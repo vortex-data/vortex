@@ -118,7 +118,6 @@ mod tests {
     use crate::expr::eq;
     use crate::expr::get_item;
     use crate::expr::is_not_null;
-    use crate::expr::lit;
     use crate::expr::or;
     use crate::expr::pruning::checked_pruning_expr;
     use crate::expr::root;
@@ -266,7 +265,7 @@ mod tests {
             &pruning_expr,
             &or(
                 eq(col("a_null_count"), RowCount.new_expr(EmptyOptions, [])),
-                lit(Scalar::null(DType::Bool(Nullability::Nullable))),
+                eq(col("a_null_count"), RowCount.new_expr(EmptyOptions, [])),
             )
         );
         assert_eq!(

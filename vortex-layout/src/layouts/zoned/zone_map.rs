@@ -346,7 +346,7 @@ mod tests {
     }
 
     #[test]
-    fn all_null_stat_fn_lowers_to_unknown_mask() {
+    fn all_null_stat_fn_uses_null_count() {
         let zone_map = ZoneMap::try_new(
             PType::U64.into(),
             StructArray::from_fields(&[(
@@ -363,12 +363,12 @@ mod tests {
         let mask = zone_map.prune(&all_null(root()), &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
-            BoolArray::from_iter([false, false, false])
+            BoolArray::from_iter([false, true, true])
         );
     }
 
     #[test]
-    fn all_non_null_stat_fn_lowers_to_unknown_mask() {
+    fn all_non_null_stat_fn_uses_null_count() {
         let zone_map = ZoneMap::try_new(
             PType::U64.into(),
             StructArray::from_fields(&[(
@@ -385,7 +385,7 @@ mod tests {
         let mask = zone_map.prune(&all_non_null(root()), &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
-            BoolArray::from_iter([false, false, false])
+            BoolArray::from_iter([true, false, false])
         );
     }
 
@@ -485,7 +485,7 @@ mod tests {
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
-            BoolArray::from_iter([false, false, false])
+            BoolArray::from_iter([true, false, false])
         );
     }
 
@@ -527,7 +527,7 @@ mod tests {
         let pruning_expr = falsify(&expr, PType::F32.into());
 
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
-        assert_arrays_eq!(mask.into_array(), BoolArray::from_iter([false, false]));
+        assert_arrays_eq!(mask.into_array(), BoolArray::from_iter([false, true]));
     }
 
     #[test]

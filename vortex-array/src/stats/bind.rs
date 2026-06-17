@@ -11,14 +11,22 @@
 use vortex_error::VortexResult;
 
 use crate::aggregate_fn::AggregateFnRef;
+use crate::aggregate_fn::fns::all_nan::AllNan;
+use crate::aggregate_fn::fns::all_non_nan::AllNonNan;
+use crate::aggregate_fn::fns::all_non_null::AllNonNull;
+use crate::aggregate_fn::fns::all_null::AllNull;
 use crate::dtype::DType;
 use crate::expr::Expression;
+use crate::expr::eq;
 use crate::expr::lit;
 use crate::expr::stats::Stat;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::Transformed;
 use crate::scalar::Scalar;
+use crate::scalar_fn::EmptyOptions;
+use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::stat::StatFn;
+use crate::scalar_fn::internal::row_count::RowCount;
 
 /// A target that can bind abstract statistics to concrete expressions.
 pub trait StatBinder {
@@ -56,10 +64,51 @@ pub trait StatBinder {
         aggregate_fn: &AggregateFnRef,
         stat_dtype: &DType,
     ) -> VortexResult<Option<Expression>> {
+        if aggregate_fn.is::<AllNan>() {
+            let Some(nan_count) = self.bind_legacy_stat(input, Stat::NaNCount)? else {
+                return Ok(None);
+            };
+            return Ok(Some(eq(nan_count, RowCount.new_expr(EmptyOptions, []))));
+        }
+
+        if aggregate_fn.is::<AllNonNan>() {
+            let Some(nan_count) = self.bind_legacy_stat(input, Stat::NaNCount)? else {
+                return Ok(None);
+            };
+            return Ok(Some(eq(nan_count, lit(0u64))));
+        }
+
+        if aggregate_fn.is::<AllNull>() {
+            let Some(null_count) = self.bind_legacy_stat(input, Stat::NullCount)? else {
+                return Ok(None);
+            };
+            return Ok(Some(eq(null_count, RowCount.new_expr(EmptyOptions, []))));
+        }
+
+        if aggregate_fn.is::<AllNonNull>() {
+            let Some(null_count) = self.bind_legacy_stat(input, Stat::NullCount)? else {
+                return Ok(None);
+            };
+            return Ok(Some(eq(null_count, lit(0u64))));
+        }
+
         let Some(stat) = Stat::from_aggregate_fn(aggregate_fn) else {
             return Ok(None);
         };
         self.bind_stat(input, stat, stat_dtype)
+    }
+
+    /// Bind one of the legacy stat slots for `input`.
+    fn bind_legacy_stat(
+        &mut self,
+        input: &Expression,
+        stat: Stat,
+    ) -> VortexResult<Option<Expression>> {
+        let input_dtype = input.return_dtype(self.scope())?;
+        let Some(stat_dtype) = stat.dtype(&input_dtype) else {
+            return Ok(None);
+        };
+        self.bind_stat(input, stat, &stat_dtype)
     }
 
     /// Expression to use when a stat is unavailable.

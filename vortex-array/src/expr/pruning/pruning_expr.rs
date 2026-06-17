@@ -229,7 +229,6 @@ mod tests {
     use crate::expr::pruning::field_path_stat_field_name;
     use crate::expr::root;
     use crate::expr::stats::Stat;
-    use crate::scalar::Scalar;
     use crate::scalar_fn::fns::between::BetweenOptions;
     use crate::scalar_fn::fns::between::StrictComparison;
     use crate::stats::session::StatsSession;
@@ -591,7 +590,7 @@ mod tests {
             &HashMap::from_iter([
                 (
                     FieldPath::from_name("float_col"),
-                    HashSet::from_iter([Stat::Max])
+                    HashSet::from_iter([Stat::Max, Stat::NaNCount])
                 ),
                 (
                     FieldPath::from_name("int_col"),
@@ -603,7 +602,7 @@ mod tests {
             &converted,
             &or(
                 and(
-                    lit(Scalar::null(DType::Bool(Nullability::Nullable))),
+                    eq(col("float_col_nan_count"), lit(0u64)),
                     lt_eq(col("float_col_max"), lit(10f32)),
                 ),
                 gt_eq(col("int_col_min"), lit(10)),
