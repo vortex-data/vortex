@@ -21,7 +21,10 @@ ignore = [
     # 0.29.0. We cannot bump until pyo3-bytes, pyo3-log, and pyo3-object_store support 0.29 (all
     # pin pyo3 to <0.29, and pyo3-ffi `links = "python"` forbids two pyo3 versions in the graph).
     # Not exploitable here: `vortex-python` never calls `nth`/`nth_back` on these iterators.
-    "RUSTSEC-2026-0176"
+    "RUSTSEC-2026-0176",
+    # Another issue that will be fixed once we can bump pyo3 to 0.29.
+    # PyCFunction::new_closure is missing a `Sync` bound.
+    "RUSTSEC-2026-0177"
 ]
 
 [licenses]
