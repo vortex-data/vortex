@@ -327,8 +327,7 @@ impl LayoutReader for ListReader {
             // common case for both full scans and filter pushdown) the await is free.
             let mask = mask.await?;
             let validity_row_count = usize::try_from(row_range.end - row_range.start)?;
-            let is_whole_chunk =
-                row_range.start == 0 && row_range.end == layout_row_count;
+            let is_whole_chunk = row_range.start == 0 && row_range.end == layout_row_count;
 
             // Path A1: whole-chunk read with all-true mask. The elements bound is the whole
             // elements buffer (`0..elements.row_count()`) and `offsets[0] == 0` by construction
@@ -409,9 +408,7 @@ impl LayoutReader for ListReader {
 
                 let validity_fut = validity_reader
                     .as_ref()
-                    .map(|v| {
-                        v.projection_evaluation(&row_range, &root(), MaskFuture::ready(mask))
-                    })
+                    .map(|v| v.projection_evaluation(&row_range, &root(), MaskFuture::ready(mask)))
                     .transpose()?;
                 let elements_fut = elements_reader.projection_evaluation(
                     &sg.elements_range,
