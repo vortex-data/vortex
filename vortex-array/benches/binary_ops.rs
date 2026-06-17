@@ -15,6 +15,7 @@ use vortex_array::ArrayRef;
 use vortex_array::Executable;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::array_session;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -23,10 +24,11 @@ use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_session::VortexSession;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 const LEN: usize = 65_536;
 

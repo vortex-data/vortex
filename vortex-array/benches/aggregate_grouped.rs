@@ -28,6 +28,7 @@ use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 

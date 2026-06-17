@@ -44,12 +44,15 @@ use vortex::encodings::runend::RunEnd;
 use vortex::encodings::runend::RunEndArrayExt;
 use vortex::error::VortexExpect;
 use vortex::extension::datetime::TimeUnit;
+use vortex_array::optimizer::kernels::KernelSession;
+use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 

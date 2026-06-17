@@ -10,6 +10,7 @@ use rand::prelude::*;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::array_session;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
@@ -19,6 +20,7 @@ use vortex_array::expr::stats::Stat;
 use vortex_session::VortexSession;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
@@ -26,7 +28,7 @@ fn main() {
 // the kernel cost shows up clearly rather than being hidden by DRAM bandwidth.
 const SIZES: &[usize] = &[65_536];
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 #[divan::bench(args = SIZES)]
 fn cast_u16_to_u32(bencher: Bencher, n: usize) {

@@ -17,11 +17,13 @@ use rand_distr::Zipf;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::array_session;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_session::VortexSession;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
@@ -31,7 +33,7 @@ const NUM_INDICES: &[usize] = &[1_000, 10_000, 100_000];
 /// Size of the source vector / dictionary values.
 const VECTOR_SIZE: &[usize] = &[16, 256, 2048, 8192];
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 // --- DictArray canonicalization benchmarks ---
 

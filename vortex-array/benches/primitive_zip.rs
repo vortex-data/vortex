@@ -9,21 +9,25 @@
 
 use std::sync::LazyLock;
 
+use arrow_array::ArrayRef;
 use divan::Bencher;
 use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
+use vortex_array::array_session;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 // Sized so the bench stays well under a few hundred microseconds under CodSpeed's instruction-count
 // simulation, which runs ~10x the local walltime; the branchless value blend is still exercised.
@@ -49,7 +53,7 @@ fn nullable(bencher: Bencher) {
     run(bencher, if_true, if_false);
 }
 
-fn run(bencher: Bencher, if_true: vortex_array::ArrayRef, if_false: vortex_array::ArrayRef) {
+fn run(bencher: Bencher, if_true: ArrayRef, if_false: ArrayRef) {
     let mask = mask();
     bencher
         .with_inputs(|| {
@@ -71,10 +75,7 @@ fn run(bencher: Bencher, if_true: vortex_array::ArrayRef, if_false: vortex_array
 fn nonnull_array(base: i64) -> PrimitiveArray {
     let mut values = BufferMut::<i64>::with_capacity(LEN);
     values.extend((0..LEN as i64).map(|i| base + i));
-    PrimitiveArray::new(
-        values.freeze(),
-        vortex_array::validity::Validity::NonNullable,
-    )
+    PrimitiveArray::new(values.freeze(), Validity::NonNullable)
 }
 
 fn nullable_array(base: i64, null_every: usize) -> PrimitiveArray {

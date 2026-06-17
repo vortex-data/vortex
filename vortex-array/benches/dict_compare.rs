@@ -9,6 +9,7 @@ use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
+use vortex_array::array_session;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -24,10 +25,11 @@ use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_session::VortexSession;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 const LENGTH_AND_UNIQUE_VALUES: &[(usize, usize)] = &[
     // length, unique_values

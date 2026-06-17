@@ -7,17 +7,19 @@ use divan::Bencher;
 use rand::prelude::*;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::array_session;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::expr::stats::Stat;
 use vortex_session::VortexSession;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
 const N: usize = 100_000;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 #[divan::bench]
 fn sum_i32(bencher: Bencher) {
