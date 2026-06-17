@@ -8,7 +8,6 @@ use vortex::array::arrays::StructArray;
 use vortex::array::arrays::bool::BoolArrayExt;
 use vortex::array::arrays::struct_::StructDataParts;
 use vortex::array::builtins::ArrayBuiltins;
-use vortex::array::validity::Validity;
 use vortex::error::VortexResult;
 
 use crate::duckdb::VectorRef;
@@ -35,7 +34,7 @@ pub(crate) fn new_exporter(
         ..
     } = array.into_data_parts();
 
-    if matches!(validity, Validity::AllInvalid) {
+    if validity.definitely_all_null() {
         return Ok(all_invalid::new_exporter());
     };
     let validity = validity.to_array(len).execute::<BoolArray>(ctx)?;

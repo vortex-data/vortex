@@ -322,10 +322,8 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::serde::SerializedArray;
-    use vortex_array::session::ArraySession;
     use vortex_array::session::ArraySessionExt;
     use vortex_buffer::ByteBufferMut;
-    use vortex_session::VortexSession;
     use vortex_session::registry::ReadContext;
 
     use super::*;
@@ -367,7 +365,7 @@ mod tests {
         let array = ByteBool::from_option_vec(vec![Some(true), None, Some(false), None]);
         let dtype = array.dtype().clone();
         let len = array.len();
-        let session = VortexSession::empty().with::<ArraySession>();
+        let session = vortex_array::array_session();
         session.arrays().register(ByteBool);
 
         let ctx = ArrayContext::empty();

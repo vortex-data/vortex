@@ -21,7 +21,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar_fn::fns::like::Like;
 use vortex_array::scalar_fn::fns::like::LikeOptions;
-use vortex_array::session::ArraySession;
 use vortex_error::VortexResult;
 use vortex_fsst::FSSTArray;
 use vortex_fsst::fsst_compress;
@@ -32,8 +31,7 @@ use crate::error::Backtrace;
 use crate::error::VortexFuzzError;
 use crate::error::VortexFuzzResult;
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 /// A random string from a small alphabet (`a..=h`) with bounded length.
 #[derive(Debug)]

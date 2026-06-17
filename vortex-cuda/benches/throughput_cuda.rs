@@ -21,7 +21,6 @@ use cudarc::driver::DevicePtr;
 use cudarc::driver::DevicePtrMut;
 use cudarc::driver::sys;
 use cudarc::driver::sys::CUevent_flags;
-use vortex::session::VortexSession;
 use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaSession;
 use vortex_cuda_macros::cuda_available;
@@ -107,7 +106,7 @@ fn benchmark_transfer_throughput(c: &mut Criterion) {
             &(input_bytes, output_bytes),
             |b, &(in_bytes, out_bytes)| {
                 b.iter_custom(|iters| {
-                    let session = VortexSession::empty();
+                    let session = vortex_cuda::cuda_session();
                     let mut in_ctx = CudaSession::create_execution_ctx(&session).unwrap();
                     let mut out_ctx = CudaSession::create_execution_ctx(&session).unwrap();
 

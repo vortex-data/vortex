@@ -39,7 +39,6 @@
 //! These macros don't require any Send + Sync bounds. We could try and define this behaviour here
 //! to make it clearer, but for now, it's important to just be careful when documenting the thread
 //! safety of the functions that use these types.
-//!
 
 /// Define a native FFI type that wraps an [`std::sync::Arc<T>`] type with unsized T.
 ///

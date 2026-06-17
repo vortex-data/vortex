@@ -96,7 +96,6 @@ mod tests {
     use vortex_array::scalar_fn::fns::like::Like;
     use vortex_array::scalar_fn::fns::like::LikeKernel;
     use vortex_array::scalar_fn::fns::like::LikeOptions;
-    use vortex_array::session::ArraySession;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -105,8 +104,7 @@ mod tests {
     use crate::fsst_compress;
     use crate::fsst_train_compressor;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     fn make_fsst(strings: &[Option<&str>], nullability: Nullability) -> FSSTArray {
         let varbin = VarBinArray::from_iter(strings.iter().copied(), DType::Utf8(nullability));

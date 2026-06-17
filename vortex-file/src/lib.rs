@@ -88,7 +88,6 @@
 //! goals of locality or parallelism. For example, one may write a column in a Struct Layout with
 //! or without chunking, or completely elide statistics to save space or if they are not needed, for
 //! example if the metadata is being stored in an external index.
-//!
 
 mod counting;
 mod file;

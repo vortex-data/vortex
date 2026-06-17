@@ -22,15 +22,13 @@ use vortex_array::expr::eq;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::operators::Operator;
-use vortex_array::session::ArraySession;
 use vortex_session::VortexSession;
 
 fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 const LENGTH_AND_UNIQUE_VALUES: &[(usize, usize)] = &[
     // length, unique_values
@@ -59,7 +57,7 @@ fn bench_compare_primitive(bencher: divan::Bencher, (len, uniqueness): (usize, u
     )
     .unwrap();
     let value = primitive_arr.as_slice::<i32>()[0];
-    let session = VortexSession::empty();
+    let session = vortex_array::array_session();
 
     bencher
         .with_inputs(|| (&dict, session.create_execution_ctx()))
@@ -83,7 +81,7 @@ fn bench_compare_varbin(bencher: divan::Bencher, (len, uniqueness): (usize, usiz
     .unwrap();
     let bytes = varbin_arr.with_iterator(|i| i.next().unwrap().unwrap().to_vec());
     let value = from_utf8(bytes.as_slice()).unwrap();
-    let session = VortexSession::empty();
+    let session = vortex_array::array_session();
 
     bencher
         .with_inputs(|| (&dict, session.create_execution_ctx()))
@@ -107,7 +105,7 @@ fn bench_compare_varbinview(bencher: divan::Bencher, (len, uniqueness): (usize, 
     .unwrap();
     let bytes = varbinview_arr.with_iterator(|i| i.next().unwrap().unwrap().to_vec());
     let value = from_utf8(bytes.as_slice()).unwrap();
-    let session = VortexSession::empty();
+    let session = vortex_array::array_session();
 
     bencher
         .with_inputs(|| (&dict, session.create_execution_ctx()))
@@ -146,7 +144,7 @@ fn bench_compare_sliced_dict_primitive(
     .unwrap();
     let dict = dict.into_array().slice(0..codes_len).unwrap();
     let value = primitive_arr.as_slice::<i32>()[0];
-    let session = VortexSession::empty();
+    let session = vortex_array::array_session();
 
     bencher
         .with_inputs(|| (&dict, session.create_execution_ctx()))
@@ -173,7 +171,7 @@ fn bench_compare_sliced_dict_varbinview(
     let dict = dict.into_array().slice(0..codes_len).unwrap();
     let bytes = varbin_arr.with_iterator(|i| i.next().unwrap().unwrap().to_vec());
     let value = from_utf8(bytes.as_slice()).unwrap();
-    let session = VortexSession::empty();
+    let session = vortex_array::array_session();
 
     bencher
         .with_inputs(|| (&dict, session.create_execution_ctx()))

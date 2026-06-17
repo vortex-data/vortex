@@ -4,7 +4,6 @@
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::bool::BoolArrayExt;
-use vortex::array::validity::Validity;
 use vortex::buffer::BitBuffer;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
@@ -26,7 +25,7 @@ pub(crate) fn new_exporter(
     let bits = array.to_bit_buffer();
 
     let validity = array.validity()?;
-    if matches!(validity, Validity::AllInvalid) {
+    if validity.definitely_all_null() {
         return Ok(all_invalid::new_exporter());
     }
     let validity = validity.to_array(len).execute::<Mask>(ctx)?;

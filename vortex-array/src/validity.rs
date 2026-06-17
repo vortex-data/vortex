@@ -123,6 +123,19 @@ impl Validity {
         matches!(self, Self::NonNullable | Self::AllValid)
     }
 
+    /// Returns `true` if this validity is *definitely* all-null (every value is null), i.e. it
+    /// is [`Validity::AllInvalid`].
+    ///
+    /// Returning `false` does not prove that any value is valid: a [`Validity::Array`] may still
+    /// resolve to all-null once executed. Callers must treat `false` as "unknown without
+    /// compute". For a definitive answer, execute the validity with [`Self::execute_mask`] and
+    /// check whether the resulting [`Mask`] is all-false (`Mask::all_false`). This is the
+    /// all-null counterpart to [`Self::definitely_no_nulls`].
+    #[inline]
+    pub fn definitely_all_null(&self) -> bool {
+        matches!(self, Self::AllInvalid)
+    }
+
     /// Returns whether this validity contains no null values, executing the validity array if
     /// necessary.
     ///

@@ -20,7 +20,7 @@ impl SliceReduce for Primitive {
         let validity = array.validity()?.slice(range)?;
 
         // SAFETY:
-        //slicing an existing PrimitiveArray on element boundaries preserves the buffer
+        // slicing an existing PrimitiveArray on element boundaries preserves the buffer
         // alignment, ptype, length, and validity invariants.
         let array = unsafe {
             PrimitiveArray::new_unchecked_from_handle(values, array.ptype(), validity).into_array()

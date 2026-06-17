@@ -99,9 +99,10 @@ For tests or specialized use-cases, sessions can be assembled from individual co
 the `.with::<T>()` builder:
 
 ```rust
-let session = VortexSession::empty()
+let session = VortexSession::builder()
     .with::<ArraySession>()
     .with::<LayoutSession>()
     .with::<ScalarFnSession>()
-    .with::<RuntimeSession>();
+    .with::<RuntimeSession>()
+    .build();
 ```

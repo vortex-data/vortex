@@ -11,7 +11,6 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::listview::ListViewRebuildMode;
-use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
@@ -19,8 +18,7 @@ use vortex_zstd::Zstd;
 use vortex_zstd::ZstdData;
 
 /// A shared session for the `ListView` rebuild benchmark, used to create execution contexts.
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 #[divan::bench(sample_size = 1000)]
 fn rebuild_naive(bencher: Bencher) {

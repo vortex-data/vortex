@@ -7,6 +7,7 @@
 // vortex::compute is deprecated and will be ported over to expressions.
 pub use vortex_array::aggregate_fn;
 use vortex_array::aggregate_fn::session::AggregateFnSession;
+use vortex_array::arrow::ArrowSession;
 pub use vortex_array::compute;
 use vortex_array::dtype::session::DTypeSession;
 // vortex::expr is in the process of having its dependencies inverted, and will eventually be
@@ -172,11 +173,16 @@ impl VortexSessionDefault for VortexSession {
             .with::<StatsSession>()
             .with::<ArrayKernels>()
             .with::<AggregateFnSession>()
+            .with::<ArrowSession>()
             .with::<MemorySession>()
             .with::<RuntimeSession>();
 
         #[cfg(feature = "files")]
-        file::register_default_encodings(&session);
+        let session = {
+            let session = session.with::<file::multi::MultiFileSession>();
+            file::register_default_encodings(&session);
+            session
+        };
 
         session
     }

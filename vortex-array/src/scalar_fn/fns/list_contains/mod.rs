@@ -415,7 +415,7 @@ fn list_is_not_empty(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     // Short-circuit for all invalid.
-    if matches!(list_array.validity()?, Validity::AllInvalid) {
+    if list_array.validity()?.definitely_all_null() {
         return Ok(ConstantArray::new(
             Scalar::null(DType::Bool(Nullability::Nullable)),
             list_array.len(),

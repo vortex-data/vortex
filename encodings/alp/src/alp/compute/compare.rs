@@ -269,7 +269,7 @@ mod tests {
         let expected = BoolArray::from_iter([true; 10]);
         assert_arrays_eq!(r_lte, expected);
 
-        //0.0605_f32 < 0.06051_f32;
+        // 0.0605_f32 < 0.06051_f32;
         let r_lt = alp_scalar_compare(encoded.as_view(), 0.06051_f32, CompareOperator::Lt)
             .unwrap()
             .unwrap();

@@ -53,7 +53,6 @@ use vortex::encodings::runend::RunEnd;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
-use vortex::session::VortexSession;
 use vortex_cuda::CudaBufferExt;
 use vortex_cuda::CudaDeviceBuffer;
 use vortex_cuda::CudaDispatchMode;
@@ -221,8 +220,8 @@ fn bench_for_bitpacked(c: &mut Criterion) {
             BenchmarkId::new("cuda/for_bitpacked_6bw/dispatch_u32", len_str),
             len,
             |b, &n| {
-                let mut cuda_ctx =
-                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+                let mut cuda_ctx = CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
+                    .vortex_expect("ctx");
 
                 let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
 
@@ -266,8 +265,8 @@ fn bench_dict_bp_codes(c: &mut Criterion) {
             BenchmarkId::new("cuda/dict_256vals_bp8bw_codes/dispatch_u32", len_str),
             len,
             |b, &n| {
-                let mut cuda_ctx =
-                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+                let mut cuda_ctx = CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
+                    .vortex_expect("ctx");
 
                 let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
 
@@ -310,8 +309,8 @@ fn bench_runend(c: &mut Criterion) {
             BenchmarkId::new("cuda/runend_100runs/dispatch_u32", len_str),
             len,
             |b, &n| {
-                let mut cuda_ctx =
-                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+                let mut cuda_ctx = CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
+                    .vortex_expect("ctx");
 
                 let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
 
@@ -387,8 +386,8 @@ fn bench_dict_bp_codes_alp_for_bp_values_dynanmic_dispatch(c: &mut Criterion) {
             ),
             len,
             |b, &n| {
-                let mut cuda_ctx =
-                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+                let mut cuda_ctx = CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
+                    .vortex_expect("ctx");
 
                 let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
 
@@ -702,7 +701,7 @@ fn bench_dict_bp_codes_alp_for_bp_values_composed_standalone(c: &mut Criterion) 
             &(values_bp, values_reference, codes_bp),
             |b, (values_bp, values_reference, codes_bp)| {
                 b.iter_custom(|iters| {
-                    let session = VortexSession::empty();
+                    let session = vortex_cuda::cuda_session();
                     let cuda_session = session.cuda_session();
                     let mut cuda_ctx = CudaSession::create_execution_ctx(&session)
                         .vortex_expect("ctx")
@@ -713,7 +712,7 @@ fn bench_dict_bp_codes_alp_for_bp_values_composed_standalone(c: &mut Criterion) 
                         exponents,
                         codes_bp,
                         *len,
-                        &cuda_session,
+                        cuda_session,
                         &mut cuda_ctx,
                     );
 
@@ -777,8 +776,8 @@ fn bench_alp_for_bitpacked_f64(c: &mut Criterion) {
             BenchmarkId::new("cuda/alp_for_bp_6bw_f64/dispatch_f64", len_str),
             len,
             |b, &n| {
-                let mut cuda_ctx =
-                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+                let mut cuda_ctx = CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
+                    .vortex_expect("ctx");
 
                 let bench_runner = BenchRunner::<u64>::new(&array, n, &mut cuda_ctx);
 
@@ -834,8 +833,8 @@ fn bench_dict_bp_codes_bp_for_values(c: &mut Criterion) {
             ),
             len,
             |b, &n| {
-                let mut cuda_ctx =
-                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+                let mut cuda_ctx = CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
+                    .vortex_expect("ctx");
 
                 let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
 
@@ -899,8 +898,8 @@ fn bench_alp_for_bitpacked(c: &mut Criterion) {
             BenchmarkId::new("cuda/alp_for_bp_6bw_f32/dispatch_f32", len_str),
             len,
             |b, &n| {
-                let mut cuda_ctx =
-                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+                let mut cuda_ctx = CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
+                    .vortex_expect("ctx");
 
                 let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
 
@@ -946,8 +945,8 @@ fn bench_dict_bp_u8_codes_u32_values(c: &mut Criterion) {
             BenchmarkId::new("cuda/dict_widen_u8_to_u32/dispatch_u32", len_str),
             len,
             |b, &n| {
-                let mut cuda_ctx =
-                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+                let mut cuda_ctx = CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
+                    .vortex_expect("ctx");
 
                 let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
 
@@ -989,8 +988,8 @@ fn bench_dict_bp_u16_codes_u32_values(c: &mut Criterion) {
             BenchmarkId::new("cuda/dict_widen_u16_to_u32/dispatch_u32", len_str),
             len,
             |b, &n| {
-                let mut cuda_ctx =
-                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+                let mut cuda_ctx = CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
+                    .vortex_expect("ctx");
 
                 let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
 
@@ -1032,8 +1031,8 @@ fn bench_dict_bp_u32_codes_u32_values(c: &mut Criterion) {
             BenchmarkId::new("cuda/dict_nowiden_u32_to_u32/dispatch_u32", len_str),
             len,
             |b, &n| {
-                let mut cuda_ctx =
-                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+                let mut cuda_ctx = CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
+                    .vortex_expect("ctx");
 
                 let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
 

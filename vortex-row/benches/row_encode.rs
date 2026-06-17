@@ -33,7 +33,6 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::session::ArraySession;
 use vortex_row::RowEncoder;
 use vortex_session::VortexSession;
 
@@ -42,8 +41,7 @@ static GLOBAL: MiMalloc = MiMalloc;
 
 const N: usize = 100_000;
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 fn main() {
     divan::main();

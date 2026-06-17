@@ -23,7 +23,6 @@ use vortex::array::arrays::varbinview::build_views::build_views;
 use vortex::array::buffer::DeviceBuffer;
 use vortex::array::match_each_integer_ptype;
 use vortex::array::match_each_unsigned_integer_ptype;
-use vortex::array::validity::Validity;
 use vortex::buffer::Alignment;
 use vortex::buffer::Buffer;
 use vortex::dtype::NativePType;
@@ -62,7 +61,7 @@ impl CudaExecute for FSSTExecutor {
         let dtype = fsst.dtype().clone();
         let validity = fsst.codes().validity()?;
 
-        if fsst.is_empty() || matches!(validity, Validity::AllInvalid) {
+        if fsst.is_empty() || validity.definitely_all_null() {
             let empty = unsafe {
                 VarBinViewArray::new_unchecked(
                     Buffer::<BinaryView>::zeroed(fsst.len()),
@@ -210,7 +209,6 @@ mod tests {
     use vortex::encodings::fsst::fsst_compress;
     use vortex::encodings::fsst::fsst_train_compressor;
     use vortex::error::VortexExpect;
-    use vortex::session::VortexSession;
 
     use super::*;
     use crate::CanonicalCudaExt;
@@ -237,7 +235,7 @@ mod tests {
         #[case] strings: Vec<Option<&'static [u8]>>,
         #[case] nullability: Nullability,
     ) -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let varbin = VarBinArray::from_iter(strings, DType::Binary(nullability));
@@ -265,7 +263,7 @@ mod tests {
     async fn test_cuda_fsst_decompression_roundtrip_large() -> VortexResult<()> {
         use vortex_fsst::test_utils::make_fsst_clickbench_urls;
 
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let fsst_array = make_fsst_clickbench_urls(100_000, cuda_ctx.execution_ctx()).into_array();

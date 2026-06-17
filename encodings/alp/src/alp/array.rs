@@ -485,7 +485,6 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::session::ArraySession;
     use vortex_error::VortexExpect;
     use vortex_session::VortexSession;
 
@@ -493,8 +492,7 @@ mod tests {
     use crate::alp_encode;
     use crate::decompress_into_array;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     #[rstest]
     #[case(0)]

@@ -27,10 +27,15 @@ cmake -S cpp -B cpp/build \
   -DBUILD_TESTS=ON \
   -DDISABLE_DEPRECATION_WARNINGS=ON \
   -DCMAKE_BUILD_TYPE=Debug \
+  -DCUDF_BUILD_STATIC_DEPS=OFF \
   -DCUDF_BUILD_STREAMS_TEST_UTIL=OFF \
   -DCUDAToolkit_ROOT=/usr/local/cuda \
   -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \
   -DCMAKE_C_COMPILER=gcc \
   -DCMAKE_CXX_COMPILER=g++ \
+  # In large AArch64 Debug links, CALL26/JUMP26 relocations can exceed their branch range.
+  # Use 1 MiB stub groups so GNU ld emits veneers close enough to each relocation site.
+  -DCMAKE_SHARED_LINKER_FLAGS="-Wl,--stub-group-size=1048576" \
+  -DCMAKE_EXE_LINKER_FLAGS="-Wl,--stub-group-size=1048576" \
   -GNinja && cmake --build cpp/build --target INTEROP_TEST --parallel
 ```

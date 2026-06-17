@@ -42,6 +42,25 @@ pub fn descendent_annotations<A: AnnotationFn>(
     let mut visitor = AnnotationVisitor {
         annotations: Default::default(),
         annotate,
+        propagate_up: true,
+    };
+    expr.accept(&mut visitor).vortex_expect("Infallible");
+    visitor.annotations
+}
+
+/// Walk the expression tree and annotate each expression with zero or more
+/// annotations.
+///
+/// Returns a map of each expression to all annotations. Annotations of
+/// children are not propagated to parents.
+pub fn direct_annotations<A: AnnotationFn>(
+    expr: &Expression,
+    annotate: A,
+) -> Annotations<'_, A::Annotation> {
+    let mut visitor = AnnotationVisitor {
+        annotations: Default::default(),
+        annotate,
+        propagate_up: false,
     };
     expr.accept(&mut visitor).vortex_expect("Infallible");
     visitor.annotations
@@ -50,6 +69,7 @@ pub fn descendent_annotations<A: AnnotationFn>(
 struct AnnotationVisitor<'a, A: AnnotationFn> {
     annotations: Annotations<'a, A::Annotation>,
     annotate: A,
+    propagate_up: bool,
 }
 
 impl<'a, A: AnnotationFn> NodeVisitor<'a> for AnnotationVisitor<'a, A> {
@@ -70,6 +90,9 @@ impl<'a, A: AnnotationFn> NodeVisitor<'a> for AnnotationVisitor<'a, A> {
     }
 
     fn visit_up(&mut self, node: &'a Expression) -> VortexResult<TraversalOrder> {
+        if !self.propagate_up {
+            return Ok(TraversalOrder::Continue);
+        }
         let child_annotations = node
             .children()
             .iter()

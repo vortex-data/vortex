@@ -30,7 +30,6 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use vortex_error::VortexResult;
-use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::SessionVar;
 use vortex_session::registry::Id;
@@ -111,7 +110,7 @@ impl Borrow<u64> for ExecuteParentFnId {
 ///
 /// Each kernel kind has its own storage map, keyed by `(outer_id, child_id)`. Registering
 /// functions for an existing key appends them to that key's ordered list.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ArrayKernels {
     reduce_parent: ArcSwapMap<ReduceParentFnId, Arc<[ReduceParentFn]>>,
     execute_parent: ArcSwapMap<ExecuteParentFnId, Arc<[ExecuteParentFn]>>,
@@ -213,9 +212,8 @@ impl SessionVar for ArrayKernels {
 /// Extension trait for accessing optimizer kernels from a
 /// [`VortexSession`](vortex_session::VortexSession).
 pub trait ArrayKernelsExt: SessionExt {
-    /// Returns the [`ArrayKernels`] session variable, inserting a default-constructed one if
-    /// none has been registered on the session yet.
-    fn kernels(&self) -> Ref<'_, ArrayKernels> {
+    /// Returns the [`ArrayKernels`] session variable.
+    fn kernels(&self) -> &ArrayKernels {
         self.get::<ArrayKernels>()
     }
 }

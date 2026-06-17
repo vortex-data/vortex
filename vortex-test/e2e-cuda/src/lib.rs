@@ -13,12 +13,15 @@ use std::sync::LazyLock;
 
 use arrow_array::Array;
 use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_array::BooleanArray;
 use arrow_array::Date32Array;
 use arrow_array::Decimal32Array;
 use arrow_array::Decimal64Array;
 use arrow_array::Decimal128Array;
 use arrow_array::DictionaryArray;
+use arrow_array::Int32Array;
 use arrow_array::StringArray;
+use arrow_array::TimestampMillisecondArray;
 use arrow_array::cast::AsArray;
 use arrow_array::ffi::FFI_ArrowArray;
 use arrow_array::ffi::from_ffi;
@@ -32,6 +35,7 @@ use futures::executor::block_on;
 use vortex::array::ArrayRef as VortexArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
+use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::DictArray as VortexDictArray;
 use vortex::array::arrays::FixedSizeListArray;
@@ -42,7 +46,6 @@ use vortex::array::arrays::TemporalArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::varbinview::BinaryView;
 use vortex::array::arrow::ArrowSessionExt;
-use vortex::array::session::ArraySession;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
@@ -54,7 +57,6 @@ use vortex::dtype::Nullability;
 use vortex::extension::datetime::TimeUnit;
 use vortex::io::session::RuntimeSession;
 use vortex::layout::session::LayoutSession;
-use vortex::scalar_fn::session::ScalarFnSession;
 use vortex::session::VortexSession;
 use vortex_cuda::CudaSession;
 use vortex_cuda::arrow::ArrowDeviceArray;
@@ -63,10 +65,8 @@ use vortex_cuda::arrow::DeviceArrayExt;
 const PRIMITIVE_DTYPE_ENV: &str = "VORTEX_CUDF_PRIMITIVE_DTYPE";
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    VortexSession::empty()
-        .with::<ArraySession>()
+    vortex::array::array_session()
         .with::<LayoutSession>()
-        .with::<ScalarFnSession>()
         .with::<RuntimeSession>()
         .with::<CudaSession>()
 });
@@ -98,6 +98,42 @@ fn primitive_array() -> Result<VortexArrayRef, String> {
             ));
         }
     })
+}
+
+fn bool_array() -> VortexArrayRef {
+    BoolArray::from_iter([true, false, false, true, true]).into_array()
+}
+
+fn sliced_i32_array() -> VortexArrayRef {
+    PrimitiveArray::from_option_iter([
+        Some(-999i32),
+        Some(10),
+        None,
+        Some(30),
+        Some(40),
+        None,
+        Some(999),
+    ])
+    .into_array()
+    .slice(1..6)
+    .expect("sliced i32 array")
+}
+
+fn sliced_bool_array() -> VortexArrayRef {
+    BoolArray::from_iter([true, false, true, true, false, true, false])
+        .into_array()
+        .slice(1..6)
+        .expect("sliced bool array")
+}
+
+fn timestamp_ms_array() -> VortexArrayRef {
+    TemporalArray::new_timestamp(
+        PrimitiveArray::from_option_iter([Some(1_000i64), None, Some(3_000), Some(4_000), None])
+            .into_array(),
+        TimeUnit::Milliseconds,
+        None,
+    )
+    .into_array()
 }
 
 fn list_array() -> VortexArrayRef {
@@ -236,6 +272,9 @@ fn export_array_inner(schema_ptr: &mut FFI_ArrowSchema, array_ptr: &mut ArrowDev
     let array = StructArray::new(
         FieldNames::from_iter([
             "prims",
+            "bools",
+            "sliced_i32",
+            "sliced_bools",
             "decimal32",
             "decimal64",
             "decimal128",
@@ -246,12 +285,16 @@ fn export_array_inner(schema_ptr: &mut FFI_ArrowSchema, array_ptr: &mut ArrowDev
             // Arrow Device import path rejects NANOARROW_TYPE_BINARY, and treating arbitrary
             // bytes as strings would be semantically incorrect.
             "dates",
+            "timestamp_ms",
             "dictionary",
             "lists",
             "fixed_lists",
         ]),
         vec![
             primitive,
+            bool_array(),
+            sliced_i32_array(),
+            sliced_bool_array(),
             decimal32.into_array(),
             decimal64.into_array(),
             decimal128.into_array(),
@@ -259,6 +302,7 @@ fn export_array_inner(schema_ptr: &mut FFI_ArrowSchema, array_ptr: &mut ArrowDev
             sliced_utf8_array(),
             multi_buffer_utf8_array(),
             dates.into_array(),
+            timestamp_ms_array(),
             dictionary_array(),
             list_array(),
             fixed_size_list_array(),
@@ -327,6 +371,9 @@ fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowA
             &mut SESSION.create_execution_ctx(),
         )
         .expect("expected primitive Arrow array");
+    let bools = BooleanArray::from(vec![true, false, false, true, true]);
+    let sliced_i32 = Int32Array::from(vec![Some(10), None, Some(30), Some(40), None]);
+    let sliced_bools = BooleanArray::from(vec![false, true, true, false, true]);
     let decimal32 = Decimal32Array::from_iter([Some(0i32), Some(1), None, Some(3), Some(4)])
         // cuDF stores decimals using the maximum precision for the physical width and preserves scale.
         .with_precision_and_scale(9, 2)
@@ -359,6 +406,8 @@ fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowA
         Some("short"),
     ]);
     let date = Date32Array::from(vec![Some(100i32), None, Some(300), Some(400), None]);
+    let timestamp_ms =
+        TimestampMillisecondArray::from(vec![Some(1_000i64), None, Some(3_000), Some(4_000), None]);
     let dictionary = Arc::new(
         vec![
             Some("apple"),
@@ -385,6 +434,9 @@ fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowA
 
     let expected_fields = Fields::from_iter([
         Field::new("prims", primitive.data_type().clone(), true),
+        Field::new("bools", bools.data_type().clone(), false),
+        Field::new("sliced_i32", sliced_i32.data_type().clone(), true),
+        Field::new("sliced_bools", sliced_bools.data_type().clone(), false),
         Field::new("decimal32", decimal32.data_type().clone(), true),
         Field::new("decimal64", decimal64.data_type().clone(), true),
         Field::new("decimal128", decimal128.data_type().clone(), true),
@@ -396,6 +448,7 @@ fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowA
             false,
         ),
         Field::new("dates", date.data_type().clone(), true),
+        Field::new("timestamp_ms", timestamp_ms.data_type().clone(), true),
         Field::new("dictionary", dictionary.data_type().clone(), true),
         cudf_list_field("lists"),
         cudf_list_field("fixed_lists"),
@@ -407,8 +460,11 @@ fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowA
         return 1;
     }
 
-    let expected_arrays: [ArrowArrayRef; 9] = [
+    let expected_arrays: Vec<ArrowArrayRef> = vec![
         primitive,
+        Arc::new(bools),
+        Arc::new(sliced_i32),
+        Arc::new(sliced_bools),
         Arc::new(decimal32),
         Arc::new(decimal64),
         Arc::new(decimal128),
@@ -416,6 +472,7 @@ fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowA
         Arc::new(sliced_utf8),
         Arc::new(multi_buffer_utf8),
         Arc::new(date),
+        Arc::new(timestamp_ms),
         dictionary,
     ];
 
@@ -430,11 +487,11 @@ fn validate_array_inner(ffi_schema: &FFI_ArrowSchema, ffi_array: &mut FFI_ArrowA
         }
     }
 
-    if !list_values_eq(list.as_ref(), struct_array.column(9).as_ref()) {
+    if !list_values_eq(list.as_ref(), struct_array.column(13).as_ref()) {
         eprintln!("wrong values for lists column");
         return 1;
     }
-    if !list_values_eq(fixed_size_list.as_ref(), struct_array.column(10).as_ref()) {
+    if !list_values_eq(fixed_size_list.as_ref(), struct_array.column(14).as_ref()) {
         eprintln!("wrong values for fixed_lists column");
         return 1;
     }
