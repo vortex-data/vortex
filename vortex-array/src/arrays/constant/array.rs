@@ -7,6 +7,7 @@ use std::fmt::Formatter;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::arrays::Constant;
+use crate::dtype::DType;
 use crate::scalar::Scalar;
 
 #[derive(Clone, Debug)]
@@ -48,5 +49,13 @@ impl Array<Constant> {
         let dtype = scalar.dtype().clone();
         let data = ConstantData::new(scalar);
         unsafe { Array::from_parts_unchecked(ArrayParts::new(Constant, dtype, len, data)) }
+    }
+
+    /// Construct an entirely-null constant array of the given nullable `dtype` and `len`.
+    ///
+    /// This is the canonical representation of an all-null array: a single null scalar repeated
+    /// `len` times, carrying neither a values buffer nor a validity child.
+    pub fn null(dtype: DType, len: usize) -> Self {
+        Self::new(Scalar::null(dtype), len)
     }
 }
