@@ -6,7 +6,6 @@ use std::marker::PhantomData;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::match_each_native_ptype;
-use vortex::array::validity::Validity;
 use vortex::dtype::NativePType;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
@@ -29,7 +28,7 @@ pub fn new_exporter(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let validity = array.validity()?;
-    if matches!(validity, Validity::AllInvalid) {
+    if validity.definitely_all_null() {
         return Ok(all_invalid::new_exporter());
     };
     let validity = validity.to_array(array.len()).execute::<Mask>(ctx)?;

@@ -9744,6 +9744,7 @@ dependencies = [
  "arrow-array",
  "arrow-schema",
  "async-fs",
+ "bytes",
  "cbindgen",
  "futures",
  "itertools 0.14.0",

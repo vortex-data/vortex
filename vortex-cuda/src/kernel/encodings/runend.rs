@@ -75,7 +75,7 @@ impl CudaExecute for RunEndExecutor {
             )));
         }
 
-        if matches!(values.validity()?, Validity::AllInvalid) {
+        if values.validity()?.definitely_all_null() {
             return ConstantArray::new(Scalar::null(values.dtype().clone()), output_len)
                 .into_array()
                 .execute::<Canonical>(ctx.execution_ctx());

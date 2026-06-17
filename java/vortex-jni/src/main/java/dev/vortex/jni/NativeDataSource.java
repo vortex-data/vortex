@@ -33,4 +33,10 @@ public final class NativeDataSource {
      * {@code 1=estimate}, {@code 2=exact}.
      */
     public static native void rowCount(long pointer, long[] out);
+
+    /**
+     * Populate {@code out} with {@code [bytes, precision]}, the sum of on-storage file sizes for the data source.
+     * Precision is one of {@code 0=unknown}, {@code 1=estimate}, {@code 2=exact}.
+     */
+    public static native void byteSize(long pointer, long[] out);
 }

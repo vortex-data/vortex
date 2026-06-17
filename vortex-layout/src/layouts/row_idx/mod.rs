@@ -19,6 +19,7 @@ use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::FieldName;
@@ -295,7 +296,10 @@ fn row_idx_mask_future(
         let array = idx_array(row_offset, &row_range).into_array();
 
         let mut ctx = session.create_execution_ctx();
-        let result_mask = array.apply(&expr)?.execute::<Mask>(&mut ctx)?;
+        let result_mask = array
+            .apply(&expr)?
+            .fill_null(false)?
+            .execute::<Mask>(&mut ctx)?;
 
         Ok(result_mask.bitand(&mask.await?))
     })

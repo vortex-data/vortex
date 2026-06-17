@@ -23,6 +23,7 @@ all-features = true
 arrow-array = { workspace = true, features = ["ffi"] }
 arrow-schema = { workspace = true }
 async-fs = { workspace = true }
+bytes = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
 mimalloc = { workspace = true, optional = true }
