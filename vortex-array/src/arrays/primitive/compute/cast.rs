@@ -136,11 +136,9 @@ where
 
     // If F and T have the same byte width, try to take unique ownership of the buffer.
     let same_bit_width = F::PTYPE.byte_width() == T::PTYPE.byte_width();
-    let owned: Option<BufferMut<F>> = if same_bit_width {
-        array.into_owned().try_into_buffer_mut::<F>().ok()
-    } else {
-        None
-    };
+    let owned: Option<BufferMut<F>> = same_bit_width
+        .then(|| array.into_owned().try_into_buffer_mut::<F>().ok())
+        .flatten();
     let values: &[F] = array.as_slice::<F>();
 
     if infallible {
