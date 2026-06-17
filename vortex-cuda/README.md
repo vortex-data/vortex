@@ -39,3 +39,32 @@ cmake -S cpp -B cpp/build \
   -DCMAKE_EXE_LINKER_FLAGS="-Wl,--stub-group-size=1048576" \
   -GNinja && cmake --build cpp/build --target INTEROP_TEST --parallel
 ```
+
+## Running the cuDF test harness
+
+```sh
+cargo build -p vortex-test-e2e-cuda
+cmake --build /path/to/cudf-test-harness/build --target cudf-test-harness --parallel
+
+/path/to/cudf-test-harness/build/cudf-test-harness \
+  check-stream \
+  target/debug/libvortex_test_e2e_cuda.so
+```
+
+To run both `check` and `check-stream` under `compute-sanitizer` for all primitive dtypes:
+
+```sh
+target/debug/cudf_harness_runner \
+  /path/to/cudf-test-harness/build/cudf-test-harness \
+  target/debug/libvortex_test_e2e_cuda.so
+```
+
+If cuDF fails with `cudaErrorInsufficientDriver` when using CUDA 13, use the compatibility driver
+libraries:
+
+```sh
+LD_LIBRARY_PATH=/usr/local/cuda-13.1/compat \
+  target/debug/cudf_harness_runner \
+  /path/to/cudf-test-harness/build/cudf-test-harness \
+  target/debug/libvortex_test_e2e_cuda.so
+```
