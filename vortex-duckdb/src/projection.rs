@@ -18,7 +18,6 @@ use vortex::expr::root;
 use vortex::expr::select;
 use vortex::layout::layouts::row_idx::row_idx;
 use vortex::scan::selection::Selection;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::convert::try_from_table_filter;
 use crate::convert::try_from_virtual_column_filter;
@@ -146,6 +145,12 @@ pub struct Filter {
     pub has_non_optional_filter: bool,
 }
 
+fn push_filter_expr(filter_exprs: &mut Vec<Expression>, expr: Expression) {
+    if !filter_exprs.iter().any(|existing| existing == &expr) {
+        filter_exprs.push(expr);
+    }
+}
+
 impl Filter {
     /// Creates a table filter expression, row selection, and row range from the table filter set,
     /// column metadata, additional filter expressions, and the top-level DType.
@@ -158,29 +163,26 @@ impl Filter {
     ) -> VortexResult<Self> {
         let mut has_non_optional_filter = false;
 
-        let mut table_filter_exprs: HashSet<Expression> = if let Some(filter) = table_filter_set {
-            filter
-                .into_iter()
-                .filter(|(idx, _)| {
-                    let idx_u: usize = idx.as_();
-                    !is_virtual_column(column_ids[idx_u])
-                })
-                .map(|(idx, ex)| {
-                    has_non_optional_filter |=
-                        !matches!(ex.as_class(), TableFilterClass::Optional(_));
+        let mut table_filter_exprs = Vec::new();
+        if let Some(filter) = table_filter_set {
+            for (idx, ex) in filter.into_iter().filter(|(idx, _)| {
+                let idx_u: usize = idx.as_();
+                !is_virtual_column(column_ids[idx_u])
+            }) {
+                has_non_optional_filter |= !matches!(ex.as_class(), TableFilterClass::Optional(_));
 
-                    let idx_u: usize = idx.as_();
-                    let col_idx: usize = column_ids[idx_u].as_();
-                    let name = &column_fields.get(col_idx).vortex_expect("exists").name;
-                    try_from_table_filter(ex, &col(name.as_str()), dtype)
-                })
-                .collect::<VortexResult<Option<HashSet<_>>>>()?
-                .unwrap_or_else(HashSet::new)
-        } else {
-            HashSet::new()
-        };
+                let idx_u: usize = idx.as_();
+                let col_idx: usize = column_ids[idx_u].as_();
+                let name = &column_fields.get(col_idx).vortex_expect("exists").name;
+                if let Some(expr) = try_from_table_filter(ex, &col(name.as_str()), dtype)? {
+                    push_filter_expr(&mut table_filter_exprs, expr);
+                }
+            }
+        }
 
-        table_filter_exprs.extend(additional_filters.iter().cloned());
+        for expr in additional_filters.iter().cloned() {
+            push_filter_expr(&mut table_filter_exprs, expr);
+        }
 
         let mut file_selection = Selection::All;
         let mut row_selection = Selection::All;
@@ -285,5 +287,18 @@ mod tests {
 
         let ids = [2, 1, 0];
         assert_ne!(Projection::new(None, &ids, &fields).projection, root());
+    }
+
+    #[test]
+    fn test_push_filter_expr_preserves_order() {
+        let first = col("first");
+        let second = col("second");
+
+        let mut filter_exprs = Vec::new();
+        push_filter_expr(&mut filter_exprs, first.clone());
+        push_filter_expr(&mut filter_exprs, second.clone());
+        push_filter_expr(&mut filter_exprs, first.clone());
+
+        assert_eq!(filter_exprs, vec![first, second]);
     }
 }
