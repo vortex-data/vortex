@@ -223,7 +223,7 @@ impl Array<Interleave> {
     ///
     /// This is the assembly half of [`try_new`](Self::try_new): it lays the selectors into
     /// `slots[0]`/`slots[1]` and the values into `slots[2..]` and stamps `dtype`, skipping the
-    /// [`Interleave::check`] pass. It exists for hot internal paths — notably building the
+    /// `Interleave::check` pass. It exists for hot internal paths — notably building the
     /// pushed-down validity interleave in [`ValidityVTable::validity`] — where the inputs are known
     /// to satisfy the invariants by construction and re-checking them is pure overhead.
     ///
@@ -231,7 +231,7 @@ impl Array<Interleave> {
     ///
     /// The caller must uphold every [module invariant](self): at least two `values` sharing a dtype
     /// up to nullability, both selectors non-nullable unsigned integers of equal length, and `dtype`
-    /// equal to the value returned by [`Interleave::check`] for these arguments (the shared value
+    /// equal to the value returned by `Interleave::check` for these arguments (the shared value
     /// type with the union of the values' nullabilities).
     pub unsafe fn new_unchecked(
         values: Vec<ArrayRef>,
@@ -262,7 +262,7 @@ impl Array<Interleave> {
     /// The caller must uphold every [module invariant](self) *and* the slot layout: `slots[0]` is
     /// the `array_indices` selector, `slots[1]` is the `row_indices` selector, and `slots[2..]` are
     /// the value arrays. Every slot must be `Some`, there must be at least two values
-    /// (`slots.len() >= 4`), and `dtype` must equal the value returned by [`Interleave::check`] for
+    /// (`slots.len() >= 4`), and `dtype` must equal the value returned by `Interleave::check` for
     /// these arguments.
     pub unsafe fn new_unchecked_slots(slots: ArraySlots, dtype: DType) -> Self {
         let num_values = slots.len() - 2;
