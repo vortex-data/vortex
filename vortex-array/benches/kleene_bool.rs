@@ -29,6 +29,7 @@ static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 const LEN: usize = 65_536;
+const SHIFTED_OFFSET: usize = 1;
 
 #[divan::bench]
 fn and_bool_nonnull_arrays(bencher: Bencher) {
@@ -52,20 +53,50 @@ fn or_bool_nonnull_arrays(bencher: Bencher) {
 
 #[divan::bench]
 fn and_bool_nullable_arrays(bencher: Bencher) {
+    and_bool_nullable_arrays_aligned(bencher);
+}
+
+#[divan::bench]
+fn and_bool_nullable_arrays_aligned(bencher: Bencher) {
     bench_kleene(
         bencher,
-        bool_nullable(2, 7).into_array(),
-        bool_nullable(3, 5).into_array(),
+        bool_nullable(2, 7, 0),
+        bool_nullable(3, 5, 0),
         Operator::And,
     );
 }
 
 #[divan::bench]
 fn or_bool_nullable_arrays(bencher: Bencher) {
+    or_bool_nullable_arrays_aligned(bencher);
+}
+
+#[divan::bench]
+fn or_bool_nullable_arrays_aligned(bencher: Bencher) {
     bench_kleene(
         bencher,
-        bool_nullable(2, 7).into_array(),
-        bool_nullable(3, 5).into_array(),
+        bool_nullable(2, 7, 0),
+        bool_nullable(3, 5, 0),
+        Operator::Or,
+    );
+}
+
+#[divan::bench]
+fn and_bool_nullable_arrays_shifted(bencher: Bencher) {
+    bench_kleene(
+        bencher,
+        bool_nullable(2, 7, SHIFTED_OFFSET),
+        bool_nullable(3, 5, SHIFTED_OFFSET),
+        Operator::And,
+    );
+}
+
+#[divan::bench]
+fn or_bool_nullable_arrays_shifted(bencher: Bencher) {
+    bench_kleene(
+        bencher,
+        bool_nullable(2, 7, SHIFTED_OFFSET),
+        bool_nullable(3, 5, SHIFTED_OFFSET),
         Operator::Or,
     );
 }
@@ -74,7 +105,7 @@ fn or_bool_nullable_arrays(bencher: Bencher) {
 fn and_true_constant(bencher: Bencher) {
     bench_kleene(
         bencher,
-        bool_nullable(2, 7).into_array(),
+        bool_nullable(2, 7, 0),
         ConstantArray::new(true, LEN).into_array(),
         Operator::And,
     );
@@ -84,7 +115,7 @@ fn and_true_constant(bencher: Bencher) {
 fn or_false_constant(bencher: Bencher) {
     bench_kleene(
         bencher,
-        bool_nullable(2, 7).into_array(),
+        bool_nullable(2, 7, 0),
         ConstantArray::new(false, LEN).into_array(),
         Operator::Or,
     );
@@ -94,7 +125,7 @@ fn or_false_constant(bencher: Bencher) {
 fn and_false_constant(bencher: Bencher) {
     bench_kleene(
         bencher,
-        bool_nullable(2, 7).into_array(),
+        bool_nullable(2, 7, 0),
         ConstantArray::new(false, LEN).into_array(),
         Operator::And,
     );
@@ -104,7 +135,7 @@ fn and_false_constant(bencher: Bencher) {
 fn or_true_constant(bencher: Bencher) {
     bench_kleene(
         bencher,
-        bool_nullable(2, 7).into_array(),
+        bool_nullable(2, 7, 0),
         ConstantArray::new(true, LEN).into_array(),
         Operator::Or,
     );
@@ -112,9 +143,14 @@ fn or_true_constant(bencher: Bencher) {
 
 #[divan::bench]
 fn and_null_constant(bencher: Bencher) {
+    and_null_constant_aligned(bencher);
+}
+
+#[divan::bench]
+fn and_null_constant_aligned(bencher: Bencher) {
     bench_kleene(
         bencher,
-        bool_nullable(2, 7).into_array(),
+        bool_nullable(2, 7, 0),
         null_bool_constant(),
         Operator::And,
     );
@@ -122,9 +158,34 @@ fn and_null_constant(bencher: Bencher) {
 
 #[divan::bench]
 fn or_null_constant(bencher: Bencher) {
+    or_null_constant_aligned(bencher);
+}
+
+#[divan::bench]
+fn or_null_constant_aligned(bencher: Bencher) {
     bench_kleene(
         bencher,
-        bool_nullable(2, 7).into_array(),
+        bool_nullable(2, 7, 0),
+        null_bool_constant(),
+        Operator::Or,
+    );
+}
+
+#[divan::bench]
+fn and_null_constant_shifted(bencher: Bencher) {
+    bench_kleene(
+        bencher,
+        bool_nullable(2, 7, SHIFTED_OFFSET),
+        null_bool_constant(),
+        Operator::And,
+    );
+}
+
+#[divan::bench]
+fn or_null_constant_shifted(bencher: Bencher) {
+    bench_kleene(
+        bencher,
+        bool_nullable(2, 7, SHIFTED_OFFSET),
         null_bool_constant(),
         Operator::Or,
     );
@@ -146,10 +207,18 @@ fn bool_nonnull(true_every: usize) -> BoolArray {
     BoolArray::from_iter((0..LEN).map(|i| i.is_multiple_of(true_every)))
 }
 
-fn bool_nullable(true_every: usize, null_every: usize) -> BoolArray {
-    BoolArray::from_iter(
-        (0..LEN).map(|i| (!i.is_multiple_of(null_every)).then_some(i.is_multiple_of(true_every))),
+fn bool_nullable(true_every: usize, null_every: usize, offset: usize) -> ArrayRef {
+    let len = LEN + offset;
+    let array = BoolArray::from_iter(
+        (0..len).map(|i| (!i.is_multiple_of(null_every)).then_some(i.is_multiple_of(true_every))),
     )
+    .into_array();
+
+    if offset == 0 {
+        array
+    } else {
+        array.slice(offset..offset + LEN).unwrap()
+    }
 }
 
 fn null_bool_constant() -> ArrayRef {
