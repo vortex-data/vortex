@@ -102,10 +102,6 @@ name = "aggregate_max"
 harness = false
 
 [[bench]]
-name = "mask_fill_null"
-harness = false
-
-[[bench]]
 name = "aggregate_sum"
 harness = false
 
