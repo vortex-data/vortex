@@ -8,6 +8,7 @@
 
 use vortex_buffer::BitBuffer;
 
+use crate::lane_kernels::CHUNK_LEN;
 use crate::lane_kernels::sink::IndexedSink;
 
 /// Extension trait providing in-place lane-kernel methods on any [`IndexedSink`].
@@ -54,14 +55,14 @@ pub trait IndexedSinkExt: IndexedSink + Sized {
 
         let mut values = self;
         let len = values.len();
-        let chunks_count = len / 64;
-        let remainder = len % 64;
+        let chunks_count = len / CHUNK_LEN;
+        let remainder = len % CHUNK_LEN;
 
         for chunk_idx in 0..chunks_count {
-            chunk(&mut values, &mut f, chunk_idx * 64, 64);
+            chunk(&mut values, &mut f, chunk_idx * CHUNK_LEN, CHUNK_LEN);
         }
         if remainder != 0 {
-            chunk(&mut values, &mut f, chunks_count * 64, remainder);
+            chunk(&mut values, &mut f, chunks_count * CHUNK_LEN, remainder);
         }
     }
 

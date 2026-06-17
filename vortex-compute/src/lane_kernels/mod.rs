@@ -33,3 +33,17 @@ pub use sink::IndexedSink;
 pub use sink::ReinterpretSink;
 pub use source::IndexedSource;
 pub use source::LaneZip;
+
+/// Loop-tiling chunk length for the **no-mask** kernels ([`IndexedSourceExt::map_into`],
+/// [`IndexedSourceExt::try_map_into`], [`IndexedSinkExt::map_into_in_place`]).
+///
+/// This is a pure tuning knob: those kernels split the lane range into
+/// `len / CHUNK_LEN` full chunks plus a remainder, so any value yields correct
+/// results and only the codegen/tiling changes. Vary it to tune performance.
+///
+/// It does **not** apply to the masked or bit-packed kernels: those consume one
+/// [`BitBuffer::chunks`] u64 validity word per chunk and pack per-lane fail bits
+/// with `<< bit_idx` into a `u64`, so their chunk length is locked to 64.
+///
+/// [`BitBuffer::chunks`]: vortex_buffer::BitBuffer::chunks
+pub(crate) const CHUNK_LEN: usize = 64;

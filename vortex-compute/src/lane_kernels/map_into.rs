@@ -8,6 +8,7 @@ use std::mem::MaybeUninit;
 
 use vortex_buffer::BitBuffer;
 
+use crate::lane_kernels::CHUNK_LEN;
 use crate::lane_kernels::source::IndexedSource;
 
 /// Extension trait providing out-of-place lane-kernel methods on any [`IndexedSource`].
@@ -144,14 +145,14 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
         let len = values.len();
         assert_eq!(out.len(), len, "out must have the same length as values");
 
-        let chunks_count = len / 64;
-        let remainder = len % 64;
+        let chunks_count = len / CHUNK_LEN;
+        let remainder = len % CHUNK_LEN;
 
         for chunk_idx in 0..chunks_count {
-            chunk(&values, out, &mut f, chunk_idx * 64, 64);
+            chunk(&values, out, &mut f, chunk_idx * CHUNK_LEN, CHUNK_LEN);
         }
         if remainder != 0 {
-            chunk(&values, out, &mut f, chunks_count * 64, remainder);
+            chunk(&values, out, &mut f, chunks_count * CHUNK_LEN, remainder);
         }
     }
 
@@ -216,17 +217,17 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
         let len = values.len();
         assert_eq!(out.len(), len, "out must have the same length as values");
 
-        let chunks_count = len / 64;
-        let remainder = len % 64;
+        let chunks_count = len / CHUNK_LEN;
+        let remainder = len % CHUNK_LEN;
 
         for chunk_idx in 0..chunks_count {
-            let base = chunk_idx * 64;
-            if chunk(&values, out, &mut f, base, 64) {
-                return Err(attribute_failure_no_mask(&values, base, 64, &mut f));
+            let base = chunk_idx * CHUNK_LEN;
+            if chunk(&values, out, &mut f, base, CHUNK_LEN) {
+                return Err(attribute_failure_no_mask(&values, base, CHUNK_LEN, &mut f));
             }
         }
         if remainder != 0 {
-            let base = chunks_count * 64;
+            let base = chunks_count * CHUNK_LEN;
             if chunk(&values, out, &mut f, base, remainder) {
                 return Err(attribute_failure_no_mask(&values, base, remainder, &mut f));
             }
