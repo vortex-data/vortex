@@ -36,30 +36,17 @@ use crate::SchemeExt;
 /// pays off when those residuals span meaningfully fewer bits than the values themselves.
 ///
 /// The minimum penalized compression ratio required for Delta to be selected is configurable via
-/// [`DeltaScheme::new`]; [`DeltaScheme::default`] uses [`DeltaScheme::DEFAULT_MIN_RATIO`].
+/// [`DeltaScheme::new`]; [`DeltaScheme::default`] uses a ratio of `1.25`.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct DeltaScheme {
     min_ratio: f64,
 }
 
 impl DeltaScheme {
-    /// Default minimum penalized compression ratio for Delta selection.
-    ///
-    /// Delta only wins when its penalized ratio clears this threshold; otherwise we skip it in
-    /// favor of simpler, randomly-accessible encodings. The bar is set above `1.0` so we avoid
-    /// picking Delta for marginal gains that do not justify breaking random access and the
-    /// prefix-sum decode pass.
-    pub const DEFAULT_MIN_RATIO: f64 = 1.25;
-
-    /// A [`DeltaScheme`] using [`DEFAULT_MIN_RATIO`](Self::DEFAULT_MIN_RATIO).
-    ///
-    /// Usable in const contexts (e.g. the static scheme registry) where [`Default`] cannot run.
-    pub const DEFAULT: Self = Self::new(Self::DEFAULT_MIN_RATIO);
-
     /// Creates a Delta scheme requiring `min_ratio` (after the [`DELTA_PENALTY`]) before it wins.
     ///
     /// Pass a higher ratio to make Delta more conservative, or a lower one to select it more
-    /// eagerly. [`DeltaScheme::default`] uses [`DEFAULT_MIN_RATIO`](Self::DEFAULT_MIN_RATIO).
+    /// eagerly. [`DeltaScheme::default`] uses a ratio of `1.25`.
     pub const fn new(min_ratio: f64) -> Self {
         Self { min_ratio }
     }
@@ -67,7 +54,7 @@ impl DeltaScheme {
 
 impl Default for DeltaScheme {
     fn default() -> Self {
-        Self::DEFAULT
+        Self::new(1.25)
     }
 }
 
