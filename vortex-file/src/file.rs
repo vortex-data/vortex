@@ -222,6 +222,11 @@ impl VortexFile {
         scan_v2::scan_node_file_splits(self)
     }
 
+    /// Plan ScanNode natural row split ranges for a projected scan of this file.
+    pub async fn plan_splits(&self, projection: &Expression) -> VortexResult<Vec<Range<u64>>> {
+        scan_v2::scan_node_file_plan_splits(self.clone(), projection).await
+    }
+
     /// Returns `true` if file-level statistics prove the expression cannot
     /// match any rows in this file.
     ///

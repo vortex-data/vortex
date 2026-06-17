@@ -23,6 +23,7 @@ use std::any::TypeId;
 use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use futures::future::BoxFuture;
 use rustc_hash::FxHashMap;
@@ -92,6 +93,9 @@ pub type EvidencePlanRef = Arc<dyn DynEvidencePlan>;
 
 /// A reference-counted, type-erased read plan.
 pub type ReadPlanRef = Arc<dyn DynReadPlan>;
+
+/// A reference-counted, type-erased split plan.
+pub type SplitPlanRef = Arc<dyn DynSplitPlan>;
 
 /// A reference-counted, type-erased ungrouped aggregate plan.
 pub type AggregatePlanRef = Arc<dyn DynAggregatePlan>;
@@ -298,6 +302,19 @@ pub trait ScanNode: 'static + Send + Sync {
     /// Plan value reads for this node's root value.
     fn plan_read(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Option<ReadPlanRef>>;
 
+    /// Plan natural row splits for this node's root value.
+    ///
+    /// The default converts this node's cheap split hints into an executable plan. Nodes can
+    /// override this when split discovery needs request-specific state, I/O, or cost estimates.
+    fn plan_splits(self: Arc<Self>, _cx: &mut PlanCtx) -> VortexResult<Option<SplitPlanRef>>
+    where
+        Self: Sized,
+    {
+        Ok(self
+            .split_hints()
+            .map(|hints| Arc::new(HintSplitPlan::new(hints.to_vec())) as SplitPlanRef))
+    }
+
     /// Plan predicate evidence for this node's root boolean value.
     ///
     /// Planning performs no IO and returns a direct executable handle. The
@@ -400,6 +417,9 @@ pub trait DynScanNode: Send + Sync {
     /// Plan value reads for this node's root value.
     fn plan_read(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Option<ReadPlanRef>>;
 
+    /// Plan natural row splits for this node's root value.
+    fn plan_splits(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Option<SplitPlanRef>>;
+
     /// Plan predicate evidence for this node's root boolean value.
     fn plan_evidence(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Vec<EvidencePlanRef>>;
 
@@ -442,6 +462,10 @@ impl<T: ScanNode> DynScanNode for T {
 
     fn plan_read(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Option<ReadPlanRef>> {
         ScanNode::plan_read(self, cx)
+    }
+
+    fn plan_splits(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Option<SplitPlanRef>> {
+        ScanNode::plan_splits(self, cx)
     }
 
     fn plan_evidence(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Vec<EvidencePlanRef>> {
@@ -556,6 +580,116 @@ impl<T: ReadPlan> DynReadPlan for T {
 
     fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         ReadPlan::fmt_plan(self, f)
+    }
+}
+
+/// Executable split plan for one pushed expression.
+pub trait SplitPlan: 'static + Send + Sync {
+    /// The per-query state this split plan executes against.
+    type State: Send + Sync + 'static;
+
+    /// Create this split plan's per-query state.
+    fn init_state(&self, ctx: &VortexSession) -> VortexResult<Self::State>;
+
+    /// Return natural row ranges inside `range`.
+    fn splits<'a>(
+        &'a self,
+        range: Range<u64>,
+        io: &'a FileReader,
+        state: &'a Self::State,
+    ) -> BoxFuture<'a, VortexResult<Vec<Range<u64>>>>;
+
+    /// Compact description for plan display.
+    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "splits")
+    }
+}
+
+/// Object-safe view of a [`SplitPlan`].
+pub trait DynSplitPlan: Send + Sync {
+    /// Create this split plan's per-query state, type-erased.
+    fn init_state(&self, ctx: &VortexSession) -> VortexResult<ScanStateRef>;
+
+    /// Execute the planned split query.
+    fn splits<'a>(
+        &'a self,
+        range: Range<u64>,
+        io: &'a FileReader,
+        state: &'a ScanState,
+    ) -> BoxFuture<'a, VortexResult<Vec<Range<u64>>>>;
+
+    /// Compact description for plan display.
+    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
+}
+
+impl<T: SplitPlan> DynSplitPlan for T {
+    fn init_state(&self, ctx: &VortexSession) -> VortexResult<ScanStateRef> {
+        Ok(Arc::new(SplitPlan::init_state(self, ctx)?))
+    }
+
+    fn splits<'a>(
+        &'a self,
+        range: Range<u64>,
+        io: &'a FileReader,
+        state: &'a ScanState,
+    ) -> BoxFuture<'a, VortexResult<Vec<Range<u64>>>> {
+        let state = match downcast_erased_state::<T::State>(state) {
+            Ok(state) => state,
+            Err(e) => return Box::pin(async move { Err(e) }),
+        };
+        SplitPlan::splits(self, range, io, state)
+    }
+
+    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        SplitPlan::fmt_plan(self, f)
+    }
+}
+
+struct HintSplitPlan {
+    hints: Vec<u64>,
+}
+
+impl HintSplitPlan {
+    fn new(hints: Vec<u64>) -> Self {
+        Self { hints }
+    }
+}
+
+impl SplitPlan for HintSplitPlan {
+    type State = ();
+
+    fn init_state(&self, _ctx: &VortexSession) -> VortexResult<Self::State> {
+        Ok(())
+    }
+
+    fn splits<'a>(
+        &'a self,
+        range: Range<u64>,
+        _io: &'a FileReader,
+        _state: &'a Self::State,
+    ) -> BoxFuture<'a, VortexResult<Vec<Range<u64>>>> {
+        Box::pin(async move {
+            let mut points = vec![range.start, range.end];
+            points.extend(
+                self.hints
+                    .iter()
+                    .copied()
+                    .filter(|&hint| range.start < hint && hint < range.end),
+            );
+            points.sort_unstable();
+            points.dedup();
+            Ok(points
+                .windows(2)
+                .filter_map(|window| {
+                    let range = window[0]..window[1];
+                    (range.start < range.end).then_some(range)
+                })
+                .collect())
+        })
+    }
+
+    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "hint_splits")
     }
 }
 
@@ -698,6 +832,7 @@ pub struct StructValueScanNode {
     names: FieldNames,
     fields: Vec<ScanNodeRef>,
     validity: Option<ScanNodeRef>,
+    split_hints: OnceLock<Option<Vec<u64>>>,
 }
 
 impl StructValueScanNode {
@@ -706,7 +841,26 @@ impl StructValueScanNode {
             names,
             fields,
             validity,
+            split_hints: OnceLock::new(),
         }
+    }
+
+    fn compute_split_hints(&self) -> Option<Vec<u64>> {
+        let mut points = Vec::new();
+        for field in &self.fields {
+            if let Some(hints) = field.split_hints() {
+                points.extend_from_slice(hints);
+            }
+        }
+        if let Some(validity) = &self.validity
+            && let Some(hints) = validity.split_hints()
+        {
+            points.extend_from_slice(hints);
+        }
+
+        points.sort_unstable();
+        points.dedup();
+        (!points.is_empty()).then_some(points)
     }
 }
 
@@ -773,6 +927,12 @@ impl ScanNode for StructValueScanNode {
             validity.release(frontier, state.as_ref())?;
         }
         Ok(())
+    }
+
+    fn split_hints(&self) -> Option<&[u64]> {
+        self.split_hints
+            .get_or_init(|| self.compute_split_hints())
+            .as_deref()
     }
 
     fn fmt_chain(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -890,6 +1050,10 @@ impl ScanNode for ApplyScanNode {
 
     fn release(&self, frontier: u64, state: &Self::State) -> VortexResult<()> {
         self.input.release(frontier, state.as_ref())
+    }
+
+    fn split_hints(&self) -> Option<&[u64]> {
+        self.input.split_hints()
     }
 
     fn fmt_chain(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
