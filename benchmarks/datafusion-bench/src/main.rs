@@ -379,7 +379,21 @@ pub async fn execute_query(
 
 /// Print Vortex metrics from execution plans.
 fn print_metrics(plans: &[(usize, Format, Arc<dyn ExecutionPlan>)]) {
+    // VORTEX_BENCH_FULL_PLAN=1 dumps the full per-operator annotated plan (DataFusion
+    // EXPLAIN ANALYZE-style: elapsed_compute / output_rows per operator), to localize where
+    // wall time goes (scan vs HashJoin build/probe vs aggregate).
+    let full_plan = std::env::var_os("VORTEX_BENCH_FULL_PLAN").is_some();
     for (query_idx, format, plan) in plans {
+        if full_plan {
+            eprintln!("=== annotated plan query={query_idx}, {format} ===");
+            eprintln!(
+                "{}",
+                datafusion_physical_plan::display::DisplayableExecutionPlan::with_metrics(
+                    plan.as_ref()
+                )
+                .indent(true)
+            );
+        }
         let metric_sets = VortexMetricsFinder::find_all(plan.as_ref());
         if metric_sets.is_empty() {
             continue;
