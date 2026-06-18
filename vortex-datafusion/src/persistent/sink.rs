@@ -10,6 +10,7 @@ use datafusion_common::Result as DFResult;
 use datafusion_common::exec_datafusion_err;
 use datafusion_common_runtime::JoinSet;
 use datafusion_common_runtime::SpawnedTask;
+use datafusion_datasource::display::FileGroupDisplay;
 use datafusion_datasource::file_sink_config::FileSink;
 use datafusion_datasource::file_sink_config::FileSinkConfig;
 use datafusion_datasource::sink::DataSink;
@@ -59,9 +60,12 @@ impl std::fmt::Debug for VortexSink {
 impl DisplayAs for VortexSink {
     fn fmt_as(&self, t: DisplayFormatType, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match t {
-            DisplayFormatType::Default
-            | DisplayFormatType::Verbose
-            | DisplayFormatType::TreeRender => {
+            DisplayFormatType::Default | DisplayFormatType::Verbose => {
+                write!(f, "VortexSink(file_groups=")?;
+                FileGroupDisplay(&self.config.file_group).fmt_as(t, f)?;
+                write!(f, ")")
+            }
+            DisplayFormatType::TreeRender => {
                 write!(f, "VortexSink")
             }
         }
@@ -198,10 +202,22 @@ mod tests {
     use datafusion::logical_expr::Values;
     use datafusion::logical_expr::dml::InsertOp;
     use datafusion_common::ScalarValue;
+    use datafusion_datasource::TableSchema;
     use datafusion_datasource::file_format::format_as_file_type;
+    use datafusion_datasource::file_groups::FileGroup;
+    use datafusion_datasource::file_sink_config::FileOutputMode;
+    use datafusion_datasource::sink::DataSinkExec;
+    use datafusion_execution::object_store::ObjectStoreUrl;
+    use datafusion_physical_plan::DefaultDisplay;
+    use datafusion_physical_plan::VerboseDisplay;
+    use datafusion_physical_plan::display::DisplayableExecutionPlan;
+    use datafusion_physical_plan::empty::EmptyExec;
     use futures::TryStreamExt;
     use rstest::rstest;
+    use vortex::file::VORTEX_FILE_EXTENSION;
+    use vortex::session::VortexSession;
 
+    use super::*;
     use crate::common_tests::TestSessionContext;
     use crate::persistent::VortexFormatFactory;
 
@@ -430,7 +446,7 @@ mod tests {
         let table = ctx.session.table("my_tbl").await?;
         assert_eq!(table.count().await?, 3);
 
-        let location = object_store::path::Path::parse("table/")?;
+        let location = Path::parse("table/")?;
         let file_metas = ctx
             .store
             .list(Some(&location))
@@ -446,5 +462,50 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    #[test]
+    fn test_display_as() {
+        let session = VortexSession::empty();
+        let table_schema = TableSchema::new(Arc::new(Schema::empty()), Vec::new());
+
+        let config = FileSinkConfig {
+            original_url: "".to_owned(),
+            object_store_url: ObjectStoreUrl::local_filesystem(),
+            file_group: FileGroup::new(Vec::new()),
+            table_paths: Vec::new(),
+            output_schema: Arc::new(Schema::empty()),
+            table_partition_cols: Vec::new(),
+            insert_op: InsertOp::Overwrite,
+            keep_partition_by_columns: false,
+            file_extension: VORTEX_FILE_EXTENSION.to_owned(),
+            file_output_mode: FileOutputMode::SingleFile,
+        };
+
+        let get_sink = || VortexSink {
+            config: config.clone(),
+            schema: Arc::clone(table_schema.file_schema()),
+            session: session.clone(),
+        };
+
+        insta::assert_snapshot!(DefaultDisplay(get_sink()).to_string(), @"VortexSink(file_groups=[])");
+        insta::assert_snapshot!(VerboseDisplay(get_sink()).to_string(), @"VortexSink(file_groups=[])");
+
+        let plan = DataSinkExec::new(
+            Arc::new(EmptyExec::new(Arc::new(Schema::empty()))),
+            Arc::new(get_sink()),
+            None,
+        );
+
+        insta::assert_snapshot!(DisplayableExecutionPlan::new(&plan).tree_render().to_string(), @r"
+        ┌───────────────────────────┐
+        │        DataSinkExec       │
+        │    --------------------   │
+        │         VortexSink        │
+        └─────────────┬─────────────┘
+        ┌─────────────┴─────────────┐
+        │         EmptyExec         │
+        └───────────────────────────┘
+        ");
     }
 }
