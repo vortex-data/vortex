@@ -431,7 +431,9 @@ impl DeviceArrayStreamPrivateData {
             Some(stream_schema) => {
                 vortex_ensure!(
                     stream_schema == &exported_schema,
-                    "stream array Arrow schema changed from {:?} to {:?}",
+                    "stream array Arrow schema changed from {:?} to {:?}; an Arrow C device stream \
+                     requires every array to share one schema, so chunks must not vary their \
+                     encoding (for example a dictionary-encoded chunk among plain chunks)",
                     stream_schema,
                     exported_schema
                 );
@@ -459,6 +461,14 @@ pub trait DeviceArrayStreamExt {
     /// context's CUDA device at construction time, and each `get_next` verifies that the produced
     /// [`ArrowDeviceArray`] is CUDA-resident on that same device. The returned C stream owns the
     /// Vortex stream and must be released through its embedded `release` callback.
+    ///
+    /// The Arrow C stream contract requires every produced array to share the schema reported by
+    /// `get_schema`. That schema is derived from the first array, so all arrays must export to the
+    /// same Arrow type: a stream whose chunks vary their encoding (for example a dictionary-encoded
+    /// chunk among plain chunks) is rejected mid-stream rather than silently producing a
+    /// schema-mismatched array. An empty stream has no first array, so its schema is derived from
+    /// the logical dtype and may report a plain field where a non-empty run would report
+    /// `DataType::Dictionary`.
     ///
     /// Per the Arrow C stream contract, drive the returned stream from a single thread; its
     /// callbacks must not be invoked concurrently.
