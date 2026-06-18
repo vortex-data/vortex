@@ -20,7 +20,6 @@ use std::panic::AssertUnwindSafe;
 use std::panic::catch_unwind;
 use std::ptr;
 use std::sync::Arc;
-use std::sync::LazyLock;
 
 use arrow_schema::DataType;
 use arrow_schema::Field;
@@ -55,7 +54,6 @@ use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::CurrentThreadRuntime;
-use vortex::io::runtime::current::CurrentThreadWorkerPool;
 use vortex::session::VortexSession;
 
 use crate::CudaBufferExt;
@@ -261,20 +259,6 @@ const ARROW_STREAM_EIO: c_int = 5;
 // POSIX EINVAL for invalid Arrow stream callback arguments or released streams.
 const ARROW_STREAM_EINVAL: c_int = 22;
 
-static DEVICE_STREAM_RUNTIME: LazyLock<CurrentThreadRuntime> =
-    LazyLock::new(CurrentThreadRuntime::new);
-static DEVICE_STREAM_WORKER_POOL: LazyLock<CurrentThreadWorkerPool> = LazyLock::new(|| {
-    let pool = DEVICE_STREAM_RUNTIME.new_pool();
-    pool.set_workers_to_available_parallelism();
-    pool
-});
-
-/// Return the shared runtime used to drive Vortex streams for Arrow Device export.
-fn device_stream_runtime() -> &'static CurrentThreadRuntime {
-    LazyLock::force(&DEVICE_STREAM_WORKER_POOL);
-    &DEVICE_STREAM_RUNTIME
-}
-
 #[derive(Debug, PartialEq)]
 enum ArrowDeviceStreamSchema {
     Schema(Schema),
@@ -322,6 +306,10 @@ type ArrayStreamIterator = Box<dyn Iterator<Item = VortexResult<ArrayRef>>>;
 struct DeviceArrayStreamPrivateData {
     array_iter: ArrayStreamIterator,
     ctx: CudaExecutionCtx,
+    /// The runtime that drives `array_iter` and per-array exports. It must be the runtime whose
+    /// executor the underlying Vortex stream spawns its scan tasks onto, otherwise those tasks are
+    /// never driven and the callbacks deadlock.
+    runtime: CurrentThreadRuntime,
     dtype: DType,
     schema: Option<ArrowDeviceStreamSchema>,
     pending_array: Option<ArrowDeviceArray>,
@@ -400,7 +388,8 @@ impl DeviceArrayStreamPrivateData {
         let ArrowDeviceArrayWithSchema {
             schema: mut ffi_schema,
             array: mut device_array,
-        } = device_stream_runtime()
+        } = self
+            .runtime
             .block_on(array.export_device_array_with_schema(&mut self.ctx))?;
 
         // Release the schema we no longer need, and on failure release the array we will not return.
@@ -473,22 +462,29 @@ pub trait DeviceArrayStreamExt {
     ///
     /// Per the Arrow C stream contract, drive the returned stream from a single thread; its
     /// callbacks must not be invoked concurrently.
+    ///
+    /// `runtime` drives the underlying Vortex stream and each per-array export. It must be the
+    /// runtime whose executor the stream spawns its scan tasks onto: a Vortex partition scan spawns
+    /// work onto the session's runtime, so passing a different runtime leaves that work undriven and
+    /// the callbacks deadlock. Callers that hold the session's blocking runtime should pass it here.
     fn export_device_array_stream(
         self,
         session: &VortexSession,
+        runtime: &CurrentThreadRuntime,
     ) -> VortexResult<ArrowDeviceArrayStream>;
 }
 
 impl DeviceArrayStreamExt for SendableArrayStream {
-    /// Drive this stream on the shared Arrow Device stream runtime and export it.
+    /// Drive this stream on `runtime` and export it.
     fn export_device_array_stream(
         self,
         session: &VortexSession,
+        runtime: &CurrentThreadRuntime,
     ) -> VortexResult<ArrowDeviceArrayStream> {
         let dtype = self.dtype().clone();
         let ctx = crate::CudaSession::create_execution_ctx(session)?;
-        let array_iter = Box::new(device_stream_runtime().block_on_stream(self));
-        Ok(device_array_stream(array_iter, dtype, ctx))
+        let array_iter = Box::new(runtime.block_on_stream(self));
+        Ok(device_array_stream(array_iter, dtype, ctx, runtime.clone()))
     }
 }
 
@@ -497,11 +493,13 @@ fn device_array_stream(
     array_iter: ArrayStreamIterator,
     dtype: DType,
     ctx: CudaExecutionCtx,
+    runtime: CurrentThreadRuntime,
 ) -> ArrowDeviceArrayStream {
     let private_data = Box::new(DeviceArrayStreamPrivateData {
         device_id: ctx.stream().context().ordinal() as i64,
         array_iter,
         ctx,
+        runtime,
         dtype,
         schema: None,
         pending_array: None,
@@ -908,6 +906,7 @@ mod tests {
     use vortex::array::stream::ArrayStreamExt;
     use vortex::error::VortexResult;
     use vortex::error::vortex_err;
+    use vortex::io::runtime::current::CurrentThreadRuntime;
     use vortex::session::VortexSession;
     use vortex_cuda_macros::test as cuda_test;
 
@@ -946,10 +945,11 @@ mod tests {
     /// Verify schema, array, EOS, and idempotent release stream behavior.
     #[cuda_test]
     fn test_export_device_array_stream_schema_next_eos_release() -> VortexResult<()> {
+        let runtime = CurrentThreadRuntime::new();
         let session = VortexSession::default().with_some(CudaSession::try_default()?);
         let array = PrimitiveArray::from_iter(0u32..5).into_array();
         let stream = array.to_array_stream().boxed();
-        let mut device_stream = stream.export_device_array_stream(&session)?;
+        let mut device_stream = stream.export_device_array_stream(&session, &runtime)?;
         assert_eq!(device_stream.device_type, ARROW_DEVICE_CUDA);
 
         let mut schema = FFI_ArrowSchema::empty();

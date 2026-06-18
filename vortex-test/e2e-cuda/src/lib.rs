@@ -56,6 +56,7 @@ use vortex::dtype::FieldNames;
 use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
 use vortex::extension::datetime::TimeUnit;
+use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::io::session::RuntimeSession;
 use vortex::layout::session::LayoutSession;
 use vortex::session::VortexSession;
@@ -357,10 +358,12 @@ fn export_device_stream_inner(stream_ptr: &mut ArrowDeviceArrayStream) -> i32 {
         }
     };
 
+    // The in-memory stream is inert, so any current-thread runtime drives it correctly.
+    let runtime = CurrentThreadRuntime::new();
     match array
         .to_array_stream()
         .boxed()
-        .export_device_array_stream(&SESSION)
+        .export_device_array_stream(&SESSION, &runtime)
     {
         Ok(stream) => {
             *stream_ptr = stream;

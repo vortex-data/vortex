@@ -20,6 +20,7 @@ use vortex_cuda::arrow::ArrowDeviceArray;
 use vortex_cuda::arrow::ArrowDeviceArrayStream;
 use vortex_cuda::arrow::DeviceArrayExt;
 use vortex_cuda::arrow::DeviceArrayStreamExt;
+use vortex_ffi::runtime;
 use vortex_ffi::try_or;
 use vortex_ffi::vx_array;
 use vortex_ffi::vx_array_ref;
@@ -137,7 +138,8 @@ pub unsafe extern "C-unwind" fn vx_cuda_partition_scan_arrow_device_stream(
         vortex_ensure!(!out_stream.is_null(), "null ArrowDeviceArrayStream output");
 
         let session = session_with_cuda(unsafe { vx_session_ref(session) }?)?;
-        let device_stream = array_stream.export_device_array_stream(&session)?;
+        // Drive the stream on the same runtime the partition's scan spawned its work onto.
+        let device_stream = array_stream.export_device_array_stream(&session, runtime())?;
 
         unsafe { ptr::write(out_stream, device_stream) };
         Ok(VX_CUDA_OK)

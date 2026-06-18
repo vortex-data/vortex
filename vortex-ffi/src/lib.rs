@@ -55,6 +55,16 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 // TODO(ngates): also create a CurrentThreadPool to manage background worker threads.
 static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
 
+/// Return the shared FFI runtime for layered FFI crates that drive Vortex streams produced through
+/// `vortex-ffi`.
+///
+/// Streams from `vortex-ffi` partitions spawn their scan work onto this runtime's executor, so a
+/// consumer crate (for example `vortex-cuda`'s Arrow device stream export) must drive them on this
+/// same runtime rather than a private one, otherwise the spawned work is never driven.
+pub fn runtime() -> &'static CurrentThreadRuntime {
+    &RUNTIME
+}
+
 /// SAFETY: name must be a non-NULL pointer
 pub(crate) unsafe fn to_field_name(name: *const c_char) -> VortexResult<FieldName> {
     let name = unsafe { CStr::from_ptr(name) }
