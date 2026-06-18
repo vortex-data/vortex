@@ -18,7 +18,7 @@ use crate::ArraySlots;
 use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::array::ArrayView;
+use crate::array::ParentView;
 use crate::array::VTable;
 use crate::array::child_to_validity;
 use crate::arrays::Bool;
@@ -64,6 +64,7 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_decimal_value_type;
 use crate::match_each_native_ptype;
+use crate::matcher::AsParent;
 use crate::matcher::Matcher;
 use crate::validity::Validity;
 
@@ -1175,22 +1176,22 @@ impl Executable for VariantArray {
 
 /// A view into a canonical array type.
 ///
-/// Uses `ArrayView<V>` because these are obtained by
-/// downcasting through the `Matcher` trait which returns `ArrayView<V>`.
+/// Arms are [`ParentView`]s: matches borrow from the parent — a heap array or
+/// stack-allocated construction parts — and never hide a materialization.
 #[derive(Debug, Clone, Copy)]
 pub enum CanonicalView<'a> {
-    Null(ArrayView<'a, Null>),
-    Bool(ArrayView<'a, Bool>),
-    Primitive(ArrayView<'a, Primitive>),
-    Decimal(ArrayView<'a, Decimal>),
-    VarBinView(ArrayView<'a, VarBinView>),
-    List(ArrayView<'a, ListView>),
-    Map(ArrayView<'a, Map>),
-    FixedSizeList(ArrayView<'a, FixedSizeList>),
-    Struct(ArrayView<'a, Struct>),
-    Union(ArrayView<'a, Union>),
-    Extension(ArrayView<'a, Extension>),
-    Variant(ArrayView<'a, Variant>),
+    Null(ParentView<'a, Null>),
+    Bool(ParentView<'a, Bool>),
+    Primitive(ParentView<'a, Primitive>),
+    Decimal(ParentView<'a, Decimal>),
+    VarBinView(ParentView<'a, VarBinView>),
+    List(ParentView<'a, ListView>),
+    Map(ParentView<'a, Map>),
+    FixedSizeList(ParentView<'a, FixedSizeList>),
+    Struct(ParentView<'a, Struct>),
+    Union(ParentView<'a, Union>),
+    Extension(ParentView<'a, Extension>),
+    Variant(ParentView<'a, Variant>),
 }
 
 impl From<CanonicalView<'_>> for Canonical {
@@ -1213,21 +1214,22 @@ impl From<CanonicalView<'_>> for Canonical {
 }
 
 impl CanonicalView<'_> {
-    /// Convert to a type-erased [`ArrayRef`].
+    /// Convert to a type-erased [`ArrayRef`], explicitly materializing stack-backed
+    /// parents.
     pub fn to_array_ref(&self) -> ArrayRef {
         match self {
-            CanonicalView::Null(a) => a.array().clone(),
-            CanonicalView::Bool(a) => a.array().clone(),
-            CanonicalView::Primitive(a) => a.array().clone(),
-            CanonicalView::Decimal(a) => a.array().clone(),
-            CanonicalView::VarBinView(a) => a.array().clone(),
-            CanonicalView::List(a) => a.array().clone(),
-            CanonicalView::Map(a) => a.array().clone(),
-            CanonicalView::FixedSizeList(a) => a.array().clone(),
-            CanonicalView::Struct(a) => a.array().clone(),
-            CanonicalView::Union(a) => a.array().clone(),
-            CanonicalView::Extension(a) => a.array().clone(),
-            CanonicalView::Variant(a) => a.array().clone(),
+            CanonicalView::Null(a) => a.materialize_array_ref().clone(),
+            CanonicalView::Bool(a) => a.materialize_array_ref().clone(),
+            CanonicalView::Primitive(a) => a.materialize_array_ref().clone(),
+            CanonicalView::Decimal(a) => a.materialize_array_ref().clone(),
+            CanonicalView::VarBinView(a) => a.materialize_array_ref().clone(),
+            CanonicalView::List(a) => a.materialize_array_ref().clone(),
+            CanonicalView::Map(a) => a.materialize_array_ref().clone(),
+            CanonicalView::FixedSizeList(a) => a.materialize_array_ref().clone(),
+            CanonicalView::Struct(a) => a.materialize_array_ref().clone(),
+            CanonicalView::Union(a) => a.materialize_array_ref().clone(),
+            CanonicalView::Extension(a) => a.materialize_array_ref().clone(),
+            CanonicalView::Variant(a) => a.materialize_array_ref().clone(),
         }
     }
 }
@@ -1251,15 +1253,24 @@ macro_rules! canonical_kinds {
                 None
             }
 
-            /// # Safety
-            /// `self` must be the kind returned by `of::<V>()` for the concrete vtable of `array`.
+            /// Classify a concrete vtable by its [`TypeId`].
             #[inline]
-            unsafe fn view(self, array: &ArrayRef) -> CanonicalView<'_> {
+            pub(crate) fn of_type_id(type_id: TypeId) -> Option<Self> {
+                $(if type_id == TypeId::of::<$vtable>() {
+                    return Some(Self::$kind);
+                })+
+                None
+            }
+
+            /// Build the view of `parent`, whose concrete vtable `self` classifies.
+            #[inline]
+            fn view<P: AsParent>(self, parent: &P) -> CanonicalView<'_> {
                 match self {
-                    // SAFETY: the caller guarantees `of::<V>()` matched `$vtable` by `TypeId`.
-                    $(Self::$kind => CanonicalView::$kind(unsafe {
-                        array.as_typed_unchecked::<$vtable>()
-                    })),+
+                    $(Self::$kind => CanonicalView::$kind(
+                        parent
+                            .as_parent_view::<$vtable>()
+                            .vortex_expect("canonical kind must match the parent vtable"),
+                    )),+
                 }
             }
         }
@@ -1286,16 +1297,16 @@ pub struct AnyCanonical;
 impl Matcher for AnyCanonical {
     type Match<'a> = CanonicalView<'a>;
 
+    /// Classify the parent's concrete vtable once. This is the hot path for
+    /// [`ArrayRef::is_canonical`](crate::ArrayRef::is_canonical).
     #[inline]
-    fn matches(array: &ArrayRef) -> bool {
-        array.dyn_array().canonical_kind().is_some()
+    fn matches<P: AsParent>(parent: &P) -> bool {
+        parent.canonical_kind().is_some()
     }
 
     #[inline]
-    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        let kind = array.dyn_array().canonical_kind()?;
-        // SAFETY: `kind` was computed from the concrete vtable of `array`.
-        Some(unsafe { kind.view(array) })
+    fn try_match<'a, P: AsParent>(parent: &'a P) -> Option<Self::Match<'a>> {
+        Some(parent.canonical_kind()?.view(parent))
     }
 }
 

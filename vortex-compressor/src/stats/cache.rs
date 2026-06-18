@@ -127,7 +127,7 @@ impl ArrayAndStats {
     /// Panics if the array is not a primitive array.
     pub fn array_as_primitive(&self) -> ArrayView<'_, Primitive> {
         self.array
-            .as_opt::<Primitive>()
+            .as_typed::<Primitive>()
             .vortex_expect("the array is guaranteed to already be canonical by construction")
     }
 
@@ -138,7 +138,7 @@ impl ArrayAndStats {
     /// Panics if the array is not a varbinview array.
     pub fn array_as_varbinview(&self) -> ArrayView<'_, VarBinView> {
         self.array
-            .as_opt::<VarBinView>()
+            .as_typed::<VarBinView>()
             .vortex_expect("the array is guaranteed to already be canonical by construction")
     }
 
@@ -170,7 +170,7 @@ impl ArrayAndStats {
         let opts = self.opts;
         self.cache.get_or_insert_with::<IntegerStats>(|| {
             let primitive = array
-                .as_opt::<Primitive>()
+                .as_typed::<Primitive>()
                 .vortex_expect("the array is guaranteed to already be canonical by construction")
                 .into_owned();
             IntegerStats::generate_opts(&primitive, opts, ctx)
@@ -183,7 +183,7 @@ impl ArrayAndStats {
         let opts = self.opts;
         self.cache.get_or_insert_with::<FloatStats>(|| {
             let primitive = array
-                .as_opt::<Primitive>()
+                .as_typed::<Primitive>()
                 .vortex_expect("the array is guaranteed to already be canonical by construction")
                 .into_owned();
             FloatStats::generate_opts(&primitive, opts, ctx)
@@ -196,7 +196,7 @@ impl ArrayAndStats {
         let opts = self.opts;
         self.cache.get_or_insert_with::<StringStats>(|| {
             let varbinview = array
-                .as_opt::<VarBinView>()
+                .as_typed::<VarBinView>()
                 .vortex_expect("the array is guaranteed to already be canonical by construction")
                 .into_owned();
             StringStats::generate_opts(&varbinview, opts, ctx)

@@ -40,7 +40,7 @@ impl BooleanKernel for Bool {
             .map(Some);
         }
 
-        let Some(rhs) = rhs.as_opt::<Bool>() else {
+        let Some(rhs) = rhs.as_typed::<Bool>() else {
             return Ok(None);
         };
 

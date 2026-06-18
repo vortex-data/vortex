@@ -33,6 +33,11 @@ impl Display for ScalarFnData {
 }
 
 impl ScalarFnData {
+    /// Create a new ScalarFnArray from a scalar function and its children.
+    fn build(scalar_fn: ScalarFnRef) -> Self {
+        Self { scalar_fn }
+    }
+
     /// Get the scalar function bound to this array.
     #[allow(clippy::inline_always)]
     #[inline(always)]
@@ -47,13 +52,13 @@ pub trait ScalarFnArrayExt: TypedArrayRef<ScalarFn> {
     }
 
     fn child_at(&self, idx: usize) -> &ArrayRef {
-        self.as_ref().slots()[idx]
+        self.slots()[idx]
             .as_ref()
             .vortex_expect("ScalarFnArray child slot")
     }
 
     fn child_count(&self) -> usize {
-        self.as_ref().slots().len()
+        self.slots().len()
     }
 
     fn nchildren(&self) -> usize {
@@ -98,34 +103,47 @@ impl Array<ScalarFn> {
         Self::try_new_from_slots(scalar_fn, slots, len)
     }
 
+    /// Build the [`ArrayParts`] for a ScalarFnArray without materializing it.
+    ///
+    /// Mirrors [`try_new_with_len`](Self::try_new_with_len) but stops short of allocating the
+    /// backing `ArrayRef`, so callers can drive the parts through [`ArrayParts::optimize`] and
+    /// only pay the wrapper allocation when no reduction fires.
+    #[inline]
+    pub fn try_new_parts(
+        scalar_fn: ScalarFnRef,
+        children: Vec<ArrayRef>,
+        len: usize,
+    ) -> VortexResult<ArrayParts<ScalarFn>> {
+        let slots: ArraySlots = children.into_iter().map(Some).collect();
+        Self::try_new_parts_from_slots(scalar_fn, slots, len)
+    }
+
     #[inline]
     fn try_new_from_slots(
         scalar_fn: ScalarFnRef,
         slots: ArraySlots,
         len: usize,
     ) -> VortexResult<Self> {
+        let parts = Self::try_new_parts_from_slots(scalar_fn, slots, len)?;
+
+        Ok(unsafe { Array::from_parts_unchecked(parts) })
+    }
+
+    #[inline]
+    fn try_new_parts_from_slots(
+        scalar_fn: ScalarFnRef,
+        slots: ArraySlots,
+        len: usize,
+    ) -> VortexResult<ArrayParts<ScalarFn>> {
         Self::validate_arity(&scalar_fn, slots.len())?;
         Self::validate_children_len(&slots, len)?;
 
         let arg_dtypes = Self::arg_dtypes(&slots);
         let dtype = scalar_fn.return_dtype(&arg_dtypes)?;
 
-        Ok(unsafe { Self::new_from_validated_slots(scalar_fn, dtype, slots, len) })
-    }
-
-    /// # Safety
-    /// The caller must ensure arity and child lengths were validated and
-    /// "dtype" is scalar function's return dtype.
-    #[inline]
-    unsafe fn new_from_validated_slots(
-        scalar_fn: ScalarFnRef,
-        dtype: DType,
-        slots: ArraySlots,
-        len: usize,
-    ) -> Self {
         let vtable = ScalarFn { id: scalar_fn.id() };
         let data = ScalarFnData { scalar_fn };
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(vtable, dtype, len, data, slots)) }
+        Ok(ArrayParts::new(vtable, dtype, len, data, slots))
     }
 
     #[inline]

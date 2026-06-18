@@ -7,6 +7,7 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::array::ParentView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::Constant;
@@ -16,7 +17,6 @@ use crate::arrays::ScalarFnArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::scalar_fn::AnyScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
-use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
@@ -38,7 +38,7 @@ impl ArrayParentReduceRule<Chunked> for ChunkedUnaryScalarFnPushDownRule {
     fn reduce_parent(
         &self,
         array: ArrayView<'_, Chunked>,
-        parent: ArrayView<'_, ScalarFn>,
+        parent: ParentView<'_, ScalarFn>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         if parent.nchildren() != 1 {
@@ -48,9 +48,12 @@ impl ArrayParentReduceRule<Chunked> for ChunkedUnaryScalarFnPushDownRule {
         let new_chunks: Vec<_> = array
             .iter_chunks()
             .map(|chunk| {
-                ScalarFnArray::try_new(parent.scalar_fn().clone(), vec![chunk.clone()])?
-                    .into_array()
-                    .optimize()
+                let parts = ScalarFnArray::try_new_parts(
+                    parent.scalar_fn().clone(),
+                    vec![chunk.clone()],
+                    chunk.len(),
+                )?;
+                parts.optimize()
             })
             .try_collect()?;
 
@@ -69,7 +72,7 @@ impl ArrayParentReduceRule<Chunked> for ChunkedConstantScalarFnPushDownRule {
     fn reduce_parent(
         &self,
         array: ArrayView<'_, Chunked>,
-        parent: ArrayView<'_, ScalarFn>,
+        parent: ParentView<'_, ScalarFn>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         for (idx, child) in parent.iter_children().enumerate() {
@@ -100,9 +103,12 @@ impl ArrayParentReduceRule<Chunked> for ChunkedConstantScalarFnPushDownRule {
                     })
                     .collect();
 
-                ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children)?
-                    .into_array()
-                    .optimize()
+                let parts = ScalarFnArray::try_new_parts(
+                    parent.scalar_fn().clone(),
+                    new_children,
+                    chunk.len(),
+                )?;
+                parts.optimize()
             })
             .try_collect()?;
 

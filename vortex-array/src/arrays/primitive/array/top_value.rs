@@ -31,9 +31,7 @@ impl PrimitiveArray {
         match_each_native_ptype!(self.ptype(), |P| {
             let (top, count) = typed_top_value(
                 self.as_slice::<P>(),
-                self.as_ref()
-                    .validity()?
-                    .execute_mask(self.as_ref().len(), ctx)?,
+                self.validity()?.execute_mask(self.len(), ctx)?,
             );
             Ok(Some((top.into(), count)))
         })

@@ -42,7 +42,10 @@ pub fn decode_to_temporal(
     };
 
     // Days is guaranteed Primitive by require_child.
-    let days = parts.days.as_::<Primitive>();
+    let days = parts
+        .days
+        .as_typed::<Primitive>()
+        .vortex_expect("days child must be Primitive");
     let validity = days.validity()?;
 
     let mut values: BufferMut<i64> = match_each_integer_ptype!(days.ptype(), |D| {
