@@ -87,7 +87,7 @@ impl<T> BufferMut<T> {
 
     /// Create a new zeroed `BufferMut`.
     pub fn zeroed(len: usize) -> Self {
-        Self::zeroed_aligned(len, Alignment::DEFAULT_ALIGNMENT)
+        Self::zeroed_aligned(len, Alignment::of::<T>())
     }
 
     /// Create a new zeroed `BufferMut` with the requested alignment.

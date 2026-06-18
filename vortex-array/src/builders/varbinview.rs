@@ -75,18 +75,19 @@ impl VarBinViewBuilder {
         dtype: DType,
         capacity: usize,
         completed: CompletedBuffers,
-        growth_strategy: BufferGrowthStrategy,
+        mut growth_strategy: BufferGrowthStrategy,
         compaction_threshold: f64,
     ) -> Self {
         assert!(
             matches!(dtype, DType::Utf8(_) | DType::Binary(_)),
             "VarBinViewBuilder DType must be Utf8 or Binary."
         );
+        let in_progress_size = growth_strategy.next_size() as usize;
         Self {
             views_builder: BufferMut::<BinaryView>::with_capacity(capacity),
             nulls: LazyBitBufferBuilder::new(capacity),
             completed,
-            in_progress: ByteBufferMut::empty(),
+            in_progress: ByteBufferMut::with_capacity(in_progress_size),
             dtype,
             growth_strategy,
             compaction_threshold,

@@ -763,7 +763,6 @@ impl<T> From<BufferMut<T>> for Buffer<T> {
 #[cfg(test)]
 mod test {
     use bytes::Buf;
-    use rstest::rstest;
 
     use crate::Alignment;
     use crate::Buffer;
