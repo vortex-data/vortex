@@ -33,7 +33,7 @@ use vortex_ffi::vx_session_ref;
 const VX_CUDA_OK: c_int = 0;
 const VX_CUDA_ERR: c_int = 1;
 
-/// Return a session with a [`CudaSession`], adding the default CUDA session when needed.
+/// Return a session with a [`CudaSession`], creating one with [`CudaSession::try_default`] if missing.
 fn session_with_cuda(session: &VortexSession) -> VortexResult<VortexSession> {
     if session.get_opt::<CudaSession>().is_some() {
         return Ok(session.clone());
@@ -132,9 +132,10 @@ pub unsafe extern "C-unwind" fn vx_cuda_partition_scan_arrow_device_stream(
 ) -> c_int {
     try_or(error_out, VX_CUDA_ERR, || {
         vortex_ensure!(!partition.is_null(), "null vx_partition");
-        vortex_ensure!(!out_stream.is_null(), "null ArrowDeviceArrayStream output");
 
         let array_stream = unsafe { vx_partition_into_array_stream(partition) }?;
+        vortex_ensure!(!out_stream.is_null(), "null ArrowDeviceArrayStream output");
+
         let session = session_with_cuda(unsafe { vx_session_ref(session) }?)?;
         let device_stream = array_stream.export_device_array_stream(&session)?;
 

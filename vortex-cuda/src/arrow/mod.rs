@@ -335,14 +335,24 @@ impl DeviceArrayStreamPrivateData {
         self.last_error = None;
     }
 
-    /// Store the last stream error and return the Arrow callback error code.
+    /// Store the last stream error and return the requested Arrow callback error code.
     ///
     /// Interior NUL bytes are replaced so `get_last_error` is never null while a non-zero status
     /// is reported.
-    fn set_error(&mut self, error: impl ToString) -> c_int {
+    fn set_error_with_code(&mut self, error: impl ToString, code: c_int) -> c_int {
         let message = error.to_string().replace('\0', " ");
         self.last_error = Some(CString::new(message).unwrap_or_default());
-        ARROW_STREAM_EIO
+        code
+    }
+
+    /// Store the last stream error and return the Arrow producer/export failure code.
+    fn set_error(&mut self, error: impl ToString) -> c_int {
+        self.set_error_with_code(error, ARROW_STREAM_EIO)
+    }
+
+    /// Store the last stream error and return the Arrow invalid-argument code.
+    fn set_invalid_error(&mut self, error: impl ToString) -> c_int {
+        self.set_error_with_code(error, ARROW_STREAM_EINVAL)
     }
 
     /// Return the stream schema, exporting the first stream array to derive it if needed.
@@ -571,7 +581,7 @@ unsafe extern "C" fn device_stream_get_schema(
     state.clear_error();
 
     if out.is_null() {
-        return state.set_error("null ArrowSchema output");
+        return state.set_invalid_error("null ArrowSchema output");
     }
 
     fn body(state: &mut DeviceArrayStreamPrivateData, out: *mut ArrowSchema) -> VortexResult<()> {
@@ -598,7 +608,7 @@ unsafe extern "C" fn device_stream_get_next(
     state.clear_error();
 
     if out.is_null() {
-        return state.set_error("null ArrowDeviceArray output");
+        return state.set_invalid_error("null ArrowDeviceArray output");
     }
 
     fn body(
@@ -647,15 +657,13 @@ unsafe extern "C" fn device_stream_release(stream: *mut ArrowDeviceArrayStream) 
     stream_ref.get_last_error = None;
     stream_ref.release = None;
 
-    if !stream_ref.private_data.is_null() {
-        unsafe {
+    let private_data = std::mem::replace(&mut stream_ref.private_data, ptr::null_mut());
+    if !private_data.is_null() {
+        drop(catch_unwind(AssertUnwindSafe(|| unsafe {
             drop(Box::from_raw(
-                stream_ref
-                    .private_data
-                    .cast::<DeviceArrayStreamPrivateData>(),
+                private_data.cast::<DeviceArrayStreamPrivateData>(),
             ));
-        }
-        stream_ref.private_data = ptr::null_mut();
+        })));
     }
 }
 

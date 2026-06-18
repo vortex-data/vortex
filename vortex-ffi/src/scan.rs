@@ -66,7 +66,7 @@ crate::box_wrapper!(
     VxPartitionScan,
     vx_partition);
 
-/// Consume an owned partition pointer and return the partition's Vortex array stream.
+/// Consume an owned partition pointer for layered FFI crates and return its Vortex array stream.
 ///
 /// # Safety
 ///
