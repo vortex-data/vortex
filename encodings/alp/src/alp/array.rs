@@ -48,7 +48,6 @@ use vortex_session::registry::CachedId;
 use crate::ALPFloat;
 use crate::alp::Exponents;
 use crate::alp::decompress::execute_decompress;
-use crate::alp::rules::PARENT_KERNELS;
 use crate::alp::rules::RULES;
 
 /// A [`ALP`]-encoded Vortex array.
@@ -187,15 +186,6 @@ impl VTable for ALP {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 

@@ -116,7 +116,6 @@ fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitiv
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -125,11 +124,12 @@ mod tests {
 
     use crate::RunEnd;
     use crate::RunEndArray;
+    use crate::tests::SESSION;
 
     fn ree_array() -> RunEndArray {
         RunEnd::encode(
             PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap()
     }
@@ -139,7 +139,7 @@ mod tests {
         let arr = ree_array().slice(2..7)?;
         let filtered = arr.filter(Mask::from_iter([true, false, false, true, true]))?;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(
             filtered,
             RunEnd::new(
@@ -157,7 +157,7 @@ mod tests {
     /// Filter unwrap one layer at a time so RunEnd's FilterKernel can fire.
     #[test]
     fn filter_sliced_run_end_preserves_encoding() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         // 4 runs of 32 each = 128 rows. Large enough that FilterKernel takes
         // the run-preserving path (true_count >= 25).

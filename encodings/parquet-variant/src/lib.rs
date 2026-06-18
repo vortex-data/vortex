@@ -43,6 +43,7 @@ pub use vtable::ParquetVariantArray;
 /// Register Parquet Variant array and Arrow extension support with a session.
 pub fn initialize(session: &VortexSession) {
     session.arrays().register(ParquetVariant);
+    kernel::initialize(session);
     session.arrow().register_exporter(Arc::new(ParquetVariant));
     session.arrow().register_importer(Arc::new(ParquetVariant));
 }

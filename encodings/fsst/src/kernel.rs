@@ -1,24 +1,34 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ArrayVTable;
+use vortex_array::arrays::Dict;
+use vortex_array::arrays::Filter;
 use vortex_array::arrays::dict::TakeExecuteAdaptor;
 use vortex_array::arrays::filter::FilterExecuteAdaptor;
-use vortex_array::kernel::ParentKernelSet;
+use vortex_array::optimizer::kernels::ArrayKernelsExt;
+use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
+use vortex_array::scalar_fn::fns::byte_length::ByteLength;
 use vortex_array::scalar_fn::fns::byte_length::ByteLengthExecuteAdaptor;
+use vortex_array::scalar_fn::fns::cast::Cast;
 use vortex_array::scalar_fn::fns::cast::CastExecuteAdaptor;
+use vortex_array::scalar_fn::fns::like::Like;
 use vortex_array::scalar_fn::fns::like::LikeExecuteAdaptor;
+use vortex_session::VortexSession;
 
 use crate::FSST;
 
-pub(super) const PARENT_KERNELS: ParentKernelSet<FSST> = ParentKernelSet::new(&[
-    ParentKernelSet::lift(&CastExecuteAdaptor(FSST)),
-    ParentKernelSet::lift(&CompareExecuteAdaptor(FSST)),
-    ParentKernelSet::lift(&FilterExecuteAdaptor(FSST)),
-    ParentKernelSet::lift(&TakeExecuteAdaptor(FSST)),
-    ParentKernelSet::lift(&LikeExecuteAdaptor(FSST)),
-    ParentKernelSet::lift(&ByteLengthExecuteAdaptor(FSST)),
-]);
+pub(super) fn initialize(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_execute_parent_kernel(Cast.id(), FSST, CastExecuteAdaptor(FSST));
+    kernels.register_execute_parent_kernel(Binary.id(), FSST, CompareExecuteAdaptor(FSST));
+    kernels.register_execute_parent_kernel(Filter.id(), FSST, FilterExecuteAdaptor(FSST));
+    kernels.register_execute_parent_kernel(Dict.id(), FSST, TakeExecuteAdaptor(FSST));
+    kernels.register_execute_parent_kernel(Like.id(), FSST, LikeExecuteAdaptor(FSST));
+    kernels.register_execute_parent_kernel(ByteLength.id(), FSST, ByteLengthExecuteAdaptor(FSST));
+}
 
 #[cfg(test)]
 mod tests {

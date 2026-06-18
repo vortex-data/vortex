@@ -14,9 +14,13 @@ use parquet_variant_compute::GetOptions;
 use parquet_variant_compute::VariantArray as ArrowVariantArray;
 use parquet_variant_compute::variant_get as arrow_variant_get;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayVTable;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Dict;
+use vortex_array::arrays::Filter;
+use vortex_array::arrays::Slice;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::arrays::dict::TakeExecuteAdaptor;
 use vortex_array::arrays::filter::FilterExecuteAdaptor;
@@ -28,7 +32,8 @@ use vortex_array::arrays::slice::SliceKernel;
 use vortex_array::arrow::FromArrowArray;
 use vortex_array::dtype::DType;
 use vortex_array::kernel::ExecuteParentKernel;
-use vortex_array::kernel::ParentKernelSet;
+use vortex_array::optimizer::kernels::ArrayKernelsExt;
+use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::fns::variant_get::VariantGet;
 use vortex_array::scalar_fn::fns::variant_get::VariantPath;
 use vortex_array::scalar_fn::fns::variant_get::VariantPathElement;
@@ -36,16 +41,30 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 
 use crate::ParquetVariant;
 use crate::ParquetVariantArrayExt;
 
-pub(crate) static PARENT_KERNELS: ParentKernelSet<ParquetVariant> = ParentKernelSet::new(&[
-    ParentKernelSet::lift(&FilterExecuteAdaptor(ParquetVariant)),
-    ParentKernelSet::lift(&SliceExecuteAdaptor(ParquetVariant)),
-    ParentKernelSet::lift(&TakeExecuteAdaptor(ParquetVariant)),
-    ParentKernelSet::lift(&VariantGetKernel),
-]);
+pub(crate) fn initialize(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_execute_parent_kernel(
+        Filter.id(),
+        ParquetVariant,
+        FilterExecuteAdaptor(ParquetVariant),
+    );
+    kernels.register_execute_parent_kernel(
+        Slice.id(),
+        ParquetVariant,
+        SliceExecuteAdaptor(ParquetVariant),
+    );
+    kernels.register_execute_parent_kernel(
+        Dict.id(),
+        ParquetVariant,
+        TakeExecuteAdaptor(ParquetVariant),
+    );
+    kernels.register_execute_parent_kernel(VariantGet.id(), ParquetVariant, VariantGetKernel);
+}
 
 #[derive(Default, Debug)]
 struct VariantGetKernel;
@@ -232,9 +251,16 @@ mod tests {
     use vortex_error::vortex_ensure;
     use vortex_error::vortex_err;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use crate::ParquetVariant;
     use crate::ParquetVariantArrayExt;
+
+    fn session() -> VortexSession {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    }
 
     fn make_unshredded_array() -> VortexResult<ArrayRef> {
         let mut builder = VariantArrayBuilder::new(4);
@@ -356,9 +382,10 @@ mod tests {
         dtype: Option<VortexDType>,
     ) -> VortexResult<ArrayRef> {
         let expr = variant_get(root(), parse_path(path)?, dtype);
+        let session = session();
         array
             .apply(&expr)?
-            .execute::<ArrayRef>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<ArrayRef>(&mut session.create_execution_ctx())
     }
 
     macro_rules! assert_rows_eq {
@@ -807,7 +834,8 @@ mod tests {
         array: &ArrayRef,
         expected: impl IntoIterator<Item = Option<i32>>,
     ) -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let session = session();
+        let mut ctx = session.create_execution_ctx();
         let executed = array.clone().execute::<ArrayRef>(&mut ctx)?;
         let typed_value = executed
             .as_::<ParquetVariant>()

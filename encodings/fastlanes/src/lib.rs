@@ -47,6 +47,9 @@ pub fn initialize(session: &VortexSession) {
     session.arrays().register(Delta);
     session.arrays().register(FoR);
     session.arrays().register(RLE);
+    bitpacking::initialize(session);
+    r#for::initialize(session);
+    rle::initialize(session);
 
     // Register the encoding-specific aggregate kernels.
     session.aggregate_fns().register_aggregate_kernel(
@@ -137,7 +140,6 @@ mod test {
     use std::sync::LazyLock;
 
     use vortex_array::VortexSessionExecute;
-    use vortex_array::session::ArraySessionExt;
     use vortex_buffer::BitBufferMut;
     use vortex_session::VortexSession;
 
@@ -145,10 +147,7 @@ mod test {
 
     pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = vortex_array::array_session();
-        session.arrays().register(BitPacked);
-        session.arrays().register(Delta);
-        session.arrays().register(FoR);
-        session.arrays().register(RLE);
+        initialize(&session);
         session
     });
 

@@ -15,6 +15,10 @@ pub(crate) mod compute;
 mod vtable;
 pub use vtable::VarBinView;
 
+pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+    vtable::initialize(session);
+}
+
 pub mod build_views;
 
 mod view;

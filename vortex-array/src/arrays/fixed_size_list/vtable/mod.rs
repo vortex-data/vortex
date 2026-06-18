@@ -39,6 +39,10 @@ mod validity;
 /// A [`FixedSizeList`]-encoded Vortex array.
 pub type FixedSizeListArray = Array<FixedSizeList>;
 
+pub(crate) fn initialize(session: &VortexSession) {
+    kernel::initialize(session);
+}
+
 #[derive(Clone, Debug)]
 pub struct FixedSizeList;
 
@@ -82,15 +86,6 @@ impl VTable for FixedSizeList {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        Self::PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn serialize(

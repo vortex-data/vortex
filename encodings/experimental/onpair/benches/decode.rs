@@ -79,7 +79,11 @@ impl DecodeInputs {
 use vortex_onpair::onpair_compress;
 use vortex_session::VortexSession;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = vortex_array::array_session();
+    vortex_onpair::initialize(&session);
+    session
+});
 
 #[derive(Copy, Clone, Debug)]
 enum Shape {

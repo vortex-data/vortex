@@ -32,7 +32,6 @@ use crate::arrays::listview::array::OFFSETS_SLOT;
 use crate::arrays::listview::array::SIZES_SLOT;
 use crate::arrays::listview::array::SLOT_NAMES;
 use crate::arrays::listview::compute::rules::PARENT_RULES;
-use crate::arrays::listview::vtable::kernel::PARENT_KERNELS;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -44,6 +43,10 @@ mod operations;
 mod validity;
 /// A [`ListView`]-encoded Vortex array.
 pub type ListViewArray = Array<ListView>;
+
+pub(crate) fn initialize(session: &VortexSession) {
+    kernel::initialize(session);
+}
 
 #[derive(Clone, Debug)]
 pub struct ListView;
@@ -218,14 +221,5 @@ impl VTable for ListView {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }

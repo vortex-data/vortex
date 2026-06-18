@@ -27,7 +27,11 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = vortex_array::array_session();
+    vortex_sparse::initialize(&session);
+    session
+});
 
 const LIST_ARGS: &[(usize, usize, usize)] = &[
     // len, patch_stride, list_size

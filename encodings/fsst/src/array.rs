@@ -57,7 +57,6 @@ use vortex_session::registry::CachedId;
 
 use crate::canonical::canonicalize_fsst;
 use crate::canonical::fsst_decode_views;
-use crate::kernel::PARENT_KERNELS;
 use crate::rules::RULES;
 
 /// A [`FSST`]-encoded Vortex array.
@@ -311,15 +310,6 @@ impl VTable for FSST {
                 .execute_mask(array.array().len(), ctx)?,
         );
         Ok(())
-    }
-
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn reduce_parent(

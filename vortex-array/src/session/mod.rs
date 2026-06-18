@@ -8,6 +8,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::SessionExt;
 use vortex_session::SessionVar;
+use vortex_session::VortexSession;
 use vortex_session::registry::Registry;
 
 use crate::ArrayRef;
@@ -29,6 +30,7 @@ use crate::arrays::Struct;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinView;
 use crate::arrays::Variant;
+use crate::optimizer::kernels::ArrayKernels;
 
 pub type ArrayRegistry = Registry<ArrayPluginRef>;
 
@@ -36,17 +38,28 @@ pub type ArrayRegistry = Registry<ArrayPluginRef>;
 pub struct ArraySession {
     /// The set of registered array encodings.
     registry: ArrayRegistry,
+    /// The set of built-in array kernels for the registered encodings.
+    kernels: ArrayKernels,
 }
 
 impl ArraySession {
     pub fn empty() -> ArraySession {
         Self {
             registry: ArrayRegistry::default(),
+            kernels: ArrayKernels::empty(),
         }
     }
 
     pub fn registry(&self) -> &ArrayRegistry {
         &self.registry
+    }
+
+    /// Returns this array session's built-in kernel registry.
+    ///
+    /// This registry is used when the surrounding [`VortexSession`] does not contain a standalone
+    /// [`ArrayKernels`] session variable. A standalone [`ArrayKernels`] shadows this registry.
+    pub fn kernels(&self) -> &ArrayKernels {
+        &self.kernels
     }
 
     /// Register a new array encoding, replacing any existing encoding with the same ID.
@@ -60,6 +73,7 @@ impl Default for ArraySession {
     fn default() -> Self {
         let this = ArraySession {
             registry: ArrayRegistry::default(),
+            kernels: ArrayKernels::default(),
         };
 
         // Register the canonical encodings.
@@ -81,6 +95,9 @@ impl Default for ArraySession {
         this.register(List);
         this.register(Masked);
         this.register(VarBin);
+
+        let session = VortexSession::empty().with_some(this.kernels.clone());
+        crate::arrays::initialize(&session);
 
         this
     }
@@ -117,3 +134,50 @@ pub trait ArraySessionExt: SessionExt {
 }
 
 impl<S: SessionExt> ArraySessionExt for S {}
+
+#[cfg(test)]
+mod tests {
+    use vortex_session::VortexSession;
+
+    use crate::ArrayVTable;
+    use crate::arrays::Bool;
+    use crate::optimizer::kernels::ArrayKernels;
+    use crate::optimizer::kernels::ArrayKernelsExt;
+    use crate::scalar_fn::ScalarFnVTable;
+    use crate::scalar_fn::fns::binary::Binary;
+    use crate::session::ArraySession;
+
+    #[test]
+    fn array_session_default_registers_builtin_kernels() {
+        let session = VortexSession::empty().with::<ArraySession>();
+
+        assert!(session.get_opt::<ArrayKernels>().is_none());
+        assert!(session.kernels().has_execute_parent(Binary.id(), Bool.id()));
+    }
+
+    #[test]
+    fn initialize_registers_builtin_kernels_into_empty_array_session() {
+        let session = VortexSession::empty().with_some(ArraySession::empty());
+
+        assert!(!session.kernels().has_execute_parent(Binary.id(), Bool.id()));
+
+        crate::initialize(&session);
+
+        assert!(session.kernels().has_execute_parent(Binary.id(), Bool.id()));
+    }
+
+    #[test]
+    fn standalone_array_kernels_shadow_array_session_kernels() {
+        let session = VortexSession::empty()
+            .with::<ArraySession>()
+            .with::<ArrayKernels>();
+
+        assert!(
+            session
+                .get::<ArraySession>()
+                .kernels()
+                .has_execute_parent(Binary.id(), Bool.id())
+        );
+        assert!(!session.kernels().has_execute_parent(Binary.id(), Bool.id()));
+    }
+}

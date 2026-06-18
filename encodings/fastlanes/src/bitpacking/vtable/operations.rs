@@ -56,6 +56,7 @@ mod test {
     use crate::BitPackedArray;
     use crate::BitPackedData;
     use crate::bitpacking::array::BitPackedArrayExt;
+    use crate::test::SESSION as FASTLANES_SESSION;
 
     fn bp(array: &ArrayRef, bit_width: u8) -> BitPackedArray {
         BitPackedData::encode(array, bit_width, &mut LEGACY_SESSION.create_execution_ctx()).unwrap()
@@ -154,12 +155,14 @@ mod test {
         // reads buffers. The slice range 0..64 excludes the patch at index 64, so the
         // resulting array should have no patches.
         let array_ref = array.into_array();
-        let slice_array = SliceArray::new(array_ref.clone(), 0..64);
-        let sliced = array_ref
-            .execute_parent(&slice_array.into_array(), 0, &mut ctx)
-            .expect("execute_parent failed")
-            .expect("expected slice kernel to execute");
-        let sliced_bp = sliced.as_::<BitPacked>().into_owned();
+        let slice_array = SliceArray::new(array_ref, 0..64);
+        let mut ctx = FASTLANES_SESSION.create_execution_ctx();
+        let sliced_bp = slice_array
+            .into_array()
+            .execute::<ArrayRef>(&mut ctx)
+            .expect("slice execution failed")
+            .as_::<BitPacked>()
+            .into_owned();
         assert!(sliced_bp.patches().is_none());
     }
 

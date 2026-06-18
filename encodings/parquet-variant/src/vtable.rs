@@ -39,7 +39,6 @@ use crate::array::VALIDITY_SLOT;
 use crate::array::VALUE_SLOT;
 use crate::array::core_storage_without_typed_value;
 use crate::array::logical_shredded_from_parquet_typed_value;
-use crate::kernel::PARENT_KERNELS;
 
 /// VTable for Arrow's canonical `arrow.parquet.variant` extension storage.
 ///
@@ -279,15 +278,6 @@ impl VTable for ParquetVariant {
         Ok(ExecutionResult::done(
             VariantArray::try_new(core_storage, shredded)?.into_array(),
         ))
-    }
-
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 

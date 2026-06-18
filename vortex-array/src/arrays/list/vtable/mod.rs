@@ -31,7 +31,6 @@ use crate::arrays::list::array::ELEMENTS_SLOT;
 use crate::arrays::list::array::NUM_SLOTS;
 use crate::arrays::list::array::OFFSETS_SLOT;
 use crate::arrays::list::array::SLOT_NAMES;
-use crate::arrays::list::compute::PARENT_KERNELS;
 use crate::arrays::list::compute::rules::PARENT_RULES;
 use crate::arrays::listview::list_view_from_list;
 use crate::buffer::BufferHandle;
@@ -190,15 +189,6 @@ impl VTable for List {
         Ok(ExecutionResult::done(
             list_view_from_list(array, ctx)?.into_array(),
         ))
-    }
-
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 

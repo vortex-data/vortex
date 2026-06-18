@@ -3,7 +3,6 @@
 
 use std::hash::Hasher;
 
-use kernel::PARENT_KERNELS;
 use prost::Message;
 use smallvec::smallvec;
 use vortex_error::VortexResult;
@@ -26,6 +25,7 @@ use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::EqMode;
+use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayParts;
@@ -38,6 +38,7 @@ use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::dict::compute::rules::PARENT_RULES;
 use crate::arrays::dict::execute::take_canonical;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -53,6 +54,10 @@ mod validity;
 
 /// A [`Dict`]-encoded Vortex array.
 pub type DictArray = Array<Dict>;
+
+pub(crate) fn initialize(session: &VortexSession) {
+    kernel::initialize(session);
+}
 
 #[derive(Clone, Debug)]
 pub struct Dict;
@@ -196,20 +201,38 @@ impl VTable for Dict {
         )?))
     }
 
+    fn append_to_builder(
+        array: ArrayView<'_, Self>,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        if !array.is_empty()
+            && let (Some(codes), Some(values)) = (
+                array.codes().as_opt::<Primitive>(),
+                array.values().as_opt::<AnyCanonical>(),
+            )
+            && !codes.validity()?.definitely_all_null()
+        {
+            let codes = codes.into_owned();
+            let canonical = take_canonical(values, &codes, ctx)?.into_array();
+            canonical.append_to_builder(builder, ctx)?;
+            return Ok(());
+        }
+
+        let canonical = array
+            .array()
+            .clone()
+            .execute::<Canonical>(ctx)?
+            .into_array();
+        canonical.append_to_builder(builder, ctx)?;
+        Ok(())
+    }
+
     fn reduce_parent(
         array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }

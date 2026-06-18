@@ -48,7 +48,6 @@ use crate::bitpack_decompress::unpack_into_primitive_builder;
 use crate::bitpacking::array::BitPackedSlots;
 use crate::bitpacking::array::BitPackedSlotsView;
 use crate::bitpacking::array::PATCH_SLOTS;
-use crate::bitpacking::vtable::kernels::PARENT_KERNELS;
 use crate::bitpacking::vtable::rules::RULES;
 mod kernels;
 mod operations;
@@ -57,6 +56,10 @@ mod validity;
 
 /// A [`BitPacked`]-encoded Vortex array.
 pub type BitPackedArray = Array<BitPacked>;
+
+pub(crate) fn initialize(session: &VortexSession) {
+    kernels::initialize(session);
+}
 
 #[derive(Clone, prost::Message)]
 pub struct BitPackedMetadata {
@@ -266,15 +269,6 @@ impl VTable for BitPacked {
         Ok(ExecutionResult::done(
             unpack_array(array.as_view(), ctx)?.into_array(),
         ))
-    }
-
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn reduce_parent(

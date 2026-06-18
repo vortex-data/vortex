@@ -623,15 +623,6 @@ impl ArrayRef {
         unsafe { (&*inner).data.execute_unchecked(self, ctx) }
     }
 
-    pub fn execute_parent(
-        &self,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        self.0.data.execute_parent(self, parent, child_idx, ctx)
-    }
-
     // ArrayVisitor delegation methods
 
     /// Returns the children of the array.

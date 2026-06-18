@@ -11,6 +11,7 @@ use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
@@ -71,6 +72,17 @@ impl BoolBuilder {
             self.nulls.finish_with_nullability(self.dtype.nullability()),
         )
     }
+
+    pub(crate) fn append_bool_array(
+        &mut self,
+        array: &BoolArray,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        self.inner.append_buffer(&array.to_bit_buffer());
+        self.nulls
+            .append_validity_mask(&BoolArrayExt::validity(array).execute_mask(array.len(), ctx)?);
+        Ok(())
+    }
 }
 
 impl ArrayBuilder for BoolBuilder {
@@ -118,19 +130,8 @@ impl ArrayBuilder for BoolBuilder {
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         #[expect(deprecated)]
         let bool_array = array.to_bool();
-
-        self.inner.append_buffer(&bool_array.to_bit_buffer());
-        self.nulls.append_validity_mask(
-            &bool_array
-                .as_ref()
-                .validity()
-                .vortex_expect("validity_mask")
-                .execute_mask(
-                    bool_array.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )
-                .vortex_expect("Failed to compute validity mask"),
-        );
+        self.append_bool_array(&bool_array, &mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("Failed to append bool array");
     }
 
     fn reserve_exact(&mut self, additional: usize) {

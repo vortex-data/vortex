@@ -14,7 +14,6 @@ use vortex_array::dtype::session::DTypeSession;
 // pulled back out into a vortex_expr crate.
 pub use vortex_array::expr;
 use vortex_array::memory::MemorySession;
-use vortex_array::optimizer::kernels::ArrayKernels;
 pub use vortex_array::scalar_fn;
 use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
@@ -171,7 +170,6 @@ impl VortexSessionDefault for VortexSession {
             .with::<LayoutSession>()
             .with::<ScalarFnSession>()
             .with::<StatsSession>()
-            .with::<ArrayKernels>()
             .with::<AggregateFnSession>()
             .with::<ArrowSession>()
             .with::<MemorySession>()
