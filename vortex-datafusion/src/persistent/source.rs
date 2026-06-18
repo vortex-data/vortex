@@ -140,6 +140,13 @@ use crate::persistent::reader::VortexReaderFactory;
 /// - when enabled, the scan can evaluate a Vortex-native projection and leave
 ///   only unsupported expressions for DataFusion.
 ///
+/// Predicate handling depends on [`VortexTableOptions::predicate_pushdown`]:
+///
+/// - when disabled, `VortexSource` still keeps the full predicate for
+///   DataFusion file pruning, but reports filters as not pushed down so
+///   DataFusion evaluates them after the scan,
+/// - when enabled, supported filters are pushed into the Vortex scan.
+///
 /// # Observability
 ///
 /// `VortexSource` owns a Vortex metrics registry for the lifetime of a physical
@@ -170,6 +177,7 @@ use crate::persistent::reader::VortexReaderFactory;
 /// [`VortexAccessPlan`]: crate::VortexAccessPlan
 /// [`FileMetadataCache`]: datafusion_execution::cache::cache_manager::FileMetadataCache
 /// [`VortexTableOptions::projection_pushdown`]: crate::VortexTableOptions::projection_pushdown
+/// [`VortexTableOptions::predicate_pushdown`]: crate::VortexTableOptions::predicate_pushdown
 /// [`VortexMetricsFinder`]: crate::metrics::VortexMetricsFinder
 #[derive(Clone)]
 pub struct VortexSource {
@@ -195,7 +203,7 @@ pub struct VortexSource {
     pub(crate) ordered: bool,
     vx_metrics_registry: Arc<dyn MetricsRegistry>,
     file_metadata_cache: Option<Arc<dyn FileMetadataCache>>,
-    /// Whether to enable expression pushdown into the underlying Vortex scan.
+    /// Options controlling scan planning and execution behavior.
     options: VortexTableOptions,
 }
 
@@ -239,6 +247,15 @@ impl VortexSource {
     /// projection.
     pub fn with_projection_pushdown(mut self, enabled: bool) -> Self {
         self.options.projection_pushdown = enabled;
+        self
+    }
+
+    /// Enables or disables Vortex-native predicate evaluation.
+    ///
+    /// When disabled, DataFusion evaluates filters after the scan. The source
+    /// still records the full predicate for file pruning.
+    pub fn with_predicate_pushdown(mut self, enabled: bool) -> Self {
+        self.options.predicate_pushdown = enabled;
         self
     }
 
@@ -451,6 +468,14 @@ impl FileSource for VortexSource {
             )),
             None => Some(conjunction(filters.clone())),
         };
+
+        if !source.options.predicate_pushdown {
+            return Ok(FilterPushdownPropagation::with_parent_pushdown_result(vec![
+                PushedDown::No;
+                filters.len()
+            ])
+            .with_updated_node(Arc::new(source) as _));
+        }
 
         let supported_filters = filters
             .into_iter()
@@ -683,6 +708,26 @@ mod tests {
             .ok_or_else(|| anyhow::anyhow!("expected VortexSource"))?
             .clone();
         assert!(updated_source.vortex_predicate.is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn try_pushdown_filters_respects_disabled_predicate_pushdown() -> anyhow::Result<()> {
+        let schema = Arc::new(Schema::new(vec![Field::new("name", DataType::Utf8, false)]));
+        let source = sort_test_source(Arc::clone(&schema)).with_predicate_pushdown(false);
+        let filter = octet_length_filter(&schema);
+
+        let result = source.try_pushdown_filters(vec![filter], &ConfigOptions::new())?;
+
+        assert!(matches!(result.filters.as_slice(), [PushedDown::No]));
+        let updated_source = result
+            .updated_node
+            .ok_or_else(|| anyhow::anyhow!("expected updated VortexSource"))?
+            .downcast_ref::<VortexSource>()
+            .ok_or_else(|| anyhow::anyhow!("expected VortexSource"))?
+            .clone();
+        assert!(updated_source.full_predicate.is_some());
+        assert!(updated_source.vortex_predicate.is_none());
         Ok(())
     }
 }
