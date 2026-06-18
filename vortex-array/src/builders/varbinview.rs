@@ -6,10 +6,10 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
+use vortex_buffer::{Alignment, Buffer};
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -83,7 +83,11 @@ impl VarBinViewBuilder {
             "VarBinViewBuilder DType must be Utf8 or Binary."
         );
         Self {
-            views_builder: BufferMut::<BinaryView>::with_capacity(capacity),
+            views_builder: BufferMut::with_capacity_preferred_aligned(
+                capacity,
+                Alignment::of::<BinaryView>(),
+                None,
+            ),
             nulls: LazyBitBufferBuilder::new(capacity),
             completed,
             in_progress: None,
@@ -147,7 +151,11 @@ impl VarBinViewBuilder {
     fn init_in_progress(&mut self, min_len: usize) {
         let next_buffer_size = self.growth_strategy.next_size() as usize;
         let to_reserve = next_buffer_size.max(min_len);
-        self.in_progress = Some(ByteBufferMut::with_capacity(to_reserve));
+        self.in_progress = Some(ByteBufferMut::with_capacity_preferred_aligned(
+            to_reserve,
+            Alignment::of::<u8>(),
+            None,
+        ));
     }
 
     /// append a non inlined value to self.in_progress.
