@@ -75,6 +75,8 @@ use crate::scan::v2::node::StateCtx;
 use crate::scan::v2::node::read_dense;
 use crate::scan::v2::request::EvidenceRequest;
 use crate::scan::v2::request::NodeRequest;
+use crate::segments::SegmentPlanCtx;
+use crate::segments::SegmentRequests;
 
 /// Scan2 rule for `vortex.dict`.
 #[derive(Debug)]
@@ -317,6 +319,37 @@ impl EvidencePlan for DictEvidencePlan {
         })
     }
 
+    fn segment_requests(
+        &self,
+        req: &EvidenceRequest<'_>,
+        state: &Self::State,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
+        let Some(verdicts) = state.verdicts.lock().get(&self.predicate).cloned() else {
+            return Ok(SegmentRequests::unknown());
+        };
+        let ValueVerdicts::Verdicts { mask, null_verdict } = verdicts.as_ref() else {
+            return Ok(SegmentRequests::none());
+        };
+        let nullable = self.dtype.is_nullable();
+        if mask.all_false() && !*null_verdict {
+            return Ok(SegmentRequests::none());
+        }
+        if mask.all_true() && (!nullable || *null_verdict) {
+            return Ok(SegmentRequests::none());
+        }
+        let selection = Mask::new_true(
+            usize::try_from(req.range.end - req.range.start)
+                .map_err(|_| vortex_err!("dictionary evidence range exceeds usize"))?,
+        );
+        self.codes_read.segment_requests(
+            req.range.clone(),
+            RowScope::selected(&selection),
+            state.codes_state.as_ref(),
+            cx,
+        )
+    }
+
     fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "dict")
     }
@@ -454,6 +487,35 @@ impl ReadPlan for DictReadPlan {
         })
     }
 
+    fn segment_requests(
+        &self,
+        range: Range<u64>,
+        rows: RowScope<'_>,
+        state: &Self::State,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
+        let values_selection = Mask::new_true(
+            usize::try_from(self.node.values_len)
+                .map_err(|_| vortex_err!("dictionary values length exceeds usize"))?,
+        );
+        let mut requests = self.values_read.segment_requests(
+            0..self.node.values_len,
+            RowScope::selected(&values_selection),
+            state.values_state.as_ref(),
+            cx,
+        )?;
+        if requests.is_unknown() {
+            return Ok(requests);
+        }
+        requests.extend(self.codes_read.segment_requests(
+            range,
+            rows,
+            state.codes_state.as_ref(),
+            cx,
+        )?);
+        Ok(requests)
+    }
+
     fn release(&self, frontier: u64, state: &Self::State) -> VortexResult<()> {
         self.codes_read
             .release(frontier, state.codes_state.as_ref())
@@ -486,6 +548,16 @@ impl ReadPlan for DictExprReadPlan {
                 .await?;
             input.apply(&self.node.expr)?.execute::<ArrayRef>(local)
         })
+    }
+
+    fn segment_requests(
+        &self,
+        range: Range<u64>,
+        rows: RowScope<'_>,
+        state: &Self::State,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
+        self.input.segment_requests(range, rows, state.as_ref(), cx)
     }
 
     fn release(&self, frontier: u64, state: &Self::State) -> VortexResult<()> {

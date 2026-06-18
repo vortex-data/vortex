@@ -27,6 +27,7 @@ vortex-utils = { workspace = true }
 async-lock = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true }
+parking_lot = { workspace = true }
 roaring = { workspace = true }
 tracing = { workspace = true }
 

@@ -51,6 +51,8 @@ use crate::scan::v2::evidence::EvidenceFragment;
 use crate::scan::v2::request::EvidenceRequest;
 use crate::scan::v2::request::NodeRequest;
 use crate::scan::v2::session::ScanV2SessionExt;
+use crate::segments::SegmentPlanCtx;
+use crate::segments::SegmentRequests;
 use crate::segments::SegmentSource;
 
 /// Per-file/query IO context for scan2 reads.
@@ -520,6 +522,17 @@ pub trait ReadPlan: 'static + Send + Sync {
         local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>>;
 
+    /// Return scheduler-visible segment requests needed for this read, when known exactly.
+    fn segment_requests(
+        &self,
+        _range: Range<u64>,
+        _rows: RowScope<'_>,
+        _state: &Self::State,
+        _cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
+        Ok(SegmentRequests::unknown())
+    }
+
     /// Release state behind the completed-row frontier.
     fn release(&self, _frontier: u64, _state: &Self::State) -> VortexResult<()> {
         Ok(())
@@ -546,6 +559,15 @@ pub trait DynReadPlan: Send + Sync {
         local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>>;
 
+    /// Return scheduler-visible segment requests needed for this read, when known exactly.
+    fn segment_requests(
+        &self,
+        range: Range<u64>,
+        rows: RowScope<'_>,
+        state: &ScanState,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests>;
+
     /// Release state behind the completed-row frontier.
     fn release(&self, frontier: u64, state: &ScanState) -> VortexResult<()>;
 
@@ -571,6 +593,17 @@ impl<T: ReadPlan> DynReadPlan for T {
             Err(e) => return Box::pin(async move { Err(e) }),
         };
         ReadPlan::read_scoped(self, range, rows, io, state, local)
+    }
+
+    fn segment_requests(
+        &self,
+        range: Range<u64>,
+        rows: RowScope<'_>,
+        state: &ScanState,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
+        let state = downcast_erased_state::<T::State>(state)?;
+        ReadPlan::segment_requests(self, range, rows, state, cx)
     }
 
     fn release(&self, frontier: u64, state: &ScanState) -> VortexResult<()> {
@@ -1001,6 +1034,38 @@ impl ReadPlan for StructValueReadPlan {
         })
     }
 
+    fn segment_requests(
+        &self,
+        range: Range<u64>,
+        rows: RowScope<'_>,
+        state: &Self::State,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
+        if self.node.fields.len() != state.fields.len() {
+            vortex_bail!(
+                "struct value state length {} does not match field count {}",
+                state.fields.len(),
+                self.node.fields.len()
+            );
+        }
+
+        let mut requests = SegmentRequests::none();
+        for (field, state) in self.fields.iter().zip(&state.fields) {
+            requests.extend(field.segment_requests(range.clone(), rows, state.as_ref(), cx)?);
+            if requests.is_unknown() {
+                return Ok(requests);
+            }
+        }
+        match (&self.validity, &state.validity) {
+            (Some(validity), Some(state)) => {
+                requests.extend(validity.segment_requests(range, rows, state.as_ref(), cx)?);
+            }
+            (None, None) => {}
+            _ => vortex_bail!("struct value validity plan/state mismatch"),
+        }
+        Ok(requests)
+    }
+
     fn release(&self, frontier: u64, state: &Self::State) -> VortexResult<()> {
         for (field, state) in self.fields.iter().zip(&state.fields) {
             field.release(frontier, state.as_ref())?;
@@ -1085,6 +1150,16 @@ impl ReadPlan for ApplyReadPlan {
         })
     }
 
+    fn segment_requests(
+        &self,
+        range: Range<u64>,
+        rows: RowScope<'_>,
+        state: &Self::State,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
+        self.input.segment_requests(range, rows, state.as_ref(), cx)
+    }
+
     fn release(&self, frontier: u64, state: &Self::State) -> VortexResult<()> {
         self.input.release(frontier, state.as_ref())
     }
@@ -1109,6 +1184,16 @@ pub trait EvidencePlan: 'static + Send + Sync {
         io: &'a FileReader,
         state: &'a Self::State,
     ) -> BoxFuture<'a, VortexResult<Vec<EvidenceFragment>>>;
+
+    /// Return scheduler-visible segment requests needed for this evidence, when known exactly.
+    fn segment_requests(
+        &self,
+        _req: &EvidenceRequest<'_>,
+        _state: &Self::State,
+        _cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
+        Ok(SegmentRequests::unknown())
+    }
 
     /// A key for sharing this plan's state with sibling evidence plans
     /// in the same file. The default keeps one state per planned route.
@@ -1142,6 +1227,14 @@ pub trait DynEvidencePlan: Send + Sync {
         state: &'a ScanState,
     ) -> BoxFuture<'a, VortexResult<Vec<EvidenceFragment>>>;
 
+    /// Return scheduler-visible segment requests needed for this evidence, when known exactly.
+    fn segment_requests(
+        &self,
+        req: &EvidenceRequest<'_>,
+        state: &ScanState,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests>;
+
     /// A key for sharing this plan's state with sibling evidence plans.
     fn state_cache_key(&self) -> Option<EvidenceStateKey>;
 
@@ -1168,6 +1261,16 @@ impl<T: EvidencePlan> DynEvidencePlan for T {
             Err(e) => return Box::pin(async move { Err(e) }),
         };
         EvidencePlan::evidence(self, req, io, state)
+    }
+
+    fn segment_requests(
+        &self,
+        req: &EvidenceRequest<'_>,
+        state: &ScanState,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
+        let state = downcast_erased_state::<T::State>(state)?;
+        EvidencePlan::segment_requests(self, req, state, cx)
     }
 
     fn state_cache_key(&self) -> Option<EvidenceStateKey> {

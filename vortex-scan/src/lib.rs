@@ -40,6 +40,8 @@ pub use scheduler::ScanSchedulerSession;
 pub use scheduler::ScanSchedulerSessionExt;
 pub use scheduler::ScanTicket;
 pub use scheduler::ScanWorkClass;
+pub use scheduler::SegmentSourceId;
+pub use scheduler::SegmentSourceMeta;
 pub use scheduler::WorkPermit;
 pub use scheduler::WorkRequest;
 use selection::Selection;

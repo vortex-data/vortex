@@ -17,10 +17,12 @@ use std::sync::atomic::Ordering;
 
 use async_lock::Semaphore;
 use async_lock::SemaphoreGuardArc;
+use parking_lot::Mutex;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::SessionExt;
 use vortex_session::SessionVar;
+use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::parallelism::get_available_parallelism;
 
 const DEFAULT_MORSEL_CONCURRENCY_FACTOR: usize = 4;
@@ -30,6 +32,8 @@ const DEFAULT_MORSEL_CONCURRENCY_FACTOR: usize = 4;
 pub struct ScanSchedulerConfig {
     global_slots: Option<usize>,
     per_scan_slots: Option<usize>,
+    morsel_plan_window: Option<usize>,
+    morsel_launch_window: Option<usize>,
 }
 
 impl ScanSchedulerConfig {
@@ -38,16 +42,37 @@ impl ScanSchedulerConfig {
         Self {
             global_slots: None,
             per_scan_slots: None,
+            morsel_plan_window: None,
+            morsel_launch_window: None,
         }
     }
 
     /// Create a scheduler configuration with the same morsel-slot limit globally and per scan.
+    ///
+    /// Morsel execution remains bounded by `slots`, but planning is unbounded by default so
+    /// segment futures can be registered ahead of execution.
     pub fn morsel_slots(slots: usize) -> Self {
         let slots = slots.max(1);
         Self {
             global_slots: Some(slots),
             per_scan_slots: Some(slots),
+            morsel_plan_window: None,
+            morsel_launch_window: Some(slots),
         }
+    }
+
+    /// Return a copy with the maximum number of morsels allowed to be planned ahead per scan.
+    ///
+    /// `None` means the scan may plan all morsels ahead of execution.
+    pub fn with_morsel_plan_window(mut self, window: Option<usize>) -> Self {
+        self.morsel_plan_window = window.map(|window| window.max(1));
+        self
+    }
+
+    /// Return a copy with the maximum number of morsels allowed to run concurrently per scan.
+    pub fn with_morsel_launch_window(mut self, window: Option<usize>) -> Self {
+        self.morsel_launch_window = window.map(|window| window.max(1));
+        self
     }
 
     /// Create a scheduler configuration matching the current unordered scan concurrency factor.
@@ -68,6 +93,18 @@ impl ScanSchedulerConfig {
     /// Returns the configured per-scan slot limit.
     pub fn per_scan_slots(&self) -> Option<usize> {
         self.per_scan_slots
+    }
+
+    /// Returns the configured per-scan morsel planning window.
+    ///
+    /// `None` means planning is unbounded.
+    pub fn morsel_plan_window(&self) -> Option<usize> {
+        self.morsel_plan_window
+    }
+
+    /// Returns the configured per-scan morsel launch window.
+    pub fn morsel_launch_window(&self) -> Option<usize> {
+        self.morsel_launch_window
     }
 }
 
@@ -134,6 +171,7 @@ impl ScanScheduler {
                 .per_scan_slots
                 .map(|slots| Arc::new(Semaphore::new(slots))),
             per_scan_slot_limit: self.config.per_scan_slots,
+            segment_sources: Arc::new(Mutex::new(SegmentSourceRegistry::default())),
         }
     }
 
@@ -224,6 +262,39 @@ pub struct ScanMeta {
     pub label: Option<String>,
 }
 
+/// Scheduler-local identity for a registered segment source.
+///
+/// The identity is scoped to one [`ScanTicket`]. A shared scheduler may later associate this with a
+/// stable cross-scan source key for cache reuse or metrics, but correctness must not depend on two
+/// tickets allocating the same value for the same object.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SegmentSourceId(u64);
+
+impl SegmentSourceId {
+    /// Return the integer value of this scheduler-local source id.
+    pub fn get(self) -> u64 {
+        self.0
+    }
+}
+
+/// Metadata attached to a registered segment source.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SegmentSourceMeta {
+    /// Optional human-readable label used for diagnostics and future metrics.
+    pub label: Option<String>,
+}
+
+#[derive(Default)]
+struct SegmentSourceRegistry {
+    next_id: u64,
+    sources: HashMap<SegmentSourceId, SegmentSourceEntry>,
+}
+
+struct SegmentSourceEntry {
+    source: Arc<dyn Any + Send + Sync>,
+    meta: SegmentSourceMeta,
+}
+
 /// A logical scan registered with a scheduler.
 #[derive(Clone)]
 pub struct ScanTicket {
@@ -231,6 +302,7 @@ pub struct ScanTicket {
     cancelled: Arc<AtomicBool>,
     per_scan_slots: Option<Arc<Semaphore>>,
     per_scan_slot_limit: Option<usize>,
+    segment_sources: Arc<Mutex<SegmentSourceRegistry>>,
 }
 
 impl fmt::Debug for ScanTicket {
@@ -239,6 +311,7 @@ impl fmt::Debug for ScanTicket {
             .field("id", &self.id)
             .field("cancelled", &self.is_cancelled())
             .field("per_scan_slot_limit", &self.per_scan_slot_limit)
+            .field("segment_source_count", &self.segment_source_count())
             .finish_non_exhaustive()
     }
 }
@@ -257,6 +330,60 @@ impl ScanTicket {
     /// Return whether the scan has been cancelled.
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Acquire)
+    }
+
+    /// Register a segment source and return its scan-local source id.
+    pub fn register_segment_source<S>(
+        &self,
+        source: Arc<S>,
+        meta: SegmentSourceMeta,
+    ) -> SegmentSourceId
+    where
+        S: Any + Send + Sync,
+    {
+        let source: Arc<dyn Any + Send + Sync> = source;
+        self.register_erased_segment_source(source, meta)
+    }
+
+    /// Register an already-erased segment source and return its scan-local source id.
+    pub fn register_erased_segment_source(
+        &self,
+        source: Arc<dyn Any + Send + Sync>,
+        meta: SegmentSourceMeta,
+    ) -> SegmentSourceId {
+        let mut registry = self.segment_sources.lock();
+        let id = SegmentSourceId(registry.next_id);
+        registry.next_id = registry.next_id.saturating_add(1);
+        registry
+            .sources
+            .insert(id, SegmentSourceEntry { source, meta });
+        id
+    }
+
+    /// Return the metadata for a registered segment source.
+    pub fn segment_source_meta(&self, id: SegmentSourceId) -> Option<SegmentSourceMeta> {
+        let registry = self.segment_sources.lock();
+        registry.sources.get(&id).map(|entry| entry.meta.clone())
+    }
+
+    /// Return a registered segment source downcast to the requested concrete type.
+    ///
+    /// This is intentionally typed at the call site: the scheduler stores sources opaquely, while
+    /// the scan runtime decides which concrete source trait or adapter it expects.
+    pub fn segment_source<S>(&self, id: SegmentSourceId) -> Option<Arc<S>>
+    where
+        S: Any + Send + Sync,
+    {
+        let source = {
+            let registry = self.segment_sources.lock();
+            Arc::clone(&registry.sources.get(&id)?.source)
+        };
+        source.downcast::<S>().ok()
+    }
+
+    fn segment_source_count(&self) -> usize {
+        let registry = self.segment_sources.lock();
+        registry.sources.len()
     }
 }
 
@@ -373,3 +500,56 @@ pub trait ScanSchedulerSessionExt: SessionExt {
 }
 
 impl<S: SessionExt> ScanSchedulerSessionExt for S {}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
+
+    use super::*;
+
+    struct TestSegmentSource {
+        label: &'static str,
+    }
+
+    #[test]
+    fn segment_source_registration_is_scan_local() -> VortexResult<()> {
+        let scheduler = ScanScheduler::unbounded();
+        let scan_a = scheduler.register_scan(ScanMeta::default());
+        let scan_b = scheduler.register_scan(ScanMeta::default());
+
+        let source_a = Arc::new(TestSegmentSource { label: "a" });
+        let source_b = Arc::new(TestSegmentSource { label: "b" });
+
+        let id_a0 = scan_a.register_segment_source(
+            source_a,
+            SegmentSourceMeta {
+                label: Some("source-a".to_string()),
+            },
+        );
+        let id_a1 = scan_a.register_segment_source(
+            Arc::new(TestSegmentSource { label: "a1" }),
+            SegmentSourceMeta::default(),
+        );
+        let id_b0 = scan_b.register_segment_source(source_b, SegmentSourceMeta::default());
+
+        assert_eq!(id_a0.get(), 0);
+        assert_eq!(id_a1.get(), 1);
+        assert_eq!(id_b0.get(), 0);
+
+        let meta = scan_a
+            .segment_source_meta(id_a0)
+            .ok_or_else(|| vortex_err!("missing segment source metadata"))?;
+        assert_eq!(meta.label.as_deref(), Some("source-a"));
+
+        let source = scan_a
+            .segment_source::<TestSegmentSource>(id_a0)
+            .ok_or_else(|| vortex_err!("missing registered segment source"))?;
+        assert_eq!(source.label, "a");
+        assert!(scan_b.segment_source::<TestSegmentSource>(id_a1).is_none());
+
+        Ok(())
+    }
+}

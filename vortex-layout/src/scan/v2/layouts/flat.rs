@@ -39,6 +39,8 @@ use crate::scan::v2::node::ScanStateRef;
 use crate::scan::v2::node::StateCtx;
 use crate::scan::v2::node::downcast_state;
 use crate::scan::v2::request::NodeRequest;
+use crate::segments::SegmentPlanCtx;
+use crate::segments::SegmentRequests;
 
 /// Scan2 rule for `vortex.flat`.
 #[derive(Debug)]
@@ -158,6 +160,24 @@ impl ReadPlan for FlatReadPlan {
             }
             dense.filter(rows.selection.clone())
         })
+    }
+
+    fn segment_requests(
+        &self,
+        _range: Range<u64>,
+        _rows: RowScope<'_>,
+        _state: &Self::State,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
+        let Some(flat) = self.node.layout.as_opt::<Flat>() else {
+            vortex_bail!(
+                "expected flat layout, got {}",
+                self.node.layout.encoding_id()
+            );
+        };
+        Ok(SegmentRequests::exact(vec![
+            cx.request_for_segment(flat.segment_id())?,
+        ]))
     }
 
     fn release(&self, frontier: u64, state: &Self::State) -> VortexResult<()> {
