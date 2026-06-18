@@ -544,6 +544,14 @@ mod tests {
             self.inner.convert(expr)
         }
 
+        fn convert_with_schema(
+            &self,
+            expr: &dyn PhysicalExpr,
+            input_schema: &Schema,
+        ) -> DFResult<vortex::expr::Expression> {
+            self.inner.convert_with_schema(expr, input_schema)
+        }
+
         fn split_projection(
             &self,
             source_projection: ProjectionExprs,
