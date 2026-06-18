@@ -47,7 +47,7 @@ impl<T> Default for Buffer<T> {
         Self {
             bytes: Bytes::from_static(EMPTY_BACKING),
             length: 0,
-            alignment: Alignment::DEFAULT_ALIGNMENT,
+            alignment: Alignment::of::<T>(),
             _marker: PhantomData,
         }
     }
