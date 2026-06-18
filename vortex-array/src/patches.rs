@@ -24,9 +24,8 @@ use crate::ArraySlots;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
-#[expect(deprecated)]
-use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::builtins::ArrayBuiltins;
@@ -497,9 +496,7 @@ impl Patches {
     /// [`SearchResult::Found`] with the position if needle exists, or [`SearchResult::NotFound`]
     /// with the insertion point if not found.
     fn search_index_binary_search(indices: &ArrayRef, needle: usize) -> VortexResult<SearchResult> {
-        if indices.is_canonical() {
-            #[expect(deprecated)]
-            let primitive = indices.to_primitive();
+        if let Some(primitive) = indices.as_opt::<Primitive>() {
             match_each_integer_ptype!(primitive.ptype(), |T| {
                 let Ok(needle) = T::try_from(needle) else {
                     // If the needle is not of type T, then it cannot possibly be in this array.

@@ -9,7 +9,9 @@ use crate::IntoArray;
 use crate::RecursiveCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::DecimalArray;
+use crate::arrays::Dict;
 use crate::arrays::DictArray;
+use crate::arrays::Filter;
 use crate::arrays::FilterArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListArray;
@@ -17,11 +19,12 @@ use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::dict::TakeExecuteAdaptor;
 use crate::assert_arrays_eq;
 use crate::dtype::DecimalDType;
 use crate::dtype::FieldNames;
 use crate::executor::ExecutionCtx;
-use crate::optimizer::kernels::ArrayKernelsExt;
+use crate::kernel::ExecuteParentKernel;
 use crate::validity::Validity;
 
 fn execute_parent(
@@ -30,19 +33,12 @@ fn execute_parent(
     child_idx: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<crate::ArrayRef>> {
-    let kernels = ctx.session().kernels().clone();
-    let Some(plugins) = kernels.find_execute_parent(parent.encoding_id(), child.encoding_id())
-    else {
-        return Ok(None);
-    };
-
-    for plugin in plugins.as_ref() {
-        if let Some(result) = plugin.execute_parent(child, parent, child_idx, ctx)? {
-            return Ok(Some(result));
-        }
-    }
-
-    Ok(None)
+    TakeExecuteAdaptor(Filter).execute_parent(
+        child.as_::<Filter>(),
+        parent.as_::<Dict>(),
+        child_idx,
+        ctx,
+    )
 }
 
 #[test]
