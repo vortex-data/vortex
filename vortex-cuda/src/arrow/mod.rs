@@ -20,6 +20,7 @@ use std::panic::AssertUnwindSafe;
 use std::panic::catch_unwind;
 use std::ptr;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use arrow_schema::DataType;
 use arrow_schema::Field;
@@ -30,7 +31,6 @@ pub(crate) use canonical::CanonicalDeviceArrayExport;
 use cudarc::driver::CudaEvent;
 use cudarc::driver::CudaStream;
 use cudarc::runtime::sys::cudaEvent_t;
-use futures::StreamExt;
 use vortex::array::ArrayRef;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::FixedSizeList;
@@ -53,6 +53,9 @@ use vortex::dtype::StructFields;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
+use vortex::io::runtime::BlockingRuntime;
+use vortex::io::runtime::current::CurrentThreadRuntime;
+use vortex::io::runtime::current::CurrentThreadWorkerPool;
 use vortex::session::VortexSession;
 
 use crate::CudaBufferExt;
@@ -253,16 +256,33 @@ impl DeviceArrayExt for ArrayRef {
     }
 }
 
+// POSIX EIO for Arrow stream producer/export failures.
 const ARROW_STREAM_EIO: c_int = 5;
+// POSIX EINVAL for invalid Arrow stream callback arguments or released streams.
 const ARROW_STREAM_EINVAL: c_int = 22;
 
+static DEVICE_STREAM_RUNTIME: LazyLock<CurrentThreadRuntime> =
+    LazyLock::new(CurrentThreadRuntime::new);
+static DEVICE_STREAM_WORKER_POOL: LazyLock<CurrentThreadWorkerPool> = LazyLock::new(|| {
+    let pool = DEVICE_STREAM_RUNTIME.new_pool();
+    pool.set_workers_to_available_parallelism();
+    pool
+});
+
+/// Return the shared runtime used to drive Vortex streams for Arrow Device export.
+fn device_stream_runtime() -> &'static CurrentThreadRuntime {
+    LazyLock::force(&DEVICE_STREAM_WORKER_POOL);
+    &DEVICE_STREAM_RUNTIME
+}
+
 #[derive(Clone, Debug, PartialEq)]
-enum DeviceExportSchema {
+enum ArrowDeviceStreamSchema {
     Schema(Schema),
     Field(Field),
 }
 
-impl DeviceExportSchema {
+impl ArrowDeviceStreamSchema {
+    /// Interpret an Arrow C schema as the stream schema shape for `dtype`.
     fn from_ffi(schema: &FFI_ArrowSchema, dtype: &DType) -> VortexResult<Self> {
         if matches!(dtype, DType::Struct(..)) {
             Ok(Self::Schema(Schema::try_from(schema)?))
@@ -271,6 +291,7 @@ impl DeviceExportSchema {
         }
     }
 
+    /// Build the Arrow stream schema for an empty stream with the given dtype.
     fn from_dtype(dtype: &DType, ctx: &mut CudaExecutionCtx) -> VortexResult<Self> {
         let dtype = arrow_device_export_dtype(dtype);
         if let DType::Struct(struct_dtype, _) = &dtype {
@@ -282,6 +303,7 @@ impl DeviceExportSchema {
         }
     }
 
+    /// Export this stream schema as an owned Arrow C schema.
     fn to_ffi(&self) -> VortexResult<FFI_ArrowSchema> {
         match self {
             Self::Schema(schema) => Ok(FFI_ArrowSchema::try_from(schema)?),
@@ -292,40 +314,30 @@ impl DeviceExportSchema {
 
 type ArrayStreamIterator = Box<dyn Iterator<Item = VortexResult<ArrayRef>>>;
 
-struct FuturesArrayStreamIterator {
-    stream: SendableArrayStream,
-}
-
-impl Iterator for FuturesArrayStreamIterator {
-    type Item = VortexResult<ArrayRef>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        futures::executor::block_on(self.stream.next())
-    }
-}
-
 struct DeviceArrayStreamPrivateData {
     array_iter: ArrayStreamIterator,
     ctx: CudaExecutionCtx,
     dtype: DType,
-    schema: Option<DeviceExportSchema>,
+    schema: Option<ArrowDeviceStreamSchema>,
     pending_array: Option<ArrowDeviceArray>,
     device_id: i64,
     last_error: Option<CString>,
 }
 
 impl DeviceArrayStreamPrivateData {
+    /// Clear the last stream error before a new callback invocation.
     fn clear_error(&mut self) {
         self.last_error = None;
     }
 
+    /// Store the last stream error and return the Arrow callback error code.
     fn set_error(&mut self, error: impl ToString) -> c_int {
-        let message = error.to_string().replace('\0', "\\0");
-        self.last_error = CString::new(message).ok();
+        self.last_error = CString::new(error.to_string()).ok();
         ARROW_STREAM_EIO
     }
 
-    fn ensure_schema(&mut self) -> VortexResult<&DeviceExportSchema> {
+    /// Initialize and return the stream schema, exporting the first batch if needed.
+    fn ensure_schema(&mut self) -> VortexResult<&ArrowDeviceStreamSchema> {
         if self.schema.is_none() {
             match self.array_iter.next() {
                 Some(array) => {
@@ -333,7 +345,10 @@ impl DeviceArrayStreamPrivateData {
                     self.pending_array = Some(array);
                 }
                 None => {
-                    self.schema = Some(DeviceExportSchema::from_dtype(&self.dtype, &mut self.ctx)?);
+                    self.schema = Some(ArrowDeviceStreamSchema::from_dtype(
+                        &self.dtype,
+                        &mut self.ctx,
+                    )?);
                 }
             }
         }
@@ -343,6 +358,7 @@ impl DeviceArrayStreamPrivateData {
             .ok_or_else(|| vortex_err!("ArrowDeviceArrayStream schema was not initialized"))
     }
 
+    /// Export and return the next device batch, or `None` at end of stream.
     fn next_array(&mut self) -> VortexResult<Option<ArrowDeviceArray>> {
         if let Some(array) = self.pending_array.take() {
             return Ok(Some(array));
@@ -350,7 +366,10 @@ impl DeviceArrayStreamPrivateData {
 
         let Some(array) = self.array_iter.next() else {
             if self.schema.is_none() {
-                self.schema = Some(DeviceExportSchema::from_dtype(&self.dtype, &mut self.ctx)?);
+                self.schema = Some(ArrowDeviceStreamSchema::from_dtype(
+                    &self.dtype,
+                    &mut self.ctx,
+                )?);
             }
             return Ok(None);
         };
@@ -358,6 +377,7 @@ impl DeviceArrayStreamPrivateData {
         self.export_batch(array?).map(Some)
     }
 
+    /// Export one Vortex stream batch and validate it against the stream schema and device.
     fn export_batch(&mut self, array: ArrayRef) -> VortexResult<ArrowDeviceArray> {
         vortex_ensure!(
             array.dtype() == &self.dtype,
@@ -366,14 +386,14 @@ impl DeviceArrayStreamPrivateData {
             array.dtype()
         );
 
-        let exported =
-            futures::executor::block_on(array.export_device_array_with_schema(&mut self.ctx))?;
+        let exported = device_stream_runtime()
+            .block_on(array.export_device_array_with_schema(&mut self.ctx))?;
         let ArrowDeviceArrayWithSchema {
-            mut schema,
+            schema: mut ffi_schema,
             mut array,
         } = exported;
-        let batch_schema = DeviceExportSchema::from_ffi(&schema, &self.dtype);
-        release_schema(&mut schema);
+        let batch_schema = ArrowDeviceStreamSchema::from_ffi(&ffi_schema, &self.dtype);
+        release_schema(&mut ffi_schema);
         let batch_schema = match batch_schema {
             Ok(batch_schema) => batch_schema,
             Err(error) => {
@@ -383,11 +403,11 @@ impl DeviceArrayStreamPrivateData {
         };
 
         let validation = (|| -> VortexResult<()> {
-            if let Some(schema) = &self.schema {
+            if let Some(stream_schema) = &self.schema {
                 vortex_ensure!(
-                    schema == &batch_schema,
+                    stream_schema == &batch_schema,
                     "stream batch Arrow schema changed from {:?} to {:?}",
-                    schema,
+                    stream_schema,
                     batch_schema
                 );
             } else {
@@ -418,6 +438,7 @@ impl DeviceArrayStreamPrivateData {
 }
 
 impl Drop for DeviceArrayStreamPrivateData {
+    /// Release a first batch if `get_schema` exported it and `get_next` never returned it.
     fn drop(&mut self) {
         if let Some(mut array) = self.pending_array.take() {
             release_device_array(&mut array);
@@ -440,13 +461,14 @@ pub trait DeviceArrayStreamExt {
 }
 
 impl DeviceArrayStreamExt for SendableArrayStream {
+    /// Export this stream by driving it on the shared Arrow Device stream runtime.
     fn export_device_array_stream(
         self,
         session: &VortexSession,
     ) -> VortexResult<ArrowDeviceArrayStream> {
         let dtype = self.dtype().clone();
         export_device_array_stream_from_iter(
-            FuturesArrayStreamIterator { stream: self },
+            device_stream_runtime().block_on_stream(self),
             dtype,
             session,
         )
@@ -503,6 +525,7 @@ pub fn export_device_array_stream_from_iter_with_ctx(
     }
 }
 
+/// Return the private stream state for a live Arrow device stream.
 unsafe fn device_stream_private_data<'a>(
     stream: *mut ArrowDeviceArrayStream,
 ) -> Option<&'a mut DeviceArrayStreamPrivateData> {
@@ -515,6 +538,7 @@ unsafe fn device_stream_private_data<'a>(
     }
 }
 
+/// Create the Arrow end-of-stream marker for the stream's CUDA device.
 fn released_device_array(device_id: i64) -> ArrowDeviceArray {
     ArrowDeviceArray {
         array: ArrowArray::empty(),
@@ -525,18 +549,35 @@ fn released_device_array(device_id: i64) -> ArrowDeviceArray {
     }
 }
 
+/// Release an Arrow C schema if it is live.
 fn release_schema(schema: &mut FFI_ArrowSchema) {
     if let Some(release) = schema.release {
         unsafe { release(schema) };
     }
 }
 
+/// Release an Arrow device array if it is live.
 fn release_device_array(array: &mut ArrowDeviceArray) {
     if let Some(release) = array.array.release {
         unsafe { release(&raw mut array.array) };
     }
 }
 
+/// Run a stream callback body and convert errors or panics into Arrow status codes.
+fn device_stream_callback(
+    state: &mut DeviceArrayStreamPrivateData,
+    panic_message: &'static str,
+    callback: impl FnOnce(&mut DeviceArrayStreamPrivateData) -> VortexResult<()>,
+) -> c_int {
+    let result = catch_unwind(AssertUnwindSafe(|| callback(state)));
+    match result {
+        Ok(Ok(())) => 0,
+        Ok(Err(err)) => state.set_error(err),
+        Err(_) => state.set_error(panic_message),
+    }
+}
+
+/// Write the stream's Arrow schema, initializing it from the first batch if necessary.
 unsafe extern "C" fn device_stream_get_schema(
     stream: *mut ArrowDeviceArrayStream,
     out: *mut ArrowSchema,
@@ -550,16 +591,20 @@ unsafe extern "C" fn device_stream_get_schema(
         return state.set_error("null ArrowSchema output");
     }
 
-    match catch_unwind(AssertUnwindSafe(|| state.ensure_schema()?.to_ffi())) {
-        Ok(Ok(schema)) => {
-            unsafe { ptr::write(out.cast::<FFI_ArrowSchema>(), schema) };
-            0
-        }
-        Ok(Err(err)) => state.set_error(err),
-        Err(_) => state.set_error("panic in ArrowDeviceArrayStream::get_schema"),
+    fn body(state: &mut DeviceArrayStreamPrivateData, out: *mut ArrowSchema) -> VortexResult<()> {
+        let schema = state.ensure_schema()?.to_ffi()?;
+        unsafe { ptr::write(out.cast::<FFI_ArrowSchema>(), schema) };
+        Ok(())
     }
+
+    device_stream_callback(
+        state,
+        "panic in ArrowDeviceArrayStream::get_schema",
+        |state| body(state, out),
+    )
 }
 
+/// Write the next exported Arrow device batch, or a released array at end of stream.
 unsafe extern "C" fn device_stream_get_next(
     stream: *mut ArrowDeviceArrayStream,
     out: *mut ArrowDeviceArray,
@@ -573,19 +618,25 @@ unsafe extern "C" fn device_stream_get_next(
         return state.set_error("null ArrowDeviceArray output");
     }
 
-    match catch_unwind(AssertUnwindSafe(|| -> VortexResult<()> {
-        match state.next_array()? {
-            Some(array) => unsafe { ptr::write(out, array) },
-            None => unsafe { ptr::write(out, released_device_array(state.device_id)) },
-        }
+    fn body(
+        state: &mut DeviceArrayStreamPrivateData,
+        out: *mut ArrowDeviceArray,
+    ) -> VortexResult<()> {
+        let array = state
+            .next_array()?
+            .unwrap_or_else(|| released_device_array(state.device_id));
+        unsafe { ptr::write(out, array) };
         Ok(())
-    })) {
-        Ok(Ok(())) => 0,
-        Ok(Err(err)) => state.set_error(err),
-        Err(_) => state.set_error("panic in ArrowDeviceArrayStream::get_next"),
     }
+
+    device_stream_callback(
+        state,
+        "panic in ArrowDeviceArrayStream::get_next",
+        |state| body(state, out),
+    )
 }
 
+/// Return the most recent callback error message, or null if no error is stored.
 unsafe extern "C" fn device_stream_get_last_error(
     stream: *mut ArrowDeviceArrayStream,
 ) -> *const c_char {
@@ -599,6 +650,7 @@ unsafe extern "C" fn device_stream_get_last_error(
         .map_or(ptr::null(), |error| error.as_ptr())
 }
 
+/// Release the stream state and clear callbacks so release is idempotent.
 unsafe extern "C" fn device_stream_release(stream: *mut ArrowDeviceArrayStream) {
     let Some(stream_ref) = (unsafe { stream.as_mut() }) else {
         return;
@@ -875,18 +927,21 @@ mod tests {
     use crate::arrow::ArrowSchema;
     use crate::arrow::DeviceArrayStreamExt;
 
+    /// Release an Arrow C schema in stream tests if it is live.
     unsafe fn release_schema(schema: &mut FFI_ArrowSchema) {
         if let Some(release) = schema.release {
             unsafe { release(schema) };
         }
     }
 
+    /// Release an Arrow device array in stream tests if it is live.
     unsafe fn release_device_array(array: &mut ArrowDeviceArray) {
         if let Some(release) = array.array.release {
             unsafe { release(&raw mut array.array) };
         }
     }
 
+    /// Create a zeroed placeholder Arrow device array for callback outputs.
     fn empty_device_array() -> ArrowDeviceArray {
         ArrowDeviceArray {
             array: ArrowArray::empty(),
@@ -897,6 +952,7 @@ mod tests {
         }
     }
 
+    /// Verify schema, batch, EOS, and idempotent release stream behavior.
     #[cuda_test]
     fn test_export_device_array_stream_schema_next_eos_release() -> VortexResult<()> {
         let session = VortexSession::default().with_some(CudaSession::try_default()?);

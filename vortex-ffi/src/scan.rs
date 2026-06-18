@@ -22,7 +22,6 @@ use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::expr::stats::Precision;
 use vortex::array::stream::SendableArrayStream;
 use vortex::buffer::Buffer;
-use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
@@ -67,9 +66,6 @@ crate::box_wrapper!(
     VxPartitionScan,
     vx_partition);
 
-/// A blocking iterator over arrays produced by a consumed partition.
-pub type VxPartitionArrayIter = Box<dyn Iterator<Item = VortexResult<ArrayRef>>>;
-
 /// Consume an owned partition pointer and return the partition's Vortex array stream.
 ///
 /// # Safety
@@ -84,22 +80,6 @@ pub unsafe fn vx_partition_into_array_stream(
         VxPartitionScan::Pending(partition) => partition.execute(),
         _ => vortex_bail!("partition already being consumed"),
     }
-}
-
-/// Consume an owned partition pointer and return a runtime-driven blocking array iterator.
-///
-/// The returned iterator drives the same FFI runtime used by the other partition scan entry points.
-///
-/// # Safety
-///
-/// `partition` must be a non-null owned partition handle created by `vortex-ffi`. This function
-/// consumes the handle; callers must not use or free it after calling this function.
-pub unsafe fn vx_partition_into_array_iter(
-    partition: *mut vx_partition,
-) -> VortexResult<(DType, VxPartitionArrayIter)> {
-    let array_stream = unsafe { vx_partition_into_array_stream(partition) }?;
-    let dtype = array_stream.dtype().clone();
-    Ok((dtype, Box::new(RUNTIME.block_on_stream(array_stream))))
 }
 
 // We parse Selection from vx_scan_selection[_include], so we don't need

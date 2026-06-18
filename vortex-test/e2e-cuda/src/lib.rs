@@ -219,6 +219,7 @@ fn dictionary_array() -> VortexArrayRef {
     .into_array()
 }
 
+/// Build the shared cuDF interop test array used by array and stream exports.
 fn cudf_test_array() -> Result<VortexArrayRef, String> {
     let primitive = primitive_array()?;
     // cuDF supports Arrow decimal device imports through Decimal128. Decimal256 is intentionally
@@ -292,6 +293,8 @@ fn cudf_test_array() -> Result<VortexArrayRef, String> {
     .into_array())
 }
 
+/// Export the shared cuDF test array as one Arrow device array.
+///
 /// # Safety
 /// `schema_ptr` and `array_ptr` must be valid writable pointers.
 #[unsafe(no_mangle)]
@@ -302,6 +305,7 @@ pub unsafe extern "C" fn export_array(
     ffi_boundary("export_array", || export_array_inner(schema_ptr, array_ptr))
 }
 
+/// Implement `export_array` inside the panic-catching FFI boundary.
 fn export_array_inner(schema_ptr: &mut FFI_ArrowSchema, array_ptr: &mut ArrowDeviceArray) -> i32 {
     let mut ctx = match CudaSession::create_execution_ctx(&SESSION) {
         Ok(ctx) => ctx,
@@ -332,6 +336,8 @@ fn export_array_inner(schema_ptr: &mut FFI_ArrowSchema, array_ptr: &mut ArrowDev
     }
 }
 
+/// Export the shared cuDF test array as an Arrow device array stream.
+///
 /// # Safety
 /// `stream_ptr` must be a valid writable pointer.
 #[unsafe(no_mangle)]
@@ -341,6 +347,7 @@ pub unsafe extern "C" fn export_device_stream(stream_ptr: &mut ArrowDeviceArrayS
     })
 }
 
+/// Implement `export_device_stream` inside the panic-catching FFI boundary.
 fn export_device_stream_inner(stream_ptr: &mut ArrowDeviceArrayStream) -> i32 {
     let array = match cudf_test_array() {
         Ok(array) => array,

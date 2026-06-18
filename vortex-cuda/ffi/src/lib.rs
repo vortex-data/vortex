@@ -19,12 +19,13 @@ use vortex_cuda::CudaSession;
 use vortex_cuda::arrow::ArrowDeviceArray;
 use vortex_cuda::arrow::ArrowDeviceArrayStream;
 use vortex_cuda::arrow::DeviceArrayExt;
+use vortex_cuda::arrow::DeviceArrayStreamExt;
 use vortex_ffi::try_or;
 use vortex_ffi::vx_array;
 use vortex_ffi::vx_array_ref;
 use vortex_ffi::vx_error;
 use vortex_ffi::vx_partition;
-use vortex_ffi::vx_partition_into_array_iter;
+use vortex_ffi::vx_partition_into_array_stream;
 use vortex_ffi::vx_session;
 use vortex_ffi::vx_session_new_with;
 use vortex_ffi::vx_session_ref;
@@ -32,6 +33,7 @@ use vortex_ffi::vx_session_ref;
 const VX_CUDA_OK: c_int = 0;
 const VX_CUDA_ERR: c_int = 1;
 
+/// Return a session with CUDA state, adding default CUDA support when needed.
 fn session_with_cuda(session: &VortexSession) -> VortexResult<VortexSession> {
     if session.get_opt::<CudaSession>().is_some() {
         return Ok(session.clone());
@@ -132,11 +134,9 @@ pub unsafe extern "C-unwind" fn vx_cuda_partition_scan_arrow_device_stream(
         vortex_ensure!(!partition.is_null(), "null vx_partition");
         vortex_ensure!(!out_stream.is_null(), "null ArrowDeviceArrayStream output");
 
-        let (dtype, array_iter) = unsafe { vx_partition_into_array_iter(partition) }?;
+        let array_stream = unsafe { vx_partition_into_array_stream(partition) }?;
         let session = session_with_cuda(unsafe { vx_session_ref(session) }?)?;
-        let ctx = CudaSession::create_execution_ctx(&session)?;
-        let device_stream =
-            vortex_cuda::export_device_array_stream_from_iter_with_ctx(array_iter, dtype, ctx);
+        let device_stream = array_stream.export_device_array_stream(&session)?;
 
         unsafe { ptr::write(out_stream, device_stream) };
         Ok(VX_CUDA_OK)
