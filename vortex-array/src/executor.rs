@@ -163,7 +163,14 @@ impl ArrayRef {
         let max_iterations = max_iterations();
 
         let session = ctx.session().clone();
-        let kernels = session.get::<ArrayKernels>();
+        let fallback_kernels;
+        let kernels = match session.get_opt::<ArrayKernels>() {
+            Some(kernels) => kernels,
+            None => {
+                fallback_kernels = ArrayKernels::empty();
+                &fallback_kernels
+            }
+        };
 
         for _ in 0..max_iterations {
             let is_done = stack
@@ -427,7 +434,14 @@ impl Executable for ArrayRef {
         }
 
         let session = ctx.session().clone();
-        let kernels = session.get::<ArrayKernels>();
+        let fallback_kernels;
+        let kernels = match session.get_opt::<ArrayKernels>() {
+            Some(kernels) => kernels,
+            None => {
+                fallback_kernels = ArrayKernels::empty();
+                &fallback_kernels
+            }
+        };
 
         if let Some(executed_parent) =
             try_execute_parent(&array, occupied_slots(&array), kernels, ctx)?
