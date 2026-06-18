@@ -159,6 +159,52 @@ fn zoned() -> ArrayRef {
         .into_array()
 }
 
+/// A `keep` flag column plus a `name` string column, for multi-conjunct filter tests:
+/// `id != 0` is a cheap, selective predicate; `name LIKE '%match%'` is the expensive
+/// residual that should run filter-first once `id` has narrowed the demanded rows.
+fn id_and_name(keep: &[u32], names: &[&str]) -> ArrayRef {
+    StructArray::from_fields(&[
+        (
+            "id",
+            PrimitiveArray::from_iter(keep.iter().copied()).into_array(),
+        ),
+        (
+            "name",
+            VarBinViewArray::from_iter_str(names.iter().copied()).into_array(),
+        ),
+    ])
+    .unwrap()
+    .into_array()
+}
+
+/// 16 names where most rows contain the `match` needle (decoys), so a residual `LIKE`
+/// that ignored the cheaper predicate would diverge from V1.
+const MULTI_CONJUNCT_NAMES: [&str; 16] = [
+    "row0_match",
+    "row1_match",
+    "no_hit_here",
+    "row3_match",
+    "row4_match",
+    "row5_match",
+    "row6_match",
+    "row7_match",
+    "row8_match",
+    "has_match_inside",
+    "row10_match",
+    "row11_match",
+    "row12_match",
+    "row13_match",
+    "row14_match",
+    "row15_match",
+];
+
+fn multi_conjunct_filter() -> Expression {
+    vortex_array::expr::and(
+        vortex_array::expr::not_eq(get_item("id", root()), lit(0u32)),
+        vortex_array::expr::like(get_item("name", root()), lit("%match%")),
+    )
+}
+
 /// Outer struct is non-nullable (so the file writes), but it contains a nullable
 /// nested struct `a` with a non-nullable field `b.c`. Projecting `a.b.c` (or
 /// selecting `c` out of `a.b`) must preserve the nulls of the nullable `a.b`
@@ -240,6 +286,30 @@ async fn differential_zoned_filter() -> VortexResult<()> {
     // Filter that zone stats can partially prune.
     let filter = gt(get_item("numbers", root()), lit(99_990i32));
     assert_v1_eq_v2(&file, request(root(), Some(filter))).await
+}
+
+/// Low-density multi-conjunct filter: `id != 0` keeps 2/16 rows (density 0.125 < 0.2),
+/// so the expensive `name LIKE '%match%'` runs filter-first over only the demanded rows
+/// and its compacted verdict is scattered back. Asserted against the V1 reference, which
+/// catches any off-by-rank error in the scatter-back.
+#[tokio::test]
+async fn differential_multi_conjunct_filter_first() -> VortexResult<()> {
+    let mut keep = [0u32; 16];
+    keep[2] = 1;
+    keep[9] = 1;
+    let file = write_file(id_and_name(&keep, &MULTI_CONJUNCT_NAMES), false).await?;
+    assert_v1_eq_v2(&file, request(root(), Some(multi_conjunct_filter()))).await
+}
+
+/// High-density multi-conjunct filter: `id != 0` keeps 14/16 rows (density 0.875 > 0.2),
+/// so the residual takes the dense path. Must still match V1.
+#[tokio::test]
+async fn differential_multi_conjunct_dense() -> VortexResult<()> {
+    let mut keep = [1u32; 16];
+    keep[2] = 0;
+    keep[9] = 0;
+    let file = write_file(id_and_name(&keep, &MULTI_CONJUNCT_NAMES), false).await?;
+    assert_v1_eq_v2(&file, request(root(), Some(multi_conjunct_filter()))).await
 }
 
 /// Reproduces the struct-null bug: projecting a single deep field out of a

@@ -110,6 +110,10 @@ use crate::VortexOpenOptions;
 const DEFAULT_CONCURRENCY: usize = 8;
 const FALLBACK_SPLIT_SIZE: u64 = 100_000;
 
+/// Below this demanded-row density, evaluate a residual predicate over only the demanded rows
+/// (filter-first) rather than the whole morsel. Mirrors the V1 flat-reader threshold.
+const EXPR_EVAL_THRESHOLD: f64 = 0.2;
+
 struct FileStatsScanNode {
     data: ScanNodeRef,
     stats: Arc<FileStatistics>,
@@ -319,6 +323,36 @@ impl FileStatsPlan {
 fn root_field(expr: &Expression) -> Option<&FieldName> {
     let name = expr.as_opt::<GetItem>()?;
     expr.child(0).is::<Root>().then_some(name)
+}
+
+/// Static cost estimate for a filter conjunct, used to order predicate evaluation cheapest-first.
+///
+/// We sum a per-node cost over the whole expression tree. Primitive comparisons, null checks and
+/// data access (`vortex.binary`, `vortex.between`, `vortex.is_null`, `vortex.get_item`, ...) are
+/// cheap; per-row string/byte work (`vortex.like`, `vortex.byte_length`, `vortex.list.contains`)
+/// and opaque/dynamic functions are expensive. Unrecognized functions get a moderate cost so they
+/// sort after primitives but ahead of known-expensive matchers.
+fn predicate_cost(expr: &Expression) -> u64 {
+    fn node_cost(expr: &Expression) -> u64 {
+        match expr.id().as_str() {
+            // Free or near-free structural / access nodes.
+            "vortex.root" | "vortex.literal" | "vortex.get_item" => 0,
+            // Cheap primitive predicates.
+            "vortex.binary" | "vortex.between" | "vortex.is_null" | "vortex.is_not_null"
+            | "vortex.not" | "vortex.fill_null" | "vortex.cast" => 1,
+            // Expensive per-row string / byte / matching work, and fallible UDFs.
+            "vortex.like" | "vortex.byte_length" | "vortex.list.contains" => 100,
+            "vortex.dynamic" | "vortex.variant_get" | "vortex.parquet.variant" => 100,
+            // Unknown functions: more expensive than primitives, cheaper than known matchers.
+            _ => 10,
+        }
+    }
+
+    let mut cost = node_cost(expr);
+    for child in expr.children().iter() {
+        cost = cost.saturating_add(predicate_cost(child));
+    }
+    cost
 }
 
 fn absent_statistics(funcs: &[AggregateFnRef]) -> Vec<Precision<Scalar>> {
@@ -1707,10 +1741,13 @@ impl PreparedScanNodeFile {
         let projection_state = projection_plan.init_state(&mut state_ctx)?;
 
         let mut evidence_state_cache: HashMap<EvidenceStateKey, ScanStateRef> = HashMap::default();
-        let predicates = filter
-            .as_ref()
-            .map(conjuncts)
-            .unwrap_or_default()
+        // Run cheap, likely-selective conjuncts first so an expensive residual (e.g. an FSST `LIKE`)
+        // only evaluates over the rows that survive the cheaper predicates. AND is commutative, so
+        // reordering is semantically safe; `PredicateId`s are assigned by final slot below (after the
+        // sort) so each predicate's evidence/read stay self-consistent with its id.
+        let mut ordered_conjuncts = filter.as_ref().map(conjuncts).unwrap_or_default();
+        ordered_conjuncts.sort_by_cached_key(predicate_cost);
+        let predicates = ordered_conjuncts
             .into_iter()
             .enumerate()
             .map(|(idx, expr)| {
@@ -1911,21 +1948,48 @@ impl PreparedScanNodeFile {
             self.session.handle(),
             registered,
             async move {
-                let full_domain = Mask::new_true(len);
-                let rows = RowScope::try_new(&full_domain, &need)?;
                 let predicate = &prepared.predicates[predicate_idx];
                 let mut ctx = prepared.session.create_execution_ctx();
-                let result = predicate
-                    .read
-                    .read_scoped(
-                        range,
-                        rows,
-                        &prepared.reader,
-                        predicate.read_state.as_ref(),
-                        &mut ctx,
-                    )
-                    .await?
-                    .execute::<Mask>(&mut ctx)?;
+                // Filter-first: when few rows are demanded, read with selection = `need` so the leaf
+                // returns the compacted (filtered) array and an expensive residual (e.g. an FSST
+                // `LIKE`) evaluates over only `need.true_count()` rows. The compacted verdict is
+                // scattered back into the morsel domain via `intersect_by_rank`, giving a full-length
+                // mask identical to the dense path's `result & need`. Mirrors V1's flat-reader gate.
+                let result = if need.density() < EXPR_EVAL_THRESHOLD {
+                    let compact = predicate
+                        .read
+                        .read_scoped(
+                            range,
+                            RowScope::selected(&need),
+                            &prepared.reader,
+                            predicate.read_state.as_ref(),
+                            &mut ctx,
+                        )
+                        .await?
+                        .execute::<Mask>(&mut ctx)?;
+                    if compact.len() != need.true_count() {
+                        vortex_bail!(
+                            "compacted residual result length {} does not match demanded row count {}",
+                            compact.len(),
+                            need.true_count()
+                        );
+                    }
+                    need.intersect_by_rank(&compact)
+                } else {
+                    let full_domain = Mask::new_true(len);
+                    let rows = RowScope::try_new(&full_domain, &need)?;
+                    predicate
+                        .read
+                        .read_scoped(
+                            range,
+                            rows,
+                            &prepared.reader,
+                            predicate.read_state.as_ref(),
+                            &mut ctx,
+                        )
+                        .await?
+                        .execute::<Mask>(&mut ctx)?
+                };
                 Ok(PredicateWorkOutput {
                     morsel_id,
                     predicate_idx,
@@ -2089,4 +2153,27 @@ fn limit_mask(mask: Mask, remaining: &AtomicU64) -> VortexResult<Mask> {
         mask.len(),
         (0..mask.len()).filter(|idx| mask.value(*idx)).take(take),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::expr::get_item;
+    use vortex_array::expr::like;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::not_eq;
+    use vortex_array::expr::root;
+
+    use super::predicate_cost;
+
+    #[test]
+    fn predicate_cost_orders_cheap_before_expensive() {
+        let cheap = not_eq(get_item("search", root()), lit(""));
+        let expensive = like(get_item("url", root()), lit("%google%"));
+        assert!(
+            predicate_cost(&cheap) < predicate_cost(&expensive),
+            "primitive comparison must be cheaper than LIKE: cheap={}, expensive={}",
+            predicate_cost(&cheap),
+            predicate_cost(&expensive),
+        );
+    }
 }
