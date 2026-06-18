@@ -10164,6 +10164,7 @@ dependencies = [
  "async-lock",
  "async-trait",
  "futures",
+ "parking_lot",
  "roaring",
  "tracing",
  "vortex-array",

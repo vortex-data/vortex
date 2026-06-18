@@ -77,6 +77,8 @@ use crate::scan::v2::node::StateCtx;
 use crate::scan::v2::node::read_dense;
 use crate::scan::v2::request::EvidenceRequest;
 use crate::scan::v2::request::NodeRequest;
+use crate::segments::SegmentPlanCtx;
+use crate::segments::SegmentRequests;
 
 /// Scan2 rule for `vortex.zoned`.
 #[derive(Debug)]
@@ -664,6 +666,27 @@ impl EvidencePlan for ZonedEvidencePlan {
         })
     }
 
+    fn segment_requests(
+        &self,
+        _req: &EvidenceRequest<'_>,
+        state: &Self::State,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
+        if self.zone_len == 0 || (self.falsifier.is_none() && self.satisfier.is_none()) {
+            return Ok(SegmentRequests::none());
+        }
+        let selection = Mask::new_true(
+            usize::try_from(self.nzones)
+                .map_err(|_| vortex_err!("zoned stats length exceeds usize"))?,
+        );
+        self.zones_read.segment_requests(
+            0..self.nzones,
+            RowScope::selected(&selection),
+            state.zones.as_ref(),
+            cx,
+        )
+    }
+
     fn state_cache_key(&self) -> Option<EvidenceStateKey> {
         Some(EvidenceStateKey::new::<Self>(self.zones_key))
     }
@@ -837,6 +860,17 @@ impl ReadPlan for ZonedReadPlan {
             .read_scoped(range, rows, io, state.data.as_ref(), local)
     }
 
+    fn segment_requests(
+        &self,
+        range: Range<u64>,
+        rows: RowScope<'_>,
+        state: &Self::State,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
+        self.data
+            .segment_requests(range, rows, state.data.as_ref(), cx)
+    }
+
     fn release(&self, frontier: u64, state: &Self::State) -> VortexResult<()> {
         self.data.release(frontier, state.data.as_ref())
     }
@@ -964,6 +998,17 @@ impl ReadPlan for ZonedExprReadPlan {
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
         self.data
             .read_scoped(range, rows, io, state.data.as_ref(), local)
+    }
+
+    fn segment_requests(
+        &self,
+        range: Range<u64>,
+        rows: RowScope<'_>,
+        state: &Self::State,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
+        self.data
+            .segment_requests(range, rows, state.data.as_ref(), cx)
     }
 
     fn release(&self, frontier: u64, state: &Self::State) -> VortexResult<()> {

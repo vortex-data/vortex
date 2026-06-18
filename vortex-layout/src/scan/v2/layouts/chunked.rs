@@ -68,6 +68,8 @@ use crate::scan::v2::node::downcast_state;
 use crate::scan::v2::request::EvidenceMode;
 use crate::scan::v2::request::EvidenceRequest;
 use crate::scan::v2::request::NodeRequest;
+use crate::segments::SegmentPlanCtx;
+use crate::segments::SegmentRequests;
 
 /// Scan2 rule for `vortex.chunked`.
 #[derive(Debug)]
@@ -235,14 +237,14 @@ impl ChunkedScanNode {
         idx: usize,
         read: &ReadPlanRef,
         state: &ChunkedScanState,
-        io: &FileReader,
+        session: &VortexSession,
     ) -> VortexResult<ScanStateRef> {
         if let Some(hit) = state.children.lock().get(&idx) {
             return Ok(Arc::clone(hit));
         }
         let mut caches = state.node_states.lock();
         let cache = caches.entry(idx).or_default();
-        let mut cx = StateCtx::new(io.session(), cache);
+        let mut cx = StateCtx::new(session, cache);
         let child_state = read.init_state(&mut cx)?;
         state.children.lock().insert(idx, Arc::clone(&child_state));
         #[cfg(any(test, debug_assertions))]
@@ -303,7 +305,7 @@ impl ChunkedExprScanNode {
         idx: usize,
         read: &ReadPlanRef,
         state: &ChunkedExprScanState,
-        io: &FileReader,
+        session: &VortexSession,
     ) -> VortexResult<ScanStateRef> {
         if let Some(hit) = state.children.lock().get(&idx) {
             return Ok(Arc::clone(hit));
@@ -314,7 +316,7 @@ impl ChunkedExprScanNode {
             .ok_or_else(|| vortex_err!("chunked expression state type mismatch"))?;
         let mut caches = chunked_state.node_states.lock();
         let cache = caches.entry(idx).or_default();
-        let mut cx = StateCtx::new(io.session(), cache);
+        let mut cx = StateCtx::new(session, cache);
         let child_state = read.init_state(&mut cx)?;
         let mut children = state.children.lock();
         Ok(Arc::clone(children.entry(idx).or_insert(child_state)))
@@ -649,7 +651,9 @@ impl ReadPlan for ChunkedReadPlan {
                 }
                 let chunk_idx = idx - 1;
                 let read = self.node.child_read(chunk_idx, io.session())?;
-                let child_state = self.node.child_read_state(chunk_idx, &read, state, io)?;
+                let child_state =
+                    self.node
+                        .child_read_state(chunk_idx, &read, state, io.session())?;
                 let chunk = if dense_scope || selected_scope {
                     read.read_scoped(
                         local,
@@ -679,6 +683,94 @@ impl ReadPlan for ChunkedReadPlan {
                 _ => Ok(ChunkedArray::try_new(parts, dtype)?.into_array()),
             }
         })
+    }
+
+    fn segment_requests(
+        &self,
+        range: Range<u64>,
+        rows: RowScope<'_>,
+        state: &Self::State,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
+        let state = downcast_state::<ChunkedScanNode>(state.as_ref())?;
+        if range.start >= range.end {
+            vortex_bail!("empty chunked scoped read range");
+        }
+        #[cfg(debug_assertions)]
+        {
+            let released = state.released.load(Ordering::Relaxed);
+            debug_assert!(
+                range.start >= released,
+                "chunked request planning {range:?} below the released frontier {released}"
+            );
+        }
+        let range_len = usize::try_from(range.end - range.start)
+            .map_err(|_| vortex_err!("read range exceeds usize"))?;
+        if rows.selection.len() != range_len {
+            vortex_bail!(
+                "selection length {} does not match range length {range_len}",
+                rows.selection.len()
+            );
+        }
+        if rows.demand.len() != range_len {
+            vortex_bail!(
+                "demand length {} does not match range length {range_len}",
+                rows.demand.len()
+            );
+        }
+        if rows.selection.all_false() {
+            return Ok(SegmentRequests::none());
+        }
+
+        let dense_scope = rows.selection.all_true() && rows.demand.all_true();
+        let selected_scope = !dense_scope && rows.demands_all_selected();
+        let mut requests = SegmentRequests::none();
+        let mut saw_overlap = false;
+        let mut idx = self.node.first_chunk(range.start);
+        while idx + 1 < self.node.offsets.len() && self.node.offsets[idx] < range.end {
+            saw_overlap = true;
+            let chunk_start = self.node.offsets[idx];
+            let chunk_end = self.node.offsets[idx + 1];
+            let local =
+                range.start.saturating_sub(chunk_start)..(range.end.min(chunk_end) - chunk_start);
+            let sel_start = usize::try_from(chunk_start.max(range.start) - range.start)
+                .map_err(|_| vortex_err!("read range exceeds usize"))?;
+            let sel_end = usize::try_from(chunk_end.min(range.end) - range.start)
+                .map_err(|_| vortex_err!("read range exceeds usize"))?;
+            let chunk_selection = rows.selection.slice(sel_start..sel_end);
+            idx += 1;
+            if chunk_selection.all_false() {
+                continue;
+            }
+            let chunk_demand = rows.demand.slice(sel_start..sel_end);
+            if chunk_demand.all_false() {
+                continue;
+            }
+            let chunk_idx = idx - 1;
+            let read = self.node.child_read(chunk_idx, cx.session())?;
+            let child_state = self
+                .node
+                .child_read_state(chunk_idx, &read, state, cx.session())?;
+            let chunk_requests = if dense_scope || selected_scope {
+                read.segment_requests(
+                    local,
+                    RowScope::selected(&chunk_selection),
+                    child_state.as_ref(),
+                    cx,
+                )?
+            } else {
+                let chunk_rows = RowScope::try_new(&chunk_selection, &chunk_demand)?;
+                read.segment_requests(local, chunk_rows, child_state.as_ref(), cx)?
+            };
+            requests.extend(chunk_requests);
+            if requests.is_unknown() {
+                return Ok(requests);
+            }
+        }
+        if !saw_overlap {
+            vortex_bail!("chunked scoped read range {range:?} out of bounds");
+        }
+        Ok(requests)
     }
 
     fn release(&self, frontier: u64, state: &Self::State) -> VortexResult<()> {
@@ -845,7 +937,9 @@ impl ReadPlan for ChunkedExprReadPlan {
                 }
                 let chunk_idx = idx - 1;
                 let read = self.node.child_read(chunk_idx, io.session())?;
-                let child_state = self.node.child_read_state(chunk_idx, &read, state, io)?;
+                let child_state =
+                    self.node
+                        .child_read_state(chunk_idx, &read, state, io.session())?;
                 let chunk = if dense_scope || selected_scope {
                     read.read_scoped(
                         local,
@@ -875,6 +969,96 @@ impl ReadPlan for ChunkedExprReadPlan {
                 _ => Ok(ChunkedArray::try_new(parts, self.node.dtype.clone())?.into_array()),
             }
         })
+    }
+
+    fn segment_requests(
+        &self,
+        range: Range<u64>,
+        rows: RowScope<'_>,
+        state: &Self::State,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
+        let state = downcast_state::<ChunkedExprScanNode>(state.as_ref())?;
+        if range.start >= range.end {
+            vortex_bail!("empty chunked scoped read range");
+        }
+        #[cfg(debug_assertions)]
+        {
+            let released = state.released.load(Ordering::Relaxed);
+            debug_assert!(
+                range.start >= released,
+                "chunked expression request planning {range:?} below the released frontier {released}"
+            );
+        }
+        let range_len = usize::try_from(range.end - range.start)
+            .map_err(|_| vortex_err!("read range exceeds usize"))?;
+        if rows.selection.len() != range_len {
+            vortex_bail!(
+                "selection length {} does not match range length {range_len}",
+                rows.selection.len()
+            );
+        }
+        if rows.demand.len() != range_len {
+            vortex_bail!(
+                "demand length {} does not match range length {range_len}",
+                rows.demand.len()
+            );
+        }
+        if rows.selection.all_false() {
+            return Ok(SegmentRequests::none());
+        }
+
+        let dense_scope = rows.selection.all_true() && rows.demand.all_true();
+        let selected_scope = !dense_scope && rows.demands_all_selected();
+        let mut requests = SegmentRequests::none();
+        let mut saw_overlap = false;
+        let mut idx = self.node.chunked.first_chunk(range.start);
+        while idx + 1 < self.node.chunked.offsets.len()
+            && self.node.chunked.offsets[idx] < range.end
+        {
+            saw_overlap = true;
+            let chunk_start = self.node.chunked.offsets[idx];
+            let chunk_end = self.node.chunked.offsets[idx + 1];
+            let local =
+                range.start.saturating_sub(chunk_start)..(range.end.min(chunk_end) - chunk_start);
+            let sel_start = usize::try_from(chunk_start.max(range.start) - range.start)
+                .map_err(|_| vortex_err!("read range exceeds usize"))?;
+            let sel_end = usize::try_from(chunk_end.min(range.end) - range.start)
+                .map_err(|_| vortex_err!("read range exceeds usize"))?;
+            let chunk_selection = rows.selection.slice(sel_start..sel_end);
+            idx += 1;
+            if chunk_selection.all_false() {
+                continue;
+            }
+            let chunk_demand = rows.demand.slice(sel_start..sel_end);
+            if chunk_demand.all_false() {
+                continue;
+            }
+            let chunk_idx = idx - 1;
+            let read = self.node.child_read(chunk_idx, cx.session())?;
+            let child_state = self
+                .node
+                .child_read_state(chunk_idx, &read, state, cx.session())?;
+            let chunk_requests = if dense_scope || selected_scope {
+                read.segment_requests(
+                    local,
+                    RowScope::selected(&chunk_selection),
+                    child_state.as_ref(),
+                    cx,
+                )?
+            } else {
+                let chunk_rows = RowScope::try_new(&chunk_selection, &chunk_demand)?;
+                read.segment_requests(local, chunk_rows, child_state.as_ref(), cx)?
+            };
+            requests.extend(chunk_requests);
+            if requests.is_unknown() {
+                return Ok(requests);
+            }
+        }
+        if !saw_overlap {
+            vortex_bail!("chunked scoped read range {range:?} out of bounds");
+        }
+        Ok(requests)
     }
 
     fn release(&self, frontier: u64, state: &Self::State) -> VortexResult<()> {
@@ -971,6 +1155,83 @@ impl EvidencePlan for ChunkedEvidencePlan {
             }
             Ok(fragments)
         })
+    }
+
+    fn segment_requests(
+        &self,
+        req: &EvidenceRequest<'_>,
+        state: &Self::State,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
+        if req.range.start >= req.range.end {
+            return Ok(SegmentRequests::none());
+        }
+
+        let mut requests = SegmentRequests::none();
+        let mut idx = self.node.chunked.first_chunk(req.range.start);
+        while idx + 1 < self.node.chunked.offsets.len()
+            && self.node.chunked.offsets[idx] < req.range.end
+        {
+            let chunk_start = self.node.chunked.offsets[idx];
+            let chunk_end = self.node.chunked.offsets[idx + 1];
+            let local = req.range.start.saturating_sub(chunk_start)
+                ..(req.range.end.min(chunk_end) - chunk_start);
+            let recheck = req.mode == EvidenceMode::RecheckBeforeProjection;
+            let child_plans = if let Some(hit) = state.children.lock().get(&idx) {
+                hit.clone()
+            } else if recheck {
+                if let Some(hit) = state.recheck_children.lock().get(&idx) {
+                    hit.clone()
+                } else {
+                    let node = self.node.child(idx, cx.session())?;
+                    let mut plan_ctx = PlanCtx::new(cx.session().clone());
+                    let plans = node.plan_evidence(&mut plan_ctx)?;
+                    let planned = plans
+                        .into_iter()
+                        .filter(|plan| plan.recheck_before_projection())
+                        .map(|plan| {
+                            let plan_state = plan.init_state(cx.session())?;
+                            Ok((plan, plan_state))
+                        })
+                        .collect::<VortexResult<Vec<_>>>()?;
+                    let mut children = state.recheck_children.lock();
+                    children.entry(idx).or_insert(planned).clone()
+                }
+            } else {
+                let node = self.node.child(idx, cx.session())?;
+                let mut plan_ctx = PlanCtx::new(cx.session().clone());
+                let plans = node.plan_evidence(&mut plan_ctx)?;
+                let planned = plans
+                    .into_iter()
+                    .map(|plan| {
+                        let plan_state = plan.init_state(cx.session())?;
+                        Ok((plan, plan_state))
+                    })
+                    .collect::<VortexResult<Vec<_>>>()?;
+                let mut children = state.children.lock();
+                children.entry(idx).or_insert(planned).clone()
+            };
+            if !child_plans.is_empty() {
+                let child_req = EvidenceRequest {
+                    id: req.id,
+                    version: req.version,
+                    predicate: req.predicate,
+                    range: local,
+                    mode: req.mode,
+                };
+                for (plan, plan_state) in child_plans {
+                    if recheck && !plan.recheck_before_projection() {
+                        continue;
+                    }
+                    requests.extend(plan.segment_requests(&child_req, plan_state.as_ref(), cx)?);
+                    if requests.is_unknown() {
+                        return Ok(requests);
+                    }
+                }
+            }
+            idx += 1;
+        }
+        Ok(requests)
     }
 
     fn recheck_before_projection(&self) -> bool {
