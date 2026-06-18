@@ -8,9 +8,6 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
 
-/// Default alignment for device-to-host buffer copies.
-pub const ALIGNMENT_TO_HOST_COPY: Alignment = Alignment::new(256);
-
 /// The alignment of a buffer.
 ///
 /// This type is a wrapper around `usize` that ensures the alignment is a power of 2 and fits into
@@ -19,6 +16,9 @@ pub const ALIGNMENT_TO_HOST_COPY: Alignment = Alignment::new(256);
 pub struct Alignment(usize);
 
 impl Alignment {
+    /// Default alignment for device-to-host buffer copies.
+    pub const HOST_COPY: Self = Alignment::new(256);
+
     /// Create a new alignment.
     ///
     /// ## Panics
