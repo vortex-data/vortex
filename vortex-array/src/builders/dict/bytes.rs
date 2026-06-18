@@ -205,19 +205,25 @@ impl<Code: UnsignedPType> DictEncoder for BytesDictBuilder<Code> {
 #[cfg(test)]
 mod test {
     use std::str;
+    use std::sync::LazyLock;
+
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     #[expect(deprecated)]
     use crate::ToCanonical as _;
+    use crate::VortexSessionExecute;
     use crate::accessor::ArrayAccessor;
     use crate::arrays::VarBinArray;
     use crate::arrays::dict::DictArraySlotsExt;
     use crate::builders::dict::dict_encode;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+
     #[test]
     fn encode_varbin() {
         let arr = VarBinArray::from(vec!["hello", "world", "hello", "again", "world"]);
-        let dict = dict_encode(&arr.into_array()).unwrap();
+        let dict = dict_encode(&arr.into_array(), &mut SESSION.create_execution_ctx()).unwrap();
         #[expect(deprecated)]
         let codes = dict.codes().to_primitive();
         assert_eq!(codes.as_slice::<u8>(), &[0, 1, 0, 2, 1]);
@@ -247,7 +253,7 @@ mod test {
         ]
         .into_iter()
         .collect();
-        let dict = dict_encode(&arr.into_array()).unwrap();
+        let dict = dict_encode(&arr.into_array(), &mut SESSION.create_execution_ctx()).unwrap();
         #[expect(deprecated)]
         let codes = dict.codes().to_primitive();
         assert_eq!(codes.as_slice::<u8>(), &[0, 1, 2, 0, 1, 3, 2, 1]);
@@ -265,7 +271,7 @@ mod test {
     #[test]
     fn repeated_values() {
         let arr = VarBinArray::from(vec!["a", "a", "b", "b", "a", "b", "a", "b"]);
-        let dict = dict_encode(&arr.into_array()).unwrap();
+        let dict = dict_encode(&arr.into_array(), &mut SESSION.create_execution_ctx()).unwrap();
         #[expect(deprecated)]
         let values = dict.values().to_varbinview();
         values.with_iterator(|iter| {

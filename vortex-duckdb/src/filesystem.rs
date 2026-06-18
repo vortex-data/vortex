@@ -147,6 +147,22 @@ impl FileSystem for DuckDbFileSystem {
         .boxed()
     }
 
+    async fn head(&self, path: &str) -> VortexResult<Option<FileListing>> {
+        // DuckDB's filesystem exposes no stat/exists call, so probe the path by opening it and
+        // reading its size. DuckDB does not distinguish "not found" from other open failures, so
+        // any open error is treated as a missing file (logged for diagnosability).
+        match self.open_read(path).await {
+            Ok(reader) => Ok(Some(FileListing {
+                path: path.to_string(),
+                size: Some(reader.size().await?),
+            })),
+            Err(e) => {
+                tracing::debug!("head({path}): treating open error as not-found: {e}");
+                Ok(None)
+            }
+        }
+    }
+
     async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
         let mut url = self.base_url.clone();
         url.set_path(path);

@@ -12,7 +12,6 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::PrimitiveBuilder;
-use vortex_array::session::ArraySession;
 use vortex_error::VortexExpect;
 use vortex_fastlanes::bitpack_compress::test_harness::make_array;
 use vortex_session::VortexSession;
@@ -35,8 +34,7 @@ const BENCH_ARGS: &[(usize, usize, f64)] = &[
     (10000, 1000, 0.00),
 ];
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 #[cfg(not(codspeed))]
 #[divan::bench(args = BENCH_ARGS)]

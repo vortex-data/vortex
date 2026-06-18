@@ -17,6 +17,7 @@ use datafusion_datasource::PartitionedFile;
 use datafusion_datasource::TableSchema;
 use datafusion_datasource::file_stream::FileOpenFuture;
 use datafusion_datasource::file_stream::FileOpener;
+use datafusion_execution::cache::cache_manager::CachedFileMetadataEntry;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
 use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::projection::ProjectionExprs;
@@ -129,7 +130,7 @@ impl FileOpener for VortexOpener {
         let unified_file_schema = Arc::clone(self.table_schema.file_schema());
         let batch_size = self.batch_size;
         let limit = self.limit;
-        let layout_reader = Arc::clone(&self.layout_readers);
+        let layout_readers = Arc::clone(&self.layout_readers);
         let natural_split_ranges = Arc::clone(&self.natural_split_ranges);
         let has_output_ordering = self.has_output_ordering;
         let scan_concurrency = self.scan_concurrency;
@@ -160,9 +161,7 @@ impl FileOpener for VortexOpener {
         Ok(async move {
             // Create FilePruner when we have a predicate and either dynamic expressions
             // or file statistics available. The pruner can eliminate files without
-            // opening them based on:
-            // - Partition column values (e.g., date=2024-01-01)
-            // - File-level statistics (min/max values per column)
+            // opening them based on File-level statistics (min/max values per column)
             let mut file_pruner = file_pruning_predicate
                 .filter(|p| {
                     // Only create pruner if we have dynamic expressions or file statistics
@@ -192,21 +191,40 @@ impl FileOpener for VortexOpener {
                 .with_metrics_registry(Arc::clone(&metrics_registry))
                 .with_labels(labels);
 
-            if let Some(file_metadata_cache) = file_metadata_cache
-                && let Some(entry) = file_metadata_cache.get(file.path())
-                && entry.is_valid_for(&file.object_meta)
-                && let Some(vortex_metadata) = entry
-                    .file_metadata
-                    .as_any()
-                    .downcast_ref::<CachedVortexMetadata>()
-            {
-                open_opts = open_opts.with_footer(vortex_metadata.footer().clone());
+            let cached_footer = file_metadata_cache
+                .as_ref()
+                .and_then(|cache| cache.get(file.path()))
+                .filter(|entry| entry.is_valid_for(&file.object_meta))
+                .and_then(|entry| {
+                    entry
+                        .file_metadata
+                        .as_any()
+                        .downcast_ref::<CachedVortexMetadata>()
+                        .map(|vortex_metadata| vortex_metadata.footer().clone())
+                });
+            let footer_cache_hit = cached_footer.is_some();
+
+            if let Some(footer) = cached_footer {
+                open_opts = open_opts.with_footer(footer);
             }
 
             let vxf = open_opts
                 .open_read(reader)
                 .await
                 .map_err(|e| exec_datafusion_err!("Failed to open Vortex file {e}"))?;
+
+            // On a miss, cache the parsed footer so other partitions and later executions
+            // skip the footer fetch and parse. `infer_schema`/`infer_stats` also populate
+            // this cache, but only when planning goes through `VortexFormat`.
+            if !footer_cache_hit && let Some(cache) = &file_metadata_cache {
+                cache.put(
+                    file.path(),
+                    CachedFileMetadataEntry::new(
+                        file.object_meta.clone(),
+                        Arc::new(CachedVortexMetadata::new(&vxf)),
+                    ),
+                );
+            }
 
             // Check if there are rows in this file. If not, we can save
             // ourselves some work and return an empty stream.
@@ -219,7 +237,7 @@ impl FileOpener for VortexOpener {
             let this_file_schema = Arc::new(calculate_physical_schema(
                 vxf.dtype(),
                 &unified_file_schema,
-                &session.arrow(),
+                session.arrow(),
             )?);
 
             let projected_physical_schema = projection.project_schema(&unified_file_schema)?;
@@ -278,14 +296,14 @@ impl FileOpener for VortexOpener {
                 Schema::new(fields)
             };
             let stream_schema =
-                calculate_physical_schema(&scan_dtype, &scan_reference_schema, &session.arrow())?;
+                calculate_physical_schema(&scan_dtype, &scan_reference_schema, session.arrow())?;
 
             let leftover_projection = leftover_projection
                 .try_map_exprs(|expr| reassign_expr_columns(expr, &stream_schema))?;
             let projector = leftover_projection.make_projector(&stream_schema)?;
 
             // We share our layout readers with others partitions in the scan, so we can only need to read each layout in each file once.
-            let layout_reader = match layout_reader.entry(file.object_meta.location.clone()) {
+            let layout_reader = match layout_readers.entry(file.object_meta.location.clone()) {
                 Entry::Occupied(mut occupied_entry) => {
                     if let Some(reader) = occupied_entry.get().upgrade() {
                         tracing::trace!("reusing layout reader for {}", occupied_entry.key());
@@ -314,9 +332,7 @@ impl FileOpener for VortexOpener {
 
             let mut scan_builder = ScanBuilder::new(session.clone(), Arc::clone(&layout_reader));
 
-            if let Some(extensions) = file.extensions
-                && let Some(vortex_plan) = extensions.downcast_ref::<VortexAccessPlan>()
-            {
+            if let Some(vortex_plan) = file.extensions.get::<VortexAccessPlan>() {
                 scan_builder = vortex_plan.apply_to_builder(scan_builder);
             }
 
@@ -354,7 +370,6 @@ impl FileOpener for VortexOpener {
                     // This will only fail if the user has not configured a suitable
                     // PhysicalExprAdapterFactory on the file source to handle rewriting the
                     // expression to handle missing/reordered columns in the Vortex file.
-
                     let (pushed, unpushed): (Vec<PhysicalExprRef>, Vec<PhysicalExprRef>) =
                         split_conjunction(&f)
                             .into_iter()
@@ -570,6 +585,7 @@ mod tests {
     use datafusion::physical_expr::planner::logical2physical;
     use datafusion::physical_expr_adapter::DefaultPhysicalExprAdapterFactory;
     use datafusion::scalar::ScalarValue;
+    use datafusion_execution::cache::DefaultFilesMetadataCache;
     use datafusion_expr::Operator;
     use datafusion_physical_expr::expressions as df_expr;
     use datafusion_physical_expr::projection::ProjectionExpr;
@@ -773,6 +789,46 @@ mod tests {
         let data = stream.try_collect::<Vec<_>>().await?;
 
         assert_eq!(data.len(), 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_open_populates_file_metadata_cache() -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "cached/file.vortex";
+        let batch = record_batch!(("a", Int32, vec![Some(1), Some(2), Some(3)])).unwrap();
+        let data_size =
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
+
+        let file = PartitionedFile::new(file_path.to_string(), data_size);
+        let table_schema = TableSchema::from_file_schema(batch.schema());
+
+        let cache: Arc<dyn FileMetadataCache> =
+            Arc::new(DefaultFilesMetadataCache::new(64 * 1024 * 1024));
+        let mut opener = make_opener(Arc::clone(&object_store), table_schema, None);
+        opener.file_metadata_cache = Some(Arc::clone(&cache));
+
+        // The first open misses the cache and must write the parsed footer back.
+        let stream = opener.open(file.clone())?.await?;
+        stream.try_collect::<Vec<_>>().await?;
+
+        let entry = cache
+            .get(file.path())
+            .ok_or_else(|| anyhow::anyhow!("footer was not cached after open"))?;
+        assert!(entry.is_valid_for(&file.object_meta));
+        assert!(
+            entry
+                .file_metadata
+                .as_any()
+                .downcast_ref::<CachedVortexMetadata>()
+                .is_some()
+        );
+
+        // The second open hits the cache and still returns the same data.
+        let stream = opener.open(file.clone())?.await?;
+        let data = stream.try_collect::<Vec<_>>().await?;
+        assert_eq!(data.iter().map(|rb| rb.num_rows()).sum::<usize>(), 3);
 
         Ok(())
     }
@@ -1149,9 +1205,12 @@ mod tests {
 
         let schema = batch.schema();
         let mut file = PartitionedFile::new(file_path.to_string(), data_size);
-        file.extensions = Some(Arc::new(VortexAccessPlan::default().with_selection(
-            Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 5, 7])),
-        )));
+        file.extensions
+            .insert(
+                VortexAccessPlan::default().with_selection(Selection::IncludeByIndex(
+                    Buffer::from_iter(vec![1, 3, 5, 7]),
+                )),
+            );
 
         let opener = make_test_opener(
             Arc::clone(&object_store),
@@ -1190,9 +1249,12 @@ mod tests {
 
         let schema = batch.schema();
         let mut file = PartitionedFile::new(file_path.to_string(), data_size);
-        file.extensions = Some(Arc::new(VortexAccessPlan::default().with_selection(
-            Selection::ExcludeByIndex(Buffer::from_iter(vec![0, 2, 4, 6, 8])),
-        )));
+        file.extensions
+            .insert(
+                VortexAccessPlan::default().with_selection(Selection::ExcludeByIndex(
+                    Buffer::from_iter(vec![0, 2, 4, 6, 8]),
+                )),
+            );
 
         let opener = make_test_opener(
             Arc::clone(&object_store),
@@ -1234,9 +1296,8 @@ mod tests {
 
         let schema = batch.schema();
         let mut file = PartitionedFile::new(file_path.to_string(), data_size);
-        file.extensions = Some(Arc::new(
-            VortexAccessPlan::default().with_selection(Selection::All),
-        ));
+        file.extensions
+            .insert(VortexAccessPlan::default().with_selection(Selection::All));
 
         let opener = make_test_opener(
             Arc::clone(&object_store),

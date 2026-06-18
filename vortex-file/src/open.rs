@@ -60,6 +60,8 @@ pub struct VortexOpenOptions {
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
     /// Default labels applied to all the file's metrics
     labels: Vec<Label>,
+    /// Whether to cache file's LayoutReader between scans
+    cache_layout_reader: bool,
 }
 
 pub trait OpenOptionsSessionExt:
@@ -77,6 +79,7 @@ pub trait OpenOptionsSessionExt:
             initial_read_segments: Default::default(),
             metrics_registry: None,
             labels: Vec::default(),
+            cache_layout_reader: false,
         }
     }
 }
@@ -89,6 +92,12 @@ impl VortexOpenOptions {
     /// Configure the initial read size for the Vortex file.
     pub fn with_initial_read_size(mut self, initial_read_size: usize) -> Self {
         self.initial_read_size = initial_read_size;
+        self
+    }
+
+    /// Cache file's LayoutReader between scans
+    pub fn with_layout_reader_cache(mut self) -> Self {
+        self.cache_layout_reader = true;
         self
     }
 
@@ -182,6 +191,7 @@ impl VortexOpenOptions {
             tracing::warn!("metrics registry is ignored for in-memory `open_buffer`");
         }
 
+        let cache_layout_reader = self.cache_layout_reader;
         let mut opts = self.with_initial_read_size(0);
 
         let footer = match opts.footer.take() {
@@ -193,11 +203,11 @@ impl VortexOpenOptions {
             buffer,
             Arc::clone(footer.segment_map()),
         ));
-
-        Ok(VortexFile {
-            footer,
-            segment_source,
-            session: opts.session,
+        let file = VortexFile::new(footer, segment_source, opts.session);
+        Ok(if cache_layout_reader {
+            file.with_caching()
+        } else {
+            file
         })
     }
 
@@ -244,10 +254,11 @@ impl VortexOpenOptions {
             segment_source,
         ));
 
-        Ok(VortexFile {
-            footer,
-            segment_source,
-            session: self.session.clone(),
+        let file = VortexFile::new(footer, segment_source, self.session.clone());
+        Ok(if self.cache_layout_reader {
+            file.with_caching()
+        } else {
+            file
         })
     }
 
@@ -355,13 +366,10 @@ mod tests {
     use futures::future::BoxFuture;
     use vortex_array::IntoArray;
     use vortex_array::buffer::BufferHandle;
-    use vortex_array::dtype::session::DTypeSession;
     use vortex_array::memory::DefaultHostAllocator;
     use vortex_array::memory::HostAllocator;
     use vortex_array::memory::MemorySessionExt;
     use vortex_array::memory::WritableHostBuffer;
-    use vortex_array::scalar_fn::session::ScalarFnSession;
-    use vortex_array::session::ArraySession;
     use vortex_buffer::Alignment;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBuffer;
@@ -420,11 +428,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_initial_read_size() {
-        let session = VortexSession::empty()
-            .with::<DTypeSession>()
-            .with::<ArraySession>()
+        let session = vortex_array::array_session()
             .with::<LayoutSession>()
-            .with::<ScalarFnSession>()
             .with::<RuntimeSession>();
 
         crate::register_default_encodings(&session);
@@ -432,10 +437,16 @@ mod tests {
         // Create a large file (> 1MB)
         let mut buf = ByteBufferMut::empty();
 
-        // 1.5M integers -> ~6MB. We use a pattern to avoid Sequence encoding.
+        // 1.5M integers -> ~6MB. We use high-entropy (pseudo-random) values so the data does not
+        // compress well under any encoding (Sequence, RunEnd, Delta, ...), keeping the written
+        // file comfortably above 1MB.
+        let mut state = 0x9E37_79B9u32;
         let array = Buffer::from(
             (0i32..1_500_000)
-                .map(|i| if i % 2 == 0 { i } else { -i })
+                .map(|_| {
+                    state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                    state as i32
+                })
                 .collect::<Vec<i32>>(),
         )
         .into_array();
@@ -478,11 +489,8 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_open_path_uses_memory_session_allocator() {
-        let session = VortexSession::empty()
-            .with::<DTypeSession>()
-            .with::<ArraySession>()
+        let session = vortex_array::array_session()
             .with::<LayoutSession>()
-            .with::<ScalarFnSession>()
             .with::<RuntimeSession>();
 
         crate::register_default_encodings(&session);
@@ -502,11 +510,9 @@ mod tests {
         std::fs::write(&file_path, ByteBuffer::from(buf).as_slice()).unwrap();
 
         let allocations = Arc::new(AtomicUsize::new(0));
-        session
-            .memory_mut()
-            .set_allocator(Arc::new(CountingAllocator {
-                allocations: Arc::clone(&allocations),
-            }));
+        let session = session.with_allocator(Arc::new(CountingAllocator {
+            allocations: Arc::clone(&allocations),
+        }));
 
         let _file = session.open_options().open_path(&file_path).await.unwrap();
         std::fs::remove_file(&file_path).unwrap();

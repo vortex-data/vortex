@@ -9,6 +9,7 @@
 #include <random>
 #include <thread>
 #include <unistd.h>
+#include <fstream>
 
 using FFI_ArrowArrayStream = ArrowArrayStream;
 using FFI_ArrowArray = ArrowArray;
@@ -209,11 +210,16 @@ TEST_CASE("Creating datasources", "[datasource]") {
     ds = vx_data_source_new(session, &opts, &error);
     REQUIRE(ds == nullptr);
     REQUIRE(error != nullptr);
-    REQUIRE_THAT(to_string(error), ContainsSubstring("No such file or directory"));
+    REQUIRE_THAT(to_string(error), ContainsSubstring("No files matched the glob pattern"));
     vx_error_free(error);
 
     opts.paths = "/tmp2/*.vortex";
     ds = vx_data_source_new(session, &opts, &error);
+    REQUIRE(ds == nullptr);
+    REQUIRE(error != nullptr);
+    vx_error_free(error);
+
+    ds = vx_data_source_new_buffer(session, nullptr, 0, &error);
     REQUIRE(ds == nullptr);
     REQUIRE(error != nullptr);
     vx_error_free(error);
@@ -374,7 +380,6 @@ TEST_CASE("Requesting scans", "[datasource]") {
     }
 
     vx_scan_options options = {};
-    options.max_threads = 1;
 
     {
         vx_scan *scan = vx_data_source_scan(ds, &options, nullptr, &error);
@@ -384,24 +389,8 @@ TEST_CASE("Requesting scans", "[datasource]") {
     }
 }
 
-TEST_CASE("Basic scan", "[datasource]") {
-    vx_session *session = vx_session_new();
-    defer {
-        vx_session_free(session);
-    };
-    TempPath path = write_sample(session);
+void basic_scan(const vx_data_source *ds) {
     vx_error *error = nullptr;
-
-    vx_data_source_options ds_options = {};
-    ds_options.paths = path.c_str();
-
-    const vx_data_source *ds = vx_data_source_new(session, &ds_options, &error);
-    require_no_error(error);
-    REQUIRE(ds != nullptr);
-    defer {
-        vx_data_source_free(ds);
-    };
-
     vx_estimate estimate = {};
     vx_scan *scan = vx_data_source_scan(ds, nullptr, &estimate, &error);
     require_no_error(error);
@@ -438,6 +427,50 @@ TEST_CASE("Basic scan", "[datasource]") {
     require_no_error(error);
 
     verify_sample_array(array);
+}
+
+TEST_CASE("Basic scan", "[datasource]") {
+    vx_session *session = vx_session_new();
+    defer {
+        vx_session_free(session);
+    };
+    TempPath path = write_sample(session);
+    vx_error *error = nullptr;
+
+    vx_data_source_options ds_options = {};
+    ds_options.paths = path.c_str();
+    const vx_data_source *ds = vx_data_source_new(session, &ds_options, &error);
+    require_no_error(error);
+    REQUIRE(ds != nullptr);
+    defer {
+        vx_data_source_free(ds);
+    };
+
+    basic_scan(ds);
+}
+
+TEST_CASE("Basic scan from memory", "[datasource]") {
+    vx_session *session = vx_session_new();
+    defer {
+        vx_session_free(session);
+    };
+    TempPath path = write_sample(session);
+
+    std::ifstream file(path, std::ios::binary | std::ios::ate);
+    const std::streamsize size = file.tellg();
+    file.seekg(0, std::ios::beg);
+    std::vector<char> buffer(size);
+    REQUIRE(file.read(buffer.data(), size));
+
+    vx_error *error = nullptr;
+    const vx_data_source *ds = vx_data_source_new_buffer(session, buffer.data(), size, &error);
+    require_no_error(error);
+    REQUIRE(ds != nullptr);
+    defer {
+        vx_data_source_free(ds);
+    };
+
+    basic_scan(ds);
 }
 
 TEST_CASE("Multithreaded scan", "[datasource]") {
@@ -924,7 +957,6 @@ TEST_CASE("Broken scan with DType mismatch in filter", "[filter]") {
     };
 
     vx_scan_options scan_opts = {};
-    scan_opts.max_threads = 1;
     scan_opts.filter = filter;
 
     vx_scan *scan = vx_data_source_scan(ds, &scan_opts, nullptr, &error);

@@ -3,12 +3,8 @@
 
 #include <string>
 #include "duckdb_vx/error.h"
-#include "duckdb_vx/duckdb_diagnostics.h"
-
-DUCKDB_INCLUDES_BEGIN
 #include "duckdb.h"
 #include "duckdb/common/assert.hpp"
-DUCKDB_INCLUDES_END
 
 extern "C" duckdb_vx_error duckdb_vx_error_create(const char *message, size_t message_length) {
     return reinterpret_cast<duckdb_vx_error>(new std::string(message, message_length));

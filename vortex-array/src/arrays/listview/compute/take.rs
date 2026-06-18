@@ -4,7 +4,6 @@
 use num_traits::Zero;
 use vortex_error::VortexResult;
 
-use super::REBUILD_DENSITY_THRESHOLD;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -14,7 +13,6 @@ use crate::arrays::ListViewArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::dict::TakeReduce;
 use crate::arrays::listview::ListViewArrayExt;
-use crate::arrays::listview::ListViewRebuildMode;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::Nullability;
 use crate::match_each_integer_ptype;
@@ -23,43 +21,18 @@ use crate::scalar::Scalar;
 /// Metadata-only take for [`ListViewArray`].
 impl TakeReduce for ListView {
     fn take(array: ArrayView<'_, ListView>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        // Approximate element density by the fraction of list rows retained. Assumes roughly
-        // uniform list sizes; good enough to decide whether dragging along the full `elements`
-        // buffer is worth avoiding a rebuild.
-        let kept_row_fraction = indices.len() as f32 / array.sizes().len() as f32;
-        if kept_row_fraction < REBUILD_DENSITY_THRESHOLD {
-            return Ok(None);
-        }
-
         Ok(Some(apply_take(array, indices)?.into_array()))
     }
 }
 
 /// Execution-path take for [`ListViewArray`].
-///
-/// This does the same metadata-only take as [`TakeReduce`], but also rebuilds the array if the
-/// resulting array will be less dense than `REBUILD_DENSITY_THRESHOLD`.
 impl TakeExecute for ListView {
     fn take(
         array: ArrayView<'_, ListView>,
         indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let kept_row_fraction = indices.len() as f32 / array.sizes().len() as f32;
-        let taken = apply_take(array, indices)?;
-
-        if kept_row_fraction < REBUILD_DENSITY_THRESHOLD {
-            // TODO(connor)[ListView]: Ideally, we would only rebuild after all `take`s and `filter`
-            // compute functions have run, at the "top" of the operator tree. However, we cannot do
-            // this right now, so we will just rebuild every time (similar to `ListArray`).
-            Ok(Some(
-                taken
-                    .rebuild(ListViewRebuildMode::MakeZeroCopyToList)?
-                    .into_array(),
-            ))
-        } else {
-            Ok(Some(taken.into_array()))
-        }
+        Ok(Some(apply_take(array, indices)?.into_array()))
     }
 }
 

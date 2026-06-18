@@ -25,7 +25,7 @@ impl BufferString {
 
     /// Creates an empty `BufferString`.
     pub fn empty() -> Self {
-        Self(ByteBuffer::from(vec![]))
+        Self(ByteBuffer::empty())
     }
 
     /// Return a view of the contents of BufferString as an immutable `&str`.

@@ -41,7 +41,7 @@ impl CastReduce for Zstd {
                     child_to_validity(array.slots()[0].as_ref(), array.dtype().nullability());
                 let has_nulls = !unsliced_validity
                     .slice(array.slice_start()..array.slice_stop())?
-                    .no_nulls();
+                    .definitely_no_nulls();
 
                 // We don't attempt to handle casting when there are nulls.
                 if has_nulls {
@@ -83,15 +83,13 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
     use crate::Zstd;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     #[test]
     fn test_cast_zstd_i32_to_i64() {

@@ -7,7 +7,6 @@ use std::any::Any;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
-use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::SessionVar;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -15,13 +14,24 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::scalar_fn::ScalarFnId;
 use crate::stats::rewrite::StatsRewriteRule;
 use crate::stats::rewrite::StatsRewriteRuleRef;
+use crate::stats::rewrite::register_builtins;
 
 type StatsRewriteRuleSet = Arc<[StatsRewriteRuleRef]>;
 
 /// Session state for stats APIs.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct StatsSession {
-    rewrite_rules: RwLock<HashMap<ScalarFnId, StatsRewriteRuleSet>>,
+    rewrite_rules: Arc<RwLock<HashMap<ScalarFnId, StatsRewriteRuleSet>>>,
+}
+
+impl Default for StatsSession {
+    fn default() -> Self {
+        let this = Self {
+            rewrite_rules: Arc::new(RwLock::new(HashMap::default())),
+        };
+        register_builtins(&this);
+        this
+    }
 }
 
 impl StatsSession {
@@ -66,7 +76,7 @@ impl SessionVar for StatsSession {
 /// Extension trait for accessing stats session data.
 pub(crate) trait StatsSessionExt: SessionExt {
     /// Returns the stats session state.
-    fn stats(&self) -> Ref<'_, StatsSession> {
+    fn stats(&self) -> &StatsSession {
         self.get::<StatsSession>()
     }
 }

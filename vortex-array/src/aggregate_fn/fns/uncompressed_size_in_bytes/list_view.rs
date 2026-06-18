@@ -18,7 +18,7 @@ pub(super) fn list_view_uncompressed_size_in_bytes(
     let mut size = if array.is_empty() {
         0
     } else {
-        let rebuilt = array.rebuild(ListViewRebuildMode::MakeExact)?;
+        let rebuilt = array.rebuild(ListViewRebuildMode::MakeExact, ctx)?;
         uncompressed_size_in_bytes_u64(rebuilt.elements(), ctx)?
     };
 

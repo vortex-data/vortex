@@ -16,7 +16,6 @@ version = { workspace = true }
 [dependencies]
 dashmap = { workspace = true, optional = true }
 hashbrown = { workspace = true }
-parking_lot = { workspace = true, optional = true }
 vortex-error = { workspace = true }
 
 [lints]

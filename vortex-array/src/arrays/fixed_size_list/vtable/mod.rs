@@ -16,9 +16,9 @@ use vortex_session::registry::CachedId;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
+use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
-use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
@@ -43,15 +43,13 @@ pub type FixedSizeListArray = Array<FixedSizeList>;
 pub struct FixedSizeList;
 
 impl ArrayHash for FixedSizeListData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
-        let _precision = precision;
+    fn array_hash<H: Hasher>(&self, state: &mut H, _accuracy: EqMode) {
         self.degenerate_len.hash(state);
     }
 }
 
 impl ArrayEq for FixedSizeListData {
-    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
-        let _precision = precision;
+    fn array_eq(&self, other: &Self, _accuracy: EqMode) -> bool {
         self.degenerate_len == other.degenerate_len
     }
 }

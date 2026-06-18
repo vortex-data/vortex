@@ -6,6 +6,7 @@ use std::fmt::Formatter;
 use vortex_array::scalar_fn::internal::row_count::RowCount;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -34,7 +35,8 @@ impl ScalarFnVTable for IsNotNull {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new("vortex.is_not_null")
+        static ID: CachedId = CachedId::new("vortex.is_not_null");
+        *ID
     }
 
     fn serialize(&self, _instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

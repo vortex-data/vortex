@@ -18,11 +18,9 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::RUNTIME;
 use crate::SESSION;
-use crate::datasource::DataSourceTableFunction;
 use crate::duckdb::BindInputRef;
 use crate::duckdb::ClientContextRef;
 use crate::duckdb::ExtractedValue;
-use crate::duckdb::LogicalType;
 use crate::filesystem::resolve_filesystem;
 
 /// Parse a glob string into a [`Url`].
@@ -57,45 +55,8 @@ fn normalize_path(path: std::path::PathBuf) -> std::path::PathBuf {
     normalized
 }
 
-/// Vortex multi-file scan table function (`vortex_scan` / `read_vortex`).
-///
-/// Takes a file glob parameter and resolves it into a [`MultiFileDataSource`].
-/// All other table function logic is provided by the blanket [`DataSourceTableFunction`]
-/// implementation.
-#[derive(Debug)]
-pub struct VortexMultiFileScan;
-
-/// Variant of [`VortexMultiFileScan`] that accepts a list of globs.
-///
-/// This is registered as a separate overload to handle `read_vortex(['a.vortex', 'b.vortex'])`.
-#[derive(Debug)]
-pub struct VortexMultiFileScanList;
-
-impl DataSourceTableFunction for VortexMultiFileScan {
-    fn parameters() -> Vec<LogicalType> {
-        vec![LogicalType::varchar()]
-    }
-
-    fn bind(ctx: &ClientContextRef, input: &BindInputRef) -> VortexResult<MultiLayoutDataSource> {
-        bind_multi_file_scan(ctx, input)
-    }
-}
-
-impl DataSourceTableFunction for VortexMultiFileScanList {
-    fn parameters() -> Vec<LogicalType> {
-        vec![
-            LogicalType::list_type(LogicalType::varchar())
-                .unwrap_or_else(|_| unreachable!("creating list<varchar> type should not fail")),
-        ]
-    }
-
-    fn bind(ctx: &ClientContextRef, input: &BindInputRef) -> VortexResult<MultiLayoutDataSource> {
-        bind_multi_file_scan(ctx, input)
-    }
-}
-
 /// Shared bind logic for both single-glob and multi-glob variants.
-fn bind_multi_file_scan(
+pub fn bind_multi_file_scan(
     ctx: &ClientContextRef,
     input: &BindInputRef,
 ) -> VortexResult<MultiLayoutDataSource> {

@@ -5,8 +5,8 @@ use vortex_error::VortexResult;
 
 use crate::ArrayEq;
 use crate::ArrayRef;
+use crate::EqMode;
 use crate::IntoArray;
-use crate::Precision;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::Constant;
@@ -126,10 +126,9 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnValuesPushDownRule {
             }
         }
 
-        let new_values =
-            ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children, values_len)?
-                .into_array()
-                .optimize()?;
+        let new_values = ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children)?
+            .into_array()
+            .optimize()?;
 
         // We can only push down null-sensitive functions when we have all-valid codes.
         // In these cases, we cannot have the codes influence the nullability of the output DType.
@@ -175,11 +174,10 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnCodesPullUpRule {
         }
 
         // Now run the slightly more expensive check that all siblings have the same codes as us.
-        // We use the cheaper Precision::Ptr to avoid doing data comparisons.
         if !parent.iter_children().enumerate().all(|(idx, c)| {
             idx == child_idx
                 || c.as_opt::<Dict>()
-                    .is_some_and(|c| c.codes().array_eq(array.codes(), Precision::Value))
+                    .is_some_and(|c| c.codes().array_eq(array.codes(), EqMode::Value))
         }) {
             return Ok(None);
         }
@@ -193,13 +191,9 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnCodesPullUpRule {
             }
         }
 
-        let new_values = ScalarFnArray::try_new(
-            parent.scalar_fn().clone(),
-            new_children,
-            array.values().len(),
-        )?
-        .into_array()
-        .optimize()?;
+        let new_values = ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children)?
+            .into_array()
+            .optimize()?;
 
         let new_dict =
             unsafe { DictArray::new_unchecked(array.codes().clone(), new_values) }.into_array();

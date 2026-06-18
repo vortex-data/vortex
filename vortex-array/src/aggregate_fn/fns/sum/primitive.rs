@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
+use num_traits::AsPrimitive;
 use num_traits::ToPrimitive;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -13,7 +13,13 @@ use super::checked_add_i64;
 use super::checked_add_u64;
 use crate::ExecutionCtx;
 use crate::arrays::PrimitiveArray;
+use crate::dtype::NativePType;
+use crate::dtype::PType;
 use crate::match_each_native_ptype;
+
+/// Number of elements summed without an overflow check. Chosen so that a chunk of values narrower
+/// than 64 bits cannot overflow the 64-bit accumulator: `2^16 * (2^32 - 1) < 2^64`.
+const SUM_CHUNK: usize = 1 << 16;
 
 pub(super) fn accumulate_primitive(
     inner: &mut SumState,
@@ -21,48 +27,30 @@ pub(super) fn accumulate_primitive(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<bool> {
     let mask = p.as_ref().validity()?.execute_mask(p.as_ref().len(), ctx)?;
-    match mask.bit_buffer() {
+    match mask.slices() {
         AllOr::None => Ok(false),
         AllOr::All => accumulate_primitive_all(inner, p),
-        AllOr::Some(validity) => accumulate_primitive_valid(inner, p, validity),
+        AllOr::Some(slices) => accumulate_primitive_valid(inner, p, slices),
     }
 }
 
 fn accumulate_primitive_all(inner: &mut SumState, p: &PrimitiveArray) -> VortexResult<bool> {
     match inner {
         SumState::Unsigned(acc) => match_each_native_ptype!(p.ptype(),
-            unsigned: |T| {
-                for &v in p.as_slice::<T>() {
-                    if checked_add_u64(acc, v.to_u64().vortex_expect("unsigned to u64")) {
-                        return Ok(true);
-                    }
-                }
-                Ok(false)
-            },
+            unsigned: |T| { Ok(sum_unsigned_all(acc, p.as_slice::<T>())) },
             signed: |_T| { vortex_panic!("unsigned sum state with signed input") },
             floating: |_T| { vortex_panic!("unsigned sum state with float input") }
         ),
         SumState::Signed(acc) => match_each_native_ptype!(p.ptype(),
             unsigned: |_T| { vortex_panic!("signed sum state with unsigned input") },
-            signed: |T| {
-                for &v in p.as_slice::<T>() {
-                    if checked_add_i64(acc, v.to_i64().vortex_expect("signed to i64")) {
-                        return Ok(true);
-                    }
-                }
-                Ok(false)
-            },
+            signed: |T| { Ok(sum_signed_all(acc, p.as_slice::<T>())) },
             floating: |_T| { vortex_panic!("signed sum state with float input") }
         ),
         SumState::Float(acc) => match_each_native_ptype!(p.ptype(),
             unsigned: |_T| { vortex_panic!("float sum state with unsigned input") },
             signed: |_T| { vortex_panic!("float sum state with signed input") },
             floating: |T| {
-                for &v in p.as_slice::<T>() {
-                    if !v.is_nan() {
-                        *acc += ToPrimitive::to_f64(&v).vortex_expect("float to f64");
-                    }
-                }
+                sum_float_all(acc, p.as_slice::<T>());
                 Ok(false)
             }
         ),
@@ -70,16 +58,77 @@ fn accumulate_primitive_all(inner: &mut SumState, p: &PrimitiveArray) -> VortexR
     }
 }
 
+/// Sum the non-NaN values of a float slice into an `f64` accumulator. NaNs are skipped to match the
+/// scalar `sum` semantics. Floats cannot overflow the accumulator, so this never reports saturation.
+pub(super) fn sum_float_all<T: NativePType>(acc: &mut f64, slice: &[T]) {
+    for &v in slice {
+        if !v.is_nan() {
+            *acc += ToPrimitive::to_f64(&v).vortex_expect("float to f64");
+        }
+    }
+}
+
+/// Sum all values into a `u64` accumulator. For types narrower than 64 bits, values are summed in
+/// chunks of [`SUM_CHUNK`] with a single checked add per chunk, which lets the inner loop vectorize
+/// to packed widening adds. `u64` input keeps a per-element checked add since a chunk of `u64`s
+/// could itself overflow. Returns `true` on overflow.
+pub(super) fn sum_unsigned_all<T>(acc: &mut u64, slice: &[T]) -> bool
+where
+    T: NativePType + AsPrimitive<u64>,
+{
+    if T::PTYPE == PType::U64 {
+        for &v in slice {
+            if checked_add_u64(acc, v.as_()) {
+                return true;
+            }
+        }
+        return false;
+    }
+    for chunk in slice.chunks(SUM_CHUNK) {
+        let chunk_sum: u64 = chunk.iter().map(|&v| v.as_()).sum();
+        if checked_add_u64(acc, chunk_sum) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Signed counterpart of [`sum_unsigned_all`].
+pub(super) fn sum_signed_all<T>(acc: &mut i64, slice: &[T]) -> bool
+where
+    T: NativePType + AsPrimitive<i64>,
+{
+    if T::PTYPE == PType::I64 {
+        for &v in slice {
+            if checked_add_i64(acc, v.as_()) {
+                return true;
+            }
+        }
+        return false;
+    }
+    for chunk in slice.chunks(SUM_CHUNK) {
+        let chunk_sum: i64 = chunk.iter().map(|&v| v.as_()).sum();
+        if checked_add_i64(acc, chunk_sum) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Sum the valid elements, described as contiguous `[start, end)` runs of set validity bits. Each
+/// run is a slice of fully-valid values, so it reuses the same vectorized reduction as the
+/// all-valid path instead of a per-element validity branch.
 fn accumulate_primitive_valid(
     inner: &mut SumState,
     p: &PrimitiveArray,
-    validity: &vortex_buffer::BitBuffer,
+    slices: &[(usize, usize)],
 ) -> VortexResult<bool> {
     match inner {
         SumState::Unsigned(acc) => match_each_native_ptype!(p.ptype(),
             unsigned: |T| {
-                for (&v, valid) in p.as_slice::<T>().iter().zip_eq(validity.iter()) {
-                    if valid && checked_add_u64(acc, v.to_u64().vortex_expect("unsigned to u64")) {
+                let values = p.as_slice::<T>();
+                for &(start, end) in slices {
+                    if sum_unsigned_all(acc, &values[start..end]) {
                         return Ok(true);
                     }
                 }
@@ -91,8 +140,9 @@ fn accumulate_primitive_valid(
         SumState::Signed(acc) => match_each_native_ptype!(p.ptype(),
             unsigned: |_T| { vortex_panic!("signed sum state with unsigned input") },
             signed: |T| {
-                for (&v, valid) in p.as_slice::<T>().iter().zip_eq(validity.iter()) {
-                    if valid && checked_add_i64(acc, v.to_i64().vortex_expect("signed to i64")) {
+                let values = p.as_slice::<T>();
+                for &(start, end) in slices {
+                    if sum_signed_all(acc, &values[start..end]) {
                         return Ok(true);
                     }
                 }
@@ -104,10 +154,9 @@ fn accumulate_primitive_valid(
             unsigned: |_T| { vortex_panic!("float sum state with unsigned input") },
             signed: |_T| { vortex_panic!("float sum state with signed input") },
             floating: |T| {
-                for (&v, valid) in p.as_slice::<T>().iter().zip_eq(validity.iter()) {
-                    if valid && !v.is_nan() {
-                        *acc += ToPrimitive::to_f64(&v).vortex_expect("float to f64");
-                    }
+                let values = p.as_slice::<T>();
+                for &(start, end) in slices {
+                    sum_float_all(acc, &values[start..end]);
                 }
                 Ok(false)
             }
@@ -167,6 +216,26 @@ mod tests {
         let arr = PrimitiveArray::from_option_iter([Some(2i32), None, Some(4)]).into_array();
         let result = sum(&arr, &mut LEGACY_SESSION.create_execution_ctx())?;
         assert_eq!(result.as_primitive().typed_value::<i64>(), Some(6));
+        Ok(())
+    }
+
+    #[test]
+    fn sum_multiple_null_runs() -> VortexResult<()> {
+        // Several disjoint valid runs separated by nulls exercise the per-run fold.
+        let arr = PrimitiveArray::from_option_iter([
+            Some(1i32),
+            Some(2),
+            None,
+            None,
+            Some(3),
+            None,
+            Some(4),
+            Some(5),
+            Some(6),
+        ])
+        .into_array();
+        let result = sum(&arr, &mut LEGACY_SESSION.create_execution_ctx())?;
+        assert_eq!(result.as_primitive().typed_value::<i64>(), Some(21));
         Ok(())
     }
 

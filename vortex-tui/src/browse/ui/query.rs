@@ -273,8 +273,8 @@ impl QueryState {
     /// Spawn a background task for the pending query, if any.
     ///
     /// After calling `prepare_*` methods, call this to kick off execution.
-    /// The result will arrive on [`pending_rx`] and should be applied with
-    /// [`apply_query_result`].
+    /// The result will arrive on `pending_rx` and should be applied with
+    /// [`Self::apply_query_result`].
     pub(crate) fn spawn_pending(&mut self, session: &VortexSession, file_path: &str) {
         if !self.pending_execution {
             return;

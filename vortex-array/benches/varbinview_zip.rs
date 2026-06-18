@@ -3,9 +3,10 @@
 
 #![expect(clippy::unwrap_used)]
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::VarBinViewArray;
@@ -13,10 +14,13 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 
 fn main() {
     divan::main();
 }
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 /// Benchmarks zip on VarBinView arrays with a highly fragmented mask (worst case for per-slice lookup paths).
 #[divan::bench]
@@ -32,7 +36,7 @@ fn varbinview_zip_fragmented_mask(bencher: Bencher) {
                 if_true.clone(),
                 if_false.clone(),
                 mask.clone().into_array(),
-                LEGACY_SESSION.create_execution_ctx(),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_refs(|(t, f, m, ctx)| {
@@ -57,7 +61,7 @@ fn varbinview_zip_block_mask(bencher: Bencher) {
                 if_true.clone(),
                 if_false.clone(),
                 mask.clone().into_array(),
-                LEGACY_SESSION.create_execution_ctx(),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_refs(|(t, f, m, ctx)| {

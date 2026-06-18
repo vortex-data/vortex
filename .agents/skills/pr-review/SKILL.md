@@ -60,16 +60,16 @@ network permissions.
 
 ## Review Areas
 
-| Area | Focus |
-| --- | --- |
-| Correctness | Length and dtype invariants, nullability, validity masks, offset math, canonicalization, boundary conditions, empty arrays, scalar vs array behavior |
-| Rust soundness | `unsafe` blocks, aliasing, lifetimes, alignment, FFI boundaries, panic safety, ownership of buffers and arrays |
-| Compression and IO | Encoding metadata, statistics, layout evolution, file compatibility, scan projection/filter behavior, async IO edge cases |
-| Performance | Unnecessary copies, lost zero-copy behavior, avoidable allocations, poor cache locality, quadratic loops, excessive dynamic dispatch in hot paths |
-| Error handling | Correct `vortex_err!` and `vortex_bail!` usage, useful messages, no accidental panics on user data |
-| API compatibility | Public API docs, public-api lock updates, feature flags, crate boundaries, Python/Java binding impacts |
-| Tests | Regression coverage, edge cases, parameterized cases with `rstest`, use of `assert_arrays_eq!`, docs doctests when docs change |
-| Verification scope | Avoid requesting or running expensive workspace checks when the PR only changes docs, agent files, symlinks, or metadata |
+| Area               | Focus                                                                                                                                                |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Correctness        | Length and dtype invariants, nullability, validity masks, offset math, canonicalization, boundary conditions, empty arrays, scalar vs array behavior |
+| Rust soundness     | `unsafe` blocks, aliasing, lifetimes, alignment, FFI boundaries, panic safety, ownership of buffers and arrays                                       |
+| Compression and IO | Encoding metadata, statistics, layout evolution, file compatibility, scan projection/filter behavior, async IO edge cases                            |
+| Performance        | Unnecessary copies, lost zero-copy behavior, avoidable allocations, poor cache locality, quadratic loops, excessive dynamic dispatch in hot paths    |
+| Error handling     | Correct `vortex_err!` and `vortex_bail!` usage, useful messages, no accidental panics on user data                                                   |
+| API compatibility  | Public API docs, feature flags, crate boundaries, Python/Java binding impacts                                                                        |
+| Tests              | Regression coverage, edge cases, parameterized cases with `rstest`, use of `assert_arrays_eq!`, docs doctests when docs change                       |
+| Verification scope | Avoid requesting or running expensive workspace checks when the PR only changes docs, agent files, symlinks, or metadata                             |
 
 ## Output
 

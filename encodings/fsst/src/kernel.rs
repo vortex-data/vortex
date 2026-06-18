@@ -5,6 +5,7 @@ use vortex_array::arrays::dict::TakeExecuteAdaptor;
 use vortex_array::arrays::filter::FilterExecuteAdaptor;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
+use vortex_array::scalar_fn::fns::byte_length::ByteLengthExecuteAdaptor;
 use vortex_array::scalar_fn::fns::cast::CastExecuteAdaptor;
 use vortex_array::scalar_fn::fns::like::LikeExecuteAdaptor;
 
@@ -16,6 +17,7 @@ pub(super) const PARENT_KERNELS: ParentKernelSet<FSST> = ParentKernelSet::new(&[
     ParentKernelSet::lift(&FilterExecuteAdaptor(FSST)),
     ParentKernelSet::lift(&TakeExecuteAdaptor(FSST)),
     ParentKernelSet::lift(&LikeExecuteAdaptor(FSST)),
+    ParentKernelSet::lift(&ByteLengthExecuteAdaptor(FSST)),
 ]);
 
 #[cfg(test)]
@@ -27,11 +29,13 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::FilterArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::varbin::builder::VarBinBuilder;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
-    use vortex_array::session::ArraySession;
+    use vortex_array::expr::byte_length;
+    use vortex_array::expr::root;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
     use vortex_session::VortexSession;
@@ -40,8 +44,7 @@ mod tests {
     use crate::fsst_compress;
     use crate::fsst_train_compressor;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     fn build_test_fsst_array() -> ArrayRef {
         let mut builder = VarBinBuilder::<i32>::with_capacity(10);
@@ -110,7 +113,6 @@ mod tests {
 
     #[test]
     fn issues_6034_test_fsst_filter_with_nulls_and_special_chars() -> VortexResult<()> {
-        //
         // Test case with special characters and nulls
         // Values: ["", "", "", "", "", "", "", "", "", "", "", ",", "A<<<<<<<", "", "", "", "", null, null, null, null, null, null]
         // Mask: only the last element is selected (true at index 22)
@@ -203,6 +205,26 @@ mod tests {
         let result = filter_array.execute::<Canonical>(&mut ctx)?.into_array();
 
         assert_arrays_eq!(result, fsst_array);
+        Ok(())
+    }
+
+    #[test]
+    fn test_fsst_byte_length() -> VortexResult<()> {
+        let mut builder = VarBinBuilder::<i32>::with_capacity(3);
+        builder.append_value(b"hello");
+        builder.append_value(b"world!!");
+        builder.append_value("Пуховички"); // 9 characters, 18 bytes
+        builder.append_value(b"");
+
+        let varbin = builder.finish(DType::Utf8(Nullability::NonNullable));
+        let compressor = fsst_train_compressor(&varbin);
+        let len = varbin.len();
+        let dtype = varbin.dtype().clone();
+        let mut ctx = SESSION.create_execution_ctx();
+        let fsst = fsst_compress(varbin, len, &dtype, &compressor, &mut ctx).into_array();
+        let result = fsst.apply(&byte_length(root()))?;
+        let expected = PrimitiveArray::from_iter(vec![5u64, 7, 18, 0]);
+        assert_arrays_eq!(result, expected);
         Ok(())
     }
 }

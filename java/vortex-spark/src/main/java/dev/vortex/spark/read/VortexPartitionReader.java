@@ -18,6 +18,8 @@ import dev.vortex.spark.VortexSparkSession;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import org.apache.spark.sql.connector.expressions.filter.Predicate;
 import org.apache.spark.sql.connector.read.PartitionReader;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.vectorized.ColumnVector;
@@ -46,7 +48,11 @@ final class VortexPartitionReader implements PartitionReader<ColumnarBatch> {
     private boolean currentBatchLoaded;
     private boolean exhausted;
 
-    VortexPartitionReader(VortexFilePartition spark, List<String> dataColumnNames, Map<String, String> formatOptions) {
+    VortexPartitionReader(
+            VortexFilePartition spark,
+            List<String> dataColumnNames,
+            Map<String, String> formatOptions,
+            Predicate[] pushedPredicates) {
         this.spark = spark;
         this.allocator = ArrowAllocation.rootAllocator();
 
@@ -58,7 +64,22 @@ final class VortexPartitionReader implements PartitionReader<ColumnarBatch> {
             Expression projection = Expression.select(dataColumnNames.toArray(new String[0]), Expression.root());
             options.projection(projection);
         }
+        if (pushedPredicates != null && pushedPredicates.length > 0) {
+            buildFilterExpression(pushedPredicates).ifPresent(options::filter);
+        }
         scan = dataSource.scan(options.build());
+    }
+
+    private static Optional<Expression> buildFilterExpression(Predicate[] predicates) {
+        Expression combined = null;
+        for (Predicate predicate : predicates) {
+            Optional<Expression> expr = SparkPredicateToVortexExpression.convert(predicate);
+            if (expr.isEmpty()) {
+                continue;
+            }
+            combined = combined == null ? expr.get() : Expression.and(combined, expr.get());
+        }
+        return Optional.ofNullable(combined);
     }
 
     @Override

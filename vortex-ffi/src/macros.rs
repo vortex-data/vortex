@@ -8,11 +8,11 @@
 //! in our APIs and reducing boilerplate code.
 //!
 //! There are four macros provided:
-//! - [`arc_wrapper!`]: Wraps a type in an `Arc<T>` for shared ownership.
-//! - [`arc_dyn_wrapper!`]: Wraps a type in an `Arc<dyn T>` for shared ownership, allowing for dynamic
+//! - `arc_wrapper!`: Wraps a type in an `Arc<T>` for shared ownership.
+//! - `arc_dyn_wrapper!`: Wraps a type in an `Arc<dyn T>` for shared ownership, allowing for dynamic
 //!   dispatch of unsized types (like trait objects).
-//! - [`box_wrapper!`]: Wraps a type in a `Box<T>` for single ownership.
-//! - [`box_dyn_wrapper!`]: Wraps a type in a `Box<dyn T>` for single ownership, allowing for dynamic
+//! - `box_wrapper!`: Wraps a type in a `Box<T>` for single ownership.
+//! - `box_dyn_wrapper!`: Wraps a type in a `Box<dyn T>` for single ownership, allowing for dynamic
 //!   dispatch of unsized types (like trait objects).
 //!
 //! Similarly to Rust, `Box` can be chosen to provide single ownership and mutability semantics,
@@ -39,7 +39,6 @@
 //! These macros don't require any Send + Sync bounds. We could try and define this behaviour here
 //! to make it clearer, but for now, it's important to just be careful when documenting the thread
 //! safety of the functions that use these types.
-//!
 
 /// Define a native FFI type that wraps an [`std::sync::Arc<T>`] type with unsized T.
 ///
@@ -287,6 +286,10 @@ macro_rules! box_wrapper {
             }
 
             #[doc = r" Free an owned [`" $ffi_ident "`] object."]
+            // These allows only matter once the destructor is re-exported (e.g. `vx_error_free`):
+            // its `# Safety` lives at the C boundary, and its doc links a private wrapper type.
+            #[allow(clippy::missing_safety_doc)]
+            #[allow(rustdoc::private_intra_doc_links)]
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<$ffi_ident _free>](ptr: *mut $ffi_ident) {
                 if ptr.is_null() {

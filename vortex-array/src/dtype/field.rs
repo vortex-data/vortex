@@ -84,7 +84,6 @@ impl Display for Field {
 /// let dtype_i32 = DType::Primitive(PType::I32, Nullability::NonNullable);
 /// assert_eq!(dtype_i32, FieldPath::root().resolve(dtype_i32.clone()).unwrap());
 /// ```
-///
 // TODO(ngates): we should probably reverse the path. Or better yet, store a Arc<[Field]> along
 //  with a positional index to allow cheap step_into.
 #[derive(Clone, Default, Debug, PartialEq, Eq, Hash)]
@@ -239,17 +238,55 @@ impl Display for FieldPath {
 }
 
 #[derive(Default, Clone, Debug)]
-/// Contains a set of field paths, and can answer an efficient field path contains queries.
+/// A set of field paths supporting efficient `contains` queries.
+///
+/// Paths are stored as inserted. Prefix-minimization—collapsing a path into an ancestor that
+/// already covers it—is deferred until the set is iterated via [`IntoIterator`], so insertion stays
+/// cheap.
 pub struct FieldPathSet {
-    /// While this is currently a set wrapper it can be replaced with a trie.
+    /// While this is currently a set wrapper it can be replaced with a trie, at which point the
+    /// deferred minimization in [`IntoIterator`] becomes cheap.
     // TODO(joe): this can be replaced with a `FieldPath` trie
     set: HashSet<FieldPath>,
 }
 
 impl FieldPathSet {
-    /// Checks if a set contains a field path
+    /// Checks if the set contains exactly this field path.
     pub fn contains(&self, path: &FieldPath) -> bool {
         self.set.contains(path)
+    }
+
+    /// Iterates over the field paths in the set, as inserted (not prefix-minimized).
+    pub fn iter(&self) -> impl Iterator<Item = &FieldPath> {
+        self.set.iter()
+    }
+
+    /// Inserts a field path. Prefix-minimization is deferred until the set is iterated.
+    pub fn insert(&mut self, path: FieldPath) {
+        self.set.insert(path);
+    }
+}
+
+/// Reduces field paths to their minimal covering set: any path that has another path in the set as
+/// a prefix is redundant and dropped.
+fn minimal_covering_set(paths: impl IntoIterator<Item = FieldPath>) -> Vec<FieldPath> {
+    let mut covering: Vec<FieldPath> = Vec::new();
+    for path in paths {
+        if covering
+            .iter()
+            .any(|existing| path.parts().starts_with(existing.parts()))
+        {
+            continue;
+        }
+        covering.retain(|existing| !existing.parts().starts_with(path.parts()));
+        covering.push(path);
+    }
+    covering
+}
+
+impl Extend<FieldPath> for FieldPathSet {
+    fn extend<T: IntoIterator<Item = FieldPath>>(&mut self, iter: T) {
+        self.set.extend(iter);
     }
 }
 
@@ -257,6 +294,16 @@ impl FromIterator<FieldPath> for FieldPathSet {
     fn from_iter<T: IntoIterator<Item = FieldPath>>(iter: T) -> Self {
         let set = HashSet::from_iter(iter);
         Self { set }
+    }
+}
+
+impl IntoIterator for FieldPathSet {
+    type Item = FieldPath;
+    type IntoIter = std::vec::IntoIter<FieldPath>;
+
+    /// Iterates the prefix-minimal covering set: redundant descendants are dropped.
+    fn into_iter(self) -> Self::IntoIter {
+        minimal_covering_set(self.set).into_iter()
     }
 }
 
@@ -417,5 +464,18 @@ mod tests {
         let path3 = field_path!(x);
         assert!(!path1.overlap(&path3));
         assert!(!path3.overlap(&path1));
+    }
+
+    #[test]
+    fn iteration_yields_minimal_covering_set() {
+        let mut paths = FieldPathSet::default();
+        paths.extend([field_path!(a.b), field_path!(x), field_path!(a)]);
+        paths.insert(field_path!(a.c));
+
+        // Iteration collapses `a.b`/`a.c` into the covering `a`.
+        assert_eq!(
+            paths.into_iter().collect::<HashSet<_>>(),
+            HashSet::from_iter([field_path!(a), field_path!(x)])
+        );
     }
 }

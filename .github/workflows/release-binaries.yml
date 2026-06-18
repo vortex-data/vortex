@@ -10,26 +10,41 @@ permissions:
 jobs:
   build:
     name: Build ${{ matrix.target }}
-    runs-on: ${{ matrix.runs-on }}
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && matrix.runner
+          || matrix.fallback_runner }}
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
         include:
           - target: aarch64-apple-darwin
-            runs-on: macos-latest
+            runner: macos-latest
+            fallback_runner: macos-latest
             archive: tgz
           - target: x86_64-apple-darwin
-            runs-on: macos-15-intel
+            runner: macos-15-intel
+            fallback_runner: macos-15-intel
             archive: tgz
+          # Linux targets cross-compile from an amd64 runs-on runner via
+          # cargo-zigbuild with glibc 2.31 pinning, matching the Python wheel
+          # and JNI builds.
           - target: aarch64-unknown-linux-gnu
-            runs-on: ubuntu-24.04-arm
+            runner: runs-on=${{ github.run_id }}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=release-vx-aarch64-linux
+            fallback_runner: ubuntu-24.04
             archive: tgz
           - target: x86_64-unknown-linux-gnu
-            runs-on: ubuntu-24.04
+            runner: runs-on=${{ github.run_id }}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=release-vx-amd64-linux
+            fallback_runner: ubuntu-24.04
             archive: tgz
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex' && contains(matrix.target, 'linux')
+        with:
+          sccache: s3
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
         with:
           fetch-depth: 0
 
@@ -37,9 +52,24 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           targets: ${{ matrix.target }}
-          enable-sccache: "false"
+          enable-sccache: ${{ contains(matrix.target, 'linux') && 'true' || 'false' }}
 
-      - name: Build release binary
+      - name: Setup Zig
+        if: contains(matrix.target, 'linux')
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29  # v2.2.1
+
+      - name: Install cargo-zigbuild
+        if: contains(matrix.target, 'linux')
+        uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
+        with:
+          tool: cargo-zigbuild
+
+      - name: Build release binary (Linux, zigbuild)
+        if: contains(matrix.target, 'linux')
+        run: cargo zigbuild --release --package vortex-tui --bin vx --target ${{ matrix.target }}.2.31
+
+      - name: Build release binary (macOS)
+        if: contains(matrix.target, 'apple-darwin')
         run: cargo build --release --package vortex-tui --bin vx --target ${{ matrix.target }}
 
       - name: Create archive (tgz)

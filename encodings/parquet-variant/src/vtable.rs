@@ -308,9 +308,9 @@ mod tests {
     use vortex_array::ArrayEq;
     use vortex_array::ArrayRef;
     use vortex_array::Canonical;
+    use vortex_array::EqMode;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
-    use vortex_array::Precision;
     use vortex_array::VTable;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
@@ -323,7 +323,6 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::serde::SerializedArray;
-    use vortex_array::session::ArraySession;
     use vortex_array::session::ArraySessionExt;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
@@ -348,7 +347,7 @@ mod tests {
         let dtype = array.dtype().clone();
         let len = array.len();
 
-        let session = VortexSession::empty().with::<ArraySession>();
+        let session = vortex_array::array_session();
         session.arrays().register(ParquetVariant);
 
         let ctx = ArrayContext::empty();
@@ -387,8 +386,7 @@ mod tests {
 
     #[fixture]
     fn parquet_variant_file_session() -> VortexSession {
-        let session = VortexSession::empty()
-            .with::<ArraySession>()
+        let session = vortex_array::array_session()
             .with::<LayoutSession>()
             .with::<RuntimeSession>();
         vortex_file::register_default_encodings(&session);
@@ -525,7 +523,7 @@ mod tests {
         let array = outer_pv.into_array();
         let decoded = roundtrip(array.clone())?;
 
-        assert!(array.array_eq(&decoded, Precision::Value));
+        assert!(array.array_eq(&decoded, EqMode::Value));
         let decoded_pv = decoded
             .as_opt::<ParquetVariant>()
             .ok_or_else(|| vortex_err!("expected parquet variant array"))?;
@@ -547,7 +545,7 @@ mod tests {
         let array = pv.into_array();
         let decoded = roundtrip(array.clone())?;
 
-        assert!(array.array_eq(&decoded, Precision::Value));
+        assert!(array.array_eq(&decoded, EqMode::Value));
         assert_eq!(decoded.dtype(), &DType::Variant(Nullability::Nullable));
         let decoded_pv = decoded
             .as_opt::<ParquetVariant>()
@@ -572,7 +570,7 @@ mod tests {
         let array = outer_pv.into_array();
         let decoded = roundtrip(array.clone())?;
 
-        assert!(array.array_eq(&decoded, Precision::Value));
+        assert!(array.array_eq(&decoded, EqMode::Value));
         let decoded_pv = decoded
             .as_opt::<ParquetVariant>()
             .ok_or_else(|| vortex_err!("expected parquet variant array"))?;

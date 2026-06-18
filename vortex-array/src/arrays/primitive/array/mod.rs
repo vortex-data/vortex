@@ -17,10 +17,9 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::ArraySlots;
-use crate::LEGACY_SESSION;
+use crate::ExecutionCtx;
 #[expect(deprecated)]
 use crate::ToCanonical as _;
-use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -150,13 +149,12 @@ pub trait PrimitiveArrayExt: TypedArrayRef<Primitive> {
     }
 
     /// Narrow the array to the smallest possible integer type that can represent all values.
-    fn narrow(&self) -> VortexResult<PrimitiveArray> {
+    fn narrow(&self, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
         if !self.ptype().is_int() {
             return Ok(self.to_owned());
         }
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let Some(min_max) = min_max(self.as_ref(), &mut ctx)? else {
+        let Some(min_max) = min_max(self.as_ref(), ctx)? else {
             return Ok(PrimitiveArray::new(
                 Buffer::<u8>::zeroed(self.len()),
                 self.validity(),
@@ -185,57 +183,51 @@ pub trait PrimitiveArrayExt: TypedArrayRef<Primitive> {
         if min < 0 || max < 0 {
             // Signed
             if min >= i8::MIN as i64 && max <= i8::MAX as i64 {
-                #[expect(deprecated)]
                 let result = self
                     .as_ref()
                     .cast(DType::Primitive(PType::I8, nullability))?
-                    .to_primitive();
+                    .execute::<PrimitiveArray>(ctx)?;
                 return Ok(result);
             }
 
             if min >= i16::MIN as i64 && max <= i16::MAX as i64 {
-                #[expect(deprecated)]
                 let result = self
                     .as_ref()
                     .cast(DType::Primitive(PType::I16, nullability))?
-                    .to_primitive();
+                    .execute::<PrimitiveArray>(ctx)?;
                 return Ok(result);
             }
 
             if min >= i32::MIN as i64 && max <= i32::MAX as i64 {
-                #[expect(deprecated)]
                 let result = self
                     .as_ref()
                     .cast(DType::Primitive(PType::I32, nullability))?
-                    .to_primitive();
+                    .execute::<PrimitiveArray>(ctx)?;
                 return Ok(result);
             }
         } else {
             // Unsigned
             if max <= u8::MAX as i64 {
-                #[expect(deprecated)]
                 let result = self
                     .as_ref()
                     .cast(DType::Primitive(PType::U8, nullability))?
-                    .to_primitive();
+                    .execute::<PrimitiveArray>(ctx)?;
                 return Ok(result);
             }
 
             if max <= u16::MAX as i64 {
-                #[expect(deprecated)]
                 let result = self
                     .as_ref()
                     .cast(DType::Primitive(PType::U16, nullability))?
-                    .to_primitive();
+                    .execute::<PrimitiveArray>(ctx)?;
                 return Ok(result);
             }
 
             if max <= u32::MAX as i64 {
-                #[expect(deprecated)]
                 let result = self
                     .as_ref()
                     .cast(DType::Primitive(PType::U32, nullability))?
-                    .to_primitive();
+                    .execute::<PrimitiveArray>(ctx)?;
                 return Ok(result);
             }
         }
@@ -557,7 +549,7 @@ impl PrimitiveData {
             Validity::Array(is_valid) => {
                 #[expect(deprecated)]
                 let bool_array = is_valid.to_bool();
-                let bool_buffer = bool_array.to_bit_buffer();
+                let bool_buffer = bool_array.bit_buffer_view();
                 let mut bytes = ByteBufferMut::zeroed_aligned(n_rows * byte_width, alignment);
                 for (i, valid_i) in bool_buffer.set_indices().enumerate() {
                     bytes[valid_i * byte_width..(valid_i + 1) * byte_width]
@@ -604,6 +596,9 @@ impl PrimitiveData {
     }
 
     /// Try to extract a mutable buffer from the PrimitiveData with zero copy.
+    ///
+    /// # Panic
+    /// If the buffer is not of type T this will panic
     pub fn try_into_buffer_mut<T: NativePType>(self) -> Result<BufferMut<T>, Buffer<T>> {
         if T::PTYPE != self.ptype() {
             vortex_panic!(

@@ -27,12 +27,20 @@ pub use vortex_array_macros::array_slots;
 use vortex_session::VortexSession;
 use vortex_session::registry::Context;
 
+use crate::aggregate_fn::session::AggregateFnSession;
+use crate::arrow::ArrowSession;
+use crate::dtype::session::DTypeSession;
+use crate::memory::MemorySession;
+use crate::optimizer::kernels::ArrayKernels;
+use crate::scalar_fn::session::ScalarFnSession;
 use crate::session::ArraySession;
+use crate::stats::session::StatsSession;
 
 pub mod accessor;
 pub mod aggregate_fn;
 #[doc(hidden)]
 pub mod aliases;
+mod arc_swap_map;
 mod array;
 pub mod arrays;
 pub mod arrow;
@@ -77,10 +85,29 @@ pub mod flatbuffers {
     pub use vortex_flatbuffers::array::*;
 }
 
+/// Builds a fresh [`VortexSession`] registered with all of vortex-array's built-in session
+/// variables: arrays, dtypes, scalar functions, stats, optimizer kernels, aggregate functions,
+/// Arrow conversion, and memory.
+///
+/// Each call returns an independent session (with its own registries), so callers may register
+/// additional encodings or kernels into it without affecting any other session. This does not
+/// register file, layout, or runtime state — those live in higher-level crates.
+pub fn array_session() -> VortexSession {
+    VortexSession::builder()
+        .with::<ArraySession>()
+        .with::<DTypeSession>()
+        .with::<ScalarFnSession>()
+        .with::<StatsSession>()
+        .with::<ArrayKernels>()
+        .with::<AggregateFnSession>()
+        .with::<ArrowSession>()
+        .with::<MemorySession>()
+        .build()
+}
+
 // TODO(ngates): canonicalize doesn't currently take a session, therefore we cannot invoke execute
 //  from the new array encodings to support back-compat for legacy encodings. So we hold a session
 //  here...
-pub static LEGACY_SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+pub static LEGACY_SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 pub type ArrayContext = Context<ArrayPluginRef>;

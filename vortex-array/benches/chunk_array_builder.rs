@@ -18,7 +18,6 @@ use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::dtype::DType;
-use vortex_array::session::ArraySession;
 use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
 
@@ -33,8 +32,7 @@ const BENCH_ARGS: &[(usize, usize)] = &[
     (1000, 10),
 ];
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 #[divan::bench(args = BENCH_ARGS)]
 fn chunked_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {

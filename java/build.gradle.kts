@@ -4,9 +4,9 @@
 import net.ltgt.gradle.errorprone.errorprone
 
 plugins {
-    id("com.diffplug.spotless") version "8.5.1"
+    id("com.diffplug.spotless") version "8.6.0"
     id("com.palantir.git-version") version "5.0.0"
-    id("com.palantir.java-format") version "2.90.0"
+    id("com.palantir.java-format") version "2.93.0"
     id("net.ltgt.errorprone") version "5.1.0" apply false
     id("com.vanniktech.maven.publish") version "0.36.0" apply false
 }
@@ -61,7 +61,7 @@ allprojects {
         }
 
         tasks.withType<Javadoc> {
-            (options as StandardJavadocDocletOptions).addStringOption("Xdoclint:-missing")
+            (options as StandardJavadocDocletOptions).addBooleanOption("Xdoclint:-missing", true)
         }
 
         the<JavaPluginExtension>().toolchain {
@@ -78,5 +78,10 @@ allprojects {
         }
     }
 
-    tasks.register("format").get().dependsOn("spotlessApply")
+    if (project.name == "vortex-spark_2.12") {
+        // vortex-spark_2.12 and vortex-spark_2.13 share a projectDir; format from the 2.13 variant only.
+        tasks.register("format") { enabled = false }
+    } else {
+        tasks.register("format").get().dependsOn("spotlessApply")
+    }
 }

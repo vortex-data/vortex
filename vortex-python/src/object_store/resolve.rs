@@ -11,6 +11,7 @@ use object_store::registry::ObjectStoreRegistry;
 use url::Url;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
+use vortex::io::compat::Compat;
 
 use crate::object_store::registry::Registry;
 
@@ -29,7 +30,7 @@ pub(crate) fn resolve_store(
 ) -> VortexResult<ResolvedStore> {
     match store {
         // If explicit store is provided use that
-        Some(store) => Ok(ResolvedStore::ObjectStore(store, Path::from(url_or_path))),
+        Some(store) => Ok(ResolvedStore::object_store(store, Path::from(url_or_path))),
         None => {
             // If the URL does not parse
             match Url::parse(url_or_path) {
@@ -41,7 +42,7 @@ pub(crate) fn resolve_store(
                 }
                 Ok(url) => {
                     let (store, path) = REGISTRY.resolve(&url)?;
-                    Ok(ResolvedStore::ObjectStore(store, path))
+                    Ok(ResolvedStore::object_store(store, path))
                 }
                 Err(_) => {
                     // Treat the input string as a local file system path, which may be
@@ -59,6 +60,12 @@ pub(crate) enum ResolvedStore {
 }
 
 impl ResolvedStore {
+    /// Build an [`ObjectStore`](ResolvedStore::ObjectStore) variant, wrapping `store` in
+    /// [`Compat`].
+    fn object_store(store: Arc<dyn ObjectStore>, path: Path) -> Self {
+        ResolvedStore::ObjectStore(Arc::new(Compat::new(store)), path)
+    }
+
     #[cfg(test)]
     fn unwrap_store(self) -> (Arc<dyn ObjectStore>, Path) {
         match self {

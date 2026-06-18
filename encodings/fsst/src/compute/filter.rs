@@ -31,10 +31,9 @@ impl FilterKernel for FSST {
             .vortex_expect("must be VarBin");
 
         Ok(Some(
-            FSST::try_new(
+            FSST::try_new_with_symbol_table(
                 array.dtype().clone(),
-                array.symbols().clone(),
-                array.symbol_lengths().clone(),
+                array.symbol_table(),
                 filtered_codes,
                 array.uncompressed_lengths().filter(mask.clone())?,
                 ctx,

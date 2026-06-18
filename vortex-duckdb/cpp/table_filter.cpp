@@ -3,9 +3,6 @@
 
 #include "duckdb_vx.h"
 
-#include "duckdb_vx/duckdb_diagnostics.h"
-
-DUCKDB_INCLUDES_BEGIN
 #include "duckdb/planner/table_filter.hpp"
 #include "duckdb/planner/filter/conjunction_filter.hpp"
 #include "duckdb/planner/filter/dynamic_filter.hpp"
@@ -13,7 +10,6 @@ DUCKDB_INCLUDES_BEGIN
 #include "duckdb/planner/filter/expression_filter.hpp"
 #include "duckdb/planner/filter/struct_filter.hpp"
 #include "duckdb/planner/filter/in_filter.hpp"
-DUCKDB_INCLUDES_END
 
 using namespace duckdb;
 

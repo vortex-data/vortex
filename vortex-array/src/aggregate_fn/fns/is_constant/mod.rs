@@ -50,7 +50,6 @@ use crate::scalar_fn::fns::operators::Operator;
 /// Check if two arrays of the same length have equal values at every position (null-safe).
 ///
 /// Two positions are considered equal if they are both null, or both non-null with the same value.
-///
 // TODO(ngates): move this function out when we have any/all aggregate functions.
 fn arrays_value_equal(a: &ArrayRef, b: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
     debug_assert_eq!(a.len(), b.len());
@@ -74,7 +73,7 @@ fn arrays_value_equal(a: &ArrayRef, b: &ArrayRef, ctx: &mut ExecutionCtx) -> Vor
     // Compare values element-wise. Result is null where both inputs are null,
     // true/false where both are valid.
     let eq_result = a.binary(b.clone(), Operator::Eq)?;
-    let eq_result = eq_result.execute::<Mask>(ctx)?;
+    let eq_result = eq_result.fill_null(false)?.execute::<Mask>(ctx)?;
 
     Ok(eq_result.true_count() == valid_count)
 }

@@ -113,7 +113,7 @@ where
 
     // SAFETY: We initialize all `len` values below via `decode` and the patch loop.
     unsafe {
-        uninit_range.append_mask(array.validity()?.execute_mask(len, ctx)?);
+        uninit_range.append_mask(&array.validity()?.execute_mask(len, ctx)?);
     }
 
     // SAFETY: `decode` writes a value to every slot in this range.
@@ -210,7 +210,6 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::Nullability;
-    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::BufferMut;
@@ -226,8 +225,7 @@ mod tests {
         bitpack_encode(array, bit_width, None, &mut SESSION.create_execution_ctx()).unwrap()
     }
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     fn unpack(bitpacked: &BitPackedArray) -> VortexResult<PrimitiveArray> {
         unpack_array(bitpacked.as_view(), &mut SESSION.create_execution_ctx())

@@ -28,6 +28,7 @@ use crate::LEGACY_SESSION;
 use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
@@ -846,6 +847,10 @@ impl Patches {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Self>> {
         let take_indices_validity = take_indices.validity()?;
+        // Take indices are non-negative; reinterpret to unsigned so the `TakeT` dimension
+        // dispatches over 4 widths instead of 8.
+        let take_indices_unsigned =
+            take_indices.reinterpret_cast(take_indices.ptype().to_unsigned());
         let patch_indices = self.indices.clone().execute::<PrimitiveArray>(ctx)?;
         let chunk_offsets = self
             .chunk_offsets()
@@ -856,8 +861,8 @@ impl Patches {
         let (values_indices, new_indices): (BufferMut<u64>, BufferMut<u64>) =
             match_each_unsigned_integer_ptype!(patch_indices.ptype(), |PatchT| {
                 let patch_indices_slice = patch_indices.as_slice::<PatchT>();
-                match_each_integer_ptype!(take_indices.ptype(), |TakeT| {
-                    let take_slice = take_indices.as_slice::<TakeT>();
+                match_each_unsigned_integer_ptype!(take_indices_unsigned.ptype(), |TakeT| {
+                    let take_slice = take_indices_unsigned.as_slice::<TakeT>();
 
                     if let Some(chunk_offsets) = chunk_offsets {
                         match_each_unsigned_integer_ptype!(chunk_offsets.ptype(), |OffsetT| {
@@ -930,18 +935,21 @@ impl Patches {
     ) -> VortexResult<Option<Self>> {
         let indices = self.indices.clone().execute::<PrimitiveArray>(ctx)?;
         let new_length = take_indices.len();
+        // Take indices are non-negative; reinterpret to unsigned (4 widths instead of 8).
+        let take_indices_unsigned =
+            take_indices.reinterpret_cast(take_indices.ptype().to_unsigned());
 
         let min_index = self.min_index()?;
         let max_index = self.max_index()?;
 
         let Some((new_sparse_indices, value_indices)) =
             match_each_unsigned_integer_ptype!(indices.ptype(), |Indices| {
-                match_each_integer_ptype!(take_indices.ptype(), |TakeIndices| {
+                match_each_unsigned_integer_ptype!(take_indices_unsigned.ptype(), |TakeIndices| {
                     let take_validity = take_indices
                         .validity()?
                         .execute_mask(take_indices.len(), ctx)?;
                     let take_nullability = take_indices.validity()?.nullability();
-                    let take_slice = take_indices.as_slice::<TakeIndices>();
+                    let take_slice = take_indices_unsigned.as_slice::<TakeIndices>();
                     take_map::<_, TakeIndices>(
                         indices.as_slice::<Indices>(),
                         take_slice,

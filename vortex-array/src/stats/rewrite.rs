@@ -16,21 +16,41 @@ use crate::expr::or_collect;
 use crate::scalar_fn::ScalarFnId;
 use crate::stats::session::StatsSessionExt;
 
+mod builtins;
+
+pub(crate) use builtins::register_builtins;
+
 /// Shared reference to a stats rewrite rule.
 pub(crate) type StatsRewriteRuleRef = Arc<dyn StatsRewriteRule>;
 
-/// A plugin-provided rule that rewrites predicates into stats-backed proof expressions.
+/// A plugin-provided rule for predicates whose root scalar function matches this rule.
 ///
-/// A falsifier evaluates to `true` only when the original predicate is definitely false for the
-/// current stats scope. A satisfier evaluates to `true` only when the original predicate is
-/// definitely true for the current stats scope. Returning `None` means the rule cannot prove
-/// anything for the expression.
-#[allow(dead_code)]
+/// Rules do not produce expressions equivalent to `expr`. They produce optional sufficient
+/// conditions over stats for the current scope:
+///
+/// - a falsifier evaluating to `true` proves that `expr` is false for every row in the scope;
+/// - a satisfier evaluating to `true` proves that `expr` is true for every row in the scope.
+///
+/// Returning `None` means this rule cannot prove anything for the expression. A returned proof
+/// expression that evaluates to `false` or `null` is also inconclusive.
+///
+/// Multiple rules may be registered for the same scalar function. Their proofs are combined with
+/// `OR`, so every proof returned by an individual rule must be sound on its own.
+///
+/// `expr` is the full predicate expression whose root scalar function id is
+/// [`Self::scalar_fn_id`]. Use [`StatsRewriteCtx`] to resolve dtypes and recursively rewrite child
+/// predicates.
 pub(crate) trait StatsRewriteRule: Debug + Send + Sync + 'static {
-    /// The scalar function ID this rule applies to.
+    /// Returns the scalar function id handled by this rule.
     fn scalar_fn_id(&self) -> ScalarFnId;
 
-    /// Rewrite an expression into a stats-backed falsifier.
+    /// Returns a stats-backed proof that `expr` is false for the current scope.
+    ///
+    /// If the returned expression evaluates to `true` against the scope's stats, then `expr` is
+    /// guaranteed to be false for every row in that scope. A returned proof expression that
+    /// evaluates to `false` or `null` is inconclusive.
+    ///
+    /// Returns `Ok(None)` when this rule cannot construct a sound falsity proof for `expr`.
     fn falsify(
         &self,
         expr: &Expression,
@@ -41,7 +61,16 @@ pub(crate) trait StatsRewriteRule: Debug + Send + Sync + 'static {
         Ok(None)
     }
 
-    /// Rewrite an expression into a stats-backed satisfier.
+    /// Returns a stats-backed proof that `expr` is true for the current scope.
+    ///
+    /// If the returned expression evaluates to `true` against the scope's stats, then `expr` is
+    /// guaranteed to be true for every row in that scope. A returned proof expression that
+    /// evaluates to `false` or `null` is inconclusive.
+    ///
+    /// This is not the complement of [`Self::falsify`]; both methods are one-way proofs and may be
+    /// implemented independently.
+    ///
+    /// Returns `Ok(None)` when this rule cannot construct a sound truth proof for `expr`.
     fn satisfy(
         &self,
         expr: &Expression,
@@ -127,7 +156,6 @@ fn rewrite(
 #[cfg(test)]
 mod tests {
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
 
     use super::StatsRewriteCtx;
     use super::StatsRewriteRule;
@@ -140,7 +168,6 @@ mod tests {
     use crate::scalar_fn::ScalarFnId;
     use crate::scalar_fn::ScalarFnVTable;
     use crate::scalar_fn::fns::literal::Literal;
-    use crate::stats::session::StatsSession;
     use crate::stats::session::StatsSessionExt;
 
     #[derive(Debug)]
@@ -173,7 +200,7 @@ mod tests {
 
     #[test]
     fn combines_multiple_falsifiers_with_or() -> VortexResult<()> {
-        let session = VortexSession::empty().with::<StatsSession>();
+        let session = crate::array_session();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         session.stats().register_rewrite(StaticLiteralRule {
             falsifier: Some(lit(false)),
@@ -193,7 +220,7 @@ mod tests {
 
     #[test]
     fn combines_multiple_satisfiers_with_or() -> VortexResult<()> {
-        let session = VortexSession::empty().with::<StatsSession>();
+        let session = crate::array_session();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         session.stats().register_rewrite(StaticLiteralRule {
             falsifier: None,
@@ -213,7 +240,7 @@ mod tests {
 
     #[test]
     fn unregistered_expression_has_no_rewrite() -> VortexResult<()> {
-        let session = VortexSession::empty().with::<StatsSession>();
+        let session = crate::array_session();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
 
         assert_eq!(lit(true).falsify(&dtype, &session)?, None);
@@ -223,7 +250,7 @@ mod tests {
 
     #[test]
     fn non_predicate_expression_errors() {
-        let session = VortexSession::empty().with::<StatsSession>();
+        let session = crate::array_session();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
 
         assert!(lit(7).falsify(&dtype, &session).is_err());

@@ -12,7 +12,7 @@ We ask that you read the guidelines below in order to make the process as stream
 >
 > For the full AI policy — including disclosure requirements, review standards for
 > AI-generated PRs, and rules for autonomous agents — see the
-> [contributing guide](https://vortex.dev/project/contributing.html#ai-assistance).
+> [contributing guide](https://docs.vortex.dev/project/contributing#ai-assistance).
 
 ## Code Contributions
 

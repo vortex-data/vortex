@@ -5,10 +5,12 @@ use std::fs::File;
 use std::io::IsTerminal;
 
 use clap::ValueEnum;
+use tracing::Level;
 use tracing::level_filters::LevelFilter;
 use tracing_perfetto::PerfettoLayer;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::Layer;
+use tracing_subscriber::filter::filter_fn;
 use tracing_subscriber::prelude::*;
 
 /// Format for the primary stderr log sink.
@@ -46,6 +48,14 @@ pub fn setup_logging_and_tracing_with_format(
 ) -> anyhow::Result<()> {
     let filter = default_env_filter(verbose);
 
+    // Lance crates emit chatty INFO-level logs (dataset open/commit details, fragment reads, ...)
+    // that drown out benchmark output. Drop everything below WARN from the `lance` family unless
+    // the user opts in via `--verbose` or `RUST_LOG`.
+    let suppress_lance = !verbose && std::env::var(EnvFilter::DEFAULT_ENV).is_err();
+    let lance_filter = filter_fn(move |meta| {
+        !(suppress_lance && *meta.level() > Level::WARN && is_lance_target(meta.target()))
+    });
+
     let perfetto_layer = perfetto
         .then(|| {
             Ok::<_, anyhow::Error>(
@@ -74,6 +84,7 @@ pub fn setup_logging_and_tracing_with_format(
 
     tracing_subscriber::registry()
         .with(filter)
+        .with(lance_filter)
         .with(perfetto_layer)
         .with(fmt_layer)
         .init();
@@ -96,4 +107,10 @@ pub fn default_env_filter(is_verbose: bool) -> EnvFilter {
                 .from_env_lossy()
         }
     }
+}
+
+/// True for log targets emitted by any crate in the `lance` family (`lance`, `lance_core`,
+/// `lance_io`, ...). Targets are module paths, so the crate name is the leading path segment.
+fn is_lance_target(target: &str) -> bool {
+    target == "lance" || target.starts_with("lance::") || target.starts_with("lance_")
 }

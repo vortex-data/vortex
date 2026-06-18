@@ -16,7 +16,6 @@ use rand::rngs::StdRng;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
-use vortex::array::LEGACY_SESSION;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::Chunked;
 use vortex::array::arrays::ChunkedArray;
@@ -30,6 +29,7 @@ use vortex::array::validity::Validity;
 use vortex::dtype::FieldNames;
 
 use crate::IdempotentPath;
+use crate::SESSION;
 use crate::datasets::Dataset;
 use crate::idempotent_async;
 
@@ -44,11 +44,26 @@ pub struct StructListOfInts {
 
 impl StructListOfInts {
     pub fn new(num_columns: usize, row_count: usize, chunk_count: usize) -> Self {
+        Self::new_with_projection(num_columns, row_count, chunk_count, None)
+    }
+
+    /// Like [`StructListOfInts::new`], but names the dataset for a projected decompress benchmark.
+    pub fn new_with_projection(
+        num_columns: usize,
+        row_count: usize,
+        chunk_count: usize,
+        project_columns: Option<usize>,
+    ) -> Self {
+        let mut name =
+            format!("wide table cols={num_columns} chunks={chunk_count} rows={row_count}");
+        if let Some(count) = project_columns {
+            name.push_str(&format!(" project={count}"));
+        }
         Self {
             num_columns,
             row_count,
             chunk_count,
-            name: format!("wide table cols={num_columns} chunks={chunk_count} rows={row_count}"),
+            name,
         }
     }
 }
@@ -120,7 +135,7 @@ impl Dataset for StructListOfInts {
 
         idempotent_async(&parquet_path, |temp_path| async move {
             // Generate the data
-            let mut ctx = LEGACY_SESSION.create_execution_ctx();
+            let mut ctx = SESSION.create_execution_ctx();
             let array = self.to_vortex_array(&mut ctx).await?;
 
             // Convert to Arrow RecordBatches and write to parquet
@@ -130,14 +145,12 @@ impl Dataset for StructListOfInts {
             let mut writer: Option<ArrowWriter<File>> = None;
 
             for chunk in chunked.iter_chunks() {
-                let converted = recursive_list_from_list_view(chunk.clone())?;
+                let converted = recursive_list_from_list_view(chunk.clone(), &mut ctx)?;
                 let schema = converted.dtype().to_arrow_schema()?;
                 let schema = Field::new_struct("", schema.fields, false);
-                let batch = LEGACY_SESSION.arrow().execute_arrow(
-                    converted,
-                    Some(&schema),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )?;
+                let batch = SESSION
+                    .arrow()
+                    .execute_arrow(converted, Some(&schema), &mut ctx)?;
                 let batch = RecordBatch::from(batch.as_struct());
 
                 if writer.is_none() {

@@ -10,9 +10,12 @@ use parking_lot::Mutex;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::ListViewArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::listview::DEFAULT_REBUILD_DENSITY_THRESHOLD;
+use vortex::array::arrays::listview::DEFAULT_TRIM_ELEMENTS_THRESHOLD;
+use vortex::array::arrays::listview::ListViewArrayExt;
 use vortex::array::arrays::listview::ListViewDataParts;
+use vortex::array::arrays::listview::ListViewRebuildMode;
 use vortex::array::match_each_integer_ptype;
-use vortex::array::validity::Validity;
 use vortex::dtype::IntegerPType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -49,7 +52,35 @@ pub(crate) fn new_exporter(
     cache: &ConversionCache,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
+    // If the array is sufficiently sparse, rebuild. Otherwise the DuckDB vector will
+    // hold an elements buffer containing unreferenced data in memory indefinitely,
+    // and any compute pass over that buffer wastes work on data nothing references.
+    let array = if array.is_zero_copy_to_list() {
+        // A zctl array has no overlaps and no interior gaps, so the only unreferenced
+        // elements are leading and trailing. Trimming them is much cheaper than a full rebuild.
+        // Compute the referenced bounds once and reuse them for both the decision and the trim.
+        let n_elts = array.elements().len();
+        if n_elts == 0 || array.is_empty() {
+            array
+        } else {
+            let (start, end) = array.referenced_element_bounds(ctx)?;
+            let waste = (n_elts - (end - start)) as f32 / n_elts as f32;
+            if waste > DEFAULT_TRIM_ELEMENTS_THRESHOLD {
+                // SAFETY: we calculated valid start and end bounds
+                unsafe { array.trim_elements(start, end)? }
+            } else {
+                array
+            }
+        }
+    } else if array.upper_bound_density(ctx)? < DEFAULT_REBUILD_DENSITY_THRESHOLD {
+        // Overlaps, gaps, or garbage may be present, so a full rebuild is needed to reclaim waste.
+        array.rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)?
+    } else {
+        array
+    };
+
     let len = array.len();
+
     let ListViewDataParts {
         elements_dtype,
         elements,
@@ -60,7 +91,7 @@ pub(crate) fn new_exporter(
     // Cache an `elements` vector up front so that future exports can reference it.
     let num_elements = elements.len();
 
-    if matches!(validity, Validity::AllInvalid) {
+    if validity.definitely_all_null() {
         return Ok(all_invalid::new_exporter());
     }
     let validity = validity.to_array(len).execute::<Mask>(ctx)?;

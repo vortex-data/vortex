@@ -84,7 +84,9 @@ pub fn runend_encode(
         }
     };
 
-    let ends = ends.narrow().vortex_expect("Ends must succeed downcasting");
+    let ends = ends
+        .narrow(ctx)
+        .vortex_expect("Ends must succeed downcasting");
 
     ends.statistics()
         .set(Stat::IsStrictSorted, Precision::Exact(true.into()));

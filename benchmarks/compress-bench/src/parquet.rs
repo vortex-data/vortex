@@ -13,12 +13,14 @@ use arrow_schema::Schema;
 use async_trait::async_trait;
 use bytes::Bytes;
 use parquet::arrow::ArrowWriter;
+use parquet::arrow::ProjectionMask;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::basic::Compression;
 use parquet::basic::ZstdLevel;
 use parquet::file::properties::WriterProperties;
 use vortex_bench::Format;
 use vortex_bench::compress::Compressor;
+use vortex_bench::compress::read_projection;
 
 /// Compressor implementation for Parquet format with ZSTD compression.
 pub struct ParquetCompressor {
@@ -108,7 +110,12 @@ pub fn parquet_compress_write(
 
 #[inline(never)]
 pub fn parquet_decompress_read(buf: Bytes) -> anyhow::Result<usize> {
-    let builder = ParquetRecordBatchReaderBuilder::try_new(buf)?;
+    let mut builder = ParquetRecordBatchReaderBuilder::try_new(buf)?;
+    if let Some(cols) = read_projection(builder.schema().fields().len()) {
+        // Project the given top-level (root) columns.
+        let mask = ProjectionMask::roots(builder.parquet_schema(), cols.iter().copied());
+        builder = builder.with_projection(mask);
+    }
     let reader = builder.build()?;
     let mut nbytes = 0;
     for batch in reader {

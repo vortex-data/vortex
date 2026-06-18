@@ -30,10 +30,9 @@ fn build_with_codes_validity(
     )?;
 
     Ok(unsafe {
-        FSST::new_unchecked(
+        FSST::new_unchecked_with_symbol_table(
             dtype.clone(),
-            array.symbols().clone(),
-            array.symbol_lengths().clone(),
+            array.symbol_table(),
             new_codes,
             array.uncompressed_lengths().clone(),
         )
@@ -99,14 +98,12 @@ mod tests {
     use vortex_array::compute::conformance::cast::test_cast_conformance;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
-    use vortex_array::session::ArraySession;
     use vortex_session::VortexSession;
 
     use crate::fsst_compress;
     use crate::fsst_train_compressor;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     #[test]
     fn test_cast_fsst_nullability() {

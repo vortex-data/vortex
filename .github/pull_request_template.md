@@ -39,8 +39,7 @@ Consider whether the change affects users in one of the following ways:
 3. Should some documentation be updated to reflect this change?
 
 If a public API is changed in a breaking manner, make sure to add the
-appropriate label. You can run `./scripts/public-api.sh` locally to see if there
-are any public API changes (and this also runs in our CI).
+appropriate label.
 -->
 
 ## Testing

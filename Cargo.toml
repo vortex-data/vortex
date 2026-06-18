@@ -4,6 +4,7 @@ members = [
     "vortex-array-macros",
     "vortex-error",
     "vortex-buffer",
+    "vortex-compute",
     "vortex-mask",
     "vortex-utils",
     "vortex-session",
@@ -12,8 +13,9 @@ members = [
     "vortex-io",
     "vortex-proto",
     "vortex-array",
+    "vortex-row",
     "vortex-tensor",
-    "vortex-turboquant",
+    "vortex-json",
     "vortex-compressor",
     "vortex-btrblocks",
     "vortex-layout",
@@ -26,6 +28,7 @@ members = [
     "vortex-duckdb",
     "vortex-cuda",
     "vortex-cuda/cub",
+    "vortex-cuda/ffi",
     "vortex-cuda/gpu-scan-cli",
     "vortex-cuda/macros",
     "vortex-cuda/nvcomp",
@@ -54,16 +57,15 @@ members = [
     "encodings/zstd",
     "encodings/bytebool",
     "encodings/parquet-variant",
+    # Experimental encodings
+    "encodings/experimental/onpair",
     # Benchmarks
     "benchmarks/lance-bench",
     "benchmarks/compress-bench",
     "benchmarks/datafusion-bench",
     "benchmarks/duckdb-bench",
     "benchmarks/random-access-bench",
-    "benchmarks/vector-search-bench",
-    # Benchmarks website v3 (alpha) - leaf binary, not part of vortex-* API
-    "benchmarks-website/server",
-    "benchmarks-website/migrate",
+    "vortex-geo",
 ]
 exclude = ["java/testfiles", "wasm-test"]
 resolver = "2"
@@ -95,16 +97,17 @@ anyhow = "1.0.97"
 arbitrary = "1.3.2"
 arc-swap = "1.9"
 arcref = "0.2.0"
-arrow-arith = "58"
-arrow-array = "58"
-arrow-buffer = "58"
-arrow-cast = "58"
-arrow-data = "58"
-arrow-ipc = "58"
-arrow-ord = "58"
-arrow-schema = "58"
-arrow-select = "58"
-arrow-string = "58"
+arrow-arith = "58.3"
+arrow-array = "58.3"
+arrow-buffer = "58.3"
+arrow-cast = "58.3"
+arrow-data = "58.3"
+arrow-ipc = "58.3"
+arrow-ord = "58.3"
+arrow-row = "58.3"
+arrow-schema = "58.3"
+arrow-select = "58.3"
+arrow-string = "58.3"
 async-fs = "2.2.0"
 async-lock = "3.4"
 async-stream = "0.3.6"
@@ -132,34 +135,37 @@ cudarc = { version = "0.19.0", features = [
 ] }
 custom-labels = "0.4.4"
 dashmap = "6.1.0"
-datafusion = { version = "53", default-features = false, features = ["sql"] }
-datafusion-catalog = { version = "53" }
-datafusion-common = { version = "53" }
-datafusion-common-runtime = { version = "53" }
-datafusion-datasource = { version = "53", default-features = false }
-datafusion-execution = { version = "53" }
-datafusion-expr = { version = "53" }
-datafusion-functions = { version = "53" }
-datafusion-physical-expr = { version = "53" }
-datafusion-physical-expr-adapter = { version = "53" }
-datafusion-physical-expr-common = { version = "53" }
-datafusion-physical-plan = { version = "53" }
-datafusion-pruning = { version = "53" }
-datafusion-sqllogictest = { version = "53" }
+datafusion = { version = "54", default-features = false, features = ["sql"] }
+datafusion-catalog = { version = "54" }
+datafusion-common = { version = "54" }
+datafusion-common-runtime = { version = "54" }
+datafusion-datasource = { version = "54", default-features = false }
+datafusion-execution = { version = "54" }
+datafusion-expr = { version = "54" }
+datafusion-functions = { version = "54" }
+datafusion-physical-expr = { version = "54" }
+datafusion-physical-expr-adapter = { version = "54" }
+datafusion-physical-expr-common = { version = "54" }
+datafusion-physical-plan = { version = "54" }
+datafusion-pruning = { version = "54" }
+datafusion-sqllogictest = { version = "54" }
 dirs = "6.0.0"
 divan = { package = "codspeed-divan-compat", version = "4.0.4" }
 enum-iterator = "2.0.0"
 env_logger = "0.11"
-fastlanes = "0.5"
+fastlanes = "0.5.1"
 flatbuffers = "25.2.10"
-fsst-rs = "0.5.5"
+fsst-rs = "0.5.11"
 futures = { version = "0.3.31", default-features = false }
 fuzzy-matcher = "0.3"
+geo-traits = "0.3.0"
+geo-types = "0.7.19"
+geoarrow = "0.8.0"
 get_dir = "0.5.0"
 glob = "0.3.2"
 goldenfile = "1"
 half = { version = "2.7.1", features = ["std", "num-traits"] }
-hashbrown = "0.17.0"
+hashbrown = "0.17.1"
 humansize = "2.1.3"
 indicatif = "0.18.0"
 insta = "1.43"
@@ -169,7 +175,7 @@ jetscii = "0.5.3"
 jiff = "0.2.0"
 jni = { version = "0.22.0" }
 kanal = "0.1.1"
-lasso = { version = "0.7", features = ["multi-threaded"] }
+lasso = { version = "0.7", features = ["multi-threaded", "inline-more"] }
 lending-iterator = "0.1.7"
 libfuzzer-sys = "0.4"
 libloading = "0.8"
@@ -185,16 +191,17 @@ noodles-bgzf = "0.47.0"
 noodles-vcf = { version = "0.88.0", features = ["async"] }
 num-traits = "0.2.19"
 num_enum = { version = "0.7.3", default-features = false }
-object_store = { version = "0.13.1", default-features = false }
+object_store = { version = "0.13.2", default-features = false }
 once_cell = "1.21"
 oneshot = { version = "0.2.0", features = ["async"] }
+onpair = { version = "0.0.4" }
 opentelemetry = "0.32.0"
 opentelemetry-otlp = "0.32.0"
 opentelemetry_sdk = "0.32.0"
 parking_lot = { version = "0.12.3", features = ["nightly"] }
-parquet = "58"
-parquet-variant = "58"
-parquet-variant-compute = "58"
+parquet = "58.3"
+parquet-variant = "58.3"
+parquet-variant-compute = "58.3"
 paste = "1.0.15"
 pco = "1.0.1"
 pin-project-lite = "0.2.15"
@@ -203,11 +210,10 @@ proc-macro2 = "1.0.95"
 prost = "0.14"
 prost-build = "0.14"
 prost-types = "0.14"
-public-api = { git = "https://github.com/vortex-data/cargo-public-api.git", branch = "main" }
-pyo3 = { version = "0.28.0" }
-pyo3-bytes = "0.6"
+pyo3 = { version = "0.29.0" }
+pyo3-bytes = "0.7"
 pyo3-log = "0.13.0"
-pyo3-object_store = "0.9.0"
+pyo3-object_store = "0.11.0"
 quote = "1.0.44"
 rand = "0.10.1"
 rand_distr = "0.6"
@@ -224,7 +230,7 @@ reqwest = { version = "0.13.0", features = [
 roaring = "0.11.0"
 rstest = "0.26.1"
 rstest_reuse = "0.7.0"
-rustc-hash = "2.1"
+rustc-hash = "2.1.1"
 serde = "1.0.220"
 serde_json = "1.0.138"
 serde_test = "1.0.176"
@@ -238,7 +244,7 @@ static_assertions = "1.1"
 strum = "0.28"
 syn = { version = "2.0.117", features = ["full"] }
 sysinfo = "0.38.0"
-tabled = { version = "0.20.0", default-features = false }
+tabled = { version = "0.21.0", default-features = false }
 taffy = "0.10.0"
 take_mut = "0.2.2"
 tar = "0.4"
@@ -248,7 +254,7 @@ tempfile = "3"
 termtree = { version = "1.0" }
 test-with = "0.16"
 thiserror = "2.0.3"
-tokio = { version = "1.48" }
+tokio = { version = "1.52" }
 tokio-stream = "0.1.17"
 tokio-util = "0.7.17"
 vortex-array-macros = { version = "0.1.0", path = "./vortex-array-macros" }
@@ -259,8 +265,9 @@ tracing = { version = "0.1.41", default-features = false }
 tracing-perfetto = "0.1.5"
 tracing-subscriber = "0.3"
 url = "2.5.7"
-uuid = { version = "1.21", features = ["js"] }
+uuid = { version = "1.23", features = ["js"] }
 wasm-bindgen-futures = "0.4.54"
+wkb = "0.9.2"
 xshell = "0.2.6"
 zigzag = "0.1.0"
 zip = "8.0.0"
@@ -276,6 +283,7 @@ vortex-btrblocks = { version = "0.1.0", path = "./vortex-btrblocks", default-fea
 vortex-buffer = { version = "0.1.0", path = "./vortex-buffer", default-features = false }
 vortex-bytebool = { version = "0.1.0", path = "./encodings/bytebool", default-features = false }
 vortex-compressor = { version = "0.1.0", path = "./vortex-compressor", default-features = false }
+vortex-compute = { version = "0.1.0", path = "./vortex-compute", default-features = false }
 vortex-datafusion = { version = "0.1.0", path = "./vortex-datafusion", default-features = false }
 vortex-datetime-parts = { version = "0.1.0", path = "./encodings/datetime-parts", default-features = false }
 vortex-decimal-byte-parts = { version = "0.1.0", path = "encodings/decimal-byte-parts", default-features = false }
@@ -284,21 +292,24 @@ vortex-fastlanes = { version = "0.1.0", path = "./encodings/fastlanes", default-
 vortex-file = { version = "0.1.0", path = "./vortex-file", default-features = false }
 vortex-flatbuffers = { version = "0.1.0", path = "./vortex-flatbuffers", default-features = false }
 vortex-fsst = { version = "0.1.0", path = "./encodings/fsst", default-features = false }
+vortex-geo = { version = "0.1.0", path = "./vortex-geo", default-features = false }
 vortex-io = { version = "0.1.0", path = "./vortex-io", default-features = false }
 vortex-ipc = { version = "0.1.0", path = "./vortex-ipc", default-features = false }
+vortex-json = { version = "0.1.0", path = "./vortex-json", default-features = false }
 vortex-layout = { version = "0.1.0", path = "./vortex-layout", default-features = false }
 vortex-mask = { version = "0.1.0", path = "./vortex-mask", default-features = false }
 vortex-metrics = { version = "0.1.0", path = "./vortex-metrics", default-features = false }
+vortex-onpair = { version = "0.1.0", path = "./encodings/experimental/onpair", default-features = false }
 vortex-parquet-variant = { version = "0.1.0", path = "./encodings/parquet-variant" }
 vortex-pco = { version = "0.1.0", path = "./encodings/pco", default-features = false }
 vortex-proto = { version = "0.1.0", path = "./vortex-proto", default-features = false }
+vortex-row = { version = "0.1.0", path = "./vortex-row", default-features = false }
 vortex-runend = { version = "0.1.0", path = "./encodings/runend", default-features = false }
 vortex-scan = { version = "0.1.0", path = "./vortex-scan", default-features = false }
 vortex-sequence = { version = "0.1.0", path = "encodings/sequence", default-features = false }
 vortex-session = { version = "0.1.0", path = "./vortex-session", default-features = false }
 vortex-sparse = { version = "0.1.0", path = "./encodings/sparse", default-features = false }
 vortex-tensor = { version = "0.1.0", path = "./vortex-tensor", default-features = false }
-vortex-turboquant = { version = "0.1.0", path = "./vortex-turboquant", default-features = false }
 vortex-utils = { version = "0.1.0", path = "./vortex-utils", default-features = false }
 vortex-zigzag = { version = "0.1.0", path = "./encodings/zigzag", default-features = false }
 vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features = false }
@@ -375,7 +386,8 @@ use_debug = "deny"
 
 [profile.release]
 codegen-units = 1
-# Turn LTO off, as it breaks when vortex-duckdb-ext is linked.
+# Our general performance should not be dependent on LTO since crates that use
+# Vortex may choose not to have LTO.
 lto = "off"
 
 [profile.release_debug]
@@ -383,7 +395,7 @@ debug = "full"
 inherits = "release"
 
 [profile.bench]
-codegen-units = 1
+codegen-units = 16
 debug = "full"
 lto = false
 
@@ -405,6 +417,9 @@ incremental = false
 # This rule only applies to dependencies that are not members of the workspace.
 [profile.ci.package."*"]
 debug = false
-debug-assertions = false
-strip = "debuginfo"
+debug-assertions = true
 incremental = false
+
+# This improved build times significantly for default common cases that we use locally
+[profile.dev.package.vortex-fastlanes]
+debug = false

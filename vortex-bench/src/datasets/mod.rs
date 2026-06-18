@@ -59,6 +59,8 @@ pub trait Dataset {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BenchmarkDataset {
+    #[serde(rename = "appian")]
+    Appian,
     #[serde(rename = "tpch")]
     TpcH { scale_factor: String },
     #[serde(rename = "tpcds")]
@@ -80,6 +82,7 @@ pub enum BenchmarkDataset {
 impl BenchmarkDataset {
     pub fn name(&self) -> &str {
         match self {
+            BenchmarkDataset::Appian => "appian",
             BenchmarkDataset::TpcH { .. } => "tpch",
             BenchmarkDataset::TpcDS { .. } => "tpcds",
             BenchmarkDataset::ClickBench { .. } => "clickbench",
@@ -95,6 +98,7 @@ impl BenchmarkDataset {
 impl Display for BenchmarkDataset {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            BenchmarkDataset::Appian => write!(f, "appian"),
             BenchmarkDataset::TpcH { scale_factor } => write!(f, "tpch(sf={scale_factor})"),
             BenchmarkDataset::TpcDS { scale_factor } => write!(f, "tpcds(sf={scale_factor})"),
             BenchmarkDataset::ClickBench { flavor, .. } => match flavor {
@@ -112,9 +116,22 @@ impl Display for BenchmarkDataset {
     }
 }
 
+const APPIAN_TABLES: &[&str] = &[
+    "addressview",
+    "categoryview",
+    "creditcardview",
+    "customerview",
+    "orderitemnovelty_update",
+    "orderitemview",
+    "orderview",
+    "productview",
+    "taxrecordview",
+];
+
 impl BenchmarkDataset {
     pub fn tables(&self) -> &[&'static str] {
         match self {
+            BenchmarkDataset::Appian => APPIAN_TABLES,
             BenchmarkDataset::TpcDS { .. } => &[
                 "call_center",
                 "catalog_sales",

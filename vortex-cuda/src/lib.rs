@@ -9,6 +9,7 @@ use tracing::info;
 
 pub mod arrow;
 mod canonical;
+mod cub;
 mod device_buffer;
 mod device_read_at;
 pub mod dynamic_dispatch;
@@ -129,4 +130,18 @@ pub fn initialize_cuda(session: &CudaSession) {
     // Operation kernels
     session.register_kernel(Filter.id(), &FilterExecutor);
     session.register_kernel(Slice.id(), &SliceExecutor);
+}
+
+/// Builds a fresh [`VortexSession`](vortex::session::VortexSession) with all array session
+/// variables plus a default [`CudaSession`], for use in CUDA tests and benchmarks.
+///
+/// Each call returns an independent session with its own CUDA context and stream pool, matching
+/// the per-test isolation that lazily-initialized sessions previously provided.
+///
+/// # Panics
+///
+/// Panics if CUDA device 0 cannot be initialized (the same contract as [`CudaSession::default`]).
+#[cfg(any(test, feature = "_test-harness"))]
+pub fn cuda_session() -> vortex::session::VortexSession {
+    vortex::array::array_session().with::<CudaSession>()
 }

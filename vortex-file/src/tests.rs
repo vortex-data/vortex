@@ -35,6 +35,7 @@ use vortex_array::dtype::PType::I32;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::and;
 use vortex_array::expr::cast;
+use vortex_array::expr::col;
 use vortex_array::expr::eq;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
@@ -52,8 +53,6 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::fns::pack::Pack;
 use vortex_array::scalar_fn::fns::pack::PackOptions;
-use vortex_array::scalar_fn::session::ScalarFnSession;
-use vortex_array::session::ArraySession;
 use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
@@ -76,10 +75,8 @@ use crate::WriteOptionsSessionExt;
 use crate::footer::SegmentSpec;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = VortexSession::empty()
-        .with::<ArraySession>()
+    let session = vortex_array::array_session()
         .with::<LayoutSession>()
-        .with::<ScalarFnSession>()
         .with::<RuntimeSession>();
 
     crate::register_default_encodings(&session);
@@ -1950,6 +1947,42 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
         &all_zones_offsets,
         "global: all data segments should come before all zone map segments",
     );
+
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_can_prune_composite_predicates() -> VortexResult<()> {
+    // Regression test for `can_prune` after `ScalarFnConstantRule` was removed
+    // (#7575): composite falsification trees no longer constant-fold during
+    // execution, so `can_prune` must read the one-row evaluated result instead
+    // of requiring a `Columnar::Constant`. `Eq` is affected too: its
+    // falsification is internally `or(min > lit, lit > max)`.
+    let st = StructArray::from_fields(&[
+        ("age", buffer![15i32, 18, 22, 25].into_array()),
+        ("price", buffer![120i32, 130, 140, 150].into_array()),
+    ])?;
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, st.into_array().to_array_stream())
+        .await?;
+    let file = SESSION.open_options().open_buffer(buf)?;
+
+    // Bare comparisons: falsified directly by min/max stats.
+    assert!(file.can_prune(&gt(col("age"), lit(30)))?);
+    assert!(file.can_prune(&lt(col("price"), lit(100)))?);
+
+    // Composite predicates whose falsifications are boolean trees.
+    assert!(file.can_prune(&and(gt(col("age"), lit(30)), lt(col("price"), lit(100))))?);
+    assert!(file.can_prune(&or(gt(col("age"), lit(30)), lt(col("age"), lit(10))))?);
+    assert!(file.can_prune(&eq(col("age"), lit(5)))?);
+
+    // Non-falsifiable controls: rows may match, so pruning must refuse.
+    assert!(!file.can_prune(&gt(col("age"), lit(20)))?);
+    assert!(!file.can_prune(&eq(col("age"), lit(18)))?);
+    assert!(!file.can_prune(&and(gt(col("age"), lit(20)), gt(col("price"), lit(100))))?);
 
     Ok(())
 }

@@ -1,0 +1,33 @@
+[package]
+name = "vortex-cuda-ffi"
+description = "Native C FFI bindings for Vortex CUDA interop"
+readme = "README.md"
+publish = false
+version = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+keywords = { workspace = true }
+include = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+categories = { workspace = true }
+
+[dependencies]
+arrow-schema = { workspace = true, features = ["ffi"] }
+futures = { workspace = true, features = ["executor"] }
+vortex = { workspace = true, features = ["object_store"] }
+vortex-cuda = { path = ".." }
+vortex-ffi = { path = "../../vortex-ffi" }
+
+[dev-dependencies]
+vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-cuda-macros = { workspace = true }
+
+[lib]
+name = "vortex_cuda_ffi"
+crate-type = ["rlib", "staticlib", "cdylib"]
+
+[lints]
+workspace = true

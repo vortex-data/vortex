@@ -67,11 +67,14 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::Constant;
+    use vortex_array::arrays::Dict;
     use vortex_array::arrays::List;
     use vortex_array::arrays::ListView;
     use vortex_array::arrays::ListViewArray;
+    use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::session::ArraySession;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
@@ -79,9 +82,10 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::BtrBlocksCompressor;
+    #[cfg(feature = "zstd")]
+    use crate::BtrBlocksCompressorBuilder;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     #[rstest]
     #[case::zctl(
@@ -188,6 +192,101 @@ mod tests {
             &mut SESSION.create_execution_ctx(),
         )?;
         assert!(!compressed.is::<Constant>());
+        assert_arrays_eq!(compressed, array);
+        Ok(())
+    }
+
+    #[test]
+    fn test_binary_constant_compressed() -> VortexResult<()> {
+        let values = vec![Some(b"constant-bytes".as_slice()); 100];
+        let array = VarBinViewArray::from_iter(values, DType::Binary(Nullability::NonNullable));
+        let btr = BtrBlocksCompressor::default();
+        let compressed = btr.compress(
+            &array.clone().into_array(),
+            &mut SESSION.create_execution_ctx(),
+        )?;
+        assert!(compressed.is::<Constant>());
+        assert_arrays_eq!(compressed, array);
+        Ok(())
+    }
+
+    #[test]
+    fn test_binary_dict_compressed() -> VortexResult<()> {
+        let distinct_values: [&[u8]; 3] = [b"alpha", b"beta", b"gamma"];
+        let values = (0..1000)
+            .map(|idx| Some(distinct_values[idx % distinct_values.len()]))
+            .collect::<Vec<_>>();
+        let array = VarBinViewArray::from_iter(values, DType::Binary(Nullability::NonNullable));
+        let btr = BtrBlocksCompressor::default();
+        let compressed = btr.compress(
+            &array.clone().into_array(),
+            &mut SESSION.create_execution_ctx(),
+        )?;
+        assert!(compressed.is::<Dict>());
+        assert_arrays_eq!(compressed, array);
+        Ok(())
+    }
+
+    #[cfg(feature = "zstd")]
+    #[test]
+    fn test_compact_binary_zstd_compressed() -> VortexResult<()> {
+        let values = (0..1024)
+            .map(|idx| {
+                let mut value = Vec::from(&b"common binary payload prefix "[..]);
+                value.extend_from_slice(&(idx as u32).to_le_bytes());
+                value.extend_from_slice(&[b'x'; 96]);
+                value
+            })
+            .collect::<Vec<_>>();
+        let array = VarBinViewArray::from_iter(
+            values.iter().map(|value| Some(value.as_slice())),
+            DType::Binary(Nullability::NonNullable),
+        );
+
+        let compressor = BtrBlocksCompressorBuilder::default().with_compact().build();
+        let compressed = compressor.compress(
+            &array.clone().into_array(),
+            &mut SESSION.create_execution_ctx(),
+        )?;
+
+        assert!(
+            compressed.is::<vortex_zstd::Zstd>(),
+            "expected Zstd, got {}",
+            compressed.encoding_id()
+        );
+        assert_arrays_eq!(compressed, array);
+        Ok(())
+    }
+
+    #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
+    #[test]
+    fn test_cuda_compatible_binary_zstd_buffers_compressed() -> VortexResult<()> {
+        let values = (0..1024)
+            .map(|idx| {
+                let mut value = Vec::from(&b"common binary payload prefix "[..]);
+                value.extend_from_slice(&(idx as u32).to_le_bytes());
+                value.extend_from_slice(&[b'x'; 96]);
+                value
+            })
+            .collect::<Vec<_>>();
+        let array = VarBinViewArray::from_iter(
+            values.iter().map(|value| Some(value.as_slice())),
+            DType::Binary(Nullability::NonNullable),
+        );
+
+        let compressor = BtrBlocksCompressorBuilder::default()
+            .only_cuda_compatible()
+            .build();
+        let compressed = compressor.compress(
+            &array.clone().into_array(),
+            &mut SESSION.create_execution_ctx(),
+        )?;
+
+        assert!(
+            compressed.is::<vortex_zstd::ZstdBuffers>(),
+            "expected ZstdBuffers, got {}",
+            compressed.encoding_id()
+        );
         assert_arrays_eq!(compressed, array);
         Ok(())
     }

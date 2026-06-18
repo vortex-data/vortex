@@ -32,6 +32,7 @@ use async_trait::async_trait;
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::stream;
+use itertools::Itertools;
 use tracing::Instrument;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
@@ -87,26 +88,68 @@ pub struct MultiLayoutDataSource {
 }
 
 pub enum MultiLayoutChild {
-    Opened(LayoutReaderRef),
-    Deferred(Arc<dyn LayoutReaderFactory>),
+    Opened {
+        reader: LayoutReaderRef,
+        /// On-storage file size in bytes, if known from the listing metadata.
+        byte_size: Option<u64>,
+    },
+    Deferred {
+        factory: Arc<dyn LayoutReaderFactory>,
+        /// On-storage file size in bytes, if known from the listing metadata.
+        byte_size: Option<u64>,
+    },
+}
+
+impl MultiLayoutChild {
+    /// On-storage file size in bytes for this child, if known.
+    pub fn byte_size(&self) -> Option<u64> {
+        match self {
+            MultiLayoutChild::Opened { byte_size, .. } => *byte_size,
+            MultiLayoutChild::Deferred { byte_size, .. } => *byte_size,
+        }
+    }
 }
 
 impl MultiLayoutDataSource {
     /// Creates a multi-layout data source with the first reader pre-opened.
     ///
     /// The first reader determines the dtype. Remaining readers are opened lazily during
-    /// scanning via their factories.
+    /// scanning via their factories. `byte_sizes` carries the on-storage file size in bytes for
+    /// each child (first followed by remaining); pass `None` for entries where the size is
+    /// unknown. Must be empty or have length `1 + remaining.len()`.
     pub fn new_with_first(
         first: LayoutReaderRef,
         remaining: Vec<Arc<dyn LayoutReaderFactory>>,
+        byte_sizes: Vec<Option<u64>>,
         session: &VortexSession,
     ) -> Self {
         let dtype = first.dtype().clone();
         let concurrency = get_available_parallelism().unwrap_or(DEFAULT_CONCURRENCY);
 
-        let mut children = Vec::with_capacity(1 + remaining.len());
-        children.push(MultiLayoutChild::Opened(first));
-        children.extend(remaining.into_iter().map(MultiLayoutChild::Deferred));
+        let total = 1 + remaining.len();
+        let mut sizes = byte_sizes;
+        if sizes.is_empty() {
+            sizes = vec![None; total];
+        }
+        debug_assert_eq!(
+            sizes.len(),
+            total,
+            "byte_sizes length must match the number of children"
+        );
+
+        let mut children = Vec::with_capacity(total);
+        let mut sizes_iter = sizes.into_iter();
+        let first_size = sizes_iter.next().unwrap_or(None);
+        children.push(MultiLayoutChild::Opened {
+            reader: first,
+            byte_size: first_size,
+        });
+        children.extend(
+            remaining
+                .into_iter()
+                .zip_eq(sizes_iter)
+                .map(|(factory, byte_size)| MultiLayoutChild::Deferred { factory, byte_size }),
+        );
 
         Self {
             dtype,
@@ -120,20 +163,34 @@ impl MultiLayoutDataSource {
     ///
     /// The dtype must be provided externally since there is no pre-opened reader to infer it
     /// from. This avoids eagerly opening any file when the schema is already known (e.g. from
-    /// a catalog or a prior scan).
+    /// a catalog or a prior scan). `byte_sizes` carries the on-storage file size in bytes for
+    /// each factory; pass `None` for entries where the size is unknown. Must be empty or have
+    /// the same length as `factories`.
     pub fn new_deferred(
         dtype: DType,
         factories: Vec<Arc<dyn LayoutReaderFactory>>,
+        byte_sizes: Vec<Option<u64>>,
         session: &VortexSession,
     ) -> Self {
         let concurrency = get_available_parallelism().unwrap_or(DEFAULT_CONCURRENCY);
+
+        let mut sizes = byte_sizes;
+        if sizes.is_empty() {
+            sizes = vec![None; factories.len()];
+        }
+        debug_assert_eq!(
+            sizes.len(),
+            factories.len(),
+            "byte_sizes length must match the number of factories"
+        );
 
         Self {
             dtype,
             session: session.clone(),
             children: factories
                 .into_iter()
-                .map(MultiLayoutChild::Deferred)
+                .zip_eq(sizes)
+                .map(|(factory, byte_size)| MultiLayoutChild::Deferred { factory, byte_size })
                 .collect(),
             concurrency,
         }
@@ -166,11 +223,11 @@ impl DataSource for MultiLayoutDataSource {
 
         for child in &self.children {
             match child {
-                MultiLayoutChild::Opened(reader) => {
+                MultiLayoutChild::Opened { reader, .. } => {
                     opened_count += 1;
                     sum = sum.saturating_add(reader.row_count());
                 }
-                MultiLayoutChild::Deferred(_) => {
+                MultiLayoutChild::Deferred { .. } => {
                     deferred_count += 1;
                 }
             }
@@ -192,6 +249,34 @@ impl DataSource for MultiLayoutDataSource {
         }
     }
 
+    fn byte_size(&self) -> Precision<u64> {
+        let total_count = self.children.len() as u64;
+        if total_count == 0 {
+            return Precision::exact(0u64);
+        }
+
+        let mut sum: u64 = 0;
+        let mut known_count: u64 = 0;
+        for child in &self.children {
+            if let Some(size) = child.byte_size() {
+                sum = sum.saturating_add(size);
+                known_count += 1;
+            }
+        }
+
+        if known_count == 0 {
+            return Precision::Absent;
+        }
+
+        if known_count == total_count {
+            Precision::exact(sum)
+        } else {
+            let avg = sum / known_count;
+            let extrapolated = avg.saturating_mul(total_count);
+            Precision::inexact(extrapolated)
+        }
+    }
+
     fn deserialize_partition(
         &self,
         _data: &[u8],
@@ -206,8 +291,10 @@ impl DataSource for MultiLayoutDataSource {
 
         for child in &self.children {
             match child {
-                MultiLayoutChild::Opened(reader) => ready.push_back(Arc::clone(reader)),
-                MultiLayoutChild::Deferred(factory) => deferred.push_back(Arc::clone(factory)),
+                MultiLayoutChild::Opened { reader, .. } => ready.push_back(Arc::clone(reader)),
+                MultiLayoutChild::Deferred { factory, .. } => {
+                    deferred.push_back(Arc::clone(factory))
+                }
             }
         }
 
@@ -382,7 +469,7 @@ fn reader_partition(
 
 /// A partition backed by a single [`LayoutReaderRef`] and a row range.
 ///
-/// On `execute()`, creates a [`ScanBuilder`][crate::ScanBuilder] over the row range, enabling
+/// On `execute()`, creates a [`ScanBuilder`] over the row range, enabling
 /// internal I/O pipelining and split-level parallelism within the reader.
 struct MultiLayoutPartition {
     reader: LayoutReaderRef,
@@ -441,5 +528,45 @@ impl Partition for MultiLayoutPartition {
         Ok(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
             dtype, stream,
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex_array::dtype::Nullability;
+
+    use super::*;
+    use crate::scan::test::new_session;
+
+    struct NeverOpened;
+
+    #[async_trait]
+    impl LayoutReaderFactory for NeverOpened {
+        async fn open(&self) -> VortexResult<Option<LayoutReaderRef>> {
+            unreachable!("byte_size must not open readers")
+        }
+    }
+
+    fn deferred_source(byte_sizes: Vec<Option<u64>>) -> MultiLayoutDataSource {
+        let factories: Vec<Arc<dyn LayoutReaderFactory>> = byte_sizes
+            .iter()
+            .map(|_| Arc::new(NeverOpened) as _)
+            .collect();
+        MultiLayoutDataSource::new_deferred(
+            DType::Bool(Nullability::NonNullable),
+            factories,
+            byte_sizes,
+            &new_session(),
+        )
+    }
+
+    #[rstest]
+    #[case::all_known(vec![Some(10), Some(20), Some(30)], Precision::exact(60u64))]
+    #[case::some_known_extrapolates(vec![Some(10), None, Some(30)], Precision::inexact(60u64))]
+    #[case::none_known(vec![None, None], Precision::Absent)]
+    #[case::no_children(vec![], Precision::exact(0u64))]
+    fn byte_size_precision(#[case] sizes: Vec<Option<u64>>, #[case] expected: Precision<u64>) {
+        assert_eq!(deferred_source(sizes).byte_size(), expected);
     }
 }

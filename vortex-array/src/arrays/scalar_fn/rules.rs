@@ -84,7 +84,8 @@ impl ArrayParentReduceRule<ScalarFn> for ScalarFnSliceReduceRule {
             .collect::<VortexResult<_>>()?;
 
         Ok(Some(
-            ScalarFnArray::try_new(array.scalar_fn().clone(), children, range.len())?.into_array(),
+            ScalarFnArray::try_new_with_len(array.scalar_fn().clone(), children, range.len())?
+                .into_array(),
         ))
     }
 }
@@ -142,7 +143,7 @@ impl ReduceCtx for ArrayReduceCtx {
         children: &[ReduceNodeRef],
     ) -> VortexResult<ReduceNodeRef> {
         Ok(Arc::new(
-            ScalarFnArray::try_new(
+            ScalarFnArray::try_new_with_len(
                 scalar_fn,
                 children
                     .iter()
@@ -191,8 +192,7 @@ impl ArrayParentReduceRule<ScalarFn> for ScalarFnUnaryFilterPushDownRule {
                 .try_collect()?;
 
             let new_array =
-                ScalarFnArray::try_new(child.scalar_fn().clone(), new_children, parent.len())?
-                    .into_array();
+                ScalarFnArray::try_new(child.scalar_fn().clone(), new_children)?.into_array();
 
             return Ok(Some(new_array));
         }

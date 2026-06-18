@@ -4,6 +4,7 @@
 pub(super) mod common;
 
 mod basic;
+mod density;
 mod filter;
 mod nested;
 mod nullability;

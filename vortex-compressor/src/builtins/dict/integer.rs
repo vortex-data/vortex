@@ -23,8 +23,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::CascadingCompressor;
-use crate::builtins::IntDictScheme;
-use crate::builtins::is_integer_primitive;
 use crate::ctx::CompressorContext;
 use crate::estimate::CompressionEstimate;
 use crate::estimate::EstimateVerdict;
@@ -35,13 +33,17 @@ use crate::stats::GenerateStatsOptions;
 use crate::stats::IntegerErasedStats;
 use crate::stats::IntegerStats;
 
+/// Dictionary encoding for low-cardinality integer values.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct IntDictScheme;
+
 impl Scheme for IntDictScheme {
     fn scheme_name(&self) -> &'static str {
         "vortex.int.dict"
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
-        is_integer_primitive(canonical)
+        canonical.dtype().is_int()
     }
 
     fn stats_options(&self) -> GenerateStatsOptions {
@@ -119,7 +121,7 @@ impl Scheme for IntDictScheme {
             .codes()
             .clone()
             .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow()?
+            .narrow(exec_ctx)?
             .into_array();
         let compressed_codes =
             compressor.compress_child(&narrowed_codes, &compress_ctx, self.id(), 1, exec_ctx)?;
@@ -258,20 +260,16 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::dict::DictArraySlotsExt;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
 
     use super::dictionary_encode;
     use crate::stats::IntegerStats;
 
     #[test]
     fn test_dict_encode_integer_stats() -> VortexResult<()> {
-        let mut ctx = VortexSession::empty()
-            .with::<ArraySession>()
-            .create_execution_ctx();
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
         let data = buffer![100i32, 200, 100, 0, 100];
         let validity =
             Validity::Array(BoolArray::from_iter([true, true, true, false, true]).into_array());

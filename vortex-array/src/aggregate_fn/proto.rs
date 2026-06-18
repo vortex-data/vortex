@@ -36,7 +36,7 @@ impl AggregateFnRef {
     /// Note: the serialization format is not stable and may change between versions.
     pub fn from_proto(proto: &pb::AggregateFn, session: &VortexSession) -> VortexResult<Self> {
         let agg_fn_id: AggregateFnId = AggregateFnId::new(proto.id.as_str());
-        let agg_fn = if let Some(plugin) = session.aggregate_fns().registry().find(&agg_fn_id) {
+        let agg_fn = if let Some(plugin) = session.aggregate_fns().find_plugin(&agg_fn_id) {
             plugin.deserialize(proto.metadata(), session)?
         } else if session.allows_unknown() {
             new_foreign_aggregate_fn(agg_fn_id, proto.metadata().to_vec())
@@ -155,7 +155,7 @@ mod tests {
 
     #[test]
     fn aggregate_fn_serde() {
-        let session = VortexSession::empty().with::<AggregateFnSession>();
+        let session = crate::array_session();
         session.aggregate_fns().register(TestAgg);
 
         let agg_fn = TestAgg.bind(EmptyOptions);
@@ -170,9 +170,10 @@ mod tests {
 
     #[test]
     fn unknown_aggregate_fn_id_allow_unknown() {
-        let session = VortexSession::empty()
+        let session = VortexSession::builder()
             .with::<AggregateFnSession>()
-            .allow_unknown();
+            .allow_unknown()
+            .build();
 
         let proto = pb::AggregateFn {
             id: "vortex.test.foreign_aggregate".to_string(),

@@ -61,7 +61,6 @@ mod tests {
     use vortex_array::kernel::ExecuteParentKernel;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
 
     use crate::RunEnd;
     use crate::RunEndArray;
@@ -83,7 +82,7 @@ mod tests {
 
     #[test]
     fn test_execute_parent_no_offset() -> VortexResult<()> {
-        let mut ctx = ExecutionCtx::new(VortexSession::empty());
+        let mut ctx = ExecutionCtx::new(vortex_array::array_session());
         let (codes, dict) = make_dict_with_runend_codes(&mut ctx);
 
         let result = RunEndTakeFrom
@@ -98,7 +97,7 @@ mod tests {
 
     #[test]
     fn test_execute_parent_with_offset() -> VortexResult<()> {
-        let mut ctx = ExecutionCtx::new(VortexSession::empty());
+        let mut ctx = ExecutionCtx::new(vortex_array::array_session());
         let (codes, dict) = make_dict_with_runend_codes(&mut ctx);
         // Slice codes to positions 2..5 → logical codes [0, 1, 1] → values [2, 3, 3]
         let sliced_codes = unsafe {
@@ -122,7 +121,7 @@ mod tests {
 
     #[test]
     fn test_execute_parent_offset_at_run_boundary() -> VortexResult<()> {
-        let mut ctx = ExecutionCtx::new(VortexSession::empty());
+        let mut ctx = ExecutionCtx::new(vortex_array::array_session());
         let (codes, dict) = make_dict_with_runend_codes(&mut ctx);
         // Slice codes to positions 3..7 → logical codes [1, 1, 0, 0] → values [3, 3, 2, 2]
         let sliced_codes = unsafe {
@@ -146,7 +145,7 @@ mod tests {
 
     #[test]
     fn test_execute_parent_single_element_offset() -> VortexResult<()> {
-        let mut ctx = ExecutionCtx::new(VortexSession::empty());
+        let mut ctx = ExecutionCtx::new(vortex_array::array_session());
         let (codes, dict) = make_dict_with_runend_codes(&mut ctx);
         // Slice to single element at position 4 → code=1 → value=3
         let sliced_codes = unsafe {
@@ -170,7 +169,7 @@ mod tests {
 
     #[test]
     fn test_execute_parent_returns_none_for_non_codes_child() -> VortexResult<()> {
-        let mut ctx = ExecutionCtx::new(VortexSession::empty());
+        let mut ctx = ExecutionCtx::new(vortex_array::array_session());
         let (codes, dict) = make_dict_with_runend_codes(&mut ctx);
 
         let result = RunEndTakeFrom.execute_parent(codes.as_view(), dict.as_view(), 1, &mut ctx)?;

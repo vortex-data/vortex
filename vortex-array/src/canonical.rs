@@ -258,11 +258,11 @@ impl Canonical {
     ///
     /// This operation is very expensive and can result in things like allocations, full-scans
     /// and copy operations.
-    pub fn compact(&self) -> VortexResult<Canonical> {
+    pub fn compact(&self, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         match self {
             Canonical::VarBinView(array) => Ok(Canonical::VarBinView(array.compact_buffers()?)),
             Canonical::List(array) => Ok(Canonical::List(
-                array.rebuild(ListViewRebuildMode::TrimElements)?,
+                array.rebuild(ListViewRebuildMode::TrimElements, ctx)?,
             )),
             _ => Ok(self.clone()),
         }
@@ -563,9 +563,14 @@ impl Executable for CanonicalValidity {
             Canonical::Bool(b) => {
                 let validity = child_to_validity(b.slots()[0].as_ref(), b.dtype().nullability());
                 let len = b.len();
-                let BoolDataParts { bits, offset, len } = b.into_data().into_parts(len);
+                let BoolDataParts { bits, meta } = b.into_data().into_parts(len);
                 Ok(CanonicalValidity(Canonical::Bool(
-                    BoolArray::try_new_from_handle(bits, offset, len, validity.execute(ctx)?)?,
+                    BoolArray::try_new_from_handle(
+                        bits,
+                        meta.offset(),
+                        meta.len(),
+                        validity.execute(ctx)?,
+                    )?,
                 )))
             }
             Canonical::Primitive(p) => {
@@ -713,9 +718,14 @@ impl Executable for RecursiveCanonical {
             Canonical::Bool(b) => {
                 let validity = child_to_validity(b.slots()[0].as_ref(), b.dtype().nullability());
                 let len = b.len();
-                let BoolDataParts { bits, offset, len } = b.into_data().into_parts(len);
+                let BoolDataParts { bits, meta } = b.into_data().into_parts(len);
                 Ok(RecursiveCanonical(Canonical::Bool(
-                    BoolArray::try_new_from_handle(bits, offset, len, validity.execute(ctx)?)?,
+                    BoolArray::try_new_from_handle(
+                        bits,
+                        meta.offset(),
+                        meta.len(),
+                        validity.execute(ctx)?,
+                    )?,
                 )))
             }
             Canonical::Primitive(p) => {
@@ -1062,6 +1072,7 @@ pub struct AnyCanonical;
 impl Matcher for AnyCanonical {
     type Match<'a> = CanonicalView<'a>;
 
+    #[inline]
     fn matches(array: &ArrayRef) -> bool {
         array.is::<Null>()
             || array.is::<Bool>()
@@ -1075,6 +1086,7 @@ impl Matcher for AnyCanonical {
             || array.is::<Extension>()
     }
 
+    #[inline]
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
         if let Some(a) = array.as_opt::<Null>() {
             Some(CanonicalView::Null(a))
@@ -1103,6 +1115,7 @@ impl Matcher for AnyCanonical {
 #[cfg(test)]
 mod test {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use arrow_array::Array as ArrowArray;
     use arrow_array::ArrayRef as ArrowArrayRef;
@@ -1122,12 +1135,12 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::Canonical;
     use crate::CanonicalValidity;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
@@ -1142,6 +1155,9 @@ mod test {
     use crate::canonical::StructArray;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
+
+    /// A shared session for these canonical tests, used to create execution contexts.
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
 
     fn variant_core_storage(len: usize) -> ArrayRef {
         ConstantArray::new(
@@ -1163,7 +1179,7 @@ mod test {
         let outer_variant =
             VariantArray::try_new(variant_core_storage(len), Some(inner_variant.into_array()))?;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let Canonical::Variant(canonical) = outer_variant
             .into_array()
             .execute::<CanonicalValidity>(&mut ctx)?
@@ -1190,7 +1206,7 @@ mod test {
 
     #[test]
     fn test_canonicalize_nested_struct() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Create a struct array with multiple internal components.
         let nested_struct_array = StructArray::from_fields(&[
             ("a", buffer![1u64].into_array()),
@@ -1210,7 +1226,7 @@ mod test {
         ])
         .unwrap();
 
-        let arrow_struct = LEGACY_SESSION
+        let arrow_struct = SESSION
             .arrow()
             .execute_arrow(nested_struct_array.into_array(), None, &mut ctx)
             .unwrap()
@@ -1247,7 +1263,7 @@ mod test {
 
     #[test]
     fn roundtrip_struct() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut nulls = NullBufferBuilder::new(6);
         nulls.append_n_non_nulls(4);
         nulls.append_null();
@@ -1280,7 +1296,7 @@ mod test {
         );
 
         let vortex_struct = ArrayRef::from_arrow(&arrow_struct, true).unwrap();
-        let vortex_struct = LEGACY_SESSION
+        let vortex_struct = SESSION
             .arrow()
             .execute_arrow(vortex_struct, None, &mut ctx)
             .unwrap();
@@ -1289,7 +1305,7 @@ mod test {
 
     #[test]
     fn roundtrip_list() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let names = Arc::new(StringArray::from_iter(vec![
             Some("Joseph"),
             Some("Angela"),
@@ -1307,7 +1323,7 @@ mod test {
 
         let vortex_list = ArrayRef::from_arrow(&arrow_list, true).unwrap();
 
-        let rt_arrow_list = LEGACY_SESSION
+        let rt_arrow_list = SESSION
             .arrow()
             .execute_arrow(vortex_list, Some(&list_field), &mut ctx)
             .unwrap();

@@ -13,10 +13,10 @@ use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
+use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::Precision;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::dtype::DType;
@@ -69,19 +69,19 @@ pub struct BitPackedMetadata {
 }
 
 impl ArrayHash for BitPackedData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: EqMode) {
         self.offset.hash(state);
         self.bit_width.hash(state);
-        self.packed.array_hash(state, precision);
+        self.packed.array_hash(state, accuracy);
         self.patches_data.hash(state);
     }
 }
 
 impl ArrayEq for BitPackedData {
-    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+    fn array_eq(&self, other: &Self, accuracy: EqMode) -> bool {
         self.offset == other.offset
             && self.bit_width == other.bit_width
-            && self.packed.array_eq(&other.packed, precision)
+            && self.packed.array_eq(&other.packed, accuracy)
             && self.patches_data == other.patches_data
     }
 }

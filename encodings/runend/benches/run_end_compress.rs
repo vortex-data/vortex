@@ -3,10 +3,11 @@
 
 #![expect(clippy::unwrap_used)]
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use itertools::repeat_n;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
@@ -16,10 +17,13 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_runend::RunEnd;
 use vortex_runend::compress::runend_encode;
+use vortex_session::VortexSession;
 
 fn main() {
     divan::main();
 }
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 const BENCH_ARGS: &[(usize, usize)] = &[
     (1000, 4),
@@ -47,7 +51,7 @@ fn compress(bencher: Bencher, (length, run_step): (usize, usize)) {
     );
 
     bencher
-        .with_inputs(|| (&values, LEGACY_SESSION.create_execution_ctx()))
+        .with_inputs(|| (&values, SESSION.create_execution_ctx()))
         .bench_refs(|(values, ctx)| runend_encode(values.as_view(), ctx));
 }
 
@@ -64,11 +68,11 @@ fn decompress<T: IntegerPType>(bencher: Bencher, (length, run_step): (usize, usi
         .collect::<Buffer<_>>()
         .into_array();
 
-    let run_end_array = RunEnd::new(ends, values, &mut LEGACY_SESSION.create_execution_ctx());
+    let run_end_array = RunEnd::new(ends, values, &mut SESSION.create_execution_ctx());
     let array = run_end_array.into_array();
 
     bencher
-        .with_inputs(|| (array.clone(), LEGACY_SESSION.create_execution_ctx()))
+        .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut execution_ctx)| {
             array
                 .execute::<RecursiveCanonical>(&mut execution_ctx)
@@ -88,20 +92,14 @@ fn take_indices(bencher: Bencher, (length, run_step): (usize, usize)) {
     );
 
     let source_array = PrimitiveArray::from_iter(0..(length as i32)).into_array();
-    let mut encode_ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut encode_ctx = SESSION.create_execution_ctx();
     let (ends, values) = runend_encode(values.as_view(), &mut encode_ctx);
     let runend_array = RunEnd::try_new(ends.into_array(), values, &mut encode_ctx)
         .unwrap()
         .into_array();
 
     bencher
-        .with_inputs(|| {
-            (
-                &source_array,
-                &runend_array,
-                LEGACY_SESSION.create_execution_ctx(),
-            )
-        })
+        .with_inputs(|| (&source_array, &runend_array, SESSION.create_execution_ctx()))
         .bench_refs(|(array, indices, execution_ctx)| {
             array
                 .take(indices.clone())
@@ -122,11 +120,11 @@ fn decompress_utf8(bencher: Bencher, (length, run_step): (usize, usize)) {
     let values = VarBinViewArray::from_iter_str((0..num_runs).map(|i| format!("run_value_{i}")))
         .into_array();
 
-    let run_end_array = RunEnd::new(ends, values, &mut LEGACY_SESSION.create_execution_ctx());
+    let run_end_array = RunEnd::new(ends, values, &mut SESSION.create_execution_ctx());
     let array = run_end_array.into_array();
 
     bencher
-        .with_inputs(|| (array.clone(), LEGACY_SESSION.create_execution_ctx()))
+        .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut execution_ctx)| {
             array
                 .execute::<RecursiveCanonical>(&mut execution_ctx)

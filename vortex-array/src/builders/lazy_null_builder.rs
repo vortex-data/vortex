@@ -31,6 +31,42 @@ impl LazyBitBufferBuilder {
         }
     }
 
+    /// Creates a builder pre-populated from a validity mask, taking ownership of the mask's buffer
+    /// instead of copying it where possible.
+    ///
+    /// This is the counterpart to [`append_validity_mask`](Self::append_validity_mask) for callers
+    /// that want to *replace* the builder's contents with the mask rather than extend them: because
+    /// we own the mask, we can move its buffer in instead of copying it.
+    pub fn from_validity_mask(validity_mask: Mask) -> Self {
+        match validity_mask {
+            // An unmaterialized builder already represents `len` non-null values, so an all-valid
+            // mask stays lazy.
+            Mask::AllTrue(len) => Self {
+                inner: None,
+                len,
+                capacity: len,
+            },
+            Mask::AllFalse(len) => Self::from_buffer(BitBufferMut::new_unset(len)),
+            // Take ownership of the underlying buffer; `into_bit_buffer` and `try_into_mut` only
+            // copy when the buffer is shared, otherwise this is a move.
+            values @ Mask::Values(_) => Self::from_buffer(
+                values
+                    .into_bit_buffer()
+                    .try_into_mut()
+                    .unwrap_or_else(|buffer| BitBufferMut::copy_from(&buffer)),
+            ),
+        }
+    }
+
+    /// Creates a builder backed by an already-materialized buffer.
+    fn from_buffer(inner: BitBufferMut) -> Self {
+        Self {
+            inner: Some(inner),
+            len: 0,
+            capacity: 0,
+        }
+    }
+
     /// Appends `n` non-null values to the builder.
     #[inline]
     pub fn append_n_non_nulls(&mut self, n: usize) {
@@ -82,10 +118,13 @@ impl LazyBitBufferBuilder {
     }
 
     /// Appends values from a validity mask.
-    pub fn append_validity_mask(&mut self, validity_mask: Mask) {
+    ///
+    /// Takes the mask by reference: the `Mask::Values` case copies the underlying buffer into the
+    /// running null buffer, so there is nothing to gain from owning the mask.
+    pub fn append_validity_mask(&mut self, validity_mask: &Mask) {
         match validity_mask {
-            Mask::AllTrue(len) => self.append_n_non_nulls(len),
-            Mask::AllFalse(len) => self.append_n_nulls(len),
+            Mask::AllTrue(len) => self.append_n_non_nulls(*len),
+            Mask::AllFalse(len) => self.append_n_nulls(*len),
             Mask::Values(is_valid) => self.append_buffer(is_valid.bit_buffer()),
         }
     }

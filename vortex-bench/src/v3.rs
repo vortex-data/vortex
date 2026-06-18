@@ -292,6 +292,7 @@ fn canonical_tpc_scale_factor(scale_factor: &str) -> String {
 /// | `PolarSignals { n_rows: _ }`| `polarsignals` | `None`              | `None`                                              | Same as StatPopGen. |
 /// | `Fineweb`                   | `fineweb`      | `None`              | `None`                                              | |
 /// | `GhArchive`                 | `gharchive`    | `None`              | `None`                                              | |
+/// | `Appian`                    | `appian`       | `None`              | `None`                                              | Static dataset; no scale factor. |
 /// | `PublicBi { name }`         | `public-bi`    | dataset name (e.g. `cms-provider`) | `None`               | Sub-dataset name lives in `dataset_variant`. |
 pub fn benchmark_dataset_dims(d: &BenchmarkDataset) -> (String, Option<String>, Option<String>) {
     match d {
@@ -321,6 +322,7 @@ pub fn benchmark_dataset_dims(d: &BenchmarkDataset) -> (String, Option<String>, 
         BenchmarkDataset::PolarSignals { .. } => ("polarsignals".to_string(), None, None),
         BenchmarkDataset::Fineweb => ("fineweb".to_string(), None, None),
         BenchmarkDataset::GhArchive => ("gharchive".to_string(), None, None),
+        BenchmarkDataset::Appian => ("appian".to_string(), None, None),
     }
 }
 
@@ -496,7 +498,7 @@ pub fn write_jsonl_to_path(path: &std::path::Path, records: &[V3Record]) -> std:
 /// value the server-side `value_ns: i64` deserializer can accept.
 ///
 /// The wire field is `u64` (see `value_ns` on every record type below),
-/// but the server's [`vortex_bench_server::records`] mirrors them as `i64`.
+/// but the server's records mirrors them as `i64`.
 /// Without the clamp, an overflowed measurement would land at `u64::MAX`
 /// here, fail serde deserialization on the server, and 400 the whole
 /// ingest envelope.
@@ -715,6 +717,7 @@ mod tests {
             ),
             (BenchmarkDataset::Fineweb, "fineweb"),
             (BenchmarkDataset::GhArchive, "gharchive"),
+            (BenchmarkDataset::Appian, "appian"),
         ] {
             let (ds, variant, sf) = benchmark_dataset_dims(&case);
             assert_eq!(ds, expected, "dataset for {case:?}");

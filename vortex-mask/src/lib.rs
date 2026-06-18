@@ -22,6 +22,7 @@ use std::sync::OnceLock;
 use itertools::Itertools;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
+use vortex_buffer::BitIterator;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
@@ -428,6 +429,26 @@ impl Mask {
         }
     }
 
+    /// Iterate the mask as one `bool` per element, in order.
+    ///
+    /// Unlike repeatedly calling [`Mask::value`], this advances a single cursor rather than
+    /// recomputing the byte/bit offset for every element, and it does not allocate for the
+    /// all-true / all-false variants. Prefer this for sequential per-element scans.
+    #[inline]
+    pub fn iter(&self) -> MaskBoolIter<'_> {
+        match self {
+            Mask::AllTrue(len) => MaskBoolIter::Repeat {
+                value: true,
+                remaining: *len,
+            },
+            Mask::AllFalse(len) => MaskBoolIter::Repeat {
+                value: false,
+                remaining: *len,
+            },
+            Mask::Values(values) => MaskBoolIter::Bits(values.bit_buffer().iter()),
+        }
+    }
+
     /// Returns the first true index in the mask.
     pub fn first(&self) -> Option<usize> {
         match &self {
@@ -813,6 +834,48 @@ pub enum MaskIter<'a> {
     /// Slice of pre-cached slices of a mask.
     Slices(&'a [(usize, usize)]),
 }
+
+/// Iterator yielding one `bool` per element of a [`Mask`], in order.
+///
+/// Created by [`Mask::iter`].
+pub enum MaskBoolIter<'a> {
+    /// An all-true or all-false run.
+    Repeat {
+        /// The constant value yielded by every element of the run.
+        value: bool,
+        /// The number of elements still to yield.
+        remaining: usize,
+    },
+    /// Per-element bits of a [`Mask::Values`] mask.
+    Bits(BitIterator<'a>),
+}
+
+impl Iterator for MaskBoolIter<'_> {
+    type Item = bool;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Repeat { remaining: 0, .. } => None,
+            Self::Repeat { value, remaining } => {
+                *remaining -= 1;
+                Some(*value)
+            }
+            Self::Bits(bits) => bits.next(),
+        }
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = match self {
+            Self::Repeat { remaining, .. } => *remaining,
+            Self::Bits(bits) => bits.len(),
+        };
+        (remaining, Some(remaining))
+    }
+}
+
+impl ExactSizeIterator for MaskBoolIter<'_> {}
 
 impl From<BitBuffer> for Mask {
     fn from(value: BitBuffer) -> Self {

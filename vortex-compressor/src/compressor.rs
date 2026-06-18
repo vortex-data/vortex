@@ -27,8 +27,6 @@ use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::scalar_fn::AnyScalarFn;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::arrays::variant::VariantArrayExt;
-use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
@@ -122,7 +120,7 @@ impl CascadingCompressor {
         let _enter = span.enter();
 
         let canonical = array.clone().execute::<CanonicalValidity>(exec_ctx)?.0;
-        let compact = canonical.compact()?;
+        let compact = canonical.compact(exec_ctx)?;
         let compressed = self.compress_canonical(compact, CompressorContext::new(), exec_ctx)?;
 
         trace::record_compress_outcome(&span, before_nbytes, compressed.nbytes());
@@ -153,7 +151,7 @@ impl CascadingCompressor {
         }
 
         let canonical = child.clone().execute::<CanonicalValidity>(exec_ctx)?.0;
-        let compact = canonical.compact()?;
+        let compact = canonical.compact(exec_ctx)?;
 
         let child_ctx = parent_ctx
             .clone()
@@ -199,7 +197,7 @@ impl CascadingCompressor {
             }
             Canonical::List(list_view_array) => {
                 if list_view_array.is_zero_copy_to_list() || list_view_array.elements().is_empty() {
-                    let list_array = list_from_list_view(list_view_array)?;
+                    let list_array = list_from_list_view(list_view_array, exec_ctx)?;
                     self.compress_list_array(list_array, compress_ctx, exec_ctx)
                 } else {
                     self.compress_list_view_array(list_view_array, compress_ctx, exec_ctx)
@@ -216,42 +214,33 @@ impl CascadingCompressor {
                 )?
                 .into_array())
             }
-            Canonical::VarBinView(strings) => {
-                if strings
-                    .dtype()
-                    .eq_ignore_nullability(&DType::Utf8(Nullability::NonNullable))
-                {
-                    self.choose_and_compress(Canonical::VarBinView(strings), compress_ctx, exec_ctx)
-                } else {
-                    // We do not compress binary arrays.
-                    Ok(strings.into_array())
-                }
+            Canonical::VarBinView(varbinview) => {
+                self.choose_and_compress(Canonical::VarBinView(varbinview), compress_ctx, exec_ctx)
             }
             Canonical::Extension(ext_array) => {
-                let before_nbytes = ext_array.as_ref().nbytes();
-
                 // Try scheme-based compression first.
-                let result = self.choose_and_compress(
+                let scheme_compressed = self.choose_and_compress(
                     Canonical::Extension(ext_array.clone()),
                     compress_ctx,
                     exec_ctx,
                 )?;
-                if result.nbytes() < before_nbytes {
-                    return Ok(result);
-                }
-
                 // TODO(connor): HACK TO SUPPORT L2 DENORMALIZATION!!!
-                if result.is::<AnyScalarFn>() {
-                    return Ok(result);
+                if scheme_compressed.is::<AnyScalarFn>() {
+                    return Ok(scheme_compressed);
                 }
 
-                // Otherwise, fall back to compressing the underlying storage array.
+                // Also compress the underlying storage array. Some extension schemes can beat the
+                // extension storage but still lose to ordinary storage compression.
                 let compressed_storage = self.compress(ext_array.storage_array(), exec_ctx)?;
-
-                Ok(
+                let storage_compressed =
                     ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage)
-                        .into_array(),
-                )
+                        .into_array();
+
+                if scheme_compressed.nbytes() < storage_compressed.nbytes() {
+                    Ok(scheme_compressed)
+                } else {
+                    Ok(storage_compressed)
+                }
             }
             Canonical::Variant(variant_array) => {
                 let core_storage =
@@ -506,7 +495,7 @@ impl CascadingCompressor {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let list_array = list_array.reset_offsets(true)?;
+        let list_array = list_array.reset_offsets(true, exec_ctx)?;
 
         let compressed_elems = self.compress(list_array.elements(), exec_ctx)?;
 
@@ -517,7 +506,7 @@ impl CascadingCompressor {
             .offsets()
             .clone()
             .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow()?;
+            .narrow(exec_ctx)?;
         let compressed_offsets = self.compress_canonical(
             Canonical::Primitive(list_offsets_primitive),
             offset_ctx,
@@ -547,7 +536,7 @@ impl CascadingCompressor {
             .offsets()
             .clone()
             .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow()?;
+            .narrow(exec_ctx)?;
         let compressed_offsets = self.compress_canonical(
             Canonical::Primitive(list_view_offsets_primitive),
             offset_ctx,
@@ -559,7 +548,7 @@ impl CascadingCompressor {
             .sizes()
             .clone()
             .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow()?;
+            .narrow(exec_ctx)?;
         let compressed_sizes = self.compress_canonical(
             Canonical::Primitive(list_view_sizes_primitive),
             sizes_ctx,
@@ -607,7 +596,6 @@ mod tests {
     use vortex_array::arrays::Constant;
     use vortex_array::arrays::NullArray;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
@@ -624,8 +612,7 @@ mod tests {
     use crate::estimate::WinnerEstimate;
     use crate::scheme::SchemeExt;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     fn compressor() -> CascadingCompressor {
         CascadingCompressor::new(vec![&IntDictScheme, &FloatDictScheme, &StringDictScheme])

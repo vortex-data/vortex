@@ -7,6 +7,7 @@
 
 use std::env;
 use std::fs;
+use std::io;
 use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::path::PathBuf;
@@ -278,7 +279,7 @@ fn try_build_duckdb(
 
     let library_dir_str = library_dir.display();
     if let Err(err) = fs::remove_dir_all(library_dir)
-        && err.kind() != std::io::ErrorKind::NotFound
+        && err.kind() != io::ErrorKind::NotFound
     {
         println!("cargo:error=Failed to remove {library_dir_str}: {err}");
         exit(1);
@@ -303,7 +304,8 @@ fn try_build_duckdb(
     }
 }
 
-fn c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
+/// Generate rust functions with bindgen from C sources.
+fn bindgen_c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
     let bindings = bindgen::Builder::default()
         .header("cpp/include/duckdb_vx.h")
         .override_abi(Abi::CUnwind, ".*")
@@ -349,12 +351,16 @@ fn c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
     }
 }
 
-fn cpp(duckdb_include_dir: &Path) {
+/// Generate libvortex_duckdb.*
+fn compile_cpp(duckdb_include_dir: &Path) {
     cc::Build::new()
         .std("c++20")
-        .flags(["-Wall", "-Wextra", "-Wpedantic"])
+        .flags(["-Wall", "-Wextra", "-Wpedantic", "-Werror"])
         .cpp(true)
-        .include(duckdb_include_dir)
+        // We don't want compiler warnings inside duckdb headers, pass as flags
+        .flag("-isystem")
+        .flag(duckdb_include_dir)
+        .include("include")
         .include("cpp/include")
         .files(SOURCE_FILES)
         .compile("vortex-duckdb-extras");
@@ -363,7 +369,8 @@ fn cpp(duckdb_include_dir: &Path) {
     }
 }
 
-fn rust2c(crate_dir: &Path) {
+/// Generate include/vortex.h from rust sources
+fn cbindgen_rust2c(crate_dir: &Path) {
     let header = crate_dir.join("include/vortex.h");
     let output = cbindgen::Builder::new()
         .with_config(cbindgen::Config::from_file(crate_dir.join("cbindgen.toml")).unwrap())
@@ -390,17 +397,40 @@ fn rust2c(crate_dir: &Path) {
 }
 
 fn main() {
-    println!("cargo:rerun-if-env-changed=DUCKDB_VERSION");
+    println!("cargo:rerun-if-changed=cpp/include");
     println!("cargo:rerun-if-env-changed=VX_DUCKDB_DEBUG");
     println!("cargo:rerun-if-env-changed=VX_DUCKDB_SAN");
     println!("cargo:rerun-if-env-changed=CARGO_HTTP_TIMEOUT");
     println!("cargo:rerun-if-env-changed=HTTP_TIMEOUT");
     println!("cargo:rerun-if-env-changed=TARGET");
 
-    // `DUCKDB_VERSION` is set by the extension build in CI.
-    // This is to ensure we don't implicitly build against a different DuckDB
-    // version during an extension build which might lead to subtle ABI breaks,
-    // e.g. reordering fields in C++ structs.
+    // These two variables are set in duckdb-vortex's CI. Don't download
+    // duckdb if they are present
+    println!("cargo:rerun-if-env-changed=DUCKDB_SOURCE_DIR");
+    println!("cargo:rerun-if-env-changed=DUCKDB_VERSION");
+
+    // sanity check that either none or both are provided
+    assert_eq!(
+        env::var("DUCKDB_VERSION").is_ok(),
+        env::var("DUCKDB_SOURCE_DIR").is_ok()
+    );
+    // If variables are not set, we are either running locally or
+    // in vortex's CI.
+
+    let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    if let Some(source_dir) = env::var_os("DUCKDB_SOURCE_DIR") {
+        let source_dir = PathBuf::from(source_dir);
+        let duckdb_include_dir = source_dir.join("src").join("include");
+        println!(
+            "cargo:info=Using DuckDB source from DUCKDB_SOURCE_DIR={}",
+            source_dir.display()
+        );
+        bindgen_c2rust(&crate_dir, &duckdb_include_dir);
+        cbindgen_rust2c(&crate_dir);
+        compile_cpp(&duckdb_include_dir);
+        return;
+    }
+
     let version = env::var("DUCKDB_VERSION")
         // You can also change this version to a commit hash
         .unwrap_or_else(|_| DEFAULT_DUCKDB_VERSION.to_owned());
@@ -410,7 +440,6 @@ fn main() {
         DuckDBVersion::Commit(c) => println!("cargo:info=Using DuckDB commit: {c}"),
     }
 
-    let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let duckdb_dir = crate_dir.join("duckdb");
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let library_dir = out_dir.join(format!("duckdb-lib-{version}"));
@@ -440,13 +469,24 @@ fn main() {
         DuckDBVersion::Commit(c) => format!("{DUCKDB_SOURCE_COMMIT_URL}/{c}.zip"),
     };
 
-    fs::create_dir_all(&source_dir).unwrap();
     let source_archive_path = source_dir.with_extension("zip");
     download_url(&source_archive_url, &source_archive_path);
 
     let inner_dir = source_dir.join(version.archive_inner_dir_name());
-    if !inner_dir.join("CMakeLists.txt").exists() {
+    let extract_marker = source_dir.join(".vx-extract-complete");
+    if !extract_marker.exists() {
+        if let Err(err) = fs::remove_dir_all(&source_dir)
+            && err.kind() != io::ErrorKind::NotFound
+        {
+            println!(
+                "cargo:error=Failed to clear {}: {err}",
+                source_dir.display()
+            );
+            exit(1);
+        }
+        fs::create_dir_all(&source_dir).unwrap();
         extract(&source_archive_path, &source_dir);
+        fs::write(&extract_marker, version.to_string()).unwrap();
     }
 
     drop(fs::remove_file(&duckdb_dir));
@@ -468,8 +508,7 @@ fn main() {
     };
 
     let duckdb_include_dir = inner_dir.join("src").join("include");
-    println!("cargo:rerun-if-changed=cpp/include");
-    c2rust(&crate_dir, &duckdb_include_dir);
-    cpp(&duckdb_include_dir);
-    rust2c(&crate_dir);
+    bindgen_c2rust(&crate_dir, &duckdb_include_dir);
+    cbindgen_rust2c(&crate_dir);
+    compile_cpp(&duckdb_include_dir);
 }

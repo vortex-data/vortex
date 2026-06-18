@@ -90,11 +90,11 @@ impl FixedShapeTensorMatcherMetadata<'_> {
 mod tests {
     use std::sync::Arc;
 
+    use vortex_array::EmptyMetadata;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::extension::ExtDType;
-    use vortex_array::extension::EmptyMetadata;
     use vortex_error::VortexResult;
 
     use super::*;

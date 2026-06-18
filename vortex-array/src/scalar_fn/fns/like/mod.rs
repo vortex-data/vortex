@@ -3,6 +3,7 @@
 
 mod kernel;
 
+use std::borrow::Cow;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
@@ -12,11 +13,12 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrow::Datum;
-use crate::arrow::from_arrow_array_with_len;
+use crate::arrow::from_arrow_columnar;
 use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
@@ -62,7 +64,8 @@ impl ScalarFnVTable for Like {
     type Options = LikeOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new("vortex.like")
+        static ID: CachedId = CachedId::new("vortex.like");
+        *ID
     }
 
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -189,13 +192,19 @@ impl ScalarFnVTable for Like {
         match LikeVariant::from_str(pat_str)? {
             LikeVariant::Exact(text) => {
                 // col LIKE 'exact' ==>  col.min > 'exact' || col.max < 'exact'
-                Some(or(gt(src_min, lit(text)), lt(src_max, lit(text))))
+                Some(or(
+                    gt(src_min, lit(text.as_ref())),
+                    lt(src_max, lit(text.as_ref())),
+                ))
             }
             LikeVariant::Prefix(prefix) => {
                 // col LIKE 'prefix%' ==> col.max < 'prefix' || col.min >= 'prefiy'
                 let succ = prefix.to_string().increment().ok()?;
 
-                Some(or(gt_eq(src_min, lit(succ)), lt(src_max, lit(prefix))))
+                Some(or(
+                    gt_eq(src_min, lit(succ)),
+                    lt(src_max, lit(prefix.as_ref())),
+                ))
             }
         }
     }
@@ -228,35 +237,59 @@ pub(crate) fn arrow_like(
         (true, true) => arrow_string::like::nilike(&lhs, &rhs)?,
     };
 
-    from_arrow_array_with_len(&result, len, nullable)
+    from_arrow_columnar(&result, len, nullable, ctx)
 }
 
-/// Variants of the LIKE filter that we know how to turn into a stats pruning predicate.s
+/// Variants of the LIKE filter that we know how to turn into a stats pruning predicate.
 #[derive(Debug, PartialEq)]
-enum LikeVariant<'a> {
-    Exact(&'a str),
-    Prefix(&'a str),
+pub(crate) enum LikeVariant<'a> {
+    Exact(Cow<'a, str>),
+    Prefix(Cow<'a, str>),
 }
 
 impl<'a> LikeVariant<'a> {
     /// Parse a LIKE pattern string into its relevant variant
-    fn from_str(string: &str) -> Option<LikeVariant<'_>> {
-        let Some(wildcard_pos) = string.find(['%', '_']) else {
-            return Some(LikeVariant::Exact(string));
-        };
+    pub(crate) fn from_str(string: &'a str) -> Option<LikeVariant<'a>> {
+        let mut literal = None;
+        let mut chars = string.char_indices();
 
-        // Can't handle wildcard in the front.
-        if wildcard_pos == 0 {
-            return None;
+        while let Some((idx, c)) = chars.next() {
+            match c {
+                '\\' => {
+                    let literal = literal.get_or_insert_with(|| string[..idx].to_string());
+                    match chars.next() {
+                        Some((_, escaped)) => literal.push(escaped),
+                        None => literal.push('\\'),
+                    }
+                }
+                '%' | '_' => {
+                    return match literal {
+                        Some(literal) => (!literal.is_empty())
+                            .then_some(LikeVariant::Prefix(Cow::Owned(literal))),
+                        None => {
+                            (idx != 0).then_some(LikeVariant::Prefix(Cow::Borrowed(&string[..idx])))
+                        }
+                    };
+                }
+                c => {
+                    if let Some(literal) = &mut literal {
+                        literal.push(c);
+                    }
+                }
+            }
         }
 
-        let prefix = &string[..wildcard_pos];
-        Some(LikeVariant::Prefix(prefix))
+        Some(match literal {
+            Some(literal) => LikeVariant::Exact(Cow::Owned(literal)),
+            None => LikeVariant::Exact(Cow::Borrowed(string)),
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Cow;
+
     use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::assert_arrays_eq;
@@ -303,24 +336,58 @@ mod tests {
         assert_eq!(expr2.to_string(), "$ not ilike \"test*\"");
     }
 
-    #[test]
-    fn test_like_variant() {
-        // Supported patterns
-        assert_eq!(
-            LikeVariant::from_str("simple"),
-            Some(LikeVariant::Exact("simple"))
-        );
-        assert_eq!(
-            LikeVariant::from_str("prefix%"),
-            Some(LikeVariant::Prefix("prefix"))
-        );
-        assert_eq!(
-            LikeVariant::from_str("first%rest_stuff"),
-            Some(LikeVariant::Prefix("first"))
-        );
+    fn assert_borrowed_exact(pattern: &str, expected: &str) {
+        let Some(LikeVariant::Exact(actual)) = LikeVariant::from_str(pattern) else {
+            panic!("expected borrowed exact pattern");
+        };
+        assert!(matches!(actual, Cow::Borrowed(_)));
+        assert_eq!(actual.as_ref(), expected);
+    }
 
-        // Unsupported patterns
+    fn assert_owned_exact(pattern: &str, expected: &str) {
+        let Some(LikeVariant::Exact(actual)) = LikeVariant::from_str(pattern) else {
+            panic!("expected owned exact pattern");
+        };
+        assert!(matches!(actual, Cow::Owned(_)));
+        assert_eq!(actual.as_ref(), expected);
+    }
+
+    fn assert_borrowed_prefix(pattern: &str, expected: &str) {
+        let Some(LikeVariant::Prefix(actual)) = LikeVariant::from_str(pattern) else {
+            panic!("expected borrowed prefix pattern");
+        };
+        assert!(matches!(actual, Cow::Borrowed(_)));
+        assert_eq!(actual.as_ref(), expected);
+    }
+
+    fn assert_owned_prefix(pattern: &str, expected: &str) {
+        let Some(LikeVariant::Prefix(actual)) = LikeVariant::from_str(pattern) else {
+            panic!("expected owned prefix pattern");
+        };
+        assert!(matches!(actual, Cow::Owned(_)));
+        assert_eq!(actual.as_ref(), expected);
+    }
+
+    #[test]
+    fn test_like_variant_borrowed_patterns() {
+        assert_borrowed_exact("simple", "simple");
+        assert_borrowed_prefix("prefix%", "prefix");
+        assert_borrowed_prefix("first%rest_stuff", "first");
+    }
+
+    #[test]
+    fn test_like_variant_escaped_patterns() {
+        assert_owned_prefix(r"\%%", "%");
+        assert_owned_prefix(r"\_%", "_");
+        assert_owned_prefix(r"\\%", "\\");
+        assert_owned_exact(r"\%", "%");
+        assert_owned_exact("trailing\\", "trailing\\");
+    }
+
+    #[test]
+    fn test_like_variant_unsupported_patterns() {
         assert_eq!(LikeVariant::from_str("%suffix"), None);
+        assert_eq!(LikeVariant::from_str(r"%\%%"), None);
         assert_eq!(LikeVariant::from_str("_pattern"), None);
     }
 
@@ -335,6 +402,11 @@ mod tests {
             .expect("LIKE stat falsification");
 
         insta::assert_snapshot!(pruning_expr, @r#"(($.a_min >= "prefiy") or ($.a_max < "prefix"))"#);
+
+        let pruning_expr = like(col("a"), lit(r"\%%"))
+            .stat_falsification(&catalog)
+            .expect("LIKE stat falsification");
+        insta::assert_snapshot!(pruning_expr, @r#"(($.a_min >= "&") or ($.a_max < "%"))"#);
 
         // Multiple wildcards
         let pruning_expr = like(col("a"), lit("pref%ix%"))

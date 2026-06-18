@@ -26,7 +26,7 @@ where
 }
 
 /// Empty array metadata
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EmptyMetadata;
 
 impl SerializeMetadata for EmptyMetadata {
@@ -43,6 +43,12 @@ impl DeserializeMetadata for EmptyMetadata {
             vortex_bail!("EmptyMetadata should not have metadata bytes")
         }
         Ok(EmptyMetadata)
+    }
+}
+
+impl std::fmt::Display for EmptyMetadata {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "")
     }
 }
 

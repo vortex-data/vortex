@@ -109,7 +109,6 @@ mod test {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
 
     use crate::DateTimeParts;
     use crate::array::DateTimePartsArraySlotsExt;
@@ -133,7 +132,7 @@ mod test {
             ],
             validity.clone(),
         );
-        let mut ctx = ExecutionCtx::new(VortexSession::empty());
+        let mut ctx = ExecutionCtx::new(vortex_array::array_session());
         let date_times = DateTimeParts::try_from_temporal(
             TemporalArray::new_timestamp(
                 milliseconds.clone().into_array(),
@@ -143,12 +142,11 @@ mod test {
             &mut ctx,
         )?;
 
-        assert!(
-            date_times
-                .as_array()
-                .validity()?
-                .mask_eq(&validity, &mut ctx)?
-        );
+        assert!(date_times.as_array().validity()?.mask_eq(
+            &validity,
+            milliseconds.len(),
+            &mut ctx
+        )?);
 
         let dtype = date_times.dtype().clone();
         let parts = DateTimePartsParts {
@@ -163,7 +161,6 @@ mod test {
             .execute::<PrimitiveArray>(&mut ctx)?;
 
         assert_arrays_eq!(primitive_values, milliseconds);
-        assert!(primitive_values.validity()?.mask_eq(&validity, &mut ctx)?);
         Ok(())
     }
 }

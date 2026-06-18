@@ -110,9 +110,6 @@ pub struct vx_scan_options {
     pub selection: vx_scan_selection,
     /// Maximum number of rows to return. 0 means no limit.
     pub limit: u64,
-    /// Upper limit for parallelism. 0 means no limit.
-    /// Scan will return at most "max_threads" partitions.
-    pub max_threads: u64,
     /// If true, return in storage order.
     pub ordered: bool,
 }

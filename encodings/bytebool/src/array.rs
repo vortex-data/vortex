@@ -14,10 +14,10 @@ use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
+use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::Precision;
 use vortex_array::TypedArrayRef;
 use vortex_array::arrays::BoolArray;
 use vortex_array::buffer::BufferHandle;
@@ -45,14 +45,14 @@ use crate::kernel::PARENT_KERNELS;
 pub type ByteBoolArray = Array<ByteBool>;
 
 impl ArrayHash for ByteBoolData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
-        self.buffer.array_hash(state, precision);
+    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: EqMode) {
+        self.buffer.array_hash(state, accuracy);
     }
 }
 
 impl ArrayEq for ByteBoolData {
-    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
-        self.buffer.array_eq(&other.buffer, precision)
+    fn array_eq(&self, other: &Self, accuracy: EqMode) -> bool {
+        self.buffer.array_eq(&other.buffer, accuracy)
     }
 }
 
@@ -322,10 +322,8 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::serde::SerializedArray;
-    use vortex_array::session::ArraySession;
     use vortex_array::session::ArraySessionExt;
     use vortex_buffer::ByteBufferMut;
-    use vortex_session::VortexSession;
     use vortex_session::registry::ReadContext;
 
     use super::*;
@@ -367,7 +365,7 @@ mod tests {
         let array = ByteBool::from_option_vec(vec![Some(true), None, Some(false), None]);
         let dtype = array.dtype().clone();
         let len = array.len();
-        let session = VortexSession::empty().with::<ArraySession>();
+        let session = vortex_array::array_session();
         session.arrays().register(ByteBool);
 
         let ctx = ArrayContext::empty();

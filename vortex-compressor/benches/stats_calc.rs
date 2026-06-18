@@ -4,8 +4,9 @@
 #[cfg(not(codspeed))]
 #[divan::bench_group(items_count = 64_000u32, bytes_count = 256_000u32)]
 mod benchmarks {
+    use std::sync::LazyLock;
+
     use divan::Bencher;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
@@ -13,6 +14,9 @@ mod benchmarks {
     use vortex_buffer::BufferMut;
     use vortex_compressor::stats::GenerateStatsOptions;
     use vortex_compressor::stats::IntegerStats;
+    use vortex_session::VortexSession;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     fn generate_dataset(max_run: u32, distinct: u32) -> Buffer<u32> {
         let mut output = BufferMut::with_capacity(64_000);
@@ -56,7 +60,7 @@ mod benchmarks {
         };
 
         bencher
-            .with_inputs(|| (&values, LEGACY_SESSION.create_execution_ctx()))
+            .with_inputs(|| (&values, SESSION.create_execution_ctx()))
             .bench_refs(|(values, ctx)| {
                 IntegerStats::generate_opts(values, GenerateStatsOptions::default(), ctx);
             });
@@ -71,7 +75,7 @@ mod benchmarks {
         };
 
         bencher
-            .with_inputs(|| (&values, LEGACY_SESSION.create_execution_ctx()))
+            .with_inputs(|| (&values, SESSION.create_execution_ctx()))
             .bench_refs(|(values, ctx)| {
                 IntegerStats::generate_opts(
                     values,

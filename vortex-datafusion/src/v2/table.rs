@@ -7,7 +7,6 @@
 //! [`DataSourceRef`]: vortex::scan::DataSourceRef
 //! [`TableProvider`]: datafusion_catalog::TableProvider
 
-use std::any::Any;
 use std::fmt;
 use std::sync::Arc;
 
@@ -107,10 +106,6 @@ impl VortexTable {
 
 #[async_trait]
 impl TableProvider for VortexTable {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn schema(&self) -> SchemaRef {
         Arc::clone(&self.arrow_schema)
     }
@@ -152,7 +147,6 @@ impl TableProvider for VortexTable {
     ///
     /// We should not (and actually, cannot) perform I/O here, so the best we can do is return
     /// cardinality and byte size estimates.
-    ///
     // NOTE(ngates): it's not obvious these are actually used? I think DataFusion does join
     //  planning over stats from the physical plan?
     fn statistics(&self) -> Option<Statistics> {

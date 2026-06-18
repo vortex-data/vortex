@@ -273,15 +273,13 @@ where
     let total_chunks = data.len().div_ceil(1024);
     let mut chunk_offsets: BufferMut<u64> = BufferMut::with_capacity(total_chunks);
 
-    for (idx, value) in data.iter().enumerate() {
+    for ((idx, value), valid) in data.iter().enumerate().zip(validity_mask.iter()) {
         if (idx % 1024) == 0 {
             // Record the patch index offset for each chunk.
             chunk_offsets.push(values.len() as u64);
         }
 
-        if (value.leading_zeros() as usize) < T::PTYPE.bit_width() - bit_width as usize
-            && validity_mask.value(idx)
-        {
+        if (value.leading_zeros() as usize) < T::PTYPE.bit_width() - bit_width as usize && valid {
             indices.push(P::from(idx).vortex_expect("cast index from usize"));
             values.push(*value);
         }
@@ -439,7 +437,6 @@ mod test {
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::PrimitiveBuilder;
-    use vortex_array::session::ArraySession;
     use vortex_buffer::Buffer;
     use vortex_error::VortexError;
     use vortex_error::vortex_err;
@@ -450,8 +447,7 @@ mod test {
     use crate::bitpack_compress::test_harness::make_array;
     use crate::bitpacking::array::BitPackedArrayExt;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     #[test]
     fn test_best_bit_width() {

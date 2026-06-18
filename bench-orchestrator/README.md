@@ -41,7 +41,7 @@ vx-bench run <benchmark> [options]
 
 **Arguments:**
 
-- `benchmark`: Benchmark suite to run (`tpch`, `tpcds`, `clickbench`, `fineweb`, `gh-archive`, `polarsignals`, `public-bi`, `statpopgen`)
+- `benchmark`: Benchmark suite to run (`appian`, `tpch`, `tpcds`, `clickbench`, `fineweb`, `gh-archive`, `polarsignals`, `public-bi`, `statpopgen`)
 
 **Options:**
 

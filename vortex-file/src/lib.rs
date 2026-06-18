@@ -88,7 +88,6 @@
 //! goals of locality or parallelism. For example, one may write a column in a Struct Layout with
 //! or without chunking, or completely elide statistics to save space or if they are not needed, for
 //! example if the metadata is being stored in an external index.
-//!
 
 mod counting;
 mod file;
@@ -115,9 +114,10 @@ use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::session::ArraySessionExt;
 use vortex_bytebool::ByteBool;
 use vortex_fsst::FSST;
+#[cfg(feature = "unstable_encodings")]
+use vortex_onpair::OnPair;
 use vortex_pco::Pco;
 use vortex_session::VortexSession;
-use vortex_sparse::Sparse;
 use vortex_zigzag::ZigZag;
 pub use writer::*;
 
@@ -163,8 +163,9 @@ pub fn register_default_encodings(session: &VortexSession) {
         arrays.register(ByteBool);
         arrays.register(Dict);
         arrays.register(FSST);
+        #[cfg(feature = "unstable_encodings")]
+        arrays.register(OnPair);
         arrays.register(Pco);
-        arrays.register(Sparse);
         arrays.register(ZigZag);
         #[cfg(feature = "zstd")]
         arrays.register(vortex_zstd::Zstd);
@@ -183,6 +184,7 @@ pub fn register_default_encodings(session: &VortexSession) {
     vortex_fastlanes::initialize(session);
     vortex_runend::initialize(session);
     vortex_sequence::initialize(session);
+    vortex_sparse::initialize(session);
 
     #[cfg(feature = "unstable_encodings")]
     vortex_tensor::initialize(session);

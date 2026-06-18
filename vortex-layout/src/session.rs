@@ -3,7 +3,6 @@
 
 use std::any::Any;
 
-use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::SessionVar;
 use vortex_session::registry::Registry;
@@ -18,7 +17,7 @@ use crate::layouts::zoned::ZonedLayoutEncoding;
 pub type LayoutRegistry = Registry<LayoutEncodingRef>;
 
 /// Session state for layout encodings.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct LayoutSession {
     registry: LayoutRegistry,
 }
@@ -69,7 +68,7 @@ impl SessionVar for LayoutSession {
 /// Extension trait for accessing layout session data.
 pub trait LayoutSessionExt: SessionExt {
     /// Returns the layout encoding registry.
-    fn layouts(&self) -> Ref<'_, LayoutSession> {
+    fn layouts(&self) -> &LayoutSession {
         self.get::<LayoutSession>()
     }
 }

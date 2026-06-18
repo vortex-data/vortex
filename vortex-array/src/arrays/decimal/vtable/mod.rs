@@ -34,7 +34,7 @@ use std::hash::Hash;
 
 use vortex_session::registry::CachedId;
 
-use crate::Precision;
+use crate::EqMode;
 use crate::array::ArrayId;
 use crate::arrays::decimal::array::SLOT_NAMES;
 use crate::arrays::decimal::compute::rules::RULES;
@@ -51,15 +51,15 @@ pub struct DecimalMetadata {
 }
 
 impl ArrayHash for DecimalData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
-        self.values.array_hash(state, precision);
+    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: EqMode) {
+        self.values.array_hash(state, accuracy);
         std::mem::discriminant(&self.values_type).hash(state);
     }
 }
 
 impl ArrayEq for DecimalData {
-    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
-        self.values.array_eq(&other.values, precision) && self.values_type == other.values_type
+    fn array_eq(&self, other: &Self, accuracy: EqMode) -> bool {
+        self.values.array_eq(&other.values, accuracy) && self.values_type == other.values_type
     }
 }
 

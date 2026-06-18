@@ -47,13 +47,13 @@ use crate::arrays::VarBinView;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
-use crate::dtype::Nullability;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
 use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
+use crate::scalar::ScalarValue;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 
@@ -155,22 +155,22 @@ impl Debug for ArrayRef {
 }
 
 impl ArrayHash for ArrayRef {
-    fn array_hash<H: Hasher>(&self, state: &mut H, precision: crate::Precision) {
+    fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: crate::EqMode) {
         self.0.len.hash(state);
         self.0.dtype.hash(state);
         self.0.encoding_id.hash(state);
         self.0.slots.len().hash(state);
         for slot in &self.0.slots {
-            slot.array_hash(state, precision);
+            slot.array_hash(state, accuracy);
         }
         self.0
             .data
-            .dyn_array_hash(state as &mut dyn Hasher, precision);
+            .dyn_array_hash(state as &mut dyn Hasher, accuracy);
     }
 }
 
 impl ArrayEq for ArrayRef {
-    fn array_eq(&self, other: &Self, precision: crate::Precision) -> bool {
+    fn array_eq(&self, other: &Self, accuracy: crate::EqMode) -> bool {
         self.0.len == other.0.len
             && self.0.dtype == other.0.dtype
             && self.0.encoding_id == other.0.encoding_id
@@ -180,8 +180,8 @@ impl ArrayEq for ArrayRef {
                 .slots
                 .iter()
                 .zip(other.0.slots.iter())
-                .all(|(slot, other_slot)| slot.array_eq(other_slot, precision))
-            && self.0.data.dyn_array_eq(other, precision)
+                .all(|(slot, other_slot)| slot.array_eq(other_slot, accuracy))
+            && self.0.data.dyn_array_eq(other, accuracy)
     }
 }
 impl ArrayRef {
@@ -239,13 +239,10 @@ impl ArrayRef {
                     matches!(
                         stat,
                         Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
-                    ) && value.as_ref().as_exact().is_some_and(|v| {
-                        Scalar::try_new(DType::Bool(Nullability::NonNullable), Some(v.clone()))
-                            .vortex_expect("A stat that was expected to be a boolean stat was not")
-                            .as_bool()
-                            .value()
-                            .unwrap_or_default()
-                    })
+                    ) && value
+                        .as_ref()
+                        .as_exact()
+                        .is_some_and(|v| matches!(v, ScalarValue::Bool(true)))
                 }));
             });
         }
@@ -390,16 +387,19 @@ impl ArrayRef {
     }
 
     /// Does the array match the given matcher.
+    #[inline]
     pub fn is<M: Matcher>(&self) -> bool {
         M::matches(self)
     }
 
     /// Returns the array downcast by the given matcher.
+    #[inline]
     pub fn as_<M: Matcher>(&self) -> M::Match<'_> {
         self.as_opt::<M>().vortex_expect("Failed to downcast")
     }
 
     /// Returns the array downcast by the given matcher.
+    #[inline]
     pub fn as_opt<M: Matcher>(&self) -> Option<M::Match<'_>> {
         M::try_match(self)
     }
@@ -494,7 +494,7 @@ impl ArrayRef {
     /// Take a slot for executor-owned physical rewrites.
     ///
     /// On return the produced parent has the taken slot set to `None`
-    /// callers must put the slot back (typically via [`put_slot_unchecked`]) before the parent is
+    /// callers must put the slot back (typically via [`Self::put_slot_unchecked`]) before the parent is
     /// returned from the execution loop.
     ///
     /// When the `Arc` was shared this allocates a fresh parent.
@@ -531,7 +531,7 @@ impl ArrayRef {
 
     /// Puts an array into `slot_idx` by either, cloning the inner array if the Arc is not exclusive
     /// or replacing the slot in this `ArrayRef`.
-    /// This is the mirror of [`take_slot_unchecked`].
+    /// This is the mirror of [`Self::take_slot_unchecked`].
     ///
     /// # Safety
     /// The replacement must have the same logical dtype and length as the taken slot, and this
@@ -738,10 +738,12 @@ impl IntoArray for ArrayRef {
 impl<V: VTable> Matcher for V {
     type Match<'a> = ArrayView<'a, V>;
 
+    #[inline]
     fn matches(array: &ArrayRef) -> bool {
         array.0.data.as_any().is::<ArrayData<V>>()
     }
 
+    #[inline]
     fn try_match(array: &'_ ArrayRef) -> Option<ArrayView<'_, V>> {
         let inner = array.0.data.as_any().downcast_ref::<ArrayData<V>>()?;
         // # Safety checked by `downcast_ref`.

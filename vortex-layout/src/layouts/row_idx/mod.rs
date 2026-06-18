@@ -3,7 +3,6 @@
 
 mod expr;
 
-use std::collections::BTreeSet;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::ops::BitAnd;
@@ -20,6 +19,7 @@ use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::FieldName;
@@ -43,6 +43,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::ArrayFuture;
 use crate::LayoutReader;
+use crate::RowSplits;
 use crate::SplitRange;
 use crate::layouts::partitioned::PartitionedExprEval;
 
@@ -172,7 +173,7 @@ impl LayoutReader for RowIdxLayoutReader {
         &self,
         field_mask: &[FieldMask],
         split_range: &SplitRange,
-        splits: &mut BTreeSet<u64>,
+        splits: &mut RowSplits,
     ) -> VortexResult<()> {
         self.child.register_splits(field_mask, split_range, splits)
     }
@@ -295,7 +296,10 @@ fn row_idx_mask_future(
         let array = idx_array(row_offset, &row_range).into_array();
 
         let mut ctx = session.create_execution_ctx();
-        let result_mask = array.apply(&expr)?.execute::<Mask>(&mut ctx)?;
+        let result_mask = array
+            .apply(&expr)?
+            .fill_null(false)?
+            .execute::<Mask>(&mut ctx)?;
 
         Ok(result_mask.bitand(&mask.await?))
     })
@@ -370,7 +374,9 @@ mod tests {
             let expr = eq(root(), lit(3i32));
             let result = RowIdxLayoutReader::new(
                 0,
-                layout.new_reader("".into(), segments, &SESSION).unwrap(),
+                layout
+                    .new_reader("".into(), segments, &SESSION, &Default::default())
+                    .unwrap(),
                 SESSION.clone(),
             )
             .projection_evaluation(
@@ -411,7 +417,9 @@ mod tests {
             let expr = gt(row_idx(), lit(3u64));
             let result = RowIdxLayoutReader::new(
                 0,
-                layout.new_reader("".into(), segments, &SESSION).unwrap(),
+                layout
+                    .new_reader("".into(), segments, &SESSION, &Default::default())
+                    .unwrap(),
                 SESSION.clone(),
             )
             .projection_evaluation(
@@ -456,7 +464,9 @@ mod tests {
 
             let result = RowIdxLayoutReader::new(
                 0,
-                layout.new_reader("".into(), segments, &SESSION).unwrap(),
+                layout
+                    .new_reader("".into(), segments, &SESSION, &Default::default())
+                    .unwrap(),
                 SESSION.clone(),
             )
             .projection_evaluation(

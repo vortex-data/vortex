@@ -4,6 +4,7 @@
 package dev.vortex.spark.read;
 
 import com.google.common.collect.ImmutableMap;
+import dev.vortex.api.Session;
 import dev.vortex.jni.NativeFiles;
 import dev.vortex.spark.VortexFilePartition;
 import dev.vortex.spark.VortexSparkSession;
@@ -16,6 +17,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.spark.sql.connector.catalog.CatalogV2Util;
 import org.apache.spark.sql.connector.catalog.Column;
+import org.apache.spark.sql.connector.expressions.filter.Predicate;
 import org.apache.spark.sql.connector.read.Batch;
 import org.apache.spark.sql.connector.read.InputPartition;
 import org.apache.spark.sql.connector.read.PartitionReaderFactory;
@@ -26,6 +28,7 @@ public final class VortexBatchExec implements Batch {
     private final List<String> paths;
     private final StructType readSchema;
     private final Map<String, String> formatOptions;
+    private final Predicate[] pushedPredicates;
     private List<String> resolvedPaths;
 
     /**
@@ -33,11 +36,15 @@ public final class VortexBatchExec implements Batch {
      *
      * @param paths the list of file paths to scan
      * @param columns the list of columns to read from the files
+     * @param pushedPredicates predicates pushed down by Spark; converted to a single Vortex filter expression at read
+     *     time
      */
-    public VortexBatchExec(List<String> paths, List<Column> columns, Map<String, String> formatOptions) {
+    public VortexBatchExec(
+            List<String> paths, List<Column> columns, Map<String, String> formatOptions, Predicate[] pushedPredicates) {
         this.paths = List.copyOf(paths);
         this.readSchema = CatalogV2Util.v2ColumnsToStructType(columns.toArray(new Column[0]));
         this.formatOptions = Map.copyOf(formatOptions);
+        this.pushedPredicates = pushedPredicates == null ? new Predicate[0] : pushedPredicates.clone();
     }
 
     /**
@@ -66,18 +73,23 @@ public final class VortexBatchExec implements Batch {
         List<String> dataColumnNames = Arrays.stream(readSchema.fieldNames())
                 .filter(name -> !partitionColumns.contains(name))
                 .collect(Collectors.toList());
-        return new VortexPartitionReaderFactory(dataColumnNames, formatOptions);
+        return new VortexPartitionReaderFactory(dataColumnNames, formatOptions, pushedPredicates);
     }
 
     private List<String> resolvePaths() {
-        var session = VortexSparkSession.get(formatOptions);
+        return resolveVortexPaths(VortexSparkSession.get(formatOptions), paths, formatOptions);
+    }
+
+    /**
+     * Expands directory-like entries to concrete {@code .vortex} files; entries that already name a {@code .vortex}
+     * file are kept as-is. Shared with {@link VortexScan#estimateStatistics()} so planning and execution resolve paths
+     * identically.
+     */
+    static List<String> resolveVortexPaths(Session session, List<String> paths, Map<String, String> formatOptions) {
         return paths.stream()
-                .flatMap(path -> {
-                    if (path.endsWith(".vortex")) {
-                        return Stream.of(path);
-                    }
-                    return NativeFiles.listFiles(session, path, formatOptions).stream();
-                })
+                .flatMap(path -> path.endsWith(".vortex")
+                        ? Stream.of(path)
+                        : NativeFiles.listFiles(session, path, formatOptions).stream())
                 .collect(Collectors.toList());
     }
 

@@ -8,7 +8,9 @@ mod canonical;
 mod constant;
 mod decimal;
 mod dict;
+mod extension;
 mod fixed_size_list;
+mod geo;
 mod list;
 mod list_view;
 mod primitive;
@@ -478,7 +480,7 @@ mod tests {
         assert_eq!(copy_from_slice(&mut target, &source, 10, 64), 28,);
         assert_eq!(
             target[0],
-            0xff_99_59_0d_0c_cc_80_c0_u64, // Python: hex(0xff_fe_65_64_34_33_32_03_02 >> 2), then remove the high two hexits
+            0xff_99_59_0d_0c_cc_80_c0_u64, /* Python: hex(0xff_fe_65_64_34_33_32_03_02 >> 2), then remove the high two hexits */
             "{:#08x} == {:#08x}",
             target[0],
             0xff_99_59_0d_0c_cc_80_c0_u64

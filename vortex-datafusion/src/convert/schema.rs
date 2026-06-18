@@ -85,9 +85,14 @@ fn calculate_physical_field_type(
         // RunEndEncoded loses its encoding
         DataType::RunEndEncoded(..) => logical_type.clone(),
 
-        // For struct types, recursively check each field
+        // For struct types, recursively check each field.
         DataType::Struct(logical_fields) => {
-            if let DType::Struct(struct_dtype, _) = dtype {
+            // Walk through any extension layers to reach the underlying struct fields.
+            let mut inner = dtype;
+            while let DType::Extension(ext) = inner {
+                inner = ext.storage_dtype();
+            }
+            if let DType::Struct(struct_dtype, _) = inner {
                 let physical_fields: Vec<Field> = struct_dtype
                     .names()
                     .iter()

@@ -160,18 +160,18 @@ impl VectorRef {
         !is_valid
     }
 
-    pub unsafe fn set_vector_buffer(&self, buffer: &VectorBufferRef) {
+    pub unsafe fn set_vector_buffer(&mut self, buffer: &VectorBufferRef) {
         unsafe { cpp::duckdb_vx_vector_set_vector_data_buffer(self.as_ptr(), buffer.as_ptr()) }
     }
 
-    pub fn add_string_vector_buffer(&self, buffer: &VectorBufferRef) {
+    pub fn add_string_vector_buffer(&mut self, buffer: &VectorBufferRef) {
         unsafe {
             cpp::duckdb_vx_string_vector_add_vector_data_buffer(self.as_ptr(), buffer.as_ptr())
         }
     }
 
     /// Sets the data pointer for the vector. This is the start of the values array in the vector.
-    pub unsafe fn set_data_ptr<T>(&self, ptr: *mut T) {
+    pub unsafe fn set_data_ptr<T>(&mut self, ptr: *mut T) {
         unsafe { cpp::duckdb_vx_vector_set_data_ptr(self.as_ptr(), ptr as *mut c_void) }
     }
 
@@ -184,7 +184,7 @@ impl VectorRef {
     /// The data pointer must point to a valid `u64` array with at least
     /// `u64_offset + capacity.div_ceil(64)` elements.
     pub(crate) unsafe fn set_validity_data(
-        &self,
+        &mut self,
         u64_offset: usize,
         capacity: usize,
         zero_copy: &ValidityData,
@@ -455,7 +455,11 @@ mod tests {
 
         let validity = vector.validity_ref(len);
         let validity = validity.to_validity();
-        assert!(validity.is_null(0).unwrap());
+        assert!(
+            validity
+                .execute_is_null(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
     }
 
     #[test]
@@ -468,7 +472,11 @@ mod tests {
 
         let validity = vector.validity_ref(len);
         let validity = validity.to_validity();
-        assert!(validity.is_valid(0).unwrap());
+        assert!(
+            validity
+                .execute_is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        );
     }
 
     #[test]

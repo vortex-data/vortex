@@ -358,7 +358,7 @@ impl<T> BufferMut<T> {
         }
 
         let bytes_at = at * size_of::<T>();
-        if !bytes_at.is_multiple_of(*self.alignment) {
+        if !self.alignment.is_offset_aligned(bytes_at) {
             vortex_panic!(
                 "Cannot split buffer at {}, resulting alignment is not {}",
                 at,
@@ -742,7 +742,7 @@ impl Buf for ByteBufferMut {
     }
 
     fn advance(&mut self, cnt: usize) {
-        if !cnt.is_multiple_of(*self.alignment) {
+        if !self.alignment.is_offset_aligned(cnt) {
             vortex_panic!(
                 "Cannot advance buffer by {} items, resulting alignment is not {}",
                 cnt,
@@ -765,7 +765,7 @@ unsafe impl BufMut for ByteBufferMut {
 
     #[inline]
     unsafe fn advance_mut(&mut self, cnt: usize) {
-        if !cnt.is_multiple_of(*self.alignment) {
+        if !self.alignment.is_offset_aligned(cnt) {
             vortex_panic!(
                 "Cannot advance buffer by {} items, resulting alignment is not {}",
                 cnt,

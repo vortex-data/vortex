@@ -3,13 +3,20 @@
 
 //! Common test utilities for ListView tests.
 
+use std::sync::LazyLock;
+
 use vortex_buffer::buffer;
+use vortex_session::VortexSession;
 
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::validity::Validity;
+
+/// A shared session for `ListView` tests, used to create execution contexts via
+/// [`create_execution_ctx`](crate::VortexSessionExecute::create_execution_ctx).
+pub static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
 
 /// Creates a basic ListView for testing: [[0,1,2], [3,4], [5,6], [7,8,9]]
 pub fn create_basic_listview() -> ListViewArray {
@@ -20,6 +27,15 @@ pub fn create_basic_listview() -> ListViewArray {
         ListViewArray::new_unchecked(elements, offsets, sizes, Validity::NonNullable)
             .with_zero_copy_to_list(true)
     }
+}
+
+/// Creates a sparse ListView with two overlap regions
+/// `[[0,1,2], [1,2], [18, 19], [19]]` over 20 elements.
+pub fn create_sparse_overlapping_listview() -> ListViewArray {
+    let elements = buffer![0i32..20].into_array();
+    let offsets = buffer![0u32, 1, 18, 19].into_array();
+    let sizes = buffer![3u32, 2, 2, 1].into_array();
+    ListViewArray::new(elements, offsets, sizes, Validity::NonNullable)
 }
 
 /// Creates a nullable ListView: [[10,20], null, [50]]
@@ -39,6 +55,17 @@ pub fn create_empty_lists_listview() -> ListViewArray {
     let elements = buffer![99i32].into_array();
     let offsets = buffer![0u32, 0, 0, 0].into_array();
     let sizes = buffer![0u32, 0, 0, 0].into_array();
+    unsafe {
+        ListViewArray::new_unchecked(elements, offsets, sizes, Validity::NonNullable)
+            .with_zero_copy_to_list(true)
+    }
+}
+
+/// Creates a ListView with empty lists and elements: [[]]
+pub fn create_empty_elements_listview() -> ListViewArray {
+    let elements = PrimitiveArray::from_iter::<[i32; 0]>([]).into_array();
+    let offsets = buffer![0u32; 0].into_array();
+    let sizes = buffer![0u32; 0].into_array();
     unsafe {
         ListViewArray::new_unchecked(elements, offsets, sizes, Validity::NonNullable)
             .with_zero_copy_to_list(true)

@@ -4,7 +4,6 @@
 //! A CUDA-optimized flat layout that inlines small constant array buffers into layout metadata.
 
 use std::any::Any;
-use std::collections::BTreeSet;
 use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
@@ -23,6 +22,7 @@ use vortex::array::MaskFuture;
 use vortex::array::ProstMetadata;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::Constant;
+use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::expr::Expression;
 use vortex::array::expr::stats::Precision;
 use vortex::array::expr::stats::Stat;
@@ -49,6 +49,7 @@ use vortex::layout::LayoutReader;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::LayoutRef;
 use vortex::layout::LayoutStrategy;
+use vortex::layout::RowSplits;
 use vortex::layout::SplitRange;
 use vortex::layout::VTable;
 use vortex::layout::layouts::SharedArrayFuture;
@@ -180,6 +181,7 @@ impl VTable for CudaFlat {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
+        _ctx: &vortex::layout::LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(CudaFlatReader {
             layout: layout.clone(),
@@ -286,10 +288,10 @@ impl LayoutReader for CudaFlatReader {
         &self,
         _field_mask: &[FieldMask],
         split_range: &SplitRange,
-        splits: &mut BTreeSet<u64>,
+        splits: &mut RowSplits,
     ) -> VortexResult<()> {
         split_range.check_bounds(self.layout.row_count)?;
-        splits.insert(split_range.root_row_range().end);
+        splits.push(split_range.root_row_range().end);
         Ok(())
     }
 
@@ -325,16 +327,17 @@ impl LayoutReader for CudaFlatReader {
                 array = array.slice(row_range.clone())?;
             }
 
-            let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
+            let mask_density = mask.density();
+            let array_mask = if mask_density < EXPR_EVAL_THRESHOLD {
                 let array = array.apply(&expr)?;
                 let array = array.filter(mask.clone())?;
                 let mut ctx = session.create_execution_ctx();
-                let array_mask = array.execute::<Mask>(&mut ctx)?;
+                let array_mask = array.fill_null(false)?.execute::<Mask>(&mut ctx)?;
                 mask.intersect_by_rank(&array_mask)
             } else {
                 let array = array.apply(&expr)?;
                 let mut ctx = session.create_execution_ctx();
-                let array_mask = array.execute::<Mask>(&mut ctx)?;
+                let array_mask = array.fill_null(false)?.execute::<Mask>(&mut ctx)?;
                 mask.bitand(&array_mask)
             };
 
@@ -342,7 +345,7 @@ impl LayoutReader for CudaFlatReader {
                 "CudaFlat mask evaluation {} - {} (mask = {}) => {}",
                 name,
                 expr,
-                mask.density(),
+                mask_density,
                 array_mask.density(),
             );
 

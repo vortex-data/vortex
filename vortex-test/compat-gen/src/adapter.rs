@@ -136,7 +136,12 @@ pub fn read_layout_tree(bytes: ByteBuffer) -> VortexResult<()> {
             if row_count == 0 {
                 continue;
             }
-            let reader = layout.new_reader("".into(), Arc::clone(&segment_source), &session)?;
+            let reader = layout.new_reader(
+                "".into(),
+                Arc::clone(&segment_source),
+                &session,
+                &Default::default(),
+            )?;
             let len =
                 usize::try_from(row_count).map_err(|e| vortex_err!("row count overflow: {e}"))?;
             reader

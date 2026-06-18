@@ -3,6 +3,7 @@
 
 use std::mem;
 use std::mem::MaybeUninit;
+use std::ops::Range;
 
 use fastlanes::BitPacking;
 use lending_iterator::gat;
@@ -78,7 +79,6 @@ impl<T: PhysicalPType<Physical: BitPacking>> UnpackStrategy<T> for BitPackingStr
 ///     // handle partial trailing chunk
 /// }
 /// ```
-///
 pub struct UnpackedChunks<T: PhysicalPType, S: UnpackStrategy<T>> {
     strategy: S,
     bit_width: usize,
@@ -215,33 +215,35 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
         mut f: impl FnMut(T) -> U,
     ) {
         debug_assert_eq!(output.len(), self.len);
+
+        self.for_each_unpacked_chunk(|chunk, range| {
+            write_map(chunk, &mut output[range], &mut f);
+        });
+    }
+
+    /// Walk every unpacked chunk in array order, reusing the internal scratch buffer.
+    pub(crate) fn for_each_unpacked_chunk<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&mut [T], Range<usize>),
+    {
         let mut local_idx = 0;
 
         if let Some(initial) = self.initial() {
             let chunk_len = initial.len();
-            write_map(initial, &mut output[..chunk_len], &mut f);
+            f(initial, local_idx..local_idx + chunk_len);
             local_idx += chunk_len;
         }
 
-        if self.num_chunks != 1 {
-            let first_chunk_is_sliced = self.first_chunk_is_sliced();
-            let last_chunk_is_sliced = self.last_chunk_is_sliced();
-            let full_chunks_range =
-                (first_chunk_is_sliced as usize)..(self.num_chunks - last_chunk_is_sliced as usize);
-
+        if self.num_chunks > 1 {
             let packed_slice: &[T::Physical] = buffer_as_slice(&self.packed);
             let elems_per_chunk = self.elems_per_chunk();
-            for i in full_chunks_range {
+            for i in self.full_chunks_range() {
                 let chunk = &packed_slice[i * elems_per_chunk..][..elems_per_chunk];
                 unsafe {
                     let dst: &mut [T::Physical] = mem::transmute(&mut self.buffer[..]);
                     self.strategy.unpack_chunk(self.bit_width, chunk, dst);
-                    let unpacked: &[T] = mem::transmute(&self.buffer[..]);
-                    write_map(
-                        unpacked,
-                        &mut output[local_idx..local_idx + CHUNK_SIZE],
-                        &mut f,
-                    );
+                    let unpacked: &mut [T] = mem::transmute(&mut self.buffer[..]);
+                    f(unpacked, local_idx..local_idx + CHUNK_SIZE);
                 }
                 local_idx += CHUNK_SIZE;
             }
@@ -249,15 +251,39 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
 
         if let Some(trailer) = self.trailer() {
             let chunk_len = trailer.len();
-            write_map(
-                trailer,
-                &mut output[local_idx..local_idx + chunk_len],
-                &mut f,
-            );
+            f(trailer, local_idx..local_idx + chunk_len);
             local_idx += chunk_len;
         }
 
         debug_assert_eq!(local_idx, self.len);
+    }
+
+    /// Walk every *packed* chunk in array order, yielding the raw packed FastLanes block and the
+    /// padded bit range it covers, without unpacking it.
+    ///
+    /// Unlike [`Self::for_each_unpacked_chunk`], this does not fill the scratch buffer: it hands
+    /// the still-packed block to the callback so fused kernels (e.g. compare) can unpack and
+    /// consume it in a single pass. Each yielded block holds exactly `elems_per_chunk` packed
+    /// values (the buffer is zero-padded out to a whole final chunk).
+    ///
+    /// The yielded range is in *padded* coordinates: block `c` covers
+    /// `[c * 1024, min((c + 1) * 1024, offset + len))`, so it includes the leading `offset` rows
+    /// that slicing skips. Block starts are therefore always 1024-aligned regardless of `offset`.
+    /// Callers must account for the array's `offset` when mapping a block's rows back to logical
+    /// output positions (e.g. by viewing the output buffer at a bit offset of `offset`).
+    pub(crate) fn for_each_packed_chunk<F>(&self, mut f: F)
+    where
+        F: FnMut(&[T::Physical], Range<usize>),
+    {
+        let packed_slice: &[T::Physical] = buffer_as_slice(&self.packed);
+        let elems_per_chunk = self.elems_per_chunk();
+        let padded_len = self.offset + self.len;
+        for chunk in 0..self.num_chunks {
+            let packed_chunk = &packed_slice[chunk * elems_per_chunk..][..elems_per_chunk];
+            let start = chunk * CHUNK_SIZE;
+            let end = (start + CHUNK_SIZE).min(padded_len);
+            f(packed_chunk, start..end);
+        }
     }
 
     /// Unpack full chunks into output range starting at the given index.
@@ -270,16 +296,11 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
             return start_idx;
         }
 
-        let first_chunk_is_sliced = self.first_chunk_is_sliced();
-        let last_chunk_is_sliced = self.last_chunk_is_sliced();
-        let full_chunks_range =
-            (first_chunk_is_sliced as usize)..(self.num_chunks - last_chunk_is_sliced as usize);
-
         let mut local_idx = start_idx;
 
         let packed_slice: &[T::Physical] = buffer_as_slice(&self.packed);
         let elems_per_chunk = self.elems_per_chunk();
-        for i in full_chunks_range {
+        for i in self.full_chunks_range() {
             let chunk = &packed_slice[i * elems_per_chunk..][..elems_per_chunk];
 
             unsafe {
@@ -291,6 +312,11 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
             local_idx += CHUNK_SIZE;
         }
         local_idx
+    }
+
+    fn full_chunks_range(&self) -> Range<usize> {
+        (self.first_chunk_is_sliced() as usize)
+            ..(self.num_chunks - self.last_chunk_is_sliced() as usize)
     }
 
     /// Access last chunk of the array if the last chunk has fewer than 1024 due to slicing

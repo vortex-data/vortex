@@ -4,6 +4,7 @@
 //! Factory functions for creating [`Expression`]s from scalar function vtables.
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
@@ -21,6 +22,7 @@ use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::between::Between;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::byte_length::ByteLength;
 use crate::scalar_fn::fns::case_when::CaseWhen;
 use crate::scalar_fn::fns::case_when::CaseWhenOptions;
 use crate::scalar_fn::fns::cast::Cast;
@@ -51,20 +53,24 @@ use crate::scalar_fn::fns::variant_get::VariantGetOptions;
 use crate::scalar_fn::fns::variant_get::VariantPath;
 use crate::scalar_fn::fns::zip::Zip;
 
-// ---- Root ----
+static ROOT: LazyLock<Expression> = LazyLock::new(|| {
+    Root.try_new_expr(EmptyOptions, vec![])
+        .vortex_expect("Creating root() shouldn't fail")
+});
 
 /// Creates an expression that references the root scope.
 ///
 /// Returns the entire input array as passed to the expression evaluator.
 /// This is commonly used as the starting point for field access and other operations.
 pub fn root() -> Expression {
-    Root.try_new_expr(EmptyOptions, vec![])
-        .vortex_expect("Failed to create Root expression")
+    ROOT.clone()
 }
 
 /// Return whether the expression is a root expression.
 pub fn is_root(expr: &Expression) -> bool {
-    expr.is::<Root>()
+    // root doesn't have any children, and scalar_fns have distinct ids
+    // so we should almost always hit this eq check
+    (expr.scalar_fn().id() == ROOT.scalar_fn().id()) || expr.is::<Root>()
 }
 
 // ---- Literal ----
@@ -717,4 +723,17 @@ pub fn dynamic(
 /// ```
 pub fn list_contains(list: Expression, value: Expression) -> Expression {
     ListContains.new_expr(EmptyOptions, [list, value])
+}
+
+// ---- ByteLength ----
+
+/// Creates an expression that computes the byte length of each element.
+/// This is akin to ANSI SQL OCTET_LENGTH(), or DuckDB's strlen().
+///
+/// ```rust
+/// # use vortex_array::expr::{byte_length, root};
+/// let expr = byte_length(root());
+/// ```
+pub fn byte_length(input: Expression) -> Expression {
+    ByteLength.new_expr(EmptyOptions, [input])
 }

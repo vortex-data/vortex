@@ -25,7 +25,7 @@ use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::Precision;
+use crate::EqMode;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayParts;
@@ -46,7 +46,6 @@ use crate::executor::ExecutionResult;
 use crate::require_child;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
-use crate::validity::Validity;
 
 mod kernel;
 mod operations;
@@ -59,11 +58,11 @@ pub type DictArray = Array<Dict>;
 pub struct Dict;
 
 impl ArrayHash for DictData {
-    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _accuracy: EqMode) {}
 }
 
 impl ArrayEq for DictData {
-    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+    fn array_eq(&self, _other: &Self, _accuracy: EqMode) -> bool {
         true
     }
 }
@@ -179,7 +178,7 @@ impl VTable for Dict {
 
         let array = require_child!(array, array.codes(), DictSlots::CODES => Primitive);
 
-        if matches!(array.codes().validity()?, Validity::AllInvalid) {
+        if array.codes().validity()?.definitely_all_null() {
             return Ok(ExecutionResult::done(ConstantArray::new(
                 Scalar::null(array.dtype().as_nullable()),
                 array.codes().len(),

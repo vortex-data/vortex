@@ -12,6 +12,7 @@ use cudarc::driver::CudaSlice;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::LaunchArgs;
 use cudarc::driver::LaunchConfig;
+use cudarc::driver::ValidAsZeroBits;
 use futures::future::BoxFuture;
 use tracing::debug;
 use tracing::trace;
@@ -20,13 +21,22 @@ use vortex::array::ArrayVTable;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
+use vortex::array::arrays::BoolArray;
+use vortex::array::arrays::Extension;
+use vortex::array::arrays::ExtensionArray;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
+use vortex::array::arrays::bool::BoolDataParts;
+use vortex::array::arrays::extension::ExtensionArrayExt;
 use vortex::array::arrays::struct_::StructDataParts;
 use vortex::array::buffer::BufferHandle;
+use vortex::array::validity::Validity;
+use vortex::dtype::DType;
+use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 
 use crate::CudaSession;
@@ -92,7 +102,7 @@ pub struct CudaExecutionCtx {
 impl CudaExecutionCtx {
     /// Creates a new CUDA execution context.
     pub(crate) fn new(stream: VortexCudaStream, ctx: ExecutionCtx) -> Self {
-        let cuda_session = ctx.session().cuda_session().clone();
+        let cuda_session = (*ctx.session().cuda_session()).clone();
         Self {
             stream,
             ctx,
@@ -256,7 +266,7 @@ impl CudaExecutionCtx {
         data: D,
     ) -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>>
     where
-        T: DeviceRepr + Debug + Send + Sync + 'static,
+        T: DeviceRepr + ValidAsZeroBits + Debug + Send + Sync + 'static,
         D: AsRef<[T]> + Send + 'static,
     {
         self.stream.copy_to_device(data)
@@ -371,6 +381,34 @@ pub trait CudaExecute: 'static + Send + Sync + Debug {
     -> VortexResult<Canonical>;
 }
 
+pub(crate) async fn execute_validity_cuda(
+    validity: Validity,
+    len: usize,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<Validity> {
+    let Validity::Array(array) = validity else {
+        return Ok(validity);
+    };
+
+    vortex_ensure!(array.len() == len, "validity array length mismatch");
+    vortex_ensure!(
+        matches!(array.dtype(), DType::Bool(Nullability::NonNullable)),
+        "validity array must be non-nullable boolean, got {}",
+        array.dtype()
+    );
+
+    let canonical = array.execute_cuda(ctx).await?;
+    let Canonical::Bool(bool_array) = canonical else {
+        vortex_bail!("CUDA validity execution produced {}", canonical.dtype());
+    };
+
+    let BoolDataParts { bits, meta } = bool_array.into_data().into_parts(len);
+    let bits = ctx.ensure_on_device(bits).await?;
+    Ok(Validity::Array(
+        BoolArray::new_handle(bits, meta.offset(), meta.len(), Validity::NonNullable).into_array(),
+    ))
+}
+
 /// Extension trait for executing arrays on CUDA.
 #[async_trait]
 pub trait CudaArrayExt {
@@ -408,6 +446,18 @@ impl CudaArrayExt for ArrayRef {
                 cuda_fields,
                 len,
                 validity,
+            )));
+        }
+
+        // Extension arrays match AnyCanonical regardless of how their storage
+        // is encoded, so the canonical early-return below would skip them with
+        // the storage still compressed. Recurse into the storage so compressed
+        // storage decodes on the GPU.
+        if let Some(ext) = self.as_opt::<Extension>() {
+            let storage = ext.storage_array().clone().execute_cuda(ctx).await?;
+            return Ok(Canonical::Extension(ExtensionArray::new(
+                ext.ext_dtype().clone(),
+                storage.into_array(),
             )));
         }
 

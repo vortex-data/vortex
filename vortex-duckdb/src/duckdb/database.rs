@@ -131,6 +131,22 @@ impl Database {
 }
 
 impl DatabaseRef {
+    pub fn register_table_functions(&self) -> VortexResult<()> {
+        duckdb_try!(
+            unsafe { cpp::duckdb_vx_register_table_functions(self.as_ptr()) },
+            "Failed to register table functions"
+        );
+        Ok(())
+    }
+
+    pub fn register_copy_function(&self) -> VortexResult<()> {
+        duckdb_try!(
+            unsafe { cpp::duckdb_vx_register_copy_function(self.as_ptr()) },
+            "Failed to register copy function"
+        );
+        Ok(())
+    }
+
     /// Connects to the DuckDB database.
     pub fn connect(&self) -> VortexResult<Connection> {
         Connection::connect(self)
