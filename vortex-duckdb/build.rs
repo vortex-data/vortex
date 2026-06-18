@@ -44,6 +44,145 @@ const SOURCE_FILES: [&str; 17] = [
     "cpp/vector_buffer.cpp",
 ];
 
+// Duckdb C API function we use.
+// This lowers codegen'd src/cpp.rs by four times.
+const DUCKDB_C_API_FUNCTIONS: [&str; 134] = [
+    "duckdb_array_type_array_size",
+    "duckdb_array_type_child_type",
+    "duckdb_array_vector_get_child",
+    "duckdb_client_context_try_get_current_setting",
+    "duckdb_close",
+    "duckdb_column_count",
+    "duckdb_column_logical_type",
+    "duckdb_column_name",
+    "duckdb_column_type",
+    "duckdb_config_count",
+    "duckdb_connect",
+    "duckdb_create_array_type",
+    "duckdb_create_blob",
+    "duckdb_create_bool",
+    "duckdb_create_config",
+    "duckdb_create_data_chunk",
+    "duckdb_create_date",
+    "duckdb_create_decimal",
+    "duckdb_create_decimal_type",
+    "duckdb_create_double",
+    "duckdb_create_float",
+    "duckdb_create_int16",
+    "duckdb_create_int32",
+    "duckdb_create_int64",
+    "duckdb_create_int8",
+    "duckdb_create_list_type",
+    "duckdb_create_logical_type",
+    "duckdb_create_map_type",
+    "duckdb_create_null_value",
+    "duckdb_create_selection_vector",
+    "duckdb_create_struct_type",
+    "duckdb_create_time",
+    "duckdb_create_timestamp",
+    "duckdb_create_timestamp_ms",
+    "duckdb_create_timestamp_ns",
+    "duckdb_create_timestamp_s",
+    "duckdb_create_timestamp_tz",
+    "duckdb_create_uint16",
+    "duckdb_create_uint32",
+    "duckdb_create_uint64",
+    "duckdb_create_uint8",
+    "duckdb_create_union_type",
+    "duckdb_create_varchar_length",
+    "duckdb_create_vector",
+    "duckdb_data_chunk_get_column_count",
+    "duckdb_data_chunk_get_size",
+    "duckdb_data_chunk_get_vector",
+    "duckdb_data_chunk_reset",
+    "duckdb_data_chunk_set_size",
+    "duckdb_data_chunk_to_string",
+    "duckdb_data_chunk_verify",
+    "duckdb_decimal_scale",
+    "duckdb_decimal_width",
+    "duckdb_destroy_client_context",
+    "duckdb_destroy_config",
+    "duckdb_destroy_data_chunk",
+    "duckdb_destroy_logical_type",
+    "duckdb_destroy_result",
+    "duckdb_destroy_selection_vector",
+    "duckdb_destroy_value",
+    "duckdb_destroy_vector",
+    "duckdb_disconnect",
+    "duckdb_fetch_chunk",
+    "duckdb_free",
+    "duckdb_geometry_type_get_crs",
+    "duckdb_get_blob",
+    "duckdb_get_bool",
+    "duckdb_get_config_flag",
+    "duckdb_get_date",
+    "duckdb_get_decimal",
+    "duckdb_get_double",
+    "duckdb_get_float",
+    "duckdb_get_hugeint",
+    "duckdb_get_int16",
+    "duckdb_get_int32",
+    "duckdb_get_int64",
+    "duckdb_get_int8",
+    "duckdb_get_list_child",
+    "duckdb_get_list_size",
+    "duckdb_get_struct_child",
+    "duckdb_get_time",
+    "duckdb_get_time_ns",
+    "duckdb_get_timestamp",
+    "duckdb_get_timestamp_ms",
+    "duckdb_get_timestamp_ns",
+    "duckdb_get_timestamp_s",
+    "duckdb_get_timestamp_tz",
+    "duckdb_get_type_id",
+    "duckdb_get_uhugeint",
+    "duckdb_get_uint16",
+    "duckdb_get_uint32",
+    "duckdb_get_uint64",
+    "duckdb_get_uint8",
+    "duckdb_get_value_type",
+    "duckdb_get_varchar",
+    "duckdb_is_null_value",
+    "duckdb_library_version",
+    "duckdb_list_type_child_type",
+    "duckdb_list_vector_get_child",
+    "duckdb_list_vector_get_size",
+    "duckdb_list_vector_reserve",
+    "duckdb_list_vector_set_size",
+    "duckdb_malloc",
+    "duckdb_map_type_key_type",
+    "duckdb_map_type_value_type",
+    "duckdb_open",
+    "duckdb_open_ext",
+    "duckdb_query",
+    "duckdb_result_error",
+    "duckdb_row_count",
+    "duckdb_rows_changed",
+    "duckdb_selection_vector_get_data_ptr",
+    "duckdb_set_config",
+    "duckdb_string_t_data",
+    "duckdb_string_t_length",
+    "duckdb_struct_type_child_count",
+    "duckdb_struct_type_child_name",
+    "duckdb_struct_type_child_type",
+    "duckdb_struct_vector_get_child",
+    "duckdb_union_type_member_count",
+    "duckdb_union_type_member_name",
+    "duckdb_union_type_member_type",
+    "duckdb_value_to_string",
+    "duckdb_vector_assign_string_element",
+    "duckdb_vector_assign_string_element_len",
+    "duckdb_vector_ensure_validity_writable",
+    "duckdb_vector_flatten",
+    "duckdb_vector_get_column_type",
+    "duckdb_vector_get_data",
+    "duckdb_vector_get_validity",
+    "duckdb_vector_reference_value",
+    "duckdb_vector_reference_vector",
+    "duckdb_vector_size",
+    "duckdb_vector_to_string",
+];
+
 const DOWNLOAD_MAX_RETRIES: i32 = 3;
 const DOWNLOAD_TIMEOUT: u64 = 90;
 
@@ -218,7 +357,7 @@ fn build_duckdb(version: &DuckDBVersion, duckdb_repo_dir: &Path) {
             ("1", "0")
         };
 
-    // If we're building from a commit  we need to build httpfs and benchmark
+    // If we're building from a commit we need to build httpfs and benchmark
     // extensions statically, otherwise DuckDB tries to load them from an http
     // endpoint with version 0.0.1 (all non-tagged builds) which doesn't exist.
     // httpfs static build also requires CURL dev headers
@@ -306,10 +445,9 @@ fn try_build_duckdb(
 
 /// Generate rust functions with bindgen from C sources.
 fn bindgen_c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
-    let bindings = bindgen::Builder::default()
+    let mut builder = bindgen::Builder::default()
         .header("cpp/include/duckdb_vx.h")
         .override_abi(Abi::CUnwind, ".*")
-        // Allow for auto-generated cpp.rs code.
         .raw_line("#![allow(dead_code)]")
         .raw_line("#![allow(non_camel_case_types)]")
         .raw_line("#![allow(non_upper_case_globals)]")
@@ -317,20 +455,31 @@ fn bindgen_c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
         .raw_line("#![allow(clippy::absolute_paths)]")
         .raw_line("#![allow(clippy::suspicious_doc_comments)]")
         .raw_line("#![allow(clippy::enum_variant_names)]")
+        .allowlist_function("duckdb_vx_.*")
+        .allowlist_type("duckdb_vx_.*")
+        .allowlist_type("DUCKDB_VX_.*")
+        .allowlist_var("DUCKDB_VX_.*")
+        // Two types read from raw vector data
+        .allowlist_type("duckdb_list_entry")
+        .allowlist_type("duckdb_column_statistics")
         // Add the #[must_use] attribute to FFI functions that return results.
         .must_use_type("duckdb_state")
         .rustified_enum("duckdb_state")
         .rustified_enum("DUCKDB_VX_EXPR_CLASS")
         .rustified_enum("DUCKDB_VX_EXPR_TYPE")
         .rustified_enum("DUCKDB_VX_TABLE_FILTER_TYPE")
-        .rustified_enum("DUCKDB_VX_VECTOR_TYPE")
         .rustified_non_exhaustive_enum("DUCKDB_TYPE")
         .size_t_is_usize(true)
         .clang_arg(format!("-I{}", duckdb_include_dir.display()))
         .clang_arg(format!("-I{}", crate_dir.join("cpp/include").display()))
         .generate_comments(true)
-        .parse_callbacks(Box::new(BindgenCargoCallbacks))
-        .generate();
+        .parse_callbacks(Box::new(BindgenCargoCallbacks));
+
+    for function in DUCKDB_C_API_FUNCTIONS {
+        builder = builder.allowlist_function(function);
+    }
+
+    let bindings = builder.generate();
 
     let bindings = match bindings {
         Ok(b) => b,
@@ -340,12 +489,7 @@ fn bindgen_c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
         }
     };
     let out_path = crate_dir.join("src/cpp.rs");
-    let new_contents = bindings.to_string();
-    let write = match fs::read_to_string(&out_path) {
-        Ok(existing) => existing != new_contents,
-        Err(_) => true,
-    };
-    if write && let Err(e) = fs::write(&out_path, new_contents) {
+    if let Err(e) = fs::write(&out_path, bindings.to_string()) {
         println!("cargo:error=Failed to write Rust bindings: {e}");
         exit(1);
     }
