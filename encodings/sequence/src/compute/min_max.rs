@@ -35,8 +35,6 @@ impl DynAggregateKernel for SequenceMinMaxKernel {
         if !aggregate_fn.is::<MinMax>() {
             return Ok(None);
         }
-        // Sequence arrays are always integer-typed (float multipliers are unsupported), so NaN
-        // handling never applies and `SkipNansOptions` can be ignored.
 
         let Some(seq) = batch.as_opt::<Sequence>() else {
             return Ok(None);
