@@ -26,6 +26,7 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::SimplifyCtx;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
@@ -42,40 +43,6 @@ use crate::scalar::Scalar;
 
 #[derive(Clone)]
 pub struct Binary;
-
-fn simplify_and(lhs: &Expression, rhs: &Expression) -> Option<Expression> {
-    match (bool_literal(lhs), bool_literal(rhs)) {
-        (Some(Some(false)), _) | (_, Some(Some(false))) => Some(lit(false)),
-        (Some(Some(true)), _) => Some(rhs.clone()),
-        (_, Some(Some(true))) => Some(lhs.clone()),
-        (Some(None), Some(None)) => Some(lhs.clone()),
-        _ => None,
-    }
-}
-
-fn simplify_or(lhs: &Expression, rhs: &Expression) -> Option<Expression> {
-    match (bool_literal(lhs), bool_literal(rhs)) {
-        (Some(Some(true)), _) | (_, Some(Some(true))) => Some(lit(true)),
-        (Some(Some(false)), _) => Some(rhs.clone()),
-        (_, Some(Some(false))) => Some(lhs.clone()),
-        (Some(None), Some(None)) => Some(lhs.clone()),
-        _ => None,
-    }
-}
-
-fn bool_literal(expr: &Expression) -> Option<Option<bool>> {
-    expr.as_opt::<Literal>()?
-        .as_bool_opt()
-        .map(|value| value.value())
-}
-
-fn is_null_literal(expr: &Expression) -> bool {
-    expr.as_opt::<Literal>().is_some_and(Scalar::is_null)
-}
-
-fn null_bool() -> Expression {
-    lit(Scalar::null(DType::Bool(Nullability::Nullable)))
-}
 
 impl ScalarFnVTable for Binary {
     type Options = Operator;
@@ -201,15 +168,65 @@ impl ScalarFnVTable for Binary {
         let lhs = expr.child(0);
         let rhs = expr.child(1);
 
-        if operator.is_comparison() && (is_null_literal(lhs) || is_null_literal(rhs)) {
-            return Ok(Some(null_bool()));
-        }
+        let bool_literal = |expr: &Expression| {
+            expr.as_opt::<Literal>()?
+                .as_bool_opt()
+                .map(|value| value.value())
+        };
 
+        // AND/OR use Kleene three-valued logic. `None` below is a boolean null.
+        //
+        // AND:
+        // - false AND x => false
+        // - true  AND x => x
+        // - null  AND null => null
+        //
+        // OR:
+        // - true  OR x => true
+        // - false OR x => x
+        // - null  OR null => null
+        //
+        // Other null cases either fall out of the identity/annihilator rules
+        // above (`null AND true`, `null OR false`) or cannot be simplified under
+        // Kleene semantics (`null AND x`, `null OR x` for non-literal `x`).
         Ok(match operator {
-            Operator::And => simplify_and(lhs, rhs),
-            Operator::Or => simplify_or(lhs, rhs),
+            Operator::And => match (bool_literal(lhs), bool_literal(rhs)) {
+                (Some(Some(false)), _) | (_, Some(Some(false))) => Some(lit(false)),
+                (Some(Some(true)), _) => Some(rhs.clone()),
+                (_, Some(Some(true))) => Some(lhs.clone()),
+                (Some(None), Some(None)) => Some(lhs.clone()),
+                _ => None,
+            },
+            Operator::Or => match (bool_literal(lhs), bool_literal(rhs)) {
+                (Some(Some(true)), _) | (_, Some(Some(true))) => Some(lit(true)),
+                (Some(Some(false)), _) => Some(rhs.clone()),
+                (_, Some(Some(false))) => Some(lhs.clone()),
+                (Some(None), Some(None)) => Some(lhs.clone()),
+                _ => None,
+            },
             _ => None,
         })
+    }
+
+    fn simplify(
+        &self,
+        operator: &Operator,
+        expr: &Expression,
+        ctx: &dyn SimplifyCtx,
+    ) -> VortexResult<Option<Expression>> {
+        let is_literal_null =
+            |expr: &Expression| expr.as_opt::<Literal>().is_some_and(Scalar::is_null);
+
+        if operator.is_comparison()
+            && (is_literal_null(expr.child(0)) || is_literal_null(expr.child(1)))
+        {
+            // Validate the comparison before reducing it. This preserves type
+            // errors for expressions like `int_col = null_utf8`.
+            ctx.return_dtype(expr)?;
+            return Ok(Some(lit(Scalar::null(DType::Bool(Nullability::Nullable)))));
+        }
+
+        Ok(None)
     }
 
     fn validity(
@@ -257,6 +274,7 @@ impl ScalarFnVTable for Binary {
 #[cfg(test)]
 mod tests {
     use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
 
     use super::*;
     use crate::LEGACY_SESSION;
@@ -265,6 +283,7 @@ mod tests {
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::expr::Expression;
     use crate::expr::and_collect;
     use crate::expr::col;
@@ -387,6 +406,36 @@ mod tests {
                 .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
+    }
+
+    #[test]
+    fn comparison_with_typed_null_simplifies_after_type_check() -> VortexResult<()> {
+        let dtype = test_harness::struct_dtype();
+
+        let expr = eq(
+            col("col1"),
+            lit(Scalar::null(DType::Primitive(
+                PType::U16,
+                Nullability::Nullable,
+            ))),
+        );
+
+        assert_eq!(
+            expr.optimize_recursive(&dtype)?,
+            lit(Scalar::null(DType::Bool(Nullability::Nullable)))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn comparison_with_incompatible_null_still_type_checks() {
+        let dtype = test_harness::struct_dtype();
+        let expr = eq(
+            col("col1"),
+            lit(Scalar::null(DType::Utf8(Nullability::Nullable))),
+        );
+
+        assert!(expr.optimize_recursive(&dtype).is_err());
     }
 
     #[test]

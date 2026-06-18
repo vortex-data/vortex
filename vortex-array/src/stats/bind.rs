@@ -4,9 +4,14 @@
 //! Bind abstract `vortex.stat` expressions to a concrete stats representation.
 //!
 //! Stats rewrite rules describe pruning in terms of `vortex.stat(input, aggregate_fn)` placeholders
-//! so the rewrite is independent of where statistics are stored. Binding is the later pass that
-//! replaces those placeholders with the representation used by a caller: zone-map field references,
-//! file-level stat literals, or typed nulls for missing stats.
+//! so the rewrite is independent of where statistics are stored. These stat placeholders are
+//! abstract because they name the statistic needed for a proof, but not how that statistic is
+//! represented by a specific layout or reader.
+//!
+//! Binding is the later pass that replaces each abstract placeholder with the representation used
+//! by a caller: zone-map field references, file-level stat literals, or typed nulls for missing
+//! stats. This lets all callers share the same falsification rules while keeping layout-specific
+//! stat storage behind [`StatBinder`].
 
 use vortex_error::VortexResult;
 
@@ -21,6 +26,11 @@ use crate::scalar::Scalar;
 use crate::scalar_fn::fns::stat::StatFn;
 
 /// A target that can bind abstract statistics to concrete expressions.
+///
+/// Implementations define how a pruning proof should read stats from a specific backing
+/// representation. For example, a zone-map binder can translate a `max(col)` placeholder into a
+/// field reference in the per-zone stats table, while a file-stats binder can translate the same
+/// placeholder into a literal value from the file footer.
 pub trait StatBinder {
     /// The dtype scope used to type-check expressions before stats are bound.
     fn scope(&self) -> &DType;
