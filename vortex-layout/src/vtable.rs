@@ -26,6 +26,14 @@ use crate::children::LayoutChildren;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 
+/// Context available while constructing a layout from serialized metadata.
+pub struct LayoutBuildContext<'a> {
+    /// The session used to resolve plugin-owned metadata such as aggregate function options.
+    pub session: &'a VortexSession,
+    /// The array read context referenced by serialized array metadata in descendant layouts.
+    pub array_read_ctx: &'a ReadContext,
+}
+
 pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type Layout: 'static + Send + Sync + Clone + Debug + Deref<Target = dyn Layout> + IntoLayout;
     type Encoding: 'static + Send + Sync + Deref<Target = dyn LayoutEncoding>;
@@ -83,7 +91,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        ctx: &ReadContext,
+        build_ctx: &LayoutBuildContext<'_>,
     ) -> VortexResult<Self::Layout>;
 
     /// Replaces the children of the layout with the given layout references.

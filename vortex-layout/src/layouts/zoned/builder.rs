@@ -12,6 +12,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::StructArray;
@@ -25,7 +26,6 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
-use vortex_array::expr::stats::StatsProvider;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarTruncation;
 use vortex_array::scalar::lower_bound;
@@ -35,9 +35,12 @@ use vortex_array::validity::Validity;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure_eq;
 
 use crate::layouts::zoned::schema::MAX_IS_TRUNCATED;
 use crate::layouts::zoned::schema::MIN_IS_TRUNCATED;
+use crate::layouts::zoned::schema::aggregate_descriptor;
+use crate::layouts::zoned::schema::aggregate_state_dtype;
 
 /// Accumulates write-time statistics for each logical zone.
 pub struct StatsAccumulator {
@@ -72,18 +75,6 @@ impl StatsAccumulator {
             builders,
             length: 0,
         }
-    }
-
-    pub fn push_chunk_without_compute(&mut self, array: &ArrayRef) -> VortexResult<()> {
-        for builder in &mut self.builders {
-            if let Precision::Exact(value) = array.statistics().get(builder.stat()) {
-                builder.append_scalar(value.cast(&value.dtype().as_nullable())?)?;
-            } else {
-                builder.append_null();
-            }
-        }
-        self.length += 1;
-        Ok(())
     }
 
     pub fn push_chunk(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
@@ -176,6 +167,102 @@ fn supports_file_stats(dtype: &DType) -> bool {
     !matches!(dtype, DType::Variant(_))
 }
 
+/// Accumulates aggregate-function partials for each logical zone.
+pub(crate) struct AggregateStatsAccumulator {
+    builders: Vec<AggregateStatsArrayBuilder>,
+    length: usize,
+}
+
+impl AggregateStatsAccumulator {
+    pub(crate) fn new(dtype: &DType, aggregate_fns: &[AggregateFnRef]) -> Self {
+        let builders = aggregate_fns
+            .iter()
+            .filter_map(|aggregate_fn| {
+                aggregate_state_dtype(dtype, aggregate_fn).map(|partial_dtype| {
+                    AggregateStatsArrayBuilder::new(
+                        aggregate_fn.clone(),
+                        &partial_dtype.as_nullable(),
+                        1024,
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+
+        Self {
+            builders,
+            length: 0,
+        }
+    }
+
+    pub(crate) fn aggregate_fns(&self) -> Arc<[AggregateFnRef]> {
+        self.builders
+            .iter()
+            .map(|builder| builder.aggregate_fn.clone())
+            .collect::<Vec<_>>()
+            .into()
+    }
+
+    pub(crate) fn push_partials(&mut self, partials: Vec<Scalar>) -> VortexResult<()> {
+        vortex_ensure_eq!(
+            partials.len(),
+            self.builders.len(),
+            "aggregate partial count must match zone stats builder count"
+        );
+
+        for (builder, value) in self.builders.iter_mut().zip_eq(partials) {
+            builder.append_scalar(value)?;
+        }
+        self.length += 1;
+        Ok(())
+    }
+
+    pub(crate) fn as_array(
+        &mut self,
+    ) -> VortexResult<Option<(StructArray, Arc<[AggregateFnRef]>)>> {
+        let mut names = Vec::new();
+        let mut fields = Vec::new();
+        let mut aggregate_fns = Vec::new();
+
+        for builder in self
+            .builders
+            .iter_mut()
+            .sorted_unstable_by(|lhs, rhs| lhs.descriptor.cmp(&rhs.descriptor))
+        {
+            let values = builder.finish();
+
+            if values.all_invalid()? {
+                continue;
+            }
+
+            aggregate_fns.push(builder.aggregate_fn.clone());
+            names.extend(values.names);
+            fields.extend(values.arrays);
+        }
+
+        if names.is_empty() {
+            return Ok(None);
+        }
+
+        let array = StructArray::try_new(names.into(), fields, self.length, Validity::NonNullable)?;
+        Ok(Some((array, aggregate_fns.into())))
+    }
+}
+
+pub(crate) fn aggregate_partials(
+    array: &ArrayRef,
+    aggregate_fns: &[AggregateFnRef],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Vec<Scalar>> {
+    aggregate_fns
+        .iter()
+        .map(|aggregate_fn| {
+            let mut accumulator = aggregate_fn.accumulator(array.dtype())?;
+            accumulator.accumulate(array, ctx)?;
+            accumulator.partial_scalar()
+        })
+        .collect()
+}
+
 fn stats_builder_with_capacity(
     stat: Stat,
     dtype: &DType,
@@ -211,6 +298,35 @@ fn stats_builder_with_capacity(
             _ => Box::new(StatNameArrayBuilder::new(stat, values_builder)),
         },
         _ => Box::new(StatNameArrayBuilder::new(stat, values_builder)),
+    }
+}
+
+struct AggregateStatsArrayBuilder {
+    aggregate_fn: AggregateFnRef,
+    descriptor: String,
+    dtype: DType,
+    builder: Box<dyn ArrayBuilder>,
+}
+
+impl AggregateStatsArrayBuilder {
+    fn new(aggregate_fn: AggregateFnRef, dtype: &DType, capacity: usize) -> Self {
+        Self {
+            descriptor: aggregate_descriptor(&aggregate_fn),
+            aggregate_fn,
+            dtype: dtype.clone(),
+            builder: builder_with_capacity(dtype, capacity),
+        }
+    }
+
+    fn append_scalar(&mut self, value: Scalar) -> VortexResult<()> {
+        self.builder.append_scalar(&value.cast(&self.dtype)?)
+    }
+
+    fn finish(&mut self) -> NamedArrays {
+        NamedArrays {
+            names: vec![self.descriptor.clone().into()],
+            arrays: vec![self.builder.finish()],
+        }
     }
 }
 

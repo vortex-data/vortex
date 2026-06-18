@@ -1886,7 +1886,10 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
 
     // Find all zoned layouts and verify data segments come before zone map segments.
     fn check_zoned_ordering(layout: &dyn Layout, segment_specs: &[SegmentSpec]) {
-        if layout.encoding_id().as_ref() == "vortex.stats" {
+        if matches!(
+            layout.encoding_id().as_ref(),
+            "vortex.zoned" | "vortex.stats"
+        ) {
             // child 0 = data, child 1 = zones
             let data_offsets =
                 collect_segment_offsets(layout.child(0).unwrap().as_ref(), segment_specs);
@@ -1918,7 +1921,10 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
         all_data: &mut Vec<u64>,
         all_zones: &mut Vec<u64>,
     ) {
-        if layout.encoding_id().as_ref() == "vortex.stats" {
+        if matches!(
+            layout.encoding_id().as_ref(),
+            "vortex.zoned" | "vortex.stats"
+        ) {
             // child 0 = data, child 1 = zones
             all_data.extend(collect_segment_offsets(
                 layout.child(0).unwrap().as_ref(),

@@ -12,6 +12,7 @@ use crate::layouts::chunked::ChunkedLayoutEncoding;
 use crate::layouts::dict::DictLayoutEncoding;
 use crate::layouts::flat::FlatLayoutEncoding;
 use crate::layouts::struct_::StructLayoutEncoding;
+use crate::layouts::zoned::LegacyStatsLayoutEncoding;
 use crate::layouts::zoned::ZonedLayoutEncoding;
 
 pub type LayoutRegistry = Registry<LayoutEncodingRef>;
@@ -50,6 +51,10 @@ impl Default for LayoutSession {
         layouts.register(FlatLayoutEncoding.id(), FlatLayoutEncoding.as_ref());
         layouts.register(StructLayoutEncoding.id(), StructLayoutEncoding.as_ref());
         layouts.register(ZonedLayoutEncoding.id(), ZonedLayoutEncoding.as_ref());
+        layouts.register(
+            LegacyStatsLayoutEncoding.id(),
+            LegacyStatsLayoutEncoding.as_ref(),
+        );
         layouts.register(DictLayoutEncoding.id(), DictLayoutEncoding.as_ref());
 
         Self { registry: layouts }

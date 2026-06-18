@@ -107,6 +107,7 @@ impl Footer {
             &layout_read_ctx,
             &array_read_ctx,
             session.layouts().registry(),
+            session,
             session.allows_unknown(),
         )?;
 

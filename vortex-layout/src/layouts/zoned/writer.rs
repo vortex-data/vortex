@@ -11,19 +11,31 @@ use parking_lot::Mutex;
 use vortex_array::ArrayContext;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::expr::stats::Stat;
-use vortex_array::stats::PRUNING_STATS;
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::AggregateFnVTable;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::EmptyOptions;
+use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
+use vortex_array::aggregate_fn::fns::bounded_max::BoundedMaxOptions;
+use vortex_array::aggregate_fn::fns::bounded_min::BoundedMin;
+use vortex_array::aggregate_fn::fns::bounded_min::BoundedMinOptions;
+use vortex_array::aggregate_fn::fns::max::Max;
+use vortex_array::aggregate_fn::fns::min::Min;
+use vortex_array::aggregate_fn::fns::nan_count::NanCount;
+use vortex_array::aggregate_fn::fns::null_count::NullCount;
+use vortex_array::aggregate_fn::fns::sum::Sum;
+use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
-use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
-use crate::layouts::zoned::StatsAccumulator;
+use crate::layouts::zoned::AggregateStatsAccumulator;
 use crate::layouts::zoned::ZonedLayout;
+use crate::layouts::zoned::aggregate_partials;
+use crate::layouts::zoned::schema::default_bounded_stat_max_bytes;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
@@ -38,21 +50,17 @@ use crate::sequence::SequentialStreamExt;
 pub struct ZonedLayoutOptions {
     /// The size of a statistics block
     pub block_size: usize,
-    /// The statistics to collect for each block.
-    pub stats: Arc<[Stat]>,
-    /// Maximum length of a variable length statistics
-    pub max_variable_length_statistics_size: usize,
-    /// Number of chunks to compute in parallel.
-    pub concurrency: usize,
+    /// The aggregate partials to collect for each block.
+    ///
+    /// If unset, the writer chooses pruning aggregates from the input dtype.
+    pub aggregate_fns: Option<Arc<[AggregateFnRef]>>,
 }
 
 impl Default for ZonedLayoutOptions {
     fn default() -> Self {
         Self {
             block_size: 8192,
-            stats: PRUNING_STATS.into(),
-            max_variable_length_statistics_size: 64,
-            concurrency: get_available_parallelism().unwrap_or(1),
+            aggregate_fns: None,
         }
     }
 }
@@ -93,48 +101,34 @@ impl LayoutStrategy for ZonedStrategy {
             "ZonedStrategy requires block_size > 0 when writing"
         );
 
-        let stats = Arc::clone(&self.options.stats);
+        let aggregate_fns = self
+            .options
+            .aggregate_fns
+            .clone()
+            .unwrap_or_else(|| default_zoned_aggregate_fns(stream.dtype()));
         let session = session.clone();
-        let compute_session = session.clone();
-        let handle = session.handle();
-        let handle2 = handle.clone();
 
-        let stats_accumulator = Arc::new(Mutex::new(StatsAccumulator::new(
+        let stats_accumulator = Arc::new(Mutex::new(AggregateStatsAccumulator::new(
             stream.dtype(),
-            &stats,
-            self.options.max_variable_length_statistics_size,
+            &aggregate_fns,
         )));
+        let aggregate_fns = stats_accumulator.lock().aggregate_fns();
 
-        // We can compute per-chunk statistics in parallel, so we spawn tasks for each chunk
-        let stream = SequentialStreamAdapter::new(
-            stream.dtype().clone(),
-            stream
-                .map(move |chunk| {
-                    let stats = Arc::clone(&stats);
-                    let session = compute_session.clone();
-                    handle2.spawn_cpu(move || {
-                        let (sequence_id, chunk) = chunk?;
-                        chunk
-                            .statistics()
-                            .compute_all(&stats, &mut session.create_execution_ctx())?;
-                        Ok((sequence_id, chunk))
-                    })
-                })
-                .buffered(self.options.concurrency),
-        )
-        .sendable();
-
-        // Now we accumulate the stats we computed above, this time we cannot spawn because we
-        // need to feed the accumulator an ordered stream.
+        // Accumulate zone stats in stream order so the auxiliary table stays aligned with the
+        // data child.
         let stats_accumulator2 = Arc::clone(&stats_accumulator);
+        let aggregate_fns2 = Arc::clone(&aggregate_fns);
+        let compute_session = session.clone();
         let stream = SequentialStreamAdapter::new(
             stream.dtype().clone(),
             stream.map(move |item| {
                 let (sequence_id, chunk) = item?;
-                // We have already computed per-chunk statistics, so avoid trying again for any that failed.
-                stats_accumulator2
-                    .lock()
-                    .push_chunk_without_compute(&chunk)?;
+                let partials = aggregate_partials(
+                    &chunk,
+                    &aggregate_fns2,
+                    &mut compute_session.create_execution_ctx(),
+                )?;
+                stats_accumulator2.lock().push_partials(partials)?;
                 Ok((sequence_id, chunk))
             }),
         )
@@ -155,7 +149,7 @@ impl LayoutStrategy for ZonedStrategy {
             )
             .await?;
 
-        let Some((stats_array, stats)) = stats_accumulator.lock().as_array()? else {
+        let Some((stats_array, aggregate_fns)) = stats_accumulator.lock().as_array()? else {
             // If we have no stats (e.g. the DType doesn't support them), then we just return the
             // child layout.
             return Ok(data_layout);
@@ -172,10 +166,88 @@ impl LayoutStrategy for ZonedStrategy {
             .write_stream(ctx, Arc::clone(&segment_sink), stats_stream, eof, &session)
             .await?;
 
-        Ok(ZonedLayout::new(data_layout, zones_layout, block_size, stats).into_layout())
+        Ok(
+            ZonedLayout::try_new(data_layout, zones_layout, block_size, aggregate_fns)?
+                .into_layout(),
+        )
     }
 
     fn buffered_bytes(&self) -> u64 {
         self.child.buffered_bytes() + self.stats.buffered_bytes()
+    }
+}
+
+fn default_zoned_aggregate_fns(dtype: &DType) -> Arc<[AggregateFnRef]> {
+    let (max, min) = match dtype {
+        DType::Utf8(_) | DType::Binary(_) => (
+            BoundedMax.bind(BoundedMaxOptions {
+                max_bytes: default_bounded_stat_max_bytes(),
+            }),
+            BoundedMin.bind(BoundedMinOptions {
+                max_bytes: default_bounded_stat_max_bytes(),
+            }),
+        ),
+        _ => (Max.bind(EmptyOptions), Min.bind(EmptyOptions)),
+    };
+
+    let mut aggregate_fns = vec![max, min];
+    if Sum.return_dtype(&EmptyOptions, dtype).is_some() {
+        aggregate_fns.push(Sum.bind(EmptyOptions));
+    }
+    aggregate_fns.push(NanCount.bind(EmptyOptions));
+    aggregate_fns.push(NullCount.bind(EmptyOptions));
+
+    aggregate_fns.into()
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
+    use vortex_array::aggregate_fn::fns::bounded_min::BoundedMin;
+    use vortex_array::aggregate_fn::fns::max::Max;
+    use vortex_array::aggregate_fn::fns::min::Min;
+    use vortex_array::aggregate_fn::fns::sum::Sum;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::extension::datetime::TimeUnit;
+    use vortex_array::extension::datetime::Timestamp;
+
+    use super::*;
+
+    #[test]
+    fn default_aggregates_bound_variable_length_min_max() {
+        let aggregate_fns = default_zoned_aggregate_fns(&DType::Utf8(Nullability::NonNullable));
+
+        assert_eq!(
+            aggregate_fns[0].as_::<BoundedMax>().max_bytes,
+            default_bounded_stat_max_bytes()
+        );
+        assert_eq!(
+            aggregate_fns[1].as_::<BoundedMin>().max_bytes,
+            default_bounded_stat_max_bytes()
+        );
+    }
+
+    #[test]
+    fn default_aggregates_keep_fixed_width_min_max_exact() {
+        let aggregate_fns = default_zoned_aggregate_fns(&PType::I32.into());
+
+        assert!(aggregate_fns[0].is::<Max>());
+        assert!(aggregate_fns[1].is::<Min>());
+        assert!(aggregate_fns[2].is::<Sum>());
+    }
+
+    #[test]
+    fn default_aggregates_skip_sum_for_non_summable_dtype() {
+        let dtype = DType::Extension(
+            Timestamp::new(TimeUnit::Microseconds, Nullability::Nullable).erased(),
+        );
+        let aggregate_fns = default_zoned_aggregate_fns(&dtype);
+
+        assert!(
+            aggregate_fns
+                .iter()
+                .all(|aggregate_fn| !aggregate_fn.is::<Sum>())
+        );
     }
 }

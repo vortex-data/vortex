@@ -15,9 +15,11 @@ use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::FlatBufferRoot;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::layout;
+use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
 use crate::Layout;
+use crate::LayoutBuildContext;
 use crate::LayoutContext;
 use crate::LayoutRef;
 use crate::children::ViewedLayoutChildren;
@@ -49,8 +51,9 @@ pub fn layout_from_flatbuffer(
     layout_ctx: &ReadContext,
     ctx: &ReadContext,
     layouts: &LayoutRegistry,
+    session: &VortexSession,
 ) -> VortexResult<LayoutRef> {
-    layout_from_flatbuffer_with_options(flatbuffer, dtype, layout_ctx, ctx, layouts, false)
+    layout_from_flatbuffer_with_options(flatbuffer, dtype, layout_ctx, ctx, layouts, session, false)
 }
 
 /// Parse a [`LayoutRef`] from a layout flatbuffer with unknown-encoding behavior control.
@@ -60,6 +63,7 @@ pub fn layout_from_flatbuffer_with_options(
     layout_ctx: &ReadContext,
     ctx: &ReadContext,
     layouts: &LayoutRegistry,
+    session: &VortexSession,
     allow_unknown: bool,
 ) -> VortexResult<LayoutRef> {
     let fb_layout = root_with_opts::<layout::Layout>(&LAYOUT_VERIFIER, &flatbuffer)?;
@@ -83,9 +87,14 @@ pub fn layout_from_flatbuffer_with_options(
             layout_ctx.clone(),
             layouts.clone(),
             allow_unknown,
+            session.clone(),
         )
     };
 
+    let build_ctx = LayoutBuildContext {
+        session,
+        array_read_ctx: ctx,
+    };
     let layout = encoding.build(
         dtype,
         fb_layout.row_count(),
@@ -100,7 +109,7 @@ pub fn layout_from_flatbuffer_with_options(
             .map(SegmentId::from)
             .collect(),
         &viewed_children,
-        ctx,
+        &build_ctx,
     )?;
 
     Ok(layout)
@@ -265,6 +274,7 @@ mod tests {
         ]);
         let array_ctx = ReadContext::new([]);
         let layouts = LayoutSession::default().registry().clone();
+        let session = vortex_array::array_session();
 
         let layout = layout_from_flatbuffer_with_options(
             layout_buffer,
@@ -272,6 +282,7 @@ mod tests {
             &layout_ctx,
             &array_ctx,
             &layouts,
+            &session,
             true,
         )
         .unwrap();

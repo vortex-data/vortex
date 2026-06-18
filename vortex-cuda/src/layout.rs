@@ -40,6 +40,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_panic;
 use vortex::layout::IntoLayout;
+use vortex::layout::LayoutBuildContext;
 use vortex::layout::LayoutChildType;
 use vortex::layout::LayoutChildren;
 use vortex::layout::LayoutEncodingRef;
@@ -198,7 +199,7 @@ impl VTable for CudaFlat {
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         segment_ids: Vec<SegmentId>,
         _children: &dyn LayoutChildren,
-        ctx: &ReadContext,
+        build_ctx: &LayoutBuildContext<'_>,
     ) -> VortexResult<Self::Layout> {
         if segment_ids.len() != 1 {
             vortex_bail!("CudaFlatLayout must have exactly one segment ID");
@@ -212,7 +213,7 @@ impl VTable for CudaFlat {
             row_count,
             dtype: dtype.clone(),
             segment_id: segment_ids[0],
-            ctx: ctx.clone(),
+            ctx: build_ctx.array_read_ctx.clone(),
             array_tree: ByteBuffer::from(metadata.array_encoding_tree.clone()),
             host_buffers: Arc::new(host_buffers),
         })

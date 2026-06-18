@@ -15,6 +15,7 @@ use parking_lot::RwLock;
 use tracing::trace;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
@@ -41,6 +42,7 @@ pub(super) struct PruningState {
     row_count: u64,
     zone_len: u64,
     dtype: DType,
+    aggregate_fns: Arc<[AggregateFnRef]>,
     lazy_children: Arc<LazyReaderChildren>,
     session: VortexSession,
 
@@ -52,6 +54,7 @@ pub(super) struct PruningState {
 impl PruningState {
     pub(super) fn new(
         layout: &ZonedLayout,
+        aggregate_fns: Arc<[AggregateFnRef]>,
         lazy_children: Arc<LazyReaderChildren>,
         session: VortexSession,
     ) -> Self {
@@ -60,6 +63,7 @@ impl PruningState {
             row_count: layout.row_count(),
             zone_len: layout.zone_len() as u64,
             dtype: layout.dtype().clone(),
+            aggregate_fns,
             lazy_children,
             session,
             pruning_result: Default::default(),
@@ -144,13 +148,22 @@ impl PruningState {
                 let zone_len = self.zone_len;
                 let row_count = self.row_count;
                 let dtype = self.dtype.clone();
+                let aggregate_fns = Arc::clone(&self.aggregate_fns);
 
                 async move {
                     let mut ctx = session.create_execution_ctx();
                     let zones_array = zones_eval.await?.execute::<StructArray>(&mut ctx)?;
                     // SAFETY: zoned layout validation checked that this zones child was
-                    // written from the same column dtype and stats-table schema.
-                    Ok(unsafe { ZoneMap::new_unchecked(dtype, zones_array, zone_len, row_count) })
+                    // written from the same column dtype and aggregate stats-table schema.
+                    Ok(unsafe {
+                        ZoneMap::new_unchecked(
+                            dtype,
+                            zones_array,
+                            aggregate_fns,
+                            zone_len,
+                            row_count,
+                        )
+                    })
                 }
                 .map_err(Arc::new)
                 .boxed()
