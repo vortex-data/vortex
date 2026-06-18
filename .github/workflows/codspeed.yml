@@ -69,6 +69,8 @@ jobs:
           token: ${{ secrets.CODSPEED_TOKEN }}
           mode: "simulation"
 
+  # Getting a GPU box is slow, in the future we can build on a box without one and only run
+  # on GPU machines.
   bench-codspeed-cuda-build:
     if: github.repository == 'vortex-data/vortex'
     name: "Build Codspeed CUDA benchmarks"
