@@ -345,17 +345,6 @@ impl DeviceArrayStreamPrivateData {
         ARROW_STREAM_EIO
     }
 
-    /// Set the schema from the dtype alone, so an empty stream still has a schema to report.
-    fn set_empty_schema(&mut self) -> VortexResult<()> {
-        if self.schema.is_none() {
-            self.schema = Some(ArrowDeviceStreamSchema::from_dtype(
-                &self.dtype,
-                &mut self.ctx,
-            )?);
-        }
-        Ok(())
-    }
-
     /// Return the stream schema, exporting the first batch to derive it if needed.
     ///
     /// A first batch is held in `pending_array` so the following `get_next` returns it.
@@ -363,7 +352,12 @@ impl DeviceArrayStreamPrivateData {
         if self.schema.is_none() {
             match self.array_iter.next() {
                 Some(array) => self.pending_array = Some(self.export_batch(array?)?),
-                None => self.set_empty_schema()?,
+                None => {
+                    self.schema = Some(ArrowDeviceStreamSchema::from_dtype(
+                        &self.dtype,
+                        &mut self.ctx,
+                    )?);
+                }
             }
         }
 
@@ -380,10 +374,7 @@ impl DeviceArrayStreamPrivateData {
 
         match self.array_iter.next() {
             Some(array) => self.export_batch(array?).map(Some),
-            None => {
-                self.set_empty_schema()?;
-                Ok(None)
-            }
+            None => Ok(None),
         }
     }
 
