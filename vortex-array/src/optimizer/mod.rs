@@ -22,6 +22,7 @@ use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::array::ParentRef;
 use crate::optimizer::kernels::ArrayKernelsExt;
 
 pub mod kernels;
@@ -89,6 +90,7 @@ fn try_optimize(
 
         // Apply parent reduction rules to each slot in the context of the current array.
         // Its important to take all slots here, as `current_array` can change inside the loop.
+        let parent_ref = ParentRef::from_array_ref(&current_array);
         for (slot_idx, slot) in current_array.slots().iter().enumerate() {
             let Some(child) = slot else { continue };
 
@@ -98,7 +100,7 @@ fn try_optimize(
                     array_ref.find_reduce_parent(current_array.encoding_id(), child.encoding_id())
             {
                 for plugin in plugins.as_ref() {
-                    if let Some(new_array) = plugin(child, &current_array, slot_idx)? {
+                    if let Some(new_array) = plugin(child, &parent_ref, slot_idx)? {
                         current_array = new_array;
                         any_optimizations = true;
                         continue 'outer;
@@ -106,7 +108,7 @@ fn try_optimize(
                 }
             }
 
-            if let Some(new_array) = child.reduce_parent(&current_array, slot_idx)? {
+            if let Some(new_array) = child.reduce_parent(&parent_ref, slot_idx)? {
                 // If the parent was replaced, then we attempt to reduce it again.
                 current_array = new_array;
                 any_optimizations = true;

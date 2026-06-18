@@ -90,7 +90,7 @@ impl ScalarFnVTable for Not {
         }
 
         // For boolean array
-        if let Some(bool) = child.as_opt::<Bool>() {
+        if let Some(bool) = child.as_typed::<Bool>() {
             return Ok(BoolArray::new(!bool.to_bit_buffer(), bool.validity()?).into_array());
         }
 

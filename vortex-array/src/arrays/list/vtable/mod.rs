@@ -24,6 +24,7 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayParts;
 use crate::array::ArrayView;
+use crate::array::ParentRef;
 use crate::array::VTable;
 use crate::arrays::list::ListArrayExt;
 use crate::arrays::list::ListData;
@@ -67,6 +68,7 @@ impl VTable for List {
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
+
     fn id(&self) -> ArrayId {
         static ID: CachedId = CachedId::new("vortex.list");
         *ID
@@ -86,7 +88,7 @@ impl VTable for List {
 
     fn reduce_parent(
         array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
+        parent: &ParentRef<'_>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)

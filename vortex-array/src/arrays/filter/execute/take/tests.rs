@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -34,7 +35,7 @@ fn execute_parent(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<crate::ArrayRef>> {
     TakeExecuteAdaptor(Filter).execute_parent(
-        child.as_::<Filter>(),
+        child.as_typed::<Filter>().vortex_expect("Filter child"),
         parent.as_::<Dict>(),
         child_idx,
         ctx,

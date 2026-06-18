@@ -34,7 +34,7 @@ where
     T::Offset: NativePType,
 {
     // If the Vortex array is already in VarBin format, we can directly convert it.
-    if let Some(array) = array.as_opt::<VarBin>() {
+    if let Some(array) = array.as_typed::<VarBin>() {
         return varbin_to_byte_array::<T>(array, ctx);
     }
 

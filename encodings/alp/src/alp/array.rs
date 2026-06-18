@@ -20,6 +20,7 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::ParentRef;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
@@ -182,7 +183,7 @@ impl VTable for ALP {
 
     fn reduce_parent(
         array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
+        parent: &ParentRef<'_>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
@@ -411,8 +412,8 @@ pub trait ALPArrayExt: ALPArraySlotsExt {
     fn patches(&self) -> Option<Patches> {
         PatchesData::patches_from_slots(
             self.patches_data.as_ref(),
-            self.as_ref().len(),
-            self.as_ref().slots(),
+            self.len(),
+            self.slots(),
             PATCH_SLOTS,
         )
     }

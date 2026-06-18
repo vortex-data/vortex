@@ -35,6 +35,7 @@ mod test {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
+    use vortex_array::ParentRef;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::SliceArray;
@@ -64,9 +65,9 @@ mod test {
 
     fn slice_via_reduce(array: &BitPackedArray, range: Range<usize>) -> BitPackedArray {
         let array_ref = array.clone().into_array();
-        let slice_array = SliceArray::new(array_ref.clone(), range);
+        let slice_array = SliceArray::new(array_ref.clone(), range).into_array();
         let sliced = array_ref
-            .reduce_parent(&slice_array.into_array(), 0)
+            .reduce_parent(&ParentRef::from_array_ref(&slice_array), 0)
             .expect("execute_parent failed")
             .expect("expected slice kernel to execute");
         sliced.as_::<BitPacked>().into_owned()

@@ -11,6 +11,7 @@ use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::array::Array;
 use crate::array::ArrayView;
+use crate::array::ParentRef;
 use crate::array::VTable;
 use crate::arrays::primitive::PrimitiveData;
 use crate::buffer::BufferHandle;
@@ -207,7 +208,7 @@ impl VTable for Primitive {
 
     fn reduce_parent(
         array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
+        parent: &ParentRef<'_>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)

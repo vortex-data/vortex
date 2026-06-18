@@ -52,6 +52,7 @@ impl VTable for Shared {
     type TypedArrayData = SharedData;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
+
     fn id(&self) -> ArrayId {
         static ID: CachedId = CachedId::new("vortex.shared");
         *ID

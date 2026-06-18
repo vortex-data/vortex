@@ -351,42 +351,39 @@ fn fill_referenced_mask<O: IntegerPType, S: IntegerPType>(
 
 pub trait ListViewArrayExt: TypedArrayRef<ListView> {
     fn nullability(&self) -> crate::dtype::Nullability {
-        match self.as_ref().dtype() {
+        match self.dtype() {
             DType::List(_, nullability) => *nullability,
             _ => unreachable!("ListViewArrayExt requires a list dtype"),
         }
     }
 
     fn elements(&self) -> &ArrayRef {
-        self.as_ref().slots()[ELEMENTS_SLOT]
+        self.slots()[ELEMENTS_SLOT]
             .as_ref()
             .vortex_expect("ListViewArray elements slot")
     }
 
     fn offsets(&self) -> &ArrayRef {
-        self.as_ref().slots()[OFFSETS_SLOT]
+        self.slots()[OFFSETS_SLOT]
             .as_ref()
             .vortex_expect("ListViewArray offsets slot")
     }
 
     fn sizes(&self) -> &ArrayRef {
-        self.as_ref().slots()[SIZES_SLOT]
+        self.slots()[SIZES_SLOT]
             .as_ref()
             .vortex_expect("ListViewArray sizes slot")
     }
 
     fn listview_validity(&self) -> Validity {
-        child_to_validity(
-            self.as_ref().slots()[VALIDITY_SLOT].as_ref(),
-            self.nullability(),
-        )
+        child_to_validity(self.slots()[VALIDITY_SLOT].as_ref(), self.nullability())
     }
 
     fn offset_at(&self, index: usize) -> usize {
         assert!(
-            index < self.as_ref().len(),
+            index < self.len(),
             "Index {index} out of bounds 0..{}",
-            self.as_ref().len()
+            self.len()
         );
         self.offsets()
             .as_opt::<Primitive>()
@@ -403,10 +400,10 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
 
     fn size_at(&self, index: usize) -> usize {
         assert!(
-            index < self.as_ref().len(),
+            index < self.len(),
             "Index {} out of bounds 0..{}",
             index,
-            self.as_ref().len()
+            self.len()
         );
         self.sizes()
             .as_opt::<Primitive>()
@@ -541,7 +538,7 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
     ///
     /// The array must contain at least one list (`len() > 0`).
     fn referenced_element_bounds(&self, ctx: &mut ExecutionCtx) -> VortexResult<(usize, usize)> {
-        let n_lists = self.as_ref().len();
+        let n_lists = self.len();
         vortex_ensure!(
             n_lists > 0,
             "referenced_element_bounds requires a non-empty array"

@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -72,14 +71,11 @@ where
         }
         // The mask child (child 1) is a non-nullable BoolArray where true=keep.
         // If it's not yet a BoolArray, we can't reduce without execution.
-        let parent_ref: ArrayRef = (*parent).clone();
-        let mask_child = parent_ref
-            .nth_child(1)
-            .ok_or_else(|| vortex_err!("Mask expression must have 2 children"))?;
+        let mask_child = parent.get_child(1);
         if mask_child.as_opt::<Bool>().is_none() {
             return Ok(None);
         };
-        <V as MaskReduce>::mask(array, &mask_child)
+        <V as MaskReduce>::mask(array, mask_child)
     }
 }
 
@@ -104,9 +100,7 @@ where
         if child_idx != 0 {
             return Ok(None);
         }
-        let mask_child = parent
-            .nth_child(1)
-            .ok_or_else(|| vortex_err!("Mask expression must have 2 children"))?;
-        <V as MaskKernel>::mask(array, &mask_child, ctx)
+        let mask_child = parent.get_child(1);
+        <V as MaskKernel>::mask(array, mask_child, ctx)
     }
 }

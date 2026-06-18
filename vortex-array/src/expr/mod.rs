@@ -41,6 +41,7 @@ pub mod traversal;
 pub use analysis::*;
 pub use expression::*;
 pub use exprs::*;
+pub use optimize::ExpressionReduceNode;
 
 pub trait VortexExprExt {
     /// Accumulate all field references from this expression and its children in a set

@@ -6,6 +6,7 @@
 use num_traits::AsPrimitive;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
@@ -47,7 +48,10 @@ pub(super) fn execute(
     let mut value_bits = Vec::with_capacity(num_values);
     let mut value_validity = Vec::with_capacity(num_values);
     for i in 0..num_values {
-        let value = array.value(i).as_::<Bool>();
+        let value = array
+            .value(i)
+            .as_typed::<Bool>()
+            .vortex_expect("interleave value must be Bool");
         let bits = value.to_bit_buffer();
         let validity = nullable
             .then(|| value.validity()?.execute_mask(bits.len(), ctx))
@@ -57,8 +61,14 @@ pub(super) fn execute(
     }
 
     // Scatter directly from the typed selector buffers — no intermediate `usize` materialization.
-    let array_indices = array.array_indices().as_::<Primitive>();
-    let row_indices = array.row_indices().as_::<Primitive>();
+    let array_indices = array
+        .array_indices()
+        .as_typed::<Primitive>()
+        .vortex_expect("interleave selector must be Primitive");
+    let row_indices = array
+        .row_indices()
+        .as_typed::<Primitive>()
+        .vortex_expect("interleave selector must be Primitive");
     let (values, validity) = match_each_unsigned_integer_ptype!(array_indices.ptype(), |A| {
         match_each_unsigned_integer_ptype!(row_indices.ptype(), |R| {
             gather(

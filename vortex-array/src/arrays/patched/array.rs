@@ -111,7 +111,7 @@ pub trait PatchedArrayExt: PatchedArraySlotsExt {
 
     #[inline]
     fn lane_range(&self, chunk: usize, lane: usize) -> VortexResult<Range<usize>> {
-        assert!(chunk * 1024 <= self.as_ref().len() + self.offset());
+        assert!(chunk * 1024 <= self.len() + self.offset());
         assert!(lane < self.n_lanes());
 
         let start = self.lane_offsets().execute_scalar(
@@ -149,12 +149,12 @@ pub trait PatchedArrayExt: PatchedArraySlotsExt {
         let begin = (chunks.start * 1024).saturating_sub(self.offset());
         let end = (chunks.end * 1024)
             .saturating_sub(self.offset())
-            .min(self.as_ref().len());
+            .min(self.len());
 
         let offset = if chunks.start == 0 { self.offset() } else { 0 };
         let inner = self.inner().slice(begin..end)?;
         let len = inner.len();
-        let dtype = self.as_ref().dtype().clone();
+        let dtype = self.dtype().clone();
         let slots = PatchedSlots {
             inner,
             lane_offsets: sliced_lane_offsets,

@@ -89,7 +89,7 @@ fn export_storage_to_target<T: ParquetVariantArrayExt>(
 
     let nulls = to_arrow_null_buffer(
         ParquetVariantArrayExt::validity(parquet_array),
-        parquet_array.as_ref().len(),
+        parquet_array.len(),
         ctx,
     )?;
     Ok(Arc::new(StructArray::try_new(
@@ -106,7 +106,7 @@ fn export_unshredded_storage_to_target<T: ParquetVariantArrayExt>(
 ) -> VortexResult<ArrowArrayRef> {
     let arrow_variant = parquet_array.to_arrow(ctx)?;
     let unshredded = unshred_variant(&arrow_variant)?;
-    let unshredded_array = if parquet_array.as_ref().dtype().is_nullable() {
+    let unshredded_array = if parquet_array.dtype().is_nullable() {
         ParquetVariant::from_arrow_variant_nullable(&unshredded)?
     } else {
         ParquetVariant::from_arrow_variant(&unshredded)?

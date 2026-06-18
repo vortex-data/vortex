@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use super::Between;
@@ -11,9 +10,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::VTable;
-use crate::arrays::ScalarFn;
 use crate::arrays::scalar_fn::ExactScalarFn;
-use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
@@ -63,12 +60,8 @@ where
         if child_idx != 0 {
             return Ok(None);
         }
-        let scalar_fn_array = parent
-            .as_opt::<ScalarFn>()
-            .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
-        let children = scalar_fn_array.children();
-        let lower = &children[1];
-        let upper = &children[2];
+        let lower = parent.get_child(1);
+        let upper = parent.get_child(2);
         let arr = array.array().clone();
         if let Some(result) = precondition(&arr, lower, upper)? {
             return Ok(Some(result));
@@ -98,12 +91,8 @@ where
         if child_idx != 0 {
             return Ok(None);
         }
-        let scalar_fn_array = parent
-            .as_opt::<ScalarFn>()
-            .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
-        let children = scalar_fn_array.children();
-        let lower = &children[1];
-        let upper = &children[2];
+        let lower = parent.get_child(1);
+        let upper = parent.get_child(2);
         let arr = array.array().clone();
         if let Some(result) = precondition(&arr, lower, upper)? {
             return Ok(Some(result));

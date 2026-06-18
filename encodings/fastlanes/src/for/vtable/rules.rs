@@ -4,6 +4,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+use vortex_array::ParentView;
 use vortex_array::arrays::Filter;
 use vortex_array::arrays::filter::FilterReduceAdaptor;
 use vortex_array::arrays::slice::SliceReduceAdaptor;
@@ -32,7 +33,7 @@ impl ArrayParentReduceRule<FoR> for FoRFilterPushDownRule {
     fn reduce_parent(
         &self,
         child: ArrayView<'_, FoR>,
-        parent: ArrayView<'_, Filter>,
+        parent: ParentView<'_, Filter>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(

@@ -7,9 +7,9 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use itertools::Itertools as _;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 use vortex_utils::aliases::hash_set::HashSet;
@@ -187,16 +187,13 @@ impl ScalarFnVTable for Merge {
 
         for child in (0..node.child_count()).map(|i| node.child(i)) {
             let child_dtype = child.node_dtype()?;
-            if !child_dtype.is_struct() {
-                vortex_bail!(
+
+            let child_dtype = child_dtype.as_struct_fields_opt().ok_or_else(|| {
+                vortex_err!(
                     "Merge child must return a non-nullable struct dtype, got {}",
                     child_dtype
                 )
-            }
-
-            let child_dtype = child_dtype
-                .as_struct_fields_opt()
-                .vortex_expect("expected struct");
+            })?;
 
             for name in child_dtype.names().iter() {
                 if let Some(idx) = names.iter().position(|n| n == name) {

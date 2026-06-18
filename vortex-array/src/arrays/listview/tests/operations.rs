@@ -63,7 +63,7 @@ fn test_slice_comprehensive() {
         // Compare the sliced elements
         assert_eq!(
             full_list
-                .array()
+                .materialize_array_ref()
                 .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap(),
             listview
@@ -158,13 +158,13 @@ fn test_slice_with_nulls() {
     assert_eq!(sliced_list.len(), 2);
     assert!(
         sliced_list
-            .array()
+            .materialize_array_ref()
             .is_invalid(0, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
     ); // Original index 1 was null.
     assert!(
         sliced_list
-            .array()
+            .materialize_array_ref()
             .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
     ); // Original index 2 was valid.

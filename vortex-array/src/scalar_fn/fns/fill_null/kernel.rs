@@ -9,12 +9,11 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::array::TypedArrayRef;
 use crate::array::VTable;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ScalarFn;
 use crate::arrays::scalar_fn::ExactScalarFn;
-use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::builtins::ArrayBuiltins;
 use crate::kernel::ExecuteParentKernel;
@@ -91,7 +90,7 @@ pub(super) fn precondition(
 /// Fill null on a [`ConstantArray`] by replacing null scalars with the fill value,
 /// or casting non-null scalars to the fill value's dtype.
 pub(crate) fn fill_null_constant(
-    array: ArrayView<Constant>,
+    array: impl TypedArrayRef<Constant>,
     fill_value: &Scalar,
 ) -> VortexResult<ArrayRef> {
     let scalar = if array.scalar().is_null() {
@@ -122,10 +121,7 @@ where
         if child_idx != 0 {
             return Ok(None);
         }
-        let scalar_fn_array = parent
-            .as_opt::<ScalarFn>()
-            .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
-        let fill_value = scalar_fn_array
+        let fill_value = parent
             .get_child(1)
             .as_constant()
             .vortex_expect("fill_null fill_value must be constant");
@@ -158,10 +154,7 @@ where
         if child_idx != 0 {
             return Ok(None);
         }
-        let scalar_fn_array = parent
-            .as_opt::<ScalarFn>()
-            .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
-        let fill_value = scalar_fn_array
+        let fill_value = parent
             .get_child(1)
             .as_constant()
             .vortex_expect("fill_null fill_value must be constant");

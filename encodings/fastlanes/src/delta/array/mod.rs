@@ -90,13 +90,13 @@ impl Display for DeltaData {
 
 pub trait DeltaArrayExt: TypedArrayRef<crate::Delta> {
     fn bases(&self) -> &ArrayRef {
-        self.as_ref().slots()[BASES_SLOT]
+        self.slots()[BASES_SLOT]
             .as_ref()
             .vortex_expect("DeltaArray bases slot")
     }
 
     fn deltas(&self) -> &ArrayRef {
-        self.as_ref().slots()[DELTAS_SLOT]
+        self.slots()[DELTAS_SLOT]
             .as_ref()
             .vortex_expect("DeltaArray deltas slot")
     }

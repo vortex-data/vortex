@@ -206,7 +206,7 @@ fn expand_array_slots(
 
             #[doc = "Returns a borrowed view of all slots."]
             fn slots_view(&self) -> #view_ident<'_> {
-                #view_ident::from_slots(self.as_ref().slots())
+                #view_ident::from_slots(self.slots())
             }
         }
 
@@ -347,7 +347,7 @@ impl SlotField {
                 #[inline]
                 fn #field_ident(&self) -> &::vortex_array::ArrayRef {
                     ::vortex_error::VortexExpect::vortex_expect(
-                        self.as_ref().slots()[#struct_ident::#const_ident].as_ref(),
+                        self.slots()[#struct_ident::#const_ident].as_ref(),
                         #expect_message,
                     )
                 }
@@ -355,7 +355,7 @@ impl SlotField {
             SlotFieldType::Optional => quote! {
                 #[inline]
                 fn #field_ident(&self) -> Option<&::vortex_array::ArrayRef> {
-                    self.as_ref().slots()[#struct_ident::#const_ident].as_ref()
+                    self.slots()[#struct_ident::#const_ident].as_ref()
                 }
             },
         }

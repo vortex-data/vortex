@@ -34,6 +34,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::array::ArrayId;
+use crate::array::ParentRef;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
@@ -174,9 +175,9 @@ impl ArrayRef {
         for _ in 0..max_iterations {
             let is_done = stack
                 .last()
-                .map_or(M::matches as DonePredicate, |frame| frame.done);
+                .map_or(M::matches::<ArrayRef> as DonePredicate, |frame| frame.done);
 
-            if is_done(&current_array) || AnyCanonical::matches(&current_array) {
+            if is_done(&current_array) || current_array.is::<AnyCanonical>() {
                 match stack.pop() {
                     None => {
                         debug_assert!(
@@ -433,9 +434,10 @@ impl Executable for ArrayRef {
             return Ok(reduced);
         }
 
+        let parent_ref = ParentRef::from_array_ref(&array);
         for (slot_idx, slot) in array.slots().iter().enumerate() {
             let Some(child) = slot else { continue };
-            if let Some(reduced_parent) = child.reduce_parent(&array, slot_idx)? {
+            if let Some(reduced_parent) = child.reduce_parent(&parent_ref, slot_idx)? {
                 ctx.log(format_args!(
                     "reduce_parent: slot[{}]({}) rewrote {} -> {}",
                     slot_idx,
@@ -712,7 +714,7 @@ impl ExecutionResult {
     pub fn execute_slot<M: Matcher>(array: impl IntoArray, slot_idx: usize) -> Self {
         Self {
             array: array.into_array(),
-            step: ExecutionStep::ExecuteSlot(slot_idx, M::matches),
+            step: ExecutionStep::ExecuteSlot(slot_idx, M::matches::<ArrayRef>),
         }
     }
 

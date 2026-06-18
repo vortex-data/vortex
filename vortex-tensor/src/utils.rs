@@ -10,11 +10,9 @@ use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::ScalarFn;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::scalar_fn::ExactScalarFn;
-use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
@@ -65,11 +63,7 @@ pub fn extract_l2_denorm_children(array: &ArrayRef) -> (ArrayRef, ArrayRef) {
     let sfn = array
         .as_opt::<ExactScalarFn<L2Denorm>>()
         .vortex_expect("expected ScalarFnArray wrapping L2Denorm");
-    (
-        sfn.nth_child(0)
-            .vortex_expect("L2Denorm missing normalized array"),
-        sfn.nth_child(1).vortex_expect("L2Denorm missing norms"),
-    )
+    (sfn.get_child(0).clone(), sfn.get_child(1).clone())
 }
 
 /// Validates that `input_dtype` is a float-valued tensor-like extension dtype.
@@ -238,9 +232,8 @@ impl BinaryTensorOpMetadata {
     pub(crate) fn encode_from_view<V: ScalarFnVTable>(
         view: &ScalarFnArrayView<V>,
     ) -> VortexResult<Vec<u8>> {
-        let scalar_fn_array = view.as_::<ScalarFn>();
-        let lhs_dtype = Some(scalar_fn_array.child_at(0).dtype().try_into()?);
-        let rhs_dtype = Some(scalar_fn_array.child_at(1).dtype().try_into()?);
+        let lhs_dtype = Some(view.child_at(0).dtype().try_into()?);
+        let rhs_dtype = Some(view.child_at(1).dtype().try_into()?);
         Ok(Self {
             lhs_dtype,
             rhs_dtype,

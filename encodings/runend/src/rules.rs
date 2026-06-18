@@ -4,6 +4,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+use vortex_array::ParentView;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ScalarFnArray;
@@ -41,7 +42,7 @@ impl ArrayParentReduceRule<RunEnd> for RunEndScalarFnRule {
     fn reduce_parent(
         &self,
         run_end: ArrayView<'_, RunEnd>,
-        parent: ArrayView<'_, ScalarFn>,
+        parent: ParentView<'_, ScalarFn>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         for (idx, child) in parent.iter_children().enumerate() {

@@ -211,7 +211,7 @@ fn with_slot_rewrites_chunk_and_offsets() {
         PrimitiveArray::from_iter([10u64, 11, 12])
     );
     assert_arrays_eq!(
-        array.array().clone(),
+        array.materialize_array_ref().clone(),
         PrimitiveArray::from_iter([10u64, 11, 12, 4, 5, 6, 7, 8, 9])
     );
 }

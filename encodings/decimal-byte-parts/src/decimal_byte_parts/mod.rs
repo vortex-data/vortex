@@ -21,6 +21,7 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::ParentRef;
 use vortex_array::TypedArrayRef;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -155,7 +156,7 @@ impl VTable for DecimalByteParts {
 
     fn reduce_parent(
         array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
+        parent: &ParentRef<'_>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
@@ -196,7 +197,7 @@ pub struct DecimalBytePartsDataParts {
 
 pub trait DecimalBytePartsArrayExt: TypedArrayRef<DecimalByteParts> {
     fn msp(&self) -> &ArrayRef {
-        self.as_ref().slots()[MSP_SLOT]
+        self.slots()[MSP_SLOT]
             .as_ref()
             .vortex_expect("DecimalBytePartsArray msp slot")
     }

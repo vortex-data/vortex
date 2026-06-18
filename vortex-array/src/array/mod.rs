@@ -34,6 +34,9 @@ pub use plugin::*;
 mod foreign;
 pub(crate) use foreign::*;
 
+mod parent;
+pub use parent::*;
+
 mod typed;
 pub use typed::*;
 
@@ -60,7 +63,11 @@ pub type ArraySlots = SmallVec<[Option<ArrayRef>; 4]>;
 #[doc(hidden)]
 pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
     /// Returns the array as a reference to a generic [`Any`] trait object.
-    fn as_any(&self) -> &dyn Any;
+    ///
+    /// The `+ Send + Sync` bound is preserved so [`ParentRef`] — which carries
+    /// this reference as `&dyn Any` to stay type-erased over `V` — stays
+    /// `Send + Sync` for use across `.await` boundaries.
+    fn as_any(&self) -> &(dyn Any + Send + Sync);
 
     /// Returns the array as a mutable reference to a generic [`Any`] trait object.
     fn as_any_mut(&mut self) -> &mut dyn Any;
@@ -89,7 +96,7 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
     /// Returns the nth child of the array without allocating a Vec.
     ///
     /// Returns `None` if the index is out of bounds.
-    fn nth_child(&self, this: &ArrayRef, idx: usize) -> Option<ArrayRef>;
+    fn nth_child<'a>(&'a self, this: &'a ArrayRef, idx: usize) -> Option<&'a ArrayRef>;
 
     /// Returns the names of the children of the array.
     fn children_names(&self, this: &ArrayRef) -> Vec<String>;
@@ -148,7 +155,7 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
     fn reduce_parent(
         &self,
         this: &ArrayRef,
-        parent: &ArrayRef,
+        parent: &ParentRef<'_>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>>;
 
@@ -210,7 +217,7 @@ mod private {
 /// This is self-contained: identity methods use `ArrayData<V>`'s own fields (dtype, len, stats),
 /// while data-access methods delegate to VTable methods on the inner `V::TypedArrayData`.
 impl<V: VTable> DynArrayData for ArrayData<V> {
-    fn as_any(&self) -> &dyn Any {
+    fn as_any(&self) -> &(dyn Any + Send + Sync) {
         self
     }
 
@@ -265,7 +272,10 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
 
     fn children(&self, this: &ArrayRef) -> Vec<ArrayRef> {
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        (0..V::nchildren(view)).map(|i| V::child(view, i)).collect()
+        (0..V::nchildren(view))
+            .map(|i| V::child(view, i))
+            .cloned()
+            .collect()
     }
 
     fn nchildren(&self, this: &ArrayRef) -> usize {
@@ -273,7 +283,7 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
         V::nchildren(view)
     }
 
-    fn nth_child(&self, this: &ArrayRef, idx: usize) -> Option<ArrayRef> {
+    fn nth_child<'a>(&'a self, this: &'a ArrayRef, idx: usize) -> Option<&'a ArrayRef> {
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         (idx < V::nchildren(view)).then(|| V::child(view, idx))
     }
@@ -288,7 +298,7 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
     fn named_children(&self, this: &ArrayRef) -> Vec<(String, ArrayRef)> {
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         (0..V::nchildren(view))
-            .map(|i| (V::child_name(view, i), V::child(view, i)))
+            .map(|i| (V::child_name(view, i), V::child(view, i).clone()))
             .collect()
     }
 
@@ -379,7 +389,10 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
     }
 
     fn reduce(&self, this: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
+        let parent = ParentRef::from_array_ref(this);
+        let view = parent
+            .as_parent_view::<V>()
+            .vortex_expect("ArrayRef reduce: encoding mismatch");
         let Some(reduced) = V::reduce(view)? else {
             return Ok(None);
         };
@@ -401,7 +414,7 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
     fn reduce_parent(
         &self,
         this: &ArrayRef,
-        parent: &ArrayRef,
+        parent: &ParentRef<'_>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };

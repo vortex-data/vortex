@@ -6,6 +6,7 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::array::ParentView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Extension;
@@ -29,7 +30,7 @@ pub(crate) const RULES: ReduceRuleSet<Extension> = ReduceRuleSet::new(&[&Extensi
 struct ExtensionConstantRule;
 
 impl ArrayReduceRule<Extension> for ExtensionConstantRule {
-    fn reduce(&self, array: ArrayView<'_, Extension>) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(&self, array: ParentView<'_, Extension>) -> VortexResult<Option<ArrayRef>> {
         let Some(const_array) = array.storage_array().as_opt::<Constant>() else {
             return Ok(None);
         };
@@ -62,7 +63,7 @@ impl ArrayParentReduceRule<Extension> for ExtensionFilterPushDownRule {
     fn reduce_parent(
         &self,
         child: ArrayView<'_, Extension>,
-        parent: ArrayView<'_, Filter>,
+        parent: ParentView<'_, Filter>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         debug_assert_eq!(child_idx, 0);

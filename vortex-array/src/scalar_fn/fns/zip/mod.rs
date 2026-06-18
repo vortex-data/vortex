@@ -511,7 +511,7 @@ mod tests {
 
         let actual = LEGACY_SESSION
             .arrow()
-            .execute_arrow(zipped.array().clone(), None, &mut arrow_ctx)
+            .execute_arrow(zipped.materialize_array_ref().clone(), None, &mut arrow_ctx)
             .unwrap();
         assert_eq!(actual.as_ref(), expected.as_ref());
     }

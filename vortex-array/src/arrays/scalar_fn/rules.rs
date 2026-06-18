@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::Any;
 use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::array::ParentView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Filter;
@@ -20,6 +21,7 @@ use crate::arrays::Slice;
 use crate::arrays::StructArray;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::dtype::DType;
+use crate::expr::ExpressionReduceNode;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
@@ -43,8 +45,8 @@ pub(super) const PARENT_RULES: ParentRuleSet<ScalarFn> = ParentRuleSet::new(&[
 #[derive(Debug)]
 struct ScalarFnPackToStructRule;
 impl ArrayReduceRule<ScalarFn> for ScalarFnPackToStructRule {
-    fn reduce(&self, array: ArrayView<'_, ScalarFn>) -> VortexResult<Option<ArrayRef>> {
-        let Some(pack_options) = array.scalar_fn().as_opt::<Pack>() else {
+    fn reduce(&self, array: ParentView<'_, ScalarFn>) -> VortexResult<Option<ArrayRef>> {
+        let Some(pack_options) = ScalarFnArrayExt::scalar_fn(&array).as_opt::<Pack>() else {
             return Ok(None);
         };
 
@@ -73,7 +75,7 @@ impl ArrayParentReduceRule<ScalarFn> for ScalarFnSliceReduceRule {
     fn reduce_parent(
         &self,
         array: ArrayView<'_, ScalarFn>,
-        parent: ArrayView<'_, Slice>,
+        parent: ParentView<'_, Slice>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         let range = parent.slice_range();
@@ -84,8 +86,12 @@ impl ArrayParentReduceRule<ScalarFn> for ScalarFnSliceReduceRule {
             .collect::<VortexResult<_>>()?;
 
         Ok(Some(
-            ScalarFnArray::try_new_with_len(array.scalar_fn().clone(), children, range.len())?
-                .into_array(),
+            ScalarFnArray::try_new_with_len(
+                ScalarFnArrayExt::scalar_fn(&array).clone(),
+                children,
+                range.len(),
+            )?
+            .into_array(),
         ))
     }
 }
@@ -93,26 +99,49 @@ impl ArrayParentReduceRule<ScalarFn> for ScalarFnSliceReduceRule {
 #[derive(Debug)]
 struct ScalarFnAbstractReduceRule;
 impl ArrayReduceRule<ScalarFn> for ScalarFnAbstractReduceRule {
-    fn reduce(&self, array: ArrayView<'_, ScalarFn>) -> VortexResult<Option<ArrayRef>> {
-        if let Some(reduced) = array
-            .scalar_fn()
-            .reduce(array.as_ref(), &ArrayReduceCtx { len: array.len() })?
+    fn reduce(&self, array: ParentView<'_, ScalarFn>) -> VortexResult<Option<ArrayRef>> {
+        if let Some(reduced) = ScalarFnArrayExt::scalar_fn(&array)
+            .reduce(&array, &ArrayReduceCtx { len: array.len() })?
         {
-            return Ok(Some(
-                reduced
-                    .as_any()
-                    .downcast_ref::<ArrayRef>()
-                    .vortex_expect("ReduceNode is not an ArrayRef")
-                    .clone(),
-            ));
+            return Ok(Some(reduced.as_array()));
         }
         Ok(None)
     }
 }
 
+impl ReduceNode for ParentView<'_, ScalarFn> {
+    fn as_array(&self) -> ArrayRef {
+        self.materialize_array_ref().clone()
+    }
+
+    fn as_expression(&self) -> ExpressionReduceNode {
+        vortex_panic!("Cannot convert ArrayView to ExpressionReduceNode")
+    }
+
+    fn node_dtype(&self) -> VortexResult<DType> {
+        Ok(self.dtype().clone())
+    }
+
+    fn scalar_fn(&self) -> Option<&ScalarFnRef> {
+        Some(ScalarFnArrayExt::scalar_fn(self))
+    }
+
+    fn child(&self, idx: usize) -> ReduceNodeRef {
+        Arc::new(self.child_at(idx).clone())
+    }
+
+    fn child_count(&self) -> usize {
+        ScalarFnArrayExt::nchildren(self)
+    }
+}
+
 impl ReduceNode for ArrayRef {
-    fn as_any(&self) -> &dyn Any {
-        self
+    fn as_array(&self) -> ArrayRef {
+        self.clone()
+    }
+
+    fn as_expression(&self) -> ExpressionReduceNode {
+        vortex_panic!("Cannot convert ArrayRef to ExpressionReduceNode")
     }
 
     fn node_dtype(&self) -> VortexResult<DType> {
@@ -124,7 +153,11 @@ impl ReduceNode for ArrayRef {
     }
 
     fn child(&self, idx: usize) -> ReduceNodeRef {
-        Arc::new(self.nth_child(idx).vortex_expect("child idx out of bounds"))
+        Arc::new(
+            self.nth_child(idx)
+                .vortex_expect("child idx out of bounds")
+                .clone(),
+        )
     }
 
     fn child_count(&self) -> usize {
@@ -145,15 +178,7 @@ impl ReduceCtx for ArrayReduceCtx {
         Ok(Arc::new(
             ScalarFnArray::try_new_with_len(
                 scalar_fn,
-                children
-                    .iter()
-                    .map(|c| {
-                        c.as_any()
-                            .downcast_ref::<ArrayRef>()
-                            .vortex_expect("ReduceNode is not an ArrayRef")
-                            .clone()
-                    })
-                    .collect(),
+                children.iter().map(|c| c.as_array()).collect(),
                 self.len,
             )?
             .into_array(),
@@ -170,7 +195,7 @@ impl ArrayParentReduceRule<ScalarFn> for ScalarFnUnaryFilterPushDownRule {
     fn reduce_parent(
         &self,
         child: ArrayView<'_, ScalarFn>,
-        parent: ArrayView<'_, Filter>,
+        parent: ParentView<'_, Filter>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // If we only have one non-constant child, then it is _always_ cheaper to push down the
@@ -191,8 +216,12 @@ impl ArrayParentReduceRule<ScalarFn> for ScalarFnUnaryFilterPushDownRule {
                 })
                 .try_collect()?;
 
-            let new_array =
-                ScalarFnArray::try_new(child.scalar_fn().clone(), new_children)?.into_array();
+            let new_array = ScalarFnArray::try_new_with_len(
+                ScalarFnArrayExt::scalar_fn(&child).clone(),
+                new_children,
+                parent.len(),
+            )?
+            .into_array();
 
             return Ok(Some(new_array));
         }

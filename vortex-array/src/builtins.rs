@@ -19,7 +19,6 @@ use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::expr::Expression;
-use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ScalarFnVTableExt;
@@ -173,8 +172,8 @@ impl ArrayBuiltins for ArrayRef {
         if self.dtype() == &dtype {
             return Ok(self.clone());
         }
-        Cast.try_new_array(self.len(), dtype, [self.clone()])?
-            .optimize()
+        let parts = Cast.try_new_array_parts(self.len(), dtype, [self.clone()])?;
+        parts.optimize()
     }
 
     fn fill_null(&self, fill_value: impl Into<Scalar>) -> VortexResult<ArrayRef> {
@@ -182,48 +181,46 @@ impl ArrayBuiltins for ArrayRef {
         if !self.dtype().is_nullable() {
             return self.cast(fill_value.dtype().clone());
         }
-        FillNull
-            .try_new_array(
-                self.len(),
-                EmptyOptions,
-                [
-                    self.clone(),
-                    ConstantArray::new(fill_value, self.len()).into_array(),
-                ],
-            )?
-            .optimize()
+        let parts = FillNull.try_new_array_parts(
+            self.len(),
+            EmptyOptions,
+            [
+                self.clone(),
+                ConstantArray::new(fill_value, self.len()).into_array(),
+            ],
+        )?;
+        parts.optimize()
     }
 
     fn get_item(&self, field_name: impl Into<FieldName>) -> VortexResult<ArrayRef> {
-        GetItem
-            .try_new_array(self.len(), field_name.into(), [self.clone()])?
-            .optimize()
+        let parts = GetItem.try_new_array_parts(self.len(), field_name.into(), [self.clone()])?;
+        parts.optimize()
     }
 
     fn is_null(&self) -> VortexResult<ArrayRef> {
-        IsNull
-            .try_new_array(self.len(), EmptyOptions, [self.clone()])?
-            .optimize()
+        let parts = IsNull.try_new_array_parts(self.len(), EmptyOptions, [self.clone()])?;
+        parts.optimize()
     }
 
     fn is_not_null(&self) -> VortexResult<ArrayRef> {
-        IsNotNull
-            .try_new_array(self.len(), EmptyOptions, [self.clone()])?
-            .optimize()
+        let parts = IsNotNull.try_new_array_parts(self.len(), EmptyOptions, [self.clone()])?;
+        parts.optimize()
     }
 
     fn mask(self, mask: ArrayRef) -> VortexResult<ArrayRef> {
-        Mask.try_new_array(self.len(), EmptyOptions, [self, mask])?
-            .optimize()
+        let parts = Mask.try_new_array_parts(self.len(), EmptyOptions, [self, mask])?;
+        parts.optimize()
     }
 
     fn not(&self) -> VortexResult<ArrayRef> {
-        Not.try_new_array(self.len(), EmptyOptions, [self.clone()])?
-            .optimize()
+        let parts = Not.try_new_array_parts(self.len(), EmptyOptions, [self.clone()])?;
+        parts.optimize()
     }
 
     fn zip(&self, if_true: ArrayRef, if_false: ArrayRef) -> VortexResult<ArrayRef> {
-        Zip.try_new_array(self.len(), EmptyOptions, [if_true, if_false, self.clone()])
+        let parts =
+            Zip.try_new_array_parts(self.len(), EmptyOptions, [if_true, if_false, self.clone()])?;
+        parts.optimize()
     }
 
     fn interleave(
@@ -238,15 +235,14 @@ impl ArrayBuiltins for ArrayRef {
     }
 
     fn list_contains(&self, value: ArrayRef) -> VortexResult<ArrayRef> {
-        ListContains
-            .try_new_array(self.len(), EmptyOptions, [self.clone(), value])?
-            .optimize()
+        let parts =
+            ListContains.try_new_array_parts(self.len(), EmptyOptions, [self.clone(), value])?;
+        parts.optimize()
     }
 
     fn binary(&self, rhs: ArrayRef, op: Operator) -> VortexResult<ArrayRef> {
-        Binary
-            .try_new_array(self.len(), op, [self.clone(), rhs])?
-            .optimize()
+        let parts = Binary.try_new_array_parts(self.len(), op, [self.clone(), rhs])?;
+        parts.optimize()
     }
 
     fn between(
@@ -255,8 +251,7 @@ impl ArrayBuiltins for ArrayRef {
         upper: ArrayRef,
         options: BetweenOptions,
     ) -> VortexResult<ArrayRef> {
-        Between
-            .try_new_array(self.len(), options, [self, lower, upper])?
-            .optimize()
+        let parts = Between.try_new_array_parts(self.len(), options, [self, lower, upper])?;
+        parts.optimize()
     }
 }

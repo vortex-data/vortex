@@ -45,7 +45,7 @@ impl Display for SharedData {
 #[expect(async_fn_in_trait)]
 pub trait SharedArrayExt: TypedArrayRef<Shared> {
     fn source(&self) -> &ArrayRef {
-        self.as_ref().slots()[SOURCE_SLOT]
+        self.slots()[SOURCE_SLOT]
             .as_ref()
             .vortex_expect("validated shared source slot")
     }

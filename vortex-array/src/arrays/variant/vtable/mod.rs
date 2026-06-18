@@ -23,6 +23,7 @@ use crate::array::ArrayId;
 use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::EmptyArrayData;
+use crate::array::ParentRef;
 use crate::array::VTable;
 use crate::arrays::variant::CORE_STORAGE_SLOT;
 use crate::arrays::variant::NUM_SLOTS;
@@ -190,7 +191,7 @@ impl VTable for Variant {
 
     fn reduce_parent(
         array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
+        parent: &ParentRef<'_>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)

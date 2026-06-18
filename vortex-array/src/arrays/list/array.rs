@@ -271,36 +271,33 @@ impl ListData {
 
 pub trait ListArrayExt: TypedArrayRef<List> {
     fn nullability(&self) -> crate::dtype::Nullability {
-        match self.as_ref().dtype() {
+        match self.dtype() {
             DType::List(_, nullability) => *nullability,
             _ => unreachable!("ListArrayExt requires a list dtype"),
         }
     }
 
     fn elements(&self) -> &ArrayRef {
-        self.as_ref().slots()[ELEMENTS_SLOT]
+        self.slots()[ELEMENTS_SLOT]
             .as_ref()
             .vortex_expect("ListArray elements slot")
     }
 
     fn offsets(&self) -> &ArrayRef {
-        self.as_ref().slots()[OFFSETS_SLOT]
+        self.slots()[OFFSETS_SLOT]
             .as_ref()
             .vortex_expect("ListArray offsets slot")
     }
 
     fn list_validity(&self) -> Validity {
-        child_to_validity(
-            self.as_ref().slots()[VALIDITY_SLOT].as_ref(),
-            self.nullability(),
-        )
+        child_to_validity(self.slots()[VALIDITY_SLOT].as_ref(), self.nullability())
     }
 
     fn offset_at(&self, index: usize) -> VortexResult<usize> {
         vortex_ensure!(
-            index <= self.as_ref().len(),
+            index <= self.len(),
             "Index {index} out of bounds 0..={}",
-            self.as_ref().len()
+            self.len()
         );
 
         if let Some(p) = self.offsets().as_opt::<Primitive>() {
@@ -324,7 +321,7 @@ pub trait ListArrayExt: TypedArrayRef<List> {
 
     fn sliced_elements(&self) -> VortexResult<ArrayRef> {
         let start = self.offset_at(0)?;
-        let end = self.offset_at(self.as_ref().len())?;
+        let end = self.offset_at(self.len())?;
         self.elements().slice(start..end)
     }
 
