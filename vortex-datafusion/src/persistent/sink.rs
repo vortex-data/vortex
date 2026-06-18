@@ -32,6 +32,7 @@ use vortex::io::VortexWrite;
 use vortex::io::object_store::ObjectStoreWrite;
 use vortex::session::VortexSession;
 
+/// Implements [`DataSink`] for writing Vortex files.
 pub struct VortexSink {
     config: FileSinkConfig,
     schema: SchemaRef,
@@ -39,6 +40,7 @@ pub struct VortexSink {
 }
 
 impl VortexSink {
+    /// Creates a new [`VortexSink`] instance.
     pub fn new(config: FileSinkConfig, schema: SchemaRef, session: VortexSession) -> Self {
         Self {
             config,

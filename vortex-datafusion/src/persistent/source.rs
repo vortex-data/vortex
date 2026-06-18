@@ -306,6 +306,11 @@ impl VortexSource {
         self
     }
 
+    /// Returns the predicate this source is going to push down
+    pub fn predicate(&self) -> Option<&Arc<dyn PhysicalExpr>> {
+        self.vortex_predicate.as_ref()
+    }
+
     fn create_vortex_opener(
         &self,
         object_store: Arc<dyn ObjectStore>,

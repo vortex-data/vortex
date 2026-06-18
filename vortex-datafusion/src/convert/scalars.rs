@@ -119,10 +119,16 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                     .cloned()
                     .map(|b| Vec::<u8>::from(b.into_inner())),
             ),
-            DType::List(..) => todo!("list scalar conversion"),
-            DType::FixedSizeList(..) => todo!("fixed-size list scalar conversion"),
+            dtype @ DType::List(..) => vortex_bail!(
+                "cannot convert Vortex scalar dtype {dtype} to DataFusion ScalarValue: unsupported scalar type"
+            ),
+            dtype @ DType::FixedSizeList(..) => vortex_bail!(
+                "cannot convert Vortex scalar dtype {dtype} to DataFusion ScalarValue: unsupported scalar type"
+            ),
             DType::Struct(..) => struct_to_df(self)?,
-            DType::Union(..) => todo!("union scalar conversion"),
+            dtype @ DType::Union(..) => vortex_bail!(
+                "cannot convert Vortex scalar dtype {dtype} to DataFusion ScalarValue: unsupported scalar type"
+            ),
             DType::Variant(_) => vortex_bail!("Variant scalars aren't supported with DF"),
             DType::Extension(ext) => {
                 let storage_scalar = self.as_extension().to_storage_scalar();
@@ -808,5 +814,22 @@ mod tests {
         assert!(matches!(df, ScalarValue::Struct(_)));
         assert!(Scalar::from_df(&df).is_null());
         Ok(())
+    }
+
+    #[rstest]
+    #[case::list(Scalar::null(DType::List(
+        Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
+        Nullability::Nullable
+    )))]
+    #[case::fixed_size_list(Scalar::null(DType::FixedSizeList(
+        Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
+        2,
+        Nullability::Nullable
+    )))]
+    #[case::union(Scalar::null(DType::Union(Nullability::Nullable)))]
+    fn unsupported_vortex_scalars_return_errors(#[case] scalar: Scalar) {
+        let err = scalar.try_to_df().unwrap_err();
+
+        assert!(err.to_string().contains("unsupported scalar type"), "{err}");
     }
 }

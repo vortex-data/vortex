@@ -106,7 +106,7 @@ pub trait ExpressionConvertor: Send + Sync {
     }
 }
 
-/// The default [`ExpressionConvertor`].
+/// The default [`ExpressionConvertor`] implementation.
 #[derive(Default)]
 pub struct DefaultExpressionConvertor {}
 
