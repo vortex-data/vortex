@@ -25,6 +25,7 @@ use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::EqMode;
+use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayParts;
@@ -37,6 +38,7 @@ use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::dict::compute::rules::PARENT_RULES;
 use crate::arrays::dict::execute::take_canonical;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -197,6 +199,33 @@ impl VTable for Dict {
             &codes.downcast::<Primitive>(),
             ctx,
         )?))
+    }
+
+    fn append_to_builder(
+        array: ArrayView<'_, Self>,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        if !array.is_empty()
+            && let (Some(codes), Some(values)) = (
+                array.codes().as_opt::<Primitive>(),
+                array.values().as_opt::<AnyCanonical>(),
+            )
+            && !codes.validity()?.definitely_all_null()
+        {
+            let codes = codes.into_owned();
+            let canonical = take_canonical(values, &codes, ctx)?.into_array();
+            canonical.append_to_builder(builder, ctx)?;
+            return Ok(());
+        }
+
+        let canonical = array
+            .array()
+            .clone()
+            .execute::<Canonical>(ctx)?
+            .into_array();
+        canonical.append_to_builder(builder, ctx)?;
+        Ok(())
     }
 
     fn reduce_parent(

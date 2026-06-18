@@ -239,6 +239,7 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
             &mut builder,
             fill_elements.as_ref(),
             sparse_idx - next_index,
+            ctx,
         );
 
         if patch_valid {
@@ -246,7 +247,7 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
                 .list_elements_at(patch_idx)
                 .vortex_expect("list_elements_at");
             builder
-                .append_array_as_list(&patch_list)
+                .append_array_as_list_ctx(&patch_list, ctx)
                 .vortex_expect("Failed to append sparse value");
         } else {
             builder.append_null();
@@ -255,7 +256,7 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
         next_index = sparse_idx + 1;
     }
 
-    append_list_fill(&mut builder, fill_elements.as_ref(), len - next_index);
+    append_list_fill(&mut builder, fill_elements.as_ref(), len - next_index, ctx);
 
     builder.finish()
 }
@@ -328,6 +329,7 @@ fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
             &mut builder,
             fill_elements.as_ref(),
             sparse_idx - next_index,
+            ctx,
         );
 
         // Append the patch value, handling null patches by appending defaults.
@@ -336,7 +338,7 @@ fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
                 .fixed_size_list_elements_at(patch_idx)
                 .vortex_expect("fixed_size_list_elements_at");
             builder
-                .append_array_as_list(&patch_list)
+                .append_array_as_list_ctx(&patch_list, ctx)
                 .vortex_expect("Failed to append sparse fixed-size-list value");
         } else {
             builder.append_null();
@@ -346,7 +348,12 @@ fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
     }
 
     // Fill remaining positions after last patch.
-    append_fixed_size_list_fill(&mut builder, fill_elements.as_ref(), array_len - next_index);
+    append_fixed_size_list_fill(
+        &mut builder,
+        fill_elements.as_ref(),
+        array_len - next_index,
+        ctx,
+    );
 
     builder.finish_into_fixed_size_list()
 }
@@ -367,11 +374,12 @@ fn append_list_fill<O: IntegerPType, S: IntegerPType>(
     builder: &mut ListViewBuilder<O, S>,
     fill_elements: Option<&ArrayRef>,
     count: usize,
+    ctx: &mut ExecutionCtx,
 ) {
     if let Some(fill_elements) = fill_elements {
         for _ in 0..count {
             builder
-                .append_array_as_list(fill_elements)
+                .append_array_as_list_ctx(fill_elements, ctx)
                 .vortex_expect("Failed to append sparse fill value");
         }
     } else {
@@ -383,11 +391,12 @@ fn append_fixed_size_list_fill(
     builder: &mut FixedSizeListBuilder,
     fill_elements: Option<&ArrayRef>,
     count: usize,
+    ctx: &mut ExecutionCtx,
 ) {
     if let Some(fill_elements) = fill_elements {
         for _ in 0..count {
             builder
-                .append_array_as_list(fill_elements)
+                .append_array_as_list_ctx(fill_elements, ctx)
                 .vortex_expect("Failed to append sparse fixed-size-list fill value");
         }
     } else {

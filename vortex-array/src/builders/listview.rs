@@ -20,6 +20,7 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::ExecutionCtx;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::IntoArray;
@@ -118,6 +119,15 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
     /// Note that the list entry will be non-null but the elements themselves are allowed to be null
     /// (only if the elements [`DType`] is nullable, of course).
     pub fn append_array_as_list(&mut self, array: &ArrayRef) -> VortexResult<()> {
+        self.append_array_as_list_ctx(array, &mut LEGACY_SESSION.create_execution_ctx())
+    }
+
+    /// Appends an array as a single non-null list entry using the provided execution context.
+    pub fn append_array_as_list_ctx(
+        &mut self,
+        array: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         vortex_ensure!(
             array.dtype() == self.element_dtype(),
             "Array dtype {:?} does not match list element dtype {:?}",
@@ -135,7 +145,7 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
             "appending this list would cause an offset overflow"
         );
 
-        self.elements_builder.extend_from_array(array);
+        array.append_to_builder(self.elements_builder.as_mut(), ctx)?;
         self.nulls.append_non_null();
 
         self.offsets_builder.append_value(

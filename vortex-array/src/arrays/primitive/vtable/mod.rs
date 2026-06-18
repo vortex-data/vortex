@@ -14,8 +14,11 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::primitive::PrimitiveData;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
+use crate::builders::PrimitiveBuilder;
 use crate::dtype::DType;
 use crate::dtype::PType;
+use crate::match_each_native_ptype;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 mod kernel;
@@ -185,6 +188,21 @@ impl VTable for Primitive {
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
+    }
+
+    fn append_to_builder(
+        array: ArrayView<'_, Self>,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        match_each_native_ptype!(array.ptype(), |P| {
+            if let Some(builder) = builder.as_any_mut().downcast_mut::<PrimitiveBuilder<P>>() {
+                return builder.append_primitive_array(&array.into_owned(), ctx);
+            }
+        });
+
+        builder.extend_from_array(array.as_ref());
+        Ok(())
     }
 
     fn reduce_parent(
