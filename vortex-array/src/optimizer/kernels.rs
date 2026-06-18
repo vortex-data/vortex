@@ -34,6 +34,7 @@ use vortex_session::SessionExt;
 use vortex_session::SessionVar;
 use vortex_session::registry::Id;
 use vortex_utils::aliases::DefaultHashBuilder;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -105,6 +106,8 @@ pub trait DynExecuteParentKernel: Debug + Send + Sync + 'static {
 
 pub(crate) type ExecuteParentKernelRef = Arc<dyn DynExecuteParentKernel>;
 
+pub(crate) type ParentExecutionKernels = HashMap<ExecuteParentFnId, Arc<[ExecuteParentKernelRef]>>;
+
 #[derive(Debug)]
 struct ExecuteParentFnKernel(ExecuteParentFn);
 
@@ -151,7 +154,7 @@ where
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 #[repr(transparent)]
-struct ExecuteParentFnId(u64);
+pub(crate) struct ExecuteParentFnId(u64);
 
 impl From<u64> for ExecuteParentFnId {
     fn from(id: u64) -> Self {
@@ -272,12 +275,9 @@ impl ArrayKernels {
         self.execute_parent.get(&hash_fn_id(parent, child))
     }
 
-    /// Look up the execute-parent kernels registered for a pre-hashed key.
-    pub(crate) fn find_execute_parent_by_key(
-        &self,
-        key: u64,
-    ) -> Option<Arc<[ExecuteParentKernelRef]>> {
-        self.execute_parent.get(&key)
+    /// Return the currently published execute-parent kernel snapshot.
+    pub(crate) fn execute_parent_snapshot(&self) -> Arc<ParentExecutionKernels> {
+        self.execute_parent.snapshot()
     }
 }
 

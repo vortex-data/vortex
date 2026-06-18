@@ -44,9 +44,13 @@ use crate::memory::MemorySessionExt;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::kernels::ArrayKernels;
 use crate::optimizer::kernels::ExecuteParentKernelRef;
+use crate::optimizer::kernels::ParentExecutionKernels;
 use crate::optimizer::kernels::execute_parent_key;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSet;
+
+static EMPTY_PARENT_EXECUTION_KERNELS: LazyLock<Arc<ParentExecutionKernels>> =
+    LazyLock::new(|| Arc::new(ParentExecutionKernels::default()));
 
 /// Returns the maximum number of iterations to attempt when executing an array before giving up and returning
 /// an error, can be by the `VORTEX_MAX_ITERATIONS` env variables, otherwise defaults to 2^22.
@@ -168,7 +172,8 @@ impl ArrayRef {
         let mut current_array = self;
         let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
         let mut stack: Vec<StackFrame> = Vec::new();
-        let kernels = ctx.array_kernels.clone();
+        let execute_parent_kernels = Arc::clone(&ctx.execute_parent_kernels);
+        let kernels = execute_parent_kernels.as_ref();
         let mut execute_parent_cache = ExecuteParentCache::default();
         let max_iterations = max_iterations();
 
@@ -211,7 +216,7 @@ impl ArrayRef {
                         &frame.parent_array,
                         &current_array,
                         frame.slot_idx,
-                        kernels.as_ref(),
+                        kernels,
                         &mut execute_parent_cache,
                         ctx,
                     )?
@@ -229,12 +234,8 @@ impl ArrayRef {
 
             // Step 2b: execute_parent against current_array's own children.
             if current_builder.is_none()
-                && let Some(rewritten) = try_execute_parent(
-                    &current_array,
-                    kernels.as_ref(),
-                    &mut execute_parent_cache,
-                    ctx,
-                )?
+                && let Some(rewritten) =
+                    try_execute_parent(&current_array, kernels, &mut execute_parent_cache, ctx)?
             {
                 ctx.log(format_args!(
                     "execute_parent rewrote {} -> {}",
@@ -326,7 +327,7 @@ struct StackFrame {
 #[derive(Debug, Clone)]
 pub struct ExecutionCtx {
     session: VortexSession,
-    array_kernels: Option<ArrayKernels>,
+    execute_parent_kernels: Arc<ParentExecutionKernels>,
     #[cfg(debug_assertions)]
     id: usize,
     #[cfg(debug_assertions)]
@@ -336,10 +337,13 @@ pub struct ExecutionCtx {
 impl ExecutionCtx {
     /// Create a new execution context with the given session.
     pub fn new(session: VortexSession) -> Self {
-        let array_kernels = session.get_opt::<ArrayKernels>().cloned();
+        let execute_parent_kernels = session
+            .get_opt::<ArrayKernels>()
+            .map(ArrayKernels::execute_parent_snapshot)
+            .unwrap_or_else(|| Arc::clone(&EMPTY_PARENT_EXECUTION_KERNELS));
         Self {
             session,
-            array_kernels,
+            execute_parent_kernels,
             #[cfg(debug_assertions)]
             id: {
                 static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
@@ -448,7 +452,8 @@ impl Executable for ArrayRef {
             }
         }
 
-        let kernels = ctx.array_kernels.clone();
+        let execute_parent_kernels = Arc::clone(&ctx.execute_parent_kernels);
+        let kernels = execute_parent_kernels.as_ref();
         let mut execute_parent_cache = ExecuteParentCache::default();
 
         for (slot_idx, slot) in array.slots().iter().enumerate() {
@@ -457,7 +462,7 @@ impl Executable for ArrayRef {
                 &array,
                 child,
                 slot_idx,
-                kernels.as_ref(),
+                kernels,
                 &mut execute_parent_cache,
                 ctx,
             )? {
@@ -571,7 +576,7 @@ fn execute_parent_for_child(
     parent: &ArrayRef,
     child: &ArrayRef,
     slot_idx: usize,
-    kernels: Option<&ArrayKernels>,
+    kernels: &ParentExecutionKernels,
     cache: &mut ExecuteParentCache,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
@@ -591,7 +596,7 @@ fn execute_parent_for_child(
 /// Try execute_parent on each occupied slot of the array.
 fn try_execute_parent(
     array: &ArrayRef,
-    kernels: Option<&ArrayKernels>,
+    kernels: &ParentExecutionKernels,
     cache: &mut ExecuteParentCache,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
@@ -619,19 +624,18 @@ fn try_execute_parent(
 type ExecuteParentCache = SmallVec<[(u64, Option<Arc<[ExecuteParentKernelRef]>>); 8]>;
 
 fn find_execute_parent(
-    kernels: Option<&ArrayKernels>,
+    kernels: &ParentExecutionKernels,
     cache: &mut ExecuteParentCache,
     parent: ArrayId,
     child: ArrayId,
 ) -> Option<Arc<[ExecuteParentKernelRef]>> {
-    let kernels = kernels?;
     let key = execute_parent_key(parent, child);
 
     if let Some((_, cached)) = cache.iter().find(|(cached_key, _)| *cached_key == key) {
         return cached.clone();
     }
 
-    let found = kernels.find_execute_parent_by_key(key);
+    let found = kernels.get(&key).cloned();
     cache.push((key, found.clone()));
     found
 }
