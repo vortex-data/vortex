@@ -37,8 +37,12 @@ use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
 
-pub(crate) mod boolean;
-pub(crate) use boolean::*;
+pub mod boolean;
+pub use boolean::BooleanExecuteAdaptor;
+pub use boolean::BooleanKernel;
+pub(crate) use boolean::execute_boolean;
+pub use boolean::kleene_boolean_buffer_scalar;
+pub use boolean::kleene_boolean_buffers;
 mod compare;
 pub use compare::*;
 mod numeric;
