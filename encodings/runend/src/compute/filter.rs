@@ -121,22 +121,15 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
-    use vortex_session::VortexSession;
 
     use crate::RunEnd;
     use crate::RunEndArray;
-
-    fn session() -> VortexSession {
-        let session = vortex_array::array_session();
-        crate::initialize(&session);
-        session
-    }
+    use crate::tests::SESSION;
 
     fn ree_array() -> RunEndArray {
-        let session = session();
         RunEnd::encode(
             PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array(),
-            &mut session.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap()
     }
@@ -146,8 +139,7 @@ mod tests {
         let arr = ree_array().slice(2..7)?;
         let filtered = arr.filter(Mask::from_iter([true, false, false, true, true]))?;
 
-        let session = session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(
             filtered,
             RunEnd::new(
@@ -165,8 +157,7 @@ mod tests {
     /// Filter unwrap one layer at a time so RunEnd's FilterKernel can fire.
     #[test]
     fn filter_sliced_run_end_preserves_encoding() -> VortexResult<()> {
-        let session = session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         // 4 runs of 32 each = 128 rows. Large enough that FilterKernel takes
         // the run-preserving path (true_count >= 25).

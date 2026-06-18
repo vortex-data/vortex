@@ -31,7 +31,6 @@ impl OperationsVTable<BitPacked> for BitPacked {
 #[cfg(test)]
 mod test {
     use std::ops::Range;
-    use std::sync::LazyLock;
 
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
@@ -52,18 +51,12 @@ mod test {
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
-    use vortex_session::VortexSession;
 
     use crate::BitPacked;
     use crate::BitPackedArray;
     use crate::BitPackedData;
     use crate::bitpacking::array::BitPackedArrayExt;
-
-    static FASTLANES_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
-        crate::initialize(&session);
-        session
-    });
+    use crate::test::SESSION as FASTLANES_SESSION;
 
     fn bp(array: &ArrayRef, bit_width: u8) -> BitPackedArray {
         BitPackedData::encode(array, bit_width, &mut LEGACY_SESSION.create_execution_ctx()).unwrap()
