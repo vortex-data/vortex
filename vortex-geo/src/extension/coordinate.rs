@@ -15,13 +15,6 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use geoarrow::datatypes::Dimension as GeoArrowDimension;
-use vortex_array::ArrayRef;
-use vortex_array::ExecutionCtx;
-use vortex_array::arrays::ExtensionArray;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::StructArray;
-use vortex_array::arrays::extension::ExtensionArrayExt;
-use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
@@ -196,74 +189,16 @@ pub(crate) fn coordinate_from_struct(scalar: &Scalar) -> VortexResult<Coordinate
     })
 }
 
-/// Decode a [`Coordinate`] from an extension-typed point scalar (unwrapped to its coordinate
-/// storage) or a bare coordinate `Struct` scalar. The per-row decode used by the distance fns.
-pub(crate) fn coordinate_from_scalar(scalar: &Scalar) -> VortexResult<Coordinate> {
-    match scalar.as_extension_opt() {
-        Some(ext_scalar) => coordinate_from_struct(&ext_scalar.to_storage_scalar()),
-        None => coordinate_from_struct(scalar),
-    }
-}
-
-/// Validated, executed `x`/`y` columns of a point array. The bulk counterpart to [`Coordinate`];
-/// `z`/`m` are not executed.
-pub(crate) struct ParsedCoordinates {
-    /// The flat `f64` `x` column.
-    pub(crate) xs: PrimitiveArray,
-    /// The flat `f64` `y` column.
-    pub(crate) ys: PrimitiveArray,
-}
-
-/// Validate a point column's coordinate storage (layout and non-nullability) and execute its
-/// `x`/`y` columns.
-pub(crate) fn parse_storage(
-    points: &ArrayRef,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ParsedCoordinates> {
-    let storage = points
-        .clone()
-        .execute::<ExtensionArray>(ctx)?
-        .storage_array()
-        .clone()
-        .execute::<StructArray>(ctx)?;
-    coordinate_dimension(storage.dtype())?;
-    vortex_ensure!(
-        !storage.dtype().is_nullable(),
-        "coordinate storage must be non-nullable to read unmasked ordinates, was {}",
-        storage.dtype()
-    );
-    let xs = storage
-        .unmasked_field_by_name("x")?
-        .clone()
-        .execute::<PrimitiveArray>(ctx)?;
-    let ys = storage
-        .unmasked_field_by_name("y")?
-        .clone()
-        .execute::<PrimitiveArray>(ctx)?;
-    Ok(ParsedCoordinates { xs, ys })
-}
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::IntoArray;
-    use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::ExtensionArray;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::StructArray;
-    use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
-    use vortex_array::dtype::extension::ExtDType;
-    use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
 
     use super::Coordinate;
     use super::Dimension;
     use super::coordinate_dimension;
     use super::coordinate_storage_dtype;
-    use super::parse_storage;
-    use crate::extension::GeoMetadata;
-    use crate::extension::Point;
 
     /// Each dimension round-trips through its field names and canonical storage dtype.
     #[rstest]
@@ -295,29 +230,5 @@ mod tests {
             m,
         };
         assert_eq!(coordinate.to_string(), expected);
-    }
-
-    /// [`parse_storage`] reads the coordinate fields unmasked, so a nullable point column must
-    /// be rejected at parse time rather than decoding null rows as garbage ordinates.
-    #[test]
-    fn parse_rejects_nullable_points() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
-
-        let storage = StructArray::try_new(
-            FieldNames::from(["x", "y"]),
-            vec![
-                PrimitiveArray::from_iter(vec![1.0f64]).into_array(),
-                PrimitiveArray::from_iter(vec![2.0f64]).into_array(),
-            ],
-            1,
-            Validity::AllValid,
-        )?
-        .into_array();
-        let dtype = ExtDType::<Point>::try_new(GeoMetadata { crs: None }, storage.dtype().clone())?;
-        let points = ExtensionArray::new(dtype.erased(), storage).into_array();
-
-        assert!(parse_storage(&points, &mut ctx).is_err());
-        Ok(())
     }
 }

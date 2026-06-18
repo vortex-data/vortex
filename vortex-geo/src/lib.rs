@@ -9,6 +9,7 @@ use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_session::VortexSession;
 
 use crate::extension::Point;
+use crate::extension::Polygon;
 use crate::extension::WellKnownBinary;
 use crate::scalar_fn::distance::GeoDistance;
 
@@ -28,6 +29,9 @@ pub fn initialize(session: &VortexSession) {
     session.dtypes().register(Point);
     session.arrow().register_exporter(Arc::new(Point));
     session.arrow().register_importer(Arc::new(Point));
+    session.dtypes().register(Polygon);
+    session.arrow().register_exporter(Arc::new(Polygon));
+    session.arrow().register_importer(Arc::new(Polygon));
 
     // Register the geometry scalar functions.
     session.scalar_fns().register(GeoDistance);

@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Straight-line (Euclidean) distance between points; "planar" distance in GIS terms.
+//! `ST_Distance`: planar (Euclidean) distance between two native geometries via the `geo` crate.
 
+use geo::Distance;
+use geo::Euclidean;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -22,29 +24,20 @@ use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
-use crate::extension::coordinate::coordinate_from_scalar;
-use crate::extension::coordinate::parse_storage;
+use crate::extension::geometries;
+use crate::extension::single_geometry;
 
-/// Straight-line (L2) distance between `(ax, ay)` and `(bx, by)`.
-fn euclidean_distance(ax: f64, ay: f64, bx: f64, by: f64) -> f64 {
-    let dx = ax - bx;
-    let dy = ay - by;
-    (dx * dx + dy * dy).sqrt()
-}
-
-/// Straight-line (Euclidean) distance between two point operands — "planar" distance in GIS terms
-/// (e.g. PostGIS `ST_Distance`). No geodesic correction, and `z`/`m` are ignored.
-///
-/// The operands are two point columns of equal length; either (or both) may be constant, in which
-/// case the constant query point is decoded once and broadcast.
+/// Planar (Euclidean) `ST_Distance` (no geodesic correction) between two native geometry operands.
+/// Each is a column or a constant literal; `geo` computes the distance between each pair.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct GeoDistance;
 
 impl GeoDistance {
-    /// A lazy `ScalarFnArray` computing the per-row distance between the point columns `a` and
-    /// `b`; either may be constant. The output length is taken from `a`.
+    /// A lazy `ScalarFnArray` computing the per-row distance between operands `a` and `b`; either may
+    /// be constant. The output length is taken from `a`.
     pub fn try_new_array(a: ArrayRef, b: ArrayRef) -> VortexResult<ScalarFnArray> {
         ScalarFnArray::try_new(
             TypedScalarFnInstance::new(GeoDistance, EmptyOptions).erased(),
@@ -94,9 +87,9 @@ impl ScalarFnVTable for GeoDistance {
         let b = args.get(1)?;
         match (a.as_opt::<Constant>(), b.as_opt::<Constant>()) {
             (Some(qa), Some(qb)) => {
-                let qa = coordinate_from_scalar(qa.scalar())?;
-                let qb = coordinate_from_scalar(qb.scalar())?;
-                let distance = euclidean_distance(qa.x, qa.y, qb.x, qb.y);
+                let ga = single_geometry(qa.scalar(), ctx)?;
+                let gb = single_geometry(qb.scalar(), ctx)?;
+                let distance = Euclidean.distance(&ga, &gb);
                 Ok(ConstantArray::new(
                     Scalar::primitive(distance, Nullability::NonNullable),
                     a.len(),
@@ -106,42 +99,31 @@ impl ScalarFnVTable for GeoDistance {
             (Some(query), None) => distances_to_constant(&b, query.scalar(), ctx),
             (None, Some(query)) => distances_to_constant(&a, query.scalar(), ctx),
             (None, None) => {
-                let a_coords = parse_storage(&a, ctx)?;
-                let b_coords = parse_storage(&b, ctx)?;
-                let distances = a_coords
-                    .xs
-                    .as_slice::<f64>()
-                    .iter()
-                    .zip(a_coords.ys.as_slice::<f64>())
-                    .zip(
-                        b_coords
-                            .xs
-                            .as_slice::<f64>()
-                            .iter()
-                            .zip(b_coords.ys.as_slice::<f64>()),
-                    )
-                    .map(|((&ax, &ay), (&bx, &by))| euclidean_distance(ax, ay, bx, by));
+                let ag = geometries(&a, ctx)?;
+                let bg = geometries(&b, ctx)?;
+                vortex_ensure!(
+                    ag.len() == bg.len(),
+                    "geo distance: operand length mismatch {} vs {}",
+                    ag.len(),
+                    bg.len()
+                );
+                let distances = ag.iter().zip(&bg).map(|(x, y)| Euclidean.distance(x, y));
                 Ok(PrimitiveArray::from_iter(distances).into_array())
             }
         }
     }
 }
 
-/// Distance from each row of `points` to a constant `query` point, decoded once and broadcast.
+/// Distance from each row of `operand` to a constant `query` geometry, decoded once and broadcast.
 /// Distance is symmetric, so this serves a constant on either side.
 fn distances_to_constant(
-    points: &ArrayRef,
+    operand: &ArrayRef,
     query: &Scalar,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let query = coordinate_from_scalar(query)?;
-    let coords = parse_storage(points, ctx)?;
-    let distances = coords
-        .xs
-        .as_slice::<f64>()
-        .iter()
-        .zip(coords.ys.as_slice::<f64>())
-        .map(|(&x, &y)| euclidean_distance(x, y, query.x, query.y));
+    let query = single_geometry(query, ctx)?;
+    let geoms = geometries(operand, ctx)?;
+    let distances = geoms.iter().map(|g| Euclidean.distance(g, &query));
     Ok(PrimitiveArray::from_iter(distances).into_array())
 }
 
@@ -156,7 +138,6 @@ mod tests {
     use vortex_error::VortexResult;
 
     use super::GeoDistance;
-    use super::euclidean_distance;
     use crate::test_harness::point_column;
 
     /// A constant `Point` column of length `len`, every row at `(x, y)`.
@@ -179,15 +160,8 @@ mod tests {
             .to_vec())
     }
 
-    /// The kernel computes straight-line distance (the 3–4–5 triangle).
-    #[test]
-    fn euclidean_distance_is_straight_line() {
-        assert_eq!(euclidean_distance(0.0, 0.0, 3.0, 4.0), 5.0);
-        assert_eq!(euclidean_distance(1.5, -1.5, 1.5, -1.5), 0.0);
-    }
-
-    /// `GeoDistance` returns the per-row distance between two point columns (here the second is a
-    /// constant query point).
+    /// `GeoDistance` returns the per-row distance between a point column and a constant query point
+    /// (3–4–5 triangles), computed via the geo crate.
     #[test]
     fn distance_over_points() -> VortexResult<()> {
         let session = vortex_array::array_session();

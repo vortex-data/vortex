@@ -10,6 +10,9 @@ use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::extension::ExtensionType;
+use geo_traits::to_geo::ToGeoGeometry;
+use geo_types::Geometry;
+use geoarrow::array::GeoArrowArrayAccessor;
 use geoarrow::array::IntoArrow;
 use geoarrow::array::PointArray;
 use geoarrow::datatypes::CoordType;
@@ -28,6 +31,7 @@ use vortex_array::arrow::ArrowSession;
 use vortex_array::arrow::ArrowSessionExt;
 use vortex_array::arrow::FromArrowArray;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::arrow::FromArrowType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::extension::ExtVTable;
@@ -90,6 +94,30 @@ static ARROW_POINT: CachedId = CachedId::new(PointType::NAME);
 /// matching `Point` storage.
 fn point_type(geo_metadata: &GeoMetadata, dimension: Dimension) -> PointType {
     PointType::new(dimension.into(), geoarrow_metadata(geo_metadata))
+}
+
+/// Decode `Point` storage to `geo_types` points, for the geo scalar functions.
+pub(crate) fn point_geometries(
+    storage: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Vec<Geometry<f64>>> {
+    let point_type = point_type(
+        &GeoMetadata::default(),
+        coordinate_dimension(storage.dtype())?,
+    );
+    let session = ctx.session().clone();
+    let arrow = session.arrow().execute_arrow(storage.clone(), None, ctx)?;
+    let points = PointArray::try_from((arrow.as_ref(), point_type))
+        .map_err(|e| vortex_err!("failed to construct PointArray: {e}"))?;
+    points
+        .iter()
+        .map(|geometry| -> VortexResult<Geometry<f64>> {
+            Ok(geometry
+                .ok_or_else(|| vortex_err!("geo: null geometry is not supported"))?
+                .map_err(|e| vortex_err!("geo: geometry access failed: {e}"))?
+                .to_geometry())
+        })
+        .collect()
 }
 
 impl ArrowExportVTable for Point {
@@ -166,25 +194,40 @@ impl ArrowImportVTable for Point {
         *ARROW_POINT
     }
 
+    /// Import a `geoarrow.point` field as the [`Point`] dtype. Keyed off the standard GeoArrow name,
+    /// so any producer (DataFusion, DuckDB, geoarrow-rs, …) resolves here. Accepts the full
+    /// `PointType` extension, or — for a metadata-less geometry literal — the name alone, inferring
+    /// the dimension from the coordinate field names.
     fn from_arrow_field(&self, field: &Field) -> VortexResult<Option<DType>> {
-        let Ok(point_meta) = field.try_extension_type::<PointType>() else {
-            return Ok(None);
-        };
-        vortex_ensure!(
-            point_meta.coord_type() == CoordType::Separated,
-            "geoarrow.point with interleaved coordinates is not supported; \
-             re-encode with separated (struct) coordinates"
-        );
-
-        let storage_dtype =
-            coordinate_storage_dtype(point_meta.dimension().into(), field.is_nullable().into());
-        Ok(Some(DType::Extension(
-            ExtDType::try_with_vtable(
-                Point,
+        let (dimension, metadata) = if let Ok(point_meta) = field.try_extension_type::<PointType>()
+        {
+            vortex_ensure!(
+                point_meta.coord_type() == CoordType::Separated,
+                "geoarrow.point with interleaved coordinates is not supported; \
+                 re-encode with separated (struct) coordinates"
+            );
+            (
+                point_meta.dimension().into(),
                 geo_metadata_from_arrow(point_meta.metadata()),
-                storage_dtype,
-            )?
-            .erased(),
+            )
+        } else {
+            // Infer the dimension from the field names, not the canonical storage check: a literal's
+            // coordinate fields may be nullable, which that check rejects.
+            if field.extension_type_name() != Some(PointType::NAME) {
+                return Ok(None);
+            }
+            let DType::Struct(fields, _) = DType::from_arrow(field) else {
+                return Ok(None);
+            };
+            let Ok(dimension) = Dimension::from_field_names(fields.names()) else {
+                return Ok(None);
+            };
+            (dimension, GeoMetadata::default())
+        };
+
+        let storage_dtype = coordinate_storage_dtype(dimension, field.is_nullable().into());
+        Ok(Some(DType::Extension(
+            ExtDType::try_with_vtable(Point, metadata, storage_dtype)?.erased(),
         )))
     }
 
@@ -228,8 +271,8 @@ mod tests {
     use crate::extension::GeoMetadata;
     use crate::extension::coordinate::Coordinate;
     use crate::extension::coordinate::Dimension;
-    use crate::extension::coordinate::coordinate_from_scalar;
     use crate::extension::coordinate::coordinate_storage_dtype;
+    use crate::test_harness::coordinate_from_scalar;
     use crate::test_harness::point_column;
 
     fn geo_meta() -> GeoMetadata {
