@@ -275,14 +275,14 @@ fn device_stream_runtime() -> &'static CurrentThreadRuntime {
     &DEVICE_STREAM_RUNTIME
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug, PartialEq)]
 enum ArrowDeviceStreamSchema {
     Schema(Schema),
     Field(Field),
 }
 
 impl ArrowDeviceStreamSchema {
-    /// Interpret an Arrow C schema as the stream schema shape for `dtype`.
+    /// Convert an Arrow C schema into the stream schema shape for `dtype`.
     fn from_ffi(schema: &FFI_ArrowSchema, dtype: &DType) -> VortexResult<Self> {
         if matches!(dtype, DType::Struct(..)) {
             Ok(Self::Schema(Schema::try_from(schema)?))
@@ -291,7 +291,12 @@ impl ArrowDeviceStreamSchema {
         }
     }
 
-    /// Build the Arrow stream schema for an empty stream with the given dtype.
+    /// Convert a Vortex dtype into a stream schema when no batch is available.
+    ///
+    /// This uses only the logical dtype, so it can differ from a non-empty stream's first-batch
+    /// schema for encodings the dtype does not capture: a dictionary column reports a plain field
+    /// here but `DataType::Dictionary` once a concrete batch is seen. This is harmless because an
+    /// empty stream carries no data.
     fn from_dtype(dtype: &DType, ctx: &mut CudaExecutionCtx) -> VortexResult<Self> {
         let dtype = arrow_device_export_dtype(dtype);
         if let DType::Struct(struct_dtype, _) = &dtype {
@@ -331,25 +336,34 @@ impl DeviceArrayStreamPrivateData {
     }
 
     /// Store the last stream error and return the Arrow callback error code.
+    ///
+    /// Interior NUL bytes are replaced so `get_last_error` is never null while a non-zero status
+    /// is reported.
     fn set_error(&mut self, error: impl ToString) -> c_int {
-        self.last_error = CString::new(error.to_string()).ok();
+        let message = error.to_string().replace('\0', " ");
+        self.last_error = Some(CString::new(message).unwrap_or_default());
         ARROW_STREAM_EIO
     }
 
-    /// Initialize and return the stream schema, exporting the first batch if needed.
+    /// Set the schema from the dtype alone, so an empty stream still has a schema to report.
+    fn set_empty_schema(&mut self) -> VortexResult<()> {
+        if self.schema.is_none() {
+            self.schema = Some(ArrowDeviceStreamSchema::from_dtype(
+                &self.dtype,
+                &mut self.ctx,
+            )?);
+        }
+        Ok(())
+    }
+
+    /// Return the stream schema, exporting the first batch to derive it if needed.
+    ///
+    /// A first batch is held in `pending_array` so the following `get_next` returns it.
     fn ensure_schema(&mut self) -> VortexResult<&ArrowDeviceStreamSchema> {
         if self.schema.is_none() {
             match self.array_iter.next() {
-                Some(array) => {
-                    let array = self.export_batch(array?)?;
-                    self.pending_array = Some(array);
-                }
-                None => {
-                    self.schema = Some(ArrowDeviceStreamSchema::from_dtype(
-                        &self.dtype,
-                        &mut self.ctx,
-                    )?);
-                }
+                Some(array) => self.pending_array = Some(self.export_batch(array?)?),
+                None => self.set_empty_schema()?,
             }
         }
 
@@ -364,20 +378,16 @@ impl DeviceArrayStreamPrivateData {
             return Ok(Some(array));
         }
 
-        let Some(array) = self.array_iter.next() else {
-            if self.schema.is_none() {
-                self.schema = Some(ArrowDeviceStreamSchema::from_dtype(
-                    &self.dtype,
-                    &mut self.ctx,
-                )?);
+        match self.array_iter.next() {
+            Some(array) => self.export_batch(array?).map(Some),
+            None => {
+                self.set_empty_schema()?;
+                Ok(None)
             }
-            return Ok(None);
-        };
-
-        self.export_batch(array?).map(Some)
+        }
     }
 
-    /// Export one Vortex stream batch and validate it against the stream schema and device.
+    /// Export one Vortex batch as a device array, validating it against the stream.
     fn export_batch(&mut self, array: ArrayRef) -> VortexResult<ArrowDeviceArray> {
         vortex_ensure!(
             array.dtype() == &self.dtype,
@@ -386,54 +396,55 @@ impl DeviceArrayStreamPrivateData {
             array.dtype()
         );
 
-        let exported = device_stream_runtime()
-            .block_on(array.export_device_array_with_schema(&mut self.ctx))?;
         let ArrowDeviceArrayWithSchema {
-            schema: mut ffi_schema,
+            mut schema,
             mut array,
-        } = exported;
-        let batch_schema = ArrowDeviceStreamSchema::from_ffi(&ffi_schema, &self.dtype);
-        release_schema(&mut ffi_schema);
-        let batch_schema = match batch_schema {
-            Ok(batch_schema) => batch_schema,
-            Err(error) => {
-                release_device_array(&mut array);
-                return Err(error);
-            }
-        };
+        } = device_stream_runtime()
+            .block_on(array.export_device_array_with_schema(&mut self.ctx))?;
 
-        let validation = (|| -> VortexResult<()> {
-            if let Some(stream_schema) = &self.schema {
+        // Release the schema we no longer need, and on any failure the array we will not return.
+        let checked = self.check_batch(&schema, &array);
+        release_schema(&mut schema);
+        if let Err(error) = checked {
+            release_device_array(&mut array);
+            return Err(error);
+        }
+        Ok(array)
+    }
+
+    /// Check that a freshly exported batch matches the stream schema and CUDA device.
+    fn check_batch(
+        &mut self,
+        schema: &FFI_ArrowSchema,
+        array: &ArrowDeviceArray,
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            array.device_type == ARROW_DEVICE_CUDA,
+            "stream batch exported on non-CUDA device type {}",
+            array.device_type
+        );
+        vortex_ensure!(
+            array.device_id == self.device_id,
+            "stream batch moved from CUDA device {} to {}",
+            self.device_id,
+            array.device_id
+        );
+
+        // Commit the schema only after the batch is fully accepted, so a rejected first batch
+        // never becomes the schema later reported by `get_schema`.
+        let batch_schema = ArrowDeviceStreamSchema::from_ffi(schema, &self.dtype)?;
+        match &self.schema {
+            Some(stream_schema) => {
                 vortex_ensure!(
                     stream_schema == &batch_schema,
                     "stream batch Arrow schema changed from {:?} to {:?}",
                     stream_schema,
                     batch_schema
                 );
-            } else {
-                self.schema = Some(batch_schema);
             }
-
-            vortex_ensure!(
-                array.device_type == ARROW_DEVICE_CUDA,
-                "stream batch exported on non-CUDA device type {}",
-                array.device_type
-            );
-            vortex_ensure!(
-                array.device_id == self.device_id,
-                "stream batch moved from CUDA device {} to {}",
-                self.device_id,
-                array.device_id
-            );
-            Ok(())
-        })();
-
-        if let Err(error) = validation {
-            release_device_array(&mut array);
-            return Err(error);
+            None => self.schema = Some(batch_schema),
         }
-
-        Ok(array)
+        Ok(())
     }
 }
 
@@ -454,6 +465,9 @@ pub trait DeviceArrayStreamExt {
     /// context's CUDA device at construction time, and each `get_next` verifies that the produced
     /// [`ArrowDeviceArray`] is CUDA-resident on that same device. The returned C stream owns the
     /// Vortex stream and must be released through its embedded `release` callback.
+    ///
+    /// Per the Arrow C stream contract, drive the returned stream from a single thread; its
+    /// callbacks must not be invoked concurrently.
     fn export_device_array_stream(
         self,
         session: &VortexSession,
@@ -461,57 +475,31 @@ pub trait DeviceArrayStreamExt {
 }
 
 impl DeviceArrayStreamExt for SendableArrayStream {
-    /// Export this stream by driving it on the shared Arrow Device stream runtime.
+    /// Drive this stream on the shared Arrow Device stream runtime and export it.
     fn export_device_array_stream(
         self,
         session: &VortexSession,
     ) -> VortexResult<ArrowDeviceArrayStream> {
         let dtype = self.dtype().clone();
-        export_device_array_stream_from_iter(
-            device_stream_runtime().block_on_stream(self),
-            dtype,
-            session,
-        )
+        let ctx = crate::CudaSession::create_execution_ctx(session)?;
+        let array_iter = Box::new(device_stream_runtime().block_on_stream(self));
+        Ok(device_array_stream(array_iter, dtype, ctx))
     }
 }
 
-/// Export a blocking Vortex array iterator as an [`ArrowDeviceArrayStream`].
-///
-/// The iterator is advanced by the Arrow stream callbacks. Use this helper when the stream must be
-/// driven by a specific runtime or executor before crossing the Arrow C Device stream boundary.
-/// Each yielded array must have `dtype`; every exported batch is validated to stay on the CUDA
-/// device selected by the session's CUDA execution context.
-pub fn export_device_array_stream_from_iter(
-    array_iter: impl Iterator<Item = VortexResult<ArrayRef>> + 'static,
-    dtype: DType,
-    session: &VortexSession,
-) -> VortexResult<ArrowDeviceArrayStream> {
-    let ctx = crate::CudaSession::create_execution_ctx(session)?;
-    Ok(export_device_array_stream_from_iter_with_ctx(
-        array_iter, dtype, ctx,
-    ))
-}
-
-/// Export a blocking Vortex array iterator as an [`ArrowDeviceArrayStream`] using an existing CUDA
-/// execution context.
-///
-/// Use this helper when the caller has already selected the CUDA execution context that must drive
-/// the exported stream. Each yielded array must have `dtype`; every exported batch is validated to
-/// stay on the CUDA device selected by `ctx`.
-pub fn export_device_array_stream_from_iter_with_ctx(
-    array_iter: impl Iterator<Item = VortexResult<ArrayRef>> + 'static,
+/// Build the Arrow C Device stream that owns `array_iter` and exports its batches through `ctx`.
+fn device_array_stream(
+    array_iter: ArrayStreamIterator,
     dtype: DType,
     ctx: CudaExecutionCtx,
 ) -> ArrowDeviceArrayStream {
-    let device_id = ctx.stream().context().ordinal() as i64;
-
     let private_data = Box::new(DeviceArrayStreamPrivateData {
-        array_iter: Box::new(array_iter),
+        device_id: ctx.stream().context().ordinal() as i64,
+        array_iter,
         ctx,
         dtype,
         schema: None,
         pending_array: None,
-        device_id,
         last_error: None,
     });
 
@@ -650,7 +638,7 @@ unsafe extern "C" fn device_stream_get_last_error(
         .map_or(ptr::null(), |error| error.as_ptr())
 }
 
-/// Release the stream state and clear callbacks so release is idempotent.
+/// Free the stream state and null its callbacks. The null `release` makes a second call a no-op.
 unsafe extern "C" fn device_stream_release(stream: *mut ArrowDeviceArrayStream) {
     let Some(stream_ref) = (unsafe { stream.as_mut() }) else {
         return;
