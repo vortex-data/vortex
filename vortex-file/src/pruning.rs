@@ -20,7 +20,6 @@ use vortex_array::scalar_fn::fns::get_item::GetItem;
 use vortex_array::scalar_fn::fns::literal::Literal;
 use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
 use vortex_array::stats::bind::StatBinder;
-use vortex_array::stats::bind::bind_direct_aggregate_stat;
 use vortex_array::stats::bind::bind_stats;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
@@ -80,25 +79,19 @@ impl StatBinder for FileStatsBinder<'_> {
         DType::Null
     }
 
-    fn bind_stat(
-        &self,
-        input: &Expression,
-        stat: Stat,
-        _stat_dtype: &DType,
-    ) -> VortexResult<Option<Expression>> {
-        let Some(field_path) = direct_field_path(input) else {
-            return Ok(None);
-        };
-        Ok(self.stat_ref(&field_path, stat))
-    }
-
     fn bind_aggregate(
         &self,
         input: &Expression,
         aggregate_fn: &AggregateFnRef,
-        stat_dtype: &DType,
+        _stat_dtype: &DType,
     ) -> VortexResult<Option<Expression>> {
-        bind_direct_aggregate_stat(self, input, aggregate_fn, stat_dtype)
+        let Some(stat) = Stat::from_aggregate_fn(aggregate_fn) else {
+            return Ok(None);
+        };
+        let Some(field_path) = direct_field_path(input) else {
+            return Ok(None);
+        };
+        Ok(self.stat_ref(&field_path, stat))
     }
 }
 

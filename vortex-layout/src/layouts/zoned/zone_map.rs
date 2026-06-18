@@ -22,7 +22,6 @@ use vortex_array::expr::stats::Stat;
 use vortex_array::scalar_fn::internal::row_count::contains_row_count;
 use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
 use vortex_array::stats::bind::StatBinder;
-use vortex_array::stats::bind::bind_direct_aggregate_stat;
 use vortex_array::stats::bind::bind_stats;
 use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
@@ -139,12 +138,15 @@ impl StatBinder for ZoneMapStatsBinder<'_> {
         self.zone_map.array.dtype().clone()
     }
 
-    fn bind_stat(
+    fn bind_aggregate(
         &self,
         input: &Expression,
-        stat: Stat,
+        aggregate_fn: &AggregateFnRef,
         _stat_dtype: &DType,
     ) -> VortexResult<Option<Expression>> {
+        let Some(stat) = Stat::from_aggregate_fn(aggregate_fn) else {
+            return Ok(None);
+        };
         if !is_root(input) {
             return Ok(None);
         }
@@ -157,15 +159,6 @@ impl StatBinder for ZoneMapStatsBinder<'_> {
             return Ok(None);
         }
         Ok(Some(get_item(stat.name(), root())))
-    }
-
-    fn bind_aggregate(
-        &self,
-        input: &Expression,
-        aggregate_fn: &AggregateFnRef,
-        stat_dtype: &DType,
-    ) -> VortexResult<Option<Expression>> {
-        bind_direct_aggregate_stat(self, input, aggregate_fn, stat_dtype)
     }
 }
 

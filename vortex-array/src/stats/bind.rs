@@ -19,7 +19,6 @@ use crate::aggregate_fn::AggregateFnRef;
 use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::expr::lit;
-use crate::expr::stats::Stat;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::Transformed;
 use crate::scalar::Scalar;
@@ -43,24 +42,10 @@ pub trait StatBinder {
         self.scope().clone()
     }
 
-    /// Bind `stat(input)` to a concrete expression.
-    ///
-    /// Returning `Ok(None)` marks the stat as unavailable. [`bind_stats`] will
-    /// then call [`Self::missing_stat`] with the dtype expected from the
-    /// original `vortex.stat` expression.
-    fn bind_stat(
-        &self,
-        input: &Expression,
-        stat: Stat,
-        stat_dtype: &DType,
-    ) -> VortexResult<Option<Expression>>;
-
     /// Bind `aggregate_fn(input)` to a concrete expression.
     ///
     /// Implementations should return `Ok(None)` when the requested aggregate
-    /// statistic is unavailable in their backing representation. Binders that
-    /// support only direct legacy [`Stat`] slots can delegate to
-    /// [`bind_direct_aggregate_stat`].
+    /// statistic is unavailable in their backing representation.
     fn bind_aggregate(
         &self,
         input: &Expression,
@@ -106,19 +91,6 @@ pub fn bind_stats<B: StatBinder + ?Sized>(
     lowered.optimize_recursive(&binder.bound_scope())
 }
 
-/// Bind an aggregate function that has a direct legacy [`Stat`] slot.
-pub fn bind_direct_aggregate_stat<B: StatBinder + ?Sized>(
-    binder: &B,
-    input: &Expression,
-    aggregate_fn: &AggregateFnRef,
-    stat_dtype: &DType,
-) -> VortexResult<Option<Expression>> {
-    let Some(stat) = Stat::from_aggregate_fn(aggregate_fn) else {
-        return Ok(None);
-    };
-    binder.bind_stat(input, stat, stat_dtype)
-}
-
 fn bind_stat_fn(
     expr: &Expression,
     scope: &DType,
@@ -151,6 +123,7 @@ mod tests {
     use crate::expr::is_null;
     use crate::expr::or;
     use crate::expr::root;
+    use crate::expr::stats::Stat;
     use crate::stats::all_non_nan;
     use crate::stats::nan_count;
 
@@ -191,26 +164,21 @@ mod tests {
             self.bound_scope.clone()
         }
 
-        fn bind_stat(
+        fn bind_aggregate(
             &self,
             _input: &Expression,
-            stat: Stat,
+            aggregate_fn: &AggregateFnRef,
             _stat_dtype: &DType,
         ) -> VortexResult<Option<Expression>> {
+            let Some(stat) = Stat::from_aggregate_fn(aggregate_fn) else {
+                return Ok(None);
+            };
+
             if stat == Stat::NaNCount && self.bind_nan_count {
                 Ok(Some(get_item("f_nan_count", root())))
             } else {
                 Ok(None)
             }
-        }
-
-        fn bind_aggregate(
-            &self,
-            input: &Expression,
-            aggregate_fn: &AggregateFnRef,
-            stat_dtype: &DType,
-        ) -> VortexResult<Option<Expression>> {
-            bind_direct_aggregate_stat(self, input, aggregate_fn, stat_dtype)
         }
     }
 
