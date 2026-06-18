@@ -30,10 +30,8 @@ use crate::array::VTable;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
-use crate::arrays::ScalarFn;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::scalar_fn::ExactScalarFn;
-use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -91,15 +89,11 @@ where
             return Ok(None);
         };
 
-        // Get the ScalarFnArray to access children
-        let Some(scalar_fn_array) = parent.as_opt::<ScalarFn>() else {
-            return Ok(None);
-        };
         // Normalize so `array` is always LHS, swapping the operator if needed
         // TODO(joe): should be go this here or in the Rule/Kernel
         let (cmp_op, other) = match child_idx {
-            0 => (cmp_op, scalar_fn_array.get_child(1)),
-            1 => (cmp_op.swap(), scalar_fn_array.get_child(0)),
+            0 => (cmp_op, parent.get_child(1)),
+            1 => (cmp_op.swap(), parent.get_child(0)),
             _ => return Ok(None),
         };
 

@@ -30,7 +30,7 @@ impl ZipKernel for VarBinView {
         mask: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(if_false) = if_false.as_opt::<VarBinView>() else {
+        let Some(if_false) = if_false.as_typed::<VarBinView>() else {
             return Ok(None);
         };
 

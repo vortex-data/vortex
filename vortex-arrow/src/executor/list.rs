@@ -25,6 +25,7 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
+use vortex_array::matcher::AsParent;
 use vortex_array::matcher::Matcher;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
@@ -38,10 +39,10 @@ use crate::session::ArrowSessionExt;
 struct ArrowListExportable;
 
 impl Matcher for ArrowListExportable {
-    type Match<'a> = &'a ArrayRef;
+    type Match<'a> = ();
 
-    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        (array.is::<List>() || array.is::<Chunked>() || array.is::<ListView>()).then_some(array)
+    fn try_match<'a, P: AsParent>(parent: &'a P) -> Option<Self::Match<'a>> {
+        (parent.is::<List>() || parent.is::<Chunked>() || parent.is::<ListView>()).then_some(())
     }
 }
 

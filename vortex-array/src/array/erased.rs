@@ -21,6 +21,7 @@ use crate::AnyCanonical;
 use crate::Array;
 use crate::ArrayEq;
 use crate::ArrayHash;
+use crate::ArraySlots;
 use crate::ArrayView;
 use crate::Canonical;
 use crate::ExecutionCtx;
@@ -32,8 +33,10 @@ use crate::aggregate_fn::fns::sum::sum;
 use crate::array::ArrayData;
 use crate::array::ArrayId;
 use crate::array::ArrayInner;
-use crate::array::ArraySlots;
 use crate::array::DynArrayData;
+use crate::array::ParentMaterializer;
+use crate::array::ParentRef;
+use crate::array::ParentView;
 use crate::arrays::Constant;
 use crate::arrays::DictArray;
 use crate::arrays::FilterArray;
@@ -45,10 +48,9 @@ use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
 use crate::legacy_session;
+use crate::matcher::AsParent;
 use crate::matcher::Matcher;
-use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
-use crate::scalar::ScalarValue;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 
@@ -88,6 +90,11 @@ impl ArrayRef {
     #[inline(always)]
     pub(crate) fn dyn_array(&self) -> &dyn DynArrayData {
         &self.0.data
+    }
+
+    #[inline(always)]
+    pub(crate) fn inner(&self) -> &ArrayInner<dyn DynArrayData> {
+        &self.0
     }
 
     /// Returns a mutable reference to the inner if this is the sole owner.
@@ -185,24 +192,28 @@ impl ArrayEq for ArrayRef {
 impl ArrayRef {
     /// Returns the length of the array.
     #[inline]
+    #[allow(clippy::same_name_method)]
     pub fn len(&self) -> usize {
         self.0.len
     }
 
     /// Returns whether the array is empty (has zero rows).
     #[inline]
+    #[allow(clippy::same_name_method)]
     pub fn is_empty(&self) -> bool {
         self.0.len == 0
     }
 
     /// Returns the logical Vortex [`DType`] of the array.
     #[inline]
+    #[allow(clippy::same_name_method)]
     pub fn dtype(&self) -> &DType {
         &self.0.dtype
     }
 
     /// Returns the encoding ID of the array.
     #[inline]
+    #[allow(clippy::same_name_method)]
     pub fn encoding_id(&self) -> ArrayId {
         self.0.encoding_id
     }
@@ -226,23 +237,24 @@ impl ArrayRef {
             return Ok(Canonical::empty(self.dtype()).into_array());
         }
 
-        let sliced = SliceArray::try_new(self.clone(), range)?
-            .into_array()
-            .optimize()?;
+        let sliced = SliceArray::try_new_parts(self.clone(), range)?;
+        let sliced = sliced.optimize()?;
 
         // Propagate some stats from the original array to the sliced array.
-        if !sliced.is::<Constant>() {
-            self.statistics().with_iter(|iter| {
-                sliced.statistics().inherit(iter.filter(|(stat, value)| {
-                    matches!(
-                        stat,
-                        Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
-                    ) && value
-                        .as_ref()
-                        .as_exact()
-                        .is_some_and(|v| matches!(v, ScalarValue::Bool(true)))
-                }));
+        if sliced.encoding_id() != Constant.id() {
+            let inherited = self.statistics().with_typed_stats_set(|s| {
+                [Stat::IsConstant, Stat::IsSorted, Stat::IsStrictSorted]
+                    .into_iter()
+                    .filter_map(|stat| s.values.get(stat).as_exact().map(|ex| (stat, ex)))
+                    .collect::<Vec<_>>()
             });
+            if !inherited.is_empty() {
+                sliced.statistics().with_mut_typed_stats_set(|mut t| {
+                    for (stat, ex) in inherited {
+                        t.set(stat, Precision::Exact(ex));
+                    }
+                });
+            }
         }
 
         Ok(sliced)
@@ -250,16 +262,14 @@ impl ArrayRef {
 
     /// Wraps the array in a [`FilterArray`] such that it is logically filtered by the given mask.
     pub fn filter(&self, mask: Mask) -> VortexResult<ArrayRef> {
-        FilterArray::try_new(self.clone(), mask)?
-            .into_array()
-            .optimize()
+        let parts = FilterArray::try_new_parts(self.clone(), mask)?;
+        parts.optimize()
     }
 
     /// Wraps the array in a [`DictArray`] such that it is logically taken by the given indices.
     pub fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef> {
-        DictArray::try_new(indices, self.clone())?
-            .into_array()
-            .optimize()
+        let parts = DictArray::try_new_parts(indices, self.clone())?;
+        parts.optimize()
     }
 
     /// Fetch the scalar at the given index.
@@ -396,18 +406,26 @@ impl ArrayRef {
 
     /// Does the array match the given matcher.
     #[inline]
+    #[allow(clippy::same_name_method)]
     pub fn is<M: Matcher>(&self) -> bool {
         M::matches(self)
     }
 
     /// Returns the array downcast by the given matcher.
     #[inline]
+    #[allow(clippy::same_name_method)]
     pub fn as_<M: Matcher>(&self) -> M::Match<'_> {
         self.as_opt::<M>().vortex_expect("Failed to downcast")
     }
 
     /// Returns the array downcast by the given matcher.
+    ///
+    /// The returned match never hides a materialization: heap-backed arrays are
+    /// already materialized, so [`ParentView::materialize_array_ref`]-style hooks
+    /// on the match are free. Use [`Self::as_typed`] for a direct [`ArrayView`]
+    /// downcast when heap-only APIs like [`ArrayView::array`] are needed.
     #[inline]
+    #[allow(clippy::same_name_method)]
     pub fn as_opt<M: Matcher>(&self) -> Option<M::Match<'_>> {
         M::try_match(self)
     }
@@ -652,7 +670,7 @@ impl ArrayRef {
 
     pub fn reduce_parent(
         &self,
-        parent: &ArrayRef,
+        parent: &ParentRef<'_>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         self.0.data.reduce_parent(self, parent, child_idx)
@@ -700,8 +718,8 @@ impl ArrayRef {
     /// Returns the nth child of the array without allocating a Vec.
     ///
     /// Returns `None` if the index is out of bounds.
-    pub fn nth_child(&self, idx: usize) -> Option<ArrayRef> {
-        self.children_iter().nth(idx).cloned()
+    pub fn nth_child(&self, idx: usize) -> Option<&ArrayRef> {
+        self.children_iter().nth(idx)
     }
 
     /// Returns the names of the children of the array: the slot names of the non-None slots
@@ -750,6 +768,7 @@ impl ArrayRef {
     }
 
     /// Returns the slots of the array.
+    #[allow(clippy::same_name_method)]
     pub fn slots(&self) -> &[Option<ArrayRef>] {
         &self.0.slots
     }
@@ -801,18 +820,79 @@ impl IntoArray for ArrayRef {
     }
 }
 
-impl<V: VTable> Matcher for V {
-    type Match<'a> = ArrayView<'a, V>;
-
+impl ParentMaterializer for ArrayRef {
     #[inline]
-    fn matches(array: &ArrayRef) -> bool {
-        array.0.data.as_any().is::<ArrayData<V>>()
+    fn materialize_array_ref(&self) -> &ArrayRef {
+        self
+    }
+}
+
+#[allow(clippy::same_name_method)]
+impl AsParent for ArrayRef {
+    #[inline]
+    fn encoding_id(&self) -> ArrayId {
+        ArrayRef::encoding_id(self)
     }
 
     #[inline]
-    fn try_match(array: &'_ ArrayRef) -> Option<ArrayView<'_, V>> {
-        let inner = array.0.data.as_any().downcast_ref::<ArrayData<V>>()?;
-        // # Safety checked by `downcast_ref`.
-        Some(unsafe { ArrayView::new_unchecked(array, &inner.data) })
+    fn dtype(&self) -> &DType {
+        ArrayRef::dtype(self)
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        ArrayRef::len(self)
+    }
+
+    #[inline]
+    fn slots(&self) -> &[Option<ArrayRef>] {
+        ArrayRef::slots(self)
+    }
+
+    /// Direct downcast on the heap array. The hot `ArrayRef::is::<V>()` path goes
+    /// through here, so any extra work shows up in downstream micro-benchmarks
+    /// (`patches_lookup`, `chunk_array_builder`, ...).
+    #[inline]
+    fn is_encoding<V: VTable>(&self) -> bool {
+        self.0.data.as_any().is::<ArrayData<V>>()
+    }
+
+    #[inline]
+    fn typed_data<V: VTable>(&self) -> Option<&V::TypedArrayData> {
+        self.0
+            .data
+            .as_any()
+            .downcast_ref::<ArrayData<V>>()
+            .map(|data| &data.data)
+    }
+
+    #[inline]
+    fn as_parent_view<V: VTable>(&self) -> Option<ParentView<'_, V>> {
+        let data = AsParent::typed_data::<V>(self)?;
+        // SAFETY: `typed_data::<V>()` returned Some, so the array's encoding is
+        // `V` and `data` is the `V::TypedArrayData` stored inside `self`.
+        Some(unsafe { ParentView::new_unchecked(self, data) })
+    }
+}
+
+impl<V: VTable> Matcher for V {
+    type Match<'a> = ParentView<'a, V>;
+
+    /// Match by encoding id (no materialization). Equivalent to
+    /// [`Matcher::try_match`].is_some() but avoids constructing a
+    /// [`ParentView`] for parents that do not need one.
+    #[inline]
+    fn matches<P: AsParent>(parent: &P) -> bool {
+        parent.is_encoding::<V>()
+    }
+
+    /// Returns a [`ParentView`] for the parent if its encoding is `V`.
+    ///
+    /// The returned [`ParentView`] is stack-backed when the parent is stack-backed,
+    /// so no `Arc<ArrayInner<_>>` is allocated until a downstream consumer reaches
+    /// for [`ParentView::materialize_array_ref`].
+    #[inline]
+    fn try_match<'a, P: AsParent>(parent: &'a P) -> Option<Self::Match<'a>> {
+        parent.as_parent_view::<V>()
     }
 }

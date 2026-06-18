@@ -25,6 +25,7 @@ use vortex_array::ArrayView;
 use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
+use vortex_array::ParentRef;
 use vortex_array::TypedArrayRef;
 use vortex_array::VortexSessionExecute;
 use vortex_array::array_slots;
@@ -356,7 +357,7 @@ impl VTable for FSST {
 
     fn reduce_parent(
         array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
+        parent: &ParentRef<'_>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
@@ -997,15 +998,14 @@ pub trait FSSTArrayExt: FSSTArraySlotsExt {
     /// from [`FSSTData`] with the offsets and validity stored in the array's slots.
     fn codes(&self) -> VarBinArray {
         let offsets = self.codes_offsets().clone();
-        let validity =
-            child_to_validity(self.codes_validity(), self.as_ref().dtype().nullability());
+        let validity = child_to_validity(self.codes_validity(), self.dtype().nullability());
         let codes_bytes = self.codes_bytes_handle().clone();
         // SAFETY: components were validated at construction time.
         unsafe {
             VarBinArray::new_unchecked_from_handle(
                 offsets,
                 codes_bytes,
-                DType::Binary(self.as_ref().dtype().nullability()),
+                DType::Binary(self.dtype().nullability()),
                 validity,
             )
         }
@@ -1013,7 +1013,7 @@ pub trait FSSTArrayExt: FSSTArraySlotsExt {
 
     /// Get the DType of the codes array.
     fn codes_dtype(&self) -> DType {
-        DType::Binary(self.as_ref().dtype().nullability())
+        DType::Binary(self.dtype().nullability())
     }
 }
 

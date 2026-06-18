@@ -70,15 +70,15 @@ pub(crate) struct PairedChunks {
 pub(crate) trait PairedChunksExt: ChunkedArrayExt {
     fn paired_chunks<T: ChunkedArrayExt>(&self, other: &T) -> PairedChunks {
         assert_eq!(
-            self.as_ref().len(),
-            other.as_ref().len(),
+            self.len(),
+            other.len(),
             "paired_chunks requires arrays of equal length"
         );
         PairedChunks {
             left: ChunkCursor::new(self.chunks()),
             right: ChunkCursor::new(other.chunks()),
             pos: 0,
-            total_len: self.as_ref().len(),
+            total_len: self.len(),
         }
     }
 }

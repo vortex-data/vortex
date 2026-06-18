@@ -143,14 +143,16 @@ impl ScalarFnVTable for Cast {
                     ),
                 }
             }
-            ColumnarView::Constant(constant) => match cast_constant(constant, target_dtype)? {
-                Some(result) => Ok(result),
-                None => vortex_bail!(
-                    "No CastReduce to cast constant array from {} to {}",
-                    constant.dtype(),
-                    target_dtype,
-                ),
-            },
+            ColumnarView::Constant(constant) => {
+                match cast_constant(constant.materialize_view(), target_dtype)? {
+                    Some(result) => Ok(result),
+                    None => vortex_bail!(
+                        "No CastReduce to cast constant array from {} to {}",
+                        constant.dtype(),
+                        target_dtype,
+                    ),
+                }
+            }
         }
     }
 
@@ -204,22 +206,30 @@ fn cast_canonical(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
     match canonical {
-        CanonicalView::Null(a) => <Null as CastReduce>::cast(a, dtype),
-        CanonicalView::Bool(a) => <Bool as CastKernel>::cast(a, dtype, ctx),
-        CanonicalView::Primitive(a) => <Primitive as CastKernel>::cast(a, dtype, ctx),
-        CanonicalView::Decimal(a) => <Decimal as CastKernel>::cast(a, dtype, ctx),
-        CanonicalView::VarBinView(a) => <VarBinView as CastKernel>::cast(a, dtype, ctx),
-        CanonicalView::List(a) => <ListView as CastKernel>::cast(a, dtype, ctx),
-        CanonicalView::Map(a) => <Map as CastKernel>::cast(a, dtype, ctx),
-        CanonicalView::FixedSizeList(a) => <FixedSizeList as CastKernel>::cast(a, dtype, ctx),
-        CanonicalView::Struct(a) => struct_cast(a, dtype, ctx),
+        CanonicalView::Null(a) => <Null as CastReduce>::cast(a.materialize_view(), dtype),
+        CanonicalView::Bool(a) => <Bool as CastKernel>::cast(a.materialize_view(), dtype, ctx),
+        CanonicalView::Primitive(a) => {
+            <Primitive as CastKernel>::cast(a.materialize_view(), dtype, ctx)
+        }
+        CanonicalView::Decimal(a) => {
+            <Decimal as CastKernel>::cast(a.materialize_view(), dtype, ctx)
+        }
+        CanonicalView::VarBinView(a) => {
+            <VarBinView as CastKernel>::cast(a.materialize_view(), dtype, ctx)
+        }
+        CanonicalView::List(a) => <ListView as CastKernel>::cast(a.materialize_view(), dtype, ctx),
+        CanonicalView::Map(a) => <Map as CastKernel>::cast(a.materialize_view(), dtype, ctx),
+        CanonicalView::FixedSizeList(a) => {
+            <FixedSizeList as CastKernel>::cast(a.materialize_view(), dtype, ctx)
+        }
+        CanonicalView::Struct(a) => struct_cast(a.materialize_view(), dtype, ctx),
         CanonicalView::Union(_) => {
             todo!(
                 "TODO(connor)[Union]: implement Union casting with conformance coverage for outer \
                  nullability changes, including validation of nullable-to-nonnullable casts"
             )
         }
-        CanonicalView::Extension(a) => <Extension as CastReduce>::cast(a, dtype),
+        CanonicalView::Extension(a) => <Extension as CastReduce>::cast(a.materialize_view(), dtype),
         CanonicalView::Variant(_) => {
             vortex_bail!("Variant arrays don't support casting")
         }

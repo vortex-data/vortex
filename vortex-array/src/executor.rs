@@ -35,6 +35,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::array::ArrayId;
+use crate::array::ParentRef;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
@@ -188,10 +189,10 @@ impl ArrayRef {
 
             let is_done = stack
                 .last()
-                .map_or(M::matches as DonePredicate, |frame| frame.done);
+                .map_or(M::matches::<ArrayRef> as DonePredicate, |frame| frame.done);
 
             let done_target = is_done(&current_array);
-            let done_canonical = AnyCanonical::matches(&current_array);
+            let done_canonical = current_array.is::<AnyCanonical>();
             trace_op!(record_execute_until_done_check(done_target, done_canonical));
 
             if done_target || done_canonical {
@@ -476,9 +477,17 @@ impl Executable for ArrayRef {
         }
         trace_op!(record_single_step_phase_none("reduce", &array));
 
+        let parent_ref = ParentRef::from_array_ref(&array);
         for (slot_idx, slot) in array.slots().iter().enumerate() {
             let Some(child) = slot else { continue };
-            if let Some(reduced_parent) = child.reduce_parent(&array, slot_idx)? {
+            if let Some(reduced_parent) = child.reduce_parent(&parent_ref, slot_idx)? {
+                ctx.log(format_args!(
+                    "reduce_parent: slot[{}]({}) rewrote {} -> {}",
+                    slot_idx,
+                    child.encoding_id(),
+                    array,
+                    reduced_parent
+                ));
                 reduced_parent.statistics().inherit_from(array.statistics());
                 trace_op!(record_single_step_applied(
                     "reduce_parent",
@@ -788,8 +797,8 @@ impl ExecutionResult {
     pub fn execute_slot<M: Matcher>(array: impl IntoArray, slot_idx: usize) -> Self {
         let array = array.into_array();
         Self {
-            array,
-            step: ExecutionStep::ExecuteSlot(slot_idx, M::matches),
+            array: array.into_array(),
+            step: ExecutionStep::ExecuteSlot(slot_idx, M::matches::<ArrayRef>),
         }
     }
 

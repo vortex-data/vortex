@@ -175,7 +175,7 @@ pub fn list_to_vector_ext(input: ArrayRef) -> VortexResult<ArrayRef> {
     // losslessly convertible to a non-nullable FSL as long as the runtime validity is
     // `NonNullable`/`AllValid`; we must only reject when a real null is present.
     let elements = if elem_nullability.is_nullable() {
-        let primitive = raw_elements.as_opt::<Primitive>().ok_or_else(|| {
+        let primitive = raw_elements.as_typed::<Primitive>().ok_or_else(|| {
             vortex_err!(
                 "list_to_vector_ext: expected nullable-float elements to downcast to \
                  Primitive, got dtype {}",

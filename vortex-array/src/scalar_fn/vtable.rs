@@ -104,7 +104,7 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     /// Implementations may assume correct arity and will panic or return nonsensical results if
     /// violated.
     ///
-    /// [`Expression::try_new`]: crate::expr::Expression::try_new
+    /// [`Expression::try_new`]: Expression::try_new
     fn return_dtype(&self, options: &Self::Options, args: &[DType]) -> VortexResult<DType>;
 
     /// Execute the expression over the input arguments.

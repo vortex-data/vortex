@@ -22,6 +22,7 @@ use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::array::ParentRef;
 use crate::optimizer::kernels::ArrayKernels;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::trace_op;
@@ -95,6 +96,7 @@ fn try_optimize(
 
         // Try children in order; the first parent rewrite restarts the fixpoint loop.
         let mut reduced_parent = None;
+        let parent_ref = ParentRef::from_array_ref(&current_array);
         for (slot_idx, slot) in current_array.slots().iter().enumerate() {
             let Some(child) = slot else {
                 continue;
@@ -109,7 +111,7 @@ fn try_optimize(
                 break;
             }
 
-            if let Some(new_array) = child.reduce_parent(&current_array, slot_idx)? {
+            if let Some(new_array) = child.reduce_parent(&parent_ref, slot_idx)? {
                 reduced_parent = Some(new_array);
                 break;
             }
@@ -145,9 +147,11 @@ fn try_session_parent_reduce(
         return Ok(None);
     };
 
+    let parent_ref = ParentRef::from_array_ref(parent);
+
     #[allow(clippy::unused_enumerate_index)]
     for (_kernel_idx, reduce_parent) in reduce_parent_fns.iter().enumerate() {
-        if let Some(new_array) = reduce_parent(child, parent, slot_idx)? {
+        if let Some(new_array) = reduce_parent(child, &parent_ref, slot_idx)? {
             trace_op!(record_session_parent_reduce_applied(
                 parent,
                 child,

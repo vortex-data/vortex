@@ -7,6 +7,7 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::array::ParentView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Filter;
@@ -35,8 +36,8 @@ pub(super) const PARENT_RULES: ParentRuleSet<ScalarFn> = ParentRuleSet::new(&[
 #[derive(Debug)]
 struct ScalarFnPackToStructRule;
 impl ArrayReduceRule<ScalarFn> for ScalarFnPackToStructRule {
-    fn reduce(&self, array: ArrayView<'_, ScalarFn>) -> VortexResult<Option<ArrayRef>> {
-        let Some(pack_options) = array.scalar_fn().as_opt::<Pack>() else {
+    fn reduce(&self, array: ParentView<'_, ScalarFn>) -> VortexResult<Option<ArrayRef>> {
+        let Some(pack_options) = ScalarFnArrayExt::scalar_fn(&array).as_opt::<Pack>() else {
             return Ok(None);
         };
 
@@ -65,7 +66,7 @@ impl ArrayParentReduceRule<ScalarFn> for ScalarFnSliceReduceRule {
     fn reduce_parent(
         &self,
         array: ArrayView<'_, ScalarFn>,
-        parent: ArrayView<'_, Slice>,
+        parent: ParentView<'_, Slice>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         let range = parent.slice_range();
@@ -76,8 +77,12 @@ impl ArrayParentReduceRule<ScalarFn> for ScalarFnSliceReduceRule {
             .collect::<VortexResult<_>>()?;
 
         Ok(Some(
-            ScalarFnArray::try_new_with_len(array.scalar_fn().clone(), children, range.len())?
-                .into_array(),
+            ScalarFnArray::try_new_with_len(
+                ScalarFnArrayExt::scalar_fn(&array).clone(),
+                children,
+                range.len(),
+            )?
+            .into_array(),
         ))
     }
 }
@@ -85,8 +90,8 @@ impl ArrayParentReduceRule<ScalarFn> for ScalarFnSliceReduceRule {
 #[derive(Debug)]
 struct ScalarFnAbstractReduceRule;
 impl ArrayReduceRule<ScalarFn> for ScalarFnAbstractReduceRule {
-    fn reduce(&self, array: ArrayView<'_, ScalarFn>) -> VortexResult<Option<ArrayRef>> {
-        let node = ArrayReduceNode::new(array.as_ref());
+    fn reduce(&self, array: ParentView<'_, ScalarFn>) -> VortexResult<Option<ArrayRef>> {
+        let node = ArrayReduceNode::new(array.materialize_array_ref());
         if let Some(reduced) = array.scalar_fn().reduce_array(&node)? {
             return Ok(Some(reduced.into_array()));
         }
@@ -103,7 +108,7 @@ impl ArrayParentReduceRule<ScalarFn> for ScalarFnUnaryFilterPushDownRule {
     fn reduce_parent(
         &self,
         child: ArrayView<'_, ScalarFn>,
-        parent: ArrayView<'_, Filter>,
+        parent: ParentView<'_, Filter>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // If we only have one non-constant child, then it is _always_ cheaper to push down the
@@ -124,8 +129,12 @@ impl ArrayParentReduceRule<ScalarFn> for ScalarFnUnaryFilterPushDownRule {
                 })
                 .try_collect()?;
 
-            let new_array =
-                ScalarFnArray::try_new(child.scalar_fn().clone(), new_children)?.into_array();
+            let new_array = ScalarFnArray::try_new_with_len(
+                ScalarFnArrayExt::scalar_fn(&child).clone(),
+                new_children,
+                parent.len(),
+            )?
+            .into_array();
 
             return Ok(Some(new_array));
         }

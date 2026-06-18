@@ -97,7 +97,8 @@ pub(crate) fn take<V: FixedWidthArray>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
     if let Some(piecewise_indices) = indices.as_opt::<PiecewiseSequence>()
-        && let Some(taken) = take_contiguous_ranges(array, piecewise_indices, indices, ctx)?
+        && let Some(taken) =
+            take_contiguous_ranges(array, piecewise_indices.materialize_view(), indices, ctx)?
     {
         return Ok(Some(taken));
     }

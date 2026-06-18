@@ -220,7 +220,7 @@ fn with_slot_rewrites_chunk_and_offsets() {
         &mut ctx
     );
     assert_arrays_eq!(
-        array.array().clone(),
+        array.materialize_array_ref().clone(),
         PrimitiveArray::from_iter([1u64, 2, 3, 4, 5, 6, 7, 8, 9]),
         &mut ctx
     );

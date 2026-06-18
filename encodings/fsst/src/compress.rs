@@ -53,9 +53,9 @@ pub fn fsst_compress(
     compressor: &Compressor,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<FSSTArray> {
-    if let Some(view) = array.as_opt::<VarBinView>() {
+    if let Some(view) = array.as_typed::<VarBinView>() {
         compress_varbinview(view, compressor, ctx)
-    } else if let Some(varbin) = array.as_opt::<VarBin>() {
+    } else if let Some(varbin) = array.as_typed::<VarBin>() {
         compress_varbin_array(varbin, compressor, ctx)
     } else {
         vortex_bail!(
@@ -69,9 +69,9 @@ pub fn fsst_compress(
 ///
 /// Accepts any [`VarBinView`] or [`VarBin`]-encoded array; other encodings error.
 pub fn fsst_train_compressor(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Compressor> {
-    if let Some(view) = array.as_opt::<VarBinView>() {
+    if let Some(view) = array.as_typed::<VarBinView>() {
         train_varbinview(view, ctx)
-    } else if let Some(varbin) = array.as_opt::<VarBin>() {
+    } else if let Some(varbin) = array.as_typed::<VarBin>() {
         train_varbin_array(varbin, ctx)
     } else {
         vortex_bail!(

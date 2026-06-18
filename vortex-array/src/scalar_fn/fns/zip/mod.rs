@@ -584,6 +584,6 @@ mod tests {
                 false_value(i)
             }
         }));
-        assert_arrays_eq!(zipped.array().clone(), expected, &mut ctx);
+        assert_arrays_eq!(zipped.materialize_array_ref().clone(), expected, &mut ctx);
     }
 }

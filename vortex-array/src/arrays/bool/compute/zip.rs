@@ -29,7 +29,7 @@ impl ZipKernel for Bool {
         mask: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(if_false) = if_false.as_opt::<Bool>() else {
+        let Some(if_false) = if_false.as_typed::<Bool>() else {
             return Ok(None);
         };
 

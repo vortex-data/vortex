@@ -11,10 +11,8 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::MaskedArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::ScalarFn;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
-use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
@@ -254,9 +252,8 @@ impl BinaryTensorOpMetadata {
     pub(crate) fn encode_from_view<V: ScalarFnVTable>(
         view: &ScalarFnArrayView<V>,
     ) -> VortexResult<Vec<u8>> {
-        let scalar_fn_array = view.as_::<ScalarFn>();
-        let lhs_dtype = Some(scalar_fn_array.child_at(0).dtype().try_into()?);
-        let rhs_dtype = Some(scalar_fn_array.child_at(1).dtype().try_into()?);
+        let lhs_dtype = Some(view.child_at(0).dtype().try_into()?);
+        let rhs_dtype = Some(view.child_at(1).dtype().try_into()?);
         Ok(Self {
             lhs_dtype,
             rhs_dtype,

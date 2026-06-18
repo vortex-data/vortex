@@ -139,7 +139,7 @@ impl BooleanKernel for ByteBool {
             .map(Some);
         }
 
-        let Some(rhs) = rhs.as_opt::<ByteBool>() else {
+        let Some(rhs) = rhs.as_typed::<ByteBool>() else {
             return Ok(None);
         };
 
