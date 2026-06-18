@@ -85,9 +85,15 @@ pub mod flatbuffers {
     pub use vortex_flatbuffers::array::*;
 }
 
-/// Register vortex-array's built-in session-scoped kernels.
+/// Register vortex-array's built-in session-scoped kernels into a standalone
+/// [`ArrayKernels`](crate::optimizer::kernels::ArrayKernels) registry.
+///
+/// Sessions that use [`ArraySession`] already receive vortex-array's built-in kernels from
+/// [`ArraySession::default`].
 pub fn initialize(session: &VortexSession) {
-    arrays::initialize(session);
+    if session.get_opt::<ArrayKernels>().is_some() {
+        arrays::initialize(session);
+    }
 }
 
 /// Builds a fresh [`VortexSession`] registered with all of vortex-array's built-in session
@@ -98,18 +104,15 @@ pub fn initialize(session: &VortexSession) {
 /// additional encodings or kernels into it without affecting any other session. This does not
 /// register file, layout, or runtime state — those live in higher-level crates.
 pub fn array_session() -> VortexSession {
-    let session = VortexSession::builder()
+    VortexSession::builder()
         .with::<ArraySession>()
         .with::<DTypeSession>()
         .with::<ScalarFnSession>()
         .with::<StatsSession>()
-        .with::<ArrayKernels>()
         .with::<AggregateFnSession>()
         .with::<ArrowSession>()
         .with::<MemorySession>()
-        .build();
-    initialize(&session);
-    session
+        .build()
 }
 
 // TODO(ngates): canonicalize doesn't currently take a session, therefore we cannot invoke execute

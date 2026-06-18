@@ -41,7 +41,7 @@ use crate::matcher::Matcher;
 use crate::memory::HostAllocatorRef;
 use crate::memory::MemorySessionExt;
 use crate::optimizer::ArrayOptimizer;
-use crate::optimizer::kernels::ArrayKernels;
+use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::kernels::ParentExecutionKernels;
 use crate::optimizer::kernels::execute_parent_key;
 use crate::stats::ArrayStats;
@@ -330,8 +330,8 @@ impl ExecutionCtx {
     /// Create a new execution context with the given session.
     pub fn new(session: VortexSession) -> Self {
         let execute_parent_kernels = session
-            .get_opt::<ArrayKernels>()
-            .map(ArrayKernels::execute_parent_snapshot)
+            .kernels_opt()
+            .map(|kernels| kernels.execute_parent_snapshot())
             .unwrap_or_default();
         Self {
             session,

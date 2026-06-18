@@ -21,7 +21,7 @@ use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::optimizer::kernels::ArrayKernels;
+use crate::optimizer::kernels::ArrayKernelsExt;
 
 pub mod kernels;
 pub mod rules;
@@ -68,7 +68,7 @@ fn try_optimize(
 ) -> VortexResult<Option<ArrayRef>> {
     let mut current_array = array.clone();
     let mut any_optimizations = false;
-    let array_ref = session.and_then(|s| s.get_opt::<ArrayKernels>());
+    let array_ref = session.and_then(|s| s.kernels_opt());
 
     // Apply reduction rules to the current array until no more rules apply.
     let mut loop_counter = 0;

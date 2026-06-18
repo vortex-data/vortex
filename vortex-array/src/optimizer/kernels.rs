@@ -18,9 +18,10 @@
 //! Because registered functions have different signatures for each kernel kind, the registry
 //! maintains one storage map per function type rather than a single type-erased map.
 //!
-//! Sessions created by the top-level `vortex` crate install the default registry. Other sessions
-//! can add it with [`VortexSession::with`](vortex_session::VortexSession::with) or rely on
-//! [`ArrayKernelsExt::kernels`] to insert the default value.
+//! [`ArraySession`](crate::session::ArraySession) owns vortex-array's built-in kernel registry,
+//! so sessions that install the default array encodings get their matching built-in kernels too.
+//! Sessions can still install a standalone [`ArrayKernels`] registry when they need a kernel-only
+//! setup or an explicit override.
 
 use std::any::Any;
 use std::borrow::Borrow;
@@ -30,6 +31,7 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 use vortex_session::SessionExt;
 use vortex_session::SessionVar;
 use vortex_session::registry::Id;
@@ -46,6 +48,7 @@ use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::cast::Cast;
+use crate::session::ArraySession;
 
 /// Shared hasher used to combine `(outer, child)` tuples into registry keys.
 static FN_HASHER: LazyLock<DefaultHashBuilder> = LazyLock::new(DefaultHashBuilder::default);
@@ -303,9 +306,20 @@ impl SessionVar for ArrayKernels {
 /// Extension trait for accessing optimizer kernels from a
 /// [`VortexSession`](vortex_session::VortexSession).
 pub trait ArrayKernelsExt: SessionExt {
-    /// Returns the [`ArrayKernels`] session variable.
+    /// Returns the [`ArrayKernels`] session variable if one is available.
+    ///
+    /// A standalone [`ArrayKernels`] variable takes precedence. Otherwise, sessions that include
+    /// [`ArraySession`] use its built-in kernel registry.
+    fn kernels_opt(&self) -> Option<&ArrayKernels> {
+        self.get_opt::<ArrayKernels>()
+            .or_else(|| self.get_opt::<ArraySession>().map(ArraySession::kernels))
+    }
+
+    /// Returns the available [`ArrayKernels`] registry.
     fn kernels(&self) -> &ArrayKernels {
-        self.get::<ArrayKernels>()
+        self.kernels_opt().unwrap_or_else(|| {
+            vortex_panic!("Session contains neither ArrayKernels nor ArraySession")
+        })
     }
 }
 
