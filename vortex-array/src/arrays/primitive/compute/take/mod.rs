@@ -20,7 +20,6 @@ use crate::arrays::dict::TakeExecute;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
-use crate::dtype::NativePType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
@@ -106,10 +105,7 @@ impl TakeExecute for Primitive {
 
 // Compiler may see this as unused based on enabled features
 #[inline(always)]
-fn take_primitive_scalar<T: NativePType, I: IntegerPType>(
-    buffer: &[T],
-    indices: &[I],
-) -> Buffer<T> {
+fn take_primitive_scalar<T: Copy, I: IntegerPType>(buffer: &[T], indices: &[I]) -> Buffer<T> {
     // NB: The simpler `indices.iter().map(|idx| buffer[idx.as_()]).collect()` generates suboptimal
     // assembly where the buffer length is repeatedly loaded from the stack on each iteration.
 
