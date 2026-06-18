@@ -957,7 +957,11 @@ fn split_ranges_from_node(node: &ScanNodeRef, row_count: u64) -> VortexResult<Ve
 
 fn expand_file_root(file: &VortexFile, session: &VortexSession) -> VortexResult<ScanNodeRef> {
     let mut node_request = NodeRequest::empty();
-    let root = ExpandCtx::new(session.clone()).expand(file.footer().layout(), &mut node_request)?;
+    let layout = file
+        .footer()
+        .layout2()
+        .ok_or_else(|| vortex_err!("scan2 requires a v2 footer layout"))?;
+    let root = ExpandCtx::new(session.clone()).expand(layout, &mut node_request)?;
     Ok(match file.footer().statistics().cloned() {
         Some(stats) => FileStatsScanNode::try_new(
             Arc::clone(&root),

@@ -35,6 +35,7 @@ use vortex_flatbuffers::footer as fb;
 use vortex_layout::LayoutEncodingId;
 use vortex_layout::LayoutRef;
 use vortex_layout::layout_from_flatbuffer_with_options;
+use vortex_layout::layout_v2;
 use vortex_layout::session::LayoutSessionExt;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
@@ -43,6 +44,7 @@ use vortex_session::registry::ReadContext;
 #[derive(Debug, Clone)]
 pub struct Footer {
     root_layout: LayoutRef,
+    root_layout2: Option<layout_v2::LayoutRef>,
     segments: Arc<[SegmentSpec]>,
     statistics: Option<FileStatistics>,
     // The specific arrays used within the file, in the order they were registered.
@@ -60,6 +62,7 @@ impl Footer {
     ) -> Self {
         Self {
             root_layout,
+            root_layout2: None,
             segments,
             statistics,
             array_read_ctx,
@@ -102,12 +105,19 @@ impl Footer {
         let array_read_ctx = ReadContext::new(array_ids);
 
         let root_layout = layout_from_flatbuffer_with_options(
-            layout_bytes,
+            layout_bytes.clone(),
             &dtype,
             &layout_read_ctx,
             &array_read_ctx,
             session.layouts().registry(),
             session.allows_unknown(),
+        )?;
+        let root_layout2 = layout_v2::layout_from_flatbuffer(
+            layout_bytes,
+            &dtype,
+            &layout_read_ctx,
+            &array_read_ctx,
+            session.layouts().v2_registry(),
         )?;
 
         let segments: Arc<[SegmentSpec]> = fb_footer
@@ -124,6 +134,7 @@ impl Footer {
 
         Ok(Self {
             root_layout,
+            root_layout2: Some(root_layout2),
             segments,
             statistics,
             array_read_ctx,
@@ -134,6 +145,11 @@ impl Footer {
     /// Returns the root [`LayoutRef`] of the file.
     pub fn layout(&self) -> &LayoutRef {
         &self.root_layout
+    }
+
+    /// Returns the root v2 layout of the file, when available.
+    pub fn layout2(&self) -> Option<&layout_v2::LayoutRef> {
+        self.root_layout2.as_ref()
     }
 
     /// Returns the segment map of the file.

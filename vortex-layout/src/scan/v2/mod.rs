@@ -3,7 +3,7 @@
 
 //! Scan2 layout-node machinery.
 //!
-//! This module contains the layout-tree expansion rules and executable
+//! This module contains the layout-tree expansion vtables and executable
 //! [`ScanNode`](node::ScanNode) plans used by the alternate scan implementation.
 
 pub mod evidence;
@@ -12,7 +12,6 @@ pub mod session;
 
 pub(crate) mod layouts;
 pub mod node;
-
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::StructFields;

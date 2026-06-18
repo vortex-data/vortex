@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::sync::Arc;
 
 use vortex_session::Ref;
 use vortex_session::SessionExt;
@@ -9,6 +10,8 @@ use vortex_session::SessionVar;
 use vortex_session::registry::Registry;
 
 use crate::LayoutEncodingRef;
+use crate::layout_v2;
+use crate::layout_v2::VTable as _;
 use crate::layouts::chunked::ChunkedLayoutEncoding;
 use crate::layouts::dict::DictLayoutEncoding;
 use crate::layouts::flat::FlatLayoutEncoding;
@@ -21,6 +24,7 @@ pub type LayoutRegistry = Registry<LayoutEncodingRef>;
 #[derive(Debug)]
 pub struct LayoutSession {
     registry: LayoutRegistry,
+    v2_registry: layout_v2::LayoutVTableRegistry,
 }
 
 impl LayoutSession {
@@ -40,11 +44,23 @@ impl LayoutSession {
     pub fn registry(&self) -> &LayoutRegistry {
         &self.registry
     }
+
+    /// Register a v2 layout vtable in the session, replacing any existing vtable with the same ID.
+    pub fn register_v2<V: layout_v2::VTable>(&self, vtable: V) {
+        self.v2_registry
+            .register(vtable.id(), Arc::new(vtable) as layout_v2::LayoutVTableRef);
+    }
+
+    /// Returns the v2 layout vtable registry.
+    pub fn v2_registry(&self) -> &layout_v2::LayoutVTableRegistry {
+        &self.v2_registry
+    }
 }
 
 impl Default for LayoutSession {
     fn default() -> Self {
         let layouts = LayoutRegistry::default();
+        let v2_layouts = layout_v2::LayoutVTableRegistry::default();
 
         // Register the built-in layout encodings.
         layouts.register(ChunkedLayoutEncoding.id(), ChunkedLayoutEncoding.as_ref());
@@ -53,7 +69,32 @@ impl Default for LayoutSession {
         layouts.register(ZonedLayoutEncoding.id(), ZonedLayoutEncoding.as_ref());
         layouts.register(DictLayoutEncoding.id(), DictLayoutEncoding.as_ref());
 
-        Self { registry: layouts }
+        // Register the built-in v2 layout vtables.
+        v2_layouts.register(
+            layout_v2::Chunked.id(),
+            Arc::new(layout_v2::Chunked) as layout_v2::LayoutVTableRef,
+        );
+        v2_layouts.register(
+            layout_v2::Flat.id(),
+            Arc::new(layout_v2::Flat) as layout_v2::LayoutVTableRef,
+        );
+        v2_layouts.register(
+            layout_v2::Struct.id(),
+            Arc::new(layout_v2::Struct) as layout_v2::LayoutVTableRef,
+        );
+        v2_layouts.register(
+            layout_v2::Zoned.id(),
+            Arc::new(layout_v2::Zoned) as layout_v2::LayoutVTableRef,
+        );
+        v2_layouts.register(
+            layout_v2::Dict.id(),
+            Arc::new(layout_v2::Dict) as layout_v2::LayoutVTableRef,
+        );
+
+        Self {
+            registry: layouts,
+            v2_registry: v2_layouts,
+        }
     }
 }
 

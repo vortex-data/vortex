@@ -28,7 +28,7 @@ pub enum EvidenceMode {
 
 /// Expansion-time context reserved for layout-local scan setup.
 ///
-/// Scan2 no longer carries predicates through expansion. Layout rules
+/// Scan2 no longer carries predicates through expansion. Layout scan vtables
 /// must expose expression behavior through
 /// [`ScanNode::try_push_expr`](super::node::ScanNode::try_push_expr),
 /// [`ScanNode::plan_read`](super::node::ScanNode::plan_read), and

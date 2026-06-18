@@ -5,12 +5,11 @@
 //! capabilities (plan 017).
 //!
 //! Like the v1 scan, a file's layout tree expands into one node per
-//! layout through session-registered rules, and the typed traits here are
+//! layout through v2 layout-vtable scan expansion, and the typed traits here are
 //! author-facing: the engine works through the blanket-implemented
-//! [`DynScanNode`] / [`DynLayoutScanRule`] adapters. Three things are
-//! new:
+//! [`DynScanNode`] adapter. Three things are new:
 //!
-//! - expansion is *negotiation*: rules see the scoped scan request before
+//! - expansion is *negotiation*: layout scan vtables see the scoped scan request before
 //!   expression pushdown plans reads and evidence (see [`super::request`]);
 //! - expression pushdown returns another scan node whose root value is
 //!   the pushed expression, so reads and evidence are planned from
@@ -46,12 +45,10 @@ use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
-use crate::LayoutEncodingId;
-use crate::LayoutRef;
+use crate::layout_v2::LayoutRef;
 use crate::scan::v2::evidence::EvidenceFragment;
 use crate::scan::v2::request::EvidenceRequest;
 use crate::scan::v2::request::NodeRequest;
-use crate::scan::v2::session::ScanV2SessionExt;
 use crate::segments::SegmentPlanCtx;
 use crate::segments::SegmentRequests;
 use crate::segments::SegmentSource;
@@ -87,9 +84,6 @@ pub type ScanStateRef = Arc<ScanState>;
 
 /// A reference-counted, type-erased scan2 node.
 pub type ScanNodeRef = Arc<dyn DynScanNode>;
-
-/// A reference-counted, type-erased scan2 rule.
-pub type ScanRuleRef = Arc<dyn DynLayoutScanRule>;
 
 /// A reference-counted, type-erased evidence plan.
 pub type EvidencePlanRef = Arc<dyn DynEvidencePlan>;
@@ -247,27 +241,6 @@ pub struct AggregateAnswer {
     /// Rows of the requested range the statistics could not answer, as
     /// disjoint ascending spans in this node's row coordinates.
     pub residual: Vec<Range<u64>>,
-}
-
-/// One layout encoding's scan2 behaviour, registered per
-/// [`LayoutEncodingId`]. Not object safe; the engine resolves rules as
-/// [`ScanRuleRef`]s through the blanket [`DynLayoutScanRule`] adapter.
-pub trait LayoutScanRule: 'static + fmt::Debug + Send + Sync {
-    /// The scan-tree node this rule expands to.
-    type Node: ScanNode;
-
-    /// The layout encoding this rule reads.
-    fn id(&self) -> LayoutEncodingId;
-
-    /// Expand one layout node into a scan node. Row-preserving children
-    /// receive the same request object; children in another row domain
-    /// receive [`NodeRequest::empty`].
-    fn expand(
-        &self,
-        layout: &LayoutRef,
-        req: &mut NodeRequest,
-        cx: &ExpandCtx,
-    ) -> VortexResult<Self::Node>;
 }
 
 /// A node in the expanded scan2 tree. Nodes are shared across queries;
@@ -1410,36 +1383,6 @@ fn downcast_erased_state<T: Send + Sync + 'static>(state: &ScanState) -> VortexR
     })
 }
 
-/// Object-safe view of a [`LayoutScanRule`]. Blanket-implemented; never
-/// by hand.
-pub trait DynLayoutScanRule: fmt::Debug + Send + Sync {
-    /// The layout encoding this rule reads.
-    fn id(&self) -> LayoutEncodingId;
-
-    /// Expand one layout node into a type-erased scan2 node.
-    fn expand(
-        &self,
-        layout: &LayoutRef,
-        req: &mut NodeRequest,
-        cx: &ExpandCtx,
-    ) -> VortexResult<ScanNodeRef>;
-}
-
-impl<R: LayoutScanRule> DynLayoutScanRule for R {
-    fn id(&self) -> LayoutEncodingId {
-        LayoutScanRule::id(self)
-    }
-
-    fn expand(
-        &self,
-        layout: &LayoutRef,
-        req: &mut NodeRequest,
-        cx: &ExpandCtx,
-    ) -> VortexResult<ScanNodeRef> {
-        Ok(Arc::new(LayoutScanRule::expand(self, layout, req, cx)?))
-    }
-}
-
 /// Recover a node's concrete file/query global state from its erased form.
 pub(crate) fn downcast_state<T: ScanNode>(state: &ScanState) -> VortexResult<&T::State> {
     state.downcast_ref::<T::State>().ok_or_else(|| {
@@ -1450,8 +1393,8 @@ pub(crate) fn downcast_state<T: ScanNode>(state: &ScanState) -> VortexResult<&T:
     })
 }
 
-/// Resolves layout encodings to their registered scan2 rules during
-/// expansion. Rules recurse into child layouts through
+/// Expands layout encodings through their vtable-provided scan2 nodes.
+/// Scan vtables recurse into child layouts through
 /// [`ExpandCtx::expand`] (passing the scoped request through
 /// row-preserving children) or [`ExpandCtx::expand_free`] (for children
 /// in another row domain, and for lazy runtime expansion).
@@ -1461,27 +1404,20 @@ pub struct ExpandCtx {
 }
 
 impl ExpandCtx {
-    /// An expansion context resolving rules from `session`.
+    /// An expansion context carrying the session used by scan nodes.
     pub fn new(session: VortexSession) -> Self {
         Self { session }
     }
 
-    /// The session rules are resolved from.
+    /// The session scan nodes are expanded with.
     pub fn session(&self) -> &VortexSession {
         &self.session
     }
 
-    /// Expand `layout` through its encoding's registered scan2 rule,
+    /// Expand `layout` through its encoding's scan2 vtable,
     /// negotiating `req` on the way down.
     pub fn expand(&self, layout: &LayoutRef, req: &mut NodeRequest) -> VortexResult<ScanNodeRef> {
-        let id = layout.encoding_id();
-        let rule = self.session.scan_v2_rules().find(&id).ok_or_else(|| {
-            vortex_err!(
-                "no scan2 rule registered for layout encoding {id}; register one with \
-                 ScanV2Session::register"
-            )
-        })?;
-        rule.expand(layout, req, self)
+        layout.new_scan_node(req, self)
     }
 
     /// Expand `layout` with an empty request: for children in another row

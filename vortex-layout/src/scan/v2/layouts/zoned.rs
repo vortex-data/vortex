@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Scan2 rule for zoned (zone-map) layouts: the canonical proof producer.
+//! Scan2 vtable support for zoned (zone-map) layouts: the canonical proof producer.
 //!
 //! Reading delegates straight to the data child. Pushed predicate nodes
 //! expose zone-map evidence plans: per predicate, the falsification and
@@ -40,17 +40,14 @@ use vortex_array::expr::root;
 use vortex_array::expr::stats::Stat;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
-use crate::LayoutEncodingId;
-use crate::LayoutRef;
+use crate::layout_v2::Layout;
+use crate::layout_v2::Zoned;
 use crate::layouts::zoned::MAX_IS_TRUNCATED;
 use crate::layouts::zoned::MIN_IS_TRUNCATED;
-use crate::layouts::zoned::Zoned;
-use crate::layouts::zoned::ZonedLayoutEncoding;
 use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::scan::v2::evidence::EvidenceFragment;
 use crate::scan::v2::evidence::PredicateEvidenceKind;
@@ -63,7 +60,6 @@ use crate::scan::v2::node::EvidencePlanRef;
 use crate::scan::v2::node::EvidenceStateKey;
 use crate::scan::v2::node::ExpandCtx;
 use crate::scan::v2::node::FileReader;
-use crate::scan::v2::node::LayoutScanRule;
 use crate::scan::v2::node::PlanCtx;
 use crate::scan::v2::node::PushCtx;
 use crate::scan::v2::node::ReadPlan;
@@ -80,46 +76,30 @@ use crate::scan::v2::request::NodeRequest;
 use crate::segments::SegmentPlanCtx;
 use crate::segments::SegmentRequests;
 
-/// Scan2 rule for `vortex.zoned`.
-#[derive(Debug)]
-pub struct ZonedScanRule;
-
-impl LayoutScanRule for ZonedScanRule {
-    type Node = ZonedScanNode;
-
-    fn id(&self) -> LayoutEncodingId {
-        ZonedLayoutEncoding.id()
-    }
-
-    fn expand(
-        &self,
-        layout: &LayoutRef,
-        req: &mut NodeRequest,
-        cx: &ExpandCtx,
-    ) -> VortexResult<ZonedScanNode> {
-        let Some(zoned) = layout.as_opt::<Zoned>() else {
-            vortex_bail!("zoned scan2 rule applied to {}", layout.encoding_id());
-        };
-        let zones = layout.child(1)?;
-        Ok(ZonedScanNode {
-            // The data child preserves this node's rows: pass the
-            // expansion request through.
-            data: cx.expand(&layout.child(0)?, req)?,
-            nzones: zones.row_count(),
-            zones: cx.expand_free(&zones)?,
-            column_dtype: layout.dtype().clone(),
-            zone_len: zoned.zone_len() as u64,
-            row_count: layout.row_count(),
-            present_stats: Arc::clone(zoned.present_stats()),
-        })
-    }
+pub(crate) fn new_scan_node(
+    layout: Layout<Zoned>,
+    req: &mut NodeRequest,
+    cx: &ExpandCtx,
+) -> VortexResult<ScanNodeRef> {
+    let zones = layout.child(1)?;
+    Ok(Arc::new(ZonedScanNode {
+        // The data child preserves this node's rows: pass the
+        // expansion request through.
+        data: cx.expand(&layout.child(0)?, req)?,
+        nzones: zones.row_count(),
+        zones: cx.expand_free(&zones)?,
+        column_dtype: layout.dtype().clone(),
+        zone_len: layout.data().zone_len() as u64,
+        row_count: layout.row_count(),
+        present_stats: Arc::clone(layout.data().present_stats()),
+    }))
 }
 
 /// Reads a zoned layout by delegating to its data child; produces
 /// per-zone predicate evidence from the stats table.
 pub struct ZonedScanNode {
     data: ScanNodeRef,
-    /// The zones child (per-zone stats table), read through its own rule.
+    /// The zones child (per-zone stats table), read through its own layout vtable.
     zones: ScanNodeRef,
     nzones: u64,
     column_dtype: DType,

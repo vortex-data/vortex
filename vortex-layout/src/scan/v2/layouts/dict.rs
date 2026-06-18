@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Scan2 rule for dictionary layouts.
+//! Scan2 vtable support for dictionary layouts.
 //!
 //! Value reads keep the v1 shape — values read once per query and
 //! cached, codes read per range (selection-aware), the pair rebuilt as a
@@ -45,15 +45,12 @@ use vortex_array::expr::is_root;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
-use crate::LayoutEncodingId;
-use crate::LayoutRef;
-use crate::layouts::dict::Dict;
-use crate::layouts::dict::DictLayoutEncoding;
+use crate::layout_v2::Dict;
+use crate::layout_v2::Layout;
 use crate::scan::v2::evidence::EvidenceFragment;
 use crate::scan::v2::evidence::PredicateEvidenceKind;
 use crate::scan::v2::node::DynReadPlan;
@@ -61,7 +58,6 @@ use crate::scan::v2::node::EvidencePlan;
 use crate::scan::v2::node::EvidencePlanRef;
 use crate::scan::v2::node::ExpandCtx;
 use crate::scan::v2::node::FileReader;
-use crate::scan::v2::node::LayoutScanRule;
 use crate::scan::v2::node::PlanCtx;
 use crate::scan::v2::node::PushCtx;
 use crate::scan::v2::node::ReadPlan;
@@ -78,36 +74,20 @@ use crate::scan::v2::request::NodeRequest;
 use crate::segments::SegmentPlanCtx;
 use crate::segments::SegmentRequests;
 
-/// Scan2 rule for `vortex.dict`.
-#[derive(Debug)]
-pub struct DictScanRule;
-
-impl LayoutScanRule for DictScanRule {
-    type Node = DictScanNode;
-
-    fn id(&self) -> LayoutEncodingId {
-        DictLayoutEncoding.id()
-    }
-
-    fn expand(
-        &self,
-        layout: &LayoutRef,
-        _req: &mut NodeRequest,
-        cx: &ExpandCtx,
-    ) -> VortexResult<DictScanNode> {
-        if !layout.is::<Dict>() {
-            vortex_bail!("dict scan2 rule applied to {}", layout.encoding_id());
-        }
-        let values = layout.child(0)?;
-        let codes = layout.child(1)?;
-        Ok(DictScanNode {
-            dtype: layout.dtype().clone(),
-            values_len: values.row_count(),
-            // Values and codes live in other row domains.
-            values: cx.expand_free(&values)?,
-            codes: cx.expand_free(&codes)?,
-        })
-    }
+pub(crate) fn new_scan_node(
+    layout: Layout<Dict>,
+    _req: &mut NodeRequest,
+    cx: &ExpandCtx,
+) -> VortexResult<ScanNodeRef> {
+    let values = layout.child(0)?;
+    let codes = layout.child(1)?;
+    Ok(Arc::new(DictScanNode {
+        dtype: layout.dtype().clone(),
+        values_len: values.row_count(),
+        // Values and codes live in other row domains.
+        values: cx.expand_free(&values)?,
+        codes: cx.expand_free(&codes)?,
+    }))
 }
 
 /// Reads a dict layout: shared values (another row domain, read once per

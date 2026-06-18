@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Scan2 rule for flat layouts: one segment, parsed lazily, decoded on
+//! Scan2 vtable support for flat layouts: one segment, parsed lazily, decoded on
 //! demand.
 //!
 //! A flat leaf exposes no evidence producers — it has no statistics or
@@ -22,13 +22,11 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
-use crate::LayoutEncodingId;
-use crate::LayoutRef;
-use crate::layouts::flat::Flat;
-use crate::layouts::flat::FlatLayoutEncoding;
+use crate::layout_v2::Flat;
+use crate::layout_v2::Layout;
+use crate::layout_v2::LayoutRef;
 use crate::scan::v2::node::ExpandCtx;
 use crate::scan::v2::node::FileReader;
-use crate::scan::v2::node::LayoutScanRule;
 use crate::scan::v2::node::PlanCtx;
 use crate::scan::v2::node::ReadPlan;
 use crate::scan::v2::node::ReadPlanRef;
@@ -42,30 +40,14 @@ use crate::scan::v2::request::NodeRequest;
 use crate::segments::SegmentPlanCtx;
 use crate::segments::SegmentRequests;
 
-/// Scan2 rule for `vortex.flat`.
-#[derive(Debug)]
-pub struct FlatScanRule;
-
-impl LayoutScanRule for FlatScanRule {
-    type Node = FlatScanNode;
-
-    fn id(&self) -> LayoutEncodingId {
-        FlatLayoutEncoding.id()
-    }
-
-    fn expand(
-        &self,
-        layout: &LayoutRef,
-        _req: &mut NodeRequest,
-        _cx: &ExpandCtx,
-    ) -> VortexResult<FlatScanNode> {
-        if !layout.is::<Flat>() {
-            vortex_bail!("flat scan2 rule applied to {}", layout.encoding_id());
-        }
-        Ok(FlatScanNode {
-            layout: Arc::clone(layout),
-        })
-    }
+pub(crate) fn new_scan_node(
+    layout: Layout<Flat>,
+    _req: &mut NodeRequest,
+    _cx: &ExpandCtx,
+) -> VortexResult<ScanNodeRef> {
+    Ok(Arc::new(FlatScanNode {
+        layout: layout.to_layout(),
+    }))
 }
 
 /// Reads a flat layout: fetches its segment once per query, parses it
@@ -176,7 +158,7 @@ impl ReadPlan for FlatReadPlan {
             );
         };
         Ok(SegmentRequests::exact(vec![
-            cx.request_for_segment(flat.segment_id())?,
+            cx.request_for_segment(flat.data().segment_id())?,
         ]))
     }
 
@@ -196,13 +178,18 @@ pub(crate) async fn decode_flat(layout: &LayoutRef, io: &FileReader) -> VortexRe
     };
     let row_count = usize::try_from(layout.row_count())
         .map_err(|_| vortex_err!("layout row count exceeds usize"))?;
-    let segment = io.segments().request(flat.segment_id()).await?;
-    let parts = if let Some(tree) = flat.array_tree() {
+    let segment = io.segments().request(flat.data().segment_id()).await?;
+    let parts = if let Some(tree) = flat.data().array_tree() {
         SerializedArray::from_flatbuffer_and_segment(tree.clone(), segment)?
     } else {
         SerializedArray::try_from(segment)?
     };
-    parts.decode(layout.dtype(), row_count, flat.array_ctx(), io.session())
+    parts.decode(
+        layout.dtype(),
+        row_count,
+        flat.data().array_ctx(),
+        io.session(),
+    )
 }
 
 pub(crate) fn slice_to_range(array: ArrayRef, range: &Range<u64>) -> VortexResult<ArrayRef> {

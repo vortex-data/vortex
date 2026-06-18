@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Scan2 rule for chunked layouts.
+//! Scan2 vtable support for chunked layouts.
 //!
 //! Chunks stay *lazy*: children are resolved from the footer and expanded
-//! through their own rules per request, never pre-planned. Chunked is
+//! through their own layout scan vtables per request, never pre-planned. Chunked is
 //! therefore a lazy pushdown boundary: pushed expressions are recorded
 //! once, then replayed into each concrete child only when a read,
 //! evidence request, or aggregate touches that chunk. This lets
@@ -42,9 +42,9 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
-use crate::LayoutEncodingId;
-use crate::LayoutRef;
-use crate::layouts::chunked::ChunkedLayoutEncoding;
+use crate::layout_v2::Chunked;
+use crate::layout_v2::Layout;
+use crate::layout_v2::LayoutRef;
 use crate::scan::v2::evidence::EvidenceFragment;
 use crate::scan::v2::node::AggregateAnswer;
 use crate::scan::v2::node::AggregatePlan;
@@ -53,7 +53,6 @@ use crate::scan::v2::node::EvidencePlan;
 use crate::scan::v2::node::EvidencePlanRef;
 use crate::scan::v2::node::ExpandCtx;
 use crate::scan::v2::node::FileReader;
-use crate::scan::v2::node::LayoutScanRule;
 use crate::scan::v2::node::PlanCtx;
 use crate::scan::v2::node::PushCtx;
 use crate::scan::v2::node::ReadPlan;
@@ -71,41 +70,23 @@ use crate::scan::v2::request::NodeRequest;
 use crate::segments::SegmentPlanCtx;
 use crate::segments::SegmentRequests;
 
-/// Scan2 rule for `vortex.chunked`.
-#[derive(Debug)]
-pub struct ChunkedScanRule;
-
-impl LayoutScanRule for ChunkedScanRule {
-    type Node = ChunkedScanNode;
-
-    fn id(&self) -> LayoutEncodingId {
-        ChunkedLayoutEncoding.id()
-    }
-
-    fn expand(
-        &self,
-        layout: &LayoutRef,
-        _req: &mut NodeRequest,
-        cx: &ExpandCtx,
-    ) -> VortexResult<ChunkedScanNode> {
-        let mut offsets = layout
-            .child_row_offsets()
-            .map(|offset| offset.ok_or_else(|| vortex_err!("chunked layout with auxiliary child")))
-            .collect::<VortexResult<Vec<u64>>>()?;
-        offsets.push(layout.row_count());
-        Ok(ChunkedScanNode {
-            layout: Arc::clone(layout),
-            offsets,
-            cx: cx.clone(),
-            children: Mutex::new(FxHashMap::default()),
-            reads: Mutex::new(FxHashMap::default()),
-        })
-    }
+pub(crate) fn new_scan_node(
+    layout: Layout<Chunked>,
+    _req: &mut NodeRequest,
+    cx: &ExpandCtx,
+) -> VortexResult<ScanNodeRef> {
+    Ok(Arc::new(ChunkedScanNode {
+        layout: layout.to_layout(),
+        offsets: layout.data().chunk_offsets().to_vec(),
+        cx: cx.clone(),
+        children: Mutex::new(FxHashMap::default()),
+        reads: Mutex::new(FxHashMap::default()),
+    }))
 }
 
 /// Reads a chunked layout: cumulative chunk offsets
 /// (`offsets.len() == chunks + 1`), with chunk children expanded lazily
-/// through their own rules.
+/// through their own layout vtables.
 pub struct ChunkedScanNode {
     layout: LayoutRef,
     offsets: Vec<u64>,

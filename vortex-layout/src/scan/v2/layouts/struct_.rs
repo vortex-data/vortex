@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Scan2 rule for struct layouts: plans field access expressions.
+//! Scan2 vtable support for struct layouts: plans field access expressions.
 //!
 //! A struct node treats field access as scalar expression pushdown:
 //! `get_item(field, root())` pushes to the field child, and `select(...)`
@@ -26,12 +26,11 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::LayoutChildType;
-use crate::LayoutEncodingId;
-use crate::LayoutRef;
-use crate::layouts::struct_::StructLayoutEncoding;
+use crate::layout_v2::Layout;
+use crate::layout_v2::LayoutRef;
+use crate::layout_v2::Struct;
 use crate::scan::v2::node::ApplyScanNode;
 use crate::scan::v2::node::ExpandCtx;
-use crate::scan::v2::node::LayoutScanRule;
 use crate::scan::v2::node::MaskScanNode;
 use crate::scan::v2::node::PlanCtx;
 use crate::scan::v2::node::PushCtx;
@@ -44,35 +43,22 @@ use crate::scan::v2::referenced_fields;
 use crate::scan::v2::request::NodeRequest;
 use crate::scan::v2::struct_fields;
 
-/// Scan2 rule for `vortex.struct`.
-#[derive(Debug)]
-pub struct StructScanRule;
-
-impl LayoutScanRule for StructScanRule {
-    type Node = StructScanNode;
-
-    fn id(&self) -> LayoutEncodingId {
-        StructLayoutEncoding.id()
-    }
-
-    fn expand(
-        &self,
-        layout: &LayoutRef,
-        _req: &mut NodeRequest,
-        cx: &ExpandCtx,
-    ) -> VortexResult<StructScanNode> {
-        let validity = layout
-            .dtype()
-            .is_nullable()
-            .then(|| cx.expand(&layout.child(0)?, &mut NodeRequest::empty()))
-            .transpose()?;
-        Ok(StructScanNode {
-            layout: Arc::clone(layout),
-            cx: cx.clone(),
-            children: Mutex::new(FxHashMap::default()),
-            validity,
-        })
-    }
+pub(crate) fn new_scan_node(
+    layout: Layout<Struct>,
+    _req: &mut NodeRequest,
+    cx: &ExpandCtx,
+) -> VortexResult<ScanNodeRef> {
+    let validity = layout
+        .dtype()
+        .is_nullable()
+        .then(|| cx.expand(&layout.child(0)?, &mut NodeRequest::empty()))
+        .transpose()?;
+    Ok(Arc::new(StructScanNode {
+        layout: layout.to_layout(),
+        cx: cx.clone(),
+        children: Mutex::new(FxHashMap::default()),
+        validity,
+    }))
 }
 
 /// Plans struct field expressions through child scan nodes.
@@ -149,7 +135,7 @@ impl StructScanNode {
             return Ok(Arc::clone(hit));
         }
         for idx in 0..self.layout.nchildren() {
-            if let LayoutChildType::Field(field) = self.layout.child_type(idx)
+            if let Ok(LayoutChildType::Field(field)) = self.layout.child_type(idx)
                 && field == *name
             {
                 let mut req = NodeRequest::empty();
