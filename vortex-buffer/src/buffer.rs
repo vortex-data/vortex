@@ -47,7 +47,7 @@ impl<T> Default for Buffer<T> {
         Self {
             bytes: Bytes::from_static(EMPTY_BACKING),
             length: 0,
-            alignment: Alignment::of::<T>(),
+            alignment: Alignment::DEFAULT_ALIGNMENT,
             _marker: PhantomData,
         }
     }
@@ -95,8 +95,25 @@ impl<T> Buffer<T> {
     }
 
     /// Returns a new `Buffer<T>` copied from the provided slice and with the requested alignment.
+    ///
+    /// The allocation is over-aligned to [`Alignment::DEFAULT_ALIGNMENT`] when that is larger than
+    /// `alignment`. Use [`copy_from_preferred_aligned`] to control the over-alignment.
+    ///
+    /// [`copy_from_preferred_aligned`]: Self::copy_from_preferred_aligned
     pub fn copy_from_aligned(values: impl AsRef<[T]>, alignment: Alignment) -> Self {
-        BufferMut::copy_from_aligned(values, alignment).freeze()
+        Self::copy_from_preferred_aligned(values, alignment, Some(Alignment::DEFAULT_ALIGNMENT))
+    }
+
+    /// Returns a new `Buffer<T>` copied from the provided slice and with the requested alignment.
+    ///
+    /// The buffer reports `alignment`, but the underlying allocation is over-aligned to the larger
+    /// of `alignment` and `preferred_alignment`.
+    pub fn copy_from_preferred_aligned(
+        values: impl AsRef<[T]>,
+        alignment: Alignment,
+        preferred_alignment: Option<Alignment>,
+    ) -> Self {
+        BufferMut::copy_from_preferred_aligned(values, alignment, preferred_alignment).freeze()
     }
 
     /// Create a new zeroed `Buffer` with the given value.
@@ -104,14 +121,31 @@ impl<T> Buffer<T> {
         Self::zeroed_aligned(len, Alignment::of::<T>())
     }
 
-    /// Create a new zeroed `Buffer` with the given value.
+    /// Create a new zeroed `Buffer` with the requested alignment.
+    ///
+    /// The allocation is over-aligned to [`Alignment::DEFAULT_ALIGNMENT`] when that is larger than
+    /// `alignment`. Use [`zeroed_preferred_aligned`] to control the over-alignment.
+    ///
+    /// [`zeroed_preferred_aligned`]: Self::zeroed_preferred_aligned
     pub fn zeroed_aligned(len: usize, alignment: Alignment) -> Self {
-        BufferMut::zeroed_aligned(len, alignment).freeze()
+        Self::zeroed_preferred_aligned(len, alignment, Some(Alignment::DEFAULT_ALIGNMENT))
+    }
+
+    /// Create a new zeroed `Buffer` with the requested alignment.
+    ///
+    /// The buffer reports `alignment`, but the underlying allocation is over-aligned to the larger
+    /// of `alignment` and `preferred_alignment`.
+    pub fn zeroed_preferred_aligned(
+        len: usize,
+        alignment: Alignment,
+        preferred_alignment: Option<Alignment>,
+    ) -> Self {
+        BufferMut::zeroed_preferred_aligned(len, alignment, preferred_alignment).freeze()
     }
 
     /// Create a new empty `ByteBuffer` with the provided alignment.
     pub fn empty() -> Self {
-        Self::empty_aligned(Alignment::of::<T>())
+        Self::empty_aligned(Alignment::DEFAULT_ALIGNMENT)
     }
 
     /// Create a new empty `ByteBuffer` with the provided alignment.
@@ -150,7 +184,7 @@ impl<T> Buffer<T> {
     /// the size of `T`.
     pub fn from_byte_buffer(buffer: ByteBuffer) -> Self {
         // TODO(ngates): should this preserve the current alignment of the buffer?
-        Self::from_byte_buffer_aligned(buffer, Alignment::of::<T>())
+        Self::from_byte_buffer_aligned(buffer, Alignment::DEFAULT_ALIGNMENT)
     }
 
     /// Create a `Buffer<T>` zero-copy from a `ByteBuffer`.
@@ -797,7 +831,7 @@ mod test {
         const LEN: usize = 17;
         let alignment = Alignment::new(64);
 
-        let buf = Buffer::<u32>::zeroed_aligned(LEN, alignment);
+        let buf = Buffer::<u32>::zeroed_aligned(LEN, alignment, Some(Alignment::DEFAULT_ALIGNMENT));
 
         assert!(buf.is_aligned(alignment));
         assert_eq!(buf.as_slice(), &[0; LEN]);
@@ -821,7 +855,11 @@ mod test {
 
     #[test]
     fn empty_slice_preserves_alignment() {
-        let buf = Buffer::<u64>::zeroed_aligned(8, Alignment::new(64));
+        let buf = Buffer::<u64>::zeroed_aligned(
+            8,
+            Alignment::new(64),
+            Some(Alignment::DEFAULT_ALIGNMENT),
+        );
         let sliced = buf.slice(0..0);
         assert!(sliced.is_empty());
         assert_eq!(sliced.alignment(), Alignment::new(64));

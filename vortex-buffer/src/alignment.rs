@@ -19,6 +19,9 @@ impl Alignment {
     /// Default alignment for device-to-host buffer copies.
     pub const HOST_COPY: Self = Alignment::new(256);
 
+    /// Default alignment for all buffers.
+    pub const DEFAULT_ALIGNMENT: Self = Alignment::new(256);
+
     /// Create a new alignment.
     ///
     /// ## Panics
