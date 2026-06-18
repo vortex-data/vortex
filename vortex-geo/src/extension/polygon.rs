@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The [`Polygon`] geometry extension type (`vortex.geo.polygon`): rings of the [`Point`]
-//! coordinate struct, stored as `List<List<Struct<x, y[, z][, m]>>>` and tagged with
+//! The [`Polygon`] geometry extension type (`vortex.geo.polygon`): rings of the
+//! [`Point`](super::Point) coordinate struct, stored as `List<List<Struct<x, y[, z][, m]>>>` and tagged with
 //! [`GeoMetadata`] (CRS). The first ring is the exterior boundary; the rest are holes.
 
 use std::sync::Arc;
