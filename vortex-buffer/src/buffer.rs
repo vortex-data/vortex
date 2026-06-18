@@ -763,6 +763,7 @@ impl<T> From<BufferMut<T>> for Buffer<T> {
 #[cfg(test)]
 mod test {
     use bytes::Buf;
+    use rstest::rstest;
 
     use crate::Alignment;
     use crate::Buffer;
@@ -831,9 +832,32 @@ mod test {
         const LEN: usize = 17;
         let alignment = Alignment::new(64);
 
-        let buf = Buffer::<u32>::zeroed_aligned(LEN, alignment, Some(Alignment::DEFAULT_ALIGNMENT));
+        let buf = Buffer::<u32>::zeroed_aligned(LEN, alignment);
 
         assert!(buf.is_aligned(alignment));
+        assert_eq!(buf.as_slice(), &[0; LEN]);
+    }
+
+    #[test]
+    fn copy_from_over_aligns_to_default() {
+        let values = [1u32, 2, 3];
+        let buf = Buffer::<u32>::copy_from(values);
+
+        // The buffer reports the scalar type's alignment, ...
+        assert_eq!(buf.alignment(), Alignment::of::<u32>());
+        // ... but the underlying allocation is over-aligned to DEFAULT_ALIGNMENT.
+        assert!(buf.is_aligned(Alignment::DEFAULT_ALIGNMENT));
+        assert_eq!(buf.as_slice(), &values);
+    }
+
+    #[test]
+    fn zeroed_over_aligns_to_default() {
+        const LEN: usize = 17;
+
+        let buf = Buffer::<u32>::zeroed(LEN);
+
+        assert_eq!(buf.alignment(), Alignment::of::<u32>());
+        assert!(buf.is_aligned(Alignment::DEFAULT_ALIGNMENT));
         assert_eq!(buf.as_slice(), &[0; LEN]);
     }
 
@@ -855,11 +879,7 @@ mod test {
 
     #[test]
     fn empty_slice_preserves_alignment() {
-        let buf = Buffer::<u64>::zeroed_aligned(
-            8,
-            Alignment::new(64),
-            Some(Alignment::DEFAULT_ALIGNMENT),
-        );
+        let buf = Buffer::<u64>::zeroed_aligned(8, Alignment::new(64));
         let sliced = buf.slice(0..0);
         assert!(sliced.is_empty());
         assert_eq!(sliced.alignment(), Alignment::new(64));

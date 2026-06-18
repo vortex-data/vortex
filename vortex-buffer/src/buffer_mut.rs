@@ -161,7 +161,7 @@ impl<T> BufferMut<T> {
 
     /// Create a mutable scalar buffer by copying the contents of the slice.
     pub fn copy_from(other: impl AsRef<[T]>) -> Self {
-        Self::copy_from_aligned(other, Alignment::DEFAULT_ALIGNMENT)
+        Self::copy_from_aligned(other, Alignment::of::<T>())
     }
 
     /// Create a mutable scalar buffer with the alignment by copying the contents of the slice.
