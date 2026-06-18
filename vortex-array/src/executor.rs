@@ -569,6 +569,16 @@ fn execute_parent_for_child(
     if let Some(plugins) = kernels.get(&key) {
         for plugin in plugins.as_ref() {
             if let Some(result) = plugin.execute_parent(child, parent, slot_idx, ctx)? {
+                if cfg!(debug_assertions) {
+                    vortex_ensure!(
+                        result.len() == parent.len(),
+                        "Executed parent canonical length mismatch"
+                    );
+                    vortex_ensure!(
+                        result.dtype() == parent.dtype(),
+                        "Executed parent canonical dtype mismatch"
+                    );
+                }
                 return Ok(Some(result));
             }
         }

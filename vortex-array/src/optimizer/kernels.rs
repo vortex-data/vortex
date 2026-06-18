@@ -251,6 +251,9 @@ impl ArrayKernels {
     /// The executor invokes registered kernels in registration order before falling through to
     /// later registered kernels for the same key. `parent` is usually the parent array's encoding
     /// id. For `ScalarFnArray`, it is the scalar function id, for example `Cast.id()`.
+    ///
+    /// If kernels have already been registered for the same pair, this kernel is appended after
+    /// them; registering for an existing key cannot override built-in kernels installed earlier.
     pub fn register_execute_parent_kernel<V, K>(&self, parent: Id, child: V, kernel: K)
     where
         V: VTable,

@@ -115,8 +115,9 @@ Each child is given the opportunity to execute its parent in a fused manner via
 `ExecuteParentKernel`. Unlike reduce rules, parent kernels may read buffers and perform real
 computation.
 
-An encoding declares its parent kernels in a `ParentKernelSet`, specifying which parent types
-each kernel handles via a `Matcher`:
+An encoding declares parent kernels by implementing `ExecuteParentKernel` and registering them
+with the session-scoped kernel registry, specifying which parent types each kernel handles via a
+`Matcher`:
 
 ```rust
 pub trait ExecuteParentKernel<V: VTable> {
@@ -124,11 +125,17 @@ pub trait ExecuteParentKernel<V: VTable> {
 
     fn execute_parent(
         &self,
-        array: &V::Array,                          // the child
+        array: ArrayView<'_, V>,                   // the child
         parent: <Self::Parent as Matcher>::Match<'_>, // the matched parent
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;
+}
+
+pub fn initialize(session: &VortexSession) {
+    session
+        .kernels()
+        .register_execute_parent_kernel(parent_id, Child, Kernel);
 }
 ```
 
