@@ -70,6 +70,7 @@ tracing = { workspace = true }
 uuid = { workspace = true }
 vortex-array-macros = { workspace = true }
 vortex-buffer = { workspace = true, features = ["arrow"] }
+vortex-compute = { workspace = true }
 vortex-error = { workspace = true, features = ["flatbuffers"] }
 vortex-flatbuffers = { workspace = true, features = ["array", "dtype"] }
 vortex-mask = { workspace = true }
@@ -127,6 +128,10 @@ harness = false
 
 [[bench]]
 name = "binary_ops"
+harness = false
+
+[[bench]]
+name = "kleene_bool"
 harness = false
 
 [[bench]]

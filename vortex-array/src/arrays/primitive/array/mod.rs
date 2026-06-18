@@ -596,6 +596,9 @@ impl PrimitiveData {
     }
 
     /// Try to extract a mutable buffer from the PrimitiveData with zero copy.
+    ///
+    /// # Panic
+    /// If the buffer is not of type T this will panic
     pub fn try_into_buffer_mut<T: NativePType>(self) -> Result<BufferMut<T>, Buffer<T>> {
         if T::PTYPE != self.ptype() {
             vortex_panic!(

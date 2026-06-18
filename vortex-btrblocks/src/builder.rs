@@ -43,7 +43,7 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     &integer::IntRLEScheme,
     // Prefer all other schemes above delta, for now (since its slower to decompress).
     #[cfg(feature = "unstable_encodings")]
-    &integer::DeltaScheme,
+    &integer::DeltaScheme::new(1.25),
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // Float schemes.
     ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -186,7 +186,7 @@ impl BtrBlocksCompressorBuilder {
         // Delta has no GPU decode kernel and its prefix-sum decode is inherently sequential, so it
         // is incompatible with pure-GPU decompression paths.
         #[cfg(feature = "unstable_encodings")]
-        excluded.push(integer::DeltaScheme.id());
+        excluded.push(integer::DeltaScheme::default().id());
         let builder = self.exclude_schemes(excluded);
 
         #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]

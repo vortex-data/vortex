@@ -34,8 +34,29 @@ use crate::SchemeExt;
 /// Delta replaces each value with its difference from an earlier value (at the FastLanes lane
 /// stride), so a later cascade layer (FoR / BitPacking) packs the smaller residuals. It only
 /// pays off when those residuals span meaningfully fewer bits than the values themselves.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct DeltaScheme;
+///
+/// The minimum penalized compression ratio required for Delta to be selected is configurable via
+/// [`DeltaScheme::new`]; [`DeltaScheme::default`] uses a ratio of `1.25`.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct DeltaScheme {
+    min_ratio: f64,
+}
+
+impl DeltaScheme {
+    /// Creates a Delta scheme requiring `min_ratio` (after the [`DELTA_PENALTY`]) before it wins.
+    ///
+    /// Pass a higher ratio to make Delta more conservative, or a lower one to select it more
+    /// eagerly. [`DeltaScheme::default`] uses a ratio of `1.25`.
+    pub const fn new(min_ratio: f64) -> Self {
+        Self { min_ratio }
+    }
+}
+
+impl Default for DeltaScheme {
+    fn default() -> Self {
+        Self::new(1.25)
+    }
+}
 
 /// Multiplicative penalty applied to Delta's estimated compression ratio.
 ///
@@ -65,7 +86,7 @@ impl Scheme for DeltaScheme {
     /// bases and the deltas children so we never delta-encode data that was already delta-encoded.
     fn descendant_exclusions(&self) -> Vec<DescendantExclusion> {
         vec![DescendantExclusion {
-            excluded: DeltaScheme.id(),
+            excluded: self.id(),
             children: ChildSelection::All,
         }]
     }
@@ -110,8 +131,9 @@ impl Scheme for DeltaScheme {
 
         // Estimating Delta needs the real transposed-delta span, so defer to a callback that
         // delta-encodes the array and measures the residual range.
+        let min_ratio = self.min_ratio;
         CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-            |_compressor, data, best_so_far, _ctx, exec_ctx| {
+            move |_compressor, data, best_so_far, _ctx, exec_ctx| {
                 let primitive = data.array().clone().execute::<PrimitiveArray>(exec_ctx)?;
                 let full_width = primitive.ptype().bit_width() as f64;
 
@@ -138,7 +160,7 @@ impl Scheme for DeltaScheme {
                 };
 
                 let ratio = full_width / delta_bits * DELTA_PENALTY;
-                if ratio <= 1.0 {
+                if ratio <= min_ratio {
                     return Ok(EstimateVerdict::Skip);
                 }
                 Ok(EstimateVerdict::Ratio(ratio))
