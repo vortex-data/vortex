@@ -144,7 +144,7 @@ mod test {
     use super::*;
 
     pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = VortexSession::empty();
+        let session = vortex_array::array_session();
         session.arrays().register(BitPacked);
         session.arrays().register(Delta);
         session.arrays().register(FoR);

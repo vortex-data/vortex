@@ -323,7 +323,6 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::serde::SerializedArray;
-    use vortex_array::session::ArraySession;
     use vortex_array::session::ArraySessionExt;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
@@ -348,7 +347,7 @@ mod tests {
         let dtype = array.dtype().clone();
         let len = array.len();
 
-        let session = VortexSession::empty().with::<ArraySession>();
+        let session = vortex_array::array_session();
         session.arrays().register(ParquetVariant);
 
         let ctx = ArrayContext::empty();
@@ -387,8 +386,7 @@ mod tests {
 
     #[fixture]
     fn parquet_variant_file_session() -> VortexSession {
-        let session = VortexSession::empty()
-            .with::<ArraySession>()
+        let session = vortex_array::array_session()
             .with::<LayoutSession>()
             .with::<RuntimeSession>();
         vortex_file::register_default_encodings(&session);

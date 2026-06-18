@@ -1,8 +1,9 @@
 condense_wildcard_suffixes = true
-format_macro_matchers = true
 format_macro_bodies = true
+format_macro_matchers = true
 group_imports = "StdExternalCrate"
+imports_granularity = "Item"
+normalize_comments = true
+style_edition = "2024"
 unstable_features = true
 use_field_init_shorthand = true
-imports_granularity = "Item"
-style_edition = "2024"

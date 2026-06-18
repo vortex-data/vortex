@@ -97,7 +97,7 @@ fn test_filter_with_nulls() {
     let expected = FixedSizeListArray::new(
         expected_elements.into_array(),
         2,
-        Validity::from_iter([true, true]), // Both selected lists are valid, but type is still nullable.
+        Validity::from_iter([true, true]), /* Both selected lists are valid, but type is still nullable. */
         2,
     );
 

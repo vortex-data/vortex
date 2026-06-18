@@ -7,7 +7,7 @@
 //! You can invoke this example from a checkout by running
 //!
 //! ```ignore
-//!cargo run -p vortex-ffi --example hello_vortex
+//! cargo run -p vortex-ffi --example hello_vortex
 //! ```
 
 use std::clone::Clone;

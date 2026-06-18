@@ -105,7 +105,6 @@ mod tests {
     use vortex::buffer::Buffer;
     use vortex::encodings::zigzag::ZigZag;
     use vortex::error::VortexExpect;
-    use vortex::session::VortexSession;
 
     use super::*;
     use crate::CanonicalCudaExt;
@@ -113,7 +112,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_zigzag_decompression_u32() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         // ZigZag encoding: 0->0, 1->-1, 2->1, 3->-2, 4->2, ...

@@ -61,7 +61,6 @@ crate::box_wrapper!(
 /// vx_array_free(applied_array);
 /// vx_expression_free(root);
 /// vx_array_free(array);
-///
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_expression_root() -> *mut vx_expression {
     vx_expression::new(root())
@@ -96,7 +95,6 @@ pub unsafe extern "C" fn vx_expression_root() -> *mut vx_expression {
 /// vx_expression_free(threshold);
 /// vx_expression_free(age);
 /// vx_expression_free(root);
-///
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_expression_literal(
     scalar: *const vx_scalar,
@@ -121,7 +119,6 @@ pub unsafe extern "C-unwind" fn vx_expression_literal(
 /// vx_expression* select = vx_expression_select(names, 2, root);
 /// vx_expression_free(select);
 /// vx_expression_free(root);
-///
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_expression_select(
     names: *const *const c_char,
@@ -245,7 +242,6 @@ impl From<vx_binary_operator> for Operator {
 /// ) {
 ///     return vx_expression_binary(VX_OPERATOR_EQ, lhs, rhs);
 /// }
-///
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_expression_binary(
     operator: vx_binary_operator,

@@ -79,7 +79,6 @@ impl<T: PhysicalPType<Physical: BitPacking>> UnpackStrategy<T> for BitPackingStr
 ///     // handle partial trailing chunk
 /// }
 /// ```
-///
 pub struct UnpackedChunks<T: PhysicalPType, S: UnpackStrategy<T>> {
     strategy: S,
     bit_width: usize,

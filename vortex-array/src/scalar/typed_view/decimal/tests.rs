@@ -992,7 +992,7 @@ fn test_decimal_value_checked_add() {
     let a = DecimalValue::I64(100);
     let b = DecimalValue::I64(200);
     let result = a.checked_add(&b).unwrap();
-    assert_eq!(result, DecimalValue::I256(i256::from_i128(300)));
+    assert_eq!(result, DecimalValue::I64(300));
 }
 
 #[test]
@@ -1000,7 +1000,7 @@ fn test_decimal_value_checked_sub() {
     let a = DecimalValue::I64(500);
     let b = DecimalValue::I64(200);
     let result = a.checked_sub(&b).unwrap();
-    assert_eq!(result, DecimalValue::I256(i256::from_i128(300)));
+    assert_eq!(result, DecimalValue::I64(300));
 }
 
 #[test]
@@ -1008,7 +1008,7 @@ fn test_decimal_value_checked_mul() {
     let a = DecimalValue::I32(50);
     let b = DecimalValue::I32(10);
     let result = a.checked_mul(&b).unwrap();
-    assert_eq!(result, DecimalValue::I256(i256::from_i128(500)));
+    assert_eq!(result, DecimalValue::I32(500));
 }
 
 #[test]
@@ -1016,7 +1016,7 @@ fn test_decimal_value_checked_div() {
     let a = DecimalValue::I64(1000);
     let b = DecimalValue::I64(10);
     let result = a.checked_div(&b).unwrap();
-    assert_eq!(result, DecimalValue::I256(i256::from_i128(100)));
+    assert_eq!(result, DecimalValue::I64(100));
 }
 
 #[test]
@@ -1033,7 +1033,69 @@ fn test_decimal_value_mixed_types() {
     let a = DecimalValue::I8(10);
     let b = DecimalValue::I128(20);
     let result = a.checked_add(&b).unwrap();
-    assert_eq!(result, DecimalValue::I256(i256::from_i128(30)));
+    assert_eq!(result, DecimalValue::I128(30));
+}
+
+#[test]
+fn test_checked_ops_preserve_type() {
+    // Operations should return the wider of the two operand types, not unconditionally upcast to I256
+    let add = DecimalValue::I32(5)
+        .checked_add(&DecimalValue::I32(3))
+        .unwrap();
+    assert_eq!(add.decimal_type(), DecimalType::I32);
+
+    let sub = DecimalValue::I64(10)
+        .checked_sub(&DecimalValue::I64(3))
+        .unwrap();
+    assert_eq!(sub.decimal_type(), DecimalType::I64);
+
+    let mul = DecimalValue::I8(2)
+        .checked_mul(&DecimalValue::I8(3))
+        .unwrap();
+    assert_eq!(mul.decimal_type(), DecimalType::I8);
+
+    let div = DecimalValue::I128(10)
+        .checked_div(&DecimalValue::I128(2))
+        .unwrap();
+    assert_eq!(div.decimal_type(), DecimalType::I128);
+
+    let add_i256 = DecimalValue::I256(i256::from_i128(1))
+        .checked_add(&DecimalValue::I256(i256::from_i128(2)))
+        .unwrap();
+    assert_eq!(add_i256.decimal_type(), DecimalType::I256);
+}
+
+#[test]
+fn test_checked_ops_mixed_types_use_wider() {
+    let add = DecimalValue::I8(1)
+        .checked_add(&DecimalValue::I64(2))
+        .unwrap();
+    assert_eq!(add.decimal_type(), DecimalType::I64);
+
+    let sub = DecimalValue::I32(10)
+        .checked_sub(&DecimalValue::I128(3))
+        .unwrap();
+    assert_eq!(sub.decimal_type(), DecimalType::I128);
+}
+
+#[test]
+fn test_checked_ops_overflow_at_target_width() {
+    assert_eq!(
+        DecimalValue::I8(i8::MAX).checked_add(&DecimalValue::I8(1)),
+        None
+    );
+    assert_eq!(
+        DecimalValue::I16(i16::MIN).checked_sub(&DecimalValue::I16(1)),
+        None
+    );
+    assert_eq!(
+        DecimalValue::I32(i32::MAX).checked_mul(&DecimalValue::I32(2)),
+        None
+    );
+    assert_eq!(
+        DecimalValue::I8(i8::MIN).checked_div(&DecimalValue::I8(-1)),
+        None
+    );
 }
 
 #[test]

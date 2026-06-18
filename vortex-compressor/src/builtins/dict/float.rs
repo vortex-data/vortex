@@ -253,11 +253,9 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::dict::DictArraySlotsExt;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
 
     use super::dictionary_encode;
     use crate::stats::FloatStats;
@@ -265,9 +263,7 @@ mod tests {
 
     #[test]
     fn test_float_dict_encode() -> VortexResult<()> {
-        let mut ctx = VortexSession::empty()
-            .with::<ArraySession>()
-            .create_execution_ctx();
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
         let values = buffer![1f32, 2f32, 2f32, 0f32, 1f32];
         let validity =
             Validity::Array(BoolArray::from_iter([true, true, true, false, true]).into_array());

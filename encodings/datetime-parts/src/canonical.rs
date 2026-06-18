@@ -109,7 +109,6 @@ mod test {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
 
     use crate::DateTimeParts;
     use crate::array::DateTimePartsArraySlotsExt;
@@ -133,7 +132,7 @@ mod test {
             ],
             validity.clone(),
         );
-        let mut ctx = ExecutionCtx::new(VortexSession::empty());
+        let mut ctx = ExecutionCtx::new(vortex_array::array_session());
         let date_times = DateTimeParts::try_from_temporal(
             TemporalArray::new_timestamp(
                 milliseconds.clone().into_array(),

@@ -217,10 +217,8 @@ mod test {
     use crate::arrays::VarBinArray;
     use crate::arrays::dict::DictArraySlotsExt;
     use crate::builders::dict::dict_encode;
-    use crate::session::ArraySession;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
 
     #[test]
     fn encode_varbin() {

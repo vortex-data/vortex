@@ -84,7 +84,6 @@ impl Display for Field {
 /// let dtype_i32 = DType::Primitive(PType::I32, Nullability::NonNullable);
 /// assert_eq!(dtype_i32, FieldPath::root().resolve(dtype_i32.clone()).unwrap());
 /// ```
-///
 // TODO(ngates): we should probably reverse the path. Or better yet, store a Arc<[Field]> along
 //  with a positional index to allow cheap step_into.
 #[derive(Clone, Default, Debug, PartialEq, Eq, Hash)]

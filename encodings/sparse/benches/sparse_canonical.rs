@@ -17,7 +17,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::dtype::PType::I32;
 use vortex_array::scalar::Scalar;
-use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
@@ -28,8 +27,7 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 const LIST_ARGS: &[(usize, usize, usize)] = &[
     // len, patch_stride, list_size

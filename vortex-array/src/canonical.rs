@@ -1155,11 +1155,9 @@ mod test {
     use crate::canonical::StructArray;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
-    use crate::session::ArraySession;
 
     /// A shared session for these canonical tests, used to create execution contexts.
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
 
     fn variant_core_storage(len: usize) -> ArrayRef {
         ConstantArray::new(

@@ -17,7 +17,6 @@ use vortex_array::arrays::dict_test::gen_primitive_for_dict;
 use vortex_array::arrays::dict_test::gen_varbin_words;
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::dtype::NativePType;
-use vortex_array::session::ArraySession;
 use vortex_session::VortexSession;
 
 fn main() {
@@ -38,8 +37,7 @@ const BENCH_ARGS: &[(usize, usize)] = &[
     (10_000, 512),
 ];
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 #[divan::bench(types = [u8, f32, i64], args = BENCH_ARGS)]
 fn encode_primitives<T>(bencher: Bencher, (len, unique_values): (usize, usize))

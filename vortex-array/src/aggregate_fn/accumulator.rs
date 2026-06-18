@@ -264,7 +264,6 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
 mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
-    use vortex_session::SessionExt;
     use vortex_session::VortexSession;
 
     use crate::ArrayRef;
@@ -289,7 +288,6 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::scalar::Scalar;
-    use crate::session::ArraySession;
 
     /// Mean partial sentinel `{sum: 42.0, count: 1}` — distinguishable from the
     /// natural fan-out result `{sum: 7.0, count: 1}` that `Combined::try_accumulate`
@@ -337,7 +335,7 @@ mod tests {
     }
 
     fn fresh_session() -> VortexSession {
-        VortexSession::empty().with::<ArraySession>()
+        crate::array_session()
     }
 
     fn dict_of_seven() -> ArrayRef {

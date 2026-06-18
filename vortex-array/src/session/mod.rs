@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::SessionVar;
 use vortex_session::registry::Registry;
@@ -33,7 +32,7 @@ use crate::arrays::Variant;
 
 pub type ArrayRegistry = Registry<ArrayPluginRef>;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ArraySession {
     /// The set of registered array encodings.
     registry: ArrayRegistry,
@@ -100,7 +99,7 @@ impl SessionVar for ArraySession {
 /// Session data for Vortex arrays.
 pub trait ArraySessionExt: SessionExt {
     /// Returns the array encoding registry.
-    fn arrays(&self) -> Ref<'_, ArraySession> {
+    fn arrays(&self) -> &ArraySession {
         self.get::<ArraySession>()
     }
 

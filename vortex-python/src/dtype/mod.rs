@@ -194,7 +194,7 @@ impl PyDType {
     #[classmethod]
     #[pyo3(signature = (arrow_dtype, *, non_nullable = false))]
     fn from_arrow<'py>(
-        cls: &'py Bound<'py, PyType>,
+        cls: &Bound<'py, PyType>,
         #[pyo3(from_py_with = import_arrow_dtype)] arrow_dtype: DataType,
         non_nullable: bool,
     ) -> PyResult<Bound<'py, PyDType>> {

@@ -49,13 +49,32 @@ pub async fn create_vortex_context(
     let ctx = SessionContext::new();
     let format = Arc::new(VortexFormat::new(session.clone()));
 
+    // Resolve to an absolute, canonical path before handing it to `ListingTableUrl`.
+    // `ListingTable` is collection-oriented: if the object `head` lookup for the URL
+    // fails (which happens for relative or non-canonical paths), DataFusion silently
+    // retries the path as a directory prefix and recursively lists it, crawling
+    // sibling and child directories. Canonicalizing to the existing file keeps us on
+    // the single-file fast path.
+    let canonical = std::fs::canonicalize(file_path)
+        .map_err(|e| format!("Failed to resolve file path '{file_path}': {e}"))?;
+    let canonical = canonical
+        .to_str()
+        .ok_or_else(|| "Resolved path is not valid UTF-8".to_string())?;
+
     let table_url =
-        ListingTableUrl::parse(file_path).map_err(|e| format!("Failed to parse file path: {e}"))?;
+        ListingTableUrl::parse(canonical).map_err(|e| format!("Failed to parse file path: {e}"))?;
+
+    // Clear the file extension filter (it defaults to `format.get_ext()`, i.e.
+    // "vortex"). The CLI/TUI can open a Vortex file under any name, so registering
+    // it for query must not require a `.vortex` extension. This is safe because the
+    // canonical path above keeps us on the single-file path, so no directory listing
+    // happens that an empty extension could over-match.
+    let listing_options = ListingOptions::new(format)
+        .with_file_extension("")
+        .with_session_config_options(ctx.state().config());
 
     let config = ListingTableConfig::new(table_url)
-        .with_listing_options(
-            ListingOptions::new(format).with_session_config_options(ctx.state().config()),
-        )
+        .with_listing_options(listing_options)
         .infer_schema(&ctx.state())
         .await
         .map_err(|e| format!("Failed to infer schema: {e}"))?;

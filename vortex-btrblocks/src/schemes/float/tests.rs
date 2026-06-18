@@ -12,7 +12,6 @@ use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::PrimitiveBuilder;
 use vortex_array::display::DisplayOptions;
 use vortex_array::dtype::Nullability;
-use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer_mut;
@@ -24,8 +23,7 @@ use vortex_session::VortexSession;
 use crate::BtrBlocksCompressor;
 use crate::schemes::float::FloatRLEScheme;
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 #[test]
 fn test_empty() -> VortexResult<()> {

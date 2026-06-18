@@ -14,7 +14,6 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::InterleaveArray;
 use vortex_buffer::Buffer;
-use vortex_session::VortexSession;
 
 fn main() {
     divan::main();
@@ -54,7 +53,7 @@ fn inputs(
 #[divan::bench(args = [2, 4])]
 fn interleave_bool(bencher: Bencher, num_branches: usize) {
     let (values, array_indices, row_indices) = inputs(num_branches, false);
-    let session = VortexSession::empty();
+    let session = vortex_array::array_session();
     bencher
         .with_inputs(|| {
             (
@@ -74,7 +73,7 @@ fn interleave_bool(bencher: Bencher, num_branches: usize) {
 #[divan::bench(args = [2, 4])]
 fn interleave_bool_nullable(bencher: Bencher, num_branches: usize) {
     let (values, array_indices, row_indices) = inputs(num_branches, true);
-    let session = VortexSession::empty();
+    let session = vortex_array::array_session();
     bencher
         .with_inputs(|| {
             (

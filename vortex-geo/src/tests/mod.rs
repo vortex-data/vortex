@@ -9,12 +9,11 @@ mod wkb;
 
 use std::sync::LazyLock;
 
-use vortex_array::session::ArraySession;
 use vortex_session::VortexSession;
 
 /// A session with the geospatial types and functions registered.
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = VortexSession::empty().with::<ArraySession>();
+    let session = vortex_array::array_session();
     crate::initialize(&session);
     session
 });

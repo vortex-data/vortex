@@ -81,11 +81,10 @@ pub fn initialize(session: &VortexSession) {
 mod tests {
     use std::sync::LazyLock;
 
-    use vortex_array::session::ArraySession;
     use vortex_session::VortexSession;
 
     pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = VortexSession::empty().with::<ArraySession>();
+        let session = vortex_array::array_session();
         crate::initialize(&session);
         session
     });

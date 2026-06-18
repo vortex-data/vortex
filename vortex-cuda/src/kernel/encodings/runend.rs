@@ -174,7 +174,6 @@ mod tests {
     use vortex::encodings::runend::RunEndArray;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
-    use vortex::session::VortexSession;
 
     use super::*;
     use crate::CanonicalCudaExt;
@@ -208,7 +207,7 @@ mod tests {
     #[case::u64_ends_i32_values(|ctx: &mut vortex::array::ExecutionCtx| make_runend_array(vec![2u64, 5, 10], vec![1i32, 2, 3], ctx))]
     #[crate::test]
     async fn test_cuda_runend_types(#[case] build: RunEndBuilder) -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let runend_array = build(cuda_ctx.execution_ctx());
@@ -229,7 +228,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_runend_large_array() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let num_runs = 41;
@@ -259,7 +258,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_runend_single_run() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let runend_array = make_runend_array(vec![100u32], vec![42i32], cuda_ctx.execution_ctx());
@@ -281,7 +280,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_runend_many_small_runs() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         // Create an array where each run has length 1.
@@ -308,7 +307,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_runend_nullable_values_falls_back_to_cpu() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         // Build a RunEnd array whose values have Validity::Array (some nulls).

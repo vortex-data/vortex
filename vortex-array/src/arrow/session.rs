@@ -39,7 +39,6 @@ use tracing::trace;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::SessionVar;
 use vortex_session::registry::Id;
@@ -163,7 +162,7 @@ pub type ArrowImportVTableRef = Arc<dyn ArrowImportVTable>;
 /// keyed by Arrow extension name. The default session pre-registers the builtin UUID
 /// plugin; temporal extensions are handled by the canonical Arrow ↔ Vortex path and do not
 /// need plugins.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ArrowSession {
     exporters: ArcSwapMap<Id, Arc<[ArrowExportVTableRef]>>,
     exporters_by_vortex: ArcSwapMap<ExtId, Arc<[ArrowExportVTableRef]>>,
@@ -610,11 +609,11 @@ impl SessionVar for ArrowSession {
 /// Extension trait for accessing the [`ArrowSession`] on a Vortex session.
 pub trait ArrowSessionExt: SessionExt {
     /// Get the Arrow session.
-    fn arrow(&self) -> Ref<'_, ArrowSession>;
+    fn arrow(&self) -> &ArrowSession;
 }
 
 impl<S: SessionExt> ArrowSessionExt for S {
-    fn arrow(&self) -> Ref<'_, ArrowSession> {
+    fn arrow(&self) -> &ArrowSession {
         self.get::<ArrowSession>()
     }
 }
