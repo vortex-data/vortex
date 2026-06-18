@@ -473,9 +473,9 @@ pub fn export_device_array_stream_from_iter(
 /// Export a blocking Vortex array iterator as an [`ArrowDeviceArrayStream`] using an existing CUDA
 /// execution context.
 ///
-/// This is useful for FFI entry points that must finish all fallible CUDA initialization before
-/// consuming an owned input handle. Each yielded array must have `dtype`; every exported batch is
-/// validated to stay on the CUDA device selected by `ctx`.
+/// Use this helper when the caller has already selected the CUDA execution context that must drive
+/// the exported stream. Each yielded array must have `dtype`; every exported batch is validated to
+/// stay on the CUDA device selected by `ctx`.
 pub fn export_device_array_stream_from_iter_with_ctx(
     array_iter: impl Iterator<Item = VortexResult<ArrayRef>> + 'static,
     dtype: DType,

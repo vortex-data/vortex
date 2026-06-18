@@ -103,15 +103,18 @@ pub unsafe extern "C-unwind" fn vx_cuda_array_export_arrow_device(
     })
 }
 
-/// Scan a Vortex partition as an Arrow C Device stream.
+/// Consume a Vortex partition and scan it as an Arrow C Device stream.
+///
+/// This function takes ownership of `partition`. Callers must not free or reuse it after calling
+/// this function, regardless of success or failure.
 ///
 /// On success returns `0` and writes an owned `ArrowDeviceArrayStream` to `out_stream`. The stream
-/// owns the partition and must be released through its embedded Arrow `release` callback. Each
-/// produced `ArrowDeviceArray` is exported on one CUDA device and is independently released by the
-/// consumer through the embedded `ArrowArray.release` callback.
+/// owns the resulting scan iterator. The caller must release the stream through its embedded Arrow
+/// `release` callback, and must release each produced `ArrowDeviceArray` through its embedded
+/// `ArrowArray.release` callback.
 ///
 /// On error returns `1` and, when `error_out` is non-null, writes a `vx_error` (free with
-/// `vx_error_free`). If `partition` is consumed by this call, callers must not free or reuse it.
+/// `vx_error_free`).
 ///
 /// # Safety
 ///
@@ -129,9 +132,9 @@ pub unsafe extern "C-unwind" fn vx_cuda_partition_scan_arrow_device(
         vortex_ensure!(!partition.is_null(), "null vx_partition");
         vortex_ensure!(!out_stream.is_null(), "null ArrowDeviceArrayStream output");
 
+        let (dtype, array_iter) = unsafe { vx_partition_into_array_iter(partition) }?;
         let session = session_with_cuda(unsafe { vx_session_ref(session) }?)?;
         let ctx = CudaSession::create_execution_ctx(&session)?;
-        let (dtype, array_iter) = unsafe { vx_partition_into_array_iter(partition) }?;
         let device_stream =
             vortex_cuda::export_device_array_stream_from_iter_with_ctx(array_iter, dtype, ctx);
 

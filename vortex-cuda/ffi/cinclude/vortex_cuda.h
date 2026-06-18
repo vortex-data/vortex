@@ -82,15 +82,17 @@ int vx_cuda_array_export_arrow_device(const vx_session *session,
                                       vx_error **error_out);
 
 /**
- * Scan a Vortex partition as an Arrow C Device stream.
+ * Consume a Vortex partition and scan it as an Arrow C Device stream.
+ *
+ * This function takes ownership of `partition`. Callers must not free or reuse
+ * it after calling this function, regardless of success or failure.
  *
  * On success returns 0 and writes an owned `ArrowDeviceArrayStream` to `out_stream`. The stream owns
- * the partition and must be released through its embedded Arrow `release` callback. Each produced
- * `ArrowDeviceArray` is exported on one CUDA device and must be released independently by the
- * consumer through its embedded `ArrowArray.release` callback.
+ * the resulting scan iterator and must be released through its embedded Arrow `release` callback.
+ * Each produced `ArrowDeviceArray` must be released through its embedded `ArrowArray.release`
+ * callback.
  *
- * On error returns 1 and, when `error_out` is non-NULL, writes a `vx_error` (free with
- * `vx_error_free`). If `partition` is consumed by this call, callers must not free or reuse it.
+ * On error returns 1 and writes a `vx_error` to `error_out` when non-NULL.
  */
 int vx_cuda_partition_scan_arrow_device(const vx_session *session,
                                         vx_partition *partition,
