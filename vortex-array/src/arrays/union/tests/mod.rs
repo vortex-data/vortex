@@ -330,7 +330,9 @@ fn serde_roundtrip() -> VortexResult<()> {
         assert_eq!(decoded.variants(), array.variants());
         for index in 0..len {
             assert_eq!(
-                decoded.array().execute_scalar(index, &mut execution_ctx)?,
+                decoded
+                    .materialize_array_ref()
+                    .execute_scalar(index, &mut execution_ctx)?,
                 array.execute_scalar(index, &mut execution_ctx)?
             );
         }

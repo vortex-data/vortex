@@ -277,7 +277,7 @@ impl VTable for DecimalByteParts {
 
     fn reduce_parent(
         array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
+        parent: &ParentRef<'_>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
@@ -404,6 +404,7 @@ mod tests {
     use vortex_array::ArrayParts;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
+use vortex_array::ParentRef;
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;

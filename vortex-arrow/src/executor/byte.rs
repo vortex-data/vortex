@@ -26,6 +26,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::OffsetBuilderPType;
+use vortex_array::matcher::AsParent;
 use vortex_array::matcher::Matcher;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -42,10 +43,10 @@ use crate::executor::validity::to_arrow_null_buffer;
 struct ArrowByteExportable;
 
 impl Matcher for ArrowByteExportable {
-    type Match<'a> = &'a ArrayRef;
+    type Match<'a> = ();
 
-    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        (array.is::<VarBin>() || array.is::<Chunked>() || array.is::<Constant>()).then_some(array)
+    fn try_match<'a, P: AsParent>(parent: &'a P) -> Option<Self::Match<'a>> {
+        (parent.is::<VarBin>() || parent.is::<Chunked>() || parent.is::<Constant>()).then_some(())
     }
 }
 
@@ -76,7 +77,7 @@ where
 
     // If the Vortex array is in VarBin format, we can directly convert it.
     if let Some(array) = array.as_opt::<VarBin>() {
-        return varbin_to_byte_array::<T>(array, validate_utf8, ctx);
+        return varbin_to_byte_array::<T>(array.materialize_view(), validate_utf8, ctx);
     }
 
     // The builder's offset type matches the Arrow target, so `varbin_to_byte_array` hands the

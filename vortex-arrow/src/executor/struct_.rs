@@ -21,6 +21,7 @@ use vortex_array::arrays::struct_::StructDataParts;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
+use vortex_array::matcher::AsParent;
 use vortex_array::matcher::Matcher;
 use vortex_array::scalar_fn::fns::pack::Pack;
 use vortex_error::VortexResult;
@@ -35,15 +36,15 @@ use crate::session::ArrowSessionExt;
 struct ArrowStructExportable;
 
 impl Matcher for ArrowStructExportable {
-    type Match<'a> = &'a ArrayRef;
+    type Match<'a> = ();
 
-    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        (array.is::<Struct>()
-            || array.is::<Chunked>()
-            || array
+    fn try_match<'a, P: AsParent>(parent: &'a P) -> Option<Self::Match<'a>> {
+        (parent.is::<Struct>()
+            || parent.is::<Chunked>()
+            || parent
                 .as_opt::<ScalarFn>()
                 .is_some_and(|scalar_fn| scalar_fn.scalar_fn().as_opt::<Pack>().is_some()))
-        .then_some(array)
+        .then_some(())
     }
 }
 

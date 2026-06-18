@@ -226,15 +226,49 @@ impl Array<Dict> {
 
     /// Build a new `DictArray` from its components, `codes` and `values`.
     pub fn try_new(codes: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
+        Array::try_from_parts(Self::try_new_parts(codes, values)?)
+    }
+
+    /// Build the [`ArrayParts<Dict>`]. The parts can then be optimized through
+    /// [`ArrayParts::optimize`](crate::array::ArrayParts::optimize) or materialized
+    /// directly with [`ArrayParts::into_array`].
+    pub fn try_new_parts(codes: ArrayRef, values: ArrayRef) -> VortexResult<ArrayParts<Dict>> {
         let dtype = values
             .dtype()
             .union_nullability(codes.dtype().nullability());
         let len = codes.len();
         let data = DictData::try_new(codes.dtype())?;
-        Array::try_from_parts(
+        Ok(
             ArrayParts::new(Dict, dtype, len, data)
                 .with_slots(smallvec![Some(codes), Some(values)]),
         )
+    }
+
+    /// Build the [`ArrayParts<Dict>`] without validating codes or values, recording whether
+    /// all values are referenced by at least one code.
+    ///
+    /// The parts can then be optimized through
+    /// [`ArrayParts::optimize`](crate::array::ArrayParts::optimize) or materialized directly
+    /// with [`ArrayParts::into_array`]. Unlike
+    /// [`set_all_values_referenced`](Self::set_all_values_referenced), this does not run the
+    /// debug-only `all_values_referenced` validation, so it is intended for callers that
+    /// have externally guaranteed the flag (for example a layout validated at write time).
+    ///
+    /// # Safety
+    ///
+    /// See [`DictData::new_unchecked`] and [`DictData::set_all_values_referenced`].
+    pub unsafe fn new_unchecked_parts(
+        codes: ArrayRef,
+        values: ArrayRef,
+        all_values_referenced: bool,
+    ) -> ArrayParts<Dict> {
+        let dtype = values
+            .dtype()
+            .union_nullability(codes.dtype().nullability());
+        let len = codes.len();
+        let data =
+            unsafe { DictData::new_unchecked().set_all_values_referenced(all_values_referenced) };
+        ArrayParts::new(Dict, dtype, len, data).with_slots(smallvec![Some(codes), Some(values)])
     }
 
     /// Build a new `DictArray` without validating the codes or values.

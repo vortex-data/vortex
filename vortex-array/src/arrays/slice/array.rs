@@ -75,15 +75,7 @@ impl SliceData {
 impl Array<Slice> {
     /// Constructs a new `SliceArray`.
     pub fn try_new(child: ArrayRef, range: Range<usize>) -> VortexResult<Self> {
-        let len = range.len();
-        let dtype = child.dtype().clone();
-        let data = SliceData::try_new(child.len(), range)?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Slice, dtype, len, data)
-                    .with_slots(SliceSlots { child }.into_slots()),
-            )
-        })
+        Ok(unsafe { Array::from_parts_unchecked(Self::try_new_parts(child, range)?) })
     }
 
     /// Constructs a new `SliceArray`.
@@ -97,5 +89,15 @@ impl Array<Slice> {
                     .with_slots(SliceSlots { child }.into_slots()),
             )
         }
+    }
+
+    /// Builds the [`ArrayParts<Slice>`] for a slice. The parts can then be
+    /// optimized through [`ArrayParts::optimize`](crate::array::ArrayParts::optimize)
+    /// or materialized directly with [`ArrayParts::into_array`].
+    pub fn try_new_parts(child: ArrayRef, range: Range<usize>) -> VortexResult<ArrayParts<Slice>> {
+        let len = range.len();
+        let dtype = child.dtype().clone();
+        let data = SliceData::try_new(child.len(), range)?;
+        Ok(ArrayParts::new(Slice, dtype, len, data).with_slots(SliceSlots { child }.into_slots()))
     }
 }
