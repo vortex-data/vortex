@@ -87,17 +87,18 @@ int vx_cuda_array_export_arrow_device(const vx_session *session,
  * This function takes ownership of `partition`. Callers must not free or reuse
  * it after calling this function, regardless of success or failure.
  *
- * On success returns 0 and writes an owned `ArrowDeviceArrayStream` to `out_stream`. The stream owns
- * the resulting scan iterator and must be released through its embedded Arrow `release` callback.
- * Each produced `ArrowDeviceArray` must be released through its embedded `ArrowArray.release`
- * callback.
+ * On success returns 0 and writes an owned `ArrowDeviceArrayStream` to
+ * `out_stream`. The stream owns the resulting scan iterator. The caller must
+ * release the stream through its embedded Arrow `release` callback, and must
+ * release each produced `ArrowDeviceArray` through its embedded
+ * `ArrowArray.release` callback.
  *
  * On error returns 1 and writes a `vx_error` to `error_out` when non-NULL.
  */
-int vx_cuda_partition_scan_arrow_device(const vx_session *session,
-                                        vx_partition *partition,
-                                        struct ArrowDeviceArrayStream *out_stream,
-                                        vx_error **error_out);
+int vx_cuda_partition_scan_arrow_device_stream(const vx_session *session,
+                                               vx_partition *partition,
+                                               struct ArrowDeviceArrayStream *out_stream,
+                                               vx_error **error_out);
 
 #ifdef __cplusplus
 }

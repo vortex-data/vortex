@@ -122,7 +122,7 @@ pub unsafe extern "C-unwind" fn vx_cuda_array_export_arrow_device(
 /// partition handle created by `vortex-ffi`. `out_stream` must be a valid writable pointer. If
 /// `error_out` is non-null, it must be valid for writing one error pointer.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_cuda_partition_scan_arrow_device(
+pub unsafe extern "C-unwind" fn vx_cuda_partition_scan_arrow_device_stream(
     session: *const vx_session,
     partition: *mut vx_partition,
     out_stream: *mut ArrowDeviceArrayStream,
