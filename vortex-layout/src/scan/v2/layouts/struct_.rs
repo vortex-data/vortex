@@ -32,6 +32,7 @@ use crate::layouts::struct_::StructLayoutEncoding;
 use crate::scan::v2::node::ApplyScanNode;
 use crate::scan::v2::node::ExpandCtx;
 use crate::scan::v2::node::LayoutScanRule;
+use crate::scan::v2::node::MaskScanNode;
 use crate::scan::v2::node::PlanCtx;
 use crate::scan::v2::node::PushCtx;
 use crate::scan::v2::node::ReadPlanRef;
@@ -100,7 +101,7 @@ impl ScanNode for StructScanNode {
         }
         if let Some(name) = root_field(expr) {
             let child = self.child_field(name)?;
-            return child.try_push_expr(&root(), cx);
+            return Ok(self.apply_validity(child.try_push_expr(&root(), cx)?));
         }
         if let Some(selection) = expr.as_opt::<Select>()
             && expr.child(0).is::<Root>()
@@ -112,7 +113,7 @@ impl ScanNode for StructScanNode {
         if let [name] = fields.as_slice() {
             let scoped = replace(expr.clone(), &get_item(name.clone(), root()), root());
             let child = self.child_field(name)?;
-            return child.try_push_expr(&scoped, cx);
+            return Ok(self.apply_validity(child.try_push_expr(&scoped, cx)?));
         }
         let input = self.push_struct(fields.clone().into(), cx)?;
         Ok(Some(Arc::new(ApplyScanNode::new(input, expr.clone()))))
@@ -128,6 +129,21 @@ impl ScanNode for StructScanNode {
 }
 
 impl StructScanNode {
+    /// Apply this struct's validity to a pushed single-field node.
+    ///
+    /// The single-field fast paths route straight to a child node, bypassing
+    /// the parent struct's validity. When the struct is nullable we wrap the
+    /// child in a [`MaskScanNode`] so the parent's null mask is applied to the
+    /// child result, mirroring the v1 struct reader's `array.mask(validity)`.
+    fn apply_validity(&self, pushed: Option<ScanNodeRef>) -> Option<ScanNodeRef> {
+        match (pushed, &self.validity) {
+            (Some(node), Some(validity)) => {
+                Some(Arc::new(MaskScanNode::new(node, Arc::clone(validity))))
+            }
+            (pushed, _) => pushed,
+        }
+    }
+
     fn child_field(&self, name: &FieldName) -> VortexResult<ScanNodeRef> {
         if let Some(hit) = self.children.lock().get(name) {
             return Ok(Arc::clone(hit));

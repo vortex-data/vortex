@@ -33,6 +33,7 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::arrays::StructArray;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::FieldNames;
 use vortex_array::expr::Expression;
 use vortex_array::expr::is_root;
@@ -1162,6 +1163,120 @@ impl ReadPlan for ApplyReadPlan {
 
     fn release(&self, frontier: u64, state: &Self::State) -> VortexResult<()> {
         self.input.release(frontier, state.as_ref())
+    }
+
+    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        ScanNode::fmt_chain(self.node.as_ref(), f)
+    }
+}
+
+/// Virtual node that applies a parent struct's validity to another node's root
+/// value.
+///
+/// Reads the `input` value and a non-nullable boolean `validity` array in the
+/// same row domain and produces `mask(input, validity)`: rows where validity is
+/// false become null. This mirrors the v1 struct reader's `array.mask(validity)`
+/// behaviour when a single field is projected out of a nullable struct.
+pub struct MaskScanNode {
+    input: ScanNodeRef,
+    validity: ScanNodeRef,
+}
+
+impl MaskScanNode {
+    /// Create a node that masks `input` with a parent struct's `validity`.
+    ///
+    /// `validity` must read a non-nullable boolean array in the same row domain
+    /// as `input` (the struct layout's validity child).
+    pub fn new(input: ScanNodeRef, validity: ScanNodeRef) -> Self {
+        Self { input, validity }
+    }
+}
+
+/// Per-query state for a [`MaskScanNode`].
+pub struct MaskState {
+    input: ScanStateRef,
+    validity: ScanStateRef,
+}
+
+struct MaskReadPlan {
+    node: Arc<MaskScanNode>,
+    input: ReadPlanRef,
+    validity: ReadPlanRef,
+}
+
+impl ScanNode for MaskScanNode {
+    type State = MaskState;
+
+    fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<Self::State> {
+        Ok(MaskState {
+            input: cx.init_node(&self.input)?,
+            validity: cx.init_node(&self.validity)?,
+        })
+    }
+
+    fn plan_read(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Option<ReadPlanRef>> {
+        let input = Arc::clone(&self.input)
+            .plan_read(cx)?
+            .ok_or_else(|| vortex_err!("mask input did not produce a read plan"))?;
+        let validity = Arc::clone(&self.validity)
+            .plan_read(cx)?
+            .ok_or_else(|| vortex_err!("mask validity did not produce a read plan"))?;
+        Ok(Some(Arc::new(MaskReadPlan {
+            node: self,
+            input,
+            validity,
+        })))
+    }
+
+    fn release(&self, frontier: u64, state: &Self::State) -> VortexResult<()> {
+        self.input.release(frontier, state.input.as_ref())?;
+        self.validity.release(frontier, state.validity.as_ref())
+    }
+
+    fn split_hints(&self) -> Option<&[u64]> {
+        self.input.split_hints()
+    }
+
+    fn fmt_chain(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "mask:")?;
+        self.input.fmt_chain(f)
+    }
+}
+
+impl ReadPlan for MaskReadPlan {
+    type State = MaskState;
+
+    fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<Self::State> {
+        Ok(MaskState {
+            input: self.input.init_state(cx)?,
+            validity: self.validity.init_state(cx)?,
+        })
+    }
+
+    fn read_scoped<'a>(
+        &'a self,
+        range: Range<u64>,
+        rows: RowScope<'a>,
+        io: &'a FileReader,
+        state: &'a Self::State,
+        local: &'a mut ExecutionCtx,
+    ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
+        Box::pin(async move {
+            let input = self
+                .input
+                .read_scoped(range.clone(), rows, io, state.input.as_ref(), local)
+                .await?;
+            let validity = self
+                .validity
+                .read_scoped(range, rows, io, state.validity.as_ref(), local)
+                .await?;
+            input.mask(validity)?.execute::<ArrayRef>(local)
+        })
+    }
+
+    fn release(&self, frontier: u64, state: &Self::State) -> VortexResult<()> {
+        self.input.release(frontier, state.input.as_ref())?;
+        self.validity.release(frontier, state.validity.as_ref())
     }
 
     fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
