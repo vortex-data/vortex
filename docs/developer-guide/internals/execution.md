@@ -202,17 +202,23 @@ execute_until<M>(root):
     │     restore builder, │
     │     loop             ▼
     │         ┌────────────────────────────────────────────┐
-    │         │ Step 2a: current_array.execute_parent(     │
-    │         │            stack.top.parent_array )        │
-    │         │ child looks UP at the suspended parent     │
+    │         │ Step 2a: execute_parent_for_child(         │
+    │         │            stack.top.parent_array,         │
+    │         │            current_array )                 │
+    │         │ lookup session kernels by key:             │
+    │         │   (parent.encoding_id(),                   │
+    │         │    child.encoding_id())                    │
     │         ├────────────┬───────────────────────────────┘
     │         │ Some       │ None
     │         │            │
     │         │            ▼
     │         │  ┌─────────────────────────────────────────┐
-    │         │  │ Step 2b: each child.execute_parent(     │
-    │         │  │            current_array )              │
-    │         │  │ children look UP at current_array       │
+    │         │  │ Step 2b: for each child:                │
+    │         │  │   execute_parent_for_child(             │
+    │         │  │     current_array, child )              │
+    │         │  │ lookup session kernels by key:          │
+    │         │  │   (parent.encoding_id(),                │
+    │         │  │    child.encoding_id())                 │
     │         │  ├──────────┬──────────────────────────────┘
     │         │  │ Some     │ None
     │         │  │          │
@@ -243,6 +249,9 @@ Step 2a and Step 2b are skipped while `current_builder` is active. `AppendChild`
 consumes `current_array`: some slots already live in the builder, so a parent rewrite would
 observe inconsistent state and could discard accumulated builder data.
 
+Both Step 2a and Step 2b route through `execute_parent_for_child`, which looks up
+`(parent.encoding_id(), child.encoding_id())` in the session kernel snapshot.
+
 ## Incremental Execution
 
 Execution is incremental: each call to `execute` moves the array one step closer to canonical
@@ -263,12 +272,12 @@ codes through the slice, missing the Dict-RLE optimization entirely. Incremental
 avoids this:
 
 1. First iteration: the slice `execute` returns `ExecuteSlot` for its `RunEndArray` child.
-   Once that child is in focus, Step 2a gives it a chance to rewrite the suspended slice
-   parent before the child is forced toward canonical form.
+   Once that child is in focus, Step 2a looks up a registered parent kernel for the
+   `(slice, runend)` pair before the child is forced toward canonical form.
 
 2. Second iteration: the `RunEndArray` codes child now matches the Dict-RLE pattern. Its
-   `execute_parent` provides a fused kernel that expands runs while performing dictionary
-   lookups in a single pass, returning the canonical array directly.
+   registered execute-parent kernel expands runs while performing dictionary lookups in a single
+   pass, returning the canonical array directly.
 
 ## Walkthrough: Executing a RunEnd-Encoded Array
 
