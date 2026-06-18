@@ -26,7 +26,6 @@ members = [
     "vortex-bench",
     "vortex-datafusion",
     "vortex-duckdb",
-    "vortex-duckdb-extension",
     "vortex-cuda",
     "vortex-cuda/cub",
     "vortex-cuda/ffi",
