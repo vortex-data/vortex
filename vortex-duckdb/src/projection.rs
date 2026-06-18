@@ -198,9 +198,9 @@ pub struct Filter {
     pub has_non_optional_filter: bool,
 }
 
-fn push_filter_expr(filter_exprs: &mut Vec<Expression>, expr: Expression) {
-    if !filter_exprs.iter().any(|existing| existing == &expr) {
-        filter_exprs.push(expr);
+fn push_filter_expr(filter_exprs: &mut Vec<Expression>, expr: &Expression) {
+    if !filter_exprs.iter().any(|existing| existing == expr) {
+        filter_exprs.push(expr.clone());
     }
 }
 
@@ -228,12 +228,12 @@ impl Filter {
                 let col_idx: usize = column_ids[idx_u].as_();
                 let name = &column_fields.get(col_idx).vortex_expect("exists").name;
                 if let Some(expr) = try_from_table_filter(ex, &col(name.as_str()), dtype)? {
-                    push_filter_expr(&mut table_filter_exprs, expr);
+                    push_filter_expr(&mut table_filter_exprs, &expr);
                 }
             }
         }
 
-        for expr in additional_filters.iter().cloned() {
+        for expr in additional_filters {
             push_filter_expr(&mut table_filter_exprs, expr);
         }
 

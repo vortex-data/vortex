@@ -8,6 +8,7 @@ use std::sync::Arc;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
@@ -21,6 +22,7 @@ use vortex_array::expr::stats::Stat;
 use vortex_array::scalar_fn::internal::row_count::contains_row_count;
 use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
 use vortex_array::stats::bind::StatBinder;
+use vortex_array::stats::bind::bind_direct_aggregate_stat;
 use vortex_array::stats::bind::bind_stats;
 use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
@@ -155,6 +157,15 @@ impl StatBinder for ZoneMapStatsBinder<'_> {
             return Ok(None);
         }
         Ok(Some(get_item(stat.name(), root())))
+    }
+
+    fn bind_aggregate(
+        &self,
+        input: &Expression,
+        aggregate_fn: &AggregateFnRef,
+        stat_dtype: &DType,
+    ) -> VortexResult<Option<Expression>> {
+        bind_direct_aggregate_stat(self, input, aggregate_fn, stat_dtype)
     }
 }
 

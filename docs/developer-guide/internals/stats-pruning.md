@@ -35,11 +35,5 @@ expression is reduced and evaluated once for the full file. If it evaluates to
 `true`, the file stats reader can return an all-false pruning mask without
 reading child layouts.
 
-Scan planning uses `checked_pruning_expr` to lower a falsified expression against
-the available stats table schema. It returns the stats-table expression and the
-set of stat fields still required after expression reduction. If all required
-stats are missing, only a constant `true` proof is useful; all other results are
-treated as no pruning expression.
-
 For the layout model around these pruning points, see
 [Layouts](../../concepts/layouts.md) and [Scanning](../../concepts/scanning.md).

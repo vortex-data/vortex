@@ -57,17 +57,16 @@ pub trait StatBinder {
 
     /// Bind `aggregate_fn(input)` to a concrete expression.
     ///
-    /// The default implementation supports aggregate functions that map
-    /// directly to [`Stat`] slots. Binders that store richer aggregate stats can
-    /// override this method without extending the generic stats binding walker.
+    /// Implementations should return `Ok(None)` when the requested aggregate
+    /// statistic is unavailable in their backing representation. Binders that
+    /// support only direct legacy [`Stat`] slots can delegate to
+    /// [`bind_direct_aggregate_stat`].
     fn bind_aggregate(
         &self,
         input: &Expression,
         aggregate_fn: &AggregateFnRef,
         stat_dtype: &DType,
-    ) -> VortexResult<Option<Expression>> {
-        bind_direct_aggregate_stat(self, input, aggregate_fn, stat_dtype)
-    }
+    ) -> VortexResult<Option<Expression>>;
 
     /// Expression to use when a stat is unavailable.
     ///
@@ -203,6 +202,15 @@ mod tests {
             } else {
                 Ok(None)
             }
+        }
+
+        fn bind_aggregate(
+            &self,
+            input: &Expression,
+            aggregate_fn: &AggregateFnRef,
+            stat_dtype: &DType,
+        ) -> VortexResult<Option<Expression>> {
+            bind_direct_aggregate_stat(self, input, aggregate_fn, stat_dtype)
         }
     }
 
