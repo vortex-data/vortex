@@ -15,6 +15,7 @@ use crate::arrays::Dict;
 use crate::arrays::DictArray;
 use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
+use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::scalar_fn::AnyScalarFn;
@@ -136,13 +137,19 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnValuesPushDownRule {
         // back to nullable if needed.
         if sig.is_null_sensitive() && array.codes().dtype().is_nullable() {
             let new_codes = array.codes().cast(array.codes().dtype().as_nonnullable())?;
-            let new_dict = unsafe { DictArray::new_unchecked(new_codes, new_values) }.into_array();
+            let new_dict = unsafe {
+                DictArray::new_unchecked(new_codes, new_values)
+                    .set_all_values_referenced(array.has_all_values_referenced())
+            }
+            .into_array();
             return Ok(Some(new_dict.cast(parent.dtype().clone())?));
         }
 
-        Ok(Some(
-            unsafe { DictArray::new_unchecked(array.codes().clone(), new_values) }.into_array(),
-        ))
+        Ok(Some(unsafe {
+            DictArray::new_unchecked(array.codes().clone(), new_values)
+                .set_all_values_referenced(array.has_all_values_referenced())
+                .into_array()
+        }))
     }
 }
 
@@ -199,5 +206,42 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnCodesPullUpRule {
             unsafe { DictArray::new_unchecked(array.codes().clone(), new_values) }.into_array();
 
         Ok(Some(new_dict))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+
+    use crate::IntoArray;
+    use crate::arrays::BoolArray;
+    use crate::arrays::Dict;
+    use crate::arrays::DictArray;
+    use crate::arrays::dict::DictArrayExt;
+    use crate::arrays::scalar_fn::ScalarFnFactoryExt;
+    use crate::optimizer::ArrayOptimizer;
+    use crate::scalar_fn::EmptyOptions;
+    use crate::scalar_fn::fns::not::Not;
+
+    #[test]
+    fn scalar_fn_values_pushdown_preserves_all_values_referenced() -> VortexResult<()> {
+        let dict = unsafe {
+            DictArray::try_new(
+                buffer![0u8, 1, 0, 1].into_array(),
+                BoolArray::from_iter([true, false]).into_array(),
+            )?
+            .set_all_values_referenced(true)
+        }
+        .into_array();
+
+        let result = Not
+            .try_new_array(dict.len(), EmptyOptions, [dict])?
+            .optimize()?;
+        let result = result.as_::<Dict>();
+
+        assert!(result.has_all_values_referenced());
+
+        Ok(())
     }
 }
