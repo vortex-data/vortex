@@ -404,6 +404,10 @@ impl DeviceArrayStreamPrivateData {
     }
 
     /// Check that a freshly exported batch matches the stream schema and CUDA device.
+    ///
+    /// The caller still owns `schema` and `array` and is responsible for releasing them on error.
+    /// This method only commits `self.schema` after the batch is accepted, so a rejected first batch
+    /// never becomes the schema later reported by `get_schema`.
     fn check_batch(
         &mut self,
         schema: &FFI_ArrowSchema,
