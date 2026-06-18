@@ -269,16 +269,11 @@ impl ArrayKernels {
         );
     }
 
-    /// Look up the [`ExecuteParentFn`]s registered for `(parent, child)`.
-    ///
-    /// Returns an owned [`Arc`] so the session-variable borrow can be dropped before invoking the
-    /// functions.
-    pub fn find_execute_parent(
-        &self,
-        parent: Id,
-        child: Id,
-    ) -> Option<Arc<[ExecuteParentKernelRef]>> {
-        self.execute_parent.get(&hash_fn_id(parent, child))
+    /// Returns true when one or more execute-parent kernels are registered for `(parent, child)`.
+    pub fn has_execute_parent(&self, parent: Id, child: Id) -> bool {
+        self.execute_parent
+            .get(&hash_fn_id(parent, child))
+            .is_some()
     }
 
     /// Return the currently published execute-parent kernel snapshot.
@@ -309,16 +304,17 @@ impl SessionVar for ArrayKernels {
 /// Extension trait for accessing optimizer kernels from a
 /// [`VortexSession`](vortex_session::VortexSession).
 pub trait ArrayKernelsExt: SessionExt {
-    /// Returns the [`ArrayKernels`] session variable if one is available.
+    /// Returns the active [`ArrayKernels`] registry if one is available.
     ///
-    /// A standalone [`ArrayKernels`] variable takes precedence. Otherwise, sessions that include
-    /// [`ArraySession`] use its built-in kernel registry.
+    /// A standalone [`ArrayKernels`] variable takes precedence and is not merged with an
+    /// [`ArraySession`]-owned registry. Otherwise, sessions that include [`ArraySession`] use its
+    /// built-in kernel registry.
     fn kernels_opt(&self) -> Option<&ArrayKernels> {
         self.get_opt::<ArrayKernels>()
             .or_else(|| self.get_opt::<ArraySession>().map(ArraySession::kernels))
     }
 
-    /// Returns the available [`ArrayKernels`] registry.
+    /// Returns the active [`ArrayKernels`] registry.
     fn kernels(&self) -> &ArrayKernels {
         self.kernels_opt().unwrap_or_else(|| {
             vortex_panic!("Session contains neither ArrayKernels nor ArraySession")

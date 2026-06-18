@@ -54,6 +54,10 @@ impl ArraySession {
         &self.registry
     }
 
+    /// Returns this array session's built-in kernel registry.
+    ///
+    /// This registry is used when the surrounding [`VortexSession`] does not contain a standalone
+    /// [`ArrayKernels`] session variable. A standalone [`ArrayKernels`] shadows this registry.
     pub fn kernels(&self) -> &ArrayKernels {
         &self.kernels
     }
@@ -148,11 +152,32 @@ mod tests {
         let session = VortexSession::empty().with::<ArraySession>();
 
         assert!(session.get_opt::<ArrayKernels>().is_none());
+        assert!(session.kernels().has_execute_parent(Binary.id(), Bool.id()));
+    }
+
+    #[test]
+    fn initialize_registers_builtin_kernels_into_empty_array_session() {
+        let session = VortexSession::empty().with_some(ArraySession::empty());
+
+        assert!(!session.kernels().has_execute_parent(Binary.id(), Bool.id()));
+
+        crate::initialize(&session);
+
+        assert!(session.kernels().has_execute_parent(Binary.id(), Bool.id()));
+    }
+
+    #[test]
+    fn standalone_array_kernels_shadow_array_session_kernels() {
+        let session = VortexSession::empty()
+            .with::<ArraySession>()
+            .with::<ArrayKernels>();
+
         assert!(
             session
+                .get::<ArraySession>()
                 .kernels()
-                .find_execute_parent(Binary.id(), Bool.id())
-                .is_some()
+                .has_execute_parent(Binary.id(), Bool.id())
         );
+        assert!(!session.kernels().has_execute_parent(Binary.id(), Bool.id()));
     }
 }

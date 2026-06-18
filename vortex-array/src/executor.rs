@@ -328,6 +328,10 @@ pub struct ExecutionCtx {
 
 impl ExecutionCtx {
     /// Create a new execution context with the given session.
+    ///
+    /// This captures a snapshot of the session's execute-parent kernel registry. Kernels
+    /// registered after this context is created are not visible to it; create a new
+    /// [`ExecutionCtx`] after registration to use newly registered kernels.
     pub fn new(session: VortexSession) -> Self {
         let execute_parent_kernels = session
             .kernels_opt()
@@ -845,5 +849,55 @@ pub trait VortexSessionExecute {
 impl VortexSessionExecute for VortexSession {
     fn create_execution_ctx(&self) -> ExecutionCtx {
         ExecutionCtx::new(self.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_session::VortexSession;
+
+    use super::*;
+    use crate::VTable as _;
+    use crate::arrays::Bool;
+    use crate::arrays::Primitive;
+    use crate::optimizer::kernels::ArrayKernels;
+    use crate::optimizer::kernels::ExecuteParentFn;
+    use crate::optimizer::kernels::execute_parent_key;
+
+    fn noop_execute_parent(
+        _child: &ArrayRef,
+        _parent: &ArrayRef,
+        _child_idx: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        Ok(None)
+    }
+
+    #[test]
+    fn execution_ctx_snapshots_execute_parent_kernels_at_creation() {
+        let session = VortexSession::empty().with::<ArrayKernels>();
+        let key = execute_parent_key(Bool.id(), Primitive.id());
+
+        let before_registration = ExecutionCtx::new(session.clone());
+        assert!(
+            !before_registration
+                .execute_parent_kernels
+                .contains_key(&key)
+        );
+
+        session.kernels().register_execute_parent(
+            Bool.id(),
+            Primitive.id(),
+            &[noop_execute_parent as ExecuteParentFn],
+        );
+
+        assert!(
+            !before_registration
+                .execute_parent_kernels
+                .contains_key(&key)
+        );
+
+        let after_registration = ExecutionCtx::new(session);
+        assert!(after_registration.execute_parent_kernels.contains_key(&key));
     }
 }

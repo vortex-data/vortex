@@ -181,3 +181,28 @@ pub fn register_default_encodings(session: &VortexSession) {
     #[cfg(feature = "unstable_encodings")]
     vortex_tensor::initialize(session);
 }
+
+#[cfg(test)]
+mod default_encoding_tests {
+    use vortex_array::VTable as _;
+    use vortex_array::array_session;
+    use vortex_array::arrays::Filter;
+    use vortex_array::optimizer::kernels::ArrayKernelsExt as _;
+    use vortex_array::session::ArraySessionExt as _;
+    use vortex_fsst::FSST;
+
+    use crate::register_default_encodings;
+
+    #[test]
+    fn register_default_encodings_registers_external_execute_parent_kernels() {
+        let session = array_session();
+
+        assert!(session.arrays().registry().find(&FSST.id()).is_none());
+        assert!(!session.kernels().has_execute_parent(Filter.id(), FSST.id()));
+
+        register_default_encodings(&session);
+
+        assert!(session.arrays().registry().find(&FSST.id()).is_some());
+        assert!(session.kernels().has_execute_parent(Filter.id(), FSST.id()));
+    }
+}

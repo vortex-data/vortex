@@ -31,7 +31,7 @@ use crate::aggregate_fn::session::AggregateFnSession;
 use crate::arrow::ArrowSession;
 use crate::dtype::session::DTypeSession;
 use crate::memory::MemorySession;
-use crate::optimizer::kernels::ArrayKernels;
+use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::scalar_fn::session::ScalarFnSession;
 use crate::session::ArraySession;
 use crate::stats::session::StatsSession;
@@ -85,13 +85,15 @@ pub mod flatbuffers {
     pub use vortex_flatbuffers::array::*;
 }
 
-/// Register vortex-array's built-in session-scoped kernels into a standalone
-/// [`ArrayKernels`] registry.
+/// Register vortex-array's built-in session-scoped kernels into the active
+/// [`ArrayKernels`](crate::optimizer::kernels::ArrayKernels) registry.
 ///
-/// Sessions that use [`ArraySession`] already receive vortex-array's built-in kernels from
-/// [`ArraySession::default`].
+/// If the session contains a standalone [`ArrayKernels`](crate::optimizer::kernels::ArrayKernels),
+/// this registers into that registry. Otherwise, if the session contains an [`ArraySession`], this
+/// registers into the [`ArraySession`]-owned registry. Sessions that use [`ArraySession::default`]
+/// already receive these built-in kernels.
 pub fn initialize(session: &VortexSession) {
-    if session.get_opt::<ArrayKernels>().is_some() {
+    if session.kernels_opt().is_some() {
         arrays::initialize(session);
     }
 }
