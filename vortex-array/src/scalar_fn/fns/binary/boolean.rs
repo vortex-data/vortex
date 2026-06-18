@@ -6,6 +6,7 @@ use std::iter::repeat_n;
 use arrow_array::cast::AsArray;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferMut;
+use vortex_buffer::read_u64_le;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
@@ -37,11 +38,14 @@ use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
 
-/// Trait for encoding-specific Kleene boolean kernels that operate in encoded space.
+/// Trait for encoding-specific boolean kernels that operate in encoded space.
 ///
 /// Implementations receive the encoded array as the left operand. `rhs` may be any boolean array
 /// encoding or a constant; implementations should return `Ok(None)` when they cannot handle that
 /// operand without falling back to ordinary execution.
+///
+/// Vortex's boolean [`Operator::And`] and [`Operator::Or`] variants use Kleene semantics; there is
+/// no separate two-valued boolean operator path to dispatch here.
 pub trait BooleanKernel: VTable {
     /// Execute `lhs <operator> rhs` using Kleene boolean semantics.
     fn boolean(
@@ -268,7 +272,7 @@ pub fn boolean_buffers(
             Operator::Or => lhs_values | &rhs_values,
             other => return Err(vortex_err!("Not a boolean operator: {other}")),
         };
-        return Ok(BoolArray::try_new(values, all_validity(nullability))?.into_array());
+        return Ok(BoolArray::try_new(values, Validity::from(nullability))?.into_array());
     }
 
     let lhs_valid = lhs_validity.execute_mask(len, ctx)?;
@@ -318,14 +322,14 @@ pub fn boolean_buffer_scalar(
                 .bitand_not(&Mask::from_buffer(values));
             BoolArray::try_new(
                 BitBuffer::new_unset(len),
-                mask_to_validity(valid, nullability),
+                Validity::from_mask(valid, nullability),
             )?
         }
         (Operator::Or, None) => {
             let valid = validity.execute_mask(len, ctx)? & &Mask::from_buffer(values);
             BoolArray::try_new(
                 BitBuffer::new_set(len),
-                mask_to_validity(valid, nullability),
+                Validity::from_mask(valid, nullability),
             )?
         }
         (other, _) => return Err(vortex_err!("Not a boolean operator: {other}")),
@@ -430,16 +434,16 @@ fn fused_boolean_buffers_aligned(
     operator: Operator,
     nullability: Nullability,
 ) -> VortexResult<Option<ArrayRef>> {
-    let Some(lhs_values) = word_source_from_bit_buffer(lhs_values, len) else {
+    let Some(lhs_values) = word_source_from_bit_buffer(lhs_values) else {
         return Ok(None);
     };
-    let Some(rhs_values) = word_source_from_bit_buffer(rhs_values, len) else {
+    let Some(rhs_values) = word_source_from_bit_buffer(rhs_values) else {
         return Ok(None);
     };
-    let Some(lhs_validity) = word_source_from_mask(lhs_validity, len) else {
+    let Some(lhs_validity) = word_source_from_mask(lhs_validity) else {
         return Ok(None);
     };
-    let Some(rhs_validity) = word_source_from_mask(rhs_validity, len) else {
+    let Some(rhs_validity) = word_source_from_mask(rhs_validity) else {
         return Ok(None);
     };
 
@@ -454,30 +458,16 @@ fn fused_boolean_buffers_aligned(
     )?))
 }
 
-fn word_source_from_bit_buffer(buffer: &BitBuffer, len: usize) -> Option<WordSource<'_>> {
-    if !buffer.offset().is_multiple_of(8) {
-        return None;
-    }
-
-    let n_bytes = len.div_ceil(8);
-    let start = buffer.offset() / 8;
-    let end = start + n_bytes;
-    Some(WordSource::Bytes(&buffer.inner().as_slice()[start..end]))
+fn word_source_from_bit_buffer(buffer: &BitBuffer) -> Option<WordSource<'_>> {
+    buffer.byte_aligned_bytes().map(WordSource::Bytes)
 }
 
-fn word_source_from_mask(mask: &Mask, len: usize) -> Option<WordSource<'_>> {
+fn word_source_from_mask(mask: &Mask) -> Option<WordSource<'_>> {
     match mask.bit_buffer() {
         AllOr::All => Some(WordSource::Fill(u64::MAX)),
         AllOr::None => Some(WordSource::Fill(0)),
-        AllOr::Some(buffer) => word_source_from_bit_buffer(buffer, len),
+        AllOr::Some(buffer) => word_source_from_bit_buffer(buffer),
     }
-}
-
-fn read_u64_le(bytes: &[u8]) -> u64 {
-    debug_assert!(bytes.len() <= 8);
-    let mut buf = [0; 8];
-    buf[..bytes.len()].copy_from_slice(bytes);
-    u64::from_le_bytes(buf)
 }
 
 fn fused_boolean_word_sources(
@@ -581,7 +571,7 @@ fn finish_fused_boolean_words(
     validity.truncate(n_bytes);
     Ok(BoolArray::try_new(
         BitBuffer::new(values.freeze(), len),
-        mask_to_validity(
+        Validity::from_mask(
             Mask::from_buffer(BitBuffer::new(validity.freeze(), len)),
             nullability,
         ),
@@ -651,7 +641,7 @@ where
 
     Ok(BoolArray::try_new(
         values,
-        mask_to_validity(Mask::from_buffer(validity), nullability),
+        Validity::from_mask(Mask::from_buffer(validity), nullability),
     )?
     .into_array())
 }
@@ -675,23 +665,6 @@ fn cast_bool_nullability(array: &ArrayRef, nullability: Nullability) -> VortexRe
 
 fn boolean_nullability(lhs: &ArrayRef, rhs: &ArrayRef) -> Nullability {
     lhs.dtype().nullability() | rhs.dtype().nullability()
-}
-
-fn all_validity(nullability: Nullability) -> Validity {
-    match nullability {
-        Nullability::NonNullable => Validity::NonNullable,
-        Nullability::Nullable => Validity::AllValid,
-    }
-}
-
-fn mask_to_validity(mask: Mask, nullability: Nullability) -> Validity {
-    match nullability {
-        Nullability::NonNullable => {
-            debug_assert!(mask.all_true());
-            Validity::NonNullable
-        }
-        Nullability::Nullable => Validity::from(mask.into_bit_buffer()),
-    }
 }
 
 #[inline]

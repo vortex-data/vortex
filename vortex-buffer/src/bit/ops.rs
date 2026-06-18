@@ -7,17 +7,7 @@ use crate::BitBuffer;
 use crate::BitBufferMut;
 use crate::BufferMut;
 use crate::ByteBufferMut;
-
-/// Read up to 8 bytes as a little-endian `u64`, zero-padding the high bytes when fewer than 8 are
-/// supplied. Using [`u64::from_le_bytes`] keeps the bit-numbering identical on little- and
-/// big-endian targets; for a full 8-byte slice it lowers to a single word load.
-#[inline]
-fn read_u64_le(bytes: &[u8]) -> u64 {
-    debug_assert!(bytes.len() <= 8);
-    let mut buf = [0u8; 8];
-    buf[..bytes.len()].copy_from_slice(bytes);
-    u64::from_le_bytes(buf)
-}
+use crate::read_u64_le;
 
 trait BitWordTarget {
     fn byte_len(&self) -> usize;
