@@ -167,7 +167,10 @@ impl VarBinViewBuilder {
             self.init_in_progress(value.len())
         };
 
-        let in_progress = self.in_progress.as_mut().vortex_expect("in_progress just set");
+        let in_progress = self
+            .in_progress
+            .as_mut()
+            .vortex_expect("in_progress just set");
 
         let buffer_idx = self.completed.len();
         let offset = u32::try_from(in_progress.len()).vortex_expect("too many buffers");
