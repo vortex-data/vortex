@@ -358,9 +358,9 @@ mod tests {
         let second = col("second");
 
         let mut filter_exprs = Vec::new();
-        push_filter_expr(&mut filter_exprs, first.clone());
-        push_filter_expr(&mut filter_exprs, second.clone());
-        push_filter_expr(&mut filter_exprs, first.clone());
+        push_filter_expr(&mut filter_exprs, &first);
+        push_filter_expr(&mut filter_exprs, &second);
+        push_filter_expr(&mut filter_exprs, &first);
 
         assert_eq!(filter_exprs, vec![first, second]);
     }
