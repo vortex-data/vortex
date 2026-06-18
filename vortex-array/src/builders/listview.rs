@@ -118,12 +118,7 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
     ///
     /// Note that the list entry will be non-null but the elements themselves are allowed to be null
     /// (only if the elements [`DType`] is nullable, of course).
-    pub fn append_array_as_list(&mut self, array: &ArrayRef) -> VortexResult<()> {
-        self.append_array_as_list_ctx(array, &mut LEGACY_SESSION.create_execution_ctx())
-    }
-
-    /// Appends an array as a single non-null list entry using the provided execution context.
-    pub fn append_array_as_list_ctx(
+    pub fn append_array_as_list(
         &mut self,
         array: &ArrayRef,
         ctx: &mut ExecutionCtx,
@@ -783,12 +778,13 @@ mod tests {
     #[test]
     fn test_append_array_as_list() {
         let dtype: Arc<DType> = Arc::new(I32.into());
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let mut builder =
             ListViewBuilder::<u32, u32>::with_capacity(Arc::clone(&dtype), NonNullable, 20, 10);
 
         // Append a primitive array as a single list entry.
         let arr1 = buffer![1i32, 2, 3].into_array();
-        builder.append_array_as_list(&arr1).unwrap();
+        builder.append_array_as_list(&arr1, &mut ctx).unwrap();
 
         // Interleave with a list scalar.
         builder
@@ -804,11 +800,11 @@ mod tests {
 
         // Append another primitive array as a single list entry.
         let arr2 = buffer![4i32, 5].into_array();
-        builder.append_array_as_list(&arr2).unwrap();
+        builder.append_array_as_list(&arr2, &mut ctx).unwrap();
 
         // Append an empty array as a single list entry (empty list).
         let arr3 = buffer![0i32; 0].into_array();
-        builder.append_array_as_list(&arr3).unwrap();
+        builder.append_array_as_list(&arr3, &mut ctx).unwrap();
 
         // Interleave with another list scalar.
         builder
@@ -839,6 +835,10 @@ mod tests {
         // Test dtype mismatch error.
         let mut builder = ListViewBuilder::<u32, u32>::with_capacity(dtype, NonNullable, 20, 10);
         let wrong_dtype_arr = buffer![1i64, 2, 3].into_array();
-        assert!(builder.append_array_as_list(&wrong_dtype_arr).is_err());
+        assert!(
+            builder
+                .append_array_as_list(&wrong_dtype_arr, &mut ctx)
+                .is_err()
+        );
     }
 }
