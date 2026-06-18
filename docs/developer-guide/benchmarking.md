@@ -212,8 +212,10 @@ Benchmarks run automatically on all commits to `develop` and can be run on-deman
   `develop`, with results uploaded for historical tracking.
 - **PR benchmarks** -- triggered by the `action/benchmark` label. Results are compared against
   the latest `develop` run and posted as a PR comment.
-- **SQL benchmarks** -- triggered by the `action/benchmark-sql` label. Runs a parametric matrix
-  of suites, engines, formats, and storage backends (NVMe, S3).
+- **SQL benchmarks** -- triggered by the `action/benchmark-sql` label. Runs the base SQL matrix,
+  which excludes Appian, TPC-H SF=10 on S3, `vortex-compact`, and `duckdb:duckdb`.
+- **Full SQL benchmarks** -- triggered by the `action/benchmark-sql-full` label. Runs the full
+  SQL matrix of suites, engines, formats, and storage backends (NVMe, S3).
 
 All CI benchmarks run on dedicated instances with the `release_debug` profile and
 `-C target-cpu=native` to produce representative numbers.

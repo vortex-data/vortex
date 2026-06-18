@@ -139,6 +139,14 @@ impl DatabaseRef {
         Ok(())
     }
 
+    pub fn register_optimizer_extension(&self) -> VortexResult<()> {
+        duckdb_try!(
+            unsafe { cpp::duckdb_vx_optimizer_extension_register(self.as_ptr()) },
+            "Failed to register optimizer extension"
+        );
+        Ok(())
+    }
+
     pub fn register_copy_function(&self) -> VortexResult<()> {
         duckdb_try!(
             unsafe { cpp::duckdb_vx_register_copy_function(self.as_ptr()) },

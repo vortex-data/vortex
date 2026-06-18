@@ -9,7 +9,6 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
-use vortex_buffer::ALIGNMENT_TO_HOST_COPY;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
@@ -321,7 +320,7 @@ impl BufferHandle {
     pub fn try_to_host_sync(&self) -> VortexResult<ByteBuffer> {
         match &self.0 {
             Inner::Host(b) => Ok(b.clone()),
-            Inner::Device(device) => device.copy_to_host_sync(ALIGNMENT_TO_HOST_COPY),
+            Inner::Device(device) => device.copy_to_host_sync(Alignment::HOST_COPY),
         }
     }
 
@@ -331,7 +330,7 @@ impl BufferHandle {
     pub fn try_into_host_sync(self) -> VortexResult<ByteBuffer> {
         match self.0 {
             Inner::Host(b) => Ok(b),
-            Inner::Device(device) => device.copy_to_host_sync(ALIGNMENT_TO_HOST_COPY),
+            Inner::Device(device) => device.copy_to_host_sync(Alignment::HOST_COPY),
         }
     }
 
@@ -352,7 +351,7 @@ impl BufferHandle {
                 let buffer = b.clone();
                 Ok(Box::pin(async move { Ok(buffer) }))
             }
-            Inner::Device(device) => device.copy_to_host(ALIGNMENT_TO_HOST_COPY),
+            Inner::Device(device) => device.copy_to_host(Alignment::HOST_COPY),
         }
     }
 
@@ -370,7 +369,7 @@ impl BufferHandle {
     pub fn try_into_host(self) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>> {
         match self.0 {
             Inner::Host(b) => Ok(Box::pin(async move { Ok(b) })),
-            Inner::Device(device) => device.copy_to_host(ALIGNMENT_TO_HOST_COPY),
+            Inner::Device(device) => device.copy_to_host(Alignment::HOST_COPY),
         }
     }
 

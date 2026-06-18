@@ -88,14 +88,13 @@ use std::fmt::Debug;
 use datafusion_common::stats::Precision as DFPrecision;
 use vortex::expr::stats::Precision;
 
-mod convert;
+pub mod convert;
 mod persistent;
 pub mod v2;
 
 #[cfg(test)]
 mod tests;
 
-pub use convert::exprs::ExpressionConvertor;
 pub use persistent::*;
 
 /// Extension trait to convert our [`Precision`] to DataFusion's

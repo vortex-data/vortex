@@ -1,45 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-
 //
 // THIS FILE IS AUTO-GENERATED, DO NOT MAKE EDITS DIRECTLY
 //
 
 // clang-format off
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include "duckdb.h"
 
+
+#pragma once
 
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
 
-/**
- * Global symbol visibility in the Vortex extension:
- * - Rust functions use C ABI with "_rust" suffix (e.g., vortex_init_rust)
- * - C++ wrapper functions have the expected name without suffix (e.g., vortex_init)
- * - C++ wrappers are annotated with DUCKDB_EXTENSION_API to ensure global visibility
- * - C++ wrappers call the corresponding Rust functions
- *
- * This ensures DuckDB can find the symbols when loading the extension.
- *
- * The DuckDB extension ABI initialization function.
- */
 extern void vortex_init_rust(duckdb_database db);
 
-/**
- * The DuckDB extension ABI version function.
- * This function returns the version of the DuckDB library the extension is built against.
- */
 extern const char *vortex_version_rust(void);
 
-/**
- * An additional function we export to expose the version of the extension itself to C++ code.
- */
 extern const char *vortex_extension_version_rust(void);
 
 extern void duckdb_table_function_to_string(void *bind_data, duckdb_vx_string_map map);
@@ -60,6 +39,12 @@ extern
 bool duckdb_table_function_pushdown_complex_filter(void *bind_data,
                                                    duckdb_vx_expr expr,
                                                    duckdb_vx_error *error_out);
+
+extern
+bool duckdb_table_function_pushdown_projection_expression(void *bind_data,
+                                                          duckdb_vx_expr expr,
+                                                          size_t column_id,
+                                                          duckdb_vx_error *error_out);
 
 extern
 void duckdb_table_function_scan(void *global_init_data,
@@ -111,9 +96,5 @@ extern void duckdb_copy_function_copy_to_finalize(void *global_data, duckdb_vx_e
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
-
-#ifdef __cplusplus
-}
-#endif
 
 // clang-format on

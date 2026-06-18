@@ -75,6 +75,7 @@ pub fn initialize(db: &DatabaseRef) -> VortexResult<()> {
         Value::from("vortex"),
     )?;
     db.register_table_functions()?;
+    db.register_optimizer_extension()?;
     db.register_copy_function()
 }
 

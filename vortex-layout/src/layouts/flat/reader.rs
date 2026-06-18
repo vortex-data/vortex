@@ -11,7 +11,6 @@ use tracing::trace;
 use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
-use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
@@ -157,14 +156,14 @@ impl LayoutReader for FlatReader {
                 let array = array.apply(&expr)?;
                 let array = array.filter(mask.clone())?;
                 let mut ctx = session.create_execution_ctx();
-                let array_mask = array.fill_null(false)?.execute::<Mask>(&mut ctx)?;
+                let array_mask = array.null_as_false().execute(&mut ctx)?;
 
                 mask.intersect_by_rank(&array_mask)
             } else {
                 // Run over the full array, with a simpler bitand at the end.
                 let array = array.apply(&expr)?;
                 let mut ctx = session.create_execution_ctx();
-                let array_mask = array.fill_null(false)?.execute::<Mask>(&mut ctx)?;
+                let array_mask = array.null_as_false().execute(&mut ctx)?;
 
                 mask.bitand(&array_mask)
             };
