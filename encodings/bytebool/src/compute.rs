@@ -6,14 +6,15 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Constant;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar_fn::fns::binary::BooleanKernel;
-use vortex_array::scalar_fn::fns::binary::boolean_buffer_scalar;
-use vortex_array::scalar_fn::fns::binary::boolean_buffers;
+use vortex_array::scalar_fn::fns::binary::kleene_boolean_buffer_scalar;
+use vortex_array::scalar_fn::fns::binary::kleene_boolean_buffers;
 use vortex_array::scalar_fn::fns::cast::CastKernel;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_array::scalar_fn::fns::mask::MaskReduce;
@@ -122,12 +123,12 @@ impl BooleanKernel for ByteBool {
         let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
         let lhs_values = truthy_bit_buffer(lhs);
 
-        if let Some(rhs) = rhs.as_opt::<vortex_array::arrays::Constant>() {
+        if let Some(rhs) = rhs.as_opt::<Constant>() {
             let rhs = rhs
                 .scalar()
                 .as_bool_opt()
                 .ok_or_else(|| vortex_err!("expected boolean scalar"))?;
-            return boolean_buffer_scalar(
+            return kleene_boolean_buffer_scalar(
                 lhs_values,
                 lhs.validity()?,
                 &rhs,
@@ -142,7 +143,7 @@ impl BooleanKernel for ByteBool {
             return Ok(None);
         };
 
-        boolean_buffers(
+        kleene_boolean_buffers(
             lhs_values,
             lhs.validity()?,
             truthy_bit_buffer(rhs),
@@ -156,7 +157,8 @@ impl BooleanKernel for ByteBool {
 }
 
 fn truthy_bit_buffer(array: ArrayView<'_, ByteBool>) -> BitBuffer {
-    BitBuffer::from_iter(array.truthy_bytes().iter().map(|byte| *byte != 0))
+    let bytes = array.truthy_bytes();
+    BitBuffer::collect_bool(bytes.len(), |idx| bytes[idx] != 0)
 }
 
 #[cfg(test)]

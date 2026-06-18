@@ -11,8 +11,8 @@ use crate::arrays::Bool;
 use crate::arrays::Constant;
 use crate::arrays::bool::BoolArrayExt;
 use crate::scalar_fn::fns::binary::BooleanKernel;
-use crate::scalar_fn::fns::binary::boolean_buffer_scalar;
-use crate::scalar_fn::fns::binary::boolean_buffers;
+use crate::scalar_fn::fns::binary::kleene_boolean_buffer_scalar;
+use crate::scalar_fn::fns::binary::kleene_boolean_buffers;
 use crate::scalar_fn::fns::operators::Operator;
 
 impl BooleanKernel for Bool {
@@ -29,7 +29,7 @@ impl BooleanKernel for Bool {
                 .scalar()
                 .as_bool_opt()
                 .ok_or_else(|| vortex_err!("expected boolean scalar"))?;
-            return boolean_buffer_scalar(
+            return kleene_boolean_buffer_scalar(
                 lhs.to_bit_buffer(),
                 lhs.validity()?,
                 &rhs,
@@ -44,7 +44,7 @@ impl BooleanKernel for Bool {
             return Ok(None);
         };
 
-        boolean_buffers(
+        kleene_boolean_buffers(
             lhs.to_bit_buffer(),
             lhs.validity()?,
             rhs.to_bit_buffer(),

@@ -8,6 +8,7 @@ use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::read_u64_le;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
@@ -172,7 +173,7 @@ fn arrow_execute_boolean(
     let array = match op {
         Operator::And => arrow_arith::boolean::and_kleene(&lhs, &rhs)?,
         Operator::Or => arrow_arith::boolean::or_kleene(&lhs, &rhs)?,
-        other => return Err(vortex_err!("Not a boolean operator: {other}")),
+        other => vortex_bail!("Not a boolean operator: {other}"),
     };
 
     ArrayRef::from_arrow(&array, nullable == Nullability::Nullable)
@@ -222,7 +223,7 @@ fn constant_array_boolean(
         ))),
         (Operator::Or, Some(false)) => Ok(Some(cast_bool_nullability(array, nullability)?)),
         (Operator::And | Operator::Or, None) => Ok(None),
-        (other, _) => Err(vortex_err!("Not a boolean operator: {other}")),
+        (other, _) => vortex_bail!("Not a boolean operator: {other}"),
     }
 }
 
@@ -242,7 +243,7 @@ fn boolean_scalar_scalar(
             (None, _) | (_, None) => None,
             (Some(l), Some(r)) => Some(l | r),
         },
-        other => return Err(vortex_err!("Not a boolean operator: {other}")),
+        other => vortex_bail!("Not a boolean operator: {other}"),
     })
 }
 
@@ -254,7 +255,7 @@ fn bool_scalar_value(scalar: &Scalar) -> VortexResult<Option<bool>> {
 }
 
 /// Execute a Kleene boolean operation from boolean value bitmaps and validity values.
-pub fn boolean_buffers(
+pub fn kleene_boolean_buffers(
     lhs_values: BitBuffer,
     lhs_validity: Validity,
     rhs_values: BitBuffer,
@@ -270,7 +271,7 @@ pub fn boolean_buffers(
         let values = match operator {
             Operator::And => lhs_values & &rhs_values,
             Operator::Or => lhs_values | &rhs_values,
-            other => return Err(vortex_err!("Not a boolean operator: {other}")),
+            other => vortex_bail!("Not a boolean operator: {other}"),
         };
         return Ok(BoolArray::try_new(values, Validity::from(nullability))?.into_array());
     }
@@ -289,7 +290,7 @@ pub fn boolean_buffers(
 }
 
 /// Execute a Kleene boolean operation between boolean value bits and a scalar.
-pub fn boolean_buffer_scalar(
+pub fn kleene_boolean_buffer_scalar(
     values: BitBuffer,
     validity: Validity,
     scalar: &BoolScalar<'_>,
@@ -332,7 +333,7 @@ pub fn boolean_buffer_scalar(
                 Validity::from_mask(valid, nullability),
             )?
         }
-        (other, _) => return Err(vortex_err!("Not a boolean operator: {other}")),
+        (other, _) => vortex_bail!("Not a boolean operator: {other}"),
     };
 
     Ok(result.into_array())
@@ -479,80 +480,116 @@ fn fused_boolean_word_sources(
     operator: Operator,
     nullability: Nullability,
 ) -> VortexResult<ArrayRef> {
+    match operator {
+        Operator::And => fused_boolean_and_word_sources(
+            len,
+            lhs_words,
+            rhs_words,
+            lhs_valid_words,
+            rhs_valid_words,
+            nullability,
+        ),
+        Operator::Or => fused_boolean_or_word_sources(
+            len,
+            lhs_words,
+            rhs_words,
+            lhs_valid_words,
+            rhs_valid_words,
+            nullability,
+        ),
+        other => vortex_bail!("Not a boolean operator: {other}"),
+    }
+}
+
+fn fused_boolean_and_word_sources(
+    len: usize,
+    lhs_words: WordSource<'_>,
+    rhs_words: WordSource<'_>,
+    lhs_valid_words: WordSource<'_>,
+    rhs_valid_words: WordSource<'_>,
+    nullability: Nullability,
+) -> VortexResult<ArrayRef> {
     let n_bytes = len.div_ceil(8);
     let n_words = n_bytes.div_ceil(8);
     let full_bytes = n_bytes - n_bytes % 8;
     let mut values = BufferMut::<u64>::with_capacity(n_words);
     let mut validity = BufferMut::<u64>::with_capacity(n_words);
 
-    match operator {
-        Operator::And => {
-            for byte_offset in (0..full_bytes).step_by(8) {
-                let lhs = lhs_words.word_at(byte_offset, 8);
-                let rhs = rhs_words.word_at(byte_offset, 8);
-                let lhs_valid = lhs_valid_words.word_at(byte_offset, 8);
-                let rhs_valid = rhs_valid_words.word_at(byte_offset, 8);
+    for byte_offset in (0..full_bytes).step_by(8) {
+        let lhs = lhs_words.word_at(byte_offset, 8);
+        let rhs = rhs_words.word_at(byte_offset, 8);
+        let lhs_valid = lhs_valid_words.word_at(byte_offset, 8);
+        let rhs_valid = rhs_valid_words.word_at(byte_offset, 8);
 
-                // SAFETY: both buffers were allocated with exactly `n_words` capacity, and this
-                // loop plus the optional tail push emits at most `n_words` words.
-                unsafe {
-                    values.push_unchecked(lhs & rhs);
-                    validity.push_unchecked(
-                        (lhs_valid & rhs_valid) | (lhs_valid & !lhs) | (rhs_valid & !rhs),
-                    );
-                }
-            }
-
-            if full_bytes != n_bytes {
-                let tail_len = n_bytes - full_bytes;
-                let lhs = lhs_words.word_at(full_bytes, tail_len);
-                let rhs = rhs_words.word_at(full_bytes, tail_len);
-                let lhs_valid = lhs_valid_words.word_at(full_bytes, tail_len);
-                let rhs_valid = rhs_valid_words.word_at(full_bytes, tail_len);
-
-                // SAFETY: see the loop safety comment above.
-                unsafe {
-                    values.push_unchecked(lhs & rhs);
-                    validity.push_unchecked(
-                        (lhs_valid & rhs_valid) | (lhs_valid & !lhs) | (rhs_valid & !rhs),
-                    );
-                }
-            }
+        // SAFETY: both buffers were allocated with exactly `n_words` capacity, and this
+        // loop plus the optional tail push emits at most `n_words` words.
+        unsafe {
+            values.push_unchecked(lhs & rhs);
+            validity
+                .push_unchecked((lhs_valid & rhs_valid) | (lhs_valid & !lhs) | (rhs_valid & !rhs));
         }
-        Operator::Or => {
-            for byte_offset in (0..full_bytes).step_by(8) {
-                let lhs = lhs_words.word_at(byte_offset, 8);
-                let rhs = rhs_words.word_at(byte_offset, 8);
-                let lhs_valid = lhs_valid_words.word_at(byte_offset, 8);
-                let rhs_valid = rhs_valid_words.word_at(byte_offset, 8);
+    }
 
-                // SAFETY: both buffers were allocated with exactly `n_words` capacity, and this
-                // loop plus the optional tail push emits at most `n_words` words.
-                unsafe {
-                    values.push_unchecked(lhs | rhs);
-                    validity.push_unchecked(
-                        (lhs_valid & rhs_valid) | (lhs_valid & lhs) | (rhs_valid & rhs),
-                    );
-                }
-            }
+    if full_bytes != n_bytes {
+        let tail_len = n_bytes - full_bytes;
+        let lhs = lhs_words.word_at(full_bytes, tail_len);
+        let rhs = rhs_words.word_at(full_bytes, tail_len);
+        let lhs_valid = lhs_valid_words.word_at(full_bytes, tail_len);
+        let rhs_valid = rhs_valid_words.word_at(full_bytes, tail_len);
 
-            if full_bytes != n_bytes {
-                let tail_len = n_bytes - full_bytes;
-                let lhs = lhs_words.word_at(full_bytes, tail_len);
-                let rhs = rhs_words.word_at(full_bytes, tail_len);
-                let lhs_valid = lhs_valid_words.word_at(full_bytes, tail_len);
-                let rhs_valid = rhs_valid_words.word_at(full_bytes, tail_len);
-
-                // SAFETY: see the loop safety comment above.
-                unsafe {
-                    values.push_unchecked(lhs | rhs);
-                    validity.push_unchecked(
-                        (lhs_valid & rhs_valid) | (lhs_valid & lhs) | (rhs_valid & rhs),
-                    );
-                }
-            }
+        // SAFETY: see the loop safety comment above.
+        unsafe {
+            values.push_unchecked(lhs & rhs);
+            validity
+                .push_unchecked((lhs_valid & rhs_valid) | (lhs_valid & !lhs) | (rhs_valid & !rhs));
         }
-        other => return Err(vortex_err!("Not a boolean operator: {other}")),
+    }
+
+    finish_fused_boolean_words(len, n_bytes, values, validity, nullability)
+}
+
+fn fused_boolean_or_word_sources(
+    len: usize,
+    lhs_words: WordSource<'_>,
+    rhs_words: WordSource<'_>,
+    lhs_valid_words: WordSource<'_>,
+    rhs_valid_words: WordSource<'_>,
+    nullability: Nullability,
+) -> VortexResult<ArrayRef> {
+    let n_bytes = len.div_ceil(8);
+    let n_words = n_bytes.div_ceil(8);
+    let full_bytes = n_bytes - n_bytes % 8;
+    let mut values = BufferMut::<u64>::with_capacity(n_words);
+    let mut validity = BufferMut::<u64>::with_capacity(n_words);
+
+    for byte_offset in (0..full_bytes).step_by(8) {
+        let lhs = lhs_words.word_at(byte_offset, 8);
+        let rhs = rhs_words.word_at(byte_offset, 8);
+        let lhs_valid = lhs_valid_words.word_at(byte_offset, 8);
+        let rhs_valid = rhs_valid_words.word_at(byte_offset, 8);
+
+        // SAFETY: both buffers were allocated with exactly `n_words` capacity, and this
+        // loop plus the optional tail push emits at most `n_words` words.
+        unsafe {
+            values.push_unchecked(lhs | rhs);
+            validity
+                .push_unchecked((lhs_valid & rhs_valid) | (lhs_valid & lhs) | (rhs_valid & rhs));
+        }
+    }
+
+    if full_bytes != n_bytes {
+        let tail_len = n_bytes - full_bytes;
+        let lhs = lhs_words.word_at(full_bytes, tail_len);
+        let rhs = rhs_words.word_at(full_bytes, tail_len);
+        let lhs_valid = lhs_valid_words.word_at(full_bytes, tail_len);
+        let rhs_valid = rhs_valid_words.word_at(full_bytes, tail_len);
+
+        // SAFETY: see the loop safety comment above.
+        unsafe {
+            values.push_unchecked(lhs | rhs);
+            validity
+                .push_unchecked((lhs_valid & rhs_valid) | (lhs_valid & lhs) | (rhs_valid & rhs));
+        }
     }
 
     finish_fused_boolean_words(len, n_bytes, values, validity, nullability)
@@ -594,56 +631,97 @@ where
     LV: Iterator<Item = u64>,
     RV: Iterator<Item = u64>,
 {
+    match operator {
+        Operator::And => fused_boolean_and_words(
+            len,
+            lhs_words,
+            rhs_words,
+            lhs_valid_words,
+            rhs_valid_words,
+            nullability,
+        ),
+        Operator::Or => fused_boolean_or_words(
+            len,
+            lhs_words,
+            rhs_words,
+            lhs_valid_words,
+            rhs_valid_words,
+            nullability,
+        ),
+        other => vortex_bail!("Not a boolean operator: {other}"),
+    }
+}
+
+fn fused_boolean_and_words<L, R, LV, RV>(
+    len: usize,
+    lhs_words: L,
+    rhs_words: R,
+    lhs_valid_words: LV,
+    rhs_valid_words: RV,
+    nullability: Nullability,
+) -> VortexResult<ArrayRef>
+where
+    L: Iterator<Item = u64>,
+    R: Iterator<Item = u64>,
+    LV: Iterator<Item = u64>,
+    RV: Iterator<Item = u64>,
+{
     let n_words = len.div_ceil(64);
     let mut values = BufferMut::<u64>::with_capacity(n_words);
     let mut validity = BufferMut::<u64>::with_capacity(n_words);
 
-    match operator {
-        Operator::And => {
-            for (((lhs, rhs), lhs_valid), rhs_valid) in lhs_words
-                .zip(rhs_words)
-                .zip(lhs_valid_words)
-                .zip(rhs_valid_words)
-                .take(n_words)
-            {
-                // SAFETY: both buffers were allocated with exactly `n_words` capacity, and this
-                // loop is capped at `n_words`.
-                unsafe {
-                    values.push_unchecked(lhs & rhs);
-                    validity.push_unchecked(
-                        (lhs_valid & rhs_valid) | (lhs_valid & !lhs) | (rhs_valid & !rhs),
-                    );
-                }
-            }
+    for (((lhs, rhs), lhs_valid), rhs_valid) in lhs_words
+        .zip(rhs_words)
+        .zip(lhs_valid_words)
+        .zip(rhs_valid_words)
+        .take(n_words)
+    {
+        // SAFETY: both buffers were allocated with exactly `n_words` capacity, and this loop is
+        // capped at `n_words`.
+        unsafe {
+            values.push_unchecked(lhs & rhs);
+            validity
+                .push_unchecked((lhs_valid & rhs_valid) | (lhs_valid & !lhs) | (rhs_valid & !rhs));
         }
-        Operator::Or => {
-            for (((lhs, rhs), lhs_valid), rhs_valid) in lhs_words
-                .zip(rhs_words)
-                .zip(lhs_valid_words)
-                .zip(rhs_valid_words)
-                .take(n_words)
-            {
-                // SAFETY: both buffers were allocated with exactly `n_words` capacity, and this
-                // loop is capped at `n_words`.
-                unsafe {
-                    values.push_unchecked(lhs | rhs);
-                    validity.push_unchecked(
-                        (lhs_valid & rhs_valid) | (lhs_valid & lhs) | (rhs_valid & rhs),
-                    );
-                }
-            }
-        }
-        other => return Err(vortex_err!("Not a boolean operator: {other}")),
     }
 
-    let values = BitBuffer::new(values.freeze().into_byte_buffer(), len);
-    let validity = BitBuffer::new(validity.freeze().into_byte_buffer(), len);
+    finish_fused_boolean_words(len, len.div_ceil(8), values, validity, nullability)
+}
 
-    Ok(BoolArray::try_new(
-        values,
-        Validity::from_mask(Mask::from_buffer(validity), nullability),
-    )?
-    .into_array())
+fn fused_boolean_or_words<L, R, LV, RV>(
+    len: usize,
+    lhs_words: L,
+    rhs_words: R,
+    lhs_valid_words: LV,
+    rhs_valid_words: RV,
+    nullability: Nullability,
+) -> VortexResult<ArrayRef>
+where
+    L: Iterator<Item = u64>,
+    R: Iterator<Item = u64>,
+    LV: Iterator<Item = u64>,
+    RV: Iterator<Item = u64>,
+{
+    let n_words = len.div_ceil(64);
+    let mut values = BufferMut::<u64>::with_capacity(n_words);
+    let mut validity = BufferMut::<u64>::with_capacity(n_words);
+
+    for (((lhs, rhs), lhs_valid), rhs_valid) in lhs_words
+        .zip(rhs_words)
+        .zip(lhs_valid_words)
+        .zip(rhs_valid_words)
+        .take(n_words)
+    {
+        // SAFETY: both buffers were allocated with exactly `n_words` capacity, and this loop is
+        // capped at `n_words`.
+        unsafe {
+            values.push_unchecked(lhs | rhs);
+            validity
+                .push_unchecked((lhs_valid & rhs_valid) | (lhs_valid & lhs) | (rhs_valid & rhs));
+        }
+    }
+
+    finish_fused_boolean_words(len, len.div_ceil(8), values, validity, nullability)
 }
 
 fn constant_bool_result(value: Option<bool>, len: usize, nullability: Nullability) -> ArrayRef {
