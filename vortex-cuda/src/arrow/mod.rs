@@ -105,6 +105,20 @@ impl ArrowArray {
     }
 }
 
+impl ArrowDeviceArray {
+    /// A zeroed device array: an empty Arrow array with no device. Used as a callback output
+    /// placeholder and as the basis for the end-of-stream marker.
+    fn empty() -> Self {
+        Self {
+            array: ArrowArray::empty(),
+            device_id: 0,
+            device_type: 0,
+            sync_event: ptr::null_mut(),
+            reserved: Default::default(),
+        }
+    }
+}
+
 unsafe impl Send for ArrowArray {}
 unsafe impl Sync for ArrowArray {}
 
@@ -542,11 +556,9 @@ unsafe fn device_stream_private_data<'a>(
 /// Create the Arrow end-of-stream marker for the stream's CUDA device.
 fn released_device_array(device_id: i64) -> ArrowDeviceArray {
     ArrowDeviceArray {
-        array: ArrowArray::empty(),
         device_id,
         device_type: ARROW_DEVICE_CUDA,
-        sync_event: ptr::null_mut(),
-        reserved: Default::default(),
+        ..ArrowDeviceArray::empty()
     }
 }
 
@@ -922,35 +934,11 @@ mod tests {
 
     use crate::CudaSession;
     use crate::arrow::ARROW_DEVICE_CUDA;
-    use crate::arrow::ArrowArray;
     use crate::arrow::ArrowDeviceArray;
     use crate::arrow::ArrowSchema;
     use crate::arrow::DeviceArrayStreamExt;
-
-    /// Release an Arrow C schema in stream tests if it is live.
-    unsafe fn release_schema(schema: &mut FFI_ArrowSchema) {
-        if let Some(release) = schema.release {
-            unsafe { release(schema) };
-        }
-    }
-
-    /// Release an Arrow device array in stream tests if it is live.
-    unsafe fn release_device_array(array: &mut ArrowDeviceArray) {
-        if let Some(release) = array.array.release {
-            unsafe { release(&raw mut array.array) };
-        }
-    }
-
-    /// Create a zeroed placeholder Arrow device array for callback outputs.
-    fn empty_device_array() -> ArrowDeviceArray {
-        ArrowDeviceArray {
-            array: ArrowArray::empty(),
-            device_id: 0,
-            device_type: 0,
-            sync_event: std::ptr::null_mut(),
-            reserved: [0; 3],
-        }
-    }
+    use crate::arrow::release_device_array;
+    use crate::arrow::release_schema;
 
     /// Verify schema, array, EOS, and idempotent release stream behavior.
     #[cuda_test]
@@ -979,14 +967,14 @@ mod tests {
         let get_next = device_stream
             .get_next
             .ok_or_else(|| vortex_err!("stream missing get_next callback"))?;
-        let mut first_array = empty_device_array();
+        let mut first_array = ArrowDeviceArray::empty();
         let status = unsafe { get_next(&raw mut device_stream, &raw mut first_array) };
         assert_eq!(status, 0);
         assert_eq!(first_array.device_type, ARROW_DEVICE_CUDA);
         assert_eq!(first_array.array.length, 5);
         assert!(first_array.array.release.is_some());
 
-        let mut eos = empty_device_array();
+        let mut eos = ArrowDeviceArray::empty();
         let status = unsafe { get_next(&raw mut device_stream, &raw mut eos) };
         assert_eq!(status, 0);
         assert_eq!(eos.device_type, ARROW_DEVICE_CUDA);
