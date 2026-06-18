@@ -484,12 +484,15 @@ fn advance_run<I: UnsignedPType>(ends: &[I], run_idx: &mut usize, logical_idx: u
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -497,6 +500,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use super::physical_indices_binary;
     use super::physical_indices_linear_sorted;
@@ -505,12 +509,32 @@ mod tests {
     use crate::RunEnd;
     use crate::RunEndArray;
 
+    /// Session with the run-end execute kernels registered, so that takes dispatch to
+    /// [`RunEnd`]'s own take kernel instead of falling back to canonicalizing the array and
+    /// re-applying the original indices.
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = array_session();
+        crate::initialize(&session);
+        session
+    });
+
     fn ree_array() -> RunEndArray {
         RunEnd::encode(
             buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array(),
             &mut LEGACY_SESSION.create_execution_ctx(),
         )
         .unwrap()
+    }
+
+    /// Executes `array` to canonical form using the run-end-aware [`SESSION`].
+    ///
+    /// `assert_arrays_eq!` canonicalizes through `LEGACY_SESSION`, which lacks the run-end
+    /// kernels, so takes that rely on those kernels must be canonicalized here first.
+    fn canonicalize(array: ArrayRef) -> ArrayRef {
+        array
+            .execute::<Canonical>(&mut SESSION.create_execution_ctx())
+            .unwrap()
+            .into_array()
     }
 
     #[test]
@@ -590,7 +614,7 @@ mod tests {
             buffer![1u64, 12],
             Validity::Array(BoolArray::from_iter([true, false]).into_array()),
         );
-        let taken = ree_array().take(indices.into_array()).unwrap();
+        let taken = canonicalize(ree_array().take(indices.into_array()).unwrap());
 
         let expected = PrimitiveArray::from_option_iter([Some(1i32), None]);
         assert_arrays_eq!(taken, expected.into_array());
@@ -602,7 +626,7 @@ mod tests {
             buffer![3u64, 12, 1],
             Validity::Array(BoolArray::from_iter([true, false, true]).into_array()),
         );
-        let taken = ree_array().take(indices.into_array()).unwrap();
+        let taken = canonicalize(ree_array().take(indices.into_array()).unwrap());
 
         let expected = PrimitiveArray::from_option_iter([Some(4i32), None, Some(1)]);
         assert_arrays_eq!(taken, expected.into_array());
@@ -619,7 +643,7 @@ mod tests {
                 .into_array(),
             ),
         );
-        let taken = ree_array().take(indices.into_array()).unwrap();
+        let taken = canonicalize(ree_array().take(indices.into_array()).unwrap());
 
         let expected = PrimitiveArray::from_option_iter([
             Some(1i32),
