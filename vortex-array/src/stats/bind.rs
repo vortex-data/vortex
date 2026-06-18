@@ -34,14 +34,6 @@ pub trait StatBinder {
     /// The dtype scope used to type-check expressions before stats are bound.
     fn scope(&self) -> &DType;
 
-    /// The dtype scope used after stats have been bound.
-    ///
-    /// Binders that rewrite stats to a different root expression, such as a
-    /// stats-table row, should return that post-binding root dtype.
-    fn bound_scope(&self) -> DType {
-        self.scope().clone()
-    }
-
     /// Bind `aggregate_fn(input)` to a concrete expression.
     ///
     /// Implementations should return `Ok(None)` when the requested aggregate
@@ -72,7 +64,7 @@ pub fn bind_stats<B: StatBinder + ?Sized>(
     binder: &B,
 ) -> VortexResult<Expression> {
     let scope = binder.scope().clone();
-    let lowered = predicate
+    Ok(predicate
         .transform_down(|expr| {
             if !expr.is::<StatFn>() {
                 return Ok(Transformed::no(expr));
@@ -86,9 +78,7 @@ pub fn bind_stats<B: StatBinder + ?Sized>(
                 }
             }
         })?
-        .into_inner();
-
-    lowered.optimize_recursive(&binder.bound_scope())
+        .into_inner())
 }
 
 fn bind_stat_fn(
@@ -129,7 +119,6 @@ mod tests {
 
     struct TestBinder {
         input_scope: DType,
-        bound_scope: DType,
         bind_nan_count: bool,
     }
 
@@ -143,13 +132,6 @@ mod tests {
                     )]),
                     Nullability::NonNullable,
                 ),
-                bound_scope: DType::Struct(
-                    StructFields::from_iter([(
-                        "f_nan_count",
-                        DType::Primitive(PType::U64, Nullability::NonNullable),
-                    )]),
-                    Nullability::NonNullable,
-                ),
                 bind_nan_count,
             }
         }
@@ -158,10 +140,6 @@ mod tests {
     impl StatBinder for TestBinder {
         fn scope(&self) -> &DType {
             &self.input_scope
-        }
-
-        fn bound_scope(&self) -> DType {
-            self.bound_scope.clone()
         }
 
         fn bind_aggregate(
@@ -203,16 +181,17 @@ mod tests {
     }
 
     #[test]
-    fn missing_stats_fold_when_kleene_semantics_allow_it() -> VortexResult<()> {
+    fn missing_stats_bind_to_null_without_reducing() -> VortexResult<()> {
         let binder = TestBinder::new(false);
+        let null_bool = lit(Scalar::null(DType::Bool(Nullability::Nullable)));
 
         let bound = bind_stats(and(lit(false), all_non_nan(col("f"))), &binder)?;
 
-        assert_eq!(bound, lit(false));
+        assert_eq!(bound, and(lit(false), null_bool.clone()));
 
         let bound = bind_stats(or(lit(true), all_non_nan(col("f"))), &binder)?;
 
-        assert_eq!(bound, lit(true));
+        assert_eq!(bound, or(lit(true), null_bool));
         Ok(())
     }
 

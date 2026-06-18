@@ -121,7 +121,7 @@ impl ZoneMap {
 
     fn lower_stats(&self, predicate: Expression) -> VortexResult<Expression> {
         let binder = ZoneMapStatsBinder { zone_map: self };
-        bind_stats(predicate, &binder)
+        bind_stats(predicate, &binder)?.optimize_recursive(self.array.dtype())
     }
 }
 
@@ -132,10 +132,6 @@ struct ZoneMapStatsBinder<'a> {
 impl StatBinder for ZoneMapStatsBinder<'_> {
     fn scope(&self) -> &DType {
         &self.zone_map.column_dtype
-    }
-
-    fn bound_scope(&self) -> DType {
-        self.zone_map.array.dtype().clone()
     }
 
     fn bind_aggregate(

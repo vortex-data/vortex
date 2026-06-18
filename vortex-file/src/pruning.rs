@@ -75,10 +75,6 @@ impl StatBinder for FileStatsBinder<'_> {
         self.dtype
     }
 
-    fn bound_scope(&self) -> DType {
-        DType::Null
-    }
-
     fn bind_aggregate(
         &self,
         input: &Expression,
