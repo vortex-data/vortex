@@ -522,8 +522,15 @@ mod tests {
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::Schema;
+    use datafusion_common::ScalarValue;
+    use datafusion_common::config::ConfigOptions;
     use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
     use datafusion_execution::object_store::ObjectStoreUrl;
+    use datafusion_expr::Operator;
+    use datafusion_expr::ScalarUDF;
+    use datafusion_functions::string::octet_length::OctetLengthFunc;
+    use datafusion_physical_expr::ScalarFunctionExpr;
+    use datafusion_physical_expr::expressions as df_expr;
     use datafusion_physical_expr::expressions::Column;
     use object_store::memory::InMemory;
     use vortex::VortexSessionDefault;
@@ -581,6 +588,22 @@ mod tests {
             TableSchema::from_file_schema(schema),
             VortexSession::default(),
         )
+    }
+
+    fn octet_length_filter(schema: &Schema) -> PhysicalExprRef {
+        let name = Arc::new(Column::new("name", 0)) as PhysicalExprRef;
+        let octet_length = Arc::new(
+            ScalarFunctionExpr::try_new(
+                Arc::new(ScalarUDF::from(OctetLengthFunc::new())),
+                vec![name],
+                schema,
+                Arc::new(ConfigOptions::new()),
+            )
+            .unwrap(),
+        ) as PhysicalExprRef;
+        let one = Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(1)))) as PhysicalExprRef;
+
+        Arc::new(df_expr::BinaryExpr::new(octet_length, Operator::Gt, one)) as PhysicalExprRef
     }
 
     fn assert_ordered_source(inner: Arc<dyn FileSource>) -> anyhow::Result<()> {
@@ -641,6 +664,25 @@ mod tests {
             &opener.expression_convertor,
             &expression_convertor
         ));
+        Ok(())
+    }
+
+    #[test]
+    fn try_pushdown_filters_accepts_octet_length() -> anyhow::Result<()> {
+        let schema = Arc::new(Schema::new(vec![Field::new("name", DataType::Utf8, false)]));
+        let source = sort_test_source(Arc::clone(&schema));
+        let filter = octet_length_filter(&schema);
+
+        let result = source.try_pushdown_filters(vec![filter], &ConfigOptions::new())?;
+
+        assert!(matches!(result.filters.as_slice(), [PushedDown::Yes]));
+        let updated_source = result
+            .updated_node
+            .ok_or_else(|| anyhow::anyhow!("expected updated VortexSource"))?
+            .downcast_ref::<VortexSource>()
+            .ok_or_else(|| anyhow::anyhow!("expected VortexSource"))?
+            .clone();
+        assert!(updated_source.vortex_predicate.is_some());
         Ok(())
     }
 }
