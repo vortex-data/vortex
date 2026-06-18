@@ -15,12 +15,6 @@
 extern "C" {
 #endif // __cplusplus
 
-extern void vortex_init_rust(duckdb_database db);
-
-extern const char *vortex_version_rust(void);
-
-extern const char *vortex_extension_version_rust(void);
-
 extern void duckdb_table_function_to_string(void *bind_data, duckdb_vx_string_map map);
 
 extern

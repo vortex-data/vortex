@@ -9720,6 +9720,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-duckdb-extension"
+version = "0.1.0"
+dependencies = [
+ "vortex-duckdb",
+]
+
+[[package]]
 name = "vortex-error"
 version = "0.1.0"
 dependencies = [

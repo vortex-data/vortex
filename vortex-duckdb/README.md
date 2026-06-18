@@ -18,12 +18,18 @@ Link against the precompiled DuckDB release build.
 cargo build -p vortex-duckdb
 ```
 
+Build the C-compatible DuckDB extension artifacts with:
+
+```bash
+cargo build -p vortex-duckdb-extension
+```
+
 ### Debug Build
 
 Opt into DuckDB debug build: `VX_DUCKDB_DEBUG=1`.
 
 ```bash
-VX_DUCKDB_DEBUG=1 cargo build -p vortex-duckdb
+VX_DUCKDB_DEBUG=1 cargo build -p vortex-duckdb-extension
 ```
 
 ### AddressSanitizer & ThreadSanitizer
@@ -31,7 +37,7 @@ VX_DUCKDB_DEBUG=1 cargo build -p vortex-duckdb
 Enable both ASAN & TSAN: `VX_DUCKDB_SAN=1`.
 
 ```bash
-VX_DUCKDB_DEBUG=1 VX_DUCKDB_SAN=1 cargo build -p vortex-duckdb
+VX_DUCKDB_DEBUG=1 VX_DUCKDB_SAN=1 cargo build -p vortex-duckdb-extension
 ```
 
 ## Environment Variables
