@@ -97,6 +97,8 @@ pub mod multi;
 mod open;
 mod pruning;
 mod read;
+#[cfg(test)]
+mod scan_v1_v2_differential;
 pub mod segments;
 mod strategy;
 #[cfg(test)]

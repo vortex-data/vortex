@@ -81,7 +81,7 @@ use crate::multi::MultiFileDataSource;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(new_test_session);
 
-fn new_test_session() -> VortexSession {
+pub(crate) fn new_test_session() -> VortexSession {
     let session = VortexSession::empty()
         .with::<ArraySession>()
         .with::<LayoutSession>()

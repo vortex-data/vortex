@@ -9775,6 +9775,7 @@ dependencies = [
  "oneshot",
  "parking_lot",
  "pin-project-lite",
+ "rstest",
  "temp-env",
  "tokio",
  "tracing",
