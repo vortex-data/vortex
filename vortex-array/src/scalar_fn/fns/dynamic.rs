@@ -20,7 +20,6 @@ use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::dtype::DType;
 use crate::expr::Expression;
-use crate::expr::StatsCatalog;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::NodeVisitor;
 use crate::expr::traversal::TraversalOrder;
@@ -118,50 +117,6 @@ impl ScalarFnVTable for DynamicComparison {
             args.row_count(),
         )
         .into_array())
-    }
-
-    fn stat_falsification(
-        &self,
-        dynamic: &DynamicComparisonExpr,
-        expr: &Expression,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        let lhs = expr.child(0);
-        match dynamic.operator {
-            CompareOperator::Eq | CompareOperator::NotEq => None,
-            CompareOperator::Gt => Some(DynamicComparison.new_expr(
-                DynamicComparisonExpr {
-                    operator: CompareOperator::Lte,
-                    rhs: Arc::clone(&dynamic.rhs),
-                    default: !dynamic.default,
-                },
-                vec![lhs.stat_max(catalog)?],
-            )),
-            CompareOperator::Gte => Some(DynamicComparison.new_expr(
-                DynamicComparisonExpr {
-                    operator: CompareOperator::Lt,
-                    rhs: Arc::clone(&dynamic.rhs),
-                    default: !dynamic.default,
-                },
-                vec![lhs.stat_max(catalog)?],
-            )),
-            CompareOperator::Lt => Some(DynamicComparison.new_expr(
-                DynamicComparisonExpr {
-                    operator: CompareOperator::Gte,
-                    rhs: Arc::clone(&dynamic.rhs),
-                    default: !dynamic.default,
-                },
-                vec![lhs.stat_min(catalog)?],
-            )),
-            CompareOperator::Lte => Some(DynamicComparison.new_expr(
-                DynamicComparisonExpr {
-                    operator: CompareOperator::Gt,
-                    rhs: Arc::clone(&dynamic.rhs),
-                    default: !dynamic.default,
-                },
-                vec![lhs.stat_min(catalog)?],
-            )),
-        }
     }
 
     // Defer to the child

@@ -36,14 +36,12 @@ impl Default for StatsSession {
 
 impl StatsSession {
     /// Register a stats rewrite rule.
-    #[allow(dead_code)]
-    pub(crate) fn register_rewrite<R: StatsRewriteRule>(&self, rule: R) {
+    pub fn register_rewrite<R: StatsRewriteRule>(&self, rule: R) {
         self.register_rewrite_ref(Arc::new(rule));
     }
 
     /// Register a shared stats rewrite rule.
-    #[allow(dead_code)]
-    pub(crate) fn register_rewrite_ref(&self, rule: StatsRewriteRuleRef) {
+    pub fn register_rewrite_ref(&self, rule: StatsRewriteRuleRef) {
         let mut rules = self.rewrite_rules.write();
         let rule_id = rule.scalar_fn_id();
         let mut updated_rules = rules
@@ -74,7 +72,7 @@ impl SessionVar for StatsSession {
 }
 
 /// Extension trait for accessing stats session data.
-pub(crate) trait StatsSessionExt: SessionExt {
+pub trait StatsSessionExt: SessionExt {
     /// Returns the stats session state.
     fn stats(&self) -> &StatsSession {
         self.get::<StatsSession>()
