@@ -26,7 +26,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
-use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 
 use crate::AnyCanonical;
@@ -203,7 +202,7 @@ impl ArrayRef {
                 && let Some(result) = try_execute_parent(
                     &frame.parent_array,
                     std::iter::once((frame.slot_idx, &current_array)),
-                    &kernels,
+                    kernels,
                     ctx,
                 )?
             {
@@ -215,8 +214,12 @@ impl ArrayRef {
 
             // Step 2b: execute_parent against current_array's own children.
             if current_builder.is_none()
-                && let Some(rewritten) =
-                    try_execute_parent(&current_array, occupied_slots(&current_array), &kernels, ctx)?
+                && let Some(rewritten) = try_execute_parent(
+                    &current_array,
+                    occupied_slots(&current_array),
+                    kernels,
+                    ctx,
+                )?
             {
                 current_array = rewritten.optimize_ctx(ctx.session())?;
                 continue;
@@ -427,7 +430,7 @@ impl Executable for ArrayRef {
         let kernels = session.get::<ArrayKernels>();
 
         if let Some(executed_parent) =
-            try_execute_parent(&array, occupied_slots(&array), &kernels, ctx)?
+            try_execute_parent(&array, occupied_slots(&array), kernels, ctx)?
         {
             return Ok(executed_parent);
         }

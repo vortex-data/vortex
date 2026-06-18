@@ -133,11 +133,11 @@ mod tests {
 
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::ExecutionCtx;
     use crate::IntoArray;
+    use crate::array_session;
     use crate::arrays::Patched;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -158,7 +158,7 @@ mod tests {
             None,
         )?;
 
-        let session = VortexSession::empty();
+        let session = array_session();
         let mut ctx = ExecutionCtx::new(session);
 
         Patched::from_array_and_patches(values, &patches, &mut ctx)?

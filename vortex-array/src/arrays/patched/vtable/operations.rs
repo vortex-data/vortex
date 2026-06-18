@@ -58,12 +58,12 @@ impl OperationsVTable<Patched> for Patched {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_session::VortexSession;
 
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::Patched;
     use crate::dtype::Nullability;
     use crate::optimizer::ArrayOptimizer;
@@ -82,7 +82,7 @@ mod tests {
         )
         .unwrap();
 
-        let session = VortexSession::empty();
+        let session = array_session();
         let mut ctx = ExecutionCtx::new(session);
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
@@ -127,7 +127,7 @@ mod tests {
         )
         .unwrap();
 
-        let session = VortexSession::empty();
+        let session = array_session();
         let mut ctx = ExecutionCtx::new(session);
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
@@ -159,7 +159,7 @@ mod tests {
         )
         .unwrap();
 
-        let session = VortexSession::empty();
+        let session = array_session();
         let mut ctx = ExecutionCtx::new(session);
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
