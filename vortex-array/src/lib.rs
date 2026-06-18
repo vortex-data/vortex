@@ -86,7 +86,7 @@ pub mod flatbuffers {
 }
 
 /// Register vortex-array's built-in session-scoped kernels into a standalone
-/// [`ArrayKernels`](crate::optimizer::kernels::ArrayKernels) registry.
+/// [`ArrayKernels`] registry.
 ///
 /// Sessions that use [`ArraySession`] already receive vortex-array's built-in kernels from
 /// [`ArraySession::default`].

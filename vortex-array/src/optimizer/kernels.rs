@@ -18,7 +18,7 @@
 //! Because registered functions have different signatures for each kernel kind, the registry
 //! maintains one storage map per function type rather than a single type-erased map.
 //!
-//! [`ArraySession`](crate::session::ArraySession) owns vortex-array's built-in kernel registry,
+//! [`ArraySession`] owns vortex-array's built-in kernel registry,
 //! so sessions that install the default array encodings get their matching built-in kernels too.
 //! Sessions can still install a standalone [`ArrayKernels`] registry when they need a kernel-only
 //! setup or an explicit override.

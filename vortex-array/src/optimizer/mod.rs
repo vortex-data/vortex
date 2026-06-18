@@ -10,7 +10,7 @@
 //! There are three public entry points on [`ArrayOptimizer`]:
 //!
 //! - [`ArrayOptimizer::optimize`] uses only static rules registered on encoding vtables.
-//! - [`ArrayOptimizer::optimize_ctx`] also consults session-scoped [`ArrayKernels`] before
+//! - [`ArrayOptimizer::optimize_ctx`] also consults session-scoped [`kernels::ArrayKernels`] before
 //!   static parent-reduce rules, so this is the entry point used by execution.
 //! - [`ArrayOptimizer::optimize_recursive`] applies the session-aware optimizer to the root and
 //!   every descendant.
@@ -31,13 +31,13 @@ pub trait ArrayOptimizer {
     /// Optimize the root array node by running reduce and reduce_parent rules to fixpoint.
     ///
     /// This uses only static rules registered on encoding vtables. Use [`Self::optimize_ctx`]
-    /// when session-registered [`ArrayKernels`] should participate.
+    /// when session-registered [`kernels::ArrayKernels`] should participate.
     fn optimize(&self) -> VortexResult<ArrayRef>;
 
-    /// Optimize the root array node using static rules and any [`ArrayKernels`] on `session`.
+    /// Optimize the root array node using static rules and any [`kernels::ArrayKernels`] on `session`.
     ///
     /// Session kernels are checked for each `(parent_encoding_id, child_encoding_id)` pair before
-    /// the child's static `PARENT_RULES`. If `session` does not contain [`ArrayKernels`], this
+    /// the child's static `PARENT_RULES`. If `session` does not contain [`kernels::ArrayKernels`], this
     /// behaves like [`Self::optimize`].
     fn optimize_ctx(&self, session: &VortexSession) -> VortexResult<ArrayRef>;
 
