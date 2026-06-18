@@ -34,7 +34,8 @@ use vortex_ffi::vx_session_ref;
 const VX_CUDA_OK: c_int = 0;
 const VX_CUDA_ERR: c_int = 1;
 
-/// Return a session with a [`CudaSession`], creating one with [`CudaSession::try_default`] if missing.
+/// Return a session with a [`CudaSession`], creating one with [`CudaSession::try_default`] if
+/// missing.
 fn session_with_cuda(session: &VortexSession) -> VortexResult<VortexSession> {
     if session.get_opt::<CudaSession>().is_some() {
         return Ok(session.clone());

@@ -406,7 +406,8 @@ impl DeviceArrayStreamPrivateData {
             .runtime
             .block_on(array.export_device_array_with_schema(&mut self.ctx))?;
 
-        // Release the schema we no longer need, and on failure release the array we will not return.
+        // Release the schema we no longer need, and on failure release the array we will not
+        // return.
         let checked = self.check_stream_array(&ffi_schema, &device_array);
         release_schema(&mut ffi_schema);
         if let Err(error) = checked {
@@ -418,9 +419,9 @@ impl DeviceArrayStreamPrivateData {
 
     /// Check that a freshly exported device array matches the stream schema and CUDA device.
     ///
-    /// The caller still owns `ffi_schema` and `device_array` and is responsible for releasing them on
-    /// error. This method only commits `self.schema` after the array is accepted, so a rejected first
-    /// stream array never becomes the schema later reported by `get_schema`.
+    /// The caller still owns `ffi_schema` and `device_array` and is responsible for releasing
+    /// them on error. This method only commits `self.schema` after the array is accepted, so a
+    /// rejected first stream array never becomes the schema later reported by `get_schema`.
     fn check_stream_array(
         &mut self,
         ffi_schema: &FFI_ArrowSchema,
@@ -489,8 +490,9 @@ pub trait DeviceArrayStreamExt {
     ///
     /// `runtime` drives the underlying Vortex stream and each per-array export. It must be the
     /// runtime whose executor the stream spawns its scan tasks onto: a Vortex partition scan spawns
-    /// work onto the session's runtime, so passing a different runtime leaves that work undriven and
-    /// the callbacks deadlock. Callers that hold the session's blocking runtime should pass it here.
+    /// work onto the session's runtime, so passing a different runtime leaves that work undriven
+    /// and the callbacks deadlock. Callers that hold the session's blocking runtime should pass
+    /// it here.
     fn export_device_array_stream(
         self,
         session: &VortexSession,
