@@ -54,6 +54,9 @@ impl Alignment {
         Self::new(align_of::<T>())
     }
 
+    /// The largest valid alignment: the greatest power of 2 that fits into a `u16`.
+    pub const MAX: Alignment = Alignment::new(1 << 15);
+
     /// Check if `self` alignment is a "larger" than `other` alignment.
     ///
     /// ## Example
@@ -67,10 +70,32 @@ impl Alignment {
     /// assert!(!b.is_aligned_to(a));
     /// ```
     #[inline]
-    pub fn is_aligned_to(&self, other: Alignment) -> bool {
-        // Since we know alignments are powers of 2, we can compare them by checking if the number
-        // of trailing zeros in the binary representation of the alignment is greater or equal.
-        self.0.trailing_zeros() >= other.0.trailing_zeros()
+    pub const fn is_aligned_to(&self, other: Alignment) -> bool {
+        // Since both alignments are powers of 2, divisibility is equivalent to ordering.
+        self.0 >= other.0
+    }
+
+    /// Check if the given byte offset (or length) is a multiple of this alignment.
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// use vortex_buffer::Alignment;
+    ///
+    /// let a = Alignment::new(4);
+    /// assert!(a.is_offset_aligned(8));
+    /// assert!(!a.is_offset_aligned(2));
+    /// ```
+    #[inline]
+    pub const fn is_offset_aligned(&self, offset: usize) -> bool {
+        // Alignment is always a power of 2, so a mask test is equivalent to `offset % self == 0`.
+        offset & (self.0 - 1) == 0
+    }
+
+    /// Check if the given pointer is aligned to this alignment.
+    #[inline]
+    pub fn is_ptr_aligned<T>(&self, ptr: *const T) -> bool {
+        self.is_offset_aligned(ptr.addr())
     }
 
     /// Returns the log2 of the alignment.

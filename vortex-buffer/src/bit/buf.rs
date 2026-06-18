@@ -228,10 +228,11 @@ impl BitBuffer {
             unsafe { buffer.push_unchecked(packed) }
         }
 
-        buffer.truncate(len.div_ceil(8));
+        let mut bytes = buffer.into_byte_buffer();
+        bytes.truncate(len.div_ceil(8));
 
         Self {
-            buffer: buffer.freeze().into_byte_buffer(),
+            buffer: bytes.freeze(),
             offset: 0,
             len,
         }
@@ -312,7 +313,23 @@ impl BitBuffer {
         assert!(end <= self.len);
         let len = end - start;
 
-        Self::new_with_offset(self.buffer.clone(), len, self.offset + start)
+        let offset = self.offset + start;
+        let byte_offset = offset / 8;
+        let bit_offset = offset % 8;
+
+        // Trim whole bytes off the front directly rather than going through `new_with_offset`,
+        // which would slice (and re-clone) the clone we'd have to pass it.
+        let buffer = if byte_offset != 0 {
+            self.buffer.slice_unaligned(byte_offset..)
+        } else {
+            self.buffer.clone().aligned(Alignment::none())
+        };
+
+        Self {
+            buffer,
+            offset: bit_offset,
+            len,
+        }
     }
 
     /// Slice any full bytes from the buffer, leaving the offset < 8.
