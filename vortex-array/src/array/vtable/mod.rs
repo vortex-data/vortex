@@ -151,7 +151,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
             .clone()
             .execute::<Canonical>(ctx)?
             .into_array();
-        builder.extend_from_array(&canonical);
+        builder.extend_from_array(&canonical, ctx)?;
         Ok(())
     }
 

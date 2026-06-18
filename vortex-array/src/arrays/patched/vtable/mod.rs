@@ -198,7 +198,7 @@ impl VTable for Patched {
                 .clone()
                 .execute::<Canonical>(ctx)?
                 .into_array();
-            builder.extend_from_array(&canonical);
+            builder.extend_from_array(&canonical, ctx)?;
             return Ok(());
         }
 

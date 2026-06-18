@@ -317,7 +317,7 @@ impl ListViewArray {
 
             new_offsets.push(n_elements);
             new_sizes.push(size);
-            new_elements_builder.extend_from_array(&elements_canonical.slice(start..stop)?);
+            new_elements_builder.extend_from_array(&elements_canonical.slice(start..stop)?, ctx)?;
 
             n_elements += num_traits::cast(size).vortex_expect("Cast failed");
         }

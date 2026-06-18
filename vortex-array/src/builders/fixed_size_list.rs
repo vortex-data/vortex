@@ -12,9 +12,8 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::builders::ArrayBuilder;
@@ -22,8 +21,6 @@ use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::builders::builder_with_capacity;
 use crate::canonical::Canonical;
-#[expect(deprecated)]
-use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::scalar::ListScalar;
@@ -83,7 +80,11 @@ impl FixedSizeListBuilder {
     ///
     /// Note that the list entry will be non-null but the elements themselves are allowed to be null
     /// (only if the elements [`DType`] is nullable, of course).
-    pub fn append_array_as_list(&mut self, array: &ArrayRef) -> VortexResult<()> {
+    pub fn append_array_as_list(
+        &mut self,
+        array: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         vortex_ensure!(
             array.dtype() == self.element_dtype(),
             "Array dtype {:?} does not match list element dtype {:?}",
@@ -97,7 +98,7 @@ impl FixedSizeListBuilder {
             self.list_size()
         );
 
-        self.elements_builder.extend_from_array(array);
+        self.elements_builder.extend_from_array(array, ctx)?;
         self.nulls.append_non_null();
 
         Ok(())
@@ -237,21 +238,22 @@ impl ArrayBuilder for FixedSizeListBuilder {
 
     /// This will increase the capacity if extending with this `array` would go past the original
     /// capacity.
-    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
-        #[expect(deprecated)]
-        let fsl = array.to_fixed_size_list();
+    unsafe fn extend_from_array_unchecked(
+        &mut self,
+        array: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let fsl = array.clone().execute::<FixedSizeListArray>(ctx)?;
         if fsl.is_empty() {
-            return;
+            return Ok(());
         }
 
-        self.elements_builder.extend_from_array(fsl.elements());
-        self.nulls.append_validity_mask(
-            &array
-                .validity()
-                .vortex_expect("validity_mask in extend_from_array_unchecked")
-                .execute_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
-                .vortex_expect("Failed to compute validity mask"),
-        );
+        self.elements_builder
+            .extend_from_array(fsl.elements(), ctx)?;
+        self.nulls
+            .append_validity_mask(&array.validity()?.execute_mask(array.len(), ctx)?);
+
+        Ok(())
     }
 
     fn reserve_exact(&mut self, additional: usize) {
@@ -679,8 +681,12 @@ mod tests {
         let mut builder = FixedSizeListBuilder::with_capacity(dtype, 2, Nullable, 0);
 
         let source_array = source.into_array();
-        builder.extend_from_array(&source_array);
-        builder.extend_from_array(&source_array);
+        builder
+            .extend_from_array(&source_array, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
+        builder
+            .extend_from_array(&source_array, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
 
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 6);
@@ -756,8 +762,18 @@ mod tests {
 
         let mut builder = FixedSizeListBuilder::with_capacity(dtype, 0, Nullable, 0);
 
-        builder.extend_from_array(&source1.into_array());
-        builder.extend_from_array(&source2.into_array());
+        builder
+            .extend_from_array(
+                &source1.into_array(),
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
+            .unwrap();
+        builder
+            .extend_from_array(
+                &source2.into_array(),
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
+            .unwrap();
 
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 5);
@@ -833,7 +849,12 @@ mod tests {
             .unwrap();
 
         // Extend with empty array (should be no-op).
-        builder.extend_from_array(&source.into_array());
+        builder
+            .extend_from_array(
+                &source.into_array(),
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
+            .unwrap();
 
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 1);
@@ -871,7 +892,12 @@ mod tests {
             Validity::AllValid,
             1,
         );
-        builder.extend_from_array(&source.into_array());
+        builder
+            .extend_from_array(
+                &source.into_array(),
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
+            .unwrap();
 
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 6);
@@ -1002,7 +1028,9 @@ mod tests {
 
         // Append a primitive array as a single list entry.
         let arr1 = buffer![1i32, 2, 3].into_array();
-        builder.append_array_as_list(&arr1).unwrap();
+        builder
+            .append_array_as_list(&arr1, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
 
         // Interleave with a list scalar.
         builder
@@ -1018,7 +1046,9 @@ mod tests {
 
         // Append another primitive array as a single list entry.
         let arr2 = buffer![4i32, 5, 6].into_array();
-        builder.append_array_as_list(&arr2).unwrap();
+        builder
+            .append_array_as_list(&arr2, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
 
         // Interleave with another list scalar.
         builder
@@ -1048,11 +1078,19 @@ mod tests {
         let mut builder =
             FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 3, NonNullable, 10);
         let wrong_dtype_arr = buffer![1i64, 2, 3].into_array();
-        assert!(builder.append_array_as_list(&wrong_dtype_arr).is_err());
+        assert!(
+            builder
+                .append_array_as_list(&wrong_dtype_arr, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_err()
+        );
 
         // Test length mismatch error.
         let mut builder = FixedSizeListBuilder::with_capacity(dtype, 3, NonNullable, 10);
         let wrong_len_arr = buffer![1i32, 2].into_array();
-        assert!(builder.append_array_as_list(&wrong_len_arr).is_err());
+        assert!(
+            builder
+                .append_array_as_list(&wrong_len_arr, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_err()
+        );
     }
 }

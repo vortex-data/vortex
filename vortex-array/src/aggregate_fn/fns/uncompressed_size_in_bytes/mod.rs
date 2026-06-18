@@ -344,8 +344,11 @@ mod tests {
 
     fn materialized_uncompressed_size_in_bytes(array: &ArrayRef) -> u64 {
         let mut builder = builder_with_capacity(array.dtype(), array.len());
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         unsafe {
-            builder.extend_from_array_unchecked(array);
+            builder
+                .extend_from_array_unchecked(array, &mut ctx)
+                .unwrap();
         }
         builder.finish().nbytes()
     }

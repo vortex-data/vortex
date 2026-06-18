@@ -136,7 +136,10 @@ impl VarBinViewArray {
             self.len(),
             buffer_utilization_threshold,
         );
-        builder.extend_from_array(&self.clone().into_array());
+        // This array is already canonical, so executing it through the builder is cheap; we only
+        // need a context to satisfy the `extend_from_array` signature.
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        builder.extend_from_array(&self.clone().into_array(), &mut ctx)?;
         Ok(builder.finish_into_varbinview())
     }
 }
