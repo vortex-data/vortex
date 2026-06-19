@@ -230,6 +230,7 @@ mod tests {
 
     use super::layout_from_flatbuffer_with_options;
     use crate::LayoutEncodingId;
+    use crate::session::LayoutSession;
 
     #[test]
     fn unknown_layout_encoding_allow_unknown() {
@@ -271,7 +272,7 @@ mod tests {
             LayoutEncodingId::new("vortex.test.foreign_child_layout"),
         ]);
         let array_ctx = ReadContext::new([]);
-        let session = vortex_array::array_session();
+        let session = vortex_array::array_session().with::<LayoutSession>();
 
         let layout = layout_from_flatbuffer_with_options(
             layout_buffer,
