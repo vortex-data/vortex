@@ -20,6 +20,7 @@ use vortex_array::expr::is_root;
 use vortex_array::expr::root;
 use vortex_array::expr::transform::replace;
 use vortex_array::scalar_fn::fns::get_item::GetItem;
+use vortex_array::scalar_fn::fns::pack::Pack;
 use vortex_array::scalar_fn::fns::root::Root;
 use vortex_array::scalar_fn::fns::select::Select;
 use vortex_error::VortexResult;
@@ -94,6 +95,12 @@ impl ScanNode for StructScanNode {
         {
             let names = selection.normalize_to_included_fields(scope.names())?;
             return self.push_struct(names, cx).map(Some);
+        }
+        if let Some(pack) = expr.as_opt::<Pack>()
+            && pack.names.len() == 1
+            && expr.child(0).is::<Root>()
+        {
+            return self.push_struct(pack.names.clone(), cx).map(Some);
         }
         let fields = referenced_fields(expr, &scope);
         if let [name] = fields.as_slice() {

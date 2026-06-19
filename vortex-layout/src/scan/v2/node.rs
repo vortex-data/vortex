@@ -54,6 +54,7 @@ use crate::segments::SegmentRequests;
 use crate::segments::SegmentSource;
 
 /// Per-file/query IO context for scan2 reads.
+#[derive(Clone)]
 pub struct FileReader {
     segments: Arc<dyn SegmentSource>,
     session: VortexSession,

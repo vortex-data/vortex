@@ -17,26 +17,37 @@ use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 
+use futures::FutureExt;
 use futures::future::BoxFuture;
+use futures::try_join;
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::SharedArray;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
 use vortex_array::expr::Expression;
 use vortex_array::expr::is_root;
+use vortex_array::match_each_integer_ptype;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::validity::Validity;
+use vortex_buffer::BufferMut;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::layout_v2::Dict;
 use crate::layout_v2::Layout;
-use crate::scan::v2::node::DynReadPlan;
+use crate::layouts::SharedArrayFuture;
 use crate::scan::v2::node::ExpandCtx;
 use crate::scan::v2::node::FileReader;
 use crate::scan::v2::node::PlanCtx;
@@ -78,7 +89,7 @@ pub struct DictScanNode {
 /// Per-query state: the cached values relation, the child states, and
 /// cached value-domain expression results.
 pub struct DictScanState {
-    values: Mutex<Option<ArrayRef>>,
+    values: Mutex<Option<SharedArrayFuture>>,
     values_state: ScanStateRef,
     codes_state: ScanStateRef,
     value_exprs: Mutex<FxHashMap<Expression, Option<ArrayRef>>>,
@@ -102,6 +113,8 @@ struct DictExprReadPlan {
     codes_read: ReadPlanRef,
 }
 
+const SPARSE_DICT_VALUES_DENSITY_THRESHOLD: f64 = 0.2;
+
 fn value_expr_is_expensive(expr: &Expression) -> bool {
     matches!(
         expr.id().as_str(),
@@ -114,33 +127,69 @@ fn value_expr_is_expensive(expr: &Expression) -> bool {
     ) || expr.children().iter().any(value_expr_is_expensive)
 }
 
+fn sparse_dict_candidate(values_len: u64, rows: RowScope<'_>) -> bool {
+    rows.demands_all_selected()
+        && rows.selection.density() < SPARSE_DICT_VALUES_DENSITY_THRESHOLD
+        && matches!(
+            usize::try_from(values_len),
+            Ok(values_len) if values_len > rows.demand.true_count()
+        )
+}
+
+fn sparse_value_expr_candidate(expr: &Expression, values_len: u64, rows: RowScope<'_>) -> bool {
+    sparse_dict_candidate(values_len, rows) && value_expr_is_expensive(expr)
+}
+
 impl DictScanNode {
-    /// The values relation, read once per query.
-    async fn values(
+    /// The values relation wrapped in a `SharedArray`, read once per query.
+    fn values(
         &self,
-        values_read: &dyn DynReadPlan,
+        values_read: ReadPlanRef,
         io: &FileReader,
         state: &DictScanState,
-        local: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
+    ) -> SharedArrayFuture {
         if let Some(hit) = state.values.lock().clone() {
-            return Ok(hit);
+            return hit;
         }
-        let selection = Mask::new_true(
-            usize::try_from(self.values_len)
-                .map_err(|_| vortex_err!("dictionary values length exceeds usize"))?,
-        );
-        let values = values_read
-            .read_scoped(
-                0..self.values_len,
-                RowScope::selected(&selection),
-                io,
-                state.values_state.as_ref(),
-                local,
-            )
-            .await?;
-        *state.values.lock() = Some(values.clone());
-        Ok(values)
+
+        let mut guard = state.values.lock();
+        if let Some(hit) = guard.clone() {
+            return hit;
+        }
+
+        let values_len = self.values_len;
+        let io = io.clone();
+        let values_state = Arc::clone(&state.values_state);
+        let future = async move {
+            let selection =
+                Mask::new_true(usize::try_from(values_len).map_err(|_| {
+                    Arc::new(vortex_err!("dictionary values length exceeds usize"))
+                })?);
+            let mut local = io.session().create_execution_ctx();
+            let values = values_read
+                .read_scoped(
+                    0..values_len,
+                    RowScope::selected(&selection),
+                    &io,
+                    values_state.as_ref(),
+                    &mut local,
+                )
+                .await
+                .map_err(Arc::new)?;
+            // The shared future single-flights IO. `SharedArray` separately memoizes execution of
+            // the full dictionary values across batches; sparse selected reads bypass this path.
+            Ok(SharedArray::new(values).into_array())
+        }
+        .boxed()
+        .shared();
+
+        *guard = Some(future.clone());
+        future
+    }
+
+    fn build_dict(&self, codes: ArrayRef, values: ArrayRef) -> VortexResult<ArrayRef> {
+        // SAFETY: the codes and values children come from a validated dictionary layout.
+        Ok(unsafe { DictArray::new_unchecked(codes, values) }.into_array())
     }
 }
 
@@ -255,15 +304,48 @@ impl ReadPlan for DictReadPlan {
         local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
         Box::pin(async move {
-            let values = self
-                .node
-                .values(self.values_read.as_ref(), io, state, local)
-                .await?;
-            let codes = self
-                .codes_read
-                .read_scoped(range, rows, io, state.codes_state.as_ref(), local)
-                .await?;
-            DictArray::try_new(codes, values)?.into_array().optimize()
+            if sparse_dict_candidate(self.node.values_len, rows) {
+                let codes = self
+                    .codes_read
+                    .read_scoped(range.clone(), rows, io, state.codes_state.as_ref(), local)
+                    .await?;
+                let values_len = usize::try_from(self.node.values_len)
+                    .map_err(|_| vortex_err!("dictionary values length exceeds usize"))?;
+                if let Some((compact_codes, value_selection)) =
+                    compact_codes_and_value_selection(codes.clone(), values_len, local)?
+                {
+                    let values = self
+                        .values_read
+                        .read_scoped(
+                            0..self.node.values_len,
+                            RowScope::selected(&value_selection),
+                            io,
+                            state.values_state.as_ref(),
+                            local,
+                        )
+                        .await?;
+                    return self.node.build_dict(compact_codes, values)?.optimize();
+                }
+
+                let values = self
+                    .node
+                    .values(Arc::clone(&self.values_read), io, state)
+                    .await
+                    .map_err(VortexError::from)?;
+                return self.node.build_dict(codes, values)?.optimize();
+            }
+
+            let values = async {
+                self.node
+                    .values(Arc::clone(&self.values_read), io, state)
+                    .await
+                    .map_err(VortexError::from)
+            };
+            let codes =
+                self.codes_read
+                    .read_scoped(range, rows, io, state.codes_state.as_ref(), local);
+            let (values, codes) = try_join!(values, codes)?;
+            self.node.build_dict(codes, values)?.optimize()
         })
     }
 
@@ -274,6 +356,12 @@ impl ReadPlan for DictReadPlan {
         state: &Self::State,
         cx: &mut SegmentPlanCtx,
     ) -> VortexResult<SegmentRequests> {
+        if sparse_dict_candidate(self.node.values_len, rows) {
+            return self
+                .codes_read
+                .segment_requests(range, rows, state.codes_state.as_ref(), cx);
+        }
+
         let values_selection = Mask::new_true(
             usize::try_from(self.node.values_len)
                 .map_err(|_| vortex_err!("dictionary values length exceeds usize"))?,
@@ -319,8 +407,9 @@ impl DictExprReadPlan {
         let values = self
             .node
             .dict
-            .values(self.values_read.as_ref(), io, state, local)
-            .await?;
+            .values(Arc::clone(&self.values_read), io, state)
+            .await
+            .map_err(VortexError::from)?;
         let computed = values.apply(&self.node.expr).and_then(|array| {
             match array.clone().execute::<Mask>(local) {
                 Ok(mask) => {
@@ -352,6 +441,189 @@ impl DictExprReadPlan {
             .insert(self.node.expr.clone(), value_expr.clone());
         Ok(value_expr)
     }
+
+    async fn sparse_expr(
+        &self,
+        codes: ArrayRef,
+        io: &FileReader,
+        state: &DictScanState,
+        local: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let values_len = usize::try_from(self.node.dict.values_len)
+            .map_err(|_| vortex_err!("dictionary values length exceeds usize"))?;
+        let Some((compact_codes, value_selection)) =
+            compact_codes_and_value_selection(codes, values_len, local)?
+        else {
+            return Ok(None);
+        };
+
+        let values = self
+            .values_read
+            .read_scoped(
+                0..self.node.dict.values_len,
+                RowScope::selected(&value_selection),
+                io,
+                state.values_state.as_ref(),
+                local,
+            )
+            .await?;
+        let input = self
+            .node
+            .dict
+            .build_dict(compact_codes, values)?
+            .optimize()?;
+        let computed = input
+            .apply(&self.node.expr)
+            .and_then(|array| array.execute::<ArrayRef>(local));
+        match computed {
+            Ok(array) => Ok(Some(array)),
+            Err(error) => {
+                tracing::debug!(
+                    predicate = %self.node.expr,
+                    %error,
+                    "sparse dict expression read unavailable"
+                );
+                Ok(None)
+            }
+        }
+    }
+}
+
+fn compact_codes_and_value_selection(
+    codes: ArrayRef,
+    values_len: usize,
+    local: &mut ExecutionCtx,
+) -> VortexResult<Option<(ArrayRef, Mask)>> {
+    let codes = codes.execute::<PrimitiveArray>(local)?;
+    let validity = codes.validity()?;
+    let valid = validity.execute_mask(codes.len(), local)?;
+    if valid.all_false() {
+        return Ok(None);
+    }
+
+    match_each_integer_ptype!(codes.ptype(), |Code| {
+        compact_codes_and_value_selection_typed::<Code>(
+            codes.as_slice::<Code>(),
+            validity,
+            &valid,
+            values_len,
+        )
+    })
+}
+
+fn compact_codes_and_value_selection_typed<Code>(
+    codes: &[Code],
+    validity: Validity,
+    valid: &Mask,
+    values_len: usize,
+) -> VortexResult<Option<(ArrayRef, Mask)>>
+where
+    Code: NativePType + TryFrom<usize>,
+    usize: TryFrom<Code>,
+{
+    let referenced = referenced_values(codes, valid, values_len)?;
+    if referenced.is_empty() || referenced.len() == values_len {
+        return Ok(None);
+    }
+
+    let compact = remap_codes(codes, valid, values_len, &referenced)?;
+    let value_selection = Mask::from_indices(values_len, referenced);
+    let compact_codes = PrimitiveArray::new(compact.freeze(), validity).into_array();
+    Ok(Some((compact_codes, value_selection)))
+}
+
+fn referenced_values<Code>(
+    codes: &[Code],
+    valid: &Mask,
+    values_len: usize,
+) -> VortexResult<Vec<usize>>
+where
+    Code: Copy + fmt::Display,
+    usize: TryFrom<Code>,
+{
+    let mut referenced = Vec::with_capacity(valid.true_count().min(values_len));
+    match valid.bit_buffer() {
+        AllOr::All => {
+            for &code in codes {
+                referenced.push(checked_code_index(code, values_len)?);
+            }
+        }
+        AllOr::None => {}
+        AllOr::Some(mask) => {
+            for idx in mask.set_indices() {
+                referenced.push(checked_code_index(codes[idx], values_len)?);
+            }
+        }
+    }
+    referenced.sort_unstable();
+    referenced.dedup();
+    Ok(referenced)
+}
+
+fn remap_codes<Code>(
+    codes: &[Code],
+    valid: &Mask,
+    values_len: usize,
+    referenced: &[usize],
+) -> VortexResult<BufferMut<Code>>
+where
+    Code: Copy + Default + fmt::Display + TryFrom<usize>,
+    usize: TryFrom<Code>,
+{
+    let mut compact = BufferMut::<Code>::with_capacity(codes.len());
+    match valid.bit_buffer() {
+        AllOr::All => {
+            for &code in codes {
+                compact.push(compact_code(code, values_len, referenced)?);
+            }
+        }
+        AllOr::None => compact.extend(std::iter::repeat_n(Code::default(), codes.len())),
+        AllOr::Some(mask) => {
+            let mut valid_indices = mask.set_indices();
+            let mut next_valid = valid_indices.next();
+            for (idx, &code) in codes.iter().enumerate() {
+                if next_valid == Some(idx) {
+                    compact.push(compact_code(code, values_len, referenced)?);
+                    next_valid = valid_indices.next();
+                } else {
+                    compact.push(Code::default());
+                }
+            }
+        }
+    }
+    Ok(compact)
+}
+
+fn checked_code_index<Code>(code: Code, values_len: usize) -> VortexResult<usize>
+where
+    Code: Copy + fmt::Display,
+    usize: TryFrom<Code>,
+{
+    let idx = usize::try_from(code)
+        .map_err(|_| vortex_err!("invalid negative dictionary code {code}"))?;
+    if idx >= values_len {
+        vortex_bail!(
+            "dictionary code {idx} out of bounds for values length {}",
+            values_len
+        );
+    }
+    Ok(idx)
+}
+
+fn compact_code<Code>(code: Code, values_len: usize, referenced: &[usize]) -> VortexResult<Code>
+where
+    Code: Copy + fmt::Display + TryFrom<usize>,
+    usize: TryFrom<Code>,
+{
+    let idx = checked_code_index(code, values_len)?;
+    let rank = referenced.binary_search(&idx).map_err(|_| {
+        vortex_err!("dictionary code {idx} missing from sparse referenced value set")
+    })?;
+    Code::try_from(rank).map_err(|_| {
+        vortex_err!(
+            "sparse dictionary code rank {rank} cannot be represented by original code type"
+        )
+    })
 }
 
 impl ReadPlan for DictExprReadPlan {
@@ -375,11 +647,14 @@ impl ReadPlan for DictExprReadPlan {
         local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
         Box::pin(async move {
-            let value_expr = if !value_expr_is_expensive(&self.node.expr)
-                || matches!(
-                    usize::try_from(self.node.dict.values_len),
-                    Ok(values_len) if values_len <= rows.demand.true_count()
-                ) {
+            let sparse_candidate =
+                sparse_value_expr_candidate(&self.node.expr, self.node.dict.values_len, rows);
+            let value_expr = if !sparse_candidate
+                && (!value_expr_is_expensive(&self.node.expr)
+                    || matches!(
+                        usize::try_from(self.node.dict.values_len),
+                        Ok(values_len) if values_len <= rows.demand.true_count()
+                    )) {
                 self.value_expr(io, state, local).await?
             } else {
                 None
@@ -395,15 +670,21 @@ impl ReadPlan for DictExprReadPlan {
                         .execute_mask(codes.len(), local)?
                         .all_true();
                 if all_valid {
-                    return Ok(DictArray::try_new(codes, value_expr)?.into_array());
+                    return self.node.dict.build_dict(codes, value_expr);
                 }
+            }
+            if sparse_candidate
+                && let Some(result) = self.sparse_expr(codes.clone(), io, state, local).await?
+            {
+                return Ok(result);
             }
             let values = self
                 .node
                 .dict
-                .values(self.values_read.as_ref(), io, state, local)
-                .await?;
-            let input = DictArray::try_new(codes, values)?.into_array().optimize()?;
+                .values(Arc::clone(&self.values_read), io, state)
+                .await
+                .map_err(VortexError::from)?;
+            let input = self.node.dict.build_dict(codes, values)?.optimize()?;
             input.apply(&self.node.expr)?.execute::<ArrayRef>(local)
         })
     }
@@ -415,6 +696,12 @@ impl ReadPlan for DictExprReadPlan {
         state: &Self::State,
         cx: &mut SegmentPlanCtx,
     ) -> VortexResult<SegmentRequests> {
+        if sparse_value_expr_candidate(&self.node.expr, self.node.dict.values_len, rows) {
+            return self
+                .codes_read
+                .segment_requests(range, rows, state.codes_state.as_ref(), cx);
+        }
+
         let values_selection = Mask::new_true(
             usize::try_from(self.node.dict.values_len)
                 .map_err(|_| vortex_err!("dictionary values length exceeds usize"))?,
