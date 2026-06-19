@@ -12,7 +12,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::stats::Stat;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -74,7 +73,7 @@ impl AggregateSpec {
         }
     }
 
-    pub(crate) fn descriptor(&self) -> String {
+    pub(crate) fn display_name(&self) -> String {
         if self.options.is_empty() {
             format!("{}()", self.id)
         } else {
@@ -99,7 +98,7 @@ pub(crate) fn aggregate_stats_table_dtype(
     DType::Struct(
         StructFields::from_iter(aggregate_fns.iter().filter_map(|aggregate_fn| {
             aggregate_state_dtype(column_dtype, aggregate_fn)
-                .map(|dtype| (aggregate_descriptor(aggregate_fn), dtype.as_nullable()))
+                .map(|dtype| (aggregate_fn.to_string(), dtype.as_nullable()))
         })),
         Nullability::NonNullable,
     )
@@ -140,10 +139,6 @@ pub(crate) fn legacy_stats_table_dtype(column_dtype: &DType, present_stats: &[St
     )
 }
 
-pub(crate) fn aggregate_descriptor(aggregate_fn: &AggregateFnRef) -> String {
-    aggregate_fn.to_string()
-}
-
 pub(crate) fn aggregate_specs_from_fns(
     aggregate_fns: &[AggregateFnRef],
 ) -> VortexResult<Arc<[AggregateSpec]>> {
@@ -179,7 +174,8 @@ pub(crate) fn aggregate_state_dtype(
 }
 
 pub(crate) fn default_bounded_stat_max_bytes() -> std::num::NonZeroUsize {
-    std::num::NonZeroUsize::new(64).vortex_expect("non-zero default bounded stat byte size")
+    // SAFETY: 64 is non-zero.
+    unsafe { std::num::NonZeroUsize::new_unchecked(64) }
 }
 
 #[cfg(test)]
@@ -233,7 +229,7 @@ mod tests {
     }
 
     #[test]
-    fn aggregate_stats_table_dtype_uses_descriptors_as_names() {
+    fn aggregate_stats_table_dtype_uses_display_names() {
         let dtype = aggregate_stats_table_dtype(
             &DType::Primitive(PType::I32, Nullability::NonNullable),
             &[

@@ -53,7 +53,6 @@ use crate::children::OwnedLayoutChildren;
 use crate::layouts::zoned::reader::ZonedReader;
 use crate::layouts::zoned::schema::AggregateSpec;
 use crate::layouts::zoned::schema::AggregateSpecProto;
-use crate::layouts::zoned::schema::aggregate_descriptor;
 use crate::layouts::zoned::schema::aggregate_fns_from_specs;
 use crate::layouts::zoned::schema::aggregate_specs_from_fns;
 use crate::layouts::zoned::schema::aggregate_stats_table_dtype;
@@ -305,7 +304,7 @@ pub struct ZonedLayout {
 pub struct LegacyStatsLayout(ZonedLayout);
 
 impl LegacyStatsLayout {
-    /// Returns display descriptors for the zone-map aggregates stored by this layout.
+    /// Returns display names for the zone-map aggregates stored by this layout.
     pub fn present_aggregates(&self) -> Arc<[String]> {
         self.0.present_aggregates()
     }
@@ -352,12 +351,12 @@ impl ZonedLayout {
         self.zone_len
     }
 
-    /// Returns display descriptors for the zone-map aggregates stored by this layout.
+    /// Returns display names for the zone-map aggregates stored by this layout.
     pub fn present_aggregates(&self) -> Arc<[String]> {
         if let Some(aggregate_fns) = &self.aggregate_fns {
             return aggregate_fns
                 .iter()
-                .map(aggregate_descriptor)
+                .map(ToString::to_string)
                 .collect::<Vec<_>>()
                 .into();
         }
@@ -366,12 +365,12 @@ impl ZonedLayout {
             ZoneMapSchema::LegacyStats(stats) => stats
                 .iter()
                 .filter_map(Stat::aggregate_fn)
-                .map(|aggregate_fn| aggregate_descriptor(&aggregate_fn))
+                .map(|aggregate_fn| aggregate_fn.to_string())
                 .collect::<Vec<_>>()
                 .into(),
             ZoneMapSchema::AggregateSpecs(aggregate_specs) => aggregate_specs
                 .iter()
-                .map(AggregateSpec::descriptor)
+                .map(AggregateSpec::display_name)
                 .collect::<Vec<_>>()
                 .into(),
         }
@@ -567,8 +566,8 @@ mod tests {
     #[test]
     fn test_metadata_serialization_preserves_aggregate_options() -> VortexResult<()> {
         let aggregate_fn = BoundedMax.bind(BoundedMaxOptions {
-            max_bytes: std::num::NonZeroUsize::new(128)
-                .vortex_expect("non-zero bounded max byte size"),
+            // SAFETY: 128 is non-zero.
+            max_bytes: unsafe { std::num::NonZeroUsize::new_unchecked(128) },
         });
         let metadata = ZonedMetadata {
             zone_len: 314,

@@ -21,7 +21,6 @@ use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 
-use crate::layouts::zoned::schema::aggregate_descriptor;
 use crate::layouts::zoned::schema::aggregate_state_dtype;
 
 /// Accumulates aggregate-function partials for each logical zone.
@@ -83,7 +82,7 @@ impl AggregateStatsAccumulator {
         for builder in self
             .builders
             .iter_mut()
-            .sorted_unstable_by(|lhs, rhs| lhs.descriptor.cmp(&rhs.descriptor))
+            .sorted_unstable_by_key(|builder| builder.aggregate_fn.to_string())
         {
             let values = builder.finish();
 
@@ -122,7 +121,6 @@ pub(crate) fn aggregate_partials(
 
 struct AggregateStatsArrayBuilder {
     aggregate_fn: AggregateFnRef,
-    descriptor: String,
     dtype: DType,
     builder: Box<dyn ArrayBuilder>,
 }
@@ -130,7 +128,6 @@ struct AggregateStatsArrayBuilder {
 impl AggregateStatsArrayBuilder {
     fn new(aggregate_fn: AggregateFnRef, dtype: &DType, capacity: usize) -> Self {
         Self {
-            descriptor: aggregate_descriptor(&aggregate_fn),
             aggregate_fn,
             dtype: dtype.clone(),
             builder: builder_with_capacity(dtype, capacity),
@@ -143,7 +140,7 @@ impl AggregateStatsArrayBuilder {
 
     fn finish(&mut self) -> NamedArrays {
         NamedArrays {
-            names: vec![self.descriptor.clone().into()],
+            names: vec![self.aggregate_fn.to_string().into()],
             arrays: vec![self.builder.finish()],
         }
     }

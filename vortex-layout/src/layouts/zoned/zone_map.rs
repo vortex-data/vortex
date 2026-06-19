@@ -45,7 +45,6 @@ use vortex_mask::Mask;
 use vortex_runend::RunEnd;
 use vortex_session::VortexSession;
 
-use crate::layouts::zoned::schema::aggregate_descriptor;
 use crate::layouts::zoned::schema::aggregate_stats_table_dtype;
 use crate::layouts::zoned::schema::legacy_stats_table_dtype;
 
@@ -256,22 +255,22 @@ impl StatBinder for ZoneMapStatsBinder<'_> {
 
 impl ZoneMap {
     fn aggregate_field_expr(&self, requested: &AggregateFnRef) -> Option<Expression> {
-        let descriptor = aggregate_descriptor(requested);
-        if self.array.unmasked_field_by_name_opt(&descriptor).is_some() {
-            return Some(get_item(descriptor, root()));
+        let field_name = requested.to_string();
+        if self.array.unmasked_field_by_name_opt(&field_name).is_some() {
+            return Some(get_item(field_name, root()));
         }
 
         let mut approximate = None;
         for stored in self.aggregate_fns.iter() {
-            let descriptor = aggregate_descriptor(stored);
-            if self.array.unmasked_field_by_name_opt(&descriptor).is_none() {
+            let field_name = stored.to_string();
+            if self.array.unmasked_field_by_name_opt(&field_name).is_none() {
                 continue;
             }
 
             match stored.can_satisfy(requested) {
-                AggregateFnSatisfaction::Exact => return Some(get_item(descriptor, root())),
+                AggregateFnSatisfaction::Exact => return Some(get_item(field_name, root())),
                 AggregateFnSatisfaction::Approximate => {
-                    approximate = Some(get_item(descriptor, root()));
+                    approximate = Some(get_item(field_name, root()));
                 }
                 AggregateFnSatisfaction::No => {}
             }
@@ -383,7 +382,6 @@ mod tests {
     use vortex_array::stats::all_null;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
-    use vortex_error::VortexExpect;
 
     use crate::layouts::zoned::zone_map::ZoneMap;
     use crate::test::SESSION;
@@ -393,7 +391,8 @@ mod tests {
     }
 
     fn default_bounded_stat_max_bytes() -> NonZeroUsize {
-        NonZeroUsize::new(64).vortex_expect("non-zero default bounded stat byte size")
+        // SAFETY: 64 is non-zero.
+        unsafe { NonZeroUsize::new_unchecked(64) }
     }
 
     #[test]
@@ -459,7 +458,7 @@ mod tests {
     }
 
     #[test]
-    fn bounded_descriptors_satisfy_min_max_rewrites() {
+    fn bounded_display_names_satisfy_min_max_rewrites() {
         let bounded_max = BoundedMax.bind(BoundedMaxOptions {
             max_bytes: default_bounded_stat_max_bytes(),
         });
@@ -613,7 +612,7 @@ mod tests {
     }
 
     #[test]
-    fn all_null_stat_fn_lowers_to_null_count_descriptor() {
+    fn all_null_stat_fn_lowers_to_null_count_field() {
         let null_count = NullCount.bind(EmptyOptions);
         let zone_map = ZoneMap::try_new(
             PType::U64.into(),
@@ -639,7 +638,7 @@ mod tests {
     }
 
     #[test]
-    fn all_nan_stat_fn_lowers_to_nan_count_descriptor() {
+    fn all_nan_stat_fn_lowers_to_nan_count_field() {
         let nan_count = NanCount.bind(EmptyOptions);
         let zone_map = ZoneMap::try_new(
             PType::F32.into(),
@@ -882,7 +881,7 @@ mod tests {
     }
 
     #[test]
-    fn all_null_stat_fn_lowers_to_aggregate_descriptor() {
+    fn all_null_stat_fn_lowers_to_aggregate_field() {
         let all_null_agg = AllNull.bind(EmptyOptions);
         let zone_map = ZoneMap::try_new(
             PType::U64.into(),
@@ -902,7 +901,7 @@ mod tests {
     }
 
     #[test]
-    fn all_non_null_stat_fn_lowers_to_aggregate_descriptor() {
+    fn all_non_null_stat_fn_lowers_to_aggregate_field() {
         let all_non_null_agg = AllNonNull.bind(EmptyOptions);
         let zone_map = ZoneMap::try_new(
             PType::U64.into(),
