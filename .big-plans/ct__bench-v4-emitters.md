@@ -109,9 +109,54 @@ phase_entry_sha: null
 
 ## Phase Map
 
-<!-- Empty until Step 1.4 decomposition (after brainstorming + grill-me). -->
+<!-- Phases reordered D -> A -> C -> B per the demo-safety model (design spec § 4.0).
+     Phase 1 (D) is the ONLY code phase (standard SDD + gauntlet + PR + human gate + merge).
+     Phases 2-4 (A/C/B) are OPS phases: no SDD, no gauntlet, no PR; direct CLI; exit = the
+     CLI verification command; human checkpoint = pre-action confirmation + the phase-gate AUQ.
+     See "Orchestration notes" below for the ops-phase protocol. -->
 
-(decomposition pending — Step 1.4)
+| Phase | Sub-phase | Scope (one line) | Exit criteria (command → expected) | Sub-phase gauntlet | Phase gauntlet | Task-plan pointer |
+|---|---|---|---|---|---|---|
+| 1: D — port v4 emitter (CODE) | 1.1 measurement_id contract | Port `_measurement_id.py` (xxhash XXH64) + `measurement_id_golden.json` + `test_measurement_id.py`; repoint the two docstrings off the extracted-repo paths | (phase-level — see exit row) | pr-2 | | `.big-plans/ct__bench-v4-emitters--1-1-measurement-id.plan.md` |
+| *(phase 1 cont.)* | 1.2 Postgres writer | Add `--postgres`/`--region` mode to `post-ingest.py` (RDS IAM auth, `verify-full` TLS + `ssl_in_use` check, `bench_ingest` enforce, NaN/Inf guard, 5-table upsert + commit dim in one txn, best-effort revalidate) keeping `--server` stdlib-only intact; add `test_post_ingest_postgres.py` (testcontainers PG16), `test_post_ingest_revalidate.py`, `cross_check_python_writer.py` | | pr-3 | | `.big-plans/ct__bench-v4-emitters--1-2-postgres-writer.plan.md` |
+| *(phase 1 cont.)* | 1.3 CI + workflow wiring | Wire the contract test into `ci.yml` `python-test` (docker-UNgated) + a docker-gated `scripts-test` job for the testcontainer tests; add the best-effort v4 step block to `bench.yml`, `sql-benchmarks.yml`, `v3-commit-metadata.yml` (+ `id-token: write` on the last); regenerate `uv.lock` with `uv lock` | | pr-3 | | `.big-plans/ct__bench-v4-emitters--1-3-ci-workflow-wiring.plan.md` |
+| *(phase 1 exit)* | *(all sub-phases)* | v4 dual-write emitter + dormant workflow steps ported; v3 path intact | `uv run --no-project --with xxhash pytest scripts/test_measurement_id.py` → 0; `yamllint --strict -c .yamllint.yaml .github/workflows/bench.yml .github/workflows/sql-benchmarks.yml .github/workflows/v3-commit-metadata.yml .github/workflows/ci.yml` → 0; `python3 scripts/post-ingest.py --help` → 0 (stdlib-only); testcontainer writer tests green under docker | | phase-4 | |
+| 2: A — provision IAM role (OPS) | 2.1 create ingest role | Create `GitHubBenchmarkIngestRole` (trust `repo:vortex-data/vortex` on develop; grant `rds-db:connect` as `bench_ingest` on the instance `DbiResourceId`) via `provision.sh` `ensure_ingest_role` or a surgical create; record the ARN. Pre-action confirm | (phase-level) | n/a (ops) | | n/a (ops — direct CLI) |
+| *(phase 2 exit)* | *(ops)* | Ingest role exists with the rds-db:connect grant | `aws iam get-role --role-name GitHubBenchmarkIngestRole --profile bench-prod` → 0 AND `aws iam get-role-policy --role-name GitHubBenchmarkIngestRole --policy-name rds-db-connect-ingest --profile bench-prod` shows `rds-db:connect` for `bench_ingest` | | n/a (ops) | |
+| 3: C — align revalidate token (OPS, GATED) | 3.1 set + align token | `vercel link --scope vortex-data`; generate one fresh token; `vercel env add BENCH_REVALIDATE_TOKEN production`; `gh secret set BENCH_REVALIDATE_TOKEN -R vortex-data/vortex`; redeploy v4 prod. GATED: explicit go-ahead + post-demo. Pre-action confirm | (phase-level) | n/a (ops) | | n/a (ops — direct CLI) |
+| *(phase 3 exit)* | *(ops)* | Token aligned both sides + v4 redeployed | authed `POST {site}/api/revalidate` with the token → HTTP `200 {revalidated:true}` (not 503/401) | | n/a (ops) | |
+| 4: B — flip switch + soak (OPS, GATED, live cutover) | 4.1 pre-flip verify + cutover | read-only/rolled-back `bench_ingest` RDS verify (IAM + `verify-full` TLS, no data write); then `gh variable set GH_BENCH_INGEST_ROLE_ARN` + repoint `BENCH_SITE_BASE_URL` + `BENCHMARKS_WEB_PROD_URL` to `https://benchmarks-website.vercel.app`. GATED: explicit go-ahead + post-demo. Pre-action confirm | (phase-level) | n/a (ops) | | n/a (ops — direct CLI) |
+| *(phase 4 cont.)* | 4.2 soak + acceptance | trigger/await an emitting `develop` run; verify §5 acceptance (OIDC assume-role ok, upsert inserted/updated, revalidate 200, `/api/health` advances, v3 step still green) | | n/a (ops) | | n/a (ops — direct CLI) |
+| *(phase 4 exit)* | *(ops)* | v4 dual-write live + acceptance green | `gh variable list -R vortex-data/vortex` shows `GH_BENCH_INGEST_ROLE_ARN` set + `BENCH_SITE_BASE_URL`=`https://benchmarks-website.vercel.app`; `curl -s https://benchmarks-website.vercel.app/api/health` `latest_commit_timestamp` advanced to a post-cutover commit; the emitting run's v3 step still succeeded | | n/a (ops) | |
+
+---
+
+## Orchestration notes (custom spine — READ ON RESUME)
+
+This spine mixes one CODE phase with three OPS phases; the orchestrator handles them differently.
+
+- **Phase 1 (D) — CODE — standard big-plans:** per sub-phase, `writing-plans` (JIT) ->
+  `subagent-driven-development` -> `gauntlet` (pr-2/pr-3) checkpoint; phase-end `gauntlet`
+  (phase-4); open the phase PR; mandatory human gate; squash-merge. Pre-merge confidence per
+  design spec § 4.0 (testcontainer PG16 + golden, no prod/develop dependency).
+- **Phases 2-4 (A/C/B) — OPS — adapted:** NO `writing-plans`, NO `subagent-driven-development`,
+  NO `gauntlet`, NO PR (there is no in-repo diff to plan, review, or merge). Execute each
+  sub-phase as direct CLI. Before EACH mutating external op (AWS / GitHub / Vercel), fire the
+  pre-action external-side-effect confirmation. The phase exit criterion is the CLI verification
+  command in the Phase Map. The phase-boundary human-gate AUQ still fires, but the user reviews
+  the CLI verification output instead of a PR diff. Spine status for ops phases:
+  `implementing` while running the CLI ops (resume = re-run idempotently), then
+  `awaiting-human-gate` at the boundary (skip `reviewing`/`fixing` — no gauntlet). Do NOT route
+  an ops phase's `implementing` status into the SDD/writing-plans loop.
+- **GATED ops phases (C and B):** in addition to the per-op confirmation, both require explicit
+  user go-ahead AND must wait until AFTER the demo (design spec § 4.0). C is the deferred
+  `BENCH_REVALIDATE_TOKEN` un-deferral; B is the live cutover (first prod RDS write).
+- **Wrap-up (after phase B):** the spine + design spec rode onto develop via phase D's
+  squash-merge (big-plans' normal between-phase behavior; nothing sensitive — all infra values
+  already exist in the repo's workflows/vars). Because the trailing ops phases A/C/B have NO PR,
+  remove the scaffolding from develop with a dedicated `chore: remove big-plans spine` cleanup PR
+  rather than relying on a final phase PR. The branch-local A/C/B `plan:` commits are the
+  orchestration audit trail and are not merged.
 
 ---
 
