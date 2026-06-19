@@ -106,8 +106,9 @@ impl ArrowArray {
 }
 
 impl ArrowDeviceArray {
-    /// A zeroed device array: an empty Arrow array with no device. Used as a callback output
-    /// placeholder and as the basis for the end-of-stream marker.
+    /// A zeroed device array: an empty Arrow array with no device. Used as a
+    /// callback output placeholder and as the basis for the end-of-stream
+    /// marker.
     fn empty() -> Self {
         Self {
             array: ArrowArray::empty(),
@@ -268,9 +269,10 @@ impl DeviceArrayExt for ArrayRef {
     }
 }
 
-// POSIX EIO for Arrow stream producer/export failures.
+/// POSIX EIO for Arrow stream producer/export failures.
 const ARROW_STREAM_EIO: c_int = 5;
-// POSIX EINVAL for invalid Arrow stream callback arguments or released streams.
+
+/// POSIX EINVAL for invalid Arrow stream callback arguments or released streams.
 const ARROW_STREAM_EINVAL: c_int = 22;
 
 #[derive(Debug, PartialEq)]
@@ -293,8 +295,7 @@ impl ArrowDeviceStreamSchema {
     ///
     /// This uses only the logical dtype, so it can differ from a non-empty stream's first-array
     /// schema for encodings the dtype does not capture: a dictionary column reports a plain field
-    /// here but `DataType::Dictionary` once a concrete array is seen. This is harmless because an
-    /// empty stream carries no data.
+    /// here but `DataType::Dictionary` once a concrete array is seen.
     fn from_dtype(dtype: &DType, ctx: &mut CudaExecutionCtx) -> VortexResult<Self> {
         let dtype = arrow_device_export_dtype(dtype);
         if let DType::Struct(struct_dtype, _) = &dtype {
@@ -320,9 +321,9 @@ type ArrayStreamIterator = Box<dyn Iterator<Item = VortexResult<ArrayRef>>>;
 struct DeviceArrayStreamPrivateData {
     array_iter: ArrayStreamIterator,
     ctx: CudaExecutionCtx,
-    /// The runtime that drives `array_iter` and per-array exports. It must be the runtime whose
-    /// executor the underlying Vortex stream spawns its scan tasks onto, otherwise those tasks are
-    /// never driven and the callbacks deadlock.
+    /// Runtime used by Arrow stream callbacks to pull from `array_iter` and block on per-array
+    /// CUDA exports. It must match the runtime that owns the underlying Vortex scan tasks so those
+    /// tasks are polled while callbacks are producing arrays.
     runtime: CurrentThreadRuntime,
     dtype: DType,
     schema: Option<ArrowDeviceStreamSchema>,
@@ -341,26 +342,16 @@ impl DeviceArrayStreamPrivateData {
     ///
     /// Interior NUL bytes are replaced so `get_last_error` is never null while a non-zero status
     /// is reported.
-    fn set_error_with_code(&mut self, error: impl ToString, code: c_int) -> c_int {
+    fn set_error(&mut self, error: impl ToString, code: c_int) -> c_int {
         let message = error.to_string().replace('\0', " ");
         self.last_error = Some(CString::new(message).unwrap_or_default());
         code
     }
 
-    /// Store the last stream error and return the Arrow producer/export failure code.
-    fn set_error(&mut self, error: impl ToString) -> c_int {
-        self.set_error_with_code(error, ARROW_STREAM_EIO)
-    }
-
-    /// Store the last stream error and return the Arrow invalid-argument code.
-    fn set_invalid_error(&mut self, error: impl ToString) -> c_int {
-        self.set_error_with_code(error, ARROW_STREAM_EINVAL)
-    }
-
     /// Return the stream schema, exporting the first stream array to derive it if needed.
     ///
     /// A first array is held in `pending_array` so the following `get_next` returns it.
-    fn ensure_schema(&mut self) -> VortexResult<&ArrowDeviceStreamSchema> {
+    fn get_or_init_schema(&mut self) -> VortexResult<&ArrowDeviceStreamSchema> {
         if self.schema.is_none() {
             match self.array_iter.next() {
                 Some(array) => self.pending_array = Some(self.export_stream_array(array?)?),
@@ -410,23 +401,25 @@ impl DeviceArrayStreamPrivateData {
         // return.
         let checked = self.check_stream_array(&ffi_schema, &device_array);
         release_schema(&mut ffi_schema);
-        if let Err(error) = checked {
-            release_device_array(&mut device_array);
-            return Err(error);
+        let exported_schema = match checked {
+            Ok(exported_schema) => exported_schema,
+            Err(error) => {
+                release_device_array(&mut device_array);
+                return Err(error);
+            }
+        };
+        if self.schema.is_none() {
+            self.schema = Some(exported_schema);
         }
         Ok(device_array)
     }
 
     /// Check that a freshly exported device array matches the stream schema and CUDA device.
-    ///
-    /// The caller still owns `ffi_schema` and `device_array` and is responsible for releasing
-    /// them on error. This method only commits `self.schema` after the array is accepted, so a
-    /// rejected first stream array never becomes the schema later reported by `get_schema`.
     fn check_stream_array(
-        &mut self,
+        &self,
         ffi_schema: &FFI_ArrowSchema,
         device_array: &ArrowDeviceArray,
-    ) -> VortexResult<()> {
+    ) -> VortexResult<ArrowDeviceStreamSchema> {
         vortex_ensure!(
             device_array.device_type == ARROW_DEVICE_CUDA,
             "stream array exported on non-CUDA device type {}",
@@ -439,23 +432,18 @@ impl DeviceArrayStreamPrivateData {
             device_array.device_id
         );
 
-        // Commit the schema only after the array is fully accepted, so a rejected first stream
-        // array never becomes the schema later reported by `get_schema`.
         let exported_schema = ArrowDeviceStreamSchema::from_ffi(ffi_schema, &self.dtype)?;
-        match &self.schema {
-            Some(stream_schema) => {
-                vortex_ensure!(
-                    stream_schema == &exported_schema,
-                    "stream array Arrow schema changed from {:?} to {:?}; an Arrow C device stream \
-                     requires every array to share one schema, so chunks must not vary their \
-                     encoding (for example a dictionary-encoded chunk among plain chunks)",
-                    stream_schema,
-                    exported_schema
-                );
-            }
-            None => self.schema = Some(exported_schema),
+        if let Some(stream_schema) = &self.schema {
+            vortex_ensure!(
+                stream_schema == &exported_schema,
+                "stream array Arrow schema changed from {:?} to {:?}; an Arrow C device stream \
+                 requires every array to share one schema, so chunks must not vary their \
+                 encoding (for example a dictionary-encoded chunk among plain chunks)",
+                stream_schema,
+                exported_schema
+            );
         }
-        Ok(())
+        Ok(exported_schema)
     }
 }
 
@@ -468,31 +456,21 @@ impl Drop for DeviceArrayStreamPrivateData {
     }
 }
 
-/// Extension trait for exporting a Vortex array stream as an Arrow C Device stream.
+/// Extension trait for exporting a Vortex array stream as an Arrow Device stream.
 pub trait DeviceArrayStreamExt {
     /// Export this stream as an [`ArrowDeviceArrayStream`].
     ///
-    /// Arrays are exported through one persistent [`CudaExecutionCtx`]. The stream records that
-    /// context's CUDA device at construction time, and each `get_next` verifies that the produced
-    /// [`ArrowDeviceArray`] is CUDA-resident on that same device. The returned C stream owns the
-    /// Vortex stream and must be released through its embedded `release` callback.
+    /// Arrays are exported by reusing one [`CudaExecutionCtx`], and every produced
+    /// [`ArrowDeviceArray`] must remain on the CUDA device captured at stream construction. The
+    /// returned [`ArrowDeviceArrayStream`] owns the Vortex stream and must be released through its
+    /// embedded `release` callback.
     ///
-    /// The Arrow C stream contract requires every produced array to share the schema reported by
-    /// `get_schema`. That schema is derived from the first array, so all arrays must export to the
-    /// same Arrow type: a stream whose chunks vary their encoding (for example a dictionary-encoded
-    /// chunk among plain chunks) is rejected mid-stream rather than silently producing a
-    /// schema-mismatched array. An empty stream has no first array, so its schema is derived from
-    /// the logical dtype and may report a plain field where a non-empty run would report
-    /// `DataType::Dictionary`.
+    /// The Arrow Device stream contract requires all arrays to share the schema reported by
+    /// `get_schema`. The schema is derived from the first array, or from the logical dtype
+    /// for an empty stream. Chunks that export to different Arrow types are rejected mid-stream.
     ///
-    /// Per the Arrow C stream contract, drive the returned stream from a single thread; its
-    /// callbacks must not be invoked concurrently.
-    ///
-    /// `runtime` drives the underlying Vortex stream and each per-array export. It must be the
-    /// runtime whose executor the stream spawns its scan tasks onto: a Vortex partition scan spawns
-    /// work onto the session's runtime, so passing a different runtime leaves that work undriven
-    /// and the callbacks deadlock. Callers that hold the session's blocking runtime should pass
-    /// it here.
+    /// Drive the returned stream from one thread. `runtime` must be the runtime that owns the
+    /// underlying scan tasks and per-array exports.
     fn export_device_array_stream(
         self,
         session: &VortexSession,
@@ -514,7 +492,7 @@ impl DeviceArrayStreamExt for SendableArrayStream {
     }
 }
 
-/// Build the Arrow C Device stream that owns `array_iter` and exports its arrays through `ctx`.
+/// Build the Arrow Device stream that owns `array_iter` and exports its arrays through `ctx`.
 fn device_array_stream(
     array_iter: ArrayStreamIterator,
     dtype: DType,
@@ -542,7 +520,7 @@ fn device_array_stream(
     }
 }
 
-/// Return the private stream state for a live Arrow device stream.
+/// Returns the stream state stored in `private_data`.
 unsafe fn device_stream_private_data<'a>(
     stream: *mut ArrowDeviceArrayStream,
 ) -> Option<&'a mut DeviceArrayStreamPrivateData> {
@@ -578,7 +556,9 @@ fn release_device_array(array: &mut ArrowDeviceArray) {
     }
 }
 
-/// Run a stream callback body and convert errors or panics into Arrow status codes.
+/// Runs an Arrow stream callback body.
+///
+/// Returns an Arrow callback status code and stores failures in `last_error`.
 fn device_stream_callback(
     state: &mut DeviceArrayStreamPrivateData,
     panic_message: &'static str,
@@ -587,12 +567,12 @@ fn device_stream_callback(
     let result = catch_unwind(AssertUnwindSafe(|| callback(state)));
     match result {
         Ok(Ok(())) => 0,
-        Ok(Err(err)) => state.set_error(err),
-        Err(_) => state.set_error(panic_message),
+        Ok(Err(err)) => state.set_error(err, ARROW_STREAM_EIO),
+        Err(_) => state.set_error(panic_message, ARROW_STREAM_EIO),
     }
 }
 
-/// Write the stream's Arrow schema, initializing it from the first stream array if necessary.
+/// Write the stream's Arrow schema, initializing it from the first stream array if unset.
 unsafe extern "C" fn device_stream_get_schema(
     stream: *mut ArrowDeviceArrayStream,
     out: *mut ArrowSchema,
@@ -603,11 +583,11 @@ unsafe extern "C" fn device_stream_get_schema(
     state.clear_error();
 
     if out.is_null() {
-        return state.set_invalid_error("null ArrowSchema output");
+        return state.set_error("null ArrowSchema output", ARROW_STREAM_EINVAL);
     }
 
     fn body(state: &mut DeviceArrayStreamPrivateData, out: *mut ArrowSchema) -> VortexResult<()> {
-        let schema = state.ensure_schema()?.to_ffi()?;
+        let schema = state.get_or_init_schema()?.to_ffi()?;
         unsafe { ptr::write(out.cast::<FFI_ArrowSchema>(), schema) };
         Ok(())
     }
@@ -630,9 +610,11 @@ unsafe extern "C" fn device_stream_get_next(
     state.clear_error();
 
     if out.is_null() {
-        return state.set_invalid_error("null ArrowDeviceArray output");
+        return state.set_error("null ArrowDeviceArray output", ARROW_STREAM_EINVAL);
     }
 
+    // Keep the fallible part in a local function so `device_stream_callback` handles callback
+    // status and error reporting consistently.
     fn body(
         state: &mut DeviceArrayStreamPrivateData,
         out: *mut ArrowDeviceArray,
@@ -922,12 +904,21 @@ pub trait ExportDeviceArray: Debug + Send + Sync + 'static {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::CStr;
+    use std::ptr;
+
     use arrow_schema::DataType;
     use arrow_schema::ffi::FFI_ArrowSchema;
+    use futures::stream;
     use vortex::VortexSessionDefault;
+    use vortex::array::ArrayRef;
     use vortex::array::IntoArray;
     use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::stream::ArrayStreamAdapter;
     use vortex::array::stream::ArrayStreamExt;
+    use vortex::dtype::DType;
+    use vortex::dtype::Nullability;
+    use vortex::dtype::PType;
     use vortex::error::VortexResult;
     use vortex::error::vortex_err;
     use vortex::io::runtime::current::CurrentThreadRuntime;
@@ -936,13 +927,28 @@ mod tests {
 
     use crate::CudaSession;
     use crate::arrow::ARROW_DEVICE_CUDA;
+    use crate::arrow::ARROW_STREAM_EINVAL;
     use crate::arrow::ArrowDeviceArray;
+    use crate::arrow::ArrowDeviceArrayStream;
     use crate::arrow::ArrowSchema;
     use crate::arrow::DeviceArrayStreamExt;
     use crate::arrow::release_device_array;
     use crate::arrow::release_schema;
 
-    /// Verify schema, array, EOS, and idempotent release stream behavior.
+    fn last_error(stream: &mut ArrowDeviceArrayStream) -> VortexResult<String> {
+        let get_last_error = stream
+            .get_last_error
+            .ok_or_else(|| vortex_err!("stream missing get_last_error callback"))?;
+        let error = unsafe { get_last_error(stream as *mut ArrowDeviceArrayStream) };
+        Ok(if error.is_null() {
+            String::new()
+        } else {
+            unsafe { CStr::from_ptr(error) }
+                .to_string_lossy()
+                .into_owned()
+        })
+    }
+
     #[cuda_test]
     fn test_export_device_array_stream_schema_next_eos_release() -> VortexResult<()> {
         let runtime = CurrentThreadRuntime::new();
@@ -992,6 +998,81 @@ mod tests {
             release(&raw mut device_stream);
         }
         assert!(device_stream.release.is_none());
+        Ok(())
+    }
+
+    #[cuda_test]
+    fn test_export_device_array_stream_empty_stream_schema_and_eos() -> VortexResult<()> {
+        let runtime = CurrentThreadRuntime::new();
+        let session = VortexSession::default().with_some(CudaSession::try_default()?);
+        let dtype = DType::Primitive(PType::U32, Nullability::NonNullable);
+        let stream =
+            ArrayStreamAdapter::new(dtype, stream::empty::<VortexResult<ArrayRef>>()).boxed();
+        let mut device_stream = stream.export_device_array_stream(&session, &runtime)?;
+
+        let get_schema = device_stream
+            .get_schema
+            .ok_or_else(|| vortex_err!("stream missing get_schema callback"))?;
+        let mut schema = FFI_ArrowSchema::empty();
+        let status = unsafe {
+            get_schema(
+                &raw mut device_stream,
+                (&raw mut schema).cast::<ArrowSchema>(),
+            )
+        };
+        assert_eq!(status, 0);
+        let field = arrow_schema::Field::try_from(&schema)?;
+        assert_eq!(field.data_type(), &DataType::UInt32);
+
+        let get_next = device_stream
+            .get_next
+            .ok_or_else(|| vortex_err!("stream missing get_next callback"))?;
+        let mut eos = ArrowDeviceArray::empty();
+        let status = unsafe { get_next(&raw mut device_stream, &raw mut eos) };
+        assert_eq!(status, 0);
+        assert!(eos.array.release.is_none());
+
+        unsafe {
+            release_schema(&mut schema);
+            let release = device_stream
+                .release
+                .ok_or_else(|| vortex_err!("stream missing release callback"))?;
+            release(&raw mut device_stream);
+        }
+        Ok(())
+    }
+
+    #[cuda_test]
+    fn test_export_device_array_stream_null_outputs_report_error() -> VortexResult<()> {
+        let runtime = CurrentThreadRuntime::new();
+        let session = VortexSession::default().with_some(CudaSession::try_default()?);
+        let array = PrimitiveArray::from_iter(0u32..5).into_array();
+        let stream = array.to_array_stream().boxed();
+        let mut device_stream = stream.export_device_array_stream(&session, &runtime)?;
+
+        let get_schema = device_stream
+            .get_schema
+            .ok_or_else(|| vortex_err!("stream missing get_schema callback"))?;
+        let status = unsafe { get_schema(&raw mut device_stream, ptr::null_mut()) };
+        assert_eq!(status, ARROW_STREAM_EINVAL);
+        assert_eq!(last_error(&mut device_stream)?, "null ArrowSchema output");
+
+        let get_next = device_stream
+            .get_next
+            .ok_or_else(|| vortex_err!("stream missing get_next callback"))?;
+        let status = unsafe { get_next(&raw mut device_stream, ptr::null_mut()) };
+        assert_eq!(status, ARROW_STREAM_EINVAL);
+        assert_eq!(
+            last_error(&mut device_stream)?,
+            "null ArrowDeviceArray output"
+        );
+
+        unsafe {
+            let release = device_stream
+                .release
+                .ok_or_else(|| vortex_err!("stream missing release callback"))?;
+            release(&raw mut device_stream);
+        }
         Ok(())
     }
 }
