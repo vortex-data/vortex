@@ -46,7 +46,9 @@ use vortex_io::filesystem::FileListing;
 use vortex_io::filesystem::FileSystemRef;
 use vortex_io::runtime::Handle;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_layout::scan::v2::evidence::EvidenceFragment;
 use vortex_layout::scan::v2::evidence::PredicateEvidence;
+use vortex_layout::scan::v2::evidence::PredicateEvidenceKind;
 use vortex_layout::scan::v2::evidence::PredicateId;
 use vortex_layout::scan::v2::evidence::PredicateVersion;
 use vortex_layout::scan::v2::node::AggregatePlanRef;
@@ -109,6 +111,7 @@ use crate::VortexOpenOptions;
 
 const DEFAULT_CONCURRENCY: usize = 8;
 const FALLBACK_SPLIT_SIZE: u64 = 100_000;
+const DEFAULT_EVIDENCE_MORSEL_WINDOW: usize = 8;
 
 /// Below this demanded-row density, evaluate a residual predicate over only the demanded rows
 /// (filter-first) rather than the whole morsel. Mirrors the V1 flat-reader threshold.
@@ -616,6 +619,7 @@ impl DataSource for ScanNodeDataSource {
 
         let mut planned_files = Vec::new();
         let mut total_morsels = 0usize;
+        let mut has_runtime_evidence = false;
         for (partition_idx, file) in self.open_files(false).await? {
             let Some(request) = file_scan_request(partition_idx, &file, scan_request.clone())?
             else {
@@ -626,6 +630,7 @@ impl DataSource for ScanNodeDataSource {
             if ranges.is_empty() {
                 continue;
             }
+            has_runtime_evidence |= prepared.has_runtime_evidence();
             total_morsels = total_morsels.saturating_add(ranges.len());
             planned_files.push((prepared, ranges));
         }
@@ -649,7 +654,7 @@ impl DataSource for ScanNodeDataSource {
 
         let default_window = get_available_parallelism().unwrap_or(1).saturating_mul(4);
         let (morsel_plan_window, morsel_launch_window) =
-            morsel_windows(&scheduler, false, default_window);
+            morsel_windows(&scheduler, false, has_runtime_evidence, default_window);
 
         Ok(Some(Arc::new(PlannedScanNodeScan {
             dtype,
@@ -1073,13 +1078,6 @@ struct EvidenceWorkOutput {
     evidence: PredicateEvidence,
 }
 
-struct PredicateWorkOutput {
-    morsel_id: usize,
-    predicate_idx: usize,
-    need: Mask,
-    result: Mask,
-}
-
 struct ProjectionWorkOutput {
     morsel_id: usize,
     array: ArrayRef,
@@ -1087,7 +1085,6 @@ struct ProjectionWorkOutput {
 
 enum WorkOutput {
     Evidence(EvidenceWorkOutput),
-    Predicate(PredicateWorkOutput),
     Projection(ProjectionWorkOutput),
 }
 
@@ -1104,7 +1101,6 @@ struct PlannedMorselWork {
 struct MorselState {
     prepared: Arc<PreparedScanNodeFile>,
     range: Range<u64>,
-    len: usize,
     selected: Mask,
     evidence: Vec<Option<PredicateEvidence>>,
     pending_evidence: usize,
@@ -1140,6 +1136,7 @@ const WEIGHTED_PHASES: &[ScanIoPhase] = &[
 fn morsel_windows(
     scheduler: &ScanScheduler,
     limited: bool,
+    has_runtime_evidence: bool,
     default_window: usize,
 ) -> (usize, usize) {
     if limited {
@@ -1148,13 +1145,25 @@ fn morsel_windows(
     let launch_window = scheduler
         .config()
         .morsel_launch_window()
-        .unwrap_or(default_window)
+        .unwrap_or_else(|| {
+            if has_runtime_evidence {
+                default_window.min(DEFAULT_EVIDENCE_MORSEL_WINDOW)
+            } else {
+                default_window
+            }
+        })
         .max(1);
     let plan_window = scheduler
         .config()
         .morsel_plan_window()
         .map(|window| window.max(launch_window).max(1))
-        .unwrap_or(usize::MAX);
+        .unwrap_or_else(|| {
+            if has_runtime_evidence {
+                launch_window
+            } else {
+                usize::MAX
+            }
+        });
     (plan_window, launch_window)
 }
 
@@ -1341,7 +1350,6 @@ impl PartitionWorkSchedulerState {
     fn complete_work(&mut self, output: WorkOutput) -> VortexResult<Option<ArrayRef>> {
         match output {
             WorkOutput::Evidence(output) => self.complete_evidence(output),
-            WorkOutput::Predicate(output) => self.complete_predicate(output),
             WorkOutput::Projection(output) => {
                 Ok(self.finish_output_morsel(output.morsel_id, output.array))
             }
@@ -1370,36 +1378,6 @@ impl PartitionWorkSchedulerState {
         Ok(None)
     }
 
-    fn complete_predicate(
-        &mut self,
-        output: PredicateWorkOutput,
-    ) -> VortexResult<Option<ArrayRef>> {
-        let Some(morsel) = self
-            .morsels
-            .get_mut(output.morsel_id)
-            .and_then(Option::as_mut)
-        else {
-            return Ok(None);
-        };
-        if output.result.len() != morsel.len {
-            vortex_bail!(
-                "residual result length {} does not match morsel length {}",
-                output.result.len(),
-                morsel.len
-            );
-        }
-        let pass = &output.result & &output.need;
-        let selected = std::mem::take(&mut morsel.selected);
-        morsel.selected = &selected.bitand_not(&output.need) | &pass;
-        if morsel.selected.all_false() {
-            return Ok(self.finish_empty_morsel(output.morsel_id));
-        }
-        let next = output.predicate_idx.saturating_add(1);
-        morsel.next_predicate = morsel.next_predicate.max(next);
-        self.enqueue_next_predicate_or_projection(output.morsel_id)?;
-        Ok(None)
-    }
-
     fn enqueue_next_predicate_or_projection(&mut self, morsel_id: usize) -> VortexResult<()> {
         loop {
             let Some(morsel) = self.morsels.get(morsel_id).and_then(Option::as_ref) else {
@@ -1424,6 +1402,38 @@ impl PartitionWorkSchedulerState {
             }
 
             let predicate_idx = morsel.next_predicate;
+            if morsel.evidence[predicate_idx].is_none() {
+                let should_probe = {
+                    let predicate = &morsel.prepared.predicates[predicate_idx];
+                    !predicate.evidence.is_empty()
+                        && morsel.selected.density() >= EXPR_EVAL_THRESHOLD
+                };
+                if should_probe {
+                    let work = morsel.prepared.plan_evidence_work(
+                        morsel_id,
+                        predicate_idx,
+                        morsel.range.clone(),
+                    )?;
+                    let Some(morsel) = self.morsels.get_mut(morsel_id).and_then(Option::as_mut)
+                    else {
+                        return Ok(());
+                    };
+                    morsel.pending_evidence = morsel.pending_evidence.saturating_add(1);
+                    self.evidence_queue.push_back(work);
+                    return Ok(());
+                }
+
+                let evidence = PredicateEvidence::new(
+                    morsel.prepared.predicates[predicate_idx].id,
+                    PredicateVersion::STATIC,
+                    morsel.range.clone(),
+                )?;
+                let Some(morsel) = self.morsels.get_mut(morsel_id).and_then(Option::as_mut) else {
+                    return Ok(());
+                };
+                morsel.evidence[predicate_idx] = Some(evidence);
+                continue;
+            }
             let evidence = morsel.evidence[predicate_idx].as_ref().ok_or_else(|| {
                 vortex_err!("missing evidence for predicate {predicate_idx} before residual read")
             })?;
@@ -1558,6 +1568,7 @@ impl Partition for ScanNodePartition {
         let (plan_window, launch_window) = morsel_windows(
             &scheduler,
             prepared.limit_remaining.is_some(),
+            prepared.has_runtime_evidence(),
             default_window,
         );
         let morsels = ranges
@@ -1828,43 +1839,35 @@ impl PreparedScanNodeFile {
         )
     }
 
+    fn has_runtime_evidence(&self) -> bool {
+        self.predicates
+            .iter()
+            .any(|predicate| !predicate.evidence.is_empty())
+    }
+
     fn plan_morsel(
         self: &Arc<Self>,
-        morsel_id: usize,
+        _morsel_id: usize,
         range: Range<u64>,
     ) -> VortexResult<Option<PlannedMorselWork>> {
-        let len = range_len(&range)?;
         let selected = self.selection.row_mask(&range).mask().clone();
         if selected.all_false() {
             return Ok(None);
         }
 
-        let mut state = MorselState {
+        let state = MorselState {
             prepared: Arc::clone(self),
-            range: range.clone(),
-            len,
+            range,
             selected,
             evidence: (0..self.predicates.len()).map(|_| None).collect(),
             pending_evidence: 0,
             next_predicate: 0,
         };
-        let mut evidence = Vec::with_capacity(self.predicates.len());
 
-        for predicate_idx in 0..self.predicates.len() {
-            let predicate = &self.predicates[predicate_idx];
-            if predicate.evidence.is_empty() {
-                state.evidence[predicate_idx] = Some(PredicateEvidence::new(
-                    predicate.id,
-                    PredicateVersion::STATIC,
-                    range.clone(),
-                )?);
-                continue;
-            }
-            state.pending_evidence = state.pending_evidence.saturating_add(1);
-            evidence.push(self.plan_evidence_work(morsel_id, predicate_idx, range.clone())?);
-        }
-
-        Ok(Some(PlannedMorselWork { state, evidence }))
+        Ok(Some(PlannedMorselWork {
+            state,
+            evidence: Vec::new(),
+        }))
     }
 
     fn plan_evidence_work(
@@ -1963,7 +1966,7 @@ impl PreparedScanNodeFile {
                     let compact = predicate
                         .read
                         .read_scoped(
-                            range,
+                            range.clone(),
                             RowScope::selected(&need),
                             &prepared.reader,
                             predicate.read_state.as_ref(),
@@ -1985,7 +1988,7 @@ impl PreparedScanNodeFile {
                     predicate
                         .read
                         .read_scoped(
-                            range,
+                            range.clone(),
                             rows,
                             &prepared.reader,
                             predicate.read_state.as_ref(),
@@ -1994,16 +1997,29 @@ impl PreparedScanNodeFile {
                         .await?
                         .execute::<Mask>(&mut ctx)?
                 };
-                Ok(PredicateWorkOutput {
+                if result.len() != len {
+                    vortex_bail!(
+                        "residual result length {} does not match morsel length {len}",
+                        result.len()
+                    );
+                }
+                let pass = &result & &need;
+                let exact = !&need | &pass;
+                let mut evidence =
+                    PredicateEvidence::new(predicate.id, PredicateVersion::STATIC, range.clone())?;
+                evidence.absorb(EvidenceFragment::new(
+                    range,
+                    PredicateEvidenceKind::ExactMask(exact),
+                ))?;
+                Ok(EvidenceWorkOutput {
                     morsel_id,
                     predicate_idx,
-                    need,
-                    result,
+                    evidence,
                 })
             }
             .boxed(),
         )
-        .into_queued(morsel_id, WorkOutput::Predicate))
+        .into_queued(morsel_id, WorkOutput::Evidence))
     }
 
     fn plan_projection_work(
@@ -2012,6 +2028,9 @@ impl PreparedScanNodeFile {
         range: Range<u64>,
         selected: Mask,
     ) -> VortexResult<Option<QueuedWork>> {
+        // Projection consumes the final selected rows after every predicate plan has contributed
+        // metadata evidence and, if needed, exact residual evidence. There is no separate
+        // predicate-demand mask at this point.
         let len = range_len(&range)?;
         let selected = if let Some(limit_remaining) = &self.limit_remaining {
             limit_mask(selected, limit_remaining)?
