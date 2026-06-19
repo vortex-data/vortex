@@ -153,7 +153,7 @@ pub(crate) fn default_bounded_stat_max_bytes() -> std::num::NonZeroUsize {
 #[cfg(test)]
 mod tests {
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
-    use vortex_array::aggregate_fn::EmptyOptions;
+    use vortex_array::aggregate_fn::SkipNansOptions;
     use vortex_array::aggregate_fn::fns::max::Max;
     use vortex_array::aggregate_fn::fns::min::Min;
     use vortex_array::aggregate_fn::fns::sum::Sum;
@@ -205,18 +205,18 @@ mod tests {
         let dtype = aggregate_stats_table_dtype(
             &DType::Primitive(PType::I32, Nullability::NonNullable),
             &[
-                Max.bind(EmptyOptions),
-                Min.bind(EmptyOptions),
-                Sum.bind(EmptyOptions),
+                Max.bind(SkipNansOptions::skip()),
+                Min.bind(SkipNansOptions::skip()),
+                Sum.bind(SkipNansOptions::skip()),
             ],
         );
 
         assert_eq!(
             dtype.as_struct_fields().names().as_ref(),
             &[
-                Max.bind(EmptyOptions).to_string(),
-                Min.bind(EmptyOptions).to_string(),
-                Sum.bind(EmptyOptions).to_string(),
+                Max.bind(SkipNansOptions::skip()).to_string(),
+                Min.bind(SkipNansOptions::skip()).to_string(),
+                Sum.bind(SkipNansOptions::skip()).to_string(),
             ]
         );
     }

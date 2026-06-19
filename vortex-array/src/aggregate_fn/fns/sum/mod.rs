@@ -80,16 +80,19 @@ impl AggregateFnVTable for Sum {
         AggregateFnId::new("vortex.sum")
     }
 
-    fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
+    fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![options.skip_nans as u8]))
     }
 
     fn deserialize(
         &self,
-        _metadata: &[u8],
+        metadata: &[u8],
         _session: &VortexSession,
     ) -> VortexResult<Self::Options> {
-        Ok(EmptyOptions)
+        // A single byte encodes `skip_nans`; missing metadata defaults to skipping NaNs.
+        Ok(SkipNansOptions {
+            skip_nans: metadata.first().is_none_or(|&b| b != 0),
+        })
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
