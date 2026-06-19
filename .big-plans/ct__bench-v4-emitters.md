@@ -229,6 +229,28 @@ This spine mixes one CODE phase with three OPS phases; the orchestrator handles 
 - **Sub-phase 1.1**, `scripts/test_measurement_id.py` (`ensure_ascii`, 100-col), **nit**: add a
   comment explaining `ensure_ascii=False` is load-bearing for the multibyte guard; 3 lines exceed
   the 100-col style target (pass ruff's 120). Deferral rationale: cosmetic; optional cleanup in 1.3.
+- **Sub-phase 1.2**, `scripts/cross_check_python_writer.py` -> `post-ingest.py:_upsert_commit`,
+  **should-fix**: the cross-check harness raises a bare `KeyError` on an operator-supplied commit
+  envelope missing an optional field (e.g. `message`). Deferral rationale: cross_check is operator
+  tooling (the future ingest-cutover gate), not the production write path (which always supplies all
+  9 commit fields via `build_commit`); harden with `commit.get(...)` when next exercised.
+- **Sub-phase 1.2**, `scripts/post-ingest.py` write-conflict retry, **should-fix**: the
+  deadlock/serialization retry is only unit-mocked (synthetic exceptions); no real-Postgres
+  abort+transaction-re-entry test. Deferral rationale: the retry is a verbatim port of the v3
+  server's tested logic; a real-conflict testcontainer test is valuable but non-blocking for the
+  additive best-effort writer.
+- **Sub-phase 1.2**, `scripts/_v4_schema_fixture.sql` header + `test_post_ingest_postgres.py`
+  docstrings, **should-fix** (maint): the fixture/test docs under-describe migration 006 (omit the
+  5 format/engine indexes, which ARE present in the fixture), reference `CONTRACT.md` without its
+  `vortex-data/benchmarks-website/` path, and the "SCHEMA_VERSION / column-list contract" phrase
+  implies an automated drift guard that does not exist. Deferral rationale: docs-only; the fixture
+  CODE is column-by-column correct (opus-verified). Apply as a doc cleanup during phase-D
+  finalization (before the phase-end gauntlet).
+- **Sub-phase 1.2**, multiple files, **nits** (~10): test rollback-assertion consistency +
+  revalidate HTTP-method assertion (fresh); non-string `commit_sha` yields a misleading mismatch
+  error (correctness); plan-cycle/PR labels in comments, `_load_module` 4x duplication, handler
+  name vs kind inconsistency, v3-path removal marker (maint). Deferral rationale: minor polish
+  carried from the verbatim port; not blocking.
 
 ---
 
@@ -245,3 +267,13 @@ This spine mixes one CODE phase with three OPS phases; the orchestrator handles 
   extracted `vortex-data/benchmarks-website` repo; ruff-formatted to the repo's 120-col.
 - **Gauntlet:** pr-2 / accepted (cycles: 1)
 - **Deferred:** 5 items (see Carry-forward > Deferred work)
+
+#### Sub-phase 1.2: Postgres writer
+
+- **Shipped:** v4 `--postgres` IAM-auth upsert writer in `post-ingest.py` (verify-full TLS,
+  NaN/Inf guard, 5-table + commit-dim upsert in one transaction, write-conflict retry, best-effort
+  revalidate), v3 `--server` path kept stdlib-only; revalidate test + cross-check utility; adapted
+  testcontainer test + self-contained `_v4_schema_fixture.sql`. 100 testcontainer tests pass vs
+  postgres:16-alpine.
+- **Gauntlet:** pr-3 / accepted (cycles: 1) — fresh + correctness (opus) + maint, zero must-fix.
+- **Deferred:** 4 should-fix-class + ~10 nits (see Carry-forward > Deferred work)
