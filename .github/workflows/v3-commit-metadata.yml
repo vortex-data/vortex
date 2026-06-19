@@ -42,7 +42,7 @@ jobs:
       - name: Configure AWS credentials for v4 ingest (OIDC)
         if: vars.GH_BENCH_INGEST_ROLE_ARN != ''
         continue-on-error: true
-        uses: aws-actions/configure-aws-credentials@99214aa6889fcddfa57764031d71add364327e59  # v6
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b  # v6
         with:
           role-to-assume: ${{ vars.GH_BENCH_INGEST_ROLE_ARN }}
           aws-region: ${{ vars.RDS_BENCH_REGION }}

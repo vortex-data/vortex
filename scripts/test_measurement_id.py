@@ -38,6 +38,7 @@ def _load_port():
     return module
 
 
+pytest.importorskip("xxhash")
 port = _load_port()
 
 

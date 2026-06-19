@@ -44,10 +44,10 @@ class _FakeResponse:
 
 
 def test_refresh_posts_revalidate_with_bearer(monkeypatch):
-    calls: list[tuple[str, dict[str, str], bytes | None]] = []
+    calls: list[tuple[str, str, dict[str, str], bytes | None]] = []
 
     def fake_urlopen(req, timeout=None):
-        calls.append((req.full_url, dict(req.headers), req.data))
+        calls.append((req.full_url, req.get_method(), dict(req.headers), req.data))
         return _FakeResponse(b'{"groups": []}')
 
     monkeypatch.setattr(post_ingest.urllib.request, "urlopen", fake_urlopen)
@@ -55,8 +55,10 @@ def test_refresh_posts_revalidate_with_bearer(monkeypatch):
 
     revalidate = [c for c in calls if c[0].endswith("/api/revalidate")]
     assert revalidate, "expected a POST to /api/revalidate"
+    # The revalidate request must use the POST method.
+    assert revalidate[0][1] == "POST", "revalidate must be a POST request"
     # urllib title-cases header keys, so the bearer lives under "Authorization".
-    assert revalidate[0][1].get("Authorization") == "Bearer tok"
+    assert revalidate[0][2].get("Authorization") == "Bearer tok"
     # Revalidate must be the first request issued, before any warm GETs.
     assert calls[0][0].endswith("/api/revalidate"), "revalidate must precede warm GETs"
 

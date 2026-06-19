@@ -997,7 +997,9 @@ def _rds_iam_token(*, host: str, port: int, user: str, region: str | None) -> st
     session = boto3.session.Session()
     resolved = region or session.region_name or _region_from_host(host)
     if not resolved:
-        raise SystemExit("could not determine the AWS region for the RDS IAM token; pass --region or set AWS_REGION.")
+        raise SystemExit(
+            "could not determine the AWS region for the RDS IAM token; pass --region or set AWS_DEFAULT_REGION."
+        )
     client = session.client("rds", region_name=resolved)
     return client.generate_db_auth_token(DBHostname=host, Port=port, DBUsername=user, Region=resolved)
 
