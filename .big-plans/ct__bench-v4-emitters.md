@@ -37,6 +37,13 @@ v2/v3 paths.
   wiring) PLUS the testcontainer writer tests (`test_post_ingest_postgres.py`) PLUS the extras
   (`cross_check_python_writer.py`, `test_post_ingest_revalidate.py`). Migrations + migrate-schema
   are OUT (extracted website repo owns schema/roles). See design spec § 3.
+- **Decision (Class B amendment, sub-phase 1.2): testcontainer test uses a self-contained schema
+  fixture, migrations stay OUT.** The branch `test_post_ingest_postgres.py` depends on the real
+  `migrations/` + `migrate-schema.py` + `benchmarks-website/server/src/schema.rs` (all out of
+  monorepo scope), conflicting with "migrations OUT" + "testcontainer test IN". Resolved
+  (user-chosen): a hand-written `scripts/_v4_schema_fixture.sql` creates the 6 tables; the
+  `schema_conn` fixture applies it directly (no migrate-runner); the SCHEMA_VERSION lockstep
+  sub-test self-checks `post-ingest.py`'s `SCHEMA_VERSION == 1`. See design spec § 3.
 - **Decision: the v4 step is dormant until the switch is flipped.** Every v4 workflow step is
   gated on `vars.GH_BENCH_INGEST_ROLE_ARN != ''` with `continue-on-error: true`; merging D
   with the var unset ships dead-but-safe code. Setting the var (phase B) is the live cutover.

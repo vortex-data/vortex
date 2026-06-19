@@ -107,6 +107,17 @@ testcontainer deps via `--with` or the workspace.)
 - `scripts/measurement_id_golden.json` (new) — golden vectors (required, the test fails without it).
 - `scripts/test_measurement_id.py` (new) — golden-vector pytest (repoint docstring).
 - `scripts/test_post_ingest_postgres.py` (new) — testcontainers Postgres writer/upsert tests.
+  **ADAPTED (Class B amendment):** the branch version bootstraps its throwaway PG by applying the
+  real `migrations/` via `migrate-schema.py` and reads `benchmarks-website/server/src/schema.rs`
+  for a SCHEMA_VERSION lockstep check — all OUT of monorepo scope. Resolution (user-chosen):
+  give the test a SELF-CONTAINED schema fixture (a hand-written `.sql` creating the 6 tables the
+  emitter writes to, derived from the website repo's `migrations/001_initial_schema.sql`); rework
+  the `schema_conn` fixture to apply it (drop the `migrate-schema.py` runner dependency); and
+  adapt the SCHEMA_VERSION lockstep sub-test to self-check `post-ingest.py`'s `SCHEMA_VERSION == 1`
+  instead of reading the absent `schema.rs`. Migrations + `migrate-schema.py` stay OUT.
+- `scripts/_v4_schema_fixture.sql` (new) — the self-contained 6-table schema fixture for the
+  testcontainer test (NOT the real migrations; a test-only DDL fixture). Drift from the real
+  migrations is managed like the SCHEMA_VERSION / column-list cross-repo contract.
 - `scripts/cross_check_python_writer.py` (new) — extra cross-check utility (later-phase extra).
 - `scripts/test_post_ingest_revalidate.py` (new) — revalidate-ping tests (later-phase extra).
 - `.github/workflows/bench.yml` — insert best-effort v4 step block after the v3 ingest step.
