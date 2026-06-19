@@ -194,4 +194,19 @@ async fn test_write_empty_nullable_struct_column() {
         .write(&mut bytes, data.to_array_stream())
         .await
         .expect("writing an empty nullable struct column should not panic");
+
+    let bytes = ByteBuffer::from(bytes);
+    let vxf = SESSION.open_options().open_buffer(bytes).expect("open");
+    let stream = vxf
+        .scan()
+        .expect("scan")
+        .into_stream()
+        .expect("into_stream");
+    pin_mut!(stream);
+
+    let mut rows = 0usize;
+    while let Some(next) = stream.next().await {
+        rows += next.expect("read back should succeed").len();
+    }
+    assert_eq!(rows, 0);
 }

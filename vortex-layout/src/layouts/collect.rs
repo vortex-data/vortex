@@ -48,11 +48,6 @@ impl LayoutStrategy for CollectStrategy {
         // Read the whole stream, then write one Chunked stream to the inner thing
         let dtype = stream.dtype().clone();
 
-        // the child needs exactly one chunk, so an empty stream still yields a single empty
-        // chunk, with its sequence id taken from `eof`.
-        let mut eof = eof;
-        let empty_sequence_id = eof.advance();
-
         let _dtype = dtype.clone();
         let collected_stream = try_stream! {
             pin_mut!(stream);
@@ -65,8 +60,11 @@ impl LayoutStrategy for CollectStrategy {
                 chunks.push(chunk);
             }
 
-            let collected = ChunkedArray::try_new(chunks, _dtype)?.into_array();
-            yield (latest_sequence_id.unwrap_or(empty_sequence_id), collected);
+            // an empty input yields no chunk; the child layout handles it.
+            if let Some(sequence_id) = latest_sequence_id {
+                let collected = ChunkedArray::try_new(chunks, _dtype)?.into_array();
+                yield (sequence_id, collected);
+            }
         };
 
         let adapted = Box::pin(SequentialStreamAdapter::new(dtype, collected_stream));
