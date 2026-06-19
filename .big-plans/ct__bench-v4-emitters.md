@@ -4,6 +4,58 @@
 **Design spec:** `.big-plans/ct__bench-v4-emitters-design.md` (written by brainstorming in Step 1.2)
 **Work shape:** feature-integration
 
+---
+
+## SESSION HANDOFF (2026-06-19) — READ FIRST ON RESUME
+
+**Where we are:** Phase 1 (D, the CODE phase) is COMPLETE and gauntlet-accepted end-to-end. All
+3 sub-phases shipped + checkpoint-accepted (1.1 measurement_id contract pr-2; 1.2 Postgres writer
+pr-3; 1.3 CI + workflow wiring pr-3); the phase-D finalization polish landed (`6fdd727f0`); the
+phase-end gauntlet (phase-4: spec + correctness + maint + arch) ACCEPTED with zero must-fix (172
+tests re-run green); the Phase 1 gate is recorded in the Verdict Ledger. HEAD = `c35badc7d`,
+pushed to `origin/ct/bench-v4-emitters`. Current Position reads `status: reviewing` /
+`sub_phase: null` ONLY because the phase PR has not been opened yet (that is the next step).
+
+**DO NOT re-run the phase-end gauntlet on resume** — it already passed and is recorded in the
+ledger (`#### Phase 1 gate`, phase-4 / accepted). The stock `reviewing` + `sub_phase: null` route
+would re-run it; skip that and go straight to the OPEN DECISION below.
+
+**OPEN DECISION (RE-ASK THE USER — the AUQ was interrupted):** how to open the phase-D PR (Step 3.3):
+- **(A, recommended) CODE-ONLY PR** — the 8 code commits touch only `scripts/` + `.github/`
+  (range `ec31812ce..6fdd727f0`, excluding the `plan:` commits which touch only `.big-plans/`).
+  Cherry-pick them onto a fresh branch off `develop`; open a draft PR from there. Keep the spine
+  branch-local on `ct/bench-v4-emitters`. Requires a Step 3.5 deviation: after the code PR merges,
+  do NOT `git reset --hard origin/develop` on the orchestration branch (it would wipe the spine) —
+  reset then restore/re-commit the `.big-plans/` spine.
+- **(B) INCLUDE SCAFFOLDING (big-plans default)** — open the draft PR from `ct/bench-v4-emitters`
+  as-is (28 commits, `.big-plans/` in the diff); spine rides to develop transiently, removed by a
+  dedicated wrap-up PR.
+- **(C) HOLD** — don't open the PR yet (e.g. to avoid PR CI / team noise during the demo).
+
+**After the PR-form decision:** open the draft PR (body per `spiral:pr-and-issue-voice`: what
+shipped per sub-phase, gauntlet verdict, exit criteria, deferred items), commit
+`plan: phase PR opened — #<N>`, set `status: awaiting-human-gate`, fire the Step 3.4 human gate
+(proceed / re-plan / amend / abort). On "proceed" → Step 3.5 merges phase D, then phases A -> C -> B.
+
+**HARD CONSTRAINTS still in force (design spec §4.0):**
+- **DEMO SAFETY:** NO prod RDS writes until phase B. Phases C and B are GATED — post-demo +
+  explicit user go-ahead. Only phase D (this code, done) was demo-safe. Confirm the demo is over
+  before any prod-touching op (A is data-safe IAM-only but still an external mutation; C/B touch
+  prod/site).
+- **1PASSWORD must be UNLOCKED** for commit/push (SSH signing). It auto-locked mid-session and
+  blocked a commit; if commits fail with `1Password: failed to fill whole buffer`, ask the user
+  to unlock the desktop app.
+- **Remaining phases after D merges:** A (create `GitHubBenchmarkIngestRole`, ops, data-safe),
+  C (align `BENCH_REVALIDATE_TOKEN` on Vercel prod + monorepo secret + redeploy v4, ops, GATED,
+  post-demo), B (set `GH_BENCH_INGEST_ROLE_ARN` + repoint `BENCH_SITE_BASE_URL`/`BENCHMARKS_WEB_PROD_URL`,
+  live cutover + acceptance §6, ops, GATED, post-demo). All ops phases: direct CLI, no gauntlet/PR,
+  pre-action confirm. See Orchestration notes + design spec §4-§6.
+
+**Resume:** re-invoke `/spiral:big-plans` on branch `ct/bench-v4-emitters`; Phase 0 reads this
+handoff + the Current Position below.
+
+---
+
 ## Goal
 
 Make the Vortex monorepo CI emitters write benchmark results LIVE to the v4 RDS Postgres
