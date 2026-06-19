@@ -39,9 +39,9 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::aggregate_fn::Accumulator;
+    use crate::aggregate_fn::AggregateFnOpts;
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynAccumulator;
-    use crate::aggregate_fn::SkipNansOptions;
     use crate::aggregate_fn::fns::sum::Sum;
     use crate::aggregate_fn::fns::sum::sum;
     use crate::arrays::BoolArray;
@@ -108,7 +108,7 @@ mod tests {
     #[test]
     fn sum_bool_empty_produces_zero() -> VortexResult<()> {
         let dtype = DType::Bool(Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Sum, SkipNansOptions::default(), dtype)?;
+        let mut acc = Accumulator::try_new(Sum, AggregateFnOpts::default(), dtype)?;
         let result = acc.finish()?;
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(0));
         Ok(())
@@ -118,7 +118,7 @@ mod tests {
     fn sum_bool_finish_resets_state() -> VortexResult<()> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype = DType::Bool(Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Sum, SkipNansOptions::default(), dtype)?;
+        let mut acc = Accumulator::try_new(Sum, AggregateFnOpts::default(), dtype)?;
 
         let batch1: BoolArray = [true, true, false].into_iter().collect();
         acc.accumulate(&batch1.into_array(), &mut ctx)?;
@@ -136,7 +136,7 @@ mod tests {
     fn sum_bool_return_dtype() -> VortexResult<()> {
         let dtype = Sum
             .return_dtype(
-                &SkipNansOptions::default(),
+                &AggregateFnOpts::default(),
                 &DType::Bool(Nullability::NonNullable),
             )
             .unwrap();

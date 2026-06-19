@@ -4,7 +4,7 @@
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray as _;
-use vortex_array::aggregate_fn::SkipNansOptions;
+use vortex_array::aggregate_fn::AggregateFnOpts;
 use vortex_array::aggregate_fn::fns::min_max::MinMaxResult;
 use vortex_array::aggregate_fn::fns::min_max::min_max;
 use vortex_error::VortexResult;
@@ -14,5 +14,5 @@ pub fn min_max_canonical_array(
     canonical: Canonical,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<MinMaxResult>> {
-    min_max(&canonical.into_array(), ctx, SkipNansOptions::default())
+    min_max(&canonical.into_array(), ctx, AggregateFnOpts::default())
 }

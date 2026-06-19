@@ -8,9 +8,9 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateFnId;
+use crate::aggregate_fn::AggregateFnOpts;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
-use crate::aggregate_fn::SkipNansOptions;
 use crate::aggregate_fn::combined::BinaryCombined;
 use crate::aggregate_fn::combined::Combined;
 use crate::aggregate_fn::combined::CombinedOptions;
@@ -30,7 +30,7 @@ use crate::scalar_fn::fns::operators::Operator;
 pub fn mean(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
     let mut acc = Accumulator::try_new(
         Mean::combined(),
-        PairOptions(SkipNansOptions::default(), SkipNansOptions::default()),
+        PairOptions(AggregateFnOpts::default(), AggregateFnOpts::default()),
         array.dtype().clone(),
     )?;
     acc.accumulate(array, ctx)?;
@@ -247,7 +247,7 @@ mod tests {
         let array =
             PrimitiveArray::new(buffer![1.0f64, f64::NAN, 3.0], Validity::NonNullable).into_array();
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let keep_nans = SkipNansOptions::include();
+        let keep_nans = AggregateFnOpts::include_nans();
         let mut acc = Accumulator::try_new(
             Mean::combined(),
             PairOptions(keep_nans, keep_nans),
@@ -274,7 +274,7 @@ mod tests {
         let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
         let mut acc = Accumulator::try_new(
             Mean::combined(),
-            PairOptions(SkipNansOptions::default(), SkipNansOptions::default()),
+            PairOptions(AggregateFnOpts::default(), AggregateFnOpts::default()),
             dtype,
         )?;
 

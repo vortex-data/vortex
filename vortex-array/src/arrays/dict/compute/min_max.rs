@@ -70,7 +70,7 @@ mod tests {
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::aggregate_fn::SkipNansOptions;
+    use crate::aggregate_fn::AggregateFnOpts;
     use crate::aggregate_fn::fns::min_max::min_max;
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
@@ -81,7 +81,7 @@ mod tests {
     fn assert_min_max(array: &ArrayRef, expected: Option<(i32, i32)>) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         match (
-            min_max(array, &mut ctx, SkipNansOptions::default())?,
+            min_max(array, &mut ctx, AggregateFnOpts::default())?,
             expected,
         ) {
             (Some(result), Some((expected_min, expected_max))) => {

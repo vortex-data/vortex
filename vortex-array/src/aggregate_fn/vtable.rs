@@ -7,8 +7,10 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 
+use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
@@ -178,36 +180,52 @@ impl Display for EmptyOptions {
 ///
 /// The option has no effect on non-float inputs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct SkipNansOptions {
+pub struct AggregateFnOpts {
     /// Whether NaN values are skipped (treated as missing) during aggregation.
     pub skip_nans: bool,
 }
 
-impl SkipNansOptions {
+impl AggregateFnOpts {
     /// Options that skip NaN values, treating them as missing during aggregation.
     ///
-    /// This is the default configuration; see [`SkipNansOptions::include`] for the NaN-including
-    /// variant.
-    pub const fn skip() -> Self {
+    /// This is the default configuration; see [`AggregateFnOpts::include_nans`] for the
+    /// NaN-including variant.
+    pub const fn skip_nans() -> Self {
         Self { skip_nans: true }
     }
 
     /// Options that include NaN values in the aggregate: `count` counts them, while any NaN
     /// poisons the result of `sum`/`min`/`max`/`mean` to NaN.
     ///
-    /// See [`SkipNansOptions::skip`] for the default NaN-skipping variant.
-    pub const fn include() -> Self {
+    /// See [`AggregateFnOpts::skip_nans`] for the default NaN-skipping variant.
+    pub const fn include_nans() -> Self {
         Self { skip_nans: false }
     }
-}
 
-impl Default for SkipNansOptions {
-    fn default() -> Self {
-        Self::skip()
+    /// Serialize these options to protobuf-encoded metadata bytes.
+    pub fn serialize(&self) -> Vec<u8> {
+        pb::AggregateFnOpts {
+            skip_nans: self.skip_nans,
+        }
+        .encode_to_vec()
+    }
+
+    /// Deserialize these options from protobuf-encoded metadata bytes.
+    pub fn deserialize(metadata: &[u8]) -> VortexResult<Self> {
+        let opts = pb::AggregateFnOpts::decode(metadata)?;
+        Ok(Self {
+            skip_nans: opts.skip_nans,
+        })
     }
 }
 
-impl Display for SkipNansOptions {
+impl Default for AggregateFnOpts {
+    fn default() -> Self {
+        Self::skip_nans()
+    }
+}
+
+impl Display for AggregateFnOpts {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         // Only the non-default configuration is displayed, so that aggregates with default
         // options render identically to their pre-options form, e.g. `vortex.sum()`.
