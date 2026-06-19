@@ -35,6 +35,7 @@ use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
+use crate::expr::and;
 use crate::expr::and_collect;
 use crate::expr::gt;
 use crate::expr::lit;
@@ -164,6 +165,17 @@ impl ScalarFnVTable for ListContains {
         }
 
         None
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        expression: &Expression,
+    ) -> VortexResult<Expression> {
+        Ok(and(
+            expression.child(0).validity()?,
+            expression.child(1).validity()?,
+        ))
     }
 
     // Nullability matters for contains([], x) where x is false.

@@ -209,18 +209,12 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
 
     /// Returns an expression that evaluates to the validity of the result of this expression.
     ///
-    /// If a validity expression cannot be constructed, returns `None` and the expression will
-    /// be evaluated as normal before extracting the validity mask from the result.
-    ///
-    /// This is essentially a specialized form of a `reduce_parent`
+    /// This is essentially a specialized form of a `reduce_parent`.
     fn validity(
         &self,
         options: &Self::Options,
         expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        _ = (options, expression);
-        Ok(None)
-    }
+    ) -> VortexResult<Expression>;
 
     /// Returns whether this expression itself is null-sensitive. Conservatively default to *true*.
     ///

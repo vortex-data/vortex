@@ -12,6 +12,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::expr::Expression;
+use vortex_array::expr::lit;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
@@ -81,6 +82,14 @@ impl ScalarFnVTable for RowCount {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         vortex_bail!("RowCount must be substituted before evaluation")
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        _expression: &Expression,
+    ) -> VortexResult<Expression> {
+        Ok(lit(true))
     }
 
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {

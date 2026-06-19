@@ -185,12 +185,12 @@ impl ScalarFnVTable for Cast {
         }
     }
 
-    fn validity(&self, dtype: &DType, expression: &Expression) -> VortexResult<Option<Expression>> {
-        Ok(Some(if dtype.is_nullable() {
+    fn validity(&self, dtype: &DType, expression: &Expression) -> VortexResult<Expression> {
+        Ok(if dtype.is_nullable() {
             expression.child(0).validity()?
         } else {
             lit(true)
-        }))
+        })
     }
 
     // This might apply a nullability

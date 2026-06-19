@@ -14,6 +14,7 @@ use crate::dtype::DType;
 use crate::dtype::FieldPath;
 use crate::expr::StatsCatalog;
 use crate::expr::expression::Expression;
+use crate::expr::is_not_null;
 use crate::expr::stats::Stat;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -78,6 +79,14 @@ impl ScalarFnVTable for Root {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         vortex_bail!("Root expression is not executable")
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        expression: &Expression,
+    ) -> VortexResult<Expression> {
+        Ok(is_not_null(expression.clone()))
     }
 
     fn stat_expression(

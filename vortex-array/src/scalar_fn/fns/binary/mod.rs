@@ -22,11 +22,14 @@ use crate::expr::and;
 use crate::expr::and_collect;
 use crate::expr::eq;
 use crate::expr::expression::Expression;
+use crate::expr::fill_null;
 use crate::expr::gt;
 use crate::expr::gt_eq;
 use crate::expr::lit;
 use crate::expr::lt;
 use crate::expr::lt_eq;
+use crate::expr::not;
+use crate::expr::or;
 use crate::expr::or_collect;
 use crate::expr::stats::Stat;
 use crate::scalar_fn::Arity;
@@ -273,21 +276,30 @@ impl ScalarFnVTable for Binary {
         }
     }
 
-    fn validity(
-        &self,
-        operator: &Operator,
-        expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+    fn validity(&self, operator: &Operator, expression: &Expression) -> VortexResult<Expression> {
         let lhs = expression.child(0).validity()?;
         let rhs = expression.child(1).validity()?;
 
         Ok(match operator {
-            // AND and OR are kleene logic.
-            Operator::And => None,
-            Operator::Or => None,
+            // AND and OR are Kleene logic. Their result is valid if both children are valid,
+            // or if a valid child value alone determines the result.
+            Operator::And => or(
+                and(lhs, rhs),
+                or(
+                    not(fill_null(expression.child(0).clone(), lit(true))),
+                    not(fill_null(expression.child(1).clone(), lit(true))),
+                ),
+            ),
+            Operator::Or => or(
+                and(lhs, rhs),
+                or(
+                    fill_null(expression.child(0).clone(), lit(false)),
+                    fill_null(expression.child(1).clone(), lit(false)),
+                ),
+            ),
             _ => {
                 // All other binary operators are null if either side is null.
-                Some(and(lhs, rhs))
+                and(lhs, rhs)
             }
         })
     }
@@ -318,6 +330,7 @@ impl ScalarFnVTable for Binary {
 #[cfg(test)]
 mod tests {
     use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
 
     use super::*;
     use crate::LEGACY_SESSION;
@@ -542,6 +555,60 @@ mod tests {
         let result = struct_arr.apply(&expr).unwrap();
 
         assert_arrays_eq!(result, BoolArray::from_iter([Some(true)]).into_array())
+    }
+
+    #[test]
+    fn test_kleene_boolean_result_validity() -> VortexResult<()> {
+        use crate::IntoArray;
+        use crate::arrays::BoolArray;
+        use crate::validity::Validity;
+
+        let lhs = BoolArray::from_iter([
+            Some(true),
+            Some(true),
+            Some(false),
+            Some(false),
+            None,
+            None,
+            Some(true),
+            Some(false),
+            None,
+        ])
+        .into_array();
+        let rhs = BoolArray::from_iter([
+            Some(true),
+            Some(false),
+            Some(true),
+            None,
+            Some(true),
+            Some(false),
+            None,
+            None,
+            None,
+        ])
+        .into_array();
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
+        let and_result = lhs.binary(rhs.clone(), Operator::And)?;
+        let and_expected =
+            Validity::from_iter([true, true, true, true, false, true, false, true, false]);
+        assert!(
+            and_result
+                .validity()?
+                .mask_eq(&and_expected, and_result.len(), &mut ctx)?
+        );
+
+        let or_result = lhs.binary(rhs, Operator::Or)?;
+        let or_expected =
+            Validity::from_iter([true, true, true, false, true, false, true, false, false]);
+        assert!(
+            or_result
+                .validity()?
+                .mask_eq(&or_expected, or_result.len(), &mut ctx)?
+        );
+
+        Ok(())
     }
 
     #[test]

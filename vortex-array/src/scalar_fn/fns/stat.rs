@@ -21,6 +21,7 @@ use crate::aggregate_fn::fns::all_null::AllNull;
 use crate::arrays::ConstantArray;
 use crate::dtype::DType;
 use crate::expr::Expression;
+use crate::expr::is_not_null;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
@@ -122,6 +123,14 @@ impl ScalarFnVTable for StatFn {
         let input = args.get(0)?;
         let dtype = stat_dtype(options.aggregate_fn(), input.dtype())?;
         stat_array(&input, options.aggregate_fn(), dtype, args.row_count())
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        expression: &Expression,
+    ) -> VortexResult<Expression> {
+        Ok(is_not_null(expression.clone()))
     }
 }
 

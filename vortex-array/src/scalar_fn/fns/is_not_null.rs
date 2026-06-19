@@ -12,11 +12,13 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::ScalarFn;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
 use crate::expr::eq;
+use crate::expr::lit;
 use crate::expr::stats::Stat;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -81,16 +83,30 @@ impl ScalarFnVTable for IsNotNull {
         &self,
         _data: &Self::Options,
         args: &dyn ExecutionArgs,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let child = args.get(0)?;
-        match child.validity()? {
+        let validity = if child.is::<ScalarFn>() {
+            child.execute::<ArrayRef>(ctx)?.validity()?
+        } else {
+            child.validity()?
+        };
+
+        match validity {
             Validity::NonNullable | Validity::AllValid => {
                 Ok(ConstantArray::new(true, args.row_count()).into_array())
             }
             Validity::AllInvalid => Ok(ConstantArray::new(false, args.row_count()).into_array()),
             Validity::Array(a) => Ok(a),
         }
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        _expression: &Expression,
+    ) -> VortexResult<Expression> {
+        Ok(lit(true))
     }
 
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {

@@ -35,6 +35,8 @@ use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::expr::Expression;
+use crate::expr::lit;
+use crate::expr::zip_expr;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -298,6 +300,29 @@ impl ScalarFnVTable for CaseWhen {
         }
 
         Ok(Some(crate::expr::fill_null(x.clone(), fill.clone())))
+    }
+
+    fn validity(
+        &self,
+        options: &Self::Options,
+        expression: &Expression,
+    ) -> VortexResult<Expression> {
+        let num_pairs = options.num_when_then_pairs as usize;
+        let mut validity = if options.has_else {
+            expression.child(num_pairs * 2).validity()?
+        } else {
+            lit(false)
+        };
+
+        for pair_idx in (0..num_pairs).rev() {
+            validity = zip_expr(
+                expression.child(pair_idx * 2).clone(),
+                expression.child(pair_idx * 2 + 1).validity()?,
+                validity,
+            );
+        }
+
+        Ok(validity)
     }
 
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {

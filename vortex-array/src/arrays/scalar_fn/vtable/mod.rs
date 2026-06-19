@@ -8,6 +8,7 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::marker::PhantomData;
 use std::ops::Deref;
+use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_error::VortexResult;
@@ -37,13 +38,18 @@ use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
 use crate::expr::Expression;
+use crate::expr::lit;
 use crate::matcher::Matcher;
 use crate::scalar_fn;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ReduceCtx;
+use crate::scalar_fn::ReduceNode;
+use crate::scalar_fn::ReduceNodeRef;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::TypedScalarFnInstance;
 use crate::scalar_fn::VecExecutionArgs;
 use crate::serde::ArrayChildren;
 
@@ -175,7 +181,7 @@ pub trait ScalarFnFactoryExt: scalar_fn::ScalarFnVTable {
         options: Self::Options,
         children: impl Into<Vec<ArrayRef>>,
     ) -> VortexResult<ArrayRef> {
-        let scalar_fn = scalar_fn::TypedScalarFnInstance::new(self.clone(), options).erased();
+        let scalar_fn = TypedScalarFnInstance::new(self.clone(), options).erased();
 
         let children = children.into();
         vortex_ensure!(
@@ -200,6 +206,24 @@ pub trait ScalarFnFactoryExt: scalar_fn::ScalarFnVTable {
     }
 }
 impl<V: scalar_fn::ScalarFnVTable> ScalarFnFactoryExt for V {}
+
+pub(crate) fn scalar_fn_array_expr(array: ArrayView<'_, ScalarFn>) -> VortexResult<Expression> {
+    let inputs: Vec<_> = array
+        .iter_children()
+        .map(|child| {
+            if let Some(scalar) = child.as_constant() {
+                return Ok(lit(scalar));
+            }
+
+            Expression::try_new(
+                TypedScalarFnInstance::new(ArrayExpr, FakeEq(child.clone())).erased(),
+                [],
+            )
+        })
+        .collect::<VortexResult<_>>()?;
+
+    Expression::try_new(array.scalar_fn().clone(), inputs)
+}
 
 /// A matcher that matches any scalar function expression.
 #[derive(Debug)]
@@ -320,12 +344,21 @@ impl scalar_fn::ScalarFnVTable for ArrayExpr {
         crate::Executable::execute(options.0.clone(), ctx)
     }
 
+    fn reduce(
+        &self,
+        options: &Self::Options,
+        _node: &dyn ReduceNode,
+        _ctx: &dyn ReduceCtx,
+    ) -> VortexResult<Option<ReduceNodeRef>> {
+        Ok(Some(Arc::new(options.0.clone())))
+    }
+
     fn validity(
         &self,
         options: &Self::Options,
         _expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Expression> {
         let validity_array = options.0.validity()?.to_array(options.0.len());
-        Ok(Some(ArrayExpr.new_expr(FakeEq(validity_array), [])))
+        Ok(ArrayExpr.new_expr(FakeEq(validity_array), []))
     }
 }

@@ -9,6 +9,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::ScalarFn;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -68,20 +69,34 @@ impl ScalarFnVTable for IsNull {
         &self,
         _data: &Self::Options,
         args: &dyn ExecutionArgs,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let child = args.get(0)?;
         if let Some(scalar) = child.as_constant() {
             return Ok(ConstantArray::new(scalar.is_null(), args.row_count()).into_array());
         }
 
-        match child.validity()? {
+        let validity = if child.is::<ScalarFn>() {
+            child.execute::<ArrayRef>(ctx)?.validity()?
+        } else {
+            child.validity()?
+        };
+
+        match validity {
             Validity::NonNullable | Validity::AllValid => {
                 Ok(ConstantArray::new(false, args.row_count()).into_array())
             }
             Validity::AllInvalid => Ok(ConstantArray::new(true, args.row_count()).into_array()),
             Validity::Array(a) => a.not(),
         }
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        _expression: &Expression,
+    ) -> VortexResult<Expression> {
+        Ok(lit(true))
     }
 
     fn stat_falsification(

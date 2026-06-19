@@ -130,8 +130,8 @@ impl ScalarFnVTable for Pack {
         &self,
         _options: &Self::Options,
         _expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
-        Ok(Some(lit(true)))
+    ) -> VortexResult<Expression> {
+        Ok(lit(true))
     }
 
     fn execute(

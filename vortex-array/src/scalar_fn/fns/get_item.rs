@@ -22,6 +22,7 @@ use crate::dtype::FieldPath;
 use crate::dtype::Nullability;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
+use crate::expr::is_not_null;
 use crate::expr::lit;
 use crate::expr::stats::Stat;
 use crate::scalar_fn::Arity;
@@ -186,6 +187,14 @@ impl ScalarFnVTable for GetItem {
         }
 
         Ok(None)
+    }
+
+    fn validity(
+        &self,
+        _field_name: &FieldName,
+        expression: &Expression,
+    ) -> VortexResult<Expression> {
+        Ok(is_not_null(expression.clone()))
     }
 
     fn stat_expression(
