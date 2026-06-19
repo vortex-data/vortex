@@ -6,12 +6,17 @@ use std::path::absolute;
 use std::sync::Arc;
 
 use itertools::Itertools;
+use object_store::ObjectStore;
+use object_store::aws::AmazonS3Builder;
+use object_store::local::LocalFileSystem;
 use url::Url;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::file::multi::MultiFileDataSource;
+use vortex::io::compat::Compat;
 use vortex::io::filesystem::FileSystemRef;
+use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::multi::MultiLayoutDataSource;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -19,9 +24,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::RUNTIME;
 use crate::SESSION;
 use crate::duckdb::BindInputRef;
-use crate::duckdb::ClientContextRef;
 use crate::duckdb::ExtractedValue;
-use crate::filesystem::resolve_filesystem;
 
 /// Parse a glob string into a [`Url`].
 ///
@@ -55,11 +58,27 @@ fn normalize_path(path: std::path::PathBuf) -> std::path::PathBuf {
     normalized
 }
 
+fn resolve_filesystem(base_url: &Url) -> VortexResult<FileSystemRef> {
+    let object_store: Arc<dyn ObjectStore> = match base_url.scheme() {
+        "file" => Arc::new(LocalFileSystem::new()),
+        "s3" => Arc::new(
+            AmazonS3Builder::from_env()
+                .with_bucket_name(base_url.host_str().ok_or_else(|| {
+                    vortex_err!("Failed to extract bucket name from URL: {base_url}")
+                })?)
+                .build()?,
+        ),
+        other => vortex_bail!("Unsupported URL scheme '{other}'"),
+    };
+
+    Ok(Arc::new(ObjectStoreFileSystem::new(
+        Arc::new(Compat::new(object_store)),
+        RUNTIME.handle(),
+    )))
+}
+
 /// Shared bind logic for both single-glob and multi-glob variants.
-pub fn bind_multi_file_scan(
-    ctx: &ClientContextRef,
-    input: &BindInputRef,
-) -> VortexResult<MultiLayoutDataSource> {
+pub fn bind_multi_file_scan(input: &BindInputRef) -> VortexResult<MultiLayoutDataSource> {
     let glob_url_parameter = input
         .get_parameter(0)
         .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
@@ -94,7 +113,7 @@ pub fn bind_multi_file_scan(
         let mut base_url = glob_url.clone();
         base_url.set_path("");
         if !fs_cache.contains_key(&base_url) {
-            let fs = resolve_filesystem(&base_url, ctx)?;
+            let fs = resolve_filesystem(&base_url)?;
             fs_cache.insert(base_url, fs);
         }
     }

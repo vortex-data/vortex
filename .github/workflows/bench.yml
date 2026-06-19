@@ -85,7 +85,18 @@ jobs:
           profiling_frequency: 199
           extra_args: "--off-cpu-threshold=0.03"  # Personally tuned by @brancz
 
+      - name: Run ${{ matrix.benchmark.name }} benchmark (per-combination)
+        if: matrix.benchmark.id == 'random-access-bench'
+        shell: bash
+        env:
+          RUST_BACKTRACE: full
+          VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
+          FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+        run: |
+          python3 scripts/random-access-split.py --v3
+
       - name: Run ${{ matrix.benchmark.name }} benchmark
+        if: matrix.benchmark.id != 'random-access-bench'
         shell: bash
         env:
           RUST_BACKTRACE: full

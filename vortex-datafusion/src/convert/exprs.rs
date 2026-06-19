@@ -11,6 +11,7 @@ use datafusion_common::tree_node::TreeNode;
 use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_expr::Operator as DFOperator;
 use datafusion_functions::core::getfield::GetFieldFunc;
+use datafusion_functions::string::octet_length::OctetLengthFunc;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::ScalarFunctionExpr;
 use datafusion_physical_expr::projection::ProjectionExpr;
@@ -24,6 +25,7 @@ use vortex::dtype::Nullability;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
+use vortex::expr::byte_length;
 use vortex::expr::cast;
 use vortex::expr::get_item;
 use vortex::expr::is_not_null;
@@ -111,8 +113,28 @@ pub trait ExpressionConvertor: Send + Sync {
 pub struct DefaultExpressionConvertor {}
 
 impl DefaultExpressionConvertor {
+    /// Attempts to convert DataFusion's `octet_length` function to Vortex `byte_length`.
+    fn try_convert_octet_length(&self, scalar_fn: &ScalarFunctionExpr) -> DFResult<Expression> {
+        let [input] = scalar_fn.args() else {
+            return Err(exec_datafusion_err!(
+                "octet_length requires exactly one argument"
+            ));
+        };
+
+        let input = self.convert(input.as_ref())?;
+        let return_dtype =
+            DType::from_arrow((scalar_fn.return_type(), scalar_fn.nullable().into()));
+        Ok(cast(byte_length(input), return_dtype))
+    }
+
     /// Attempts to convert a DataFusion ScalarFunctionExpr to a Vortex expression.
     fn try_convert_scalar_function(&self, scalar_fn: &ScalarFunctionExpr) -> DFResult<Expression> {
+        if let Some(octet_length_fn) =
+            ScalarFunctionExpr::try_downcast_func::<OctetLengthFunc>(scalar_fn)
+        {
+            return self.try_convert_octet_length(octet_length_fn);
+        }
+
         if let Some(get_field_fn) = ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn)
         {
             // DataFusion's GetFieldFunc flattens nested field access into a single call
@@ -289,7 +311,7 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
             let r = projection_expr.expr.apply(|node| {
                 // We only pull column children of scalar functions that we can't push into the scan.
                 if let Some(scalar_fn_expr) = node.downcast_ref::<ScalarFunctionExpr>()
-                    && !can_scalar_fn_be_pushed_down(scalar_fn_expr)
+                    && !can_scalar_fn_be_pushed_down(scalar_fn_expr, input_schema)
                 {
                     scan_projection.extend(
                         collect_columns(node)
@@ -305,8 +327,8 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
                 // Vortex expects a perfect match so we don't push it down.
                 if let Some(binary_expr) = node.downcast_ref::<df_expr::BinaryExpr>()
                     && binary_expr.op().is_numerical_operators()
-                    && (is_decimal(&binary_expr.left().data_type(input_schema)?)
-                        && is_decimal(&binary_expr.right().data_type(input_schema)?))
+                    && binary_expr.left().data_type(input_schema)?.is_decimal()
+                    && binary_expr.right().data_type(input_schema)?.is_decimal()
                 {
                     scan_projection.extend(
                         collect_columns(node)
@@ -430,7 +452,7 @@ fn can_be_pushed_down_impl(expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> boo
                 .iter()
                 .all(|e| can_be_pushed_down_impl(e, schema))
     } else if let Some(scalar_fn) = expr.downcast_ref::<ScalarFunctionExpr>() {
-        can_scalar_fn_be_pushed_down(scalar_fn)
+        can_scalar_fn_be_pushed_down(scalar_fn, schema)
     } else if let Some(case_expr) = expr.downcast_ref::<df_expr::CaseExpr>() {
         can_case_be_pushed_down(case_expr, schema)
     } else {
@@ -454,9 +476,10 @@ fn is_convertible_expr(expr: &Arc<dyn PhysicalExpr>) -> bool {
         || expr.downcast_ref::<df_expr::IsNullExpr>().is_some()
         || expr.downcast_ref::<df_expr::IsNotNullExpr>().is_some()
         || expr.downcast_ref::<df_expr::InListExpr>().is_some()
-        || expr
-            .downcast_ref::<ScalarFunctionExpr>()
-            .is_some_and(|sf| ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(sf).is_some())
+        || expr.downcast_ref::<ScalarFunctionExpr>().is_some_and(|sf| {
+            ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(sf).is_some()
+                || ScalarFunctionExpr::try_downcast_func::<OctetLengthFunc>(sf).is_some()
+        })
 }
 
 fn can_binary_be_pushed_down(binary: &df_expr::BinaryExpr, schema: &Schema) -> bool {
@@ -502,20 +525,11 @@ fn supported_data_types(dt: &DataType) -> bool {
 
     let is_supported = dt.is_null()
         || dt.is_numeric()
+        || dt.is_binary()
+        || dt.is_string()
         || matches!(
             dt,
-            Boolean
-                | Utf8
-                | LargeUtf8
-                | Utf8View
-                | Binary
-                | LargeBinary
-                | BinaryView
-                | Date32
-                | Date64
-                | Timestamp(_, _)
-                | Time32(_)
-                | Time64(_)
+            Boolean | Date32 | Date64 | Timestamp(_, _) | Time32(_) | Time64(_)
         );
 
     if !is_supported {
@@ -526,20 +540,30 @@ fn supported_data_types(dt: &DataType) -> bool {
 }
 
 /// Checks if a scalar function can be pushed down.
-/// Currently only GetFieldFunc is supported.
-fn can_scalar_fn_be_pushed_down(scalar_fn: &ScalarFunctionExpr) -> bool {
-    ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn).is_some()
+/// Currently GetFieldFunc and OctetLengthFunc are supported.
+fn can_scalar_fn_be_pushed_down(scalar_fn: &ScalarFunctionExpr, schema: &Schema) -> bool {
+    if ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn).is_some() {
+        return true;
+    }
+
+    ScalarFunctionExpr::try_downcast_func::<OctetLengthFunc>(scalar_fn)
+        .is_some_and(|octet_length| can_octet_length_be_pushed_down(octet_length, schema))
 }
 
-// TODO(adam): Replace with `DataType::is_decimal` once its released.
-fn is_decimal(dt: &DataType) -> bool {
-    matches!(
-        dt,
-        DataType::Decimal32(_, _)
-            | DataType::Decimal64(_, _)
-            | DataType::Decimal128(_, _)
-            | DataType::Decimal256(_, _)
-    )
+fn can_octet_length_be_pushed_down(scalar_fn: &ScalarFunctionExpr, schema: &Schema) -> bool {
+    let [input] = scalar_fn.args() else {
+        return false;
+    };
+
+    input.data_type(schema).as_ref().is_ok_and(|data_type| {
+        let dt = if let DataType::Dictionary(_, value_type) = data_type {
+            value_type.as_ref()
+        } else {
+            data_type
+        };
+
+        dt.is_binary() || dt.is_string()
+    }) && can_be_pushed_down_impl(input, schema)
 }
 
 #[cfg(test)]
@@ -553,7 +577,9 @@ mod tests {
     use datafusion::arrow::array::AsArray;
     use datafusion::arrow::datatypes::Int32Type;
     use datafusion_common::ScalarValue;
+    use datafusion_common::config::ConfigOptions;
     use datafusion_expr::Operator as DFOperator;
+    use datafusion_expr::ScalarUDF;
     use datafusion_physical_expr::PhysicalExpr;
     use datafusion_physical_plan::expressions as df_expr;
     use insta::assert_snapshot;
@@ -580,6 +606,18 @@ mod tests {
                 true,
             ),
         ])
+    }
+
+    fn octet_length_expr(input: Arc<dyn PhysicalExpr>, schema: &Schema) -> Arc<dyn PhysicalExpr> {
+        Arc::new(
+            ScalarFunctionExpr::try_new(
+                Arc::new(ScalarUDF::from(OctetLengthFunc::new())),
+                vec![input],
+                schema,
+                Arc::new(ConfigOptions::new()),
+            )
+            .unwrap(),
+        )
     }
 
     #[test]
@@ -709,6 +747,23 @@ mod tests {
                 case_insensitive
             }
         );
+    }
+
+    #[rstest]
+    fn test_expr_from_df_octet_length(test_schema: Schema) {
+        let expr = Arc::new(df_expr::Column::new("name", 1)) as Arc<dyn PhysicalExpr>;
+        let octet_length = octet_length_expr(expr, &test_schema);
+
+        let result = DefaultExpressionConvertor::default()
+            .convert(octet_length.as_ref())
+            .unwrap();
+
+        assert_snapshot!(result.display_tree().to_string(), @r"
+        vortex.cast(i32?)
+        └── input: vortex.byte_length()
+            └── input: vortex.get_item(name)
+                └── input: vortex.root()
+        ");
     }
 
     #[rstest]
@@ -863,6 +918,28 @@ mod tests {
             Arc::new(df_expr::LikeExpr::new(false, false, expr, pattern)) as Arc<dyn PhysicalExpr>;
 
         assert!(!can_be_pushed_down_impl(&like_expr, &test_schema));
+    }
+
+    #[rstest]
+    fn test_can_be_pushed_down_octet_length_supported(test_schema: Schema) {
+        let expr = Arc::new(df_expr::Column::new("name", 1)) as Arc<dyn PhysicalExpr>;
+        let octet_length = octet_length_expr(expr, &test_schema);
+
+        assert!(can_be_pushed_down_impl(&octet_length, &test_schema));
+    }
+
+    #[rstest]
+    fn test_can_be_pushed_down_octet_length_unsupported_operand(test_schema: Schema) {
+        let expr = Arc::new(df_expr::Column::new("unsupported_list", 5)) as Arc<dyn PhysicalExpr>;
+        let octet_length = Arc::new(ScalarFunctionExpr::new(
+            "octet_length",
+            Arc::new(ScalarUDF::from(OctetLengthFunc::new())),
+            vec![expr],
+            Arc::new(Field::new("octet_length", DataType::Int32, true)),
+            Arc::new(ConfigOptions::new()),
+        )) as Arc<dyn PhysicalExpr>;
+
+        assert!(!can_be_pushed_down_impl(&octet_length, &test_schema));
     }
 
     // https://github.com/vortex-data/vortex/issues/6211

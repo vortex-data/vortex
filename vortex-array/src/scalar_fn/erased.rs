@@ -20,8 +20,6 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
 use crate::expr::Expression;
-use crate::expr::StatsCatalog;
-use crate::expr::stats::Stat;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ReduceCtx;
 use crate::scalar_fn::ReduceNode;
@@ -173,25 +171,6 @@ impl ScalarFnRef {
     /// Simplify the expression without type information.
     pub(crate) fn simplify_untyped(&self, expr: &Expression) -> VortexResult<Option<Expression>> {
         self.0.simplify_untyped(expr)
-    }
-
-    /// Compute stat falsification expression.
-    pub(crate) fn stat_falsification(
-        &self,
-        expr: &Expression,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        self.0.stat_falsification(expr, catalog)
-    }
-
-    /// Compute stat expression.
-    pub(crate) fn stat_expression(
-        &self,
-        expr: &Expression,
-        stat: Stat,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        self.0.stat_expression(expr, stat, catalog)
     }
 }
 

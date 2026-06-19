@@ -197,16 +197,14 @@ bool projection_expression_pushdown(ClientContext &, const TableFunctionProjecti
  * and after a query another file is added matching the glob, for second query
  * bind() will be called again.
  */
-unique_ptr<FunctionData> duckdb_vx_table_function_bind(ClientContext &context,
+unique_ptr<FunctionData> duckdb_vx_table_function_bind(ClientContext &,
                                                        TableFunctionBindInput &input,
                                                        vector<LogicalType> &return_types,
                                                        vector<string> &names) {
     CTableBindResult result = {return_types, names};
 
     duckdb_vx_error error_out = nullptr;
-    auto ctx = reinterpret_cast<duckdb_client_context>(&context);
-    auto ffi_bind_data = duckdb_table_function_bind(ctx,
-                                                    reinterpret_cast<duckdb_vx_tfunc_bind_input>(&input),
+    auto ffi_bind_data = duckdb_table_function_bind(reinterpret_cast<duckdb_vx_tfunc_bind_input>(&input),
                                                     reinterpret_cast<duckdb_vx_tfunc_bind_result>(&result),
                                                     &error_out);
     if (error_out) {

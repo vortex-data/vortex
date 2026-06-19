@@ -20,8 +20,6 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
 use crate::expr::Expression;
-use crate::expr::StatsCatalog;
-use crate::expr::stats::Stat;
 use crate::expr::traversal::Node;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
@@ -177,34 +175,6 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
         _ = options;
         _ = expr;
         Ok(None)
-    }
-
-    /// See [`Expression::stat_falsification`].
-    fn stat_falsification(
-        &self,
-        options: &Self::Options,
-        expr: &Expression,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        _ = options;
-        _ = expr;
-        _ = catalog;
-        None
-    }
-
-    /// See [`Expression::stat_expression`].
-    fn stat_expression(
-        &self,
-        options: &Self::Options,
-        expr: &Expression,
-        stat: Stat,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        _ = options;
-        _ = expr;
-        _ = stat;
-        _ = catalog;
-        None
     }
 
     /// Returns an expression that evaluates to the validity of the result of this expression.
