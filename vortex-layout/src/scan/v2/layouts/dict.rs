@@ -113,8 +113,6 @@ struct DictExprReadPlan {
     codes_read: ReadPlanRef,
 }
 
-const SPARSE_DICT_VALUES_DENSITY_THRESHOLD: f64 = 0.2;
-
 fn value_expr_is_expensive(expr: &Expression) -> bool {
     matches!(
         expr.id().as_str(),
@@ -129,7 +127,7 @@ fn value_expr_is_expensive(expr: &Expression) -> bool {
 
 fn sparse_dict_candidate(values_len: u64, rows: RowScope<'_>) -> bool {
     rows.demands_all_selected()
-        && rows.selection.density() < SPARSE_DICT_VALUES_DENSITY_THRESHOLD
+        && !rows.selection.all_true()
         && matches!(
             usize::try_from(values_len),
             Ok(values_len) if values_len > rows.demand.true_count()
