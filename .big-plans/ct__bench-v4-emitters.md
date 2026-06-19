@@ -20,12 +20,18 @@ v2/v3 paths.
 - **Architecture:** port the already-written, unmerged v4 emitter from `origin/ct/bench-v4`
   (commits `9a870091e` + `9a1824afa`, tree at tip `f9b36ae3f`) onto current `develop`; the
   feature is FINISH + MERGE + PROVISION, not write-from-scratch.
-- **Decision: 4-phase structure** — Phase A (ops: create IAM role) -> Phase D (code: port
-  emitter + workflows, full SDD + gauntlet + PR + merge, dormant) -> Phase C (ops, GATED: align
-  revalidate token) -> Phase B (ops, GATED live cutover: set ARN var + repoint URLs + soak).
-  Ops phases A/C/B are CLI ops with side effects and NO in-repo diff: they skip gauntlet + PR;
-  exit criteria are CLI verification commands; the human checkpoint is a pre-action
-  external-side-effect confirmation (see design spec § 4 for the ops-phase adaptation rationale).
+- **Decision: 4-phase structure, reordered D -> A -> C -> B** (grill-me, demo-driven) — Phase D
+  (code: port emitter + workflows, full SDD + gauntlet + PR + merge, dormant) -> Phase A (ops:
+  create IAM role) -> Phase C (ops, GATED: align revalidate token) -> Phase B (ops, GATED live
+  cutover: set ARN var + repoint URLs + soak). Ops phases A/C/B are CLI ops with side effects and
+  NO in-repo diff: they skip gauntlet + PR; exit criteria are CLI verification commands; the
+  human checkpoint is a pre-action external-side-effect confirmation (see design spec § 4).
+- **Decision: demo-safety model (HARD CONSTRAINT)** — NO prod RDS writes until phase B; phases C
+  and B both hard-gated to AFTER the demo + explicit go-ahead (C redeploys the v4 site the demo
+  reads). Only pure-code phase D runs in the demo window (zero prod interaction). Pre-merge
+  confidence comes from testcontainer Postgres tests (pinned to RDS major version 16) + the
+  golden-vector test, with NO prod/develop dependency; the real-RDS IAM/TLS path is verified
+  read-only/rolled-back at phase B before the flip. See design spec § 4.0.
 - **Decision: code-port scope = everything incl. extras** — the essentials (post-ingest.py
   `--postgres`, `_measurement_id.py` + golden.json + test, the 3 workflow v4 steps, ci.yml
   wiring) PLUS the testcontainer writer tests (`test_post_ingest_postgres.py`) PLUS the extras
@@ -39,12 +45,15 @@ v2/v3 paths.
   against the ported `scripts/measurement_id_golden.json` golden vectors. The cross-language
   golden vectors ARE the contract.
 - **Decision: the v3 `--server` path stays stdlib-only and intact;** the new v4 `--postgres`
-  path may use third-party deps (psycopg / IAM-token minting) but only via lazy import guarded
-  inside the postgres branch + declared in `post-ingest.py`'s PEP-723 block, so importing the
-  module or running `--server` never requires those deps.
-- **Decision: recommended sequence (runbook §4):** A (create role) -> D (merge, dormant) ->
-  C (align token, gated go-ahead, redeploy v4) -> B (set ARN var + repoint URLs, flips ON) ->
-  soak/acceptance. Do NOT set `GH_BENCH_INGEST_ROLE_ARN` until A exists and D is merged.
+  path uses third-party deps (`psycopg[binary]`, `boto3`, `xxhash`) supplied at the call site via
+  `uv run --no-project --with ...` (NOT `post-ingest.py`'s PEP-723 block, which stays empty —
+  corrected from the runbook by grill-me), lazily imported only inside the postgres branch, so
+  importing the module or running `--server` never requires those deps. `_measurement_id.py` uses
+  the `xxhash` package's XXH64. CA bundle is the global bundle.
+- **Decision: sequence (reordered):** D (build + merge dormant) -> A (create role) -> C (align
+  token, gated, post-demo, redeploy v4) -> B (set ARN var + repoint URLs, flips ON, post-demo) ->
+  soak/acceptance. Do NOT set `GH_BENCH_INGEST_ROLE_ARN` until A exists and D is merged (both
+  precede B by order).
 - **Decision: `SCHEMA_VERSION` stays in lockstep at `1`** across `post-ingest.py` and the v4
   schema; no bump in this project.
 
@@ -62,8 +71,13 @@ v2/v3 paths.
 
 ## Risks
 
+0. **Demo-window prod-data corruption (next few hours)**: P=low-if-disciplined; impact=severe;
+   mitigation: no prod RDS write before phase B; phases C and B hard-gated post-demo + go-ahead;
+   only pure-code phase D runs during the demo window. Verified by failure isolation (the v4
+   block is dormant until the ARN var is set, which is phase B).
 1. **Live-cutover blast radius (phase B)**: P=med; impact=moderate; mitigation: best-effort +
-   `continue-on-error` + env-gate means a v4 failure cannot fail a workflow; B is reversible by
+   `continue-on-error` + env-gate means a v4 failure cannot fail a workflow (verified on-branch:
+   all v4 steps carry the gate + `continue-on-error`, v3 runs first); B is reversible by
    unsetting `GH_BENCH_INGEST_ROLE_ARN`; watch the first emitting run before walking away.
 2. **measurement_id port drift from the Rust reference**: P=med; impact=severe (silent wrong
    upsert keys -> duplicate/again rows); mitigation: the ported pytest asserts every golden
