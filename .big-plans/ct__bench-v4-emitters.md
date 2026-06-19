@@ -8,34 +8,21 @@
 
 ## SESSION HANDOFF (2026-06-19) — READ FIRST ON RESUME
 
-**Where we are:** Phase 1 (D, the CODE phase) is COMPLETE and gauntlet-accepted end-to-end. All
-3 sub-phases shipped + checkpoint-accepted (1.1 measurement_id contract pr-2; 1.2 Postgres writer
-pr-3; 1.3 CI + workflow wiring pr-3); the phase-D finalization polish landed (`6fdd727f0`); the
-phase-end gauntlet (phase-4: spec + correctness + maint + arch) ACCEPTED with zero must-fix (172
-tests re-run green); the Phase 1 gate is recorded in the Verdict Ledger. HEAD = `c35badc7d`,
-pushed to `origin/ct/bench-v4-emitters`. Current Position reads `status: reviewing` /
-`sub_phase: null` ONLY because the phase PR has not been opened yet (that is the next step).
+**Where we are:** Phase 1 (D, the CODE phase) is COMPLETE and gauntlet-accepted end-to-end (all
+3 sub-phases checkpoint-accepted; the phase-end phase-4 gauntlet ACCEPTED with zero must-fix, 172
+tests re-run green; the Phase 1 gate is recorded in the Verdict Ledger). The phase-D PR is OPEN:
+**#8512** (draft -> develop, INCLUDE-SCAFFOLDING form chosen by the user, so `.big-plans/` rides
+in the diff). `status: awaiting-human-gate`. The user indicated they will likely merge after CI
+goes green.
 
 **DO NOT re-run the phase-end gauntlet on resume** — it already passed and is recorded in the
-ledger (`#### Phase 1 gate`, phase-4 / accepted). The stock `reviewing` + `sub_phase: null` route
-would re-run it; skip that and go straight to the OPEN DECISION below.
+ledger (`#### Phase 1 gate`, phase-4 / accepted).
 
-**OPEN DECISION (RE-ASK THE USER — the AUQ was interrupted):** how to open the phase-D PR (Step 3.3):
-- **(A, recommended) CODE-ONLY PR** — the 8 code commits touch only `scripts/` + `.github/`
-  (range `ec31812ce..6fdd727f0`, excluding the `plan:` commits which touch only `.big-plans/`).
-  Cherry-pick them onto a fresh branch off `develop`; open a draft PR from there. Keep the spine
-  branch-local on `ct/bench-v4-emitters`. Requires a Step 3.5 deviation: after the code PR merges,
-  do NOT `git reset --hard origin/develop` on the orchestration branch (it would wipe the spine) —
-  reset then restore/re-commit the `.big-plans/` spine.
-- **(B) INCLUDE SCAFFOLDING (big-plans default)** — open the draft PR from `ct/bench-v4-emitters`
-  as-is (28 commits, `.big-plans/` in the diff); spine rides to develop transiently, removed by a
-  dedicated wrap-up PR.
-- **(C) HOLD** — don't open the PR yet (e.g. to avoid PR CI / team noise during the demo).
-
-**After the PR-form decision:** open the draft PR (body per `spiral:pr-and-issue-voice`: what
-shipped per sub-phase, gauntlet verdict, exit criteria, deferred items), commit
-`plan: phase PR opened — #<N>`, set `status: awaiting-human-gate`, fire the Step 3.4 human gate
-(proceed / re-plan / amend / abort). On "proceed" → Step 3.5 merges phase D, then phases A -> C -> B.
+**NEXT (Step 3.4 / 3.5 human gate):** on "proceed", squash-merge #8512 -> stable-branch sync ->
+advance to phase A. If the user squash-merges #8512 on GitHub themselves, reconcile the spine
+afterward (the squash carries the spine + gate records onto develop) and advance to phase A.
+Before touching AWS in phase A, CONFIRM the demo is over (phase A is data-safe IAM-only but is
+still an external mutation) per the HARD CONSTRAINTS below.
 
 **HARD CONSTRAINTS still in force (design spec §4.0):**
 - **DEMO SAFETY:** NO prod RDS writes until phase B. Phases C and B are GATED — post-demo +
@@ -393,3 +380,5 @@ This spine mixes one CODE phase with three OPS phases; the orchestrator handles 
   must-fix. Correctness reviewer independently re-ran 172 tests (green); arch confirmed the v4
   path can never break the live v3/v2 path (dormant-but-ready). New should-fixes are refactor /
   doc items deferred to follow-ups (see Carry-forward > Deferred work).
+- **Phase PR:** #8512 (draft -> develop; include-scaffolding form, user-chosen). Opened
+  2026-06-19; CI running; the plan is to squash-merge on green.
