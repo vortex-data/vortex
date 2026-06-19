@@ -63,10 +63,16 @@ use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::Layout;
+use vortex_layout::LayoutStrategy;
+use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
+use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::zoned::LegacyStats;
 use vortex_layout::layouts::zoned::Zoned;
+use vortex_layout::layouts::zoned::writer::ZonedLayoutOptions;
+use vortex_layout::layouts::zoned::writer::ZonedStrategy;
 use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::session::LayoutSession;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::OpenOptionsSessionExt;
@@ -85,6 +91,546 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 
     session
 });
+
+mod custom_zone_map_plugin {
+    use std::collections::BTreeSet;
+    use std::fmt::Display;
+    use std::fmt::Formatter;
+
+    use vortex_array::Canonical;
+    use vortex_array::Columnar;
+    use vortex_array::ExecutionCtx;
+    use vortex_array::IntoArray;
+    use vortex_array::accessor::ArrayAccessor;
+    use vortex_array::aggregate_fn::AggregateFnId;
+    use vortex_array::aggregate_fn::AggregateFnRef;
+    use vortex_array::aggregate_fn::AggregateFnVTable;
+    use vortex_array::aggregate_fn::AggregateFnVTableExt;
+    use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ConstantArray;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::expr::Expression;
+    use vortex_array::expr::is_root;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::not;
+    use vortex_array::expr::root;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::scalar_fn::Arity;
+    use vortex_array::scalar_fn::ChildName;
+    use vortex_array::scalar_fn::EmptyOptions as ScalarEmptyOptions;
+    use vortex_array::scalar_fn::ExecutionArgs;
+    use vortex_array::scalar_fn::ScalarFnId;
+    use vortex_array::scalar_fn::ScalarFnVTable;
+    use vortex_array::scalar_fn::ScalarFnVTableExt;
+    use vortex_array::scalar_fn::fns::binary::Binary;
+    use vortex_array::scalar_fn::fns::literal::Literal;
+    use vortex_array::scalar_fn::fns::operators::Operator;
+    use vortex_array::scalar_fn::session::ScalarFnSessionExt;
+    use vortex_array::stats::rewrite::StatsRewriteCtx;
+    use vortex_array::stats::rewrite::StatsRewriteRule;
+    use vortex_array::stats::session::StatsSessionExt;
+    use vortex_array::stats::stat;
+    use vortex_error::VortexResult;
+    use vortex_error::vortex_bail;
+    use vortex_error::vortex_ensure;
+    use vortex_error::vortex_err;
+    use vortex_io::session::RuntimeSession;
+    use vortex_layout::session::LayoutSession;
+    use vortex_session::VortexSession;
+    use vortex_session::registry::CachedId;
+
+    const MAX_VALUES: usize = 8;
+
+    #[derive(Clone, Debug)]
+    pub(super) struct TestMembership;
+
+    #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+    pub(super) struct TestMembershipOptions {
+        max_values: usize,
+    }
+
+    impl Display for TestMembershipOptions {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.max_values)
+        }
+    }
+
+    pub(super) struct TestMembershipPartial {
+        values: BTreeSet<Vec<u8>>,
+        complete: bool,
+        max_values: usize,
+    }
+
+    impl TestMembershipPartial {
+        fn insert(&mut self, value: &[u8]) {
+            if !self.complete {
+                return;
+            }
+
+            self.values.insert(value.to_vec());
+            if self.values.len() > self.max_values {
+                self.complete = false;
+                self.values.clear();
+            }
+        }
+
+        fn merge(&mut self, other: Option<BTreeSet<Vec<u8>>>) {
+            let Some(other) = other else {
+                self.complete = false;
+                self.values.clear();
+                return;
+            };
+
+            for value in other {
+                self.insert(&value);
+            }
+        }
+    }
+
+    impl AggregateFnVTable for TestMembership {
+        type Options = TestMembershipOptions;
+        type Partial = TestMembershipPartial;
+
+        fn id(&self) -> AggregateFnId {
+            AggregateFnId::new("test.utf8_membership")
+        }
+
+        fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+            let max_values = u64::try_from(options.max_values)?;
+            Ok(Some(max_values.to_le_bytes().to_vec()))
+        }
+
+        fn deserialize(
+            &self,
+            metadata: &[u8],
+            _session: &VortexSession,
+        ) -> VortexResult<Self::Options> {
+            vortex_ensure!(
+                metadata.len() == size_of::<u64>(),
+                "TestMembership options expected {} bytes, got {}",
+                size_of::<u64>(),
+                metadata.len()
+            );
+
+            let mut bytes = [0u8; size_of::<u64>()];
+            bytes.copy_from_slice(metadata);
+            let max_values = usize::try_from(u64::from_le_bytes(bytes))?;
+            vortex_ensure!(max_values > 0, "TestMembership requires max_values > 0");
+            Ok(TestMembershipOptions { max_values })
+        }
+
+        fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
+            matches!(input_dtype, DType::Utf8(_)).then_some(DType::Binary(Nullability::Nullable))
+        }
+
+        fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
+            self.return_dtype(options, input_dtype)
+        }
+
+        fn empty_partial(
+            &self,
+            options: &Self::Options,
+            _input_dtype: &DType,
+        ) -> VortexResult<Self::Partial> {
+            Ok(TestMembershipPartial {
+                values: BTreeSet::new(),
+                complete: true,
+                max_values: options.max_values,
+            })
+        }
+
+        fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {
+            let other = other
+                .as_binary()
+                .value()
+                .map(|bytes| decode_state(bytes.as_slice()))
+                .transpose()?
+                .flatten();
+            partial.merge(other);
+            Ok(())
+        }
+
+        fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
+            Ok(Scalar::binary(
+                encode_state(&partial.values, partial.complete)?,
+                Nullability::Nullable,
+            ))
+        }
+
+        fn reset(&self, partial: &mut Self::Partial) {
+            partial.values.clear();
+            partial.complete = true;
+        }
+
+        fn is_saturated(&self, partial: &Self::Partial) -> bool {
+            !partial.complete
+        }
+
+        fn accumulate(
+            &self,
+            partial: &mut Self::Partial,
+            batch: &Columnar,
+            _ctx: &mut ExecutionCtx,
+        ) -> VortexResult<()> {
+            if !partial.complete {
+                return Ok(());
+            }
+
+            match batch {
+                Columnar::Canonical(Canonical::VarBinView(array)) => {
+                    array.with_iterator(|values| {
+                        for value in values.flatten() {
+                            partial.insert(value);
+                        }
+                    });
+                    Ok(())
+                }
+                Columnar::Constant(array) => {
+                    if let Some(value) = array.scalar().as_utf8().value() {
+                        partial.insert(value.as_str().as_bytes());
+                    }
+                    Ok(())
+                }
+                _ => vortex_bail!("TestMembership can only aggregate UTF-8 arrays"),
+            }
+        }
+
+        fn finalize(&self, states: vortex_array::ArrayRef) -> VortexResult<vortex_array::ArrayRef> {
+            Ok(states)
+        }
+
+        fn finalize_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
+            self.to_scalar(partial)
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    pub(super) struct TestMightContain;
+
+    impl ScalarFnVTable for TestMightContain {
+        type Options = ScalarEmptyOptions;
+
+        fn id(&self) -> ScalarFnId {
+            static ID: CachedId = CachedId::new("test.might_contain");
+            *ID
+        }
+
+        fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+            Ok(Some(vec![]))
+        }
+
+        fn deserialize(
+            &self,
+            _metadata: &[u8],
+            _session: &VortexSession,
+        ) -> VortexResult<Self::Options> {
+            Ok(ScalarEmptyOptions)
+        }
+
+        fn arity(&self, _options: &Self::Options) -> Arity {
+            Arity::Exact(2)
+        }
+
+        fn child_name(&self, _options: &Self::Options, child_idx: usize) -> ChildName {
+            match child_idx {
+                0 => ChildName::from("membership"),
+                1 => ChildName::from("value"),
+                _ => unreachable!("Invalid child index {child_idx} for TestMightContain"),
+            }
+        }
+
+        fn return_dtype(&self, _options: &Self::Options, args: &[DType]) -> VortexResult<DType> {
+            vortex_ensure!(
+                matches!(args[0], DType::Binary(_)),
+                "TestMightContain first argument must be Binary, got {}",
+                args[0]
+            );
+            vortex_ensure!(
+                matches!(args[1], DType::Utf8(_)),
+                "TestMightContain second argument must be Utf8, got {}",
+                args[1]
+            );
+            Ok(DType::Bool(Nullability::NonNullable))
+        }
+
+        fn execute(
+            &self,
+            _options: &Self::Options,
+            args: &dyn ExecutionArgs,
+            ctx: &mut ExecutionCtx,
+        ) -> VortexResult<vortex_array::ArrayRef> {
+            let membership = args.get(0)?;
+            let value = args.get(1)?;
+            let Some(value) = value.as_constant() else {
+                vortex_bail!("TestMightContain requires a constant value");
+            };
+
+            let Some(value) = value.as_utf8().value() else {
+                return Ok(ConstantArray::new(true, args.row_count()).into_array());
+            };
+            let needle = value.as_str().as_bytes();
+
+            match membership.execute::<Columnar>(ctx)? {
+                Columnar::Constant(state) => {
+                    let result = state
+                        .scalar()
+                        .as_binary()
+                        .value()
+                        .map(|bytes| might_contain(bytes.as_slice(), needle))
+                        .transpose()?
+                        .unwrap_or(true);
+                    Ok(ConstantArray::new(result, args.row_count()).into_array())
+                }
+                Columnar::Canonical(Canonical::VarBinView(states)) => {
+                    let values = states.with_iterator(|states| {
+                        states
+                            .map(|state| {
+                                state
+                                    .map(|state| might_contain(state, needle))
+                                    .transpose()
+                                    .map(|value| value.unwrap_or(true))
+                            })
+                            .collect::<VortexResult<Vec<_>>>()
+                    })?;
+                    Ok(BoolArray::from_iter(values).into_array())
+                }
+                _ => vortex_bail!("TestMightContain requires Binary membership states"),
+            }
+        }
+
+        fn is_null_sensitive(&self, _options: &Self::Options) -> bool {
+            false
+        }
+
+        fn is_fallible(&self, _options: &Self::Options) -> bool {
+            false
+        }
+    }
+
+    #[derive(Debug)]
+    struct TestUtf8EqMembershipRewrite;
+
+    impl StatsRewriteRule for TestUtf8EqMembershipRewrite {
+        fn scalar_fn_id(&self) -> ScalarFnId {
+            Binary.id()
+        }
+
+        fn falsify(
+            &self,
+            expr: &Expression,
+            ctx: &StatsRewriteCtx<'_>,
+        ) -> VortexResult<Option<Expression>> {
+            if expr.as_::<Binary>() != &Operator::Eq {
+                return Ok(None);
+            }
+
+            let lhs = expr.child(0);
+            let rhs = expr.child(1);
+            let (input, value) = if is_root(lhs) {
+                (lhs, utf8_literal(rhs))
+            } else if is_root(rhs) {
+                (rhs, utf8_literal(lhs))
+            } else {
+                return Ok(None);
+            };
+            let Some(value) = value else {
+                return Ok(None);
+            };
+
+            if !matches!(ctx.return_dtype(input)?, DType::Utf8(_)) {
+                return Ok(None);
+            }
+
+            Ok(Some(not(TestMightContain.new_expr(
+                ScalarEmptyOptions,
+                [stat(root(), aggregate_fn()), lit(value)],
+            ))))
+        }
+    }
+
+    pub(super) fn aggregate_fn() -> AggregateFnRef {
+        TestMembership.bind(TestMembershipOptions {
+            max_values: MAX_VALUES,
+        })
+    }
+
+    pub(super) fn session(register_rewrite: bool) -> VortexSession {
+        let session = vortex_array::array_session()
+            .with::<LayoutSession>()
+            .with::<RuntimeSession>();
+        crate::register_default_encodings(&session);
+        session.aggregate_fns().register(TestMembership);
+        session.scalar_fns().register(TestMightContain);
+        if register_rewrite {
+            session
+                .stats()
+                .register_rewrite(TestUtf8EqMembershipRewrite);
+        }
+        session
+    }
+
+    pub(super) fn contains_might_contain(expr: &Expression) -> bool {
+        expr.is::<TestMightContain>() || expr.children().iter().any(contains_might_contain)
+    }
+
+    fn utf8_literal(expr: &Expression) -> Option<Scalar> {
+        let value = expr.as_opt::<Literal>()?;
+        matches!(value.dtype(), DType::Utf8(_))
+            .then_some(value)
+            .filter(|value| !value.is_null())
+            .cloned()
+    }
+
+    fn encode_state(values: &BTreeSet<Vec<u8>>, complete: bool) -> VortexResult<Vec<u8>> {
+        let mut encoded = Vec::new();
+        encoded.push(u8::from(complete));
+        if !complete {
+            return Ok(encoded);
+        }
+
+        encoded.extend(u32::try_from(values.len())?.to_le_bytes());
+        for value in values {
+            encoded.extend(u32::try_from(value.len())?.to_le_bytes());
+            encoded.extend(value);
+        }
+        Ok(encoded)
+    }
+
+    fn decode_state(bytes: &[u8]) -> VortexResult<Option<BTreeSet<Vec<u8>>>> {
+        let Some((&tag, mut remaining)) = bytes.split_first() else {
+            return Err(vortex_err!("TestMembership state is empty"));
+        };
+        if tag == 0 {
+            return Ok(None);
+        }
+        vortex_ensure!(tag == 1, "Invalid TestMembership state tag: {}", tag);
+        vortex_ensure!(
+            remaining.len() >= size_of::<u32>(),
+            "TestMembership state missing value count"
+        );
+
+        let count = read_u32(&mut remaining)? as usize;
+        let mut values = BTreeSet::new();
+        for _ in 0..count {
+            let len = read_u32(&mut remaining)? as usize;
+            vortex_ensure!(
+                remaining.len() >= len,
+                "TestMembership state value length exceeds remaining bytes"
+            );
+            let (value, rest) = remaining.split_at(len);
+            values.insert(value.to_vec());
+            remaining = rest;
+        }
+
+        vortex_ensure!(
+            remaining.is_empty(),
+            "TestMembership state has trailing bytes"
+        );
+        Ok(Some(values))
+    }
+
+    fn read_u32(bytes: &mut &[u8]) -> VortexResult<u32> {
+        vortex_ensure!(
+            bytes.len() >= size_of::<u32>(),
+            "TestMembership state ended early"
+        );
+        let (value, rest) = bytes.split_at(size_of::<u32>());
+        *bytes = rest;
+        let mut array = [0u8; size_of::<u32>()];
+        array.copy_from_slice(value);
+        Ok(u32::from_le_bytes(array))
+    }
+
+    fn might_contain(state: &[u8], value: &[u8]) -> VortexResult<bool> {
+        Ok(decode_state(state)?.is_none_or(|values| values.contains(value)))
+    }
+}
+
+#[tokio::test]
+async fn custom_zoned_membership_aggregate_prunes_utf8_equality() -> VortexResult<()> {
+    let session = custom_zone_map_plugin::session(true);
+    let aggregate = custom_zone_map_plugin::aggregate_fn();
+    let strategy: Arc<dyn LayoutStrategy> = Arc::new(ZonedStrategy::new(
+        ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+        FlatLayoutStrategy::default(),
+        ZonedLayoutOptions {
+            block_size: 3,
+            aggregate_fns: Some(vec![aggregate.clone()].into()),
+        },
+    ));
+
+    let array = ChunkedArray::from_iter([
+        VarBinArray::from(vec!["alpha", "beta", "alpha"]).into_array(),
+        VarBinArray::from(vec!["delta", "gamma", "delta"]).into_array(),
+        VarBinArray::from(vec!["omega", "theta", "omega"]).into_array(),
+    ])
+    .into_array();
+
+    let mut writer = Vec::new();
+    session
+        .write_options()
+        .with_strategy(strategy)
+        .with_file_statistics(vec![])
+        .write(&mut writer, array.to_array_stream())
+        .await?;
+    let buffer: Bytes = writer.into();
+
+    let file = session.open_options().open_buffer(buffer.clone())?;
+    assert_eq!(
+        file.footer()
+            .layout()
+            .as_::<Zoned>()
+            .present_aggregates()
+            .as_ref(),
+        &[aggregate.to_string()],
+    );
+
+    let expr = eq(root(), lit("gamma"));
+    let Some(falsifier) = expr.falsify(file.dtype(), &session)? else {
+        panic!("plugin session should produce a membership falsifier");
+    };
+    assert!(custom_zone_map_plugin::contains_might_contain(&falsifier));
+
+    let reader = file.footer().layout().new_reader(
+        "".into(),
+        file.segment_source(),
+        &session,
+        &Default::default(),
+    )?;
+    let row_count = usize::try_from(file.row_count())?;
+    let pruned = reader
+        .pruning_evaluation(&(0..file.row_count()), &expr, Mask::new_true(row_count))?
+        .await?;
+    assert_eq!(
+        pruned,
+        Mask::from_iter([false, false, false, true, true, true, false, false, false])
+    );
+
+    let session_without_rewrite = custom_zone_map_plugin::session(false);
+    let file_without_rewrite = session_without_rewrite.open_options().open_buffer(buffer)?;
+    if let Some(falsifier) = expr.falsify(file_without_rewrite.dtype(), &session_without_rewrite)? {
+        assert!(!custom_zone_map_plugin::contains_might_contain(&falsifier));
+    }
+    let reader = file_without_rewrite.footer().layout().new_reader(
+        "".into(),
+        file_without_rewrite.segment_source(),
+        &session_without_rewrite,
+        &Default::default(),
+    )?;
+    let row_count = usize::try_from(file_without_rewrite.row_count())?;
+    let unpruned = reader
+        .pruning_evaluation(
+            &(0..file_without_rewrite.row_count()),
+            &expr,
+            Mask::new_true(row_count),
+        )?
+        .await?;
+    assert_eq!(unpruned, Mask::new_true(row_count));
+
+    Ok(())
+}
 
 #[tokio::test]
 async fn test_eof_values() {
