@@ -102,7 +102,7 @@ sub_phase: "1.1 measurement_id contract"
 task: null
 status: implementing
 last_gate: null
-phase_entry_sha: null
+phase_entry_sha: a3ffeeea8ad1c9147b31a0a4ece5233143975f32
 ```
 
 ---
