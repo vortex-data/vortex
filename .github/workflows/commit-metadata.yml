@@ -1,7 +1,9 @@
-# Posts a v3 ingest envelope with no records on every push to develop, so the
-# `commits` dim stays populated even when no benchmark ran.
+# Uploads commit metadata (an empty ingest envelope -- no benchmark records) on
+# every push to develop, to both the v3 server and the v4 Postgres, so the
+# `commits` dim stays populated even when no benchmark ran. Needed by both
+# backends, hence not named for either.
 
-name: v3 commit metadata
+name: Commit metadata
 
 on:
   push:
