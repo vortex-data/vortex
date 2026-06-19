@@ -449,9 +449,11 @@ mod tests {
 
     #[test]
     fn patch_sliced_bools() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let arr = BoolArray::from(BitBuffer::new_set(12));
         let sliced = arr.slice(4..12).unwrap();
-        assert_arrays_eq!(sliced, BoolArray::from_iter([true; 8]));
+        assert_arrays_eq!(sliced, BoolArray::from_iter([true; 8]), &mut assertion_ctx);
 
         let arr = {
             let mut builder = BitBufferMut::new_unset(12);
@@ -460,7 +462,11 @@ mod tests {
         };
         let sliced = arr.slice(4..12).unwrap();
         let expected_slice: Vec<bool> = (4..12).map(|i| (1..12).contains(&i)).collect();
-        assert_arrays_eq!(sliced, BoolArray::from_iter(expected_slice.clone()));
+        assert_arrays_eq!(
+            sliced,
+            BoolArray::from_iter(expected_slice.clone()),
+            &mut assertion_ctx
+        );
 
         // patch the underlying array at index 4 to false
         let patches = Patches::new(
@@ -476,21 +482,33 @@ mod tests {
             .unwrap();
         // After patching index 4 to false: indices 1-3 and 5-11 are true, index 0 and 4 are false
         let expected_patched: Vec<bool> = (0..12).map(|i| (1..12).contains(&i) && i != 4).collect();
-        assert_arrays_eq!(arr, BoolArray::from_iter(expected_patched));
+        assert_arrays_eq!(
+            arr,
+            BoolArray::from_iter(expected_patched),
+            &mut assertion_ctx
+        );
 
         // the slice should be unchanged (still has original values before patch)
-        assert_arrays_eq!(sliced, BoolArray::from_iter(expected_slice));
+        assert_arrays_eq!(
+            sliced,
+            BoolArray::from_iter(expected_slice),
+            &mut assertion_ctx
+        );
     }
 
     #[test]
     fn slice_array_in_middle() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let arr = BoolArray::from(BitBuffer::new_set(16));
         let sliced = arr.slice(4..12).unwrap();
-        assert_arrays_eq!(sliced, BoolArray::from_iter([true; 8]));
+        assert_arrays_eq!(sliced, BoolArray::from_iter([true; 8]), &mut assertion_ctx);
     }
 
     #[test]
     fn patch_bools_owned() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let arr = BoolArray::from(BitBuffer::new_set(16));
         let buf_ptr = arr.to_bit_buffer().inner().as_ptr();
 
@@ -510,13 +528,15 @@ mod tests {
 
         // After patching index 0 to false: [false, true, true, ..., true] (16 values)
         let expected: BoolArray = once(false).chain(repeat_n(true, 15)).collect();
-        assert_arrays_eq!(arr, expected);
+        assert_arrays_eq!(arr, expected, &mut assertion_ctx);
     }
 
     #[test]
     fn patch_sliced_bools_offset() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let arr = BoolArray::from(BitBuffer::new_set(15));
         let sliced = arr.slice(4..15).unwrap();
-        assert_arrays_eq!(sliced, BoolArray::from_iter([true; 11]));
+        assert_arrays_eq!(sliced, BoolArray::from_iter([true; 11]), &mut assertion_ctx);
     }
 }

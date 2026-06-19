@@ -462,6 +462,8 @@ mod test {
 
     #[test]
     fn test_dict_array_from_primitive_chunks() -> VortexResult<()> {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let len = 2;
         let chunk_count = 2;
         let array = make_dict_primitive_chunks::<u64, u64>(len, 2, chunk_count);
@@ -476,7 +478,7 @@ mod test {
         let into_prim = array.to_primitive();
         let prim_into = builder.finish_into_canonical().into_primitive();
 
-        assert_arrays_eq!(into_prim, prim_into);
+        assert_arrays_eq!(into_prim, prim_into, &mut assertion_ctx);
         Ok(())
     }
 

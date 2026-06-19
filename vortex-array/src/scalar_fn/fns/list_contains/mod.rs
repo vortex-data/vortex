@@ -752,6 +752,8 @@ mod tests {
         #[case] value: Option<&str>,
         #[case] expected: BoolArray,
     ) {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let element_nullability = list_array
             .dtype()
             .as_list_element_opt()
@@ -764,11 +766,13 @@ mod tests {
         let elem = ConstantArray::new(scalar, list_array.len());
         let expr = list_contains(root(), lit(elem.scalar().clone()));
         let result = list_array.apply(&expr).unwrap();
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut assertion_ctx);
     }
 
     #[test]
     fn test_constant_list() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let list_array = ConstantArray::new(
             Scalar::list(
                 Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
@@ -782,11 +786,13 @@ mod tests {
         let expr = list_contains(root(), lit(2i32));
         let contains = list_array.apply(&expr).unwrap();
         let expected = BoolArray::from_iter([true, true]);
-        assert_arrays_eq!(contains, expected);
+        assert_arrays_eq!(contains, expected, &mut assertion_ctx);
     }
 
     #[test]
     fn test_all_nulls() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let list_array = ConstantArray::new(
             Scalar::null(DType::List(
                 Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
@@ -803,11 +809,13 @@ mod tests {
             [false, false, false, false, false].into_iter().collect(),
             Validity::AllInvalid,
         );
-        assert_arrays_eq!(contains, expected);
+        assert_arrays_eq!(contains, expected, &mut assertion_ctx);
     }
 
     #[test]
     fn test_list_array_element() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let list_scalar = Scalar::list(
             Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
             vec![1.into(), 3.into(), 6.into()],
@@ -819,11 +827,13 @@ mod tests {
         let contains = arr.apply(&expr).unwrap();
 
         let expected = BoolArray::from_iter([false, true, false, true, false, false, true]);
-        assert_arrays_eq!(contains, expected);
+        assert_arrays_eq!(contains, expected, &mut assertion_ctx);
     }
 
     #[test]
     fn test_list_contains_empty_listview() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let empty_elements = PrimitiveArray::empty::<i32>(Nullability::NonNullable);
         let offsets = Buffer::from_iter([0u32, 0, 0, 0]).into_array();
         let sizes = Buffer::from_iter([0u32, 0, 0, 0]).into_array();
@@ -842,11 +852,13 @@ mod tests {
         let result = list_array.into_array().apply(&expr).unwrap();
 
         let expected = BoolArray::from_iter([false, false, false, false]);
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut assertion_ctx);
     }
 
     #[test]
     fn test_list_contains_all_null_elements() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let elements = PrimitiveArray::from_option_iter::<i32, _>([None, None, None, None, None]);
         let offsets = Buffer::from_iter([0u32, 2, 4]).into_array();
         let sizes = Buffer::from_iter([2u32, 2, 1]).into_array();
@@ -870,18 +882,20 @@ mod tests {
             [false, false, false].into_iter().collect(),
             Validity::AllInvalid,
         );
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut assertion_ctx);
 
         // Searching for non-null
         let expr2 = list_contains(root(), lit(42i32));
         let result2 = list_array.into_array().apply(&expr2).unwrap();
 
         let expected2 = BoolArray::from_iter([false, false, false]);
-        assert_arrays_eq!(result2, expected2);
+        assert_arrays_eq!(result2, expected2, &mut assertion_ctx);
     }
 
     #[test]
     fn test_list_contains_large_offsets() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let elements = Buffer::from_iter([1i32, 2, 3, 4, 5]).into_array();
 
         let offsets = Buffer::from_iter([0u32, 1, 4, 0]).into_array();
@@ -894,17 +908,19 @@ mod tests {
         let result = list_array.clone().into_array().apply(&expr).unwrap();
 
         let expected = BoolArray::from_iter([false, true, false, false]);
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut assertion_ctx);
 
         let expr5 = list_contains(root(), lit(5i32));
         let result5 = list_array.into_array().apply(&expr5).unwrap();
 
         let expected5 = BoolArray::from_iter([false, false, true, false]);
-        assert_arrays_eq!(result5, expected5);
+        assert_arrays_eq!(result5, expected5, &mut assertion_ctx);
     }
 
     #[test]
     fn test_list_contains_offset_size_boundary() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let elements = Buffer::from_iter(0..256).into_array();
         let offsets = Buffer::from_iter([0u8, 100, 200, 254]).into_array();
         let sizes = Buffer::from_iter([50u8, 50, 54, 2]).into_array();
@@ -916,12 +932,12 @@ mod tests {
         let result = list_array.clone().into_array().apply(&expr).unwrap();
 
         let expected = BoolArray::from_iter([false, false, false, true]);
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut assertion_ctx);
 
         let expr_zero = list_contains(root(), lit(0i32));
         let result_zero = list_array.into_array().apply(&expr_zero).unwrap();
 
         let expected_zero = BoolArray::from_iter([true, false, false, false]);
-        assert_arrays_eq!(result_zero, expected_zero);
+        assert_arrays_eq!(result_zero, expected_zero, &mut assertion_ctx);
     }
 }

@@ -127,6 +127,7 @@ impl ArrayBuilder for ExtensionBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
@@ -137,6 +138,8 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let ext_dtype = Date::new(TimeUnit::Days, Nullability::Nullable).erased();
 
         let mut builder = ExtensionBuilder::new(ext_dtype.clone());
@@ -165,7 +168,7 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(42i32), Some(84), None]).into_array(),
         );
 
-        assert_arrays_eq!(&array, &expected);
+        assert_arrays_eq!(&array, &expected, &mut assertion_ctx);
         assert_eq!(array.len(), 3);
 
         // Test wrong dtype error.

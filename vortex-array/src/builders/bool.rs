@@ -221,6 +221,8 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut builder = BoolBuilder::with_capacity(Nullability::Nullable, 10);
 
         // Test appending true value.
@@ -237,7 +239,7 @@ mod tests {
 
         let array = builder.finish_into_bool();
         let expected = BoolArray::from_iter([Some(true), Some(false), None]);
-        assert_arrays_eq!(&array, &expected);
+        assert_arrays_eq!(&array, &expected, &mut assertion_ctx);
 
         // Test wrong dtype error.
         let mut builder = BoolBuilder::with_capacity(Nullability::NonNullable, 10);

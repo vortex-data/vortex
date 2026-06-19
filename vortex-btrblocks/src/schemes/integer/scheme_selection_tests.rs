@@ -28,7 +28,6 @@ use vortex_session::VortexSession;
 use vortex_sparse::Sparse;
 
 use crate::BtrBlocksCompressor;
-
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 #[test]
@@ -162,6 +161,8 @@ fn test_rle_compressed() -> VortexResult<()> {
 #[cfg(feature = "unstable_encodings")]
 #[test]
 fn test_delta_compressed() -> VortexResult<()> {
+    let assertion_session = vortex_array::array_session();
+    let mut assertion_ctx = assertion_session.create_execution_ctx();
     use vortex_array::assert_arrays_eq;
     use vortex_fastlanes::Delta;
 
@@ -191,7 +192,7 @@ fn test_delta_compressed() -> VortexResult<()> {
         "Delta was applied more than once in the tree:\n{}",
         compressed.display_tree()
     );
-    assert_arrays_eq!(compressed, array.into_array());
+    assert_arrays_eq!(compressed, array.into_array(), &mut assertion_ctx);
     Ok(())
 }
 

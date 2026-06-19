@@ -254,6 +254,7 @@ mod tests {
     use vortex_buffer::ByteBuffer;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
@@ -289,6 +290,8 @@ mod tests {
     /// [`CompareKernel`]: super::CompareKernel
     #[test]
     fn varbin_i64_offsets_compare_constant() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut builder = VarBinBuilder::<i64>::with_capacity(3);
         builder.append_value(b"abc");
         builder.append_value(b"xyz");
@@ -304,11 +307,13 @@ mod tests {
             .unwrap();
 
         let expected = BoolArray::from_iter([true, false, true]);
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut assertion_ctx);
     }
 
     #[test]
     fn varbin_i64_offsets_compare_constant_binary() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut builder = VarBinBuilder::<i64>::with_capacity(3);
         builder.append_value(b"abc");
         builder.append_value(b"xyz");
@@ -328,6 +333,6 @@ mod tests {
             .unwrap();
 
         let expected = BoolArray::from_iter([true, false, true]);
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut assertion_ctx);
     }
 }

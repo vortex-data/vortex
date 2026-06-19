@@ -49,9 +49,9 @@ pub(crate) fn find_slice_end_index(array: &ArrayRef, index: usize) -> VortexResu
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
 
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::fns::is_constant::is_constant;
     use vortex_array::arrays::PrimitiveArray;
@@ -60,12 +60,19 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::RunEnd;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
+
     #[test]
     fn slice_array() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = RunEnd::try_new(
             buffer![2u32, 5, 10].into_array(),
             buffer![1i32, 2, 3].into_array(),
@@ -81,12 +88,12 @@ mod tests {
         assert_eq!(arr.len(), 5);
 
         let expected = PrimitiveArray::from_iter(vec![2i32, 2, 3, 3, 3]).into_array();
-        assert_arrays_eq!(arr, expected);
+        assert_arrays_eq!(arr, expected, &mut ctx);
     }
 
     #[test]
     fn double_slice() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = RunEnd::try_new(
             buffer![2u32, 5, 10].into_array(),
             buffer![1i32, 2, 3].into_array(),
@@ -100,12 +107,12 @@ mod tests {
         let doubly_sliced = arr.slice(0..3).unwrap();
 
         let expected = PrimitiveArray::from_iter(vec![2i32, 2, 3]).into_array();
-        assert_arrays_eq!(doubly_sliced, expected);
+        assert_arrays_eq!(doubly_sliced, expected, &mut ctx);
     }
 
     #[test]
     fn slice_end_inclusive() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = RunEnd::try_new(
             buffer![2u32, 5, 10].into_array(),
             buffer![1i32, 2, 3].into_array(),
@@ -121,12 +128,12 @@ mod tests {
         assert_eq!(arr.len(), 6);
 
         let expected = PrimitiveArray::from_iter(vec![2i32, 3, 3, 3, 3, 3]).into_array();
-        assert_arrays_eq!(arr, expected);
+        assert_arrays_eq!(arr, expected, &mut ctx);
     }
 
     #[test]
     fn slice_at_end() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let re_array = RunEnd::try_new(
             buffer![7_u64, 10].into_array(),
             buffer![2_u64, 3].into_array(),
@@ -142,7 +149,7 @@ mod tests {
 
     #[test]
     fn slice_single_end() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let re_array = RunEnd::try_new(
             buffer![7_u64, 10].into_array(),
             buffer![2_u64, 3].into_array(),
@@ -159,7 +166,7 @@ mod tests {
 
     #[test]
     fn ree_scalar_at_end() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let scalar = RunEnd::encode(
             buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array(),
             &mut ctx,
@@ -172,7 +179,7 @@ mod tests {
 
     #[test]
     fn slice_along_run_boundaries() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Create a runend array with runs: [1, 1, 1] [4, 4, 4] [2, 2] [5, 5, 5, 5]
         // Run ends at indices: 3, 6, 8, 12
         let arr = RunEnd::try_new(
@@ -186,42 +193,42 @@ mod tests {
         let slice1 = arr.slice(0..3).unwrap();
         assert_eq!(slice1.len(), 3);
         let expected = PrimitiveArray::from_iter(vec![1i32, 1, 1]).into_array();
-        assert_arrays_eq!(slice1, expected);
+        assert_arrays_eq!(slice1, expected, &mut ctx);
 
         // Slice from start of second run to end of second run (indices 3..6)
         let slice2 = arr.slice(3..6).unwrap();
         assert_eq!(slice2.len(), 3);
         let expected = PrimitiveArray::from_iter(vec![4i32, 4, 4]).into_array();
-        assert_arrays_eq!(slice2, expected);
+        assert_arrays_eq!(slice2, expected, &mut ctx);
 
         // Slice from start of third run to end of third run (indices 6..8)
         let slice3 = arr.slice(6..8).unwrap();
         assert_eq!(slice3.len(), 2);
         let expected = PrimitiveArray::from_iter(vec![2i32, 2]).into_array();
-        assert_arrays_eq!(slice3, expected);
+        assert_arrays_eq!(slice3, expected, &mut ctx);
 
         // Slice from start of last run to end of last run (indices 8..12)
         let slice4 = arr.slice(8..12).unwrap();
         assert_eq!(slice4.len(), 4);
         let expected = PrimitiveArray::from_iter(vec![5i32, 5, 5, 5]).into_array();
-        assert_arrays_eq!(slice4, expected);
+        assert_arrays_eq!(slice4, expected, &mut ctx);
 
         // Slice spanning exactly two runs (indices 3..8)
         let slice5 = arr.slice(3..8).unwrap();
         assert_eq!(slice5.len(), 5);
         let expected = PrimitiveArray::from_iter(vec![4i32, 4, 4, 2, 2]).into_array();
-        assert_arrays_eq!(slice5, expected);
+        assert_arrays_eq!(slice5, expected, &mut ctx);
 
         // Slice from middle of first run to end of second run (indices 1..6)
         let slice6 = arr.slice(1..6).unwrap();
         assert_eq!(slice6.len(), 5);
         let expected = PrimitiveArray::from_iter(vec![1i32, 1, 4, 4, 4]).into_array();
-        assert_arrays_eq!(slice6, expected);
+        assert_arrays_eq!(slice6, expected, &mut ctx);
 
         // Slice from start of second run to middle of third run (indices 3..7)
         let slice7 = arr.slice(3..7).unwrap();
         assert_eq!(slice7.len(), 4);
         let expected = PrimitiveArray::from_iter(vec![4i32, 4, 4, 2]).into_array();
-        assert_arrays_eq!(slice7, expected);
+        assert_arrays_eq!(slice7, expected, &mut ctx);
     }
 }

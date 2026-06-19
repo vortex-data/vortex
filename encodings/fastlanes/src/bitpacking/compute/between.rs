@@ -142,9 +142,10 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
@@ -156,9 +157,16 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::BufferMut;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::BitPackedArrayExt;
     use crate::BitPackedData;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     fn opts(lower: StrictComparison, upper: StrictComparison) -> BetweenOptions {
         BetweenOptions {
@@ -176,7 +184,7 @@ mod tests {
         #[case] lower_strict: StrictComparison,
         #[case] upper_strict: StrictComparison,
     ) -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values: BufferMut<u32> = (0..3000u32).map(|i| i % 257).collect();
         let prim = PrimitiveArray::new(values.freeze(), Validity::NonNullable);
         let packed = BitPackedData::encode(&prim.clone().into_array(), 9, &mut ctx)?;
@@ -194,13 +202,13 @@ mod tests {
             .between(lower, upper, options)?
             .execute::<BoolArray>(&mut ctx)?;
 
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn signed_with_patches_against_primitive_baseline() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values: Vec<i32> = (0..1500)
             .map(|i| if i % 73 == 0 { 100_000 + i } else { i % 100 })
             .collect();
@@ -221,13 +229,13 @@ mod tests {
             .between(lower, upper, options)?
             .execute::<BoolArray>(&mut ctx)?;
 
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn nullable_propagates_validity() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let prim =
             PrimitiveArray::from_option_iter([Some(1u32), None, Some(3), Some(4), None, Some(6)]);
         let packed = BitPackedData::encode(&prim.clone().into_array(), 3, &mut ctx)?;
@@ -244,7 +252,7 @@ mod tests {
             .into_array()
             .between(lower, upper, options)?
             .execute::<BoolArray>(&mut ctx)?;
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut ctx);
         Ok(())
     }
 }

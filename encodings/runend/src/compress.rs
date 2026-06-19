@@ -320,7 +320,8 @@ pub fn runend_decode_varbinview(
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::LEGACY_SESSION;
+    use std::sync::LazyLock;
+
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -328,27 +329,34 @@ mod tests {
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::compress::runend_decode_primitive;
     use crate::compress::runend_encode;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
+
     #[test]
     fn encode() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = PrimitiveArray::from_iter([1i32, 1, 2, 2, 2, 3, 3, 3, 3, 3]);
         let (ends, values) = runend_encode(arr.as_view(), &mut ctx);
         let values = values.execute::<PrimitiveArray>(&mut ctx)?;
 
         let expected_ends = PrimitiveArray::from_iter(vec![2u8, 5, 10]);
-        assert_arrays_eq!(ends, expected_ends);
+        assert_arrays_eq!(ends, expected_ends, &mut ctx);
         let expected_values = PrimitiveArray::from_iter(vec![1i32, 2, 3]);
-        assert_arrays_eq!(values, expected_values);
+        assert_arrays_eq!(values, expected_values, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn encode_nullable() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = PrimitiveArray::new(
             buffer![1i32, 1, 2, 2, 2, 3, 3, 3, 3, 3],
             Validity::from(BitBuffer::from(vec![
@@ -359,16 +367,16 @@ mod tests {
         let values = values.execute::<PrimitiveArray>(&mut ctx)?;
 
         let expected_ends = PrimitiveArray::from_iter(vec![2u8, 4, 5, 8, 10]);
-        assert_arrays_eq!(ends, expected_ends);
+        assert_arrays_eq!(ends, expected_ends, &mut ctx);
         let expected_values =
             PrimitiveArray::from_option_iter(vec![Some(1i32), None, Some(2), Some(3), None]);
-        assert_arrays_eq!(values, expected_values);
+        assert_arrays_eq!(values, expected_values, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn encode_all_null() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = PrimitiveArray::new(
             buffer![0, 0, 0, 0, 0],
             Validity::from(BitBuffer::new_unset(5)),
@@ -377,21 +385,21 @@ mod tests {
         let values = values.execute::<PrimitiveArray>(&mut ctx)?;
 
         let expected_ends = PrimitiveArray::from_iter(vec![5u64]);
-        assert_arrays_eq!(ends, expected_ends);
+        assert_arrays_eq!(ends, expected_ends, &mut ctx);
         let expected_values = PrimitiveArray::from_option_iter(vec![Option::<i32>::None]);
-        assert_arrays_eq!(values, expected_values);
+        assert_arrays_eq!(values, expected_values, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn decode() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let ends = PrimitiveArray::from_iter([2u32, 5, 10]);
         let values = PrimitiveArray::from_iter([1i32, 2, 3]);
         let decoded = runend_decode_primitive(ends, values, 0, 10, &mut ctx)?;
 
         let expected = PrimitiveArray::from_iter(vec![1i32, 1, 2, 2, 2, 3, 3, 3, 3, 3]);
-        assert_arrays_eq!(decoded, expected);
+        assert_arrays_eq!(decoded, expected, &mut ctx);
         Ok(())
     }
 }

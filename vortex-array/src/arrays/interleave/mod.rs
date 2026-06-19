@@ -499,7 +499,7 @@ mod tests {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let reference = interleave_reference(&values, &array_indices, &row_indices, &mut ctx)?;
 
-        assert_arrays_eq!(interleaved, reference);
+        assert_arrays_eq!(interleaved, reference, &mut ctx);
         Ok(())
     }
 

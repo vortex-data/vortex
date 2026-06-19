@@ -122,8 +122,9 @@ fn compare_fsst_constant(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
@@ -135,14 +136,21 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::fns::operators::Operator;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::fsst_compress;
     use crate::fsst_train_compressor;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
+
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_compare_fsst() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let lhs = VarBinArray::from_iter(
             [
                 Some("hello"),
@@ -170,7 +178,8 @@ mod tests {
 
         assert_arrays_eq!(
             &equals,
-            &BoolArray::from_iter([Some(false), None, Some(true), None, Some(false)])
+            &BoolArray::from_iter([Some(false), None, Some(true), None, Some(false)]),
+            &mut ctx
         );
 
         // Ensure fastpath for Eq exists, and returns correct answer
@@ -183,7 +192,8 @@ mod tests {
         assert_eq!(not_equals.dtype(), &DType::Bool(Nullability::Nullable));
         assert_arrays_eq!(
             &not_equals,
-            &BoolArray::from_iter([Some(true), None, Some(false), None, Some(true)])
+            &BoolArray::from_iter([Some(true), None, Some(false), None, Some(true)]),
+            &mut ctx
         );
 
         // Ensure null constants are handled correctly.
@@ -195,7 +205,8 @@ mod tests {
             .binary(null_rhs.clone().into_array(), Operator::Eq)?;
         assert_arrays_eq!(
             &equals_null,
-            &BoolArray::from_iter([None::<bool>, None, None, None, None])
+            &BoolArray::from_iter([None::<bool>, None, None, None, None]),
+            &mut ctx
         );
 
         let noteq_null = lhs
@@ -203,7 +214,8 @@ mod tests {
             .binary(null_rhs.into_array(), Operator::NotEq)?;
         assert_arrays_eq!(
             &noteq_null,
-            &BoolArray::from_iter([None::<bool>, None, None, None, None])
+            &BoolArray::from_iter([None::<bool>, None, None, None, None]),
+            &mut ctx
         );
         Ok(())
     }

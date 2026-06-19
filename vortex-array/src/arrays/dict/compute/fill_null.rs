@@ -108,6 +108,8 @@ mod tests {
 
     #[test]
     fn nullable_codes_fill_in_values() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let dict = DictArray::try_new(
             PrimitiveArray::new(
                 buffer![0u32, 1, 2],
@@ -124,7 +126,11 @@ mod tests {
             .vortex_expect("operation should succeed in test");
         #[expect(deprecated)]
         let filled_primitive = filled.to_primitive();
-        assert_arrays_eq!(filled_primitive, PrimitiveArray::from_iter([10, 20, 20]));
+        assert_arrays_eq!(
+            filled_primitive,
+            PrimitiveArray::from_iter([10, 20, 20]),
+            &mut assertion_ctx
+        );
         assert!(
             filled_primitive
                 .all_valid(&mut LEGACY_SESSION.create_execution_ctx())

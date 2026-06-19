@@ -214,6 +214,7 @@ mod tests {
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::extension::datetime::TimeUnit;
+    use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::CanonicalCudaExt;
@@ -279,6 +280,8 @@ mod tests {
         #[case] subseconds: Vec<i64>,
         #[case] time_unit: TimeUnit,
     ) -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -293,13 +296,15 @@ mod tests {
             .await?
             .into_array();
 
-        assert_arrays_eq!(cpu_result.into_array(), gpu_result);
+        assert_arrays_eq!(cpu_result.into_array(), gpu_result, &mut assertion_ctx);
 
         Ok(())
     }
 
     #[crate::test]
     async fn test_cuda_datetimeparts_large_array() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -319,13 +324,15 @@ mod tests {
             .await?
             .into_array();
 
-        assert_arrays_eq!(cpu_result.into_array(), gpu_result);
+        assert_arrays_eq!(cpu_result.into_array(), gpu_result, &mut assertion_ctx);
 
         Ok(())
     }
 
     #[crate::test]
     async fn test_cuda_datetimeparts_with_nulls() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -367,7 +374,7 @@ mod tests {
             .await?
             .into_array();
 
-        assert_arrays_eq!(cpu_result.into_array(), gpu_result);
+        assert_arrays_eq!(cpu_result.into_array(), gpu_result, &mut assertion_ctx);
 
         Ok(())
     }

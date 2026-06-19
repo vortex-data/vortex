@@ -160,6 +160,8 @@ mod tests {
     #[case::u64(make_for_array((0..2050).map(|i| (i % 2050) as u64).collect(), 1000000u64))]
     #[crate::test]
     async fn test_cuda_for_decompression(#[case] for_array: FoRArray) -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -173,13 +175,15 @@ mod tests {
             .await?
             .into_array();
 
-        assert_arrays_eq!(cpu_result.into_array(), gpu_result);
+        assert_arrays_eq!(cpu_result.into_array(), gpu_result, &mut assertion_ctx);
 
         Ok(())
     }
 
     #[crate::test]
     async fn test_signed_ffor() {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -204,6 +208,6 @@ mod tests {
             .vortex_expect("copying to host failed")
             .into_array();
 
-        assert_arrays_eq!(cpu_result.into_array(), gpu_result);
+        assert_arrays_eq!(cpu_result.into_array(), gpu_result, &mut assertion_ctx);
     }
 }

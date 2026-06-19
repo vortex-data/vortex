@@ -250,6 +250,8 @@ mod tests {
         #[case] iter: impl Iterator<Item = T>,
         #[case] bw: u8,
     ) -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -275,13 +277,15 @@ mod tests {
                 .map(|a| a.into_array())
         })?;
 
-        assert_arrays_eq!(cpu_result, gpu_result);
+        assert_arrays_eq!(cpu_result, gpu_result, &mut assertion_ctx);
 
         Ok(())
     }
 
     #[crate::test]
     fn test_patches() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -310,7 +314,7 @@ mod tests {
                 .map(|a| a.into_array())
         })?;
 
-        assert_arrays_eq!(cpu_result, gpu_result);
+        assert_arrays_eq!(cpu_result, gpu_result, &mut assertion_ctx);
 
         Ok(())
     }
@@ -325,6 +329,8 @@ mod tests {
     #[case::bw_7(7)]
     #[crate::test]
     fn test_cuda_bitunpack_u8(#[case] bit_width: u8) -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -355,7 +361,7 @@ mod tests {
                 .map(|a| a.into_array())
         })?;
 
-        assert_arrays_eq!(cpu_result.into_array(), gpu_result);
+        assert_arrays_eq!(cpu_result.into_array(), gpu_result, &mut assertion_ctx);
 
         Ok(())
     }
@@ -378,6 +384,8 @@ mod tests {
     #[case::bw_15(15)]
     #[crate::test]
     fn test_cuda_bitunpack_u16(#[case] bit_width: u8) -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -408,7 +416,7 @@ mod tests {
                 .map(|a| a.into_array())
         })?;
 
-        assert_arrays_eq!(cpu_result.into_array(), gpu_result);
+        assert_arrays_eq!(cpu_result.into_array(), gpu_result, &mut assertion_ctx);
 
         Ok(())
     }
@@ -447,6 +455,8 @@ mod tests {
     #[case::bw_31(31)]
     #[crate::test]
     fn test_cuda_bitunpack_u32(#[case] bit_width: u8) -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -477,7 +487,7 @@ mod tests {
                 .map(|a| a.into_array())
         })?;
 
-        assert_arrays_eq!(cpu_result.into_array(), gpu_result);
+        assert_arrays_eq!(cpu_result.into_array(), gpu_result, &mut assertion_ctx);
 
         Ok(())
     }
@@ -548,6 +558,8 @@ mod tests {
     #[case::bw_63(63)]
     #[crate::test]
     fn test_cuda_bitunpack_u64(#[case] bit_width: u8) -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -577,13 +589,15 @@ mod tests {
                 .map(|a| a.into_array())
         })?;
 
-        assert_arrays_eq!(cpu_result.into_array(), gpu_result);
+        assert_arrays_eq!(cpu_result.into_array(), gpu_result, &mut assertion_ctx);
 
         Ok(())
     }
 
     #[crate::test]
     fn test_cuda_bitunpack_sliced() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let bit_width = 32;
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
@@ -615,7 +629,7 @@ mod tests {
                 .map(|a| a.into_array())
         })?;
 
-        assert_arrays_eq!(cpu_result.into_array(), gpu_result);
+        assert_arrays_eq!(cpu_result.into_array(), gpu_result, &mut assertion_ctx);
 
         Ok(())
     }
@@ -667,6 +681,8 @@ mod tests {
     /// offset_within_chunk.
     #[crate::test]
     fn test_cuda_bitunpack_sliced_patches_offset_within_chunk() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -701,7 +717,7 @@ mod tests {
                 .map(|a| a.into_array())
         })?;
 
-        assert_arrays_eq!(cpu_result.into_array(), gpu_result);
+        assert_arrays_eq!(cpu_result.into_array(), gpu_result, &mut assertion_ctx);
 
         Ok(())
     }
@@ -709,6 +725,8 @@ mod tests {
     /// Test slicing a bitpacked array multiple times, accumulating offset_within_chunk.
     #[crate::test]
     fn test_cuda_bitunpack_double_sliced_patches() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -755,7 +773,7 @@ mod tests {
                 .map(|a| a.into_array())
         })?;
 
-        assert_arrays_eq!(cpu_result.into_array(), gpu_result);
+        assert_arrays_eq!(cpu_result.into_array(), gpu_result, &mut assertion_ctx);
 
         Ok(())
     }
@@ -763,6 +781,8 @@ mod tests {
     /// Test slicing to skip an entire chunk's worth of patches.
     #[crate::test]
     fn test_cuda_bitunpack_sliced_skip_first_chunk_patches() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -807,7 +827,7 @@ mod tests {
                 .map(|a| a.into_array())
         })?;
 
-        assert_arrays_eq!(cpu_result.into_array(), gpu_result);
+        assert_arrays_eq!(cpu_result.into_array(), gpu_result, &mut assertion_ctx);
 
         Ok(())
     }

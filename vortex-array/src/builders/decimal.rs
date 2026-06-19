@@ -309,6 +309,7 @@ impl Default for DecimalBuffer {
 
 #[cfg(test)]
 mod tests {
+
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::assert_arrays_eq;
@@ -344,6 +345,8 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         use crate::scalar::Scalar;
 
         // Simply test that the builder accepts its own finish output via scalar.
@@ -357,7 +360,7 @@ mod tests {
             [Some(1234i64), Some(5678), None],
             DecimalDType::new(10, 2),
         );
-        assert_arrays_eq!(&array, &expected);
+        assert_arrays_eq!(&array, &expected, &mut assertion_ctx);
 
         // Test by taking a scalar from the array and appending it to a new builder.
         let mut builder2 = DecimalBuilder::new::<i64>(DecimalDType::new(10, 2), true.into());
@@ -369,7 +372,7 @@ mod tests {
         }
 
         let array2 = builder2.finish();
-        assert_arrays_eq!(&array2, &array);
+        assert_arrays_eq!(&array2, &array, &mut assertion_ctx);
 
         // Test wrong dtype error.
         let mut builder = DecimalBuilder::new::<i64>(DecimalDType::new(10, 2), false.into());

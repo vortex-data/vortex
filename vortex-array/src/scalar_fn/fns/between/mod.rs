@@ -469,6 +469,8 @@ mod tests {
 
     #[test]
     fn test_between_decimal() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let values = buffer![100i128, 200i128, 300i128, 400i128];
         let decimal_type = DecimalDType::new(3, 2);
         let array = DecimalArray::new(values, decimal_type, Validity::NonNullable).into_array();
@@ -506,7 +508,8 @@ mod tests {
         .unwrap();
         assert_arrays_eq!(
             between_strict,
-            BoolArray::from_iter([false, true, true, true])
+            BoolArray::from_iter([false, true, true, true]),
+            &mut assertion_ctx
         );
 
         // Non-strict lower bound, strict upper bound
@@ -523,7 +526,8 @@ mod tests {
         .unwrap();
         assert_arrays_eq!(
             between_strict,
-            BoolArray::from_iter([true, true, true, false])
+            BoolArray::from_iter([true, true, true, false]),
+            &mut assertion_ctx
         );
     }
 

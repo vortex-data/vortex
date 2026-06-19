@@ -376,6 +376,7 @@ mod tests {
     use vortex_error::VortexExpect;
 
     use super::*;
+    use crate::VortexSessionExecute;
     use crate::assert_arrays_eq;
 
     /// REGRESSION TEST: This test verifies that multiple sequential ranges have correct offsets.
@@ -384,6 +385,8 @@ mod tests {
     /// buffer.
     #[test]
     fn test_multiple_uninit_ranges_correct_offsets() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::NonNullable, 10);
 
         // First range.
@@ -413,7 +416,11 @@ mod tests {
         assert_eq!(builder.values(), &[1, 2, 3, 4, 5]);
 
         let array = builder.finish_into_primitive();
-        assert_arrays_eq!(array, PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]));
+        assert_arrays_eq!(
+            array,
+            PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]),
+            &mut assertion_ctx
+        );
     }
 
     /// REGRESSION TEST: This test verifies that `append_mask` was correctly moved from
@@ -490,6 +497,8 @@ mod tests {
     /// This verifies the new simplified API without the redundant `len` parameter.
     #[test]
     fn test_copy_from_slice_with_offsets() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::NonNullable, 10);
         let mut range = builder.uninit_range(6);
 
@@ -504,7 +513,11 @@ mod tests {
         }
 
         let array = builder.finish_into_primitive();
-        assert_arrays_eq!(array, PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]));
+        assert_arrays_eq!(
+            array,
+            PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]),
+            &mut assertion_ctx
+        );
     }
 
     /// Test that `set_bit` uses relative indexing within the range.

@@ -147,7 +147,7 @@ mod tests {
             }
         }))
         .into_array();
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
     }
 
@@ -182,7 +182,7 @@ mod tests {
             }
         }))
         .into_array();
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
     }
 }

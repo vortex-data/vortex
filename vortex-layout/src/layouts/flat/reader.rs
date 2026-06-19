@@ -233,6 +233,7 @@ mod test {
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -255,6 +256,8 @@ mod test {
     #[test]
     fn flat_identity() -> VortexResult<()> {
         block_on(|handle| async {
+            let assertion_session = vortex_array::array_session();
+            let mut assertion_ctx = assertion_session.create_execution_ctx();
             let session = SESSION.clone().with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
@@ -285,7 +288,7 @@ mod test {
                 )?
                 .await?;
 
-            assert_arrays_eq!(result, array);
+            assert_arrays_eq!(result, array, &mut assertion_ctx);
 
             Ok(())
         })
@@ -294,6 +297,8 @@ mod test {
     #[test]
     fn flat_expr() {
         block_on(|handle| async {
+            let assertion_session = vortex_array::array_session();
+            let mut assertion_ctx = assertion_session.create_execution_ctx();
             let session = SESSION.clone().with_handle(handle);
             let ctx = ArrayContext::empty();
 
@@ -326,13 +331,15 @@ mod test {
                 .unwrap();
 
             let expected = BoolArray::from_iter([false, false, false, true, true].map(Some));
-            assert_arrays_eq!(result, expected);
+            assert_arrays_eq!(result, expected, &mut assertion_ctx);
         })
     }
 
     #[test]
     fn flat_unaligned_row_mask() {
         block_on(|handle| async {
+            let assertion_session = vortex_array::array_session();
+            let mut assertion_ctx = assertion_session.create_execution_ctx();
             let session = SESSION.clone().with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
@@ -359,7 +366,7 @@ mod test {
                 .unwrap();
 
             let expected = PrimitiveArray::new(buffer![3i32, 4], Validity::AllValid).into_array();
-            assert_arrays_eq!(result, expected);
+            assert_arrays_eq!(result, expected, &mut assertion_ctx);
         })
     }
 }

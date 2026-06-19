@@ -552,7 +552,7 @@ mod tests {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let decompressed = compressed.into_array().execute::<ArrayRef>(&mut ctx)?;
 
-        assert_arrays_eq!(input, decompressed);
+        assert_arrays_eq!(input, decompressed, &mut ctx);
         Ok(())
     }
 

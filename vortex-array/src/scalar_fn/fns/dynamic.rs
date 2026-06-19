@@ -277,6 +277,7 @@ mod tests {
 
     use super::*;
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
@@ -303,6 +304,8 @@ mod tests {
 
     #[test]
     fn execute_with_value() -> VortexResult<()> {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let input = buffer![1i32, 5, 10].into_array();
         let expr = dynamic(
             CompareOperator::Lt,
@@ -312,12 +315,18 @@ mod tests {
             root(),
         );
         let result = input.apply(&expr)?;
-        assert_arrays_eq!(result, BoolArray::from_iter([true, false, false]));
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([true, false, false]),
+            &mut assertion_ctx
+        );
         Ok(())
     }
 
     #[test]
     fn execute_without_value_default_true() -> VortexResult<()> {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let input = buffer![1i32, 5, 10].into_array();
         let expr = dynamic(
             CompareOperator::Lt,
@@ -327,12 +336,18 @@ mod tests {
             root(),
         );
         let result = input.apply(&expr)?;
-        assert_arrays_eq!(result, BoolArray::from_iter([true, true, true]));
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([true, true, true]),
+            &mut assertion_ctx
+        );
         Ok(())
     }
 
     #[test]
     fn execute_without_value_default_false() -> VortexResult<()> {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let input = buffer![1i32, 5, 10].into_array();
         let expr = dynamic(
             CompareOperator::Lt,
@@ -342,12 +357,18 @@ mod tests {
             root(),
         );
         let result = input.apply(&expr)?;
-        assert_arrays_eq!(result, BoolArray::from_iter([false, false, false]));
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([false, false, false]),
+            &mut assertion_ctx
+        );
         Ok(())
     }
 
     #[test]
     fn execute_value_flips() -> VortexResult<()> {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let threshold = Arc::new(AtomicI32::new(5));
         let threshold_clone = Arc::clone(&threshold);
         let expr = dynamic(
@@ -360,11 +381,19 @@ mod tests {
         let input = buffer![1i32, 5, 10].into_array();
 
         let result = input.clone().apply(&expr)?;
-        assert_arrays_eq!(result, BoolArray::from_iter([true, false, false]));
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([true, false, false]),
+            &mut assertion_ctx
+        );
 
         threshold.store(10, Ordering::SeqCst);
         let result = input.apply(&expr)?;
-        assert_arrays_eq!(result, BoolArray::from_iter([true, true, false]));
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([true, true, false]),
+            &mut assertion_ctx
+        );
 
         Ok(())
     }

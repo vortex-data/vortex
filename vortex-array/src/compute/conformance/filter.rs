@@ -62,12 +62,14 @@ pub fn create_runs_pattern(len: usize, run_length: usize) -> Vec<bool> {
 
 /// Tests that filtering with an all-true mask returns all elements unchanged
 fn test_all_filter(array: &ArrayRef) {
+    let assertion_session = crate::array_session();
+    let mut assertion_ctx = assertion_session.create_execution_ctx();
     let len = array.len();
     let mask = Mask::new_true(len);
     let filtered = array
         .filter(mask)
         .vortex_expect("filter should succeed in conformance test");
-    assert_arrays_eq!(filtered, array);
+    assert_arrays_eq!(filtered, array, &mut assertion_ctx);
 }
 
 /// Tests that filtering with an all-false mask returns an empty array with the same dtype

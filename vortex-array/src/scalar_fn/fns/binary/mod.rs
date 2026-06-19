@@ -519,6 +519,8 @@ mod tests {
 
     #[test]
     fn test_or_kleene_validity() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         use crate::IntoArray;
         use crate::arrays::BoolArray;
         use crate::arrays::StructArray;
@@ -537,11 +539,17 @@ mod tests {
         let expr = or(col("a"), col("b"));
         let result = struct_arr.apply(&expr).unwrap();
 
-        assert_arrays_eq!(result, BoolArray::from_iter([Some(true)]).into_array())
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([Some(true)]).into_array(),
+            &mut assertion_ctx
+        )
     }
 
     #[test]
     fn test_scalar_subtract_unsigned() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         use vortex_buffer::buffer;
 
         use crate::IntoArray;
@@ -551,11 +559,17 @@ mod tests {
         let values = buffer![1u16, 2, 3].into_array();
         let rhs = ConstantArray::new(Scalar::from(1u16), 3).into_array();
         let result = values.binary(rhs, Operator::Sub).unwrap();
-        assert_arrays_eq!(result, PrimitiveArray::from_iter([0u16, 1, 2]));
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_iter([0u16, 1, 2]),
+            &mut assertion_ctx
+        );
     }
 
     #[test]
     fn test_scalar_subtract_signed() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         use vortex_buffer::buffer;
 
         use crate::IntoArray;
@@ -565,11 +579,17 @@ mod tests {
         let values = buffer![1i64, 2, 3].into_array();
         let rhs = ConstantArray::new(Scalar::from(-1i64), 3).into_array();
         let result = values.binary(rhs, Operator::Sub).unwrap();
-        assert_arrays_eq!(result, PrimitiveArray::from_iter([2i64, 3, 4]));
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_iter([2i64, 3, 4]),
+            &mut assertion_ctx
+        );
     }
 
     #[test]
     fn test_scalar_subtract_nullable() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         use crate::IntoArray;
         use crate::arrays::ConstantArray;
         use crate::arrays::PrimitiveArray;
@@ -579,12 +599,15 @@ mod tests {
         let result = values.into_array().binary(rhs, Operator::Sub).unwrap();
         assert_arrays_eq!(
             result,
-            PrimitiveArray::from_option_iter([Some(0u16), Some(1), None, Some(2)])
+            PrimitiveArray::from_option_iter([Some(0u16), Some(1), None, Some(2)]),
+            &mut assertion_ctx
         );
     }
 
     #[test]
     fn test_scalar_subtract_float() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         use vortex_buffer::buffer;
 
         use crate::IntoArray;
@@ -594,7 +617,11 @@ mod tests {
         let values = buffer![1.0f64, 2.0, 3.0].into_array();
         let rhs = ConstantArray::new(Scalar::from(-1f64), 3).into_array();
         let result = values.binary(rhs, Operator::Sub).unwrap();
-        assert_arrays_eq!(result, PrimitiveArray::from_iter([2.0f64, 3.0, 4.0]));
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_iter([2.0f64, 3.0, 4.0]),
+            &mut assertion_ctx
+        );
     }
 
     #[test]

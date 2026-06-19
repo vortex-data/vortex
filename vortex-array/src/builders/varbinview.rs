@@ -884,6 +884,8 @@ mod tests {
 
     #[test]
     fn test_utf8_builder() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
 
         builder.append_value("Hello");
@@ -906,11 +908,13 @@ mod tests {
             Some(""),
             Some("test"),
         ]);
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut assertion_ctx);
     }
 
     #[test]
     fn test_utf8_builder_with_extend() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let array = {
             let mut builder =
                 VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
@@ -934,7 +938,11 @@ mod tests {
             None,
             Some("Hello3"),
         ]);
-        assert_arrays_eq!(actual.into_array(), expected.into_array());
+        assert_arrays_eq!(
+            actual.into_array(),
+            expected.into_array(),
+            &mut assertion_ctx
+        );
     }
 
     #[test]
@@ -986,6 +994,8 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         use crate::scalar::Scalar;
 
         // Test with Utf8 builder.
@@ -1007,7 +1017,7 @@ mod tests {
         let array = utf8_builder.finish();
         let expected =
             <VarBinViewArray as FromIterator<_>>::from_iter([Some("hello"), Some("world"), None]);
-        assert_arrays_eq!(&array, &expected);
+        assert_arrays_eq!(&array, &expected, &mut assertion_ctx);
 
         // Test with Binary builder.
         let mut binary_builder =
@@ -1022,7 +1032,7 @@ mod tests {
         let binary_array = binary_builder.finish();
         let expected =
             <VarBinViewArray as FromIterator<_>>::from_iter([Some(vec![1u8, 2, 3]), None]);
-        assert_arrays_eq!(&binary_array, &expected);
+        assert_arrays_eq!(&binary_array, &expected, &mut assertion_ctx);
 
         // Test wrong dtype error.
         let mut builder =

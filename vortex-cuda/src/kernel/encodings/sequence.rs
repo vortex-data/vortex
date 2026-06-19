@@ -92,6 +92,7 @@ mod tests {
     use vortex::dtype::Nullability;
     use vortex::encodings::sequence::Sequence;
     use vortex::scalar::PValue;
+    use vortex_array::VortexSessionExecute;
 
     use crate::CanonicalCudaExt;
     use crate::CudaSession;
@@ -124,6 +125,8 @@ mod tests {
         len: usize,
         nullability: Nullability,
     ) {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session()).unwrap();
 
         let array = Sequence::try_new_typed(base, multiplier, nullability, len).unwrap();
@@ -139,6 +142,6 @@ mod tests {
             .unwrap()
             .into_array();
 
-        assert_arrays_eq!(cpu_result, gpu_result);
+        assert_arrays_eq!(cpu_result, gpu_result, &mut assertion_ctx);
     }
 }

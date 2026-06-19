@@ -65,9 +65,8 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::Canonical;
-    use crate::ExecutionCtx;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::Patched;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -81,7 +80,7 @@ mod tests {
         let patch_values = buffer![u16::MAX; 3].into_array();
         let patches = Patches::new(512, 0, patch_indices, patch_values, None)?;
 
-        let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
+        let mut ctx = crate::array_session().create_execution_ctx();
 
         let patched_array = Patched::from_array_and_patches(values, &patches, &mut ctx)?;
 
@@ -127,7 +126,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
+        let mut ctx = crate::array_session().create_execution_ctx();
 
         let patched_array = Patched::from_array_and_patches(inner.into_array(), &patches, &mut ctx)
             .unwrap()
@@ -148,7 +147,7 @@ mod tests {
             .slice(range)
             .unwrap();
 
-        assert_arrays_eq!(slice_first, slice_last);
+        assert_arrays_eq!(slice_first, slice_last, &mut ctx);
     }
 
     #[test]
@@ -159,7 +158,7 @@ mod tests {
         let patched_values = buffer![0u64, 1, 2, 3, 4, 5].into_array();
 
         let patches = Patches::new(10_000, 0, patched_indices, patched_values, None).unwrap();
-        let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
+        let mut ctx = crate::array_session().create_execution_ctx();
 
         let patched_array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
@@ -181,6 +180,6 @@ mod tests {
 
         let expected = expected.into_array();
 
-        assert_arrays_eq!(expected, sliced);
+        assert_arrays_eq!(expected, sliced, &mut ctx);
     }
 }

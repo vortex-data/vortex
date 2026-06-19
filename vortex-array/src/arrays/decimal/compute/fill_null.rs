@@ -104,6 +104,8 @@ mod tests {
 
     #[test]
     fn fill_null_leading_none() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(19, 2);
         let arr = DecimalArray::from_option_iter(
             [None, Some(800i128), None, Some(1000i128), None],
@@ -121,7 +123,8 @@ mod tests {
             .to_decimal();
         assert_arrays_eq!(
             p,
-            DecimalArray::from_iter([4200, 800, 4200, 1000, 4200], decimal_dtype)
+            DecimalArray::from_iter([4200, 800, 4200, 1000, 4200], decimal_dtype),
+            &mut assertion_ctx
         );
         assert_eq!(
             p.buffer::<i128>().as_slice(),
@@ -139,6 +142,8 @@ mod tests {
 
     #[test]
     fn fill_null_all_none() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(19, 2);
 
         let arr = DecimalArray::from_option_iter(
@@ -158,13 +163,16 @@ mod tests {
             .to_decimal();
         assert_arrays_eq!(
             p,
-            DecimalArray::from_iter([25500, 25500, 25500, 25500, 25500], decimal_dtype)
+            DecimalArray::from_iter([25500, 25500, 25500, 25500, 25500], decimal_dtype),
+            &mut assertion_ctx
         );
     }
 
     /// fill_null with a value that overflows the array's storage type should upcast the array.
     #[test]
     fn fill_null_overflow_upcasts() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(3, 0);
         let arr = DecimalArray::from_option_iter([None, Some(10i8), None], decimal_dtype);
         // i8 max is 127, so 200 doesn't fit — the array should be widened to i16.
@@ -180,12 +188,15 @@ mod tests {
             .to_decimal();
         assert_arrays_eq!(
             result,
-            DecimalArray::from_iter([200i16, 10, 200], decimal_dtype)
+            DecimalArray::from_iter([200i16, 10, 200], decimal_dtype),
+            &mut assertion_ctx
         );
     }
 
     #[test]
     fn fill_null_non_nullable() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(19, 2);
 
         let arr = DecimalArray::new(
@@ -205,7 +216,8 @@ mod tests {
             .to_decimal();
         assert_arrays_eq!(
             p,
-            DecimalArray::from_iter([800i128, 1000, 1200, 1400, 1600], decimal_dtype)
+            DecimalArray::from_iter([800i128, 1000, 1200, 1400, 1600], decimal_dtype),
+            &mut assertion_ctx
         );
     }
 }

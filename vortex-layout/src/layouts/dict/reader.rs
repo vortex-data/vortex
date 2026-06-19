@@ -422,6 +422,8 @@ mod tests {
     #[test]
     fn reading_nested_packs_works() {
         block_on(|handle| async move {
+            let assertion_session = vortex_array::array_session();
+            let mut assertion_ctx = assertion_session.create_execution_ctx();
             let session = session_with_handle(handle);
             let strategy = DictStrategy::new(
                 FlatLayoutStrategy::default(),
@@ -500,7 +502,7 @@ mod tests {
             )
             .unwrap()
             .into_array();
-            assert_arrays_eq!(actual, expected);
+            assert_arrays_eq!(actual, expected, &mut assertion_ctx);
         })
     }
 
@@ -521,6 +523,8 @@ mod tests {
         #[case] expected: Vec<bool>,
     ) {
         block_on(|handle| async move {
+            let assertion_session = vortex_array::array_session();
+            let mut assertion_ctx = assertion_session.create_execution_ctx();
             let session = session_with_handle(handle);
             let strategy = DictStrategy::new(
                 FlatLayoutStrategy::default(),
@@ -564,13 +568,19 @@ mod tests {
                 .await
                 .unwrap();
 
-            assert_arrays_eq!(mask.into_array(), BoolArray::from_iter(expected));
+            assert_arrays_eq!(
+                mask.into_array(),
+                BoolArray::from_iter(expected),
+                &mut assertion_ctx
+            );
         })
     }
 
     #[test]
     fn reading_is_null_works() {
         block_on(|handle| async move {
+            let assertion_session = vortex_array::array_session();
+            let mut assertion_ctx = assertion_session.create_execution_ctx();
             let mut ctx_exec = LEGACY_SESSION.create_execution_ctx();
             let session = session_with_handle(handle);
             let strategy = DictStrategy::new(
@@ -638,12 +648,14 @@ mod tests {
                 .execute::<Canonical>(&mut ctx_exec)
                 .vortex_expect("to_canonical failed")
                 .into_array();
-            assert_arrays_eq!(actual_canonical, expected);
+            assert_arrays_eq!(actual_canonical, expected, &mut assertion_ctx);
         })
     }
 
     #[test]
     fn reading_byte_length_pushdown_works() {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let array = VarBinArray::from_iter(
             [
                 Some("abc"),
@@ -682,7 +694,7 @@ mod tests {
                 .await
                 .unwrap()
                 .into_array();
-            assert_arrays_eq!(actual, expected);
+            assert_arrays_eq!(actual, expected, &mut assertion_ctx);
         })
     }
 
@@ -701,6 +713,8 @@ mod tests {
     }
 
     fn test_apply(original: Expression, outer: Expression, inner: Expression) -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let array = VarBinArray::from_iter(
             [Some("abc"), Some("def"), None],
             DType::Utf8(Nullability::Nullable),
@@ -713,7 +727,7 @@ mod tests {
         ))?;
         let actual = pushed.apply(&outer)?;
         let expected = array.apply(&original)?;
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut assertion_ctx);
         Ok(())
     }
 

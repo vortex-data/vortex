@@ -194,6 +194,8 @@ mod tests {
     /// FoR(BitPacked) u32 — entire tree compiles into a single fused plan.
     #[crate::test]
     async fn test_fused() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut ctx =
             CudaSession::create_execution_ctx(&crate::cuda_session()).vortex_expect("ctx");
         let values: Vec<u32> = (0..2048).map(|i| (i % 128) as u32).collect();
@@ -213,7 +215,7 @@ mod tests {
             .into_host()
             .await?
             .into_array();
-        assert_arrays_eq!(cpu, gpu);
+        assert_arrays_eq!(cpu, gpu, &mut assertion_ctx);
         Ok(())
     }
 
@@ -221,6 +223,8 @@ mod tests {
     /// Exercises the unsigned type reinterpretation in CudaDispatchPlan::execute.
     #[crate::test]
     async fn test_fused_f32() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         use vortex::encodings::alp::ALP;
         use vortex::encodings::alp::Exponents;
 
@@ -249,13 +253,15 @@ mod tests {
             .into_host()
             .await?
             .into_array();
-        assert_arrays_eq!(cpu, gpu);
+        assert_arrays_eq!(cpu, gpu, &mut assertion_ctx);
         Ok(())
     }
 
     /// ALP with patches — plan builder rejects it, falls back to ALPExecutor.
     #[crate::test]
     async fn test_fallback() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         use vortex::array::patches::Patches;
         use vortex::array::validity::Validity::NonNullable as NN;
         use vortex::buffer::buffer;
@@ -287,7 +293,7 @@ mod tests {
             .into_host()
             .await?
             .into_array();
-        assert_arrays_eq!(cpu, gpu);
+        assert_arrays_eq!(cpu, gpu, &mut assertion_ctx);
         Ok(())
     }
 
@@ -297,6 +303,8 @@ mod tests {
     #[cfg(feature = "unstable_encodings")]
     #[crate::test]
     async fn test_partial_fusion() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         use vortex::array::arrays::DictArray;
         use vortex::array::session::ArraySessionExt;
         use vortex::encodings::fastlanes;
@@ -353,13 +361,15 @@ mod tests {
             .into_host()
             .await?
             .into_array();
-        assert_arrays_eq!(cpu, gpu);
+        assert_arrays_eq!(cpu, gpu, &mut assertion_ctx);
         Ok(())
     }
 
     /// Filter(FoR(BP), mask) — FoR+BP fuses via dyn dispatch, then CUB filters the result.
     #[crate::test]
     async fn test_filter_fused_child() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut ctx =
             CudaSession::create_execution_ctx(&crate::cuda_session()).vortex_expect("ctx");
 
@@ -385,7 +395,7 @@ mod tests {
             .into_host()
             .await?
             .into_array();
-        assert_arrays_eq!(cpu, gpu);
+        assert_arrays_eq!(cpu, gpu, &mut assertion_ctx);
         Ok(())
     }
 
@@ -403,6 +413,8 @@ mod tests {
     ))]
     #[crate::test]
     async fn test_ext_storage_gpu_decode(#[case] ext: ExtensionArray) -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut ctx =
             CudaSession::create_execution_ctx(&crate::cuda_session()).vortex_expect("ctx");
 
@@ -419,13 +431,15 @@ mod tests {
         assert!(!storage.is_host(), "storage was not decoded on the device");
 
         let actual = actual.into_host().await?.into_array();
-        assert_arrays_eq!(expected, actual);
+        assert_arrays_eq!(expected, actual, &mut assertion_ctx);
         Ok(())
     }
 
     /// Extension over already-canonical storage executes unchanged.
     #[crate::test]
     async fn test_ext_canonical_storage() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut ctx =
             CudaSession::create_execution_ctx(&crate::cuda_session()).vortex_expect("ctx");
 
@@ -443,7 +457,7 @@ mod tests {
             .into_host()
             .await?
             .into_array();
-        assert_arrays_eq!(ext.into_array(), actual);
+        assert_arrays_eq!(ext.into_array(), actual, &mut assertion_ctx);
         Ok(())
     }
 }

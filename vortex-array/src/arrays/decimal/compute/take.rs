@@ -53,6 +53,7 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
     use crate::arrays::DecimalArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -62,6 +63,8 @@ mod tests {
 
     #[test]
     fn test_take() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let ddtype = DecimalDType::new(19, 1);
         let array = DecimalArray::new(
             buffer![10i128, 11i128, 12i128, 13i128],
@@ -73,11 +76,13 @@ mod tests {
         let taken = array.take(indices).unwrap();
 
         let expected = DecimalArray::from_iter([10i128, 12, 13], ddtype);
-        assert_arrays_eq!(expected, taken);
+        assert_arrays_eq!(expected, taken, &mut assertion_ctx);
     }
 
     #[test]
     fn test_take_null_indices() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let ddtype = DecimalDType::new(19, 1);
         let array = DecimalArray::new(
             buffer![i128::MAX, 11i128, 12i128, 13i128],
@@ -89,7 +94,7 @@ mod tests {
         let taken = array.take(indices).unwrap();
 
         let expected = DecimalArray::from_option_iter([None, Some(12i128), Some(13)], ddtype);
-        assert_arrays_eq!(expected, taken);
+        assert_arrays_eq!(expected, taken, &mut assertion_ctx);
     }
 
     #[rstest]

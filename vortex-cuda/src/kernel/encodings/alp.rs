@@ -170,6 +170,8 @@ mod tests {
     /// Patches must carry `chunk_offsets` — the fused kernel requires them.
     #[crate::test]
     async fn test_cuda_alp_decompression_f32() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -206,7 +208,7 @@ mod tests {
             .await?
             .into_array();
 
-        assert_arrays_eq!(cpu_result, gpu_result);
+        assert_arrays_eq!(cpu_result, gpu_result, &mut assertion_ctx);
 
         Ok(())
     }
@@ -217,6 +219,8 @@ mod tests {
     /// preserved through the standalone ALP GPU executor.
     #[crate::test]
     async fn test_cuda_alp_nullable_with_patches() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -250,7 +254,7 @@ mod tests {
             .await?
             .into_array();
 
-        assert_arrays_eq!(cpu_result, gpu_result);
+        assert_arrays_eq!(cpu_result, gpu_result, &mut assertion_ctx);
         Ok(())
     }
 
@@ -258,6 +262,8 @@ mod tests {
     /// elements are actually null.
     #[crate::test]
     async fn test_cuda_alp_all_valid_nullable() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -281,7 +287,7 @@ mod tests {
             .await?
             .into_array();
 
-        assert_arrays_eq!(cpu_result, gpu_result);
+        assert_arrays_eq!(cpu_result, gpu_result, &mut assertion_ctx);
         Ok(())
     }
 
@@ -291,6 +297,8 @@ mod tests {
     /// (zero patches) via the offset math rather than the NULL sentinel.
     #[crate::test]
     async fn test_cuda_alp_multi_chunk_sparse_patches() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -327,7 +335,7 @@ mod tests {
             .await?
             .into_array();
 
-        assert_arrays_eq!(cpu_result, gpu_result);
+        assert_arrays_eq!(cpu_result, gpu_result, &mut assertion_ctx);
         Ok(())
     }
 
@@ -336,6 +344,8 @@ mod tests {
     /// so this guards the fast-path for the (i64, f64) kernel variant.
     #[crate::test]
     async fn test_cuda_alp_f64_multi_chunk_with_patches() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -370,7 +380,7 @@ mod tests {
             .await?
             .into_array();
 
-        assert_arrays_eq!(cpu_result, gpu_result);
+        assert_arrays_eq!(cpu_result, gpu_result, &mut assertion_ctx);
         Ok(())
     }
 
@@ -380,6 +390,8 @@ mod tests {
     /// (existing tests have ≤ 6 patches per chunk).
     #[crate::test]
     async fn test_cuda_alp_dense_patches_single_chunk() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -419,7 +431,7 @@ mod tests {
             .await?
             .into_array();
 
-        assert_arrays_eq!(cpu_result, gpu_result);
+        assert_arrays_eq!(cpu_result, gpu_result, &mut assertion_ctx);
         Ok(())
     }
 
@@ -428,6 +440,8 @@ mod tests {
     /// loop. Includes a patch in the tail.
     #[crate::test]
     async fn test_cuda_alp_partial_tail_chunk() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -455,7 +469,7 @@ mod tests {
             .await?
             .into_array();
 
-        assert_arrays_eq!(cpu_result, gpu_result);
+        assert_arrays_eq!(cpu_result, gpu_result, &mut assertion_ctx);
         Ok(())
     }
 }

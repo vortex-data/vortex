@@ -54,7 +54,11 @@ mod tests {
     use crate::fsst_compress;
     use crate::fsst_train_compressor;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     fn build_test_fsst_array() -> ArrayRef {
         let mut builder = VarBinBuilder::<i32>::with_capacity(10);
@@ -98,7 +102,7 @@ mod tests {
         let expected = fsst_array.filter(mask)?;
 
         assert_eq!(result.len(), 2);
-        assert_arrays_eq!(result.into_array(), expected);
+        assert_arrays_eq!(result.into_array(), expected, &mut ctx);
         Ok(())
     }
 
@@ -118,7 +122,7 @@ mod tests {
         let expected = fsst_array.filter(mask)?;
 
         assert_eq!(result.len(), 5);
-        assert_arrays_eq!(result.into_array(), expected);
+        assert_arrays_eq!(result.into_array(), expected, &mut ctx);
         Ok(())
     }
 
@@ -162,7 +166,7 @@ mod tests {
         let expected = input.filter(mask)?;
 
         assert_eq!(result.len(), 1);
-        assert_arrays_eq!(result.into_array(), expected);
+        assert_arrays_eq!(result.into_array(), expected, &mut ctx);
         Ok(())
     }
 
@@ -188,7 +192,7 @@ mod tests {
         let expected = input.filter(mask)?;
 
         assert_eq!(result.len(), 2);
-        assert_arrays_eq!(result.into_array(), expected);
+        assert_arrays_eq!(result.into_array(), expected, &mut ctx);
         Ok(())
     }
 
@@ -203,7 +207,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let result = filter_array.execute::<Canonical>(&mut ctx)?.into_array();
 
-        assert_arrays_eq!(result, fsst_array);
+        assert_arrays_eq!(result, fsst_array, &mut ctx);
         Ok(())
     }
 
@@ -223,7 +227,7 @@ mod tests {
         let fsst = fsst_compress(&varbin, &compressor, &mut ctx)?.into_array();
         let result = fsst.apply(&byte_length(root()))?;
         let expected = PrimitiveArray::from_iter(vec![5u64, 7, 18, 0]);
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
     }
 }

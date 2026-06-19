@@ -206,7 +206,7 @@ mod tests {
         let result = mask_canonical_array(canonical(array), &mask, &mut ctx).unwrap();
 
         let expected = BoolArray::from_iter([None, Some(false), Some(true), None, Some(true)]);
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
@@ -218,7 +218,7 @@ mod tests {
         let result = mask_canonical_array(canonical(array), &mask, &mut ctx).unwrap();
 
         let expected = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None, Some(5)]);
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
@@ -230,7 +230,7 @@ mod tests {
         let result = mask_canonical_array(canonical(array), &mask, &mut ctx).unwrap();
 
         let expected = PrimitiveArray::from_option_iter([None, None, Some(3i32), None, None]);
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
@@ -247,7 +247,7 @@ mod tests {
 
         let expected =
             DecimalArray::from_option_iter([Some(1i128), Some(2), None, Some(4), Some(5)], dtype);
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
@@ -260,7 +260,7 @@ mod tests {
 
         let expected =
             VarBinViewArray::from_iter_nullable_str([None, Some("two"), None, Some("four"), None]);
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
@@ -335,7 +335,7 @@ mod tests {
         let result = mask_canonical_array(canonical(array), &mask, &mut ctx).unwrap();
 
         let expected = PrimitiveArray::from_option_iter([None, None, None, None, None::<i32>]);
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
@@ -348,7 +348,7 @@ mod tests {
 
         let expected =
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4), Some(5)]);
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]

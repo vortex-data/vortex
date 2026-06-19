@@ -297,7 +297,6 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::Canonical;
-    use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::accessor::ArrayAccessor;
@@ -437,7 +436,11 @@ mod tests {
         assert_variant_values(&variant, &[10, 20, 30])?;
 
         let shredded = shredded.clone().execute::<PrimitiveArray>(&mut ctx)?;
-        assert_arrays_eq!(shredded, PrimitiveArray::from_iter([10i32, 20, 30]));
+        assert_arrays_eq!(
+            shredded,
+            PrimitiveArray::from_iter([10i32, 20, 30]),
+            &mut ctx
+        );
         Ok(())
     }
 
@@ -641,7 +644,7 @@ mod tests {
         let session = crate::array_session().with_allocator(Arc::new(CountingAllocator {
             allocations: Arc::clone(&allocations),
         }));
-        let mut ctx = ExecutionCtx::new(session);
+        let mut ctx = session.create_execution_ctx();
 
         let l1 = ListArray::try_new(
             buffer![1, 2, 3, 4].into_array(),

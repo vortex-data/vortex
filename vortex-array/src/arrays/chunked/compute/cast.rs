@@ -35,6 +35,7 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -46,6 +47,8 @@ mod test {
 
     #[test]
     fn test_cast_chunked() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let arr0 = buffer![0u32, 1].into_array();
         let arr1 = buffer![2u32, 3].into_array();
 
@@ -67,7 +70,11 @@ mod test {
         let result = root
             .cast(DType::Primitive(PType::U64, Nullability::NonNullable))
             .unwrap();
-        assert_arrays_eq!(result, PrimitiveArray::from_iter([0u64, 1, 2, 3]));
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_iter([0u64, 1, 2, 3]),
+            &mut assertion_ctx
+        );
     }
 
     #[rstest]

@@ -151,6 +151,8 @@ mod tests {
 
     #[test]
     fn listview_counts_all_valid() -> VortexResult<()> {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let elements =
             PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5, 6], Validity::NonNullable).into_array();
         let elem_dtype = DType::Primitive(PType::I32, NonNullable);
@@ -162,13 +164,15 @@ mod tests {
 
         let direct =
             PrimitiveArray::new(buffer![2u64, 1, 3, 0], Validity::NonNullable).into_array();
-        assert_arrays_eq!(&actual, &direct);
-        assert_arrays_eq!(&actual, &expected);
+        assert_arrays_eq!(&actual, &direct, &mut assertion_ctx);
+        assert_arrays_eq!(&actual, &expected, &mut assertion_ctx);
         Ok(())
     }
 
     #[test]
     fn listview_counts_with_nulls() -> VortexResult<()> {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let elements =
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None, None, Some(9)])
                 .into_array();
@@ -181,13 +185,15 @@ mod tests {
 
         // Group 0: {1, null, 3} -> 2. Group 1: {null, null} -> 0. Group 2: {9} -> 1.
         let direct = PrimitiveArray::new(buffer![2u64, 0, 1], Validity::NonNullable).into_array();
-        assert_arrays_eq!(&actual, &direct);
-        assert_arrays_eq!(&actual, &expected);
+        assert_arrays_eq!(&actual, &direct, &mut assertion_ctx);
+        assert_arrays_eq!(&actual, &expected, &mut assertion_ctx);
         Ok(())
     }
 
     #[test]
     fn listview_counts_varbinview_with_nulls() -> VortexResult<()> {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let elements = VarBinViewArray::from_iter_nullable_str([
             Some("a"),
             None,
@@ -204,8 +210,8 @@ mod tests {
         let expected = grouped_count_reference(&elements, &ranges)?;
 
         let direct = PrimitiveArray::new(buffer![1u64, 1, 1], Validity::NonNullable).into_array();
-        assert_arrays_eq!(&actual, &direct);
-        assert_arrays_eq!(&actual, &expected);
+        assert_arrays_eq!(&actual, &direct, &mut assertion_ctx);
+        assert_arrays_eq!(&actual, &expected, &mut assertion_ctx);
         Ok(())
     }
 
@@ -234,6 +240,8 @@ mod tests {
 
     #[test]
     fn fixed_size_counts_with_nulls() -> VortexResult<()> {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let elements =
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4)]).into_array();
         let elem_dtype = DType::Primitive(PType::I32, Nullable);
@@ -242,7 +250,7 @@ mod tests {
 
         let actual = grouped_count_actual(&groups, &elem_dtype)?;
         let direct = PrimitiveArray::new(buffer![1u64, 2], Validity::NonNullable).into_array();
-        assert_arrays_eq!(&actual, &direct);
+        assert_arrays_eq!(&actual, &direct, &mut assertion_ctx);
         Ok(())
     }
 }

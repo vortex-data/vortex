@@ -202,18 +202,22 @@ mod tests {
         #[case] array: ArrayRef,
         #[case] expected_lens: Vec<u64>,
     ) -> VortexResult<()> {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let result = array.apply(&byte_length(root()))?;
         let expected = PrimitiveArray::from_iter(expected_lens);
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut assertion_ctx);
         Ok(())
     }
 
     #[test]
     fn test_varbinview_byte_length() -> VortexResult<()> {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let array = VarBinViewArray::from_iter_str(["short", "a longer string here"]).into_array();
         let result = array.apply(&byte_length(root()))?;
         let expected = PrimitiveArray::from_iter(vec![5u64, 20]);
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut assertion_ctx);
         Ok(())
     }
 

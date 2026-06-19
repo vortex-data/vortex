@@ -222,6 +222,7 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -229,6 +230,8 @@ mod tests {
 
     #[test]
     fn take_null_index_skips_out_of_bounds_value() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let values = PrimitiveArray::from_iter([10i32, 20, 30]);
         let indices = PrimitiveArray::new(
             buffer![1u64, 3],
@@ -239,7 +242,8 @@ mod tests {
 
         assert_arrays_eq!(
             taken,
-            PrimitiveArray::from_option_iter([Some(20i32), None]).into_array()
+            PrimitiveArray::from_option_iter([Some(20i32), None]).into_array(),
+            &mut assertion_ctx
         );
     }
 }

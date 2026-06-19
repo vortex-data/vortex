@@ -210,6 +210,7 @@ impl ArrayBuilder for StructBuilder {
 
 #[cfg(test)]
 mod tests {
+
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
@@ -266,6 +267,8 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         use crate::scalar::Scalar;
 
         let dtype = DType::Struct(
@@ -328,7 +331,7 @@ mod tests {
             Validity::from_iter([true, true, false]),
         )
         .unwrap();
-        assert_arrays_eq!(&array, &expected);
+        assert_arrays_eq!(&array, &expected, &mut assertion_ctx);
 
         // Test wrong dtype error.
         let struct_fields = match &dtype {

@@ -53,17 +53,25 @@ fn test_compress_decompress() {
         compressed.dtype().nullability(),
     );
     let decompressed = compressed.decompress(&unsliced_validity, &mut ctx).unwrap();
-    assert_arrays_eq!(decompressed, PrimitiveArray::from_iter(data));
+    assert_arrays_eq!(decompressed, PrimitiveArray::from_iter(data), &mut ctx);
 
     // check slicing works
     let slice = compressed.slice(100..105).unwrap();
     for i in 0_i32..5 {
-        assert_nth_scalar!(slice, i as usize, 100 + i);
+        assert_nth_scalar!(slice, i as usize, 100 + i, &mut ctx);
     }
-    assert_arrays_eq!(slice, PrimitiveArray::from_iter([100, 101, 102, 103, 104]));
+    assert_arrays_eq!(
+        slice,
+        PrimitiveArray::from_iter([100, 101, 102, 103, 104]),
+        &mut ctx
+    );
 
     let slice = compressed.slice(200..200).unwrap();
-    assert_arrays_eq!(slice, PrimitiveArray::from_iter(Vec::<i32>::new()));
+    assert_arrays_eq!(
+        slice,
+        PrimitiveArray::from_iter(Vec::<i32>::new()),
+        &mut ctx
+    );
 }
 
 #[test]
@@ -73,14 +81,14 @@ fn test_compress_decompress_small() {
     let compressed = Pco::from_primitive(array.as_view(), 3, 0, &mut ctx).unwrap();
 
     let expected = array.into_array();
-    assert_arrays_eq!(compressed, expected);
+    assert_arrays_eq!(compressed, expected, &mut ctx);
 
     let unsliced_validity = child_to_validity(
         compressed.as_ref().slots()[0].as_ref(),
         compressed.dtype().nullability(),
     );
     let decompressed = compressed.decompress(&unsliced_validity, &mut ctx).unwrap();
-    assert_arrays_eq!(decompressed, expected);
+    assert_arrays_eq!(decompressed, expected, &mut ctx);
 }
 
 #[test]
@@ -94,7 +102,7 @@ fn test_empty() {
         compressed.dtype().nullability(),
     );
     let primitive = compressed.decompress(&unsliced_validity, &mut ctx).unwrap();
-    assert_arrays_eq!(primitive, PrimitiveArray::from_iter(data));
+    assert_arrays_eq!(primitive, PrimitiveArray::from_iter(data), &mut ctx);
 }
 
 #[test]
@@ -128,18 +136,18 @@ fn test_validity_and_multiple_chunks_and_pages() {
 
     assert_eq!(compressed.metadata.chunks.len(), 6); // 191 values / 33 rounds up to 6
     assert_eq!(compressed.metadata.chunks[0].pages.len(), 4); // 33 / 10 rounds up to 4
-    assert_nth_scalar!(compressed, 0, 0);
-    assert_nth_scalar!(compressed, 3, 3);
-    assert_nth_scalar!(compressed, 7, None::<i32>);
-    assert_nth_scalar!(compressed, 14, None::<i32>);
-    assert_nth_scalar!(compressed, 15, 15);
-    assert_nth_scalar!(compressed, 101, None::<i32>);
-    assert_nth_scalar!(compressed, 199, 199);
+    assert_nth_scalar!(compressed, 0, 0, &mut ctx);
+    assert_nth_scalar!(compressed, 3, 3, &mut ctx);
+    assert_nth_scalar!(compressed, 7, None::<i32>, &mut ctx);
+    assert_nth_scalar!(compressed, 14, None::<i32>, &mut ctx);
+    assert_nth_scalar!(compressed, 15, 15, &mut ctx);
+    assert_nth_scalar!(compressed, 101, None::<i32>, &mut ctx);
+    assert_nth_scalar!(compressed, 199, 199, &mut ctx);
 
     // check slicing works
     let slice = compressed.slice(100..103).unwrap();
-    assert_nth_scalar!(slice, 0, 100);
-    assert_nth_scalar!(slice, 2, 102);
+    assert_nth_scalar!(slice, 0, 100, &mut ctx);
+    assert_nth_scalar!(slice, 2, 102, &mut ctx);
     let primitive = slice.execute::<PrimitiveArray>(&mut ctx).unwrap();
 
     assert!(

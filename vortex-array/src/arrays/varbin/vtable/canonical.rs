@@ -96,6 +96,8 @@ mod tests {
     #[case(DType::Utf8(Nullability::NonNullable))]
     #[case(DType::Binary(Nullability::NonNullable))]
     fn test_canonical_varbin_unsliced(#[case] dtype: DType) {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let varbin = VarBinArray::from_iter_nonnull(["foo", "bar", "baz"], dtype.clone());
         #[expect(deprecated)]
         let canonical = varbin.as_array().to_varbinview();
@@ -103,7 +105,7 @@ mod tests {
             DType::Utf8(_) => VarBinViewArray::from_iter_str(["foo", "bar", "baz"]),
             _ => VarBinViewArray::from_iter_bin(["foo", "bar", "baz"]),
         };
-        assert_arrays_eq!(canonical, expected);
+        assert_arrays_eq!(canonical, expected, &mut assertion_ctx);
     }
 
     // Empty array: offsets has exactly one element; no elements to canonicalize.

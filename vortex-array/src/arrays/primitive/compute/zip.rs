@@ -181,7 +181,7 @@ mod tests {
             (0..len).map(|i| if bits[i] { i as i64 } else { 1_000 + i as i64 }),
         )
         .into_array();
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
     }
 
@@ -217,7 +217,7 @@ mod tests {
             }
         }))
         .into_array();
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
     }
 }

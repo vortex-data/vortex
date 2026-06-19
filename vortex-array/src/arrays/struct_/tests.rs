@@ -24,6 +24,8 @@ use crate::validity::Validity;
 
 #[test]
 fn test_project() {
+    let assertion_session = crate::array_session();
+    let mut assertion_ctx = assertion_session.create_execution_ctx();
     let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::NonNullable);
     let ys = VarBinArray::from_vec(
         vec!["a", "b", "c", "d", "e"],
@@ -52,15 +54,22 @@ fn test_project() {
     let bools = struct_b.unmasked_field(0);
     assert_arrays_eq!(
         bools,
-        BoolArray::from_iter([true, true, true, false, false])
+        BoolArray::from_iter([true, true, true, false, false]),
+        &mut assertion_ctx
     );
 
     let prims = struct_b.unmasked_field(1);
-    assert_arrays_eq!(prims, PrimitiveArray::from_iter([0i64, 1, 2, 3, 4]));
+    assert_arrays_eq!(
+        prims,
+        PrimitiveArray::from_iter([0i64, 1, 2, 3, 4]),
+        &mut assertion_ctx
+    );
 }
 
 #[test]
 fn test_remove_column() {
+    let assertion_session = crate::array_session();
+    let mut assertion_ctx = assertion_session.create_execution_ctx();
     let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::NonNullable);
     let ys = PrimitiveArray::new(buffer![4u64, 5, 6, 7, 8], Validity::NonNullable);
 
@@ -77,7 +86,11 @@ fn test_remove_column() {
         removed.dtype(),
         &DType::Primitive(PType::I64, Nullability::NonNullable)
     );
-    assert_arrays_eq!(removed, PrimitiveArray::from_iter([0i64, 1, 2, 3, 4]));
+    assert_arrays_eq!(
+        removed,
+        PrimitiveArray::from_iter([0i64, 1, 2, 3, 4]),
+        &mut assertion_ctx
+    );
 
     assert_eq!(data.names(), &["ys"]);
     assert_eq!(data.struct_fields().nfields(), 1);
@@ -88,7 +101,8 @@ fn test_remove_column() {
     );
     assert_arrays_eq!(
         data.unmasked_field(0),
-        PrimitiveArray::from_iter([4u64, 5, 6, 7, 8])
+        PrimitiveArray::from_iter([4u64, 5, 6, 7, 8]),
+        &mut assertion_ctx
     );
 
     let empty = data.remove_column("non_existent");
@@ -101,6 +115,8 @@ fn test_remove_column() {
 
 #[test]
 fn test_duplicate_field_names() {
+    let assertion_session = crate::array_session();
+    let mut assertion_ctx = assertion_session.create_execution_ctx();
     // Test that StructArray allows duplicate field names and returns the first match
     let field1 = buffer![1i32, 2, 3].into_array();
     let field2 = buffer![10i32, 20, 30].into_array();
@@ -119,19 +135,25 @@ fn test_duplicate_field_names() {
     let first_value_field = struct_array.unmasked_field_by_name("value").unwrap();
     assert_arrays_eq!(
         first_value_field,
-        PrimitiveArray::from_iter([1i32, 2, 3]) // This is field1, not field3
+        PrimitiveArray::from_iter([1i32, 2, 3]),
+        &mut assertion_ctx
     );
 
     // Verify field_by_name_opt also returns the first match
     let opt_field = struct_array.unmasked_field_by_name_opt("value").unwrap();
     assert_arrays_eq!(
         opt_field,
-        PrimitiveArray::from_iter([1i32, 2, 3]) // First "value" field
+        PrimitiveArray::from_iter([1i32, 2, 3]),
+        &mut assertion_ctx
     );
 
     // Verify the third field (second "value") can be accessed by index
     let third_field = struct_array.unmasked_field(2);
-    assert_arrays_eq!(third_field, PrimitiveArray::from_iter([100i32, 200, 300]));
+    assert_arrays_eq!(
+        third_field,
+        PrimitiveArray::from_iter([100i32, 200, 300]),
+        &mut assertion_ctx
+    );
 }
 
 #[test]

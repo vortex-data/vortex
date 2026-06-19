@@ -71,6 +71,8 @@ mod tests {
 
     #[test]
     fn test_cast_dict_to_wider_type() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let values = buffer![1i32, 2, 3, 2, 1].into_array();
         let dict = dict_encode(&values, &mut SESSION.create_execution_ctx()).unwrap();
 
@@ -85,7 +87,11 @@ mod tests {
 
         #[expect(deprecated)]
         let decoded = casted.to_primitive();
-        assert_arrays_eq!(decoded, PrimitiveArray::from_iter([1i64, 2, 3, 2, 1]));
+        assert_arrays_eq!(
+            decoded,
+            PrimitiveArray::from_iter([1i64, 2, 3, 2, 1]),
+            &mut assertion_ctx
+        );
     }
 
     #[test]
@@ -106,6 +112,8 @@ mod tests {
 
     #[test]
     fn test_cast_dict_allvalid_to_nonnullable_and_back() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         // Create an AllValid dict array (no nulls)
         let values = buffer![10i32, 20, 30, 40].into_array();
         let dict = dict_encode(&values, &mut SESSION.create_execution_ctx()).unwrap();
@@ -173,7 +181,7 @@ mod tests {
         let original_values = dict.as_array().to_primitive();
         #[expect(deprecated)]
         let final_values = back_to_non_nullable.to_primitive();
-        assert_arrays_eq!(original_values, final_values);
+        assert_arrays_eq!(original_values, final_values, &mut assertion_ctx);
     }
 
     #[rstest]
@@ -187,6 +195,8 @@ mod tests {
 
     #[test]
     fn test_cast_dict_with_unreferenced_null_values_to_nonnullable() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         use crate::arrays::DictArray;
         use crate::validity::Validity;
 
@@ -222,6 +232,10 @@ mod tests {
         );
         #[expect(deprecated)]
         let casted_prim = casted.to_primitive();
-        assert_arrays_eq!(casted_prim, PrimitiveArray::from_iter([1.0f64, 3.0, 1.0]));
+        assert_arrays_eq!(
+            casted_prim,
+            PrimitiveArray::from_iter([1.0f64, 3.0, 1.0]),
+            &mut assertion_ctx
+        );
     }
 }

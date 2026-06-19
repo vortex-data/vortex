@@ -56,6 +56,7 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::DictArray;
     use crate::arrays::VarBinArray;
@@ -68,6 +69,8 @@ mod tests {
 
     #[test]
     fn like_reduce_dict() -> VortexResult<()> {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let dict = DictArray::try_new(
             buffer![0u8, 1, 0, 2].into_array(),
             VarBinArray::from(vec!["hello", "world", "help"]).into_array(),
@@ -79,7 +82,11 @@ mod tests {
             .try_new_array(4, LikeOptions::default(), [dict, pattern])?
             .optimize()?;
 
-        assert_arrays_eq!(result, BoolArray::from_iter([true, false, true, false]));
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([true, false, true, false]),
+            &mut assertion_ctx
+        );
         Ok(())
     }
 }

@@ -158,7 +158,6 @@ impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
 #[cfg(test)]
 mod tests {
     use vortex::VortexSessionDefault;
-    use vortex::array::ExecutionCtx;
     use vortex::array::IntoArray;
     use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::ConstantArray;
@@ -220,7 +219,7 @@ mod tests {
 
         let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
-        let mut ctx = ExecutionCtx::new(VortexSession::default());
+        let mut ctx = VortexSession::default().create_execution_ctx();
         new_exporter_with_flatten(&arr, &ConversionCache::default(), &mut ctx, false)?.export(
             0,
             2,

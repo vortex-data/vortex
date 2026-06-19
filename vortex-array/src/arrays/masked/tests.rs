@@ -95,6 +95,8 @@ fn test_masked_child_with_validity() {
 
 #[test]
 fn test_masked_child_all_valid() {
+    let assertion_session = crate::array_session();
+    let mut assertion_ctx = assertion_session.create_execution_ctx();
     // When validity is AllValid, masked_child should invert to AllInvalid.
     let child = PrimitiveArray::from_iter([10i32, 20, 30]).into_array();
     let array = MaskedArray::try_new(child, Validity::AllValid).unwrap();
@@ -108,7 +110,8 @@ fn test_masked_child_all_valid() {
     );
     assert_arrays_eq!(
         PrimitiveArray::from_option_iter([10i32, 20, 30].map(Some)),
-        array
+        array,
+        &mut assertion_ctx
     );
 }
 

@@ -1145,6 +1145,8 @@ mod tests {
 
     #[crate::test]
     async fn test_dict_mixed_width_u8_codes_u32_values() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let dict_values: Vec<u32> = vec![100, 200, 300, 400];
         let len = 3000;
         let codes: Vec<u8> = (0..len).map(|i| (i % dict_values.len()) as u8).collect();
@@ -1170,13 +1172,15 @@ mod tests {
 
         let expected: Vec<u32> = codes.iter().map(|&c| dict_values[c as usize]).collect();
         let expected_arr = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
-        vortex::array::assert_arrays_eq!(expected_arr, result);
+        vortex::array::assert_arrays_eq!(expected_arr, result, &mut assertion_ctx);
 
         Ok(())
     }
 
     #[crate::test]
     async fn test_dict_mixed_width_u16_codes_u32_values() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let dict_values: Vec<u32> = vec![1000, 2000, 3000, 4000, 5000];
         let len = 2048;
         let codes: Vec<u16> = (0..len).map(|i| (i % dict_values.len()) as u16).collect();
@@ -1202,13 +1206,15 @@ mod tests {
 
         let expected: Vec<u32> = codes.iter().map(|&c| dict_values[c as usize]).collect();
         let expected_arr = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
-        vortex::array::assert_arrays_eq!(expected_arr, result);
+        vortex::array::assert_arrays_eq!(expected_arr, result, &mut assertion_ctx);
 
         Ok(())
     }
 
     #[crate::test]
     async fn test_runend_mixed_width_u64_ends_u32_values() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let ends: Vec<u64> = vec![1000, 2000, 3000];
         let values: Vec<u32> = vec![10, 20, 30];
         let len = 3000;
@@ -1243,7 +1249,7 @@ mod tests {
             })
             .collect();
         let expected_arr = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
-        vortex::array::assert_arrays_eq!(expected_arr, result);
+        vortex::array::assert_arrays_eq!(expected_arr, result, &mut assertion_ctx);
 
         Ok(())
     }
@@ -1631,6 +1637,8 @@ mod tests {
 
     #[crate::test]
     async fn test_for_bitpacked_u8() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let bit_width: u8 = 4;
         let len = 3000;
         let reference = 100u8;
@@ -1659,12 +1667,14 @@ mod tests {
         let result = CanonicalCudaExt::into_host(canonical).await?.into_array();
 
         let expected_arr = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
-        vortex::array::assert_arrays_eq!(expected_arr, result);
+        vortex::array::assert_arrays_eq!(expected_arr, result, &mut assertion_ctx);
         Ok(())
     }
 
     #[crate::test]
     async fn test_for_bitpacked_u16() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let bit_width: u8 = 10;
         let len = 3000;
         let reference = 1000u16;
@@ -1695,12 +1705,14 @@ mod tests {
         let result = CanonicalCudaExt::into_host(canonical).await?.into_array();
 
         let expected_arr = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
-        vortex::array::assert_arrays_eq!(expected_arr, result);
+        vortex::array::assert_arrays_eq!(expected_arr, result, &mut assertion_ctx);
         Ok(())
     }
 
     #[crate::test]
     async fn test_for_bitpacked_u64() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let bit_width: u8 = 20;
         let len = 3000;
         let reference = 100_000u64;
@@ -1729,7 +1741,7 @@ mod tests {
         let result = CanonicalCudaExt::into_host(canonical).await?.into_array();
 
         let expected_arr = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
-        vortex::array::assert_arrays_eq!(expected_arr, result);
+        vortex::array::assert_arrays_eq!(expected_arr, result, &mut assertion_ctx);
         Ok(())
     }
 
@@ -1746,6 +1758,8 @@ mod tests {
 
     #[crate::test]
     async fn test_single_element() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let values: Vec<u32> = vec![42];
         let primitive = PrimitiveArray::new(Buffer::from(values.clone()), NonNullable);
         let bp = BitPacked::encode(
@@ -1765,12 +1779,14 @@ mod tests {
         let result = CanonicalCudaExt::into_host(canonical).await?.into_array();
 
         let expected = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-        vortex::array::assert_arrays_eq!(expected, result);
+        vortex::array::assert_arrays_eq!(expected, result, &mut assertion_ctx);
         Ok(())
     }
 
     #[crate::test]
     async fn test_exactly_elements_per_block() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         // Exactly 2048 elements — one full block, no remainder
         let bit_width: u8 = 6;
         let len = 2048;
@@ -1799,7 +1815,7 @@ mod tests {
         let result = CanonicalCudaExt::into_host(canonical).await?.into_array();
 
         let expected_arr = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
-        vortex::array::assert_arrays_eq!(expected_arr, result);
+        vortex::array::assert_arrays_eq!(expected_arr, result, &mut assertion_ctx);
         Ok(())
     }
 
@@ -1929,6 +1945,8 @@ mod tests {
 
     #[crate::test]
     async fn test_alp_f64_for_bitpacked() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // ALP(FoR(BitPacked)) with f64: same structure as the f32 test.
         let len = 3000;
@@ -1965,7 +1983,7 @@ mod tests {
         let canonical = try_gpu_dispatch(&array, &mut cuda_ctx).await?;
         let gpu = CanonicalCudaExt::into_host(canonical).await?.into_array();
 
-        vortex::array::assert_arrays_eq!(cpu, gpu);
+        vortex::array::assert_arrays_eq!(cpu, gpu, &mut assertion_ctx);
 
         Ok(())
     }
@@ -2029,6 +2047,8 @@ mod tests {
 
     #[crate::test]
     async fn alp_slice_device_patches() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         // Regression test for https://github.com/vortex-data/vortex/issues/7838#issuecomment-4452796116.
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
         let len = 4096;
@@ -2084,13 +2104,15 @@ mod tests {
         expected[2048 - 100] = std::f64::consts::LN_2;
         let expected = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
 
-        vortex::array::assert_arrays_eq!(expected, gpu);
+        vortex::array::assert_arrays_eq!(expected, gpu, &mut assertion_ctx);
 
         Ok(())
     }
 
     #[crate::test]
     async fn test_runend_u32_ends_u16_values() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         // RunEnd with u32 ends, u16 values. Output type = u16.
         // Ends (u32) differ from output (u16) → pending subtree.
         let ends: Vec<u32> = vec![500, 1000, 1500, 2000];
@@ -2128,13 +2150,15 @@ mod tests {
             })
             .collect();
         let expected_arr = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
-        vortex::array::assert_arrays_eq!(expected_arr, result);
+        vortex::array::assert_arrays_eq!(expected_arr, result, &mut assertion_ctx);
 
         Ok(())
     }
 
     #[crate::test]
     async fn test_dict_bitpacked_u8_codes_u32_values() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         // Dict with BitPacked u8 codes (narrower than u32 output) and u32 values.
         // The kernel's bitunpack_typed decodes at the source's native width and
         // widens to T, so this fuses into a single kernel launch.
@@ -2166,7 +2190,7 @@ mod tests {
 
         let expected: Vec<u32> = codes.iter().map(|&c| dict_values[c as usize]).collect();
         let expected_arr = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
-        vortex::array::assert_arrays_eq!(expected_arr, result);
+        vortex::array::assert_arrays_eq!(expected_arr, result, &mut assertion_ctx);
 
         Ok(())
     }
@@ -2184,6 +2208,8 @@ mod tests {
         #[case] len: usize,
         #[case] dict_values: Vec<V>,
     ) -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let dict_size = dict_values.len();
         let codes: Vec<u8> = (0..len).map(|i| (i % dict_size) as u8).collect();
 
@@ -2210,7 +2236,7 @@ mod tests {
 
         let expected: Vec<V> = codes.iter().map(|&c| dict_values[c as usize]).collect();
         let expected_arr = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
-        vortex::array::assert_arrays_eq!(expected_arr, result);
+        vortex::array::assert_arrays_eq!(expected_arr, result, &mut assertion_ctx);
 
         Ok(())
     }
@@ -2227,6 +2253,8 @@ mod tests {
         #[case] len: usize,
         #[case] dict_values: Vec<V>,
     ) -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let dict_size = dict_values.len();
         let codes: Vec<u8> = (0..len).map(|i| (i % dict_size) as u8).collect();
 
@@ -2254,7 +2282,7 @@ mod tests {
 
         let expected: Vec<V> = codes.iter().map(|&c| dict_values[c as usize]).collect();
         let expected_arr = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
-        vortex::array::assert_arrays_eq!(expected_arr, result);
+        vortex::array::assert_arrays_eq!(expected_arr, result, &mut assertion_ctx);
 
         Ok(())
     }
@@ -2280,6 +2308,8 @@ mod tests {
         #[case] ends: Vec<E>,
         #[case] values: Vec<V>,
     ) -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let ends_u64: Vec<u64> = ends.iter().map(|e| (*e).into()).collect();
         let len = *ends_u64.last().unwrap() as usize;
         let bit_width = 64 - ends_u64.iter().max().unwrap().leading_zeros() as u8;
@@ -2314,7 +2344,7 @@ mod tests {
             prev = *end;
         }
         let expected_arr = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
-        vortex::array::assert_arrays_eq!(expected_arr, result);
+        vortex::array::assert_arrays_eq!(expected_arr, result, &mut assertion_ctx);
 
         Ok(())
     }
@@ -2324,6 +2354,8 @@ mod tests {
     /// at native width and widens to T, fusing everything.
     #[crate::test]
     async fn test_runend_mixed_width_for_bp_u16_ends_u32_values() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let ends: Vec<u16> = vec![500, 1000, 1500, 2000];
         let values: Vec<u32> = vec![100, 200, 300, 400];
         let len = 2000usize;
@@ -2359,13 +2391,15 @@ mod tests {
             prev = end;
         }
         let expected_arr = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
-        vortex::array::assert_arrays_eq!(expected_arr, result);
+        vortex::array::assert_arrays_eq!(expected_arr, result, &mut assertion_ctx);
 
         Ok(())
     }
 
     #[crate::test]
     async fn test_sliced_dict_mixed_width() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         // Sliced Dict with u8 codes and u32 values — combines PartiallyFused + slice handling.
         let dict_values: Vec<u32> = vec![100, 200, 300, 400];
         let full_len = 4096;
@@ -2389,7 +2423,7 @@ mod tests {
             .map(|&c| dict_values[c as usize])
             .collect();
         let expected_arr = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
-        vortex::array::assert_arrays_eq!(expected_arr, result);
+        vortex::array::assert_arrays_eq!(expected_arr, result, &mut assertion_ctx);
 
         Ok(())
     }
@@ -2476,6 +2510,8 @@ mod tests {
     /// Nullable Primitive array — LOAD source with validity propagated.
     #[crate::test]
     async fn test_nullable_primitive() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
 
         let array = PrimitiveArray::from_option_iter(
@@ -2489,7 +2525,7 @@ mod tests {
             .await?
             .into_array();
 
-        vortex::array::assert_arrays_eq!(cpu, gpu);
+        vortex::array::assert_arrays_eq!(cpu, gpu, &mut assertion_ctx);
         Ok(())
     }
 
@@ -2499,6 +2535,8 @@ mod tests {
     /// validity, so this produces a real nullable FoR(BitPacked) tree.
     #[crate::test]
     async fn test_nullable_for_bitpacked() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
 
         let len = 2048;
@@ -2546,7 +2584,7 @@ mod tests {
             .await?
             .into_array();
 
-        vortex::array::assert_arrays_eq!(cpu, gpu);
+        vortex::array::assert_arrays_eq!(cpu, gpu, &mut assertion_ctx);
         Ok(())
     }
 
@@ -2571,6 +2609,8 @@ mod tests {
     /// AllValid nullable array — should fuse and produce AllValid output.
     #[crate::test]
     async fn test_all_valid_nullable() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
 
         let values: Vec<u32> = (0..2048).collect();
@@ -2583,7 +2623,7 @@ mod tests {
             .await?
             .into_array();
 
-        vortex::array::assert_arrays_eq!(cpu, gpu);
+        vortex::array::assert_arrays_eq!(cpu, gpu, &mut assertion_ctx);
         Ok(())
     }
 
@@ -2607,6 +2647,8 @@ mod tests {
     /// Dict with non-nullable codes but nullable values should still fuse.
     #[crate::test]
     async fn test_dict_nullable_values_fuses() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         use vortex::buffer::buffer;
 
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
@@ -2624,7 +2666,7 @@ mod tests {
             .await?
             .into_array();
 
-        vortex::array::assert_arrays_eq!(cpu, gpu);
+        vortex::array::assert_arrays_eq!(cpu, gpu, &mut assertion_ctx);
         Ok(())
     }
 
@@ -2632,6 +2674,8 @@ mod tests {
     /// Validity must survive through fused dispatch and into the filter.
     #[crate::test]
     async fn test_nullable_fused_then_filter() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         use vortex::array::arrays::FilterArray;
         use vortex::mask::Mask;
 
@@ -2662,7 +2706,7 @@ mod tests {
             .await?
             .into_array();
 
-        vortex::array::assert_arrays_eq!(cpu, gpu);
+        vortex::array::assert_arrays_eq!(cpu, gpu, &mut assertion_ctx);
         Ok(())
     }
 
@@ -2912,6 +2956,8 @@ mod tests {
     /// u8 BitPacked with patches (bit_width=3, patch values > 7).
     #[crate::test]
     async fn test_bitpacked_with_patches_u8() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let bit_width: u8 = 3;
         let len = 3000usize;
         let max_val = (1u8 << bit_width) - 1;
@@ -2938,13 +2984,15 @@ mod tests {
         let result = CanonicalCudaExt::into_host(canonical).await?.into_array();
 
         let expected_arr = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-        vortex::array::assert_arrays_eq!(expected_arr, result);
+        vortex::array::assert_arrays_eq!(expected_arr, result, &mut assertion_ctx);
         Ok(())
     }
 
     /// u16 BitPacked with patches (bit_width=6, patch values > 63).
     #[crate::test]
     async fn test_bitpacked_with_patches_u16() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let bit_width: u8 = 6;
         let len = 3000usize;
         let max_val = (1u16 << bit_width) - 1;
@@ -2971,13 +3019,15 @@ mod tests {
         let result = CanonicalCudaExt::into_host(canonical).await?.into_array();
 
         let expected_arr = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-        vortex::array::assert_arrays_eq!(expected_arr, result);
+        vortex::array::assert_arrays_eq!(expected_arr, result, &mut assertion_ctx);
         Ok(())
     }
 
     /// u64 BitPacked with patches (bit_width=4, patch values > 15).
     #[crate::test]
     async fn test_bitpacked_with_patches_u64() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let bit_width: u8 = 4;
         let len = 3000usize;
         let max_val = (1u64 << bit_width) - 1;
@@ -3004,7 +3054,7 @@ mod tests {
         let result = CanonicalCudaExt::into_host(canonical).await?.into_array();
 
         let expected_arr = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-        vortex::array::assert_arrays_eq!(expected_arr, result);
+        vortex::array::assert_arrays_eq!(expected_arr, result, &mut assertion_ctx);
         Ok(())
     }
 
@@ -3111,6 +3161,8 @@ mod tests {
     /// dispatch alongside patch application.
     #[crate::test]
     async fn test_nullable_bitpacked_with_patches() -> VortexResult<()> {
+        let assertion_session = vortex_array::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
 
         let len = 3000usize;
@@ -3146,7 +3198,7 @@ mod tests {
             .await?
             .into_array();
 
-        vortex::array::assert_arrays_eq!(cpu, gpu);
+        vortex::array::assert_arrays_eq!(cpu, gpu, &mut assertion_ctx);
         Ok(())
     }
 

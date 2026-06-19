@@ -294,7 +294,7 @@ mod tests {
             .into_array()
             .append_to_builder(builder.as_mut(), &mut ctx)?;
         let result = builder.finish();
-        assert_arrays_eq!(&result, &expected);
+        assert_arrays_eq!(&result, &expected, &mut ctx);
         Ok(())
     }
 

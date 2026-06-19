@@ -1222,6 +1222,8 @@ mod test {
 
     #[test]
     fn test_filter() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let patches = Patches::new(
             100,
             0,
@@ -1239,12 +1241,22 @@ mod test {
             .unwrap()
             .unwrap();
 
-        assert_arrays_eq!(filtered.indices(), PrimitiveArray::from_iter([0u64, 1]));
-        assert_arrays_eq!(filtered.values(), PrimitiveArray::from_iter([100i32, 200]));
+        assert_arrays_eq!(
+            filtered.indices(),
+            PrimitiveArray::from_iter([0u64, 1]),
+            &mut assertion_ctx
+        );
+        assert_arrays_eq!(
+            filtered.values(),
+            PrimitiveArray::from_iter([100i32, 200]),
+            &mut assertion_ctx
+        );
     }
 
     #[test]
     fn take_with_nulls() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let patches = Patches::new(
             20,
             0,
@@ -1269,9 +1281,14 @@ mod test {
         assert_eq!(taken.array_len(), 2);
         assert_arrays_eq!(
             primitive_values,
-            PrimitiveArray::from_option_iter([Some(44i32)])
+            PrimitiveArray::from_option_iter([Some(44i32)]),
+            &mut assertion_ctx
         );
-        assert_arrays_eq!(primitive_indices, PrimitiveArray::from_iter([0u64]));
+        assert_arrays_eq!(
+            primitive_indices,
+            PrimitiveArray::from_iter([0u64]),
+            &mut assertion_ctx
+        );
         assert_eq!(
             primitive_values
                 .as_ref()
@@ -1288,6 +1305,8 @@ mod test {
 
     #[test]
     fn take_search_with_nulls_chunked() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let patches = Patches::new(
             20,
             0,
@@ -1311,9 +1330,14 @@ mod test {
         assert_eq!(taken.array_len(), 2);
         assert_arrays_eq!(
             primitive_values,
-            PrimitiveArray::from_option_iter([Some(44i32), None])
+            PrimitiveArray::from_option_iter([Some(44i32), None]),
+            &mut assertion_ctx
         );
-        assert_arrays_eq!(taken.indices(), PrimitiveArray::from_iter([0u64, 1]));
+        assert_arrays_eq!(
+            taken.indices(),
+            PrimitiveArray::from_iter([0u64, 1]),
+            &mut assertion_ctx
+        );
 
         assert_eq!(
             primitive_values
@@ -1331,6 +1355,8 @@ mod test {
 
     #[test]
     fn take_search_chunked_multiple_chunks() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let patches = Patches::new(
             2048,
             0,
@@ -1352,7 +1378,8 @@ mod test {
         assert_eq!(taken.array_len(), 3);
         assert_arrays_eq!(
             taken.values(),
-            PrimitiveArray::from_option_iter([Some(20i32), Some(30)])
+            PrimitiveArray::from_option_iter([Some(20i32), Some(30)]),
+            &mut assertion_ctx
         );
     }
 
@@ -1380,6 +1407,8 @@ mod test {
 
     #[test]
     fn take_search_chunked_interleaved() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let patches = Patches::new(
             30,
             0,
@@ -1401,7 +1430,8 @@ mod test {
         assert_eq!(taken.array_len(), 4);
         assert_arrays_eq!(
             taken.values(),
-            PrimitiveArray::from_option_iter([Some(200i32), Some(300)])
+            PrimitiveArray::from_option_iter([Some(200i32), Some(300)]),
+            &mut assertion_ctx
         );
     }
 
@@ -1430,6 +1460,8 @@ mod test {
 
     #[test]
     fn test_slice() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let values = buffer![15_u32, 135, 13531, 42].into_array();
         let indices = buffer![10_u64, 11, 50, 100].into_array();
 
@@ -1437,11 +1469,17 @@ mod test {
 
         let sliced = patches.slice(15..100).unwrap().unwrap();
         assert_eq!(sliced.array_len(), 100 - 15);
-        assert_arrays_eq!(sliced.values(), PrimitiveArray::from_iter([13531u32]));
+        assert_arrays_eq!(
+            sliced.values(),
+            PrimitiveArray::from_iter([13531u32]),
+            &mut assertion_ctx
+        );
     }
 
     #[test]
     fn doubly_sliced() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let values = buffer![15_u32, 135, 13531, 42].into_array();
         let indices = buffer![10_u64, 11, 50, 100].into_array();
 
@@ -1449,12 +1487,17 @@ mod test {
 
         let sliced = patches.slice(15..100).unwrap().unwrap();
         assert_eq!(sliced.array_len(), 100 - 15);
-        assert_arrays_eq!(sliced.values(), PrimitiveArray::from_iter([13531u32]));
+        assert_arrays_eq!(
+            sliced.values(),
+            PrimitiveArray::from_iter([13531u32]),
+            &mut assertion_ctx
+        );
 
         let doubly_sliced = sliced.slice(35..36).unwrap().unwrap();
         assert_arrays_eq!(
             doubly_sliced.values(),
-            PrimitiveArray::from_iter([13531u32])
+            PrimitiveArray::from_iter([13531u32]),
+            &mut assertion_ctx
         );
     }
 
@@ -1478,6 +1521,8 @@ mod test {
 
     #[test]
     fn test_mask_all_false() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1496,7 +1541,8 @@ mod test {
         // No patch values should be masked
         assert_arrays_eq!(
             masked.values(),
-            PrimitiveArray::from_iter([100i32, 200, 300])
+            PrimitiveArray::from_iter([100i32, 200, 300]),
+            &mut assertion_ctx
         );
         assert!(
             masked
@@ -1518,11 +1564,17 @@ mod test {
         );
 
         // Indices should remain unchanged
-        assert_arrays_eq!(masked.indices(), PrimitiveArray::from_iter([2u64, 5, 8]));
+        assert_arrays_eq!(
+            masked.indices(),
+            PrimitiveArray::from_iter([2u64, 5, 8]),
+            &mut assertion_ctx
+        );
     }
 
     #[test]
     fn test_mask_partial() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1543,14 +1595,24 @@ mod test {
 
         // Only the patch at index 5 should remain
         assert_eq!(masked.values().len(), 1);
-        assert_arrays_eq!(masked.values(), PrimitiveArray::from_iter([200i32]));
+        assert_arrays_eq!(
+            masked.values(),
+            PrimitiveArray::from_iter([200i32]),
+            &mut assertion_ctx
+        );
 
         // Only index 5 should remain
-        assert_arrays_eq!(masked.indices(), PrimitiveArray::from_iter([5u64]));
+        assert_arrays_eq!(
+            masked.indices(),
+            PrimitiveArray::from_iter([5u64]),
+            &mut assertion_ctx
+        );
     }
 
     #[test]
     fn test_mask_with_offset() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let patches = Patches::new(
             10,
             5,                                  // offset
@@ -1571,12 +1633,22 @@ mod test {
             .unwrap();
         assert_eq!(masked.array_len(), 10);
         assert_eq!(masked.offset(), 5);
-        assert_arrays_eq!(masked.indices(), PrimitiveArray::from_iter([10u64, 13]));
-        assert_arrays_eq!(masked.values(), PrimitiveArray::from_iter([200i32, 300]));
+        assert_arrays_eq!(
+            masked.indices(),
+            PrimitiveArray::from_iter([10u64, 13]),
+            &mut assertion_ctx
+        );
+        assert_arrays_eq!(
+            masked.values(),
+            PrimitiveArray::from_iter([200i32, 300]),
+            &mut assertion_ctx
+        );
     }
 
     #[test]
     fn test_mask_nullable_values() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1596,7 +1668,11 @@ mod test {
             .unwrap();
 
         // Patches at indices 5 and 8 should remain
-        assert_arrays_eq!(masked.indices(), PrimitiveArray::from_iter([5u64, 8]));
+        assert_arrays_eq!(
+            masked.indices(),
+            PrimitiveArray::from_iter([5u64, 8]),
+            &mut assertion_ctx
+        );
 
         // Values should be the null and 300
         #[expect(deprecated)]
@@ -1625,6 +1701,8 @@ mod test {
 
     #[test]
     fn test_filter_keep_all() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1641,10 +1719,15 @@ mod test {
             .unwrap()
             .unwrap();
 
-        assert_arrays_eq!(filtered.indices(), PrimitiveArray::from_iter([2u64, 5, 8]));
+        assert_arrays_eq!(
+            filtered.indices(),
+            PrimitiveArray::from_iter([2u64, 5, 8]),
+            &mut assertion_ctx
+        );
         assert_arrays_eq!(
             filtered.values(),
-            PrimitiveArray::from_iter([100i32, 200, 300])
+            PrimitiveArray::from_iter([100i32, 200, 300]),
+            &mut assertion_ctx
         );
     }
 
@@ -1669,6 +1752,8 @@ mod test {
 
     #[test]
     fn test_filter_with_indices() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1685,12 +1770,22 @@ mod test {
             .unwrap()
             .unwrap();
 
-        assert_arrays_eq!(filtered.indices(), PrimitiveArray::from_iter([0u64, 1])); // Adjusted indices
-        assert_arrays_eq!(filtered.values(), PrimitiveArray::from_iter([100i32, 200]));
+        assert_arrays_eq!(
+            filtered.indices(),
+            PrimitiveArray::from_iter([0u64, 1]),
+            &mut assertion_ctx
+        ); // Adjusted indices
+        assert_arrays_eq!(
+            filtered.values(),
+            PrimitiveArray::from_iter([100i32, 200]),
+            &mut assertion_ctx
+        );
     }
 
     #[test]
     fn test_slice_full_range() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1702,15 +1797,22 @@ mod test {
 
         let sliced = patches.slice(0..10).unwrap().unwrap();
 
-        assert_arrays_eq!(sliced.indices(), PrimitiveArray::from_iter([2u64, 5, 8]));
+        assert_arrays_eq!(
+            sliced.indices(),
+            PrimitiveArray::from_iter([2u64, 5, 8]),
+            &mut assertion_ctx
+        );
         assert_arrays_eq!(
             sliced.values(),
-            PrimitiveArray::from_iter([100i32, 200, 300])
+            PrimitiveArray::from_iter([100i32, 200, 300]),
+            &mut assertion_ctx
         );
     }
 
     #[test]
     fn test_slice_partial() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1723,8 +1825,16 @@ mod test {
         // Slice from 3 to 8 (includes patch at 5)
         let sliced = patches.slice(3..8).unwrap().unwrap();
 
-        assert_arrays_eq!(sliced.indices(), PrimitiveArray::from_iter([5u64])); // Index stays the same
-        assert_arrays_eq!(sliced.values(), PrimitiveArray::from_iter([200i32]));
+        assert_arrays_eq!(
+            sliced.indices(),
+            PrimitiveArray::from_iter([5u64]),
+            &mut assertion_ctx
+        ); // Index stays the same
+        assert_arrays_eq!(
+            sliced.values(),
+            PrimitiveArray::from_iter([200i32]),
+            &mut assertion_ctx
+        );
         assert_eq!(sliced.array_len(), 5); // 8 - 3 = 5
         assert_eq!(sliced.offset(), 3); // New offset
     }
@@ -1747,6 +1857,8 @@ mod test {
 
     #[test]
     fn test_slice_with_offset() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let patches = Patches::new(
             10,
             5,                                  // offset
@@ -1759,8 +1871,16 @@ mod test {
         // Slice from 3 to 8 (includes patch at actual index 5)
         let sliced = patches.slice(3..8).unwrap().unwrap();
 
-        assert_arrays_eq!(sliced.indices(), PrimitiveArray::from_iter([10u64])); // Index stays the same (offset + 5 = 10)
-        assert_arrays_eq!(sliced.values(), PrimitiveArray::from_iter([200i32]));
+        assert_arrays_eq!(
+            sliced.indices(),
+            PrimitiveArray::from_iter([10u64]),
+            &mut assertion_ctx
+        ); // Index stays the same (offset + 5 = 10)
+        assert_arrays_eq!(
+            sliced.values(),
+            PrimitiveArray::from_iter([200i32]),
+            &mut assertion_ctx
+        );
         assert_eq!(sliced.offset(), 8); // New offset = 5 + 3
     }
 
@@ -1846,6 +1966,8 @@ mod test {
 
     #[test]
     fn test_mask_boundary_patches() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         // Test masking patches at array boundaries
         let patches = Patches::new(
             10,
@@ -1864,8 +1986,16 @@ mod test {
             .unwrap();
         assert!(masked.is_some());
         let masked = masked.unwrap();
-        assert_arrays_eq!(masked.indices(), PrimitiveArray::from_iter([9u64]));
-        assert_arrays_eq!(masked.values(), PrimitiveArray::from_iter([200i32]));
+        assert_arrays_eq!(
+            masked.indices(),
+            PrimitiveArray::from_iter([9u64]),
+            &mut assertion_ctx
+        );
+        assert_arrays_eq!(
+            masked.values(),
+            PrimitiveArray::from_iter([200i32]),
+            &mut assertion_ctx
+        );
     }
 
     #[test]
@@ -1892,6 +2022,8 @@ mod test {
 
     #[test]
     fn test_mask_no_patches_removed() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         // Test when no patches are masked
         let patches = Patches::new(
             10,
@@ -1911,15 +2043,22 @@ mod test {
             .unwrap()
             .unwrap();
 
-        assert_arrays_eq!(masked.indices(), PrimitiveArray::from_iter([2u64, 5, 8]));
+        assert_arrays_eq!(
+            masked.indices(),
+            PrimitiveArray::from_iter([2u64, 5, 8]),
+            &mut assertion_ctx
+        );
         assert_arrays_eq!(
             masked.values(),
-            PrimitiveArray::from_iter([100i32, 200, 300])
+            PrimitiveArray::from_iter([100i32, 200, 300]),
+            &mut assertion_ctx
         );
     }
 
     #[test]
     fn test_mask_single_patch() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         // Test with a single patch
         let patches = Patches::new(
             5,
@@ -1943,11 +2082,17 @@ mod test {
             .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()
             .unwrap();
-        assert_arrays_eq!(masked.indices(), PrimitiveArray::from_iter([2u64]));
+        assert_arrays_eq!(
+            masked.indices(),
+            PrimitiveArray::from_iter([2u64]),
+            &mut assertion_ctx
+        );
     }
 
     #[test]
     fn test_mask_contiguous_patches() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         // Test with contiguous patches
         let patches = Patches::new(
             10,
@@ -1967,12 +2112,22 @@ mod test {
             .unwrap()
             .unwrap();
 
-        assert_arrays_eq!(masked.indices(), PrimitiveArray::from_iter([3u64, 6]));
-        assert_arrays_eq!(masked.values(), PrimitiveArray::from_iter([100i32, 400]));
+        assert_arrays_eq!(
+            masked.indices(),
+            PrimitiveArray::from_iter([3u64, 6]),
+            &mut assertion_ctx
+        );
+        assert_arrays_eq!(
+            masked.values(),
+            PrimitiveArray::from_iter([100i32, 400]),
+            &mut assertion_ctx
+        );
     }
 
     #[test]
     fn test_mask_with_large_offset() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         // Test with a large offset that shifts all indices
         let patches = Patches::new(
             20,
@@ -1993,8 +2148,16 @@ mod test {
             .unwrap()
             .unwrap();
 
-        assert_arrays_eq!(masked.indices(), PrimitiveArray::from_iter([16u64, 19]));
-        assert_arrays_eq!(masked.values(), PrimitiveArray::from_iter([100i32, 300]));
+        assert_arrays_eq!(
+            masked.indices(),
+            PrimitiveArray::from_iter([16u64, 19]),
+            &mut assertion_ctx
+        );
+        assert_arrays_eq!(
+            masked.values(),
+            PrimitiveArray::from_iter([100i32, 300]),
+            &mut assertion_ctx
+        );
     }
 
     #[test]

@@ -31,7 +31,11 @@ use crate::FSSTArray;
 use crate::fsst_compress;
 use crate::fsst_train_compressor;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = vortex_array::array_session();
+    crate::initialize(&session);
+    session
+});
 
 /// Helper: make a Symbol from a byte string (up to 8 bytes, zero-padded).
 fn sym(bytes: &[u8]) -> Symbol {
@@ -356,6 +360,7 @@ fn test_like_edge_cases(
         ConstantArray::new(pattern, opts.len()).into_array(),
     )?;
     let expected_arr = BoolArray::from_iter(expected.iter().copied());
-    assert_arrays_eq!(&result, &expected_arr);
+    let mut ctx = SESSION.create_execution_ctx();
+    assert_arrays_eq!(&result, &expected_arr, &mut ctx);
     Ok(())
 }

@@ -385,6 +385,7 @@ impl<T: TypedArrayRef<ParquetVariant>> ParquetVariantArrayExt for T {}
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use arrow_array::Array as _;
     use arrow_array::ArrayRef as ArrowArrayRef;
@@ -399,7 +400,6 @@ mod tests {
     use parquet_variant_compute::VariantArray as ArrowVariantArray;
     use parquet_variant_compute::VariantArrayBuilder;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
@@ -410,9 +410,16 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_session::VortexSession;
 
     use crate::ParquetVariant;
     use crate::array::ParquetVariantArrayExt;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     fn assert_arrow_variant_storage_roundtrip(struct_array: StructArray) -> VortexResult<()> {
         let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
@@ -421,7 +428,7 @@ mod tests {
             .as_opt::<ParquetVariant>()
             .ok_or_else(|| vortex_err!("expected parquet variant child"))?;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let roundtripped = inner.to_arrow(&mut ctx)?;
         let roundtripped = roundtripped.inner();
 
@@ -513,10 +520,11 @@ mod tests {
             .typed_value_array()
             .ok_or_else(|| vortex_err!("expected typed_value child"))?
             .clone()
-            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
+            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
         assert_arrays_eq!(
             typed_value,
-            PrimitiveArray::from_option_iter([Some(10), None, Some(30)])
+            PrimitiveArray::from_option_iter([Some(10), None, Some(30)]),
+            &mut SESSION.create_execution_ctx()
         );
 
         Ok(())
@@ -528,7 +536,7 @@ mod tests {
         let value = VarBinViewArray::from_iter_bin([b"\x10", b"\x11"]).into_array();
         let pv_array = ParquetVariant::try_new(Validity::NonNullable, metadata, Some(value), None)?;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let variant_arr = pv_array.to_arrow(&mut ctx)?;
         let struct_arr = variant_arr.inner();
 
@@ -550,7 +558,7 @@ mod tests {
             Some(typed_value),
         )?;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let variant_arr = pv_array.to_arrow(&mut ctx)?;
         let struct_arr = variant_arr.inner();
 
@@ -599,8 +607,12 @@ mod tests {
             .typed_value_array()
             .ok_or_else(|| vortex_err!("expected typed_value child"))?
             .clone()
-            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
-        assert_arrays_eq!(typed_value, PrimitiveArray::from_iter([10i32, 20, 30]));
+            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
+        assert_arrays_eq!(
+            typed_value,
+            PrimitiveArray::from_iter([10i32, 20, 30]),
+            &mut SESSION.create_execution_ctx()
+        );
         Ok(())
     }
 
@@ -629,7 +641,7 @@ mod tests {
         assert!(parquet_array.value_array().is_some());
         assert!(parquet_array.typed_value_array().is_some());
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let roundtripped = parquet_array.to_arrow(&mut ctx)?;
         let roundtripped = roundtripped.inner();
         assert_eq!(

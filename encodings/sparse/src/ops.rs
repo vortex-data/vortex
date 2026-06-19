@@ -25,18 +25,26 @@ impl OperationsVTable<Sparse> for Sparse {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::Sparse;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
+
     #[test]
     fn slice_partially_invalid() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = buffer![0u64].into_array();
         let indices = buffer![0u8].into_array();
 
@@ -46,6 +54,6 @@ mod tests {
         expected[0] = 0;
 
         let values = sliced.execute::<PrimitiveArray>(&mut ctx).unwrap();
-        assert_arrays_eq!(values, PrimitiveArray::from_iter(expected));
+        assert_arrays_eq!(values, PrimitiveArray::from_iter(expected), &mut ctx);
     }
 }

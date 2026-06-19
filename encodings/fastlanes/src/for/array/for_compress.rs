@@ -68,7 +68,11 @@ mod test {
     use crate::r#for::array::for_decompress::decompress;
     use crate::r#for::array::for_decompress::fused_decompress;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn test_compress_round_trip_small() {
@@ -79,7 +83,7 @@ mod test {
         let compressed = FoRData::encode(array.clone()).unwrap();
         assert_eq!(i32::try_from(compressed.reference_scalar()).unwrap(), 1);
 
-        assert_arrays_eq!(compressed, array);
+        assert_arrays_eq!(compressed, array, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -121,7 +125,7 @@ mod test {
         // Create a range offset by a million.
         let array = PrimitiveArray::from_iter((0u32..100_000).step_by(1024).map(|v| v + 1_000_000));
         let compressed = FoRData::encode(array.clone()).unwrap();
-        assert_arrays_eq!(compressed, array);
+        assert_arrays_eq!(compressed, array, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -132,7 +136,7 @@ mod test {
         let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
         let bp = BitPackedData::encode(&array.into_array(), 3, &mut ctx).unwrap();
         let compressed = FoR::try_new(bp.into_array(), 10u32.into()).unwrap();
-        assert_arrays_eq!(compressed, expect);
+        assert_arrays_eq!(compressed, expect, &mut ctx);
     }
 
     #[test]
@@ -144,7 +148,7 @@ mod test {
         let bp = BitPackedData::encode(&array.into_array(), 2, &mut ctx)?;
         let compressed = FoR::try_new(bp.clone().into_array(), 10u32.into())?;
         let decompressed = fused_decompress::<u32>(&compressed, bp.as_view(), &mut ctx)?;
-        assert_arrays_eq!(decompressed, expect);
+        assert_arrays_eq!(decompressed, expect, &mut ctx);
         Ok(())
     }
 
@@ -182,7 +186,7 @@ mod test {
                     i8::try_from(&compressed.execute_scalar(i, &mut ctx).unwrap()).unwrap()
                 );
             });
-        assert_arrays_eq!(decompressed, array);
+        assert_arrays_eq!(decompressed, array, &mut ctx);
         Ok(())
     }
 }

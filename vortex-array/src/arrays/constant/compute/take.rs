@@ -87,6 +87,8 @@ mod tests {
 
     #[test]
     fn take_nullable_indices() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let array = ConstantArray::new(42, 10).into_array();
         let taken = array
             .take(
@@ -108,7 +110,8 @@ mod tests {
             PrimitiveArray::new(
                 buffer![42i32, 42, 42],
                 Validity::from_iter([false, true, false])
-            )
+            ),
+            &mut assertion_ctx
         );
         assert_eq!(
             taken
@@ -123,6 +126,8 @@ mod tests {
 
     #[test]
     fn take_all_valid_indices() {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let array = ConstantArray::new(42, 10).into_array();
         let taken = array
             .take(PrimitiveArray::new(buffer![0, 5, 7], Validity::AllValid).into_array())
@@ -134,7 +139,8 @@ mod tests {
         assert_arrays_eq!(
             #[expect(deprecated)]
             taken.to_primitive(),
-            PrimitiveArray::new(buffer![42i32, 42, 42], Validity::AllValid)
+            PrimitiveArray::new(buffer![42i32, 42, 42], Validity::AllValid),
+            &mut assertion_ctx
         );
         assert_eq!(
             taken

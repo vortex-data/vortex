@@ -672,10 +672,12 @@ mod tests {
             "$.items[1]",
             Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
         )?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
         assert_arrays_eq!(
             result,
-            PrimitiveArray::from_option_iter([Some(20i32), None, None])
+            PrimitiveArray::from_option_iter([Some(20i32), None, None]),
+            &mut ctx
         );
         Ok(())
     }
@@ -704,10 +706,12 @@ mod tests {
             "$.a",
             Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
         )?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
         assert_arrays_eq!(
             result,
-            PrimitiveArray::from_option_iter([Some(10i32), None, Some(30), None])
+            PrimitiveArray::from_option_iter([Some(10i32), None, Some(30), None]),
+            &mut ctx
         );
         Ok(())
     }
@@ -736,9 +740,11 @@ mod tests {
         )?;
 
         assert!(!result.is::<Chunked>());
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         assert_arrays_eq!(
             result,
-            PrimitiveArray::from_option_iter([Some(10i32), Some(20), None])
+            PrimitiveArray::from_option_iter([Some(10i32), Some(20), None]),
+            &mut ctx
         );
         Ok(())
     }
@@ -769,7 +775,7 @@ mod tests {
                 .map(|value| value.as_str()),
             Some("ok")
         );
-        assert_nth_scalar_is_null!(result, 1);
+        assert_nth_scalar_is_null!(result, 1, &mut ctx);
         assert_eq!(
             result
                 .execute_scalar(2, &mut ctx)?
@@ -777,7 +783,7 @@ mod tests {
                 .is_variant_null(),
             Some(true)
         );
-        assert_nth_scalar_is_null!(result, 3);
+        assert_nth_scalar_is_null!(result, 3, &mut ctx);
         Ok(())
     }
 

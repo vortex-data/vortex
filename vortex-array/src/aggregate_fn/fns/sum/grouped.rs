@@ -236,6 +236,8 @@ mod tests {
 
     #[test]
     fn listview_matches_reference_unsigned() -> VortexResult<()> {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let elements =
             PrimitiveArray::new(buffer![1u32, 2, 3, 4, 5, 6], Validity::NonNullable).into_array();
         let elem_dtype = DType::Primitive(PType::U32, NonNullable);
@@ -248,13 +250,15 @@ mod tests {
 
         // Unsigned input sums to U64.
         let direct = PrimitiveArray::from_option_iter([Some(3u64), Some(3u64), Some(15u64)]);
-        assert_arrays_eq!(&actual, &direct.into_array());
-        assert_arrays_eq!(&actual, &expected);
+        assert_arrays_eq!(&actual, &direct.into_array(), &mut assertion_ctx);
+        assert_arrays_eq!(&actual, &expected, &mut assertion_ctx);
         Ok(())
     }
 
     #[test]
     fn listview_out_of_order_offsets_with_null_group() -> VortexResult<()> {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         // Offsets are not in group order and a group is null: the group validity must be indexed by
         // group index, not by element offset.
         let elements =
@@ -269,13 +273,15 @@ mod tests {
         let expected = grouped_sum_reference(&elements, &ranges, &valid, &elem_dtype)?;
 
         let direct = PrimitiveArray::from_option_iter([Some(110i64), None, Some(70i64)]);
-        assert_arrays_eq!(&actual, &direct.into_array());
-        assert_arrays_eq!(&actual, &expected);
+        assert_arrays_eq!(&actual, &direct.into_array(), &mut assertion_ctx);
+        assert_arrays_eq!(&actual, &expected, &mut assertion_ctx);
         Ok(())
     }
 
     #[test]
     fn listview_interior_and_full_nulls() -> VortexResult<()> {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         // Group 1 has an interior null, group 2 is entirely null, group 3 is empty.
         let elements =
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None, None, Some(9)])
@@ -290,13 +296,15 @@ mod tests {
 
         let direct =
             PrimitiveArray::from_option_iter([Some(4i64), Some(0i64), Some(0i64), Some(9i64)]);
-        assert_arrays_eq!(&actual, &direct.into_array());
-        assert_arrays_eq!(&actual, &expected);
+        assert_arrays_eq!(&actual, &direct.into_array(), &mut assertion_ctx);
+        assert_arrays_eq!(&actual, &expected, &mut assertion_ctx);
         Ok(())
     }
 
     #[test]
     fn listview_overflow_group_is_null() -> VortexResult<()> {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         let elements =
             PrimitiveArray::new(buffer![i64::MAX, 1, 2, 3], Validity::NonNullable).into_array();
         let elem_dtype = DType::Primitive(PType::I64, NonNullable);
@@ -309,8 +317,8 @@ mod tests {
 
         // First group overflows -> null sum; second group sums normally.
         let direct = PrimitiveArray::from_option_iter([None, Some(5i64)]);
-        assert_arrays_eq!(&actual, &direct.into_array());
-        assert_arrays_eq!(&actual, &expected);
+        assert_arrays_eq!(&actual, &direct.into_array(), &mut assertion_ctx);
+        assert_arrays_eq!(&actual, &expected, &mut assertion_ctx);
         Ok(())
     }
 
@@ -380,6 +388,8 @@ mod tests {
 
     #[test]
     fn fixed_size_overflow_and_nan() -> VortexResult<()> {
+        let assertion_session = crate::array_session();
+        let mut assertion_ctx = assertion_session.create_execution_ctx();
         // FixedSize path: first group overflows -> null sum, second sums normally.
         let elements =
             PrimitiveArray::new(buffer![i64::MAX, 1, 2, 3], Validity::NonNullable).into_array();
@@ -391,8 +401,8 @@ mod tests {
         let expected =
             grouped_sum_reference(&elements, &[(0, 2), (2, 2)], &[true, true], &elem_dtype)?;
         let direct = PrimitiveArray::from_option_iter([None, Some(5i64)]);
-        assert_arrays_eq!(&actual, &direct.into_array());
-        assert_arrays_eq!(&actual, &expected);
+        assert_arrays_eq!(&actual, &direct.into_array(), &mut assertion_ctx);
+        assert_arrays_eq!(&actual, &expected, &mut assertion_ctx);
         Ok(())
     }
 }

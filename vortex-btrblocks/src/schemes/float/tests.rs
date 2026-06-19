@@ -22,7 +22,6 @@ use vortex_session::VortexSession;
 
 use crate::BtrBlocksCompressor;
 use crate::schemes::float::FloatRLEScheme;
-
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 #[test]
@@ -58,6 +57,8 @@ fn test_compress() -> VortexResult<()> {
 
 #[test]
 fn test_rle_compression() -> VortexResult<()> {
+    let assertion_session = vortex_array::array_session();
+    let mut assertion_ctx = assertion_session.create_execution_ctx();
     let mut values = Vec::new();
     values.extend(iter::repeat_n(1.5f32, 100));
     values.extend(iter::repeat_n(2.7f32, 200));
@@ -71,7 +72,7 @@ fn test_rle_compression() -> VortexResult<()> {
     assert!(compressed.is::<RLE>());
 
     let expected = Buffer::copy_from(&values).into_array();
-    assert_arrays_eq!(compressed, expected);
+    assert_arrays_eq!(compressed, expected, &mut assertion_ctx);
     Ok(())
 }
 
