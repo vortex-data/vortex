@@ -86,12 +86,12 @@ where
         // In dev builds, using one function-pointer comparator type avoids multiplying that
         // generated code and debug info by every comparison operator.
         let cmp: fn(T, T) -> bool = match operator {
-            CompareOperator::Eq => NativePType::is_eq,
-            CompareOperator::NotEq => NativePType::is_ne,
-            CompareOperator::Lt => NativePType::is_lt,
-            CompareOperator::Lte => NativePType::is_le,
-            CompareOperator::Gt => NativePType::is_gt,
-            CompareOperator::Gte => NativePType::is_ge,
+            CompareOperator::Eq => T::is_eq,
+            CompareOperator::NotEq => T::is_ne,
+            CompareOperator::Lt => T::is_lt,
+            CompareOperator::Lte => T::is_le,
+            CompareOperator::Gt => T::is_gt,
+            CompareOperator::Gte => T::is_ge,
         };
         stream_compare_fused::<T, fn(T, T) -> bool>(lhs, rhs, nullability, cmp, ctx)
     }
@@ -100,22 +100,22 @@ where
     {
         match operator {
             CompareOperator::Eq => {
-                stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| a.is_eq(b), ctx)
+                stream_compare_fused::<T, _>(lhs, rhs, nullability, T::is_eq, ctx)
             }
             CompareOperator::NotEq => {
-                stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| !a.is_eq(b), ctx)
+                stream_compare_fused::<T, _>(lhs, rhs, nullability, T::is_ne, ctx)
             }
             CompareOperator::Lt => {
-                stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| a.is_lt(b), ctx)
+                stream_compare_fused::<T, _>(lhs, rhs, nullability, T::is_lt, ctx)
             }
             CompareOperator::Lte => {
-                stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| a.is_le(b), ctx)
+                stream_compare_fused::<T, _>(lhs, rhs, nullability, T::is_le, ctx)
             }
             CompareOperator::Gt => {
-                stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| a.is_gt(b), ctx)
+                stream_compare_fused::<T, _>(lhs, rhs, nullability, T::is_gt, ctx)
             }
             CompareOperator::Gte => {
-                stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| a.is_ge(b), ctx)
+                stream_compare_fused::<T, _>(lhs, rhs, nullability, T::is_ge, ctx)
             }
         }
     }
