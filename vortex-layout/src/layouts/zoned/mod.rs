@@ -51,7 +51,6 @@ use crate::VTable;
 use crate::children::LayoutChildren;
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::zoned::reader::ZonedReader;
-use crate::layouts::zoned::schema::AggregateSpec;
 use crate::layouts::zoned::schema::AggregateSpecProto;
 use crate::layouts::zoned::schema::aggregate_fns_from_specs;
 use crate::layouts::zoned::schema::aggregate_specs_from_fns;
@@ -89,7 +88,11 @@ impl VTable for Zoned {
         ZonedMetadata {
             zone_len: u32::try_from(layout.zone_len).vortex_expect("Invalid zone length"),
             aggregate_specs: match &layout.zone_map_schema {
-                ZoneMapSchema::AggregateSpecs(aggregate_specs) => Arc::clone(aggregate_specs),
+                ZoneMapSchema::AggregateFns(aggregate_fns) => {
+                    aggregate_specs_from_fns(aggregate_fns).vortex_expect(
+                        "aggregate functions should be validated as serializable during build",
+                    )
+                }
                 ZoneMapSchema::LegacyStats(_) => {
                     vortex_panic!("Cannot serialize legacy stats schema as vortex.zoned")
                 }
@@ -152,14 +155,14 @@ impl VTable for Zoned {
             "ZonedLayout expects exactly 2 children (data, zones)"
         );
         let aggregate_fns = aggregate_fns_from_specs(&metadata.aggregate_specs, build_ctx.session)?;
+        aggregate_specs_from_fns(&aggregate_fns)?;
         let stats_table_dtype = aggregate_stats_table_dtype(dtype, &aggregate_fns);
         Ok(ZonedLayout {
             dtype: dtype.clone(),
             children: children.to_arc(),
             zone_len: metadata.zone_len as usize,
-            zone_map_schema: ZoneMapSchema::AggregateSpecs(Arc::clone(&metadata.aggregate_specs)),
+            zone_map_schema: ZoneMapSchema::AggregateFns(aggregate_fns),
             stats_table_dtype,
-            aggregate_fns: Some(aggregate_fns),
         })
     }
 
@@ -244,21 +247,17 @@ impl VTable for LegacyStats {
         metadata: &LegacyStatsMetadata,
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        build_ctx: &LayoutBuildContext<'_>,
+        _build_ctx: &LayoutBuildContext<'_>,
     ) -> VortexResult<Self::Layout> {
         vortex_ensure_eq!(
             children.nchildren(),
             2,
             "LegacyStatsLayout expects exactly 2 children (data, zones)"
         );
-        let (stats_table_dtype, aggregate_fns) = match &metadata.zone_map_schema {
-            ZoneMapSchema::LegacyStats(stats) => (legacy_stats_table_dtype(dtype, stats), None),
-            ZoneMapSchema::AggregateSpecs(aggregate_specs) => {
-                let aggregate_fns = aggregate_fns_from_specs(aggregate_specs, build_ctx.session)?;
-                (
-                    aggregate_stats_table_dtype(dtype, &aggregate_fns),
-                    Some(aggregate_fns),
-                )
+        let stats_table_dtype = match &metadata.zone_map_schema {
+            ZoneMapSchema::LegacyStats(stats) => legacy_stats_table_dtype(dtype, stats),
+            ZoneMapSchema::AggregateFns(aggregate_fns) => {
+                aggregate_stats_table_dtype(dtype, aggregate_fns)
             }
         };
         Ok(LegacyStatsLayout(ZonedLayout {
@@ -267,7 +266,6 @@ impl VTable for LegacyStats {
             zone_len: metadata.zone_len as usize,
             zone_map_schema: metadata.zone_map_schema.clone(),
             stats_table_dtype,
-            aggregate_fns,
         }))
     }
 
@@ -296,7 +294,6 @@ pub struct ZonedLayout {
     zone_len: usize,
     zone_map_schema: ZoneMapSchema,
     stats_table_dtype: DType,
-    aggregate_fns: Option<Arc<[AggregateFnRef]>>,
 }
 
 /// A legacy `vortex.stats` layout backed by the shared zoned runtime implementation.
@@ -313,7 +310,7 @@ impl LegacyStatsLayout {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ZoneMapSchema {
     LegacyStats(Arc<[Stat]>),
-    AggregateSpecs(Arc<[AggregateSpec]>),
+    AggregateFns(Arc<[AggregateFnRef]>),
 }
 
 impl ZonedLayout {
@@ -331,15 +328,14 @@ impl ZonedLayout {
         if zones.dtype() != &expected_dtype {
             vortex_bail!("Invalid zone map layout: zones dtype does not match expected dtype");
         }
-        let aggregate_specs = aggregate_specs_from_fns(&aggregate_fns)?;
+        aggregate_specs_from_fns(&aggregate_fns)?;
 
         Ok(Self {
             dtype: data.dtype().clone(),
             children: OwnedLayoutChildren::layout_children(vec![data, zones]),
             zone_len,
-            zone_map_schema: ZoneMapSchema::AggregateSpecs(aggregate_specs),
+            zone_map_schema: ZoneMapSchema::AggregateFns(aggregate_fns),
             stats_table_dtype: expected_dtype,
-            aggregate_fns: Some(aggregate_fns),
         })
     }
 
@@ -353,14 +349,6 @@ impl ZonedLayout {
 
     /// Returns display names for the zone-map aggregates stored by this layout.
     pub fn present_aggregates(&self) -> Arc<[String]> {
-        if let Some(aggregate_fns) = &self.aggregate_fns {
-            return aggregate_fns
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .into();
-        }
-
         match &self.zone_map_schema {
             ZoneMapSchema::LegacyStats(stats) => stats
                 .iter()
@@ -368,9 +356,9 @@ impl ZonedLayout {
                 .map(|aggregate_fn| aggregate_fn.to_string())
                 .collect::<Vec<_>>()
                 .into(),
-            ZoneMapSchema::AggregateSpecs(aggregate_specs) => aggregate_specs
+            ZoneMapSchema::AggregateFns(aggregate_fns) => aggregate_fns
                 .iter()
-                .map(AggregateSpec::display_name)
+                .map(ToString::to_string)
                 .collect::<Vec<_>>()
                 .into(),
         }
@@ -378,21 +366,15 @@ impl ZonedLayout {
 
     pub(super) fn aggregate_fns(
         &self,
-        session: &VortexSession,
+        _session: &VortexSession,
     ) -> VortexResult<Arc<[AggregateFnRef]>> {
-        if let Some(aggregate_fns) = &self.aggregate_fns {
-            return Ok(Arc::clone(aggregate_fns));
-        }
-
         match &self.zone_map_schema {
             ZoneMapSchema::LegacyStats(stats) => Ok(stats
                 .iter()
                 .filter_map(Stat::aggregate_fn)
                 .collect::<Vec<_>>()
                 .into()),
-            ZoneMapSchema::AggregateSpecs(aggregate_specs) => {
-                aggregate_fns_from_specs(aggregate_specs, session)
-            }
+            ZoneMapSchema::AggregateFns(aggregate_fns) => Ok(Arc::clone(aggregate_fns)),
         }
     }
 
@@ -412,7 +394,7 @@ impl ZonedLayout {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ZonedMetadata {
     pub(super) zone_len: u32,
-    pub(super) aggregate_specs: Arc<[AggregateSpec]>,
+    pub(super) aggregate_specs: Arc<[AggregateSpecProto]>,
 }
 
 /// Serialized metadata for legacy `vortex.stats` layouts.
@@ -450,12 +432,7 @@ impl DeserializeMetadata for ZonedMetadata {
         let proto = ZonedMetadataProto::decode(proto_bytes)?;
         Ok(Self {
             zone_len: proto.zone_len,
-            aggregate_specs: proto
-                .aggregate_specs
-                .into_iter()
-                .map(AggregateSpec::from_proto)
-                .collect::<Vec<_>>()
-                .into(),
+            aggregate_specs: proto.aggregate_specs.into(),
         })
     }
 }
@@ -464,11 +441,7 @@ impl SerializeMetadata for ZonedMetadata {
     fn serialize(self) -> Vec<u8> {
         let proto = ZonedMetadataProto {
             zone_len: self.zone_len,
-            aggregate_specs: self
-                .aggregate_specs
-                .iter()
-                .map(AggregateSpec::to_proto)
-                .collect(),
+            aggregate_specs: self.aggregate_specs.to_vec(),
         };
         let mut metadata = vec![ZONED_METADATA_PROTO_VERSION];
         metadata.extend(proto.encode_to_vec());
@@ -507,7 +480,7 @@ impl SerializeMetadata for LegacyStatsMetadata {
                 metadata.extend(as_stat_bitset_bytes(&stats));
                 metadata
             }
-            ZoneMapSchema::AggregateSpecs(_) => {
+            ZoneMapSchema::AggregateFns(_) => {
                 vortex_panic!("Cannot serialize aggregate specs as legacy stats metadata")
             }
         }
@@ -540,8 +513,8 @@ mod tests {
     use crate::layouts::flat::FlatLayout;
     use crate::segments::SegmentId;
 
-    fn aggregate_spec(aggregate_fn: AggregateFnRef) -> AggregateSpec {
-        AggregateSpec::try_from_aggregate_fn(&aggregate_fn).unwrap()
+    fn aggregate_spec(aggregate_fn: AggregateFnRef) -> AggregateSpecProto {
+        AggregateSpecProto::try_from_aggregate_fn(&aggregate_fn).unwrap()
     }
 
     #[rstest]
@@ -571,7 +544,7 @@ mod tests {
         });
         let metadata = ZonedMetadata {
             zone_len: 314,
-            aggregate_specs: Arc::new([AggregateSpec::try_from_aggregate_fn(&aggregate_fn)?]),
+            aggregate_specs: Arc::new([AggregateSpecProto::try_from_aggregate_fn(&aggregate_fn)?]),
         };
 
         let deserialized = ZonedMetadata::deserialize(&metadata.serialize())?;

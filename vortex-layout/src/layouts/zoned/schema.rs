@@ -20,13 +20,15 @@ use vortex_session::VortexSession;
 pub const MAX_IS_TRUNCATED: &str = "max_is_truncated";
 pub const MIN_IS_TRUNCATED: &str = "min_is_truncated";
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct AggregateSpec {
+#[derive(Clone, PartialEq, Eq, ::prost::Message)]
+pub(crate) struct AggregateSpecProto {
+    #[prost(string, tag = "1")]
     id: String,
+    #[prost(bytes, tag = "2")]
     options: Vec<u8>,
 }
 
-impl AggregateSpec {
+impl AggregateSpecProto {
     pub(crate) fn try_from_aggregate_fn(aggregate_fn: &AggregateFnRef) -> VortexResult<Self> {
         let options = aggregate_fn.options().serialize()?.ok_or_else(|| {
             vortex_err!(
@@ -58,36 +60,6 @@ impl AggregateSpec {
 
         Ok(aggregate_fn)
     }
-
-    pub(super) fn from_proto(proto: AggregateSpecProto) -> Self {
-        Self {
-            id: proto.id,
-            options: proto.options,
-        }
-    }
-
-    pub(super) fn to_proto(&self) -> AggregateSpecProto {
-        AggregateSpecProto {
-            id: self.id.clone(),
-            options: self.options.clone(),
-        }
-    }
-
-    pub(crate) fn display_name(&self) -> String {
-        if self.options.is_empty() {
-            format!("{}()", self.id)
-        } else {
-            format!("{}({} option bytes)", self.id, self.options.len())
-        }
-    }
-}
-
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub(super) struct AggregateSpecProto {
-    #[prost(string, tag = "1")]
-    id: String,
-    #[prost(bytes, tag = "2")]
-    options: Vec<u8>,
 }
 
 /// Return the auxiliary stats-table schema for a zoned layout.
@@ -141,16 +113,16 @@ pub(crate) fn legacy_stats_table_dtype(column_dtype: &DType, present_stats: &[St
 
 pub(crate) fn aggregate_specs_from_fns(
     aggregate_fns: &[AggregateFnRef],
-) -> VortexResult<Arc<[AggregateSpec]>> {
+) -> VortexResult<Arc<[AggregateSpecProto]>> {
     aggregate_fns
         .iter()
-        .map(AggregateSpec::try_from_aggregate_fn)
+        .map(AggregateSpecProto::try_from_aggregate_fn)
         .collect::<VortexResult<Vec<_>>>()
         .map(Into::into)
 }
 
 pub(crate) fn aggregate_fns_from_specs(
-    aggregate_specs: &[AggregateSpec],
+    aggregate_specs: &[AggregateSpecProto],
     session: &VortexSession,
 ) -> VortexResult<Arc<[AggregateFnRef]>> {
     aggregate_specs
