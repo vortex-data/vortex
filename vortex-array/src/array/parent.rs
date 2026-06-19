@@ -30,7 +30,7 @@ use crate::array::VTable;
 use crate::dtype::DType;
 use crate::matcher::AsParent;
 use crate::matcher::Matcher;
-use crate::optimizer::ArrayOptimizer;
+use crate::optimizer::optimize_owned;
 
 /// A parent array, possibly stack-allocated, used by the `reduce_parent` dispatch chain.
 ///
@@ -325,14 +325,14 @@ impl<V: VTable> ArrayParts<V> {
     pub fn optimize(self) -> VortexResult<ArrayRef> {
         let parent = ParentRef::from_parts(&self);
         if let Some(reduced) = parent.reduce()? {
-            return reduced.optimize();
+            return Ok(optimize_owned(reduced, None)?.0);
         }
 
         for (slot_idx, slot) in parent.slots.iter().enumerate() {
             let Some(child) = slot else { continue };
 
             if let Some(reduced) = child.reduce_parent(&parent, slot_idx)? {
-                return reduced.optimize();
+                return Ok(optimize_owned(reduced, None)?.0);
             }
         }
 
