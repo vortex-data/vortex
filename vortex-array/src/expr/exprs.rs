@@ -754,11 +754,9 @@ pub fn ext_storage(input: Expression) -> Expression {
 
 // ---- ListLength ----
 
-/// Creates an expression that computes the number of elements in each list.
-///
-/// This is akin to ANSI SQL `CARDINALITY()`, or DuckDB's `len()`/`array_length()`. The result is
-/// a `U64` array; a null list yields a null length. It reads only the list's offsets, not the
-/// element values.
+/// Creates an expression that computes the number of elements in each list
+/// for `List` and `FixedSizeList` inputs. This is akin to ANSI SQL `CARDINALITY()`,
+/// or DuckDB's `len()`/`array_length()`.
 ///
 /// ```rust
 /// # use vortex_array::expr::{list_length, root};
