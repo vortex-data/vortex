@@ -31,9 +31,7 @@ def _load_port():
     `test_migrate_schema.py` loader; a normal import also works since the module
     name is a valid identifier, but loading by path keeps the scripts/ tests
     uniform and independent of `sys.path` setup."""
-    spec = importlib.util.spec_from_file_location(
-        "_measurement_id", _SCRIPTS_DIR / "_measurement_id.py"
-    )
+    spec = importlib.util.spec_from_file_location("_measurement_id", _SCRIPTS_DIR / "_measurement_id.py")
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -71,8 +69,7 @@ def test_python_port_matches_golden(vector: dict) -> None:
     actual = func(**fields)
 
     assert actual == expected, (
-        f"measurement_id mismatch for {table} vector {fields!r}: "
-        f"port produced {actual}, Rust golden is {expected}"
+        f"measurement_id mismatch for {table} vector {fields!r}: port produced {actual}, Rust golden is {expected}"
     )
     # The id is bit-cast to i64; confirm it stays in range (catches a port that
     # forgot the u64->i64 conversion and returned a bare u64).
@@ -97,6 +94,5 @@ def test_multibyte_fixture_present() -> None:
     fixture, fail loudly."""
     blob = json.dumps(_VECTORS, ensure_ascii=False)
     assert any(ord(ch) > 0x7F for ch in blob), (
-        "no multibyte UTF-8 in golden vectors; the byte-vs-char length-prefix "
-        "regression is unguarded"
+        "no multibyte UTF-8 in golden vectors; the byte-vs-char length-prefix regression is unguarded"
     )
