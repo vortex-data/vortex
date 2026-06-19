@@ -148,9 +148,17 @@ impl ReadPlan for FlatReadPlan {
         &self,
         _range: Range<u64>,
         _rows: RowScope<'_>,
-        _state: &Self::State,
+        state: &Self::State,
         cx: &mut SegmentPlanCtx,
     ) -> VortexResult<SegmentRequests> {
+        if downcast_state::<FlatScanNode>(state.as_ref())?
+            .array
+            .lock()
+            .is_some()
+        {
+            return Ok(SegmentRequests::none());
+        }
+
         let Some(flat) = self.node.layout.as_opt::<Flat>() else {
             vortex_bail!(
                 "expected flat layout, got {}",

@@ -128,6 +128,7 @@ fn value_expr_is_expensive(expr: &Expression) -> bool {
 fn sparse_dict_candidate(values_len: u64, rows: RowScope<'_>) -> bool {
     rows.demands_all_selected()
         && !rows.selection.all_true()
+        && rows.selection.density() < 0.5
         && matches!(
             usize::try_from(values_len),
             Ok(values_len) if values_len > rows.demand.true_count()
