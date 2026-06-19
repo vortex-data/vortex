@@ -246,6 +246,26 @@ This spine mixes one CODE phase with three OPS phases; the orchestrator handles 
   implies an automated drift guard that does not exist. Deferral rationale: docs-only; the fixture
   CODE is column-by-column correct (opus-verified). Apply as a doc cleanup during phase-D
   finalization (before the phase-end gauntlet).
+- **Sub-phase 1.3 — APPLY in phase-D finalization** (cheap, in-scope, clearly-correct should-fixes
+  to land as a polish commit BEFORE the phase-end gauntlet, so the shipped artifact is clean):
+  (a) `configure-aws-credentials` SHA mismatch — the 3 new v4 blocks pin `@99214aa6889…  # v6`
+  while the repo's existing v3/S3 steps pin `@e7f100cf4c008…  # v6`; align the v4 blocks to the
+  repo's existing `e7f100cf…` so each file is internally consistent (flagged by fresh + maint).
+  (b) add `pytest.importorskip("xxhash")` to `scripts/test_measurement_id.py` (the 1.1-deferred
+  local-dev-UX fix; CI already supplies xxhash via `--with`). (c) `scripts/post-ingest.py:~1000`
+  error message says "set AWS_REGION" but boto3 reads `AWS_DEFAULT_REGION` — fix the message.
+  (d) `scripts/test_post_ingest_revalidate.py` — assert the revalidate request method is POST
+  (the 1.2-deferred nit).
+- **Sub-phase 1.3**, **deferred / no-action** (nits + pre-existing): contract+revalidate step
+  lives in the required `python-test` job (deliberate — required-check placement beats the
+  build-coupling concern fresh raised); `sql-benchmarks.yml` has no `id-token: write` block
+  (pre-existing pattern — its existing Setup-AWS-CLI step relies on the same caller-inherited
+  permission; all callers grant it); redundant "Install uv" step in sql-benchmarks (harmless,
+  idempotent, continue-on-error); v4 steps omit `--repo-url` (post-ingest.py's default is correct
+  for the canonical repo); `--with testcontainers` unpinned; `empty.jsonl` created in both the v3
+  and v4 steps of v3-commit-metadata (defensible — the v4 step may run when the v3 step skipped).
+- **Ops (not code)**: making the new `scripts-test` job a REQUIRED check is a GitHub
+  branch-protection setting (admin action), not a code change — track alongside the ops phases.
 - **Sub-phase 1.2**, multiple files, **nits** (~10): test rollback-assertion consistency +
   revalidate HTTP-method assertion (fresh); non-string `commit_sha` yields a misleading mismatch
   error (correctness); plan-cycle/PR labels in comments, `_load_module` 4x duplication, handler
@@ -277,3 +297,14 @@ This spine mixes one CODE phase with three OPS phases; the orchestrator handles 
   postgres:16-alpine.
 - **Gauntlet:** pr-3 / accepted (cycles: 1) — fresh + correctness (opus) + maint, zero must-fix.
 - **Deferred:** 4 should-fix-class + ~10 nits (see Carry-forward > Deferred work)
+
+#### Sub-phase 1.3: CI + workflow wiring
+
+- **Shipped:** wired the contract + revalidate tests into the required `python-test` CI job and
+  the testcontainer suite into a new docker-gated `scripts-test` job (all via `uv run --with`, no
+  pyproject/uv.lock changes); added the dormant best-effort v4 ingest step block to bench.yml,
+  sql-benchmarks.yml, v3-commit-metadata.yml (+ `id-token: write`), gated on
+  `vars.GH_BENCH_INGEST_ROLE_ARN != ''` + `continue-on-error`.
+- **Gauntlet:** pr-3 / accepted (cycles: 1) — fresh + correctness + maint, zero must-fix.
+- **Deferred:** 4 apply-in-finalization should-fixes + several no-action nits/pre-existing
+  (see Carry-forward > Deferred work).
