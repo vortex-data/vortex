@@ -147,7 +147,7 @@ mod tests {
     use crate::dtype::StructFields;
     use crate::executor::VortexSessionExecute;
     use crate::optimizer::ArrayOptimizer;
-    use crate::optimizer::kernels::ArrayKernels;
+    use crate::optimizer::kernels::KernelSession;
     use crate::optimizer::kernels::ReduceParentFn;
     use crate::scalar::Scalar;
     use crate::scalar_fn::ScalarFnVTable;
@@ -254,8 +254,8 @@ mod tests {
         );
 
         let cast = source.cast(target).unwrap();
-        let kernels = ArrayKernels::empty();
-        kernels.register_reduce_parent(
+        let kernels = KernelSession::empty();
+        kernels.kernels().register_reduce_parent(
             Cast.id(),
             Struct.id(),
             &[no_struct_cast_plugin as ReduceParentFn],

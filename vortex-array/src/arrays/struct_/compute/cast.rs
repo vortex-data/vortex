@@ -151,9 +151,9 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
-    use crate::optimizer::kernels::ArrayKernels;
     use crate::optimizer::kernels::ArrayKernelsExt;
     use crate::optimizer::kernels::ExecuteParentFn;
+    use crate::optimizer::kernels::KernelSession;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::cast::Cast;
     use crate::validity::Validity;
@@ -214,7 +214,7 @@ mod tests {
             .try_new_array(source.len(), target.clone(), [source])
             .unwrap();
         let parent_id = cast.encoding_id();
-        let session = VortexSession::empty().with::<ArrayKernels>();
+        let session = VortexSession::empty().with_some(KernelSession::empty());
         session.kernels().register_execute_parent(
             parent_id,
             child_id,

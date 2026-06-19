@@ -860,8 +860,8 @@ mod tests {
     use crate::VTable as _;
     use crate::arrays::Bool;
     use crate::arrays::Primitive;
-    use crate::optimizer::kernels::ArrayKernels;
     use crate::optimizer::kernels::ExecuteParentFn;
+    use crate::optimizer::kernels::KernelSession;
     use crate::optimizer::kernels::execute_parent_key;
 
     fn noop_execute_parent(
@@ -875,7 +875,7 @@ mod tests {
 
     #[test]
     fn execution_ctx_snapshots_execute_parent_kernels_at_creation() {
-        let session = VortexSession::empty().with::<ArrayKernels>();
+        let session = VortexSession::empty().with_some(KernelSession::empty());
         let key = execute_parent_key(Bool.id(), Primitive.id());
 
         let before_registration = ExecutionCtx::new(session.clone());

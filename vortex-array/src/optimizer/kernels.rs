@@ -18,10 +18,10 @@
 //! Because registered functions have different signatures for each kernel kind, the registry
 //! maintains one storage map per function type rather than a single type-erased map.
 //!
-//! [`ArraySession`] owns vortex-array's built-in kernel registry,
-//! so sessions that install the default array encodings get their matching built-in kernels too.
-//! Sessions can still install a standalone [`ArrayKernels`] registry when they need a kernel-only
-//! setup or an explicit override.
+//! [`KernelSession`] is the session variable that owns this registry. Its [`Default`]
+//! implementation installs vortex-array's built-in parent-reduce and execute-parent kernels, so a
+//! session built with [`KernelSession`] participates in the same optimizations and fused execution
+//! as the built-in encodings.
 
 use std::any::Any;
 use std::borrow::Borrow;
@@ -34,6 +34,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_session::SessionExt;
 use vortex_session::SessionVar;
+use vortex_session::VortexSession;
 use vortex_session::registry::Id;
 use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -48,7 +49,6 @@ use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::cast::Cast;
-use crate::session::ArraySession;
 
 /// Shared hasher used to combine `(outer, child)` tuples into registry keys.
 static FN_HASHER: LazyLock<DefaultHashBuilder> = LazyLock::new(DefaultHashBuilder::default);
@@ -291,7 +291,47 @@ pub(crate) fn execute_parent_key(parent: Id, child: Id) -> u64 {
     hash_fn_id(parent, child)
 }
 
-impl SessionVar for ArrayKernels {
+/// Session-scoped holder for the optimizer kernel registry.
+///
+/// `KernelSession` is the session variable that owns an [`ArrayKernels`] registry. Its [`Default`]
+/// implementation installs vortex-array's built-in parent-reduce and execute-parent kernels,
+/// mirroring how [`ScalarFnSession`](crate::scalar_fn::session::ScalarFnSession) and the other
+/// session variables register their built-ins.
+#[derive(Clone, Debug)]
+pub struct KernelSession {
+    kernels: ArrayKernels,
+}
+
+impl KernelSession {
+    /// Create a [`KernelSession`] with an empty kernel registry.
+    pub fn empty() -> Self {
+        Self {
+            kernels: ArrayKernels::empty(),
+        }
+    }
+
+    /// Returns the [`ArrayKernels`] registry held by this session.
+    pub fn kernels(&self) -> &ArrayKernels {
+        &self.kernels
+    }
+}
+
+impl Default for KernelSession {
+    fn default() -> Self {
+        // `ArrayKernels::default` installs the built-in parent-reduce kernels. The execute-parent
+        // kernels are registered by the per-encoding `initialize` functions, which operate on a
+        // session. `KernelSession` clones share their registry storage, so kernels registered into
+        // the temporary session land in `this.kernels`.
+        let this = Self {
+            kernels: ArrayKernels::default(),
+        };
+        let session = VortexSession::empty().with_some(this.clone());
+        crate::arrays::initialize(&session);
+        this
+    }
+}
+
+impl SessionVar for KernelSession {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -301,25 +341,57 @@ impl SessionVar for ArrayKernels {
     }
 }
 
-/// Extension trait for accessing optimizer kernels from a
-/// [`VortexSession`](vortex_session::VortexSession).
+/// Extension trait for accessing the optimizer kernel registry from a [`VortexSession`].
 pub trait ArrayKernelsExt: SessionExt {
-    /// Returns the active [`ArrayKernels`] registry if one is available.
-    ///
-    /// A standalone [`ArrayKernels`] variable takes precedence and is not merged with an
-    /// [`ArraySession`]-owned registry. Otherwise, sessions that include [`ArraySession`] use its
-    /// built-in kernel registry.
+    /// Returns the active [`ArrayKernels`] registry if the session contains a [`KernelSession`].
     fn kernels_opt(&self) -> Option<&ArrayKernels> {
-        self.get_opt::<ArrayKernels>()
-            .or_else(|| self.get_opt::<ArraySession>().map(ArraySession::kernels))
+        self.get_opt::<KernelSession>().map(KernelSession::kernels)
     }
 
     /// Returns the active [`ArrayKernels`] registry.
+    ///
+    /// Panics if the session does not contain a [`KernelSession`].
     fn kernels(&self) -> &ArrayKernels {
-        self.kernels_opt().unwrap_or_else(|| {
-            vortex_panic!("Session contains neither ArrayKernels nor ArraySession")
-        })
+        self.kernels_opt()
+            .unwrap_or_else(|| vortex_panic!("Session does not contain a KernelSession"))
     }
 }
 
 impl<S: SessionExt> ArrayKernelsExt for S {}
+
+#[cfg(test)]
+mod tests {
+    use vortex_session::VortexSession;
+
+    use super::ArrayKernelsExt;
+    use super::KernelSession;
+    use crate::ArrayVTable;
+    use crate::arrays::Bool;
+    use crate::scalar_fn::ScalarFnVTable;
+    use crate::scalar_fn::fns::binary::Binary;
+
+    #[test]
+    fn kernel_session_default_registers_builtin_kernels() {
+        let session = VortexSession::empty().with::<KernelSession>();
+
+        assert!(session.kernels().has_execute_parent(Binary.id(), Bool.id()));
+    }
+
+    #[test]
+    fn initialize_registers_builtin_kernels_into_empty_kernel_session() {
+        let session = VortexSession::empty().with_some(KernelSession::empty());
+
+        assert!(!session.kernels().has_execute_parent(Binary.id(), Bool.id()));
+
+        crate::initialize(&session);
+
+        assert!(session.kernels().has_execute_parent(Binary.id(), Bool.id()));
+    }
+
+    #[test]
+    fn kernels_opt_is_none_without_kernel_session() {
+        let session = VortexSession::empty();
+
+        assert!(session.kernels_opt().is_none());
+    }
+}

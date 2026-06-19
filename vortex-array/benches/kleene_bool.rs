@@ -17,6 +17,7 @@ use vortex_array::arrow::ArrowSession;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::session::ArraySession;
@@ -29,6 +30,7 @@ fn main() {
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     VortexSession::empty()
         .with::<ArraySession>()
+        .with::<KernelSession>()
         .with::<ArrowSession>()
 });
 

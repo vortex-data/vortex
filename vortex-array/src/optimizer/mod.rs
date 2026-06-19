@@ -39,9 +39,9 @@ pub trait ArrayOptimizer {
     /// [`kernels::ArrayKernels`] registry on `session`, if any.
     ///
     /// Session kernels are checked for each `(parent_encoding_id, child_encoding_id)` pair before
-    /// the child's static `PARENT_RULES`. A standalone [`kernels::ArrayKernels`] registry takes
-    /// precedence over an [`ArraySession`](crate::session::ArraySession)-owned registry. If
-    /// `session` contains neither registry, this behaves like [`Self::optimize`].
+    /// the child's static `PARENT_RULES`. The registry comes from the [`kernels::KernelSession`] on
+    /// `session`, if any. If `session` does not contain a [`kernels::KernelSession`], this behaves
+    /// like [`Self::optimize`].
     fn optimize_ctx(&self, session: &VortexSession) -> VortexResult<ArrayRef>;
 
     /// Optimize the entire array tree recursively (root and all descendants).
