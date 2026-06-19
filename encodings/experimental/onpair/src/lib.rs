@@ -27,3 +27,11 @@ pub use onpair::Bits;
 pub use onpair::Config;
 pub use onpair::Error as OnPairError;
 pub use onpair::Threshold;
+use vortex_array::session::ArraySessionExt;
+use vortex_session::VortexSession;
+
+/// Initialize OnPair encoding in the given session.
+pub fn initialize(session: &VortexSession) {
+    session.arrays().register(OnPair);
+    kernel::initialize(session);
+}

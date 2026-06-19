@@ -140,6 +140,13 @@ use crate::persistent::reader::VortexReaderFactory;
 /// - when enabled, the scan can evaluate a Vortex-native projection and leave
 ///   only unsupported expressions for DataFusion.
 ///
+/// Predicate handling depends on [`VortexTableOptions::predicate_pushdown`]:
+///
+/// - when disabled, `VortexSource` still keeps the full predicate for
+///   DataFusion file pruning, but reports filters as not pushed down so
+///   DataFusion evaluates them after the scan,
+/// - when enabled, supported filters are pushed into the Vortex scan.
+///
 /// # Observability
 ///
 /// `VortexSource` owns a Vortex metrics registry for the lifetime of a physical
@@ -170,6 +177,7 @@ use crate::persistent::reader::VortexReaderFactory;
 /// [`VortexAccessPlan`]: crate::VortexAccessPlan
 /// [`FileMetadataCache`]: datafusion_execution::cache::cache_manager::FileMetadataCache
 /// [`VortexTableOptions::projection_pushdown`]: crate::VortexTableOptions::projection_pushdown
+/// [`VortexTableOptions::predicate_pushdown`]: crate::VortexTableOptions::predicate_pushdown
 /// [`VortexMetricsFinder`]: crate::metrics::VortexMetricsFinder
 #[derive(Clone)]
 pub struct VortexSource {
@@ -195,7 +203,7 @@ pub struct VortexSource {
     pub(crate) ordered: bool,
     vx_metrics_registry: Arc<dyn MetricsRegistry>,
     file_metadata_cache: Option<Arc<dyn FileMetadataCache>>,
-    /// Whether to enable expression pushdown into the underlying Vortex scan.
+    /// Options controlling scan planning and execution behavior.
     options: VortexTableOptions,
 }
 
@@ -239,6 +247,15 @@ impl VortexSource {
     /// projection.
     pub fn with_projection_pushdown(mut self, enabled: bool) -> Self {
         self.options.projection_pushdown = enabled;
+        self
+    }
+
+    /// Enables or disables Vortex-native predicate evaluation.
+    ///
+    /// When disabled, DataFusion evaluates filters after the scan. The source
+    /// still records the full predicate for file pruning.
+    pub fn with_predicate_pushdown(mut self, enabled: bool) -> Self {
+        self.options.predicate_pushdown = enabled;
         self
     }
 
@@ -452,6 +469,14 @@ impl FileSource for VortexSource {
             None => Some(conjunction(filters.clone())),
         };
 
+        if !source.options.predicate_pushdown {
+            return Ok(FilterPushdownPropagation::with_parent_pushdown_result(vec![
+                PushedDown::No;
+                filters.len()
+            ])
+            .with_updated_node(Arc::new(source) as _));
+        }
+
         let supported_filters = filters
             .into_iter()
             .map(|expr| {
@@ -522,8 +547,15 @@ mod tests {
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::Schema;
+    use datafusion_common::ScalarValue;
+    use datafusion_common::config::ConfigOptions;
     use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
     use datafusion_execution::object_store::ObjectStoreUrl;
+    use datafusion_expr::Operator;
+    use datafusion_expr::ScalarUDF;
+    use datafusion_functions::string::octet_length::OctetLengthFunc;
+    use datafusion_physical_expr::ScalarFunctionExpr;
+    use datafusion_physical_expr::expressions as df_expr;
     use datafusion_physical_expr::expressions::Column;
     use object_store::memory::InMemory;
     use vortex::VortexSessionDefault;
@@ -581,6 +613,22 @@ mod tests {
             TableSchema::from_file_schema(schema),
             VortexSession::default(),
         )
+    }
+
+    fn octet_length_filter(schema: &Schema) -> PhysicalExprRef {
+        let name = Arc::new(Column::new("name", 0)) as PhysicalExprRef;
+        let octet_length = Arc::new(
+            ScalarFunctionExpr::try_new(
+                Arc::new(ScalarUDF::from(OctetLengthFunc::new())),
+                vec![name],
+                schema,
+                Arc::new(ConfigOptions::new()),
+            )
+            .unwrap(),
+        ) as PhysicalExprRef;
+        let one = Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(1)))) as PhysicalExprRef;
+
+        Arc::new(df_expr::BinaryExpr::new(octet_length, Operator::Gt, one)) as PhysicalExprRef
     }
 
     fn assert_ordered_source(inner: Arc<dyn FileSource>) -> anyhow::Result<()> {
@@ -641,6 +689,45 @@ mod tests {
             &opener.expression_convertor,
             &expression_convertor
         ));
+        Ok(())
+    }
+
+    #[test]
+    fn try_pushdown_filters_accepts_octet_length() -> anyhow::Result<()> {
+        let schema = Arc::new(Schema::new(vec![Field::new("name", DataType::Utf8, false)]));
+        let source = sort_test_source(Arc::clone(&schema));
+        let filter = octet_length_filter(&schema);
+
+        let result = source.try_pushdown_filters(vec![filter], &ConfigOptions::new())?;
+
+        assert!(matches!(result.filters.as_slice(), [PushedDown::Yes]));
+        let updated_source = result
+            .updated_node
+            .ok_or_else(|| anyhow::anyhow!("expected updated VortexSource"))?
+            .downcast_ref::<VortexSource>()
+            .ok_or_else(|| anyhow::anyhow!("expected VortexSource"))?
+            .clone();
+        assert!(updated_source.vortex_predicate.is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn try_pushdown_filters_respects_disabled_predicate_pushdown() -> anyhow::Result<()> {
+        let schema = Arc::new(Schema::new(vec![Field::new("name", DataType::Utf8, false)]));
+        let source = sort_test_source(Arc::clone(&schema)).with_predicate_pushdown(false);
+        let filter = octet_length_filter(&schema);
+
+        let result = source.try_pushdown_filters(vec![filter], &ConfigOptions::new())?;
+
+        assert!(matches!(result.filters.as_slice(), [PushedDown::No]));
+        let updated_source = result
+            .updated_node
+            .ok_or_else(|| anyhow::anyhow!("expected updated VortexSource"))?
+            .downcast_ref::<VortexSource>()
+            .ok_or_else(|| anyhow::anyhow!("expected VortexSource"))?
+            .clone();
+        assert!(updated_source.full_predicate.is_some());
+        assert!(updated_source.vortex_predicate.is_none());
         Ok(())
     }
 }

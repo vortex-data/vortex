@@ -35,6 +35,8 @@ pub use error::try_or;
 pub use error::vx_error;
 pub use error::vx_error_free;
 pub use log::vx_log_level;
+pub use scan::vx_partition;
+pub use scan::vx_partition_into_array_stream;
 pub use session::vx_session;
 pub use session::vx_session_free;
 pub use session::vx_session_new_with;
@@ -52,6 +54,16 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 /// A shared runtime for all FFI operations.
 // TODO(ngates): also create a CurrentThreadPool to manage background worker threads.
 static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
+
+/// Return the shared FFI runtime for layered FFI crates that drive Vortex streams produced through
+/// `vortex-ffi`.
+///
+/// Streams from `vortex-ffi` partitions spawn their scan work onto this runtime's executor, so a
+/// consumer crate (for example `vortex-cuda`'s Arrow device stream export) must drive them on this
+/// same runtime rather than a private one.
+pub fn ffi_runtime() -> &'static CurrentThreadRuntime {
+    &RUNTIME
+}
 
 /// SAFETY: name must be a non-NULL pointer
 pub(crate) unsafe fn to_field_name(name: *const c_char) -> VortexResult<FieldName> {

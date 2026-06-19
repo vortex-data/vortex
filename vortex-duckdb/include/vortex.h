@@ -59,8 +59,7 @@ duckdb_vx_data duckdb_table_function_init_global(const duckdb_vx_tfunc_init_inpu
 extern duckdb_vx_data duckdb_table_function_init_local(void *global_init_data);
 
 extern
-duckdb_vx_data duckdb_table_function_bind(duckdb_client_context ctx,
-                                          duckdb_vx_tfunc_bind_input bind_input,
+duckdb_vx_data duckdb_table_function_bind(duckdb_vx_tfunc_bind_input bind_input,
                                           duckdb_vx_tfunc_bind_result bind_result,
                                           duckdb_vx_error *error_out);
 
@@ -74,8 +73,7 @@ duckdb_vx_data duckdb_copy_function_copy_to_bind(const char *const *column_names
                                                  duckdb_vx_error *error_out);
 
 extern
-duckdb_vx_data duckdb_copy_function_copy_to_initialize_global(duckdb_client_context client_context,
-                                                              const void *bind_data,
+duckdb_vx_data duckdb_copy_function_copy_to_initialize_global(const void *bind_data,
                                                               const char *file_path,
                                                               duckdb_vx_error *error_out);
 

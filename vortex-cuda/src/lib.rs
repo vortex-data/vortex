@@ -25,6 +25,7 @@ mod stream_pool;
 
 pub use arrow::ArrowDeviceArrayWithSchema;
 pub use arrow::DeviceArrayExt;
+pub use arrow::DeviceArrayStreamExt;
 pub use arrow::ExportDeviceArray;
 pub use canonical::CanonicalCudaExt;
 pub use device_buffer::CudaBufferExt;

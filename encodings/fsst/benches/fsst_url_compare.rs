@@ -30,7 +30,11 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = vortex_array::array_session();
+    vortex_fsst::initialize(&session);
+    session
+});
 
 const NUM_URLS: usize = NUM_STRINGS;
 

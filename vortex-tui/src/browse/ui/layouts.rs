@@ -34,6 +34,7 @@ use vortex::array::arrays::StructArray;
 use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::error::VortexExpect;
 use vortex::layout::layouts::flat::Flat;
+use vortex::layout::layouts::zoned::LegacyStats;
 use vortex::layout::layouts::zoned::Zoned;
 
 use crate::browse::app::AppState;
@@ -89,12 +90,21 @@ fn render_layout_header(app: &AppState, area: Rect, buf: &mut Buffer) {
         rows.push(Text::from(metadata_info));
     }
 
-    if let Some(layout) = cursor.layout().as_opt::<Zoned>() {
-        // Push any zone stats.
+    let present_aggregates = cursor
+        .layout()
+        .as_opt::<Zoned>()
+        .map(|layout| layout.present_aggregates())
+        .or_else(|| {
+            cursor
+                .layout()
+                .as_opt::<LegacyStats>()
+                .map(|layout| layout.present_aggregates())
+        });
+    if let Some(present_aggregates) = present_aggregates {
         let mut line = String::new();
-        line.push_str("Statistics: ");
-        for stat in layout.present_stats().as_ref() {
-            line.push_str(stat.to_string().as_str());
+        line.push_str("Aggregates: ");
+        for aggregate in present_aggregates.as_ref() {
+            line.push_str(aggregate.as_str());
             line.push(' ');
         }
 

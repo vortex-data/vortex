@@ -18,6 +18,7 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
+use crate::LayoutBuildContext;
 use crate::LayoutChildType;
 use crate::LayoutEncodingRef;
 use crate::LayoutId;
@@ -104,7 +105,7 @@ impl VTable for Flat {
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         segment_ids: Vec<SegmentId>,
         _children: &dyn LayoutChildren,
-        ctx: &ReadContext,
+        build_ctx: &LayoutBuildContext<'_>,
     ) -> VortexResult<Self::Layout> {
         if segment_ids.len() != 1 {
             vortex_bail!("Flat layout must have exactly one segment ID");
@@ -113,7 +114,7 @@ impl VTable for Flat {
             row_count,
             dtype.clone(),
             segment_ids[0],
-            ctx.clone(),
+            build_ctx.array_read_ctx.clone(),
             metadata
                 .array_encoding_tree
                 .as_ref()

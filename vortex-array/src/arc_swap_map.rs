@@ -55,6 +55,11 @@ impl<K: Debug, V: Debug> Debug for ArcSwapMap<K, V> {
 }
 
 impl<K, V> ArcSwapMap<K, V> {
+    /// Return the currently published map snapshot.
+    pub(crate) fn snapshot(&self) -> Arc<HashMap<K, V>> {
+        self.inner.load_full()
+    }
+
     /// Read the current snapshot, passing it to `f`.
     ///
     /// Every lookup inside `f` observes the same snapshot, which matters when a
@@ -160,6 +165,21 @@ mod tests {
         map.insert(1, 1);
         map.insert(2, 2);
         assert_eq!(map.read(|m| m.values().sum::<i32>()), 3);
+    }
+
+    #[test]
+    fn snapshot_keeps_published_view() {
+        let map = ArcSwapMap::<u32, i32>::default();
+        map.insert(1, 10);
+
+        let snapshot = map.snapshot();
+        map.insert(1, 20);
+        map.insert(2, 30);
+
+        assert_eq!(snapshot.get(&1), Some(&10));
+        assert_eq!(snapshot.get(&2), None);
+        assert_eq!(map.get(&1), Some(20));
+        assert_eq!(map.get(&2), Some(30));
     }
 
     #[test]

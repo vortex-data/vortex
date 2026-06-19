@@ -39,8 +39,6 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::kernel::PARENT_KERNELS;
-
 /// A [`ByteBool`]-encoded Vortex array.
 pub type ByteBoolArray = Array<ByteBool>;
 
@@ -156,15 +154,6 @@ impl VTable for ByteBool {
         Ok(ExecutionResult::done(
             BoolArray::new(boolean_buffer, validity).into_array(),
         ))
-    }
-
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 

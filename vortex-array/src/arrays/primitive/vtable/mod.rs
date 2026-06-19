@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use kernel::PARENT_KERNELS;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -15,8 +14,11 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::primitive::PrimitiveData;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
+use crate::builders::PrimitiveBuilder;
 use crate::dtype::DType;
 use crate::dtype::PType;
+use crate::match_each_native_ptype;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 mod kernel;
@@ -38,6 +40,10 @@ use crate::hash::ArrayHash;
 
 /// A [`Primitive`]-encoded Vortex array.
 pub type PrimitiveArray = Array<Primitive>;
+
+pub(crate) fn initialize(session: &VortexSession) {
+    kernel::initialize(session);
+}
 
 impl ArrayHash for PrimitiveData {
     fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: EqMode) {
@@ -184,21 +190,27 @@ impl VTable for Primitive {
         Ok(ExecutionResult::done(array))
     }
 
+    fn append_to_builder(
+        array: ArrayView<'_, Self>,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        match_each_native_ptype!(array.ptype(), |P| {
+            if let Some(builder) = builder.as_any_mut().downcast_mut::<PrimitiveBuilder<P>>() {
+                return builder.append_primitive_array(&array.into_owned(), ctx);
+            }
+        });
+
+        builder.extend_from_array(array.as_ref());
+        Ok(())
+    }
+
     fn reduce_parent(
         array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 

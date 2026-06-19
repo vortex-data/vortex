@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+query TT
+EXPLAIN
+COPY (SELECT * FROM (VALUES (1), (42), (100), (-5), (0)) AS t(num)) 
+TO '$__TEST_DIR__/datafusion/sink/data1.vortex'
+STORED AS VORTEX;
+----
+logical_plan
+01)CopyTo: format=vortex output_url=<slt:ignore>/datafusion/sink/data1.vortex options: ()
+02)--SubqueryAlias: t
+03)----Projection: column1 AS num
+04)------Values: (Int64(1)), (Int64(42)), (Int64(100)), (Int64(-5)), (Int64(0))
+physical_plan
+01)DataSinkExec: sink=VortexSink(file_groups=[])
+02)--ProjectionExec: expr=[column1@0 as num]
+03)----DataSourceExec: partitions=1, partition_sizes=[1]
+
+query TT
+EXPLAIN FORMAT TREE
+COPY (SELECT * FROM (VALUES (1), (42), (100), (-5), (0)) AS t(num))
+TO '$__TEST_DIR__/datafusion/sink/data2.vortex'
+STORED AS VORTEX;
+----
+physical_plan
+01)┌───────────────────────────┐
+02)│        DataSinkExec       │
+03)│    --------------------   │
+04)│         VortexSink        │
+05)└─────────────┬─────────────┘
+06)┌─────────────┴─────────────┐
+07)│       ProjectionExec      │
+08)│    --------------------   │
+09)│        num: column1       │
+10)└─────────────┬─────────────┘
+11)┌─────────────┴─────────────┐
+12)│       DataSourceExec      │
+13)│    --------------------   │
+14)│         bytes: 160        │
+15)│       format: memory      │
+16)│          rows: 1          │
+17)└───────────────────────────┘

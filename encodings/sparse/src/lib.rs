@@ -7,7 +7,6 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use kernel::PARENT_KERNELS;
 use prost::Message as _;
 use vortex_array::AnyCanonical;
 use vortex_array::Array;
@@ -79,11 +78,11 @@ use vortex_array::session::ArraySessionExt;
 
 /// Initialize Sparse encoding in the given session.
 ///
-/// Registers the Sparse array vtable and its aggregate kernels (`IsConstant`, `Sum`,
-/// `MinMax`, `NullCount`, `NanCount`). Compare/between/fill_null pushdown is wired
-/// through `PARENT_KERNELS` (see `kernel.rs`) and does not require registration here.
+/// Registers the Sparse array vtable, parent execution kernels, and aggregate kernels
+/// (`IsConstant`, `Sum`, `MinMax`, `NullCount`, `NanCount`).
 pub fn initialize(session: &VortexSession) {
     session.arrays().register(Sparse);
+    kernel::initialize(session);
 
     let aggregate_fns = session.aggregate_fns();
     aggregate_fns.register_aggregate_kernel(
@@ -292,15 +291,6 @@ impl VTable for Sparse {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

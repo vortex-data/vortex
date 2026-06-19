@@ -20,7 +20,11 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = vortex_array::array_session();
+    vortex_runend::initialize(&session);
+    session
+});
 
 /// Distribution types for bool benchmarks
 #[derive(Clone, Copy)]

@@ -157,6 +157,10 @@ impl ScalarFnVTable for Like {
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
         false
     }
+
+    fn is_fallible(&self, _options: &Self::Options) -> bool {
+        false
+    }
 }
 
 /// Implementation of LIKE using the Arrow crate.
@@ -270,6 +274,13 @@ mod tests {
             like_expr.return_dtype(&dtype).unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
+    }
+
+    #[test]
+    fn signature() {
+        let like_expr = like(root(), lit("%test%"));
+        assert!(!like_expr.signature().is_null_sensitive());
+        assert!(!like_expr.signature().is_fallible());
     }
 
     #[test]

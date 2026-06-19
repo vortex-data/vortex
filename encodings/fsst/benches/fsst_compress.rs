@@ -31,7 +31,11 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = vortex_array::array_session();
+    vortex_fsst::initialize(&session);
+    session
+});
 
 // [(string_count, avg_len, unique_chars)]
 const BENCH_ARGS: &[(usize, usize, u8)] = &[

@@ -46,6 +46,7 @@ use vortex::array::arrays::TemporalArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::varbinview::BinaryView;
 use vortex::array::arrow::ArrowSessionExt;
+use vortex::array::stream::ArrayStreamExt;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
@@ -55,12 +56,15 @@ use vortex::dtype::FieldNames;
 use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
 use vortex::extension::datetime::TimeUnit;
+use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::io::session::RuntimeSession;
 use vortex::layout::session::LayoutSession;
 use vortex::session::VortexSession;
 use vortex_cuda::CudaSession;
 use vortex_cuda::arrow::ArrowDeviceArray;
+use vortex_cuda::arrow::ArrowDeviceArrayStream;
 use vortex_cuda::arrow::DeviceArrayExt;
+use vortex_cuda::arrow::DeviceArrayStreamExt;
 
 const PRIMITIVE_DTYPE_ENV: &str = "VORTEX_CUDF_PRIMITIVE_DTYPE";
 
@@ -216,32 +220,9 @@ fn dictionary_array() -> VortexArrayRef {
     .into_array()
 }
 
-/// # Safety
-/// `schema_ptr` and `array_ptr` must be valid writable pointers.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn export_array(
-    schema_ptr: &mut FFI_ArrowSchema,
-    array_ptr: &mut ArrowDeviceArray,
-) -> i32 {
-    ffi_boundary("export_array", || export_array_inner(schema_ptr, array_ptr))
-}
-
-fn export_array_inner(schema_ptr: &mut FFI_ArrowSchema, array_ptr: &mut ArrowDeviceArray) -> i32 {
-    let mut ctx = match CudaSession::create_execution_ctx(&SESSION) {
-        Ok(ctx) => ctx,
-        Err(err) => {
-            eprintln!("error creating CUDA execution context: {err}");
-            return 1;
-        }
-    };
-
-    let primitive = match primitive_array() {
-        Ok(array) => array,
-        Err(err) => {
-            eprintln!("error in export_array: {err}");
-            return 1;
-        }
-    };
+/// Build the shared cuDF interop test array used by array and stream exports.
+fn cudf_test_array() -> Result<VortexArrayRef, String> {
+    let primitive = primitive_array()?;
     // cuDF supports Arrow decimal device imports through Decimal128. Decimal256 is intentionally
     // not included here because cuDF has no DECIMAL256 type_id or Arrow interop mapping.
     let decimal32 = DecimalArray::from_option_iter(
@@ -269,7 +250,7 @@ fn export_array_inner(schema_ptr: &mut FFI_ArrowSchema, array_ptr: &mut ArrowDev
         TimeUnit::Days,
     );
 
-    let array = StructArray::new(
+    Ok(StructArray::new(
         FieldNames::from_iter([
             "prims",
             "bools",
@@ -310,7 +291,38 @@ fn export_array_inner(schema_ptr: &mut FFI_ArrowSchema, array_ptr: &mut ArrowDev
         5,
         Validity::NonNullable,
     )
-    .into_array();
+    .into_array())
+}
+
+/// Export the shared cuDF test array as one Arrow device array.
+///
+/// # Safety
+/// `schema_ptr` and `array_ptr` must be valid writable pointers.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn export_array(
+    schema_ptr: &mut FFI_ArrowSchema,
+    array_ptr: &mut ArrowDeviceArray,
+) -> i32 {
+    ffi_boundary("export_array", || export_array_inner(schema_ptr, array_ptr))
+}
+
+/// Implement `export_array` inside the panic-catching FFI boundary.
+fn export_array_inner(schema_ptr: &mut FFI_ArrowSchema, array_ptr: &mut ArrowDeviceArray) -> i32 {
+    let mut ctx = match CudaSession::create_execution_ctx(&SESSION) {
+        Ok(ctx) => ctx,
+        Err(err) => {
+            eprintln!("error creating CUDA execution context: {err}");
+            return 1;
+        }
+    };
+
+    let array = match cudf_test_array() {
+        Ok(array) => array,
+        Err(err) => {
+            eprintln!("error in export_array: {err}");
+            return 1;
+        }
+    };
 
     match block_on(array.export_device_array_with_schema(&mut ctx)) {
         Ok(exported) => {
@@ -320,6 +332,45 @@ fn export_array_inner(schema_ptr: &mut FFI_ArrowSchema, array_ptr: &mut ArrowDev
         }
         Err(err) => {
             eprintln!("error in export_device_array: {err}");
+            1
+        }
+    }
+}
+
+/// Export the shared cuDF test array as an Arrow device array stream.
+///
+/// # Safety
+/// `stream_ptr` must be a valid writable pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn export_device_stream(stream_ptr: &mut ArrowDeviceArrayStream) -> i32 {
+    ffi_boundary("export_device_stream", || {
+        export_device_stream_inner(stream_ptr)
+    })
+}
+
+/// Implement `export_device_stream` inside the panic-catching FFI boundary.
+fn export_device_stream_inner(stream_ptr: &mut ArrowDeviceArrayStream) -> i32 {
+    let array = match cudf_test_array() {
+        Ok(array) => array,
+        Err(err) => {
+            eprintln!("error in export_device_stream: {err}");
+            return 1;
+        }
+    };
+
+    // The in-memory stream is inert, so any current-thread runtime drives it correctly.
+    let runtime = CurrentThreadRuntime::new();
+    match array
+        .to_array_stream()
+        .boxed()
+        .export_device_array_stream(&SESSION, &runtime)
+    {
+        Ok(stream) => {
+            *stream_ptr = stream;
+            0
+        }
+        Err(err) => {
+            eprintln!("error in export_device_array_stream: {err}");
             1
         }
     }

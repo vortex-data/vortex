@@ -49,7 +49,6 @@ use crate::convert::try_from_bound_expression;
 use crate::convert::try_from_projection_expression;
 use crate::duckdb::BindInputRef;
 use crate::duckdb::BindResultRef;
-use crate::duckdb::ClientContextRef;
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::DuckdbStringMapRef;
 use crate::duckdb::ExpressionRef;
@@ -143,12 +142,8 @@ pub enum Cardinality {
     Estimate(u64),
 }
 
-pub fn bind(
-    ctx: &ClientContextRef,
-    input: &BindInputRef,
-    result: &mut BindResultRef,
-) -> VortexResult<TableFunctionBind> {
-    let data_source = bind_multi_file_scan(ctx, input)?;
+pub fn bind(input: &BindInputRef, result: &mut BindResultRef) -> VortexResult<TableFunctionBind> {
+    let data_source = bind_multi_file_scan(input)?;
     let column_fields = extract_schema_from_dtype(data_source.dtype())?;
     for fields in &column_fields {
         result.add_result_column(&fields.name, &fields.logical_type);

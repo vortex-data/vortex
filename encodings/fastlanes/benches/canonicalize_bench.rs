@@ -34,7 +34,11 @@ const BENCH_ARGS: &[(usize, usize, f64)] = &[
     (10000, 1000, 0.00),
 ];
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = vortex_array::array_session();
+    vortex_fastlanes::initialize(&session);
+    session
+});
 
 #[cfg(not(codspeed))]
 #[divan::bench(args = BENCH_ARGS)]

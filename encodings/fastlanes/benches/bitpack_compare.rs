@@ -35,7 +35,11 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = vortex_array::array_session();
+    vortex_fastlanes::initialize(&session);
+    session
+});
 
 const LENS: &[usize] = &[1024, 64 * 1024];
 const BIT_WIDTHS: &[u8] = &[4, 16];

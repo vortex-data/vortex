@@ -9,7 +9,9 @@ pub(crate) mod rules;
 mod slice;
 mod take;
 
-pub(crate) use kernels::PARENT_KERNELS;
+pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+    kernels::initialize(session);
+}
 
 #[cfg(test)]
 mod tests {

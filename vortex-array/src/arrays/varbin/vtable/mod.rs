@@ -36,7 +36,6 @@ mod operations;
 mod validity;
 
 use canonical::varbin_to_canonical;
-use kernel::PARENT_KERNELS;
 use vortex_session::VortexSession;
 
 use crate::EqMode;
@@ -46,6 +45,10 @@ use crate::hash::ArrayHash;
 
 /// A [`VarBin`]-encoded Vortex array.
 pub type VarBinArray = Array<VarBin>;
+
+pub(crate) fn initialize(session: &VortexSession) {
+    kernel::initialize(session);
+}
 
 #[derive(Clone, prost::Message)]
 pub struct VarBinMetadata {
@@ -180,15 +183,6 @@ impl VTable for VarBin {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

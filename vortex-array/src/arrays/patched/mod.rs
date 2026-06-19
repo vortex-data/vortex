@@ -78,6 +78,10 @@ pub use array::*;
 use vortex_buffer::ByteBuffer;
 pub use vtable::*;
 
+pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+    vtable::initialize(session);
+}
+
 /// Patches that have been transposed into GPU format.
 struct TransposedPatches {
     n_lanes: usize,

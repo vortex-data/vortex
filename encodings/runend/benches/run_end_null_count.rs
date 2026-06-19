@@ -49,7 +49,11 @@ const BENCH_ARGS: &[(usize, usize, f64)] = &[
     (100_000, 1024, 0.5),
 ];
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = vortex_array::array_session();
+    vortex_runend::initialize(&session);
+    session
+});
 
 #[divan::bench(args = BENCH_ARGS)]
 fn null_count_run_end(bencher: Bencher, (n, run_step, valid_density): (usize, usize, f64)) {
