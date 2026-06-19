@@ -1988,3 +1988,81 @@ async fn test_can_prune_composite_predicates() -> VortexResult<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn repro_8166_binary_gt_all_ff_max() -> VortexResult<()> {
+    use vortex_buffer::ByteBuffer;
+
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let empty: Vec<u8> = vec![];
+    let chunk0: Vec<Vec<u8>> = vec![
+        vec![0x1d, 0x00],
+        empty.clone(),
+        vec![0x1d, 0x10, 0x9d, 0x08],
+        empty.clone(),
+        empty.clone(),
+        empty.clone(),
+        empty.clone(),
+        empty.clone(),
+        empty.clone(),
+    ];
+    let chunk1: Vec<Vec<u8>> = vec![
+        empty.clone(),
+        empty.clone(),
+        vec![0x40],
+        empty.clone(),
+        empty.clone(),
+        empty.clone(),
+        empty.clone(),
+        empty.clone(),
+        vec![0x24],
+        vec![0x43, 0xff],
+    ];
+    let mut big = vec![0xffu8; 112];
+    big[89] = 0x03;
+    let mut chunk2: Vec<Vec<u8>> = vec![empty.clone(); 10];
+    chunk2[8] = big;
+
+    let bin = DType::Binary(Nullability::NonNullable);
+    let mk_struct = |vals: Vec<Vec<u8>>| -> VortexResult<ArrayRef> {
+        let yyw = VarBinArray::from_vec(vals, bin.clone()).into_array();
+        Ok(StructArray::from_fields(&[("yyw", yyw)])?.into_array())
+    };
+    let array =
+        ChunkedArray::from_iter([mk_struct(chunk0)?, mk_struct(chunk1)?, mk_struct(chunk2)?])
+            .into_array();
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+
+    let mut literal = vec![0x6fu8; 5];
+    literal.extend(iter::repeat_n(0xffu8, 57));
+    literal.push(0x98);
+    assert_eq!(literal.len(), 63);
+
+    let filter = gt(
+        get_item("yyw", root()),
+        lit(Scalar::binary(
+            ByteBuffer::from(literal),
+            Nullability::NonNullable,
+        )),
+    );
+
+    let result = SESSION
+        .open_options()
+        .open_buffer(buf)?
+        .scan()?
+        .with_filter(filter)
+        .into_array_stream()?
+        .read_all()
+        .await?
+        .execute::<StructArray>(&mut ctx)?;
+
+    assert_eq!(result.len(), 1);
+    Ok(())
+}

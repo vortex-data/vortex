@@ -14,6 +14,8 @@ use vortex_array::aggregate_fn::fns::all_nan::AllNan;
 use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
 use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
 use vortex_array::aggregate_fn::fns::all_null::AllNull;
+use vortex_array::aggregate_fn::fns::bounded_max::BOUNDED_MAX_BOUND;
+use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
 use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -257,7 +259,10 @@ impl ZoneMap {
     fn aggregate_field_expr(&self, requested: &AggregateFnRef) -> Option<Expression> {
         let field_name = requested.to_string();
         if self.array.unmasked_field_by_name_opt(&field_name).is_some() {
-            return Some(get_item(field_name, root()));
+            return Some(aggregate_result_expr(
+                requested,
+                get_item(field_name, root()),
+            ));
         }
 
         let mut approximate = None;
@@ -268,9 +273,11 @@ impl ZoneMap {
             }
 
             match stored.can_satisfy(requested) {
-                AggregateFnSatisfaction::Exact => return Some(get_item(field_name, root())),
+                AggregateFnSatisfaction::Exact => {
+                    return Some(aggregate_result_expr(stored, get_item(field_name, root())));
+                }
                 AggregateFnSatisfaction::Approximate => {
-                    approximate = Some(get_item(field_name, root()));
+                    approximate = Some(aggregate_result_expr(stored, get_item(field_name, root())));
                 }
                 AggregateFnSatisfaction::No => {}
             }
@@ -295,6 +302,14 @@ impl ZoneMap {
         }
 
         None
+    }
+}
+
+fn aggregate_result_expr(stored: &AggregateFnRef, state_expr: Expression) -> Expression {
+    if stored.is::<BoundedMax>() {
+        get_item(BOUNDED_MAX_BOUND, state_expr)
+    } else {
+        state_expr
     }
 }
 
@@ -348,6 +363,8 @@ mod tests {
     use vortex_array::aggregate_fn::EmptyOptions;
     use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
     use vortex_array::aggregate_fn::fns::all_null::AllNull;
+    use vortex_array::aggregate_fn::fns::bounded_max::BOUNDED_MAX_BOUND;
+    use vortex_array::aggregate_fn::fns::bounded_max::BOUNDED_MAX_UNKNOWN;
     use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
     use vortex_array::aggregate_fn::fns::bounded_max::BoundedMaxOptions;
     use vortex_array::aggregate_fn::fns::bounded_min::BoundedMin;
@@ -470,7 +487,18 @@ mod tests {
             StructArray::from_fields(&[
                 (
                     bounded_max.to_string(),
-                    PrimitiveArray::new(buffer![5i32, 6i32, 7i32], Validity::AllValid).into_array(),
+                    StructArray::try_new(
+                        [BOUNDED_MAX_BOUND, BOUNDED_MAX_UNKNOWN].into(),
+                        vec![
+                            PrimitiveArray::new(buffer![5i32, 6i32, 7i32], Validity::AllValid)
+                                .into_array(),
+                            BoolArray::from_iter([false, false, false]).into_array(),
+                        ],
+                        3,
+                        Validity::AllValid,
+                    )
+                    .unwrap()
+                    .into_array(),
                 ),
                 (
                     bounded_min.to_string(),

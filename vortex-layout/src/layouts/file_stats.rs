@@ -156,6 +156,11 @@ impl StatsAccumulator {
             };
 
             match stat {
+                Stat::Max if is_varlen_dtype(array.dtype()) && !array.all_valid(ctx)? => {
+                    // A null truncated varlen max can mean either an empty chunk or no finite
+                    // upper bound, so aggregating by skipping nulls would be unsound.
+                    continue;
+                }
                 Stat::Min | Stat::Max | Stat::Sum => {
                     if let Some(s) = array.statistics().compute_stat(stat, ctx)?
                         && let Some(v) = s.into_value()
@@ -180,6 +185,10 @@ impl StatsAccumulator {
 
 fn supports_file_stats(dtype: &DType) -> bool {
     !matches!(dtype, DType::Variant(_))
+}
+
+fn is_varlen_dtype(dtype: &DType) -> bool {
+    matches!(dtype, DType::Utf8(_) | DType::Binary(_))
 }
 
 fn stats_builder_with_capacity(
