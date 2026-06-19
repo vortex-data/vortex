@@ -63,6 +63,8 @@ use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::Layout;
+use vortex_layout::layouts::zoned::LegacyStats;
+use vortex_layout::layouts::zoned::Zoned;
 use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
@@ -1886,10 +1888,7 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
 
     // Find all zoned layouts and verify data segments come before zone map segments.
     fn check_zoned_ordering(layout: &dyn Layout, segment_specs: &[SegmentSpec]) {
-        if matches!(
-            layout.encoding_id().as_ref(),
-            "vortex.zoned" | "vortex.stats"
-        ) {
+        if layout.is::<Zoned>() || layout.is::<LegacyStats>() {
             // child 0 = data, child 1 = zones
             let data_offsets =
                 collect_segment_offsets(layout.child(0).unwrap().as_ref(), segment_specs);
@@ -1921,10 +1920,7 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
         all_data: &mut Vec<u64>,
         all_zones: &mut Vec<u64>,
     ) {
-        if matches!(
-            layout.encoding_id().as_ref(),
-            "vortex.zoned" | "vortex.stats"
-        ) {
+        if layout.is::<Zoned>() || layout.is::<LegacyStats>() {
             // child 0 = data, child 1 = zones
             all_data.extend(collect_segment_offsets(
                 layout.child(0).unwrap().as_ref(),
