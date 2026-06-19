@@ -135,10 +135,37 @@ mod tests {
     use vortex::error::VortexResult;
 
     use crate::SESSION;
+    use crate::cpp::duckdb_type::DUCKDB_TYPE_INTEGER;
     use crate::duckdb::DataChunk;
     use crate::duckdb::LogicalType;
     use crate::exporter::ArrayExporter;
     use crate::exporter::ConversionCache;
+    use crate::exporter::new_array_exporter;
+
+    #[test]
+    fn test_one_chunk_null() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let source = vec![Some(0u32), Some(1), None, Some(3), None];
+        let array = PrimitiveArray::from_option_iter(source);
+        let array = RunEnd::encode(array.into_array(), &mut ctx)?;
+
+        let mut chunk = DataChunk::new([LogicalType::new(DUCKDB_TYPE_INTEGER)]);
+        new_array_exporter(array.into_array(), &ConversionCache::default(), &mut ctx)?.export(
+            0,
+            5,
+            chunk.get_vector_mut(0),
+            &mut ctx,
+        )?;
+        chunk.set_len(5);
+        let chunk_str = String::try_from(&*chunk)?;
+        assert_eq!(
+            chunk_str,
+            r#"Chunk - [1 Columns]
+- DICTIONARY INTEGER: 5 = [ 0, 1, NULL, 3, NULL]
+"#
+        );
+        Ok(())
+    }
 
     #[test]
     fn run_end_with_chunked_values_exports_across_value_chunks() -> VortexResult<()> {

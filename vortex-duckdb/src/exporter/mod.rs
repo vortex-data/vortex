@@ -15,6 +15,7 @@ mod geo;
 mod list;
 mod list_view;
 mod primitive;
+mod rle;
 mod run_end;
 mod sequence;
 mod struct_;
@@ -34,6 +35,7 @@ use vortex::array::arrays::List;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::buffer::BitChunks;
+use vortex::encodings::fastlanes::RLE;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::sequence::Sequence;
 use vortex::error::VortexExpect;
@@ -241,6 +243,11 @@ fn new_array_exporter_with_flatten(
 
     let array = match array.try_downcast::<RunEnd>() {
         Ok(array) => return run_end::new_exporter_with_flatten(array, cache, ctx, flatten),
+        Err(array) => array,
+    };
+
+    let array = match array.try_downcast::<RLE>() {
+        Ok(array) => return rle::new_exporter_with_flatten(array, cache, ctx, flatten),
         Err(array) => array,
     };
 

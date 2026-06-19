@@ -21,7 +21,7 @@ mod delta;
 mod r#for;
 mod rle;
 
-pub(crate) const FL_CHUNK_SIZE: usize = 1024;
+pub const FL_CHUNK_SIZE: usize = 1024;
 
 use bitpacking::compute::is_constant::BitPackedIsConstantKernel;
 use r#for::compute::is_constant::FoRIsConstantKernel;

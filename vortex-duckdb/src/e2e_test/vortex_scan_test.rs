@@ -34,6 +34,7 @@ use vortex::array::validity::Validity;
 use vortex::buffer::buffer;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
+use vortex::encodings::fastlanes::RLEData;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::scalar::PValue;
@@ -956,6 +957,20 @@ fn test_vortex_encodings_roundtrip() {
     not(duckdb_release),
     ignore = "spatial extension requires a release DuckDB build"
 )]
+#[test]
+fn test_fastlanes_rle_roundtrip() {
+    let expected: Vec<i32> = (0i32..2048).map(|i| i / 256).collect();
+    let file = RUNTIME.block_on(async {
+        let mut ctx = SESSION.create_execution_ctx();
+        let primitive = PrimitiveArray::from_iter(expected.clone());
+        let rle = RLEData::encode(primitive.as_view(), &mut ctx).unwrap();
+        write_single_column_vortex_file("rle_col", rle.into_array()).await
+    });
+
+    let values: Vec<i32> = scan_vortex_file::<i32, _>(file, "SELECT rle_col FROM ?", 0).unwrap();
+    assert_eq!(values, expected);
+}
+
 #[test]
 fn test_geometry() {
     let file = RUNTIME.block_on(async {
