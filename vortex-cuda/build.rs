@@ -21,16 +21,21 @@ use crate::bit_unpack_gen::generate_cuda_unpack_lanes;
 pub mod bit_unpack_gen;
 
 fn main() {
-    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("Failed to get manifest dir");
+    let manifest_dir =
+        PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("Failed to get manifest dir"));
     // https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-build-scripts
     let profile = env::var("PROFILE").unwrap();
+    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set"));
 
-    // Source directory for kernels (hand-written and generated .cu/.cuh files)
-    let kernels_src = Path::new(&manifest_dir).join("kernels/src");
-    // Output directory for compiled .ptx files - separate by profile.
-    let kernels_gen = Path::new(&manifest_dir).join("kernels/gen").join(&profile);
+    // Source directory for hand-written kernels.
+    let kernels_src = manifest_dir.join("kernels/src");
+    // Generated CUDA source and PTX are build artifacts and must stay under OUT_DIR.
+    let generated_kernels_src = out_dir.join("generated-kernels/src");
+    let kernels_gen = out_dir.join("kernels").join(&profile);
 
-    std::fs::create_dir_all(&kernels_gen).expect("Failed to create kernels/gen directory");
+    std::fs::create_dir_all(&kernels_gen).expect("Failed to create kernels directory");
+    std::fs::create_dir_all(&generated_kernels_src)
+        .expect("Failed to create generated kernels directory");
 
     // Always emit the kernels output directory path as a compile-time env var so any binary
     // linking against vortex-cuda can find the PTX files. This must be set regardless
@@ -46,17 +51,20 @@ fn main() {
     // Regenerate bit_unpack kernels only when the generator changes
     println!(
         "cargo:rerun-if-changed={}",
-        Path::new(&manifest_dir)
-            .join("src/bit_unpack_gen.rs")
-            .display()
+        manifest_dir.join("src/bit_unpack_gen.rs").display()
     );
-    generate_unpack::<u8>(&kernels_src, 32).expect("Failed to generate unpack for u8");
-    generate_unpack::<u16>(&kernels_src, 32).expect("Failed to generate unpack for u16");
-    generate_unpack::<u32>(&kernels_src, 32).expect("Failed to generate unpack for u32");
-    generate_unpack::<u64>(&kernels_src, 16).expect("Failed to generate unpack for u64");
+    let generated_cuda_sources = [
+        generate_unpack::<u8>(&generated_kernels_src, 32)
+            .expect("Failed to generate unpack for u8"),
+        generate_unpack::<u16>(&generated_kernels_src, 32)
+            .expect("Failed to generate unpack for u16"),
+        generate_unpack::<u32>(&generated_kernels_src, 32)
+            .expect("Failed to generate unpack for u32"),
+        generate_unpack::<u64>(&generated_kernels_src, 16)
+            .expect("Failed to generate unpack for u64"),
+    ];
 
-    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set"));
-    generate_arrow_device_array_bindings(Path::new(&manifest_dir), &out_dir);
+    generate_arrow_device_array_bindings(&manifest_dir, &out_dir);
     generate_dynamic_dispatch_bindings(&kernels_src, &out_dir);
     generate_patches_bindings(&kernels_src, &out_dir);
 
@@ -64,30 +72,18 @@ fn main() {
         return;
     }
 
-    // Watch and compile .cu and .cuh files from kernels/src to PTX in kernels/gen
+    let include_dirs = [kernels_src.as_path(), generated_kernels_src.as_path()];
+
+    // Watch and compile hand-written .cu and .cuh files from kernels/src.
     if let Ok(entries) = std::fs::read_dir(&kernels_src) {
         for path in entries.flatten().map(|entry| entry.path()) {
-            let is_generated = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.starts_with("bit_unpack_"));
-
             match path.extension().and_then(|e| e.to_str()) {
                 Some("cuh") | Some("h") => {
-                    // Only watch hand-written .cuh/.h files, not generated ones
-                    // (generated files are rebuilt when cuda_kernel_generator changes)
-                    if !is_generated {
-                        println!("cargo:rerun-if-changed={}", path.display());
-                    }
+                    println!("cargo:rerun-if-changed={}", path.display());
                 }
                 Some("cu") => {
-                    // Only watch hand-written .cu files, not generated ones
-                    // (generated files are rebuilt when cuda_kernel_generator changes)
-                    if !is_generated {
-                        println!("cargo:rerun-if-changed={}", path.display());
-                    }
-                    // Compile all .cu files to PTX in gen directory
-                    nvcc_compile_ptx(&kernels_src, &kernels_gen, &path, &profile)
+                    println!("cargo:rerun-if-changed={}", path.display());
+                    nvcc_compile_ptx(&include_dirs, &kernels_gen, &path, &profile)
                         .map_err(|e| {
                             format!("Failed to compile CUDA kernel {}: {}", path.display(), e)
                         })
@@ -96,6 +92,12 @@ fn main() {
                 _ => {}
             }
         }
+    }
+
+    for path in &generated_cuda_sources {
+        nvcc_compile_ptx(&include_dirs, &kernels_gen, path, &profile)
+            .map_err(|e| format!("Failed to compile CUDA kernel {}: {}", path.display(), e))
+            .unwrap();
     }
 }
 
@@ -116,7 +118,7 @@ fn generate_unpack<T: FastLanes>(output_dir: &Path, thread_count: usize) -> io::
 }
 
 fn nvcc_compile_ptx(
-    include_dir: &Path,
+    include_dirs: &[&Path; 2],
     output_dir: &Path,
     cu_path: &Path,
     profile: &str,
@@ -158,13 +160,13 @@ fn nvcc_compile_ptx(
         // Flags forwarded to Clang.
         .arg("--compiler-options=-Wall -Wextra -Wpedantic -Werror")
         .arg("--restrict")
-        .arg("--ptx")
-        .arg("--include-path")
-        .arg(include_dir)
-        .arg("-c")
-        .arg(cu_path)
-        .arg("-o")
-        .arg(&ptx_path);
+        .arg("--ptx");
+
+    for include_dir in include_dirs {
+        cmd.arg("--include-path").arg(include_dir);
+    }
+
+    cmd.arg("-c").arg(cu_path).arg("-o").arg(&ptx_path);
 
     let res = cmd.output()?;
 

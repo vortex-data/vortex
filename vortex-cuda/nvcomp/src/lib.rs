@@ -4,20 +4,21 @@
 //! Rust bindings to NVIDIA nvCOMP compression library.
 //!
 //! This crate provides bindings to nvCOMP, with the library loaded at runtime
-//! via `libloading`. This allows the crate to compile on systems without CUDA
-//! or nvcomp installed - the library is only required at runtime when the
+//! via `libloading`. This allows the crate to compile on Linux systems without
+//! CUDA or nvcomp installed - the library is only required at runtime when the
 //! functions are actually called.
 //!
 //! # Platform Support
 //!
 //! nvCOMP is only available on Linux x86_64 and ARM64. On other platforms,
-//! this crate still compiles but will fail at runtime when trying to load
-//! the library.
+//! this crate emits stub bindings without downloading the SDK and returns a
+//! runtime error when trying to load the library.
 //!
 //! # Runtime Requirements
 //!
 //! The nvcomp library must be available at runtime.
 
+#[cfg(not(nvcomp_stub))]
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
@@ -38,6 +39,7 @@ pub use error::NvcompError;
 /// The loaded nvcomp library instance.
 static NVCOMP_LIB: OnceLock<Result<sys::NvcompLibrary, String>> = OnceLock::new();
 
+#[cfg(not(nvcomp_stub))]
 fn load_nvcomp() -> Result<sys::NvcompLibrary, String> {
     let lib_name = "libnvcomp.so";
     let build_lib_dir = env!("OUT_DIR");
@@ -47,11 +49,16 @@ fn load_nvcomp() -> Result<sys::NvcompLibrary, String> {
         .join(lib_name);
 
     // SAFETY: The library at the SDK path is a valid nvcomp shared library
-    // downloaded during the build process.
+    // downloaded during the build process on supported targets.
     unsafe {
         sys::NvcompLibrary::new(&sdk_lib_path)
             .map_err(|e| format!("Failed to load nvcomp library: {e}"))
     }
+}
+
+#[cfg(nvcomp_stub)]
+fn load_nvcomp() -> Result<sys::NvcompLibrary, String> {
+    Err("nvCOMP is only available for Linux x86_64 and aarch64 targets".to_string())
 }
 
 /// Gets a reference to the loaded nvcomp library.

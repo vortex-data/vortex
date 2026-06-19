@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Downloads the nvCOMP SDK and generates Rust FFI bindings for nvCOMP Zstd.
+//! Downloads the nvCOMP SDK and generates Rust FFI bindings for nvCOMP Zstd on
+//! supported targets.
 //!
-//! Bindings are generated unconditionally. This allows for development against the
-//! CUDA APIs in environments that don't support CUDA.
+//! On unsupported targets, the build emits stub bindings instead. This allows
+//! development against the CUDA APIs in environments that don't support CUDA
+//! without downloading Linux-only NVIDIA artifacts.
 //!
 //! The library is loaded at runtime via libloading.
 
@@ -33,22 +35,22 @@ typedef int cudaError_t;
 
 fn main() {
     println!("cargo:rerun-if-env-changed=CUDA_PATH");
+    println!("cargo:rustc-check-cfg=cfg(nvcomp_stub)");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-    let nvcomp_dir = out_dir.join("nvcomp-sdk");
+
+    let Some((os, arch)) = nvcomp_archive_target() else {
+        write_stub_bindings(&out_dir);
+        println!("cargo:rustc-cfg=nvcomp_stub");
+        return;
+    };
 
     // Create CUDA stub header in OUT_DIR for bindgen
     let cuda_stub_dir = out_dir.join("cuda-stub");
     fs::create_dir_all(&cuda_stub_dir).unwrap();
     fs::write(cuda_stub_dir.join("cuda_runtime.h"), CUDA_RUNTIME_STUB).unwrap();
 
-    let (os, arch) = match (env::consts::OS, env::consts::ARCH) {
-        ("linux", "x86_64") => ("linux", "x86_64"),
-        ("linux", "aarch64") => ("linux", "sbsa"),
-        // Fall back to linux-x86_64 to generate bindings for any platform.
-        _ => ("linux", "x86_64"),
-    };
-
+    let nvcomp_dir = out_dir.join("nvcomp-sdk");
     let archive_name = format!("nvcomp-{os}-{arch}-{NVCOMP_VERSION}_{CUDA_VERSION}-archive");
     let url = format!(
         "https://developer.download.nvidia.com/compute/nvcomp/redist/nvcomp/{os}-{arch}/{archive_name}.tar.xz"
@@ -110,4 +112,98 @@ fn main() {
         .expect("Failed to generate nvcomp bindings");
 
     bindings.write_to_file(out_dir.join("sys.rs")).unwrap();
+}
+
+fn nvcomp_archive_target() -> Option<(&'static str, &'static str)> {
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+
+    match (target_os.as_str(), target_arch.as_str()) {
+        ("linux", "x86_64") => Some(("linux", "x86_64")),
+        ("linux", "aarch64") => Some(("linux", "sbsa")),
+        _ => None,
+    }
+}
+
+fn write_stub_bindings(out_dir: &std::path::Path) {
+    fs::write(
+        out_dir.join("sys.rs"),
+        r#"
+// Stub FFI type definitions for targets without nvCOMP SDK support.
+
+pub type cudaStream_t = *mut std::ffi::c_void;
+
+pub const nvcompStatus_t_nvcompSuccess: nvcompStatus_t = 0;
+pub const nvcompStatus_t_nvcompErrorInvalidValue: nvcompStatus_t = 10;
+pub const nvcompStatus_t_nvcompErrorNotSupported: nvcompStatus_t = 11;
+pub const nvcompStatus_t_nvcompErrorCannotDecompress: nvcompStatus_t = 12;
+pub const nvcompStatus_t_nvcompErrorBadChecksum: nvcompStatus_t = 13;
+pub const nvcompStatus_t_nvcompErrorCannotVerifyChecksums: nvcompStatus_t = 14;
+pub const nvcompStatus_t_nvcompErrorOutputBufferTooSmall: nvcompStatus_t = 15;
+pub const nvcompStatus_t_nvcompErrorWrongHeaderLength: nvcompStatus_t = 16;
+pub const nvcompStatus_t_nvcompErrorAlignment: nvcompStatus_t = 17;
+pub const nvcompStatus_t_nvcompErrorChunkSizeTooLarge: nvcompStatus_t = 18;
+pub const nvcompStatus_t_nvcompErrorCannotCompress: nvcompStatus_t = 19;
+pub const nvcompStatus_t_nvcompErrorWrongInputLength: nvcompStatus_t = 20;
+pub const nvcompStatus_t_nvcompErrorBatchSizeTooLarge: nvcompStatus_t = 21;
+pub const nvcompStatus_t_nvcompErrorCudaError: nvcompStatus_t = 1000;
+pub const nvcompStatus_t_nvcompErrorInternal: nvcompStatus_t = 10000;
+pub type nvcompStatus_t = ::std::os::raw::c_uint;
+
+pub const nvcompDecompressBackend_t_NVCOMP_DECOMPRESS_BACKEND_DEFAULT: nvcompDecompressBackend_t =
+    0;
+pub const nvcompDecompressBackend_t_NVCOMP_DECOMPRESS_BACKEND_HARDWARE: nvcompDecompressBackend_t =
+    1;
+pub const nvcompDecompressBackend_t_NVCOMP_DECOMPRESS_BACKEND_CUDA: nvcompDecompressBackend_t = 2;
+pub type nvcompDecompressBackend_t = ::std::os::raw::c_uint;
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct nvcompBatchedZstdDecompressOpts_t {
+    pub backend: nvcompDecompressBackend_t,
+    pub reserved: [::std::os::raw::c_char; 60usize],
+}
+
+pub struct NvcompLibrary;
+
+impl NvcompLibrary {
+    pub unsafe fn new<P>(_path: P) -> Result<Self, ::libloading::Error>
+    where
+        P: AsRef<::std::ffi::OsStr>,
+    {
+        Ok(Self)
+    }
+
+    pub unsafe fn nvcompBatchedZstdDecompressGetTempSizeAsync(
+        &self,
+        _num_chunks: usize,
+        _max_uncompressed_chunk_bytes: usize,
+        _decompress_opts: nvcompBatchedZstdDecompressOpts_t,
+        _temp_bytes: *mut usize,
+        _max_total_uncompressed_bytes: usize,
+    ) -> nvcompStatus_t {
+        nvcompStatus_t_nvcompErrorNotSupported
+    }
+
+    #[expect(clippy::too_many_arguments)]
+    pub unsafe fn nvcompBatchedZstdDecompressAsync(
+        &self,
+        _device_compressed_chunk_ptrs: *const *const ::std::os::raw::c_void,
+        _device_compressed_chunk_bytes: *const usize,
+        _device_uncompressed_buffer_bytes: *const usize,
+        _device_uncompressed_chunk_bytes: *mut usize,
+        _num_chunks: usize,
+        _device_temp_ptr: *mut ::std::os::raw::c_void,
+        _temp_bytes: usize,
+        _device_uncompressed_chunk_ptrs: *const *mut ::std::os::raw::c_void,
+        _decompress_opts: nvcompBatchedZstdDecompressOpts_t,
+        _device_statuses: *mut nvcompStatus_t,
+        _stream: cudaStream_t,
+    ) -> nvcompStatus_t {
+        nvcompStatus_t_nvcompErrorNotSupported
+    }
+}
+"#,
+    )
+    .unwrap();
 }
