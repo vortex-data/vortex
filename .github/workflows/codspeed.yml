@@ -100,10 +100,23 @@ jobs:
             --bench fsst_cuda \
             --bench runend_cuda \
             --profile bench
-      - name: Verify CUDA kernels were built
-        run: test -f vortex-cuda/kernels/gen/release/dynamic_dispatch.ptx
+      - name: Locate built CUDA kernels
+        id: cuda_kernels
+        run: |
+          ptx_file="$(find target -type f -path '*/out/kernels/*/dynamic_dispatch.ptx' -print -quit)"
+          if [ -z "$ptx_file" ]; then
+            echo "::error::dynamic_dispatch.ptx not found under target/**/out/kernels/*"
+            find target -type d -path '*/out/kernels*' -print
+            exit 1
+          fi
+
+          kernels_dir="$(dirname "$ptx_file")"
+          echo "kernels_dir=$kernels_dir" >> "$GITHUB_OUTPUT"
+          find "$kernels_dir" -maxdepth 1 -name '*.ptx' -print | sort
       - name: Stage CUDA kernels with Codspeed artifacts
-        run: cp -R vortex-cuda/kernels/gen/release target/codspeed/cuda-kernels
+        run: |
+          mkdir -p target/codspeed/cuda-kernels
+          cp -R "${{ steps.cuda_kernels.outputs.kernels_dir }}/." target/codspeed/cuda-kernels
       - name: Upload benchmark executables
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
         with:
