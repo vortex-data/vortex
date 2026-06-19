@@ -20,9 +20,17 @@ v2/v3 paths.
 - **Architecture:** port the already-written, unmerged v4 emitter from `origin/ct/bench-v4`
   (commits `9a870091e` + `9a1824afa`, tree at tip `f9b36ae3f`) onto current `develop`; the
   feature is FINISH + MERGE + PROVISION, not write-from-scratch.
-- **Decision: one code PR (D) bracketed by external-infra ops phases (A before, C+B after).**
-  D produces a reviewable monorepo diff (SDD + gauntlet); A/B/C are CLI ops with side effects
-  and no in-repo diff (exit criteria are CLI verification commands, not code review).
+- **Decision: 4-phase structure** — Phase A (ops: create IAM role) -> Phase D (code: port
+  emitter + workflows, full SDD + gauntlet + PR + merge, dormant) -> Phase C (ops, GATED: align
+  revalidate token) -> Phase B (ops, GATED live cutover: set ARN var + repoint URLs + soak).
+  Ops phases A/C/B are CLI ops with side effects and NO in-repo diff: they skip gauntlet + PR;
+  exit criteria are CLI verification commands; the human checkpoint is a pre-action
+  external-side-effect confirmation (see design spec § 4 for the ops-phase adaptation rationale).
+- **Decision: code-port scope = everything incl. extras** — the essentials (post-ingest.py
+  `--postgres`, `_measurement_id.py` + golden.json + test, the 3 workflow v4 steps, ci.yml
+  wiring) PLUS the testcontainer writer tests (`test_post_ingest_postgres.py`) PLUS the extras
+  (`cross_check_python_writer.py`, `test_post_ingest_revalidate.py`). Migrations + migrate-schema
+  are OUT (extracted website repo owns schema/roles). See design spec § 3.
 - **Decision: the v4 step is dormant until the switch is flipped.** Every v4 workflow step is
   gated on `vars.GH_BENCH_INGEST_ROLE_ARN != ''` with `continue-on-error: true`; merging D
   with the var unset ships dead-but-safe code. Setting the var (phase B) is the live cutover.
