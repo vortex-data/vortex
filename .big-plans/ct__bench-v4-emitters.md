@@ -97,10 +97,10 @@ v2/v3 paths.
 ## Current Position
 
 ```yaml
-phase: null
-sub_phase: null
+phase: "1: D — port v4 emitter (CODE)"
+sub_phase: "1.1 measurement_id contract"
 task: null
-status: planning
+status: implementing
 last_gate: null
 phase_entry_sha: null
 ```
