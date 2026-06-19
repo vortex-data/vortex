@@ -65,6 +65,7 @@ mod tests {
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::ScalarFnArray;
+    use crate::arrays::StructArray;
     use crate::arrays::scalar_fn::ScalarFnArrayExt;
     use crate::assert_arrays_eq;
     use crate::scalar::Scalar;
@@ -168,6 +169,29 @@ mod tests {
         )
         .into_array();
         assert_arrays_eq!(result, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn scalar_fn_scalar_at_handles_value_derived_validity() -> VortexResult<()> {
+        let child = StructArray::from_fields(&[(
+            "a",
+            PrimitiveArray::from_option_iter([Some(1i32), None]).into_array(),
+        )])?
+        .into_array();
+        let expr = crate::expr::get_item("a", crate::expr::root());
+        let array = ScalarFnArray::try_new(expr.scalar_fn().clone(), vec![child])?.into_array();
+
+        assert_eq!(
+            array.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?,
+            Scalar::primitive(1i32, true.into())
+        );
+        assert!(
+            array
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?
+                .is_null()
+        );
 
         Ok(())
     }

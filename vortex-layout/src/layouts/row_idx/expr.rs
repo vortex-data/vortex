@@ -8,6 +8,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::expr::Expression;
+use vortex_array::expr::lit;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
@@ -60,6 +61,14 @@ impl ScalarFnVTable for RowIdx {
         vortex_bail!(
             "RowIdxExpr should not be executed directly, use it in the context of a Vortex scan and it will be substituted for a row index array"
         );
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        _expression: &Expression,
+    ) -> VortexResult<Expression> {
+        Ok(lit(true))
     }
 }
 
