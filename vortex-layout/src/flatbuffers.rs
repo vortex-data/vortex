@@ -25,7 +25,7 @@ use crate::LayoutRef;
 use crate::children::ViewedLayoutChildren;
 use crate::layouts::foreign::new_foreign_layout;
 use crate::segments::SegmentId;
-use crate::session::LayoutRegistry;
+use crate::session::LayoutSessionExt;
 
 static LAYOUT_VERIFIER: LazyLock<VerifierOptions> = LazyLock::new(|| {
     VerifierOptions {
@@ -50,10 +50,9 @@ pub fn layout_from_flatbuffer(
     dtype: &DType,
     layout_ctx: &ReadContext,
     ctx: &ReadContext,
-    layouts: &LayoutRegistry,
     session: &VortexSession,
 ) -> VortexResult<LayoutRef> {
-    layout_from_flatbuffer_with_options(flatbuffer, dtype, layout_ctx, ctx, layouts, session, false)
+    layout_from_flatbuffer_with_options(flatbuffer, dtype, layout_ctx, ctx, session, false)
 }
 
 /// Parse a [`LayoutRef`] from a layout flatbuffer with unknown-encoding behavior control.
@@ -62,10 +61,10 @@ pub fn layout_from_flatbuffer_with_options(
     dtype: &DType,
     layout_ctx: &ReadContext,
     ctx: &ReadContext,
-    layouts: &LayoutRegistry,
     session: &VortexSession,
     allow_unknown: bool,
 ) -> VortexResult<LayoutRef> {
+    let layouts = session.layouts().registry();
     let fb_layout = root_with_opts::<layout::Layout>(&LAYOUT_VERIFIER, &flatbuffer)?;
     let encoding_id = layout_ctx
         .resolve(fb_layout.encoding())
@@ -231,7 +230,6 @@ mod tests {
 
     use super::layout_from_flatbuffer_with_options;
     use crate::LayoutEncodingId;
-    use crate::session::LayoutSession;
 
     #[test]
     fn unknown_layout_encoding_allow_unknown() {
@@ -273,7 +271,6 @@ mod tests {
             LayoutEncodingId::new("vortex.test.foreign_child_layout"),
         ]);
         let array_ctx = ReadContext::new([]);
-        let layouts = LayoutSession::default().registry().clone();
         let session = vortex_array::array_session();
 
         let layout = layout_from_flatbuffer_with_options(
@@ -281,7 +278,6 @@ mod tests {
             &DType::Variant(Nullability::Nullable),
             &layout_ctx,
             &array_ctx,
-            &layouts,
             &session,
             true,
         )

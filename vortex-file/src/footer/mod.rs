@@ -35,7 +35,6 @@ use vortex_flatbuffers::footer as fb;
 use vortex_layout::LayoutEncodingId;
 use vortex_layout::LayoutRef;
 use vortex_layout::layout_from_flatbuffer_with_options;
-use vortex_layout::session::LayoutSessionExt;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
@@ -106,7 +105,6 @@ impl Footer {
             &dtype,
             &layout_read_ctx,
             &array_read_ctx,
-            session.layouts().registry(),
             session,
             session.allows_unknown(),
         )?;
