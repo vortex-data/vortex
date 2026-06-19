@@ -270,10 +270,10 @@ impl DeviceArrayExt for ArrayRef {
 }
 
 /// POSIX EIO for Arrow stream producer/export failures.
-const ARROW_STREAM_EIO: c_int = 5;
+const LIBC_EIO: c_int = 5;
 
 /// POSIX EINVAL for invalid Arrow stream callback arguments or released streams.
-const ARROW_STREAM_EINVAL: c_int = 22;
+const LIBC_EINVAL: c_int = 22;
 
 #[derive(Debug, PartialEq)]
 enum ArrowDeviceStreamSchema {
@@ -567,8 +567,8 @@ fn device_stream_callback(
     let result = catch_unwind(AssertUnwindSafe(|| callback(state)));
     match result {
         Ok(Ok(())) => 0,
-        Ok(Err(err)) => state.set_error(err, ARROW_STREAM_EIO),
-        Err(_) => state.set_error(panic_message, ARROW_STREAM_EIO),
+        Ok(Err(err)) => state.set_error(err, LIBC_EIO),
+        Err(_) => state.set_error(panic_message, LIBC_EIO),
     }
 }
 
@@ -578,12 +578,12 @@ unsafe extern "C" fn device_stream_get_schema(
     out: *mut ArrowSchema,
 ) -> c_int {
     let Some(state) = (unsafe { device_stream_private_data(stream) }) else {
-        return ARROW_STREAM_EINVAL;
+        return LIBC_EINVAL;
     };
     state.clear_error();
 
     if out.is_null() {
-        return state.set_error("null ArrowSchema output", ARROW_STREAM_EINVAL);
+        return state.set_error("null ArrowSchema output", LIBC_EINVAL);
     }
 
     fn body(state: &mut DeviceArrayStreamPrivateData, out: *mut ArrowSchema) -> VortexResult<()> {
@@ -605,12 +605,12 @@ unsafe extern "C" fn device_stream_get_next(
     out: *mut ArrowDeviceArray,
 ) -> c_int {
     let Some(state) = (unsafe { device_stream_private_data(stream) }) else {
-        return ARROW_STREAM_EINVAL;
+        return LIBC_EINVAL;
     };
     state.clear_error();
 
     if out.is_null() {
-        return state.set_error("null ArrowDeviceArray output", ARROW_STREAM_EINVAL);
+        return state.set_error("null ArrowDeviceArray output", LIBC_EINVAL);
     }
 
     // Keep the fallible part in a local function so `device_stream_callback` handles callback
@@ -927,11 +927,11 @@ mod tests {
 
     use crate::CudaSession;
     use crate::arrow::ARROW_DEVICE_CUDA;
-    use crate::arrow::ARROW_STREAM_EINVAL;
     use crate::arrow::ArrowDeviceArray;
     use crate::arrow::ArrowDeviceArrayStream;
     use crate::arrow::ArrowSchema;
     use crate::arrow::DeviceArrayStreamExt;
+    use crate::arrow::LIBC_EINVAL;
     use crate::arrow::release_device_array;
     use crate::arrow::release_schema;
 
@@ -1054,14 +1054,14 @@ mod tests {
             .get_schema
             .ok_or_else(|| vortex_err!("stream missing get_schema callback"))?;
         let status = unsafe { get_schema(&raw mut device_stream, ptr::null_mut()) };
-        assert_eq!(status, ARROW_STREAM_EINVAL);
+        assert_eq!(status, LIBC_EINVAL);
         assert_eq!(last_error(&mut device_stream)?, "null ArrowSchema output");
 
         let get_next = device_stream
             .get_next
             .ok_or_else(|| vortex_err!("stream missing get_next callback"))?;
         let status = unsafe { get_next(&raw mut device_stream, ptr::null_mut()) };
-        assert_eq!(status, ARROW_STREAM_EINVAL);
+        assert_eq!(status, LIBC_EINVAL);
         assert_eq!(
             last_error(&mut device_stream)?,
             "null ArrowDeviceArray output"

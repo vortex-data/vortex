@@ -61,7 +61,7 @@ static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRunt
 /// Streams from `vortex-ffi` partitions spawn their scan work onto this runtime's executor, so a
 /// consumer crate (for example `vortex-cuda`'s Arrow device stream export) must drive them on this
 /// same runtime rather than a private one.
-pub fn runtime() -> &'static CurrentThreadRuntime {
+pub fn ffi_runtime() -> &'static CurrentThreadRuntime {
     &RUNTIME
 }
 
