@@ -255,11 +255,11 @@ impl ScalarFnVTable for L2Denorm {
         &self,
         _options: &Self::Options,
         expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Expression> {
         let normalized_validity = expression.child(0).validity()?;
         let norms_validity = expression.child(1).validity()?;
 
-        Ok(Some(and(normalized_validity, norms_validity)))
+        Ok(and(normalized_validity, norms_validity))
     }
 
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {

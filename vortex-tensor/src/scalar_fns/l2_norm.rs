@@ -182,9 +182,9 @@ impl ScalarFnVTable for L2Norm {
         &self,
         _options: &Self::Options,
         expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Expression> {
         // The result is null if the input tensor is null.
-        Ok(Some(expression.child(0).validity()?))
+        expression.child(0).validity()
     }
 
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {
