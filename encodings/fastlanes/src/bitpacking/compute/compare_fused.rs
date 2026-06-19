@@ -41,6 +41,7 @@ use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_unsigned_integer_ptype;
+use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
@@ -59,15 +60,14 @@ const WORDS_PER_CHUNK: usize = CHUNK_SIZE / U64_BITS;
 /// Compare the unpacked values of a [`BitPackedArray`] against `rhs` using the fused FastLanes
 /// `unpack_cmp` kernel, producing a [`BoolArray`].
 ///
-/// `cmp(value, rhs)` defines the predicate; it must be the total-order comparison matching the
-/// requested operator (e.g. `|a, b| a.is_lt(b)`).
+/// `operator` defines the total-order comparison to apply against `rhs`.
 ///
 /// [`BitPackedArray`]: crate::BitPackedArray
-pub(super) fn stream_compare_fused<T, F>(
+pub(super) fn stream_compare_fused<T>(
     array: ArrayView<'_, BitPacked>,
     rhs: T,
+    operator: CompareOperator,
     nullability: Nullability,
-    cmp: F,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef>
 where
@@ -75,7 +75,6 @@ where
         + BitPackedIter
         + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
     <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare,
-    F: Fn(T, T) -> bool + Copy,
 {
     let len = array.len();
     let bit_width = array.bit_width() as usize;
@@ -84,7 +83,12 @@ where
     // A degenerate width has no packed payload for the fused kernel to consume; defer to the scalar
     // streaming predicate, which handles every layout (including the empty array).
     if len == 0 || bit_width == 0 {
-        return stream_predicate::<T, _>(array, nullability, move |v| cmp(v, rhs), ctx);
+        return stream_predicate::<T, _>(
+            array,
+            nullability,
+            move |v| compare_value(v, rhs, operator),
+            ctx,
+        );
     }
 
     // Over-allocate to whole 1024-bit blocks in padded coordinates so every block - including the
@@ -101,18 +105,7 @@ where
             let out = words[range.start / U64_BITS..]
                 .first_chunk_mut::<WORDS_PER_CHUNK>()
                 .vortex_expect("over-allocated buffer holds a full block per chunk");
-            // SAFETY: `packed_chunk` holds exactly `128 * bit_width / size_of::<U>()` packed
-            // elements and `bit_width <= U::T`, satisfying `unchecked_unpack_cmp`'s contract. The
-            // kernel assigns every word in `transposed`, so its previous contents are irrelevant.
-            unsafe {
-                <<T as PhysicalPType>::Physical as BitPackingCompare>::unchecked_unpack_cmp::<T, _>(
-                    bit_width,
-                    packed_chunk,
-                    &mut transposed,
-                    cmp,
-                    rhs,
-                );
-            }
+            unpack_cmp_operator::<T>(operator, bit_width, packed_chunk, &mut transposed, rhs);
             untranspose_bits::<<T as PhysicalPType>::Physical>(&transposed, out);
         });
     }
@@ -133,11 +126,94 @@ where
             for (&global, &value) in indices.iter().zip(values) {
                 let global: usize = global.as_();
                 let idx = global - p_off;
-                bits.set_to(idx, cmp(value, rhs))
+                bits.set_to(idx, compare_value(value, rhs, operator))
             }
         });
     }
 
     let validity = array.validity()?.union_nullability(nullability);
     Ok(BoolArray::new(bits.freeze(), validity).into_array())
+}
+
+fn unpack_cmp_operator<T>(
+    operator: CompareOperator,
+    bit_width: usize,
+    packed_chunk: &[<T as PhysicalPType>::Physical],
+    transposed: &mut [u64; WORDS_PER_CHUNK],
+    rhs: T,
+) where
+    T: NativePType
+        + BitPackedIter
+        + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
+    <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare,
+{
+    let (operator, invert) = canonical_operator(operator);
+
+    // SAFETY: `packed_chunk` holds exactly `128 * bit_width / size_of::<U>()` packed
+    // elements and `bit_width <= U::T`, satisfying `unchecked_unpack_cmp`'s contract. The
+    // kernel assigns every word in `transposed`, so its previous contents are irrelevant.
+    unsafe {
+        match operator {
+            CompareOperator::Eq => {
+                <<T as PhysicalPType>::Physical as BitPackingCompare>::unchecked_unpack_cmp::<T, _>(
+                    bit_width,
+                    packed_chunk,
+                    transposed,
+                    T::is_eq,
+                    rhs,
+                );
+            }
+            CompareOperator::Lt => {
+                <<T as PhysicalPType>::Physical as BitPackingCompare>::unchecked_unpack_cmp::<T, _>(
+                    bit_width,
+                    packed_chunk,
+                    transposed,
+                    T::is_lt,
+                    rhs,
+                );
+            }
+            CompareOperator::Gt => {
+                <<T as PhysicalPType>::Physical as BitPackingCompare>::unchecked_unpack_cmp::<T, _>(
+                    bit_width,
+                    packed_chunk,
+                    transposed,
+                    T::is_gt,
+                    rhs,
+                );
+            }
+            CompareOperator::NotEq | CompareOperator::Lte | CompareOperator::Gte => {
+                unreachable!("canonical_operator only returns Eq, Lt, or Gt")
+            }
+        }
+    }
+
+    if invert {
+        for word in transposed {
+            *word = !*word;
+        }
+    }
+}
+
+#[inline]
+fn canonical_operator(operator: CompareOperator) -> (CompareOperator, bool) {
+    match operator {
+        CompareOperator::Eq => (CompareOperator::Eq, false),
+        CompareOperator::NotEq => (CompareOperator::Eq, true),
+        CompareOperator::Lt => (CompareOperator::Lt, false),
+        CompareOperator::Lte => (CompareOperator::Gt, true),
+        CompareOperator::Gt => (CompareOperator::Gt, false),
+        CompareOperator::Gte => (CompareOperator::Lt, true),
+    }
+}
+
+#[inline]
+fn compare_value<T: NativePType>(value: T, rhs: T, operator: CompareOperator) -> bool {
+    match operator {
+        CompareOperator::Eq => value.is_eq(rhs),
+        CompareOperator::NotEq => value.is_ne(rhs),
+        CompareOperator::Lt => value.is_lt(rhs),
+        CompareOperator::Lte => value.is_le(rhs),
+        CompareOperator::Gt => value.is_gt(rhs),
+        CompareOperator::Gte => value.is_ge(rhs),
+    }
 }

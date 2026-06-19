@@ -65,8 +65,8 @@ impl CompareKernel for BitPacked {
 
 /// Compare every value against the constant via the fused FastLanes `unpack_cmp` kernel.
 ///
-/// `NativePType::is_eq` / `is_lt` etc. provide total comparison (matching the primitive between
-/// kernel's dispatch shape). `NotEq` has no direct method, so use `!is_eq`.
+/// `NativePType::is_eq` / `is_lt` etc. provide total comparison matching the kernel's dispatch
+/// shape.
 fn compare_constant_typed<T>(
     lhs: ArrayView<'_, BitPacked>,
     rhs: T,
@@ -80,45 +80,7 @@ where
         + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
     <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare,
 {
-    #[cfg(debug_assertions)]
-    {
-        // FastLanes expands `unchecked_unpack_cmp` by width, value type, and comparator type.
-        // In dev builds, using one function-pointer comparator type avoids multiplying that
-        // generated code and debug info by every comparison operator.
-        let cmp: fn(T, T) -> bool = match operator {
-            CompareOperator::Eq => T::is_eq,
-            CompareOperator::NotEq => T::is_ne,
-            CompareOperator::Lt => T::is_lt,
-            CompareOperator::Lte => T::is_le,
-            CompareOperator::Gt => T::is_gt,
-            CompareOperator::Gte => T::is_ge,
-        };
-        stream_compare_fused::<T, fn(T, T) -> bool>(lhs, rhs, nullability, cmp, ctx)
-    }
-
-    #[cfg(not(debug_assertions))]
-    {
-        match operator {
-            CompareOperator::Eq => {
-                stream_compare_fused::<T, _>(lhs, rhs, nullability, T::is_eq, ctx)
-            }
-            CompareOperator::NotEq => {
-                stream_compare_fused::<T, _>(lhs, rhs, nullability, T::is_ne, ctx)
-            }
-            CompareOperator::Lt => {
-                stream_compare_fused::<T, _>(lhs, rhs, nullability, T::is_lt, ctx)
-            }
-            CompareOperator::Lte => {
-                stream_compare_fused::<T, _>(lhs, rhs, nullability, T::is_le, ctx)
-            }
-            CompareOperator::Gt => {
-                stream_compare_fused::<T, _>(lhs, rhs, nullability, T::is_gt, ctx)
-            }
-            CompareOperator::Gte => {
-                stream_compare_fused::<T, _>(lhs, rhs, nullability, T::is_ge, ctx)
-            }
-        }
-    }
+    stream_compare_fused::<T>(lhs, rhs, operator, nullability, ctx)
 }
 
 #[cfg(test)]
