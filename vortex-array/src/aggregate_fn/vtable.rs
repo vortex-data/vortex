@@ -115,6 +115,17 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     /// options and input dtype used to construct the state.
     fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar>;
 
+    /// Try to convert dense partial states directly into a partial-state array.
+    ///
+    /// Returning `Ok(None)` falls back to scalarizing each partial with [`Self::to_scalar`].
+    fn partials_to_array(
+        &self,
+        _partials: &[Self::Partial],
+        _partial_dtype: &DType,
+    ) -> VortexResult<Option<ArrayRef>> {
+        Ok(None)
+    }
+
     /// Reset the state of the accumulator to an empty group.
     fn reset(&self, partial: &mut Self::Partial);
 
@@ -145,6 +156,37 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()>;
+
+    /// Try to accumulate a raw values batch into dense per-group states before decompression.
+    ///
+    /// `group_ids` is parallel to `batch` and contains caller-assigned dense ordinals in
+    /// `0..states.len()`. Ids may repeat, appear out of order, or be absent from the batch.
+    /// Returns `true` when the batch was fully handled.
+    fn try_accumulate_grouped(
+        &self,
+        _states: &mut [Self::Partial],
+        _batch: &ArrayRef,
+        _group_ids: &[u32],
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        Ok(false)
+    }
+
+    /// Accumulate a canonical values batch into dense per-group states.
+    ///
+    /// `group_ids` is parallel to `batch` and contains caller-assigned dense ordinals in
+    /// `0..states.len()`. Ids may repeat, appear out of order, or be absent from the batch.
+    /// Returns `true` when the batch was fully handled. The provided default preserves universal
+    /// correctness through [`crate::aggregate_fn::GroupedAccumulator`]'s fallback.
+    fn accumulate_grouped(
+        &self,
+        _states: &mut [Self::Partial],
+        _batch: &Columnar,
+        _group_ids: &[u32],
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        Ok(false)
+    }
 
     /// Finalize an array of accumulator states into an array of aggregate results.
     ///

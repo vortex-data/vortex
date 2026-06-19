@@ -6,12 +6,12 @@
 
 use std::fmt::Debug;
 
+use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnRef;
-use crate::aggregate_fn::GroupedArray;
 use crate::scalar::Scalar;
 
 /// A pluggable kernel for an aggregate function.
@@ -27,26 +27,53 @@ pub trait DynAggregateKernel: 'static + Send + Sync + Debug {
     ) -> VortexResult<Option<Scalar>>;
 }
 
+/// Partial grouped aggregate output produced by an encoding-specific grouped kernel.
+///
+/// `group_ids` is parallel to `partials`: each row in `partials` is a partial state for the
+/// corresponding dense group ordinal. The ids may repeat, omit, and reorder groups, but must be
+/// valid slots in the accumulator's `0..num_groups` range. The grouped accumulator merges this
+/// batch through `accumulate_partials`.
+#[derive(Clone, Debug)]
+pub struct GroupedAggregateKernelResult {
+    group_ids: Buffer<u32>,
+    partials: ArrayRef,
+}
+
+impl GroupedAggregateKernelResult {
+    pub fn new(group_ids: Buffer<u32>, partials: ArrayRef) -> Self {
+        Self {
+            group_ids,
+            partials,
+        }
+    }
+
+    pub fn group_ids(&self) -> &[u32] {
+        self.group_ids.as_ref()
+    }
+
+    pub fn partials(&self) -> &ArrayRef {
+        &self.partials
+    }
+}
+
 /// A pluggable kernel for batch aggregation of many groups.
 ///
-/// A kernel can be registered either for an aggregate function regardless of the element encoding,
-/// or for a specific aggregate function and element encoding. Element-encoding kernels are matched
-/// on the inner array of the provided grouped array, not on the outer list encoding. This is more
-/// pragmatic than having every kernel match on the outer list encoding and having to deal with the
-/// possibility of multiple list encodings.
+/// A grouped kernel can be registered for an aggregate function regardless of input encoding, or
+/// for a specific aggregate function and array encoding. Encoding-specific kernels are matched on
+/// the values array, not on a pre-grouped list wrapper.
 ///
-/// Each value in the grouped array represents a group and the result of the grouped aggregate
-/// should be an array of the same length, where each element is the aggregate state of the
-/// corresponding group.
+/// Kernels receive the same dense group ordinals that the caller passed to the grouped accumulator
+/// and may aggregate directly in the encoded domain.
 ///
 /// Return `Ok(None)` if the kernel cannot be applied to the given aggregate function.
 pub trait DynGroupedAggregateKernel: 'static + Send + Sync + Debug {
-    /// Aggregate each group in the provided grouped array and return an array of the aggregate
-    /// states.
+    /// Aggregate values into a partial-state batch keyed by dense group ordinal.
     fn grouped_aggregate(
         &self,
         aggregate_fn: &AggregateFnRef,
-        groups: &GroupedArray,
+        batch: &ArrayRef,
+        group_ids: &[u32],
+        num_groups: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>>;
+    ) -> VortexResult<Option<GroupedAggregateKernelResult>>;
 }
