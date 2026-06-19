@@ -204,8 +204,9 @@ This spine mixes one CODE phase with three OPS phases; the orchestrator handles 
 #### Accepted tradeoffs
 
 - **v4 emitter third-party deps**: the v4 `--postgres` path depends on third-party packages
-  (psycopg + IAM-token minting) declared in `post-ingest.py`'s PEP-723 block and lazily imported
-  inside the postgres branch. Accepted: the v3 `--server` path stays stdlib-only and unaffected.
+  (`psycopg[binary]`, `boto3`, `xxhash`) supplied at the call site via `uv run --no-project --with`
+  (NOT declared in `post-ingest.py`'s PEP-723 block, which stays `dependencies = []`), and lazily
+  imported inside the postgres branch. Accepted: the v3 `--server` path stays stdlib-only.
 - **v4 step best-effort by design**: every v4 workflow step is `continue-on-error: true` and
   env-gated. Accepted: a v4 failure intentionally does not fail the workflow (additive write).
 
@@ -266,6 +267,26 @@ This spine mixes one CODE phase with three OPS phases; the orchestrator handles 
   and v4 steps of v3-commit-metadata (defensible — the v4 step may run when the v3 step skipped).
 - **Ops (not code)**: making the new `scripts-test` job a REQUIRED check is a GitHub
   branch-protection setting (admin action), not a code change — track alongside the ops phases.
+- **Phase 1 gate (phase-4) review** — new should-fixes (all non-blocking; refactor/hardening
+  opportunities for a follow-up): (a) [arch] the 3-step v4 ingest block is copy-pasted across
+  bench/sql-benchmarks/v3-commit-metadata (the SHA mismatch was a symptom) — consider extracting a
+  `.github/actions/v4-ingest` composite action to collapse the DSN/CA-bundle/SHA to one site;
+  (b) [arch/correctness] the record-kind->measurement_id dispatch + record-schema maps are restated
+  across post-ingest.py, cross_check, and the tests — consolidate when the next fact table lands
+  (the test maps are deliberately independent for verification value); (c) [correctness] commit-dict
+  fields are accessed without the loud record-indexed validation convention (a malformed timestamp
+  would raise a raw Postgres error; relates to the 1.2 cross_check KeyError item) — harden with the
+  same convention when cross_check is next touched. Deferral rationale: the production path is safe
+  (build_commit always supplies all fields; the workflow blocks are now SHA-consistent); these are
+  maintainability refactors, not correctness gaps.
+- **Phase 1 gate — no-action**: [correctness] `query_idx`/`iterations` validated as i32 (matching
+  the v3 server's storage + the measurement_id hash) vs the producer's u32 wire type — not
+  practically reachable. Doc nits (fold into a future doc pass): `measurement_id_golden.json` `note`
+  + `_measurement_id.py` docstring still say `benchmarks-website/.../db.rs` without the
+  `vortex-data/` org prefix and attribute the golden generator to `db.rs` vs `measurement_id_golden.rs`;
+  the fixture header + test docstring omit the 006 engine/format indexes (present in the fixture);
+  `post-ingest.py` comment references `migrations/004`; the v4 blocks lack a machine-checkable removal
+  trigger comment.
 - **Sub-phase 1.2**, multiple files, **nits** (~10): test rollback-assertion consistency +
   revalidate HTTP-method assertion (fresh); non-string `commit_sha` yields a misleading mismatch
   error (correctness); plan-cycle/PR labels in comments, `_load_module` 4x duplication, handler
@@ -308,3 +329,15 @@ This spine mixes one CODE phase with three OPS phases; the orchestrator handles 
 - **Gauntlet:** pr-3 / accepted (cycles: 1) — fresh + correctness + maint, zero must-fix.
 - **Deferred:** 4 apply-in-finalization should-fixes + several no-action nits/pre-existing
   (see Carry-forward > Deferred work).
+
+#### Phase 1 gate
+
+- **Phase-D finalization polish:** applied the 4 in-scope should-fixes (configure-aws-credentials
+  SHA aligned to `e7f100cf`, `xxhash` importorskip, `AWS_DEFAULT_REGION` message, revalidate POST
+  assertion) in commit `6fdd727f0`, reviewed by the phase-end gauntlet.
+- **Exit criteria:** all PASS — measurement_id contract (65), yamllint --strict (4 workflows),
+  `post-ingest.py --help` stdlib-only, testcontainer writer suite (100) under docker.
+- **Gauntlet:** phase-4 / accepted (cycles: 1) — spec + correctness (opus) + maint + arch, zero
+  must-fix. Correctness reviewer independently re-ran 172 tests (green); arch confirmed the v4
+  path can never break the live v3/v2 path (dormant-but-ready). New should-fixes are refactor /
+  doc items deferred to follow-ups (see Carry-forward > Deferred work).
