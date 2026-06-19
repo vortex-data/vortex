@@ -61,10 +61,12 @@ impl LayoutStrategy for CollectStrategy {
             }
 
             // an empty input yields no chunk; the child layout handles it.
-            if let Some(sequence_id) = latest_sequence_id {
-                let collected = ChunkedArray::try_new(chunks, _dtype)?.into_array();
-                yield (sequence_id, collected);
-            }
+            let Some(sequence_id) = latest_sequence_id else {
+                return;
+            };
+
+            let collected = ChunkedArray::try_new(chunks, _dtype)?.into_array();
+            yield (sequence_id, collected);
         };
 
         let adapted = Box::pin(SequentialStreamAdapter::new(dtype, collected_stream));
