@@ -59,6 +59,7 @@ use crate::scan::v2::node::ScanNode;
 use crate::scan::v2::node::ScanNodeRef;
 use crate::scan::v2::node::ScanStateRef;
 use crate::scan::v2::node::StateCtx;
+use crate::scan::v2::node::downcast_state;
 use crate::scan::v2::request::NodeRequest;
 use crate::segments::SegmentPlanCtx;
 use crate::segments::SegmentRequests;
@@ -88,11 +89,44 @@ pub struct DictScanNode {
 
 /// Per-query state: the cached values relation, the child states, and
 /// cached value-domain expression results.
+#[derive(Clone)]
 pub struct DictScanState {
-    values: Mutex<Option<SharedArrayFuture>>,
+    shared: DictSharedState,
     values_state: ScanStateRef,
     codes_state: ScanStateRef,
-    value_exprs: Mutex<FxHashMap<Expression, Option<ArrayRef>>>,
+}
+
+#[derive(Clone)]
+struct DictSharedState {
+    values: Arc<Mutex<Option<SharedArrayFuture>>>,
+    value_exprs: Arc<Mutex<FxHashMap<Expression, Option<ArrayRef>>>>,
+}
+
+impl DictScanState {
+    fn new(values_state: ScanStateRef, codes_state: ScanStateRef) -> Self {
+        Self {
+            shared: DictSharedState::default(),
+            values_state,
+            codes_state,
+        }
+    }
+
+    fn with_child_states(&self, values_state: ScanStateRef, codes_state: ScanStateRef) -> Self {
+        Self {
+            shared: self.shared.clone(),
+            values_state,
+            codes_state,
+        }
+    }
+}
+
+impl Default for DictSharedState {
+    fn default() -> Self {
+        Self {
+            values: Arc::new(Mutex::new(None)),
+            value_exprs: Arc::new(Mutex::new(FxHashMap::default())),
+        }
+    }
 }
 
 /// A pushed scalar expression over a dictionary value.
@@ -147,11 +181,11 @@ impl DictScanNode {
         io: &FileReader,
         state: &DictScanState,
     ) -> SharedArrayFuture {
-        if let Some(hit) = state.values.lock().clone() {
+        if let Some(hit) = state.shared.values.lock().clone() {
             return hit;
         }
 
-        let mut guard = state.values.lock();
+        let mut guard = state.shared.values.lock();
         if let Some(hit) = guard.clone() {
             return hit;
         }
@@ -196,12 +230,10 @@ impl ScanNode for DictScanNode {
     type State = DictScanState;
 
     fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<DictScanState> {
-        Ok(DictScanState {
-            values: Mutex::new(None),
-            values_state: cx.init_node(&self.values)?,
-            codes_state: cx.init_node(&self.codes)?,
-            value_exprs: Mutex::new(FxHashMap::default()),
-        })
+        Ok(DictScanState::new(
+            cx.init_node(&self.values)?,
+            cx.init_node(&self.codes)?,
+        ))
     }
 
     fn try_push_expr(
@@ -256,7 +288,8 @@ impl ScanNode for DictExprScanNode {
     type State = DictScanState;
 
     fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<Self::State> {
-        self.dict.init_state(cx)
+        let node: ScanNodeRef = Arc::<DictScanNode>::clone(&self.dict);
+        Ok(downcast_state::<DictScanNode>(cx.init_node(&node)?.as_ref())?.clone())
     }
 
     fn plan_read(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Option<ReadPlanRef>> {
@@ -286,12 +319,14 @@ impl ReadPlan for DictReadPlan {
     type State = DictScanState;
 
     fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<Self::State> {
-        Ok(DictScanState {
-            values: Mutex::new(None),
-            values_state: self.values_read.init_state(cx)?,
-            codes_state: self.codes_read.init_state(cx)?,
-            value_exprs: Mutex::new(FxHashMap::default()),
-        })
+        let node: ScanNodeRef = Arc::<DictScanNode>::clone(&self.node);
+        let base = cx.init_node(&node)?;
+        Ok(
+            downcast_state::<DictScanNode>(base.as_ref())?.with_child_states(
+                self.values_read.init_state(cx)?,
+                self.codes_read.init_state(cx)?,
+            ),
+        )
     }
 
     fn read_scoped<'a>(
@@ -400,7 +435,13 @@ impl DictExprReadPlan {
         state: &DictScanState,
         local: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        if let Some(hit) = state.value_exprs.lock().get(&self.node.expr).cloned() {
+        if let Some(hit) = state
+            .shared
+            .value_exprs
+            .lock()
+            .get(&self.node.expr)
+            .cloned()
+        {
             return Ok(hit);
         }
         let values = self
@@ -435,6 +476,7 @@ impl DictExprReadPlan {
             }
         };
         state
+            .shared
             .value_exprs
             .lock()
             .insert(self.node.expr.clone(), value_expr.clone());
@@ -629,12 +671,14 @@ impl ReadPlan for DictExprReadPlan {
     type State = DictScanState;
 
     fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<Self::State> {
-        Ok(DictScanState {
-            values: Mutex::new(None),
-            values_state: self.values_read.init_state(cx)?,
-            codes_state: self.codes_read.init_state(cx)?,
-            value_exprs: Mutex::new(FxHashMap::default()),
-        })
+        let node: ScanNodeRef = Arc::<DictScanNode>::clone(&self.node.dict);
+        let base = cx.init_node(&node)?;
+        Ok(
+            downcast_state::<DictScanNode>(base.as_ref())?.with_child_states(
+                self.values_read.init_state(cx)?,
+                self.codes_read.init_state(cx)?,
+            ),
+        )
     }
 
     fn read_scoped<'a>(
