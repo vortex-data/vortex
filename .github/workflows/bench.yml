@@ -136,6 +136,17 @@ jobs:
       # `continue-on-error` so an OIDC / uv / connect hiccup never breaks the v3
       # pipeline. post-ingest.py mints the RDS IAM token internally (boto3) from
       # the assumed GitHubBenchmarkIngestRole; sslmode=verify-full validates the cert.
+      #
+      # ORDER MATTERS: "Install uv" runs BEFORE "Configure AWS credentials".
+      # configure-aws-credentials persists the assumed ingest-role (rds-db:connect
+      # only) as the job's ambient AWS creds; the uv setup compiles via sccache
+      # (S3-backed), so running it after the role switch fails with S3 AccessDenied.
+      # Installing uv first keeps sccache on the original S3-capable creds; the role
+      # is assumed immediately before the ingest, which needs only rds-db:connect.
+      - name: Install uv for v4 ingest
+        if: vars.GH_BENCH_INGEST_ROLE_ARN != ''
+        continue-on-error: true
+        uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
       - name: Configure AWS credentials for v4 ingest (OIDC)
         if: vars.GH_BENCH_INGEST_ROLE_ARN != ''
         continue-on-error: true
@@ -143,10 +154,6 @@ jobs:
         with:
           role-to-assume: ${{ vars.GH_BENCH_INGEST_ROLE_ARN }}
           aws-region: ${{ vars.RDS_BENCH_REGION }}
-      - name: Install uv for v4 ingest
-        if: vars.GH_BENCH_INGEST_ROLE_ARN != ''
-        continue-on-error: true
-        uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
       - name: Ingest results to v4 Postgres (best-effort)
         if: vars.GH_BENCH_INGEST_ROLE_ARN != ''
         continue-on-error: true
