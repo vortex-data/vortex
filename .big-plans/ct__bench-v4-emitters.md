@@ -382,3 +382,11 @@ This spine mixes one CODE phase with three OPS phases; the orchestrator handles 
   doc items deferred to follow-ups (see Carry-forward > Deferred work).
 - **Phase PR:** #8512 (draft -> develop; include-scaffolding form, user-chosen). Opened
   2026-06-19; CI running; the plan is to squash-merge on green.
+- **Post-PR-open CI fixes** (commit `05b6b79f6`, config-only, no reviewed-code change, so the
+  phase-4 gauntlet was NOT re-run): (a) `REUSE.toml` annotation licensing `.big-plans/**`
+  CC-BY-4.0 (the include-scaffolding files lacked SPDX headers -> reuse-check); (b) `_typos.toml`
+  ignore for the SQL verbs `UPDATEs`/`UPDATEd`/`INSERTs`/`INSERTed` in
+  `cross_check_python_writer.py` docstrings (typos mis-split -> Spell Check). Verified locally
+  (reuse lint compliant, typos exit 0). DCO fails on the gmail-author / spiraldb-signoff mismatch
+  but is non-blocking here -- develop's own latest commit carries the identical mismatch and
+  merged. Changelog label `changelog/ci` added to the PR.
