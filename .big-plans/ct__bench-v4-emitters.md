@@ -105,7 +105,7 @@ v2/v3 paths.
 
 ```yaml
 phase: "1: D — port v4 emitter (CODE)"
-sub_phase: "1.3 CI + workflow wiring"
+sub_phase: null
 task: null
 status: reviewing
 last_gate: null
