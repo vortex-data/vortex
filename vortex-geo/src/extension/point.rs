@@ -312,7 +312,7 @@ mod tests {
     /// A `Point` column round-trips through scalar execution back to the original coordinates.
     #[test]
     fn point_unpacks_coordinates() -> VortexResult<()> {
-        let session = vortex_array::array_session();
+        let session = vortex_array::default_session_builder().build();
         let mut ctx = session.create_execution_ctx();
 
         let points = point_column(vec![1.0, -111.7610], vec![2.0, 34.8697])?;

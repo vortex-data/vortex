@@ -20,22 +20,23 @@ use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
 use vortex_array::aggregate_fn::fns::min_max::MinMax;
-use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
-use vortex_array::session::ArraySessionExt;
-use vortex_session::VortexSession;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
+use vortex_array::session::ArraySession;
+use vortex_session::VortexSessionBuilder;
 
 /// Initialize sequence encoding in the given session.
-pub fn initialize(session: &VortexSession) {
-    session.arrays().register(Sequence);
+pub fn initialize(session: &mut VortexSessionBuilder) {
+    session.get_mut::<ArraySession>().register(Sequence);
     kernel::initialize(session);
 
     // Register the Sequence-specific aggregate kernels.
-    session.aggregate_fns().register_aggregate_kernel(
+    let aggregate_fns = session.get_mut::<AggregateFnSession>();
+    aggregate_fns.register_aggregate_kernel(
         Sequence.id(),
         Some(MinMax.id()),
         &compute::min_max::SequenceMinMaxKernel,
     );
-    session.aggregate_fns().register_aggregate_kernel(
+    aggregate_fns.register_aggregate_kernel(
         Sequence.id(),
         Some(IsSorted.id()),
         &compute::is_sorted::SequenceIsSortedKernel,

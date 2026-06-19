@@ -17,6 +17,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::VortexSessionBuilder;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
@@ -54,7 +55,7 @@ use crate::serde::ArrayChildren;
 /// A [`Patched`]-encoded Vortex array.
 pub type PatchedArray = Array<Patched>;
 
-pub(crate) fn initialize(session: &VortexSession) {
+pub(crate) fn initialize(session: &mut VortexSessionBuilder) {
     kernels::initialize(session);
 }
 
@@ -355,7 +356,6 @@ mod tests {
     use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::Patched;
     use crate::arrays::PatchedArray;
     use crate::arrays::PrimitiveArray;
@@ -364,6 +364,7 @@ mod tests {
     use crate::arrays::patched::PatchedSlotsView;
     use crate::assert_arrays_eq;
     use crate::builders::builder_with_capacity;
+    use crate::default_session_builder;
     use crate::patches::Patches;
     use crate::serde::SerializeOptions;
     use crate::serde::SerializedArray;
@@ -382,7 +383,7 @@ mod tests {
         )
         .unwrap();
 
-        let session = array_session();
+        let session = default_session_builder().build();
         let mut ctx = session.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
@@ -415,7 +416,7 @@ mod tests {
         )
         .unwrap();
 
-        let session = array_session();
+        let session = default_session_builder().build();
         let mut ctx = session.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
@@ -448,7 +449,7 @@ mod tests {
         )
         .unwrap();
 
-        let session = array_session();
+        let session = default_session_builder().build();
         let mut ctx = session.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
@@ -481,7 +482,7 @@ mod tests {
         )
         .unwrap();
 
-        let session = array_session();
+        let session = default_session_builder().build();
         let mut ctx = session.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
@@ -518,7 +519,7 @@ mod tests {
         )
         .unwrap();
 
-        let session = array_session();
+        let session = default_session_builder().build();
         let mut ctx = session.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
@@ -562,7 +563,7 @@ mod tests {
 
         let patches = Patches::new(len, 0, indices, patch_vals, None)?;
 
-        let session = array_session();
+        let session = default_session_builder().build();
         let mut ctx = session.create_execution_ctx();
 
         Patched::from_array_and_patches(array, &patches, &mut ctx)
@@ -583,7 +584,7 @@ mod tests {
         let dtype = array.dtype().clone();
         let len = array.len();
 
-        let session = array_session();
+        let session = default_session_builder().build();
         session.arrays().register(Patched);
 
         let ctx = ArrayContext::empty().with_registry(session.arrays().registry().clone());
@@ -635,7 +636,7 @@ mod tests {
         assert_eq!(array_ref.dtype(), new_array.dtype());
 
         // Execute both and compare results
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let original_executed = array_ref.execute::<Canonical>(&mut ctx)?.into_primitive();
         let new_executed = new_array.execute::<Canonical>(&mut ctx)?.into_primitive();
 
@@ -661,7 +662,7 @@ mod tests {
         let new_array = array_ref.with_slots(slots.into_slots())?;
 
         // Execute and verify the inner values changed (except at patch positions)
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let executed = new_array.execute::<Canonical>(&mut ctx)?.into_primitive();
 
         // Expected: all 5s except indices 1, 2, 3 which are patched to 10, 20, 30

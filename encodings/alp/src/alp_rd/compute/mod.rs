@@ -13,19 +13,19 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
+    use vortex_array::default_session_builder;
     use vortex_session::VortexSession;
 
     use crate::ALPRDArray;
     use crate::RDEncoder;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = array_session();
-        crate::initialize(&session);
-        session
+        let mut session = default_session_builder();
+        crate::initialize(&mut session);
+        session.build()
     });
 
     #[rstest]

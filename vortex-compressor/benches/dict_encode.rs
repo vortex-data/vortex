@@ -15,7 +15,8 @@ use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_session::VortexSession;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| vortex_array::default_session_builder().build());
 
 fn make_array() -> PrimitiveArray {
     let values: BufferMut<i32> = (0..50).cycle().take(64_000).collect();

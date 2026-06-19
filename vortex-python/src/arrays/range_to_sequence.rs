@@ -79,7 +79,7 @@ mod test {
     use vortex::dtype::Nullability;
     use vortex::dtype::PType;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
+    use vortex_array::default_session_builder;
 
     use crate::arrays::range_to_sequence::range_len;
     use crate::arrays::range_to_sequence::sequence_array_from_range;
@@ -100,7 +100,7 @@ mod test {
 
     #[test]
     fn test_sequence_array_from_len() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let dtype = DType::Primitive(PType::U16, Nullability::NonNullable);
         let arr = sequence_array_from_range::<u16>(0, 10, 1, dtype).unwrap();
         assert_arrays_eq!(

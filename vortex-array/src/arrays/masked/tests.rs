@@ -11,9 +11,9 @@ use crate::IntoArray;
 #[expect(deprecated)]
 use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
+use crate::default_session_builder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::validity::Validity;
@@ -51,7 +51,7 @@ fn test_canonical_dtype_matches_array_dtype() -> VortexResult<()> {
     let canonical = array
         .clone()
         .into_array()
-        .execute::<Canonical>(&mut array_session().create_execution_ctx())?;
+        .execute::<Canonical>(&mut default_session_builder().build().create_execution_ctx())?;
     assert_eq!(canonical.dtype(), array.dtype());
     Ok(())
 }
@@ -67,35 +67,50 @@ fn test_masked_child_with_validity() {
     let prim = array.as_array().to_primitive();
 
     // Positions where validity is false should be null in masked_child.
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = default_session_builder().build().create_execution_ctx();
     assert_eq!(prim.valid_count(&mut ctx).unwrap(), 3);
     assert!(
-        prim.is_valid(0, &mut array_session().create_execution_ctx())
-            .unwrap()
+        prim.is_valid(
+            0,
+            &mut default_session_builder().build().create_execution_ctx()
+        )
+        .unwrap()
     );
     assert!(
         !prim
-            .is_valid(1, &mut array_session().create_execution_ctx())
+            .is_valid(
+                1,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
     );
     assert!(
-        prim.is_valid(2, &mut array_session().create_execution_ctx())
-            .unwrap()
+        prim.is_valid(
+            2,
+            &mut default_session_builder().build().create_execution_ctx()
+        )
+        .unwrap()
     );
     assert!(
         !prim
-            .is_valid(3, &mut array_session().create_execution_ctx())
+            .is_valid(
+                3,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
     );
     assert!(
-        prim.is_valid(4, &mut array_session().create_execution_ctx())
-            .unwrap()
+        prim.is_valid(
+            4,
+            &mut default_session_builder().build().create_execution_ctx()
+        )
+        .unwrap()
     );
 }
 
 #[test]
 fn test_masked_child_all_valid() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = default_session_builder().build().create_execution_ctx();
     // When validity is AllValid, masked_child should invert to AllInvalid.
     let child = PrimitiveArray::from_iter([10i32, 20, 30]).into_array();
     let array = MaskedArray::try_new(child, Validity::AllValid).unwrap();
@@ -103,7 +118,7 @@ fn test_masked_child_all_valid() {
     assert_eq!(array.len(), 3);
     assert_eq!(
         array
-            .valid_count(&mut array_session().create_execution_ctx())
+            .valid_count(&mut default_session_builder().build().create_execution_ctx())
             .unwrap(),
         3
     );
@@ -131,7 +146,7 @@ fn test_masked_child_preserves_length(#[case] validity: Validity) {
 
     assert_eq!(array.len(), len);
 
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = default_session_builder().build().create_execution_ctx();
     assert!(
         array
             .validity()

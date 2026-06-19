@@ -71,7 +71,8 @@ mod tests {
 
     use crate::Pco;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| vortex_array::default_session_builder().build());
 
     #[test]
     fn test_cast_pco_f32_to_f64() {

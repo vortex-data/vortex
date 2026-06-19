@@ -23,10 +23,10 @@ impl FillNullReduce for Constant {
 mod test {
     use crate::IntoArray as _;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ConstantArray;
     use crate::arrow::ArrowSessionExt;
     use crate::builtins::ArrayBuiltins;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -34,7 +34,7 @@ mod test {
 
     #[test]
     fn test_null() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let actual = ConstantArray::new(Scalar::null_native::<i32>(), 3)
             .into_array()
             .fill_null(Scalar::from(1))
@@ -43,11 +43,13 @@ mod test {
 
         assert!(!actual.dtype().is_nullable());
 
-        let actual_arrow = array_session()
+        let actual_arrow = default_session_builder()
+            .build()
             .arrow()
             .execute_arrow(actual.clone(), None, &mut ctx)
             .unwrap();
-        let expected_arrow = array_session()
+        let expected_arrow = default_session_builder()
+            .build()
             .arrow()
             .execute_arrow(expected.clone(), None, &mut ctx)
             .unwrap();
@@ -62,7 +64,7 @@ mod test {
 
     #[test]
     fn test_non_null() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let actual = ConstantArray::new(Scalar::from(Some(1)), 3)
             .into_array()
             .fill_null(Scalar::from(1))
@@ -71,11 +73,13 @@ mod test {
 
         assert!(!actual.dtype().is_nullable());
 
-        let actual_arrow = array_session()
+        let actual_arrow = default_session_builder()
+            .build()
             .arrow()
             .execute_arrow(actual.clone(), None, &mut ctx)
             .unwrap();
-        let expected_arrow = array_session()
+        let expected_arrow = default_session_builder()
+            .build()
             .arrow()
             .execute_arrow(expected.clone(), None, &mut ctx)
             .unwrap();
@@ -90,7 +94,7 @@ mod test {
 
     #[test]
     fn test_non_nullable_with_nullable() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let actual = ConstantArray::new(Scalar::from(1), 3)
             .into_array()
             .fill_null(Scalar::new(
@@ -104,11 +108,13 @@ mod test {
 
         assert!(actual.dtype().is_nullable());
 
-        let actual_arrow = array_session()
+        let actual_arrow = default_session_builder()
+            .build()
             .arrow()
             .execute_arrow(actual.clone(), None, &mut ctx)
             .unwrap();
-        let expected_arrow = array_session()
+        let expected_arrow = default_session_builder()
+            .build()
             .arrow()
             .execute_arrow(expected.clone(), None, &mut ctx)
             .unwrap();

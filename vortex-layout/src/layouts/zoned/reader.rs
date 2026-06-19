@@ -227,10 +227,10 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::default_session_builder;
     use vortex_array::expr::gt;
     use vortex_array::expr::is_not_null;
     use vortex_array::expr::lit;
@@ -241,7 +241,7 @@ mod test {
     use vortex_io::runtime::Handle;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSession;
-    use vortex_io::session::RuntimeSessionExt;
+    use vortex_io::session::RuntimeSessionBuilderExt;
     use vortex_mask::Mask;
     use vortex_session::VortexSession;
     use vortex_session::registry::ReadContext;
@@ -267,10 +267,11 @@ mod test {
     use crate::session::LayoutSession;
 
     fn session_with_handle(handle: Handle) -> VortexSession {
-        array_session()
+        default_session_builder()
             .with::<LayoutSession>()
             .with::<RuntimeSession>()
             .with_handle(handle)
+            .build()
     }
 
     #[fixture]
@@ -311,7 +312,7 @@ mod test {
         #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
         block_on(|handle| async {
-            let mut ctx = array_session().create_execution_ctx();
+            let mut ctx = default_session_builder().build().create_execution_ctx();
             let session = session_with_handle(handle);
             let result = layout
                 .new_reader("".into(), segments, &session, &Default::default())
@@ -432,7 +433,7 @@ mod test {
         let zoned_layout = layout.as_::<Zoned>();
         let children =
             OwnedLayoutChildren::layout_children(vec![layout.child(0)?, layout.child(1)?]);
-        let session = array_session();
+        let session = default_session_builder().build();
         let read_ctx = ReadContext::new([]);
         let build_ctx = LayoutBuildContext {
             session: &session,

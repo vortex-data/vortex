@@ -52,19 +52,19 @@ mod test {
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::primitive::compute::fill_null::BoolArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     #[expect(deprecated)]
     use crate::canonical::ToCanonical as _;
+    use crate::default_session_builder;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     #[test]
     fn fill_null_leading_none() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let arr = PrimitiveArray::from_option_iter([None, Some(8u8), None, Some(10), None]);
         #[expect(deprecated)]
         let p = arr
@@ -83,7 +83,7 @@ mod test {
                 .unwrap()
                 .execute_mask(
                     p.as_ref().len(),
-                    &mut array_session().create_execution_ctx()
+                    &mut default_session_builder().build().create_execution_ctx()
                 )
                 .unwrap()
                 .all_true()
@@ -92,7 +92,7 @@ mod test {
 
     #[test]
     fn fill_null_all_none() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let arr = PrimitiveArray::from_option_iter([Option::<u8>::None, None, None, None, None]);
 
         #[expect(deprecated)]
@@ -112,7 +112,7 @@ mod test {
                 .unwrap()
                 .execute_mask(
                     p.as_ref().len(),
-                    &mut array_session().create_execution_ctx()
+                    &mut default_session_builder().build().create_execution_ctx()
                 )
                 .unwrap()
                 .all_true()
@@ -121,7 +121,7 @@ mod test {
 
     #[test]
     fn fill_null_nullable_non_null() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let arr = PrimitiveArray::new(
             buffer![8u8, 10, 12, 14, 16],
             Validity::Array(BoolArray::from_iter([true, true, true, true, true]).into_array()),
@@ -143,7 +143,7 @@ mod test {
                 .unwrap()
                 .execute_mask(
                     p.as_ref().len(),
-                    &mut array_session().create_execution_ctx()
+                    &mut default_session_builder().build().create_execution_ctx()
                 )
                 .unwrap()
                 .all_true()
@@ -152,7 +152,7 @@ mod test {
 
     #[test]
     fn fill_null_non_nullable() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let arr = buffer![8u8, 10, 12, 14, 16].into_array();
         #[expect(deprecated)]
         let p = arr.fill_null(Scalar::from(255u8)).unwrap().to_primitive();
@@ -167,7 +167,7 @@ mod test {
                 .unwrap()
                 .execute_mask(
                     p.as_ref().len(),
-                    &mut array_session().create_execution_ctx()
+                    &mut default_session_builder().build().create_execution_ctx()
                 )
                 .unwrap()
                 .all_true()

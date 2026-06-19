@@ -337,7 +337,6 @@ mod tests {
     use vortex_array::expr::root;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
-    use vortex_io::session::RuntimeSessionExt;
 
     use crate::LayoutReader;
     use crate::LayoutStrategy;
@@ -347,12 +346,11 @@ mod tests {
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
-    use crate::test::SESSION;
 
     #[test]
     fn flat_expr_no_row_id() {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = crate::test::session_with_handle(handle);
             let mut ctx = session.create_execution_ctx();
             let array_ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
@@ -397,7 +395,7 @@ mod tests {
     #[test]
     fn flat_expr_row_id() {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = crate::test::session_with_handle(handle);
             let mut ctx = session.create_execution_ctx();
             let array_ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
@@ -442,7 +440,7 @@ mod tests {
     #[test]
     fn flat_expr_or() {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = crate::test::session_with_handle(handle);
             let mut ctx = session.create_execution_ctx();
             let array_ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());

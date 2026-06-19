@@ -218,7 +218,8 @@ mod tests {
     use crate::executor::VortexSessionExecute;
     use crate::scalar::Scalar;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| crate::default_session_builder().build());
 
     fn ree_type(ends: DataType, values_dtype: DataType) -> DataType {
         DataType::RunEndEncoded(

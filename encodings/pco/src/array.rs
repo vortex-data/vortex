@@ -681,9 +681,9 @@ impl OperationsVTable<Pco> for Pco {
 mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::default_session_builder;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 
@@ -691,7 +691,7 @@ mod tests {
 
     #[test]
     fn test_slice_nullable() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         // Create a nullable array with some nulls
         let values = PrimitiveArray::new(
             buffer![10u32, 20, 30, 40, 50, 60],

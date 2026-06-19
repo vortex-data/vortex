@@ -4,7 +4,7 @@
 use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionBuilder;
 
 use crate::ArrayRef;
 use crate::ArrayView;
@@ -20,15 +20,13 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::StructFields;
 use crate::kernel::ExecuteParentKernel;
-use crate::optimizer::kernels::ArrayKernelsExt;
+use crate::optimizer::kernels::builder_kernels;
 use crate::scalar::Scalar;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::cast::Cast;
 
-pub(crate) fn initialize(session: &VortexSession) {
-    session
-        .kernels()
-        .register_execute_parent_kernel(Cast.id(), Struct, StructCastKernel);
+pub(crate) fn initialize(session: &mut VortexSessionBuilder) {
+    builder_kernels(session).register_execute_parent_kernel(Cast.id(), Struct, StructCastKernel);
 }
 
 #[derive(Debug)]
@@ -158,7 +156,8 @@ mod tests {
     use crate::scalar_fn::fns::cast::Cast;
     use crate::validity::Validity;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| crate::default_session_builder().build());
 
     fn null_struct_cast_execute_parent(
         child: &ArrayRef,
@@ -214,7 +213,9 @@ mod tests {
             .try_new_array(source.len(), target.clone(), [source])
             .unwrap();
         let parent_id = cast.encoding_id();
-        let session = VortexSession::empty().with_some(KernelSession::empty());
+        let session = VortexSession::builder()
+            .with_some(KernelSession::empty())
+            .build();
         session.kernels().register_execute_parent(
             parent_id,
             child_id,

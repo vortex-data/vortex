@@ -3,7 +3,7 @@
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionBuilder;
 
 use super::merge_typed_scalar_as_variant;
 use crate::ArrayRef;
@@ -25,17 +25,19 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::kernel::ExecuteParentKernel;
-use crate::optimizer::kernels::ArrayKernelsExt;
+use crate::optimizer::kernels::builder_kernels;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::variant_get::VariantGet;
 use crate::scalar_fn::fns::variant_get::VariantGetOptions;
 use crate::scalar_fn::fns::variant_get::VariantPath;
 use crate::scalar_fn::fns::variant_get::VariantPathElement;
 
-pub(crate) fn initialize(session: &VortexSession) {
-    session
-        .kernels()
-        .register_execute_parent_kernel(VariantGet.id(), Variant, VariantGetKernel);
+pub(crate) fn initialize(session: &mut VortexSessionBuilder) {
+    builder_kernels(session).register_execute_parent_kernel(
+        VariantGet.id(),
+        Variant,
+        VariantGetKernel,
+    );
 }
 
 #[derive(Default, Debug)]

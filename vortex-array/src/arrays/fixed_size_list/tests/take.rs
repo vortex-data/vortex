@@ -12,13 +12,13 @@ use super::common::create_single_element_fsl;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::builders::ArrayBuilder;
 use crate::builders::FixedSizeListBuilder;
 use crate::compute::conformance::take::test_take_conformance;
+use crate::default_session_builder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -40,7 +40,7 @@ fn test_take_fsl_conformance(#[case] fsl: FixedSizeListArray) {
 
 #[test]
 fn test_take_basic_smoke_test() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = default_session_builder().build().create_execution_ctx();
     let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 3);
 
@@ -98,7 +98,10 @@ fn test_take_degenerate_lists(
     for (i, expected_null) in expected_nulls.iter().enumerate() {
         assert_eq!(
             result
-                .execute_scalar(i, &mut array_session().create_execution_ctx())
+                .execute_scalar(
+                    i,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .unwrap()
                 .is_null(),
             *expected_null
@@ -108,7 +111,7 @@ fn test_take_degenerate_lists(
 
 #[test]
 fn test_take_large_list_size() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = default_session_builder().build().create_execution_ctx();
     let elements = buffer![0i32..300].into_array();
     let fsl = FixedSizeListArray::new(elements, 100, Validity::NonNullable, 3);
 
@@ -123,7 +126,7 @@ fn test_take_large_list_size() {
 
 #[test]
 fn test_take_fsl_with_null_indices_preserves_elements() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = default_session_builder().build().create_execution_ctx();
     let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 3);
 
@@ -170,7 +173,7 @@ fn test_element_index_overflow(
     #[case] indices: ArrayRef,
     #[case] expected: FixedSizeListArray,
 ) {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = default_session_builder().build().create_execution_ctx();
     let result = fsl.take(indices).unwrap();
     assert_arrays_eq!(result, expected, &mut ctx);
 }
@@ -235,7 +238,10 @@ fn test_take_nullable_arrays_fsl_specific(
     for (i, expected_null) in expected_nulls.iter().enumerate() {
         assert_eq!(
             result
-                .execute_scalar(i, &mut array_session().create_execution_ctx())
+                .execute_scalar(
+                    i,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .unwrap()
                 .is_null(),
             *expected_null

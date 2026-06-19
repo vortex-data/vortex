@@ -31,11 +31,11 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
+    use vortex_array::default_session_builder;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
@@ -45,9 +45,9 @@ mod tests {
     use crate::DeltaArray;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = array_session();
-        crate::initialize(&session);
-        session
+        let mut session = default_session_builder();
+        crate::initialize(&mut session);
+        session.build()
     });
 
     fn da(array: &PrimitiveArray) -> DeltaArray {

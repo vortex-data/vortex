@@ -11,13 +11,14 @@ use std::sync::LazyLock;
 
 use vortex::VortexSessionDefault;
 use vortex::io::runtime::wasm::WasmRuntime;
-use vortex::io::session::RuntimeSessionExt;
+use vortex::io::session::RuntimeSessionBuilderExt;
 use vortex::session::VortexSession;
 
 mod wasm;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    VortexSession::default()
+    VortexSession::default_builder()
         .with_handle(WasmRuntime::handle())
         .allow_unknown()
+        .build()
 });

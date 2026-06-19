@@ -16,10 +16,10 @@ mod tests {
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::binary_numeric::test_binary_numeric_array;
     use crate::compute::conformance::consistency::test_array_consistency;
+    use crate::default_session_builder;
 
     #[rstest]
     // Basic primitive arrays
@@ -41,7 +41,7 @@ mod tests {
     fn test_primitive_consistency(#[case] array: PrimitiveArray) {
         test_array_consistency(
             &array.into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut default_session_builder().build().create_execution_ctx(),
         );
     }
 
@@ -54,7 +54,7 @@ mod tests {
     fn test_primitive_binary_numeric(#[case] array: PrimitiveArray) {
         test_binary_numeric_array(
             &array.into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut default_session_builder().build().create_execution_ctx(),
         );
     }
 }

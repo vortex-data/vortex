@@ -31,7 +31,8 @@ const NUM_INDICES: &[usize] = &[1_000, 10_000, 100_000];
 /// Size of the source vector / dictionary values.
 const VECTOR_SIZE: &[usize] = &[16, 256, 2048, 8192];
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| vortex_array::default_session_builder().build());
 
 // --- DictArray canonicalization benchmarks ---
 

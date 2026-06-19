@@ -20,7 +20,6 @@ use num_traits::AsPrimitive;
 use tempfile::NamedTempFile;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
-use vortex::array::array_session;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::DictArray;
@@ -30,6 +29,7 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinArray;
 use vortex::array::arrays::VarBinViewArray;
+use vortex::array::default_session_builder;
 use vortex::array::validity::Validity;
 use vortex::buffer::buffer;
 use vortex::dtype::Nullability;
@@ -779,7 +779,7 @@ async fn write_vortex_file_with_encodings() -> NamedTempFile {
     // 4. Run-End
     let run_ends = buffer![3u32, 5];
     let run_values = buffer![100i32, 200];
-    let mut rle_ctx = array_session().create_execution_ctx();
+    let mut rle_ctx = default_session_builder().build().create_execution_ctx();
     let rle_array =
         RunEnd::try_new(run_ends.into_array(), run_values.into_array(), &mut rle_ctx).unwrap();
 

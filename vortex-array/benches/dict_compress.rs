@@ -37,7 +37,8 @@ const BENCH_ARGS: &[(usize, usize)] = &[
     (10_000, 512),
 ];
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| vortex_array::default_session_builder().build());
 
 #[divan::bench(types = [u8, f32, i64], args = BENCH_ARGS)]
 fn encode_primitives<T>(bencher: Bencher, (len, unique_values): (usize, usize))

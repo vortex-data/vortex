@@ -259,12 +259,12 @@ mod tests {
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::varbin::compute::take::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::validity::Validity;
@@ -308,7 +308,7 @@ mod tests {
 
     #[test]
     fn test_take_overflow() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let scream = iter::once("a").cycle().take(128).collect::<String>();
         let bytes = ByteBuffer::copy_from(scream.as_bytes());
         let offsets = buffer![0u8, 128u8].into_array();

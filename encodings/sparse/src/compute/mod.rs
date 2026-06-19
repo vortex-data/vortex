@@ -23,13 +23,13 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
+    use vortex_array::default_session_builder;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
@@ -43,9 +43,9 @@ mod tests {
     use crate::SparseArray;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = array_session();
-        crate::initialize(&session);
-        session
+        let mut session = default_session_builder();
+        crate::initialize(&mut session);
+        session.build()
     });
 
     #[fixture]

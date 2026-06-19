@@ -9,6 +9,7 @@ use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::VortexSessionBuilder;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
@@ -77,7 +78,7 @@ pub struct Extension;
 /// A [`Extension`]-encoded Vortex array.
 pub type ExtensionArray = Array<Extension>;
 
-pub(crate) fn initialize(session: &VortexSession) {
+pub(crate) fn initialize(session: &mut VortexSessionBuilder) {
     kernel::initialize(session);
 }
 

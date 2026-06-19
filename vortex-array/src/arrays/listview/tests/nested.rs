@@ -5,12 +5,12 @@ use vortex_buffer::buffer;
 
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::listview::ListViewArrayExt;
+use crate::default_session_builder;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
@@ -74,7 +74,10 @@ fn test_listview_of_listview_with_overlapping() {
     // inner[0] should be [1, 2, 3].
     assert_eq!(
         inner0
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                0,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
             .as_primitive()
             .as_::<i32>()
@@ -83,7 +86,10 @@ fn test_listview_of_listview_with_overlapping() {
     );
     assert_eq!(
         inner0
-            .execute_scalar(2, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                2,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
             .as_primitive()
             .as_::<i32>()
@@ -94,7 +100,10 @@ fn test_listview_of_listview_with_overlapping() {
     // inner[1] should be [3, 4, 5] - shares element 3 with inner[0].
     assert_eq!(
         inner1
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                0,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
             .as_primitive()
             .as_::<i32>()
@@ -103,7 +112,10 @@ fn test_listview_of_listview_with_overlapping() {
     );
     assert_eq!(
         inner1
-            .execute_scalar(1, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                1,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
             .as_primitive()
             .as_::<i32>()
@@ -287,7 +299,10 @@ fn test_listview_zero_and_overlapping() {
     assert_eq!(inner1.len(), 3); // [1, 2, 3]
     assert_eq!(
         inner1
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                0,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
             .as_primitive()
             .as_::<i32>()
@@ -306,7 +321,10 @@ fn test_listview_zero_and_overlapping() {
     assert_eq!(inner3.len(), 3); // [2, 3, 4]
     assert_eq!(
         inner3
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                0,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
             .as_primitive()
             .as_::<i32>()
@@ -385,7 +403,10 @@ fn test_listview_of_struct_with_nulls() {
     // The middle element (struct[2]) should be null.
     assert!(
         list1
-            .execute_scalar(1, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                1,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
             .is_null()
     );

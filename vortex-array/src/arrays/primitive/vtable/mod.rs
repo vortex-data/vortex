@@ -29,6 +29,7 @@ use std::hash::Hasher;
 
 use vortex_buffer::Alignment;
 use vortex_session::VortexSession;
+use vortex_session::VortexSessionBuilder;
 use vortex_session::registry::CachedId;
 
 use crate::EqMode;
@@ -41,7 +42,7 @@ use crate::hash::ArrayHash;
 /// A [`Primitive`]-encoded Vortex array.
 pub type PrimitiveArray = Array<Primitive>;
 
-pub(crate) fn initialize(session: &VortexSession) {
+pub(crate) fn initialize(session: &mut VortexSessionBuilder) {
     kernel::initialize(session);
 }
 
@@ -226,16 +227,16 @@ mod tests {
     use crate::ArrayContext;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
+    use crate::default_session_builder;
     use crate::serde::SerializeOptions;
     use crate::serde::SerializedArray;
     use crate::validity::Validity;
 
     #[test]
     fn test_nullable_primitive_serde_roundtrip() {
-        let session = array_session();
+        let session = default_session_builder().build();
         let mut ctx = session.create_execution_ctx();
         let array = PrimitiveArray::new(
             buffer![1i32, 2, 3, 4],

@@ -874,17 +874,17 @@ mod tests {
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::VarBinViewBuilder;
     use crate::builders::varbinview::VarBinViewArray;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
 
     #[test]
     fn test_utf8_builder() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
 
         builder.append_value("Hello");
@@ -912,7 +912,7 @@ mod tests {
 
     #[test]
     fn test_utf8_builder_with_extend() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let array = {
             let mut builder =
                 VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
@@ -953,7 +953,7 @@ mod tests {
         let mut builder =
             VarBinViewBuilder::with_buffer_deduplication(DType::Utf8(Nullability::Nullable), 10);
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
 
         array.append_to_builder(&mut builder, &mut ctx)?;
         assert_eq!(builder.completed_block_count(), 1);
@@ -988,7 +988,7 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         use crate::scalar::Scalar;
 
         // Test with Utf8 builder.
@@ -1081,7 +1081,10 @@ mod tests {
 
         // Verify the value was stored correctly
         let retrieved = array
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                0,
+                &mut default_session_builder().build().create_execution_ctx(),
+            )
             .unwrap()
             .as_binary()
             .value()

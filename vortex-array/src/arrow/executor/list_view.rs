@@ -127,7 +127,8 @@ mod tests {
     use crate::validity::Validity;
 
     /// A shared session for these list-view-executor tests, used to create execution contexts.
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| crate::default_session_builder().build());
 
     #[test]
     fn trims_zero_copy_with_significant_trailing_waste() -> VortexResult<()> {

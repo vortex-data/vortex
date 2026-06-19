@@ -10,6 +10,7 @@ use std::hash::Hasher;
 
 pub use immutable::SessionBuilder;
 pub use immutable::VortexSession;
+pub use immutable::VortexSessionBuilder;
 pub use immutable::VortexSessionVar;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -101,7 +102,7 @@ mod tests {
         let session = VortexSession::empty();
         assert!(!session.allows_unknown());
 
-        let session = session.allow_unknown();
+        let session = VortexSession::builder().allow_unknown().build();
         assert!(session.allows_unknown());
     }
 }

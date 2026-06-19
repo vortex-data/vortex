@@ -172,14 +172,14 @@ mod tests {
     use vortex::mask::Mask;
     use vortex::scalar::Scalar;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
+    use vortex_array::default_session_builder;
 
     use crate::CanonicalCudaExt;
     use crate::executor::CudaArrayExt;
     use crate::session::CudaSession;
 
     fn for_bp<T: NativePType + Into<Scalar>>(values: Vec<T>, reference: T) -> ArrayRef {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let bp = BitPacked::encode(
             &PrimitiveArray::new(Buffer::from(values), NonNullable).into_array(),
             7,
@@ -194,7 +194,7 @@ mod tests {
     /// FoR(BitPacked) u32 — entire tree compiles into a single fused plan.
     #[crate::test]
     async fn test_fused() -> VortexResult<()> {
-        let mut cpu_ctx = array_session().create_execution_ctx();
+        let mut cpu_ctx = default_session_builder().build().create_execution_ctx();
         let mut ctx =
             CudaSession::create_execution_ctx(&crate::cuda_session()).vortex_expect("ctx");
         let values: Vec<u32> = (0..2048).map(|i| (i % 128) as u32).collect();
@@ -222,7 +222,7 @@ mod tests {
     /// Exercises the unsigned type reinterpretation in CudaDispatchPlan::execute.
     #[crate::test]
     async fn test_fused_f32() -> VortexResult<()> {
-        let mut cpu_ctx = array_session().create_execution_ctx();
+        let mut cpu_ctx = default_session_builder().build().create_execution_ctx();
         use vortex::encodings::alp::ALP;
         use vortex::encodings::alp::Exponents;
 
@@ -258,7 +258,7 @@ mod tests {
     /// ALP with patches — plan builder rejects it, falls back to ALPExecutor.
     #[crate::test]
     async fn test_fallback() -> VortexResult<()> {
-        let mut cpu_ctx = array_session().create_execution_ctx();
+        let mut cpu_ctx = default_session_builder().build().create_execution_ctx();
         use vortex::array::patches::Patches;
         use vortex::array::validity::Validity::NonNullable as NN;
         use vortex::buffer::buffer;
@@ -300,15 +300,16 @@ mod tests {
     #[cfg(feature = "unstable_encodings")]
     #[crate::test]
     async fn test_partial_fusion() -> VortexResult<()> {
-        let mut cpu_ctx = array_session().create_execution_ctx();
+        let mut cpu_ctx = default_session_builder().build().create_execution_ctx();
         use vortex::array::arrays::DictArray;
-        use vortex::array::session::ArraySessionExt;
+        use vortex::array::session::ArraySession;
         use vortex::encodings::fastlanes;
         use vortex::encodings::zstd::ZstdBuffers;
 
-        let session = crate::cuda_session();
-        fastlanes::initialize(&session);
-        session.arrays().register(ZstdBuffers);
+        let mut builder = crate::cuda_session_builder();
+        fastlanes::initialize(&mut builder);
+        builder.get_mut::<ArraySession>().register(ZstdBuffers);
+        let session = builder.build();
         let mut ctx = CudaSession::create_execution_ctx(&session).vortex_expect("ctx");
 
         let num_values: u32 = 64;
@@ -364,7 +365,7 @@ mod tests {
     /// Filter(FoR(BP), mask) — FoR+BP fuses via dyn dispatch, then CUB filters the result.
     #[crate::test]
     async fn test_filter_fused_child() -> VortexResult<()> {
-        let mut cpu_ctx = array_session().create_execution_ctx();
+        let mut cpu_ctx = default_session_builder().build().create_execution_ctx();
         let mut ctx =
             CudaSession::create_execution_ctx(&crate::cuda_session()).vortex_expect("ctx");
 
@@ -408,7 +409,7 @@ mod tests {
     ))]
     #[crate::test]
     async fn test_ext_storage_gpu_decode(#[case] ext: ExtensionArray) -> VortexResult<()> {
-        let mut cpu_ctx = array_session().create_execution_ctx();
+        let mut cpu_ctx = default_session_builder().build().create_execution_ctx();
         let mut ctx =
             CudaSession::create_execution_ctx(&crate::cuda_session()).vortex_expect("ctx");
 
@@ -432,7 +433,7 @@ mod tests {
     /// Extension over already-canonical storage executes unchanged.
     #[crate::test]
     async fn test_ext_canonical_storage() -> VortexResult<()> {
-        let mut cpu_ctx = array_session().create_execution_ctx();
+        let mut cpu_ctx = default_session_builder().build().create_execution_ctx();
         let mut ctx =
             CudaSession::create_execution_ctx(&crate::cuda_session()).vortex_expect("ctx");
 

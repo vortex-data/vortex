@@ -23,7 +23,8 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| vortex_array::default_session_builder().build());
 
 // Sized so the bench stays well under a few hundred microseconds under CodSpeed's instruction-count
 // simulation, which runs ~10x the local walltime; the branchless value blend is still exercised.

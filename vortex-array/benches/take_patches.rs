@@ -23,7 +23,8 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| vortex_array::default_session_builder().build());
 
 const BENCH_ARGS: &[(f64, f64)] = &[
     // patches_sparsity, index_multiple

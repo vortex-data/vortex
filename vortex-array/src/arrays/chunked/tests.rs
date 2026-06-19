@@ -32,7 +32,8 @@ use crate::dtype::PType::I32;
 use crate::executor::execute_into_builder;
 use crate::validity::Validity;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| crate::default_session_builder().build());
 
 fn chunked_array() -> ChunkedArray {
     ChunkedArray::try_new(

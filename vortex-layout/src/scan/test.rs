@@ -5,19 +5,24 @@ use std::sync::LazyLock;
 
 use vortex_io::runtime::Handle;
 use vortex_io::session::RuntimeSession;
-use vortex_io::session::RuntimeSessionExt;
+use vortex_io::session::RuntimeSessionBuilderExt;
 use vortex_session::VortexSession;
 
 use crate::session::LayoutSession;
 
 pub fn new_session() -> VortexSession {
-    vortex_array::array_session()
+    vortex_array::default_session_builder()
         .with::<LayoutSession>()
         .with::<RuntimeSession>()
+        .build()
 }
 
 pub fn session_with_handle(handle: Handle) -> VortexSession {
-    new_session().with_handle(handle)
+    vortex_array::default_session_builder()
+        .with::<LayoutSession>()
+        .with::<RuntimeSession>()
+        .with_handle(handle)
+        .build()
 }
 
 pub static SCAN_SESSION: LazyLock<VortexSession> = LazyLock::new(new_session);

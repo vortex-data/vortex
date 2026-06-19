@@ -15,13 +15,13 @@ use super::*;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::FilterArray;
 use crate::arrays::List;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::builders::ArrayBuilder;
 use crate::builders::ListBuilder;
+use crate::default_session_builder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType::I32;
@@ -29,7 +29,7 @@ use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 /// A shared session for `List` tests, used to create execution contexts.
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| default_session_builder().build());
 
 #[test]
 fn test_empty_list_array() {

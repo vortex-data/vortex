@@ -21,7 +21,6 @@ mod tests {
     use crate::IntoArray as _;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::fns::is_constant::is_constant;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
@@ -31,6 +30,7 @@ mod tests {
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::compute::conformance::take::test_take_conformance;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::FieldNames;
     use crate::dtype::Nullability;
@@ -40,7 +40,7 @@ mod tests {
 
     #[test]
     fn take_empty_struct() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let struct_arr =
             StructArray::try_new(FieldNames::empty(), vec![], 10, Validity::NonNullable).unwrap();
         let indices = PrimitiveArray::from_option_iter([Some(1), None]);
@@ -69,13 +69,13 @@ mod tests {
         let taken = struct_arr
             .take(indices.into_array())
             .unwrap()
-            .execute::<Canonical>(&mut array_session().create_execution_ctx())
+            .execute::<Canonical>(&mut default_session_builder().build().create_execution_ctx())
             .unwrap();
         assert_eq!(taken.len(), 1);
         assert!(
             taken
                 .into_array()
-                .all_invalid(&mut array_session().create_execution_ctx())
+                .all_invalid(&mut default_session_builder().build().create_execution_ctx())
                 .unwrap()
         );
     }
@@ -87,14 +87,14 @@ mod tests {
         let taken = arr
             .take(indices.into_array())
             .unwrap()
-            .execute::<Canonical>(&mut array_session().create_execution_ctx())
+            .execute::<Canonical>(&mut default_session_builder().build().create_execution_ctx())
             .unwrap();
         assert_eq!(taken.len(), 1);
     }
 
     #[test]
     fn take_field_struct() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let struct_arr =
             StructArray::from_fields(&[("a", PrimitiveArray::from_iter(0..10).into_array())])
                 .unwrap();
@@ -258,7 +258,7 @@ mod tests {
     #[test]
     fn test_empty_struct_is_constant() {
         let array = StructArray::new_fieldless_with_len(2);
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let result = is_constant(&array.into_array(), &mut ctx)
             .vortex_expect("operation should succeed in test");
         assert!(result);
@@ -421,7 +421,7 @@ mod tests {
     fn test_struct_consistency(#[case] array: StructArray) {
         test_array_consistency(
             &array.into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut default_session_builder().build().create_execution_ctx(),
         );
     }
 }

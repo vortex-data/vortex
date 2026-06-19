@@ -7,7 +7,6 @@ use vortex_error::VortexResult;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
@@ -15,6 +14,7 @@ use crate::arrays::StructArray;
 use crate::arrays::VarBinArray;
 use crate::arrays::struct_::StructArrayExt;
 use crate::assert_arrays_eq;
+use crate::default_session_builder;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
@@ -24,7 +24,7 @@ use crate::validity::Validity;
 
 #[test]
 fn test_project() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = default_session_builder().build().create_execution_ctx();
     let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::NonNullable);
     let ys = VarBinArray::from_vec(
         vec!["a", "b", "c", "d", "e"],
@@ -67,7 +67,7 @@ fn test_project() {
 
 #[test]
 fn test_remove_column() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = default_session_builder().build().create_execution_ctx();
     let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::NonNullable);
     let ys = PrimitiveArray::new(buffer![4u64, 5, 6, 7, 8], Validity::NonNullable);
 
@@ -113,7 +113,7 @@ fn test_remove_column() {
 
 #[test]
 fn test_duplicate_field_names() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = default_session_builder().build().create_execution_ctx();
     // Test that StructArray allows duplicate field names and returns the first match
     let field1 = buffer![1i32, 2, 3].into_array();
     let field2 = buffer![10i32, 20, 30].into_array();
@@ -161,12 +161,14 @@ fn test_uncompressed_size_in_bytes() -> VortexResult<()> {
     let canonical_size = struct_array
         .clone()
         .into_array()
-        .execute::<Canonical>(&mut array_session().create_execution_ctx())?
+        .execute::<Canonical>(&mut default_session_builder().build().create_execution_ctx())?
         .into_array()
         .nbytes();
     let uncompressed_size = struct_array
         .statistics()
-        .compute_uncompressed_size_in_bytes(&mut array_session().create_execution_ctx());
+        .compute_uncompressed_size_in_bytes(
+            &mut default_session_builder().build().create_execution_ctx(),
+        );
 
     assert_eq!(canonical_size, 2);
     assert_eq!(uncompressed_size, Some(4000));

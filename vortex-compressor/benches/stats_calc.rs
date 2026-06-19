@@ -16,7 +16,8 @@ mod benchmarks {
     use vortex_compressor::stats::IntegerStats;
     use vortex_session::VortexSession;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| vortex_array::default_session_builder().build());
 
     fn generate_dataset(max_run: u32, distinct: u32) -> Buffer<u32> {
         let mut output = BufferMut::with_capacity(64_000);

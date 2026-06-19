@@ -27,11 +27,11 @@ mod tests;
 
 pub use array::*;
 pub use compress::*;
-use vortex_array::session::ArraySessionExt;
-use vortex_session::VortexSession;
+use vortex_array::session::ArraySession;
+use vortex_session::VortexSessionBuilder;
 
 /// Initialize FSST encoding in the given session.
-pub fn initialize(session: &VortexSession) {
-    session.arrays().register(FSST);
+pub fn initialize(session: &mut VortexSessionBuilder) {
+    session.get_mut::<ArraySession>().register(FSST);
     kernel::initialize(session);
 }

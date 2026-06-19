@@ -9,7 +9,7 @@ use sha2::Digest;
 use sha2::Sha256;
 use vortex_array::ExecutionCtx;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
+use vortex_array::default_session_builder;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -90,7 +90,7 @@ pub fn write_manifest(output_dir: &Path, infos: Vec<FixtureInfo>) -> VortexResul
 
 /// Generate all fixtures into `output_dir` and write the manifest.
 pub fn generate(output_dir: &Path, exclude: &[String]) -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = default_session_builder().build().create_execution_ctx();
     let infos = write_fixtures(output_dir, exclude, &mut ctx)?;
     write_manifest(output_dir, infos)
 }

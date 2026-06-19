@@ -11,7 +11,7 @@ use vortex::error::VortexError;
 use vortex::error::VortexExpect as _;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::tokio::TokioRuntime;
-use vortex::io::session::RuntimeSessionExt;
+use vortex::io::session::RuntimeSessionBuilderExt;
 use vortex::session::VortexSession;
 
 use crate::install_module;
@@ -23,8 +23,11 @@ static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
 });
 static TUI_RUNTIME: LazyLock<TokioRuntime> =
     LazyLock::new(|| TokioRuntime::new(TOKIO_RUNTIME.handle().clone()));
-static TUI_SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_handle(TUI_RUNTIME.handle()));
+static TUI_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::default_builder()
+        .with_handle(TUI_RUNTIME.handle())
+        .build()
+});
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "cli")?;

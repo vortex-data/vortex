@@ -18,7 +18,7 @@ use scalar::*;
 use vortex::VortexSessionDefault;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::CurrentThreadRuntime;
-use vortex::io::session::RuntimeSessionExt;
+use vortex::io::session::RuntimeSessionBuilderExt;
 use vortex::session::VortexSession;
 use write::*;
 
@@ -28,8 +28,11 @@ use write::*;
 //  this runtime.
 pub(crate) static RUNTIME: LazyLock<CurrentThreadRuntime> =
     LazyLock::new(CurrentThreadRuntime::new);
-pub(crate) static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_handle(RUNTIME.handle()));
+pub(crate) static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::default_builder()
+        .with_handle(RUNTIME.handle())
+        .build()
+});
 
 #[cxx::bridge(namespace = "vortex::ffi")]
 #[allow(let_underscore_drop)]

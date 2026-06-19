@@ -173,10 +173,10 @@ mod tests {
     #[expect(deprecated)]
     use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
+    use crate::default_session_builder;
     use crate::dtype::Nullability;
     use crate::expr::col;
     use crate::expr::pack;
@@ -232,7 +232,7 @@ mod tests {
 
     #[test]
     pub fn test_simple_pack() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let expr = Pack.new_expr(
             PackOptions {
                 names: ["one", "two", "three"].into(),
@@ -266,7 +266,7 @@ mod tests {
 
     #[test]
     pub fn test_nested_pack() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let expr = Pack.new_expr(
             PackOptions {
                 names: ["one", "two", "three"].into(),

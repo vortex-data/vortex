@@ -383,7 +383,7 @@ impl ValidityRef<'_> {
 
 #[cfg(test)]
 mod tests {
-    use vortex::array::array_session;
+    use vortex::array::default_session_builder;
     use vortex::mask::Mask;
     use vortex_array::VortexSessionExecute;
 
@@ -420,7 +420,7 @@ mod tests {
         let validity = validity.to_validity();
         assert_eq!(validity.maybe_len(), Some(len));
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         assert_eq!(
             validity.execute_mask(len, &mut ctx).unwrap(),
             Mask::from_indices(len, vec![0, 2, 4, 5, 6, 8, 9])
@@ -440,7 +440,10 @@ mod tests {
         let validity = validity.to_validity();
         assert!(
             validity
-                .execute_is_null(0, &mut array_session().create_execution_ctx())
+                .execute_is_null(
+                    0,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .unwrap()
         );
     }
@@ -457,7 +460,10 @@ mod tests {
         let validity = validity.to_validity();
         assert!(
             validity
-                .execute_is_valid(0, &mut array_session().create_execution_ctx())
+                .execute_is_valid(
+                    0,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .unwrap()
         );
     }

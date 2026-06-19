@@ -84,14 +84,14 @@ mod tests {
 
     /// Session with Sparse + its pushdown kernels.
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
-        initialize(&session);
-        session
+        let mut builder = vortex_array::default_session_builder();
+        initialize(&mut builder);
+        builder.build()
     });
 
     /// Baseline session: Sparse registered but no pushdown kernels.
     static CANONICAL_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = vortex_array::default_session_builder().build();
         session.arrays().register(Sparse);
         session
     });

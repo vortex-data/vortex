@@ -13,11 +13,11 @@
 use std::sync::Arc;
 
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
-use vortex_array::arrow::ArrowSessionExt;
-use vortex_array::dtype::session::DTypeSessionExt;
-use vortex_array::scalar_fn::session::ScalarFnSessionExt;
-use vortex_array::session::ArraySessionExt;
-use vortex_session::VortexSession;
+use vortex_array::arrow::ArrowSession;
+use vortex_array::dtype::session::DTypeSession;
+use vortex_array::scalar_fn::session::ScalarFnSession;
+use vortex_array::session::ArraySession;
+use vortex_session::VortexSessionBuilder;
 
 use crate::scalar_fns::cosine_similarity::CosineSimilarity;
 use crate::scalar_fns::inner_product::InnerProduct;
@@ -47,33 +47,39 @@ mod utils;
 /// deserialize. Opt-in by setting the variable to any non-empty value.
 pub const SCALAR_FN_ARRAY_TENSOR_PLUGIN_ENV: &str = "VX_SCALAR_FN_ARRAY_TENSOR_PLUGIN";
 
-/// Initialize the Vortex tensor library with a Vortex session.
-pub fn initialize(session: &VortexSession) {
-    session.dtypes().register(Vector);
-    session.dtypes().register(FixedShapeTensor);
+/// Initialize the Vortex tensor library with a Vortex session builder.
+pub fn initialize(session: &mut VortexSessionBuilder) {
+    {
+        let dtypes = session.get_mut::<DTypeSession>();
+        dtypes.register(Vector);
+        dtypes.register(FixedShapeTensor);
+    }
 
-    let arrow_session = session.arrow();
-    arrow_session.register_exporter(Arc::new(Vector));
-    arrow_session.register_importer(Arc::new(Vector));
+    {
+        let arrow_session = session.get_mut::<ArrowSession>();
+        arrow_session.register_exporter(Arc::new(Vector));
+        arrow_session.register_importer(Arc::new(Vector));
+    }
 
-    let session_fns = session.scalar_fns();
-
-    session_fns.register(CosineSimilarity);
-    session_fns.register(InnerProduct);
-    session_fns.register(L2Denorm);
-    session_fns.register(L2Norm);
+    {
+        let scalar_fns = session.get_mut::<ScalarFnSession>();
+        scalar_fns.register(CosineSimilarity);
+        scalar_fns.register(InnerProduct);
+        scalar_fns.register(L2Denorm);
+        scalar_fns.register(L2Norm);
+    }
 
     // Registering the scalar-fn array plugins lets the tensor scalar fns be serialized as array
     // encodings inside Vortex files. Gate this on an env var so applications that do not intend
     // to persist these encodings do not pay the registry cost or widen their stable-encoding
     // surface unintentionally.
     if std::env::var_os(SCALAR_FN_ARRAY_TENSOR_PLUGIN_ENV).is_some_and(|v| !v.is_empty()) {
-        let session_arrays = session.arrays();
+        let arrays = session.get_mut::<ArraySession>();
 
-        session_arrays.register(ScalarFnArrayPlugin::new(CosineSimilarity));
-        session_arrays.register(ScalarFnArrayPlugin::new(InnerProduct));
-        session_arrays.register(ScalarFnArrayPlugin::new(L2Denorm));
-        session_arrays.register(ScalarFnArrayPlugin::new(L2Norm));
+        arrays.register(ScalarFnArrayPlugin::new(CosineSimilarity));
+        arrays.register(ScalarFnArrayPlugin::new(InnerProduct));
+        arrays.register(ScalarFnArrayPlugin::new(L2Denorm));
+        arrays.register(ScalarFnArrayPlugin::new(L2Norm));
     }
 }
 
@@ -84,8 +90,8 @@ mod tests {
     use vortex_session::VortexSession;
 
     pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
-        crate::initialize(&session);
-        session
+        let mut builder = vortex_array::default_session_builder();
+        crate::initialize(&mut builder);
+        builder.build()
     });
 }

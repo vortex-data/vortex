@@ -153,11 +153,11 @@ mod tests {
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
+    use crate::default_session_builder;
 
     /// The branchless kernel must agree with the scalar reference across the chunk boundary (index
     /// 63/64) and the trailing remainder, for non-nullable inputs.
@@ -170,7 +170,7 @@ mod tests {
         let bits: Vec<bool> = (0..len).map(|i| i.is_multiple_of(3) || i == 64).collect();
         let mask = Mask::from_iter(bits.iter().copied());
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let result = mask
             .into_array()
             .zip(if_true, if_false)?
@@ -201,7 +201,7 @@ mod tests {
         let bits: Vec<bool> = (0..len).map(|i| i.is_multiple_of(2)).collect();
         let mask = Mask::from_iter(bits.iter().copied());
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let result = mask
             .into_array()
             .zip(if_true, if_false)?

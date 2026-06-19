@@ -440,13 +440,13 @@ mod tests {
     use super::ListViewBuilder;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ListArray;
     use crate::arrays::ListViewArray;
     use crate::arrays::listview::ListViewArrayExt;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::listview::PrimitiveArray;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::Nullability::Nullable;
@@ -465,7 +465,7 @@ mod tests {
 
     #[test]
     fn test_basic_append_and_nulls() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder =
             ListViewBuilder::<u32, u32>::with_capacity(Arc::clone(&dtype), Nullable, 0, 0);
@@ -529,7 +529,7 @@ mod tests {
 
     #[test]
     fn test_different_offset_size_types() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         // Test u32 offsets with u8 sizes.
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder =
@@ -602,7 +602,7 @@ mod tests {
 
     #[test]
     fn test_builder_trait_methods() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder =
             ListViewBuilder::<u32, u32>::with_capacity(Arc::clone(&dtype), Nullable, 0, 0);
@@ -655,7 +655,7 @@ mod tests {
 
     #[test]
     fn test_extend_from_array() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
 
         // Create a source ListArray.
@@ -721,7 +721,7 @@ mod tests {
 
     #[test]
     fn test_extend_from_array_overlapping_listview() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
 
         // Non-ZCTL source:
@@ -790,7 +790,7 @@ mod tests {
     #[test]
     fn test_append_array_as_list() {
         let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let mut builder =
             ListViewBuilder::<u32, u32>::with_capacity(Arc::clone(&dtype), NonNullable, 20, 10);
 

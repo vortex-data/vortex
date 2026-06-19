@@ -54,11 +54,11 @@ mod tests {
     #[expect(deprecated)]
     use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::Chunked;
     use crate::arrays::ChunkedArray;
     use crate::arrays::chunked::ChunkedArrayExt;
     use crate::builtins::ArrayBuiltins;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -94,7 +94,7 @@ mod tests {
         // One step of execution will push down the zip.
         let zipped = zipped
             .clone()
-            .execute::<ArrayRef>(&mut array_session().create_execution_ctx())
+            .execute::<ArrayRef>(&mut default_session_builder().build().create_execution_ctx())
             .unwrap();
         let zipped = zipped
             .as_opt::<Chunked>()

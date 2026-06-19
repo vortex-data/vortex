@@ -45,9 +45,9 @@ const LEN: usize = 1_000_000;
 
 /// Session with Sparse and its pushdown kernels registered.
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
-    vortex_sparse::initialize(&session);
-    session
+    let mut builder = vortex_array::default_session_builder();
+    vortex_sparse::initialize(&mut builder);
+    builder.build()
 });
 
 /// Build a sparse `i32` array of `LEN` with `num_patches` uniformly-spaced patches and

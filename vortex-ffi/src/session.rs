@@ -5,8 +5,9 @@ use vortex::VortexSessionDefault;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::io::runtime::BlockingRuntime;
-use vortex::io::session::RuntimeSessionExt;
+use vortex::io::session::RuntimeSessionBuilderExt;
 use vortex::session::VortexSession;
+use vortex::session::VortexSessionBuilder;
 
 use crate::RUNTIME;
 use crate::box_wrapper;
@@ -19,11 +20,11 @@ box_wrapper!(
 
 /// Create an FFI session from a configured default session.
 pub fn vx_session_new_with(
-    configure: impl FnOnce(VortexSession) -> VortexSession,
+    configure: impl FnOnce(VortexSessionBuilder) -> VortexSessionBuilder,
 ) -> *mut vx_session {
-    vx_session::new(configure(
-        VortexSession::default().with_handle(RUNTIME.handle()),
-    ))
+    vx_session::new(
+        configure(VortexSession::default_builder().with_handle(RUNTIME.handle())).build(),
+    )
 }
 
 /// Create a new Vortex session.
@@ -31,7 +32,7 @@ pub fn vx_session_new_with(
 /// The caller is responsible for freeing the session with [`vx_session_free`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_session_new() -> *mut vx_session {
-    vx_session_new_with(|session| session)
+    vx_session_new_with(|builder| builder)
 }
 
 /// Clone a Vortex session, returning an owned copy.

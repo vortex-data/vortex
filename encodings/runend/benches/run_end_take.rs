@@ -25,9 +25,9 @@ fn main() {
 }
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
-    vortex_runend::initialize(&session);
-    session
+    let mut builder = vortex_array::default_session_builder();
+    vortex_runend::initialize(&mut builder);
+    builder.build()
 });
 
 #[derive(Clone, Copy)]

@@ -78,7 +78,9 @@ mod tests {
     #[test]
     fn test_filter_noop() -> VortexResult<()> {
         // Filter that doesn't prune any chunks (all data fits in one chunk).
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = crate::default_session_builder()
+            .build()
+            .create_execution_ctx();
 
         let array = buffer![u16::MIN; 5].into_array();
         let patched_indices = buffer![3u8, 4].into_array();
@@ -105,7 +107,9 @@ mod tests {
     #[test]
     fn test_filter_with_offset() -> VortexResult<()> {
         // Test filtering where offset > 0.
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = crate::default_session_builder()
+            .build()
+            .create_execution_ctx();
 
         let array = buffer![u16::MIN; 4096].into_array();
         let patched_indices = buffer![5u16, 1030].into_array();
@@ -133,7 +137,9 @@ mod tests {
     #[test]
     fn test_filter_basic() -> VortexResult<()> {
         // Basic test: filter with mask that crosses boundaries.
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = crate::default_session_builder()
+            .build()
+            .create_execution_ctx();
 
         let array = buffer![u16::MIN; 4096].into_array();
         let patched_indices = buffer![1024u16, 1025].into_array();
@@ -160,7 +166,9 @@ mod tests {
     #[test]
     fn test_filter_complex() -> VortexResult<()> {
         // Filter with mask that crosses boundaries, with patches offset.
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = crate::default_session_builder()
+            .build()
+            .create_execution_ctx();
 
         let array = buffer![u16::MIN; 4096].into_array();
         let patched_indices = buffer![1024u16, 1025].into_array();
@@ -187,7 +195,9 @@ mod tests {
     #[test]
     fn test_filter_sliced() -> VortexResult<()> {
         // Test filter on a sliced PatchedArray to exercise codepath where offset > 0.
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = crate::default_session_builder()
+            .build()
+            .create_execution_ctx();
 
         // Create a larger array (6 chunks) so we can slice and still have room
         // for the filter to prune chunks.
@@ -225,7 +235,9 @@ mod tests {
     fn test_filter_with_offset_nonuniform() -> VortexResult<()> {
         // Test filtering with offset > 0 using non-uniform base values.
         // This catches slice_chunks bugs where inner coordinates are miscalculated.
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = crate::default_session_builder()
+            .build()
+            .create_execution_ctx();
 
         // Use non-uniform values so that incorrect slicing is detectable.
         let base_values: Vec<u16> = (0u16..4096).collect();
@@ -262,7 +274,9 @@ mod tests {
     fn test_filter_with_offset_last_chunk() -> VortexResult<()> {
         // Test filtering with offset > 0 where the mask touches the last chunk.
         // This ensures we don't accidentally slice past the end of the array or mask.
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = crate::default_session_builder()
+            .build()
+            .create_execution_ctx();
 
         // Create a 6-chunk array (6144 elements).
         let array = buffer![u16::MIN; 6144].into_array();

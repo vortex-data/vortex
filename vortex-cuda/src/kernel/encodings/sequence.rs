@@ -125,7 +125,9 @@ mod tests {
         len: usize,
         nullability: Nullability,
     ) {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = vortex_array::default_session_builder()
+            .build()
+            .create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session()).unwrap();
 
         let array = Sequence::try_new_typed(base, multiplier, nullability, len)

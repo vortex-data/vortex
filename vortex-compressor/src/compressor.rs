@@ -615,7 +615,8 @@ mod tests {
     use crate::estimate::WinnerEstimate;
     use crate::scheme::SchemeExt;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| vortex_array::default_session_builder().build());
 
     fn compressor() -> CascadingCompressor {
         CascadingCompressor::new(vec![&IntDictScheme, &FloatDictScheme, &StringDictScheme])

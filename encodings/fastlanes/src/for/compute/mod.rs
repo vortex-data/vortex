@@ -103,10 +103,10 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
+    use vortex_array::default_session_builder;
     use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
@@ -149,7 +149,7 @@ mod tests {
     fn test_for_consistency(#[case] array: FoRArray) {
         test_array_consistency(
             &array.into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut default_session_builder().build().create_execution_ctx(),
         );
     }
 
@@ -165,7 +165,7 @@ mod tests {
     fn test_for_binary_numeric(#[case] array: FoRArray) {
         test_binary_numeric_array(
             &array.into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut default_session_builder().build().create_execution_ctx(),
         );
     }
 }

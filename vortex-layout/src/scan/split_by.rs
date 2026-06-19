@@ -136,7 +136,6 @@ mod test {
     use vortex_array::expr::Expression;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
-    use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::Mask;
 
     use super::*;
@@ -145,6 +144,7 @@ mod test {
     use crate::RowSplits;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::scan::test::SCAN_SESSION;
+    use crate::scan::test::session_with_handle;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
@@ -154,7 +154,7 @@ mod test {
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
         let layout = block_on(|handle| async {
-            let session = SCAN_SESSION.clone().with_handle(handle);
+            let session = session_with_handle(handle);
             FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,

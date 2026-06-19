@@ -16,7 +16,7 @@
 //! to a canonical [`BoolArray`][vortex_array::arrays::BoolArray]:
 //!
 //! ```
-//! # use vortex_array::{IntoArray, VortexSessionExecute, array_session};
+//! # use vortex_array::{IntoArray, VortexSessionExecute, default_session_builder};
 //! # use vortex_array::arrays::BoolArray;
 //! # use vortex_array::arrays::bool::BoolArrayExt;
 //! # use vortex_array::buffer::BufferHandle;
@@ -25,7 +25,7 @@
 //! # use vortex_bytebool::ByteBool;
 //! # use vortex_error::VortexResult;
 //! # fn main() -> VortexResult<()> {
-//! # let mut ctx = array_session().create_execution_ctx();
+//! # let mut ctx = default_session_builder().build().create_execution_ctx();
 //! let handle = BufferHandle::new_host(ByteBuffer::from(vec![0u8, 1, 42, 0]));
 //! let array = ByteBool::new(handle, Validity::NonNullable);
 //!
@@ -41,8 +41,8 @@
 //! [spec]: https://arrow.apache.org/docs/format/CanonicalExtensions.html#bit-boolean
 
 pub use array::*;
-use vortex_array::session::ArraySessionExt;
-use vortex_session::VortexSession;
+use vortex_array::session::ArraySession;
+use vortex_session::VortexSessionBuilder;
 
 mod array;
 mod compute;
@@ -51,7 +51,7 @@ mod rules;
 mod slice;
 
 /// Initialize bytebool encoding in the given session.
-pub fn initialize(session: &VortexSession) {
-    session.arrays().register(ByteBool);
+pub fn initialize(session: &mut VortexSessionBuilder) {
+    session.get_mut::<ArraySession>().register(ByteBool);
     kernel::initialize(session);
 }

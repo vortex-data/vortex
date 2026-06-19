@@ -89,7 +89,8 @@ mod tests {
 
     use crate::Zstd;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| vortex_array::default_session_builder().build());
 
     #[test]
     fn test_cast_zstd_i32_to_i64() {

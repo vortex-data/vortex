@@ -41,7 +41,7 @@ use vortex_array::arrow::ArrowSessionExt;
 use vortex_array::arrow::FromArrowArray;
 use vortex_array::dtype::DType;
 use vortex_array::kernel::ExecuteParentKernel;
-use vortex_array::optimizer::kernels::ArrayKernelsExt;
+use vortex_array::optimizer::kernels::builder_kernels;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::fns::variant_get::VariantGet;
 use vortex_array::scalar_fn::fns::variant_get::VariantPath;
@@ -52,14 +52,14 @@ use vortex_error::vortex_err;
 use vortex_json::Json;
 use vortex_json::JsonToVariant;
 use vortex_mask::Mask;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionBuilder;
 
 use crate::ParquetVariant;
 use crate::ParquetVariantArrayExt;
 use crate::compute::AllNonDistinctParquetVariant;
 
-pub(crate) fn initialize(session: &VortexSession) {
-    let kernels = session.kernels();
+pub(crate) fn initialize(session: &mut VortexSessionBuilder) {
+    let kernels = builder_kernels(session);
     kernels.register_execute_parent_kernel(
         Filter.id(),
         ParquetVariant,
@@ -340,9 +340,9 @@ mod tests {
     use crate::ParquetVariantArrayExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
-        crate::initialize(&session);
-        session
+        let mut session = vortex_array::default_session_builder();
+        crate::initialize(&mut session);
+        session.build()
     });
 
     fn make_unshredded_array() -> VortexResult<ArrayRef> {

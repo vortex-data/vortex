@@ -396,13 +396,13 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::struct_::StructArrayExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::assert_nth_scalar;
+    use vortex_array::default_session_builder;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldName;
     use vortex_array::dtype::Nullability;
@@ -422,7 +422,6 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
-    use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::Mask;
 
     use crate::LayoutRef;
@@ -447,7 +446,7 @@ mod tests {
         );
         let segments2 = Arc::<TestSegments>::clone(&segments);
         let layout = block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
+            let session = crate::test::session_with_handle(handle);
             strategy
                 .write_stream(
                     ctx,
@@ -484,7 +483,7 @@ mod tests {
         );
         let segments2 = Arc::<TestSegments>::clone(&segments);
         let layout = block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
+            let session = crate::test::session_with_handle(handle);
             strategy
                 .write_stream(
                     ctx,
@@ -524,7 +523,7 @@ mod tests {
         );
         let segments2 = Arc::<TestSegments>::clone(&segments);
         let layout = block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
+            let session = crate::test::session_with_handle(handle);
             strategy
                 .write_stream(
                     ctx,
@@ -569,7 +568,7 @@ mod tests {
         );
         let segments2 = Arc::<TestSegments>::clone(&segments);
         let layout = block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
+            let session = crate::test::session_with_handle(handle);
             strategy
                 .write_stream(
                     ctx,
@@ -677,7 +676,7 @@ mod tests {
     fn test_struct_layout_select(
         #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let reader = layout
             .new_reader("".into(), segments, &SESSION, &Default::default())
             .unwrap();
@@ -740,7 +739,10 @@ mod tests {
         // ...and the result is masked with the validity of the parent StructArray
         assert_eq!(
             result
-                .execute_scalar(0, &mut array_session().create_execution_ctx())
+                .execute_scalar(
+                    0,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .unwrap(),
             Scalar::null(result.dtype().clone()),
         );
@@ -785,7 +787,10 @@ mod tests {
         // Row 0: struct is valid, field "c" is 4.
         assert_eq!(
             result
-                .execute_scalar(0, &mut array_session().create_execution_ctx())
+                .execute_scalar(
+                    0,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .unwrap()
                 .as_struct()
                 .field_by_idx(0)
@@ -796,7 +801,10 @@ mod tests {
         // Row 1: struct is null (because root.a.b was null at this row).
         assert!(
             result
-                .execute_scalar(1, &mut array_session().create_execution_ctx())
+                .execute_scalar(
+                    1,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .unwrap()
                 .as_struct()
                 .is_null()
@@ -805,7 +813,10 @@ mod tests {
         // Row 2: struct is valid, field "c" is 6.
         assert_eq!(
             result
-                .execute_scalar(2, &mut array_session().create_execution_ctx())
+                .execute_scalar(
+                    2,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .unwrap()
                 .as_struct()
                 .field_by_idx(0)
@@ -848,7 +859,7 @@ mod tests {
         );
         let segments2 = Arc::<TestSegments>::clone(&segments);
         let layout = block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
+            let session = crate::test::session_with_handle(handle);
             strategy
                 .write_stream(
                     ctx,

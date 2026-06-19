@@ -252,7 +252,6 @@ mod tests {
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ListArray;
     use crate::arrays::ListViewArray;
@@ -262,6 +261,7 @@ mod tests {
     use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::FieldName;
     use crate::dtype::FieldNames;
@@ -280,7 +280,7 @@ mod tests {
 
     #[test]
     fn test_bool_basic_comparisons() {
-        let ctx = &mut array_session().create_execution_ctx();
+        let ctx = &mut default_session_builder().build().create_execution_ctx();
         let arr = BoolArray::new(
             BitBuffer::from_iter([true, true, false, true, false]),
             Validity::from_iter([false, true, true, true, true]),
@@ -357,7 +357,10 @@ mod tests {
             .unwrap();
         assert_eq!(result.len(), 10);
         let scalar = result
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                0,
+                &mut default_session_builder().build().create_execution_ctx(),
+            )
             .unwrap();
         assert_eq!(scalar.as_bool().value(), Some(false));
     }
@@ -368,7 +371,7 @@ mod tests {
     #[case(VarBinArray::from(vec!["a".as_bytes(), "b".as_bytes()]).into_array(), VarBinViewArray::from_iter_bin(["a".as_bytes(), "b".as_bytes()]).into_array())]
     #[case(VarBinViewArray::from_iter_bin(["a".as_bytes(), "b".as_bytes()]).into_array(), VarBinArray::from(vec!["a".as_bytes(), "b".as_bytes()]).into_array())]
     fn arrow_compare_different_encodings(#[case] left: ArrayRef, #[case] right: ArrayRef) {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let res = left.binary(right, Operator::Eq).unwrap();
         let expected = BoolArray::from_iter([true, true]);
         assert_arrays_eq!(res, expected, &mut ctx);
@@ -376,7 +379,7 @@ mod tests {
 
     #[test]
     fn test_list_array_comparison() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let values1 = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);
         let offsets1 = PrimitiveArray::from_iter([0i32, 2, 4, 6]);
         let list1 = ListArray::try_new(
@@ -421,7 +424,7 @@ mod tests {
 
     #[test]
     fn test_list_array_constant_comparison() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let values = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);
         let offsets = PrimitiveArray::from_iter([0i32, 2, 4, 6]);
         let list = ListArray::try_new(
@@ -448,7 +451,7 @@ mod tests {
 
     #[test]
     fn test_struct_array_comparison() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let bool_field1 = BoolArray::from_iter([Some(true), Some(false), Some(true)]);
         let int_field1 = PrimitiveArray::from_iter([1i32, 2, 3]);
 
@@ -485,7 +488,7 @@ mod tests {
 
     #[test]
     fn test_empty_struct_compare() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let empty1 = StructArray::try_new(
             FieldNames::from(Vec::<FieldName>::new()),
             Vec::new(),
@@ -514,7 +517,7 @@ mod tests {
     /// different Vortex encodings (VarBinArray vs VarBinViewArray) must not panic.
     #[test]
     fn struct_compare_mixed_binary_encodings() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         // LHS: struct with a VarBinArray (offset-based) binary field
         let bin_field1 = VarBinArray::from(vec![
             "apple".as_bytes(),
@@ -570,7 +573,7 @@ mod tests {
 
     #[test]
     fn test_empty_list() {
-        let ctx = &mut array_session().create_execution_ctx();
+        let ctx = &mut default_session_builder().build().create_execution_ctx();
         let list = ListViewArray::new(
             BoolArray::from_iter(Vec::<bool>::new()).into_array(),
             buffer![0i32, 0i32, 0i32].into_array(),

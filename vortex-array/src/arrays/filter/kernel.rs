@@ -10,7 +10,7 @@
 
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionBuilder;
 
 use crate::ArrayRef;
 use crate::ArrayVTable;
@@ -24,13 +24,15 @@ use crate::arrays::Filter;
 use crate::arrays::dict::TakeExecuteAdaptor;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
-use crate::optimizer::kernels::ArrayKernelsExt;
+use crate::optimizer::kernels::builder_kernels;
 use crate::optimizer::rules::ArrayParentReduceRule;
 
-pub(crate) fn initialize(session: &VortexSession) {
-    session
-        .kernels()
-        .register_execute_parent_kernel(Dict.id(), Filter, TakeExecuteAdaptor(Filter));
+pub(crate) fn initialize(session: &mut VortexSessionBuilder) {
+    builder_kernels(session).register_execute_parent_kernel(
+        Dict.id(),
+        Filter,
+        TakeExecuteAdaptor(Filter),
+    );
 }
 
 pub trait FilterReduce: VTable {

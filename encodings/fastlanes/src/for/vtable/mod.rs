@@ -48,7 +48,7 @@ mod validity;
 /// A [`FoR`]-encoded Vortex array.
 pub type FoRArray = Array<FoR>;
 
-pub(crate) fn initialize(session: &VortexSession) {
+pub(crate) fn initialize(session: &mut vortex_session::VortexSessionBuilder) {
     kernels::initialize(session);
 }
 

@@ -17,7 +17,7 @@ use vortex::array::MaskFuture;
 use vortex::array::expr::root;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
-use vortex::io::session::RuntimeSessionExt;
+use vortex::io::session::RuntimeSessionBuilderExt;
 use vortex::layout::LayoutStrategy;
 use vortex::layout::layouts::flat::Flat;
 use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
@@ -70,7 +70,7 @@ pub fn write_compressed(
     let stream = ArrayStreamAdapter::new(chunk.dtype().clone(), stream::iter([Ok(chunk)]));
 
     runtime()?.block_on(async {
-        let session = VortexSession::default().with_tokio();
+        let session = VortexSession::default_builder().with_tokio().build();
         let mut file = tokio::fs::File::create(path)
             .await
             .map_err(|e| vortex_err!("failed to create {}: {e}", path.display()))?;
@@ -91,7 +91,7 @@ pub fn write_compressed_to_bytes(
     let stream = ArrayStreamAdapter::new(chunk.dtype().clone(), stream::iter([Ok(chunk)]));
 
     runtime()?.block_on(async {
-        let session = VortexSession::default().with_tokio();
+        let session = VortexSession::default_builder().with_tokio().build();
         let mut bytes = Vec::new();
         let _summary = session
             .write_options()
@@ -105,7 +105,7 @@ pub fn write_compressed_to_bytes(
 /// Read a `.vortex` file from bytes, returning the arrays.
 pub fn read_file(bytes: ByteBuffer) -> VortexResult<ArrayRef> {
     runtime()?.block_on(async {
-        let session = VortexSession::default().with_tokio();
+        let session = VortexSession::default_builder().with_tokio().build();
         let file = session.open_options().open_buffer(bytes)?;
         file.scan()?.into_array_stream()?.read_all().await
     })
@@ -120,7 +120,7 @@ pub fn read_file(bytes: ByteBuffer) -> VortexResult<ArrayRef> {
 /// If any segment is corrupt or any array fails to decode, this will error.
 pub fn read_layout_tree(bytes: ByteBuffer) -> VortexResult<()> {
     runtime()?.block_on(async {
-        let session = VortexSession::default().with_tokio();
+        let session = VortexSession::default_builder().with_tokio().build();
         let file = session.open_options().open_buffer(bytes)?;
         let root_layout = Arc::clone(file.footer().layout());
         let segment_source = file.segment_source();

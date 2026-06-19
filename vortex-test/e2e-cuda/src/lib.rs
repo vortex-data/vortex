@@ -69,10 +69,11 @@ use vortex_cuda::arrow::DeviceArrayStreamExt;
 const PRIMITIVE_DTYPE_ENV: &str = "VORTEX_CUDF_PRIMITIVE_DTYPE";
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    vortex::array::array_session()
+    vortex::array::default_session_builder()
         .with::<LayoutSession>()
         .with::<RuntimeSession>()
         .with::<CudaSession>()
+        .build()
 });
 
 fn primitive_dtype_case() -> String {

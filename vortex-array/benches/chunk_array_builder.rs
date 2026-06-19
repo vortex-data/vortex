@@ -32,7 +32,8 @@ const BENCH_ARGS: &[(usize, usize)] = &[
     (1000, 10),
 ];
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| vortex_array::default_session_builder().build());
 
 #[divan::bench(args = BENCH_ARGS)]
 fn chunked_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {

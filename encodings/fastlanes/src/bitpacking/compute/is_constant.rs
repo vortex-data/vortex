@@ -187,7 +187,7 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::fns::is_constant::is_constant;
-    use vortex_array::array_session;
+    use vortex_array::default_session_builder;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
@@ -195,7 +195,7 @@ mod tests {
 
     #[test]
     fn is_constant_with_patches() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let array = BitPackedData::encode(&buffer![4; 1025].into_array(), 2, &mut ctx)?;
         assert!(is_constant(&array.into_array(), &mut ctx)?);
         Ok(())

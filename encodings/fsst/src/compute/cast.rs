@@ -106,9 +106,9 @@ mod tests {
     use crate::initialize;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
-        initialize(&session);
-        session
+        let mut session = vortex_array::default_session_builder();
+        initialize(&mut session);
+        session.build()
     });
 
     #[test]

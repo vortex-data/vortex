@@ -3,10 +3,10 @@
 
 use std::sync::Arc;
 
-use vortex_array::arrow::ArrowSessionExt;
-use vortex_array::dtype::session::DTypeSessionExt;
-use vortex_array::scalar_fn::session::ScalarFnSessionExt;
-use vortex_session::VortexSession;
+use vortex_array::arrow::ArrowSession;
+use vortex_array::dtype::session::DTypeSession;
+use vortex_array::scalar_fn::session::ScalarFnSession;
+use vortex_session::VortexSessionBuilder;
 
 use crate::extension::Point;
 use crate::extension::Polygon;
@@ -21,18 +21,24 @@ mod test_harness;
 mod tests;
 
 /// Set up a session with support for geospatial extension types, encodings and layouts.
-pub fn initialize(session: &VortexSession) {
+pub fn initialize(session: &mut VortexSessionBuilder) {
     // Register the geospatial extension types.
-    session.dtypes().register(WellKnownBinary);
-    session.arrow().register_exporter(Arc::new(WellKnownBinary));
-    session.arrow().register_importer(Arc::new(WellKnownBinary));
-    session.dtypes().register(Point);
-    session.arrow().register_exporter(Arc::new(Point));
-    session.arrow().register_importer(Arc::new(Point));
-    session.dtypes().register(Polygon);
-    session.arrow().register_exporter(Arc::new(Polygon));
-    session.arrow().register_importer(Arc::new(Polygon));
+    {
+        let dtypes = session.get_mut::<DTypeSession>();
+        dtypes.register(WellKnownBinary);
+        dtypes.register(Point);
+        dtypes.register(Polygon);
+    }
+    {
+        let arrow = session.get_mut::<ArrowSession>();
+        arrow.register_exporter(Arc::new(WellKnownBinary));
+        arrow.register_importer(Arc::new(WellKnownBinary));
+        arrow.register_exporter(Arc::new(Point));
+        arrow.register_importer(Arc::new(Point));
+        arrow.register_exporter(Arc::new(Polygon));
+        arrow.register_importer(Arc::new(Polygon));
+    }
 
     // Register the geometry scalar functions.
-    session.scalar_fns().register(GeoDistance);
+    session.get_mut::<ScalarFnSession>().register(GeoDistance);
 }

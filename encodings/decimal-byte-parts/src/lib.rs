@@ -16,18 +16,20 @@ pub use decimal_byte_parts::*;
 use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
-use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
-use vortex_array::session::ArraySessionExt;
-use vortex_session::VortexSession;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
+use vortex_array::session::ArraySession;
+use vortex_session::VortexSessionBuilder;
 
 /// Initialize decimal-byte-parts encoding in the given session.
-pub fn initialize(session: &VortexSession) {
-    session.arrays().register(DecimalByteParts);
+pub fn initialize(session: &mut VortexSessionBuilder) {
+    session.get_mut::<ArraySession>().register(DecimalByteParts);
     compute::kernel::initialize(session);
 
-    session.aggregate_fns().register_aggregate_kernel(
-        DecimalByteParts.id(),
-        Some(IsConstant.id()),
-        &DecimalBytePartsIsConstantKernel,
-    );
+    session
+        .get_mut::<AggregateFnSession>()
+        .register_aggregate_kernel(
+            DecimalByteParts.id(),
+            Some(IsConstant.id()),
+            &DecimalBytePartsIsConstantKernel,
+        );
 }

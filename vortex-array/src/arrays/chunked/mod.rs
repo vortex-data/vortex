@@ -12,7 +12,7 @@ pub(crate) mod paired_chunks;
 mod vtable;
 pub use vtable::Chunked;
 
-pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+pub(crate) fn initialize(session: &mut vortex_session::VortexSessionBuilder) {
     compute::kernel::initialize(session);
 }
 

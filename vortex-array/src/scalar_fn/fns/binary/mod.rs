@@ -282,9 +282,9 @@ mod tests {
 
     use super::*;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -499,7 +499,10 @@ mod tests {
         let result_equal = lhs_struct.binary(rhs_struct_equal, Operator::Eq).unwrap();
         assert_eq!(
             result_equal
-                .execute_scalar(0, &mut array_session().create_execution_ctx())
+                .execute_scalar(
+                    0,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .vortex_expect("value"),
             Scalar::bool(true, Nullability::NonNullable),
             "Equal structs should be equal"
@@ -510,7 +513,10 @@ mod tests {
             .unwrap();
         assert_eq!(
             result_different
-                .execute_scalar(0, &mut array_session().create_execution_ctx())
+                .execute_scalar(
+                    0,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .vortex_expect("value"),
             Scalar::bool(false, Nullability::NonNullable),
             "Different structs should not be equal"
@@ -519,7 +525,7 @@ mod tests {
 
     #[test]
     fn test_or_kleene_validity() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         use crate::IntoArray;
         use crate::arrays::BoolArray;
         use crate::arrays::StructArray;
@@ -547,7 +553,7 @@ mod tests {
 
     #[test]
     fn test_scalar_subtract_unsigned() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         use vortex_buffer::buffer;
 
         use crate::IntoArray;
@@ -562,7 +568,7 @@ mod tests {
 
     #[test]
     fn test_scalar_subtract_signed() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         use vortex_buffer::buffer;
 
         use crate::IntoArray;
@@ -577,7 +583,7 @@ mod tests {
 
     #[test]
     fn test_scalar_subtract_nullable() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         use crate::IntoArray;
         use crate::arrays::ConstantArray;
         use crate::arrays::PrimitiveArray;
@@ -594,7 +600,7 @@ mod tests {
 
     #[test]
     fn test_scalar_subtract_float() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         use vortex_buffer::buffer;
 
         use crate::IntoArray;

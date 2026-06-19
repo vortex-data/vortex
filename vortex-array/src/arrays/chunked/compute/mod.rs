@@ -19,11 +19,11 @@ mod tests {
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::binary_numeric::test_binary_numeric_array;
     use crate::compute::conformance::consistency::test_array_consistency;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -83,7 +83,7 @@ mod tests {
     fn test_chunked_consistency(#[case] array: ChunkedArray) {
         test_array_consistency(
             &array.into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut default_session_builder().build().create_execution_ctx(),
         );
     }
 
@@ -161,7 +161,7 @@ mod tests {
     fn test_chunked_binary_numeric(#[case] array: ChunkedArray) {
         test_binary_numeric_array(
             &array.into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut default_session_builder().build().create_execution_ctx(),
         )
     }
 }

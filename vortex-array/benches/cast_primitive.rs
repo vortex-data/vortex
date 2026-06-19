@@ -26,7 +26,8 @@ fn main() {
 // the kernel cost shows up clearly rather than being hidden by DRAM bandwidth.
 const SIZES: &[usize] = &[65_536];
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| vortex_array::default_session_builder().build());
 
 #[divan::bench(args = SIZES)]
 fn cast_u16_to_u32(bencher: Bencher, n: usize) {

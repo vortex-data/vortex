@@ -501,7 +501,7 @@ mod tests {
 
     #[test]
     fn test_unknown_extension_allow_unknown() {
-        let session = crate::array_session().allow_unknown();
+        let session = crate::default_session_builder().allow_unknown().build();
         let proto = pb::DType {
             dtype_type: Some(DtypeType::Extension(Box::new(pb::Extension {
                 id: "vortex.test.foreign_ext".to_string(),

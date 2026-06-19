@@ -236,7 +236,9 @@ mod tests {
         #[case] strings: Vec<Option<&'static [u8]>>,
         #[case] nullability: Nullability,
     ) -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = vortex_array::default_session_builder()
+            .build()
+            .create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -260,7 +262,9 @@ mod tests {
     /// Exercises the multi-block grid-stride path on a larger dataset.
     #[crate::test]
     async fn test_cuda_fsst_decompression_roundtrip_large() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = vortex_array::default_session_builder()
+            .build()
+            .create_execution_ctx();
         use vortex_fsst::test_utils::make_fsst_clickbench_urls;
 
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())

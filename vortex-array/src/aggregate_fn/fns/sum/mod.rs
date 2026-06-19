@@ -403,7 +403,6 @@ mod tests {
     use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::sum::Sum;
     use crate::aggregate_fn::fns::sum::sum;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
@@ -412,6 +411,7 @@ mod tests {
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
@@ -428,7 +428,7 @@ mod tests {
 
     /// Sum an array with an initial value (test-only helper).
     fn sum_with_accumulator(array: &ArrayRef, accumulator: &Scalar) -> VortexResult<Scalar> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         if accumulator.is_null() {
             return Ok(accumulator.clone());
         }
@@ -484,7 +484,7 @@ mod tests {
 
     #[test]
     fn sum_multi_batch() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let mut acc = Accumulator::try_new(Sum, NumericalAggregateOpts::default(), dtype)?;
 
@@ -501,7 +501,7 @@ mod tests {
 
     #[test]
     fn sum_finish_resets_state() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let mut acc = Accumulator::try_new(Sum, NumericalAggregateOpts::default(), dtype)?;
 
@@ -552,7 +552,10 @@ mod tests {
         // compute sum with accumulator to populate stats
         sum_with_accumulator(&array, &Scalar::primitive(2i64, Nullable))?;
 
-        let sum_without_acc = sum(&array, &mut array_session().create_execution_ctx())?;
+        let sum_without_acc = sum(
+            &array,
+            &mut default_session_builder().build().create_execution_ctx(),
+        )?;
         assert_eq!(sum_without_acc, Scalar::primitive(9i64, Nullable));
         Ok(())
     }
@@ -580,13 +583,16 @@ mod tests {
             NumericalAggregateOpts::default(),
             elem_dtype.clone(),
         )?;
-        acc.accumulate_list(groups, &mut array_session().create_execution_ctx())?;
+        acc.accumulate_list(
+            groups,
+            &mut default_session_builder().build().create_execution_ctx(),
+        )?;
         acc.finish()
     }
 
     #[test]
     fn grouped_sum_fixed_size_list() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let elements =
             PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5, 6], Validity::NonNullable).into_array();
         let groups = FixedSizeListArray::try_new(elements, 3, Validity::NonNullable, 2)?;
@@ -601,7 +607,7 @@ mod tests {
 
     #[test]
     fn grouped_sum_with_null_elements() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let elements =
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None, Some(5), Some(6)])
                 .into_array();
@@ -617,7 +623,7 @@ mod tests {
 
     #[test]
     fn grouped_sum_with_null_group() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let elements =
             PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9], Validity::NonNullable)
                 .into_array();
@@ -635,7 +641,7 @@ mod tests {
 
     #[test]
     fn grouped_sum_all_null_elements_in_group() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let elements =
             PrimitiveArray::from_option_iter([None::<i32>, None, Some(3), Some(4)]).into_array();
         let groups = FixedSizeListArray::try_new(elements, 2, Validity::NonNullable, 2)?;
@@ -650,7 +656,7 @@ mod tests {
 
     #[test]
     fn grouped_sum_bool() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let elements: BoolArray = [true, false, true, true, true, true].into_iter().collect();
         let groups =
             FixedSizeListArray::try_new(elements.into_array(), 3, Validity::NonNullable, 2)?;
@@ -665,7 +671,7 @@ mod tests {
 
     #[test]
     fn grouped_sum_finish_resets() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let elem_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let mut acc =
             GroupedAccumulator::try_new(Sum, NumericalAggregateOpts::default(), elem_dtype)?;
@@ -691,7 +697,7 @@ mod tests {
 
     #[test]
     fn grouped_sum_listview_out_of_order_offsets_with_null_group() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let elements =
             PrimitiveArray::new(buffer![100i32, 200, 300], Validity::NonNullable).into_array();
         let offsets = PrimitiveArray::new(buffer![2i32, 0, 1], Validity::NonNullable).into_array();
@@ -729,7 +735,7 @@ mod tests {
 
         let result = sum(
             &chunked.into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut default_session_builder().build().create_execution_ctx(),
         )?;
         assert_eq!(result.as_primitive().as_::<f64>(), Some(20.8));
         Ok(())
@@ -743,7 +749,7 @@ mod tests {
         let chunked = ChunkedArray::try_new(vec![chunk1.into_array(), chunk2.into_array()], dtype)?;
         let result = sum(
             &chunked.into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut default_session_builder().build().create_execution_ctx(),
         )?;
         assert_eq!(result, Scalar::primitive(0f64, Nullable));
         Ok(())
@@ -766,7 +772,7 @@ mod tests {
 
         let result = sum(
             &chunked.into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut default_session_builder().build().create_execution_ctx(),
         )?;
         assert_eq!(result.as_primitive().as_::<f64>(), Some(36.0));
         Ok(())
@@ -781,7 +787,7 @@ mod tests {
 
         let result = sum(
             &chunked.into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut default_session_builder().build().create_execution_ctx(),
         )?;
         assert_eq!(result.as_primitive().as_::<u64>(), Some(1));
         Ok(())
@@ -813,7 +819,7 @@ mod tests {
 
         let result = sum(
             &chunked.into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut default_session_builder().build().create_execution_ctx(),
         )?;
         let decimal_result = result.as_decimal();
         assert_eq!(
@@ -849,7 +855,7 @@ mod tests {
 
         let result = sum(
             &chunked.into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut default_session_builder().build().create_execution_ctx(),
         )?;
         let decimal_result = result.as_decimal();
         assert_eq!(
@@ -883,7 +889,7 @@ mod tests {
 
         let result = sum(
             &chunked.into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut default_session_builder().build().create_execution_ctx(),
         )?;
         let decimal_result = result.as_decimal();
         assert_eq!(

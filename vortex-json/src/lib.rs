@@ -20,15 +20,18 @@ pub use json_to_variant::JsonToVariant;
 pub use json_to_variant::JsonToVariantOptions;
 pub use json_to_variant::ShreddingSpec;
 pub use json_to_variant::json_to_variant;
-use vortex_array::arrow::ArrowSessionExt;
-use vortex_array::dtype::session::DTypeSessionExt;
-use vortex_array::scalar_fn::session::ScalarFnSessionExt;
-use vortex_session::VortexSession;
+use vortex_array::arrow::ArrowSession;
+use vortex_array::dtype::session::DTypeSession;
+use vortex_array::scalar_fn::session::ScalarFnSession;
+use vortex_session::VortexSessionBuilder;
 
 /// Register JSON extension support with a session.
-pub fn initialize(session: &VortexSession) {
-    session.dtypes().register(Json);
-    session.arrow().register_exporter(Arc::new(Json));
-    session.arrow().register_importer(Arc::new(Json));
-    session.scalar_fns().register(JsonToVariant);
+pub fn initialize(session: &mut VortexSessionBuilder) {
+    session.get_mut::<DTypeSession>().register(Json);
+
+    let arrow = session.get_mut::<ArrowSession>();
+    arrow.register_exporter(Arc::new(Json));
+    arrow.register_importer(Arc::new(Json));
+
+    session.get_mut::<ScalarFnSession>().register(JsonToVariant);
 }

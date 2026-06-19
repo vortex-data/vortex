@@ -14,6 +14,7 @@ use std::ptr;
 use arrow_schema::ffi::FFI_ArrowSchema;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
+use vortex::error::vortex_err;
 use vortex::session::VortexSession;
 use vortex_cuda::CudaSession;
 use vortex_cuda::arrow::ArrowDeviceArray;
@@ -34,16 +35,14 @@ use vortex_ffi::vx_session_ref;
 const VX_CUDA_OK: c_int = 0;
 const VX_CUDA_ERR: c_int = 1;
 
-/// Return a Vortex session with a [`CudaSession`] session variable.
-///
-/// If `session` already has CUDA support, this returns a clone of it. Otherwise it
-/// returns a new session cloned from `session` with a default [`CudaSession`] attached.
-fn session_with_cuda(session: &VortexSession) -> VortexResult<VortexSession> {
-    if session.get_opt::<CudaSession>().is_some() {
-        return Ok(session.clone());
+fn session_with_cuda(session: &VortexSession) -> VortexResult<&VortexSession> {
+    if session.get_opt::<CudaSession>().is_none() {
+        return Err(vortex_err!(
+            InvalidArgument: "CUDA session state is not configured; create the session with vx_cuda_session_new"
+        ));
     }
 
-    Ok(session.clone().with_some(CudaSession::try_default()?))
+    Ok(session)
 }
 
 /// Create a CUDA Vortex session.
@@ -97,7 +96,7 @@ pub unsafe extern "C-unwind" fn vx_cuda_array_export_arrow_device(
 
         let session = session_with_cuda(unsafe { vx_session_ref(session) }?)?;
         let array = unsafe { vx_array_ref(array) }?.clone();
-        let mut ctx = CudaSession::create_execution_ctx(&session)?;
+        let mut ctx = CudaSession::create_execution_ctx(session)?;
         let exported =
             futures::executor::block_on(array.export_device_array_with_schema(&mut ctx))?;
 
@@ -142,7 +141,7 @@ pub unsafe extern "C-unwind" fn vx_cuda_partition_scan_arrow_device_stream(
 
         let session = session_with_cuda(unsafe { vx_session_ref(session) }?)?;
         // Drive the stream on the same runtime the partition's scan spawned its work onto.
-        let device_stream = array_stream.export_device_array_stream(&session, ffi_runtime())?;
+        let device_stream = array_stream.export_device_array_stream(session, ffi_runtime())?;
 
         unsafe { ptr::write(out_stream, device_stream) };
         Ok(VX_CUDA_OK)
@@ -156,7 +155,6 @@ mod tests {
 
     use arrow_schema::Field;
     use arrow_schema::Schema;
-    use vortex::VortexSessionDefault;
     use vortex::array::ArrayRef;
     use vortex::array::IntoArray;
     use vortex::array::arrays::PrimitiveArray;
@@ -171,6 +169,12 @@ mod tests {
 
     fn test_session(session: VortexSession) -> *mut vx_session {
         Box::into_raw(Box::new(session)).cast::<vx_session>()
+    }
+
+    fn test_cuda_session() -> VortexResult<VortexSession> {
+        Ok(vortex::array::default_session_builder()
+            .with_some(CudaSession::try_default()?)
+            .build())
     }
 
     unsafe fn free_test_session(session: *mut vx_session) {
@@ -212,9 +216,9 @@ mod tests {
     }
 
     #[cuda_test]
-    fn test_export_primitive_arrow_device() {
+    fn test_export_primitive_arrow_device() -> VortexResult<()> {
         let mut error = ptr::null_mut();
-        let session = test_session(VortexSession::default());
+        let session = test_session(test_cuda_session()?);
         let array = test_array(PrimitiveArray::from_iter(0u32..5));
         let mut schema = FFI_ArrowSchema::empty();
         let mut device_array = empty_device_array();
@@ -231,7 +235,7 @@ mod tests {
         assert_eq!(status, VX_CUDA_OK);
         assert!(error.is_null());
 
-        let field = Field::try_from(&schema).expect("schema should be a field");
+        let field = Field::try_from(&schema)?;
         assert_eq!(field.name(), "");
         assert_eq!(device_array.array.length, 5);
         assert_eq!(device_array.array.n_buffers, 2);
@@ -245,12 +249,13 @@ mod tests {
             free_test_array(array);
             free_test_session(session);
         }
+        Ok(())
     }
 
     #[cuda_test]
     fn test_export_struct_arrow_device_table() -> VortexResult<()> {
         let mut error = ptr::null_mut();
-        let session = test_session(VortexSession::default());
+        let session = test_session(test_cuda_session()?);
         let array = test_array(StructArray::try_new(
             ["ids", "values"].into(),
             vec![
@@ -342,7 +347,7 @@ mod tests {
     #[cuda_not_available]
     #[test]
     fn test_export_reports_cuda_initialization_error() {
-        let session = test_session(VortexSession::default());
+        let session = test_session(vortex::array::default_session_builder().build());
         let array = test_array(PrimitiveArray::from_iter(0u32..5));
         let mut schema = FFI_ArrowSchema::empty();
         let mut device_array = empty_device_array();

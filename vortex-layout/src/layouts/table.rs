@@ -322,7 +322,7 @@ impl LayoutStrategy for TableStrategy {
                 let session = session.clone();
                 let ctx = ctx.clone();
                 let segment_sink = Arc::clone(&segment_sink);
-                handle.spawn_nested(move |h| {
+                handle.spawn_nested(move |_h| {
                     let validity = Arc::clone(&self.validity);
                     // descend further and try with new fields
                     let writer = self
@@ -338,8 +338,6 @@ impl LayoutStrategy for TableStrategy {
                                 Arc::clone(&self.fallback)
                             }
                         });
-                    let session = session.with_handle(h);
-
                     async move {
                         // If we have a matching writer, we use it.
                         // Otherwise, we descend into a new modified one.

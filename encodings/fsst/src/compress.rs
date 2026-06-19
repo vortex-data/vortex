@@ -326,9 +326,9 @@ impl<'c, O: IntegerPType + 'static> FsstSink<'c, O> {
 #[cfg(test)]
 mod tests {
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::varbin::VarBinArrayExt;
+    use vortex_array::default_session_builder;
     use vortex_array::dtype::PType;
     use vortex_error::VortexResult;
 
@@ -353,7 +353,7 @@ mod tests {
     #[test]
     fn codes_offsets_dtype_small_input_is_i32() -> VortexResult<()> {
         let array = VarBinViewArray::from_iter_str(["hello", "world", "fsst encoded"]);
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let compressor = fsst_train_compressor(array.as_array(), &mut ctx)?;
         let fsst = fsst_compress(array.as_array(), &compressor, &mut ctx)?;
         assert_eq!(fsst.codes().offsets().dtype().as_ptype(), PType::I32);

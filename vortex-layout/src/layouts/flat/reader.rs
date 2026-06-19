@@ -244,19 +244,17 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
-    use vortex_io::session::RuntimeSessionExt;
 
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
-    use crate::test::SESSION;
 
     #[test]
     fn flat_identity() -> VortexResult<()> {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = crate::test::session_with_handle(handle);
             let mut ctx = session.create_execution_ctx();
             let array_ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
@@ -296,7 +294,7 @@ mod test {
     #[test]
     fn flat_expr() {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = crate::test::session_with_handle(handle);
             let mut ctx = session.create_execution_ctx();
             let array_ctx = ArrayContext::empty();
 
@@ -336,7 +334,7 @@ mod test {
     #[test]
     fn flat_unaligned_row_mask() {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = crate::test::session_with_handle(handle);
             let mut ctx = session.create_execution_ctx();
             let array_ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());

@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The immutable [`VortexSession`] and its [`SessionBuilder`].
+//! The immutable [`VortexSession`] and its [`VortexSessionBuilder`].
 //!
 //! [`VortexSession`] is backed by an immutable [`HashMap`]: once built, its set of session
-//! variables can never change, so reads are lock-free and return plain references. To modify
-//! a session, clone its state into a mutable [`SessionBuilder`] with
-//! [`VortexSession::to_builder`], apply changes, and call [`SessionBuilder::build`] to freeze it
-//! back into a new [`VortexSession`].
+//! variables can never change, so reads are lock-free and return plain references. Build all
+//! mutable state in a [`VortexSessionBuilder`], then call [`VortexSessionBuilder::build`] to
+//! freeze it into a [`VortexSession`].
 
 use std::any::TypeId;
 use std::any::type_name;
@@ -24,24 +23,9 @@ use crate::SessionVar;
 use crate::UnknownPluginPolicy;
 
 /// A [`SessionVar`] that can be stored in a [`VortexSession`].
-///
-/// This trait is implemented automatically for every [`SessionVar`] that is also [`Clone`],
-/// so types opt in by implementing [`Clone`] rather than implementing this trait directly.
-///
-/// Cloning must produce an *independent* copy: [`SessionBuilder`] relies on it to detach a
-/// session's state before mutating it. A variable whose `Clone` shares interior-mutable state
-/// (e.g. an `Arc` around a mutable registry) will leak builder mutations back into the session
-/// it was cloned from.
-pub trait VortexSessionVar: SessionVar {
-    /// Clones this variable into a new boxed instance.
-    fn clone_var(&self) -> Box<dyn VortexSessionVar>;
-}
+pub trait VortexSessionVar: SessionVar {}
 
-impl<V: SessionVar + Clone> VortexSessionVar for V {
-    fn clone_var(&self) -> Box<dyn VortexSessionVar> {
-        Box::new(self.clone())
-    }
-}
+impl<V: SessionVar + Clone> VortexSessionVar for V {}
 
 /// The type map backing a [`VortexSession`]. Immutable once wrapped in an `Arc`.
 type VortexSessionVars = HashMap<TypeId, Box<dyn VortexSessionVar>, BuildHasherDefault<IdHasher>>;
@@ -52,8 +36,7 @@ type VortexSessionVars = HashMap<TypeId, Box<dyn VortexSessionVar>, BuildHasherD
 /// It is also the entry-point passed to dynamic libraries to initialize Vortex plugins.
 ///
 /// The set of session variables is fixed at construction time, so lookups take no locks and
-/// hand out plain references. To change a session's state, clone it into a mutable
-/// [`SessionBuilder`] with [`VortexSession::to_builder`] and build a new session from it.
+/// hand out plain references.
 #[derive(Clone, Debug)]
 pub struct VortexSession(Arc<VortexSessionVars>);
 
@@ -63,23 +46,9 @@ impl VortexSession {
         Self(Default::default())
     }
 
-    /// Create an empty [`SessionBuilder`].
-    pub fn builder() -> SessionBuilder {
-        SessionBuilder::default()
-    }
-
-    /// Clone this session's state into a mutable [`SessionBuilder`].
-    ///
-    /// The builder owns an independent copy of every variable, so mutations made through it
-    /// never affect this session.
-    pub fn to_builder(&self) -> SessionBuilder {
-        SessionBuilder {
-            vars: self
-                .0
-                .iter()
-                .map(|(id, var)| (*id, var.clone_var()))
-                .collect(),
-        }
+    /// Create an empty [`VortexSessionBuilder`].
+    pub fn builder() -> VortexSessionBuilder {
+        VortexSessionBuilder::default()
     }
 
     /// Returns the session variable of type `V`.
@@ -116,40 +85,19 @@ impl VortexSession {
         self.get_opt::<UnknownPluginPolicy>()
             .is_some_and(|p| p.allow_unknown)
     }
-
-    /// Inserts a new session variable of type `V` with its default value, returning the
-    /// updated session.
-    ///
-    /// # Panics
-    ///
-    /// If a variable of that type already exists.
-    pub fn with<V: VortexSessionVar + Default>(self) -> Self {
-        self.to_builder().with::<V>().build()
-    }
-
-    /// Inserts a new session variable of type `V`, returning the updated session.
-    ///
-    /// # Panics
-    ///
-    /// If a variable of that type already exists.
-    pub fn with_some<V: VortexSessionVar>(self, var: V) -> Self {
-        self.to_builder().with_some(var).build()
-    }
-
-    /// Allow deserializing unknown plugin IDs as non-executable foreign placeholders.
-    pub fn allow_unknown(self) -> Self {
-        self.to_builder().allow_unknown().build()
-    }
 }
 
 /// A mutable builder for [`VortexSession`].
 ///
 /// Holds a private, mutable copy of a session's state. Modify it freely, then call
-/// [`SessionBuilder::build`] to freeze it into a new immutable [`VortexSession`].
+/// [`VortexSessionBuilder::build`] to freeze it into a new immutable [`VortexSession`].
 #[derive(Debug, Default)]
 pub struct SessionBuilder {
     vars: VortexSessionVars,
 }
+
+/// Public builder type for constructing [`VortexSession`] values.
+pub type VortexSessionBuilder = SessionBuilder;
 
 impl SessionBuilder {
     /// Inserts a new session variable of type `V` with its default value.
@@ -259,22 +207,8 @@ mod tests {
     }
 
     #[test]
-    fn to_builder_does_not_mutate_source() {
-        let source = VortexSession::builder()
-            .with_some(Counter { count: 1 })
-            .build();
-
-        let mut builder = source.to_builder();
-        builder.get_mut::<Counter>().count = 2;
-        let modified = builder.build();
-
-        assert_eq!(source.get::<Counter>().count, 1);
-        assert_eq!(modified.get::<Counter>().count, 2);
-    }
-
-    #[test]
     fn get_mut_inserts_default() {
-        let mut builder = VortexSession::empty().to_builder();
+        let mut builder = VortexSession::builder();
         assert!(builder.get_mut_opt::<Counter>().is_none());
 
         builder.get_mut::<Counter>().count = 42;
@@ -302,7 +236,7 @@ mod tests {
         let session = VortexSession::empty();
         assert!(!session.allows_unknown());
 
-        let session = session.to_builder().allow_unknown().build();
+        let session = VortexSession::builder().allow_unknown().build();
         assert!(session.allows_unknown());
     }
 }

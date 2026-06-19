@@ -86,9 +86,9 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrow::ArrowArrayExecutor;
     use crate::arrow::executor::byte::VarBinViewArray;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
 
@@ -122,7 +122,7 @@ mod tests {
         #[case] vortex_array: VarBinViewArray,
         #[case] target_dtype: DataType,
     ) {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let arrow = vortex_array
             .into_array()
             .execute_arrow(Some(&target_dtype), &mut ctx)
@@ -169,7 +169,7 @@ mod tests {
             vortex_dtype,
         );
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let arrow = vortex_array
             .into_array()
             .execute_arrow(Some(&target_dtype), &mut ctx)

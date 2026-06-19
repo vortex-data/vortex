@@ -73,18 +73,19 @@ use vortex_array::aggregate_fn::fns::min_max::MinMax;
 use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::aggregate_fn::fns::null_count::NullCount;
 use vortex_array::aggregate_fn::fns::sum::Sum;
-use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
-use vortex_array::session::ArraySessionExt;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
+use vortex_array::session::ArraySession;
+use vortex_session::VortexSessionBuilder;
 
 /// Initialize Sparse encoding in the given session.
 ///
 /// Registers the Sparse array vtable, parent execution kernels, and aggregate kernels
 /// (`IsConstant`, `Sum`, `MinMax`, `NullCount`, `NanCount`).
-pub fn initialize(session: &VortexSession) {
-    session.arrays().register(Sparse);
+pub fn initialize(session: &mut VortexSessionBuilder) {
+    session.get_mut::<ArraySession>().register(Sparse);
     kernel::initialize(session);
 
-    let aggregate_fns = session.aggregate_fns();
+    let aggregate_fns = session.get_mut::<AggregateFnSession>();
     aggregate_fns.register_aggregate_kernel(
         Sparse.id(),
         Some(IsConstant.id()),
@@ -709,9 +710,9 @@ mod test {
     use crate::Sparse;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
-        initialize(&session);
-        session
+        let mut session = vortex_array::default_session_builder();
+        initialize(&mut session);
+        session.build()
     });
 
     fn nullable_fill() -> Scalar {

@@ -11,6 +11,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::VortexSessionBuilder;
 use vortex_session::registry::CachedId;
 
 use super::DictData;
@@ -55,7 +56,7 @@ mod validity;
 /// A [`Dict`]-encoded Vortex array.
 pub type DictArray = Array<Dict>;
 
-pub(crate) fn initialize(session: &VortexSession) {
+pub(crate) fn initialize(session: &mut VortexSessionBuilder) {
     kernel::initialize(session);
 }
 

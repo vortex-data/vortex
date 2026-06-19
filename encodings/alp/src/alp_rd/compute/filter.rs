@@ -46,10 +46,10 @@ mod test {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
+    use vortex_array::default_session_builder;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
@@ -60,9 +60,9 @@ mod test {
     use crate::RDEncoder;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = array_session();
-        crate::initialize(&session);
-        session
+        let mut session = default_session_builder();
+        crate::initialize(&mut session);
+        session.build()
     });
 
     #[rstest]

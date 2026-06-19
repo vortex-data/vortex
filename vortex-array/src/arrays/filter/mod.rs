@@ -20,6 +20,6 @@ mod rules;
 mod vtable;
 pub use vtable::Filter;
 
-pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+pub(crate) fn initialize(session: &mut vortex_session::VortexSessionBuilder) {
     kernel::initialize(session);
 }

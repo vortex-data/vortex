@@ -25,7 +25,8 @@ use vortex_array::expr::root;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| vortex_array::default_session_builder().build());
 
 fn main() {
     divan::main();

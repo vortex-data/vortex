@@ -269,15 +269,18 @@ mod test {
     use enum_iterator::all;
 
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
+    use crate::default_session_builder;
     use crate::expr::stats::Stat;
 
     #[test]
     fn min_of_nulls_is_not_panic() {
         let min = PrimitiveArray::from_option_iter::<i32, _>([None, None, None, None])
             .statistics()
-            .compute_as::<i64>(Stat::Min, &mut array_session().create_execution_ctx());
+            .compute_as::<i64>(
+                Stat::Min,
+                &mut default_session_builder().build().create_execution_ctx(),
+            );
 
         assert_eq!(min, None);
     }

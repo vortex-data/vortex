@@ -15,7 +15,7 @@ mod vtable;
 pub use compute::rules::PrimitiveMaskedValidityRule;
 pub use vtable::Primitive;
 
-pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+pub(crate) fn initialize(session: &mut vortex_session::VortexSessionBuilder) {
     vtable::initialize(session);
 }
 

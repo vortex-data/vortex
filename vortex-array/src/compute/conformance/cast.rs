@@ -12,8 +12,8 @@ use crate::VortexSessionExecute;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::min_max::MinMaxResult;
 use crate::aggregate_fn::fns::min_max::min_max;
-use crate::array_session;
 use crate::builtins::ArrayBuiltins;
+use crate::default_session_builder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -23,7 +23,9 @@ use crate::scalar::Scalar;
 fn cast_and_execute(array: &ArrayRef, dtype: DType) -> VortexResult<ArrayRef> {
     Ok(array
         .cast(dtype)?
-        .execute::<RecursiveCanonical>(&mut array_session().create_execution_ctx())?
+        .execute::<RecursiveCanonical>(
+            &mut default_session_builder().build().create_execution_ctx(),
+        )?
         .0
         .into_array())
 }
@@ -75,10 +77,16 @@ fn test_cast_identity(array: &ArrayRef) {
     for i in 0..array.len().min(10) {
         assert_eq!(
             array
-                .execute_scalar(i, &mut array_session().create_execution_ctx())
+                .execute_scalar(
+                    i,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .vortex_expect("scalar_at should succeed in conformance test"),
             result
-                .execute_scalar(i, &mut array_session().create_execution_ctx())
+                .execute_scalar(
+                    i,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .vortex_expect("scalar_at should succeed in conformance test")
         );
     }
@@ -110,7 +118,10 @@ fn test_cast_from_null(array: &ArrayRef) {
         for i in 0..array.len().min(10) {
             assert!(
                 result
-                    .execute_scalar(i, &mut array_session().create_execution_ctx())
+                    .execute_scalar(
+                        i,
+                        &mut default_session_builder().build().create_execution_ctx()
+                    )
                     .vortex_expect("scalar_at should succeed in conformance test")
                     .is_null()
             );
@@ -130,7 +141,7 @@ fn test_cast_from_null(array: &ArrayRef) {
 
 fn test_cast_to_non_nullable(array: &ArrayRef) {
     if array
-        .invalid_count(&mut array_session().create_execution_ctx())
+        .invalid_count(&mut default_session_builder().build().create_execution_ctx())
         .vortex_expect("invalid_count should succeed in conformance test")
         == 0
     {
@@ -142,10 +153,16 @@ fn test_cast_to_non_nullable(array: &ArrayRef) {
         for i in 0..array.len().min(10) {
             assert_eq!(
                 array
-                    .execute_scalar(i, &mut array_session().create_execution_ctx())
+                    .execute_scalar(
+                        i,
+                        &mut default_session_builder().build().create_execution_ctx()
+                    )
                     .vortex_expect("scalar_at should succeed in conformance test"),
                 non_nullable
-                    .execute_scalar(i, &mut array_session().create_execution_ctx())
+                    .execute_scalar(
+                        i,
+                        &mut default_session_builder().build().create_execution_ctx()
+                    )
                     .vortex_expect("scalar_at should succeed in conformance test")
             );
         }
@@ -158,10 +175,16 @@ fn test_cast_to_non_nullable(array: &ArrayRef) {
         for i in 0..array.len().min(10) {
             assert_eq!(
                 array
-                    .execute_scalar(i, &mut array_session().create_execution_ctx())
+                    .execute_scalar(
+                        i,
+                        &mut default_session_builder().build().create_execution_ctx()
+                    )
                     .vortex_expect("scalar_at should succeed in conformance test"),
                 back_to_nullable
-                    .execute_scalar(i, &mut array_session().create_execution_ctx())
+                    .execute_scalar(
+                        i,
+                        &mut default_session_builder().build().create_execution_ctx()
+                    )
                     .vortex_expect("scalar_at should succeed in conformance test")
             );
         }
@@ -191,10 +214,16 @@ fn test_cast_to_nullable(array: &ArrayRef) {
     for i in 0..array.len().min(10) {
         assert_eq!(
             array
-                .execute_scalar(i, &mut array_session().create_execution_ctx())
+                .execute_scalar(
+                    i,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .vortex_expect("scalar_at should succeed in conformance test"),
             nullable
-                .execute_scalar(i, &mut array_session().create_execution_ctx())
+                .execute_scalar(
+                    i,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .vortex_expect("scalar_at should succeed in conformance test")
         );
     }
@@ -207,10 +236,16 @@ fn test_cast_to_nullable(array: &ArrayRef) {
     for i in 0..array.len().min(10) {
         assert_eq!(
             array
-                .execute_scalar(i, &mut array_session().create_execution_ctx())
+                .execute_scalar(
+                    i,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .vortex_expect("scalar_at should succeed in conformance test"),
-            back.execute_scalar(i, &mut array_session().create_execution_ctx())
-                .vortex_expect("scalar_at should succeed in conformance test")
+            back.execute_scalar(
+                i,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
+            .vortex_expect("scalar_at should succeed in conformance test")
         );
     }
 }
@@ -248,7 +283,7 @@ fn fits(value: &Scalar, ptype: PType) -> bool {
 }
 
 fn test_cast_to_primitive(array: &ArrayRef, target_ptype: PType, test_round_trip: bool) {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = default_session_builder().build().create_execution_ctx();
     let maybe_min_max = min_max(array, &mut ctx, NumericalAggregateOpts::default())
         .vortex_expect("cast should succeed in conformance test");
 
@@ -289,20 +324,32 @@ fn test_cast_to_primitive(array: &ArrayRef, target_ptype: PType, test_round_trip
         array
             .validity()
             .vortex_expect("validity_mask should succeed in conformance test")
-            .execute_mask(array.len(), &mut array_session().create_execution_ctx())
+            .execute_mask(
+                array.len(),
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .vortex_expect("Failed to compute validity mask"),
         casted
             .validity()
             .vortex_expect("validity_mask should succeed in conformance test")
-            .execute_mask(casted.len(), &mut array_session().create_execution_ctx())
+            .execute_mask(
+                casted.len(),
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .vortex_expect("Failed to compute validity mask")
     );
     for i in 0..array.len().min(10) {
         let original = array
-            .execute_scalar(i, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                i,
+                &mut default_session_builder().build().create_execution_ctx(),
+            )
             .vortex_expect("scalar_at should succeed in conformance test");
         let casted = casted
-            .execute_scalar(i, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                i,
+                &mut default_session_builder().build().create_execution_ctx(),
+            )
             .vortex_expect("scalar_at should succeed in conformance test");
         assert_eq!(
             original

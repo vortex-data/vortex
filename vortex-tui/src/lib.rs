@@ -10,12 +10,12 @@
 //!
 //! ```ignore
 //! use vortex::session::VortexSession;
-//! use vortex::io::session::RuntimeSessionExt;
+//! use vortex::io::session::RuntimeSessionBuilderExt;
 //! use vortex_tui::browse;
 //!
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {
-//!     let session = VortexSession::default().with_tokio();
+//!     let session = VortexSession::default_builder().with_tokio().build();
 //!     browse::exec_tui(&session, "my_file.vortex").await?;
 //!     Ok(())
 //! }

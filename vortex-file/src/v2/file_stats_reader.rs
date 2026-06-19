@@ -185,9 +185,10 @@ mod tests {
     use vortex_array::stats::StatsSet;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_io::runtime::Handle;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSession;
-    use vortex_io::session::RuntimeSessionExt;
+    use vortex_io::session::RuntimeSessionBuilderExt;
     use vortex_layout::LayoutReader;
     use vortex_layout::LayoutStrategy;
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
@@ -203,10 +204,19 @@ mod tests {
     use super::*;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        vortex_array::array_session()
+        vortex_array::default_session_builder()
             .with::<LayoutSession>()
             .with::<RuntimeSession>()
+            .build()
     });
+
+    fn session_with_handle(handle: Handle) -> VortexSession {
+        vortex_array::default_session_builder()
+            .with::<LayoutSession>()
+            .with::<RuntimeSession>()
+            .with_handle(handle)
+            .build()
+    }
 
     fn test_file_stats(min: i32, max: i32) -> FileStatistics {
         let mut stats = StatsSet::default();
@@ -233,7 +243,7 @@ mod tests {
     #[test]
     fn pruning_when_filter_out_of_range() -> VortexResult<()> {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = session_with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -272,7 +282,7 @@ mod tests {
     #[test]
     fn no_pruning_when_filter_in_range() -> VortexResult<()> {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = session_with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -312,7 +322,7 @@ mod tests {
     #[test]
     fn no_pruning_for_computed_expression_stats() -> VortexResult<()> {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = session_with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -352,7 +362,7 @@ mod tests {
     #[test]
     fn is_null_pruning_on_nullable_timestamp_column() -> VortexResult<()> {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = session_with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -404,7 +414,7 @@ mod tests {
     #[test]
     fn pruning_is_not_null_when_file_is_all_null() -> VortexResult<()> {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = session_with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();

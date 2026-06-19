@@ -158,7 +158,7 @@ mod tests {
 
     #[test]
     fn aggregate_fn_serde() {
-        let session = crate::array_session();
+        let session = crate::default_session_builder().build();
         session.aggregate_fns().register(TestAgg);
 
         let agg_fn = TestAgg.bind(EmptyOptions);
@@ -179,7 +179,7 @@ mod tests {
     fn numeric_aggregate_options_round_trip(
         #[case] options: NumericalAggregateOpts,
     ) -> VortexResult<()> {
-        let session = crate::array_session();
+        let session = crate::default_session_builder().build();
         let agg_fn = Sum.bind(options);
 
         let proto = agg_fn.serialize_proto()?;

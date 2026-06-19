@@ -80,7 +80,9 @@ mod tests {
         let patch_values = buffer![u16::MAX; 3].into_array();
         let patches = Patches::new(512, 0, patch_indices, patch_values, None)?;
 
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = crate::default_session_builder()
+            .build()
+            .create_execution_ctx();
 
         let patched_array = Patched::from_array_and_patches(values, &patches, &mut ctx)?;
 
@@ -126,7 +128,9 @@ mod tests {
         )
         .unwrap();
 
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = crate::default_session_builder()
+            .build()
+            .create_execution_ctx();
 
         let patched_array = Patched::from_array_and_patches(inner.into_array(), &patches, &mut ctx)
             .unwrap()
@@ -158,7 +162,9 @@ mod tests {
         let patched_values = buffer![0u64, 1, 2, 3, 4, 5].into_array();
 
         let patches = Patches::new(10_000, 0, patched_indices, patched_values, None).unwrap();
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = crate::default_session_builder()
+            .build()
+            .create_execution_ctx();
 
         let patched_array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()

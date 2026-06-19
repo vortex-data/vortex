@@ -11,18 +11,20 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::Slice;
 use vortex_array::arrays::slice::SliceExecuteAdaptor;
 use vortex_array::arrays::slice::SliceKernel;
-use vortex_array::optimizer::kernels::ArrayKernelsExt;
+use vortex_array::optimizer::kernels::builder_kernels;
 use vortex_error::VortexResult;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionBuilder;
 
 use crate::FL_CHUNK_SIZE;
 use crate::RLE;
 use crate::rle::RLEArrayExt;
 
-pub(crate) fn initialize(session: &VortexSession) {
-    session
-        .kernels()
-        .register_execute_parent_kernel(Slice.id(), RLE, SliceExecuteAdaptor(RLE));
+pub(crate) fn initialize(session: &mut VortexSessionBuilder) {
+    builder_kernels(session).register_execute_parent_kernel(
+        Slice.id(),
+        RLE,
+        SliceExecuteAdaptor(RLE),
+    );
 }
 
 impl SliceKernel for RLE {

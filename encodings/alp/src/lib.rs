@@ -21,31 +21,38 @@ pub use alp_rd::*;
 use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::nan_count::NanCount;
-use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::patched::use_experimental_patches;
-use vortex_array::session::ArraySessionExt;
-use vortex_session::VortexSession;
+use vortex_array::session::ArraySession;
+use vortex_session::VortexSessionBuilder;
 
 mod alp;
 mod alp_rd;
 
 /// Initialize ALP encoding in the given session.
-pub fn initialize(session: &VortexSession) {
-    // If we're using the experimental Patched encoding, register a shim
-    // for ALP with interior patches to decode as Patched array.
-    if use_experimental_patches() {
-        session.arrays().register(ALPPatchedPlugin);
-    } else {
-        session.arrays().register(ALP);
+pub fn initialize(session: &mut VortexSessionBuilder) {
+    {
+        let arrays = session.get_mut::<ArraySession>();
+
+        // If we're using the experimental Patched encoding, register a shim
+        // for ALP with interior patches to decode as Patched array.
+        if use_experimental_patches() {
+            arrays.register(ALPPatchedPlugin);
+        } else {
+            arrays.register(ALP);
+        }
+        arrays.register(ALPRD);
     }
-    session.arrays().register(ALPRD);
+
     alp::initialize(session);
     alp_rd::initialize(session);
 
     // Register the ALP-specific NaN count aggregate kernel.
-    session.aggregate_fns().register_aggregate_kernel(
-        ALP.id(),
-        Some(NanCount.id()),
-        &compute::nan_count::ALPNanCountKernel,
-    );
+    session
+        .get_mut::<AggregateFnSession>()
+        .register_aggregate_kernel(
+            ALP.id(),
+            Some(NanCount.id()),
+            &compute::nan_count::ALPNanCountKernel,
+        );
 }

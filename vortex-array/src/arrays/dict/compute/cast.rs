@@ -69,7 +69,8 @@ mod tests {
     use crate::dtype::PType;
     use crate::validity::Validity;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| crate::default_session_builder().build());
 
     #[test]
     fn test_cast_dict_to_wider_type() {

@@ -280,10 +280,10 @@ mod tests {
     #[expect(deprecated)]
     use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::PType::I32;
@@ -320,7 +320,7 @@ mod tests {
 
     #[test]
     pub fn test_merge_right_most() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let expr = merge_opts(
             vec![
                 get_item("0", root()),

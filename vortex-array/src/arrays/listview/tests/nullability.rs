@@ -8,11 +8,11 @@ use vortex_buffer::buffer;
 
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::BoolArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::listview::ListViewArrayExt;
+use crate::default_session_builder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -38,17 +38,26 @@ fn test_nullable_listview_comprehensive() {
     // Check validity.
     assert!(
         listview
-            .is_valid(0, &mut array_session().create_execution_ctx())
+            .is_valid(
+                0,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
     );
     assert!(
         listview
-            .is_invalid(1, &mut array_session().create_execution_ctx())
+            .is_invalid(
+                1,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
     );
     assert!(
         listview
-            .is_valid(2, &mut array_session().create_execution_ctx())
+            .is_valid(
+                2,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
     );
 
@@ -60,7 +69,10 @@ fn test_nullable_listview_comprehensive() {
 
     // Test scalar_at with nulls.
     let first = listview
-        .execute_scalar(0, &mut array_session().create_execution_ctx())
+        .execute_scalar(
+            0,
+            &mut default_session_builder().build().create_execution_ctx(),
+        )
         .unwrap();
     assert!(!first.is_null());
     assert_eq!(
@@ -73,12 +85,18 @@ fn test_nullable_listview_comprehensive() {
     );
 
     let second = listview
-        .execute_scalar(1, &mut array_session().create_execution_ctx())
+        .execute_scalar(
+            1,
+            &mut default_session_builder().build().create_execution_ctx(),
+        )
         .unwrap();
     assert!(second.is_null());
 
     let third = listview
-        .execute_scalar(2, &mut array_session().create_execution_ctx())
+        .execute_scalar(
+            2,
+            &mut default_session_builder().build().create_execution_ctx(),
+        )
         .unwrap();
     assert!(!third.is_null());
     assert_eq!(
@@ -95,13 +113,19 @@ fn test_nullable_listview_comprehensive() {
     assert_eq!(null_list_data.len(), 2);
     assert_eq!(
         null_list_data
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                0,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap(),
         3i32.into()
     );
     assert_eq!(
         null_list_data
-            .execute_scalar(1, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                1,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap(),
         4i32.into()
     );
@@ -123,7 +147,10 @@ fn test_nullable_patterns(#[case] validity: Validity, #[case] expected_validity:
     for (i, &expected) in expected_validity.iter().enumerate() {
         assert_eq!(
             listview
-                .is_valid(i, &mut array_session().create_execution_ctx())
+                .is_valid(
+                    i,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .unwrap(),
             expected
         );
@@ -150,19 +177,28 @@ fn test_nullable_elements() {
     assert_eq!(first_list.len(), 2);
     assert!(
         !first_list
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                0,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
             .is_null()
     );
     assert_eq!(
         first_list
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                0,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap(),
         1i32.into()
     );
     assert!(
         first_list
-            .execute_scalar(1, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                1,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
             .is_null()
     );
@@ -171,19 +207,28 @@ fn test_nullable_elements() {
     let second_list = listview.list_elements_at(1).unwrap();
     assert!(
         !second_list
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                0,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
             .is_null()
     );
     assert_eq!(
         second_list
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                0,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap(),
         3i32.into()
     );
     assert!(
         second_list
-            .execute_scalar(1, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                1,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
             .is_null()
     );
@@ -192,25 +237,37 @@ fn test_nullable_elements() {
     let third_list = listview.list_elements_at(2).unwrap();
     assert!(
         !third_list
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                0,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
             .is_null()
     );
     assert_eq!(
         third_list
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                0,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap(),
         5i32.into()
     );
     assert!(
         !third_list
-            .execute_scalar(1, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                1,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
             .is_null()
     );
     assert_eq!(
         third_list
-            .execute_scalar(1, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                1,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap(),
         6i32.into()
     );

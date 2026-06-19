@@ -277,18 +277,17 @@ mod tests {
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::SharedArray;
+    use vortex_array::default_session_builder;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
-    use vortex_io::session::RuntimeSessionExt;
 
     use super::*;
     use crate::LayoutStrategy;
@@ -297,7 +296,6 @@ mod tests {
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
-    use crate::test::SESSION;
 
     const ONE_MEG: u64 = 1 << 20;
 
@@ -398,7 +396,7 @@ mod tests {
 
         let stream = fsl.into_array().to_array_stream().sequenced(ptr);
         let layout = block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
+            let session = crate::test::session_with_handle(handle);
             strategy
                 .write_stream(
                     ctx,
@@ -463,7 +461,7 @@ mod tests {
 
         let stream = elements.into_array().to_array_stream().sequenced(ptr);
         let layout = block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
+            let session = crate::test::session_with_handle(handle);
             strategy
                 .write_stream(
                     ctx,
@@ -490,7 +488,7 @@ mod tests {
     /// `pop_front` subtracted the larger Cached-era values.
     #[test]
     fn chunks_buffer_pop_front_no_panic_after_shared_execution() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let n = 20_000usize;
         let block_len = 10_000usize;
 

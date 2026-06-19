@@ -90,12 +90,12 @@ mod tests {
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::DecimalArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     #[expect(deprecated)]
     use crate::canonical::ToCanonical as _;
+    use crate::default_session_builder;
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::scalar::DecimalValue;
@@ -104,7 +104,7 @@ mod tests {
 
     #[test]
     fn fill_null_leading_none() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let decimal_dtype = DecimalDType::new(19, 2);
         let arr = DecimalArray::from_option_iter(
             [None, Some(800i128), None, Some(1000i128), None],
@@ -135,7 +135,7 @@ mod tests {
                 .unwrap()
                 .execute_mask(
                     p.as_ref().len(),
-                    &mut array_session().create_execution_ctx()
+                    &mut default_session_builder().build().create_execution_ctx()
                 )
                 .unwrap()
                 .all_true()
@@ -144,7 +144,7 @@ mod tests {
 
     #[test]
     fn fill_null_all_none() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let decimal_dtype = DecimalDType::new(19, 2);
 
         let arr = DecimalArray::from_option_iter(
@@ -172,7 +172,7 @@ mod tests {
     /// fill_null with a value that overflows the array's storage type should upcast the array.
     #[test]
     fn fill_null_overflow_upcasts() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let decimal_dtype = DecimalDType::new(3, 0);
         let arr = DecimalArray::from_option_iter([None, Some(10i8), None], decimal_dtype);
         // i8 max is 127, so 200 doesn't fit — the array should be widened to i16.
@@ -195,7 +195,7 @@ mod tests {
 
     #[test]
     fn fill_null_non_nullable() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let decimal_dtype = DecimalDType::new(19, 2);
 
         let arr = DecimalArray::new(

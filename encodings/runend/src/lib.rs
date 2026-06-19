@@ -31,27 +31,28 @@ use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
 use vortex_array::aggregate_fn::fns::min_max::MinMax;
-use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
-use vortex_array::session::ArraySessionExt;
-use vortex_session::VortexSession;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
+use vortex_array::session::ArraySession;
+use vortex_session::VortexSessionBuilder;
 
 /// Initialize run-end encoding in the given session.
-pub fn initialize(session: &VortexSession) {
-    session.arrays().register(RunEnd);
+pub fn initialize(session: &mut VortexSessionBuilder) {
+    session.get_mut::<ArraySession>().register(RunEnd);
     kernel::initialize(session);
 
     // Register the RunEnd-specific aggregate kernels.
-    session.aggregate_fns().register_aggregate_kernel(
+    let aggregate_fns = session.get_mut::<AggregateFnSession>();
+    aggregate_fns.register_aggregate_kernel(
         RunEnd.id(),
         Some(MinMax.id()),
         &compute::min_max::RunEndMinMaxKernel,
     );
-    session.aggregate_fns().register_aggregate_kernel(
+    aggregate_fns.register_aggregate_kernel(
         RunEnd.id(),
         Some(IsConstant.id()),
         &compute::is_constant::RunEndIsConstantKernel,
     );
-    session.aggregate_fns().register_aggregate_kernel(
+    aggregate_fns.register_aggregate_kernel(
         RunEnd.id(),
         Some(IsSorted.id()),
         &compute::is_sorted::RunEndIsSortedKernel,
@@ -70,9 +71,9 @@ mod tests {
     use crate::RunEndMetadata;
 
     pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
-        crate::initialize(&session);
-        session
+        let mut builder = vortex_array::default_session_builder();
+        crate::initialize(&mut builder);
+        builder.build()
     });
 
     #[cfg_attr(miri, ignore)]

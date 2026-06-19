@@ -277,7 +277,6 @@ mod tests {
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::Struct;
@@ -290,6 +289,7 @@ mod tests {
     use crate::builders::VarBinViewBuilder;
     use crate::builtins::ArrayBuiltins;
     use crate::columnar::Columnar;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -317,7 +317,7 @@ mod tests {
 
     #[test]
     fn test_zip_basic() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let mask = Mask::from_iter([true, false, false, true, false]);
         let if_true = buffer![10, 20, 30, 40, 50].into_array();
         let if_false = buffer![1, 2, 3, 4, 5].into_array();
@@ -330,7 +330,7 @@ mod tests {
 
     #[test]
     fn test_zip_all_true() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let mask = Mask::new_true(4);
         let if_true = buffer![10, 20, 30, 40].into_array();
         let if_false =
@@ -346,7 +346,7 @@ mod tests {
 
     #[test]
     fn test_zip_all_false_widens_nullability() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let mask = Mask::new_false(4);
         let if_true =
             PrimitiveArray::from_option_iter([Some(10), Some(20), Some(30), None]).into_array();
@@ -367,7 +367,7 @@ mod tests {
         let if_false =
             PrimitiveArray::from_option_iter([Some(1), Some(2), Some(3), None]).into_array();
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let result = zip_impl(&if_true, &if_false, &mask, &mut ctx)?;
         assert_arrays_eq!(
             result,
@@ -386,7 +386,7 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(10), Some(20), Some(30), None]).into_array();
         let if_false = buffer![1i32, 2, 3, 4].into_array();
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let result = zip_impl(&if_true, &if_false, &mask, &mut ctx)?;
         assert_arrays_eq!(
             result,
@@ -427,7 +427,7 @@ mod tests {
         let mask = Mask::from_indices(len, indices);
         let mask_array = mask.into_array();
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let result = mask_array
             .zip(const1.clone(), const2.clone())?
             .execute::<Columnar>(&mut ctx)?
@@ -487,7 +487,7 @@ mod tests {
         let mask = Mask::from_indices(200, (0..100).filter(|i| i % 3 != 0));
         let mask_array = mask.clone().into_array();
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let zipped = mask_array
             .zip(if_true.clone(), if_false.clone())
             .unwrap()
@@ -496,25 +496,29 @@ mod tests {
         let zipped = zipped.as_opt::<VarBinView>().unwrap();
         assert_eq!(zipped.data_buffers().len(), 2);
 
-        let mut arrow_ctx = array_session().create_execution_ctx();
+        let mut arrow_ctx = default_session_builder().build().create_execution_ctx();
         let expected = arrow_zip(
-            array_session()
+            default_session_builder()
+                .build()
                 .arrow()
                 .execute_arrow(mask.into_array(), None, &mut arrow_ctx)
                 .unwrap()
                 .as_boolean(),
-            &array_session()
+            &default_session_builder()
+                .build()
                 .arrow()
                 .execute_arrow(if_true, None, &mut arrow_ctx)
                 .unwrap(),
-            &array_session()
+            &default_session_builder()
+                .build()
                 .arrow()
                 .execute_arrow(if_false, None, &mut arrow_ctx)
                 .unwrap(),
         )
         .unwrap();
 
-        let actual = array_session()
+        let actual = default_session_builder()
+            .build()
             .arrow()
             .execute_arrow(zipped.array().clone(), None, &mut arrow_ctx)
             .unwrap();

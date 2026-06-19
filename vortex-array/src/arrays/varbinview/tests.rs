@@ -2,14 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
 use crate::assert_arrays_eq;
+use crate::default_session_builder;
 
 #[test]
 pub fn varbin_view() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = default_session_builder().build().create_execution_ctx();
     let binary_arr =
         VarBinViewArray::from_iter_str(["hello world", "hello world this is a long string"]);
     assert_arrays_eq!(
@@ -21,7 +21,7 @@ pub fn varbin_view() {
 
 #[test]
 pub fn slice_array() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = default_session_builder().build().create_execution_ctx();
     let binary_arr =
         VarBinViewArray::from_iter_str(["hello world", "hello world this is a long string"])
             .slice(1..2)
@@ -35,7 +35,7 @@ pub fn slice_array() {
 
 #[test]
 pub fn flatten_array() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = default_session_builder().build().create_execution_ctx();
     let binary_arr = VarBinViewArray::from_iter_str(["string1", "string2"]);
     assert_arrays_eq!(
         binary_arr,

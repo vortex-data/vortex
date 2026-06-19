@@ -48,13 +48,13 @@ mod tests {
     use rstest::rstest;
 
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::varbin::builder::VarBinBuilder;
     use crate::assert_arrays_eq;
     #[expect(deprecated)]
     use crate::canonical::ToCanonical as _;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
 
@@ -79,7 +79,10 @@ mod tests {
 
         assert!(
             !canonical
-                .is_valid(0, &mut array_session().create_execution_ctx())
+                .is_valid(
+                    0,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .unwrap()
         );
 
@@ -96,7 +99,7 @@ mod tests {
     #[case(DType::Utf8(Nullability::NonNullable))]
     #[case(DType::Binary(Nullability::NonNullable))]
     fn test_canonical_varbin_unsliced(#[case] dtype: DType) {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let varbin = VarBinArray::from_iter_nonnull(["foo", "bar", "baz"], dtype.clone());
         #[expect(deprecated)]
         let canonical = varbin.as_array().to_varbinview();

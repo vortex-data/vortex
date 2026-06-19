@@ -22,7 +22,8 @@ use crate::assert_arrays_eq;
 use crate::compute::conformance::take::test_take_conformance;
 use crate::validity::Validity;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| crate::default_session_builder().build());
 
 // Conformance tests for common take scenarios.
 #[rstest]

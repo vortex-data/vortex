@@ -89,7 +89,9 @@ mod tests {
         #[case] input: DecimalArray,
         #[case] mask: Mask,
     ) -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = vortex_array::default_session_builder()
+            .build()
+            .create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create CUDA execution context");
 
@@ -110,7 +112,9 @@ mod tests {
 
     #[crate::test]
     async fn test_gpu_filter_decimal_large_array() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = vortex_array::default_session_builder()
+            .build()
+            .create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create CUDA execution context");
 

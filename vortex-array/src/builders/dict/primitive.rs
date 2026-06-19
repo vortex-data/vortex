@@ -209,7 +209,8 @@ mod test {
     use crate::builders::dict::dict_encode;
     use crate::builders::dict::primitive::PrimitiveArray;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| crate::default_session_builder().build());
 
     #[test]
     fn encode_primitive() {

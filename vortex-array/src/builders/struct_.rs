@@ -212,13 +212,13 @@ impl ArrayBuilder for StructBuilder {
 mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::struct_::StructArray;
     use crate::builders::struct_::StructBuilder;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType::I32;
@@ -258,7 +258,7 @@ mod tests {
         assert_eq!(struct_.dtype(), &dtype);
         assert_eq!(
             struct_
-                .valid_count(&mut array_session().create_execution_ctx())
+                .valid_count(&mut default_session_builder().build().create_execution_ctx())
                 .unwrap(),
             1
         );
@@ -266,7 +266,7 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         use crate::scalar::Scalar;
 
         let dtype = DType::Struct(

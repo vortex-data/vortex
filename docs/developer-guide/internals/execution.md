@@ -132,10 +132,8 @@ pub trait ExecuteParentKernel<V: VTable> {
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
-pub fn initialize(session: &VortexSession) {
-    session
-        .kernels()
-        .register_execute_parent_kernel(parent_id, Child, Kernel);
+pub fn initialize(session: &mut VortexSessionBuilder) {
+    builder_kernels(session).register_execute_parent_kernel(parent_id, Child, Kernel);
 }
 ```
 

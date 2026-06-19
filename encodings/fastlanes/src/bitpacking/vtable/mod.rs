@@ -57,7 +57,7 @@ mod validity;
 /// A [`BitPacked`]-encoded Vortex array.
 pub type BitPackedArray = Array<BitPacked>;
 
-pub(crate) fn initialize(session: &VortexSession) {
+pub(crate) fn initialize(session: &mut vortex_session::VortexSessionBuilder) {
     kernels::initialize(session);
 }
 

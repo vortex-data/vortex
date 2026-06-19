@@ -138,8 +138,8 @@ mod tests {
     #[expect(deprecated)]
     use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::assert_arrays_eq;
+    use crate::default_session_builder;
     use crate::validity::Validity;
 
     /// Regression: patch_chunk must not OOB when chunk_offsets (chunk granularity)
@@ -175,7 +175,7 @@ mod tests {
 
     #[test]
     fn patch_sliced() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let input = PrimitiveArray::new(buffer![2u32; 10], Validity::AllValid);
         let sliced = input.slice(2..8).unwrap();
         #[expect(deprecated)]

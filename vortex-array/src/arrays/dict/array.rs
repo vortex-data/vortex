@@ -302,12 +302,12 @@ mod test {
     #[expect(deprecated)]
     use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builders::builder_with_capacity;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::NativePType;
     use crate::dtype::Nullability::NonNullable;
@@ -332,7 +332,7 @@ mod test {
             .unwrap()
             .execute_mask(
                 dict.as_ref().len(),
-                &mut array_session().create_execution_ctx(),
+                &mut default_session_builder().build().create_execution_ctx(),
             )
             .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
@@ -358,7 +358,7 @@ mod test {
             .unwrap()
             .execute_mask(
                 dict.as_ref().len(),
-                &mut array_session().create_execution_ctx(),
+                &mut default_session_builder().build().create_execution_ctx(),
             )
             .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
@@ -388,7 +388,7 @@ mod test {
             .unwrap()
             .execute_mask(
                 dict.as_ref().len(),
-                &mut array_session().create_execution_ctx(),
+                &mut default_session_builder().build().create_execution_ctx(),
             )
             .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
@@ -414,7 +414,7 @@ mod test {
             .unwrap()
             .execute_mask(
                 dict.as_ref().len(),
-                &mut array_session().create_execution_ctx(),
+                &mut default_session_builder().build().create_execution_ctx(),
             )
             .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
@@ -454,7 +454,7 @@ mod test {
 
     #[test]
     fn test_dict_array_from_primitive_chunks() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let len = 2;
         let chunk_count = 2;
         let array = make_dict_primitive_chunks::<u64, u64>(len, 2, chunk_count);
@@ -465,7 +465,7 @@ mod test {
         );
         array.append_to_builder(
             builder.as_mut(),
-            &mut array_session().create_execution_ctx(),
+            &mut default_session_builder().build().create_execution_ctx(),
         )?;
 
         #[expect(deprecated)]

@@ -108,9 +108,9 @@ mod tests {
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::expr::col;
@@ -129,7 +129,7 @@ mod tests {
     use crate::stats::null_count;
 
     static STATS_SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<StatsSession>());
+        LazyLock::new(|| VortexSession::builder().with::<StatsSession>().build());
 
     #[test]
     fn dtype() {
@@ -162,7 +162,10 @@ mod tests {
         for (i, expected_value) in expected.iter().enumerate() {
             assert_eq!(
                 result
-                    .execute_scalar(i, &mut array_session().create_execution_ctx())
+                    .execute_scalar(
+                        i,
+                        &mut default_session_builder().build().create_execution_ctx()
+                    )
                     .unwrap(),
                 Scalar::bool(*expected_value, Nullability::NonNullable)
             );
@@ -179,7 +182,10 @@ mod tests {
         for i in 0..result.len() {
             assert_eq!(
                 result
-                    .execute_scalar(i, &mut array_session().create_execution_ctx())
+                    .execute_scalar(
+                        i,
+                        &mut default_session_builder().build().create_execution_ctx()
+                    )
                     .unwrap(),
                 Scalar::bool(true, Nullability::NonNullable)
             );
@@ -198,7 +204,10 @@ mod tests {
         for i in 0..result.len() {
             assert_eq!(
                 result
-                    .execute_scalar(i, &mut array_session().create_execution_ctx())
+                    .execute_scalar(
+                        i,
+                        &mut default_session_builder().build().create_execution_ctx()
+                    )
                     .unwrap(),
                 Scalar::bool(false, Nullability::NonNullable)
             );
@@ -227,7 +236,10 @@ mod tests {
         for (i, expected_value) in expected.iter().enumerate() {
             assert_eq!(
                 result
-                    .execute_scalar(i, &mut array_session().create_execution_ctx())
+                    .execute_scalar(
+                        i,
+                        &mut default_session_builder().build().create_execution_ctx()
+                    )
                     .unwrap(),
                 Scalar::bool(*expected_value, Nullability::NonNullable)
             );
